@@ -1,0 +1,34 @@
+# Java
+build/
+.gradle/
+*.class
+bin/
+out/
+*.jar
+*.war
+
+# TypeScript / Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Rust
+target/
+
+# IDE
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+*.exec
+jacoco*.html

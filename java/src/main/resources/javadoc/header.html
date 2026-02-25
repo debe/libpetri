@@ -1,0 +1,9 @@
+<script>
+(function() {
+  var link = document.querySelector('link[href*="stylesheet.css"]');
+  var base = link ? link.href.replace('stylesheet.css', '') : 'resource-files/';
+  document.write('<link rel="stylesheet" href="' + base + 'petrinet-diagrams.css">');
+  document.write('<script src="' + base + 'mermaid.min.js"><\/script>');
+  document.write('<script src="' + base + 'petrinet-diagrams.js"><\/script>');
+})();
+</script>

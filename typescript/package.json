@@ -1,0 +1,36 @@
+{
+  "name": "libpetri",
+  "version": "0.1.0",
+  "description": "Timed Coloured Petri Net engine — TypeScript port",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./export": {
+      "import": "./dist/export/index.js",
+      "types": "./dist/export/index.d.ts"
+    },
+    "./verification": {
+      "node": {
+        "import": "./dist/verification/index.js",
+        "types": "./dist/verification/index.d.ts"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "tsup": "^8.4.0",
+    "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "z3-solver": "^4.13.4"
+  }
+}
