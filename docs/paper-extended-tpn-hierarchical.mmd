@@ -1,0 +1,143 @@
+flowchart TB
+    %% ============================================
+    %% HIERARCHICAL PETRI NET WITH PORT SEMANTICS
+    %% ============================================
+    %% Port types:
+    %%   (IN)   - receives tokens from outside
+    %%   (OUT)  - sends tokens outside
+    %%   (READ) - readable from outside (non-consuming)
+    %% ============================================
+
+    %% === MAIN FLOW PLACES (outside subgraphs) ===
+    Pending(["⬤ Pending"])
+    Ready(["Ready"])
+    Understood(["Understood"])
+    Urgent(["⬤ Urgent"])
+    Drafted(["Drafted"])
+    Answered(["⬤ Answered"])
+    ComposeFail(["ComposeFail"])
+
+    %% === CORE TRANSITIONS (orchestration layer) ===
+    t_ask["ask [0, 100]ms"]
+    t_Intent["Intent [0, 2000]ms"]
+    t_Compose["Compose [0, 6000]ms"]
+    t_Timeout["Timeout [9000, 9000]ms"]
+    t_Retry["Retry [0, 1000]ms"]
+
+    %% ============================================
+    %% SUBGRAPH: INPUT GUARD
+    %% ============================================
+    subgraph InputGuard["🔒 InputGuard"]
+        direction TB
+        ig_in_ready{{"◇ ready:READ"}}
+        t_Guard["Guard [0, 500]ms"]
+        ig_out_validated(["validated:OUT"])
+
+        ig_in_ready -.->|read| t_Guard
+        t_Guard --> ig_out_validated
+    end
+
+    %% ============================================
+    %% SUBGRAPH: OUTPUT GUARD
+    %% ============================================
+    subgraph OutputGuard["🛡️ OutputGuard"]
+        direction TB
+        og_in_drafted{{"◇ drafted:IN"}}
+        t_Filter["Filter [0, 500]ms"]
+        og_out_answered(["answered:OUT"])
+
+        og_in_drafted --> t_Filter
+        t_Filter --> og_out_answered
+    end
+
+    %% ============================================
+    %% SUBGRAPH: SEARCH
+    %% ============================================
+    subgraph Search["🔍 Search"]
+        direction TB
+        s_in_understood{{"◇ understood:IN"}}
+        s_in_urgent{{"◇ urgent:INHIBIT"}}
+        t_Search["Search [0, 3500]ms"]
+        t_Fallback["Fallback [0, 100]ms"]
+        SearchFail_int(["SearchFail"])
+        s_out_found(["found:OUT"])
+
+        s_in_understood --> t_Search
+        t_Search --> s_out_found
+        t_Search --> SearchFail_int
+        SearchFail_int --> t_Fallback
+        s_in_urgent --o t_Fallback
+        t_Fallback --> s_out_found
+    end
+
+    %% ============================================
+    %% SUBGRAPH: BARGAIN (Topic Classification)
+    %% ============================================
+    subgraph Bargain["💰 Bargain"]
+        direction TB
+        b_in_understood{{"◇ understood:IN"}}
+        t_Topic["Topic [0, 4500]ms"]
+        b_out_informed(["informed:OUT"])
+        b_out_promoted(["promoted:OUT"])
+
+        b_in_understood --> t_Topic
+        t_Topic --> b_out_informed
+        t_Topic --> b_out_promoted
+    end
+
+    %% ============================================
+    %% MAIN FLOW CONNECTIONS
+    %% ============================================
+
+    %% Initial ask
+    Pending --> t_ask
+    t_ask --> Ready
+
+    %% Timeout (reads Pending)
+    Pending -.->|read| t_Timeout
+    t_Timeout --> Urgent
+
+    %% Intent recognition (reads Ready)
+    Ready -.->|read| t_Intent
+    t_Intent --> Understood
+
+    %% === SUBGRAPH PORT BINDINGS ===
+
+    %% InputGuard ports
+    Ready -.-> ig_in_ready
+    ig_out_validated --> t_Compose
+
+    %% Search ports
+    Understood --> s_in_understood
+    Urgent -.-> s_in_urgent
+    s_out_found --> t_Compose
+
+    %% Bargain ports
+    Understood --> b_in_understood
+    b_out_informed --> t_Compose
+    b_out_promoted --> t_Compose
+
+    %% OutputGuard ports
+    Drafted --> og_in_drafted
+    og_out_answered --> Answered
+
+    %% === COMPOSE & RETRY ===
+    t_Compose --> Drafted
+    t_Compose --> ComposeFail
+    ComposeFail --> t_Retry
+    Urgent --o t_Retry
+    t_Retry --> Drafted
+
+    %% ============================================
+    %% STYLES
+    %% ============================================
+    classDef startPlace fill:#d4edda,stroke:#28a745,stroke-width:2px
+    classDef endPlace fill:#cce5ff,stroke:#004085,stroke-width:2px
+    classDef transition fill:#fff3cd,stroke:#856404,stroke-width:1px
+    classDef port fill:#f8f9fa,stroke:#6c757d,stroke-width:1px,stroke-dasharray: 3 3
+    classDef subgraphStyle fill:#f5f5f5,stroke:#333,stroke-width:2px
+
+    class Pending startPlace
+    class Urgent,Answered endPlace
+    class t_Topic,t_Timeout,t_Fallback,t_Retry,t_Filter,t_Search,t_Intent,t_Compose,t_ask,t_Guard transition
+    class ig_in_ready,og_in_drafted,s_in_understood,s_in_urgent,b_in_understood port

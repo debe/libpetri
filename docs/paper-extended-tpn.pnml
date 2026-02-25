@@ -1,0 +1,219 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<pnml xmlns="http://www.pnml.org/version-2009/grammar/pnml">
+  <net id="ExtendedTPN-Paper" type="http://www.pnml.org/version-2009/grammar/htpn">
+    <place id="Understood">
+      <name>
+        <text>Understood</text>
+      </name>
+      <type>
+        <text>String</text>
+      </type>
+    </place>
+    <place id="Informed">
+      <name>
+        <text>Informed</text>
+      </name>
+      <type>
+        <text>String</text>
+      </type>
+    </place>
+    <place id="Promoted">
+      <name>
+        <text>Promoted</text>
+      </name>
+      <type>
+        <text>String</text>
+      </type>
+    </place>
+    <place id="Urgent">
+      <name>
+        <text>Urgent</text>
+      </name>
+      <type>
+        <text>String</text>
+      </type>
+    </place>
+    <place id="SearchFail">
+      <name>
+        <text>SearchFail</text>
+      </name>
+      <type>
+        <text>String</text>
+      </type>
+    </place>
+    <place id="Found">
+      <name>
+        <text>Found</text>
+      </name>
+      <type>
+        <text>String</text>
+      </type>
+    </place>
+    <place id="ComposeFail">
+      <name>
+        <text>ComposeFail</text>
+      </name>
+      <type>
+        <text>String</text>
+      </type>
+    </place>
+    <place id="Drafted">
+      <name>
+        <text>Drafted</text>
+      </name>
+      <type>
+        <text>String</text>
+      </type>
+    </place>
+    <place id="Answered">
+      <name>
+        <text>Answered</text>
+      </name>
+      <type>
+        <text>String</text>
+      </type>
+    </place>
+    <place id="Validated">
+      <name>
+        <text>Validated</text>
+      </name>
+      <type>
+        <text>String</text>
+      </type>
+    </place>
+    <place id="Pending">
+      <name>
+        <text>Pending</text>
+      </name>
+      <type>
+        <text>String</text>
+      </type>
+    </place>
+    <place id="Ready">
+      <name>
+        <text>Ready</text>
+      </name>
+      <type>
+        <text>String</text>
+      </type>
+    </place>
+    <transition id="Topic">
+      <name>
+        <text>Topic</text>
+      </name>
+      <interval>
+        <min>0</min>
+        <max>4500</max>
+      </interval>
+    </transition>
+    <transition id="Timeout">
+      <name>
+        <text>Timeout</text>
+      </name>
+      <interval>
+        <min>9000</min>
+        <max>9000</max>
+      </interval>
+    </transition>
+    <transition id="Fallback">
+      <name>
+        <text>Fallback</text>
+      </name>
+      <interval>
+        <min>0</min>
+        <max>100</max>
+      </interval>
+    </transition>
+    <transition id="Retry">
+      <name>
+        <text>Retry</text>
+      </name>
+      <interval>
+        <min>0</min>
+        <max>1000</max>
+      </interval>
+    </transition>
+    <transition id="Filter">
+      <name>
+        <text>Filter</text>
+      </name>
+      <interval>
+        <min>0</min>
+        <max>500</max>
+      </interval>
+    </transition>
+    <transition id="Search">
+      <name>
+        <text>Search</text>
+      </name>
+      <interval>
+        <min>0</min>
+        <max>3500</max>
+      </interval>
+    </transition>
+    <transition id="Intent">
+      <name>
+        <text>Intent</text>
+      </name>
+      <interval>
+        <min>0</min>
+        <max>2000</max>
+      </interval>
+    </transition>
+    <transition id="Compose">
+      <name>
+        <text>Compose</text>
+      </name>
+      <interval>
+        <min>0</min>
+        <max>6000</max>
+      </interval>
+    </transition>
+    <transition id="ask">
+      <name>
+        <text>ask</text>
+      </name>
+      <interval>
+        <min>0</min>
+        <max>100</max>
+      </interval>
+    </transition>
+    <transition id="Guard">
+      <name>
+        <text>Guard</text>
+      </name>
+      <interval>
+        <min>0</min>
+        <max>500</max>
+      </interval>
+    </transition>
+    <arc id="a0" source="Understood" target="Topic" type="input"/>
+    <arc id="a1" source="Topic" target="Informed" type="output"/>
+    <arc id="a2" source="Topic" target="Promoted" type="output"/>
+    <arc id="a3" source="Timeout" target="Urgent" type="output"/>
+    <arc id="a4" source="Pending" target="Timeout" type="read"/>
+    <arc id="a5" source="SearchFail" target="Fallback" type="input"/>
+    <arc id="a6" source="Fallback" target="Found" type="output"/>
+    <arc id="a7" source="Urgent" target="Fallback" type="inhibitor"/>
+    <arc id="a8" source="ComposeFail" target="Retry" type="input"/>
+    <arc id="a9" source="Retry" target="Drafted" type="output"/>
+    <arc id="a10" source="Urgent" target="Retry" type="inhibitor"/>
+    <arc id="a11" source="Drafted" target="Filter" type="input"/>
+    <arc id="a12" source="Filter" target="Answered" type="output"/>
+    <arc id="a13" source="Understood" target="Search" type="input"/>
+    <arc id="a14" source="Search" target="Found" type="output"/>
+    <arc id="a15" source="Search" target="SearchFail" type="output"/>
+    <arc id="a16" source="Intent" target="Understood" type="output"/>
+    <arc id="a17" source="Ready" target="Intent" type="read"/>
+    <arc id="a18" source="Validated" target="Compose" type="input"/>
+    <arc id="a19" source="Informed" target="Compose" type="input"/>
+    <arc id="a20" source="Promoted" target="Compose" type="input"/>
+    <arc id="a21" source="Found" target="Compose" type="input"/>
+    <arc id="a22" source="Compose" target="Drafted" type="output"/>
+    <arc id="a23" source="Compose" target="ComposeFail" type="output"/>
+    <arc id="a24" source="Pending" target="ask" type="input"/>
+    <arc id="a25" source="ask" target="Ready" type="output"/>
+    <arc id="a26" source="Guard" target="Validated" type="output"/>
+    <arc id="a27" source="Ready" target="Guard" type="read"/>
+  </net>
+</pnml>

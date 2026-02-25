@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Petri Net Debugger</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/panzoom@9.4.3/dist/panzoom.min.js"></script>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+        import elkLayouts from 'https://cdn.jsdelivr.net/npm/@mermaid-js/layout-elk/dist/mermaid-layout-elk.esm.min.mjs';
+
+        // Register ELK layout
+        await mermaid.registerLayoutLoaders(elkLayouts);
+
+        // Expose to global scope for debug.js
+        window.mermaid = mermaid;
+        window.elkRegistered = true;
+    </script>
+    <style>
+        /* Custom scrollbar for dark theme */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1f2937;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #4b5563;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #6b7280;
+        }
+
+        /* Event type colors */
+        .event-ExecutionStarted { border-left-color: #10b981; }
+        .event-ExecutionCompleted { border-left-color: #3b82f6; }
+        .event-TransitionEnabled { border-left-color: #fbbf24; }
+        .event-TransitionStarted { border-left-color: #f97316; }
+        .event-TransitionCompleted { border-left-color: #22c55e; }
+        .event-TransitionFailed { border-left-color: #ef4444; }
+        .event-TransitionTimedOut { border-left-color: #f43f5e; }
+        .event-ActionTimedOut { border-left-color: #ec4899; }
+        .event-TokenAdded { border-left-color: #8b5cf6; }
+        .event-TokenRemoved { border-left-color: #6366f1; }
+        .event-MarkingSnapshot { border-left-color: #06b6d4; }
+        .event-LogMessage { border-left-color: #a855f7; }
+        .event-LogMessage.level-WARN { border-left-color: #f59e0b; }
+        .event-LogMessage.level-ERROR { border-left-color: #ef4444; }
+
+        /* Mermaid diagram adjustments */
+        .mermaid-container {
+            background: white;
+            border-radius: 8px;
+            padding: 16px;
+            height: 100%;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Panzoom cursor and SVG constraints */
+        .mermaid-container svg {
+            max-width: 100%;
+            max-height: 100%;
+            cursor: grab;
+        }
+        .mermaid-container svg:active {
+            cursor: grabbing;
+        }
+
+        /* Place/transition highlighting is done via inline styles in debug.js */
+        /* using stroke and drop-shadow filter for glow effect */
+
+        /* Search highlighting */
+        .search-match {
+            outline: 1px solid #3b82f6;
+            outline-offset: 1px;
+        }
+        .search-current {
+            outline: 2px solid #f59e0b;
+            outline-offset: 1px;
+            background-color: rgba(245, 158, 11, 0.15) !important;
+        }
+
+        /* JSON syntax highlighting */
+        .json-key { color: #93c5fd; }
+        .json-string { color: #86efac; }
+        .json-number { color: #fcd34d; }
+        .json-boolean { color: #c4b5fd; }
+        .json-null { color: #9ca3af; }
+    </style>
+</head>
+<body class="h-screen flex flex-col bg-gray-900 text-white overflow-hidden">
+    <!-- Header -->
+    <header class="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700 shrink-0">
+        <div class="flex items-center gap-4">
+            <h1 class="text-lg font-semibold text-gray-100">Petri Net Debugger</h1>
+            <div id="connection-status" class="flex items-center gap-2 text-sm">
+                <span class="w-2 h-2 rounded-full bg-red-500" id="status-dot"></span>
+                <span id="status-text">Disconnected</span>
+            </div>
+        </div>
+        <div class="flex items-center gap-4">
+            <select id="session-select" class="bg-gray-700 rounded px-3 py-1.5 text-sm border border-gray-600 focus:outline-none focus:border-blue-500">
+                <option value="">Select a session...</option>
+            </select>
+            <button id="refresh-sessions" class="px-3 py-1.5 bg-gray-700 rounded text-sm hover:bg-gray-600 transition-colors">
+                Refresh
+            </button>
+            <button id="reset-zoom" class="px-3 py-1.5 bg-gray-700 rounded text-sm hover:bg-gray-600 transition-colors">
+                Reset Zoom
+            </button>
+        </div>
+    </header>
+
+    <!-- Main content -->
+    <main class="flex-1 flex overflow-hidden min-h-0">
+        <!-- Left panel: Diagram -->
+        <div class="flex-1 p-4 min-h-0 flex flex-col">
+            <div id="diagram-container" class="mermaid-container flex-1 min-h-0">
+                <div id="mermaid-diagram" class="w-full h-full"></div>
+                <div id="no-session" class="flex items-center justify-center h-full text-gray-500 absolute inset-0">
+                    Select a session to view the Petri net diagram
+                </div>
+            </div>
+        </div>
+
+        <!-- Right panel: Inspector -->
+        <aside class="w-96 bg-gray-800 border-l border-gray-700 flex flex-col shrink-0 min-h-0">
+            <!-- Marking Inspector -->
+            <div class="p-4 border-b border-gray-700">
+                <h2 class="font-medium mb-3 text-gray-200">Current Marking</h2>
+                <div id="marking-inspector" class="space-y-2 max-h-48 overflow-y-auto text-sm">
+                    <div class="text-gray-500">No marking data</div>
+                </div>
+            </div>
+
+            <!-- Token Inspector -->
+            <div class="p-4 border-b border-gray-700">
+                <h2 class="font-medium mb-3 text-gray-200">Token Inspector</h2>
+                <div id="token-inspector" class="text-sm text-gray-400 max-h-40 overflow-y-auto">
+                    Click a place to inspect tokens
+                </div>
+            </div>
+
+            <!-- Breakpoints -->
+            <div class="p-4 border-b border-gray-700">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="font-medium text-gray-200">Breakpoints</h2>
+                    <button id="add-breakpoint" class="text-xs bg-blue-600 px-2 py-1 rounded hover:bg-blue-700 transition-colors">+ Add</button>
+                </div>
+                <div id="breakpoint-list" class="space-y-2 text-sm max-h-32 overflow-y-auto">
+                    <div class="text-gray-500">No breakpoints</div>
+                </div>
+                <!-- Add Breakpoint Form (hidden by default) -->
+                <div id="breakpoint-form" class="hidden mt-3 p-2 bg-gray-700 rounded text-xs space-y-2">
+                    <select id="bp-type" class="w-full bg-gray-600 rounded px-2 py-1 border border-gray-500">
+                        <option value="TRANSITION_START">Transition Start</option>
+                        <option value="TRANSITION_COMPLETE">Transition Complete</option>
+                        <option value="TRANSITION_ENABLED">Transition Enabled</option>
+                        <option value="TRANSITION_FAIL">Transition Fail</option>
+                        <option value="TOKEN_ADDED">Token Added</option>
+                        <option value="TOKEN_REMOVED">Token Removed</option>
+                    </select>
+                    <input id="bp-target" type="text" list="transition-options" placeholder="Transition name..."
+                           class="w-full bg-gray-600 rounded px-2 py-1 border border-gray-500 focus:outline-none focus:border-blue-500">
+                    <div class="flex gap-2">
+                        <button id="bp-save" class="flex-1 bg-blue-600 rounded py-1 hover:bg-blue-700">Save</button>
+                        <button id="bp-cancel" class="flex-1 bg-gray-600 rounded py-1 hover:bg-gray-500">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Event Log -->
+            <div class="flex-1 flex flex-col min-h-0">
+                <div class="p-4 pb-2 border-b border-gray-700">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center gap-2">
+                            <h2 class="font-medium text-gray-200">Event Log</h2>
+                            <span class="text-xs text-gray-600">(click to expand)</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span id="event-count" class="text-xs text-gray-500">0 events</span>
+                            <button id="clear-events" class="text-xs text-gray-500 hover:text-gray-300">Clear</button>
+                        </div>
+                    </div>
+                    <!-- Filter Controls -->
+                    <div class="flex flex-wrap items-center gap-2 text-xs">
+                        <select id="filter-event-type" class="bg-gray-700 rounded px-2 py-1 border border-gray-600 focus:outline-none focus:border-blue-500">
+                            <option value="">All Events</option>
+                            <option value="TransitionEnabled">TransitionEnabled</option>
+                            <option value="TransitionStarted">TransitionStarted</option>
+                            <option value="TransitionCompleted">TransitionCompleted</option>
+                            <option value="TransitionFailed">TransitionFailed</option>
+                            <option value="TransitionTimedOut">TransitionTimedOut</option>
+                            <option value="ActionTimedOut">ActionTimedOut</option>
+                            <option value="TokenAdded">TokenAdded</option>
+                            <option value="TokenRemoved">TokenRemoved</option>
+                            <option value="MarkingSnapshot">MarkingSnapshot</option>
+                            <option value="ExecutionStarted">ExecutionStarted</option>
+                            <option value="ExecutionCompleted">ExecutionCompleted</option>
+                            <option value="LogMessage">LogMessage</option>
+                        </select>
+                        <input id="filter-transition" type="text" list="transition-options" placeholder="Transition..."
+                               class="bg-gray-700 rounded px-2 py-1 w-36 border border-gray-600 focus:outline-none focus:border-blue-500">
+                        <input id="filter-place" type="text" list="place-options" placeholder="Place..."
+                               class="bg-gray-700 rounded px-2 py-1 w-36 border border-gray-600 focus:outline-none focus:border-blue-500">
+                        <button id="apply-filter" class="px-2 py-1 bg-blue-600 rounded hover:bg-blue-700 transition-colors">Apply</button>
+                        <button id="clear-filter" class="px-2 py-1 bg-gray-600 rounded hover:bg-gray-500 transition-colors">Clear</button>
+                    </div>
+                    <!-- Search Controls -->
+                    <div class="flex items-center gap-2 text-xs mt-2">
+                        <input id="search-input" type="text" placeholder="Search events..."
+                               class="bg-gray-700 rounded px-2 py-1 flex-1 border border-gray-600 focus:outline-none focus:border-blue-500">
+                        <span id="search-results" class="text-gray-500 w-16 text-center">-</span>
+                        <button id="search-prev" class="px-2 py-1 bg-gray-600 rounded hover:bg-gray-500 transition-colors disabled:opacity-50" disabled>
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/>
+                            </svg>
+                        </button>
+                        <button id="search-next" class="px-2 py-1 bg-gray-600 rounded hover:bg-gray-500 transition-colors disabled:opacity-50" disabled>
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                            </svg>
+                        </button>
+                        <button id="search-clear" class="px-2 py-1 bg-gray-600 rounded hover:bg-gray-500 transition-colors text-xs">Clear</button>
+                    </div>
+                </div>
+                <div id="event-log" class="flex-1 overflow-y-auto p-2 space-y-1 text-xs font-mono">
+                    <!-- Events will be added here -->
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <!-- Timeline controls -->
+    <footer class="px-4 py-3 bg-gray-800 border-t border-gray-700 shrink-0">
+        <div class="flex items-center gap-4">
+            <!-- Debugger controls -->
+            <div class="flex items-center gap-1">
+                <!-- Restart -->
+                <button id="btn-restart" title="Restart (go to event 0)" class="px-2 py-1.5 bg-gray-700 rounded hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 9a9 9 0 1 1 2.636 6.364"/>
+                    </svg>
+                </button>
+                <!-- Step Back -->
+                <button id="btn-step-back" title="Step Back" class="px-2 py-1.5 bg-gray-700 rounded hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 5v14"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 5l-8 7 8 7"/>
+                    </svg>
+                </button>
+                <!-- Continue / Pause -->
+                <button id="btn-pause" title="Continue / Pause" class="px-3 py-1.5 bg-green-700 rounded hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                    <svg id="icon-pause" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6"/>
+                    </svg>
+                    <svg id="icon-play" class="w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+                    </svg>
+                </button>
+                <!-- Step Over (forward one event) -->
+                <button id="btn-step-forward" title="Step Over" class="px-2 py-1.5 bg-gray-700 rounded hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 5v14"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 5l8 7-8 7"/>
+                    </svg>
+                </button>
+                <!-- Run to End -->
+                <button id="btn-run-to-end" title="Run to End" class="px-2 py-1.5 bg-gray-700 rounded hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5l8 7-8 7"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l8 7-8 7"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 5v14"/>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Timeline slider -->
+            <div class="flex-1 flex items-center gap-3">
+                <input type="range" id="timeline-slider" class="flex-1 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" min="0" max="100" value="0" disabled>
+                <span id="timeline-position" class="text-sm text-gray-400 w-24 text-right">0 / 0</span>
+            </div>
+
+            <!-- Speed controls -->
+            <div class="flex items-center gap-1">
+                <button class="speed-btn px-2 py-1 bg-gray-700 rounded text-xs hover:bg-gray-600 transition-colors" data-speed="0.5">0.5x</button>
+                <button class="speed-btn px-2 py-1 bg-blue-600 rounded text-xs" data-speed="1">1x</button>
+                <button class="speed-btn px-2 py-1 bg-gray-700 rounded text-xs hover:bg-gray-600 transition-colors" data-speed="2">2x</button>
+                <button class="speed-btn px-2 py-1 bg-gray-700 rounded text-xs hover:bg-gray-600 transition-colors" data-speed="4">4x</button>
+            </div>
+
+            <!-- Mode toggle -->
+            <div class="flex items-center gap-2 ml-4">
+                <span class="text-sm text-gray-400">Mode:</span>
+                <select id="mode-select" class="bg-gray-700 rounded px-2 py-1 text-sm border border-gray-600">
+                    <option value="live">Live</option>
+                    <option value="replay">Replay</option>
+                </select>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Datalists for autocomplete -->
+    <datalist id="transition-options"></datalist>
+    <datalist id="place-options"></datalist>
+
+    <!-- Context Menu for Diagram -->
+    <div id="diagram-context-menu" class="hidden fixed z-50 bg-gray-800 border border-gray-600 rounded-lg shadow-xl py-1 min-w-48">
+        <div id="ctx-menu-header" class="px-3 py-2 text-sm font-medium text-gray-300 border-b border-gray-700 truncate"></div>
+        <div id="ctx-menu-inspect" class="px-3 py-2 text-sm text-gray-200 hover:bg-gray-700 cursor-pointer">Inspect</div>
+        <div class="border-t border-gray-700 my-1"></div>
+        <div class="px-3 py-1 text-xs text-gray-500 uppercase">Set Breakpoint</div>
+        <!-- Place options (TOKEN_ADDED, TOKEN_REMOVED) -->
+        <div id="ctx-bp-place-options" class="hidden">
+            <div class="ctx-bp-option px-3 py-2 text-sm text-gray-200 hover:bg-gray-700 cursor-pointer" data-bp-type="TOKEN_ADDED">Token Added</div>
+            <div class="ctx-bp-option px-3 py-2 text-sm text-gray-200 hover:bg-gray-700 cursor-pointer" data-bp-type="TOKEN_REMOVED">Token Removed</div>
+        </div>
+        <!-- Transition options (TRANSITION_START, COMPLETE, ENABLED, FAIL) -->
+        <div id="ctx-bp-transition-options" class="hidden">
+            <div class="ctx-bp-option px-3 py-2 text-sm text-gray-200 hover:bg-gray-700 cursor-pointer" data-bp-type="TRANSITION_START">Transition Start</div>
+            <div class="ctx-bp-option px-3 py-2 text-sm text-gray-200 hover:bg-gray-700 cursor-pointer" data-bp-type="TRANSITION_COMPLETE">Transition Complete</div>
+            <div class="ctx-bp-option px-3 py-2 text-sm text-gray-200 hover:bg-gray-700 cursor-pointer" data-bp-type="TRANSITION_ENABLED">Transition Enabled</div>
+            <div class="ctx-bp-option px-3 py-2 text-sm text-gray-200 hover:bg-gray-700 cursor-pointer" data-bp-type="TRANSITION_FAIL">Transition Fail</div>
+        </div>
+    </div>
+
+    <!-- Value Modal for Token Details -->
+    <div id="value-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60">
+        <div class="bg-gray-800 rounded-lg shadow-2xl max-w-3xl w-full mx-4 max-h-[80vh] flex flex-col">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-gray-700">
+                <div>
+                    <h3 id="modal-title" class="font-medium text-gray-200">Token Value</h3>
+                    <span id="modal-subtitle" class="text-xs text-gray-500"></span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button id="modal-copy" class="px-3 py-1.5 bg-blue-600 rounded text-sm hover:bg-blue-700 transition-colors">Copy</button>
+                    <button id="modal-close" class="px-2 py-1.5 bg-gray-700 rounded text-sm hover:bg-gray-600 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="flex-1 overflow-auto p-4">
+                <pre id="modal-json" class="text-sm font-mono text-gray-300 whitespace-pre-wrap"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script src="/debug/petri/ui/debug.js"></script>
+</body>
+</html>
