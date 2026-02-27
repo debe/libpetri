@@ -6,7 +6,6 @@ import org.libpetri.debug.DebugEventStore;
 import org.libpetri.debug.LogCaptureScopeForwardingExecutor;
 import org.libpetri.event.EventStore;
 import org.libpetri.runtime.BitmapNetExecutor;
-import org.libpetri.runtime.NetExecutor;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -23,7 +22,7 @@ import org.openjdk.jmh.runner.RunnerException;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 
 /**
- * JMH benchmarks for HTPN execution performance scaling and debug infrastructure regression detection.
+ * JMH benchmarks for BitmapNetExecutor performance scaling and debug infrastructure regression detection.
  *
  * <p>Tests workflows of different sizes to determine O-notation scaling,
  * plus complex workflow benchmarks that isolate EventStore and LogCaptureScope overhead.
@@ -34,7 +33,7 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
 @Warmup(iterations = 3, time = 1)
 @Measurement(iterations = 5, time = 1)
 @Fork(value = 1, jvmArgs = { "--enable-preview" })
-public class NetExecutorBenchmark {
+public class BitmapNetExecutorBenchmark {
 
     record BenchToken(String value) {}
 
@@ -839,289 +838,154 @@ public class NetExecutorBenchmark {
         logCaptureExecutor.shutdown();
     }
 
-    // ==================== LINEAR CHAIN BENCHMARKS ====================
-
-    @Benchmark
-    public void linear_05t_06p(Blackhole bh) {
-        runNet(linearNet5, start5, bh);
-    }
-
-    @Benchmark
-    public void linear_10t_11p(Blackhole bh) {
-        runNet(linearNet10, start10, bh);
-    }
-
-    @Benchmark
-    public void linear_20t_21p(Blackhole bh) {
-        runNet(linearNet20, start20, bh);
-    }
-
-    @Benchmark
-    public void linear_50t_51p(Blackhole bh) {
-        runNet(linearNet50, start50, bh);
-    }
-
-    @Benchmark
-    public void linear_100t(Blackhole bh) {
-        runNet(linearNet100, start100, bh);
-    }
-
-    @Benchmark
-    public void linear_200t(Blackhole bh) {
-        runNet(linearNet200, start200, bh);
-    }
-
-    @Benchmark
-    public void linear_500t(Blackhole bh) {
-        runNet(linearNet500, start500, bh);
-    }
-
     // ==================== SYNC LINEAR CHAIN BENCHMARKS ====================
 
     @Benchmark
     public void sync_linear_10t(Blackhole bh) {
-        runNet(syncLinearNet10, syncStart10, bh);
+        runBitmapNet(syncLinearNet10, syncStart10, bh);
     }
 
     @Benchmark
     public void sync_linear_20t(Blackhole bh) {
-        runNet(syncLinearNet20, syncStart20, bh);
+        runBitmapNet(syncLinearNet20, syncStart20, bh);
     }
 
     @Benchmark
     public void sync_linear_50t(Blackhole bh) {
-        runNet(syncLinearNet50, syncStart50, bh);
+        runBitmapNet(syncLinearNet50, syncStart50, bh);
     }
 
     @Benchmark
     public void sync_linear_100t(Blackhole bh) {
-        runNet(syncLinearNet100, syncStart100, bh);
+        runBitmapNet(syncLinearNet100, syncStart100, bh);
     }
 
     @Benchmark
     public void sync_linear_200t(Blackhole bh) {
-        runNet(syncLinearNet200, syncStart200, bh);
+        runBitmapNet(syncLinearNet200, syncStart200, bh);
     }
 
     @Benchmark
     public void sync_linear_500t(Blackhole bh) {
-        runNet(syncLinearNet500, syncStart500, bh);
+        runBitmapNet(syncLinearNet500, syncStart500, bh);
     }
 
     // ==================== MIXED LINEAR CHAIN BENCHMARKS ====================
 
     @Benchmark
     public void mixed_linear_10t_2async(Blackhole bh) {
-        runNet(mixedLinearNet10, mixedStart10, bh);
+        runBitmapNet(mixedLinearNet10, mixedStart10, bh);
     }
 
     @Benchmark
     public void mixed_linear_20t_2async(Blackhole bh) {
-        runNet(mixedLinearNet20, mixedStart20, bh);
+        runBitmapNet(mixedLinearNet20, mixedStart20, bh);
     }
 
     @Benchmark
     public void mixed_linear_50t_2async(Blackhole bh) {
-        runNet(mixedLinearNet50, mixedStart50, bh);
+        runBitmapNet(mixedLinearNet50, mixedStart50, bh);
     }
 
     @Benchmark
     public void mixed_linear_100t_2async(Blackhole bh) {
-        runNet(mixedLinearNet100, mixedStart100, bh);
+        runBitmapNet(mixedLinearNet100, mixedStart100, bh);
     }
 
     @Benchmark
     public void mixed_linear_200t_2async(Blackhole bh) {
-        runNet(mixedLinearNet200, mixedStart200, bh);
+        runBitmapNet(mixedLinearNet200, mixedStart200, bh);
     }
 
     @Benchmark
     public void mixed_linear_500t_2async(Blackhole bh) {
-        runNet(mixedLinearNet500, mixedStart500, bh);
+        runBitmapNet(mixedLinearNet500, mixedStart500, bh);
+    }
+
+    // ==================== ASYNC LINEAR CHAIN BENCHMARKS ====================
+
+    @Benchmark
+    public void linear_05t(Blackhole bh) {
+        runBitmapNet(linearNet5, start5, bh);
+    }
+
+    @Benchmark
+    public void linear_10t(Blackhole bh) {
+        runBitmapNet(linearNet10, start10, bh);
+    }
+
+    @Benchmark
+    public void linear_20t(Blackhole bh) {
+        runBitmapNet(linearNet20, start20, bh);
+    }
+
+    @Benchmark
+    public void linear_50t(Blackhole bh) {
+        runBitmapNet(linearNet50, start50, bh);
+    }
+
+    @Benchmark
+    public void linear_100t(Blackhole bh) {
+        runBitmapNet(linearNet100, start100, bh);
+    }
+
+    @Benchmark
+    public void linear_200t(Blackhole bh) {
+        runBitmapNet(linearNet200, start200, bh);
+    }
+
+    @Benchmark
+    public void linear_500t(Blackhole bh) {
+        runBitmapNet(linearNet500, start500, bh);
     }
 
     // ==================== PARALLEL FAN-OUT BENCHMARKS ====================
 
     @Benchmark
     public void parallel_05_branches(Blackhole bh) {
-        runNet(parallelNet5, pstart5, bh);
+        runBitmapNet(parallelNet5, pstart5, bh);
     }
 
     @Benchmark
     public void parallel_10_branches(Blackhole bh) {
-        runNet(parallelNet10, pstart10, bh);
+        runBitmapNet(parallelNet10, pstart10, bh);
     }
 
     @Benchmark
     public void parallel_20_branches(Blackhole bh) {
-        runNet(parallelNet20, pstart20, bh);
+        runBitmapNet(parallelNet20, pstart20, bh);
     }
 
     // ==================== LARGE WORKFLOW ====================
 
     @Benchmark
     public void large_16t_17p(Blackhole bh) {
-        runNet(largeNet, largeStart, bh);
+        runBitmapNet(largeNet, largeStart, bh);
     }
 
     // ==================== COMPLEX WORKFLOW BENCHMARKS ====================
 
     @Benchmark
     public void complex_baseline(Blackhole bh) {
-        runComplexNet(EventStore.noop(), virtualExecutor, bh);
+        runComplexBitmapNet(EventStore.noop(), virtualExecutor, bh);
     }
 
     @Benchmark
     public void complex_eventStore(EventStoreState storeState, Blackhole bh) {
-        runComplexNet(storeState.store, virtualExecutor, bh);
+        runComplexBitmapNet(storeState.store, virtualExecutor, bh);
     }
 
     @Benchmark
     public void complex_logCapture(Blackhole bh) {
         var debugStore = new DebugEventStore("lc-" + System.nanoTime());
         try {
-            runComplexNet(debugStore, logCaptureExecutor, bh);
+            runComplexBitmapNet(debugStore, logCaptureExecutor, bh);
         } finally {
             debugStore.close();
         }
     }
 
-    // ==================== BITMAP SYNC LINEAR CHAIN BENCHMARKS ====================
-
-    @Benchmark
-    public void bitmap_sync_linear_10t(Blackhole bh) {
-        runBitmapNet(syncLinearNet10, syncStart10, bh);
-    }
-
-    @Benchmark
-    public void bitmap_sync_linear_20t(Blackhole bh) {
-        runBitmapNet(syncLinearNet20, syncStart20, bh);
-    }
-
-    @Benchmark
-    public void bitmap_sync_linear_50t(Blackhole bh) {
-        runBitmapNet(syncLinearNet50, syncStart50, bh);
-    }
-
-    @Benchmark
-    public void bitmap_sync_linear_100t(Blackhole bh) {
-        runBitmapNet(syncLinearNet100, syncStart100, bh);
-    }
-
-    @Benchmark
-    public void bitmap_sync_linear_200t(Blackhole bh) {
-        runBitmapNet(syncLinearNet200, syncStart200, bh);
-    }
-
-    @Benchmark
-    public void bitmap_sync_linear_500t(Blackhole bh) {
-        runBitmapNet(syncLinearNet500, syncStart500, bh);
-    }
-
-    // ==================== BITMAP MIXED LINEAR CHAIN BENCHMARKS ====================
-
-    @Benchmark
-    public void bitmap_mixed_linear_10t_2async(Blackhole bh) {
-        runBitmapNet(mixedLinearNet10, mixedStart10, bh);
-    }
-
-    @Benchmark
-    public void bitmap_mixed_linear_20t_2async(Blackhole bh) {
-        runBitmapNet(mixedLinearNet20, mixedStart20, bh);
-    }
-
-    @Benchmark
-    public void bitmap_mixed_linear_50t_2async(Blackhole bh) {
-        runBitmapNet(mixedLinearNet50, mixedStart50, bh);
-    }
-
-    @Benchmark
-    public void bitmap_mixed_linear_100t_2async(Blackhole bh) {
-        runBitmapNet(mixedLinearNet100, mixedStart100, bh);
-    }
-
-    @Benchmark
-    public void bitmap_mixed_linear_200t_2async(Blackhole bh) {
-        runBitmapNet(mixedLinearNet200, mixedStart200, bh);
-    }
-
-    @Benchmark
-    public void bitmap_mixed_linear_500t_2async(Blackhole bh) {
-        runBitmapNet(mixedLinearNet500, mixedStart500, bh);
-    }
-
-    // ==================== BITMAP ASYNC LINEAR CHAIN BENCHMARKS ====================
-
-    @Benchmark
-    public void bitmap_linear_05t(Blackhole bh) {
-        runBitmapNet(linearNet5, start5, bh);
-    }
-
-    @Benchmark
-    public void bitmap_linear_10t(Blackhole bh) {
-        runBitmapNet(linearNet10, start10, bh);
-    }
-
-    @Benchmark
-    public void bitmap_linear_20t(Blackhole bh) {
-        runBitmapNet(linearNet20, start20, bh);
-    }
-
-    @Benchmark
-    public void bitmap_linear_50t(Blackhole bh) {
-        runBitmapNet(linearNet50, start50, bh);
-    }
-
-    @Benchmark
-    public void bitmap_linear_100t(Blackhole bh) {
-        runBitmapNet(linearNet100, start100, bh);
-    }
-
-    @Benchmark
-    public void bitmap_linear_200t(Blackhole bh) {
-        runBitmapNet(linearNet200, start200, bh);
-    }
-
-    @Benchmark
-    public void bitmap_linear_500t(Blackhole bh) {
-        runBitmapNet(linearNet500, start500, bh);
-    }
-
     // ==================== HELPERS ====================
-
-    private void runNet(PetriNet net, Place<BenchToken> start, Blackhole bh) {
-        var input = Map.<Place<?>, List<Token<?>>>of(
-            start,
-            List.of(Token.of(new BenchToken("start")))
-        );
-        try (
-            var exec = NetExecutor.create(
-                net,
-                input,
-                EventStore.noop(),
-                virtualExecutor
-            )
-        ) {
-            bh.consume(exec.run());
-        }
-    }
-
-    private void runComplexNet(EventStore store, ExecutorService exec, Blackhole bh) {
-        var input = Map.<Place<?>, List<Token<?>>>of(
-            complexWorkflow.start,
-            List.of(Token.of(new BenchToken("start")))
-        );
-        try (
-            var executor = NetExecutor.create(
-                complexWorkflow.net,
-                input,
-                store,
-                exec
-            )
-        ) {
-            bh.consume(executor.run());
-        }
-    }
 
     private void runBitmapNet(PetriNet net, Place<BenchToken> start, Blackhole bh) {
         var input = Map.<Place<?>, List<Token<?>>>of(
@@ -1140,11 +1004,28 @@ public class NetExecutorBenchmark {
         }
     }
 
+    private void runComplexBitmapNet(EventStore store, ExecutorService exec, Blackhole bh) {
+        var input = Map.<Place<?>, List<Token<?>>>of(
+            complexWorkflow.start,
+            List.of(Token.of(new BenchToken("start")))
+        );
+        try (
+            var executor = BitmapNetExecutor.create(
+                complexWorkflow.net,
+                input,
+                store,
+                exec
+            )
+        ) {
+            bh.consume(executor.run());
+        }
+    }
+
     // ==================== MAIN ====================
 
     public static void main(String[] args) throws RunnerException {
         var opt = new OptionsBuilder()
-            .include(NetExecutorBenchmark.class.getSimpleName())
+            .include(BitmapNetExecutorBenchmark.class.getSimpleName())
             .addProfiler("gc")
             .result("benchmark-results.json")
             .resultFormat(ResultFormatType.JSON)
@@ -1156,9 +1037,6 @@ public class NetExecutorBenchmark {
     private static final Pattern SYNC_PATTERN = Pattern.compile("^sync_linear_(\\d+)t$");
     private static final Pattern MIXED_PATTERN = Pattern.compile("^mixed_linear_(\\d+)t_2async$");
     private static final Pattern ASYNC_PATTERN = Pattern.compile("^linear_(\\d+)t(?:_\\d+p)?$");
-    private static final Pattern BM_SYNC_PATTERN = Pattern.compile("^bitmap_sync_linear_(\\d+)t$");
-    private static final Pattern BM_MIXED_PATTERN = Pattern.compile("^bitmap_mixed_linear_(\\d+)t_2async$");
-    private static final Pattern BM_ASYNC_PATTERN = Pattern.compile("^bitmap_linear_(\\d+)t$");
 
     private static void printScalingSummary(Collection<RunResult> results) {
         // mode -> transitionCount -> score (us)
@@ -1172,24 +1050,11 @@ public class NetExecutorBenchmark {
             var methodName = benchName.substring(benchName.lastIndexOf('.') + 1);
             double score = r.getPrimaryResult().getScore();
 
-            // Order matters: bitmap patterns must be checked before non-bitmap
-            var bmSyncM = BM_SYNC_PATTERN.matcher(methodName);
-            var bmMixedM = BM_MIXED_PATTERN.matcher(methodName);
-            var bmAsyncM = BM_ASYNC_PATTERN.matcher(methodName);
             var syncM = SYNC_PATTERN.matcher(methodName);
             var mixedM = MIXED_PATTERN.matcher(methodName);
             var asyncM = ASYNC_PATTERN.matcher(methodName);
 
-            if (bmSyncM.find()) {
-                data.computeIfAbsent("bm_sync", _ -> new TreeMap<>())
-                    .put(Integer.parseInt(bmSyncM.group(1)), score);
-            } else if (bmMixedM.find()) {
-                data.computeIfAbsent("bm_mixed", _ -> new TreeMap<>())
-                    .put(Integer.parseInt(bmMixedM.group(1)), score);
-            } else if (bmAsyncM.find()) {
-                data.computeIfAbsent("bm_async", _ -> new TreeMap<>())
-                    .put(Integer.parseInt(bmAsyncM.group(1)), score);
-            } else if (syncM.find()) {
+            if (syncM.find()) {
                 data.computeIfAbsent("sync", _ -> new TreeMap<>())
                     .put(Integer.parseInt(syncM.group(1)), score);
             } else if (mixedM.find()) {
@@ -1209,33 +1074,24 @@ public class NetExecutorBenchmark {
 
         System.out.println();
         System.out.println("=== LINEAR SCALING SUMMARY (avgt, us/op) ===");
-        System.out.printf("%-12s │ %10s │ %5s │ %10s │ %5s │ %11s │ %5s │ %11s │ %5s │ %11s │ %5s │ %11s │ %5s%n",
-            "Transitions", "sync (us)", "us/t", "bm_sync", "us/t",
-            "mixed (us)", "us/t", "bm_mixed", "us/t",
-            "async (us)", "us/t", "bm_async", "us/t");
+        System.out.printf("%-12s │ %10s │ %5s │ %11s │ %5s │ %11s │ %5s%n",
+            "Transitions", "sync (us)", "us/t",
+            "mixed (us)", "us/t",
+            "async (us)", "us/t");
         System.out.println("─".repeat(12) + "─┼─" + "─".repeat(10) + "─┼─" + "─".repeat(5)
-            + "─┼─" + "─".repeat(10) + "─┼─" + "─".repeat(5)
-            + "─┼─" + "─".repeat(11) + "─┼─" + "─".repeat(5)
-            + "─┼─" + "─".repeat(11) + "─┼─" + "─".repeat(5)
             + "─┼─" + "─".repeat(11) + "─┼─" + "─".repeat(5)
             + "─┼─" + "─".repeat(11) + "─┼─" + "─".repeat(5));
 
         for (int size : allSizes) {
             var syncScore = data.getOrDefault("sync", new TreeMap<>()).get(size);
-            var bmSyncScore = data.getOrDefault("bm_sync", new TreeMap<>()).get(size);
             var mixedScore = data.getOrDefault("mixed", new TreeMap<>()).get(size);
-            var bmMixedScore = data.getOrDefault("bm_mixed", new TreeMap<>()).get(size);
             var asyncScore = data.getOrDefault("async", new TreeMap<>()).get(size);
-            var bmAsyncScore = data.getOrDefault("bm_async", new TreeMap<>()).get(size);
 
-            System.out.printf("%-12d │ %10s │ %5s │ %10s │ %5s │ %11s │ %5s │ %11s │ %5s │ %11s │ %5s │ %11s │ %5s%n",
+            System.out.printf("%-12d │ %10s │ %5s │ %11s │ %5s │ %11s │ %5s%n",
                 size,
                 fmtScore(syncScore), fmtPerT(syncScore, size),
-                fmtScore(bmSyncScore), fmtPerT(bmSyncScore, size),
                 fmtScore(mixedScore), fmtPerT(mixedScore, size),
-                fmtScore(bmMixedScore), fmtPerT(bmMixedScore, size),
-                fmtScore(asyncScore), fmtPerT(asyncScore, size),
-                fmtScore(bmAsyncScore), fmtPerT(bmAsyncScore, size));
+                fmtScore(asyncScore), fmtPerT(asyncScore, size));
         }
         System.out.println();
     }

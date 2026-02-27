@@ -287,7 +287,7 @@
                                 <argument>--enable-preview</argument>
                                 <argument>-classpath</argument>
                                 <classpath/>
-                                <argument>org.libpetri.benchmark.NetExecutorBenchmark</argument>
+                                <argument>org.libpetri.benchmark.BitmapNetExecutorBenchmark</argument>
                             </arguments>
                         </configuration>
                     </plugin>
