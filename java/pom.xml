@@ -40,7 +40,6 @@
         <!-- Dependency versions -->
         <guava.version>33.5.0-jre</guava.version>
         <jackson.version>2.21.1</jackson.version>
-        <sirio.version>2.0.5</sirio.version>
         <javasmt-z3.version>4.14.0</javasmt-z3.version>
         <junit.version>6.0.3</junit.version>
         <jmh.version>1.37</jmh.version>
@@ -104,13 +103,6 @@
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>
             <artifactId>jackson-datatype-jsr310</artifactId>
-        </dependency>
-
-        <!-- Sirio - formal Petri net analysis (for export to Sirio format) -->
-        <dependency>
-            <groupId>org.oris-tool</groupId>
-            <artifactId>sirio</artifactId>
-            <version>${sirio.version}</version>
         </dependency>
 
         <!-- Z3 SMT solver via JavaSMT -->
@@ -274,6 +266,7 @@
                         <version>${exec-maven-plugin.version}</version>
                         <configuration>
                             <executable>java</executable>
+                            <classpathScope>test</classpathScope>
                             <arguments>
                                 <argument>--enable-preview</argument>
                                 <argument>-classpath</argument>

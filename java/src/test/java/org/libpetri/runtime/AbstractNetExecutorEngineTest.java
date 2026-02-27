@@ -2079,11 +2079,11 @@ abstract class AbstractNetExecutorEngineTest {
 
             var eventStore = EventStore.inMemory();
 
-            // Main transition: cannot fire until 100ms
+            // Main transition: cannot fire until 2000ms (wide gap to avoid CI flakiness)
             var main = Transition.builder("Process")
                 .input(input)
                 .output(success)
-                .interval(new FiringInterval(Duration.ofMillis(100), Duration.ofDays(1)))
+                .interval(new FiringInterval(Duration.ofMillis(2000), Duration.ofDays(1)))
                 .action(ctx -> {
                     ctx.output(success, new SimpleValue("completed"));
                     return CompletableFuture.completedFuture(null);

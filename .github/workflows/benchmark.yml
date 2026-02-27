@@ -43,7 +43,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: jmh-results
-          path: java/target/jmh-results.json
+          path: java/benchmark-results.json
           retention-days: 90
 
       - name: Compare with baseline (PR only)
@@ -52,7 +52,7 @@ jobs:
         run: |
           echo "## JMH Benchmark Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [ -f target/jmh-results.json ]; then
+          if [ -f benchmark-results.json ]; then
             echo "Benchmark results uploaded as artifact." >> $GITHUB_STEP_SUMMARY
             echo "Compare against previous runs to detect regressions." >> $GITHUB_STEP_SUMMARY
           else
