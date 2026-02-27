@@ -124,76 +124,11 @@ cd typescript && npm install && npm test
 
 ## Real-World Example: Agentic Customer Support
 
-This is the **Extended TPN** from the research paper — an agentic customer-support workflow with parallel branches, fallback paths, retry logic, and a global timeout.
+This is the **Extended TPN** from the research paper — an agentic customer-support workflow with parallel branches, fallback paths, retry logic, and a global timeout. Rendered using libpetri's DOT exporter.
 
-```mermaid
-flowchart TB
-
-    Understood(["Understood <String>"])
-    Informed(["Informed <String>"])
-    Promoted(["Promoted <String>"])
-    Urgent(["Urgent <String>"])
-    Pending(["Pending <String>"])
-    SearchFail(["SearchFail <String>"])
-    Found(["Found <String>"])
-    ComposeFail(["ComposeFail <String>"])
-    Drafted(["Drafted <String>"])
-    Answered(["Answered <String>"])
-    Ready(["Ready <String>"])
-    Validated(["Validated <String>"])
-    ErrorShown(["ErrorShown <String>"])
-    t_Topic["Topic [0, 4500]ms"]
-    t_Timeout["Timeout [9000, 9000]ms"]
-    t_Fallback["Fallback [0, 100]ms"]
-    t_Retry["Retry [0, 1000]ms"]
-    t_ShowError["ShowError [0, 100]ms"]
-    t_Filter["Filter [0, 500]ms"]
-    t_Search["Search [0, 3500]ms"]
-    t_Intent["Intent [0, 2000]ms"]
-    t_Compose["Compose [0, 6000]ms"]
-    t_ask["ask [0, 100]ms"]
-    t_Guard["Guard [0, 500]ms"]
-
-    Understood --> t_Topic
-    t_Topic --> Informed
-    t_Topic --> Promoted
-    t_Timeout --> Urgent
-    Pending -.->|read| t_Timeout
-    SearchFail --> t_Fallback
-    t_Fallback --> Found
-    Urgent --o t_Fallback
-    ComposeFail --> t_Retry
-    t_Retry --> Drafted
-    Urgent --o t_Retry
-    ComposeFail --> t_ShowError
-    Urgent --> t_ShowError
-    t_ShowError --> ErrorShown
-    Drafted --> t_Filter
-    t_Filter --> Answered
-    Understood --> t_Search
-    t_Search --> Found
-    t_Search --> SearchFail
-    t_Intent --> Understood
-    Ready -.->|read| t_Intent
-    Validated --> t_Compose
-    Informed --> t_Compose
-    Promoted --> t_Compose
-    Found --> t_Compose
-    t_Compose --> Drafted
-    t_Compose --> ComposeFail
-    Pending --> t_ask
-    t_ask --> Ready
-    t_Guard --> Validated
-    Ready -.->|read| t_Guard
-
-    %% Styles
-    classDef startPlace fill:#d4edda,stroke:#28a745,stroke-width:2px
-    classDef endPlace fill:#cce5ff,stroke:#004085,stroke-width:2px
-    classDef transition fill:#fff3cd,stroke:#856404,stroke-width:1px
-    class Pending startPlace
-    class Urgent,Answered,ErrorShown,Ready endPlace
-    class t_Topic,t_Timeout,t_Fallback,t_Retry,t_ShowError,t_Filter,t_Search,t_Intent,t_Compose,t_ask,t_Guard transition
-```
+<p align="center">
+  <img src="docs/extended-tpn.svg" alt="Extended TPN — Agentic Customer Support Workflow" width="600">
+</p>
 
 **Patterns at work:**
 
