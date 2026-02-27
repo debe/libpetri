@@ -77,7 +77,7 @@ Z3-based SMT verification using IC3/PDR. Supports: deadlock freedom, mutual excl
 
 ### Export (`src/export/`)
 
-Mermaid diagram generation with ELK layout. Java also supports Sirio (formal Petri net tool) export.
+Mermaid diagram generation with ELK layout.
 
 ## Specification
 

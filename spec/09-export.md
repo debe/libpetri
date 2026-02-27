@@ -155,9 +155,7 @@ The engine MAY support exporting to formal analysis interchange formats suitable
 2. Places, transitions, arcs, and timing are represented.
 
 **Implementation notes:**
-- Java: Sirio (STTT) export
-- TypeScript: Not implemented
-- Rust: Not implemented
+- Not yet implemented in any language
 
 **Test derivation:** Export to interchange format; validate against schema.
 
