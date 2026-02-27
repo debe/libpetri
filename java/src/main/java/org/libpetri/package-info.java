@@ -45,9 +45,9 @@
  *       for reachability, deadlock detection, and liveness verification</dd>
  *
  *   <dt>{@link org.libpetri.export}</dt>
- *   <dd>Export formats: {@link org.libpetri.export.MermaidExporter MermaidExporter}
- *       for visualization, {@link org.libpetri.export.SirioExporter SirioExporter}
- *       for formal timing analysis</dd>
+ *   <dd>Export formats: {@link org.libpetri.export.DotExporter DotExporter}
+ *       and {@link org.libpetri.export.MermaidExporter MermaidExporter}
+ *       for visualization</dd>
  * </dl>
  *
  * <h2>Quick Start</h2>
