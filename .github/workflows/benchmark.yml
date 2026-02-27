@@ -1,21 +1,12 @@
 name: JMH Benchmarks
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'java/src/**'
-      - 'java/pom.xml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'java/src/**'
-      - 'java/pom.xml'
+  schedule:
+    - cron: '0 0 * * 0'   # Weekly, Sunday midnight UTC
   workflow_dispatch:
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   benchmark:
@@ -45,16 +36,3 @@ jobs:
           name: jmh-results
           path: java/benchmark-results.json
           retention-days: 90
-
-      - name: Compare with baseline (PR only)
-        if: github.event_name == 'pull_request'
-        working-directory: java
-        run: |
-          echo "## JMH Benchmark Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [ -f benchmark-results.json ]; then
-            echo "Benchmark results uploaded as artifact." >> $GITHUB_STEP_SUMMARY
-            echo "Compare against previous runs to detect regressions." >> $GITHUB_STEP_SUMMARY
-          else
-            echo "No benchmark results found." >> $GITHUB_STEP_SUMMARY
-          fi
