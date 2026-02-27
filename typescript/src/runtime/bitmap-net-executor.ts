@@ -67,7 +67,7 @@ export interface BitmapNetExecutorOptions {
 }
 
 /**
- * Async bitmap-based executor for Typed Colored Time Petri Nets.
+ * Async bitmap-based executor for Coloured Time Petri Nets.
  *
  * Single-threaded JS model: no CAS needed, direct array writes.
  * Actions return Promise<void> — multiple in-flight actions are naturally concurrent.

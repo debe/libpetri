@@ -14,8 +14,8 @@ import java.time.Duration;
  *   <li>Transition MUST fire by deadline OR become disabled (upper bound)</li>
  * </ul>
  *
- * <p>Note: Runtime currently only enforces {@link #earliest()}. The {@link #latest()} bound
- * is available for documentation and formal analysis purposes.
+ * <p>The runtime enforces both {@link #earliest()} (delay before firing) and
+ * {@link #latest()} (deadline after which the transition is force-disabled).
  *
  * @see In for input specifications
  * @see Out for output specifications
