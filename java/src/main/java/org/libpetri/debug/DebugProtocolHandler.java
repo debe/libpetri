@@ -2,6 +2,7 @@ package org.libpetri.debug;
 
 import org.libpetri.debug.DebugSessionRegistry.DebugSession;
 import org.libpetri.event.NetEvent;
+import org.libpetri.export.DotExporter;
 import org.libpetri.export.MermaidExporter;
 
 import java.lang.System.Logger;
@@ -151,6 +152,7 @@ public class DebugProtocolHandler {
         send(client, new DebugResponse.Subscribed(
             cmd.sessionId(),
             debugSession.netName(),
+            debugSession.dotDiagram(),
             debugSession.mermaidDiagram(),
             structure,
             computed.marking(),
@@ -393,21 +395,28 @@ public class DebugProtocolHandler {
             .map(entry -> {
                 var name = entry.getKey();
                 var info = entry.getValue();
+                var sanitized = DotExporter.sanitize(name);
                 return new DebugResponse.PlaceInfo(
                     name,
-                    MermaidExporter.sanitize(name),
+                    "p_" + sanitized,
+                    sanitized,
                     info.tokenType(),
                     info.isStart(),
-                    info.isEnd()
+                    info.isEnd(),
+                    false  // isEnvironment - not tracked at session level yet
                 );
             })
             .toList();
 
         var transitionInfos = transitions.stream()
-            .map(t -> new DebugResponse.TransitionInfo(
-                t.name(),
-                "t_" + MermaidExporter.sanitize(t.name())
-            ))
+            .map(t -> {
+                var sanitized = "t_" + DotExporter.sanitize(t.name());
+                return new DebugResponse.TransitionInfo(
+                    t.name(),
+                    sanitized,
+                    sanitized
+                );
+            })
             .toList();
 
         return new DebugResponse.NetStructure(placeInfos, transitionInfos);

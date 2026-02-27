@@ -14,7 +14,7 @@ import org.libpetri.core.Transition;
 import static java.util.stream.Collectors.joining;
 
 /**
- * Exports TCPN models to Mermaid flowchart format for visualization.
+ * Exports CTPN models to Mermaid flowchart format for visualization.
  *
  * <p><a href="https://mermaid.js.org/">Mermaid</a> is a JavaScript-based diagramming
  * tool that renders markdown-like text into diagrams. This exporter generates
@@ -102,9 +102,9 @@ public final class MermaidExporter {
     private MermaidExporter() {}
 
     /**
-     * Exports a TCPN to Mermaid flowchart with default configuration.
+     * Exports a CTPN to Mermaid flowchart with default configuration.
      *
-     * @param net the TCPN to export
+     * @param net the CTPN to export
      * @return Mermaid flowchart syntax
      */
     public static String export(PetriNet net) {
@@ -112,9 +112,9 @@ public final class MermaidExporter {
     }
 
     /**
-     * Exports a TCPN to Mermaid flowchart with custom configuration.
+     * Exports a CTPN to Mermaid flowchart with custom configuration.
      *
-     * @param net the TCPN to export
+     * @param net the CTPN to export
      * @param config export configuration
      * @return Mermaid flowchart syntax
      */

@@ -55,8 +55,9 @@ public sealed interface DebugResponse {
      *
      * @param sessionId the subscribed session
      * @param netName the Petri net name
-     * @param mermaidDiagram Mermaid diagram of the net
-     * @param structure explicit net topology with authoritative name-to-mermaidId mappings
+     * @param dotDiagram DOT (Graphviz) diagram of the net
+     * @param mermaidDiagram Mermaid diagram of the net (deprecated, use dotDiagram)
+     * @param structure explicit net topology with authoritative name-to-graphId mappings
      * @param currentMarking current token distribution
      * @param enabledTransitions currently enabled transitions
      * @param inFlightTransitions currently executing transitions (started but not yet completed/failed/timed out)
@@ -66,6 +67,7 @@ public sealed interface DebugResponse {
     record Subscribed(
         String sessionId,
         String netName,
+        String dotDiagram,
         String mermaidDiagram,
         NetStructure structure,
         Map<String, List<TokenInfo>> currentMarking,
@@ -266,11 +268,11 @@ public sealed interface DebugResponse {
     // ======================== Net Structure Types ========================
 
     /**
-     * Explicit Petri net structure with authoritative name-to-mermaidId mappings.
+     * Explicit Petri net structure with authoritative name-to-graphId mappings.
      *
      * <p>This provides the frontend with a reliable mapping between the authoritative
      * place/transition names (used in events and marking) and the sanitized IDs used
-     * in the Mermaid SVG. This eliminates fragile SVG ID parsing in the frontend.
+     * in the DOT/SVG output. This eliminates fragile SVG ID parsing in the frontend.
      *
      * @param places list of places in the net
      * @param transitions list of transitions in the net
@@ -284,27 +286,33 @@ public sealed interface DebugResponse {
      * Information about a place in the Petri net.
      *
      * @param name authoritative identifier (matches events/marking keys)
-     * @param mermaidId sanitized ID used in Mermaid SVG (matches flowchart node IDs)
+     * @param graphId sanitized ID with "p_" prefix (matches DOT/SVG node IDs)
+     * @param mermaidId sanitized ID used in Mermaid SVG (deprecated, use graphId)
      * @param tokenType simple name of the token type for this place
      * @param isStart true if this is a start place (no incoming arcs)
      * @param isEnd true if this is an end place (no outgoing arcs)
+     * @param isEnvironment true if this is an environment place (external event injection)
      */
     record PlaceInfo(
         String name,
+        String graphId,
         String mermaidId,
         String tokenType,
         boolean isStart,
-        boolean isEnd
+        boolean isEnd,
+        boolean isEnvironment
     ) {}
 
     /**
      * Information about a transition in the Petri net.
      *
      * @param name authoritative identifier (matches events)
-     * @param mermaidId sanitized ID with "t_" prefix (matches Mermaid SVG node IDs)
+     * @param graphId sanitized ID with "t_" prefix (matches DOT/SVG node IDs)
+     * @param mermaidId sanitized ID with "t_" prefix (deprecated, use graphId)
      */
     record TransitionInfo(
         String name,
+        String graphId,
         String mermaidId
     ) {}
 }

@@ -2,10 +2,13 @@ package org.libpetri.export;
 
 import org.junit.jupiter.api.Test;
 
+import org.libpetri.core.In;
+import org.libpetri.core.Out;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
 import org.libpetri.core.Transition;
-import org.libpetri.export.MermaidExporter;
+
+import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -180,5 +183,49 @@ class MermaidExporterTest {
         System.out.println("```mermaid");
         System.out.println(mermaid);
         System.out.println("```");
+    }
+
+    // ==================== EXP-005: XOR Branch Labels ====================
+
+    @Test
+    void exportXorBranches_labeledWithPlaceName() {
+        // EXP-005: XOR branches should be labeled with inferred branch names
+        var input = Place.of("Input", String.class);
+        var success = Place.of("Success", String.class);
+        var failure = Place.of("Failure", String.class);
+
+        var t = Transition.builder("Decide")
+            .inputs(In.one(input))
+            .outputs(Out.xor(Out.place(success), Out.place(failure)))
+            .build();
+
+        var net = PetriNet.builder("XorBranch").transitions(t).build();
+        var mermaid = MermaidExporter.export(net);
+
+        // Each XOR branch should be labeled with the place name
+        assertTrue(mermaid.contains("Success"), "Should contain Success branch label");
+        assertTrue(mermaid.contains("Failure"), "Should contain Failure branch label");
+    }
+
+    @Test
+    void exportXorBranches_timeoutBranchLabeled() {
+        // EXP-005: Timeout branches in XOR should show timer notation
+        var input = Place.of("Input", String.class);
+        var success = Place.of("Success", String.class);
+        var timeout = Place.of("Timeout", String.class);
+
+        var t = Transition.builder("TimedDecision")
+            .inputs(In.one(input))
+            .outputs(Out.xor(
+                Out.place(success),
+                Out.timeout(Duration.ofMillis(500), timeout)
+            ))
+            .build();
+
+        var net = PetriNet.builder("XorTimeout").transitions(t).build();
+        var mermaid = MermaidExporter.export(net);
+
+        assertTrue(mermaid.contains("Success"), "Should contain Success branch label");
+        assertTrue(mermaid.contains("⏱500ms"), "Should contain timeout notation");
     }
 }
