@@ -1,7 +1,7 @@
 /**
- * Runtime execution engine for Typed Colored Time Petri Nets.
+ * Runtime execution engine for Coloured Time Petri Nets.
  *
- * <p>This package provides the execution infrastructure for running TCPN models.
+ * <p>This package provides the execution infrastructure for running CTPN models.
  * The central component is {@link org.libpetri.runtime.NetExecutor},
  * which orchestrates token flow, transition firing, and timing behavior.
  *

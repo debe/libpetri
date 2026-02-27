@@ -11,7 +11,7 @@ import org.libpetri.core.TransitionContext;
  * Provider for creating execution context objects passed to transition actions.
  *
  * <p>Execution context allows external systems (like tracing) to inject data
- * into the {@link TransitionContext} without coupling the TCPN module to those systems.
+ * into the {@link TransitionContext} without coupling the CTPN module to those systems.
  *
  * <p>The provider is called once per transition firing, receiving the transition
  * and consumed tokens. It returns a map of context objects keyed by their class.

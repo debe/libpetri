@@ -1,8 +1,8 @@
-# TCPN Technical Requirements Specification
+# CTPN Technical Requirements Specification
 
 ## Purpose
 
-This specification defines the **observable contract** of the Timed Coloured Petri Net (TCPN) engine — what the engine guarantees, not how any particular language implements it. It exists for:
+This specification defines the **observable contract** of the Coloured Time Petri Net (CTPN) engine — what the engine guarantees, not how any particular language implements it. It exists for:
 
 1. **AI verification** — ask "does implementation X still match spec Y?"
 2. **Test derivation** — every requirement maps to testable criteria

@@ -1,6 +1,7 @@
 # Java
 build/
 .gradle/
+.flattened-pom.xml
 *.class
 bin/
 out/

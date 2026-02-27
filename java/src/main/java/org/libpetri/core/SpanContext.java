@@ -4,7 +4,7 @@ package org.libpetri.core;
  * Decoupled abstraction for tracing span context.
  *
  * <p>This interface provides a framework-agnostic way for transition actions
- * to interact with tracing spans without coupling the TCPN module to specific
+ * to interact with tracing spans without coupling the CTPN module to specific
  * tracing implementations (like OpenTelemetry or Langfuse).
  *
  * <p>Implementations can wrap OpenTelemetry spans, allowing actions to:

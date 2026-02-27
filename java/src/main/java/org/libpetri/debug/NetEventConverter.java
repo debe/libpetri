@@ -12,7 +12,7 @@ import java.util.Map;
 import java.util.function.Function;
 
 /**
- * Converts TCPN NetEvent instances to serializable DebugResponse types.
+ * Converts CTPN NetEvent instances to serializable DebugResponse types.
  */
 public final class NetEventConverter {
 

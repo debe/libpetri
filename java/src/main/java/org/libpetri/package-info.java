@@ -1,9 +1,9 @@
 /**
- * Typed Colored Time Petri Nets (TCPN) - A Java library for modeling and
+ * Coloured Time Petri Net (CTPN) - A Java library for modeling and
  * executing workflow systems with formal timing semantics.
  *
- * <h2>What is TCPN?</h2>
- * <p>TCPN extends classical Petri nets with three key features:
+ * <h2>What is CTPN?</h2>
+ * <p>CTPN extends classical Petri nets with three key features:
  * <ul>
  *   <li><strong>Typed tokens:</strong> Tokens carry typed data values (not just markers),
  *       enabling type-safe data flow through the workflow.</li>
@@ -14,7 +14,7 @@
  * </ul>
  *
  * <h2>Theoretical Foundation</h2>
- * <p>TCPN builds on several Petri net extensions:
+ * <p>CTPN builds on several Petri net extensions:
  * <ul>
  *   <li><strong>Time Petri Nets (TPN):</strong> Merlin &amp; Farber (1976) - adds time
  *       intervals to transitions</li>
@@ -95,7 +95,7 @@
  * }</pre>
  *
  * <h2>Arc Types</h2>
- * <p>TCPN supports five arc types for modeling different control flow patterns:
+ * <p>CTPN supports five arc types for modeling different control flow patterns:
  * <table border="1">
  *   <caption>Arc types and their semantics</caption>
  *   <tr><th>Arc Type</th><th>Notation</th><th>Semantics</th></tr>
@@ -119,7 +119,7 @@
  * </ol>
  *
  * <h2>Formal Properties</h2>
- * <p>TCPN models can be analyzed for:
+ * <p>CTPN models can be analyzed for:
  * <ul>
  *   <li><strong>Reachability:</strong> Can a specific marking be reached?</li>
  *   <li><strong>Liveness:</strong> Can every transition eventually fire?</li>

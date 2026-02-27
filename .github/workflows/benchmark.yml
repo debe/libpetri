@@ -1,0 +1,60 @@
+name: JMH Benchmarks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'java/src/**'
+      - 'java/pom.xml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'java/src/**'
+      - 'java/pom.xml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25-ea'
+          distribution: 'temurin'
+
+      - name: Run tests
+        working-directory: java
+        run: ./mvnw verify
+
+      - name: Run JMH benchmarks
+        working-directory: java
+        run: ./mvnw test-compile exec:exec -Pjmh
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmh-results
+          path: java/target/jmh-results.json
+          retention-days: 90
+
+      - name: Compare with baseline (PR only)
+        if: github.event_name == 'pull_request'
+        working-directory: java
+        run: |
+          echo "## JMH Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f target/jmh-results.json ]; then
+            echo "Benchmark results uploaded as artifact." >> $GITHUB_STEP_SUMMARY
+            echo "Compare against previous runs to detect regressions." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No benchmark results found." >> $GITHUB_STEP_SUMMARY
+          fi

@@ -1,8 +1,8 @@
 # libpetri
 
-A high-performance **Timed Coloured Petri Net** (TCPN) engine with formal verification, available in multiple languages.
+A high-performance **Coloured Time Petri Net** (CTPN) engine with formal verification, available in multiple languages.
 
-## What is a Timed Coloured Petri Net?
+## What is a Coloured Time Petri Net?
 
 A Petri net extended with **typed tokens** (data flows through the workflow), **colored places** (type-safe containers), and **firing intervals** (transitions must fire within time bounds). This combination enables both executable workflow orchestration and formal timing analysis.
 
@@ -63,8 +63,7 @@ try (var executor = NetExecutor.create(net, Map.of(
 
 ```bash
 cd java
-gradle wrapper
-./gradlew test
+./mvnw test
 ```
 
 ### TypeScript
