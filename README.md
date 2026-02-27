@@ -5,13 +5,11 @@
 | Implementation | Language | Runtime | Status |
 |---|---|---|---|
 | [**libpetri-java**](java/) | Java 25 | Virtual threads | Production |
-| [**libpetri-ts**](typescript/) | TypeScript 5.7 | Promises / event loop | Production |
+| [**libpetri-ts**](typescript/) | TypeScript 5.7 | Promises / event loop | In development |
 
 > Rust implementation planned — see [`spec/`](spec/) for the language-agnostic contract all implementations follow.
 
-[Website](https://libpetri.org) ·
-[Specification](spec/00-index.md) ·
-[Paper](https://libpetri.org/paper)
+[Specification](spec/00-index.md)
 
 ---
 
@@ -19,7 +17,7 @@
 
 - **Executable formal models** — Petri nets that actually run: typed tokens flow through places, transitions fire with real-time deadlines, and async actions execute concurrently. Not a simulator — a production workflow engine.
 - **Two implementations, one spec** — Java and TypeScript share [145 language-agnostic requirements](spec/00-index.md) covering every arc type, timing variant, and execution phase. Same behavior, verified independently.
-- **Research-backed** — Based on the paper *"Apply Time Petri Nets with Colored Tokens to Model and Verify Agentic Systems"*. The Extended TPN example below comes directly from the paper's agentic customer-support workflow.
+- **Research-backed** — Grounded in the theory of *Coloured Time Petri Nets* applied to agentic systems. The Extended TPN example below models a real-world agentic customer-support workflow.
 
 ---
 
@@ -124,7 +122,7 @@ cd typescript && npm install && npm test
 
 ## Real-World Example: Agentic Customer Support
 
-This is the **Extended TPN** from the research paper — an agentic customer-support workflow with parallel branches, fallback paths, retry logic, and a global timeout. Rendered using libpetri's DOT exporter.
+The **Extended TPN** — an agentic customer-support workflow with parallel branches, fallback paths, retry logic, and a global timeout. Rendered using libpetri's DOT exporter.
 
 <p align="center">
   <img src="docs/extended-tpn.svg" alt="Extended TPN — Agentic Customer Support Workflow" width="600">
@@ -427,4 +425,4 @@ TypeScript 5.7, ESM-only, strict mode. Built with tsup, tested with vitest.
 
 ---
 
-[libpetri.org](https://libpetri.org) · [Specification](spec/00-index.md)
+[Specification](spec/00-index.md)
