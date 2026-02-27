@@ -1,5 +1,5 @@
 /**
- * libpetri — Timed Coloured Petri Net engine for TypeScript.
+ * libpetri — Coloured Time Petri Net engine for TypeScript.
  *
  * Re-exports core (net definitions), runtime (bitmap executor), and event (observation)
  * modules. For diagram export, import from `libpetri/export`. For formal verification
