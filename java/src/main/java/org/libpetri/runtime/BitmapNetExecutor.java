@@ -13,7 +13,7 @@ import org.libpetri.event.EventStore;
 import org.libpetri.event.NetEvent;
 
 /**
- * Lock-free bitmap-based executor for Typed Colored Time Petri Nets.
+ * Lock-free bitmap-based executor for Coloured Time Petri Nets.
  *
  * <p>Replaces the O(n²) full-scan approach of {@link NetExecutor} with:
  * <ul>
@@ -297,11 +297,13 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         initializeMarkedBitmap();
         // Mark all transitions dirty for initial enablement check
         markAllDirty();
+        emitMarkingSnapshot();
 
         while (running && !Thread.currentThread().isInterrupted() && !closed.get()) {
             processCompletedTransitions();
             processExternalEvents();
             updateDirtyTransitions();
+            enforceDeadlines();
 
             if (shouldTerminate()) break;
 
@@ -312,6 +314,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         running = false;
         drainPendingExternalEvents();
 
+        emitMarkingSnapshot();
         emitEvent(new NetEvent.ExecutionCompleted(
             Instant.now(), compiled.net().name(), executionId(), elapsedDuration()));
 
@@ -464,6 +467,43 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
     private boolean hasInputFromResetPlace(Transition t) {
         if (pendingResetPlaces.isEmpty()) return false;
         return !Collections.disjoint(pendingResetPlaces, transitionInputPlaces.get(t));
+    }
+
+    // ======================== Deadline Enforcement ========================
+
+    /**
+     * Disables transitions that have exceeded their timing deadline.
+     *
+     * <p>For each enabled transition with {@code timing().hasDeadline()}, checks
+     * if the elapsed time since enablement exceeds {@code timing().latest()}.
+     * If so, the transition is disabled and a {@link NetEvent.TransitionTimedOut}
+     * event is emitted.
+     *
+     * @see org.libpetri.core.Timing#hasDeadline()
+     * @see org.libpetri.core.Timing#latest()
+     */
+    private void enforceDeadlines() {
+        long nowNanos = System.nanoTime();
+        for (int tid = 0; tid < compiled.transitionCount(); tid++) {
+            if (!enabledFlags[tid]) continue;
+            Transition t = compiled.transition(tid);
+            if (!t.timing().hasDeadline()) continue;
+
+            long enabledNanos = enabledAtNanos[tid];
+            long elapsedMillis = (nowNanos - enabledNanos) / 1_000_000;
+            long latestMillis = t.timing().latest().toMillis();
+
+            if (elapsedMillis > latestMillis) {
+                enabledFlags[tid] = false;
+                enabledTransitionCount--;
+                enabledAtNanos[tid] = Long.MIN_VALUE;
+                markTransitionDirty(tid);  // allow re-enablement next cycle
+                emitEvent(new NetEvent.TransitionTimedOut(
+                    Instant.now(), t.name(),
+                    t.timing().latest(),
+                    Duration.ofMillis(elapsedMillis)));
+            }
+        }
     }
 
     // ======================== Firing ========================
@@ -760,12 +800,23 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
 
         for (int tid = 0; tid < compiled.transitionCount(); tid++) {
             if (!enabledFlags[tid]) continue;
+            Transition t = compiled.transition(tid);
             long enabledNanos = enabledAtNanos[tid];
             long elapsedMs = (nowNanos - enabledNanos) / 1_000_000;
-            long earliestMs = compiled.transition(tid).timing().earliest().toMillis();
-            long remainingMs = earliestMs - elapsedMs;
-            if (remainingMs <= 0) return 0;
-            minWaitMs = Math.min(minWaitMs, remainingMs);
+
+            // Time until earliest bound (when transition becomes ready to fire)
+            long earliestMs = t.timing().earliest().toMillis();
+            long remainingEarliest = earliestMs - elapsedMs;
+            if (remainingEarliest <= 0) return 0;
+            minWaitMs = Math.min(minWaitMs, remainingEarliest);
+
+            // Time until deadline (when transition must be force-disabled)
+            if (t.timing().hasDeadline()) {
+                long latestMs = t.timing().latest().toMillis();
+                long remainingDeadline = latestMs - elapsedMs;
+                if (remainingDeadline <= 0) return 0;
+                minWaitMs = Math.min(minWaitMs, remainingDeadline);
+            }
         }
         return minWaitMs;
     }
@@ -898,6 +949,10 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
 
     private Duration elapsedDuration() {
         return Duration.ofNanos(System.nanoTime() - startNanos);
+    }
+
+    private void emitMarkingSnapshot() {
+        emitEvent(new NetEvent.MarkingSnapshot(Instant.now(), marking.snapshot()));
     }
 
     @Override

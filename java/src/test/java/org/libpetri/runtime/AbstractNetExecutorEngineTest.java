@@ -16,6 +16,7 @@ import static org.libpetri.core.Out.place;
 import static org.libpetri.core.Out.xor;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -4663,6 +4664,457 @@ abstract class AbstractNetExecutorEngineTest {
                 assertFalse(result.hasTokens(output), "Transition should not fire with non-matching tokens");
                 assertEquals(2, result.tokenCount(input), "Non-matching tokens should remain");
             }
+        }
+    }
+
+    // ==================== SECTION 17: DEADLINE ENFORCEMENT TESTS (TIME-013) ====================
+
+    @Nested
+    class DeadlineEnforcementTests {
+
+        @Test
+        void deadline_firesWithinDeadline_noTimeoutEvent() throws Exception {
+            // TIME-013: Transition with Deadline(100ms) fires immediately (earliest=0).
+            // No TransitionTimedOut should be emitted.
+            var input = Place.of("Input", SimpleValue.class);
+            var output = Place.of("Output", SimpleValue.class);
+
+            var eventStore = EventStore.inMemory();
+
+            var t = Transition.builder("DeadlinedTransition")
+                .inputs(one(input))
+                .outputs(place(output))
+                .timing(Timing.deadline(Duration.ofMillis(100)))
+                .action(ctx -> {
+                    ctx.output(output, ctx.input(input));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+
+            var net = PetriNet.builder("DeadlineBasic").transitions(t).build();
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                input, List.of(Token.of(new SimpleValue("go")))
+            );
+
+            try (var executor = createExecutor(net, initial, eventStore)) {
+                var result = executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
+
+                assertTrue(result.hasTokens(output), "Transition should fire within deadline");
+                var timeouts = eventStore.eventsOfType(NetEvent.TransitionTimedOut.class);
+                assertTrue(timeouts.isEmpty(), "No timeout should occur when transition fires in time");
+                var completions = eventStore.eventsOfType(NetEvent.TransitionCompleted.class);
+                assertFalse(completions.isEmpty(), "Should have completion event");
+            }
+        }
+
+        @Test
+        void deadline_windowTiming_firesWithinBounds() throws Exception {
+            // TIME-005: Window timing — transition fires after earliest, before deadline
+            var input = Place.of("Input", SimpleValue.class);
+            var output = Place.of("Output", SimpleValue.class);
+
+            var eventStore = EventStore.inMemory();
+
+            var t = Transition.builder("WindowedTransition")
+                .inputs(one(input))
+                .outputs(place(output))
+                .timing(Timing.window(Duration.ofMillis(50), Duration.ofMillis(200)))
+                .action(ctx -> {
+                    ctx.output(output, ctx.input(input));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+
+            var net = PetriNet.builder("WindowTest").transitions(t).build();
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                input, List.of(Token.of(new SimpleValue("go")))
+            );
+
+            try (var executor = createExecutor(net, initial, eventStore)) {
+                var result = executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
+
+                assertTrue(result.hasTokens(output), "Window transition should produce output");
+                var timeouts = eventStore.eventsOfType(NetEvent.TransitionTimedOut.class);
+                assertTrue(timeouts.isEmpty(), "Window transition fired within bounds — no timeout");
+            }
+        }
+
+        @Test
+        void deadline_exactTiming_firesWithinDeadline() throws Exception {
+            // TIME-006: Exact timing should fire and not trigger deadline
+            var input = Place.of("Input", SimpleValue.class);
+            var output = Place.of("Output", SimpleValue.class);
+
+            var eventStore = EventStore.inMemory();
+
+            var t = Transition.builder("ExactTransition")
+                .inputs(one(input))
+                .outputs(place(output))
+                .timing(Timing.exact(Duration.ofMillis(100)))
+                .action(ctx -> {
+                    ctx.output(output, ctx.input(input));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+
+            var net = PetriNet.builder("ExactDeadlineTest").transitions(t).build();
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                input, List.of(Token.of(new SimpleValue("go")))
+            );
+
+            try (var executor = createExecutor(net, initial, eventStore)) {
+                var result = executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
+
+                assertTrue(result.hasTokens(output), "Exact-timed transition should fire");
+                var timeouts = eventStore.eventsOfType(NetEvent.TransitionTimedOut.class);
+                assertTrue(timeouts.isEmpty(), "No timeout for exact timing that fires on time");
+            }
+        }
+
+        @Test
+        void transitionTimedOut_eventStructure() {
+            // EVT-009: Verify TransitionTimedOut record has all required fields
+            var event = new NetEvent.TransitionTimedOut(
+                Instant.now(), "TestTransition",
+                Duration.ofMillis(100), Duration.ofMillis(150));
+
+            assertEquals("TestTransition", event.transitionName());
+            assertEquals(Duration.ofMillis(100), event.deadline());
+            assertEquals(Duration.ofMillis(150), event.actualDuration());
+            assertNotNull(event.timestamp());
+        }
+
+    }
+
+    // ==================== SECTION 18: MARKING SNAPSHOT TESTS (EVT-014) ====================
+
+    @Nested
+    class MarkingSnapshotTests {
+
+        @Test
+        void markingSnapshot_emittedAtStartAndEnd() throws Exception {
+            // EVT-014: MarkingSnapshot SHOULD be emitted at start and before completion
+            var input = Place.of("Input", SimpleValue.class);
+            var output = Place.of("Output", SimpleValue.class);
+
+            var eventStore = EventStore.inMemory();
+
+            var t = Transition.builder("Transfer")
+                .inputs(one(input))
+                .outputs(place(output))
+                .action(ctx -> {
+                    ctx.output(output, ctx.input(input));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+
+            var net = PetriNet.builder("SnapshotTest").transitions(t).build();
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                input, List.of(Token.of(new SimpleValue("hello")))
+            );
+
+            try (var executor = createExecutor(net, initial, eventStore)) {
+                executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
+
+                var snapshots = eventStore.eventsOfType(NetEvent.MarkingSnapshot.class);
+                assertTrue(snapshots.size() >= 2,
+                    "Should have at least 2 MarkingSnapshots (start + end), got " + snapshots.size());
+
+                // First snapshot should contain the initial marking
+                var firstSnapshot = snapshots.getFirst();
+                assertTrue(firstSnapshot.marking().containsKey("Input"),
+                    "Initial snapshot should contain Input place");
+                assertEquals(1, firstSnapshot.marking().get("Input").size(),
+                    "Initial snapshot should have 1 token in Input");
+
+                // Last snapshot should contain the final marking
+                var lastSnapshot = snapshots.getLast();
+                assertTrue(lastSnapshot.marking().containsKey("Output"),
+                    "Final snapshot should contain Output place");
+                assertEquals(1, lastSnapshot.marking().get("Output").size(),
+                    "Final snapshot should have 1 token in Output");
+            }
+        }
+
+        @Test
+        void markingSnapshot_isDeepDefensiveCopy() throws Exception {
+            // EVT-014: Snapshot must be a deep defensive copy (not a live reference)
+            var input = Place.of("Input", SimpleValue.class);
+            var output = Place.of("Output", SimpleValue.class);
+
+            var eventStore = EventStore.inMemory();
+
+            var t = Transition.builder("Transfer")
+                .inputs(one(input))
+                .outputs(place(output))
+                .action(ctx -> {
+                    ctx.output(output, ctx.input(input));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+
+            var net = PetriNet.builder("SnapshotCopyTest").transitions(t).build();
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                input, List.of(Token.of(new SimpleValue("v1")))
+            );
+
+            try (var executor = createExecutor(net, initial, eventStore)) {
+                executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
+
+                var snapshots = eventStore.eventsOfType(NetEvent.MarkingSnapshot.class);
+                assertFalse(snapshots.isEmpty());
+
+                // Verify snapshot immutability (MarkingSnapshot constructor creates unmodifiable maps/lists)
+                var snapshot = snapshots.getFirst();
+                assertThrows(UnsupportedOperationException.class, () ->
+                    snapshot.marking().put("NewPlace", List.of()));
+                if (snapshot.marking().containsKey("Input")) {
+                    assertThrows(UnsupportedOperationException.class, () ->
+                        snapshot.marking().get("Input").add(Token.of(new SimpleValue("injected"))));
+                }
+            }
+        }
+
+        @Test
+        void markingSnapshot_onlyIncludesNonEmptyPlaces() throws Exception {
+            // EVT-014: Only non-empty places should be included
+            var input = Place.of("Input", SimpleValue.class);
+            var output = Place.of("Output", SimpleValue.class);
+            var unused = Place.of("Unused", SimpleValue.class);
+
+            var eventStore = EventStore.inMemory();
+
+            var t = Transition.builder("Transfer")
+                .inputs(one(input))
+                .outputs(place(output))
+                .action(ctx -> {
+                    ctx.output(output, ctx.input(input));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+
+            var net = PetriNet.builder("SnapshotEmptyTest")
+                .transitions(t)
+                .place(unused)  // Unused place with no tokens
+                .build();
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                input, List.of(Token.of(new SimpleValue("go")))
+            );
+
+            try (var executor = createExecutor(net, initial, eventStore)) {
+                executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
+
+                var snapshots = eventStore.eventsOfType(NetEvent.MarkingSnapshot.class);
+                assertFalse(snapshots.isEmpty(), "Should have at least one MarkingSnapshot");
+                for (var snapshot : snapshots) {
+                    assertFalse(snapshot.marking().containsKey("Unused"),
+                        "Snapshot should not contain empty places");
+                    assertFalse(snapshot.marking().isEmpty(),
+                        "Snapshot should contain at least one active place");
+                }
+            }
+        }
+
+        @Test
+        void markingSnapshot_appearsBeforeExecutionCompleted() throws Exception {
+            // EVT-014: Final snapshot should appear before ExecutionCompleted event
+            var input = Place.of("Input", SimpleValue.class);
+            var output = Place.of("Output", SimpleValue.class);
+
+            var eventStore = EventStore.inMemory();
+
+            var t = Transition.builder("t")
+                .inputs(one(input))
+                .outputs(place(output))
+                .action(ctx -> {
+                    ctx.output(output, ctx.input(input));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+
+            var net = PetriNet.builder("SnapshotOrder").transitions(t).build();
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                input, List.of(Token.of(new SimpleValue("go")))
+            );
+
+            try (var executor = createExecutor(net, initial, eventStore)) {
+                executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
+
+                var events = eventStore.events();
+                int lastSnapshotIdx = -1;
+                int completedIdx = -1;
+                for (int i = 0; i < events.size(); i++) {
+                    if (events.get(i) instanceof NetEvent.MarkingSnapshot) lastSnapshotIdx = i;
+                    if (events.get(i) instanceof NetEvent.ExecutionCompleted) completedIdx = i;
+                }
+                assertTrue(lastSnapshotIdx > 0, "Should have MarkingSnapshot event");
+                assertTrue(completedIdx > 0, "Should have ExecutionCompleted event");
+                assertTrue(lastSnapshotIdx < completedIdx,
+                    "Final MarkingSnapshot should appear before ExecutionCompleted");
+            }
+        }
+    }
+
+    // ==================== SECTION 19: IO-007 CONTRACT TESTS ====================
+
+    @Nested
+    class InCardinalityContractTests {
+
+        @Test
+        void one_requiredCount_is1() {
+            var place = Place.of("P", SimpleValue.class);
+            var spec = one(place);
+            assertEquals(1, spec.requiredCount(), "In.one requires exactly 1 token");
+        }
+
+        @Test
+        void one_consumptionCount_is1() {
+            var place = Place.of("P", SimpleValue.class);
+            var spec = one(place);
+            assertEquals(1, spec.consumptionCount(1), "In.one consumes 1 from 1 available");
+            assertEquals(1, spec.consumptionCount(5), "In.one consumes 1 from 5 available");
+        }
+
+        @Test
+        void exactly_requiredCount_matchesCount() {
+            var place = Place.of("P", SimpleValue.class);
+            var spec = exactly(3, place);
+            assertEquals(3, spec.requiredCount(), "In.exactly(3) requires 3 tokens");
+        }
+
+        @Test
+        void exactly_consumptionCount_matchesCount() {
+            var place = Place.of("P", SimpleValue.class);
+            var spec = exactly(3, place);
+            assertEquals(3, spec.consumptionCount(3), "In.exactly(3) consumes 3 from 3");
+            assertEquals(3, spec.consumptionCount(10), "In.exactly(3) consumes 3 from 10");
+        }
+
+        @Test
+        void all_requiredCount_is1() {
+            var place = Place.of("P", SimpleValue.class);
+            var spec = all(place);
+            assertEquals(1, spec.requiredCount(), "In.all requires at least 1 token for enablement");
+        }
+
+        @Test
+        void all_consumptionCount_isAllAvailable() {
+            var place = Place.of("P", SimpleValue.class);
+            var spec = all(place);
+            assertEquals(1, spec.consumptionCount(1), "In.all consumes 1 from 1");
+            assertEquals(5, spec.consumptionCount(5), "In.all consumes 5 from 5");
+            assertEquals(100, spec.consumptionCount(100), "In.all consumes 100 from 100");
+        }
+
+        @Test
+        void atLeast_requiredCount_matchesMinimum() {
+            var place = Place.of("P", SimpleValue.class);
+            var spec = atLeast(3, place);
+            assertEquals(3, spec.requiredCount(), "In.atLeast(3) requires 3 tokens");
+        }
+
+        @Test
+        void atLeast_consumptionCount_isAllAvailable() {
+            var place = Place.of("P", SimpleValue.class);
+            var spec = atLeast(3, place);
+            assertEquals(3, spec.consumptionCount(3), "In.atLeast(3) consumes 3 from 3");
+            assertEquals(5, spec.consumptionCount(5), "In.atLeast(3) consumes 5 from 5");
+            assertEquals(100, spec.consumptionCount(100), "In.atLeast(3) consumes 100 from 100");
+        }
+
+        @Test
+        void consumptionCount_throwsWhenInsufficientTokens() {
+            var place = Place.of("P", SimpleValue.class);
+
+            assertThrows(IllegalArgumentException.class,
+                () -> one(place).consumptionCount(0), "In.one with 0 available");
+            assertThrows(IllegalArgumentException.class,
+                () -> exactly(3, place).consumptionCount(2), "In.exactly(3) with 2 available");
+            assertThrows(IllegalArgumentException.class,
+                () -> all(place).consumptionCount(0), "In.all with 0 available");
+            assertThrows(IllegalArgumentException.class,
+                () -> atLeast(3, place).consumptionCount(2), "In.atLeast(3) with 2 available");
+        }
+
+        @Test
+        void place_returnsDeclaredPlace() {
+            var place = Place.of("TestPlace", SimpleValue.class);
+            assertEquals(place, one(place).place());
+            assertEquals(place, exactly(3, place).place());
+            assertEquals(place, all(place).place());
+            assertEquals(place, atLeast(3, place).place());
+        }
+    }
+
+    // ==================== SECTION 20: EVENT IMMUTABILITY TESTS (EVT-001) ====================
+
+    @Nested
+    class EventImmutabilityTests {
+
+        @Test
+        void transitionStarted_defensiveCopyOfConsumedTokens() {
+            // EVT-001: Modify source list after event creation; verify event's list unchanged
+            var tokens = new java.util.ArrayList<Token<?>>();
+            tokens.add(Token.of(new SimpleValue("original")));
+
+            var event = new NetEvent.TransitionStarted(Instant.now(), "T1", tokens);
+
+            // Modify original list
+            tokens.add(Token.of(new SimpleValue("injected")));
+
+            // Event's list should be unchanged
+            assertEquals(1, event.consumedTokens().size(),
+                "Event should have defensive copy, not live reference");
+            assertEquals("original", ((SimpleValue) event.consumedTokens().getFirst().value()).data());
+        }
+
+        @Test
+        void transitionCompleted_defensiveCopyOfProducedTokens() {
+            // EVT-001: Modify source list after event creation; verify event's list unchanged
+            var tokens = new java.util.ArrayList<Token<?>>();
+            tokens.add(Token.of(new SimpleValue("result")));
+
+            var event = new NetEvent.TransitionCompleted(
+                Instant.now(), "T1", tokens, Duration.ofMillis(50));
+
+            // Modify original list
+            tokens.clear();
+
+            // Event's list should be unchanged
+            assertEquals(1, event.producedTokens().size(),
+                "Event should have defensive copy, not live reference");
+        }
+
+        @Test
+        void transitionStarted_listIsUnmodifiable() {
+            // EVT-001: Event's collection should be unmodifiable
+            var event = new NetEvent.TransitionStarted(
+                Instant.now(), "T1", List.of(Token.of(new SimpleValue("data"))));
+
+            assertThrows(UnsupportedOperationException.class,
+                () -> event.consumedTokens().add(Token.of(new SimpleValue("injected"))),
+                "Event's token list should be unmodifiable");
+        }
+
+        @Test
+        void markingSnapshot_defensiveCopyOfMarking() {
+            // EVT-001: Modify source map after event creation; verify event's map unchanged
+            var marking = new java.util.HashMap<String, List<Token<?>>>();
+            var tokenList = new java.util.ArrayList<Token<?>>();
+            tokenList.add(Token.of(new SimpleValue("v1")));
+            marking.put("Place1", tokenList);
+
+            var event = new NetEvent.MarkingSnapshot(Instant.now(), marking);
+
+            // Modify original map and list
+            marking.put("Place2", List.of());
+            tokenList.add(Token.of(new SimpleValue("v2")));
+
+            // Event should be unaffected
+            assertFalse(event.marking().containsKey("Place2"),
+                "New keys in original map should not appear in snapshot");
+            assertEquals(1, event.marking().get("Place1").size(),
+                "Modifications to original lists should not affect snapshot");
         }
     }
 

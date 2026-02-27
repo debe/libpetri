@@ -11,7 +11,7 @@ import org.libpetri.debug.LogCaptureScope;
 import org.libpetri.event.EventStore;
 import org.libpetri.event.NetEvent;
 /**
- * Orchestrator for executing Typed Colored Time Petri Nets.
+ * Orchestrator for executing Coloured Time Petri Nets.
  *
  * <p>The executor manages the complete lifecycle of a Petri net execution:
  * token flow, transition enablement, firing, and completion detection.
@@ -481,6 +481,7 @@ public final class NetExecutor implements PetriNetExecutor {
                 executionId()
             )
         );
+        emitMarkingSnapshot();
 
         while (running && !Thread.currentThread().isInterrupted() && !closed.get()) {
             // Process completed transitions
@@ -491,6 +492,9 @@ public final class NetExecutor implements PetriNetExecutor {
 
             // Update enabled transitions
             updateEnabledTransitions();
+
+            // Enforce deadlines (disable transitions past their latest bound)
+            enforceDeadlines();
 
             // Check termination conditions
             if (shouldTerminate()) {
@@ -509,6 +513,7 @@ public final class NetExecutor implements PetriNetExecutor {
         // Complete any pending external events with false
         drainPendingExternalEvents();
 
+        emitMarkingSnapshot();
         emitEvent(
             new NetEvent.ExecutionCompleted(
                 Instant.now(),
@@ -643,13 +648,20 @@ public final class NetExecutor implements PetriNetExecutor {
             Transition t = entry.getKey();
             long enabledNanos = entry.getValue();
             long elapsedMs = (nowNanos - enabledNanos) / 1_000_000;
-            long earliestMs = t.timing().earliest().toMillis();
-            long remainingMs = earliestMs - elapsedMs;
 
-            if (remainingMs <= 0) {
-                return 0; // Already ready to fire
+            // Time until earliest bound (when transition becomes ready to fire)
+            long earliestMs = t.timing().earliest().toMillis();
+            long remainingEarliest = earliestMs - elapsedMs;
+            if (remainingEarliest <= 0) return 0;
+            minWaitMs = Math.min(minWaitMs, remainingEarliest);
+
+            // Time until deadline (when transition must be force-disabled)
+            if (t.timing().hasDeadline()) {
+                long latestMs = t.timing().latest().toMillis();
+                long remainingDeadline = latestMs - elapsedMs;
+                if (remainingDeadline <= 0) return 0;
+                minWaitMs = Math.min(minWaitMs, remainingDeadline);
             }
-            minWaitMs = Math.min(minWaitMs, remainingMs);
         }
         return minWaitMs;
     }
@@ -684,6 +696,45 @@ public final class NetExecutor implements PetriNetExecutor {
      */
     private void drainPendingExternalEvents() {
         ExecutorSupport.drainPendingExternalEvents(externalEventQueue);
+    }
+
+    // ======================== Deadline Enforcement ========================
+
+    /**
+     * Disables transitions that have exceeded their timing deadline.
+     *
+     * <p>For each enabled transition with {@code timing().hasDeadline()}, checks
+     * if the elapsed time since enablement exceeds {@code timing().latest()}.
+     * If so, the transition is disabled and a {@link NetEvent.TransitionTimedOut}
+     * event is emitted.
+     *
+     * @see org.libpetri.core.Timing#hasDeadline()
+     * @see org.libpetri.core.Timing#latest()
+     */
+    private void enforceDeadlines() {
+        long nowNanos = System.nanoTime();
+        var expired = new ArrayList<Transition>();
+
+        for (var entry : enabledAt.entrySet()) {
+            Transition t = entry.getKey();
+            if (!t.timing().hasDeadline()) continue;
+
+            long enabledNanos = entry.getValue();
+            long elapsedMillis = (nowNanos - enabledNanos) / 1_000_000;
+            long latestMillis = t.timing().latest().toMillis();
+
+            if (elapsedMillis > latestMillis) {
+                expired.add(t);
+                emitEvent(new NetEvent.TransitionTimedOut(
+                    Instant.now(), t.name(),
+                    t.timing().latest(),
+                    Duration.ofMillis(elapsedMillis)));
+            }
+        }
+
+        for (Transition t : expired) {
+            enabledAt.remove(t);
+        }
     }
 
     // ======================== Transition Lifecycle ========================
@@ -1104,6 +1155,10 @@ public final class NetExecutor implements PetriNetExecutor {
 
     private Duration elapsedDuration() {
         return Duration.ofNanos(System.nanoTime() - startNanos);
+    }
+
+    private void emitMarkingSnapshot() {
+        emitEvent(new NetEvent.MarkingSnapshot(Instant.now(), marking.snapshot()));
     }
 
     // ======================== Output Validation ========================

@@ -236,6 +236,26 @@ public final class Marking {
         return queue == null ? 0 : queue.size();
     }
 
+    // ======================== Snapshotting ========================
+
+    /**
+     * Creates a snapshot of the current marking for event emission.
+     * Only includes non-empty places.
+     *
+     * <p>Package-private — used by executors for {@link org.libpetri.event.NetEvent.MarkingSnapshot} events.
+     *
+     * @return map of place names to their tokens (defensive copies)
+     */
+    Map<String, List<Token<?>>> snapshot() {
+        var result = new HashMap<String, List<Token<?>>>();
+        for (var entry : tokens.entrySet()) {
+            if (!entry.getValue().isEmpty()) {
+                result.put(entry.getKey().name(), List.copyOf(entry.getValue()));
+            }
+        }
+        return result;
+    }
+
     // ======================== Debugging ========================
 
     /**
