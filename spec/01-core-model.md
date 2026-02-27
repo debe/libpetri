@@ -1,6 +1,6 @@
 # 01 — Core Model
 
-This document specifies the foundational model of the TCPN engine: places, tokens, transitions, arcs, net construction, actions, and context.
+This document specifies the foundational model of the CTPN engine: places, tokens, transitions, arcs, net construction, actions, and context.
 
 ---
 

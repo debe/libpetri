@@ -1,6 +1,6 @@
 # libpetri
 
-TypeScript implementation of a **Timed Coloured Petri Net** (TCPN) engine with bitmap-based execution, formal verification via Z3, and Mermaid visualization.
+TypeScript implementation of a **Coloured Time Petri Net** (CTPN) engine with bitmap-based execution, formal verification via Z3, and Mermaid visualization.
 
 ## Architecture
 

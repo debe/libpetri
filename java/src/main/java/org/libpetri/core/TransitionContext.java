@@ -224,7 +224,7 @@ public final class TransitionContext {
      * Retrieves an execution context object by type.
      *
      * <p>Execution context allows external systems (like tracing) to pass
-     * data into transition actions without coupling the TCPN module to
+     * data into transition actions without coupling the CTPN module to
      * those systems.
      *
      * @param <T> the context type

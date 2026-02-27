@@ -1,5 +1,5 @@
 /**
- * Core domain model for Typed Colored Time Petri Nets (TCPN).
+ * Core domain model for Coloured Time Petri Nets (CTPN).
  *
  * <h2>Overview</h2>
  * This package provides a type-safe, immutable model for defining and executing

@@ -1,7 +1,7 @@
 {
   "name": "libpetri",
   "version": "0.1.0",
-  "description": "Timed Coloured Petri Net engine — TypeScript port",
+  "description": "Coloured Time Petri Net engine — TypeScript port",
   "type": "module",
   "exports": {
     ".": {

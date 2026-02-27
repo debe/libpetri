@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for new TCPN APIs:
+ * Tests for new CTPN APIs:
  * - Timing sealed interface
  * - Out.Timeout action timeout
  * - Out.ForwardInput retry pattern

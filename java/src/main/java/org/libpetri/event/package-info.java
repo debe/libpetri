@@ -2,7 +2,7 @@
  * Event sourcing infrastructure for Petri net execution.
  *
  * <p>This package provides a complete event system for capturing, storing,
- * and querying execution history of Typed Colored Time Petri Nets.
+ * and querying execution history of Coloured Time Petri Nets.
  *
  * <h2>Package Contents</h2>
  * <dl>
