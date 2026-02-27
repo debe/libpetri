@@ -11,7 +11,7 @@
 
     <name>libpetri</name>
     <description>High-performance Coloured Time Petri Net (CTPN) engine with formal verification</description>
-    <url>https://libpetri.org</url>
+    <url>https://github.com/debe/libpetri</url>
 
     <licenses>
         <license>
@@ -22,15 +22,16 @@
 
     <developers>
         <developer>
-            <name>libpetri contributors</name>
-            <url>https://github.com/libpetri/libpetri</url>
+            <name>Dennis Berger</name>
+            <email>dbgh@knownhosts.org</email>
+            <url>https://github.com/debe</url>
         </developer>
     </developers>
 
     <scm>
-        <connection>scm:git:https://github.com/libpetri/libpetri.git</connection>
-        <developerConnection>scm:git:ssh://git@github.com/libpetri/libpetri.git</developerConnection>
-        <url>https://github.com/libpetri/libpetri</url>
+        <connection>scm:git:https://github.com/debe/libpetri.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/debe/libpetri.git</developerConnection>
+        <url>https://github.com/debe/libpetri</url>
     </scm>
 
     <properties>
