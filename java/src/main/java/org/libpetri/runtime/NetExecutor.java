@@ -151,15 +151,12 @@ public final class NetExecutor implements PetriNetExecutor {
         var result = new HashMap<Transition, Set<Place<?>>>();
         for (var t : net.transitions()) {
             var places = new HashSet<Place<?>>();
-            // New API
             for (var in : t.inputSpecs()) {
                 places.add(in.place());
             }
-            // Legacy API
-            places.addAll(t.inputs().keySet());
-            result.put(t, Set.copyOf(places)); // Immutable for safety
+            result.put(t, Set.copyOf(places));
         }
-        return Map.copyOf(result); // Immutable map
+        return Map.copyOf(result);
     }
 
     // ======================== Factory Methods ========================
@@ -806,27 +803,13 @@ public final class NetExecutor implements PetriNetExecutor {
             if (!marking.hasTokens(arc.place())) return false;
         }
 
-        // NEW: Check input specs with cardinality
+        // Check input specs with cardinality
         for (var in : t.inputSpecs()) {
             int available = marking.tokenCount(in.place());
             int required = in.requiredCount();
             if (available < required) {
                 return false;
             }
-        }
-
-        // Legacy: Check each place has enough tokens for all its input arcs
-        for (var place : t.inputs().keySet()) {
-            int requiredCount = t.inputs().get(place).size();
-            int tokenCount = marking.tokenCount(place);
-            if (tokenCount < requiredCount) {
-                return false;
-            }
-        }
-
-        // Legacy: Check guards
-        for (var arc : t.inputs().values()) {
-            if (arc.hasGuard() && !marking.hasMatchingToken(arc)) return false;
         }
 
         return true;
@@ -891,13 +874,13 @@ public final class NetExecutor implements PetriNetExecutor {
         var inputs = new TokenInput();
         List<Token<?>> consumed = new ArrayList<>();
 
-        // NEW: Consume tokens based on input specs with cardinality
+        // Consume tokens based on input specs with cardinality
         for (var in : t.inputSpecs()) {
             int toConsume = switch (in) {
-                case In.One _ -> 1;
-                case In.Exactly e -> e.count();
-                case In.All _ -> marking.tokenCount(in.place());
-                case In.AtLeast _ -> marking.tokenCount(in.place());
+                case Arc.In.One _ -> 1;
+                case Arc.In.Exactly e -> e.count();
+                case Arc.In.All _ -> marking.tokenCount(in.place());
+                case Arc.In.AtLeast _ -> marking.tokenCount(in.place());
             };
 
             for (int i = 0; i < toConsume; i++) {
@@ -912,20 +895,6 @@ public final class NetExecutor implements PetriNetExecutor {
                     )
                 );
             }
-        }
-
-        // Legacy: Consume from old-style input arcs
-        for (var arc : t.inputs().values()) {
-            Token<?> token = marking.removeFirstMatching(arc);
-            consumed.add(token);
-            inputs.add((Place<Object>) arc.place(), (Token<Object>) token);
-            emitEvent(
-                new NetEvent.TokenRemoved(
-                    Instant.now(),
-                    arc.place().name(),
-                    token
-                )
-            );
         }
 
         for (var arc : t.reads()) {
@@ -1005,7 +974,7 @@ public final class NetExecutor implements PetriNetExecutor {
         enabledAt.remove(t);
     }
 
-    private void produceTimeoutOutput(TransitionContext context, Out timeoutChild) {
+    private void produceTimeoutOutput(TransitionContext context, Arc.Out timeoutChild) {
         ExecutorSupport.produceTimeoutOutput(context, timeoutChild);
     }
 

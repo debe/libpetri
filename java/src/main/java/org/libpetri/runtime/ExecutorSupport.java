@@ -12,7 +12,7 @@ final class ExecutorSupport {
     private ExecutorSupport() {}
 
     /**
-     * Recursively validates that a transition's output satisfies its declared {@link Out} spec.
+     * Recursively validates that a transition's output satisfies its declared {@link Arc.Out} spec.
      *
      * @param tName transition name for error messages
      * @param spec the output specification to validate
@@ -20,15 +20,15 @@ final class ExecutorSupport {
      * @return the set of claimed places, or empty if not satisfied
      * @throws OutViolationException if a structural violation is detected
      */
-    static Optional<Set<Place<?>>> validateOutSpec(String tName, Out spec, Set<Place<?>> produced) {
+    static Optional<Set<Place<?>>> validateOutSpec(String tName, Arc.Out spec, Set<Place<?>> produced) {
         return switch (spec) {
-            case Out.Place p -> produced.contains(p.place())
+            case Arc.Out.Place p -> produced.contains(p.place())
                 ? Optional.of(Set.of(p.place()))
                 : Optional.empty();
 
-            case Out.And and -> {
+            case Arc.Out.And and -> {
                 var claimed = new HashSet<Place<?>>();
-                for (Out child : and.children()) {
+                for (Arc.Out child : and.children()) {
                     var result = validateOutSpec(tName, child, produced);
                     if (result.isEmpty()) yield Optional.<Set<Place<?>>>empty();
                     claimed.addAll(result.get());
@@ -36,7 +36,7 @@ final class ExecutorSupport {
                 yield Optional.of(claimed);
             }
 
-            case Out.Xor xor -> {
+            case Arc.Out.Xor xor -> {
                 var satisfied = xor.children().stream()
                     .flatMap(child -> validateOutSpec(tName, child, produced).stream())
                     .toList();
@@ -61,9 +61,9 @@ final class ExecutorSupport {
                 };
             }
 
-            case Out.Timeout timeout -> validateOutSpec(tName, timeout.child(), produced);
+            case Arc.Out.Timeout timeout -> validateOutSpec(tName, timeout.child(), produced);
 
-            case Out.ForwardInput f -> produced.contains(f.to())
+            case Arc.Out.ForwardInput f -> produced.contains(f.to())
                 ? Optional.of(Set.of(f.to()))
                 : Optional.empty();
         };
@@ -73,24 +73,24 @@ final class ExecutorSupport {
      * Produces tokens to the timeout branch output places.
      */
     @SuppressWarnings("unchecked")
-    static void produceTimeoutOutput(TransitionContext context, Out timeoutChild) {
+    static void produceTimeoutOutput(TransitionContext context, Arc.Out timeoutChild) {
         produceTimeoutOutputRecursive(context, timeoutChild);
     }
 
     @SuppressWarnings("unchecked")
-    private static void produceTimeoutOutputRecursive(TransitionContext context, Out out) {
+    private static void produceTimeoutOutputRecursive(TransitionContext context, Arc.Out out) {
         switch (out) {
-            case Out.Place p ->
+            case Arc.Out.Place p ->
                 context.output((Place<Object>) p.place(), Token.unit().value());
-            case Out.ForwardInput f -> {
+            case Arc.Out.ForwardInput f -> {
                 Object value = context.input(f.from());
                 context.output((Place<Object>) f.to(), value);
             }
-            case Out.And a ->
+            case Arc.Out.And a ->
                 a.children().forEach(c -> produceTimeoutOutputRecursive(context, c));
-            case Out.Xor _ ->
+            case Arc.Out.Xor _ ->
                 throw new IllegalStateException("XOR not allowed in timeout child");
-            case Out.Timeout _ ->
+            case Arc.Out.Timeout _ ->
                 throw new IllegalStateException("Nested Timeout not allowed");
         }
     }

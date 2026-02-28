@@ -112,22 +112,6 @@ public final class PetriNet {
     /**
      * Creates a new transition with a different action while preserving all arc specifications.
      *
-     * <p>This method handles both the new typed API ({@link In}/{@link Out} specs) and
-     * the legacy arc-based API for backward compatibility. Both are copied independently.
-     *
-     * <p><b>New API fields copied:</b>
-     * <ul>
-     *   <li>{@code inputSpecs} - typed input specifications (In.one, In.exactly, etc.)</li>
-     *   <li>{@code outputSpec} - composite output specification (Out.and, Out.xor, etc.)</li>
-     * </ul>
-     *
-     * <p><b>Legacy API fields copied:</b>
-     * <ul>
-     *   <li>{@code inputs} - arc-based input definitions</li>
-     *   <li>{@code outputs} - arc-based output definitions</li>
-     *   <li>{@code inhibitors}, {@code reads}, {@code resets} - control arcs</li>
-     * </ul>
-     *
      * @param t the original transition
      * @param action the new action to bind
      * @return a new transition with the given action and all original specifications
@@ -138,19 +122,13 @@ public final class PetriNet {
             .priority(t.priority())
             .action(action);
 
-        // NEW API: Copy inputSpecs and outputSpec
         if (!t.inputSpecs().isEmpty()) {
-            builder.inputs(t.inputSpecs().toArray(new In[0]));
+            builder.inputs(t.inputSpecs().toArray(new Arc.In[0]));
         }
         if (t.outputSpec() != null) {
             builder.outputs(t.outputSpec());
         }
 
-        // LEGACY API: Copy for backward compatibility
-        t.inputs().values().forEach(builder::inputArc);
-        t.outputs().forEach(builder::outputArc);
-
-        // Other arc types
         t.inhibitors().forEach(builder::inhibitorArc);
         t.reads().forEach(builder::readArc);
         t.resets().forEach(builder::resetArc);
@@ -184,8 +162,8 @@ public final class PetriNet {
         public Builder transition(Transition transition) {
             transitions.add(transition);
             // Auto-add places from transition arcs
-            places.addAll(transition.inputs().keySet());
-            transition.outputs().forEach(arc -> places.add(arc.place()));
+            for (var in : transition.inputSpecs()) places.add(in.place());
+            if (transition.outputSpec() != null) places.addAll(transition.outputSpec().allPlaces());
             transition.inhibitors().forEach(arc -> places.add(arc.place()));
             transition.reads().forEach(arc -> places.add(arc.place()));
             return this;

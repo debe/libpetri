@@ -2,6 +2,7 @@ package org.libpetri.runtime;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import org.libpetri.core.Arc;
 import org.libpetri.core.EnvironmentPlace;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
@@ -58,9 +59,9 @@ abstract class AbstractNetExecutorEnvironmentTest {
 
             // Simple transition: whenever a token arrives in ENV_INPUT, move it to PROCESSED
             Transition process = Transition.builder("ProcessEnv")
-                .input(envPlace)
-                .output(processed)
-                .deadline(1_000)
+                .inputs(Arc.In.one(envPlace))
+                .outputs(Arc.Out.and(processed))
+                .timing(Timing.deadline(Duration.ofMillis(1_000)))
                 .action(ctx -> {
                     StringValue value = ctx.input(envPlace);
                     ctx.output(
@@ -152,9 +153,9 @@ abstract class AbstractNetExecutorEnvironmentTest {
             Place<StringValue> output = Place.of("OUTPUT", StringValue.class);
 
             Transition t = Transition.builder("simple")
-                .input(regularInput)
-                .output(output)
-                .deadline(1_000)
+                .inputs(Arc.In.one(regularInput))
+                .outputs(Arc.Out.and(output))
+                .timing(Timing.deadline(Duration.ofMillis(1_000)))
                 .action(ctx -> {
                     ctx.output(output, ctx.input(regularInput));
                     return CompletableFuture.completedFuture(null);
@@ -214,9 +215,9 @@ abstract class AbstractNetExecutorEnvironmentTest {
             AtomicBoolean actionCanFinish = new AtomicBoolean(false);
 
             Transition slow = Transition.builder("slow")
-                .input(envPlace)
-                .output(slowOut)
-                .deadline(5_000)
+                .inputs(Arc.In.one(envPlace))
+                .outputs(Arc.Out.and(slowOut))
+                .timing(Timing.deadline(Duration.ofMillis(5_000)))
                 .action(ctx ->
                     CompletableFuture.runAsync(() -> {
                         actionStarted.set(true);
@@ -310,9 +311,9 @@ abstract class AbstractNetExecutorEnvironmentTest {
             Place<StringValue> sink = Place.of("SINK", StringValue.class);
 
             Transition consume = Transition.builder("consume")
-                .input(envPlace)
-                .output(sink)
-                .deadline(1_000)
+                .inputs(Arc.In.one(envPlace))
+                .outputs(Arc.Out.and(sink))
+                .timing(Timing.deadline(Duration.ofMillis(1_000)))
                 .action(ctx -> {
                     StringValue v = ctx.input(envPlace);
                     ctx.output(sink, new StringValue("seen-" + v.data()));
@@ -377,8 +378,8 @@ abstract class AbstractNetExecutorEnvironmentTest {
 
             // A transition with 100ms delay - should fire ~100ms after enabling
             Transition delayed = Transition.builder("Delayed100ms")
-                .input(input)
-                .output(output)
+                .inputs(Arc.In.one(input))
+                .outputs(Arc.Out.and(output))
                 .timing(Timing.delayed(Duration.ofMillis(100)))
                 .action(ctx -> {
                     ctx.output(output, ctx.input(input));
@@ -470,9 +471,9 @@ abstract class AbstractNetExecutorEnvironmentTest {
 
             // Slow transition that blocks for a while
             Transition slow = Transition.builder("slow")
-                .input(envPlace)
-                .output(output)
-                .deadline(10_000)
+                .inputs(Arc.In.one(envPlace))
+                .outputs(Arc.Out.and(output))
+                .timing(Timing.deadline(Duration.ofMillis(10_000)))
                 .action(ctx -> CompletableFuture.runAsync(() -> {
                     actionStarted.set(true);
                     try { Thread.sleep(5_000); } catch (InterruptedException e) {
@@ -524,9 +525,9 @@ abstract class AbstractNetExecutorEnvironmentTest {
             Place<StringValue> output = Place.of("OUTPUT", StringValue.class);
 
             Transition t = Transition.builder("t")
-                .input(envPlace)
-                .output(output)
-                .deadline(1_000)
+                .inputs(Arc.In.one(envPlace))
+                .outputs(Arc.Out.and(output))
+                .timing(Timing.deadline(Duration.ofMillis(1_000)))
                 .action(ctx -> {
                     ctx.output(output, ctx.input(envPlace));
                     return CompletableFuture.completedFuture(null);
@@ -572,9 +573,9 @@ abstract class AbstractNetExecutorEnvironmentTest {
             EventStore store = EventStore.inMemory();
 
             Transition t = Transition.builder("fromEnv")
-                .input(envPlace)
-                .output(out)
-                .deadline(1_000)
+                .inputs(Arc.In.one(envPlace))
+                .outputs(Arc.Out.and(out))
+                .timing(Timing.deadline(Duration.ofMillis(1_000)))
                 .action(ctx -> {
                     ctx.output(out, ctx.input(envPlace));
                     return CompletableFuture.completedFuture(null);

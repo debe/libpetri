@@ -4,10 +4,10 @@ import org.junit.jupiter.api.Test;
 
 import org.libpetri.core.*;
 import org.libpetri.runtime.NetExecutor;
-import static org.libpetri.core.In.one;
-import static org.libpetri.core.Out.and;
-import static org.libpetri.core.Out.place;
-import static org.libpetri.core.Out.xor;
+import static org.libpetri.core.Arc.In.one;
+import static org.libpetri.core.Arc.Out.and;
+import static org.libpetri.core.Arc.Out.place;
+import static org.libpetri.core.Arc.Out.xor;
 
 import java.time.Duration;
 import java.util.List;

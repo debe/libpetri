@@ -157,7 +157,6 @@ A transition is **enabled** when ALL of the following conditions hold simultaneo
 1. All input places have at least `requiredCount()` tokens (see [IO-001]–[IO-004])
 2. All read places have at least one token
 3. No inhibitor place has any tokens
-4. If input arcs have guard predicates, at least the required number of tokens pass the guard
 
 When any condition ceases to hold, the transition becomes disabled.
 
@@ -166,7 +165,6 @@ When any condition ceases to hold, the transition becomes disabled.
 2. Missing input tokens → disabled.
 3. Missing read tokens → disabled.
 4. Inhibitor place has tokens → disabled.
-5. Guard predicate filters out all tokens → disabled.
 
 **Depends on:** [IO-001], [CORE-030], [CORE-031], [CORE-032]
 **Test derivation:** Systematically toggle each condition and verify enablement changes.
@@ -179,14 +177,13 @@ When any condition ceases to hold, the transition becomes disabled.
 
 **Priority:** MUST
 
-An input arc connects a place to a transition. When the transition fires, it **consumes** one or more tokens from the place according to the input's cardinality specification (see [IO-001]–[IO-004]). An input arc may optionally include a **guard predicate** that filters which tokens are eligible for consumption.
+An input arc connects a place to a transition. When the transition fires, it **consumes** one or more tokens from the place according to the input's cardinality specification (see [IO-001]–[IO-004]).
 
 **Acceptance Criteria:**
 1. Transition with input arc consumes tokens from the place on firing.
-2. With guard: only tokens passing the predicate are eligible.
-3. Guarded input with no matching tokens → transition not enabled.
+2. Consumed tokens follow FIFO order.
 
-**Test derivation:** Create transition with guarded input; add matching and non-matching tokens; verify only matching tokens consumed.
+**Test derivation:** Create transition with input arc; add tokens; verify tokens consumed in FIFO order.
 
 ---
 

@@ -2,10 +2,11 @@ package org.libpetri.export;
 
 import org.junit.jupiter.api.Test;
 
-import org.libpetri.core.In;
-import org.libpetri.core.Out;
+import org.libpetri.core.Arc.In;
+import org.libpetri.core.Arc.Out;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
+import org.libpetri.core.Timing;
 import org.libpetri.core.Transition;
 
 import java.time.Duration;
@@ -21,9 +22,9 @@ class MermaidExporterTest {
 
         var net = PetriNet.builder("Simple")
             .transition(Transition.builder("t1")
-                .input(start)
-                .output(end)
-                .deadline(1000)
+                .inputs(In.one(start))
+                .outputs(Out.place(end))
+                .timing(Timing.deadline(Duration.ofMillis(1000)))
                 .build())
             .build();
 
@@ -48,14 +49,14 @@ class MermaidExporterTest {
 
         var net = PetriNet.builder("Guarded")
             .transition(Transition.builder("guarded")
-                .inputWhen(input, s -> s.startsWith("valid"))
-                .output(output)
+                .inputs(In.one(input))
+                .outputs(Out.place(output))
                 .build())
             .build();
 
         var mermaid = MermaidExporter.export(net);
 
-        assertTrue(mermaid.contains("-.->|guard|"));
+        assertTrue(mermaid.contains("Input --> t_guarded"));
     }
 
     @Test
@@ -66,9 +67,9 @@ class MermaidExporterTest {
 
         var net = PetriNet.builder("Inhibited")
             .transition(Transition.builder("t1")
-                .input(input)
+                .inputs(In.one(input))
                 .inhibitor(blocker)
-                .output(output)
+                .outputs(Out.place(output))
                 .build())
             .build();
 
@@ -85,9 +86,9 @@ class MermaidExporterTest {
 
         var net = PetriNet.builder("WithRead")
             .transition(Transition.builder("t1")
-                .input(input)
+                .inputs(In.one(input))
                 .read(context)
-                .output(output)
+                .outputs(Out.place(output))
                 .build())
             .build();
 
@@ -103,9 +104,9 @@ class MermaidExporterTest {
 
         var net = PetriNet.builder("Minimal")
             .transition(Transition.builder("t1")
-                .input(start)
-                .output(end)
-                .deadline(1000)
+                .inputs(In.one(start))
+                .outputs(Out.place(end))
+                .timing(Timing.deadline(Duration.ofMillis(1000)))
                 .priority(5)
                 .build())
             .build();
@@ -124,8 +125,8 @@ class MermaidExporterTest {
 
         var net = PetriNet.builder("LR")
             .transition(Transition.builder("t1")
-                .input(start)
-                .output(end)
+                .inputs(In.one(start))
+                .outputs(Out.place(end))
                 .build())
             .build();
 
@@ -144,27 +145,25 @@ class MermaidExporterTest {
 
         var net = PetriNet.builder("ChatWorkflow")
             .transition(Transition.builder("ask")
-                .input(pending)
-                .output(ready)
-                .output(ready)
-                .deadline(100)
+                .inputs(In.one(pending))
+                .outputs(Out.and(ready, ready))
+                .timing(Timing.deadline(Duration.ofMillis(100)))
                 .build())
             .transition(Transition.builder("Guard")
-                .input(ready)
-                .output(validated)
-                .deadline(500)
+                .inputs(In.one(ready))
+                .outputs(Out.place(validated))
+                .timing(Timing.deadline(Duration.ofMillis(500)))
                 .priority(1)
                 .build())
             .transition(Transition.builder("Intent")
-                .input(ready)
-                .output(understood)
-                .deadline(2000)
+                .inputs(In.one(ready))
+                .outputs(Out.place(understood))
+                .timing(Timing.deadline(Duration.ofMillis(2000)))
                 .build())
             .transition(Transition.builder("Compose")
-                .input(validated)
-                .input(understood)
-                .output(answered)
-                .deadline(6000)
+                .inputs(In.one(validated), In.one(understood))
+                .outputs(Out.place(answered))
+                .timing(Timing.deadline(Duration.ofMillis(6000)))
                 .build())
             .build();
 

@@ -224,12 +224,4 @@ public sealed interface Timing permits
         };
     }
 
-    /**
-     * Converts to a FiringInterval for backward compatibility.
-     *
-     * @return equivalent FiringInterval
-     */
-    default FiringInterval toInterval() {
-        return new FiringInterval(earliest(), latest());
-    }
 }

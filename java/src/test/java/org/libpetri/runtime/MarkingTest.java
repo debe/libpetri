@@ -2,7 +2,6 @@ package org.libpetri.runtime;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import org.libpetri.core.Arc;
 import org.libpetri.core.Place;
 import org.libpetri.core.Token;
 import java.util.List;
@@ -28,52 +27,6 @@ class MarkingTest {
 
         var tokens = marking.peekTokens(place);
         assertTrue(tokens.isEmpty(), "peekTokens on empty place should return empty collection");
-    }
-
-    @Test
-    void removeFirstMatching_noGuard_emptyQueue_returnsNull() {
-        var place = Place.of("p", Value.class);
-        var arc = new Arc.Input<>(place); // no guard
-        var marking = Marking.empty();
-
-        assertNull(marking.removeFirstMatching(arc));
-    }
-
-    @Test
-    void removeFirstMatching_withGuard_noMatch_returnsNull() {
-        var place = Place.of("p", Value.class);
-        var arc = new Arc.Input<>(place, v -> v.data().equals("target"));
-        var marking = Marking.from(Map.of(
-            place, List.of(
-                Token.of(new Value("no")),
-                Token.of(new Value("miss"))
-            )
-        ));
-
-        // Guard matches neither token - iterator exhausts, returns null
-        assertNull(marking.removeFirstMatching(arc));
-        // Both tokens should still be there
-        assertEquals(2, marking.tokenCount(place));
-    }
-
-    @Test
-    void hasMatchingToken_noGuard_withTokens_returnsTrue() {
-        var place = Place.of("p", Value.class);
-        var arc = new Arc.Input<>(place); // no guard
-        var marking = Marking.from(Map.of(
-            place, List.of(Token.of(new Value("any")))
-        ));
-
-        assertTrue(marking.hasMatchingToken(arc));
-    }
-
-    @Test
-    void hasMatchingToken_emptyPlace_returnsFalse() {
-        var place = Place.of("p", Value.class);
-        var arc = new Arc.Input<>(place);
-        var marking = Marking.empty();
-
-        assertFalse(marking.hasMatchingToken(arc));
     }
 
     @Test

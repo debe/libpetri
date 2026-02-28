@@ -2,6 +2,8 @@ package org.libpetri.smt.encoding;
 
 import org.libpetri.analysis.EnvironmentAnalysisMode;
 import org.libpetri.core.*;
+import org.libpetri.core.Arc.In;
+import org.libpetri.core.Arc.Out;
 import org.junit.jupiter.api.Test;
 
 import java.util.Set;

@@ -2,7 +2,7 @@ package org.libpetri.smt.encoding;
 
 import org.libpetri.analysis.EnvironmentAnalysisMode;
 import org.libpetri.core.EnvironmentPlace;
-import org.libpetri.core.In;
+import org.libpetri.core.Arc;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
 import org.libpetri.core.Transition;
@@ -92,30 +92,23 @@ public final class NetFlattener {
                 int[] preVector = new int[n];
                 boolean[] consumeAll = new boolean[n];
 
-                // New API: inputSpecs
+                // Build pre-vector from inputSpecs
                 for (var in : transition.inputSpecs()) {
                     int idx = placeIndex.getOrDefault(in.place(), -1);
                     if (idx < 0) continue;
 
                     switch (in) {
-                        case In.One _ -> preVector[idx] = 1;
-                        case In.Exactly e -> preVector[idx] = e.count();
-                        case In.All _ -> {
+                        case Arc.In.One _ -> preVector[idx] = 1;
+                        case Arc.In.Exactly e -> preVector[idx] = e.count();
+                        case Arc.In.All _ -> {
                             preVector[idx] = 1;
                             consumeAll[idx] = true;
                         }
-                        case In.AtLeast a -> {
+                        case Arc.In.AtLeast a -> {
                             preVector[idx] = a.minimum();
                             consumeAll[idx] = true;
                         }
                     }
-                }
-
-                // Legacy API: inputs() multimap (backward compatibility)
-                for (var place : transition.inputs().keySet()) {
-                    int idx = placeIndex.getOrDefault(place, -1);
-                    if (idx < 0 || preVector[idx] > 0) continue; // skip if already set by inputSpecs
-                    preVector[idx] = transition.inputs().get(place).size();
                 }
 
                 // Build post-vector from branch output places
@@ -173,14 +166,6 @@ public final class NetFlattener {
     private static List<Set<Place<?>>> enumerateOutputBranches(Transition t) {
         if (t.outputSpec() != null) {
             return t.outputSpec().enumerateBranches();
-        }
-
-        // Legacy: single branch with all output places
-        if (!t.outputs().isEmpty()) {
-            Set<Place<?>> places = t.outputs().stream()
-                .map(arc -> (Place<?>) arc.place())
-                .collect(Collectors.toUnmodifiableSet());
-            return List.of(places);
         }
 
         // No outputs (sink transition)

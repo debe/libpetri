@@ -1,6 +1,8 @@
 package org.libpetri.runtime;
 
 import org.libpetri.core.*;
+import org.libpetri.core.Arc.In;
+import org.libpetri.core.Arc.Out;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
@@ -42,9 +44,9 @@ class ThreadSafetyStressTest {
         var fired = new AtomicInteger(0);
 
         var t = Transition.builder("Process")
-            .input(input)
-            .output(output)
-            .deadline(5000)
+            .inputs(In.one(input))
+            .outputs(Out.and(output))
+            .timing(Timing.deadline(Duration.ofMillis(5000)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 var c = ctx.input(input);
                 fired.incrementAndGet();
@@ -90,11 +92,9 @@ class ThreadSafetyStressTest {
         var output = Place.of("Output", Counter.class);
 
         var t = Transition.builder("MultiOutput")
-            .input(input)
-            .output(output)
-            .output(output)
-            .output(output)  // 3 output arcs
-            .deadline(5000)
+            .inputs(In.one(input))
+            .outputs(Out.and(output, output, output))
+            .timing(Timing.deadline(Duration.ofMillis(5000)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 var c = ctx.input(input);
                 ctx.output(output, new Counter(c.id * 100));
@@ -131,18 +131,18 @@ class ThreadSafetyStressTest {
         var placeC = Place.of("C", Counter.class);
 
         var t1 = Transition.builder("A->B")
-            .input(placeA)
-            .output(placeB)
-            .deadline(5000)
+            .inputs(In.one(placeA))
+            .outputs(Out.and(placeB))
+            .timing(Timing.deadline(Duration.ofMillis(5000)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 ctx.output(placeB, new Counter(ctx.input(placeA).id + 1));
             }, actionExecutor))
             .build();
 
         var t2 = Transition.builder("B->C")
-            .input(placeB)
-            .output(placeC)
-            .deadline(5000)
+            .inputs(In.one(placeB))
+            .outputs(Out.and(placeC))
+            .timing(Timing.deadline(Duration.ofMillis(5000)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 ctx.output(placeC, new Counter(ctx.input(placeB).id + 1));
             }, actionExecutor))
@@ -185,10 +185,10 @@ class ThreadSafetyStressTest {
         var configValue = new AtomicInteger(0);
 
         var t = Transition.builder("ReadConfig")
-            .input(input)
+            .inputs(In.one(input))
             .read(config)  // Read but don't consume
-            .output(output)
-            .deadline(5000)
+            .outputs(Out.and(output))
+            .timing(Timing.deadline(Duration.ofMillis(5000)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 var c = ctx.input(input);
                 var cfg = ctx.read(config);
@@ -231,10 +231,10 @@ class ThreadSafetyStressTest {
         var clearedCount = new AtomicInteger(0);
 
         var t = Transition.builder("ClearBuffer")
-            .input(trigger)
+            .inputs(In.one(trigger))
             .reset(buffer)  // Clear ALL tokens from buffer
-            .output(done)
-            .deadline(5000)
+            .outputs(Out.and(done))
+            .timing(Timing.deadline(Duration.ofMillis(5000)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 // Reset arc clears buffer before action sees it
                 clearedCount.incrementAndGet();
@@ -274,10 +274,10 @@ class ThreadSafetyStressTest {
         var fired = new AtomicInteger(0);
 
         var t = Transition.builder("Inhibited")
-            .input(input)
+            .inputs(In.one(input))
             .inhibitor(blocker)  // Blocked when blocker has tokens
-            .output(output)
-            .deadline(5000)
+            .outputs(Out.and(output))
+            .timing(Timing.deadline(Duration.ofMillis(5000)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 fired.incrementAndGet();
                 ctx.output(output, ctx.input(input));
@@ -314,12 +314,12 @@ class ThreadSafetyStressTest {
         var output = Place.of("Output", Counter.class);
 
         var t = Transition.builder("Complex")
-            .input(input)
+            .inputs(In.one(input))
             .read(config)
             .reset(buffer)
             .inhibitor(blocker)
-            .output(output)
-            .deadline(5000)
+            .outputs(Out.and(output))
+            .timing(Timing.deadline(Duration.ofMillis(5000)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 var inputVal = ctx.input(input);
                 var configVal = ctx.read(config);

@@ -14,63 +14,103 @@ class ArcTest {
     record OtherValue(int count) {}
 
     @Nested
-    class InputArcTests {
+    class InArcTests {
 
         @Test
-        void input_withoutGuard_matchesAnyTokenOfType() {
+        void inOne_storesPlace() {
             var place = Place.of("Input", TestValue.class);
-            var arc = new Arc.Input<>(place);
+            var spec = Arc.In.one(place);
 
-            var matching = Token.of(new TestValue("data"));
-            var wrongType = Token.of(new OtherValue(42));
-
-            assertTrue(arc.matches(matching));
-            assertFalse(arc.matches(wrongType));
+            assertSame(place, spec.place());
+            assertInstanceOf(Arc.In.One.class, spec);
         }
 
         @Test
-        void input_withGuard_onlyMatchesWhenGuardPasses() {
-            var place = Place.of("Numbers", Integer.class);
-            var arc = new Arc.Input<>(place, n -> n > 10);
+        void inExactly_storesPlaceAndCount() {
+            var place = Place.of("Input", TestValue.class);
+            var spec = Arc.In.exactly(3, place);
 
-            assertTrue(arc.matches(Token.of(15)));
-            assertFalse(arc.matches(Token.of(5)));
+            assertSame(place, spec.place());
+            assertInstanceOf(Arc.In.Exactly.class, spec);
+            assertEquals(3, ((Arc.In.Exactly) spec).count());
         }
 
         @Test
-        void hasGuard_withGuard_returnsTrue() {
-            var place = Place.of("Input", String.class);
-            var arc = new Arc.Input<>(place, s -> s.length() > 0);
+        void inAll_storesPlace() {
+            var place = Place.of("Input", TestValue.class);
+            var spec = Arc.In.all(place);
 
-            assertTrue(arc.hasGuard());
+            assertSame(place, spec.place());
+            assertInstanceOf(Arc.In.All.class, spec);
         }
 
         @Test
-        void hasGuard_withoutGuard_returnsFalse() {
-            var place = Place.of("Input", String.class);
-            var arc = new Arc.Input<>(place);
+        void inAtLeast_storesPlaceAndMinimum() {
+            var place = Place.of("Input", TestValue.class);
+            var spec = Arc.In.atLeast(5, place);
 
-            assertFalse(arc.hasGuard());
+            assertSame(place, spec.place());
+            assertInstanceOf(Arc.In.AtLeast.class, spec);
+            assertEquals(5, ((Arc.In.AtLeast) spec).minimum());
         }
 
         @Test
-        void place_returnsConnectedPlace() {
-            var place = Place.of("Input", String.class);
-            var arc = new Arc.Input<>(place);
+        void inExactly_rejectsZeroCount() {
+            var place = Place.of("Input", TestValue.class);
+            assertThrows(IllegalArgumentException.class, () -> Arc.In.exactly(0, place));
+        }
 
-            assertSame(place, arc.place());
+        @Test
+        void inAtLeast_rejectsZeroMinimum() {
+            var place = Place.of("Input", TestValue.class);
+            assertThrows(IllegalArgumentException.class, () -> Arc.In.atLeast(0, place));
+        }
+
+        @Test
+        void requiredCount_returnsCorrectValues() {
+            var place = Place.of("P", TestValue.class);
+
+            assertEquals(1, Arc.In.one(place).requiredCount());
+            assertEquals(3, Arc.In.exactly(3, place).requiredCount());
+            assertEquals(1, Arc.In.all(place).requiredCount());
+            assertEquals(5, Arc.In.atLeast(5, place).requiredCount());
         }
     }
 
     @Nested
-    class OutputArcTests {
+    class OutArcTests {
 
         @Test
-        void output_storesPlace() {
+        void outPlace_storesPlace() {
             var place = Place.of("Output", TestValue.class);
-            var arc = new Arc.Output<>(place);
+            var spec = Arc.Out.place(place);
 
-            assertSame(place, arc.place());
+            assertEquals(place, spec.place());
+        }
+
+        @Test
+        void outAnd_storesChildren() {
+            var p1 = Place.of("P1", TestValue.class);
+            var p2 = Place.of("P2", TestValue.class);
+            var spec = Arc.Out.and(p1, p2);
+
+            assertEquals(2, spec.children().size());
+        }
+
+        @Test
+        void outXor_storesChildren() {
+            var p1 = Place.of("P1", TestValue.class);
+            var p2 = Place.of("P2", TestValue.class);
+            var spec = Arc.Out.xor(p1, p2);
+
+            assertEquals(2, spec.children().size());
+        }
+
+        @Test
+        void outXor_rejectsLessThanTwoChildren() {
+            var p1 = Place.of("P1", TestValue.class);
+            assertThrows(IllegalArgumentException.class, () ->
+                Arc.Out.xor(Arc.Out.place(p1)));
         }
     }
 
@@ -132,25 +172,23 @@ class ArcTest {
     class SealedHierarchyTests {
 
         @Test
-        void arc_isSealed_withFivePermittedTypes() {
+        void arc_isSealed_withFourPermittedTypes() {
             assertTrue(Arc.class.isSealed());
 
             var permitted = Arc.class.getPermittedSubclasses();
-            assertEquals(5, permitted.length);
+            assertEquals(4, permitted.length);
         }
 
         @Test
         void patternMatching_worksForAllArcTypes() {
             var place = Place.of("Test", String.class);
 
-            Arc input = new Arc.Input<>(place);
-            Arc output = new Arc.Output<>(place);
+            Arc in = Arc.In.one(place);
             Arc inhibitor = new Arc.Inhibitor<>(place);
             Arc read = new Arc.Read<>(place);
             Arc reset = new Arc.Reset<>(place);
 
-            assertEquals("input", describeArc(input));
-            assertEquals("output", describeArc(output));
+            assertEquals("in", describeArc(in));
             assertEquals("inhibitor", describeArc(inhibitor));
             assertEquals("read", describeArc(read));
             assertEquals("reset", describeArc(reset));
@@ -158,8 +196,7 @@ class ArcTest {
 
         private String describeArc(Arc arc) {
             return switch (arc) {
-                case Arc.Input<?> _ -> "input";
-                case Arc.Output<?> _ -> "output";
+                case Arc.In _ -> "in";
                 case Arc.Inhibitor<?> _ -> "inhibitor";
                 case Arc.Read<?> _ -> "read";
                 case Arc.Reset<?> _ -> "reset";

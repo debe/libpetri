@@ -17,7 +17,7 @@
 
 - **Executable formal models** — Petri nets that actually run: typed tokens flow through places, transitions fire with real-time deadlines, and async actions execute concurrently. Not a simulator — a production workflow engine.
 - **Two implementations, one spec** — Java and TypeScript share [145 language-agnostic requirements](spec/00-index.md) covering every arc type, timing variant, and execution phase. Same behavior, verified independently.
-- **Research-backed** — Grounded in the theory of *Coloured Time Petri Nets* applied to agentic systems. The Extended TPN example below models a real-world agentic customer-support workflow.
+- **Research-backed** — Grounded in the theory of *Coloured Time Petri Nets* applied to agentic systems. The Order Processing Pipeline below demonstrates every arc type, timing mode, and place type in one deadlock-free net.
 
 ---
 
@@ -120,114 +120,113 @@ cd typescript && npm install && npm test
 
 ---
 
-## Real-World Example: Agentic Customer Support
+## Showcase: Order Processing Pipeline
 
-The **Extended TPN** — an agentic customer-support workflow with parallel branches, fallback paths, retry logic, and a global timeout. Rendered using libpetri's DOT exporter.
+An order fulfillment workflow (8 transitions, 12 places) that demonstrates **every** arc type, place type, and timing mode — with no deadlocks. Rendered using libpetri's DOT exporter.
 
 <p align="center">
-  <img src="docs/extended-tpn.svg" alt="Extended TPN — Agentic Customer Support Workflow" width="600">
+  <img src="docs/showcase-order-pipeline.svg" alt="Order Processing Pipeline — Showcase Petri Net" width="600">
 </p>
 
 **Patterns at work:**
 
 | Pattern | Where | How |
 |---|---|---|
-| **Parallel split** | `ask` → Guard + Intent | Read arcs let both transitions consume Ready without conflict |
-| **AND-join** | Compose | Waits for all four inputs: Validated, Informed, Promoted, Found |
-| **XOR routing** | Search, Compose | Produces to exactly one of two output places (success / failure) |
-| **Inhibitor arc** | Fallback, Retry | Blocked when Urgent has a token — no retries after timeout |
-| **Exact timing** | Timeout | Fires at precisely 9000ms, depositing the Urgent token |
-| **Graceful degradation** | ShowError | Consumes ComposeFail + Urgent → shows error instead of retrying |
+| **AND-fork** | Receive | Splits Order into Validating + InStock + Active in one firing |
+| **AND-join** | Approve | Waits for both PaymentOk and InStock before proceeding |
+| **XOR routing** | Authorize, RetryPayment | Produces to exactly one of PaymentOk / PaymentFailed |
+| **Inhibitor arc** | RetryPayment, Ship, Cancel, Monitor | Blocks when a place has tokens (e.g., no retry after Overdue) |
+| **Read arc** | Ship, Monitor | Tests Active without consuming — persists across the workflow |
+| **Reset arc** | Reject, Cancel | Clears all tokens from places (e.g., Cancel resets 5 places) |
+| **Environment place** | CancelRequest | External cancellation signal injected at runtime |
+| **Priority** | Receive (prio=10) | Fires before other enabled transitions |
+| **All 5 timing modes** | See below | Immediate, Window, Delayed, Deadline, Exact |
+
+**Timing modes demonstrated:**
+
+| Transition | Timing | Meaning |
+|---|---|---|
+| Receive, Ship, Reject, Cancel | `immediate()` | Fire as soon as enabled |
+| Authorize | `window(200ms, 5s)` | Fire between 200ms and 5s |
+| RetryPayment | `delayed(1s)` | Wait at least 1s before retry |
+| Approve | `deadline(2s)` | Must fire within 2s |
+| Monitor | `exact(10s)` | Fires at precisely 10s (urgency) |
 
 <details>
 <summary><strong>Java code (from PaperNetworks.java)</strong></summary>
 
 ```java
-var pending      = Place.of("Pending", String.class);
-var ready        = Place.of("Ready", String.class);
-var validated    = Place.of("Validated", String.class);
-var understood   = Place.of("Understood", String.class);
-var informed     = Place.of("Informed", String.class);
-var promoted     = Place.of("Promoted", String.class);
-var found        = Place.of("Found", String.class);
-var drafted      = Place.of("Drafted", String.class);
-var answered     = Place.of("Answered", String.class);
-var urgent       = Place.of("Urgent", String.class);
-var searchFail   = Place.of("SearchFail", String.class);
-var composeFail  = Place.of("ComposeFail", String.class);
-var errorShown   = Place.of("ErrorShown", String.class);
+var order         = Place.of("Order", String.class);
+var active        = Place.of("Active", String.class);
+var validating    = Place.of("Validating", String.class);
+var inStock       = Place.of("InStock", String.class);
+var paymentOk     = Place.of("PaymentOk", String.class);
+var paymentFailed = Place.of("PaymentFailed", String.class);
+var ready         = Place.of("Ready", String.class);
+var shipped       = Place.of("Shipped", String.class);
+var rejected      = Place.of("Rejected", String.class);
+var cancelled     = Place.of("Cancelled", String.class);
+var overdue       = Place.of("Overdue", String.class);
+var cancelRequest = Place.of("CancelRequest", String.class); // EnvironmentPlace at runtime
 
-var ask = Transition.builder("ask")
-    .inputs(In.one(pending))
+var receive = Transition.builder("Receive")
+    .inputs(In.one(order))
+    .outputs(Out.and(validating, inStock, active))    // AND-fork
+    .timing(Timing.immediate())
+    .priority(10)
+    .build();
+
+var authorize = Transition.builder("Authorize")
+    .inputs(In.one(validating))
+    .outputs(Out.xor(paymentOk, paymentFailed))       // XOR choice
+    .timing(Timing.window(Duration.ofMillis(200), Duration.ofSeconds(5)))
+    .build();
+
+var retryPayment = Transition.builder("RetryPayment")
+    .inputs(In.one(paymentFailed))
+    .inhibitor(overdue)                                // blocked after timeout
+    .outputs(Out.xor(paymentOk, paymentFailed))
+    .timing(Timing.delayed(Duration.ofSeconds(1)))
+    .build();
+
+var approve = Transition.builder("Approve")
+    .inputs(In.one(paymentOk), In.one(inStock))       // AND-join
     .outputs(Out.place(ready))
-    .timing(Timing.deadline(Duration.ofMillis(100)))
+    .timing(Timing.deadline(Duration.ofSeconds(2)))
     .build();
 
-var guard = Transition.builder("Guard")
-    .read(ready)
-    .outputs(Out.place(validated))
-    .timing(Timing.deadline(Duration.ofMillis(500)))
+var ship = Transition.builder("Ship")
+    .inputs(In.one(ready))
+    .read(active)                                      // read arc
+    .inhibitor(cancelled)
+    .outputs(Out.place(shipped))
+    .timing(Timing.immediate())
     .build();
 
-var intent = Transition.builder("Intent")
-    .read(ready)
-    .outputs(Out.place(understood))
-    .timing(Timing.deadline(Duration.ofMillis(2000)))
+var reject = Transition.builder("Reject")
+    .inputs(In.one(paymentFailed), In.one(overdue))
+    .reset(inStock)                                    // reset arc
+    .outputs(Out.place(rejected))
+    .timing(Timing.immediate())
     .build();
 
-var topic = Transition.builder("Topic")
-    .inputs(In.one(understood))
-    .outputs(Out.and(informed, promoted))       // AND-fork
-    .timing(Timing.deadline(Duration.ofMillis(4500)))
+var cancel = Transition.builder("Cancel")
+    .inputs(In.one(cancelRequest))                     // environment place
+    .inhibitors(shipped, rejected)
+    .resets(validating, paymentFailed, inStock, paymentOk, ready)  // multiple resets
+    .outputs(Out.place(cancelled))
+    .timing(Timing.immediate())
     .build();
 
-var search = Transition.builder("Search")
-    .inputs(In.one(understood))
-    .outputs(Out.xor(found, searchFail))        // XOR-choice
-    .timing(Timing.deadline(Duration.ofMillis(3500)))
+var monitor = Transition.builder("Monitor")
+    .read(active)
+    .inhibitors(shipped, rejected, cancelled, overdue)
+    .outputs(Out.place(overdue))
+    .timing(Timing.exact(Duration.ofSeconds(10)))      // exact timing (urgency)
     .build();
 
-var fallback = Transition.builder("Fallback")
-    .inputs(In.one(searchFail))
-    .outputs(Out.place(found))
-    .inhibitor(urgent)                          // blocked after timeout
-    .timing(Timing.deadline(Duration.ofMillis(100)))
-    .build();
-
-var compose = Transition.builder("Compose")
-    .inputs(In.one(validated), In.one(informed), In.one(promoted), In.one(found))
-    .outputs(Out.xor(drafted, composeFail))
-    .timing(Timing.deadline(Duration.ofMillis(6000)))
-    .build();
-
-var retry = Transition.builder("Retry")
-    .inputs(In.one(composeFail))
-    .outputs(Out.place(drafted))
-    .inhibitor(urgent)
-    .timing(Timing.deadline(Duration.ofMillis(1000)))
-    .build();
-
-var showError = Transition.builder("ShowError")
-    .inputs(In.one(composeFail), In.one(urgent))
-    .outputs(Out.place(errorShown))
-    .timing(Timing.deadline(Duration.ofMillis(100)))
-    .build();
-
-var filter = Transition.builder("Filter")
-    .inputs(In.one(drafted))
-    .outputs(Out.place(answered))
-    .timing(Timing.deadline(Duration.ofMillis(500)))
-    .build();
-
-var timeout = Transition.builder("Timeout")
-    .read(pending)
-    .outputs(Out.place(urgent))
-    .timing(Timing.exact(Duration.ofMillis(9000))) // fires at exactly 9s
-    .build();
-
-return PetriNet.builder("ExtendedTPN-Paper")
-    .transitions(ask, guard, intent, topic, search, fallback,
-                 compose, retry, showError, filter, timeout)
+return PetriNet.builder("OrderProcessingPipeline")
+    .transitions(receive, authorize, retryPayment, approve, ship, reject, cancel, monitor)
     .build();
 ```
 

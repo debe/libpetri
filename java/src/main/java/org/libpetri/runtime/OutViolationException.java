@@ -13,7 +13,7 @@ package org.libpetri.runtime;
  * <p>This exception indicates a programming error in the transition action
  * that violates the structural contract declared in the net definition.
  *
- * @see Out
+ * @see org.libpetri.core.Arc.Out
  */
 public class OutViolationException extends RuntimeException {
 

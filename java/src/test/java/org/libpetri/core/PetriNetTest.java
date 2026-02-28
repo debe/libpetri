@@ -35,8 +35,8 @@ class PetriNetTest {
         var output = Place.of("Output", TestValue.class);
 
         var t = Transition.builder("t")
-            .input(input)
-            .output(output)
+            .inputs(Arc.In.one(input))
+            .outputs(Arc.Out.and(output))
             .build();
 
         var net = PetriNet.builder("Net").transition(t).build();
@@ -54,13 +54,13 @@ class PetriNetTest {
         var p3 = Place.of("P3", TestValue.class);
 
         var t1 = Transition.builder("t1")
-            .input(p1)
-            .output(p2)
+            .inputs(Arc.In.one(p1))
+            .outputs(Arc.Out.and(p2))
             .build();
 
         var t2 = Transition.builder("t2")
-            .input(p2)
-            .output(p3)
+            .inputs(Arc.In.one(p2))
+            .outputs(Arc.Out.and(p3))
             .build();
 
         var net = PetriNet.builder("Chain")
@@ -78,13 +78,13 @@ class PetriNetTest {
         var p2 = Place.of("P2", TestValue.class);
 
         var t1 = Transition.builder("t1")
-            .input(p1)
-            .output(shared)
+            .inputs(Arc.In.one(p1))
+            .outputs(Arc.Out.and(shared))
             .build();
 
         var t2 = Transition.builder("t2")
-            .input(shared)
-            .output(p2)
+            .inputs(Arc.In.one(shared))
+            .outputs(Arc.Out.and(p2))
             .build();
 
         var net = PetriNet.builder("SharedPlace")
@@ -102,8 +102,8 @@ class PetriNetTest {
         var read = Place.of("Read", TestValue.class);
 
         var t = Transition.builder("t")
-            .input(input)
-            .output(output)
+            .inputs(Arc.In.one(input))
+            .outputs(Arc.Out.and(output))
             .inhibitor(inhibitor)
             .read(read)
             .build();
@@ -123,7 +123,7 @@ class PetriNetTest {
         var transitionPlace = Place.of("FromTransition", TestValue.class);
 
         var t = Transition.builder("t")
-            .input(transitionPlace)
+            .inputs(Arc.In.one(transitionPlace))
             .build();
 
         var net = PetriNet.builder("Mixed")
@@ -139,7 +139,7 @@ class PetriNetTest {
     @Test
     void places_returnsImmutableSet() {
         var place = Place.of("Input", TestValue.class);
-        var t = Transition.builder("t").input(place).build();
+        var t = Transition.builder("t").inputs(Arc.In.one(place)).build();
         var net = PetriNet.builder("Net").transition(t).build();
 
         assertThrows(UnsupportedOperationException.class, () ->
@@ -150,7 +150,7 @@ class PetriNetTest {
     @Test
     void transitions_returnsImmutableSet() {
         var place = Place.of("Input", TestValue.class);
-        var t = Transition.builder("t").input(place).build();
+        var t = Transition.builder("t").inputs(Arc.In.one(place)).build();
         var net = PetriNet.builder("Net").transition(t).build();
 
         assertThrows(UnsupportedOperationException.class, () ->
@@ -161,13 +161,13 @@ class PetriNetTest {
     @Test
     void petriNet_isImmutable_builderDoesNotAffect() {
         var place = Place.of("P1", TestValue.class);
-        var t = Transition.builder("t").input(place).build();
+        var t = Transition.builder("t").inputs(Arc.In.one(place)).build();
 
         var builder = PetriNet.builder("Net").transition(t);
         var net1 = builder.build();
 
         var extraPlace = Place.of("Extra", TestValue.class);
-        var t2 = Transition.builder("t2").input(extraPlace).build();
+        var t2 = Transition.builder("t2").inputs(Arc.In.one(extraPlace)).build();
         builder.transition(t2);
 
         var net2 = builder.build();
@@ -182,8 +182,8 @@ class PetriNetTest {
         var output = Place.of("Output", TestValue.class);
 
         var t = Transition.builder("t")
-            .input(input)
-            .output(output)
+            .inputs(Arc.In.one(input))
+            .outputs(Arc.Out.and(output))
             .action(ctx -> {
                 ctx.output(output, ctx.input(input));
                 return CompletableFuture.completedFuture(null);
@@ -205,8 +205,8 @@ class PetriNetTest {
         var output = Place.of("Output", Void.class);
 
         var t = Transition.builder("t")
-            .inputs(In.one(p1), In.one(p2))
-            .outputs(Out.place(output))
+            .inputs(Arc.In.one(p1), Arc.In.one(p2))
+            .outputs(Arc.Out.place(output))
             .build();
 
         // Verify original has inputSpecs

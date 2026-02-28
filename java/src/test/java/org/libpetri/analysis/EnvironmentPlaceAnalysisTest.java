@@ -1,6 +1,8 @@
 package org.libpetri.analysis;
 
 import org.libpetri.core.*;
+import org.libpetri.core.Arc.In;
+import org.libpetri.core.Arc.Out;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,8 +21,8 @@ class EnvironmentPlaceAnalysisTest {
         var output = Place.of("Output", String.class);
 
         var process = Transition.builder("Process")
-            .input(inputEnv.place())
-            .output(output)
+            .inputs(In.one(inputEnv.place()))
+            .outputs(Out.place(output))
             .build();
 
         var net = PetriNet.builder("Test").transitions(process).build();
@@ -45,8 +47,8 @@ class EnvironmentPlaceAnalysisTest {
         var output = Place.of("Output", String.class);
 
         var process = Transition.builder("Process")
-            .input(inputEnv.place())
-            .output(output)
+            .inputs(In.one(inputEnv.place()))
+            .outputs(Out.place(output))
             .build();
 
         var net = PetriNet.builder("Test").transitions(process).build();
@@ -71,8 +73,8 @@ class EnvironmentPlaceAnalysisTest {
         var output = Place.of("Output", String.class);
 
         var process = Transition.builder("Process")
-            .input(inputEnv.place())
-            .output(output)
+            .inputs(In.one(inputEnv.place()))
+            .outputs(Out.place(output))
             .build();
 
         var net = PetriNet.builder("Test").transitions(process).build();
@@ -98,9 +100,8 @@ class EnvironmentPlaceAnalysisTest {
 
         // Transition requires 2 input tokens
         var process = Transition.builder("ProcessTwo")
-            .input(inputEnv.place())
-            .input(inputEnv.place())  // Second input from same place
-            .output(output)
+            .inputs(In.exactly(2, inputEnv.place()))
+            .outputs(Out.place(output))
             .build();
 
         var net = PetriNet.builder("Test").transitions(process).build();
@@ -137,8 +138,8 @@ class EnvironmentPlaceAnalysisTest {
         var output = Place.of("Output", String.class);
 
         var process = Transition.builder("Process")
-            .input(input)
-            .output(output)
+            .inputs(In.one(input))
+            .outputs(Out.place(output))
             .build();
 
         var net = PetriNet.builder("Test").transitions(process).build();
@@ -187,8 +188,8 @@ class EnvironmentPlaceAnalysisTest {
         var output = Place.of("Output", String.class);
 
         var process = Transition.builder("Process")
-            .input(inputEnv.place())
-            .output(output)
+            .inputs(In.one(inputEnv.place()))
+            .outputs(Out.place(output))
             .build();
 
         var net = PetriNet.builder("Test").transitions(process).build();
