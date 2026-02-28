@@ -57,18 +57,6 @@ public record PlaceAnalysis(Map<String, Info> data) {
                             new boolean[2])).markIncoming();
                 }
             }
-            // Legacy: Input arcs
-            for (var arc : t.inputs().values()) {
-                map.computeIfAbsent(arc.place().name(),
-                    _ -> new MutableInfo(arc.place().tokenType().getSimpleName(),
-                        new boolean[2])).markOutgoing();
-            }
-            // Legacy: Output arcs
-            for (var arc : t.outputs()) {
-                map.computeIfAbsent(arc.place().name(),
-                    _ -> new MutableInfo(arc.place().tokenType().getSimpleName(),
-                        new boolean[2])).markIncoming();
-            }
             for (var arc : t.inhibitors()) {
                 map.computeIfAbsent(arc.place().name(),
                     _ -> new MutableInfo(arc.place().tokenType().getSimpleName(),

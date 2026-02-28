@@ -1,19 +1,11 @@
 package org.libpetri.core;
 
-import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.ImmutableListMultimap;
-import com.google.common.collect.ListMultimap;
-
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.Predicate;
 import java.util.stream.Collectors;
-
-import static java.lang.System.Logger.Level;
 
 /**
  * A transition in the Time Petri Net that transforms tokens.
@@ -28,13 +20,13 @@ import static java.lang.System.Logger.Level;
  * <h3>Enablement</h3>
  * A transition is enabled when:
  * <ul>
- *   <li>All input places have required tokens (matching guards if specified)</li>
+ *   <li>All input places have required tokens (per cardinality specs)</li>
  *   <li>All read places have required tokens</li>
  *   <li>No inhibitor places have tokens</li>
  * </ul>
  *
  * <h3>Time Semantics</h3>
- * Each transition has a {@link FiringInterval} [earliest, deadline]:
+ * Each transition has a {@link Timing} specification:
  * <ul>
  *   <li>Cannot fire before earliest time after becoming enabled</li>
  *   <li>Must fire (or be disabled) before deadline</li>
@@ -43,12 +35,12 @@ import static java.lang.System.Logger.Level;
  * <h3>Example</h3>
  * <pre>{@code
  * var process = Transition.builder("ProcessRequest")
- *     .input(requestPlace)
- *     .read(configPlace)          // read config without consuming
- *     .inhibitor(pausedPlace)     // don't process if paused
- *     .output(responsePlace)
- *     .deadline(Duration.ofSeconds(30))
- *     .priority(10)               // higher priority fires first
+ *     .inputs(Arc.In.one(requestPlace))
+ *     .read(configPlace)              // read config without consuming
+ *     .inhibitor(pausedPlace)         // don't process if paused
+ *     .outputs(Arc.Out.and(responsePlace))
+ *     .timing(Timing.deadline(Duration.ofSeconds(30)))
+ *     .priority(10)                   // higher priority fires first
  *     .action((in, out) -> {
  *         var request = in.value(requestPlace);
  *         var config = in.value(configPlace);
@@ -63,39 +55,25 @@ import static java.lang.System.Logger.Level;
  * The name is purely a label for display/debugging/export.
  */
 public final class Transition {
-    private static final System.Logger LOG = System.getLogger(Transition.class.getName());
 
     private final String name;
-
-    // NEW: Typed input/output specs with cardinality and split semantics
-    private final List<In> inputSpecs;
-    private final Out outputSpec;
-
-    // Legacy fields (kept for backward compatibility during migration)
-    @Deprecated(forRemoval = true)
-    private final ListMultimap<Place<?>, Arc.Input<?>> inputs;
-    @Deprecated(forRemoval = true)
-    private final List<Arc.Output<?>> outputs;
-
+    private final List<Arc.In> inputSpecs;
+    private final Arc.Out outputSpec;
     private final List<Arc.Inhibitor<?>> inhibitors;
     private final List<Arc.Read<?>> reads;
     private final List<Arc.Reset<?>> resets;
-    private final FiringInterval interval;
     private final Timing timing;
-    private final Out.Timeout actionTimeout;  // Cached from outputSpec at build time, null if no timeout
+    private final Arc.Out.Timeout actionTimeout;
     private final TransitionAction action;
     private final int priority;
 
     private Transition(
         String name,
-        List<In> inputSpecs,
-        Out outputSpec,
-        ListMultimap<Place<?>, Arc.Input<?>> inputs,
-        List<Arc.Output<?>> outputs,
+        List<Arc.In> inputSpecs,
+        Arc.Out outputSpec,
         List<Arc.Inhibitor<?>> inhibitors,
         List<Arc.Read<?>> reads,
         List<Arc.Reset<?>> resets,
-        FiringInterval interval,
         Timing timing,
         TransitionAction action,
         int priority
@@ -103,14 +81,11 @@ public final class Transition {
         this.name = name;
         this.inputSpecs = List.copyOf(inputSpecs);
         this.outputSpec = outputSpec;
-        this.inputs = ImmutableListMultimap.copyOf(inputs);
-        this.outputs = List.copyOf(outputs);
         this.inhibitors = List.copyOf(inhibitors);
         this.reads = List.copyOf(reads);
         this.resets = List.copyOf(resets);
-        this.interval = interval;
         this.timing = timing;
-        this.actionTimeout = findTimeout(outputSpec);  // Cached at build time
+        this.actionTimeout = findTimeout(outputSpec);
         this.action = action;
         this.priority = priority;
     }
@@ -119,74 +94,44 @@ public final class Transition {
      * Recursively searches the output spec for a Timeout node.
      * Used at build time to cache timeout for O(1) runtime lookup.
      *
-     * <p><b>Note:</b> If multiple Timeout nodes exist in the structure (e.g., in a XOR),
-     * only the first one found is returned. This is typically acceptable since XOR
-     * branches represent mutually exclusive outcomes, and multiple timeouts would
-     * be redundant. If you need multiple timeout durations, structure them in
-     * separate XOR branches.
-     *
      * @param out the output specification to search
      * @return the first Timeout found, or null if none exists
      */
-    private static Out.Timeout findTimeout(Out out) {
+    private static Arc.Out.Timeout findTimeout(Arc.Out out) {
         return switch (out) {
             case null -> null;
-            case Out.Timeout t -> t;
-            case Out.And a -> a.children().stream()
+            case Arc.Out.Timeout t -> t;
+            case Arc.Out.And a -> a.children().stream()
                 .map(Transition::findTimeout)
                 .filter(Objects::nonNull)
                 .findFirst().orElse(null);
-            case Out.Xor x -> x.children().stream()
+            case Arc.Out.Xor x -> x.children().stream()
                 .map(Transition::findTimeout)
                 .filter(Objects::nonNull)
                 .findFirst().orElse(null);
-            case Out.Place _ -> null;
-            case Out.ForwardInput _ -> null;
+            case Arc.Out.Place _ -> null;
+            case Arc.Out.ForwardInput _ -> null;
         };
     }
 
     /** Label for display/debugging/export. Not used for identity. */
     public String name() { return name; }
 
-    // ==================== NEW: Typed Input/Output Specs ====================
-
     /**
      * Returns the input specifications with cardinality.
      * Use this for enablement checks and token consumption.
      */
-    public List<In> inputSpecs() { return inputSpecs; }
+    public List<Arc.In> inputSpecs() { return inputSpecs; }
 
     /**
      * Returns the output specification (composite AND/XOR structure).
      * Use this for output validation.
      */
-    public Out outputSpec() { return outputSpec; }
-
-    // ==================== Legacy Accessors (deprecated) ====================
-
-    /**
-     * Returns the input arcs grouped by place (multimap).
-     * @deprecated Use {@link #inputSpecs()} instead
-     */
-    @Deprecated(forRemoval = true)
-    public ListMultimap<Place<?>, Arc.Input<?>> inputs() { return inputs; }
-
-    /**
-     * @deprecated Use {@link #outputSpec()} instead
-     */
-    @Deprecated(forRemoval = true)
-    public List<Arc.Output<?>> outputs() { return outputs; }
+    public Arc.Out outputSpec() { return outputSpec; }
 
     public List<Arc.Inhibitor<?>> inhibitors() { return inhibitors; }
     public List<Arc.Read<?>> reads() { return reads; }
     public List<Arc.Reset<?>> resets() { return resets; }
-
-    /**
-     * Returns the firing interval.
-     * @deprecated Use {@link #timing()} instead
-     */
-    @Deprecated(forRemoval = true)
-    public FiringInterval interval() { return interval; }
 
     /**
      * Returns the timing specification for when this transition can/must fire.
@@ -201,7 +146,7 @@ public final class Transition {
     /**
      * Returns the action timeout if present, or null if no timeout is specified.
      */
-    public Out.Timeout actionTimeout() { return actionTimeout; }
+    public Arc.Out.Timeout actionTimeout() { return actionTimeout; }
 
     public TransitionAction action() { return action; }
     public int priority() { return priority; }
@@ -211,17 +156,11 @@ public final class Transition {
     /**
      * Returns set of input places - consumed tokens.
      * Used by TransitionContext to enforce structure constraints.
-     * Merges both new inputSpecs and legacy inputs.
      */
     public Set<Place<?>> inputPlaces() {
-        var places = new HashSet<Place<?>>();
-        // New style
-        for (var in : inputSpecs) {
-            places.add(in.place());
-        }
-        // Legacy style (for backward compatibility)
-        places.addAll(inputs.keySet());
-        return Set.copyOf(places);
+        return inputSpecs.stream()
+            .map(Arc.In::place)
+            .collect(Collectors.toUnmodifiableSet());
     }
 
     /**
@@ -237,19 +176,10 @@ public final class Transition {
     /**
      * Returns set of output places - where tokens are produced.
      * Used by TransitionContext to enforce structure constraints.
-     * Merges both new outputSpec and legacy outputs.
      */
     public Set<Place<?>> outputPlaces() {
-        var places = new HashSet<Place<?>>();
-        // New style
-        if (outputSpec != null) {
-            places.addAll(outputSpec.allPlaces());
-        }
-        // Legacy style (for backward compatibility)
-        for (var arc : outputs) {
-            places.add(arc.place());
-        }
-        return Set.copyOf(places);
+        if (outputSpec == null) return Set.of();
+        return outputSpec.allPlaces();
     }
 
     // Uses Object.equals/hashCode (identity-based) - no override needed
@@ -265,20 +195,12 @@ public final class Transition {
 
     public static class Builder {
         private final String name;
-
-        // NEW: Typed input/output specs
-        private final ArrayList<In> inputSpecs = new ArrayList<>();
-        private Out outputSpec = null;
-
-        // Legacy fields (for backward compatibility)
-        private final ArrayListMultimap<Place<?>, Arc.Input<?>> inputs = ArrayListMultimap.create();
-        private final ArrayList<Arc.Output<?>> outputs = new ArrayList<>();
-
+        private final ArrayList<Arc.In> inputSpecs = new ArrayList<>();
+        private Arc.Out outputSpec = null;
         private final ArrayList<Arc.Inhibitor<?>> inhibitors = new ArrayList<>();
         private final ArrayList<Arc.Read<?>> reads = new ArrayList<>();
         private final ArrayList<Arc.Reset<?>> resets = new ArrayList<>();
-        private FiringInterval interval = FiringInterval.unconstrained();
-        private Timing timing = Timing.unconstrained();
+        private Timing timing = Timing.immediate();
         private TransitionAction action = TransitionAction.passthrough();
         private int priority = 0;
 
@@ -286,20 +208,18 @@ public final class Transition {
             this.name = name;
         }
 
-        // ==================== NEW: Typed Input/Output Methods ====================
-
         /**
          * Add input specifications with cardinality.
          *
          * <p>Example:
          * <pre>{@code
-         * .inputs(In.one(headerPlace), In.atLeast(1, lineItemPlace))
+         * .inputs(Arc.In.one(headerPlace), Arc.In.atLeast(1, lineItemPlace))
          * }</pre>
          *
          * @param specs input specifications
          * @return this builder
          */
-        public Builder inputs(In... specs) {
+        public Builder inputs(Arc.In... specs) {
             inputSpecs.addAll(List.of(specs));
             return this;
         }
@@ -309,97 +229,16 @@ public final class Transition {
          *
          * <p>Example:
          * <pre>{@code
-         * .outputs(Out.xor(successPlace, errorPlace))
-         * .outputs(Out.and(p1, p2, p3))
-         * .outputs(Out.xor(Out.and(a, b), Out.and(c, d)))
+         * .outputs(Arc.Out.xor(successPlace, errorPlace))
+         * .outputs(Arc.Out.and(p1, p2, p3))
+         * .outputs(Arc.Out.xor(Arc.Out.and(a, b), Arc.Out.and(c, d)))
          * }</pre>
          *
          * @param spec output specification
          * @return this builder
          */
-        public Builder outputs(Out spec) {
+        public Builder outputs(Arc.Out spec) {
             this.outputSpec = spec;
-            return this;
-        }
-
-        // ==================== Legacy Methods (deprecated) ====================
-
-        /**
-         * @deprecated Use {@code inputs(In.one(place))} instead
-         */
-        @Deprecated(forRemoval = true)
-        public <T> Builder input(Place<T> place) {
-            inputs.put(place, new Arc.Input<>(place));
-            return this;
-        }
-
-        /**
-         * Add an existing input arc (preserves guards).
-         * Used primarily for rebuilding transitions with different actions.
-         * @deprecated Use {@code inputs(In.one(place))} instead
-         */
-        @Deprecated(forRemoval = true)
-        public Builder inputArc(Arc.Input<?> arc) {
-            inputs.put(arc.place(), arc);
-            return this;
-        }
-
-        /**
-         * Add an input arc with a guard predicate (colored Petri net semantics).
-         * The transition only enables when a token matching the predicate exists.
-         *
-         * <p>Example - only accept ProductsFound tokens from a SearchResult place:
-         * <pre>{@code
-         * .inputWhen(searchResult, r -> r instanceof ProductsFound)
-         * }</pre>
-         *
-         * @param place The input place
-         * @param guard Predicate that tokens must satisfy to enable this transition
-         * @deprecated Guards on inputs should use multiple transitions for CPN compliance
-         */
-        @Deprecated(forRemoval = true)
-        public <T> Builder inputWhen(Place<T> place, Predicate<T> guard) {
-            var arc = new Arc.Input<>(place, guard);
-            inputs.put(place, arc);
-            return this;
-        }
-
-        /**
-         * Add input places (legacy vararg version).
-         * @deprecated Use {@code inputs(In.one(p1), In.one(p2), ...)} instead
-         */
-        @Deprecated(forRemoval = true)
-        public Builder inputs(Place<?>... places) {
-            for (var place : places) inputs.put(place, new Arc.Input<>(place));
-            return this;
-        }
-
-        /**
-         * Add output places (legacy vararg version).
-         * @deprecated Use {@code outputs(Out.and(p1, p2, ...))} instead
-         */
-        @Deprecated(forRemoval = true)
-        public Builder outputs(Place<?>... places) {
-            for (var place : places) outputs.add(new Arc.Output<>(place));
-            return this;
-        }
-
-        /**
-         * @deprecated Use {@code outputs(Out.and(place))} instead
-         */
-        @Deprecated(forRemoval = true)
-        public <T> Builder output(Place<T> place) {
-            outputs.add(new Arc.Output<>(place));
-            return this;
-        }
-
-        /**
-         * Add an existing output arc.
-         * @deprecated Use {@code outputs(Out.and(place))} instead
-         */
-        @Deprecated(forRemoval = true)
-        public Builder outputArc(Arc.Output<?> arc) {
-            outputs.add(arc);
             return this;
         }
 
@@ -452,18 +291,6 @@ public final class Transition {
         }
 
         /**
-         * Sets the firing interval (legacy).
-         * @deprecated Use {@link #timing(Timing)} instead
-         */
-        @Deprecated(forRemoval = true)
-        public Builder interval(FiringInterval interval) {
-            this.interval = interval;
-            // Also update timing for forward compatibility
-            this.timing = Timing.window(interval.earliest(), interval.latest());
-            return this;
-        }
-
-        /**
          * Sets the timing specification for when this transition can/must fire.
          *
          * <p>Example:
@@ -477,32 +304,6 @@ public final class Transition {
          */
         public Builder timing(Timing timing) {
             this.timing = timing;
-            // Also update interval for backward compatibility
-            this.interval = timing.toInterval();
-            return this;
-        }
-
-        /**
-         * Shorthand for immediate firing with a deadline.
-         * @deprecated Use {@link #timing(Timing)} with {@link Timing#deadline(Duration)} instead
-         */
-        @Deprecated(forRemoval = true)
-        public Builder deadline(java.time.Duration deadline) {
-            this.interval = FiringInterval.immediate(deadline);
-            this.timing = Timing.deadline(deadline);
-            return this;
-        }
-
-        /**
-         * Shorthand for immediate firing with a deadline in milliseconds.
-         * @deprecated Use {@link #timing(Timing)} with {@link Timing#deadline(Duration)} instead
-         */
-        @Deprecated(forRemoval = true)
-        public Builder deadline(long millis) {
-            var duration = java.time.Duration.ofMillis(millis);
-            this.interval = FiringInterval.immediate(duration);
-            // Handle deadline(0) as immediate firing (for backward compatibility)
-            this.timing = millis <= 0 ? Timing.immediate() : Timing.deadline(duration);
             return this;
         }
 
@@ -517,19 +318,7 @@ public final class Transition {
         }
 
         public Transition build() {
-            var transition = new Transition(name, inputSpecs, outputSpec, inputs, outputs, inhibitors, reads, resets, interval, timing, action, priority);
-
-            // Warn if a place appears in both new and legacy input APIs
-            var newApiPlaces = inputSpecs.stream().map(In::place).collect(Collectors.toSet());
-            var legacyApiPlaces = inputs.keySet();
-            var duplicates = new HashSet<>(newApiPlaces);
-            duplicates.retainAll(legacyApiPlaces);
-            if (!duplicates.isEmpty()) {
-                LOG.log(Level.WARNING,
-                    "Transition ''{0}'' has places in both new and legacy input APIs: {1}. " +
-                    "This may cause double token consumption.",
-                    name, duplicates.stream().map(Place::name).collect(Collectors.joining(", ")));
-            }
+            var transition = new Transition(name, inputSpecs, outputSpec, inhibitors, reads, resets, timing, action, priority);
 
             // Validate ForwardInput references valid input places and type compatibility
             if (outputSpec != null) {
@@ -540,7 +329,6 @@ public final class Transition {
                             "Transition '%s': ForwardInput references non-input place '%s'"
                                 .formatted(name, forwardInput.from().name()));
                     }
-                    // Validate type compatibility: from's tokenType must be assignable to to's tokenType
                     if (!forwardInput.to().tokenType().isAssignableFrom(forwardInput.from().tokenType())) {
                         throw new IllegalArgumentException(
                             "Transition '%s': ForwardInput type mismatch - cannot forward %s tokens from '%s' to '%s' which expects %s"
@@ -559,18 +347,18 @@ public final class Transition {
         /**
          * Recursively finds all ForwardInput nodes in the output spec.
          */
-        private static List<Out.ForwardInput> findForwardInputs(Out out) {
+        private static List<Arc.Out.ForwardInput> findForwardInputs(Arc.Out out) {
             return switch (out) {
                 case null -> List.of();
-                case Out.ForwardInput f -> List.of(f);
-                case Out.And a -> a.children().stream()
+                case Arc.Out.ForwardInput f -> List.of(f);
+                case Arc.Out.And a -> a.children().stream()
                     .flatMap(c -> findForwardInputs(c).stream())
                     .toList();
-                case Out.Xor x -> x.children().stream()
+                case Arc.Out.Xor x -> x.children().stream()
                     .flatMap(c -> findForwardInputs(c).stream())
                     .toList();
-                case Out.Timeout t -> findForwardInputs(t.child());
-                case Out.Place _ -> List.of();
+                case Arc.Out.Timeout t -> findForwardInputs(t.child());
+                case Arc.Out.Place _ -> List.of();
             };
         }
     }

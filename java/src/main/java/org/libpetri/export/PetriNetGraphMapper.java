@@ -1,7 +1,6 @@
 package org.libpetri.export;
 
-import org.libpetri.core.In;
-import org.libpetri.core.Out;
+import org.libpetri.core.Arc;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Transition;
 import org.libpetri.export.graph.*;
@@ -88,10 +87,10 @@ public final class PetriNetGraphMapper {
                 String pid = "p_" + DotExporter.sanitize(in.place().name());
                 EdgeVisual inputStyle = StyleConstants.edgeStyle(ArcType.INPUT);
                 String label = switch (in) {
-                    case In.One _ -> null;
-                    case In.Exactly e -> "\u00d7" + e.count();
-                    case In.All _ -> "*";
-                    case In.AtLeast a -> "\u2265" + a.minimum();
+                    case Arc.In.One _ -> null;
+                    case Arc.In.Exactly e -> "\u00d7" + e.count();
+                    case Arc.In.All _ -> "*";
+                    case Arc.In.AtLeast a -> "\u2265" + a.minimum();
                 };
                 edges.add(new GraphEdge(
                     pid, tid, label,
@@ -186,11 +185,11 @@ public final class PetriNetGraphMapper {
         return parts.build().collect(joining(" "));
     }
 
-    private static List<GraphEdge> outputEdges(String transitionId, Out out, String branchLabel) {
+    private static List<GraphEdge> outputEdges(String transitionId, Arc.Out out, String branchLabel) {
         EdgeVisual outStyle = StyleConstants.edgeStyle(ArcType.OUTPUT);
 
         return switch (out) {
-            case Out.Place p -> {
+            case Arc.Out.Place p -> {
                 String pid = "p_" + DotExporter.sanitize(p.place().name());
                 yield List.of(new GraphEdge(
                     transitionId, pid, branchLabel,
@@ -199,7 +198,7 @@ public final class PetriNetGraphMapper {
                 ));
             }
 
-            case Out.ForwardInput f -> {
+            case Arc.Out.ForwardInput f -> {
                 String pid = "p_" + DotExporter.sanitize(f.to().name());
                 String label = (branchLabel != null ? branchLabel + " " : "") + "\u27f5" + f.from().name();
                 yield List.of(new GraphEdge(
@@ -209,11 +208,11 @@ public final class PetriNetGraphMapper {
                 ));
             }
 
-            case Out.And and -> and.children().stream()
+            case Arc.Out.And and -> and.children().stream()
                 .flatMap(c -> outputEdges(transitionId, c, branchLabel).stream())
                 .toList();
 
-            case Out.Xor xor -> {
+            case Arc.Out.Xor xor -> {
                 var edges = new ArrayList<GraphEdge>();
                 for (var child : xor.children()) {
                     String label = inferBranchLabel(child);
@@ -222,17 +221,17 @@ public final class PetriNetGraphMapper {
                 yield edges;
             }
 
-            case Out.Timeout t -> outputEdges(transitionId, t.child(),
+            case Arc.Out.Timeout t -> outputEdges(transitionId, t.child(),
                 "\u23f1" + t.after().toMillis() + "ms");
         };
     }
 
-    private static String inferBranchLabel(Out out) {
+    private static String inferBranchLabel(Arc.Out out) {
         return switch (out) {
-            case Out.Place p -> p.place().name();
-            case Out.Timeout t -> "\u23f1" + t.after().toMillis() + "ms";
-            case Out.ForwardInput f -> f.to().name();
-            case Out.And _, Out.Xor _ -> null;
+            case Arc.Out.Place p -> p.place().name();
+            case Arc.Out.Timeout t -> "\u23f1" + t.after().toMillis() + "ms";
+            case Arc.Out.ForwardInput f -> f.to().name();
+            case Arc.Out.And _, Arc.Out.Xor _ -> null;
         };
     }
 }

@@ -6,8 +6,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import org.libpetri.core.In;
-import org.libpetri.core.Out;
+import org.libpetri.core.Arc;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Transition;
 
@@ -161,33 +160,33 @@ public final class MermaidExporter {
      * Recursively generates output edges from Out spec with proper XOR/AND structure.
      * XOR branches get labeled with place name or timeout duration.
      */
-    private static List<Edge> outputEdges(String transitionId, Out out, String branchLabel) {
+    private static List<Edge> outputEdges(String transitionId, Arc.Out out, String branchLabel) {
         return switch (out) {
-            case Out.Place p -> List.of(
+            case Arc.Out.Place p -> List.of(
                 branchLabel != null
                     ? Edge.weighted(transitionId, p.place().name(), branchLabel)
                     : Edge.solid(transitionId, p.place().name())
             );
 
-            case Out.ForwardInput f -> List.of(
+            case Arc.Out.ForwardInput f -> List.of(
                 Edge.dashed(transitionId, f.to().name(),
                     (branchLabel != null ? branchLabel + " " : "") + "⟵" + f.from().name())
             );
 
-            case Out.And and -> and.children().stream()
+            case Arc.Out.And and -> and.children().stream()
                 .flatMap(c -> outputEdges(transitionId, c, branchLabel).stream())
                 .toList();
 
-            case Out.Xor xor -> {
+            case Arc.Out.Xor xor -> {
                 var edges = new ArrayList<Edge>();
-                for (Out child : xor.children()) {
+                for (Arc.Out child : xor.children()) {
                     String label = inferBranchLabel(child);
                     edges.addAll(outputEdges(transitionId, child, label));
                 }
                 yield edges;
             }
 
-            case Out.Timeout t -> outputEdges(transitionId, t.child(),
+            case Arc.Out.Timeout t -> outputEdges(transitionId, t.child(),
                 "⏱" + t.after().toMillis() + "ms");
         };
     }
@@ -195,64 +194,45 @@ public final class MermaidExporter {
     /**
      * Infers a branch label from an Out spec for XOR visualization.
      */
-    private static String inferBranchLabel(Out out) {
+    private static String inferBranchLabel(Arc.Out out) {
         return switch (out) {
-            case Out.Place p -> p.place().name();
-            case Out.Timeout t -> "⏱" + t.after().toMillis() + "ms";
-            case Out.ForwardInput f -> f.to().name();
-            case Out.And _, Out.Xor _ -> null;
+            case Arc.Out.Place p -> p.place().name();
+            case Arc.Out.Timeout t -> "⏱" + t.after().toMillis() + "ms";
+            case Arc.Out.ForwardInput f -> f.to().name();
+            case Arc.Out.And _, Arc.Out.Xor _ -> null;
         };
     }
 
     private static List<Edge> arcsAsEdges(PetriNet net) {
         return net.transitions().stream()
             .flatMap(t -> {
-                // Collect reset target places for this transition
-                var resetPlaces = t.resets().stream()
-                    .map(arc -> arc.place().name())
-                    .collect(Collectors.toSet());
-
-                // Collect output places from new spec for reset+output detection
-                var newOutputPlaces = t.outputSpec() != null
+                // Collect output places from spec for reset+output detection
+                var outputPlaces = t.outputSpec() != null
                     ? t.outputSpec().allPlaces().stream().map(p -> p.name()).collect(Collectors.toSet())
                     : java.util.Set.<String>of();
 
                 return Stream.of(
-                    // NEW: Input arcs from inputSpecs with cardinality labels
+                    // Input arcs from inputSpecs with cardinality labels
                     t.inputSpecs().stream().map(in -> {
                         var placeName = in.place().name();
                         return switch (in) {
-                            case In.One _ -> Edge.solid(placeName, transitionId(t));
-                            case In.Exactly e -> Edge.weighted(placeName, transitionId(t), "×" + e.count());
-                            case In.All _ -> Edge.weighted(placeName, transitionId(t), "*");
-                            case In.AtLeast a -> Edge.weighted(placeName, transitionId(t), "≥" + a.minimum());
+                            case Arc.In.One _ -> Edge.solid(placeName, transitionId(t));
+                            case Arc.In.Exactly e -> Edge.weighted(placeName, transitionId(t), "×" + e.count());
+                            case Arc.In.All _ -> Edge.weighted(placeName, transitionId(t), "*");
+                            case Arc.In.AtLeast a -> Edge.weighted(placeName, transitionId(t), "≥" + a.minimum());
                         };
                     }),
-                    // Legacy: Input arcs (backward compatibility)
-                    t.inputs().values().stream().map(arc -> arc.hasGuard()
-                        ? Edge.dashed(arc.place().name(), transitionId(t), "guard")
-                        : Edge.solid(arc.place().name(), transitionId(t))),
-                    // NEW: Output arcs from outputSpec with XOR/AND structure
+                    // Output arcs from outputSpec with XOR/AND structure
                     (t.outputSpec() != null
                         ? outputEdges(transitionId(t), t.outputSpec(), null).stream()
                         : Stream.<Edge>empty()),
-                    // Legacy: Output arcs (backward compatibility)
-                    t.outputs().stream().map(arc -> {
-                        // If output goes to same place as reset, combine into single "reset+out" arc
-                        if (resetPlaces.contains(arc.place().name())) {
-                            return Edge.resetAndOutput(transitionId(t), arc.place().name());
-                        }
-                        return Edge.solid(transitionId(t), arc.place().name());
-                    }),
                     t.inhibitors().stream().map(arc ->
                         Edge.inhibitor(arc.place().name(), transitionId(t))),
                     t.reads().stream().map(arc ->
                         Edge.dashed(arc.place().name(), transitionId(t), "read")),
-                    // Only emit reset arcs that don't have matching output (legacy or new)
+                    // Only emit reset arcs that don't have matching output
                     t.resets().stream()
-                        .filter(arc -> t.outputs().stream()
-                            .noneMatch(out -> out.place().name().equals(arc.place().name()))
-                            && !newOutputPlaces.contains(arc.place().name()))
+                        .filter(arc -> !outputPlaces.contains(arc.place().name()))
                         .map(arc -> Edge.reset(transitionId(t), arc.place().name()))
                 ).flatMap(s -> s);
             })
@@ -285,7 +265,7 @@ public final class MermaidExporter {
 
         // XOR transitions get distinctive styling (orange for decision/choice)
         var xorTransIds = net.transitions().stream()
-            .filter(t -> t.outputSpec() instanceof Out.Xor)
+            .filter(t -> t.outputSpec() instanceof Arc.Out.Xor)
             .map(MermaidExporter::transitionId)
             .toList();
         if (!xorTransIds.isEmpty()) {
@@ -355,31 +335,17 @@ public final class MermaidExporter {
             var map = new java.util.LinkedHashMap<String, MutableInfo>();
 
             for (var t : net.transitions()) {
-                // NEW: Input places from inputSpecs
                 for (var in : t.inputSpecs()) {
                     map.computeIfAbsent(in.place().name(),
                         _ -> new MutableInfo(in.place().tokenType().getSimpleName(),
                             new boolean[2])).markOutgoing();
                 }
-                // NEW: Output places from outputSpec
                 if (t.outputSpec() != null) {
                     for (var place : t.outputSpec().allPlaces()) {
                         map.computeIfAbsent(place.name(),
                             _ -> new MutableInfo(place.tokenType().getSimpleName(),
                                 new boolean[2])).markIncoming();
                     }
-                }
-                // Legacy: Input arcs (backward compatibility)
-                for (var arc : t.inputs().values()) {
-                    map.computeIfAbsent(arc.place().name(),
-                        _ -> new MutableInfo(arc.place().tokenType().getSimpleName(),
-                            new boolean[2])).markOutgoing();
-                }
-                // Legacy: Output arcs (backward compatibility)
-                for (var arc : t.outputs()) {
-                    map.computeIfAbsent(arc.place().name(),
-                        _ -> new MutableInfo(arc.place().tokenType().getSimpleName(),
-                            new boolean[2])).markIncoming();
                 }
                 for (var arc : t.inhibitors()) {
                     map.computeIfAbsent(arc.place().name(),

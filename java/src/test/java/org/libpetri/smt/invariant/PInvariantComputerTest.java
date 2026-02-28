@@ -3,6 +3,8 @@ package org.libpetri.smt.invariant;
 import org.libpetri.analysis.EnvironmentAnalysisMode;
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.core.*;
+import org.libpetri.core.Arc.In;
+import org.libpetri.core.Arc.Out;
 import org.libpetri.smt.encoding.IncidenceMatrix;
 import org.libpetri.smt.encoding.NetFlattener;
 import org.junit.jupiter.api.Test;

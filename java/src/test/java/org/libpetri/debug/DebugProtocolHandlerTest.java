@@ -1,5 +1,7 @@
 package org.libpetri.debug;
 
+import org.libpetri.core.Arc.In;
+import org.libpetri.core.Arc.Out;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
 import org.libpetri.core.Token;
@@ -29,8 +31,8 @@ class DebugProtocolHandlerTest {
     private static final PetriNet TEST_NET = PetriNet.builder("TestNet")
             .transitions(
                     Transition.builder("Process")
-                            .input(INPUT)
-                            .output(OUTPUT)
+                            .inputs(In.one(INPUT))
+                            .outputs(Out.place(OUTPUT))
                             .build()
             )
             .build();

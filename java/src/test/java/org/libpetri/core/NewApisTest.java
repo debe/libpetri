@@ -95,12 +95,11 @@ class NewApisTest {
         }
 
         @Test
-        void toInterval_convertsCorrectly() {
+        void window_queriesConvertCorrectly() {
             var timing = Timing.window(Duration.ofMillis(50), Duration.ofMillis(200));
-            var interval = timing.toInterval();
 
-            assertEquals(Duration.ofMillis(50), interval.earliest());
-            assertEquals(Duration.ofMillis(200), interval.latest());
+            assertEquals(Duration.ofMillis(50), timing.earliest());
+            assertEquals(Duration.ofMillis(200), timing.latest());
         }
 
         @Test
@@ -109,8 +108,8 @@ class NewApisTest {
             var output = Place.of("Output", SimpleValue.class);
 
             var t = Transition.builder("delayed")
-                .inputs(In.one(input))
-                .outputs(Out.place(output))
+                .inputs(Arc.In.one(input))
+                .outputs(Arc.Out.place(output))
                 .timing(Timing.delayed(Duration.ofMillis(100)))
                 .action(ctx -> {
                     ctx.output(output, ctx.input(input));
@@ -146,10 +145,10 @@ class NewApisTest {
             var timeout = Place.of("Timeout", Void.class);
 
             var t = Transition.builder("Search")
-                .inputs(In.one(input))
-                .outputs(Out.xor(
-                    Out.place(success),
-                    Out.timeout(Duration.ofMillis(500), timeout)
+                .inputs(Arc.In.one(input))
+                .outputs(Arc.Out.xor(
+                    Arc.Out.place(success),
+                    Arc.Out.timeout(Duration.ofMillis(500), timeout)
                 ))
                 .timing(Timing.immediate())
                 .action(ctx -> {
@@ -179,10 +178,10 @@ class NewApisTest {
             var timeoutPlace = Place.of("Timeout", Void.class);
 
             var t = Transition.builder("SlowSearch")
-                .inputs(In.one(input))
-                .outputs(Out.xor(
-                    Out.place(success),
-                    Out.timeout(Duration.ofMillis(50), timeoutPlace)
+                .inputs(Arc.In.one(input))
+                .outputs(Arc.Out.xor(
+                    Arc.Out.place(success),
+                    Arc.Out.timeout(Duration.ofMillis(50), timeoutPlace)
                 ))
                 .timing(Timing.immediate())
                 .action(ctx -> {
@@ -232,11 +231,11 @@ class NewApisTest {
             var retry = Place.of("Retry", SearchQuery.class);
 
             var t = Transition.builder("SearchWithRetry")
-                .inputs(In.one(query))
-                .outputs(Out.xor(
-                    Out.place(result),
-                    Out.timeout(Duration.ofMillis(50),
-                        Out.forwardInput(query, retry))
+                .inputs(Arc.In.one(query))
+                .outputs(Arc.Out.xor(
+                    Arc.Out.place(result),
+                    Arc.Out.timeout(Duration.ofMillis(50),
+                        Arc.Out.forwardInput(query, retry))
                 ))
                 .timing(Timing.immediate())
                 .action(ctx -> {
@@ -280,11 +279,11 @@ class NewApisTest {
             // ForwardInput references 'other' which is NOT an input place
             var ex = assertThrows(IllegalArgumentException.class, () -> {
                 Transition.builder("Invalid")
-                    .inputs(In.one(input))
-                    .outputs(Out.xor(
-                        Out.place(output),
-                        Out.timeout(Duration.ofMillis(100),
-                            Out.forwardInput(other, output))  // 'other' is not an input
+                    .inputs(Arc.In.one(input))
+                    .outputs(Arc.Out.xor(
+                        Arc.Out.place(output),
+                        Arc.Out.timeout(Duration.ofMillis(100),
+                            Arc.Out.forwardInput(other, output))  // 'other' is not an input
                     ))
                     .build();
             });
@@ -307,8 +306,8 @@ class NewApisTest {
             var output = Place.of("Output", BatchItem.class);
 
             var t = Transition.builder("OneAtATime")
-                .inputs(In.one(input))
-                .outputs(Out.place(output))
+                .inputs(Arc.In.one(input))
+                .outputs(Arc.Out.place(output))
                 .timing(Timing.immediate())
                 .action(ctx -> {
                     ctx.output(output, ctx.input(input));
@@ -343,8 +342,8 @@ class NewApisTest {
             var processed = new AtomicInteger(0);
 
             var t = Transition.builder("BatchOf3")
-                .inputs(In.exactly(3, input))
-                .outputs(Out.place(output))
+                .inputs(Arc.In.exactly(3, input))
+                .outputs(Arc.Out.place(output))
                 .timing(Timing.immediate())
                 .action(ctx -> {
                     // Should receive exactly 3 tokens
@@ -385,8 +384,8 @@ class NewApisTest {
             var consumed = new AtomicInteger(0);
 
             var t = Transition.builder("DrainAll")
-                .inputs(In.all(input))
-                .outputs(Out.place(output))
+                .inputs(Arc.In.all(input))
+                .outputs(Arc.Out.place(output))
                 .timing(Timing.immediate())
                 .action(ctx -> {
                     var items = ctx.inputs(input);
@@ -427,8 +426,8 @@ class NewApisTest {
             var consumed = new AtomicInteger(0);
 
             var t = Transition.builder("AtLeast3")
-                .inputs(In.atLeast(3, input))
-                .outputs(Out.place(output))
+                .inputs(Arc.In.atLeast(3, input))
+                .outputs(Arc.Out.place(output))
                 .timing(Timing.immediate())
                 .action(ctx -> {
                     var items = ctx.inputs(input);

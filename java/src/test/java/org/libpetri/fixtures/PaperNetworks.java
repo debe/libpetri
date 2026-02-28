@@ -2,8 +2,8 @@ package org.libpetri.fixtures;
 
 import java.time.Duration;
 
-import org.libpetri.core.In;
-import org.libpetri.core.Out;
+import org.libpetri.core.Arc.In;
+import org.libpetri.core.Arc.Out;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
 import org.libpetri.core.Timing;
@@ -197,6 +197,117 @@ public final class PaperNetworks {
 
         return PetriNet.builder("BasicTPN-Paper")
             .transitions(ask, guard, intent, topic, search, compose, filter)
+            .build();
+    }
+
+    /**
+     * Creates an Order Processing Pipeline that demonstrates every arc type,
+     * place type, and timing mode with no deadlocks.
+     *
+     * <p>Places (12): Order, Active, Validating, InStock, PaymentOk, PaymentFailed,
+     * Ready, Shipped, Rejected, Cancelled, Overdue, CancelRequest (environment).
+     *
+     * <p>Transitions (8): Receive, Authorize, RetryPayment, Approve, Ship, Reject, Cancel, Monitor.
+     *
+     * <p>Feature coverage:
+     * <ul>
+     *   <li>All 5 arc types: Input, Output, Read, Inhibitor, Reset</li>
+     *   <li>Both place types: 11 regular Places + 1 EnvironmentPlace (CancelRequest)</li>
+     *   <li>All 5 timing modes: Immediate, Deadline, Delayed, Window, Exact</li>
+     *   <li>Patterns: AND-fork (Receive), AND-join (Approve), XOR (Authorize), priority (Receive=10)</li>
+     * </ul>
+     *
+     * <p>Key paths:
+     * <ol>
+     *   <li>Happy: Order → Receive → Authorize(→PaymentOk) → Approve → Ship → Shipped</li>
+     *   <li>Retry: Authorize(→PaymentFailed) → RetryPayment(!Overdue) → ... → PaymentOk → Approve → Ship</li>
+     *   <li>Timeout+Reject: PaymentFailed stuck + Monitor(→Overdue) → Reject → Rejected</li>
+     *   <li>Cancel: CancelRequest → Cancel(resets everything) → Cancelled</li>
+     * </ol>
+     *
+     * @return the showcase Petri net
+     */
+    public static PetriNet createShowcaseNet() {
+        // Places
+        var order         = Place.of("Order", String.class);
+        var active        = Place.of("Active", String.class);
+        var validating    = Place.of("Validating", String.class);
+        var inStock       = Place.of("InStock", String.class);
+        var paymentOk     = Place.of("PaymentOk", String.class);
+        var paymentFailed = Place.of("PaymentFailed", String.class);
+        var ready         = Place.of("Ready", String.class);
+        var shipped       = Place.of("Shipped", String.class);
+        var rejected      = Place.of("Rejected", String.class);
+        var cancelled     = Place.of("Cancelled", String.class);
+        var overdue       = Place.of("Overdue", String.class);
+        var cancelRequest = Place.of("CancelRequest", String.class); // EnvironmentPlace at runtime
+
+        // T1: Receive — immediate, priority=10, AND-fork
+        var receive = Transition.builder("Receive")
+            .inputs(In.one(order))
+            .outputs(Out.and(validating, inStock, active))
+            .timing(Timing.immediate())
+            .priority(10)
+            .build();
+
+        // T2: Authorize — window(200ms, 5s), XOR choice
+        var authorize = Transition.builder("Authorize")
+            .inputs(In.one(validating))
+            .outputs(Out.xor(paymentOk, paymentFailed))
+            .timing(Timing.window(Duration.ofMillis(200), Duration.ofSeconds(5)))
+            .build();
+
+        // T3: RetryPayment — delayed(1s), inhibitor arc, retry pattern
+        var retryPayment = Transition.builder("RetryPayment")
+            .inputs(In.one(paymentFailed))
+            .inhibitor(overdue)
+            .outputs(Out.xor(paymentOk, paymentFailed))
+            .timing(Timing.delayed(Duration.ofSeconds(1)))
+            .build();
+
+        // T4: Approve — deadline(2s), AND-join
+        var approve = Transition.builder("Approve")
+            .inputs(In.one(paymentOk), In.one(inStock))
+            .outputs(Out.place(ready))
+            .timing(Timing.deadline(Duration.ofSeconds(2)))
+            .build();
+
+        // T5: Ship — immediate, read arc, inhibitor arc
+        var ship = Transition.builder("Ship")
+            .inputs(In.one(ready))
+            .read(active)
+            .inhibitor(cancelled)
+            .outputs(Out.place(shipped))
+            .timing(Timing.immediate())
+            .build();
+
+        // T6: Reject — immediate, reset arc
+        var reject = Transition.builder("Reject")
+            .inputs(In.one(paymentFailed), In.one(overdue))
+            .reset(inStock)
+            .outputs(Out.place(rejected))
+            .timing(Timing.immediate())
+            .build();
+
+        // T7: Cancel — immediate, environment place input, multiple resets
+        var cancel = Transition.builder("Cancel")
+            .inputs(In.one(cancelRequest))
+            .inhibitors(shipped, rejected)
+            .resets(validating, paymentFailed, inStock, paymentOk, ready)
+            .outputs(Out.place(cancelled))
+            .timing(Timing.immediate())
+            .build();
+
+        // T8: Monitor — exact(10s), read arc, multiple inhibitors (urgency)
+        var monitor = Transition.builder("Monitor")
+            .read(active)
+            .inhibitors(shipped, rejected, cancelled, overdue)
+            .outputs(Out.place(overdue))
+            .timing(Timing.exact(Duration.ofSeconds(10)))
+            .build();
+
+        return PetriNet.builder("OrderProcessingPipeline")
+            .transitions(receive, authorize, retryPayment, approve, ship, reject, cancel, monitor)
             .build();
     }
 

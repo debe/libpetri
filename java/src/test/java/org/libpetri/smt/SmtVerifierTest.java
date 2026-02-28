@@ -2,6 +2,8 @@ package org.libpetri.smt;
 
 import org.libpetri.analysis.EnvironmentAnalysisMode;
 import org.libpetri.core.*;
+import org.libpetri.core.Arc.In;
+import org.libpetri.core.Arc.Out;
 import org.libpetri.fixtures.PaperNetworks;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;

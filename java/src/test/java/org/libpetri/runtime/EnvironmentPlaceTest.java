@@ -1,6 +1,8 @@
 package org.libpetri.runtime;
 
 import org.libpetri.core.*;
+import org.libpetri.core.Arc.In;
+import org.libpetri.core.Arc.Out;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -26,8 +28,8 @@ class EnvironmentPlaceTest {
         var outputPlace = Place.of("Output", String.class);
 
         var transition = Transition.builder("Process")
-            .input(envPlace.place())
-            .output(outputPlace)
+            .inputs(In.one(envPlace.place()))
+            .outputs(Out.and(outputPlace))
             .action(ctx -> {
                 ctx.output(outputPlace, ctx.input(envPlace.place()));
                 return CompletableFuture.completedFuture(null);
@@ -130,8 +132,8 @@ class EnvironmentPlaceTest {
         var counter = new java.util.concurrent.atomic.AtomicInteger(0);
 
         var transition = Transition.builder("Process")
-            .input(envPlace.place())
-            .output(outputPlace)
+            .inputs(In.one(envPlace.place()))
+            .outputs(Out.and(outputPlace))
             .action(ctx -> {
                 counter.incrementAndGet();
                 return CompletableFuture.completedFuture(null);

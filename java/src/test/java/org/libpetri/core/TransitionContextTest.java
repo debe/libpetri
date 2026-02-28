@@ -21,8 +21,8 @@ class TransitionContextTest {
 
     private Transition createTestTransition() {
         return Transition.builder("TestTransition")
-                .inputs(In.one(INPUT_PLACE))
-                .output(OUTPUT_PLACE)
+                .inputs(Arc.In.one(INPUT_PLACE))
+                .outputs(Arc.Out.and(OUTPUT_PLACE))
                 .read(READ_PLACE)
                 .action(TransitionAction.passthrough())
                 .build();

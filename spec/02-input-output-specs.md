@@ -98,19 +98,11 @@ All inputs on a transition are AND-joined: the transition enables only when ALL 
 
 ---
 
-#### IO-006: Input Guard Predicate
+#### IO-006: ~~Input Guard Predicate~~ (Removed)
 
-**Priority:** SHOULD
+**Status:** Removed
 
-An input specification may include an optional guard predicate that filters which tokens are eligible for consumption. The guard is a function from token value to boolean.
-
-**Acceptance Criteria:**
-1. Only tokens passing the guard are eligible for consumption.
-2. If no tokens pass the guard, the transition is not enabled (for that input).
-3. Guard is evaluated during enablement check, not during action execution.
-4. Token consumption follows FIFO order among guard-passing tokens.
-
-**Test derivation:** Input with guard `x > 10`; add tokens [5, 15, 3, 20]; verify transition consumes 15 (first matching).
+Guard predicates were removed in favor of modeling conditional token selection via multiple conflicting transitions with XOR-on-input semantics. This avoids coupling predicate evaluation to the enablement check and keeps the input specification purely structural.
 
 ---
 

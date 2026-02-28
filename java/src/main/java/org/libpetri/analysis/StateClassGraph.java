@@ -2,7 +2,6 @@ package org.libpetri.analysis;
 
 import org.libpetri.core.Arc;
 import org.libpetri.core.EnvironmentPlace;
-import org.libpetri.core.In;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
 import org.libpetri.core.Transition;
@@ -195,9 +194,9 @@ public final class StateClassGraph {
         var upperBounds = new double[enabledTransitions.size()];
 
         for (int i = 0; i < enabledTransitions.size(); i++) {
-            var interval = enabledTransitions.get(i).interval();
-            lowerBounds[i] = interval.earliest().toMillis() / 1000.0;
-            upperBounds[i] = interval.latest().toMillis() / 1000.0;
+            var timing = enabledTransitions.get(i).timing();
+            lowerBounds[i] = timing.earliest().toMillis() / 1000.0;
+            upperBounds[i] = timing.latest().toMillis() / 1000.0;
         }
 
         var initialDBM = DBM.create(clockNames, lowerBounds, upperBounds);
@@ -267,12 +266,6 @@ public final class StateClassGraph {
 
         if (t.outputSpec() != null) {
             branches = t.outputSpec().enumerateBranches();
-        } else if (!t.outputs().isEmpty()) {
-            // Legacy: single branch with all outputs
-            Set<Place<?>> places = t.outputs().stream()
-                .map(Arc.Output::place)
-                .collect(Collectors.toUnmodifiableSet());
-            branches = List.of(places);
         } else {
             // No outputs (sink transition)
             branches = List.of(Set.of());
@@ -340,9 +333,9 @@ public final class StateClassGraph {
         var newUpperBounds = new double[newlyEnabled.size()];
 
         for (int i = 0; i < newlyEnabled.size(); i++) {
-            var interval = newlyEnabled.get(i).interval();
-            newLowerBounds[i] = interval.earliest().toMillis() / 1000.0;
-            newUpperBounds[i] = interval.latest().toMillis() / 1000.0;
+            var timing = newlyEnabled.get(i).timing();
+            newLowerBounds[i] = timing.earliest().toMillis() / 1000.0;
+            newUpperBounds[i] = timing.latest().toMillis() / 1000.0;
         }
 
         int[] persistentArray = persistentIndices.stream().mapToInt(Integer::intValue).toArray();
@@ -418,19 +411,15 @@ public final class StateClassGraph {
             Set<Place<?>> environmentPlaces,
             EnvironmentAnalysisMode environmentMode
     ) {
-        // Track which places have been checked via inputSpecs to avoid duplicate checks
-        var checkedPlaces = new HashSet<Place<?>>();
-
-        // ==================== Check inputSpecs (with cardinality) ====================
+        // Check inputSpecs (with cardinality)
         for (var in : transition.inputSpecs()) {
             var place = in.place();
-            checkedPlaces.add(place);
 
             int requiredCount = switch (in) {
-                case In.One _ -> 1;
-                case In.Exactly e -> e.count();
-                case In.All _ -> 1;           // Need at least 1 token (consumes all at runtime)
-                case In.AtLeast a -> a.minimum();
+                case Arc.In.One _ -> 1;
+                case Arc.In.Exactly e -> e.count();
+                case Arc.In.All _ -> 1;           // Need at least 1 token (consumes all at runtime)
+                case Arc.In.AtLeast a -> a.minimum();
             };
 
             if (!checkPlaceEnabled(place, requiredCount, marking, environmentPlaces, environmentMode)) {
@@ -438,20 +427,7 @@ public final class StateClassGraph {
             }
         }
 
-        // ==================== Check legacy inputs() (backward compatibility) ====================
-        for (var place : transition.inputs().keySet()) {
-            // Skip if already checked via inputSpecs
-            if (checkedPlaces.contains(place)) {
-                continue;
-            }
-
-            int requiredCount = transition.inputs().get(place).size();
-            if (!checkPlaceEnabled(place, requiredCount, marking, environmentPlaces, environmentMode)) {
-                return false;
-            }
-        }
-
-        // ==================== Check read arcs ====================
+        // Check read arcs
         for (var arc : transition.reads()) {
             var place = arc.place();
             if (!checkPlaceEnabled(place, 1, marking, environmentPlaces, environmentMode)) {
@@ -459,7 +435,7 @@ public final class StateClassGraph {
             }
         }
 
-        // ==================== Check inhibitor arcs ====================
+        // Check inhibitor arcs
         for (var arc : transition.inhibitors()) {
             if (marking.hasTokens(arc.place())) {
                 return false;
@@ -544,40 +520,21 @@ public final class StateClassGraph {
     ) {
         var builder = MarkingState.builder().copyFrom(marking);
 
-        // Track which places have been handled by inputSpecs
-        var handledPlaces = new HashSet<Place<?>>();
-
-        // ==================== Consume from inputs ====================
-        // NEW: Check inputSpecs first (with cardinality), then legacy inputs
-
-        // New style: inputSpecs with cardinality
+        // Consume from inputs with cardinality
         for (var in : transition.inputSpecs()) {
             var place = in.place();
-            handledPlaces.add(place);
 
             int toConsume = switch (in) {
-                case In.One _ -> 1;
-                case In.Exactly e -> e.count();
-                case In.All _ -> 1;       // Analysis: consume minimum (1 token)
-                case In.AtLeast a -> a.minimum();
+                case Arc.In.One _ -> 1;
+                case Arc.In.Exactly e -> e.count();
+                case Arc.In.All _ -> 1;       // Analysis: consume minimum (1 token)
+                case Arc.In.AtLeast a -> a.minimum();
             };
 
             consumeFromPlace(builder, place, toConsume, environmentPlaces, environmentMode);
         }
 
-        // Legacy style: inputs() multimap (for backward compatibility)
-        for (var place : transition.inputs().keySet()) {
-            // Skip if already handled by inputSpecs
-            if (handledPlaces.contains(place)) {
-                continue;
-            }
-
-            int count = transition.inputs().get(place).size();
-            consumeFromPlace(builder, place, count, environmentPlaces, environmentMode);
-        }
-
-        // ==================== Reset places ====================
-        // Remove all tokens from reset places
+        // Reset places — remove all tokens
         for (var arc : transition.resets()) {
             int current = marking.tokens(arc.place());
             if (current > 0) {
@@ -585,7 +542,7 @@ public final class StateClassGraph {
             }
         }
 
-        // ==================== Produce to outputs ====================
+        // Produce to outputs
         if (outputPlaces != null) {
             // Use specific output places (XOR branch)
             for (var place : outputPlaces) {
@@ -595,11 +552,6 @@ public final class StateClassGraph {
             // Use all places from outputSpec (AND semantics for analysis)
             for (var place : transition.outputSpec().allPlaces()) {
                 builder.addTokens(place, 1);
-            }
-        } else {
-            // Legacy: use outputs() list
-            for (var arc : transition.outputs()) {
-                builder.addTokens(arc.place(), 1);
             }
         }
 

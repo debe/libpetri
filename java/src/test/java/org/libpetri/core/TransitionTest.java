@@ -26,54 +26,43 @@ class TransitionTest {
     void builder_emptyTransition_hasDefaultValues() {
         var t = Transition.builder("Empty").build();
 
-        assertTrue(t.inputs().isEmpty());
-        assertTrue(t.outputs().isEmpty());
+        assertTrue(t.inputSpecs().isEmpty());
+        assertNull(t.outputSpec());
         assertTrue(t.inhibitors().isEmpty());
         assertTrue(t.reads().isEmpty());
         assertTrue(t.resets().isEmpty());
         assertEquals(0, t.priority());
-        assertFalse(t.interval().hasFiniteDeadline());
+        assertFalse(t.timing().hasDeadline());
     }
 
     @Test
-    void builder_withInput_addsInputArc() {
+    void builder_withInput_addsInputSpec() {
         var place = Place.of("Input", TestValue.class);
-        var t = Transition.builder("t").input(place).build();
+        var t = Transition.builder("t").inputs(Arc.In.one(place)).build();
 
-        assertEquals(1, t.inputs().size());
-        assertEquals(place, t.inputs().get(place).get(0).place());
-    }
-
-    @Test
-    void builder_withInputWhen_addsGuardedInputArc() {
-        var place = Place.of("Input", Integer.class);
-        var t = Transition.builder("t")
-            .inputWhen(place, n -> n > 10)
-            .build();
-
-        assertEquals(1, t.inputs().size());
-        assertTrue(t.inputs().get(place).get(0).hasGuard());
+        assertEquals(1, t.inputSpecs().size());
+        assertEquals(place, t.inputSpecs().get(0).place());
     }
 
     @Test
     void builder_withMultipleInputs_addsSamePlace() {
         var place = Place.of("Input", TestValue.class);
         var t = Transition.builder("t")
-            .input(place)
-            .input(place)
+            .inputs(Arc.In.one(place), Arc.In.one(place))
             .build();
 
-        assertEquals(2, t.inputs().size());
-        assertEquals(2, t.inputs().get(place).size());
+        assertEquals(2, t.inputSpecs().size());
+        assertEquals(place, t.inputSpecs().get(0).place());
+        assertEquals(place, t.inputSpecs().get(1).place());
     }
 
     @Test
-    void builder_withOutput_addsOutputArc() {
+    void builder_withOutput_addsOutputSpec() {
         var place = Place.of("Output", TestValue.class);
-        var t = Transition.builder("t").output(place).build();
+        var t = Transition.builder("t").outputs(Arc.Out.and(place)).build();
 
-        assertEquals(1, t.outputs().size());
-        assertEquals(place, t.outputs().get(0).place());
+        assertNotNull(t.outputSpec());
+        assertTrue(t.outputPlaces().contains(place));
     }
 
     @Test
@@ -104,33 +93,23 @@ class TransitionTest {
     }
 
     @Test
-    void builder_withInterval_setsInterval() {
-        var interval = new FiringInterval(Duration.ofMillis(100), Duration.ofMillis(500));
+    void builder_withTiming_setsTiming() {
         var t = Transition.builder("t")
-            .interval(interval)
+            .timing(Timing.window(Duration.ofMillis(100), Duration.ofMillis(500)))
             .build();
 
-        assertEquals(interval, t.interval());
+        assertEquals(Duration.ofMillis(100), t.timing().earliest());
+        assertEquals(Duration.ofMillis(500), t.timing().latest());
     }
 
     @Test
-    void builder_withDeadlineDuration_createsImmediateInterval() {
+    void builder_withDeadlineTiming_createsDeadline() {
         var t = Transition.builder("t")
-            .deadline(Duration.ofMillis(500))
+            .timing(Timing.deadline(Duration.ofMillis(500)))
             .build();
 
-        assertEquals(Duration.ZERO, t.interval().earliest());
-        assertEquals(Duration.ofMillis(500), t.interval().deadline());
-    }
-
-    @Test
-    void builder_withDeadlineMillis_createsImmediateInterval() {
-        var t = Transition.builder("t")
-            .deadline(500)
-            .build();
-
-        assertEquals(Duration.ZERO, t.interval().earliest());
-        assertEquals(Duration.ofMillis(500), t.interval().deadline());
+        assertEquals(Duration.ZERO, t.timing().earliest());
+        assertEquals(Duration.ofMillis(500), t.timing().latest());
     }
 
     @Test
@@ -153,57 +132,57 @@ class TransitionTest {
     }
 
     @Test
-    void builder_varargMethods_addMultiple() {
+    void builder_multipleInputSpecs_addMultiple() {
         var p1 = Place.of("P1", TestValue.class);
         var p2 = Place.of("P2", TestValue.class);
         var p3 = Place.of("P3", TestValue.class);
 
         var t = Transition.builder("t")
-            .inputs(p1, p2)
-            .outputs(p2, p3)
+            .inputs(Arc.In.one(p1), Arc.In.one(p2))
+            .outputs(Arc.Out.and(p2, p3))
             .inhibitors(p1)
             .reads(p3)
             .resets(p2)
             .build();
 
-        assertEquals(2, t.inputs().size());
-        assertEquals(2, t.outputs().size());
+        assertEquals(2, t.inputSpecs().size());
+        assertTrue(t.outputPlaces().contains(p2));
+        assertTrue(t.outputPlaces().contains(p3));
         assertEquals(1, t.inhibitors().size());
         assertEquals(1, t.reads().size());
         assertEquals(1, t.resets().size());
     }
 
     @Test
-    void inputs_countsMultipleInputsFromSamePlace() {
+    void inputSpecs_countsMultipleInputsFromSamePlace() {
         var p1 = Place.of("P1", TestValue.class);
         var p2 = Place.of("P2", TestValue.class);
 
         var t = Transition.builder("t")
-            .input(p1)
-            .input(p1)
-            .input(p1)
-            .input(p2)
+            .inputs(Arc.In.one(p1), Arc.In.one(p1), Arc.In.one(p1), Arc.In.one(p2))
             .build();
 
-        assertEquals(3, t.inputs().get(p1).size());
-        assertEquals(1, t.inputs().get(p2).size());
+        assertEquals(4, t.inputSpecs().size());
+        // 3 specs for p1, 1 for p2
+        long p1Count = t.inputSpecs().stream().filter(s -> s.place().equals(p1)).count();
+        long p2Count = t.inputSpecs().stream().filter(s -> s.place().equals(p2)).count();
+        assertEquals(3, p1Count);
+        assertEquals(1, p2Count);
     }
 
     @Test
     void lists_areImmutable() {
         var place = Place.of("P", TestValue.class);
         var t = Transition.builder("t")
-            .input(place)
-            .output(place)
+            .inputs(Arc.In.one(place))
+            .outputs(Arc.Out.and(place))
             .inhibitor(place)
             .read(place)
             .reset(place)
             .build();
 
         assertThrows(UnsupportedOperationException.class, () ->
-            t.inputs().put(place, new Arc.Input<>(place)));
-        assertThrows(UnsupportedOperationException.class, () ->
-            t.outputs().add(new Arc.Output<>(place)));
+            t.inputSpecs().add(Arc.In.one(place)));
         assertThrows(UnsupportedOperationException.class, () ->
             t.inhibitors().add(new Arc.Inhibitor<>(place)));
         assertThrows(UnsupportedOperationException.class, () ->
@@ -238,13 +217,12 @@ class TransitionTest {
         var reset = Place.of("Reset", Double.class);
 
         var t = Transition.builder("Full")
-            .input(input)
-            .inputWhen(input, v -> v.data().length() > 0)
-            .output(output)
+            .inputs(Arc.In.one(input), Arc.In.one(input))
+            .outputs(Arc.Out.and(output))
             .inhibitor(inhibitor)
             .read(read)
             .reset(reset)
-            .interval(new FiringInterval(Duration.ofMillis(100), Duration.ofMillis(500)))
+            .timing(Timing.window(Duration.ofMillis(100), Duration.ofMillis(500)))
             .priority(5)
             .action(ctx -> {
                 ctx.output(output, new OtherValue(42));
@@ -253,14 +231,14 @@ class TransitionTest {
             .build();
 
         assertEquals("Full", t.name());
-        assertEquals(2, t.inputs().size());
-        assertEquals(1, t.outputs().size());
+        assertEquals(2, t.inputSpecs().size());
+        assertNotNull(t.outputSpec());
         assertEquals(1, t.inhibitors().size());
         assertEquals(1, t.reads().size());
         assertEquals(1, t.resets().size());
         assertEquals(5, t.priority());
-        assertEquals(Duration.ofMillis(100), t.interval().earliest());
-        assertEquals(Duration.ofMillis(500), t.interval().deadline());
+        assertEquals(Duration.ofMillis(100), t.timing().earliest());
+        assertEquals(Duration.ofMillis(500), t.timing().latest());
     }
 
     // ==================== NEW API TESTS: inputSpecs ====================
@@ -271,12 +249,12 @@ class TransitionTest {
         var p2 = Place.of("P2", Integer.class);
 
         var t = Transition.builder("test")
-            .inputs(In.one(p1), In.one(p2))
+            .inputs(Arc.In.one(p1), Arc.In.one(p2))
             .build();
 
         assertEquals(2, t.inputSpecs().size(), "inputSpecs should have 2 elements");
-        assertInstanceOf(In.One.class, t.inputSpecs().get(0));
-        assertInstanceOf(In.One.class, t.inputSpecs().get(1));
+        assertInstanceOf(Arc.In.One.class, t.inputSpecs().get(0));
+        assertInstanceOf(Arc.In.One.class, t.inputSpecs().get(1));
         assertEquals(p1, t.inputSpecs().get(0).place());
         assertEquals(p2, t.inputSpecs().get(1).place());
     }
@@ -288,36 +266,34 @@ class TransitionTest {
         var p3 = Place.of("P3", TestValue.class);
 
         var t = Transition.builder("test")
-            .inputs(In.one(p1), In.exactly(3, p2), In.atLeast(2, p3))
+            .inputs(Arc.In.one(p1), Arc.In.exactly(3, p2), Arc.In.atLeast(2, p3))
             .build();
 
         assertEquals(3, t.inputSpecs().size());
-        assertInstanceOf(In.One.class, t.inputSpecs().get(0));
-        assertInstanceOf(In.Exactly.class, t.inputSpecs().get(1));
-        assertInstanceOf(In.AtLeast.class, t.inputSpecs().get(2));
+        assertInstanceOf(Arc.In.One.class, t.inputSpecs().get(0));
+        assertInstanceOf(Arc.In.Exactly.class, t.inputSpecs().get(1));
+        assertInstanceOf(Arc.In.AtLeast.class, t.inputSpecs().get(2));
     }
 
     @Test
     void inputSpecs_isImmutable() {
         var p1 = Place.of("P1", String.class);
         var t = Transition.builder("test")
-            .inputs(In.one(p1))
+            .inputs(Arc.In.one(p1))
             .build();
 
         assertThrows(UnsupportedOperationException.class, () ->
-            t.inputSpecs().add(In.one(p1)));
+            t.inputSpecs().add(Arc.In.one(p1)));
     }
 
     @Test
-    void inputPlaces_includesBothNewAndLegacyInputs() {
+    void inputPlaces_includesAllInputSpecs() {
         var p1 = Place.of("P1", String.class);
         var p2 = Place.of("P2", Integer.class);
         var p3 = Place.of("P3", TestValue.class);
 
         var t = Transition.builder("test")
-            .inputs(In.one(p1))  // new API
-            .input(p2)           // legacy API
-            .inputs(p3)          // legacy vararg API
+            .inputs(Arc.In.one(p1), Arc.In.one(p2), Arc.In.one(p3))
             .build();
 
         var inputPlaces = t.inputPlaces();
@@ -328,17 +304,14 @@ class TransitionTest {
     }
 
     @Test
-    void inputs_newApiDoesNotAffectLegacyInputsMap() {
+    void inputs_populatesInputSpecs() {
         var p1 = Place.of("P1", String.class);
         var p2 = Place.of("P2", Integer.class);
 
         var t = Transition.builder("test")
-            .inputs(In.one(p1), In.one(p2))
+            .inputs(Arc.In.one(p1), Arc.In.one(p2))
             .build();
 
-        // Legacy inputs map should be empty when using new API
-        assertTrue(t.inputs().isEmpty(), "Legacy inputs() should be empty when using new API");
-        // New inputSpecs should be populated
-        assertEquals(2, t.inputSpecs().size(), "New inputSpecs() should be populated");
+        assertEquals(2, t.inputSpecs().size(), "inputSpecs() should be populated");
     }
 }

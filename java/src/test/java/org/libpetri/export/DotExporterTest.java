@@ -2,6 +2,8 @@ package org.libpetri.export;
 
 import org.junit.jupiter.api.Test;
 import org.libpetri.core.*;
+import org.libpetri.core.Arc.In;
+import org.libpetri.core.Arc.Out;
 import org.libpetri.export.graph.RankDir;
 
 import java.time.Duration;

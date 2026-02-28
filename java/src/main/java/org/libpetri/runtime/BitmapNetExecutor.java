@@ -150,7 +150,6 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         for (var t : net.transitions()) {
             var places = new HashSet<Place<?>>();
             for (var in : t.inputSpecs()) places.add(in.place());
-            places.addAll(t.inputs().keySet());
             result.put(t, Set.copyOf(places));
         }
         return Map.copyOf(result);
@@ -435,7 +434,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
     }
 
     /**
-     * Enablement check combining bitmap masks and cardinality/guard checks.
+     * Enablement check combining bitmap masks and cardinality checks.
      */
     private boolean canEnable(int tid, long[] markingSnap) {
         // 1. Fast bitmap check
@@ -450,14 +449,6 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
                 int required = cardCheck.requiredCounts()[i];
                 Place<?> place = compiled.place(pid);
                 if (marking.tokenCount(place) < required) return false;
-            }
-        }
-
-        // 3. Guard check (rare — legacy guard predicates)
-        if (compiled.hasGuards(tid)) {
-            Transition t = compiled.transition(tid);
-            for (var arc : t.inputs().values()) {
-                if (arc.hasGuard() && !marking.hasMatchingToken(arc)) return false;
             }
         }
 
@@ -558,10 +549,10 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         // Consume tokens based on input specs with cardinality
         for (var in : t.inputSpecs()) {
             int toConsume = switch (in) {
-                case In.One _ -> 1;
-                case In.Exactly e -> e.count();
-                case In.All _ -> marking.tokenCount(in.place());
-                case In.AtLeast _ -> marking.tokenCount(in.place());
+                case Arc.In.One _ -> 1;
+                case Arc.In.Exactly e -> e.count();
+                case Arc.In.All _ -> marking.tokenCount(in.place());
+                case Arc.In.AtLeast _ -> marking.tokenCount(in.place());
             };
 
             for (int i = 0; i < toConsume; i++) {
@@ -571,15 +562,6 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
                 emitEvent(new NetEvent.TokenRemoved(
                     Instant.now(), in.place().name(), token));
             }
-        }
-
-        // Legacy: Consume from old-style input arcs
-        for (var arc : t.inputs().values()) {
-            Token<?> token = marking.removeFirstMatching(arc);
-            consumed.add(token);
-            inputs.add((Place<Object>) arc.place(), (Token<Object>) token);
-            emitEvent(new NetEvent.TokenRemoved(
-                Instant.now(), arc.place().name(), token));
         }
 
         // Read arcs (peek, don't consume)
@@ -662,7 +644,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         }
     }
 
-    private void produceTimeoutOutput(TransitionContext context, Out timeoutChild) {
+    private void produceTimeoutOutput(TransitionContext context, Arc.Out timeoutChild) {
         ExecutorSupport.produceTimeoutOutput(context, timeoutChild);
     }
 

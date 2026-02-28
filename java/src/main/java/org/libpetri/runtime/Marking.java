@@ -3,7 +3,6 @@ package org.libpetri.runtime;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import org.libpetri.core.Arc;
 import org.libpetri.core.Place;
 import org.libpetri.core.Token;
 
@@ -21,8 +20,7 @@ import org.libpetri.core.Token;
  *
  * <h2>Token Ordering</h2>
  * <p>Tokens in each place are maintained in FIFO order using {@link ArrayDeque}.
- * When a transition fires, it consumes the oldest token first (unless a guard
- * selects a specific token).
+ * When a transition fires, it consumes the oldest token first.
  *
  * <h2>Type Safety</h2>
  * <p>All operations are type-safe via generics. The place's type parameter
@@ -122,64 +120,7 @@ public final class Marking {
         return (List<Token<T>>) (List<?>) new ArrayList<>(queue);
     }
 
-    /**
-     * Removes and returns the first token matching an input arc's guard.
-     *
-     * <p>If the arc has no guard, behaves like {@link #removeFirst(Place)}.
-     * If the arc has a guard, scans tokens in FIFO order and removes the
-     * first matching token.
-     *
-     * @param arc input arc with optional guard predicate
-     * @return matching token, or {@code null} if none found
-     */
-    public Token<?> removeFirstMatching(Arc.Input<?> arc) {
-        var queue = tokens.get(arc.place());
-        if (queue == null || queue.isEmpty()) {
-            return null;
-        }
-        // No guard - use fast path
-        if (!arc.hasGuard()) {
-            return queue.removeFirst();
-        }
-        // Find first matching token
-        for (var it = queue.iterator(); it.hasNext(); ) {
-            Token<?> token = it.next();
-            if (arc.matches(token)) {
-                it.remove();
-                return token;
-            }
-        }
-        return null;
-    }
-
     // ======================== Token Inspection ========================
-
-    /**
-     * Checks if a place has any token matching an input arc's guard.
-     *
-     * <p>If the arc has no guard, returns {@code true} if the place has any token.
-     * If the arc has a guard, scans tokens to find a match.
-     *
-     * @param arc input arc with optional guard predicate
-     * @return {@code true} if a matching token exists
-     */
-    public boolean hasMatchingToken(Arc.Input<?> arc) {
-        var queue = tokens.get(arc.place());
-        if (queue == null || queue.isEmpty()) {
-            return false;
-        }
-        // No guard - any token matches
-        if (!arc.hasGuard()) {
-            return true;
-        }
-        // Check for matching token
-        for (Token<?> token : queue) {
-            if (arc.matches(token)) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     /**
      * Returns an unmodifiable view of all tokens in a place.

@@ -10,6 +10,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.libpetri.core.*;
+import org.libpetri.core.Arc.In;
+import org.libpetri.core.Arc.Out;
 import org.libpetri.event.EventStore;
 import org.libpetri.event.NetEvent;
 import org.junit.jupiter.api.Nested;
@@ -173,7 +175,7 @@ class BitmapNetExecutorTest {
 
             // Actually, let's use reset to clear the blocker
             var tRemoveBlocker = Transition.builder("removeBlocker")
-                .input(blocker)
+                .inputs(In.one(blocker))
                 .action(ctx -> CompletableFuture.completedFuture(null))
                 .build();
 

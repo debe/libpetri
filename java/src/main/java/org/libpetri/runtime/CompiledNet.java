@@ -63,14 +63,12 @@ public final class CompiledNet {
     // Precomputed consumption place IDs per transition (input + reset places)
     private final int[][] consumptionPlaceIds;
 
-    // Cardinality and guard flags
+    // Cardinality flags
     private final CardinalityCheck[] cardinalityChecks;
-    private final boolean[] hasGuards;
 
     /**
      * Cardinality check for transitions with non-trivial input requirements.
-     * Only allocated for transitions that have In.Exactly, In.All, In.AtLeast,
-     * or legacy multi-arc inputs.
+     * Only allocated for transitions that have In.Exactly, In.All, or In.AtLeast.
      */
     record CardinalityCheck(int[] placeIds, int[] requiredCounts) {}
 
@@ -87,16 +85,14 @@ public final class CompiledNet {
     private CompiledNet(PetriNet net) {
         this.net = net;
 
-        // Collect all places from transitions (same as PetriNet.Builder does)
+        // Collect all places from transitions
         var allPlaces = new LinkedHashSet<Place<?>>();
         for (var t : net.transitions()) {
             for (var in : t.inputSpecs()) allPlaces.add(in.place());
-            allPlaces.addAll(t.inputs().keySet());
             for (var arc : t.reads()) allPlaces.add(arc.place());
             for (var arc : t.inhibitors()) allPlaces.add(arc.place());
             for (var arc : t.resets()) allPlaces.add(arc.place());
             if (t.outputSpec() != null) allPlaces.addAll(t.outputSpec().allPlaces());
-            for (var arc : t.outputs()) allPlaces.add(arc.place());
         }
         // Also include places declared on the net itself
         allPlaces.addAll(net.places());
@@ -126,7 +122,6 @@ public final class CompiledNet {
         this.resetMask = new BitSet[transitionCount];
         this.consumptionPlaceIds = new int[transitionCount][];
         this.cardinalityChecks = new CardinalityCheck[transitionCount];
-        this.hasGuards = new boolean[transitionCount];
 
         // Track which transitions are affected by each place
         @SuppressWarnings("unchecked")
@@ -141,11 +136,9 @@ public final class CompiledNet {
             var inhibitors = new BitSet(placeCount);
             var resets = new BitSet(placeCount);
 
-            // Pass 1: Determine if cardinality check is needed
+            // Determine if cardinality check is needed
             boolean needsCardinality = false;
             int inputCount = t.inputSpecs().size();
-            var inputEntries = t.inputs().asMap().entrySet();
-            int legacyCount = inputEntries.size();
 
             for (var in : t.inputSpecs()) {
                 int pid = placeIndex.get(in.place());
@@ -153,40 +146,19 @@ public final class CompiledNet {
                 placeToTransitionsList[pid].add(tid);
 
                 int required = in.requiredCount();
-                if (required > 1 || in instanceof In.All || in instanceof In.AtLeast) {
+                if (required > 1 || in instanceof Arc.In.All || in instanceof Arc.In.AtLeast) {
                     needsCardinality = true;
                 }
             }
 
-            for (var entry : inputEntries) {
-                int pid = placeIndex.get(entry.getKey());
-                needs.set(pid);
-                placeToTransitionsList[pid].add(tid);
-
-                if (entry.getValue().size() > 1) {
-                    needsCardinality = true;
-                }
-
-                for (var arc : entry.getValue()) {
-                    if (arc.hasGuard()) {
-                        hasGuards[tid] = true;
-                    }
-                }
-            }
-
-            // Pass 2: Build cardinality arrays only when needed
+            // Build cardinality arrays only when needed
             if (needsCardinality) {
-                int[] cPids = new int[inputCount + legacyCount];
-                int[] cReqs = new int[inputCount + legacyCount];
+                int[] cPids = new int[inputCount];
+                int[] cReqs = new int[inputCount];
                 int ci = 0;
                 for (var in : t.inputSpecs()) {
                     cPids[ci] = placeIndex.get(in.place());
                     cReqs[ci] = in.requiredCount();
-                    ci++;
-                }
-                for (var entry : inputEntries) {
-                    cPids[ci] = placeIndex.get(entry.getKey());
-                    cReqs[ci] = entry.getValue().size();
                     ci++;
                 }
                 cardinalityChecks[tid] = new CardinalityCheck(cPids, cReqs);
@@ -216,7 +188,6 @@ public final class CompiledNet {
             // Precompute consumption place IDs (deduplicated via BitSet)
             var consumptionBits = new BitSet(placeCount);
             for (var in : t.inputSpecs()) consumptionBits.set(placeIndex.get(in.place()));
-            for (var key : t.inputs().keySet()) consumptionBits.set(placeIndex.get(key));
             for (var arc : t.resets()) consumptionBits.set(placeIndex.get(arc.place()));
             int[] cpIds = new int[consumptionBits.cardinality()];
             for (int i = 0, b = consumptionBits.nextSetBit(0); b >= 0; b = consumptionBits.nextSetBit(b + 1), i++) {
@@ -278,7 +249,6 @@ public final class CompiledNet {
 
     public int[] consumptionPlaceIds(int tid) { return consumptionPlaceIds[tid]; }
     public CardinalityCheck cardinalityCheck(int tid) { return cardinalityChecks[tid]; }
-    public boolean hasGuards(int tid) { return hasGuards[tid]; }
 
     // ==================== Enablement Check ====================
 

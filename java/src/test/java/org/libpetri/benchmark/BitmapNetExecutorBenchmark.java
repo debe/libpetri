@@ -1,6 +1,8 @@
 package org.libpetri.benchmark;
 
 import org.libpetri.core.*;
+import org.libpetri.core.Arc.In;
+import org.libpetri.core.Arc.Out;
 import org.libpetri.debug.DebugAwareEventStore;
 import org.libpetri.debug.DebugEventStore;
 import org.libpetri.debug.LogCaptureScopeForwardingExecutor;
@@ -239,8 +241,8 @@ public class BitmapNetExecutorBenchmark {
             var to = places.get(i + 1);
             builder.transition(
                 Transition.builder("t" + (i + 1))
-                    .input(from)
-                    .output(to)
+                    .inputs(In.one(from))
+                    .outputs(Out.place(to))
                     .action(ctx -> {
                         Blackhole.consumeCPU(100);
                         ctx.output(to, new BenchToken("v"));
@@ -275,8 +277,8 @@ public class BitmapNetExecutorBenchmark {
             var to = places.get(i + 1);
             builder.transition(
                 Transition.builder("sync_t" + (i + 1))
-                    .input(places.get(i))
-                    .output(to)
+                    .inputs(In.one(places.get(i)))
+                    .outputs(Out.place(to))
                     .action(ctx -> {
                         Blackhole.consumeCPU(100);
                         ctx.output(to, new BenchToken("v"));
@@ -309,8 +311,8 @@ public class BitmapNetExecutorBenchmark {
             boolean async = i < asyncCount;
             builder.transition(
                 Transition.builder("mix_t" + (i + 1))
-                    .input(places.get(i))
-                    .output(to)
+                    .inputs(In.one(places.get(i)))
+                    .outputs(Out.place(to))
                     .action(ctx -> {
                         Blackhole.consumeCPU(100);
                         ctx.output(to, new BenchToken("v"));
@@ -343,11 +345,9 @@ public class BitmapNetExecutorBenchmark {
         }
 
         // Fork transition
-        var forkBuilder = Transition.builder("fork").input(start);
-        for (var bp : branchPlaces) {
-            forkBuilder.output(bp);
-        }
-        var fork = forkBuilder
+        var fork = Transition.builder("fork")
+            .inputs(In.one(start))
+            .outputs(Out.and(branchPlaces.toArray(new Place[0])))
             .action(ctx -> {
                 for (var bp : branchPlaces) {
                     ctx.output(bp, new BenchToken("v"));
@@ -366,8 +366,8 @@ public class BitmapNetExecutorBenchmark {
             var bp = branchPlaces.get(i);
             builder.transition(
                 Transition.builder("work" + i)
-                    .input(bp)
-                    .output(join)
+                    .inputs(In.one(bp))
+                    .outputs(Out.place(join))
                     .action(ctx -> {
                         ctx.output(join, new BenchToken("v"));
                         return CompletableFuture.supplyAsync(() -> {
@@ -380,12 +380,9 @@ public class BitmapNetExecutorBenchmark {
         }
 
         // Join transition (needs N tokens from join place)
-        var joinBuilder = Transition.builder("join");
-        for (int i = 0; i < branches; i++) {
-            joinBuilder.input(join);
-        }
-        var joinTrans = joinBuilder
-            .output(end)
+        var joinTrans = Transition.builder("join")
+            .inputs(In.exactly(branches, join))
+            .outputs(Out.place(end))
             .action(ctx -> {
                 ctx.output(end, new BenchToken("done"));
                 return CompletableFuture.supplyAsync(() -> {
@@ -426,11 +423,11 @@ public class BitmapNetExecutorBenchmark {
 
         var timeout = Transition.builder("Timeout")
             .read(pending)
-            .output(urgent)
+            .outputs(Out.place(urgent))
             .inhibitor(urgent)
             .inhibitor(delivered)
             .inhibitor(fallbackDelivered)
-            .interval(FiringInterval.exact(java.time.Duration.ofSeconds(100)))
+            .timing(Timing.exact(java.time.Duration.ofSeconds(100)))
             .action(ctx -> {
                 ctx.output(urgent, new BenchToken("urgent"));
                 return CompletableFuture.supplyAsync(() -> {
@@ -442,8 +439,7 @@ public class BitmapNetExecutorBenchmark {
 
         var guard = Transition.builder("Guard")
             .read(pending)
-            .output(guardResult)
-            .output(guardFired)
+            .outputs(Out.and(guardResult, guardFired))
             .inhibitor(guardFired)
             .action(ctx -> {
                 ctx.output(guardFired, new BenchToken("fired"));
@@ -457,8 +453,7 @@ public class BitmapNetExecutorBenchmark {
 
         var intent = Transition.builder("Intent")
             .read(pending)
-            .output(intentReady)
-            .output(intentFailed)
+            .outputs(Out.and(intentReady, intentFailed))
             .inhibitor(intentReady)
             .inhibitor(intentFailed)
             .action(ctx -> {
@@ -471,9 +466,8 @@ public class BitmapNetExecutorBenchmark {
             .build();
 
         var retryIntent = Transition.builder("RetryIntent")
-            .input(intentFailed)
-            .output(intentReady)
-            .output(intentFailed)
+            .inputs(In.one(intentFailed))
+            .outputs(Out.and(intentReady, intentFailed))
             .inhibitor(urgent)
             .action(ctx -> {
                 ctx.output(intentReady, new BenchToken("retry"));
@@ -486,8 +480,7 @@ public class BitmapNetExecutorBenchmark {
 
         var search = Transition.builder("Search")
             .read(intentReady)
-            .output(searchReady)
-            .output(searchFired)
+            .outputs(Out.and(searchReady, searchFired))
             .inhibitor(searchFired)
             .action(ctx -> {
                 ctx.output(searchFired, new BenchToken("fired"));
@@ -501,7 +494,7 @@ public class BitmapNetExecutorBenchmark {
 
         var topicKnowledge = Transition.builder("TopicKnowledge")
             .read(intentReady)
-            .output(topicsLoaded)
+            .outputs(Out.place(topicsLoaded))
             .inhibitor(topicsLoaded)
             .action(ctx -> {
                 ctx.output(topicsLoaded, new BenchToken("topics"));
@@ -514,8 +507,7 @@ public class BitmapNetExecutorBenchmark {
 
         var compareTopics = Transition.builder("CompareTopics")
             .read(topicsLoaded)
-            .output(reSearchNeeded)
-            .output(compareTopicsFired)
+            .outputs(Out.and(reSearchNeeded, compareTopicsFired))
             .inhibitor(compareTopicsFired)
             .action(ctx -> {
                 ctx.output(compareTopicsFired, new BenchToken("fired"));
@@ -527,9 +519,9 @@ public class BitmapNetExecutorBenchmark {
             .build();
 
         var reSearch = Transition.builder("ReSearch")
-            .input(reSearchNeeded)
+            .inputs(In.one(reSearchNeeded))
             .reset(searchReady)
-            .output(searchReady)
+            .outputs(Out.place(searchReady))
             .action(ctx -> {
                 ctx.output(searchReady, new BenchToken("research"));
                 return CompletableFuture.supplyAsync(() -> {
@@ -540,10 +532,10 @@ public class BitmapNetExecutorBenchmark {
             .build();
 
         var productReco = Transition.builder("ProductReco")
-            .input(searchReady)
+            .inputs(In.one(searchReady))
             .read(compareTopicsFired)
             .inhibitor(reSearchNeeded)
-            .output(recoReady)
+            .outputs(Out.place(recoReady))
             .action(ctx -> {
                 ctx.output(recoReady, new BenchToken("reco"));
                 return CompletableFuture.supplyAsync(() -> {
@@ -554,9 +546,8 @@ public class BitmapNetExecutorBenchmark {
             .build();
 
         var urgentInject = Transition.builder("UrgentInject")
-            .input(urgent)
-            .input(searchReady)
-            .output(injectReady)
+            .inputs(In.one(urgent), In.one(searchReady))
+            .outputs(Out.place(injectReady))
             .inhibitor(injectReady)
             .action(ctx -> {
                 ctx.output(injectReady, new BenchToken("urgent"));
@@ -568,8 +559,8 @@ public class BitmapNetExecutorBenchmark {
             .build();
 
         var decideInject = Transition.builder("DecideInject")
-            .input(recoReady)
-            .output(injectReady)
+            .inputs(In.one(recoReady))
+            .outputs(Out.place(injectReady))
             .action(ctx -> {
                 ctx.output(injectReady, new BenchToken("inject"));
                 return CompletableFuture.supplyAsync(() -> {
@@ -580,10 +571,8 @@ public class BitmapNetExecutorBenchmark {
             .build();
 
         var compose = Transition.builder("Compose")
-            .input(guardResult)
-            .input(injectReady)
-            .output(responseReady)
-            .output(composeFailed)
+            .inputs(In.one(guardResult), In.one(injectReady))
+            .outputs(Out.and(responseReady, composeFailed))
             .action(ctx -> {
                 ctx.output(responseReady, new BenchToken("response"));
                 return CompletableFuture.supplyAsync(() -> {
@@ -594,9 +583,8 @@ public class BitmapNetExecutorBenchmark {
             .build();
 
         var retryCompose = Transition.builder("RetryCompose")
-            .input(composeFailed)
-            .output(responseReady)
-            .output(composeFailed)
+            .inputs(In.one(composeFailed))
+            .outputs(Out.and(responseReady, composeFailed))
             .inhibitor(urgent)
             .action(ctx -> {
                 ctx.output(responseReady, new BenchToken("retry"));
@@ -608,9 +596,8 @@ public class BitmapNetExecutorBenchmark {
             .build();
 
         var fallback = Transition.builder("Fallback")
-            .input(composeFailed)
-            .input(urgent)
-            .output(fallbackDelivered)
+            .inputs(In.one(composeFailed), In.one(urgent))
+            .outputs(Out.place(fallbackDelivered))
             .action(ctx -> {
                 ctx.output(fallbackDelivered, new BenchToken("fallback"));
                 return CompletableFuture.supplyAsync(() -> {
@@ -621,9 +608,8 @@ public class BitmapNetExecutorBenchmark {
             .build();
 
         var intentFallback = Transition.builder("IntentFallback")
-            .input(intentFailed)
-            .input(urgent)
-            .output(fallbackDelivered)
+            .inputs(In.one(intentFailed), In.one(urgent))
+            .outputs(Out.place(fallbackDelivered))
             .action(ctx -> {
                 ctx.output(fallbackDelivered, new BenchToken("fallback"));
                 return CompletableFuture.supplyAsync(() -> {
@@ -634,8 +620,8 @@ public class BitmapNetExecutorBenchmark {
             .build();
 
         var outputGuard = Transition.builder("OutputGuard")
-            .input(responseReady)
-            .output(delivered)
+            .inputs(In.one(responseReady))
+            .outputs(Out.place(delivered))
             .action(ctx -> {
                 ctx.output(delivered, new BenchToken("delivered"));
                 return CompletableFuture.supplyAsync(() -> {
