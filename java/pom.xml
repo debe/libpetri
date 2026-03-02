@@ -137,17 +137,14 @@
 
     <build>
         <plugins>
-            <!-- Compiler: Java 25 with preview features -->
+            <!-- Compiler: Java 25 -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>${maven-compiler-plugin.version}</version>
                 <configuration>
                     <release>25</release>
-                    <compilerArgs>
-                        <arg>--enable-preview</arg>
-                    </compilerArgs>
-                    <encoding>UTF-8</encoding>
+<encoding>UTF-8</encoding>
                 </configuration>
                 <executions>
                     <execution>
@@ -166,13 +163,13 @@
                 </executions>
             </plugin>
 
-            <!-- Surefire: run tests with preview features, exclude benchmarks -->
+            <!-- Surefire: run tests, exclude benchmarks -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>${maven-surefire-plugin.version}</version>
                 <configuration>
-                    <argLine>--enable-preview @{argLine}</argLine>
+                    <argLine>@{argLine}</argLine>
                     <excludes>
                         <exclude>**/benchmark/**</exclude>
                     </excludes>
@@ -257,7 +254,6 @@
                             <executable>java</executable>
                             <classpathScope>test</classpathScope>
                             <arguments>
-                                <argument>--enable-preview</argument>
                                 <argument>-classpath</argument>
                                 <classpath/>
                                 <argument>org.libpetri.benchmark.BitmapNetExecutorBenchmark</argument>
@@ -304,7 +300,6 @@
                         <configuration>
                             <release>25</release>
                             <additionalOptions>
-                                <additionalOption>--enable-preview</additionalOption>
                                 <additionalOption>--allow-script-in-comments</additionalOption>
                             </additionalOptions>
                             <taglets>
