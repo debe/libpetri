@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 JAVA_DIR="$PROJECT_ROOT/java"
+TS_DIR="$PROJECT_ROOT/typescript"
 
 # --- Defaults ---
 DRY_RUN=false
@@ -14,15 +15,17 @@ usage() {
     cat <<EOF
 Usage: $(basename "$0") [--dry-run] <version>
 
-Release libpetri to Maven Central.
+Release libpetri to Maven Central and npm.
 
-Maven handles everything: build, test, sign (local GPG agent), bundle,
+Maven handles Java: build, test, sign (local GPG agent), bundle,
 upload to Central Portal, and wait for publication.
+npm handles TypeScript: build, test, publish.
 
 Prerequisites:
   - GPG signing key available to gpg-agent
   - ~/.m2/settings.xml with <server id="central"> credentials
   - gh CLI authenticated (for GitHub release)
+  - npm authenticated with publish access to 'libpetri'
 
 Arguments:
   version       Release version (e.g. 0.4.0)
@@ -80,6 +83,11 @@ if ! grep -q '<id>central</id>' ~/.m2/settings.xml 2>/dev/null; then
     error "No <server id=\"central\"> found in ~/.m2/settings.xml"
 fi
 
+# npm authenticated
+if ! npm whoami >/dev/null 2>&1; then
+    error "Not logged in to npm. Run 'npm login' or set an auth token first."
+fi
+
 # Check tag doesn't already exist (unless dry-run)
 if [[ "$DRY_RUN" == false ]]; then
     if git -C "$PROJECT_ROOT" rev-parse "v${VERSION}" >/dev/null 2>&1; then
@@ -112,10 +120,32 @@ info "Reverting version in pom.xml"
 cd "$PROJECT_ROOT"
 git checkout java/pom.xml
 
+# --- TypeScript: build, test, publish ---
+info "Building and testing TypeScript package"
+cd "$TS_DIR"
+
+# Set version in package.json
+npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+npm install
+npm run build
+npm run check
+npm test
+
 if [[ "$DRY_RUN" == true ]]; then
-    info "Dry run complete. Artifacts in java/target/"
+    info "Dry run: verifying npm package contents"
+    npm pack --dry-run
+    git checkout package.json
+    info "Dry run complete. Java artifacts in java/target/, TypeScript in typescript/dist/"
     exit 0
 fi
+
+info "Publishing to npm"
+npm publish
+
+# Revert package.json version change (release version baked into published tarball)
+cd "$PROJECT_ROOT"
+git checkout typescript/package.json
 
 # --- Tag and release ---
 info "Creating tag v${VERSION}"
@@ -129,4 +159,4 @@ gh release create "v${VERSION}" \
     --title "v${VERSION}" \
     --generate-notes
 
-info "Released v${VERSION} to Maven Central and GitHub."
+info "Released v${VERSION} to Maven Central, npm, and GitHub."
