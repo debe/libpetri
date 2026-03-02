@@ -21,7 +21,7 @@ cd java
 ./mvnw test                                    # Code coverage (auto-generated in target/site/jacoco/)
 ```
 
-Java 25 with preview features enabled. Uses Maven 3.9.x via wrapper.
+Java 25 (no preview features — all used features are finalized). Uses Maven 3.9.x via wrapper.
 
 ### TypeScript (`typescript/`)
 
@@ -83,10 +83,18 @@ DOT (Graphviz) diagram export with Petri net visual conventions.
 
 `spec/` contains 10 spec files with requirement prefixes: CORE, IO, TIME, EXEC, CONC, ENV, VER, EVT, EXP, PERF. Requirements use MUST/SHOULD/MAY priority and have testable acceptance criteria. Cross-references use `[PREFIX-NNN]` format.
 
+## Release
+
+- **Homepage**: https://libpetri.org (redirects to GitHub via GitHub Pages from `docs/`)
+- **Maven Central**: `org.libpetri:libpetri` — released via `scripts/release.sh <version>`
+- **npm**: `libpetri`
+- Release script handles: build, test, GPG sign, deploy to Maven Central, git tag, GitHub release
+
 ## Key Conventions
 
 - Immutable data everywhere — Place, Token, PetriNet, and CompiledNet are all immutable after construction.
 - Builder pattern for Transition and PetriNet construction.
 - Both implementations use the same test structure: `core/`, `runtime/`, `event/`, `export/`, and verification tests.
-- Java uses records extensively; TypeScript uses readonly properties and discriminated unions.
+- Java uses records extensively (sealed interfaces, pattern matching, unnamed patterns, ScopedValue — all finalized in Java 25, no `--enable-preview` needed).
+- TypeScript uses readonly properties and discriminated unions.
 - `PaperNetworks` fixture class provides canonical reference nets used across test suites.
