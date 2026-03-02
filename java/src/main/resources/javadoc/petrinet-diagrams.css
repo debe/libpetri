@@ -16,9 +16,8 @@
 .petrinet-diagram .diagram-container {
   position: relative;
   padding: 16px;
-  min-height: 200px;
+  height: 70vh;
   overflow: hidden;
-  max-height: 70vh;
 }
 
 .petrinet-diagram .diagram-viewport {
@@ -31,12 +30,10 @@
   cursor: grabbing;
 }
 
-.petrinet-diagram pre.mermaid {
-  margin: 0;
-  background: transparent;
-  display: flex;
-  justify-content: center;
-  height: 100vH;
+.petrinet-diagram .diagram-container svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .petrinet-diagram .diagram-controls {
@@ -85,11 +82,14 @@
   margin: 0 !important;
   border-radius: 0 !important;
   overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
 }
 
 .diagram-fullscreen .diagram-container {
-  max-height: none !important;
-  height: calc(100vh - 60px) !important;
+  flex: 1 !important;
+  min-height: 0 !important;
+  height: auto !important;
 }
 
 .diagram-fullscreen .diagram-controls {
@@ -98,7 +98,11 @@
   right: 16px;
 }
 
-.diagram-fullscreen pre.mermaid svg {
+.diagram-fullscreen details {
+  display: none;
+}
+
+.diagram-fullscreen svg {
   max-width: none;
   max-height: none;
 }

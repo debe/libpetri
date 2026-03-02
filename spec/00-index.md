@@ -257,7 +257,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Guard predicates | Filter on input arcs | ✓ (on Arc.Input) | ✓ (on In variants) | Not yet |
 | SMT verification | IC3/PDR via Z3 Spacer | ✓ | ✓ (WASM) | Not yet |
 | State class graph | Berthomieu-Diaz | ✓ | — | — |
-| Graph export | At least one format | Mermaid | Mermaid | Not yet |
+| Graph export | At least one format | DOT (Graphviz) | DOT (Graphviz) | Not yet |
 | Log capture | Action log → events | SLF4J LogCaptureScope | ctx.log() | Not yet |
 | Debug event store | Live tailing | ✓ | — | — |
 | Action binding | Separated from structure | ✓ (bindActions) | ✓ (bindActions) | NetStructureBuilder |
@@ -297,7 +297,7 @@ This matrix maps spec requirements to test classes/files in each implementation.
 | VER-010–011 | `StateClassGraphTest` | — | — |
 | EVT-001–014 | `NetEventTest` | `net-event.test.ts` | `net_event::tests` |
 | EVT-020–024 | `EventStoreTest` | `event-store.test.ts` | `event_store::tests` |
-| EXP-001–008 | `MermaidExporterTest` | `mermaid-exporter.test.ts` | — |
+| EXP-001–008 | `DotExporterTest` | `dot-exporter.test.ts` | — |
 | PERF-001–004 | `BitmapNetExecutorBenchmark` | — | — |
 | PERF-020–022 | — | — | — |
 

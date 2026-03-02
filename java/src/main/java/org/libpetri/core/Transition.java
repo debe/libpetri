@@ -66,6 +66,9 @@ public final class Transition {
     private final Arc.Out.Timeout actionTimeout;
     private final TransitionAction action;
     private final int priority;
+    private final Set<Place<?>> inputPlaceSet;
+    private final Set<Place<?>> readPlaceSet;
+    private final Set<Place<?>> outputPlaceSet;
 
     private Transition(
         String name,
@@ -88,6 +91,17 @@ public final class Transition {
         this.actionTimeout = findTimeout(outputSpec);
         this.action = action;
         this.priority = priority;
+
+        // Cache place sets — avoids stream+collect on every TransitionContext creation
+        var ips = new HashSet<Place<?>>(inputSpecs.size());
+        for (var in : this.inputSpecs) ips.add(in.place());
+        this.inputPlaceSet = Set.copyOf(ips);
+
+        var rps = new HashSet<Place<?>>(reads.size());
+        for (var r : this.reads) rps.add(r.place());
+        this.readPlaceSet = Set.copyOf(rps);
+
+        this.outputPlaceSet = outputSpec != null ? outputSpec.allPlaces() : Set.of();
     }
 
     /**
@@ -158,9 +172,7 @@ public final class Transition {
      * Used by TransitionContext to enforce structure constraints.
      */
     public Set<Place<?>> inputPlaces() {
-        return inputSpecs.stream()
-            .map(Arc.In::place)
-            .collect(Collectors.toUnmodifiableSet());
+        return inputPlaceSet;
     }
 
     /**
@@ -168,9 +180,7 @@ public final class Transition {
      * Used by TransitionContext to enforce structure constraints.
      */
     public Set<Place<?>> readPlaces() {
-        return reads.stream()
-            .map(Arc.Read::place)
-            .collect(Collectors.toUnmodifiableSet());
+        return readPlaceSet;
     }
 
     /**
@@ -178,8 +188,7 @@ public final class Transition {
      * Used by TransitionContext to enforce structure constraints.
      */
     public Set<Place<?>> outputPlaces() {
-        if (outputSpec == null) return Set.of();
-        return outputSpec.allPlaces();
+        return outputPlaceSet;
     }
 
     // Uses Object.equals/hashCode (identity-based) - no override needed

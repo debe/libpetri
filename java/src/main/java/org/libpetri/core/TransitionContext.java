@@ -68,14 +68,7 @@ public final class TransitionContext {
      */
     public <T> T input(Place<T> place) {
         requireInput(place);
-        List<T> values = rawInput.values(place);
-        if (values.size() != 1) {
-            throw new IllegalStateException(
-                "Place '%s' consumed %d tokens, use inputs() for batched access"
-                    .formatted(place.name(), values.size())
-            );
-        }
-        return values.getFirst();
+        return rawInput.value(place);
     }
 
     /**

@@ -14,7 +14,7 @@ import org.libpetri.core.Transition;
  * "Apply Time Petri Nets with Colored Tokens to Model and Verify Agentic Systems"
  *
  * These nets can be used for:
- * - PNML/Mermaid/DOT export
+ * - DOT/Graphviz export
  */
 public final class PaperNetworks {
 

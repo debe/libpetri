@@ -182,7 +182,7 @@ class DebugProtocolHandlerTest {
             var subscribed = lastResponseOfType(DebugResponse.Subscribed.class);
             assertEquals("s1", subscribed.sessionId());
             assertEquals("TestNet", subscribed.netName());
-            assertNotNull(subscribed.mermaidDiagram());
+            assertNotNull(subscribed.dotDiagram());
             assertNotNull(subscribed.structure());
             assertEquals("live", subscribed.mode());
         }

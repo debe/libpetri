@@ -13,10 +13,6 @@
  *       to a format-agnostic {@link org.libpetri.export.graph.Graph}, then
  *       {@link org.libpetri.export.DotRenderer} renders to DOT string.</dd>
  *
- *   <dt>{@link org.libpetri.export.MermaidExporter} (deprecated)</dt>
- *   <dd>Exports to <a href="https://mermaid.js.org/">Mermaid</a> flowchart format.
- *       Retained for backward compatibility; prefer {@link org.libpetri.export.DotExporter}.</dd>
- *
  * </dl>
  *
  * <h2>Usage Examples</h2>
@@ -32,15 +28,6 @@
  * // dot -Tsvg -o workflow.svg
  * }</pre>
  *
- * <h2>Format Comparison</h2>
- * <table border="1">
- *   <caption>Exporter capabilities</caption>
- *   <tr><th>Feature</th><th>DOT</th><th>Mermaid</th></tr>
- *   <tr><td>Visualization</td><td>Yes</td><td>Yes</td></tr>
- *   <tr><td>PN conventions</td><td>Yes (circles/bars)</td><td>No (stadiums/rects)</td></tr>
- *   <tr><td>Animation support</td><td>Yes (via SVG)</td><td>Limited</td></tr>
- *   <tr><td>Env place styling</td><td>Yes (dashed)</td><td>No</td></tr>
- * </table>
  *
  * @see org.libpetri.core.PetriNet
  */

@@ -27,7 +27,7 @@ const state = {
     marking: {},
     enabledTransitions: [],
     inFlightTransitions: [],
-    mermaidDiagram: null,
+    dotDiagram: null,
     events: [],
     panzoomInstance: null,
     // Replay mode state
@@ -50,14 +50,14 @@ const state = {
     currentMatchIndex: -1,
     // Breakpoint state
     breakpoints: [],
-    // Net structure - authoritative mapping from names to Mermaid IDs
+    // Net structure - authoritative mapping from names to graph IDs
     netStructure: {
-        places: [],      // [{name, mermaidId, tokenType, isStart, isEnd}]
-        transitions: [], // [{name, mermaidId}]
-        byMermaidId: {}  // Lookup: mermaidId → {name, isTransition, ...}
+        places: [],      // [{name, graphId, tokenType, isStart, isEnd}]
+        transitions: [], // [{name, graphId}]
+        byGraphId: {}    // Lookup: graphId → {name, isTransition, ...}
     },
-    // SVG node cache - built once after renderMermaidDiagram(), eliminates DOM queries per event
-    /** @type {null | {nodesByName: Map<string, Element>, nodesByMermaidId: Map<string, Element>, edgesByMermaidId: Map<string, Element[]>, allNodeShapes: Element[], allEdgePaths: Element[]}} */
+    // SVG node cache - built once after renderDotDiagram(), eliminates DOM queries per event
+    /** @type {null | {nodesByName: Map<string, Element>, nodesByGraphId: Map<string, Element>, edgesByGraphId: Map<string, Element[]>, allNodeShapes: Element[], allEdgePaths: Element[]}} */
     svgNodeCache: null,
     // Dirty flag for diagram highlighting - avoids redundant updateDiagramHighlighting() calls
     highlightDirty: false,
@@ -403,7 +403,7 @@ function handleSubscribed(response) {
     console.log('Subscribed to session:', response.sessionId);
 
     state.currentSessionId = response.sessionId;
-    state.mermaidDiagram = response.mermaidDiagram;
+    state.dotDiagram = response.dotDiagram;
     state.marking = response.currentMarking || {};
     state.enabledTransitions = response.enabledTransitions || [];
     state.inFlightTransitions = response.inFlightTransitions || [];
@@ -412,17 +412,17 @@ function handleSubscribed(response) {
     state.eventIndex = 0;
     state.breakpoints = []; // Reset breakpoints for new session
 
-    // Build mermaidId → structure lookup from server-provided structure
+    // Build graphId → structure lookup from server-provided structure
     if (response.structure) {
         state.netStructure = {
             places: response.structure.places || [],
             transitions: response.structure.transitions || [],
-            byMermaidId: {}
+            byGraphId: {}
         };
 
-        // Index places by mermaidId
+        // Index places by graphId
         state.netStructure.places.forEach(p => {
-            state.netStructure.byMermaidId[p.mermaidId] = {
+            state.netStructure.byGraphId[p.graphId] = {
                 name: p.name,
                 isTransition: false,
                 tokenType: p.tokenType,
@@ -431,9 +431,9 @@ function handleSubscribed(response) {
             };
         });
 
-        // Index transitions by mermaidId
+        // Index transitions by graphId
         state.netStructure.transitions.forEach(t => {
-            state.netStructure.byMermaidId[t.mermaidId] = {
+            state.netStructure.byGraphId[t.graphId] = {
                 name: t.name,
                 isTransition: true
             };
@@ -443,7 +443,7 @@ function handleSubscribed(response) {
             state.netStructure.transitions.length, 'transitions');
     } else {
         // Reset structure if not provided
-        state.netStructure = { places: [], transitions: [], byMermaidId: {} };
+        state.netStructure = { places: [], transitions: [], byGraphId: {} };
     }
 
     // Initialize replay mode state
@@ -458,7 +458,7 @@ function handleSubscribed(response) {
     }
 
     // Render diagram
-    renderMermaidDiagram(response.mermaidDiagram);
+    renderDotDiagram(response.dotDiagram);
 
     // Update UI
     updateMarkingInspector();
@@ -476,14 +476,14 @@ function handleUnsubscribed(response) {
 
     if (state.currentSessionId === response.sessionId) {
         state.currentSessionId = null;
-        state.mermaidDiagram = null;
+        state.dotDiagram = null;
         state.marking = {};
         state.events = [];
         state.svgNodeCache = null;
         state.checkpoints = [];
         enableControls(false);
         document.getElementById('no-session').classList.remove('hidden');
-        document.getElementById('mermaid-diagram').innerHTML = '';
+        document.getElementById('dot-diagram').innerHTML = '';
     }
 }
 
@@ -672,10 +672,10 @@ function applyEventToState(event) {
     }
 }
 
-// ======================== Mermaid Diagram ========================
+// ======================== DOT Diagram ========================
 
-async function renderMermaidDiagram(diagram) {
-    const container = document.getElementById('mermaid-diagram');
+async function renderDotDiagram(dotSource) {
+    const container = document.getElementById('dot-diagram');
 
     // Dispose existing panzoom instance and invalidate SVG cache
     if (state.panzoomInstance) {
@@ -684,35 +684,19 @@ async function renderMermaidDiagram(diagram) {
     }
     state.svgNodeCache = null;
 
-    if (!diagram) {
+    if (!dotSource) {
         container.innerHTML = '';
         return;
     }
 
     try {
-        // ELK layout is registered in index.html via ES module
-        if (window.elkRegistered) {
-            console.log('ELK layout available');
-        } else {
-            console.warn('ELK layout not registered - diagram will use default layout');
-        }
-
-        // Initialize Mermaid
-        mermaid.initialize({
-            startOnLoad: false,
-            theme: 'default',
-            flowchart: {
-                useMaxWidth: true,
-                htmlLabels: true
-            }
-        });
-
-        // Render diagram
-        const { svg } = await mermaid.render('mermaid-svg', diagram);
-        container.innerHTML = svg;
+        // Render DOT to SVG using Viz.js (Graphviz WASM)
+        const viz = await Viz.instance();
+        const svgElement = viz.renderSVGElement(dotSource);
+        container.innerHTML = '';
+        container.appendChild(svgElement);
 
         // Initialize panzoom on the SVG
-        const svgElement = container.querySelector('svg');
         if (svgElement) {
             state.panzoomInstance = panzoom(svgElement, {
                 maxZoom: 5,
@@ -725,8 +709,9 @@ async function renderMermaidDiagram(diagram) {
         // Build SVG node cache for O(1) lookups during highlighting
         buildSvgNodeCache(svgElement);
 
-        // Add click handlers for places and context menu
-        container.querySelectorAll('[id*="flowchart"]').forEach(node => {
+        // Add click handlers for places and transitions
+        svgElement.querySelectorAll('g.node').forEach(node => {
+            if (node.id === 'graph0') return; // Skip root graph node
             node.style.cursor = 'pointer';
 
             // Left-click: inspect place
@@ -750,15 +735,18 @@ async function renderMermaidDiagram(diagram) {
         updateDiagramHighlighting();
 
     } catch (error) {
-        console.error('Failed to render Mermaid diagram:', error);
+        console.error('Failed to render DOT diagram:', error);
         container.innerHTML = `<pre class="text-red-500 text-sm">${error.message}</pre>`;
     }
 }
 
 /**
- * Builds a cache of SVG nodes and edges, keyed by name and mermaidId.
- * Called once after renderMermaidDiagram() completes. Eliminates all
+ * Builds a cache of SVG nodes and edges, keyed by name and graphId.
+ * Called once after renderDotDiagram() completes. Eliminates all
  * DOM queries from updateDiagramHighlighting().
+ *
+ * Graphviz SVGs use: <g id="p_Ready" class="node"><title>p_Ready</title>...
+ * Edges use: <g id="edge1" class="edge"><title>source&#45;&gt;target</title>...
  *
  * @param {SVGElement} svg - The rendered SVG element
  */
@@ -766,82 +754,63 @@ function buildSvgNodeCache(svg) {
     /** @type {Map<string, Element>} */
     const nodesByName = new Map();
     /** @type {Map<string, Element>} */
-    const nodesByMermaidId = new Map();
+    const nodesByGraphId = new Map();
     /** @type {Map<string, Element[]>} */
-    const edgesByMermaidId = new Map();
+    const edgesByGraphId = new Map();
 
-    // Index all .node elements by mermaidId
-    svg.querySelectorAll('.node').forEach(node => {
-        const match = node.id?.match(/^flowchart-(.+)-\d+$/);
-        if (!match) return;
-        const mermaidId = match[1];
-        nodesByMermaidId.set(mermaidId, node);
+    // Index all g.node elements by graphId (Graphviz uses id attribute directly)
+    svg.querySelectorAll('g.node').forEach(node => {
+        const graphId = node.id;
+        if (!graphId || graphId === 'graph0') return;
+        nodesByGraphId.set(graphId, node);
 
         // Resolve authoritative name from structure
-        const info = state.netStructure.byMermaidId[mermaidId];
+        const info = state.netStructure.byGraphId[graphId];
         if (info) {
             nodesByName.set(info.name, node);
         }
     });
 
-    // Also index by fallback sanitization for names not in structure
+    // Also index by fallback for names not in structure
     state.netStructure.places?.forEach(p => {
-        if (!nodesByName.has(p.name) && nodesByMermaidId.has(p.mermaidId)) {
-            nodesByName.set(p.name, nodesByMermaidId.get(p.mermaidId));
+        if (!nodesByName.has(p.name) && nodesByGraphId.has(p.graphId)) {
+            nodesByName.set(p.name, nodesByGraphId.get(p.graphId));
         }
     });
     state.netStructure.transitions?.forEach(t => {
-        if (!nodesByName.has(t.name) && nodesByMermaidId.has(t.mermaidId)) {
-            nodesByName.set(t.name, nodesByMermaidId.get(t.mermaidId));
+        if (!nodesByName.has(t.name) && nodesByGraphId.has(t.graphId)) {
+            nodesByName.set(t.name, nodesByGraphId.get(t.graphId));
         }
     });
 
-    // Pre-query edges for each mermaidId (all 5 patterns, done once)
-    const allMermaidIds = new Set(nodesByMermaidId.keys());
-    for (const mermaidId of allMermaidIds) {
-        const paths = new Set();
+    // Index edges by graphId - Graphviz edges have <title> with "source->target" format
+    svg.querySelectorAll('g.edge').forEach(edge => {
+        const title = edge.querySelector('title');
+        if (!title) return;
+        const titleText = title.textContent || '';
+        // Graphviz uses "source->target" in title (HTML entities decoded by browser)
+        const parts = titleText.split('->');
+        if (parts.length !== 2) return;
 
-        // Pattern 1: LS-/LE- with flowchart- prefix
-        svg.querySelectorAll(`[class*="LS-flowchart-${mermaidId}"], [class*="LE-flowchart-${mermaidId}"]`).forEach(edgeGroup => {
-            const path = edgeGroup.querySelector('path');
-            if (path) paths.add(path);
-        });
+        const sourceId = parts[0].trim();
+        const targetId = parts[1].trim();
+        const path = edge.querySelector('path');
+        if (!path) return;
 
-        // Pattern 2: LS-/LE- without prefix
-        svg.querySelectorAll(`[class*="LS-${mermaidId}"], [class*="LE-${mermaidId}"]`).forEach(edgeGroup => {
-            const path = edgeGroup.querySelector('path');
-            if (path) paths.add(path);
-        });
-
-        // Pattern 3: data-* attributes (ELK layout)
-        svg.querySelectorAll(`[data-id*="${mermaidId}"], [data-source*="${mermaidId}"], [data-target*="${mermaidId}"]`).forEach(el => {
-            const path = el.tagName === 'path' ? el : el.querySelector('path');
-            if (path) paths.add(path);
-        });
-
-        // Pattern 4: Edge groups with id
-        svg.querySelectorAll(`.edgePath[id*="${mermaidId}"], .edge[id*="${mermaidId}"]`).forEach(edgeGroup => {
-            const path = edgeGroup.querySelector('path');
-            if (path) paths.add(path);
-        });
-
-        // Pattern 5: Mermaid 11 edge labels
-        svg.querySelectorAll(`[id*="L-flowchart-${mermaidId}"], [id*="L-${mermaidId}"]`).forEach(edgeGroup => {
-            const parent = edgeGroup.closest('.edgePath') || edgeGroup.parentElement;
-            const path = parent?.querySelector('path') || edgeGroup.querySelector('path');
-            if (path) paths.add(path);
-        });
-
-        if (paths.size > 0) {
-            edgesByMermaidId.set(mermaidId, [...paths]);
+        // Index by both source and target graphId
+        for (const id of [sourceId, targetId]) {
+            if (!edgesByGraphId.has(id)) {
+                edgesByGraphId.set(id, []);
+            }
+            edgesByGraphId.get(id).push(path);
         }
-    }
+    });
 
     // Cache all node shapes and edge paths for bulk reset
-    const allNodeShapes = [...svg.querySelectorAll('.node rect, .node polygon, .node circle, .node path')];
-    const allEdgePaths = [...svg.querySelectorAll('.edgePath path, .flowchart-link, path.path')];
+    const allNodeShapes = [...svg.querySelectorAll('g.node ellipse, g.node polygon, g.node rect, g.node circle, g.node path')];
+    const allEdgePaths = [...svg.querySelectorAll('g.edge path')];
 
-    state.svgNodeCache = { nodesByName, nodesByMermaidId, edgesByMermaidId, allNodeShapes, allEdgePaths };
+    state.svgNodeCache = { nodesByName, nodesByGraphId, edgesByGraphId, allNodeShapes, allEdgePaths };
 }
 
 function updateDiagramHighlighting() {
@@ -877,16 +846,16 @@ function updateDiagramHighlighting() {
     // Highlight enabled transitions - yellow glow
     for (const transitionName of state.enabledTransitions) {
         const transitionInfo = state.netStructure.transitions?.find(t => t.name === transitionName);
-        const transitionMermaidId = transitionInfo?.mermaidId
+        const transitionGraphId = transitionInfo?.graphId
             || ('t_' + transitionName.replace(/[^a-zA-Z0-9_]/g, '_'));
 
-        const node = cache.nodesByMermaidId.get(transitionMermaidId);
+        const node = cache.nodesByGraphId.get(transitionGraphId);
         if (node) {
             applyHighlight(node, '#eab308');
         }
 
         // Highlight cached edges
-        const edges = cache.edgesByMermaidId.get(transitionMermaidId);
+        const edges = cache.edgesByGraphId.get(transitionGraphId);
         if (edges) {
             for (const path of edges) {
                 path.style.stroke = '#eab308';
@@ -899,10 +868,10 @@ function updateDiagramHighlighting() {
     // Highlight in-flight transitions - orange glow
     for (const transitionName of state.inFlightTransitions) {
         const transitionInfo = state.netStructure.transitions?.find(t => t.name === transitionName);
-        const transitionMermaidId = transitionInfo?.mermaidId
+        const transitionGraphId = transitionInfo?.graphId
             || ('t_' + transitionName.replace(/[^a-zA-Z0-9_]/g, '_'));
 
-        const node = cache.nodesByMermaidId.get(transitionMermaidId);
+        const node = cache.nodesByGraphId.get(transitionGraphId);
         if (node) {
             applyHighlight(node, '#f97316');
         }
@@ -937,13 +906,11 @@ function findNodeByName(svg, name) {
     // Fallback: DOM query (only before cache is built)
     const place = state.netStructure.places?.find(p => p.name === name);
     const transition = state.netStructure.transitions?.find(t => t.name === name);
-    const mermaidId = place?.mermaidId
-        || transition?.mermaidId
+    const graphId = place?.graphId
+        || transition?.graphId
         || name.replace(/[^a-zA-Z0-9_]/g, '_');
 
-    return svg.querySelector(`[id="flowchart-${mermaidId}-0"]`)
-        || svg.querySelector(`[id^="flowchart-${mermaidId}-"]`)
-        || svg.querySelector(`.node[id*="-${mermaidId}-"]`);
+    return svg.querySelector(`#${CSS.escape(graphId)}`);
 }
 
 // Expose breakpoint functions globally for onclick handlers
@@ -954,7 +921,7 @@ window.showAllTokensModal = showAllTokensModal;
 
 // Debug helper - call from browser console: debugEdgeStructure()
 window.debugEdgeStructure = function() {
-    const svg = document.querySelector('#mermaid-diagram svg');
+    const svg = document.querySelector('#dot-diagram svg');
     if (!svg) {
         console.log('No SVG found');
         return;
@@ -1433,18 +1400,15 @@ function updateAutocompleteOptions() {
 
     // Fallback: parse SVG for any nodes not in structure (backward compatibility)
     if (state.netStructure.places.length === 0 && state.netStructure.transitions.length === 0) {
-        const svg = document.querySelector('#mermaid-diagram svg');
+        const svg = document.querySelector('#dot-diagram svg');
         if (svg) {
-            svg.querySelectorAll('.node').forEach(node => {
-                const nodeId = node.id || '';
-                const match = nodeId.match(/^flowchart-(.+)-\d+$/);
-                if (match) {
-                    const mermaidId = match[1];
-                    if (mermaidId.startsWith('t_')) {
-                        transitions.add(mermaidId.substring(2));
-                    } else {
-                        places.add(mermaidId);
-                    }
+            svg.querySelectorAll('g.node').forEach(node => {
+                const graphId = node.id || '';
+                if (!graphId || graphId === 'graph0') return;
+                if (graphId.startsWith('t_')) {
+                    transitions.add(graphId.substring(2));
+                } else if (graphId.startsWith('p_')) {
+                    places.add(graphId.substring(2));
                 }
             });
         }
@@ -1757,36 +1721,39 @@ function saveBreakpointFromForm() {
 let contextMenuTarget = null;
 
 /**
- * Parses node information from a Mermaid diagram node element.
+ * Parses node information from a Graphviz diagram node element.
  *
  * Uses the server-provided net structure for authoritative name lookup.
  * Falls back to heuristic parsing if structure is not available.
+ *
+ * Graphviz SVG nodes have id attributes that directly match graphId (e.g., "p_Ready", "t_Process").
  *
  * @param {Element} node - The SVG node element
  * @returns {{name: string, isTransition: boolean}}
  */
 function parseNodeInfo(node) {
-    const nodeId = node.id || '';
+    const graphId = node.id || '';
 
-    // Extract Mermaid's sanitized ID from SVG node ID (format: flowchart-{mermaidId}-{number})
-    const match = nodeId.match(/^flowchart-(.+)-\d+$/);
-    if (!match) {
-        return { name: node.textContent?.trim() || '', isTransition: false };
+    if (!graphId) {
+        // Fallback: try text content from <title> element
+        const title = node.querySelector('title');
+        return { name: title?.textContent?.trim() || '', isTransition: false };
     }
 
-    const mermaidId = match[1];
-
     // Look up in structure (authoritative source from server)
-    const info = state.netStructure.byMermaidId[mermaidId];
+    const info = state.netStructure.byGraphId[graphId];
     if (info) {
         return { name: info.name, isTransition: info.isTransition };
     }
 
-    // Fallback: old heuristic (for backward compatibility or if structure unavailable)
-    if (mermaidId.startsWith('t_')) {
-        return { name: mermaidId.substring(2), isTransition: true };
+    // Fallback: heuristic based on graphId prefix convention
+    if (graphId.startsWith('t_')) {
+        return { name: graphId.substring(2), isTransition: true };
     }
-    return { name: mermaidId, isTransition: false };
+    if (graphId.startsWith('p_')) {
+        return { name: graphId.substring(2), isTransition: false };
+    }
+    return { name: graphId, isTransition: false };
 }
 
 /**

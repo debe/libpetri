@@ -1,6 +1,6 @@
 # libpetri
 
-TypeScript implementation of a **Coloured Time Petri Net** (CTPN) engine with bitmap-based execution, formal verification via Z3, and Mermaid visualization.
+TypeScript implementation of a **Coloured Time Petri Net** (CTPN) engine with bitmap-based execution, formal verification via Z3, and DOT/Graphviz visualization.
 
 ## Architecture
 
@@ -9,7 +9,7 @@ src/
 ├── core/          # Net definition: places, transitions, arcs, timing, output specs
 ├── runtime/       # Async bitmap-based executor, marking, compiled net
 ├── event/         # Event store and net event types (discriminated union)
-├── export/        # Mermaid flowchart exporter
+├── export/        # DOT (Graphviz) diagram exporter
 └── verification/  # SMT-based property verification (Z3)
 ```
 
@@ -54,7 +54,7 @@ Event types: `execution-started`, `execution-completed`, `transition-enabled`, `
 
 ### Export (`src/export/`)
 
-`mermaidExport(net, config)` generates Mermaid flowchart syntax with ELK layout, including arc types (inhibitor, read, reset), timing annotations, and priority labels.
+`dotExport(net, config)` generates DOT (Graphviz) diagram syntax with proper Petri net visual conventions, including arc types (inhibitor, read, reset), timing annotations, and priority labels.
 
 ### Verification (`src/verification/`)
 

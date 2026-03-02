@@ -36,7 +36,7 @@ class DebugSessionRegistryTest {
         assertEquals("session-1", session.sessionId());
         assertEquals("TestNet", session.netName());
         assertTrue(session.active());
-        assertNotNull(session.mermaidDiagram());
+        assertNotNull(session.dotDiagram());
         assertNotNull(session.eventStore());
     }
 
@@ -169,14 +169,14 @@ class DebugSessionRegistryTest {
     }
 
     @Test
-    void shouldGenerateMermaidDiagram() {
+    void shouldGenerateDotDiagram() {
         var registry = new DebugSessionRegistry();
         var session = registry.register("session-1", TEST_NET);
 
-        var diagram = session.mermaidDiagram();
+        var diagram = session.dotDiagram();
 
         assertNotNull(diagram);
-        assertTrue(diagram.contains("flowchart"));
+        assertTrue(diagram.contains("digraph"));
         assertTrue(diagram.contains("Input"));
         assertTrue(diagram.contains("Output"));
         assertTrue(diagram.contains("Process"));

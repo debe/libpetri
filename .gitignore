@@ -33,3 +33,6 @@ Thumbs.db
 # Coverage
 *.exec
 jacoco*.html
+
+# Benchmark results
+*-benchmark-results.json

@@ -1,34 +1,11 @@
 // Petri Net Diagram Viewer
-// Provides: Mermaid rendering, zoom/pan, fullscreen
-// Assumes mermaid.min.js is already loaded via script tag
+// Provides: zoom/pan and fullscreen for pre-rendered SVG diagrams
 
 (function() {
-  // Wait for DOM to be ready
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', enhanceDiagrams);
   } else {
-    init();
-  }
-
-  function init() {
-    if (typeof mermaid === 'undefined') {
-      console.error('[petrinet] mermaid not loaded');
-      return;
-    }
-
-    mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' });
-
-    var blocks = document.querySelectorAll('pre.mermaid');
-    console.log('[petrinet] Found', blocks.length, 'mermaid blocks');
-
-    if (blocks.length > 0) {
-      mermaid.run({ querySelector: 'pre.mermaid' }).then(function() {
-        console.log('[petrinet] Rendering complete');
-        enhanceDiagrams();
-      }).catch(function(err) {
-        console.error('[petrinet] Render error:', err);
-      });
-    }
+    enhanceDiagrams();
   }
 })();
 

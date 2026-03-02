@@ -10,7 +10,7 @@ This document specifies graph export formats for visualization and formal analys
 
 **Priority:** MUST
 
-The engine MUST support exporting the net structure to at least one standard graph format suitable for visualization. The canonical format is implementation-defined (DOT/Graphviz, Mermaid, or similar), but must be a widely-supported, text-based format.
+The engine MUST support exporting the net structure to at least one standard graph format suitable for visualization. The canonical format is DOT (Graphviz), a widely-supported, text-based format.
 
 **Acceptance Criteria:**
 1. Export produces valid, parseable output in the chosen format.
@@ -18,8 +18,8 @@ The engine MUST support exporting the net structure to at least one standard gra
 3. All arcs (input, output, inhibitor, read, reset) are represented.
 
 **Implementation notes:**
-- Java: Mermaid flowchart format
-- TypeScript: Mermaid flowchart format
+- Java: DOT (Graphviz) format
+- TypeScript: DOT (Graphviz) format
 - Rust: Not yet implemented
 
 **Test derivation:** Build net with all arc types; export; verify output parses correctly.
@@ -172,7 +172,7 @@ The engine MAY support generating diagrams from net structure annotations at com
 2. Diagrams are generated without running the net.
 
 **Implementation notes:**
-- Java: `@NetStructure` annotation processed by annotation processor to generate Mermaid
+- Java: `@NetStructure` annotation processed by `@petrinet` Javadoc taglet to generate DOT→SVG diagrams
 - TypeScript: Not implemented
 - Rust: Not implemented
 

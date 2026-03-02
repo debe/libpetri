@@ -36,7 +36,7 @@
 | **Formal verification** | SMT/IC3 via Z3 — deadlock freedom, mutual exclusion, place bounds, unreachability |
 | **Structural analysis** | P-invariants (Farkas), siphon/trap pre-checks, XOR branch analysis |
 | **State class graph** | Berthomieu-Diaz algorithm for timed reachability (Java) |
-| **Export** | DOT/Graphviz (primary), Mermaid (deprecated) |
+| **Export** | DOT/Graphviz |
 
 ---
 

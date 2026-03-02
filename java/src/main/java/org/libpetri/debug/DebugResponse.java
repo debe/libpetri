@@ -19,7 +19,7 @@ import java.util.Map;
  * {"type": "sessionList", "sessions": [...]}
  *
  * // Subscribed to session
- * {"type": "subscribed", "sessionId": "abc-123", "mermaidDiagram": "...", ...}
+ * {"type": "subscribed", "sessionId": "abc-123", "dotDiagram": "...", ...}
  *
  * // Event received
  * {"type": "event", "sessionId": "abc-123", "event": {...}}
@@ -56,7 +56,6 @@ public sealed interface DebugResponse {
      * @param sessionId the subscribed session
      * @param netName the Petri net name
      * @param dotDiagram DOT (Graphviz) diagram of the net
-     * @param mermaidDiagram Mermaid diagram of the net (deprecated, use dotDiagram)
      * @param structure explicit net topology with authoritative name-to-graphId mappings
      * @param currentMarking current token distribution
      * @param enabledTransitions currently enabled transitions
@@ -68,7 +67,6 @@ public sealed interface DebugResponse {
         String sessionId,
         String netName,
         String dotDiagram,
-        String mermaidDiagram,
         NetStructure structure,
         Map<String, List<TokenInfo>> currentMarking,
         List<String> enabledTransitions,
@@ -287,7 +285,6 @@ public sealed interface DebugResponse {
      *
      * @param name authoritative identifier (matches events/marking keys)
      * @param graphId sanitized ID with "p_" prefix (matches DOT/SVG node IDs)
-     * @param mermaidId sanitized ID used in Mermaid SVG (deprecated, use graphId)
      * @param tokenType simple name of the token type for this place
      * @param isStart true if this is a start place (no incoming arcs)
      * @param isEnd true if this is an end place (no outgoing arcs)
@@ -296,7 +293,6 @@ public sealed interface DebugResponse {
     record PlaceInfo(
         String name,
         String graphId,
-        String mermaidId,
         String tokenType,
         boolean isStart,
         boolean isEnd,
@@ -308,11 +304,9 @@ public sealed interface DebugResponse {
      *
      * @param name authoritative identifier (matches events)
      * @param graphId sanitized ID with "t_" prefix (matches DOT/SVG node IDs)
-     * @param mermaidId sanitized ID with "t_" prefix (deprecated, use graphId)
      */
     record TransitionInfo(
         String name,
-        String graphId,
-        String mermaidId
+        String graphId
     ) {}
 }

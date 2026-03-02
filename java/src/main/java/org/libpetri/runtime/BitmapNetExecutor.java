@@ -32,13 +32,13 @@ import org.libpetri.event.NetEvent;
  *   1. completionQueue.offer(t)       ──→     processCompletedTransitions()
  *   2. wakeUpSignal.release()         ──→     awaitWork() returns
  *                                             3. CAS-set bits in markedPlaces
- *                                             4. CAS-set bits in dirtySet
+ *                                             4. set bits in dirtyBitmap
  * </pre>
  *
  * <p>Virtual threads signal completion via the lock-free {@code completionQueue} and
- * wake up the orchestrator. All bitmap mutations (markedPlaces, dirtySet) happen on
- * the orchestrator thread. The CAS operations future-proof the design for potential
- * direct virtual-thread bitmap updates without requiring architectural changes.
+ * wake up the orchestrator. All bitmap mutations (markedPlaces, dirtyBitmap) happen on
+ * the orchestrator thread. The CAS operations on markedPlaces future-proof the design
+ * for potential direct virtual-thread bitmap updates without requiring architectural changes.
  *
  * <p>Token <em>values</em> still go through {@link Marking}, but since all marking
  * mutations happen on the orchestrator thread, no synchronization is needed.
@@ -60,16 +60,31 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
     private final ExecutionContextProvider executionContextProvider;
     private final long startNanos;
 
-    // Lock-free bitmaps
+    // Lock-free bitmap for concurrent marking updates
     private final AtomicLongArray markedPlaces;
-    private final AtomicLongArray dirtySet;
+
+    // Plain shadow bitmap — always in sync with markedPlaces, avoids volatile reads
+    private final long[] markingBitmap;
 
     // Orchestrator-owned state (single-threaded)
     private final long[] enabledAtNanos;
-    private final boolean[] inFlightFlags;
-    private final boolean[] enabledFlags;
-    /** Reusable buffer for marking snapshots (orchestrator-thread only). */
-    private final long[] markingSnapBuffer;
+    private final long[] enabledBitmap;
+    private final long[] inFlightBitmap;
+    private final long[] dirtyBitmap;
+    /** Reusable buffer for dirty-set snapshots (orchestrator-thread only). */
+    private final long[] dirtyScanBuffer;
+    /** Number of long words needed for transition bitmaps. */
+    private final int transitionWords;
+    /** Reusable list for ready transitions (orchestrator-thread only). */
+    private final List<ReadyTransition> readyBuffer = new ArrayList<>();
+    /** Cached flag: true if any transition in the net has a deadline. */
+    private final boolean hasAnyDeadlines;
+    /** Cached flag: true if event store accepts events (avoids eager Instant.now() allocation). */
+    private final boolean eventStoreEnabled;
+    /** Cached flag: true if all transitions have immediate timing (earliest=0, no deadline). */
+    private final boolean allImmediate;
+    /** Cached flag: true if all transitions share the same priority. */
+    private final boolean allSamePriority;
     /** Number of currently enabled transitions — maintained incrementally for O(1) queries. */
     private int enabledTransitionCount;
 
@@ -114,6 +129,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
     /** Set at the start of executeLoop; used for thread-safety assertions. */
     private Thread orchestratorThread;
 
+    @SuppressWarnings("deprecation") // Executors.newVirtualThreadPerTaskExecutor() marked deprecated-for-removal in JDK 25
     private BitmapNetExecutor(
         CompiledNet compiled,
         Marking marking,
@@ -134,13 +150,32 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
 
         int wordCount = compiled.wordCount();
         this.markedPlaces = new AtomicLongArray(wordCount);
-        this.dirtySet = new AtomicLongArray((compiled.transitionCount() + BIT_MASK) >>> WORD_SHIFT);
+        this.markingBitmap = new long[wordCount];
 
+        this.transitionWords = (compiled.transitionCount() + BIT_MASK) >>> WORD_SHIFT;
         this.enabledAtNanos = new long[compiled.transitionCount()];
-        this.inFlightFlags = new boolean[compiled.transitionCount()];
-        this.enabledFlags = new boolean[compiled.transitionCount()];
-        this.markingSnapBuffer = new long[wordCount];
+        this.enabledBitmap = new long[transitionWords];
+        this.inFlightBitmap = new long[transitionWords];
+        this.dirtyBitmap = new long[transitionWords];
+        this.dirtyScanBuffer = new long[transitionWords];
         Arrays.fill(enabledAtNanos, Long.MIN_VALUE); // sentinel: not enabled
+
+        this.eventStoreEnabled = eventStore.isEnabled();
+        boolean anyDeadlines = false;
+        boolean allImm = true;
+        boolean samePrio = true;
+        int firstPriority = compiled.transitionCount() > 0 ? compiled.transition(0).priority() : 0;
+        for (int tid = 0; tid < compiled.transitionCount(); tid++) {
+            Transition t = compiled.transition(tid);
+            if (t.timing().hasDeadline()) anyDeadlines = true;
+            if (!(t.timing() instanceof Timing.Immediate) && !(t.timing() instanceof Timing.Unconstrained)) {
+                allImm = false;
+            }
+            if (t.priority() != firstPriority) samePrio = false;
+        }
+        this.hasAnyDeadlines = anyDeadlines;
+        this.allImmediate = allImm;
+        this.allSamePriority = samePrio;
 
         this.transitionInputPlaces = precomputeInputPlaces(compiled.net());
     }
@@ -153,6 +188,42 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
             result.put(t, Set.copyOf(places));
         }
         return Map.copyOf(result);
+    }
+
+    // ======================== Bitmap Helpers ========================
+
+    private void setEnabledBit(int tid) {
+        enabledBitmap[tid >>> WORD_SHIFT] |= 1L << (tid & BIT_MASK);
+    }
+
+    private void clearEnabledBit(int tid) {
+        enabledBitmap[tid >>> WORD_SHIFT] &= ~(1L << (tid & BIT_MASK));
+    }
+
+    private boolean isEnabled(int tid) {
+        return (enabledBitmap[tid >>> WORD_SHIFT] & (1L << (tid & BIT_MASK))) != 0;
+    }
+
+    private void setInFlightBit(int tid) {
+        inFlightBitmap[tid >>> WORD_SHIFT] |= 1L << (tid & BIT_MASK);
+    }
+
+    private void clearInFlightBit(int tid) {
+        inFlightBitmap[tid >>> WORD_SHIFT] &= ~(1L << (tid & BIT_MASK));
+    }
+
+    private boolean isInFlight(int tid) {
+        return (inFlightBitmap[tid >>> WORD_SHIFT] & (1L << (tid & BIT_MASK))) != 0;
+    }
+
+    private void setMarkingBit(int pid) {
+        markingBitmap[pid >>> WORD_SHIFT] |= 1L << (pid & BIT_MASK);
+        casSetBit(markedPlaces, pid);
+    }
+
+    private void clearMarkingBit(int pid) {
+        markingBitmap[pid >>> WORD_SHIFT] &= ~(1L << (pid & BIT_MASK));
+        casClearBit(markedPlaces, pid);
     }
 
     // ======================== Factory Methods ========================
@@ -188,7 +259,8 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
     public static final class Builder {
         private final PetriNet net;
         private final Map<Place<?>, List<Token<?>>> initialTokens;
-        private EventStore eventStore = EventStore.inMemory();
+        private CompiledNet compiledNet = null;
+        private EventStore eventStore = EventStore.noop();
         private ExecutorService executor = null;
         private Set<EnvironmentPlace<?>> environmentPlaces = Set.of();
         private boolean longRunning = false;
@@ -197,6 +269,15 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         private Builder(PetriNet net, Map<Place<?>, List<Token<?>>> initialTokens) {
             this.net = Objects.requireNonNull(net);
             this.initialTokens = Objects.requireNonNull(initialTokens);
+        }
+
+        /**
+         * Provide a pre-compiled net to avoid recompilation.
+         * The compiled net must correspond to the same PetriNet passed to the builder.
+         */
+        public Builder compiledNet(CompiledNet compiledNet) {
+            this.compiledNet = Objects.requireNonNull(compiledNet);
+            return this;
         }
 
         public Builder eventStore(EventStore eventStore) {
@@ -231,7 +312,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         }
 
         public BitmapNetExecutor build() {
-            var compiled = CompiledNet.compile(net);
+            var compiled = compiledNet != null ? compiledNet : CompiledNet.compile(net);
             var marking = Marking.from(initialTokens);
             ExecutorService exec = executor != null
                 ? executor
@@ -302,11 +383,16 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
             processCompletedTransitions();
             processExternalEvents();
             updateDirtyTransitions();
-            enforceDeadlines();
+            if (hasAnyDeadlines) enforceDeadlines();
 
             if (shouldTerminate()) break;
 
             fireReadyTransitions();
+
+            // Sync fast-path firings set dirty bits that need processing
+            // before the orchestrator can sleep — skip awaitWork and re-loop.
+            if (hasDirtyBits()) continue;
+
             awaitWork();
         }
 
@@ -321,13 +407,13 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
     }
 
     /**
-     * Initializes the bitmap from the current marking state.
+     * Initializes the marking bitmap from the current marking state.
      */
     private void initializeMarkedBitmap() {
         for (int pid = 0; pid < compiled.placeCount(); pid++) {
             Place<?> place = compiled.place(pid);
             if (marking.hasTokens(place)) {
-                casSetBit(markedPlaces, pid);
+                setMarkingBit(pid);
             }
         }
     }
@@ -339,13 +425,12 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
      */
     private void markAllDirty() {
         int tc = compiled.transitionCount();
-        int dirtyWords = dirtySet.length();
         int lastWordBits = tc & BIT_MASK;
-        for (int w = 0; w < dirtyWords - 1; w++) {
-            dirtySet.set(w, -1L);
+        for (int w = 0; w < transitionWords - 1; w++) {
+            dirtyBitmap[w] = -1L;
         }
-        if (dirtyWords > 0) {
-            dirtySet.set(dirtyWords - 1, lastWordBits == 0 ? -1L : (1L << lastWordBits) - 1);
+        if (transitionWords > 0) {
+            dirtyBitmap[transitionWords - 1] = lastWordBits == 0 ? -1L : (1L << lastWordBits) - 1;
         }
     }
 
@@ -362,59 +447,48 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
      *
      * <p><b>Protocol:</b>
      * <ol>
-     *   <li>Snapshot the marking bitmap (read-only for the rest of this call).</li>
-     *   <li>Atomically read-and-clear each word of the dirty set. This ensures that
-     *       any dirty bits set <em>after</em> the snapshot was taken will survive into
-     *       the next cycle — they cannot be lost.</li>
+     *   <li>Read and clear each word of the dirty bitmap. Any dirty bits set
+     *       <em>after</em> this point will survive into the next cycle.</li>
      *   <li>Iterate over set bits in the snapshot. For each dirty transition, compare
      *       the new enablement state against the previous one and update accordingly.</li>
      * </ol>
-     *
-     * <p><b>Staleness safety:</b> Because the marking snapshot is taken <em>before</em>
-     * the dirty set is cleared, a concurrent bitmap update (e.g. from processCompletedTransitions)
-     * that sets a dirty bit after step 2 will be picked up in the next cycle. The worst case is
-     * one cycle of delay, which is acceptable for the orchestrator's polling model.
      */
     private void updateDirtyTransitions() {
         long nowNanos = System.nanoTime();
 
-        // Snapshot the marking bitmap into reusable buffer
-        long[] markingSnap = snapshotMarking();
-
-        // Read and clear dirty set
-        int dirtyWords = dirtySet.length();
-        long[] dirtySnap = new long[dirtyWords];
-        for (int w = 0; w < dirtyWords; w++) {
-            dirtySnap[w] = dirtySet.getAndSet(w, 0L);
+        // Read and clear dirty bitmap into reusable buffer
+        for (int w = 0; w < transitionWords; w++) {
+            dirtyScanBuffer[w] = dirtyBitmap[w];
+            dirtyBitmap[w] = 0;
         }
 
-        // Iterate over set bits in dirtySnap
-        for (int w = 0; w < dirtyWords; w++) {
-            long word = dirtySnap[w];
+        // Iterate over set bits in dirtyScanBuffer
+        for (int w = 0; w < transitionWords; w++) {
+            long word = dirtyScanBuffer[w];
             while (word != 0) {
                 int bit = Long.numberOfTrailingZeros(word);
                 int tid = (w << WORD_SHIFT) | bit;
                 word &= word - 1; // clear lowest set bit
 
                 if (tid >= compiled.transitionCount()) break;
-                if (inFlightFlags[tid]) continue;
+                if (isInFlight(tid)) continue;
 
-                boolean wasEnabled = enabledFlags[tid];
-                boolean canNow = canEnable(tid, markingSnap);
+                boolean wasEnabled = isEnabled(tid);
+                boolean canNow = canEnable(tid, markingBitmap);
 
                 if (canNow && !wasEnabled) {
-                    enabledFlags[tid] = true;
+                    setEnabledBit(tid);
                     enabledTransitionCount++;
                     enabledAtNanos[tid] = nowNanos;
-                    emitEvent(new NetEvent.TransitionEnabled(
+                    if (eventStoreEnabled) emitEvent(new NetEvent.TransitionEnabled(
                         Instant.now(), compiled.transition(tid).name()));
                 } else if (!canNow && wasEnabled) {
-                    enabledFlags[tid] = false;
+                    clearEnabledBit(tid);
                     enabledTransitionCount--;
                     enabledAtNanos[tid] = Long.MIN_VALUE;
                 } else if (canNow && wasEnabled && hasInputFromResetPlace(compiled.transition(tid))) {
                     enabledAtNanos[tid] = nowNanos;
-                    emitEvent(new NetEvent.TransitionClockRestarted(
+                    if (eventStoreEnabled) emitEvent(new NetEvent.TransitionClockRestarted(
                         Instant.now(), compiled.transition(tid).name()));
                 }
             }
@@ -427,8 +501,8 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
     /** Brute-force count for assertion checks only. */
     private int countEnabledFlags() {
         int count = 0;
-        for (int tid = 0; tid < compiled.transitionCount(); tid++) {
-            if (enabledFlags[tid]) count++;
+        for (int w = 0; w < transitionWords; w++) {
+            count += Long.bitCount(enabledBitmap[w]);
         }
         return count;
     }
@@ -464,35 +538,34 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
 
     /**
      * Disables transitions that have exceeded their timing deadline.
-     *
-     * <p>For each enabled transition with {@code timing().hasDeadline()}, checks
-     * if the elapsed time since enablement exceeds {@code timing().latest()}.
-     * If so, the transition is disabled and a {@link NetEvent.TransitionTimedOut}
-     * event is emitted.
-     *
-     * @see org.libpetri.core.Timing#hasDeadline()
-     * @see org.libpetri.core.Timing#latest()
+     * Uses bitmap iteration to visit only enabled transitions.
      */
     private void enforceDeadlines() {
         long nowNanos = System.nanoTime();
-        for (int tid = 0; tid < compiled.transitionCount(); tid++) {
-            if (!enabledFlags[tid]) continue;
-            Transition t = compiled.transition(tid);
-            if (!t.timing().hasDeadline()) continue;
+        for (int w = 0; w < transitionWords; w++) {
+            long word = enabledBitmap[w];
+            while (word != 0) {
+                int bit = Long.numberOfTrailingZeros(word);
+                int tid = (w << WORD_SHIFT) | bit;
+                word &= word - 1;
 
-            long enabledNanos = enabledAtNanos[tid];
-            long elapsedMillis = (nowNanos - enabledNanos) / 1_000_000;
-            long latestMillis = t.timing().latest().toMillis();
+                Transition t = compiled.transition(tid);
+                if (!t.timing().hasDeadline()) continue;
 
-            if (elapsedMillis > latestMillis) {
-                enabledFlags[tid] = false;
-                enabledTransitionCount--;
-                enabledAtNanos[tid] = Long.MIN_VALUE;
-                markTransitionDirty(tid);  // allow re-enablement next cycle
-                emitEvent(new NetEvent.TransitionTimedOut(
-                    Instant.now(), t.name(),
-                    t.timing().latest(),
-                    Duration.ofMillis(elapsedMillis)));
+                long enabledNanos = enabledAtNanos[tid];
+                long elapsedMillis = (nowNanos - enabledNanos) / 1_000_000;
+                long latestMillis = t.timing().latest().toMillis();
+
+                if (elapsedMillis > latestMillis) {
+                    clearEnabledBit(tid);
+                    enabledTransitionCount--;
+                    enabledAtNanos[tid] = Long.MIN_VALUE;
+                    markTransitionDirty(tid);  // allow re-enablement next cycle
+                    if (eventStoreEnabled) emitEvent(new NetEvent.TransitionTimedOut(
+                        Instant.now(), t.name(),
+                        t.timing().latest(),
+                        Duration.ofMillis(elapsedMillis)));
+                }
             }
         }
     }
@@ -500,38 +573,77 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
     // ======================== Firing ========================
 
     private void fireReadyTransitions() {
-        long nowNanos = System.nanoTime();
+        if (allImmediate && allSamePriority) {
+            fireReadyImmediate();
+            return;
+        }
+        fireReadyGeneral();
+    }
 
-        // Collect ready transitions
-        List<ReadyTransition> ready = new ArrayList<>();
-        for (int tid = 0; tid < compiled.transitionCount(); tid++) {
-            if (!enabledFlags[tid] || inFlightFlags[tid]) continue;
-            Transition t = compiled.transition(tid);
-            long enabledNanos = enabledAtNanos[tid];
-            long elapsedMillis = (nowNanos - enabledNanos) / 1_000_000;
-            if (t.timing().earliest().toMillis() <= elapsedMillis) {
-                ready.add(new ReadyTransition(tid, t.priority(), enabledNanos));
+    /**
+     * Fast-fire path for nets where all transitions are immediate and same-priority.
+     * Skips timing checks, ReadyTransition allocation, and sorting.
+     * Fires directly from enabled bitmap in ID order.
+     */
+    private void fireReadyImmediate() {
+        for (int w = 0; w < transitionWords; w++) {
+            long word = enabledBitmap[w] & ~inFlightBitmap[w];
+            while (word != 0) {
+                int bit = Long.numberOfTrailingZeros(word);
+                int tid = (w << WORD_SHIFT) | bit;
+                word &= word - 1;
+
+                if (canEnable(tid, markingBitmap)) {
+                    fireTransition(tid);
+                } else {
+                    clearEnabledBit(tid);
+                    enabledTransitionCount--;
+                    enabledAtNanos[tid] = Long.MIN_VALUE;
+                }
             }
         }
-        if (ready.isEmpty()) return;
+    }
+
+    /**
+     * General-purpose firing path with timing checks, priority sorting, and FIFO ordering.
+     */
+    private void fireReadyGeneral() {
+        long nowNanos = System.nanoTime();
+
+        // Collect ready transitions into reusable buffer using bitmap iteration
+        readyBuffer.clear();
+        for (int w = 0; w < transitionWords; w++) {
+            long word = enabledBitmap[w] & ~inFlightBitmap[w];
+            while (word != 0) {
+                int bit = Long.numberOfTrailingZeros(word);
+                int tid = (w << WORD_SHIFT) | bit;
+                word &= word - 1;
+
+                Transition t = compiled.transition(tid);
+                long enabledNanos = enabledAtNanos[tid];
+                long elapsedMillis = (nowNanos - enabledNanos) / 1_000_000;
+                if (t.timing().earliest().toMillis() <= elapsedMillis) {
+                    readyBuffer.add(new ReadyTransition(tid, t.priority(), enabledNanos));
+                }
+            }
+        }
+        if (readyBuffer.isEmpty()) return;
 
         // Sort: higher priority first, then earlier enablement (FIFO)
-        ready.sort((a, b) -> {
-            int prioCmp = Integer.compare(b.priority(), a.priority());
-            if (prioCmp != 0) return prioCmp;
-            return Long.compare(a.enabledAtNanos(), b.enabledAtNanos());
-        });
+        if (readyBuffer.size() > 1) {
+            readyBuffer.sort((a, b) -> {
+                int prioCmp = Integer.compare(b.priority(), a.priority());
+                if (prioCmp != 0) return prioCmp;
+                return Long.compare(a.enabledAtNanos(), b.enabledAtNanos());
+            });
+        }
 
-        // Take a fresh snapshot for re-checking enablement
-        long[] freshSnap = snapshotMarking();
-        for (var entry : ready) {
+        for (var entry : readyBuffer) {
             int tid = entry.tid();
-            if (enabledFlags[tid] && canEnable(tid, freshSnap)) {
+            if (isEnabled(tid) && canEnable(tid, markingBitmap)) {
                 fireTransition(tid);
-                // Update snapshot after consuming tokens
-                snapshotMarking(); // freshSnap is markingSnapBuffer, updated in-place
             } else {
-                enabledFlags[tid] = false;
+                clearEnabledBit(tid);
                 enabledTransitionCount--;
                 enabledAtNanos[tid] = Long.MIN_VALUE;
             }
@@ -559,7 +671,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
                 Token<?> token = marking.removeFirst((Place<Object>) in.place());
                 consumed.add(token);
                 inputs.add((Place<Object>) in.place(), (Token<Object>) token);
-                emitEvent(new NetEvent.TokenRemoved(
+                if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
                     Instant.now(), in.place().name(), token));
             }
         }
@@ -578,7 +690,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
             pendingResetPlaces.add(arc.place());
             for (Token<?> token : removed) {
                 consumed.add(token);
-                emitEvent(new NetEvent.TokenRemoved(
+                if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
                     Instant.now(), arc.place().name(), token));
             }
         }
@@ -586,7 +698,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         // Update bitmap for consumed/reset places
         updateBitmapAfterConsumption(tid);
 
-        emitEvent(new NetEvent.TransitionStarted(Instant.now(), t.name(), consumed));
+        if (eventStoreEnabled) emitEvent(new NetEvent.TransitionStarted(Instant.now(), t.name(), consumed));
 
         Map<Class<?>, Object> execContext = executionContextProvider.createContext(t, consumed);
         var context = new TransitionContext(t, inputs, new TokenOutput(), execContext);
@@ -608,7 +720,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
                     if (ex instanceof TimeoutException || ex.getCause() instanceof TimeoutException) {
                         originalFuture.cancel(true);
                         produceTimeoutOutput(context, timeoutSpec.child());
-                        emitEvent(new NetEvent.ActionTimedOut(
+                        if (eventStoreEnabled) emitEvent(new NetEvent.ActionTimedOut(
                             Instant.now(), t.name(), timeoutSpec.after()));
                         return null;
                     }
@@ -616,16 +728,70 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
                 });
         }
 
-        transitionFuture.whenComplete((_, _) -> {
-            completionQueue.offer(t);
-            wakeUp();
-        });
-
-        inFlight.put(t, new InFlightTransition(transitionFuture, context, consumed, System.nanoTime()));
-        inFlightFlags[tid] = true;
-        enabledFlags[tid] = false;
+        // Clear enabled status (common to both paths)
+        clearEnabledBit(tid);
         enabledTransitionCount--;
         enabledAtNanos[tid] = Long.MIN_VALUE;
+
+        // Sync fast path: if future already completed and no timeout, process inline
+        if (!t.hasActionTimeout() && transitionFuture.isDone()) {
+            processSyncOutput(t, tid, transitionFuture, context, consumed);
+        } else {
+            // Async path: track in-flight, process on completion
+            transitionFuture.whenComplete((_, _) -> {
+                completionQueue.offer(t);
+                wakeUp();
+            });
+            inFlight.put(t, new InFlightTransition(transitionFuture, context, consumed, System.nanoTime()));
+            setInFlightBit(tid);
+        }
+    }
+
+    /**
+     * Processes output from a synchronously completed transition inline,
+     * avoiding the completionQueue → processCompletedTransitions round-trip.
+     */
+    @SuppressWarnings("unchecked")
+    private void processSyncOutput(Transition t, int tid, CompletableFuture<Void> future,
+                                   TransitionContext context, List<Token<?>> consumed) {
+        try {
+            future.join(); // won't block; may throw CompletionException
+
+            TokenOutput outputs = context.rawOutput();
+            validateOutput(t, outputs);
+
+            List<Token<?>> produced = eventStoreEnabled ? new ArrayList<>() : null;
+            for (var entry : outputs.entries()) {
+                var token = entry.token();
+                marking.addToken((Place<Object>) entry.place(), (Token<Object>) token);
+                if (eventStoreEnabled) {
+                    produced.add(token);
+                    emitEvent(new NetEvent.TokenAdded(
+                        Instant.now(), entry.place().name(), token));
+                }
+            }
+
+            // Update bitmap for produced places and mark dirty
+            for (var entry : outputs.entries()) {
+                int pid = compiled.placeId(entry.place());
+                setMarkingBit(pid);
+                markDirty(pid);
+            }
+
+            // Mark the completed transition dirty for re-evaluation
+            markTransitionDirty(tid);
+
+            if (eventStoreEnabled) {
+                emitEvent(new NetEvent.TransitionCompleted(
+                    Instant.now(), t.name(), produced, Duration.ZERO));
+            }
+        } catch (OutViolationException e) {
+            handleTransitionFailure(t, new CompletionException(e));
+            markTransitionDirty(tid);
+        } catch (CompletionException e) {
+            handleTransitionFailure(t, e);
+            markTransitionDirty(tid);
+        }
     }
 
     /**
@@ -638,7 +804,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         for (int pid : pids) {
             Place<?> place = compiled.place(pid);
             if (!marking.hasTokens(place)) {
-                casClearBit(markedPlaces, pid);
+                clearMarkingBit(pid);
             }
             markDirty(pid);
         }
@@ -658,7 +824,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
             if (flight == null) continue;
 
             int tid = compiled.transitionId(t);
-            inFlightFlags[tid] = false;
+            clearInFlightBit(tid);
 
             try {
                 flight.future().join();
@@ -671,14 +837,14 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
                     var token = entry.token();
                     marking.addToken((Place<Object>) entry.place(), (Token<Object>) token);
                     produced.add(token);
-                    emitEvent(new NetEvent.TokenAdded(
+                    if (eventStoreEnabled) emitEvent(new NetEvent.TokenAdded(
                         Instant.now(), entry.place().name(), token));
                 }
 
                 // Update bitmap for produced places and mark dirty
                 for (var entry : outputs.entries()) {
                     int pid = compiled.placeId(entry.place());
-                    casSetBit(markedPlaces, pid);
+                    setMarkingBit(pid);
                     markDirty(pid);
                 }
 
@@ -686,9 +852,11 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
                 // so it gets re-evaluated for enablement
                 markTransitionDirty(tid);
 
-                var transitionDuration = Duration.ofNanos(System.nanoTime() - flight.startNanos());
-                emitEvent(new NetEvent.TransitionCompleted(
-                    Instant.now(), t.name(), produced, transitionDuration));
+                if (eventStoreEnabled) {
+                    var transitionDuration = Duration.ofNanos(System.nanoTime() - flight.startNanos());
+                    emitEvent(new NetEvent.TransitionCompleted(
+                        Instant.now(), t.name(), produced, transitionDuration));
+                }
 
             } catch (OutViolationException e) {
                 handleTransitionFailure(t, new CompletionException(e));
@@ -701,7 +869,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
     }
 
     private void handleTransitionFailure(Transition t, CompletionException e) {
-        emitEvent(new NetEvent.TransitionFailed(
+        if (eventStoreEnabled) emitEvent(new NetEvent.TransitionFailed(
             Instant.now(), t.name(),
             e.getCause().getMessage(),
             e.getCause().getClass().getName()));
@@ -719,10 +887,10 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
                     (Token<Object>) event.token());
 
                 int pid = compiled.placeId(event.place());
-                casSetBit(markedPlaces, pid);
+                setMarkingBit(pid);
                 markDirty(pid);
 
-                emitEvent(new NetEvent.TokenAdded(
+                if (eventStoreEnabled) emitEvent(new NetEvent.TokenAdded(
                     Instant.now(), event.place().name(), event.token()));
                 event.resultFuture().complete(true);
             } catch (Exception e) {
@@ -780,24 +948,30 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         long nowNanos = System.nanoTime();
         long minWaitMs = Long.MAX_VALUE;
 
-        for (int tid = 0; tid < compiled.transitionCount(); tid++) {
-            if (!enabledFlags[tid]) continue;
-            Transition t = compiled.transition(tid);
-            long enabledNanos = enabledAtNanos[tid];
-            long elapsedMs = (nowNanos - enabledNanos) / 1_000_000;
+        for (int w = 0; w < transitionWords; w++) {
+            long word = enabledBitmap[w];
+            while (word != 0) {
+                int bit = Long.numberOfTrailingZeros(word);
+                int tid = (w << WORD_SHIFT) | bit;
+                word &= word - 1;
 
-            // Time until earliest bound (when transition becomes ready to fire)
-            long earliestMs = t.timing().earliest().toMillis();
-            long remainingEarliest = earliestMs - elapsedMs;
-            if (remainingEarliest <= 0) return 0;
-            minWaitMs = Math.min(minWaitMs, remainingEarliest);
+                Transition t = compiled.transition(tid);
+                long enabledNanos = enabledAtNanos[tid];
+                long elapsedMs = (nowNanos - enabledNanos) / 1_000_000;
 
-            // Time until deadline (when transition must be force-disabled)
-            if (t.timing().hasDeadline()) {
-                long latestMs = t.timing().latest().toMillis();
-                long remainingDeadline = latestMs - elapsedMs;
-                if (remainingDeadline <= 0) return 0;
-                minWaitMs = Math.min(minWaitMs, remainingDeadline);
+                // Time until earliest bound (when transition becomes ready to fire)
+                long earliestMs = t.timing().earliest().toMillis();
+                long remainingEarliest = earliestMs - elapsedMs;
+                if (remainingEarliest <= 0) return 0;
+                minWaitMs = Math.min(minWaitMs, remainingEarliest);
+
+                // Time until deadline (when transition must be force-disabled)
+                if (t.timing().hasDeadline()) {
+                    long latestMs = t.timing().latest().toMillis();
+                    long remainingDeadline = latestMs - elapsedMs;
+                    if (remainingDeadline <= 0) return 0;
+                    minWaitMs = Math.min(minWaitMs, remainingDeadline);
+                }
             }
         }
         return minWaitMs;
@@ -828,19 +1002,13 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
     // ======================== CAS Bitmap Helpers ========================
     //
     // Thread ownership:
-    //   - markedPlaces, dirtySet: mutated only by the orchestrator thread.
+    //   - markedPlaces: mutated only by the orchestrator thread.
     //     CAS is used (instead of plain volatile writes) to future-proof the
     //     design — virtual threads could update bitmaps directly without
     //     requiring architectural changes.
+    //   - dirtyBitmap: plain long[], orchestrator-thread only.
     //   - completionQueue, externalEventQueue: lock-free queues shared between
     //     virtual threads and the orchestrator.
-    //
-    // Dirty-set staleness guarantee:
-    //   A transition may remain in the dirty set even after the marking change
-    //   that triggered it has been superseded. This is safe because
-    //   updateDirtyTransitions() always re-checks enablement against a fresh
-    //   snapshot — a stale dirty bit only causes one redundant canEnable() call,
-    //   never a missed evaluation.
 
     static void casSetBit(AtomicLongArray arr, int bit) {
         int word = bit >>> WORD_SHIFT;
@@ -869,14 +1037,11 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
     }
 
     /**
-     * Snapshots the marking bitmap into the reusable buffer.
+     * Returns the shadow marking bitmap directly — zero-copy.
      * Must only be called from the orchestrator thread.
      */
     private long[] snapshotMarking() {
-        for (int i = 0; i < markingSnapBuffer.length; i++) {
-            markingSnapBuffer[i] = markedPlaces.get(i);
-        }
-        return markingSnapBuffer;
+        return markingBitmap;
     }
 
     /**
@@ -890,13 +1055,14 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
     }
 
     private void markTransitionDirty(int tid) {
-        int word = tid >>> WORD_SHIFT;
-        long mask = 1L << (tid & BIT_MASK);
-        long prev;
-        do {
-            prev = dirtySet.get(word);
-            if ((prev & mask) != 0) return;
-        } while (!dirtySet.compareAndSet(word, prev, prev | mask));
+        dirtyBitmap[tid >>> WORD_SHIFT] |= 1L << (tid & BIT_MASK);
+    }
+
+    private boolean hasDirtyBits() {
+        for (int w = 0; w < transitionWords; w++) {
+            if (dirtyBitmap[w] != 0) return true;
+        }
+        return false;
     }
 
     // ======================== State Inspection ========================

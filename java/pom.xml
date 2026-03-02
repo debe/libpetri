@@ -51,7 +51,7 @@
         <maven-jar-plugin.version>3.5.0</maven-jar-plugin.version>
         <jacoco-maven-plugin.version>0.8.14</jacoco-maven-plugin.version>
         <flatten-maven-plugin.version>1.7.3</flatten-maven-plugin.version>
-        <maven-resources-plugin.version>3.3.1</maven-resources-plugin.version>
+
         <maven-source-plugin.version>3.4.0</maven-source-plugin.version>
         <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
         <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
@@ -240,33 +240,6 @@
                 </executions>
             </plugin>
 
-            <!-- Resources: copy javadoc CSS/JS to target/apidocs/resource-files -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-resources-plugin</artifactId>
-                <version>${maven-resources-plugin.version}</version>
-                <executions>
-                    <execution>
-                        <id>copy-javadoc-resources</id>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>copy-resources</goal>
-                        </goals>
-                        <configuration>
-                            <outputDirectory>${project.build.directory}/apidocs/resource-files</outputDirectory>
-                            <resources>
-                                <resource>
-                                    <directory>src/main/resources/javadoc</directory>
-                                    <includes>
-                                        <include>*.css</include>
-                                        <include>*.js</include>
-                                    </includes>
-                                </resource>
-                            </resources>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
         </plugins>
     </build>
 
@@ -336,22 +309,10 @@
                             </additionalOptions>
                             <taglets>
                                 <taglet>
-                                    <tagletClass>org.libpetri.doclet.MermaidTaglet</tagletClass>
-                                </taglet>
-                                <taglet>
                                     <tagletClass>org.libpetri.doclet.PetriNetTaglet</tagletClass>
                                 </taglet>
                             </taglets>
                             <tagletpath>${project.build.outputDirectory}</tagletpath>
-                            <header><![CDATA[<script>
-(function() {
-  var link = document.querySelector('link[href*="stylesheet.css"]');
-  var base = link ? link.href.replace('stylesheet.css', '') : 'resource-files/';
-  document.write('<link rel="stylesheet" href="' + base + 'petrinet-diagrams.css">');
-  document.write('<script src="' + base + 'mermaid.min.js"><\/script>');
-  document.write('<script src="' + base + 'petrinet-diagrams.js"><\/script>');
-})();
-</script>]]></header>
                             <encoding>UTF-8</encoding>
                             <doclint>none</doclint>
                             <quiet>true</quiet>
