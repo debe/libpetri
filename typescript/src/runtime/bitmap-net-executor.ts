@@ -74,10 +74,15 @@ export interface BitmapNetExecutorOptions {
  *
  * @remarks
  * **Deadline enforcement**: Transitions with finite deadlines (`deadline`, `window`, `exact`)
- * are checked in `updateDirtyTransitions()`. If a transition has been enabled longer than
+ * are checked in `enforceDeadlines()`, called from the main loop only when `hasAnyDeadlines`
+ * is true (precomputed at construction). If a transition has been enabled longer than
  * `latest(timing)`, it is forcibly disabled and a `TransitionTimedOut` event is emitted.
  * The `awaitWork()` timer also schedules wake-ups for approaching deadlines, not just
  * earliest firing times.
+ *
+ * **Constructor precomputation**: `hasAnyDeadlines`, `allImmediate`/`allSamePriority`,
+ * and `eventStoreEnabled` are computed once to avoid per-cycle overhead. Safe because
+ * `isEnabled()` is constant and timing/priority are immutable on Transition.
  */
 export class BitmapNetExecutor implements PetriNetExecutor {
   private readonly compiled: CompiledNet;
@@ -87,6 +92,10 @@ export class BitmapNetExecutor implements PetriNetExecutor {
   private readonly longRunning: boolean;
   private readonly executionContextProvider?: (transitionName: string, consumed: Token<any>[]) => Map<string, unknown>;
   private readonly startMs: number;
+  private readonly hasAnyDeadlines: boolean;
+  private readonly allImmediate: boolean;
+  private readonly allSamePriority: boolean;
+  private readonly eventStoreEnabled: boolean;
 
   // Bitmaps (Uint32Array, direct writes)
   private readonly markedPlaces: Uint32Array;
@@ -105,6 +114,8 @@ export class BitmapNetExecutor implements PetriNetExecutor {
 
   // In-flight tracking
   private readonly inFlight = new Map<Transition, InFlightTransition>();
+  private readonly inFlightPromises: Promise<void>[] = [];
+  private readonly awaitPromises: Promise<void>[] = [];
 
   // Queues
   private readonly completionQueue: Transition[] = [];
@@ -151,11 +162,24 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     this.inFlightFlags = new Uint8Array(this.compiled.transitionCount);
     this.enabledFlags = new Uint8Array(this.compiled.transitionCount);
     this.hasDeadlineFlags = new Uint8Array(this.compiled.transitionCount);
+    let anyDeadlines = false;
+    let allImm = true;
+    let samePrio = true;
+    const firstPriority = this.compiled.transitionCount > 0
+      ? this.compiled.transition(0).priority : 0;
     for (let tid = 0; tid < this.compiled.transitionCount; tid++) {
-      if (timingHasDeadline(this.compiled.transition(tid).timing)) {
+      const t = this.compiled.transition(tid);
+      if (timingHasDeadline(t.timing)) {
         this.hasDeadlineFlags[tid] = 1;
+        anyDeadlines = true;
       }
+      if (t.timing.type !== 'immediate') allImm = false;
+      if (t.priority !== firstPriority) samePrio = false;
     }
+    this.hasAnyDeadlines = anyDeadlines;
+    this.allImmediate = allImm;
+    this.allSamePriority = samePrio;
+    this.eventStoreEnabled = this.eventStore.isEnabled();
 
     // Precompute input place names per transition
     this.transitionInputPlaceNames = new Map();
@@ -205,10 +229,19 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       this.processCompletedTransitions();
       this.processExternalEvents();
       this.updateDirtyTransitions();
+      // Deadline enforcement: separate pass over ALL enabled transitions (not just dirty
+      // ones), since deadlines tick independently of place changes. Uses fresh
+      // performance.now() for timing accuracy. Gated by hasAnyDeadlines (O(0) skip for
+      // pure immediate nets).
+      if (this.hasAnyDeadlines) this.enforceDeadlines(performance.now());
 
       if (this.shouldTerminate()) break;
 
       this.fireReadyTransitions();
+      // Skip awaitWork() when firing produced dirty bits (e.g., token consumption
+      // disabled a conflicting transition). Bounded: without microtask yield no new
+      // completions arrive, so the loop converges in at most one extra pass.
+      if (this.hasDirtyBits()) continue;
       await this.awaitWork();
     }
 
@@ -347,13 +380,6 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     }
 
     this.pendingResetPlaces.clear();
-
-    // Deadline enforcement: scan ALL enabled transitions (not just dirty ones) for
-    // exceeded upper time bounds. This must be a separate pass because transitions
-    // that stay enabled without place changes won't be in the dirty set, but their
-    // deadlines still need checking. Scales O(T) per cycle, but the hasDeadlineFlags
-    // bitmap makes this cheap — most transitions skip in a single branch.
-    this.enforceDeadlines(nowMs);
   }
 
   /**
@@ -432,6 +458,36 @@ export class BitmapNetExecutor implements PetriNetExecutor {
   // ======================== Firing ========================
 
   private fireReadyTransitions(): void {
+    if (this.allImmediate && this.allSamePriority) {
+      this.fireReadyImmediate();
+      return;
+    }
+    this.fireReadyGeneral();
+  }
+
+  /**
+   * Fast path for nets where all transitions are immediate and same priority.
+   * Skips timing checks, sorting, and snapshot buffer — just scan and fire.
+   *
+   * Uses live `markedPlaces` instead of a snapshot. Safe because
+   * `updateBitmapAfterConsumption()` synchronously updates the bitmap before the next
+   * iteration. For equal-priority immediate transitions, tid scan order satisfies
+   * FIFO-by-enablement-time (all enabled in the same cycle).
+   */
+  private fireReadyImmediate(): void {
+    for (let tid = 0; tid < this.compiled.transitionCount; tid++) {
+      if (!this.enabledFlags[tid] || this.inFlightFlags[tid]) continue;
+      if (this.canEnable(tid, this.markedPlaces)) {
+        this.fireTransition(tid);
+      } else {
+        this.enabledFlags[tid] = 0;
+        this.enabledTransitionCount--;
+        this.enabledAtMs[tid] = -Infinity;
+      }
+    }
+  }
+
+  private fireReadyGeneral(): void {
     const nowMs = performance.now();
 
     // Collect ready transitions into pre-allocated buffer to reduce GC pressure
@@ -647,12 +703,11 @@ export class BitmapNetExecutor implements PetriNetExecutor {
 
   private processCompletedTransitions(): void {
     if (this.completionQueue.length === 0) return;
-    // Snapshot-and-clear avoids O(n²) from repeated Array.shift().
-    // We use slice() + length=0 rather than a swap-buffer because the queue is
-    // typically ≤5 entries; the allocation cost is negligible vs. maintaining two arrays.
-    const batch = this.completionQueue.slice();
-    this.completionQueue.length = 0;
-    for (const t of batch) {
+    // In-place iteration is safe: processing is synchronous and .push() only
+    // happens from microtasks which cannot interleave within this loop.
+    const len = this.completionQueue.length;
+    for (let i = 0; i < len; i++) {
+      const t = this.completionQueue[i]!;
       const flight = this.inFlight.get(t);
       if (!flight) continue;
       this.inFlight.delete(t);
@@ -727,16 +782,18 @@ export class BitmapNetExecutor implements PetriNetExecutor {
         this.markTransitionDirty(tid);
       }
     }
+    this.completionQueue.length = 0;
   }
 
   // ======================== External Events ========================
 
   private processExternalEvents(): void {
     if (this.externalQueue.length === 0) return;
-    // Snapshot-and-clear avoids O(n²) from repeated Array.shift().
-    const batch = this.externalQueue.slice();
-    this.externalQueue.length = 0;
-    for (const event of batch) {
+    // In-place iteration is safe: processing is synchronous and .push() only
+    // happens from microtasks which cannot interleave within this loop.
+    const len = this.externalQueue.length;
+    for (let i = 0; i < len; i++) {
+      const event = this.externalQueue[i]!;
       try {
         this.marking.addToken(event.place, event.token);
         const pid = this.compiled.placeId(event.place);
@@ -754,6 +811,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
         event.reject(e instanceof Error ? e : new Error(String(e)));
       }
     }
+    this.externalQueue.length = 0;
   }
 
   private drainPendingExternalEvents(): void {
@@ -769,17 +827,30 @@ export class BitmapNetExecutor implements PetriNetExecutor {
    * into a single Promise.race: (1) any in-flight action completing, (2) external
    * event injection via wakeUp(), (3) timer for the next delayed transition's earliest
    * firing time. This avoids busy-waiting while remaining responsive to all event types.
+   *
+   * **Microtask flush**: Before building Promise.race, yields via `await Promise.resolve()`
+   * to drain the microtask queue. Sync actions complete via `.then()` microtask; this
+   * yield lets those fire, avoiding ~5 allocations when work is already available.
+   * After the yield, re-checks queues and `this.closed` for close-during-yield safety.
    */
   private async awaitWork(): Promise<void> {
     if (this.completionQueue.length > 0 || this.externalQueue.length > 0) return;
 
-    const promises: Promise<void>[] = [];
+    // Flush microtask queue: sync actions complete via .then() which schedules a
+    // microtask. A single await here lets those fire before we build a full
+    // Promise.race (~5 allocations). For async workloads this adds ~0.05us.
+    await Promise.resolve();
+    if (this.completionQueue.length > 0 || this.externalQueue.length > 0 || this.closed) return;
 
-    // 1. Any in-flight action completing
+    const promises = this.awaitPromises;
+    promises.length = 0;
+
+    // 1. Any in-flight action completing (reuse array to avoid 2 intermediate allocations)
     if (this.inFlight.size > 0) {
-      promises.push(
-        Promise.race([...this.inFlight.values()].map(f => f.promise))
-      );
+      const arr = this.inFlightPromises;
+      arr.length = 0;
+      for (const f of this.inFlight.values()) arr.push(f.promise);
+      promises.push(Promise.race(arr));
     }
 
     // 2. External event wake-up
@@ -830,6 +901,14 @@ export class BitmapNetExecutor implements PetriNetExecutor {
 
   // ======================== Dirty Set Helpers ========================
 
+  /** Returns true if any transition needs re-evaluation. O(W) where W = ceil(transitions/32). */
+  private hasDirtyBits(): boolean {
+    for (let w = 0; w < this.dirtySet.length; w++) {
+      if (this.dirtySet[w] !== 0) return true;
+    }
+    return false;
+  }
+
   private markDirty(pid: number): void {
     const tids = this.compiled.affectedTransitions(pid);
     for (const tid of tids) {
@@ -875,7 +954,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
   // ======================== Event Emission ========================
 
   private emitEvent(event: NetEvent): void {
-    if (this.eventStore.isEnabled()) {
+    if (this.eventStoreEnabled) {
       this.eventStore.append(event);
     }
   }
