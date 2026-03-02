@@ -23,7 +23,8 @@
     "build": "tsup",
     "check": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "bench": "vitest bench"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

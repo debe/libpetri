@@ -5,4 +5,8 @@ export default defineConfig({
     include: ['tests/**/*.test.ts'],
     globals: true,
   },
+  bench: {
+    include: ['tests/**/*.bench.ts'],
+    globals: true,
+  },
 });
