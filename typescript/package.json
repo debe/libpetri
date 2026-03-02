@@ -2,6 +2,16 @@
   "name": "libpetri",
   "version": "0.3.0",
   "description": "Coloured Time Petri Net engine — TypeScript port",
+  "homepage": "https://libpetri.org",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/debe/libpetri.git",
+    "directory": "typescript"
+  },
+  "bugs": {
+    "url": "https://github.com/debe/libpetri/issues"
+  },
+  "license": "Apache-2.0",
   "type": "module",
   "exports": {
     ".": {

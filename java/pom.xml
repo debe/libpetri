@@ -11,7 +11,7 @@
 
     <name>libpetri</name>
     <description>High-performance Coloured Time Petri Net (CTPN) engine with formal verification</description>
-    <url>https://github.com/debe/libpetri</url>
+    <url>https://libpetri.org</url>
 
     <licenses>
         <license>
@@ -331,17 +331,11 @@
                                 <goals>
                                     <goal>sign</goal>
                                 </goals>
-                                <configuration>
-                                    <gpgArguments>
-                                        <arg>--pinentry-mode</arg>
-                                        <arg>loopback</arg>
-                                    </gpgArguments>
-                                </configuration>
                             </execution>
                         </executions>
                     </plugin>
 
-                    <!-- Sonatype Central Portal publishing -->
+                    <!-- Central Portal publishing -->
                     <plugin>
                         <groupId>org.sonatype.central</groupId>
                         <artifactId>central-publishing-maven-plugin</artifactId>
