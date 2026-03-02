@@ -46,7 +46,7 @@
 
 ```java
 import org.libpetri.core.*;
-import org.libpetri.runtime.NetExecutor;
+import org.libpetri.runtime.BitmapNetExecutor;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -69,7 +69,7 @@ var net = PetriNet.builder("Example")
     .transitions(process)
     .build();
 
-try (var executor = NetExecutor.create(net, Map.of(
+try (var executor = BitmapNetExecutor.create(net, Map.of(
         request, List.of(Token.of("hello"))))) {
     Marking result = executor.run();
     System.out.println(result.peekFirst(response).value());
@@ -340,13 +340,14 @@ console.log(result.verdict.type);  // 'proven' | 'violated' | 'unknown'
 
 ### Execution Loop
 
-The executor runs a single-threaded orchestration loop with five phases per cycle:
+The executor runs a single-threaded orchestration loop with six phases per cycle:
 
 1. **Process completions** — collect outputs from finished async actions
 2. **Process events** — inject tokens from environment places
 3. **Update enablement** — re-evaluate only dirty transitions via bitmap masks
-4. **Fire transitions** — select by priority, then FIFO by enablement time
-5. **Await work** — sleep until an action completes, a timer fires, or an event arrives
+4. **Enforce deadlines** — force-disable transitions past their deadline (urgent semantics)
+5. **Fire transitions** — select by priority, then FIFO by enablement time
+6. **Await work** — sleep until an action completes, a timer fires, or an event arrives
 
 ### Module Structure
 
@@ -357,8 +358,88 @@ The executor runs a single-threaded orchestration loop with five phases per cycl
 | Events | `org.libpetri.event` | `libpetri` (event exports) |
 | Verification | `org.libpetri.smt` | `libpetri/verification` |
 | Export | `org.libpetri.export` | `libpetri/export` |
+| Analysis | `org.libpetri.analysis` | — (Java only) |
+| Debug | `org.libpetri.debug` | — (Java only) |
 
 Both share the same architecture: immutable net definitions, builder-pattern construction, bitmap-based enablement with dirty-set optimization, and a single-threaded orchestrator dispatching async actions to a separate task pool.
+
+---
+
+## Performance
+
+Measured on the BitmapNetExecutor with noop event store. Java uses JMH (1 fork, 3 warmup, 5 measurement iterations); TypeScript uses vitest bench. All times in microseconds (µs/op, lower is better).
+
+### Sync Linear Chains
+
+All transitions use synchronous (passthrough) actions.
+
+| Transitions | Java (µs) | TypeScript (µs) | Target (PERF-021) |
+|---|---|---|---|
+| 10 | 10.1 | 34.1 | < 100 |
+| 20 | 18.1 | 65.7 | |
+| 50 | 43.9 | 112.8 | < 500 |
+| 100 | 88.5 | 146.2 | |
+| 200 | 201.4 | 226.0 | |
+| 500 | 610.2 | 531.1 | |
+
+### Async Linear Chains
+
+All transitions dispatch to a virtual thread / microtask.
+
+| Transitions | Java (µs) | TypeScript (µs) |
+|---|---|---|
+| 5 | 20.6 | 32.3 |
+| 10 | 41.6 | 57.1 |
+| 50 | 199.8 | 192.3 |
+| 100 | 439.2 | 254.7 |
+| 500 | 2245.5 | 813.8 |
+
+### Mixed Linear Chains (2 async)
+
+Two transitions are async, the rest synchronous — the common real-world pattern.
+
+| Transitions | Java (µs) | TypeScript (µs) |
+|---|---|---|
+| 10 | 20.5 | 39.3 |
+| 50 | 59.9 | 121.7 |
+| 100 | 106.9 | 158.9 |
+| 500 | 702.9 | 526.2 |
+
+### Parallel Fan-Out
+
+One dispatch transition fans out to N parallel async branches, then joins.
+
+| Branches | Java (µs) | TypeScript (µs) |
+|---|---|---|
+| 5 | 28.3 | 38.7 |
+| 10 | 36.1 | 74.7 |
+| 20 | 49.9 | 155.7 |
+
+### Complex Workflows
+
+| Scenario | Java (µs) | TypeScript (µs) |
+|---|---|---|
+| Order pipeline (8t, 13p) | 21.1 | 33.8 |
+| Large workflow (16t, 17p) | 43.0 | — |
+
+### Event Store Overhead (Java)
+
+Impact of different event store implementations on the complex workflow:
+
+| Event Store | µs/op | Overhead vs noop |
+|---|---|---|
+| noop | 20.4 | — |
+| inMemory | 22.2 | +9% |
+| debug | 24.4 | +20% |
+| debugAware | 23.3 | +14% |
+| debug + LogCapture | 26.3 | +29% |
+
+### Running Benchmarks
+
+```bash
+cd java && ./mvnw test-compile exec:exec -Pjmh    # JMH → benchmark-results.json
+cd typescript && npm run bench                      # vitest bench → stdout
+```
 
 ---
 
