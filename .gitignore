@@ -36,3 +36,6 @@ jacoco*.html
 
 # Benchmark results
 *-benchmark-results.json
+
+# Release bundles
+*-bundle.zip
