@@ -46,7 +46,6 @@
  *
  *   <dt>{@link org.libpetri.export}</dt>
  *   <dd>Export formats: {@link org.libpetri.export.DotExporter DotExporter}
- *       and {@link org.libpetri.export.MermaidExporter MermaidExporter}
  *       for visualization</dd>
  * </dl>
  *

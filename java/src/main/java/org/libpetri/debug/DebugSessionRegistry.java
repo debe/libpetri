@@ -14,7 +14,6 @@ import org.libpetri.core.PetriNet;
 import org.libpetri.core.Transition;
 import org.libpetri.export.DotExporter;
 import org.libpetri.export.ExportConfig;
-import org.libpetri.export.MermaidExporter;
 import org.libpetri.export.PlaceAnalysis;
 
 /**
@@ -24,7 +23,7 @@ import org.libpetri.export.PlaceAnalysis;
  * <ul>
  *   <li>Session discovery for debugging tools</li>
  *   <li>Session lifecycle management</li>
- *   <li>Diagram generation and caching (DOT primary, Mermaid deprecated)</li>
+ *   <li>DOT diagram generation and caching</li>
  * </ul>
  *
  * <h2>Usage Example</h2>
@@ -90,7 +89,7 @@ public class DebugSessionRegistry {
     /**
      * Registers a new debug session for the given Petri net.
      *
-     * <p>Creates a {@link DebugEventStore} and generates a Mermaid diagram
+     * <p>Creates a {@link DebugEventStore} and generates a DOT diagram
      * for the net. Also extracts net structure (places and transitions) for
      * debug tooling. Old sessions may be evicted if the maximum is reached.
      *
@@ -99,13 +98,10 @@ public class DebugSessionRegistry {
      * @return the created debug session
      */
     public DebugSession register(String sessionId, PetriNet net) {
-        // Generate DOT diagram (primary)
+        // Generate DOT diagram
         String dotDiagram = DotExporter.export(net, ExportConfig.minimal());
 
-        // Generate Mermaid diagram (deprecated, kept for backward compatibility)
-        String mermaidDiagram = MermaidExporter.export(net, MermaidExporter.Config.minimal());
-
-        // Extract place information (reusable across exporters)
+        // Extract place information
         var places = PlaceAnalysis.from(net);
 
         // Create debug event store via factory
@@ -116,7 +112,6 @@ public class DebugSessionRegistry {
             sessionId,
             net.name(),
             dotDiagram,
-            mermaidDiagram,
             places,
             net.transitions(),
             eventStore,
@@ -142,7 +137,6 @@ public class DebugSessionRegistry {
                 session.sessionId(),
                 session.netName(),
                 session.dotDiagram(),
-                session.mermaidDiagram(),
                 session.places(),
                 session.transitions(),
                 session.eventStore(),
@@ -253,7 +247,6 @@ public class DebugSessionRegistry {
      * @param sessionId unique identifier
      * @param netName name of the Petri net
      * @param dotDiagram DOT (Graphviz) diagram of the net
-     * @param mermaidDiagram Mermaid diagram of the net (deprecated)
      * @param places analyzed place information for the net
      * @param transitions set of transitions in the net
      * @param eventStore the event store for this session
@@ -264,7 +257,6 @@ public class DebugSessionRegistry {
         String sessionId,
         String netName,
         String dotDiagram,
-        String mermaidDiagram,
         PlaceAnalysis places,
         java.util.Set<Transition> transitions,
         DebugEventStore eventStore,

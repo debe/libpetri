@@ -8,7 +8,7 @@ import java.util.Set;
  * Configuration for DOT export.
  *
  * @param direction graph layout direction
- * @param showTypes whether to show token types on places (used by {@link MermaidExporter} only; the DOT mapper always includes types)
+ * @param showTypes whether to show token types on places
  * @param showIntervals whether to show firing intervals on transitions
  * @param showPriority whether to show priority on transitions
  * @param environmentPlaces place names to render with dashed border + env color

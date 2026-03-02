@@ -427,7 +427,7 @@ public class BitmapNetExecutorBenchmark {
             .inhibitor(urgent)
             .inhibitor(delivered)
             .inhibitor(fallbackDelivered)
-            .timing(Timing.exact(java.time.Duration.ofSeconds(100)))
+            .timing(Timing.exact(java.time.Duration.ofMillis(1)))
             .action(ctx -> {
                 ctx.output(urgent, new BenchToken("urgent"));
                 return CompletableFuture.supplyAsync(() -> {
@@ -453,7 +453,7 @@ public class BitmapNetExecutorBenchmark {
 
         var intent = Transition.builder("Intent")
             .read(pending)
-            .outputs(Out.and(intentReady, intentFailed))
+            .outputs(Out.xor(Out.place(intentReady), Out.place(intentFailed)))
             .inhibitor(intentReady)
             .inhibitor(intentFailed)
             .action(ctx -> {
@@ -467,7 +467,7 @@ public class BitmapNetExecutorBenchmark {
 
         var retryIntent = Transition.builder("RetryIntent")
             .inputs(In.one(intentFailed))
-            .outputs(Out.and(intentReady, intentFailed))
+            .outputs(Out.xor(Out.place(intentReady), Out.place(intentFailed)))
             .inhibitor(urgent)
             .action(ctx -> {
                 ctx.output(intentReady, new BenchToken("retry"));
@@ -507,7 +507,7 @@ public class BitmapNetExecutorBenchmark {
 
         var compareTopics = Transition.builder("CompareTopics")
             .read(topicsLoaded)
-            .outputs(Out.and(reSearchNeeded, compareTopicsFired))
+            .outputs(Out.xor(Out.place(reSearchNeeded), Out.place(compareTopicsFired)))
             .inhibitor(compareTopicsFired)
             .action(ctx -> {
                 ctx.output(compareTopicsFired, new BenchToken("fired"));
@@ -572,7 +572,7 @@ public class BitmapNetExecutorBenchmark {
 
         var compose = Transition.builder("Compose")
             .inputs(In.one(guardResult), In.one(injectReady))
-            .outputs(Out.and(responseReady, composeFailed))
+            .outputs(Out.xor(Out.place(responseReady), Out.place(composeFailed)))
             .action(ctx -> {
                 ctx.output(responseReady, new BenchToken("response"));
                 return CompletableFuture.supplyAsync(() -> {
@@ -584,7 +584,7 @@ public class BitmapNetExecutorBenchmark {
 
         var retryCompose = Transition.builder("RetryCompose")
             .inputs(In.one(composeFailed))
-            .outputs(Out.and(responseReady, composeFailed))
+            .outputs(Out.xor(Out.place(responseReady), Out.place(composeFailed)))
             .inhibitor(urgent)
             .action(ctx -> {
                 ctx.output(responseReady, new BenchToken("retry"));

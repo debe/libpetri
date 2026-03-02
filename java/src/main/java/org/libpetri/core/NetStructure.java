@@ -11,7 +11,7 @@ import java.lang.annotation.Target;
  *
  * <p>This annotation enables compile-time visualization of Petri nets.
  * The annotation processor scans for fields annotated with {@code @NetStructure}
- * and generates Mermaid diagrams that are embedded in the Javadoc.
+ * and generates DOT/SVG diagrams that are embedded in the Javadoc.
  *
  * <h2>Usage</h2>
  * <pre>{@code
@@ -36,7 +36,7 @@ import java.lang.annotation.Target;
  * <h2>Generated Documentation</h2>
  * The annotation processor generates:
  * <ul>
- *   <li>A Mermaid diagram file in {@code build/generated/petrinet/}</li>
+ *   <li>An inline SVG diagram in the generated Javadoc</li>
  *   <li>Javadoc snippet that can be included via {@code @include}</li>
  * </ul>
  *

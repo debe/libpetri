@@ -6,17 +6,7 @@
     <title>Petri Net Debugger</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/panzoom@9.4.3/dist/panzoom.min.js"></script>
-    <script type="module">
-        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-        import elkLayouts from 'https://cdn.jsdelivr.net/npm/@mermaid-js/layout-elk/dist/mermaid-layout-elk.esm.min.mjs';
-
-        // Register ELK layout
-        await mermaid.registerLayoutLoaders(elkLayouts);
-
-        // Expose to global scope for debug.js
-        window.mermaid = mermaid;
-        window.elkRegistered = true;
-    </script>
+    <script src="https://unpkg.com/@viz-js/viz@3.11.0/lib/viz-standalone.js"></script>
     <style>
         /* Custom scrollbar for dark theme */
         ::-webkit-scrollbar {
@@ -50,8 +40,8 @@
         .event-LogMessage.level-WARN { border-left-color: #f59e0b; }
         .event-LogMessage.level-ERROR { border-left-color: #ef4444; }
 
-        /* Mermaid diagram adjustments */
-        .mermaid-container {
+        /* Diagram container */
+        .diagram-container {
             background: white;
             border-radius: 8px;
             padding: 16px;
@@ -61,12 +51,12 @@
         }
 
         /* Panzoom cursor and SVG constraints */
-        .mermaid-container svg {
+        .diagram-container svg {
             max-width: 100%;
             max-height: 100%;
             cursor: grab;
         }
-        .mermaid-container svg:active {
+        .diagram-container svg:active {
             cursor: grabbing;
         }
 
@@ -119,8 +109,8 @@
     <main class="flex-1 flex overflow-hidden min-h-0">
         <!-- Left panel: Diagram -->
         <div class="flex-1 p-4 min-h-0 flex flex-col">
-            <div id="diagram-container" class="mermaid-container flex-1 min-h-0">
-                <div id="mermaid-diagram" class="w-full h-full"></div>
+            <div id="diagram-container" class="diagram-container flex-1 min-h-0">
+                <div id="dot-diagram" class="w-full h-full"></div>
                 <div id="no-session" class="flex items-center justify-center h-full text-gray-500 absolute inset-0">
                     Select a session to view the Petri net diagram
                 </div>

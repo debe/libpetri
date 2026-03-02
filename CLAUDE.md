@@ -77,7 +77,7 @@ Z3-based SMT verification using IC3/PDR. Supports: deadlock freedom, mutual excl
 
 ### Export (`src/export/`)
 
-Mermaid diagram generation with ELK layout.
+DOT (Graphviz) diagram export with Petri net visual conventions.
 
 ## Specification
 

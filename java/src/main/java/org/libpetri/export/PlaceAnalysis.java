@@ -11,7 +11,7 @@ import java.util.stream.Collectors;
 /**
  * Analyzes places in a Petri net to determine start/end/environment classification.
  *
- * <p>Extracted from {@link MermaidExporter.Places} for reuse across exporters.
+ * <p>Provides start/end classification for use in diagram export and debug tooling.
  */
 public record PlaceAnalysis(Map<String, Info> data) {
 

@@ -11,22 +11,27 @@ import jdk.javadoc.doclet.Taglet;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.TypeElement;
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.nio.charset.StandardCharsets;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import org.libpetri.core.NetStructure;
 import org.libpetri.core.PetriNet;
-import org.libpetri.export.MermaidExporter;
+import org.libpetri.export.DotExporter;
 
 /**
  * Javadoc taglet that auto-generates Petri net diagrams from static fields.
  *
- * <p>This taglet generates Mermaid diagrams by referencing static {@link PetriNet}
- * fields. It uses the {@link MermaidExporter} to create the diagram automatically.
+ * <p>This taglet generates DOT diagrams from {@link PetriNet} fields, converts
+ * them to SVG using the {@code dot} command-line tool, and embeds the SVG inline
+ * in the Javadoc output. If {@code dot} is not available on the PATH, the DOT
+ * source is rendered as a {@code <pre><code>} block instead.
  *
  * <h2>Usage</h2>
  *
@@ -58,17 +63,7 @@ import org.libpetri.export.MermaidExporter;
  *  *{@literal /}
  * }</pre>
  *
- * <h2>Gradle Configuration</h2>
- * <pre>
- * javadoc {
- *     options {
- *         taglets 'org.libpetri.doclet.PetriNetTaglet'
- *         tagletPath configurations.runtimeClasspath.files.toList()
- *     }
- * }
- * </pre>
- *
- * @see MermaidExporter
+ * @see DotExporter
  * @see PetriNet
  */
 public class PetriNetTaglet implements Taglet {
@@ -157,11 +152,64 @@ public class PetriNetTaglet implements Taglet {
                 return errorHtml("Cannot resolve PetriNet: " + errorRef);
             }
 
-            var mermaid = MermaidExporter.export(petriNet);
-            return renderMermaid(petriNet.name(), mermaid);
+            var dot = DotExporter.export(petriNet);
+            var svg = dotToSvg(dot);
+            if (svg != null) {
+                return DiagramRenderer.renderSvg(petriNet.name(), svg, dot);
+            }
+            // Fallback: render DOT as preformatted text
+            return DiagramRenderer.renderSvg(petriNet.name(),
+                    "<pre><code>" + DiagramRenderer.escapeHtml(dot) + "</code></pre>", dot);
 
         } catch (Exception e) {
             return errorHtml("Error generating diagram for '" + reference + "': " + e.getMessage());
+        }
+    }
+
+    /**
+     * Converts a DOT string to SVG by invoking the {@code dot} command-line tool.
+     *
+     * @param dot the DOT source
+     * @return SVG string, or {@code null} if {@code dot} is not available
+     */
+    private String dotToSvg(String dot) {
+        try {
+            var process = new ProcessBuilder("dot", "-Tsvg")
+                    .redirectErrorStream(true)
+                    .start();
+            process.getOutputStream().write(dot.getBytes(StandardCharsets.UTF_8));
+            process.getOutputStream().close();
+
+            var svg = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+
+            if (!process.waitFor(30, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                LOG.log(System.Logger.Level.WARNING, "dot process timed out");
+                return null;
+            }
+
+            if (process.exitValue() != 0) {
+                LOG.log(System.Logger.Level.WARNING, "dot exited with code {0}: {1}",
+                        process.exitValue(), svg);
+                return null;
+            }
+
+            // Strip XML prolog and DOCTYPE — invalid inside HTML5
+            int svgStart = svg.indexOf("<svg");
+            if (svgStart > 0) svg = svg.substring(svgStart);
+
+            // Strip explicit width/height attributes (e.g. "1942pt") so the SVG
+            // scales via viewBox + CSS instead of overriding with fixed pt sizes
+            svg = svg.replaceFirst("\\s+width=\"[^\"]*\"", "");
+            svg = svg.replaceFirst("\\s+height=\"[^\"]*\"", "");
+
+            return svg;
+        } catch (IOException e) {
+            LOG.log(System.Logger.Level.DEBUG, "dot not available on PATH: {0}", e.getMessage());
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
         }
     }
 
@@ -213,17 +261,6 @@ public class PetriNetTaglet implements Taglet {
         return findAnnotatedField(clazz);
     }
 
-    /**
-     * Attempts to resolve a PetriNet from a static field with the given name.
-     *
-     * <p>Uses reflection to access the field value. Non-static fields or fields
-     * of incompatible types will fail silently.
-     *
-     * @param clazz the class containing the field
-     * @param fieldName the name of the static field to access
-     * @return the PetriNet instance, or {@code null} if the field doesn't exist,
-     *         isn't accessible, or causes initialization errors
-     */
     private PetriNet tryFieldByName(Class<?> clazz, String fieldName) {
         try {
             var field = clazz.getDeclaredField(fieldName);
@@ -235,17 +272,6 @@ public class PetriNetTaglet implements Taglet {
         }
     }
 
-    /**
-     * Searches for the first static field annotated with {@link NetStructure}
-     * that has a {@link PetriNet}-compatible type.
-     *
-     * <p>Scans all declared fields of the class, including private fields.
-     * Returns the first matching field's value; if multiple fields are annotated,
-     * only the first encountered is used.
-     *
-     * @param clazz the class to scan for annotated fields
-     * @return the PetriNet from the first matching field, or {@code null} if none found
-     */
     private PetriNet findAnnotatedField(Class<?> clazz) {
         for (Field field : clazz.getDeclaredFields()) {
             if (field.isAnnotationPresent(NetStructure.class)
@@ -298,10 +324,6 @@ public class PetriNetTaglet implements Taglet {
         }
 
         return simpleName;
-    }
-
-    private String renderMermaid(String title, String mermaidCode) {
-        return DiagramRenderer.render(title, mermaidCode);
     }
 
     private String errorHtml(String message) {
