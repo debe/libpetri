@@ -4,6 +4,7 @@ import org.libpetri.analysis.EnvironmentAnalysisMode;
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.core.EnvironmentPlace;
 import org.libpetri.core.PetriNet;
+import org.libpetri.core.Place;
 import org.libpetri.smt.encoding.FlatNet;
 import org.libpetri.smt.encoding.IncidenceMatrix;
 import org.libpetri.smt.encoding.NetFlattener;
@@ -17,6 +18,7 @@ import org.libpetri.smt.z3.SpacerRunner;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import java.util.stream.Collectors;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
 
@@ -70,6 +72,7 @@ public final class SmtVerifier {
     private MarkingState initialMarking = MarkingState.empty();
     private SmtProperty property = SmtProperty.deadlockFree();
     private final Set<EnvironmentPlace<?>> environmentPlaces = new HashSet<>();
+    private final Set<Place<?>> sinkPlaces = new HashSet<>();
     private EnvironmentAnalysisMode environmentMode = EnvironmentAnalysisMode.ignore();
     private Duration timeout = Duration.ofSeconds(60);
 
@@ -128,6 +131,16 @@ public final class SmtVerifier {
     }
 
     /**
+     * Declares expected sink (terminal) places for deadlock-freedom analysis.
+     * Markings where any sink place has a token are not considered deadlocks.
+     */
+    @SafeVarargs
+    public final SmtVerifier sinkPlaces(Place<?>... places) {
+        this.sinkPlaces.addAll(Arrays.asList(places));
+        return this;
+    }
+
+    /**
      * Sets the solver timeout.
      */
     public SmtVerifier timeout(Duration timeout) {
@@ -169,7 +182,9 @@ public final class SmtVerifier {
         report.append("  Result: ").append(structResultStr).append("\n\n");
 
         // If structural check proves deadlock-freedom for DeadlockFree property
+        // (only valid when no sink places — structural check doesn't account for sinks)
         if (property instanceof SmtProperty.DeadlockFree
+                && sinkPlaces.isEmpty()
                 && structResult instanceof StructuralCheck.Result.NoPotentialDeadlock) {
             report.append("=== RESULT ===\n\n");
             report.append("PROVEN (structural): Deadlock-freedom verified by Commoner's theorem.\n");
@@ -202,7 +217,7 @@ public final class SmtVerifier {
             var ctx = runner.context();
             var fp = runner.fixedpoint();
 
-            var encoding = SmtEncoder.encode(ctx, fp, flatNet, initialMarking, property, invariants);
+            var encoding = SmtEncoder.encode(ctx, fp, flatNet, initialMarking, property, invariants, sinkPlaces);
             var queryResult = runner.query(encoding.errorExpr(), encoding.reachableDecl());
 
             return switch (queryResult) {
@@ -315,7 +330,10 @@ public final class SmtVerifier {
 
     private String propertyDescription() {
         return switch (property) {
-            case SmtProperty.DeadlockFree() -> "Deadlock-freedom";
+            case SmtProperty.DeadlockFree() -> sinkPlaces.isEmpty()
+                ? "Deadlock-freedom"
+                : "Deadlock-freedom (sinks: " + sinkPlaces.stream()
+                    .map(Place::name).collect(Collectors.joining(", ")) + ")";
             case SmtProperty.MutualExclusion me ->
                 "Mutual exclusion of " + me.p1().name() + " and " + me.p2().name();
             case SmtProperty.PlaceBound pb ->

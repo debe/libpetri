@@ -1,5 +1,5 @@
 import type { PetriNet } from '../core/petri-net.js';
-import type { EnvironmentPlace } from '../core/place.js';
+import type { EnvironmentPlace, Place } from '../core/place.js';
 import { MarkingState, MarkingStateBuilder } from './marking-state.js';
 import type { SmtProperty } from './smt-property.js';
 import { deadlockFree, propertyDescription } from './smt-property.js';
@@ -40,6 +40,7 @@ export class SmtVerifier {
   private _initialMarking: MarkingState = MarkingState.empty();
   private _property: SmtProperty = deadlockFree();
   private readonly _environmentPlaces = new Set<EnvironmentPlace<any>>();
+  private readonly _sinkPlaces = new Set<Place<any>>();
   private _environmentMode: EnvironmentAnalysisMode = unbounded();
   private _timeoutMs: number = 60_000;
 
@@ -77,6 +78,15 @@ export class SmtVerifier {
     return this;
   }
 
+  /**
+   * Declares expected sink (terminal) places for deadlock-freedom analysis.
+   * Markings where any sink place has a token are not considered deadlocks.
+   */
+  sinkPlaces(...places: Place<any>[]): this {
+    for (const p of places) this._sinkPlaces.add(p);
+    return this;
+  }
+
   timeout(ms: number): this {
     this._timeoutMs = ms;
     return this;
@@ -90,7 +100,10 @@ export class SmtVerifier {
     const report: string[] = [];
     report.push('=== IC3/PDR SAFETY VERIFICATION ===\n');
     report.push(`Net: ${this.net.name}`);
-    report.push(`Property: ${propertyDescription(this._property)}`);
+    const propDesc = this._sinkPlaces.size === 0
+      ? propertyDescription(this._property)
+      : `${propertyDescription(this._property)} (sinks: ${[...this._sinkPlaces].map(p => p.name).join(', ')})`;
+    report.push(`Property: ${propDesc}`);
     report.push(`Timeout: ${(this._timeoutMs / 1000).toFixed(0)}s\n`);
 
     // Phase 1: Flatten
@@ -121,8 +134,10 @@ export class SmtVerifier {
     report.push(`  Result: ${structResultStr}\n`);
 
     // If structural check proves deadlock-freedom for DeadlockFree property
+    // (only valid when no sink places — structural check doesn't account for sinks)
     if (
       this._property.type === 'deadlock-free' &&
+      this._sinkPlaces.size === 0 &&
       structResult.type === 'no-potential-deadlock'
     ) {
       report.push('=== RESULT ===\n');
@@ -167,7 +182,7 @@ export class SmtVerifier {
     }
 
     try {
-      const encoding = encode(runner.ctx, runner.fp, flatNet, this._initialMarking, this._property, invariants);
+      const encoding = encode(runner.ctx, runner.fp, flatNet, this._initialMarking, this._property, invariants, this._sinkPlaces);
       const queryResult = await runner.query(encoding.errorExpr, encoding.reachableDecl);
 
       switch (queryResult.type) {
@@ -198,7 +213,7 @@ export class SmtVerifier {
           }
 
           report.push('=== RESULT ===\n');
-          report.push(`PROVEN (IC3/PDR): ${propertyDescription(this._property)}`);
+          report.push(`PROVEN (IC3/PDR): ${propDesc}`);
           report.push('  Z3 Spacer proved no reachable state violates the property.');
           report.push('  NOTE: Verification ignores timing constraints and JS guards.');
           report.push('  An untimed proof is STRONGER than a timed one (timing only restricts behavior).');
@@ -223,7 +238,7 @@ export class SmtVerifier {
           const decoded = decode(runner.ctx, queryResult.answer, flatNet);
 
           report.push('=== RESULT ===\n');
-          report.push(`VIOLATED: ${propertyDescription(this._property)}`);
+          report.push(`VIOLATED: ${propDesc}`);
           if (decoded.trace.length > 0) {
             report.push(`  Counterexample trace (${decoded.trace.length} states):`);
             for (let i = 0; i < decoded.trace.length; i++) {
@@ -248,7 +263,7 @@ export class SmtVerifier {
         case 'unknown': {
           report.push(`  Status: UNKNOWN (${queryResult.reason})\n`);
           report.push('=== RESULT ===\n');
-          report.push(`UNKNOWN: Could not determine ${propertyDescription(this._property)}`);
+          report.push(`UNKNOWN: Could not determine ${propDesc}`);
           report.push(`  Reason: ${queryResult.reason}`);
 
           return buildResult(

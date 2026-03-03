@@ -6,9 +6,10 @@ import {
 } from '../../src/verification/smt-property.js';
 import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
-import { place } from '../../src/core/place.js';
+import { place, environmentPlace } from '../../src/core/place.js';
 import { one } from '../../src/core/in.js';
-import { outPlace } from '../../src/core/out.js';
+import { outPlace, xorPlaces } from '../../src/core/out.js';
+import { unbounded } from '../../src/verification/encoding/net-flattener.js';
 
 // All tests in this file require Z3 WASM which is slow to initialize.
 // Tests are set to a generous timeout.
@@ -222,6 +223,41 @@ describe('SmtVerifier (Z3 integration)', () => {
     if (result.verdict.type === 'proven') {
       expect(result.verdict.method).toBe('structural');
     }
+  }, Z3_TIMEOUT);
+
+  it('xor branch to sink deadlocks with environment place', async () => {
+    // Idle=1 (processing resource), Trigger=env (external events)
+    // Dispatch: Idle + Trigger -> XOR(Active, Rejected)
+    // Complete: Active -> Idle (loop back)
+    // Rejected is a sink — no transition consumes from it.
+    // XOR expansion means the solver considers the Rejected branch:
+    //   Dispatch fires -> Rejected=1, Idle=0 -> no transition enabled -> DEADLOCK
+    const idle = place('Idle');
+    const trigger = environmentPlace('Trigger');
+    const active = place('Active');
+    const rejected = place('Rejected');
+
+    const dispatch = Transition.builder('Dispatch')
+      .inputs(one(idle), one(trigger.place))
+      .outputs(xorPlaces(active, rejected))
+      .build();
+    const complete = Transition.builder('Complete')
+      .inputs(one(active))
+      .outputs(outPlace(idle))
+      .build();
+
+    const net = PetriNet.builder('XorSinkNet').transitions(dispatch, complete).build();
+
+    const result = await SmtVerifier.forNet(net)
+      .initialMarking(m => m.tokens(idle, 1))
+      .environmentPlaces(trigger)
+      .environmentMode(unbounded())
+      .property(deadlockFree())
+      .timeout(30_000)
+      .verify();
+
+    expect(result.verdict.type).toBe('violated');
+    expect(result.counterexampleTrace.length).toBeGreaterThan(0);
   }, Z3_TIMEOUT);
 
   it('initialMarking accepts MarkingState directly', async () => {

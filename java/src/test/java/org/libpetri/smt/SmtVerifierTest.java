@@ -285,6 +285,45 @@ class SmtVerifierTest {
 
     @Test
     @EnabledIf("z3Available")
+    void xorBranchToSink_deadlocksWithEnvironmentPlace() {
+        // Idle=1 (processing resource), Trigger=env (external events)
+        // Dispatch: Idle + Trigger -> XOR(Active, Rejected)
+        // Complete: Active -> Idle (loop back)
+        // Rejected is a sink — no transition consumes from it.
+        // XOR expansion means the solver considers the Rejected branch:
+        //   Dispatch fires -> Rejected=1, Idle=0 -> no transition enabled -> DEADLOCK
+        var idle = Place.of("Idle", String.class);
+        var trigger = EnvironmentPlace.of(Place.of("Trigger", String.class));
+        var active = Place.of("Active", String.class);
+        var rejected = Place.of("Rejected", String.class);
+
+        var dispatch = Transition.builder("Dispatch")
+            .inputs(In.one(idle), In.one(trigger.place()))
+            .outputs(Out.xor(active, rejected))
+            .build();
+        var complete = Transition.builder("Complete")
+            .inputs(In.one(active))
+            .outputs(Out.place(idle))
+            .build();
+
+        var net = PetriNet.builder("XorSinkNet").transitions(dispatch, complete).build();
+
+        var result = SmtVerifier.forNet(net)
+            .initialMarking(m -> m.tokens(idle, 1))
+            .environmentPlaces(trigger)
+            .environmentMode(EnvironmentAnalysisMode.alwaysAvailable())
+            .property(SmtProperty.deadlockFree())
+            .timeout(Duration.ofSeconds(30))
+            .verify();
+
+        assertTrue(result.isViolated(),
+            "XOR branch to sink should cause deadlock\n" + result.report());
+        assertFalse(result.counterexampleTrace().isEmpty(),
+            "Counterexample trace should not be empty\n" + result.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
     void resetArc_correctEncoding() {
         // A -> T1 (reset B) -> C
         // T1 consumes from A, resets B to 0, produces to C
