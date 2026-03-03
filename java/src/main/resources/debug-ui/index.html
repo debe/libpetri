@@ -218,8 +218,13 @@
                         <button id="search-clear" class="px-2 py-1 bg-gray-600 rounded hover:bg-gray-500 transition-colors text-xs">Clear</button>
                     </div>
                 </div>
-                <div id="event-log" class="flex-1 overflow-y-auto p-2 space-y-1 text-xs font-mono">
-                    <!-- Events will be added here -->
+                <div style="position: relative;" class="flex-1 min-h-0 flex flex-col">
+                    <div id="event-log" class="flex-1 overflow-y-auto p-2 space-y-1 text-xs font-mono min-h-0" style="overscroll-behavior-y: contain; overflow-anchor: none;">
+                        <!-- Events will be added here -->
+                    </div>
+                    <button id="jump-to-latest" class="hidden absolute bottom-2 left-1/2 -translate-x-1/2 px-3 py-1 bg-blue-600 text-white text-xs rounded-full shadow-lg hover:bg-blue-700 transition-colors z-10">
+                        &#x2193; Jump to latest
+                    </button>
                 </div>
             </div>
         </aside>

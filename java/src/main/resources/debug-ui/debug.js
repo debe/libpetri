@@ -73,7 +73,8 @@ const state = {
         spacerTop: null,
         spacerBottom: null,
         contentEl: null,
-        scrollAbort: null
+        scrollAbort: null,
+        followMode: true
     },
     filteredIndices: null,
     // rAF-throttled UI update handle
@@ -1056,6 +1057,7 @@ function initVirtualLog() {
     state.virtualLog.contentEl = contentEl;
     state.virtualLog.visibleStart = 0;
     state.virtualLog.visibleEnd = 0;
+    state.virtualLog.followMode = true;
 
     // Abort previous scroll listener to prevent stacking (initVirtualLog called multiple times)
     if (state.virtualLog.scrollAbort) state.virtualLog.scrollAbort.abort();
@@ -1069,6 +1071,12 @@ function initVirtualLog() {
             scrollRafId = requestAnimationFrame(() => {
                 scrollRafId = null;
                 renderVisibleEvents();
+                // Update followMode based on scroll position
+                const vl = state.virtualLog;
+                const atBottom = vl.container.scrollTop + vl.container.clientHeight
+                    >= vl.container.scrollHeight - vl.itemHeight * 2;
+                vl.followMode = atBottom;
+                updateJumpToLatestButton();
             });
         }
     }, { signal: ac.signal });
@@ -1207,6 +1215,17 @@ function scrollVirtualLogToBottom() {
     if (!vl.container) return;
     const filtered = getFilteredIndices();
     vl.container.scrollTop = filtered.length * vl.itemHeight;
+    vl.followMode = true;
+    updateJumpToLatestButton();
+}
+
+/**
+ * Shows or hides the "Jump to latest" button based on followMode.
+ */
+function updateJumpToLatestButton() {
+    const btn = document.getElementById('jump-to-latest');
+    if (!btn) return;
+    btn.classList.toggle('hidden', state.virtualLog.followMode);
 }
 
 /**
@@ -1258,16 +1277,14 @@ function onEventsChanged() {
     // With virtual log, just invalidate filter cache and re-render
     state.filteredIndices = null;
 
-    // Auto-scroll to bottom if already near bottom
     const vl = state.virtualLog;
     if (vl.container) {
-        const atBottom = vl.container.scrollTop + vl.container.clientHeight
-            >= vl.container.scrollHeight - vl.itemHeight * 2;
         renderVisibleEvents();
-        if (atBottom) {
+        if (vl.followMode) {
             scrollVirtualLogToBottom();
             renderVisibleEvents();
         }
+        updateJumpToLatestButton();
     }
 }
 
@@ -2206,6 +2223,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize virtual event log
     initVirtualLog();
 
+    // "Jump to latest" button
+    document.getElementById('jump-to-latest').addEventListener('click', () => {
+        scrollVirtualLogToBottom();
+        renderVisibleEvents();
+    });
+
     // Connect WebSocket
     connect();
 
@@ -2365,8 +2388,10 @@ document.addEventListener('DOMContentLoaded', () => {
             state.eventIndex++;
             state.filteredIndices = null;
             renderVisibleEvents();
-            scrollVirtualLogToBottom();
-            renderVisibleEvents();
+            if (state.virtualLog.followMode) {
+                scrollVirtualLogToBottom();
+                renderVisibleEvents();
+            }
             if (state.highlightDirty) updateDiagramHighlighting();
             updateMarkingInspector();
             updateTimelinePositionFull();
@@ -2381,6 +2406,8 @@ document.addEventListener('DOMContentLoaded', () => {
             stopPlayback();
             state.paused = true;
             seekToIndex(state.allReplayEvents.length);
+            scrollVirtualLogToBottom();
+            renderVisibleEvents();
             updatePlaybackControls();
         } else if (!state.isReplayMode) {
             // Live mode: scroll to end

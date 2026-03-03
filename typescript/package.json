@@ -1,6 +1,6 @@
 {
   "name": "libpetri",
-  "version": "0.3.3",
+  "version": "0.3.5",
   "description": "Coloured Time Petri Net engine — TypeScript port",
   "homepage": "https://libpetri.org",
   "repository": {
