@@ -22,6 +22,7 @@ import type { FlatTransition } from '../encoding/flat-transition.js';
 import type { MarkingState } from '../marking-state.js';
 import type { SmtProperty } from '../smt-property.js';
 import type { PInvariant } from '../invariant/p-invariant.js';
+import type { Place } from '../../core/place.js';
 import { flatNetIndexOf } from '../encoding/flat-net.js';
 
 /** Z3 high-level context. Typed as `any` because z3-solver's TS types are incomplete. */
@@ -52,6 +53,7 @@ export function encode(
   initialMarking: MarkingState,
   property: SmtProperty,
   invariants: readonly PInvariant[],
+  sinkPlaces: ReadonlySet<Place<any>> = new Set(),
 ): EncodingResult {
   const P = flatNet.places.length;
   const Int = ctx.Int;
@@ -87,7 +89,7 @@ export function encode(
   }
 
   // === Rule 3: Error rule (property violation) ===
-  encodeErrorRule(ctx, fp, reachable, error, flatNet, property, P);
+  encodeErrorRule(ctx, fp, reachable, error, flatNet, property, sinkPlaces, P);
 
   return {
     errorExpr: (error as any).call() as Bool,
@@ -222,6 +224,7 @@ function encodeErrorRule(
   error: FuncDecl,
   flatNet: FlatNet,
   property: SmtProperty,
+  sinkPlaces: ReadonlySet<Place<any>>,
   P: number,
 ): void {
   const Int = ctx.Int;
@@ -233,7 +236,7 @@ function encodeErrorRule(
   }
 
   const reachBody = (reachable as any).call(...mVars) as Bool;
-  const violation = encodePropertyViolation(ctx, flatNet, property, mVars, P);
+  const violation = encodePropertyViolation(ctx, flatNet, property, sinkPlaces, mVars, P);
 
   const head = (error as any).call() as Bool;
   const body = ctx.And(reachBody, violation);
@@ -247,12 +250,26 @@ function encodePropertyViolation(
   ctx: Z3Context,
   flatNet: FlatNet,
   property: SmtProperty,
+  sinkPlaces: ReadonlySet<Place<any>>,
   mVars: Arith[],
   P: number,
 ): Bool {
   switch (property.type) {
-    case 'deadlock-free':
-      return encodeDeadlock(ctx, flatNet, mVars, P);
+    case 'deadlock-free': {
+      const deadlock = encodeDeadlock(ctx, flatNet, mVars, P);
+      if (sinkPlaces.size > 0) {
+        // Deadlock is only a violation if NOT at any expected sink place
+        let notAtSink: Bool = ctx.Bool.val(true);
+        for (const sink of sinkPlaces) {
+          const idx = flatNetIndexOf(flatNet, sink);
+          if (idx >= 0) {
+            notAtSink = ctx.And(notAtSink, mVars[idx]!.eq(0));
+          }
+        }
+        return ctx.And(deadlock, notAtSink);
+      }
+      return deadlock;
+    }
 
     case 'mutual-exclusion': {
       const idx1 = flatNetIndexOf(flatNet, property.p1);

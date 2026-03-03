@@ -38,7 +38,10 @@ The engine supports safety property verification using SMT solvers via the IC3/P
 
 The following safety properties can be verified:
 
-- **DeadlockFree** — no reachable marking exists where no transition is enabled
+- **DeadlockFree** — no reachable marking exists where no transition is enabled.
+  Optionally, the verifier accepts **sink places**: expected terminal places where
+  deadlock is permitted. The error condition becomes: (all transitions disabled) ∧
+  (no sink place has a token). This models nets that naturally terminate.
 - **MutualExclusion(p1, p2)** — places p1 and p2 never both have tokens simultaneously
 - **PlaceBound(place, k)** — place never has more than k tokens
 - **Unreachable(places)** — the given set of places is never all simultaneously non-empty

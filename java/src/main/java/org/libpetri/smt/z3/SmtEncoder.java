@@ -2,12 +2,14 @@ package org.libpetri.smt.z3;
 
 import com.microsoft.z3.*;
 import org.libpetri.analysis.MarkingState;
+import org.libpetri.core.Place;
 import org.libpetri.smt.SmtProperty;
 import org.libpetri.smt.encoding.FlatNet;
 import org.libpetri.smt.encoding.FlatTransition;
 import org.libpetri.smt.invariant.PInvariant;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * Encodes a flattened Petri net as Constrained Horn Clauses (CHC) for Z3's Spacer engine.
@@ -44,6 +46,7 @@ public final class SmtEncoder {
      * @param initialMarking the initial marking
      * @param property       the safety property to verify
      * @param invariants     P-invariants for strengthening
+     * @param sinkPlaces     expected terminal places (deadlock permitted when any has a token)
      * @return the encoding result containing the error predicate and reachable declaration
      */
     public static EncodingResult encode(
@@ -52,7 +55,8 @@ public final class SmtEncoder {
             FlatNet flatNet,
             MarkingState initialMarking,
             SmtProperty property,
-            List<PInvariant> invariants
+            List<PInvariant> invariants,
+            Set<Place<?>> sinkPlaces
     ) {
         int P = flatNet.placeCount();
 
@@ -103,7 +107,7 @@ public final class SmtEncoder {
         }
 
         // === Rule 3: Error rule (property violation) ===
-        encodeErrorRule(ctx, fp, reachable, error, flatNet, property, invariants, P, markingSorts, markingNames);
+        encodeErrorRule(ctx, fp, reachable, error, flatNet, property, sinkPlaces, P, markingSorts, markingNames);
 
         // Return query expression and reachable declaration for invariant extraction
         return new EncodingResult((BoolExpr) error.apply(), reachable);
@@ -250,7 +254,7 @@ public final class SmtEncoder {
             Context ctx, Fixedpoint fp,
             FuncDecl<BoolSort> reachable, FuncDecl<BoolSort> error,
             FlatNet flatNet, SmtProperty property,
-            List<PInvariant> invariants,
+            Set<Place<?>> sinkPlaces,
             int P, Sort[] sorts, Symbol[] names
     ) {
         // Create variables for the error rule
@@ -265,7 +269,7 @@ public final class SmtEncoder {
         }
 
         BoolExpr reachBody = (BoolExpr) reachable.apply(mVars);
-        BoolExpr violation = encodePropertyViolation(ctx, flatNet, property, mVars, P);
+        BoolExpr violation = encodePropertyViolation(ctx, flatNet, property, sinkPlaces, mVars, P);
 
         BoolExpr head = (BoolExpr) error.apply();
         BoolExpr body = ctx.mkAnd(reachBody, violation);
@@ -277,10 +281,26 @@ public final class SmtEncoder {
 
     private static BoolExpr encodePropertyViolation(
             Context ctx, FlatNet flatNet, SmtProperty property,
+            Set<Place<?>> sinkPlaces,
             Expr<IntSort>[] mVars, int P
     ) {
         return switch (property) {
-            case SmtProperty.DeadlockFree() -> encodeDeadlock(ctx, flatNet, mVars, P);
+            case SmtProperty.DeadlockFree() -> {
+                BoolExpr deadlock = encodeDeadlock(ctx, flatNet, mVars, P);
+                if (!sinkPlaces.isEmpty()) {
+                    // Deadlock is only a violation if NOT at any expected sink place
+                    BoolExpr notAtSink = ctx.mkTrue();
+                    for (var sink : sinkPlaces) {
+                        int idx = flatNet.indexOf(sink);
+                        if (idx >= 0) {
+                            notAtSink = ctx.mkAnd(notAtSink,
+                                ctx.mkEq(mVars[idx], ctx.mkInt(0)));
+                        }
+                    }
+                    yield ctx.mkAnd(deadlock, notAtSink);
+                }
+                yield deadlock;
+            }
             case SmtProperty.MutualExclusion me -> {
                 int idx1 = flatNet.indexOf(me.p1());
                 int idx2 = flatNet.indexOf(me.p2());
