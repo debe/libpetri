@@ -8,7 +8,6 @@
 
 const CONFIG = {
     wsReconnectDelay: 2000,
-    maxEventLogSize: 500,
     maxPlaybackDelay: 2000,
     minPlaybackDelay: 10,
     sliderResolution: 10000
@@ -63,7 +62,27 @@ const state = {
     highlightDirty: false,
     // Checkpoint state for efficient seeking
     checkpoints: [],
-    checkpointInterval: 50
+    checkpointInterval: 20,
+    // Virtual event log state
+    virtualLog: {
+        itemHeight: 72,
+        overscan: 10,
+        visibleStart: 0,
+        visibleEnd: 0,
+        container: null,
+        spacerTop: null,
+        spacerBottom: null,
+        contentEl: null,
+        scrollAbort: null
+    },
+    filteredIndices: null,
+    // rAF-throttled UI update handle
+    uiRafId: null,
+    // Track previously highlighted elements for differential reset (avoids O(all) reset)
+    prevHighlighted: { shapes: [], edges: [] },
+    // rAF-throttled slider seek state
+    pendingSeekIndex: null,
+    seekRafId: null
 };
 
 // ======================== Playback Control (Frontend-Driven) ========================
@@ -74,52 +93,62 @@ function startPlayback() {
 }
 
 function scheduleNextEvent() {
-    if (state.eventIndex >= state.allReplayEvents.length) {
+    const MAX_BATCH = 10;
+    let processed = 0;
+    let lastEvent = null;
+
+    while (processed < MAX_BATCH && state.eventIndex < state.allReplayEvents.length) {
+        const event = state.allReplayEvents[state.eventIndex];
+
+        applyEventToState(event);
+        state.eventIndex++;
+        processed++;
+        lastEvent = event;
+
+        // Check breakpoints AFTER applying
+        const hitBp = checkClientBreakpoints(event);
+        if (hitBp) {
+            scheduleUiUpdate();
+            stopPlayback();
+            state.paused = true;
+            updatePlaybackControls();
+            updateTimelinePositionFull();
+            highlightBreakpointInList(hitBp.id);
+            showBreakpointNotification(hitBp.id, event);
+            return;
+        }
+
+        // Check if next event has a different timestamp -> break and schedule with delay
+        if (state.eventIndex < state.allReplayEvents.length) {
+            const next = state.allReplayEvents[state.eventIndex];
+            const delay = computePlaybackDelay(event, next);
+            if (delay > CONFIG.minPlaybackDelay) {
+                scheduleUiUpdate();
+                startSliderAnimation(state.eventIndex, delay);
+                state.playbackTimer = setTimeout(() => {
+                    state.playbackTimer = null;
+                    scheduleNextEvent();
+                }, delay);
+                return;
+            }
+        }
+    }
+
+    // Either hit batch limit or end of events
+    scheduleUiUpdate();
+
+    if (state.eventIndex < state.allReplayEvents.length) {
+        startSliderAnimation(state.eventIndex, CONFIG.minPlaybackDelay);
+        state.playbackTimer = setTimeout(() => {
+            state.playbackTimer = null;
+            scheduleNextEvent();
+        }, CONFIG.minPlaybackDelay);
+    } else {
         stopPlayback();
         state.paused = true;
         updatePlaybackControls();
-        return;
+        updateTimelinePositionFull();
     }
-
-    const event = state.allReplayEvents[state.eventIndex];
-
-    // Apply event and advance index BEFORE checking breakpoints (apply-then-pause)
-    applyEventToState(event);
-    if (matchesClientFilter(event)) {
-        addEventToLog(event, state.eventIndex);
-    }
-    state.eventIndex++;
-    updateMarkingInspector();
-    updateTimelinePosition();
-
-    // Check breakpoints AFTER applying - pause on the event that triggered the breakpoint
-    const hitBp = checkClientBreakpoints(event);
-    if (hitBp) {
-        stopPlayback();
-        state.paused = true;
-        updatePlaybackControls();
-        highlightBreakpointInList(hitBp.id);
-        showBreakpointNotification(hitBp.id, event);
-        return;
-    }
-
-    // End of events check after advancing
-    if (state.eventIndex >= state.allReplayEvents.length) {
-        stopPlayback();
-        state.paused = true;
-        updatePlaybackControls();
-        return;
-    }
-
-    // Compute delay based on real timestamps to next event
-    const nextEvent = state.allReplayEvents[state.eventIndex];
-    const delay = computePlaybackDelay(event, nextEvent);
-
-    startSliderAnimation(state.eventIndex, delay);
-    state.playbackTimer = setTimeout(() => {
-        state.playbackTimer = null;
-        scheduleNextEvent();
-    }, delay);
 }
 
 function computePlaybackDelay(currentEvent, nextEvent) {
@@ -168,6 +197,23 @@ function stopSliderAnimation() {
     if (state.playbackAnimationFrame) {
         cancelAnimationFrame(state.playbackAnimationFrame);
         state.playbackAnimationFrame = null;
+    }
+}
+
+/**
+ * Schedules a UI update on the next animation frame.
+ * Coalesces multiple calls per frame for efficient batching.
+ */
+function scheduleUiUpdate() {
+    if (!state.uiRafId) {
+        state.uiRafId = requestAnimationFrame(() => {
+            state.uiRafId = null;
+            if (state.highlightDirty) updateDiagramHighlighting();
+            updateMarkingInspector();
+            updateTimelinePositionText();
+            state.filteredIndices = null;
+            renderVisibleEvents();
+        });
     }
 }
 
@@ -273,12 +319,14 @@ function seekToIndex(targetIndex) {
 
     state.eventIndex = targetIndex;
 
-    // Re-render event log
-    reRenderEventLog();
+    // Re-render event log via virtual scroll
+    state.filteredIndices = null;
+    renderVisibleEvents();
 
     state.highlightDirty = true;
+    updateDiagramHighlighting();
     updateMarkingInspector();
-    updateTimelinePosition();
+    updateTimelinePositionFull();
 }
 
 // ======================== WebSocket Management ========================
@@ -492,23 +540,16 @@ function handleEvent(response) {
 
     state.events.push(response.event);
     state.eventIndex = response.index + 1;
+    state.totalEvents = Math.max(state.totalEvents, state.eventIndex);
 
     // Update state based on event
     applyEventToState(response.event);
 
-    // Update UI
-    addEventToLog(response.event, response.index);
+    // Update UI via virtual log
+    onEventsChanged();
+    if (state.highlightDirty) updateDiagramHighlighting();
     updateMarkingInspector();
-    updateTimelinePosition();
-
-    // Trim event log if too large
-    if (state.events.length > CONFIG.maxEventLogSize) {
-        state.events.shift();
-        const eventLog = document.getElementById('event-log');
-        if (eventLog.firstChild) {
-            eventLog.removeChild(eventLog.firstChild);
-        }
-    }
+    updateTimelinePositionFull();
 }
 
 function handleEventBatch(response) {
@@ -520,18 +561,23 @@ function handleEventBatch(response) {
         state.allReplayEvents.push(...response.events);
         state.totalEvents = state.allReplayEvents.length;
         buildCheckpoints(prevLength);
-        updateTimelinePosition();
+        updateTimelinePositionFull();
     } else {
-        // Live mode - display events immediately
+        // Live mode - apply events to state, virtual log handles rendering
         response.events.forEach((event, i) => {
             state.events.push(event);
             applyEventToState(event);
-            addEventToLog(event, response.startIndex + i);
         });
 
         state.eventIndex = response.startIndex + response.events.length;
+        state.totalEvents = Math.max(state.totalEvents, state.eventIndex);
+        state.filteredIndices = null;
+
+        // Auto-scroll and render
+        onEventsChanged();
+        if (state.highlightDirty) updateDiagramHighlighting();
         updateMarkingInspector();
-        updateTimelinePosition();
+        updateTimelinePositionFull();
     }
 
     // Update autocomplete with new transition/place names from events
@@ -711,7 +757,10 @@ async function renderDotDiagram(dotSource) {
 
         // Add click handlers for places and transitions
         svgElement.querySelectorAll('g.node').forEach(node => {
-            if (node.id === 'graph0') return; // Skip root graph node
+            const nodeTitle = node.querySelector('title');
+            const nodeGraphId = nodeTitle ? nodeTitle.textContent.trim() : node.id;
+            // Only add click handlers to place/transition nodes (p_/t_ prefixed IDs)
+            if (!nodeGraphId.startsWith('p_') && !nodeGraphId.startsWith('t_')) return;
             node.style.cursor = 'pointer';
 
             // Left-click: inspect place
@@ -758,9 +807,10 @@ function buildSvgNodeCache(svg) {
     /** @type {Map<string, Element[]>} */
     const edgesByGraphId = new Map();
 
-    // Index all g.node elements by graphId (Graphviz uses id attribute directly)
+    // Index all g.node elements by graphId from <title> (Viz.js assigns node1/node2 IDs)
     svg.querySelectorAll('g.node').forEach(node => {
-        const graphId = node.id;
+        const title = node.querySelector('title');
+        const graphId = title ? title.textContent.trim() : node.id;
         if (!graphId || graphId === 'graph0') return;
         nodesByGraphId.set(graphId, node);
 
@@ -819,26 +869,28 @@ function updateDiagramHighlighting() {
 
     state.highlightDirty = false;
 
-    // Reset all node shapes
-    for (const shape of cache.allNodeShapes) {
+    // Differential reset: only clear previously highlighted elements (O(prev) not O(all))
+    for (const shape of state.prevHighlighted.shapes) {
         shape.style.filter = '';
         shape.style.stroke = '';
         shape.style.strokeWidth = '';
     }
-
-    // Reset all edges
-    for (const edge of cache.allEdgePaths) {
+    for (const edge of state.prevHighlighted.edges) {
         edge.style.stroke = '';
         edge.style.strokeWidth = '';
         edge.style.filter = '';
     }
+
+    const nextShapes = [];
+    const nextEdges = [];
 
     // Highlight places with tokens - green glow
     for (const [placeName, tokens] of Object.entries(state.marking)) {
         if (tokens && tokens.length > 0) {
             const node = cache.nodesByName.get(placeName);
             if (node) {
-                applyHighlight(node, '#22c55e');
+                const shape = applyHighlight(node, '#22c55e');
+                if (shape) nextShapes.push(shape);
             }
         }
     }
@@ -851,7 +903,8 @@ function updateDiagramHighlighting() {
 
         const node = cache.nodesByGraphId.get(transitionGraphId);
         if (node) {
-            applyHighlight(node, '#eab308');
+            const shape = applyHighlight(node, '#eab308');
+            if (shape) nextShapes.push(shape);
         }
 
         // Highlight cached edges
@@ -861,6 +914,7 @@ function updateDiagramHighlighting() {
                 path.style.stroke = '#eab308';
                 path.style.strokeWidth = '3px';
                 path.style.filter = 'drop-shadow(0 0 4px #eab308)';
+                nextEdges.push(path);
             }
         }
     }
@@ -873,18 +927,23 @@ function updateDiagramHighlighting() {
 
         const node = cache.nodesByGraphId.get(transitionGraphId);
         if (node) {
-            applyHighlight(node, '#f97316');
+            const shape = applyHighlight(node, '#f97316');
+            if (shape) nextShapes.push(shape);
         }
     }
+
+    state.prevHighlighted = { shapes: nextShapes, edges: nextEdges };
 }
 
 function applyHighlight(node, color) {
-    const shape = node.querySelector('rect, polygon, circle, path');
+    // Viz.js renders DOT circle → <ellipse>, rectangle → <polygon>
+    const shape = node.querySelector('ellipse, rect, polygon, circle, path');
     if (shape) {
         shape.style.stroke = color;
         shape.style.strokeWidth = '3px';
         shape.style.filter = `drop-shadow(0 0 6px ${color})`;
     }
+    return shape;
 }
 
 /**
@@ -903,14 +962,18 @@ function findNodeByName(svg, name) {
         return state.svgNodeCache.nodesByName.get(name) || null;
     }
 
-    // Fallback: DOM query (only before cache is built)
+    // Fallback: search by <title> text (only before cache is built)
     const place = state.netStructure.places?.find(p => p.name === name);
     const transition = state.netStructure.transitions?.find(t => t.name === name);
     const graphId = place?.graphId
         || transition?.graphId
         || name.replace(/[^a-zA-Z0-9_]/g, '_');
 
-    return svg.querySelector(`#${CSS.escape(graphId)}`);
+    for (const node of svg.querySelectorAll('g.node')) {
+        const title = node.querySelector('title');
+        if (title && title.textContent.trim() === graphId) return node;
+    }
+    return null;
 }
 
 // Expose breakpoint functions globally for onclick handlers
@@ -968,6 +1031,185 @@ window.debugEdgeStructure = function() {
 // ======================== Event Log ========================
 
 /**
+ * Initializes the virtual scrolling event log.
+ * Replaces #event-log inner structure with spacerTop + contentEl + spacerBottom.
+ */
+function initVirtualLog() {
+    const container = document.getElementById('event-log');
+    container.innerHTML = '';
+
+    const spacerTop = document.createElement('div');
+    spacerTop.style.height = '0px';
+
+    const contentEl = document.createElement('div');
+
+    const spacerBottom = document.createElement('div');
+    spacerBottom.style.height = '0px';
+
+    container.appendChild(spacerTop);
+    container.appendChild(contentEl);
+    container.appendChild(spacerBottom);
+
+    state.virtualLog.container = container;
+    state.virtualLog.spacerTop = spacerTop;
+    state.virtualLog.spacerBottom = spacerBottom;
+    state.virtualLog.contentEl = contentEl;
+    state.virtualLog.visibleStart = 0;
+    state.virtualLog.visibleEnd = 0;
+
+    // Abort previous scroll listener to prevent stacking (initVirtualLog called multiple times)
+    if (state.virtualLog.scrollAbort) state.virtualLog.scrollAbort.abort();
+    const ac = new AbortController();
+    state.virtualLog.scrollAbort = ac;
+
+    // Throttled scroll handler via rAF
+    let scrollRafId = null;
+    container.addEventListener('scroll', () => {
+        if (!scrollRafId) {
+            scrollRafId = requestAnimationFrame(() => {
+                scrollRafId = null;
+                renderVisibleEvents();
+            });
+        }
+    }, { signal: ac.signal });
+}
+
+/**
+ * Returns the current list of event indices matching the active filter.
+ * Rebuilds cache if null (invalidated by filter change or seek).
+ */
+function getFilteredIndices() {
+    if (state.filteredIndices === null) {
+        rebuildFilteredIndices();
+    }
+    return state.filteredIndices;
+}
+
+/**
+ * Rebuilds the filtered index cache from the current event source.
+ */
+function rebuildFilteredIndices() {
+    const events = state.isReplayMode
+        ? state.allReplayEvents.slice(0, state.eventIndex)
+        : state.events;
+
+    const hasFilter = state.filter.eventTypes.length > 0
+        || state.filter.transitionNames.length > 0
+        || state.filter.placeNames.length > 0;
+
+    if (!hasFilter) {
+        // No filter - all indices
+        state.filteredIndices = [];
+        for (let i = 0; i < events.length; i++) {
+            state.filteredIndices.push(i);
+        }
+    } else {
+        state.filteredIndices = [];
+        for (let i = 0; i < events.length; i++) {
+            if (matchesClientFilter(events[i])) {
+                state.filteredIndices.push(i);
+            }
+        }
+    }
+}
+
+/**
+ * Renders only the visible portion of the event log (virtual scrolling).
+ * Called on scroll, seek, filter change, or new events.
+ */
+function renderVisibleEvents() {
+    const vl = state.virtualLog;
+    if (!vl.container) return;
+
+    const filtered = getFilteredIndices();
+    const totalFiltered = filtered.length;
+
+    if (totalFiltered === 0) {
+        vl.spacerTop.style.height = '0px';
+        vl.spacerBottom.style.height = '0px';
+        vl.contentEl.innerHTML = '';
+        vl.visibleStart = 0;
+        vl.visibleEnd = 0;
+        return;
+    }
+
+    const scrollTop = vl.container.scrollTop;
+    const viewportHeight = vl.container.clientHeight;
+
+    // Calculate visible range in filtered list
+    let startIdx = Math.floor(scrollTop / vl.itemHeight) - vl.overscan;
+    let endIdx = Math.ceil((scrollTop + viewportHeight) / vl.itemHeight) + vl.overscan;
+    startIdx = Math.max(0, startIdx);
+    endIdx = Math.min(totalFiltered, endIdx);
+
+    // Skip re-render if range hasn't changed
+    if (startIdx === vl.visibleStart && endIdx === vl.visibleEnd) return;
+
+    vl.visibleStart = startIdx;
+    vl.visibleEnd = endIdx;
+
+    // Update spacers
+    vl.spacerTop.style.height = (startIdx * vl.itemHeight) + 'px';
+    vl.spacerBottom.style.height = ((totalFiltered - endIdx) * vl.itemHeight) + 'px';
+
+    // Build visible items
+    const events = state.isReplayMode ? state.allReplayEvents : state.events;
+    const fragment = document.createDocumentFragment();
+
+    // Build set of search-matching filtered indices for highlighting
+    const searchMatchSet = new Set(state.searchMatches);
+
+    for (let i = startIdx; i < endIdx; i++) {
+        const eventIndex = filtered[i];
+        const event = events[eventIndex];
+        if (event) {
+            const el = createEventLogEntry(event, eventIndex);
+            el.style.height = vl.itemHeight + 'px';
+            el.style.boxSizing = 'border-box';
+            el.style.overflow = 'hidden';
+
+            // Apply search highlights
+            if (state.searchTerm && searchMatchSet.has(i)) {
+                el.classList.add('search-match');
+                if (state.currentMatchIndex >= 0 && state.searchMatches[state.currentMatchIndex] === i) {
+                    el.classList.add('search-current');
+                }
+            }
+
+            fragment.appendChild(el);
+        }
+    }
+
+    vl.contentEl.innerHTML = '';
+    vl.contentEl.appendChild(fragment);
+
+    // Update event count
+    const totalEvents = state.isReplayMode ? state.eventIndex : state.events.length;
+    document.getElementById('event-count').textContent = `${totalEvents} events`;
+}
+
+/**
+ * Scrolls the virtual log to show the event at the given filtered index.
+ * @param {number} filteredIdx - Index in the filtered list
+ */
+function scrollVirtualLogTo(filteredIdx) {
+    const vl = state.virtualLog;
+    if (!vl.container) return;
+    const scrollTarget = filteredIdx * vl.itemHeight;
+    vl.container.scrollTop = scrollTarget - vl.container.clientHeight / 2 + vl.itemHeight / 2;
+}
+
+/**
+ * Scrolls the virtual log to the bottom.
+ */
+function scrollVirtualLogToBottom() {
+    const vl = state.virtualLog;
+    if (!vl.container) return;
+    const filtered = getFilteredIndices();
+    vl.container.scrollTop = filtered.length * vl.itemHeight;
+}
+
+/**
  * Creates an event log entry DOM element.
  * Does NOT append to the log - callers handle insertion (single or batch).
  *
@@ -995,7 +1237,6 @@ function createEventLogEntry(event, index) {
 
     const name = event.transitionName || event.placeName || '';
     const summary = formatEventSummary(event);
-    const fullDetails = formatFullEventDetails(event);
 
     // Cache searchable text for Phase 4 search optimization
     div.dataset.searchText = `${index} ${time} ${event.type} ${name} ${summary}`.toLowerCase();
@@ -1008,45 +1249,26 @@ function createEventLogEntry(event, index) {
         <div class="font-medium text-gray-200">${event.type}</div>
         ${name ? `<div class="text-gray-400">${name}</div>` : ''}
         ${summary ? `<div class="text-gray-500 text-xs mt-1">${summary}</div>` : ''}
-        <div class="event-details hidden mt-2 p-2 bg-gray-800 rounded text-xs overflow-x-auto">
-            <pre class="text-gray-300 whitespace-pre-wrap break-all">${fullDetails}</pre>
-        </div>
     `;
 
     return div;
 }
 
-function addEventToLog(event, index) {
-    const eventLog = document.getElementById('event-log');
-    const div = createEventLogEntry(event, index);
+function onEventsChanged() {
+    // With virtual log, just invalidate filter cache and re-render
+    state.filteredIndices = null;
 
-    eventLog.appendChild(div);
-    eventLog.scrollTop = eventLog.scrollHeight;
-
-    // Update event count
-    document.getElementById('event-count').textContent = `${state.events.length} events`;
-}
-
-/**
- * Batch-renders event log entries using a DocumentFragment for minimal reflow.
- * Used by reRenderEventLog() and seekToIndex().
- *
- * @param {Array} events - Array of events to render
- * @param {Function} indexFn - Function(event, arrayIndex) returning the event index
- */
-function batchRenderEventLog(events, indexFn) {
-    const eventLog = document.getElementById('event-log');
-    const fragment = document.createDocumentFragment();
-
-    events.forEach((event, i) => {
-        if (matchesClientFilter(event)) {
-            fragment.appendChild(createEventLogEntry(event, indexFn(event, i)));
+    // Auto-scroll to bottom if already near bottom
+    const vl = state.virtualLog;
+    if (vl.container) {
+        const atBottom = vl.container.scrollTop + vl.container.clientHeight
+            >= vl.container.scrollHeight - vl.itemHeight * 2;
+        renderVisibleEvents();
+        if (atBottom) {
+            scrollVirtualLogToBottom();
+            renderVisibleEvents();
         }
-    });
-
-    eventLog.innerHTML = '';
-    eventLog.appendChild(fragment);
-    document.getElementById('event-count').textContent = `${events.length} events`;
+    }
 }
 
 function formatEventSummary(event) {
@@ -1094,7 +1316,9 @@ function formatFullEventDetails(event) {
 
 function clearEventLog() {
     state.events = [];
-    document.getElementById('event-log').innerHTML = '';
+    state.filteredIndices = null;
+    // Re-initialize virtual log structure
+    initVirtualLog();
     document.getElementById('event-count').textContent = '0 events';
 }
 
@@ -1148,10 +1372,6 @@ function updateMarkingInspector() {
                 </div>
             </div>
         `).join('');
-
-    if (state.highlightDirty) {
-        updateDiagramHighlighting();
-    }
 }
 
 function inspectPlace(placeName) {
@@ -1190,15 +1410,32 @@ function inspectPlace(placeName) {
 
 // ======================== Timeline & Playback ========================
 
-function updateTimelinePosition() {
+/**
+ * Updates only the timeline position text (N / M), not the slider value.
+ * Used during playback to avoid fighting rAF slider animation.
+ */
+function updateTimelinePositionText() {
     const position = document.getElementById('timeline-position');
     position.textContent = `${state.eventIndex} / ${state.totalEvents}`;
+}
+
+/**
+ * Updates both timeline position text and slider value.
+ * Used when paused, seeking, or stopping - discrete snaps only.
+ */
+function updateTimelinePositionFull() {
+    updateTimelinePositionText();
 
     const slider = document.getElementById('timeline-slider');
     slider.max = CONFIG.sliderResolution;
     slider.value = state.totalEvents > 0
         ? (state.eventIndex / state.totalEvents) * CONFIG.sliderResolution
         : 0;
+}
+
+// Backward-compatible alias
+function updateTimelinePosition() {
+    updateTimelinePositionFull();
 }
 
 function updatePlaybackControls() {
@@ -1317,20 +1554,22 @@ function clearFilter() {
 
 /**
  * Re-renders the event log with current filter applied.
- * Uses batch rendering for minimal reflow.
+ * Rebuilds filter cache and renders visible portion via virtual scroll.
  */
 function reRenderEventLog() {
-    const eventsToRender = state.isReplayMode
-        ? state.allReplayEvents.slice(0, state.eventIndex)
-        : state.events;
-    batchRenderEventLog(eventsToRender, (event, i) => i);
+    state.filteredIndices = null;
+    // Force re-render by resetting visible range
+    state.virtualLog.visibleStart = 0;
+    state.virtualLog.visibleEnd = 0;
+    renderVisibleEvents();
 }
 
 /**
  * Clears only the event log DOM, preserving the events array.
  */
 function clearEventLogDOM() {
-    document.getElementById('event-log').innerHTML = '';
+    state.filteredIndices = null;
+    initVirtualLog();
 }
 
 function updateFilterUI() {
@@ -1403,7 +1642,8 @@ function updateAutocompleteOptions() {
         const svg = document.querySelector('#dot-diagram svg');
         if (svg) {
             svg.querySelectorAll('g.node').forEach(node => {
-                const graphId = node.id || '';
+                const title = node.querySelector('title');
+                const graphId = title ? title.textContent.trim() : (node.id || '');
                 if (!graphId || graphId === 'graph0') return;
                 if (graphId.startsWith('t_')) {
                     transitions.add(graphId.substring(2));
@@ -1430,26 +1670,33 @@ function performSearch(term) {
     state.searchMatches = [];
     state.currentMatchIndex = -1;
 
-    // Clear previous highlights
-    document.querySelectorAll('#event-log > div').forEach(el => {
-        el.classList.remove('search-match', 'search-current');
-    });
-
     if (!state.searchTerm) {
+        renderVisibleEvents(); // re-render to clear highlights
         updateSearchDisplay();
         return;
     }
 
-    // Find matching events using cached search text (no DOM text extraction)
-    const eventElements = document.querySelectorAll('#event-log > div');
-    eventElements.forEach((el, index) => {
-        const text = el.dataset.searchText || el.textContent.toLowerCase();
-        if (text.includes(state.searchTerm)) {
-            state.searchMatches.push(index);
-            el.classList.add('search-match');
-        }
-    });
+    // Search on data arrays, not DOM
+    const events = state.isReplayMode
+        ? state.allReplayEvents.slice(0, state.eventIndex)
+        : state.events;
+    const filtered = getFilteredIndices();
 
+    for (let i = 0; i < filtered.length; i++) {
+        const eventIndex = filtered[i];
+        const event = events[eventIndex];
+        if (!event) continue;
+
+        const name = event.transitionName || event.placeName || '';
+        const summary = formatEventSummary(event);
+        const text = `${eventIndex} ${event.type} ${name} ${summary}`.toLowerCase();
+
+        if (text.includes(state.searchTerm)) {
+            state.searchMatches.push(i); // index in filtered list
+        }
+    }
+
+    renderVisibleEvents(); // re-render to apply highlights
     updateSearchDisplay();
 
     // Navigate to first match
@@ -1468,24 +1715,12 @@ function navigateToMatch(matchIndex) {
         matchIndex = 0;
     }
 
-    // Remove current highlight from previous match
-    if (state.currentMatchIndex >= 0 && state.currentMatchIndex < state.searchMatches.length) {
-        const prevIndex = state.searchMatches[state.currentMatchIndex];
-        const prevEl = document.querySelectorAll('#event-log > div')[prevIndex];
-        if (prevEl) {
-            prevEl.classList.remove('search-current');
-        }
-    }
-
     state.currentMatchIndex = matchIndex;
-    const eventIndex = state.searchMatches[matchIndex];
-    const eventElements = document.querySelectorAll('#event-log > div');
-    const el = eventElements[eventIndex];
 
-    if (el) {
-        el.classList.add('search-current');
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
+    // searchMatches contains indices into the filtered list
+    const filteredIdx = state.searchMatches[matchIndex];
+    scrollVirtualLogTo(filteredIdx);
+    renderVisibleEvents();  // re-render to apply search-current highlight
 
     updateSearchDisplay();
 }
@@ -1504,9 +1739,7 @@ function clearSearch() {
     state.currentMatchIndex = -1;
 
     document.getElementById('search-input').value = '';
-    document.querySelectorAll('#event-log > div').forEach(el => {
-        el.classList.remove('search-match', 'search-current');
-    });
+    renderVisibleEvents(); // re-render to clear highlights
 
     updateSearchDisplay();
 }
@@ -1726,18 +1959,19 @@ let contextMenuTarget = null;
  * Uses the server-provided net structure for authoritative name lookup.
  * Falls back to heuristic parsing if structure is not available.
  *
- * Graphviz SVG nodes have id attributes that directly match graphId (e.g., "p_Ready", "t_Process").
+ * Viz.js assigns generic IDs (node1, node2) to SVG nodes — the actual DOT
+ * name lives in each node's {@code <title>} child element.
  *
  * @param {Element} node - The SVG node element
  * @returns {{name: string, isTransition: boolean}}
  */
 function parseNodeInfo(node) {
-    const graphId = node.id || '';
+    // Prefer <title> — Viz.js assigns generic node1/node2 IDs
+    const title = node.querySelector('title');
+    const graphId = title ? title.textContent.trim() : (node.id || '');
 
     if (!graphId) {
-        // Fallback: try text content from <title> element
-        const title = node.querySelector('title');
-        return { name: title?.textContent?.trim() || '', isTransition: false };
+        return { name: '', isTransition: false };
     }
 
     // Look up in structure (authoritative source from server)
@@ -1969,6 +2203,9 @@ async function copyModalValue() {
 // ======================== Event Listeners ========================
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Initialize virtual event log
+    initVirtualLog();
+
     // Connect WebSocket
     connect();
 
@@ -2000,12 +2237,27 @@ document.addEventListener('DOMContentLoaded', () => {
     // Clear events
     document.getElementById('clear-events').addEventListener('click', clearEventLog);
 
-    // Delegated click handler for event log entries (replaces per-entry listeners)
+    // Delegated click handler for event log entries - opens full details in modal
     document.getElementById('event-log').addEventListener('click', (e) => {
         const entry = e.target.closest('[data-event-index]');
         if (!entry) return;
-        const details = entry.querySelector('.event-details');
-        if (details) details.classList.toggle('hidden');
+        const eventIndex = parseInt(entry.dataset.eventIndex, 10);
+        const events = state.isReplayMode ? state.allReplayEvents : state.events;
+        const event = events[eventIndex];
+        if (!event) return;
+
+        const name = event.transitionName || event.placeName || '';
+        const modal = document.getElementById('value-modal');
+        const title = document.getElementById('modal-title');
+        const subtitle = document.getElementById('modal-subtitle');
+        const jsonContainer = document.getElementById('modal-json');
+
+        title.textContent = event.type;
+        subtitle.textContent = name ? `${name} (#${eventIndex})` : `Event #${eventIndex}`;
+        const formatted = formatFullEventDetails(event);
+        currentModalValue = formatted;
+        jsonContainer.innerHTML = syntaxHighlightJson(formatted);
+        modal.classList.remove('hidden');
     });
 
     // Filter controls
@@ -2066,6 +2318,9 @@ document.addEventListener('DOMContentLoaded', () => {
             state.paused = true;
             seekToIndex(0);
             updatePlaybackControls();
+        } else if (state.currentSessionId && !state.isReplayMode) {
+            // Live mode: re-subscribe to reload from beginning
+            subscribeToSession(state.currentSessionId, 'live');
         }
     });
 
@@ -2107,12 +2362,14 @@ document.addEventListener('DOMContentLoaded', () => {
             state.paused = true;
             const event = state.allReplayEvents[state.eventIndex];
             applyEventToState(event);
-            if (matchesClientFilter(event)) {
-                addEventToLog(event, state.eventIndex);
-            }
             state.eventIndex++;
+            state.filteredIndices = null;
+            renderVisibleEvents();
+            scrollVirtualLogToBottom();
+            renderVisibleEvents();
+            if (state.highlightDirty) updateDiagramHighlighting();
             updateMarkingInspector();
-            updateTimelinePosition();
+            updateTimelinePositionFull();
             updatePlaybackControls();
         } else if (state.currentSessionId && !state.isReplayMode) {
             send({ type: 'stepForward', sessionId: state.currentSessionId });
@@ -2125,6 +2382,12 @@ document.addEventListener('DOMContentLoaded', () => {
             state.paused = true;
             seekToIndex(state.allReplayEvents.length);
             updatePlaybackControls();
+        } else if (!state.isReplayMode) {
+            // Live mode: scroll to end
+            state.eventIndex = state.events.length;
+            updateTimelinePositionFull();
+            scrollVirtualLogToBottom();
+            renderVisibleEvents();
         }
     });
 
@@ -2144,11 +2407,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Timeline slider - debounce seek in replay mode for smooth dragging
-    const debouncedSeek = debounce((targetIndex) => {
-        seekToIndex(targetIndex);
-    }, 50);
-
+    // Timeline slider - rAF-throttled seek for 60fps scrubbing
     document.getElementById('timeline-slider').addEventListener('input', (e) => {
         const sliderValue = parseFloat(e.target.value);
         if (state.isReplayMode) {
@@ -2158,7 +2417,17 @@ document.addEventListener('DOMContentLoaded', () => {
             // Update position text immediately for responsiveness
             document.getElementById('timeline-position').textContent =
                 `${targetIndex} / ${state.totalEvents}`;
-            debouncedSeek(targetIndex);
+            // rAF-throttled: schedule seek on next animation frame for 60fps
+            state.pendingSeekIndex = targetIndex;
+            if (!state.seekRafId) {
+                state.seekRafId = requestAnimationFrame(() => {
+                    state.seekRafId = null;
+                    if (state.pendingSeekIndex !== null) {
+                        seekToIndex(state.pendingSeekIndex);
+                        state.pendingSeekIndex = null;
+                    }
+                });
+            }
         } else if (state.currentSessionId && state.events[0]?.timestamp) {
             const targetIndex = state.totalEvents > 0
                 ? Math.round((sliderValue / CONFIG.sliderResolution) * state.events.length)
