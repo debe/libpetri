@@ -6,18 +6,56 @@
 import type { PetriNet } from '../core/petri-net.js';
 import type { Transition } from '../core/transition.js';
 import { dotExport } from '../export/dot-exporter.js';
+import { sanitize } from '../export/petri-net-mapper.js';
+import type { NetStructure, PlaceInfo, TransitionInfo } from './debug-response.js';
 import { PlaceAnalysis } from './place-analysis.js';
 import { DebugEventStore } from './debug-event-store.js';
+import type { SessionCompletionListener } from './session-completion-listener.js';
 
 export interface DebugSession {
   readonly sessionId: string;
   readonly netName: string;
   readonly dotDiagram: string;
-  readonly places: PlaceAnalysis;
+  readonly places: PlaceAnalysis | null;
   readonly transitions: ReadonlySet<Transition>;
   readonly eventStore: DebugEventStore;
   readonly startTime: number;
   readonly active: boolean;
+  readonly importedStructure: NetStructure | null;
+}
+
+/** Builds the net structure from a session's stored place and transition info. */
+export function buildNetStructure(session: DebugSession): NetStructure {
+  if (session.importedStructure) {
+    return session.importedStructure;
+  }
+
+  const places = session.places;
+  if (!places) {
+    return { places: [], transitions: [] };
+  }
+
+  const placeInfos: PlaceInfo[] = [];
+  for (const [name, info] of places.data) {
+    placeInfos.push({
+      name,
+      graphId: `p_${sanitize(name)}`,
+      tokenType: info.tokenType,
+      isStart: !info.hasIncoming,
+      isEnd: !info.hasOutgoing,
+      isEnvironment: false,
+    });
+  }
+
+  const transitionInfos: TransitionInfo[] = [];
+  for (const t of session.transitions) {
+    transitionInfos.push({
+      name: t.name,
+      graphId: `t_${sanitize(t.name)}`,
+    });
+  }
+
+  return { places: placeInfos, transitions: transitionInfos };
 }
 
 export type EventStoreFactory = (sessionId: string) => DebugEventStore;
@@ -26,10 +64,16 @@ export class DebugSessionRegistry {
   private readonly _sessions = new Map<string, DebugSession>();
   private readonly _maxSessions: number;
   private readonly _eventStoreFactory: EventStoreFactory;
+  private readonly _completionListeners: readonly SessionCompletionListener[];
 
-  constructor(maxSessions = 50, eventStoreFactory?: EventStoreFactory) {
+  constructor(
+    maxSessions = 50,
+    eventStoreFactory?: EventStoreFactory,
+    completionListeners?: SessionCompletionListener[],
+  ) {
     this._maxSessions = maxSessions;
     this._eventStoreFactory = eventStoreFactory ?? ((id: string) => new DebugEventStore(id));
+    this._completionListeners = completionListeners ? [...completionListeners] : [];
   }
 
   /**
@@ -50,6 +94,7 @@ export class DebugSessionRegistry {
       eventStore,
       startTime: Date.now(),
       active: true,
+      importedStructure: null,
     };
 
     this.evictIfNecessary();
@@ -57,11 +102,15 @@ export class DebugSessionRegistry {
     return session;
   }
 
-  /** Marks a session as completed (no longer active). */
+  /**
+   * Marks a session as completed (no longer active) and notifies completion listeners.
+   */
   complete(sessionId: string): void {
     const session = this._sessions.get(sessionId);
     if (session) {
-      this._sessions.set(sessionId, { ...session, active: false });
+      const completed: DebugSession = { ...session, active: false };
+      this._sessions.set(sessionId, completed);
+      this.notifyCompletionListeners(completed);
     }
   }
 
@@ -98,6 +147,46 @@ export class DebugSessionRegistry {
   /** Total number of sessions. */
   get size(): number {
     return this._sessions.size;
+  }
+
+  /**
+   * Registers an imported (archived) session as an inactive, read-only session.
+   */
+  registerImported(
+    sessionId: string,
+    netName: string,
+    dotDiagram: string,
+    structure: NetStructure,
+    eventStore: DebugEventStore,
+    startTime: number,
+  ): DebugSession {
+    this.evictIfNecessary();
+
+    const session: DebugSession = {
+      sessionId,
+      netName,
+      dotDiagram,
+      places: null,
+      transitions: new Set(),
+      eventStore,
+      startTime,
+      active: false,
+      importedStructure: structure,
+    };
+
+    this._sessions.set(sessionId, session);
+    return session;
+  }
+
+  /** Notifies all completion listeners. Exceptions are caught and logged. */
+  private notifyCompletionListeners(session: DebugSession): void {
+    for (const listener of this._completionListeners) {
+      try {
+        listener(session);
+      } catch (e) {
+        console.warn(`Session completion listener failed for ${session.sessionId}`, e);
+      }
+    }
   }
 
   /** Evicts oldest inactive sessions if at capacity. */

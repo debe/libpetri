@@ -7,7 +7,6 @@ package org.libpetri.debug;
  * creates in-memory stores, while an MMap-backed factory creates file-persistent stores.
  *
  * @see DebugSessionRegistry
- * @see MMapEventStore
  */
 @FunctionalInterface
 public interface EventStoreFactory {

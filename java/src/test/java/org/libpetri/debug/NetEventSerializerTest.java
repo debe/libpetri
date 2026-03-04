@@ -147,6 +147,31 @@ class NetEventSerializerTest {
     }
 
     @Test
+    void serializeToShouldMatchSerialize() {
+        var event = new NetEvent.TransitionEnabled(Instant.now(), "T1");
+        byte[] expected = serializer.serialize(event);
+
+        var out = new java.io.ByteArrayOutputStream();
+        serializer.serializeTo(event, out);
+
+        assertArrayEquals(expected, out.toByteArray());
+    }
+
+    @Test
+    void shouldDeserializeFromOffsetAndLength() {
+        var event = new NetEvent.TransitionEnabled(Instant.now(), "T1");
+        byte[] eventBytes = serializer.serialize(event);
+
+        // Embed the event bytes in a larger buffer with offset
+        byte[] buffer = new byte[10 + eventBytes.length + 10];
+        System.arraycopy(eventBytes, 0, buffer, 10, eventBytes.length);
+
+        var result = serializer.deserialize(buffer, 10, eventBytes.length);
+        assertInstanceOf(NetEvent.TransitionEnabled.class, result);
+        assertEquals("T1", ((NetEvent.TransitionEnabled) result).transitionName());
+    }
+
+    @Test
     void shouldThrowOnInvalidBytes() {
         assertThrows(NetEventSerializer.NetEventSerializationException.class,
             () -> serializer.deserialize(new byte[]{1, 2, 3}));

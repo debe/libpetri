@@ -36,7 +36,6 @@ import java.io.IOException;
  * }</pre>
  *
  * @see NetEvent
- * @see MMapEventStore
  */
 public final class NetEventSerializer {
 
@@ -116,6 +115,41 @@ public final class NetEventSerializer {
     public NetEvent deserialize(byte[] bytes) {
         try {
             return SHARED_MAPPER.readValue(bytes, NetEvent.class);
+        } catch (Exception e) {
+            throw new NetEventSerializationException("Failed to deserialize event", e);
+        }
+    }
+
+    /**
+     * Serializes a NetEvent directly into the given output stream.
+     *
+     * <p>Unlike {@link #serialize(NetEvent)}, this avoids an intermediate {@code byte[]} allocation.
+     * The stream is flushed but <em>not</em> closed.
+     *
+     * @param event the event to serialize
+     * @param out the output stream to write to
+     * @throws NetEventSerializationException if serialization fails
+     */
+    public void serializeTo(NetEvent event, java.io.OutputStream out) {
+        try {
+            SHARED_MAPPER.writeValue(out, event);
+        } catch (java.io.IOException e) {
+            throw new NetEventSerializationException("Failed to serialize: " + event.getClass().getSimpleName(), e);
+        }
+    }
+
+    /**
+     * Deserializes a NetEvent from a region of a byte array.
+     *
+     * @param bytes the byte array
+     * @param offset start offset
+     * @param length number of bytes to read
+     * @return the deserialized event
+     * @throws NetEventSerializationException if deserialization fails
+     */
+    public NetEvent deserialize(byte[] bytes, int offset, int length) {
+        try {
+            return SHARED_MAPPER.readValue(bytes, offset, length, NetEvent.class);
         } catch (Exception e) {
             throw new NetEventSerializationException("Failed to deserialize event", e);
         }

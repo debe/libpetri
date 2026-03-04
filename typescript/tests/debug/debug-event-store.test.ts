@@ -274,4 +274,24 @@ describe('DebugEventStore', () => {
     store.append(enabledEvent('T1'));
     expect(store.isEmpty()).toBe(false);
   });
+
+  it('should iterate via Symbol.iterator', () => {
+    const store = new DebugEventStore('test-session');
+    const events = [enabledEvent('T1'), enabledEvent('T2'), enabledEvent('T3')];
+    for (const e of events) store.append(e);
+
+    const iterated = [...store];
+    expect(iterated).toEqual(events);
+  });
+
+  it('should iterate in order consistent with events()', () => {
+    const store = new DebugEventStore('test-session', 5);
+    for (let i = 0; i < 8; i++) {
+      store.append(enabledEvent(`T${i}`));
+    }
+
+    const fromIterator = [...store];
+    const fromEvents = store.events();
+    expect(fromIterator).toEqual(fromEvents);
+  });
 });

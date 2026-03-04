@@ -5,10 +5,15 @@ import org.libpetri.core.Arc.Out;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
 import org.libpetri.core.Transition;
+import org.libpetri.debug.DebugResponse.NetStructure;
+import org.libpetri.debug.DebugResponse.PlaceInfo;
+import org.libpetri.debug.DebugResponse.TransitionInfo;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
-import java.nio.file.Path;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -221,38 +226,130 @@ class DebugSessionRegistryTest {
         assertTrue(session.transitions().stream().anyMatch(t -> t.name().equals("Process")));
     }
 
+    // ======================== Completion Listener Tests ========================
+
     @Test
-    void shouldCleanUpMMapFilesOnEviction(@TempDir Path tempDir) {
-        EventStoreFactory mmapFactory = sessionId -> MMapEventStore.open(sessionId, tempDir);
-        var registry = new DebugSessionRegistry(2, mmapFactory);
+    void shouldNotifyCompletionListenersOnComplete() {
+        var notified = new ArrayList<String>();
+        SessionCompletionListener listener = session -> notified.add(session.sessionId());
 
+        var registry = new DebugSessionRegistry(50, DebugEventStore::new, List.of(listener));
         registry.register("session-1", TEST_NET);
-        registry.register("session-2", TEST_NET);
-        registry.complete("session-1"); // Mark as inactive so it's evicted first
 
-        // Verify file exists before eviction
-        var file1 = tempDir.resolve("session-1.events");
-        assertTrue(file1.toFile().exists(), "MMap file should exist before eviction");
+        registry.complete("session-1");
 
-        // This should evict session-1 (oldest inactive) and delete its file
-        registry.register("session-3", TEST_NET);
-
-        assertEquals(2, registry.size());
-        assertTrue(registry.getSession("session-1").isEmpty(), "session-1 should be evicted");
-        assertFalse(file1.toFile().exists(), "MMap file should be deleted after eviction");
+        assertEquals(1, notified.size());
+        assertEquals("session-1", notified.getFirst());
     }
 
     @Test
-    void shouldCleanUpMMapFilesOnRemoval(@TempDir Path tempDir) {
-        EventStoreFactory mmapFactory = sessionId -> MMapEventStore.open(sessionId, tempDir);
-        var registry = new DebugSessionRegistry(50, mmapFactory);
+    void shouldNotifyMultipleListeners() {
+        var notified1 = new ArrayList<String>();
+        var notified2 = new ArrayList<String>();
 
+        var registry = new DebugSessionRegistry(50, DebugEventStore::new, List.of(
+            session -> notified1.add(session.sessionId()),
+            session -> notified2.add(session.sessionId())
+        ));
         registry.register("session-1", TEST_NET);
-        var file1 = tempDir.resolve("session-1.events");
-        assertTrue(file1.toFile().exists(), "MMap file should exist before removal");
+        registry.complete("session-1");
 
-        registry.remove("session-1");
+        assertEquals(1, notified1.size());
+        assertEquals(1, notified2.size());
+    }
 
-        assertFalse(file1.toFile().exists(), "MMap file should be deleted after removal");
+    @Test
+    void shouldContinueNotifyingAfterListenerException() {
+        var notified = new ArrayList<String>();
+
+        var registry = new DebugSessionRegistry(50, DebugEventStore::new, List.of(
+            session -> { throw new RuntimeException("boom"); },
+            session -> notified.add(session.sessionId())
+        ));
+        registry.register("session-1", TEST_NET);
+        registry.complete("session-1");
+
+        assertEquals(1, notified.size(), "Second listener should still be called");
+    }
+
+    @Test
+    void shouldNotNotifyListenersForNonExistentSession() {
+        var notified = new ArrayList<String>();
+        var registry = new DebugSessionRegistry(50, DebugEventStore::new,
+            List.of(session -> notified.add(session.sessionId())));
+
+        registry.complete("non-existent");
+
+        assertTrue(notified.isEmpty());
+    }
+
+    // ======================== registerImported Tests ========================
+
+    @Test
+    void shouldRegisterImportedSession() {
+        var registry = new DebugSessionRegistry();
+        var structure = new NetStructure(
+            List.of(new PlaceInfo("Input", "p_Input", "String", true, false, false)),
+            List.of(new TransitionInfo("Process", "t_Process"))
+        );
+        var eventStore = new DebugEventStore("imported-1");
+
+        var session = registry.registerImported("imported-1", "TestNet", "digraph{}", structure, eventStore, Instant.now());
+
+        assertNotNull(session);
+        assertFalse(session.active());
+        assertNotNull(session.importedStructure());
+        assertEquals("TestNet", session.netName());
+        assertNull(session.places());
+        assertTrue(session.transitions().isEmpty());
+    }
+
+    @Test
+    void shouldFindImportedSession() {
+        var registry = new DebugSessionRegistry();
+        var structure = new NetStructure(List.of(), List.of());
+        var eventStore = new DebugEventStore("imported-1");
+
+        registry.registerImported("imported-1", "TestNet", "digraph{}", structure, eventStore, Instant.now());
+
+        var found = registry.getSession("imported-1");
+        assertTrue(found.isPresent());
+        assertEquals("TestNet", found.get().netName());
+    }
+
+    // ======================== buildNetStructure Tests ========================
+
+    @Test
+    void shouldBuildNetStructureFromLiveSession() {
+        var registry = new DebugSessionRegistry();
+        var session = registry.register("session-1", TEST_NET);
+
+        var structure = session.buildNetStructure();
+
+        assertNotNull(structure);
+        assertFalse(structure.places().isEmpty());
+        assertFalse(structure.transitions().isEmpty());
+
+        var placeNames = structure.places().stream().map(PlaceInfo::name).toList();
+        assertTrue(placeNames.contains("Input"));
+        assertTrue(placeNames.contains("Output"));
+
+        var transitionNames = structure.transitions().stream().map(TransitionInfo::name).toList();
+        assertTrue(transitionNames.contains("Process"));
+    }
+
+    @Test
+    void shouldReturnImportedStructureForImportedSession() {
+        var registry = new DebugSessionRegistry();
+        var structure = new NetStructure(
+            List.of(new PlaceInfo("P1", "p_P1", "String", true, false, false)),
+            List.of(new TransitionInfo("T1", "t_T1"))
+        );
+        var eventStore = new DebugEventStore("imported-1");
+        var session = registry.registerImported("imported-1", "TestNet", "digraph{}", structure, eventStore, Instant.now());
+
+        var built = session.buildNetStructure();
+
+        assertSame(structure, built);
     }
 }
