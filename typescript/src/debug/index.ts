@@ -20,8 +20,9 @@ export { DebugProtocolHandler } from './debug-protocol-handler.js';
 export type { ResponseSink, ComputedState } from './debug-protocol-handler.js';
 export { DebugEventStore, DEFAULT_MAX_EVENTS } from './debug-event-store.js';
 export type { Subscription } from './debug-event-store.js';
-export { DebugSessionRegistry } from './debug-session-registry.js';
+export { DebugSessionRegistry, buildNetStructure } from './debug-session-registry.js';
 export type { DebugSession, EventStoreFactory } from './debug-session-registry.js';
+export type { SessionCompletionListener } from './session-completion-listener.js';
 export { MarkingCache, SNAPSHOT_INTERVAL } from './marking-cache.js';
 
 // Converters and analysis
@@ -29,6 +30,15 @@ export { toEventInfo, tokenInfo, compactTokenInfo, convertMarking } from './net-
 export { DebugAwareEventStore } from './debug-aware-event-store.js';
 export { PlaceAnalysis } from './place-analysis.js';
 export type { PlaceAnalysisInfo } from './place-analysis.js';
+
+// Archive
+export type { SessionArchive } from './archive/session-archive.js';
+export { CURRENT_VERSION } from './archive/session-archive.js';
+export type { SessionArchiveStorage, ArchivedSessionSummary, OutputStreamConsumer } from './archive/session-archive-storage.js';
+export { FileSessionArchiveStorage } from './archive/file-session-archive-storage.js';
+export { SessionArchiveWriter } from './archive/session-archive-writer.js';
+export { SessionArchiveReader } from './archive/session-archive-reader.js';
+export type { ImportedSession } from './archive/session-archive-reader.js';
 
 /**
  * Returns the path to the bundled debug UI assets directory.

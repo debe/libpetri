@@ -318,6 +318,19 @@ public class DebugEventStore implements EventStore, AutoCloseable {
         return maxEvents;
     }
 
+    /**
+     * Returns an iterator over all retained events.
+     *
+     * <p>This provides zero-allocation traversal for archive writers that need to
+     * iterate events without creating an intermediate list copy. The iterator
+     * reflects the events in the queue at the time of creation.
+     *
+     * @return iterator over retained events
+     */
+    public java.util.Iterator<NetEvent> eventIterator() {
+        return events.iterator();
+    }
+
     // ======================== Lifecycle ========================
 
     /**
@@ -325,7 +338,7 @@ public class DebugEventStore implements EventStore, AutoCloseable {
      *
      * <p>Equivalent to {@link #shutdownBroadcast()}. Implementing {@link AutoCloseable}
      * ensures the broadcast executor is cleaned up when the store is evicted from
-     * {@link DebugSessionRegistry}, not just when the subclass {@link MMapEventStore} is closed.
+     * {@link DebugSessionRegistry}.
      */
     @Override
     public void close() {
@@ -335,8 +348,8 @@ public class DebugEventStore implements EventStore, AutoCloseable {
     /**
      * Shuts down the broadcast executor, waiting up to 2 seconds for pending broadcasts to complete.
      *
-     * <p>Called by subclasses (e.g., {@link MMapEventStore#close()}) or when the store is
-     * no longer needed. After shutdown, new events are still stored but not broadcast.
+     * <p>Called when the store is no longer needed. After shutdown, new events are
+     * still stored but not broadcast.
      */
     public void shutdownBroadcast() {
         broadcastExecutor.shutdown();

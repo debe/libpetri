@@ -1,13 +1,12 @@
 package org.libpetri.debug;
 
-import java.io.IOException;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
-import java.nio.file.Files;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.libpetri.core.PetriNet;
@@ -24,6 +23,7 @@ import org.libpetri.export.PlaceAnalysis;
  *   <li>Session discovery for debugging tools</li>
  *   <li>Session lifecycle management</li>
  *   <li>DOT diagram generation and caching</li>
+ *   <li>Completion listener notification for archival</li>
  * </ul>
  *
  * <h2>Usage Example</h2>
@@ -50,6 +50,7 @@ import org.libpetri.export.PlaceAnalysis;
  *
  * @see DebugEventStore
  * @see DebugSession
+ * @see SessionCompletionListener
  */
 public class DebugSessionRegistry {
 
@@ -58,6 +59,7 @@ public class DebugSessionRegistry {
     private final ConcurrentHashMap<String, DebugSession> sessions = new ConcurrentHashMap<>();
     private final int maxSessions;
     private final EventStoreFactory eventStoreFactory;
+    private final List<SessionCompletionListener> completionListeners;
 
     /**
      * Creates a registry with default maximum of 50 sessions and in-memory event stores.
@@ -82,8 +84,22 @@ public class DebugSessionRegistry {
      * @param eventStoreFactory factory for creating event stores per session
      */
     public DebugSessionRegistry(int maxSessions, EventStoreFactory eventStoreFactory) {
+        this(maxSessions, eventStoreFactory, List.of());
+    }
+
+    /**
+     * Creates a registry with the specified maximum session count, custom event store factory,
+     * and completion listeners.
+     *
+     * @param maxSessions maximum number of sessions to retain
+     * @param eventStoreFactory factory for creating event stores per session
+     * @param completionListeners listeners to notify when sessions complete
+     */
+    public DebugSessionRegistry(int maxSessions, EventStoreFactory eventStoreFactory,
+                                List<SessionCompletionListener> completionListeners) {
         this.maxSessions = maxSessions;
         this.eventStoreFactory = eventStoreFactory;
+        this.completionListeners = List.copyOf(completionListeners);
     }
 
     /**
@@ -116,7 +132,8 @@ public class DebugSessionRegistry {
             net.transitions(),
             eventStore,
             Instant.now(),
-            true
+            true,
+            null
         );
 
         // Evict old sessions if needed
@@ -127,13 +144,17 @@ public class DebugSessionRegistry {
     }
 
     /**
-     * Marks a session as completed (no longer active).
+     * Marks a session as completed (no longer active) and notifies completion listeners.
+     *
+     * <p>Listeners are notified <em>after</em> the session is marked inactive, outside
+     * the ConcurrentHashMap lock to avoid holding the lock during potentially slow operations.
      *
      * @param sessionId the session to complete
      */
     public void complete(String sessionId) {
-        sessions.computeIfPresent(sessionId, (id, session) ->
-            new DebugSession(
+        var completedSession = new DebugSession[1];
+        sessions.computeIfPresent(sessionId, (id, session) -> {
+            var completed = new DebugSession(
                 session.sessionId(),
                 session.netName(),
                 session.dotDiagram(),
@@ -141,9 +162,15 @@ public class DebugSessionRegistry {
                 session.transitions(),
                 session.eventStore(),
                 session.startTime(),
-                false
-            )
-        );
+                false,
+                session.importedStructure()
+            );
+            completedSession[0] = completed;
+            return completed;
+        });
+        if (completedSession[0] != null) {
+            notifyCompletionListeners(completedSession[0]);
+        }
     }
 
     /**
@@ -207,6 +234,55 @@ public class DebugSessionRegistry {
     }
 
     /**
+     * Registers an imported (archived) session as an inactive, read-only session.
+     *
+     * <p>Imported sessions have a pre-built {@link DebugResponse.NetStructure} instead of
+     * live {@link PlaceAnalysis} and {@link Transition} sets, since the original
+     * Petri net object is not available.
+     *
+     * @param sessionId unique identifier
+     * @param netName name of the Petri net
+     * @param dotDiagram DOT diagram source
+     * @param structure pre-built net structure
+     * @param eventStore populated event store
+     * @param startTime when the original session started
+     * @return the registered session
+     */
+    public DebugSession registerImported(String sessionId, String netName, String dotDiagram,
+                                         DebugResponse.NetStructure structure, DebugEventStore eventStore,
+                                         Instant startTime) {
+        evictIfNecessary();
+
+        var session = new DebugSession(
+            sessionId,
+            netName,
+            dotDiagram,
+            null,  // no live place analysis for imported sessions
+            Set.of(),  // no live transitions for imported sessions
+            eventStore,
+            startTime,
+            false,  // imported sessions are always inactive
+            structure
+        );
+
+        sessions.put(sessionId, session);
+        return session;
+    }
+
+    /**
+     * Notifies all completion listeners. Exceptions are caught and logged.
+     */
+    private void notifyCompletionListeners(DebugSession session) {
+        for (var listener : completionListeners) {
+            try {
+                listener.onSessionCompleted(session);
+            } catch (Exception e) {
+                LOG.log(Level.WARNING, "Session completion listener failed for " + session.sessionId(), e);
+            }
+        }
+    }
+
+    /**
      * Evicts oldest inactive sessions if at capacity.
      */
     private void evictIfNecessary() {
@@ -228,17 +304,9 @@ public class DebugSessionRegistry {
 
     /**
      * Cleans up resources associated with an event store.
-     * Always closes the broadcast executor. For {@link MMapEventStore}, also deletes the backing file.
      */
     private void cleanupEventStore(DebugEventStore eventStore) {
         eventStore.close();
-        if (eventStore instanceof MMapEventStore mmap) {
-            try {
-                Files.deleteIfExists(mmap.filePath());
-            } catch (IOException e) {
-                LOG.log(Level.WARNING, () -> "Failed to clean up MMap file: " + mmap.filePath(), e);
-            }
-        }
     }
 
     /**
@@ -247,11 +315,12 @@ public class DebugSessionRegistry {
      * @param sessionId unique identifier
      * @param netName name of the Petri net
      * @param dotDiagram DOT (Graphviz) diagram of the net
-     * @param places analyzed place information for the net
-     * @param transitions set of transitions in the net
+     * @param places analyzed place information for the net (null for imported sessions)
+     * @param transitions set of transitions in the net (empty for imported sessions)
      * @param eventStore the event store for this session
      * @param startTime when the session started
      * @param active whether the session is still running
+     * @param importedStructure pre-built net structure for imported sessions (null for live sessions)
      */
     public record DebugSession(
         String sessionId,
@@ -261,7 +330,8 @@ public class DebugSessionRegistry {
         java.util.Set<Transition> transitions,
         DebugEventStore eventStore,
         Instant startTime,
-        boolean active
+        boolean active,
+        DebugResponse.NetStructure importedStructure
     ) {
         /**
          * Returns a summary of this session for listing.
@@ -276,6 +346,46 @@ public class DebugSessionRegistry {
                 active,
                 eventStore.eventCount()
             );
+        }
+
+        /**
+         * Builds the net structure from this session's stored place and transition info.
+         * For imported sessions, returns the pre-built structure directly.
+         *
+         * @return the net structure for debug protocol responses
+         */
+        public DebugResponse.NetStructure buildNetStructure() {
+            if (importedStructure != null) {
+                return importedStructure;
+            }
+
+            var placeInfos = places.data().entrySet().stream()
+                .map(entry -> {
+                    var name = entry.getKey();
+                    var info = entry.getValue();
+                    var sanitized = DotExporter.sanitize(name);
+                    return new DebugResponse.PlaceInfo(
+                        name,
+                        "p_" + sanitized,
+                        info.tokenType(),
+                        info.isStart(),
+                        info.isEnd(),
+                        false  // isEnvironment - not tracked at session level yet
+                    );
+                })
+                .toList();
+
+            var transitionInfos = transitions.stream()
+                .map(t -> {
+                    var graphId = "t_" + DotExporter.sanitize(t.name());
+                    return new DebugResponse.TransitionInfo(
+                        t.name(),
+                        graphId
+                    );
+                })
+                .toList();
+
+            return new DebugResponse.NetStructure(placeInfos, transitionInfos);
         }
     }
 

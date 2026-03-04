@@ -120,6 +120,14 @@ export class DebugEventStore implements EventStore {
     return this._events.filter(e => e.timestamp >= from && e.timestamp < to);
   }
 
+  /**
+   * Returns an iterator over all retained events.
+   * Useful for archive writers that need zero-copy traversal.
+   */
+  [Symbol.iterator](): Iterator<NetEvent> {
+    return this._events[Symbol.iterator]();
+  }
+
   // ======================== Lifecycle ========================
 
   /** Close the store (no-op in JS, but matches Java interface). */

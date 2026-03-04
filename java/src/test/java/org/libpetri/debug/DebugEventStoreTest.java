@@ -365,6 +365,43 @@ class DebugEventStoreTest {
     }
 
     @Test
+    void eventIteratorShouldReturnEventsInOrder() {
+        var store = new DebugEventStore("test-session");
+
+        var event1 = new NetEvent.TransitionEnabled(Instant.now(), "T1");
+        var event2 = new NetEvent.TransitionEnabled(Instant.now(), "T2");
+        var event3 = new NetEvent.TransitionEnabled(Instant.now(), "T3");
+        store.append(event1);
+        store.append(event2);
+        store.append(event3);
+
+        var it = store.eventIterator();
+        assertTrue(it.hasNext());
+        assertSame(event1, it.next());
+        assertSame(event2, it.next());
+        assertSame(event3, it.next());
+        assertFalse(it.hasNext());
+    }
+
+    @Test
+    void eventIteratorShouldBeConsistentWithEventsList() {
+        var store = new DebugEventStore("test-session");
+
+        for (int i = 0; i < 10; i++) {
+            store.append(new NetEvent.TransitionEnabled(Instant.now(), "T" + i));
+        }
+
+        var fromList = store.events();
+        var fromIterator = new ArrayList<NetEvent>();
+        var it = store.eventIterator();
+        while (it.hasNext()) {
+            fromIterator.add(it.next());
+        }
+
+        assertEquals(fromList, fromIterator);
+    }
+
+    @Test
     void shutdownBroadcastShouldWaitForPendingBroadcasts() throws InterruptedException {
         var store = new DebugEventStore("test-session");
         var received = new CopyOnWriteArrayList<NetEvent>();

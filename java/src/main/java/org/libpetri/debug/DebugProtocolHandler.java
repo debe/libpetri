@@ -2,7 +2,6 @@ package org.libpetri.debug;
 
 import org.libpetri.debug.DebugSessionRegistry.DebugSession;
 import org.libpetri.event.NetEvent;
-import org.libpetri.export.DotExporter;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 import java.util.ArrayList;
@@ -145,7 +144,7 @@ public class DebugProtocolHandler {
         var computed = computeState(events);
 
         // Generate net structure from stored place/transition info
-        var structure = buildNetStructure(debugSession);
+        var structure = debugSession.buildNetStructure();
 
         send(client, new DebugResponse.Subscribed(
             cmd.sessionId(),
@@ -379,42 +378,6 @@ public class DebugProtocolHandler {
             boolean hasMore = end < events.size();
             send(client, new DebugResponse.EventBatch(sessionId, startIndex + i, chunk, hasMore));
         }
-    }
-
-    /**
-     * Builds the net structure from a debug session's stored place and transition info.
-     */
-    private DebugResponse.NetStructure buildNetStructure(DebugSession debugSession) {
-        var places = debugSession.places();
-        var transitions = debugSession.transitions();
-
-        var placeInfos = places.data().entrySet().stream()
-            .map(entry -> {
-                var name = entry.getKey();
-                var info = entry.getValue();
-                var sanitized = DotExporter.sanitize(name);
-                return new DebugResponse.PlaceInfo(
-                    name,
-                    "p_" + sanitized,
-                    info.tokenType(),
-                    info.isStart(),
-                    info.isEnd(),
-                    false  // isEnvironment - not tracked at session level yet
-                );
-            })
-            .toList();
-
-        var transitionInfos = transitions.stream()
-            .map(t -> {
-                var graphId = "t_" + DotExporter.sanitize(t.name());
-                return new DebugResponse.TransitionInfo(
-                    t.name(),
-                    graphId
-                );
-            })
-            .toList();
-
-        return new DebugResponse.NetStructure(placeInfos, transitionInfos);
     }
 
     /**

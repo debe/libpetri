@@ -6,7 +6,7 @@
 
     <groupId>org.libpetri</groupId>
     <artifactId>libpetri</artifactId>
-    <version>0.4.1</version>
+    <version>0.5.0</version>
     <packaging>jar</packaging>
 
     <name>libpetri</name>
@@ -43,6 +43,7 @@
         <jackson.version>2.21.1</jackson.version>
         <javasmt-z3.version>4.14.0</javasmt-z3.version>
         <junit.version>6.0.3</junit.version>
+        <lz4.version>1.8.0</lz4.version>
         <jmh.version>1.37</jmh.version>
 
         <!-- Plugin versions -->
@@ -104,6 +105,13 @@
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>
             <artifactId>jackson-datatype-jsr310</artifactId>
+        </dependency>
+
+        <!-- LZ4 compression for session archives -->
+        <dependency>
+            <groupId>org.lz4</groupId>
+            <artifactId>lz4-java</artifactId>
+            <version>${lz4.version}</version>
         </dependency>
 
         <!-- Z3 SMT solver via JavaSMT -->

@@ -8,11 +8,10 @@
  */
 
 import type { NetEvent } from '../event/net-event.js';
-import { sanitize } from '../export/petri-net-mapper.js';
 import type { DebugCommand, EventFilter, BreakpointConfig } from './debug-command.js';
-import type { DebugResponse, TokenInfo, NetEventInfo, NetStructure } from './debug-response.js';
+import type { DebugResponse, TokenInfo, NetEventInfo } from './debug-response.js';
 import type { DebugSession } from './debug-session-registry.js';
-import type { DebugSessionRegistry } from './debug-session-registry.js';
+import { type DebugSessionRegistry, buildNetStructure } from './debug-session-registry.js';
 import type { Subscription } from './debug-event-store.js';
 import { MarkingCache } from './marking-cache.js';
 import { toEventInfo, tokenInfo, convertMarking } from './net-event-converter.js';
@@ -421,28 +420,6 @@ export function toImmutableState(
     enabledTransitions: [...enabled],
     inFlightTransitions: [...inFlight],
   };
-}
-
-/** Builds net structure from a debug session. */
-function buildNetStructure(debugSession: DebugSession): NetStructure {
-  const places = debugSession.places;
-  const transitions = debugSession.transitions;
-
-  const placeInfos = [...places.data.entries()].map(([name, info]) => ({
-    name,
-    graphId: `p_${sanitize(name)}`,
-    tokenType: info.tokenType,
-    isStart: !info.hasIncoming,
-    isEnd: !info.hasOutgoing,
-    isEnvironment: false,
-  }));
-
-  const transitionInfos = [...transitions].map(t => ({
-    name: t.name,
-    graphId: `t_${sanitize(t.name)}`,
-  }));
-
-  return { places: placeInfos, transitions: transitionInfos };
 }
 
 /** Convert Map to Record for JSON serialization. */
