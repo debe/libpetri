@@ -1,11 +1,11 @@
 # libpetri
 
-**Executable Coloured Time Petri Nets with formal verification** — model concurrent workflows with typed data, real-time constraints, and mathematically proven safety properties.
+**A high-performance Coloured Time Petri Net runtime** — a Turing-complete execution engine where typed tokens flow through places, transitions fire under real-time constraints, and async actions execute concurrently. Formal verification proves safety properties via SMT/IC3.
 
 | Implementation | Language | Runtime | Status |
 |---|---|---|---|
 | [**libpetri-java**](java/) | Java 25 | Virtual threads | Production |
-| [**libpetri-ts**](typescript/) | TypeScript 5.7 | Promises / event loop | In development |
+| [**libpetri-ts**](typescript/) | TypeScript 5.7 | Promises / event loop | Production |
 
 > Rust implementation planned — see [`spec/`](spec/) for the language-agnostic contract all implementations follow.
 
@@ -15,9 +15,9 @@
 
 ## Why libpetri
 
-- **Executable formal models** — Petri nets that actually run: typed tokens flow through places, transitions fire with real-time deadlines, and async actions execute concurrently. Not a simulator — a production workflow engine.
+- **Executable formal models** — Not a simulator. A production VM where Petri nets are the program: typed tokens are data, transitions are instructions, timing constraints are deadlines, and the executor is a scheduler. Suitable for agent orchestration, workflow automation, protocol modeling, game logic, UI state machines, and anything with concurrency.
 - **Two implementations, one spec** — Java and TypeScript share [145 language-agnostic requirements](spec/00-index.md) covering every arc type, timing variant, and execution phase. Same behavior, verified independently.
-- **Research-backed** — Grounded in the theory of *Coloured Time Petri Nets* applied to agentic systems. The Order Processing Pipeline below demonstrates every arc type, timing mode, and place type in one deadlock-free net.
+- **Turing-complete** — Coloured Petri Nets with inhibitor arcs can simulate any Turing machine. libpetri's nets can model arbitrary computation, not just finite-state workflows.
 
 ---
 
@@ -120,114 +120,91 @@ cd typescript && npm install && npm test
 
 ---
 
-## Showcase: Order Processing Pipeline
+## Showcase: Debug UI — A Petri Net That Debugs Petri Nets
 
-An order fulfillment workflow (8 transitions, 12 places) that demonstrates **every** arc type, place type, and timing mode — with no deadlocks. Rendered using libpetri's DOT exporter.
+The libpetri debug UI is itself a Coloured Time Petri Net — 45 transitions, 46 places (including 25 environment places). The entire UI lifecycle (WebSocket connection, session management, message dispatch, diagram rendering, replay playback, live debugging, breakpoints, search) is modeled and executed as a CTPN.
 
 <p align="center">
-  <img src="docs/showcase-order-pipeline.svg" alt="Order Processing Pipeline — Showcase Petri Net" width="600">
+  <img src="docs/showcase-debug-ui.svg" alt="Debug UI — A Petri Net That Debugs Petri Nets" width="800">
 </p>
+
+**Subnet breakdown:**
+
+| Subnet | Transitions | Pattern |
+|---|---|---|
+| **Connection** | 5 | State machine: idle → connecting → connected / waitReconnect, with 2s delayed reconnect |
+| **Session** | 2 | Subscribe to debug session, receive session data with DOT diagram |
+| **Message Dispatch** | 12 | Guard predicates on input arcs filter WebSocket messages by type |
+| **Diagram** | 1 | Async DOT→SVG rendering via Graphviz WASM |
+| **UI Fan-Out** | 4 | Single `stateDirty` token AND-forks to 3 parallel updates (highlighting, event-log, marking) |
+| **Replay Playback** | 7 | Play/pause/step/seek/restart/run-to-end with checkpoint-based random access |
+| **Live Mode** | 4 | Pause/resume/step-forward/step-back via WebSocket commands |
+| **Inspector** | 1 | Place click → token inspection |
+| **Modal** | 2 | Open/close with mutual exclusion (modalClosed ↔ modalOpen) |
+| **Breakpoints** | 2 | Set/clear with list state as a resource place |
+| **Filter/Search** | 4 | Apply filter, search, search-next, search-prev |
 
 **Patterns at work:**
 
-| Pattern | Where | How |
-|---|---|---|
-| **AND-fork** | Receive | Splits Order into Validating + InStock + Active in one firing |
-| **AND-join** | Approve | Waits for both PaymentOk and InStock before proceeding |
-| **XOR routing** | Authorize, RetryPayment | Produces to exactly one of PaymentOk / PaymentFailed |
-| **Inhibitor arc** | RetryPayment, Ship, Cancel, Monitor | Blocks when a place has tokens (e.g., no retry after Overdue) |
-| **Read arc** | Ship, Monitor | Tests Active without consuming — persists across the workflow |
-| **Reset arc** | Reject, Cancel | Clears all tokens from places (e.g., Cancel resets 5 places) |
-| **Environment place** | CancelRequest | External cancellation signal injected at runtime |
-| **Priority** | Receive (prio=10) | Fires before other enabled transitions |
-| **All 5 timing modes** | See below | Immediate, Window, Delayed, Deadline, Exact |
-
-**Timing modes demonstrated:**
-
-| Transition | Timing | Meaning |
-|---|---|---|
-| Receive, Ship, Reject, Cancel | `immediate()` | Fire as soon as enabled |
-| Authorize | `window(200ms, 5s)` | Fire between 200ms and 5s |
-| RetryPayment | `delayed(1s)` | Wait at least 1s before retry |
-| Approve | `deadline(2s)` | Must fire within 2s |
-| Monitor | `exact(10s)` | Fires at precisely 10s (urgency) |
+- **Environment places** — WebSocket open/close/message events, DOM user interactions (clicks, slider, form submissions), and `requestAnimationFrame` ticks are injected as external events
+- **Dirty-flag fan-out** — A single `stateDirty` token AND-forks into three independent UI update channels, each gated by a `rafTick` environment place for frame-rate throttling
+- **Resource places** — `uiState`, `breakpoints`, `filterState`, `searchState` are consumed and re-produced by their transitions, ensuring mutual exclusion on state updates
+- **Timing** — `delayed(2000)` for reconnect backoff; all other transitions are `immediate()`
+- **Guard predicates** — Message dispatch transitions use typed guards (`msg.type === 'event'`, etc.) on the `wsMessage` environment place to route messages to the correct handler
 
 <details>
-<summary><strong>Java code (from PaperNetworks.java)</strong></summary>
+<summary><strong>TypeScript code (from debug-ui/src/net/definition.ts)</strong></summary>
 
-```java
-var order         = Place.of("Order", String.class);
-var active        = Place.of("Active", String.class);
-var validating    = Place.of("Validating", String.class);
-var inStock       = Place.of("InStock", String.class);
-var paymentOk     = Place.of("PaymentOk", String.class);
-var paymentFailed = Place.of("PaymentFailed", String.class);
-var ready         = Place.of("Ready", String.class);
-var shipped       = Place.of("Shipped", String.class);
-var rejected      = Place.of("Rejected", String.class);
-var cancelled     = Place.of("Cancelled", String.class);
-var overdue       = Place.of("Overdue", String.class);
-var cancelRequest = Place.of("CancelRequest", String.class); // EnvironmentPlace at runtime
+```typescript
+// Connection transitions
+const t_connect = Transition.builder('t_connect')
+  .inputs(one(idle))
+  .outputs(outPlace(connecting))
+  .timing(immediate())
+  .action(async (ctx) => { /* createWebSocket, setConnecting */ })
+  .build();
 
-var receive = Transition.builder("Receive")
-    .inputs(In.one(order))
-    .outputs(Out.and(validating, inStock, active))    // AND-fork
-    .timing(Timing.immediate())
-    .priority(10)
-    .build();
+const t_on_open = Transition.builder('t_on_open')
+  .inputs(one(connecting), one(wsOpenSignal.place))
+  .outputs(outPlace(connected))
+  .timing(immediate())
+  .action(async (ctx) => { /* setConnected, refreshSessions */ })
+  .build();
 
-var authorize = Transition.builder("Authorize")
-    .inputs(In.one(validating))
-    .outputs(Out.xor(paymentOk, paymentFailed))       // XOR choice
-    .timing(Timing.window(Duration.ofMillis(200), Duration.ofSeconds(5)))
-    .build();
+const t_reconnect = Transition.builder('t_reconnect')
+  .inputs(one(waitReconnect))
+  .outputs(outPlace(idle))
+  .timing(delayed(2000))  // 2s backoff
+  .action(async (ctx) => { ctx.output(idle, undefined); })
+  .build();
 
-var retryPayment = Transition.builder("RetryPayment")
-    .inputs(In.one(paymentFailed))
-    .inhibitor(overdue)                                // blocked after timeout
-    .outputs(Out.xor(paymentOk, paymentFailed))
-    .timing(Timing.delayed(Duration.ofSeconds(1)))
-    .build();
+// Message dispatch with guard predicates
+const t_on_event = Transition.builder('t_on_event')
+  .inputs(one(uiState), one(wsMessage.place, (msg) => msg.type === 'event'))
+  .outputs(and(outPlace(uiState), outPlace(stateDirty)))
+  .timing(immediate())
+  .action(async (ctx) => { /* applyEventToState, updateTimeline */ })
+  .build();
 
-var approve = Transition.builder("Approve")
-    .inputs(In.one(paymentOk), In.one(inStock))       // AND-join
-    .outputs(Out.place(ready))
-    .timing(Timing.deadline(Duration.ofSeconds(2)))
-    .build();
+// UI fan-out: stateDirty → 3 parallel updates
+const t_fan_out_dirty = Transition.builder('t_fan_out_dirty')
+  .inputs(one(stateDirty))
+  .outputs(and(outPlace(highlightDirty), outPlace(logDirty), outPlace(markingDirty)))
+  .timing(immediate())
+  .build();
 
-var ship = Transition.builder("Ship")
-    .inputs(In.one(ready))
-    .read(active)                                      // read arc
-    .inhibitor(cancelled)
-    .outputs(Out.place(shipped))
-    .timing(Timing.immediate())
-    .build();
+// Frame-rate gated UI updates
+const t_update_highlighting = Transition.builder('t_update_highlighting')
+  .inputs(one(highlightDirty), one(rafTick.place))
+  .reads(svgReady, uiState)
+  .timing(immediate())
+  .action(async (ctx) => { /* updateDiagramHighlighting */ })
+  .build();
 
-var reject = Transition.builder("Reject")
-    .inputs(In.one(paymentFailed), In.one(overdue))
-    .reset(inStock)                                    // reset arc
-    .outputs(Out.place(rejected))
-    .timing(Timing.immediate())
-    .build();
-
-var cancel = Transition.builder("Cancel")
-    .inputs(In.one(cancelRequest))                     // environment place
-    .inhibitors(shipped, rejected)
-    .resets(validating, paymentFailed, inStock, paymentOk, ready)  // multiple resets
-    .outputs(Out.place(cancelled))
-    .timing(Timing.immediate())
-    .build();
-
-var monitor = Transition.builder("Monitor")
-    .read(active)
-    .inhibitors(shipped, rejected, cancelled, overdue)
-    .outputs(Out.place(overdue))
-    .timing(Timing.exact(Duration.ofSeconds(10)))      // exact timing (urgency)
-    .build();
-
-return PetriNet.builder("OrderProcessingPipeline")
-    .transitions(receive, authorize, retryPayment, approve, ship, reject, cancel, monitor)
-    .build();
+// ... 42 transitions total
+const net = PetriNet.builder('DebugUI')
+  .transitions(t_connect, t_on_open, /* ... */)
+  .build();
 ```
 
 </details>
@@ -308,30 +285,48 @@ Both implementations include SMT-based verification via Z3 using the IC3/PDR alg
 
 ### Java
 
+Prove that an order can never be both shipped and cancelled — the IC3 solver synthesizes an inductive invariant:
+
 ```java
 import org.libpetri.smt.*;
 
+var net = PaperNetworks.createOrderPipeline();
+
 var result = SmtVerifier.forNet(net)
-    .initialMarking(m -> m.tokens(pending, 1))
-    .property(SmtProperty.deadlockFree())
-    .timeout(Duration.ofSeconds(60))
+    .initialMarking(m -> m.tokens(order, 1))
+    .property(SmtProperty.mutualExclusion(shipped, cancelled))
+    .timeout(Duration.ofSeconds(30))
     .verify();
 
-System.out.println(result.verdict());  // Proven, Violated, or Unknown
+System.out.println(result.verdict());  // Proven
+result.discoveredInvariants().forEach(System.out::println);
+// → Shipped + Cancelled ≤ 1
 ```
 
 ### TypeScript
 
+Prove that a circular token-passing net is deadlock-free — proven structurally via Commoner's theorem without invoking the SMT solver:
+
 ```typescript
 import { SmtVerifier, deadlockFree } from 'libpetri/verification';
 
+const pA = place('A');
+const pB = place('B');
+const net = PetriNet.builder('TokenRing')
+  .transitions(
+    Transition.builder('AtoB').inputs(one(pA)).outputs(outPlace(pB)).build(),
+    Transition.builder('BtoA').inputs(one(pB)).outputs(outPlace(pA)).build(),
+  )
+  .build();
+
 const result = await SmtVerifier.forNet(net)
-  .initialMarking(m => m.tokens(pending, 1))
+  .initialMarking(m => m.tokens(pA, 1))
   .property(deadlockFree())
   .timeout(30_000)
   .verify();
 
-console.log(result.verdict.type);  // 'proven' | 'violated' | 'unknown'
+console.log(result.verdict.type);   // 'proven'
+console.log(result.verdict.method); // 'structural' (Commoner's theorem)
 ```
 
 ---
@@ -359,7 +354,8 @@ The executor runs a single-threaded orchestration loop with six phases per cycle
 | Verification | `org.libpetri.smt` | `libpetri/verification` |
 | Export | `org.libpetri.export` | `libpetri/export` |
 | Analysis | `org.libpetri.analysis` | — (Java only) |
-| Debug | `org.libpetri.debug` | — (Java only) |
+| Debug | `org.libpetri.debug` | `libpetri/debug` |
+| Doclet | `org.libpetri.doclet` | `libpetri/doclet` |
 
 Both share the same architecture: immutable net definitions, builder-pattern construction, bitmap-based enablement with dirty-set optimization, and a single-threaded orchestrator dispatching async actions to a separate task pool.
 
@@ -481,7 +477,7 @@ cd java
 ./mvnw javadoc:javadoc                                 # Generate Javadocs
 ```
 
-Java 25 with preview features enabled. Uses Maven 3.9.x via wrapper.
+Java 25 (no preview features — all used features are finalized). Uses Maven 3.9.x via wrapper.
 
 ### TypeScript
 

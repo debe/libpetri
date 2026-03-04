@@ -48,6 +48,8 @@ export function setExecutor(exec: BitmapNetExecutor): void {
  *
  * Initial tokens: idle(1), noSession(1), uiState(1), filterState(1),
  * modalClosed(1), breakpoints(1), searchState(1)
+ *
+ * @petrinet ./definition#buildDebugNet()
  */
 export function buildDebugNet(): {
   net: PetriNet;
