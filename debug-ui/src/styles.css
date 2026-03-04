@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+/* Custom scrollbar for dark theme */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+::-webkit-scrollbar-track {
+    background: #1f2937;
+}
+::-webkit-scrollbar-thumb {
+    background: #4b5563;
+    border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #6b7280;
+}
+
+/* Event type colors */
+.event-ExecutionStarted { border-left-color: #10b981; }
+.event-ExecutionCompleted { border-left-color: #3b82f6; }
+.event-TransitionEnabled { border-left-color: #fbbf24; }
+.event-TransitionStarted { border-left-color: #f97316; }
+.event-TransitionCompleted { border-left-color: #22c55e; }
+.event-TransitionFailed { border-left-color: #ef4444; }
+.event-TransitionTimedOut { border-left-color: #f43f5e; }
+.event-ActionTimedOut { border-left-color: #ec4899; }
+.event-TokenAdded { border-left-color: #8b5cf6; }
+.event-TokenRemoved { border-left-color: #6366f1; }
+.event-MarkingSnapshot { border-left-color: #06b6d4; }
+.event-LogMessage { border-left-color: #a855f7; }
+.event-LogMessage.level-WARN { border-left-color: #f59e0b; }
+.event-LogMessage.level-ERROR { border-left-color: #ef4444; }
+.event-TransitionClockRestarted { border-left-color: #fbbf24; }
+
+/* Diagram container */
+.diagram-container {
+    background: white;
+    border-radius: 8px;
+    padding: 16px;
+    height: 100%;
+    overflow: hidden;
+    position: relative;
+}
+
+/* Panzoom cursor and SVG constraints */
+.diagram-container svg {
+    max-width: 100%;
+    max-height: 100%;
+    cursor: grab;
+}
+.diagram-container svg:active {
+    cursor: grabbing;
+}
+
+/* Search highlighting */
+.search-match {
+    outline: 1px solid #3b82f6;
+    outline-offset: 1px;
+}
+.search-current {
+    outline: 2px solid #f59e0b;
+    outline-offset: 1px;
+    background-color: rgba(245, 158, 11, 0.15) !important;
+}
+
+/* JSON syntax highlighting */
+.json-key { color: #93c5fd; }
+.json-string { color: #86efac; }
+.json-number { color: #fcd34d; }
+.json-boolean { color: #c4b5fd; }
+.json-null { color: #9ca3af; }
