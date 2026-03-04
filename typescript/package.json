@@ -28,6 +28,12 @@
         "import": "./dist/verification/index.js",
         "types": "./dist/verification/index.d.ts"
       }
+    },
+    "./debug": {
+      "node": {
+        "import": "./dist/debug/index.js",
+        "types": "./dist/debug/index.d.ts"
+      }
     }
   },
   "scripts": {
