@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "docs": "node --import ./register-hooks.mjs --import tsx ./node_modules/.bin/typedoc"
   },
   "dependencies": {
     "@viz-js/viz": "^3.11.0",
@@ -16,6 +17,8 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
     "tailwindcss": "^4.0.0",
+    "tsx": "^4.19.0",
+    "typedoc": "^0.28.0",
     "typescript": "^5.7.0",
     "vite": "^6.0.0"
   }

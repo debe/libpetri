@@ -30,6 +30,10 @@ target/
 .DS_Store
 Thumbs.db
 
+# Generated docs (TypeDoc)
+**/docs/
+!/docs/
+
 # Coverage
 *.exec
 jacoco*.html
