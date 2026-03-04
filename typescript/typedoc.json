@@ -1,0 +1,7 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["src/index.ts", "src/export/index.ts"],
+  "out": "docs",
+  "plugin": ["libpetri/doclet"],
+  "blockTags": ["@petrinet"]
+}

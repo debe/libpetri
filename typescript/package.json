@@ -12,7 +12,9 @@
     "url": "https://github.com/debe/libpetri/issues"
   },
   "license": "Apache-2.0",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "exports": {
     ".": {
@@ -34,6 +36,12 @@
         "import": "./dist/debug/index.js",
         "types": "./dist/debug/index.d.ts"
       }
+    },
+    "./doclet": {
+      "node": {
+        "import": "./dist/doclet/index.js",
+        "types": "./dist/doclet/index.d.ts"
+      }
     }
   },
   "scripts": {
@@ -41,12 +49,28 @@
     "check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "bench": "vitest bench"
+    "bench": "vitest bench",
+    "docs": "typedoc"
   },
   "devDependencies": {
-    "typescript": "^5.7.0",
+    "@types/node": "^25.3.3",
+    "@viz-js/viz": "^3.24.0",
     "tsup": "^8.4.0",
+    "typedoc": "^0.28.17",
+    "typescript": "^5.7.0",
     "vitest": "^3.0.0"
+  },
+  "peerDependencies": {
+    "@viz-js/viz": ">=3.0.0",
+    "typedoc": ">=0.27.0"
+  },
+  "peerDependenciesMeta": {
+    "typedoc": {
+      "optional": true
+    },
+    "@viz-js/viz": {
+      "optional": true
+    }
   },
   "dependencies": {
     "z3-solver": "^4.13.4"
