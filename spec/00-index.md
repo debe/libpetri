@@ -259,7 +259,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | State class graph | Berthomieu-Diaz | ✓ | — | — |
 | Graph export | At least one format | DOT (Graphviz) | DOT (Graphviz) | Not yet |
 | Log capture | Action log → events | SLF4J LogCaptureScope | ctx.log() | Not yet |
-| Debug event store | Live tailing | ✓ | — | — |
+| Debug event store | Live tailing | ✓ | ✓ | — |
 | Action binding | Separated from structure | ✓ (bindActions) | ✓ (bindActions) | NetStructureBuilder |
 | Inline sync execution | Avoid task dispatch | — | — | ✓ (try_run_inline) |
 
