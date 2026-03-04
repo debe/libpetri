@@ -285,22 +285,29 @@ Both implementations include SMT-based verification via Z3 using the IC3/PDR alg
 
 ### Java
 
-Prove that an order can never be both shipped and cancelled — the IC3 solver synthesizes an inductive invariant:
+Prove that a circular token-passing net is deadlock-free — proven structurally via Commoner's theorem without invoking the SMT solver:
 
 ```java
+import org.libpetri.core.*;
 import org.libpetri.smt.*;
+import java.time.Duration;
 
-var net = PaperNetworks.createOrderPipeline();
+var pA = Place.of("A", Void.class);
+var pB = Place.of("B", Void.class);
+
+var net = PetriNet.builder("TokenRing")
+    .transitions(
+        Transition.builder("AtoB").inputs(In.one(pA)).outputs(Out.place(pB)).build(),
+        Transition.builder("BtoA").inputs(In.one(pB)).outputs(Out.place(pA)).build())
+    .build();
 
 var result = SmtVerifier.forNet(net)
-    .initialMarking(m -> m.tokens(order, 1))
-    .property(SmtProperty.mutualExclusion(shipped, cancelled))
+    .initialMarking(m -> m.tokens(pA, 1))
+    .property(SmtProperty.deadlockFree())
     .timeout(Duration.ofSeconds(30))
     .verify();
 
-System.out.println(result.verdict());  // Proven
-result.discoveredInvariants().forEach(System.out::println);
-// → Shipped + Cancelled ≤ 1
+System.out.println(result.verdict());  // Proven[method=structural, ...]
 ```
 
 ### TypeScript
