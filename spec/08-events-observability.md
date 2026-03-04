@@ -342,7 +342,7 @@ An event store with live tailing support for debug UIs. Supports:
 
 **Implementation notes:**
 - Java: Full implementation with virtual-thread broadcast
-- TypeScript: Not implemented
+- TypeScript: Full implementation with microtask broadcast
 - Rust: Not implemented
 
 **Test derivation:** Subscribe to debug store; append event; verify subscriber receives it.

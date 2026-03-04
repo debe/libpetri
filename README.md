@@ -49,7 +49,7 @@ import org.libpetri.core.*;
 import org.libpetri.runtime.BitmapNetExecutor;
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.*;
 
 var request  = Place.of("Request", String.class);
 var response = Place.of("Response", String.class);
@@ -69,8 +69,10 @@ var net = PetriNet.builder("Example")
     .transitions(process)
     .build();
 
-try (var executor = BitmapNetExecutor.create(net, Map.of(
-        request, List.of(Token.of("hello"))))) {
+try (var executor = BitmapNetExecutor.builder(net, Map.of(
+            request, List.of(Token.of("hello"))))
+        .executor(Executors.newVirtualThreadPerTaskExecutor())
+        .build()) {
     Marking result = executor.run();
     System.out.println(result.peekFirst(response).value());
     // → "Processed: hello"
@@ -371,6 +373,8 @@ Both share the same architecture: immutable net definitions, builder-pattern con
 ## Performance
 
 Measured on the BitmapNetExecutor with noop event store. Java uses JMH (1 fork, 3 warmup, 5 measurement iterations); TypeScript uses vitest bench. All times in microseconds (µs/op, lower is better).
+
+**Concurrency model note:** In Java the orchestrator runs on its own virtual thread and dispatches each action to a separate virtual thread, so no action can ever block the runtime loop. This gives true multicore parallelism for CPU-bound actions. In TypeScript the orchestrator and all actions share a single-core event loop with zero scheduling overhead but no parallelism. In these benchmarks all actions are trivial, so Java's per-thread scheduling cost is visible while its multicore advantage is not. For real workloads with CPU-bound actions Java scales across cores while TypeScript remains single-threaded.
 
 ### Sync Linear Chains
 
