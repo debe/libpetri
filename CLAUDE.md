@@ -17,8 +17,7 @@ cd java
 ./mvnw test -Dtest="org.libpetri.core.PetriNetTest"       # Single test class
 ./mvnw test -Dtest="*BitmapNetExecutor*"                   # Wildcard match
 ./mvnw test-compile exec:exec -Pjmh           # Run JMH benchmarks
-./mvnw javadoc:javadoc                         # Generate documentation
-./mvnw test                                    # Code coverage (auto-generated in target/site/jacoco/)
+./mvnw javadoc:javadoc                         # Generate documentation (uses custom PetriNetTaglet)
 ```
 
 Java 25 (no preview features — all used features are finalized). Uses Maven 3.9.x via wrapper.
@@ -35,7 +34,7 @@ npm run test:watch             # Watch mode
 npm test -- core               # Run tests matching "core"
 ```
 
-TypeScript 5.7, ESM-only, strict mode. Built with tsup, tested with vitest.
+TypeScript 5.7, ESM-only, strict mode. Built with tsup (multi-entry: `index`, `export`, `verification`, `debug`, `doclet`), tested with vitest. JaCoCo code coverage auto-generated in Java (`target/site/jacoco/`).
 
 ## Architecture
 
@@ -77,7 +76,18 @@ Z3-based SMT verification using IC3/PDR. Supports: deadlock freedom, mutual excl
 
 ### Export (`src/export/`)
 
-DOT (Graphviz) diagram export with Petri net visual conventions.
+4-layer pipeline: `spec/petri-net-styles.json` (shared style definitions) → typed graph model (`export/graph`) → Petri net mapper (`PetriNetGraphMapper`) → DOT renderer (`DotRenderer`). Convenience functions (`dotExport()` / `DotExporter.export()`) chain mapper+renderer. ID conventions: `p_` prefix for places, `t_` prefix for transitions.
+
+### Debug Infrastructure (`src/debug/`)
+
+WebSocket-based debug protocol for live net inspection. `DebugSessionRegistry` manages sessions. Protocol provides `Subscribed` (with DOT diagram + net structure including `graphId` mappings), `PlaceInfo`, `TransitionInfo`. The debug-ui (`debug-ui/`) is a standalone Vite + Tailwind app using `@viz-js/viz` (Graphviz WASM) for client-side DOT→SVG rendering.
+
+```bash
+# Build debug-ui and copy to Java resources + TypeScript dist
+scripts/build-debug-ui.sh
+# Or manually:
+cd debug-ui && npm ci && npm run build
+```
 
 ## Specification
 
@@ -88,7 +98,9 @@ DOT (Graphviz) diagram export with Petri net visual conventions.
 - **Homepage**: https://libpetri.org (redirects to GitHub via GitHub Pages from `docs/`)
 - **Maven Central**: `org.libpetri:libpetri` — released via `scripts/release.sh <version>`
 - **npm**: `libpetri`
-- Release script handles: build, test, GPG sign, deploy to Maven Central, git tag, GitHub release
+- Release script handles: build, test, GPG sign, deploy to Maven Central, npm publish, git tag, GitHub release
+- `scripts/release.sh --dry-run <version>` to verify without publishing
+- Prerequisites: GPG key, `~/.m2/settings.xml` with Central credentials, `gh` CLI, `npm` auth
 
 ## Key Conventions
 
