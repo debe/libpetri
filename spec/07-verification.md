@@ -142,7 +142,7 @@ The engine may support state class graph construction using the Berthomieu-Diaz 
 
 **Implementation notes:**
 - Java: Full implementation
-- TypeScript: Not implemented
+- TypeScript: Full implementation
 - Rust: Not implemented
 
 **Test derivation:** Small timed net; construct state class graph; verify reachable classes match expected.
@@ -159,6 +159,11 @@ Timing constraints within a state class are represented as a Difference Bound Ma
 1. DBM encodes lower and upper bounds for each transition clock.
 2. Zone emptiness is detectable (unsatisfiable constraints).
 3. Successor DBM is computed correctly after transition firing.
+
+**Implementation notes:**
+- Java: Full implementation
+- TypeScript: Full implementation
+- Rust: Not implemented
 
 **Test derivation:** Create DBM for 3 timed transitions; fire one; verify successor zone constraints.
 
