@@ -253,6 +253,13 @@ function matchesBreakpoint(bp: BreakpointConfig, event: NetEventInfo): boolean {
   return targetName === bp.target;
 }
 
+/** Calculate playback delay in ms from speed multiplier. */
+export function calculatePlaybackDelay(speed: number): number {
+  const baseDelay = 50;
+  const raw = baseDelay / speed;
+  return Math.max(CONFIG.minPlaybackDelay, Math.min(CONFIG.maxPlaybackDelay, raw));
+}
+
 /** Update speed button highlighting. */
 export function updateSpeedButtons(speed: number): void {
   document.querySelectorAll('.speed-btn').forEach(btn => {
