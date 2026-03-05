@@ -27,7 +27,7 @@ import { renderVisibleEvents } from './actions/event-log.js';
 import {
   applyEventToState, buildCheckpoints, seekToIndex,
   stopPlayback, updatePlaybackControls, updateTimelinePosition,
-  updateSpeedButtons,
+  updateSpeedButtons, calculatePlaybackDelay,
 } from './actions/playback.js';
 import { updateMarkingInspector, renderTokenInspector } from './actions/inspectors.js';
 import { showModal, closeModal } from './actions/modal.js';
@@ -385,9 +385,38 @@ export function buildDebugNet(): {
     .timing(immediate())
     .action(async (ctx) => {
       updatePlaybackControls(false);
-      // Start replay playback loop by injecting events
-      scheduleReplayPlayback();
+      // Kickstart auto-playback loop via environment place injection
+      executor.injectValue(p.autoStepTick, undefined);
       ctx.output(p.replayPlaying, undefined);
+    })
+    .build();
+
+  const t_replay_auto_step = Transition.builder('t_replay_auto_step')
+    .inputs(one(p.autoStepTick.place))
+    .reads(p.replayPlaying)
+    .timing(immediate())
+    .action(async () => {
+      // Check if at end of replay
+      const state = executor.getMarking().peekTokens(p.uiState);
+      const currentState = state.length > 0 ? state[0]!.value as UIState : null;
+      const events = shared.replay.allEvents;
+
+      if (!currentState || currentState.eventIndex >= events.length) {
+        // At end — stop playback and switch back to paused
+        stopPlayback();
+        updatePlaybackControls(true);
+        executor.injectValue(p.userClickPause, undefined);
+        return;
+      }
+
+      // Step forward by injecting userClickStepFwd
+      executor.injectValue(p.userClickStepFwd, undefined);
+
+      // Schedule next tick with speed-adjusted delay
+      const delay = calculatePlaybackDelay(shared.playback.speed);
+      shared.playback.timer = setTimeout(() => {
+        executor.injectValue(p.autoStepTick, undefined);
+      }, delay);
     })
     .build();
 
@@ -672,7 +701,7 @@ export function buildDebugNet(): {
       t_on_bp_cleared, t_on_filter_applied, t_on_unsubscribed, t_on_error,
       t_render_dot,
       t_fan_out_dirty, t_update_highlighting, t_update_event_log, t_update_marking,
-      t_replay_play, t_replay_pause, t_replay_step_fwd, t_replay_step_back,
+      t_replay_play, t_replay_auto_step, t_replay_pause, t_replay_step_fwd, t_replay_step_back,
       t_replay_seek, t_replay_restart, t_replay_run_to_end,
       t_live_pause, t_live_resume, t_live_step_fwd, t_live_step_back,
       t_inspect_place,
@@ -700,8 +729,3 @@ export function buildDebugNet(): {
   return { net, initialTokens };
 }
 
-/** Schedule replay playback (called from t_replay_play action). */
-function scheduleReplayPlayback(): void {
-  // Replay playback is manual (step-through) or via seek.
-  // Full auto-playback would need a timer that injects userClickStepFwd repeatedly.
-}

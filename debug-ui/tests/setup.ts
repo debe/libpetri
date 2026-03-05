@@ -82,11 +82,11 @@ export function cleanupDOM(): void {
   }
 }
 
-// Auto-setup/cleanup for all test files
+// Auto-setup/cleanup for all test files (skip when no DOM, e.g. node environment)
 beforeEach(() => {
-  setupDOM();
+  if (typeof document !== 'undefined') setupDOM();
 });
 
 afterEach(() => {
-  cleanupDOM();
+  if (typeof document !== 'undefined') cleanupDOM();
 });

@@ -35,6 +35,7 @@ export const highlightDirty = place<void>('highlightDirty');
 
 export const replayPaused = environmentPlace<void>('replayPaused');
 export const replayPlaying = place<void>('replayPlaying');
+export const autoStepTick = environmentPlace<void>('autoStepTick');
 
 // ======================== Event Log Subnet ========================
 
@@ -95,5 +96,5 @@ export const allEnvironmentPlaces = new Set([
   userClickPlace, userSetBreakpoint, userClearBreakpoint,
   userApplyFilter, userSearch, userSearchPrev, userSearchNext, userOpenModal, userCloseModal,
   rafTick,
-  liveSession, replaySession, replayPaused,
+  liveSession, replaySession, replayPaused, autoStepTick,
 ]);

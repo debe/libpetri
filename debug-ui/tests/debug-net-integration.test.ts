@@ -218,6 +218,90 @@ describe('debug net integration', () => {
     expect(shared.currentMode).toBe('replay');
   });
 
+  it('replay play auto-advances eventIndex', async () => {
+    await subscribeWith('replay');
+
+    // Send 50 events
+    await executor.injectValue(p.wsMessage, makeEventBatch(50) as DebugResponse);
+    await settle();
+
+    // Click play
+    await executor.injectValue(p.userClickPlay, undefined);
+    // Wait for several auto-steps to fire
+    await settle(500);
+
+    const state = readUIState(executor);
+    expect(state).not.toBeNull();
+    expect(state!.eventIndex).toBeGreaterThan(0);
+  });
+
+  it('replay play stops at end of events', async () => {
+    await subscribeWith('replay');
+
+    // Send only 5 events
+    await executor.injectValue(p.wsMessage, makeEventBatch(5) as DebugResponse);
+    await settle();
+
+    // Click play
+    await executor.injectValue(p.userClickPlay, undefined);
+    await settle(500);
+
+    const state = readUIState(executor);
+    expect(state).not.toBeNull();
+    expect(state!.eventIndex).toBe(5);
+
+    // Should be back in paused state (replayPlaying consumed, replayPaused present)
+    const playing = executor.getMarking().peekTokens(p.replayPlaying);
+    expect(playing).toHaveLength(0);
+  });
+
+  it('replay pause stops auto-advance', async () => {
+    await subscribeWith('replay');
+
+    // Send 50 events
+    await executor.injectValue(p.wsMessage, makeEventBatch(50) as DebugResponse);
+    await settle();
+
+    // Click play, let it run a bit
+    await executor.injectValue(p.userClickPlay, undefined);
+    await settle(200);
+
+    // Click pause
+    await executor.injectValue(p.userClickPause, undefined);
+    await settle();
+
+    const stateAfterPause = readUIState(executor);
+    const indexAfterPause = stateAfterPause!.eventIndex;
+
+    // Wait more — index should not advance
+    await settle(200);
+
+    const stateAfterWait = readUIState(executor);
+    expect(stateAfterWait!.eventIndex).toBe(indexAfterPause);
+  });
+
+  it('replay speed affects playback rate', async () => {
+    await subscribeWith('replay');
+
+    // Send 100 events
+    await executor.injectValue(p.wsMessage, makeEventBatch(100) as DebugResponse);
+    await settle();
+
+    // Set speed to 4x then play
+    shared.playback.speed = 4;
+    await executor.injectValue(p.userClickPlay, undefined);
+    await settle(300);
+
+    // Pause to stop
+    await executor.injectValue(p.userClickPause, undefined);
+    await settle();
+
+    const state = readUIState(executor);
+    expect(state).not.toBeNull();
+    // At 4x speed (12.5ms/step), 300ms should advance significantly
+    expect(state!.eventIndex).toBeGreaterThan(5);
+  });
+
   it('session list populates dropdown', async () => {
     // t_connect fires from idle
     await settle();
