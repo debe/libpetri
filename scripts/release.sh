@@ -105,7 +105,7 @@ npm version "$VERSION" --no-git-tag-version --allow-same-version
 
 # --- Commit the version bump ---
 cd "$PROJECT_ROOT"
-git add java/pom.xml typescript/package.json
+git add java/pom.xml typescript/package.json typescript/package-lock.json
 git diff --cached --quiet || git commit -m "release: ${VERSION}"
 
 # --- Java: Build / Deploy ---
