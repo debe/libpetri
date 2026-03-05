@@ -15,3 +15,4 @@ export * from './smt-property.js';
 export * from './smt-verification-result.js';
 export { SmtVerifier } from './smt-verifier.js';
 export * from './z3/index.js';
+export * from './analysis/index.js';

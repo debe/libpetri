@@ -100,6 +100,33 @@ export class MarkingStateBuilder {
     return this;
   }
 
+  /** Removes tokens from a place. Throws if insufficient. */
+  removeTokens(place: Place<any>, count: number): this {
+    const current = this.tokenCounts.get(place.name) ?? 0;
+    const newCount = current - count;
+    if (newCount < 0) {
+      throw new Error(
+        `Cannot remove ${count} tokens from ${place.name} (has ${current})`,
+      );
+    }
+    if (newCount === 0) {
+      this.tokenCounts.delete(place.name);
+      this.placesByName.delete(place.name);
+    } else {
+      this.tokenCounts.set(place.name, newCount);
+    }
+    return this;
+  }
+
+  /** Copies all token counts from another marking state. */
+  copyFrom(other: MarkingState): this {
+    for (const p of other.placesWithTokens()) {
+      this.tokenCounts.set(p.name, other.tokens(p));
+      this.placesByName.set(p.name, p);
+    }
+    return this;
+  }
+
   build(): MarkingState {
     return new MarkingState(MARKING_STATE_KEY, new Map(this.tokenCounts), new Map(this.placesByName));
   }

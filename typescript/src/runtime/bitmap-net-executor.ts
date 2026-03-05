@@ -40,7 +40,10 @@ import { OutViolationError } from './out-violation-error.js';
 import { earliest as timingEarliest, latest as timingLatest, hasDeadline as timingHasDeadline } from '../core/timing.js';
 
 /** Tolerance for JS timer jitter (setTimeout resolution ~1-4ms). */
-const DEADLINE_TOLERANCE_MS = 1;
+// Tolerance for deadline enforcement to account for Node.js event loop timer jitter.
+// setTimeout(fn, N) may fire up to ~5ms late on busy systems. Without this tolerance,
+// exact-timed transitions (where earliest == latest) would race the event loop.
+const DEADLINE_TOLERANCE_MS = 5;
 
 interface InFlightTransition {
   promise: Promise<void>;
@@ -229,15 +232,18 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       this.processCompletedTransitions();
       this.processExternalEvents();
       this.updateDirtyTransitions();
+      // Single timestamp for this loop iteration: ensures deadline enforcement and
+      // firing readiness checks use the same time reference, preventing races where
+      // a transition passes the deadline check but is disabled before the fire check.
+      const cycleNowMs = performance.now();
       // Deadline enforcement: separate pass over ALL enabled transitions (not just dirty
-      // ones), since deadlines tick independently of place changes. Uses fresh
-      // performance.now() for timing accuracy. Gated by hasAnyDeadlines (O(0) skip for
-      // pure immediate nets).
-      if (this.hasAnyDeadlines) this.enforceDeadlines(performance.now());
+      // ones), since deadlines tick independently of place changes. Gated by
+      // hasAnyDeadlines (O(0) skip for pure immediate nets).
+      if (this.hasAnyDeadlines) this.enforceDeadlines(cycleNowMs);
 
       if (this.shouldTerminate()) break;
 
-      this.fireReadyTransitions();
+      this.fireReadyTransitions(cycleNowMs);
       // Skip awaitWork() when firing produced dirty bits (e.g., token consumption
       // disabled a conflicting transition). Bounded: without microtask yield no new
       // completions arrive, so the loop converges in at most one extra pass.
@@ -457,12 +463,12 @@ export class BitmapNetExecutor implements PetriNetExecutor {
 
   // ======================== Firing ========================
 
-  private fireReadyTransitions(): void {
+  private fireReadyTransitions(nowMs: number): void {
     if (this.allImmediate && this.allSamePriority) {
       this.fireReadyImmediate();
       return;
     }
-    this.fireReadyGeneral();
+    this.fireReadyGeneral(nowMs);
   }
 
   /**
@@ -487,8 +493,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     }
   }
 
-  private fireReadyGeneral(): void {
-    const nowMs = performance.now();
+  private fireReadyGeneral(nowMs: number): void {
 
     // Collect ready transitions into pre-allocated buffer to reduce GC pressure
     const ready = this.readyBuffer;

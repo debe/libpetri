@@ -35,7 +35,7 @@
 | **Events** | 13 event types, pluggable stores (in-memory, noop, logging, debug) |
 | **Formal verification** | SMT/IC3 via Z3 — deadlock freedom, mutual exclusion, place bounds, unreachability |
 | **Structural analysis** | P-invariants (Farkas), siphon/trap pre-checks, XOR branch analysis |
-| **State class graph** | Berthomieu-Diaz algorithm for timed reachability (Java) |
+| **State class graph** | Berthomieu-Diaz algorithm for timed reachability (Java, TypeScript) |
 | **Export** | DOT/Graphviz |
 
 ---
@@ -124,7 +124,7 @@ cd typescript && npm install && npm test
 
 ## Showcase: Debug UI — A Petri Net That Debugs Petri Nets
 
-The libpetri debug UI is itself a Coloured Time Petri Net — 45 transitions, 46 places (including 25 environment places). The entire UI lifecycle (WebSocket connection, session management, message dispatch, diagram rendering, replay playback, live debugging, breakpoints, search) is modeled and executed as a CTPN.
+The libpetri debug UI is itself a Coloured Time Petri Net — 53 transitions, 51 places (including 30 environment places). The entire UI lifecycle (WebSocket connection, session management, message dispatch, diagram rendering, replay playback, live debugging, breakpoints, search, session archives) is modeled and executed as a CTPN.
 
 <p align="center">
   <img src="docs/showcase-debug-ui.svg" alt="Debug UI — A Petri Net That Debugs Petri Nets" width="800">
@@ -135,16 +135,18 @@ The libpetri debug UI is itself a Coloured Time Petri Net — 45 transitions, 46
 | Subnet | Transitions | Pattern |
 |---|---|---|
 | **Connection** | 5 | State machine: idle → connecting → connected / waitReconnect, with 2s delayed reconnect |
-| **Session** | 2 | Subscribe to debug session, receive session data with DOT diagram |
+| **Session** | 3 | Subscribe, unsubscribe-and-switch, receive session data with DOT diagram |
 | **Message Dispatch** | 12 | Guard predicates on input arcs filter WebSocket messages by type |
 | **Diagram** | 1 | Async DOT→SVG rendering via Graphviz WASM |
 | **UI Fan-Out** | 4 | Single `stateDirty` token AND-forks to 3 parallel updates (highlighting, event-log, marking) |
-| **Replay Playback** | 7 | Play/pause/step/seek/restart/run-to-end with checkpoint-based random access |
+| **Replay Playback** | 8 | Play/pause/auto-step/step-fwd/step-back/seek/restart/run-to-end with checkpoint-based random access |
 | **Live Mode** | 4 | Pause/resume/step-forward/step-back via WebSocket commands |
 | **Inspector** | 1 | Place click → token inspection |
 | **Modal** | 2 | Open/close with mutual exclusion (modalClosed ↔ modalOpen) |
 | **Breakpoints** | 2 | Set/clear with list state as a resource place |
 | **Filter/Search** | 4 | Apply filter, search, search-next, search-prev |
+| **Speed** | 1 | Playback speed adjustment |
+| **Archives** | 6 | Browse/list/import/upload archives, net-name filtering |
 
 **Patterns at work:**
 
@@ -203,7 +205,7 @@ const t_update_highlighting = Transition.builder('t_update_highlighting')
   .action(async (ctx) => { /* updateDiagramHighlighting */ })
   .build();
 
-// ... 42 transitions total
+// ... 53 transitions total
 const net = PetriNet.builder('DebugUI')
   .transitions(t_connect, t_on_open, /* ... */)
   .build();
@@ -362,7 +364,7 @@ The executor runs a single-threaded orchestration loop with six phases per cycle
 | Events | `org.libpetri.event` | `libpetri` (event exports) |
 | Verification | `org.libpetri.smt` | `libpetri/verification` |
 | Export | `org.libpetri.export` | `libpetri/export` |
-| Analysis | `org.libpetri.analysis` | — (Java only) |
+| Analysis | `org.libpetri.analysis` | `libpetri/verification` (analysis exports) |
 | Debug | `org.libpetri.debug` | `libpetri/debug` |
 | Doclet | `org.libpetri.doclet` | `libpetri/doclet` |
 

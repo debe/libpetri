@@ -256,7 +256,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Token type safety | Typed places + typed tokens | Generics (compile-time) | Phantom type param | Generics (compile-time) |
 | Guard predicates | Filter on input arcs | ✓ (on Arc.Input) | ✓ (on In variants) | Not yet |
 | SMT verification | IC3/PDR via Z3 Spacer | ✓ | ✓ (WASM) | Not yet |
-| State class graph | Berthomieu-Diaz | ✓ | — | — |
+| State class graph | Berthomieu-Diaz | ✓ | ✓ | — |
 | Graph export | At least one format | DOT (Graphviz) | DOT (Graphviz) | Not yet |
 | Log capture | Action log → events | SLF4J LogCaptureScope | ctx.log() | Not yet |
 | Debug event store | Live tailing | ✓ | ✓ | — |
@@ -294,7 +294,7 @@ This matrix maps spec requirements to test classes/files in each implementation.
 | ENV-001–006 | `EnvironmentPlaceTest` | `environment.test.ts` | `injector::tests` |
 | ENV-010–012 | `LongRunningTest` | `long-running.test.ts` | — |
 | VER-001–006 | `SmtVerifierTest` | `smt-verifier.test.ts` | — |
-| VER-010–011 | `StateClassGraphTest` | — | — |
+| VER-010–011 | `StateClassGraphTest` | `analysis/*.test.ts` | — |
 | EVT-001–014 | `NetEventTest` | `net-event.test.ts` | `net_event::tests` |
 | EVT-020–024 | `EventStoreTest` | `event-store.test.ts` | `event_store::tests` |
 | EXP-001–008 | `DotExporterTest` | `dot-exporter.test.ts` | — |
