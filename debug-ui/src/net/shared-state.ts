@@ -6,7 +6,7 @@
  */
 
 import type { SvgNodeCache, Checkpoint, SessionData } from './types.js';
-import type { DebugCommand, NetEventInfo } from '../protocol/index.js';
+import type { DebugCommand, NetEventInfo, SessionSummary } from '../protocol/index.js';
 
 /** Mutable versions of readonly types for shared state. */
 interface MutableReplayData {
@@ -50,6 +50,12 @@ export const shared = {
   currentSession: null as SessionData | null,
   /** Current subscription mode. */
   currentMode: null as 'live' | 'replay' | null,
+  /** Full session list for re-filtering. */
+  allSessions: [] as SessionSummary[],
+  /** Current net-name filter value. */
+  netNameFilter: '' as string,
+  /** URL param auto-select target. */
+  pendingDeepLink: null as string | null,
 };
 
 /** Send a command over the WebSocket. */

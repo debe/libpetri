@@ -12,13 +12,33 @@ export function refreshSessions(): void {
   sendCommand({ type: 'listSessions' });
 }
 
-/** Populate session dropdown from session list response. */
-export function populateSessionList(sessions: readonly SessionSummary[]): void {
+/** Populate session dropdown from session list response, with optional net-name filter. */
+export function populateSessionList(sessions: readonly SessionSummary[], netNameFilter?: string): void {
   const select = el.sessionSelect;
   const currentValue = select.value;
   select.innerHTML = '<option value="">Select a session...</option>';
 
-  for (const session of sessions) {
+  // Extract unique net names and populate net-name filter dropdown
+  const netNames = new Set(sessions.map(s => s.netName));
+  const filterSelect = el.netNameFilter;
+  const currentFilter = filterSelect.value;
+  filterSelect.innerHTML = '<option value="">All nets</option>';
+  for (const name of [...netNames].sort()) {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    filterSelect.appendChild(opt);
+  }
+  // Restore filter selection
+  if (currentFilter && filterSelect.querySelector(`option[value="${CSS.escape(currentFilter)}"]`)) {
+    filterSelect.value = currentFilter;
+  }
+
+  // Apply filter
+  const filter = netNameFilter ?? currentFilter;
+  const filtered = filter ? sessions.filter(s => s.netName === filter) : sessions;
+
+  for (const session of filtered) {
     const option = document.createElement('option');
     option.value = session.sessionId;
     const status = session.active ? '(live)' : '(ended)';
@@ -27,7 +47,7 @@ export function populateSessionList(sessions: readonly SessionSummary[]): void {
     select.appendChild(option);
   }
 
-  if (currentValue && select.querySelector(`option[value="${currentValue}"]`)) {
+  if (currentValue && select.querySelector(`option[value="${CSS.escape(currentValue)}"]`)) {
     select.value = currentValue;
   }
 }

@@ -9,7 +9,9 @@
 
 import type { NetEvent } from '../event/net-event.js';
 import type { DebugCommand, EventFilter, BreakpointConfig } from './debug-command.js';
-import type { DebugResponse, TokenInfo, NetEventInfo } from './debug-response.js';
+import type { DebugResponse, TokenInfo, NetEventInfo, ArchiveSummary } from './debug-response.js';
+import type { SessionArchiveStorage } from './archive/session-archive-storage.js';
+import { SessionArchiveReader } from './archive/session-archive-reader.js';
 import type { DebugSession } from './debug-session-registry.js';
 import { type DebugSessionRegistry, buildNetStructure } from './debug-session-registry.js';
 import type { Subscription } from './debug-event-store.js';
@@ -31,10 +33,12 @@ const BATCH_SIZE = 500;
 
 export class DebugProtocolHandler {
   private readonly _sessionRegistry: DebugSessionRegistry;
+  private readonly _archiveStorage: SessionArchiveStorage | null;
   private readonly _clients = new Map<string, ClientState>();
 
-  constructor(sessionRegistry: DebugSessionRegistry) {
+  constructor(sessionRegistry: DebugSessionRegistry, archiveStorage?: SessionArchiveStorage | null) {
     this._sessionRegistry = sessionRegistry;
+    this._archiveStorage = archiveStorage ?? null;
   }
 
   /** Registers a new client connection. */
@@ -69,6 +73,9 @@ export class DebugProtocolHandler {
         case 'setBreakpoint': this.handleSetBreakpoint(clientState, command); break;
         case 'clearBreakpoint': this.handleClearBreakpoint(clientState, command); break;
         case 'listBreakpoints': this.handleListBreakpoints(clientState, command); break;
+        case 'listArchives': this.handleListArchives(clientState, command); break;
+        case 'importArchive': this.handleImportArchive(clientState, command); break;
+        case 'uploadArchive': this.handleUploadArchive(clientState, command); break;
       }
     } catch (e) {
       this.sendError(clientState, 'COMMAND_ERROR', e instanceof Error ? e.message : String(e), null);
@@ -312,6 +319,93 @@ export class DebugProtocolHandler {
   private handleListBreakpoints(client: ClientState, cmd: Extract<DebugCommand, { type: 'listBreakpoints' }>): void {
     const breakpoints = client.subscriptions.getBreakpoints(cmd.sessionId);
     this.send(client, { type: 'breakpointList', sessionId: cmd.sessionId, breakpoints });
+  }
+
+  // ======================== Archive Handlers ========================
+
+  private async handleListArchives(client: ClientState, cmd: Extract<DebugCommand, { type: 'listArchives' }>): Promise<void> {
+    if (!this._archiveStorage || !this._archiveStorage.isAvailable()) {
+      this.send(client, { type: 'archiveList', archives: [], storageAvailable: false });
+      return;
+    }
+    try {
+      const limit = cmd.limit ?? 50;
+      const archived = await this._archiveStorage.list(limit, cmd.prefix);
+      const summaries: ArchiveSummary[] = archived.map(a => ({
+        sessionId: a.sessionId,
+        key: a.key,
+        sizeBytes: a.sizeBytes,
+        lastModified: new Date(a.lastModified).toISOString(),
+      }));
+      this.send(client, { type: 'archiveList', archives: summaries, storageAvailable: true });
+    } catch (e) {
+      this.sendError(client, 'ARCHIVE_LIST_ERROR', e instanceof Error ? e.message : String(e), null);
+    }
+  }
+
+  private async handleImportArchive(client: ClientState, cmd: Extract<DebugCommand, { type: 'importArchive' }>): Promise<void> {
+    if (!this._archiveStorage || !this._archiveStorage.isAvailable()) {
+      this.sendError(client, 'NO_ARCHIVE_STORAGE', 'Archive storage is not configured', null);
+      return;
+    }
+    try {
+      const data = await this._archiveStorage.retrieve(cmd.sessionId);
+      const reader = new SessionArchiveReader();
+      const imported = reader.readFull(data);
+      const meta = imported.metadata;
+      this._sessionRegistry.registerImported(
+        meta.sessionId, meta.netName, meta.dotDiagram,
+        meta.structure, imported.eventStore,
+        new Date(meta.startTime).getTime(),
+      );
+      this.send(client, {
+        type: 'archiveImported',
+        sessionId: meta.sessionId,
+        netName: meta.netName,
+        eventCount: meta.eventCount,
+      });
+      this.broadcastSessionList();
+    } catch (e) {
+      this.sendError(client, 'ARCHIVE_IMPORT_ERROR', e instanceof Error ? e.message : String(e), cmd.sessionId);
+    }
+  }
+
+  private async handleUploadArchive(client: ClientState, cmd: Extract<DebugCommand, { type: 'uploadArchive' }>): Promise<void> {
+    try {
+      const decoded = Buffer.from(cmd.data, 'base64');
+      const reader = new SessionArchiveReader();
+      const imported = reader.readFull(decoded);
+      const meta = imported.metadata;
+      this._sessionRegistry.registerImported(
+        meta.sessionId, meta.netName, meta.dotDiagram,
+        meta.structure, imported.eventStore,
+        new Date(meta.startTime).getTime(),
+      );
+      this.send(client, {
+        type: 'archiveImported',
+        sessionId: meta.sessionId,
+        netName: meta.netName,
+        eventCount: meta.eventCount,
+      });
+      this.broadcastSessionList();
+    } catch (e) {
+      this.sendError(client, 'ARCHIVE_UPLOAD_ERROR', e instanceof Error ? e.message : String(e), null);
+    }
+  }
+
+  private broadcastSessionList(): void {
+    const sessions = this._sessionRegistry.listSessions(50);
+    const summaries = sessions.map(s => ({
+      sessionId: s.sessionId,
+      netName: s.netName,
+      startTime: new Date(s.startTime).toISOString(),
+      active: s.active,
+      eventCount: s.eventStore.eventCount(),
+    }));
+    const response: DebugResponse = { type: 'sessionList', sessions: summaries };
+    for (const clientState of this._clients.values()) {
+      try { this.send(clientState, response); } catch { /* best-effort broadcast */ }
+    }
   }
 
   // ======================== Helper Methods ========================

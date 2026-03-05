@@ -17,6 +17,7 @@ export const waitReconnect = place<void>('waitReconnect');
 
 export const noSession = place<void>('noSession');
 export const subscribing = place<string>('subscribing');
+export const subscribedSession = place<string>('subscribedSession');
 export const liveSession = environmentPlace<SessionData>('liveSession');
 export const replaySession = environmentPlace<SessionData>('replaySession');
 
@@ -85,6 +86,10 @@ export const userSearchPrev = environmentPlace<void>('userSearchPrev');
 export const userSearchNext = environmentPlace<void>('userSearchNext');
 export const userOpenModal = environmentPlace<ModalContent>('userOpenModal');
 export const userCloseModal = environmentPlace<void>('userCloseModal');
+export const userOpenArchiveBrowser = environmentPlace<void>('userOpenArchiveBrowser');
+export const userImportArchive = environmentPlace<string>('userImportArchive');
+export const userUploadArchive = environmentPlace<File>('userUploadArchive');
+export const userFilterNetName = environmentPlace<string>('userFilterNetName');
 export const rafTick = environmentPlace<void>('rafTick');
 
 /** All environment places for executor registration. */
@@ -95,6 +100,7 @@ export const allEnvironmentPlaces = new Set([
   userClickRunToEnd, userSeekSlider, userSetSpeed,
   userClickPlace, userSetBreakpoint, userClearBreakpoint,
   userApplyFilter, userSearch, userSearchPrev, userSearchNext, userOpenModal, userCloseModal,
+  userOpenArchiveBrowser, userImportArchive, userUploadArchive, userFilterNetName,
   rafTick,
   liveSession, replaySession, replayPaused, autoStepTick,
 ]);

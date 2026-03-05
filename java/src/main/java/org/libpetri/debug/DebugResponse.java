@@ -39,7 +39,9 @@ import java.util.Map;
     @JsonSubTypes.Type(value = DebugResponse.BreakpointList.class, name = "breakpointList"),
     @JsonSubTypes.Type(value = DebugResponse.BreakpointSet.class, name = "breakpointSet"),
     @JsonSubTypes.Type(value = DebugResponse.BreakpointCleared.class, name = "breakpointCleared"),
-    @JsonSubTypes.Type(value = DebugResponse.Error.class, name = "error")
+    @JsonSubTypes.Type(value = DebugResponse.Error.class, name = "error"),
+    @JsonSubTypes.Type(value = DebugResponse.ArchiveList.class, name = "archiveList"),
+    @JsonSubTypes.Type(value = DebugResponse.ArchiveImported.class, name = "archiveImported")
 })
 public sealed interface DebugResponse {
 
@@ -211,6 +213,33 @@ public sealed interface DebugResponse {
         String message,
         String sessionId
     ) implements DebugResponse {}
+
+    /**
+     * List of available session archives.
+     *
+     * @param archives list of archive summaries
+     * @param storageAvailable whether archive storage is configured
+     */
+    record ArchiveList(List<ArchiveSummary> archives, boolean storageAvailable) implements DebugResponse {}
+
+    /**
+     * Confirmation that an archive was imported.
+     *
+     * @param sessionId the imported session ID
+     * @param netName the Petri net name
+     * @param eventCount number of events imported
+     */
+    record ArchiveImported(String sessionId, String netName, long eventCount) implements DebugResponse {}
+
+    /**
+     * Summary of an archived session.
+     *
+     * @param sessionId the session identifier
+     * @param key the storage key/path
+     * @param sizeBytes file size in bytes
+     * @param lastModified when the archive was last modified (ISO-8601)
+     */
+    record ArchiveSummary(String sessionId, String key, long sizeBytes, String lastModified) {}
 
     // ======================== Supporting Types ========================
 

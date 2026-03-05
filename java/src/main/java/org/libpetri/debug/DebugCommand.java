@@ -39,7 +39,10 @@ import java.util.Set;
     @JsonSubTypes.Type(value = DebugCommand.StepBackward.class, name = "stepBackward"),
     @JsonSubTypes.Type(value = DebugCommand.SetBreakpoint.class, name = "setBreakpoint"),
     @JsonSubTypes.Type(value = DebugCommand.ClearBreakpoint.class, name = "clearBreakpoint"),
-    @JsonSubTypes.Type(value = DebugCommand.ListBreakpoints.class, name = "listBreakpoints")
+    @JsonSubTypes.Type(value = DebugCommand.ListBreakpoints.class, name = "listBreakpoints"),
+    @JsonSubTypes.Type(value = DebugCommand.ListArchives.class, name = "listArchives"),
+    @JsonSubTypes.Type(value = DebugCommand.ImportArchive.class, name = "importArchive"),
+    @JsonSubTypes.Type(value = DebugCommand.UploadArchive.class, name = "uploadArchive")
 })
 public sealed interface DebugCommand {
 
@@ -157,6 +160,31 @@ public sealed interface DebugCommand {
      * @param sessionId the session to list breakpoints for
      */
     record ListBreakpoints(String sessionId) implements DebugCommand {}
+
+    /**
+     * List available session archives from storage.
+     *
+     * @param limit maximum number of archives to return (default 50)
+     * @param prefix optional session ID prefix filter
+     */
+    record ListArchives(Integer limit, String prefix) implements DebugCommand {
+        public ListArchives { if (limit == null) limit = 50; }
+    }
+
+    /**
+     * Import an archived session from storage by session ID.
+     *
+     * @param sessionId the archived session to import
+     */
+    record ImportArchive(String sessionId) implements DebugCommand {}
+
+    /**
+     * Upload and import an archive file (base64-encoded LZ4 content).
+     *
+     * @param fileName original file name
+     * @param data base64-encoded LZ4 archive content
+     */
+    record UploadArchive(String fileName, String data) implements DebugCommand {}
 
     // ======================== Supporting Types ========================
 

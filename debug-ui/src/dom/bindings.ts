@@ -14,6 +14,7 @@ import { refreshSessions } from '../net/actions/session.js';
 import { generateBreakpointId, showBreakpointForm, hideBreakpointForm, findBreakpoint } from '../net/actions/breakpoints.js';
 import { copyModalJson } from '../net/actions/modal.js';
 import { setupScrollListener } from '../net/actions/event-log.js';
+import { requestArchiveList, hideArchiveBrowser } from '../net/actions/archive.js';
 
 /** Bind all DOM events to executor environment place injections. */
 export function bindDomEvents(executor: BitmapNetExecutor): void {
@@ -24,6 +25,10 @@ export function bindDomEvents(executor: BitmapNetExecutor): void {
     if (sessionId) {
       const mode = el.modeSelect.value;
       executor.injectValue(p.userSelectSession, { sessionId, mode });
+      // Update URL for deep-linking
+      const url = new URL(window.location.href);
+      url.searchParams.set('sessionId', sessionId);
+      window.history.replaceState(null, '', url.toString());
     }
   });
 
@@ -215,6 +220,35 @@ export function bindDomEvents(executor: BitmapNetExecutor): void {
     }
   });
 
+  // ======================== Token inspector click → value modal ========================
+
+  el.tokenInspector.addEventListener('click', (e) => {
+    const entry = (e.target as HTMLElement).closest('[data-token-index]') as HTMLElement | null;
+    if (!entry) return;
+    const indexStr = entry.dataset['tokenIndex'];
+    const placeName = entry.dataset['place'];
+    if (indexStr == null || !placeName) return;
+
+    const tokens = (() => {
+      const m = executor.getMarking().peekTokens(p.uiState);
+      if (m.length === 0) return null;
+      const state = m[0]!.value as import('../net/types.js').UIState;
+      return state.marking[placeName];
+    })();
+    if (!tokens) return;
+
+    const index = parseInt(indexStr, 10);
+    const token = tokens[index];
+    if (!token) return;
+
+    const content: ModalContent = {
+      title: placeName,
+      subtitle: `Token ${index + 1} of ${tokens.length} · ${token.type}`,
+      json: token.value ?? 'null',
+    };
+    executor.injectValue(p.userOpenModal, content);
+  });
+
   // ======================== Diagram click → place/transition inspection ========================
 
   el.dotDiagram.addEventListener('click', (e) => {
@@ -274,6 +308,88 @@ export function bindDomEvents(executor: BitmapNetExecutor): void {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       executor.injectValue(p.userCloseModal, undefined);
+    }
+  });
+
+  // ======================== Net-name filter ========================
+
+  el.netNameFilter.addEventListener('change', () => {
+    executor.injectValue(p.userFilterNetName, el.netNameFilter.value);
+  });
+
+  // ======================== Archive browser ========================
+
+  el.archiveBtn.addEventListener('click', () => {
+    executor.injectValue(p.userOpenArchiveBrowser, undefined);
+  });
+
+  el.archiveCloseBtn.addEventListener('click', () => {
+    hideArchiveBrowser();
+  });
+
+  el.archiveModal.addEventListener('click', (e) => {
+    if (e.target === el.archiveModal) {
+      hideArchiveBrowser();
+    }
+  });
+
+  // Delegated click on import buttons
+  el.archiveTable.addEventListener('click', (e) => {
+    const target = (e.target as HTMLElement).closest('[data-archive-import]') as HTMLElement | null;
+    if (target) {
+      const sessionId = target.dataset['archiveImport'];
+      if (sessionId) {
+        executor.injectValue(p.userImportArchive, sessionId);
+      }
+    }
+  });
+
+  // File upload via input
+  el.archiveUpload.addEventListener('change', () => {
+    const file = el.archiveUpload.files?.[0];
+    if (file) {
+      executor.injectValue(p.userUploadArchive, file);
+      el.archiveUpload.value = '';
+    }
+  });
+
+  // Drop zone click → trigger file input
+  el.archiveDropZone.addEventListener('click', () => {
+    el.archiveUpload.click();
+  });
+
+  // Drag-and-drop handlers
+  el.archiveDropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    el.archiveDropZone.classList.add('border-blue-500');
+  });
+
+  el.archiveDropZone.addEventListener('dragleave', () => {
+    el.archiveDropZone.classList.remove('border-blue-500');
+  });
+
+  el.archiveDropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    el.archiveDropZone.classList.remove('border-blue-500');
+    const file = e.dataTransfer?.files[0];
+    if (file) {
+      executor.injectValue(p.userUploadArchive, file);
+    }
+  });
+
+  // Archive search with debounce
+  let archiveSearchDebounce: ReturnType<typeof setTimeout> | null = null;
+  el.archiveSearch.addEventListener('input', () => {
+    if (archiveSearchDebounce) clearTimeout(archiveSearchDebounce);
+    archiveSearchDebounce = setTimeout(() => {
+      requestArchiveList(50, el.archiveSearch.value || undefined);
+    }, 300);
+  });
+
+  // Escape closes archive modal too
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !el.archiveModal.classList.contains('hidden')) {
+      hideArchiveBrowser();
     }
   });
 

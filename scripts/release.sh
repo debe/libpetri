@@ -95,12 +95,21 @@ if [[ "$DRY_RUN" == false ]]; then
     fi
 fi
 
-# --- Set version ---
+# --- Set versions in both Java and TypeScript ---
 info "Setting version to ${VERSION}"
 cd "$JAVA_DIR"
 ./mvnw versions:set -DnewVersion="$VERSION" -DgenerateBackupPoms=false -q
 
-# --- Build / Deploy ---
+cd "$TS_DIR"
+npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+# --- Commit the version bump ---
+cd "$PROJECT_ROOT"
+git add java/pom.xml typescript/package.json
+git commit -m "release: ${VERSION}"
+
+# --- Java: Build / Deploy ---
+cd "$JAVA_DIR"
 if [[ "$DRY_RUN" == true ]]; then
     info "Dry run: building, testing, and signing (no upload)"
     GOAL=verify
@@ -110,22 +119,13 @@ else
 fi
 
 if ! ./mvnw clean "$GOAL" -Prelease; then
-    info "Build failed, reverting version change"
-    git checkout pom.xml
+    info "Build failed — version commit remains, fix and retry or reset"
     exit 1
 fi
-
-# --- Clean up version change ---
-info "Reverting version in pom.xml"
-cd "$PROJECT_ROOT"
-git checkout java/pom.xml
 
 # --- TypeScript: build, test, publish ---
 info "Building and testing TypeScript package"
 cd "$TS_DIR"
-
-# Set version in package.json
-npm version "$VERSION" --no-git-tag-version --allow-same-version
 
 npm install
 npm run build
@@ -135,19 +135,16 @@ npm test
 if [[ "$DRY_RUN" == true ]]; then
     info "Dry run: verifying npm package contents"
     npm pack --dry-run
-    git checkout package.json
     info "Dry run complete. Java artifacts in java/target/, TypeScript in typescript/dist/"
+    info "Note: version commit created. Run 'git reset HEAD~1' to undo if needed."
     exit 0
 fi
 
 info "Publishing to npm"
 npm publish
 
-# Revert package.json version change (release version baked into published tarball)
-cd "$PROJECT_ROOT"
-git checkout typescript/package.json
-
 # --- Tag and release ---
+cd "$PROJECT_ROOT"
 info "Creating tag v${VERSION}"
 git tag -a "v${VERSION}" -m "Release ${VERSION}"
 

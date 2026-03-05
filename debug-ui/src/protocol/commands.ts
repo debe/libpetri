@@ -38,4 +38,7 @@ export type DebugCommand =
   | { readonly type: 'stepBackward'; readonly sessionId: string }
   | { readonly type: 'setBreakpoint'; readonly sessionId: string; readonly breakpoint: BreakpointConfig }
   | { readonly type: 'clearBreakpoint'; readonly sessionId: string; readonly breakpointId: string }
-  | { readonly type: 'listBreakpoints'; readonly sessionId: string };
+  | { readonly type: 'listBreakpoints'; readonly sessionId: string }
+  | { readonly type: 'listArchives'; readonly limit?: number; readonly prefix?: string }
+  | { readonly type: 'importArchive'; readonly sessionId: string }
+  | { readonly type: 'uploadArchive'; readonly fileName: string; readonly data: string };
