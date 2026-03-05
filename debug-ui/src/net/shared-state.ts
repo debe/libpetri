@@ -5,7 +5,7 @@
  * mutable state for WebSocket, DOM caches, replay data, etc.
  */
 
-import type { SvgNodeCache, Checkpoint } from './types.js';
+import type { SvgNodeCache, Checkpoint, SessionData } from './types.js';
 import type { DebugCommand, NetEventInfo } from '../protocol/index.js';
 
 /** Mutable versions of readonly types for shared state. */
@@ -46,6 +46,10 @@ export const shared = {
   /** Pending slider seek (rAF-throttled) */
   pendingSeekIndex: null as number | null,
   seekRafId: null as number | null,
+  /** Current session data (set on subscribe, cleared on disconnect). */
+  currentSession: null as SessionData | null,
+  /** Current subscription mode. */
+  currentMode: null as 'live' | 'replay' | null,
 };
 
 /** Send a command over the WebSocket. */

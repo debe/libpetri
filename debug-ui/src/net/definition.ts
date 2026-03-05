@@ -136,6 +136,9 @@ export function buildDebugNet(): {
         shared.replay = { allEvents: [], checkpoints: [], checkpointInterval: 20 };
       }
 
+      shared.currentSession = sessionData;
+      shared.currentMode = isReplay ? 'replay' : 'live';
+
       enableControls(true);
       updateAutocompleteOptions(sessionData.structure);
       updatePlaybackControls(isReplay);
@@ -193,8 +196,7 @@ export function buildDebugNet(): {
       const msg = ctx.input(p.wsMessage.place) as Extract<DebugResponse, { type: 'eventBatch' }>;
       let state = ctx.input(p.uiState) as UIState;
 
-      // Check if replay mode by checking if we have replay session
-      const isReplay = shared.replay.allEvents !== undefined && shared.replay.checkpointInterval > 0;
+      const isReplay = shared.currentMode === 'replay';
 
       if (isReplay) {
         const prevLength = shared.replay.allEvents.length;
@@ -347,10 +349,7 @@ export function buildDebugNet(): {
     .timing(immediate())
     .action(async (ctx) => {
       const state = ctx.read(p.uiState) as UIState;
-      // Try to get session data from either live or replay
-      let session: SessionData | null = null;
-      try { session = ctx.read(p.liveSession.place) as SessionData; } catch { /* not live */ }
-      try { session = ctx.read(p.replaySession.place) as SessionData; } catch { /* not replay */ }
+      const session = shared.currentSession;
       updateDiagramHighlighting(state, session);
     })
     .build();
@@ -372,9 +371,7 @@ export function buildDebugNet(): {
     .timing(immediate())
     .action(async (ctx) => {
       const state = ctx.read(p.uiState) as UIState;
-      let session: SessionData | null = null;
-      try { session = ctx.read(p.liveSession.place) as SessionData; } catch { /* */ }
-      try { session = ctx.read(p.replaySession.place) as SessionData; } catch { /* */ }
+      const session = shared.currentSession;
       updateMarkingInspector(state, session);
     })
     .build();
