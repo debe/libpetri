@@ -46,6 +46,13 @@ export interface NetStructure {
   readonly transitions: readonly TransitionInfo[];
 }
 
+export interface ArchiveSummary {
+  readonly sessionId: string;
+  readonly key: string;
+  readonly sizeBytes: number;
+  readonly lastModified: string;
+}
+
 export type DebugResponse =
   | { readonly type: 'sessionList'; readonly sessions: readonly SessionSummary[] }
   | {
@@ -70,4 +77,6 @@ export type DebugResponse =
   | { readonly type: 'breakpointList'; readonly sessionId: string; readonly breakpoints: readonly BreakpointConfig[] }
   | { readonly type: 'breakpointSet'; readonly sessionId: string; readonly breakpoint: BreakpointConfig }
   | { readonly type: 'breakpointCleared'; readonly sessionId: string; readonly breakpointId: string }
-  | { readonly type: 'error'; readonly code: string; readonly message: string; readonly sessionId: string | null };
+  | { readonly type: 'error'; readonly code: string; readonly message: string; readonly sessionId: string | null }
+  | { readonly type: 'archiveList'; readonly archives: readonly ArchiveSummary[]; readonly storageAvailable: boolean }
+  | { readonly type: 'archiveImported'; readonly sessionId: string; readonly netName: string; readonly eventCount: number };

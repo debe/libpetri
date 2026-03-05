@@ -18,10 +18,14 @@ import type { DebugResponse, BreakpointConfig } from '../protocol/index.js';
 import { shared, sendCommand } from './shared-state.js';
 import { createWebSocket, setConnected, setDisconnected, setConnecting } from './actions/connection.js';
 import {
-  refreshSessions, populateSessionList, subscribeToSession,
+  refreshSessions, populateSessionList, subscribeToSession, unsubscribeFromSession,
   buildSessionData, buildInitialUIState,
   enableControls, updateAutocompleteOptions,
 } from './actions/session.js';
+import {
+  requestArchiveList, renderArchiveList, showArchiveBrowser, hideArchiveBrowser,
+  requestImportArchive, uploadArchiveFile,
+} from './actions/archive.js';
 import { renderDotDiagram, updateDiagramHighlighting } from './actions/diagram.js';
 import { renderVisibleEvents } from './actions/event-log.js';
 import {
@@ -122,9 +126,26 @@ export function buildDebugNet(): {
     })
     .build();
 
+  const t_unsubscribe_and_switch = Transition.builder('t_unsubscribe_and_switch')
+    .inputs(one(p.subscribedSession), one(p.userSelectSession.place), one(p.uiState))
+    .reads(p.connected)
+    .outputs(outPlace(p.subscribing))
+    .timing(immediate())
+    .action(async (ctx) => {
+      const oldSessionId = ctx.input(p.subscribedSession) as string;
+      const selection = ctx.input(p.userSelectSession.place) as { sessionId: string; mode: string };
+      unsubscribeFromSession(oldSessionId);
+      shared.currentSession = null;
+      shared.currentMode = null;
+      shared.replay = { allEvents: [], checkpoints: [], checkpointInterval: 20 };
+      subscribeToSession(selection.sessionId, selection.mode);
+      ctx.output(p.subscribing, selection.sessionId);
+    })
+    .build();
+
   const t_on_subscribed = Transition.builder('t_on_subscribed')
     .inputs(one(p.subscribing), one(p.wsMessage.place, (msg: DebugResponse) => msg.type === 'subscribed'))
-    .outputs(and(outPlace(p.uiState), outPlace(p.dotSource)))
+    .outputs(and(outPlace(p.uiState), outPlace(p.dotSource), outPlace(p.stateDirty), outPlace(p.subscribedSession)))
     .timing(immediate())
     .action(async (ctx) => {
       const msg = ctx.input(p.wsMessage.place) as Extract<DebugResponse, { type: 'subscribed' }>;
@@ -154,6 +175,8 @@ export function buildDebugNet(): {
 
       ctx.output(p.uiState, initialState);
       ctx.output(p.dotSource, msg.dotDiagram);
+      ctx.output(p.stateDirty, undefined);
+      ctx.output(p.subscribedSession, msg.sessionId);
     })
     .build();
 
@@ -164,7 +187,18 @@ export function buildDebugNet(): {
     .timing(immediate())
     .action(async (ctx) => {
       const msg = ctx.input(p.wsMessage.place) as Extract<DebugResponse, { type: 'sessionList' }>;
-      populateSessionList(msg.sessions);
+      shared.allSessions = [...msg.sessions];
+      populateSessionList(msg.sessions, shared.netNameFilter || undefined);
+
+      // Handle deep-link: auto-select session from URL param
+      if (shared.pendingDeepLink) {
+        const target = shared.pendingDeepLink;
+        shared.pendingDeepLink = null;
+        const found = msg.sessions.find(s => s.sessionId === target);
+        if (found) {
+          executor.injectValue(p.userSelectSession, { sessionId: target, mode: 'replay' });
+        }
+      }
     })
     .build();
 
@@ -565,7 +599,10 @@ export function buildDebugNet(): {
     .outputs(outPlace(p.selectedPlace))
     .timing(immediate())
     .action(async (ctx) => {
-      const placeName = ctx.input(p.userClickPlace.place) as string;
+      const raw = ctx.input(p.userClickPlace.place) as string;
+      // Resolve graphId (e.g. "p_start") to place name (e.g. "start") if needed
+      const lookup = shared.currentSession?.byGraphId[raw];
+      const placeName = lookup && !lookup.isTransition ? lookup.name : raw;
       const state = ctx.read(p.uiState) as UIState;
       renderTokenInspector(placeName, state);
       ctx.output(p.selectedPlace, placeName);
@@ -690,12 +727,75 @@ export function buildDebugNet(): {
 
   // This doesn't need to be in the net, handled directly by DOM binding
 
+  // ======================== Archive transitions ========================
+
+  const t_open_archive_browser = Transition.builder('t_open_archive_browser')
+    .inputs(one(p.userOpenArchiveBrowser.place))
+    .reads(p.connected)
+    .timing(immediate())
+    .action(async () => {
+      requestArchiveList();
+    })
+    .build();
+
+  const t_on_archive_list = Transition.builder('t_on_archive_list')
+    .inputs(one(p.wsMessage.place, (msg: DebugResponse) => msg.type === 'archiveList'))
+    .timing(immediate())
+    .action(async (ctx) => {
+      const msg = ctx.input(p.wsMessage.place) as Extract<DebugResponse, { type: 'archiveList' }>;
+      renderArchiveList(msg.archives);
+      showArchiveBrowser(msg.storageAvailable);
+    })
+    .build();
+
+  const t_import_archive = Transition.builder('t_import_archive')
+    .inputs(one(p.userImportArchive.place))
+    .reads(p.connected)
+    .timing(immediate())
+    .action(async (ctx) => {
+      const sessionId = ctx.input(p.userImportArchive.place) as string;
+      requestImportArchive(sessionId);
+    })
+    .build();
+
+  const t_upload_archive = Transition.builder('t_upload_archive')
+    .inputs(one(p.userUploadArchive.place))
+    .reads(p.connected)
+    .timing(immediate())
+    .action(async (ctx) => {
+      const file = ctx.input(p.userUploadArchive.place) as File;
+      uploadArchiveFile(file);
+    })
+    .build();
+
+  const t_on_archive_imported = Transition.builder('t_on_archive_imported')
+    .inputs(one(p.wsMessage.place, (msg: DebugResponse) => msg.type === 'archiveImported'))
+    .timing(immediate())
+    .action(async (ctx) => {
+      const msg = ctx.input(p.wsMessage.place) as Extract<DebugResponse, { type: 'archiveImported' }>;
+      hideArchiveBrowser();
+      executor.injectValue(p.userSelectSession, { sessionId: msg.sessionId, mode: 'replay' });
+    })
+    .build();
+
+  // ======================== Net-name filter transition ========================
+
+  const t_filter_net_name = Transition.builder('t_filter_net_name')
+    .inputs(one(p.userFilterNetName.place))
+    .timing(immediate())
+    .action(async (ctx) => {
+      const filter = ctx.input(p.userFilterNetName.place) as string;
+      shared.netNameFilter = filter;
+      populateSessionList(shared.allSessions, filter || undefined);
+    })
+    .build();
+
   // ======================== Build Net ========================
 
   const net = PetriNet.builder('DebugUI')
     .transitions(
       t_connect, t_on_open, t_on_close_connecting, t_on_close_connected, t_reconnect,
-      t_subscribe, t_on_subscribed,
+      t_subscribe, t_unsubscribe_and_switch, t_on_subscribed,
       t_on_session_list, t_on_event, t_on_event_batch, t_on_marking_snapshot,
       t_on_playback_state, t_on_breakpoint_hit, t_on_bp_list, t_on_bp_set,
       t_on_bp_cleared, t_on_filter_applied, t_on_unsubscribed, t_on_error,
@@ -709,6 +809,8 @@ export function buildDebugNet(): {
       t_set_breakpoint, t_clear_breakpoint,
       t_apply_filter, t_search, t_search_next, t_search_prev,
       t_set_speed,
+      t_open_archive_browser, t_on_archive_list, t_import_archive,
+      t_upload_archive, t_on_archive_imported, t_filter_net_name,
     )
     .build();
 

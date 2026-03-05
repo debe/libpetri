@@ -62,6 +62,15 @@ export let el: {
   modalCopy: HTMLButtonElement;
   modalClose: HTMLButtonElement;
   modalJson: HTMLElement;
+  netNameFilter: HTMLSelectElement;
+  archiveBtn: HTMLButtonElement;
+  archiveModal: HTMLElement;
+  archiveSearch: HTMLInputElement;
+  archiveTable: HTMLElement;
+  archiveUpload: HTMLInputElement;
+  archiveDropZone: HTMLElement;
+  archiveCloseBtn: HTMLButtonElement;
+  archiveStatus: HTMLElement;
 };
 
 /** Initialize all cached element references. Must be called after DOMContentLoaded. */
@@ -119,5 +128,14 @@ export function initElements(): void {
     modalCopy: getEl<HTMLButtonElement>('modal-copy'),
     modalClose: getEl<HTMLButtonElement>('modal-close'),
     modalJson: getEl('modal-json'),
+    netNameFilter: getEl<HTMLSelectElement>('net-name-filter'),
+    archiveBtn: getEl<HTMLButtonElement>('archive-btn'),
+    archiveModal: getEl('archive-modal'),
+    archiveSearch: getEl<HTMLInputElement>('archive-search'),
+    archiveTable: getEl('archive-table'),
+    archiveUpload: getEl<HTMLInputElement>('archive-upload'),
+    archiveDropZone: getEl('archive-drop-zone'),
+    archiveCloseBtn: getEl<HTMLButtonElement>('archive-close'),
+    archiveStatus: getEl('archive-status'),
   };
 }

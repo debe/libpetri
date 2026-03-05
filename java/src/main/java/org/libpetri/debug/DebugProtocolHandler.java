@@ -1,10 +1,14 @@
 package org.libpetri.debug;
 
 import org.libpetri.debug.DebugSessionRegistry.DebugSession;
+import org.libpetri.debug.archive.SessionArchiveReader;
+import org.libpetri.debug.archive.SessionArchiveStorage;
 import org.libpetri.event.NetEvent;
+import java.io.ByteArrayInputStream;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -37,10 +41,17 @@ public class DebugProtocolHandler {
     }
 
     private final DebugSessionRegistry sessionRegistry;
+    private final SessionArchiveStorage archiveStorage; // nullable
     private final ConcurrentHashMap<String, ClientState> clients = new ConcurrentHashMap<>();
 
     public DebugProtocolHandler(DebugSessionRegistry sessionRegistry) {
+        this(sessionRegistry, null);
+    }
+
+    public DebugProtocolHandler(DebugSessionRegistry sessionRegistry,
+                                SessionArchiveStorage archiveStorage) {
         this.sessionRegistry = sessionRegistry;
+        this.archiveStorage = archiveStorage;
     }
 
     /**
@@ -97,6 +108,9 @@ public class DebugProtocolHandler {
                 case DebugCommand.SetBreakpoint cmd -> handleSetBreakpoint(clientState, cmd);
                 case DebugCommand.ClearBreakpoint cmd -> handleClearBreakpoint(clientState, cmd);
                 case DebugCommand.ListBreakpoints cmd -> handleListBreakpoints(clientState, cmd);
+                case DebugCommand.ListArchives cmd -> handleListArchives(clientState, cmd);
+                case DebugCommand.ImportArchive cmd -> handleImportArchive(clientState, cmd);
+                case DebugCommand.UploadArchive cmd -> handleUploadArchive(clientState, cmd);
             }
         } catch (Exception e) {
             LOG.log(Level.ERROR, "Error handling debug command", e);
@@ -351,6 +365,87 @@ public class DebugProtocolHandler {
     private void handleListBreakpoints(ClientState client, DebugCommand.ListBreakpoints cmd) {
         var breakpoints = client.subscriptions.getBreakpoints(cmd.sessionId());
         send(client, new DebugResponse.BreakpointList(cmd.sessionId(), breakpoints));
+    }
+
+    // ======================== Archive Handlers ========================
+
+    private void handleListArchives(ClientState client, DebugCommand.ListArchives cmd) {
+        if (archiveStorage == null || !archiveStorage.isAvailable()) {
+            send(client, new DebugResponse.ArchiveList(List.of(), false));
+            return;
+        }
+        try {
+            var archived = archiveStorage.list(cmd.limit(), cmd.prefix());
+            var summaries = archived.stream()
+                .map(a -> new DebugResponse.ArchiveSummary(
+                    a.sessionId(), a.key(), a.sizeBytes(), a.lastModified().toString()))
+                .toList();
+            send(client, new DebugResponse.ArchiveList(summaries, true));
+        } catch (Exception e) {
+            LOG.log(Level.ERROR, "Failed to list archives", e);
+            sendError(client, "ARCHIVE_LIST_ERROR", e.getMessage(), null);
+        }
+    }
+
+    private void handleImportArchive(ClientState client, DebugCommand.ImportArchive cmd) {
+        if (archiveStorage == null || !archiveStorage.isAvailable()) {
+            sendError(client, "NO_ARCHIVE_STORAGE", "Archive storage is not configured", null);
+            return;
+        }
+        try {
+            var reader = new SessionArchiveReader();
+            try (var in = archiveStorage.retrieve(cmd.sessionId())) {
+                var imported = reader.readFull(in);
+                var metadata = imported.metadata();
+                sessionRegistry.registerImported(
+                    metadata.sessionId(), metadata.netName(), metadata.dotDiagram(),
+                    metadata.structure(), imported.eventStore(), metadata.startTime());
+                send(client, new DebugResponse.ArchiveImported(
+                    metadata.sessionId(), metadata.netName(), metadata.eventCount()));
+                broadcastSessionList();
+            }
+        } catch (Exception e) {
+            LOG.log(Level.ERROR, "Failed to import archive: " + cmd.sessionId(), e);
+            sendError(client, "ARCHIVE_IMPORT_ERROR", e.getMessage(), cmd.sessionId());
+        }
+    }
+
+    private void handleUploadArchive(ClientState client, DebugCommand.UploadArchive cmd) {
+        try {
+            var decoded = Base64.getDecoder().decode(cmd.data());
+            var reader = new SessionArchiveReader();
+            var imported = reader.readFull(new ByteArrayInputStream(decoded));
+            var metadata = imported.metadata();
+            sessionRegistry.registerImported(
+                metadata.sessionId(), metadata.netName(), metadata.dotDiagram(),
+                metadata.structure(), imported.eventStore(), metadata.startTime());
+            send(client, new DebugResponse.ArchiveImported(
+                metadata.sessionId(), metadata.netName(), metadata.eventCount()));
+            broadcastSessionList();
+        } catch (Exception e) {
+            LOG.log(Level.ERROR, "Failed to upload archive", e);
+            sendError(client, "ARCHIVE_UPLOAD_ERROR", e.getMessage(), null);
+        }
+    }
+
+    /**
+     * Broadcasts the current session list to all connected clients.
+     */
+    private void broadcastSessionList() {
+        var sessions = sessionRegistry.listSessions(50);
+        var summaries = sessions.stream()
+            .map(s -> new DebugResponse.SessionSummary(
+                s.sessionId(), s.netName(), s.startTime().toString(),
+                s.active(), s.eventStore().eventCount()))
+            .toList();
+        var response = new DebugResponse.SessionList(summaries);
+        for (var clientState : clients.values()) {
+            try {
+                send(clientState, response);
+            } catch (Exception e) {
+                LOG.log(Level.WARNING, "Failed to broadcast session list to client", e);
+            }
+        }
     }
 
     // ======================== Helper Methods ========================

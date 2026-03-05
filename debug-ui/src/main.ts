@@ -12,6 +12,7 @@ import { bindDomEvents } from './dom/bindings.js';
 import { startRafLoop } from './dom/raf-loop.js';
 import { buildDebugNet, setExecutor } from './net/definition.js';
 import { allEnvironmentPlaces } from './net/places.js';
+import { shared } from './net/shared-state.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
   // Initialize cached DOM references
@@ -31,6 +32,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Wire DOM events → environment place injections
   bindDomEvents(executor);
+
+  // Parse URL for deep-linking
+  const targetSessionId = new URLSearchParams(window.location.search).get('sessionId');
+  if (targetSessionId) {
+    shared.pendingDeepLink = targetSessionId;
+  }
 
   // Start rAF loop for throttled UI updates
   startRafLoop(executor);

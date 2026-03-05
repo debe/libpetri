@@ -48,6 +48,8 @@ const ELEMENT_IDS = [
   'ctx-bp-place-options', 'ctx-bp-transition-options',
   'value-modal', 'modal-title', 'modal-subtitle', 'modal-copy', 'modal-close', 'modal-json',
   'transition-options', 'place-options',
+  'net-name-filter', 'archive-btn', 'archive-modal', 'archive-search',
+  'archive-table', 'archive-upload', 'archive-drop-zone', 'archive-close', 'archive-status',
 ];
 
 /** Create all required DOM elements. */
@@ -59,12 +61,15 @@ export function setupDOM(): void {
       || id === 'add-breakpoint' || id.startsWith('bp-save') || id.startsWith('bp-cancel')
       || id === 'apply-filter' || id === 'clear-filter'
       || id === 'search-prev' || id === 'search-next' || id === 'search-clear'
-      || id === 'jump-to-latest' || id === 'modal-copy' || id === 'modal-close') {
+      || id === 'jump-to-latest' || id === 'modal-copy' || id === 'modal-close'
+      || id === 'archive-btn' || id === 'archive-close') {
       tag = 'button';
-    } else if (id === 'session-select' || id === 'filter-event-type' || id === 'mode-select' || id === 'bp-type') {
+    } else if (id === 'session-select' || id === 'filter-event-type' || id === 'mode-select' || id === 'bp-type'
+      || id === 'net-name-filter') {
       tag = 'select';
     } else if (id === 'filter-transition' || id === 'filter-place' || id === 'bp-target'
-      || id === 'search-input' || id === 'timeline-slider') {
+      || id === 'search-input' || id === 'timeline-slider'
+      || id === 'archive-search' || id === 'archive-upload') {
       tag = 'input';
     } else if (id === 'transition-options' || id === 'place-options') {
       tag = 'datalist';

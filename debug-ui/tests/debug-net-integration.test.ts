@@ -102,6 +102,9 @@ describe('debug net integration', () => {
     shared.playback = { timer: null, animationFrame: null, speed: 1 };
     shared.svgNodeCache = null;
     shared.prevHighlighted = { shapes: [], edges: [] };
+    shared.allSessions = [];
+    shared.netNameFilter = '';
+    shared.pendingDeepLink = null;
 
     const { net, initialTokens } = buildDebugNet();
     executor = new BitmapNetExecutor(net, initialTokens, {
@@ -323,5 +326,153 @@ describe('debug net integration', () => {
     const select = document.getElementById('session-select') as HTMLSelectElement;
     // Default option + 2 sessions
     expect(select.options.length).toBe(3);
+  });
+
+  // ======================== Bug regression tests ========================
+
+  it('switching session after initial subscription works (Bug 1)', async () => {
+    await subscribeWith('live');
+    expect(shared.currentSession!.sessionId).toBe('test-session');
+
+    // Select a different session while already subscribed
+    await executor.injectValue(p.userSelectSession, { sessionId: 'session-2', mode: 'replay' });
+    await settle();
+
+    // Server responds with new subscribed message
+    const response2 = makeSubscribedResponse('replay');
+    response2.sessionId = 'session-2';
+    response2.netName = 'TestNet2';
+    await executor.injectValue(p.wsMessage, response2 as DebugResponse);
+    await settle();
+
+    expect(shared.currentSession!.sessionId).toBe('session-2');
+    expect(shared.currentMode).toBe('replay');
+  });
+
+  it('can switch sessions multiple times (Bug 1)', async () => {
+    await subscribeWith('live');
+
+    for (const id of ['s2', 's3', 's4']) {
+      await executor.injectValue(p.userSelectSession, { sessionId: id, mode: 'live' });
+      await settle();
+      const resp = makeSubscribedResponse('live');
+      resp.sessionId = id;
+      await executor.injectValue(p.wsMessage, resp as DebugResponse);
+      await settle();
+      expect(shared.currentSession!.sessionId).toBe(id);
+    }
+  });
+
+  it('archive import auto-subscribes to imported session (Bug 2)', async () => {
+    // Connect (no session yet)
+    await settle();
+    await executor.injectValue(p.wsOpenSignal, undefined);
+    await settle();
+
+    // Simulate archive imported response
+    await executor.injectValue(p.wsMessage, {
+      type: 'archiveImported',
+      sessionId: 'imported-1',
+      netName: 'ArchivedNet',
+      eventCount: 200,
+    } as DebugResponse);
+    await settle();
+
+    // t_on_archive_imported should inject userSelectSession → t_subscribe fires
+    // Server responds with subscribed
+    const resp = makeSubscribedResponse('replay');
+    resp.sessionId = 'imported-1';
+    await executor.injectValue(p.wsMessage, resp as DebugResponse);
+    await settle();
+
+    expect(shared.currentSession!.sessionId).toBe('imported-1');
+    expect(shared.currentMode).toBe('replay');
+
+    // Archive modal should be hidden
+    const modal = document.getElementById('archive-modal');
+    expect(modal!.classList.contains('hidden')).toBe(true);
+  });
+
+  it('marking inspector renders on initial subscription (Bug 3)', async () => {
+    await subscribeWith('live');
+
+    // Three rafTick injections needed: t_update_highlighting, t_update_event_log,
+    // and t_update_marking each consume one rafTick token.
+    await executor.injectValue(p.rafTick, undefined);
+    await executor.injectValue(p.rafTick, undefined);
+    await executor.injectValue(p.rafTick, undefined);
+    await settle();
+
+    const inspector = document.getElementById('marking-inspector');
+    // From makeSubscribedResponse: currentMarking has 'start' place with 1 token
+    expect(inspector!.innerHTML).toContain('start');
+  });
+
+  it('subscription produces stateDirty which fans out to markingDirty (Bug 3)', async () => {
+    await subscribeWith('live');
+    // After t_on_subscribed + t_fan_out_dirty, markingDirty should exist
+    // (waiting for rafTick to consume it)
+    const marking = executor.getMarking();
+    const dirty = marking.peekTokens(p.markingDirty);
+    expect(dirty.length).toBe(1);
+  });
+
+  it('clicking a place by name shows tokens in token inspector', async () => {
+    await subscribeWith('live');
+
+    // Click place by name (as marking inspector does)
+    await executor.injectValue(p.userClickPlace, 'start');
+    await settle();
+
+    const inspector = document.getElementById('token-inspector');
+    expect(inspector!.innerHTML).toContain('start');
+    expect(inspector!.innerHTML).toContain('Void');
+  });
+
+  it('clicking a place by graphId resolves to place name in token inspector', async () => {
+    await subscribeWith('live');
+
+    // Click place by graphId (as diagram click does)
+    await executor.injectValue(p.userClickPlace, 'p_start');
+    await settle();
+
+    const inspector = document.getElementById('token-inspector');
+    // Should resolve p_start → start via byGraphId lookup
+    expect(inspector!.innerHTML).toContain('start');
+    expect(inspector!.innerHTML).toContain('Void');
+  });
+
+  it('clicking a token in token inspector opens value modal', async () => {
+    await subscribeWith('live');
+
+    // Populate token inspector by clicking on 'start' place
+    await executor.injectValue(p.userClickPlace, 'start');
+    await settle();
+
+    // Simulate what the DOM click handler does: open modal with token value
+    await executor.injectValue(p.userOpenModal, {
+      title: 'start',
+      subtitle: 'Token 1 of 1 · Void',
+      json: 'null',
+    });
+    await settle();
+
+    const modal = document.getElementById('value-modal');
+    expect(modal!.classList.contains('hidden')).toBe(false);
+
+    const title = document.getElementById('modal-title');
+    expect(title!.textContent).toBe('start');
+
+    const subtitle = document.getElementById('modal-subtitle');
+    expect(subtitle!.textContent).toBe('Token 1 of 1 · Void');
+
+    const json = document.getElementById('modal-json');
+    expect(json!.textContent).toContain('null');
+
+    // Close modal
+    await executor.injectValue(p.userCloseModal, undefined);
+    await settle();
+
+    expect(modal!.classList.contains('hidden')).toBe(true);
   });
 });

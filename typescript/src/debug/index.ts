@@ -12,7 +12,7 @@ export type { DebugCommand, SubscriptionMode, BreakpointType, BreakpointConfig, 
 export { eventFilterAll } from './debug-command.js';
 export type {
   DebugResponse, SessionSummary, TokenInfo, NetEventInfo,
-  PlaceInfo, TransitionInfo, NetStructure,
+  PlaceInfo, TransitionInfo, NetStructure, ArchiveSummary,
 } from './debug-response.js';
 
 // Core infrastructure
