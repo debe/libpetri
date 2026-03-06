@@ -1,0 +1,15 @@
+[package]
+name = "libpetri-benches"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+libpetri = { path = "../libpetri", features = ["tokio"] }
+tokio = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "executor"
+harness = false
