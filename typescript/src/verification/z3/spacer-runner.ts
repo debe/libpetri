@@ -58,8 +58,6 @@ export async function createSpacerRunner(timeoutMs: number): Promise<SpacerConte
 
   // Configure Spacer engine
   fp.set('engine', 'spacer');
-  fp.set('spacer.global', true);
-  fp.set('spacer.use_bg_invs', true);
   if (timeoutMs > 0) {
     fp.set('timeout', Math.min(timeoutMs, 2147483647));
   }
