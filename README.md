@@ -423,12 +423,12 @@ All transitions use synchronous (passthrough) actions.
 | Transitions | Java (µs) | TypeScript (µs) | Rust (µs) | Target (PERF-021) |
 |---|---|---|---|---|
 | 5 | — | — | 6.8 | |
-| 10 | 10.1 | 31.7 | 14.2 | < 100 |
-| 20 | 18.1 | 59.0 | 28.4 | |
-| 50 | 43.9 | 104.9 | 71.7 | < 500 |
-| 100 | 88.5 | 139.6 | 147.2 | |
-| 200 | 201.4 | 206.0 | 306.9 | |
-| 500 | 610.2 | 442.0 | 817.9 | |
+| 10 | 10.1 | 31.7 | 13.6 | < 100 |
+| 20 | 18.1 | 59.0 | 26.7 | |
+| 50 | 43.9 | 104.9 | 69.8 | < 500 |
+| 100 | 88.5 | 139.6 | 142.3 | |
+| 200 | 201.4 | 206.0 | 288.6 | |
+| 500 | 610.2 | 442.0 | 824.1 | |
 
 ### Async Linear Chains
 
@@ -436,13 +436,13 @@ All transitions dispatch to a virtual thread / microtask / Tokio task.
 
 | Transitions | Java (µs) | TypeScript (µs) | Rust (µs) |
 |---|---|---|---|
-| 5 | 20.6 | 29.7 | 8.1 |
+| 5 | 20.6 | 29.7 | 8.3 |
 | 10 | 41.6 | 56.0 | 16.3 |
-| 20 | — | 108.2 | 32.1 |
-| 50 | 199.8 | 191.3 | 82.4 |
-| 100 | 439.2 | 254.7 | 155.9 |
-| 200 | — | 299.3 | 317.7 |
-| 500 | 2245.5 | 562.8 | 905.8 |
+| 20 | — | 108.2 | 31.9 |
+| 50 | 199.8 | 191.3 | 81.1 |
+| 100 | 439.2 | 254.7 | 162.1 |
+| 200 | — | 299.3 | 327.3 |
+| 500 | 2245.5 | 562.8 | 912.9 |
 
 ### Mixed Linear Chains (2 async)
 
@@ -450,12 +450,12 @@ Two transitions are async, the rest synchronous — the common real-world patter
 
 | Transitions | Java (µs) | TypeScript (µs) | Rust (µs) |
 |---|---|---|---|
-| 10 | 20.5 | 36.5 | 8.3 |
-| 20 | — | 62.5 | 14.7 |
+| 10 | 20.5 | 36.5 | 8.5 |
+| 20 | — | 62.5 | 15.2 |
 | 50 | 59.9 | 105.8 | 35.5 |
-| 100 | 106.9 | 142.9 | 66.7 |
-| 200 | — | 217.1 | 133.2 |
-| 500 | 702.9 | 481.5 | 336.6 |
+| 100 | 106.9 | 142.9 | 67.5 |
+| 200 | — | 217.1 | 132.8 |
+| 500 | 702.9 | 481.5 | 337.7 |
 
 ### Parallel Fan-Out
 
@@ -463,15 +463,15 @@ One dispatch transition fans out to N parallel async branches, then joins.
 
 | Branches | Java (µs) | TypeScript (µs) | Rust (µs) |
 |---|---|---|---|
-| 5 | 28.3 | 39.1 | 11.8 |
-| 10 | 36.1 | 70.0 | 22.6 |
-| 20 | 49.9 | 151.3 | 47.2 |
+| 5 | 28.3 | 39.1 | 12.0 |
+| 10 | 36.1 | 70.0 | 23.8 |
+| 20 | 49.9 | 151.3 | 49.7 |
 
 ### Complex Workflows
 
 | Scenario | Java (µs) | TypeScript (µs) | Rust (µs) |
 |---|---|---|---|
-| Order pipeline (8t, 13p) | 21.1 | 33.4 | 10.8 |
+| Order pipeline (8t, 13p) | 21.1 | 33.4 | 12.0 |
 | Large workflow (16t, 17p) | 43.0 | — | — |
 
 ### Event Store Overhead (Java)
@@ -492,10 +492,10 @@ Time to compile a PetriNet into a CompiledNet (bitmap masks, reverse indexes).
 
 | Places | TypeScript (µs) | Rust (µs) |
 |---|---|---|
-| 10 | 10.9 | 6.0 |
-| 50 | 47.9 | 30.7 |
-| 100 | 66.3 | 61.1 |
-| 500 | 348.2 | 302.4 |
+| 10 | 10.9 | 6.1 |
+| 50 | 47.9 | 31.9 |
+| 100 | 66.3 | 62.4 |
+| 500 | 348.2 | 325.0 |
 
 ### Event Store Overhead (TypeScript)
 
@@ -508,8 +508,8 @@ Time to compile a PetriNet into a CompiledNet (bitmap masks, reverse indexes).
 
 | Event Store | µs/op | Overhead vs noop |
 |---|---|---|
-| noop | 13.5 | — |
-| inMemory | 15.3 | +13% |
+| noop | 13.4 | — |
+| inMemory | 16.0 | +19% |
 
 ### Running Benchmarks
 
