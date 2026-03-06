@@ -129,6 +129,7 @@ impl<'a> SmtVerifier<'a> {
         // If structural analysis proves deadlock-freedom and we're checking that property,
         // we can return early.
         if matches!(self.property, SmtProperty::DeadlockFree)
+            && self.sink_places.is_empty()
             && structural_result == StructuralCheckResult::NoPotentialDeadlock
         {
             let elapsed_ms = start.elapsed().as_millis() as u64;
@@ -247,7 +248,8 @@ fn run_z3_spacer(smt2: &str, timeout_ms: u64) -> Z3Result {
     use std::io::Write;
     use std::process::{Command, Stdio};
 
-    let timeout_secs = (timeout_ms / 1000).max(1);
+    // Z3 -T flag uses seconds; round up so sub-second timeouts don't become 0
+    let timeout_secs = timeout_ms.div_ceil(1000).max(1);
 
     let mut child = match Command::new("z3")
         .args([
@@ -270,7 +272,11 @@ fn run_z3_spacer(smt2: &str, timeout_ms: u64) -> Z3Result {
     };
 
     if let Some(stdin) = child.stdin.as_mut() {
-        let _ = stdin.write_all(smt2.as_bytes());
+        if let Err(e) = stdin.write_all(smt2.as_bytes()) {
+            return Z3Result::Unknown {
+                reason: format!("Failed to write to z3 stdin: {e}"),
+            };
+        }
     }
 
     let output = match child.wait_with_output() {

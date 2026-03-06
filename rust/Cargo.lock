@@ -233,7 +233,7 @@ checksum = "6800badb6cb2082ffd7b6a67e6125bb39f18782f793520caee8cb8846be06112"
 
 [[package]]
 name = "libpetri"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "libpetri-core",
  "libpetri-event",
@@ -244,7 +244,7 @@ dependencies = [
 
 [[package]]
 name = "libpetri-benches"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "criterion",
  "libpetri",
@@ -253,25 +253,25 @@ dependencies = [
 
 [[package]]
 name = "libpetri-core"
-version = "0.1.0"
+version = "1.0.0"
 
 [[package]]
 name = "libpetri-event"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "libpetri-core",
 ]
 
 [[package]]
 name = "libpetri-export"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "libpetri-core",
 ]
 
 [[package]]
 name = "libpetri-runtime"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "libpetri-core",
  "libpetri-event",
@@ -280,7 +280,7 @@ dependencies = [
 
 [[package]]
 name = "libpetri-verification"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "libpetri-core",
 ]
