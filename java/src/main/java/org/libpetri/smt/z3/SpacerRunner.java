@@ -42,8 +42,6 @@ public final class SpacerRunner implements AutoCloseable {
     private void configureSpacerEngine() {
         Params params = ctx.mkParams();
         params.add("engine", "spacer");
-        params.add("spacer.global", true);
-        params.add("spacer.use_bg_invs", true);
 
         // Timeout in milliseconds
         if (timeout != null && !timeout.isZero()) {
