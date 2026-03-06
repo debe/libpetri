@@ -36,18 +36,12 @@ public final class SpacerRunner implements AutoCloseable {
         this.ctx = new Context(cfg);
 
         this.fp = ctx.mkFixedpoint();
-        configureSpacerEngine();
-    }
 
-    private void configureSpacerEngine() {
         Params params = ctx.mkParams();
         params.add("engine", "spacer");
-
-        // Timeout in milliseconds
         if (timeout != null && !timeout.isZero()) {
             params.add("timeout", (int) Math.min(timeout.toMillis(), Integer.MAX_VALUE));
         }
-
         fp.setParameters(params);
     }
 
