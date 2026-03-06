@@ -1,0 +1,18 @@
+[package]
+name = "libpetri"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Coloured Time Petri Net engine with formal verification"
+
+[dependencies]
+libpetri-core = { workspace = true }
+libpetri-event = { workspace = true }
+libpetri-runtime = { workspace = true }
+libpetri-export = { workspace = true }
+libpetri-verification = { workspace = true }
+
+[features]
+default = []
+tokio = ["libpetri-runtime/tokio"]
+z3 = ["libpetri-verification/z3"]

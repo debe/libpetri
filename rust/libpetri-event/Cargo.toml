@@ -1,0 +1,9 @@
+[package]
+name = "libpetri-event"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Event system for libpetri Coloured Time Petri Net engine"
+
+[dependencies]
+libpetri-core = { workspace = true }

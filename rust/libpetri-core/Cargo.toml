@@ -1,0 +1,8 @@
+[package]
+name = "libpetri-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Core types for libpetri Coloured Time Petri Net engine"
+
+[dependencies]

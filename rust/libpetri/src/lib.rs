@@ -1,0 +1,80 @@
+//! # libpetri — Coloured Time Petri Net Engine
+//!
+//! A high-performance Petri net engine with formal verification support.
+//!
+//! ## Quick Start
+//!
+//! ```rust
+//! use libpetri::*;
+//!
+//! let p1 = Place::<i32>::new("input");
+//! let p2 = Place::<i32>::new("output");
+//!
+//! let t = Transition::builder("process")
+//!     .input(one(&p1))
+//!     .output(out_place(&p2))
+//!     .action(fork())
+//!     .build();
+//!
+//! let net = PetriNet::builder("example").transition(t).build();
+//!
+//! let mut marking = Marking::new();
+//! marking.add(&p1, Token::at(42, 0));
+//!
+//! let mut executor = BitmapNetExecutor::<NoopEventStore>::new(
+//!     &net, marking, ExecutorOptions::default(),
+//! );
+//! executor.run_sync();
+//!
+//! assert_eq!(*executor.marking().peek(&p2).unwrap(), 42);
+//! ```
+//!
+//! ## Example: Basic Chain
+//!
+#![doc = include_str!(concat!(env!("OUT_DIR"), "/basic_chain.svg"))]
+//!
+//! ## Example: Order Processing Pipeline
+//!
+//! A showcase net demonstrating all arc types (input, output, read, inhibitor, reset),
+//! both place types (regular + environment), all timing modes (immediate, deadline,
+//! delayed, window, exact), and patterns (AND-fork, AND-join, XOR, priority).
+//!
+#![doc = include_str!(concat!(env!("OUT_DIR"), "/showcase.svg"))]
+//!
+//! ## Crate Structure
+//!
+//! - [`core`] — Places, tokens, transitions, timing, actions
+//! - [`event`] — Event store for recording execution events
+//! - [`runtime`] — Bitmap-based executor (sync + async)
+//! - [`export`] — DOT/Graphviz export pipeline
+//! - [`verification`] — Formal verification (P-invariants, state class graphs, SMT)
+
+pub use libpetri_core as core;
+pub use libpetri_event as event;
+pub use libpetri_export as export;
+pub use libpetri_runtime as runtime;
+pub use libpetri_verification as verification;
+
+// Re-export commonly used types at the top level
+pub use libpetri_core::action::{
+    async_action, fork, passthrough, produce, sync_action, transform, ActionError, BoxedAction,
+};
+pub use libpetri_core::arc::{inhibitor, read, reset, Inhibitor, Read, Reset};
+pub use libpetri_core::context::TransitionContext;
+pub use libpetri_core::input::{all, at_least, exactly, one, In};
+pub use libpetri_core::output::{
+    and, and_places, forward_input, out_place, timeout, timeout_place, xor, xor_places, Out,
+};
+pub use libpetri_core::petri_net::PetriNet;
+pub use libpetri_core::place::{EnvironmentPlace, Place, PlaceRef};
+pub use libpetri_core::timing::{deadline, delayed, exact, immediate, window, Timing};
+pub use libpetri_core::token::Token;
+pub use libpetri_core::transition::Transition;
+
+pub use libpetri_event::event_store::{EventStore, InMemoryEventStore, NoopEventStore};
+pub use libpetri_event::net_event::NetEvent;
+
+pub use libpetri_export::dot_exporter::dot_export;
+
+pub use libpetri_runtime::executor::{BitmapNetExecutor, ExecutorOptions};
+pub use libpetri_runtime::marking::Marking;

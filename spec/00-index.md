@@ -256,14 +256,14 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Token type safety | Typed places + typed tokens | Generics (compile-time) | Phantom type param | Generics (compile-time) |
 | Guard predicates | Filter on input arcs | ✓ (on Arc.Input) | ✓ (on In variants) | Not yet |
 | SMT verification | IC3/PDR via Z3 Spacer | ✓ | ✓ (WASM) | Not yet |
-| State class graph | Berthomieu-Diaz | ✓ | ✓ | — |
-| Graph export | At least one format | DOT (Graphviz) | DOT (Graphviz) | Not yet |
+| State class graph | Berthomieu-Diaz | ✓ | ✓ | ✓ |
+| Graph export | At least one format | DOT (Graphviz) | DOT (Graphviz) | DOT (Graphviz) |
 | Log capture | Action log → events | SLF4J LogCaptureScope | ctx.log() | Not yet |
 | Debug event store | Live tailing | ✓ | ✓ | — |
 | Action binding | Separated from structure | ✓ (bindActions) | ✓ (bindActions) | NetStructureBuilder |
 | Inline sync execution | Avoid task dispatch | — | — | ✓ (try_run_inline) |
 
-\* Rust bitmap executor not yet implemented; uses direct iteration.
+\* Rust uses 64-bit words matching Java.
 
 ---
 
@@ -290,14 +290,14 @@ This matrix maps spec requirements to test classes/files in each implementation.
 | EXEC-020–022 | `NetExecutorTest` | `executor-support.test.ts` | `executor::tests` |
 | EXEC-030–031 | `NetExecutorFailureTest` | `executor-failure.test.ts` | — |
 | EXEC-040–041 | `NetExecutorTest` | `bitmap-net-executor.test.ts` | `executor::tests` |
-| CONC-004–008 | `BitmapNetExecutorTest` | `compiled-net.test.ts` | — |
+| CONC-004–008 | `BitmapNetExecutorTest` | `compiled-net.test.ts` | `compiled_net::tests`, `bitmap::tests` |
 | ENV-001–006 | `EnvironmentPlaceTest` | `environment.test.ts` | `injector::tests` |
 | ENV-010–012 | `LongRunningTest` | `long-running.test.ts` | — |
-| VER-001–006 | `SmtVerifierTest` | `smt-verifier.test.ts` | — |
-| VER-010–011 | `StateClassGraphTest` | `analysis/*.test.ts` | — |
+| VER-001–006 | `SmtVerifierTest` | `smt-verifier.test.ts` | `structural_check::tests`, `p_invariant::tests` |
+| VER-010–011 | `StateClassGraphTest` | `analysis/*.test.ts` | `state_class_graph::tests` |
 | EVT-001–014 | `NetEventTest` | `net-event.test.ts` | `net_event::tests` |
 | EVT-020–024 | `EventStoreTest` | `event-store.test.ts` | `event_store::tests` |
-| EXP-001–008 | `DotExporterTest` | `dot-exporter.test.ts` | — |
+| EXP-001–008 | `DotExporterTest` | `dot-exporter.test.ts` | `dot_renderer::tests`, `mapper::tests` |
 | PERF-001–004 | `BitmapNetExecutorBenchmark` | — | — |
 | PERF-020–022 | — | — | — |
 

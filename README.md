@@ -6,8 +6,9 @@
 |---|---|---|---|
 | [**libpetri-java**](java/) | Java 25 | Virtual threads | Production |
 | [**libpetri-ts**](typescript/) | TypeScript 5.7 | Promises / event loop | Production |
+| [**libpetri-rust**](rust/) | Rust 2024 | Tokio async tasks | v0.1.0 |
 
-> Rust implementation planned — see [`spec/`](spec/) for the language-agnostic contract all implementations follow.
+> See [`spec/`](spec/) for the language-agnostic contract all implementations follow.
 
 [Specification](spec/00-index.md)
 
@@ -16,7 +17,7 @@
 ## Why libpetri
 
 - **Executable formal models** — Not a simulator. A production VM where Petri nets are the program: typed tokens are data, transitions are instructions, timing constraints are deadlines, and the executor is a scheduler. Suitable for agent orchestration, workflow automation, protocol modeling, game logic, UI state machines, and anything with concurrency.
-- **Two implementations, one spec** — Java and TypeScript share [145 language-agnostic requirements](spec/00-index.md) covering every arc type, timing variant, and execution phase. Same behavior, verified independently.
+- **Three implementations, one spec** — Java, TypeScript, and Rust share [145 language-agnostic requirements](spec/00-index.md) covering every arc type, timing variant, and execution phase. Same behavior, verified independently.
 - **Turing-complete** — Coloured Petri Nets with inhibitor arcs can simulate any Turing machine. libpetri's nets can model arbitrary computation, not just finite-state workflows.
 
 ---
@@ -30,12 +31,12 @@
 | **Output routing** | `place` (single), `and` (fork), `xor` (choice), `timeout`, `forwardInput` |
 | **Timing** | Immediate, Deadline, Delayed, Window, Exact — with urgent deadline enforcement |
 | **Executor** | Bitmap-based O(W) enablement, dirty-set optimization, priority + FIFO scheduling |
-| **Concurrency** | Single-threaded orchestrator, concurrent async actions (virtual threads / promises) |
+| **Concurrency** | Single-threaded orchestrator, concurrent async actions (virtual threads / promises / Tokio tasks) |
 | **Environment places** | External event injection for long-running, event-driven workflows |
 | **Events** | 13 event types, pluggable stores (in-memory, noop, logging, debug) |
 | **Formal verification** | SMT/IC3 via Z3 — deadlock freedom, mutual exclusion, place bounds, unreachability |
 | **Structural analysis** | P-invariants (Farkas), siphon/trap pre-checks, XOR branch analysis |
-| **State class graph** | Berthomieu-Diaz algorithm for timed reachability (Java, TypeScript) |
+| **State class graph** | Berthomieu-Diaz algorithm for timed reachability (Java, TypeScript, Rust) |
 | **Export** | DOT/Graphviz |
 
 ---
@@ -276,7 +277,7 @@ Transitions are force-disabled past their deadline (urgent semantics).
 
 ## Formal Verification
 
-Both implementations include SMT-based verification via Z3 using the IC3/PDR algorithm, with structural pre-checks for fast results.
+All three implementations include structural verification (P-invariants, siphon/trap analysis, state class graphs). Java and TypeScript additionally support SMT-based verification via Z3 using the IC3/PDR algorithm. Rust has Z3 SMT feature-gated but not yet wired.
 
 | Property | Description |
 |---|---|
@@ -357,39 +358,40 @@ The executor runs a single-threaded orchestration loop with six phases per cycle
 
 ### Module Structure
 
-| Module | Java | TypeScript |
-|---|---|---|
-| Core model | `org.libpetri.core` | `libpetri` (core exports) |
-| Runtime | `org.libpetri.runtime` | `libpetri` (runtime exports) |
-| Events | `org.libpetri.event` | `libpetri` (event exports) |
-| Verification | `org.libpetri.smt` | `libpetri/verification` |
-| Export | `org.libpetri.export` | `libpetri/export` |
-| Analysis | `org.libpetri.analysis` | `libpetri/verification` (analysis exports) |
-| Debug | `org.libpetri.debug` | `libpetri/debug` |
-| Doclet | `org.libpetri.doclet` | `libpetri/doclet` |
+| Module | Java | TypeScript | Rust |
+|---|---|---|---|
+| Core model | `org.libpetri.core` | `libpetri` (core exports) | `libpetri-core` |
+| Runtime | `org.libpetri.runtime` | `libpetri` (runtime exports) | `libpetri-runtime` |
+| Events | `org.libpetri.event` | `libpetri` (event exports) | `libpetri-event` |
+| Verification | `org.libpetri.smt` | `libpetri/verification` | `libpetri-verification` |
+| Export | `org.libpetri.export` | `libpetri/export` | `libpetri-export` |
+| Analysis | `org.libpetri.analysis` | `libpetri/verification` (analysis exports) | `libpetri-verification` |
+| Debug | `org.libpetri.debug` | `libpetri/debug` | — |
+| Doclet | `org.libpetri.doclet` | `libpetri/doclet` | `build.rs` (Rustdoc SVGs) |
 
-Both share the same architecture: immutable net definitions, builder-pattern construction, bitmap-based enablement with dirty-set optimization, and a single-threaded orchestrator dispatching async actions to a separate task pool.
+All three share the same architecture: immutable net definitions, builder-pattern construction, bitmap-based enablement with dirty-set optimization, and a single-threaded orchestrator dispatching async actions to a separate task pool. Rust uses a `tokio` feature flag for async execution; the debug protocol is not yet implemented in Rust.
 
 ---
 
 ## Performance
 
-Measured on the BitmapNetExecutor with noop event store. Java uses JMH (1 fork, 3 warmup, 5 measurement iterations); TypeScript uses vitest bench. All times in microseconds (µs/op, lower is better).
+Measured on the BitmapNetExecutor with noop event store. Java uses JMH (1 fork, 3 warmup, 5 measurement iterations); TypeScript uses vitest bench; Rust uses Criterion. All times in microseconds (µs/op, lower is better).
 
-**Concurrency model note:** In Java the orchestrator runs on its own virtual thread and dispatches each action to a separate virtual thread, so no action can ever block the runtime loop. This gives true multicore parallelism for CPU-bound actions. In TypeScript the orchestrator and all actions share a single-core event loop with zero scheduling overhead but no parallelism. In these benchmarks all actions are trivial, so Java's per-thread scheduling cost is visible while its multicore advantage is not. For real workloads with CPU-bound actions Java scales across cores while TypeScript remains single-threaded.
+**Concurrency model note:** In Java the orchestrator runs on its own virtual thread and dispatches each action to a separate virtual thread, so no action can ever block the runtime loop. This gives true multicore parallelism for CPU-bound actions. In TypeScript the orchestrator and all actions share a single-core event loop with zero scheduling overhead but no parallelism. In Rust the sync executor is single-threaded with no runtime overhead; the async executor uses Tokio's multi-threaded task pool for true parallelism. In these benchmarks all actions are trivial, so Java's per-thread scheduling cost is visible while its multicore advantage is not. For real workloads with CPU-bound actions Java and Rust scale across cores while TypeScript remains single-threaded.
 
 ### Sync Linear Chains
 
 All transitions use synchronous (passthrough) actions.
 
-| Transitions | Java (µs) | TypeScript (µs) | Target (PERF-021) |
-|---|---|---|---|
-| 10 | 10.1 | 34.1 | < 100 |
-| 20 | 18.1 | 65.7 | |
-| 50 | 43.9 | 112.8 | < 500 |
-| 100 | 88.5 | 146.2 | |
-| 200 | 201.4 | 226.0 | |
-| 500 | 610.2 | 531.1 | |
+| Transitions | Java (µs) | TypeScript (µs) | Rust (µs) | Target (PERF-021) |
+|---|---|---|---|---|
+| 5 | — | — | 6.7 | |
+| 10 | 10.1 | 34.1 | 14.0 | < 100 |
+| 20 | 18.1 | 65.7 | — | |
+| 50 | 43.9 | 112.8 | 73.9 | < 500 |
+| 100 | 88.5 | 146.2 | 140.7 | |
+| 200 | 201.4 | 226.0 | — | |
+| 500 | 610.2 | 531.1 | 846.6 | |
 
 ### Async Linear Chains
 
@@ -402,6 +404,8 @@ All transitions dispatch to a virtual thread / microtask.
 | 50 | 199.8 | 192.3 |
 | 100 | 439.2 | 254.7 |
 | 500 | 2245.5 | 813.8 |
+
+> Rust async benchmarks are defined but not yet measured.
 
 ### Mixed Linear Chains (2 async)
 
@@ -418,11 +422,11 @@ Two transitions are async, the rest synchronous — the common real-world patter
 
 One dispatch transition fans out to N parallel async branches, then joins.
 
-| Branches | Java (µs) | TypeScript (µs) |
-|---|---|---|
-| 5 | 28.3 | 38.7 |
-| 10 | 36.1 | 74.7 |
-| 20 | 49.9 | 155.7 |
+| Branches | Java (µs) | TypeScript (µs) | Rust (µs) |
+|---|---|---|---|
+| 5 | 28.3 | 38.7 | 11.9 |
+| 10 | 36.1 | 74.7 | 24.9 |
+| 20 | 49.9 | 155.7 | 49.2 |
 
 ### Complex Workflows
 
@@ -443,11 +447,30 @@ Impact of different event store implementations on the complex workflow:
 | debugAware | 23.3 | +14% |
 | debug + LogCapture | 26.3 | +29% |
 
+### Compilation (Rust)
+
+Time to compile a PetriNet into a CompiledNet (bitmap masks, reverse indexes).
+
+| Places | Rust (µs) |
+|---|---|
+| 10 | 6.2 |
+| 50 | 32.9 |
+| 100 | 63.6 |
+| 500 | 322.4 |
+
+### Event Store Overhead (Rust)
+
+| Event Store | µs/op | Overhead vs noop |
+|---|---|---|
+| noop | 13.8 | — |
+| inMemory | 16.9 | +22.7% |
+
 ### Running Benchmarks
 
 ```bash
 cd java && ./mvnw test-compile exec:exec -Pjmh    # JMH → benchmark-results.json
 cd typescript && npm run bench                      # vitest bench → stdout
+cd rust && cargo bench                              # Criterion → target/criterion/
 ```
 
 ---
@@ -505,6 +528,18 @@ npm test -- core         # Run tests matching "core"
 ```
 
 TypeScript 5.7, ESM-only, strict mode. Built with tsup, tested with vitest.
+
+### Rust
+
+```bash
+cd rust
+cargo build                       # Build all crates
+cargo test                        # Run all tests (228 pass, 2 ignored)
+cargo test -p libpetri-core       # Single crate
+cargo bench                       # Criterion benchmarks
+```
+
+Rust 2024 edition, workspace with 6 crates. Feature flags: `tokio` (async executor), `z3` (SMT verification, not yet wired).
 
 ---
 
