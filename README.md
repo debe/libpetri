@@ -6,7 +6,7 @@
 |---|---|---|---|
 | [**libpetri-java**](java/) | Java 25 | Virtual threads | Production |
 | [**libpetri-ts**](typescript/) | TypeScript 5.7 | Promises / event loop | Production |
-| [**libpetri-rust**](rust/) | Rust 2024 | Tokio async tasks | Production |
+| [**libpetri-rust**](rust/) | Rust 2024 | Tokio async tasks | Prerelease |
 
 > See [`spec/`](spec/) for the language-agnostic contract all implementations follow.
 
