@@ -19,6 +19,8 @@ import { outPlace, andPlaces, xor } from '../../src/core/out.js';
 import { tokenOf } from '../../src/core/token.js';
 import type { Token } from '../../src/core/token.js';
 import { fork } from '../../src/core/transition-action.js';
+import { InMemoryEventStore } from '../../src/event/event-store.js';
+import { noopEventStore } from '../../src/event/event-store.js';
 
 // ==================== Helpers ====================
 
@@ -375,4 +377,49 @@ describe('parallel fan-out', () => {
 
 describe('complex workflow', () => {
   bench('8 transitions, 13 places', () => runNet(complex.net, complex.start));
+});
+
+// ==================== Event Store Overhead ====================
+
+describe('event store overhead', () => {
+  bench('noop event store', async () => {
+    const executor = new BitmapNetExecutor(complex.net, initialTokens([complex.start, [tokenOf('start')]]), {
+      eventStore: noopEventStore(),
+    });
+    await executor.run(5000);
+  });
+
+  bench('inMemory event store', async () => {
+    const executor = new BitmapNetExecutor(complex.net, initialTokens([complex.start, [tokenOf('start')]]), {
+      eventStore: new InMemoryEventStore(),
+    });
+    await executor.run(5000);
+  });
+});
+
+// ==================== Compilation Benchmark ====================
+
+describe('compilation', () => {
+  for (const n of [10, 50, 100, 500]) {
+    const places: Place<string>[] = [];
+    for (let i = 0; i <= n; i++) {
+      places.push(place<string>(`cp${i}`));
+    }
+    const transitions: Transition[] = [];
+    for (let i = 0; i < n; i++) {
+      const to = places[i + 1]!;
+      transitions.push(
+        Transition.builder(`ct${i}`)
+          .inputs(one(places[i]!))
+          .outputs(outPlace(to))
+          .action(fork())
+          .build()
+      );
+    }
+
+    bench(`${n} transitions`, () => {
+      const net = PetriNet.builder(`Compile${n}`).transitions(...transitions).build();
+      const _executor = new BitmapNetExecutor(net, new Map());
+    });
+  }
 });
