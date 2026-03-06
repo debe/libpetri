@@ -6,7 +6,7 @@
 |---|---|---|---|
 | [**libpetri-java**](java/) | Java 25 | Virtual threads | Production |
 | [**libpetri-ts**](typescript/) | TypeScript 5.7 | Promises / event loop | Production |
-| [**libpetri-rust**](rust/) | Rust 2024 | Tokio async tasks | v0.1.0 |
+| [**libpetri-rust**](rust/) | Rust 2024 | Tokio async tasks | Production |
 
 > See [`spec/`](spec/) for the language-agnostic contract all implementations follow.
 
@@ -121,6 +121,43 @@ console.log(result.peekFirst(response)?.value);
 cd typescript && npm install && npm test
 ```
 
+### Rust
+
+```rust
+use libpetri::*;
+use libpetri::runtime::environment::ExternalEvent;
+
+let request  = Place::<String>::new("Request");
+let response = Place::<String>::new("Response");
+
+let process = Transition::builder("Process")
+    .input(one(&request))
+    .output(out_place(&response))
+    .timing(deadline(5000))
+    .action(async_action(|mut ctx| async move {
+        let req: std::sync::Arc<String> = ctx.input("Request")?;
+        ctx.output("Response", format!("Processed: {req}"))?;
+        Ok(ctx)
+    }))
+    .build();
+
+let net = PetriNet::builder("Example").transition(process).build();
+
+let mut marking = Marking::new();
+marking.add(&request, Token::at("hello".to_string(), 0));
+
+let mut executor = BitmapNetExecutor::<NoopEventStore>::new(
+    &net, marking, ExecutorOptions::default(),
+);
+let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+executor.run_async(rx).await;
+// → "Processed: hello"
+```
+
+```bash
+cd rust && cargo test
+```
+
 ---
 
 ## Showcase: Debug UI — A Petri Net That Debugs Petri Nets
@@ -221,25 +258,25 @@ const net = PetriNet.builder('DebugUI')
 <details>
 <summary><strong>Arc types</strong></summary>
 
-| Arc | Semantics | Java | TypeScript |
-|---|---|---|---|
-| **Input** | Consume token(s) from place | `In.one(p)` | `one(p)` |
-| **Output** | Deposit token into place | `Out.place(p)` | `outPlace(p)` |
-| **Inhibitor** | Block when place has tokens | `.inhibitor(p)` | `.inhibitor(p)` |
-| **Read** | Test without consuming | `.read(p)` | `.read(p)` |
-| **Reset** | Clear all tokens from place | `.reset(p)` | `.reset(p)` |
+| Arc | Semantics | Java | TypeScript | Rust |
+|---|---|---|---|---|
+| **Input** | Consume token(s) from place | `In.one(p)` | `one(p)` | `one(&p)` |
+| **Output** | Deposit token into place | `Out.place(p)` | `outPlace(p)` | `out_place(&p)` |
+| **Inhibitor** | Block when place has tokens | `.inhibitor(p)` | `.inhibitor(p)` | `.inhibitor(inhibitor(&p))` |
+| **Read** | Test without consuming | `.read(p)` | `.read(p)` | `.read(read(&p))` |
+| **Reset** | Clear all tokens from place | `.reset(p)` | `.reset(p)` | `.reset(reset(&p))` |
 
 </details>
 
 <details>
 <summary><strong>Input cardinality</strong></summary>
 
-| Cardinality | Semantics | Java | TypeScript |
-|---|---|---|---|
-| **One** | Consume exactly 1 token | `In.one(p)` | `one(p)` |
-| **Exactly(n)** | Consume exactly n tokens | `In.exactly(n, p)` | `exactly(n, p)` |
-| **All** | Drain all tokens (at least 1) | `In.all(p)` | `all(p)` |
-| **AtLeast(n)** | Consume all, require >= n | `In.atLeast(n, p)` | `atLeast(n, p)` |
+| Cardinality | Semantics | Java | TypeScript | Rust |
+|---|---|---|---|---|
+| **One** | Consume exactly 1 token | `In.one(p)` | `one(p)` | `one(&p)` |
+| **Exactly(n)** | Consume exactly n tokens | `In.exactly(n, p)` | `exactly(n, p)` | `exactly(n, &p)` |
+| **All** | Drain all tokens (at least 1) | `In.all(p)` | `all(p)` | `all(&p)` |
+| **AtLeast(n)** | Consume all, require >= n | `In.atLeast(n, p)` | `atLeast(n, p)` | `at_least(n, &p)` |
 
 All input specs support optional guard predicates to filter tokens.
 
@@ -248,26 +285,26 @@ All input specs support optional guard predicates to filter tokens.
 <details>
 <summary><strong>Output routing</strong></summary>
 
-| Routing | Semantics | Java | TypeScript |
-|---|---|---|---|
-| **Place** | Deposit to a single place | `Out.place(p)` | `outPlace(p)` |
-| **And** | Fork to all children | `Out.and(p1, p2)` | `and(outPlace(p1), outPlace(p2))` |
-| **Xor** | Route to exactly one child | `Out.xor(p1, p2)` | `xor(outPlace(p1), outPlace(p2))` |
-| **Timeout** | Fallback output after delay | `Out.timeout(Duration, p)` | `timeout(ms, outPlace(p))` |
-| **ForwardInput** | Pass consumed token through | `Out.forwardInput(from, to)` | `forwardInput(from, to)` |
+| Routing | Semantics | Java | TypeScript | Rust |
+|---|---|---|---|---|
+| **Place** | Deposit to a single place | `Out.place(p)` | `outPlace(p)` | `out_place(&p)` |
+| **And** | Fork to all children | `Out.and(p1, p2)` | `and(outPlace(p1), outPlace(p2))` | `and(vec![out_place(&p1), out_place(&p2)])` |
+| **Xor** | Route to exactly one child | `Out.xor(p1, p2)` | `xor(outPlace(p1), outPlace(p2))` | `xor(vec![out_place(&p1), out_place(&p2)])` |
+| **Timeout** | Fallback output after delay | `Out.timeout(Duration, p)` | `timeout(ms, outPlace(p))` | `timeout(ms, out_place(&p))` |
+| **ForwardInput** | Pass consumed token through | `Out.forwardInput(from, to)` | `forwardInput(from, to)` | `forward_input(&from, &to)` |
 
 </details>
 
 <details>
 <summary><strong>Timing variants</strong></summary>
 
-| Variant | Interval | Behavior | Java | TypeScript |
-|---|---|---|---|---|
-| **Immediate** | [0, inf) | Fire as soon as enabled, no deadline | `Timing.immediate()` | `immediate()` |
-| **Deadline** | [0, d] | Fire anytime before deadline | `Timing.deadline(Duration)` | `deadline(ms)` |
-| **Delayed** | [d, +inf) | Wait at least d, then fire | `Timing.delayed(Duration)` | `delayed(ms)` |
-| **Window** | [a, b] | Fire between a and b | `Timing.window(Duration, Duration)` | `window(a, b)` |
-| **Exact** | [t, t] | Fire at precisely t | `Timing.exact(Duration)` | `exact(ms)` |
+| Variant | Interval | Behavior | Java | TypeScript | Rust |
+|---|---|---|---|---|---|
+| **Immediate** | [0, inf) | Fire as soon as enabled, no deadline | `Timing.immediate()` | `immediate()` | `immediate()` |
+| **Deadline** | [0, d] | Fire anytime before deadline | `Timing.deadline(Duration)` | `deadline(ms)` | `deadline(ms)` |
+| **Delayed** | [d, +inf) | Wait at least d, then fire | `Timing.delayed(Duration)` | `delayed(ms)` | `delayed(ms)` |
+| **Window** | [a, b] | Fire between a and b | `Timing.window(Duration, Duration)` | `window(a, b)` | `window(a, b)` |
+| **Exact** | [t, t] | Fire at precisely t | `Timing.exact(Duration)` | `exact(ms)` | `exact(ms)` |
 
 Transitions are force-disabled past their deadline (urgent semantics).
 
@@ -385,38 +422,40 @@ All transitions use synchronous (passthrough) actions.
 
 | Transitions | Java (µs) | TypeScript (µs) | Rust (µs) | Target (PERF-021) |
 |---|---|---|---|---|
-| 5 | — | — | 6.7 | |
-| 10 | 10.1 | 34.1 | 14.0 | < 100 |
-| 20 | 18.1 | 65.7 | — | |
-| 50 | 43.9 | 112.8 | 73.9 | < 500 |
-| 100 | 88.5 | 146.2 | 140.7 | |
-| 200 | 201.4 | 226.0 | — | |
-| 500 | 610.2 | 531.1 | 846.6 | |
+| 5 | — | — | 6.8 | |
+| 10 | 10.1 | 31.7 | 14.2 | < 100 |
+| 20 | 18.1 | 59.0 | 28.4 | |
+| 50 | 43.9 | 104.9 | 71.7 | < 500 |
+| 100 | 88.5 | 139.6 | 147.2 | |
+| 200 | 201.4 | 206.0 | 306.9 | |
+| 500 | 610.2 | 442.0 | 817.9 | |
 
 ### Async Linear Chains
 
-All transitions dispatch to a virtual thread / microtask.
+All transitions dispatch to a virtual thread / microtask / Tokio task.
 
-| Transitions | Java (µs) | TypeScript (µs) |
-|---|---|---|
-| 5 | 20.6 | 32.3 |
-| 10 | 41.6 | 57.1 |
-| 50 | 199.8 | 192.3 |
-| 100 | 439.2 | 254.7 |
-| 500 | 2245.5 | 813.8 |
-
-> Rust async benchmarks are defined but not yet measured.
+| Transitions | Java (µs) | TypeScript (µs) | Rust (µs) |
+|---|---|---|---|
+| 5 | 20.6 | 29.7 | 8.1 |
+| 10 | 41.6 | 56.0 | 16.3 |
+| 20 | — | 108.2 | 32.1 |
+| 50 | 199.8 | 191.3 | 82.4 |
+| 100 | 439.2 | 254.7 | 155.9 |
+| 200 | — | 299.3 | 317.7 |
+| 500 | 2245.5 | 562.8 | 905.8 |
 
 ### Mixed Linear Chains (2 async)
 
 Two transitions are async, the rest synchronous — the common real-world pattern.
 
-| Transitions | Java (µs) | TypeScript (µs) |
-|---|---|---|
-| 10 | 20.5 | 39.3 |
-| 50 | 59.9 | 121.7 |
-| 100 | 106.9 | 158.9 |
-| 500 | 702.9 | 526.2 |
+| Transitions | Java (µs) | TypeScript (µs) | Rust (µs) |
+|---|---|---|---|
+| 10 | 20.5 | 36.5 | 8.3 |
+| 20 | — | 62.5 | 14.7 |
+| 50 | 59.9 | 105.8 | 35.5 |
+| 100 | 106.9 | 142.9 | 66.7 |
+| 200 | — | 217.1 | 133.2 |
+| 500 | 702.9 | 481.5 | 336.6 |
 
 ### Parallel Fan-Out
 
@@ -424,16 +463,16 @@ One dispatch transition fans out to N parallel async branches, then joins.
 
 | Branches | Java (µs) | TypeScript (µs) | Rust (µs) |
 |---|---|---|---|
-| 5 | 28.3 | 38.7 | 11.9 |
-| 10 | 36.1 | 74.7 | 24.9 |
-| 20 | 49.9 | 155.7 | 49.2 |
+| 5 | 28.3 | 39.1 | 11.8 |
+| 10 | 36.1 | 70.0 | 22.6 |
+| 20 | 49.9 | 151.3 | 47.2 |
 
 ### Complex Workflows
 
-| Scenario | Java (µs) | TypeScript (µs) |
-|---|---|---|
-| Order pipeline (8t, 13p) | 21.1 | 33.8 |
-| Large workflow (16t, 17p) | 43.0 | — |
+| Scenario | Java (µs) | TypeScript (µs) | Rust (µs) |
+|---|---|---|---|
+| Order pipeline (8t, 13p) | 21.1 | 33.4 | 10.8 |
+| Large workflow (16t, 17p) | 43.0 | — | — |
 
 ### Event Store Overhead (Java)
 
@@ -447,23 +486,30 @@ Impact of different event store implementations on the complex workflow:
 | debugAware | 23.3 | +14% |
 | debug + LogCapture | 26.3 | +29% |
 
-### Compilation (Rust)
+### Compilation
 
 Time to compile a PetriNet into a CompiledNet (bitmap masks, reverse indexes).
 
-| Places | Rust (µs) |
-|---|---|
-| 10 | 6.2 |
-| 50 | 32.9 |
-| 100 | 63.6 |
-| 500 | 322.4 |
+| Places | TypeScript (µs) | Rust (µs) |
+|---|---|---|
+| 10 | 10.9 | 6.0 |
+| 50 | 47.9 | 30.7 |
+| 100 | 66.3 | 61.1 |
+| 500 | 348.2 | 302.4 |
+
+### Event Store Overhead (TypeScript)
+
+| Event Store | µs/op | Overhead vs noop |
+|---|---|---|
+| noop | 34.0 | — |
+| inMemory | 34.3 | +0.9% |
 
 ### Event Store Overhead (Rust)
 
 | Event Store | µs/op | Overhead vs noop |
 |---|---|---|
-| noop | 13.8 | — |
-| inMemory | 16.9 | +22.7% |
+| noop | 13.5 | — |
+| inMemory | 15.3 | +13% |
 
 ### Running Benchmarks
 

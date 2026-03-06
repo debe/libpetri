@@ -45,7 +45,7 @@ fn single_passthrough(c: &mut Criterion) {
 }
 
 fn sync_linear_chain(c: &mut Criterion) {
-    for &n in &[5, 10, 50, 100, 500] {
+    for &n in &[5, 10, 20, 50, 100, 200, 500] {
         let (net, start) = build_linear_chain(n);
         c.bench_function(&format!("sync_linear_chain/{n}"), |b| {
             b.iter(|| {
@@ -183,7 +183,7 @@ fn async_linear_chain(c: &mut Criterion) {
         .build()
         .unwrap();
 
-    for &n in &[5, 10, 50] {
+    for &n in &[5, 10, 20, 50, 100, 200, 500] {
         let (net, start) = build_linear_chain(n);
         c.bench_function(&format!("async_linear_chain/{n}"), |b| {
             b.iter(|| {
@@ -233,7 +233,7 @@ fn mixed_chain(c: &mut Criterion) {
         .build()
         .unwrap();
 
-    for &n in &[10, 50] {
+    for &n in &[10, 20, 50, 100, 200, 500] {
         let (net, start) = build_mixed_chain(n);
         c.bench_function(&format!("mixed_chain/{n}"), |b| {
             b.iter(|| {
@@ -261,7 +261,7 @@ fn async_fan_out(c: &mut Criterion) {
         .build()
         .unwrap();
 
-    for &fan in &[5, 10] {
+    for &fan in &[5, 10, 20] {
         let (net, start, _end) = build_fan_out(fan);
         c.bench_function(&format!("async_fan_out/{fan}"), |b| {
             b.iter(|| {
@@ -285,6 +285,121 @@ fn async_fan_out(c: &mut Criterion) {
     }
 }
 
+fn build_complex_workflow() -> (PetriNet, Place<i32>) {
+    let input = Place::<i32>::new("v_input");
+    let guard_in = Place::<i32>::new("v_guardIn");
+    let intent_in = Place::<i32>::new("v_intentIn");
+    let search_in = Place::<i32>::new("v_searchIn");
+    let output_guard_in = Place::<i32>::new("v_outputGuardIn");
+    let guard_safe = Place::<i32>::new("v_guardSafe");
+    let guard_violation = Place::<i32>::new("v_guardViolation");
+    let violated = Place::<i32>::new("v_violated");
+    let intent_ready = Place::<i32>::new("v_intentReady");
+    let topic_ready = Place::<i32>::new("v_topicReady");
+    let search_ready = Place::<i32>::new("v_searchReady");
+    let output_guard_done = Place::<i32>::new("v_outputGuardDone");
+    let response = Place::<i32>::new("v_response");
+
+    // T1: Fork (1-to-4 fan-out)
+    let fork_trans = Transition::builder("Fork")
+        .input(one(&input))
+        .output(and(vec![
+            out_place(&guard_in),
+            out_place(&intent_in),
+            out_place(&search_in),
+            out_place(&output_guard_in),
+        ]))
+        .action(fork())
+        .build();
+
+    // T2: Guard (XOR output - safe or violation)
+    let guard_trans = Transition::builder("Guard")
+        .input(one(&guard_in))
+        .output(xor(vec![out_place(&guard_safe), out_place(&guard_violation)]))
+        .action(fork())
+        .build();
+
+    // T3: HandleViolation (inhibited by guard_safe)
+    let handle_violation = Transition::builder("HandleViolation")
+        .input(one(&guard_violation))
+        .output(out_place(&violated))
+        .inhibitor(inhibitor(&guard_safe))
+        .action(fork())
+        .build();
+
+    // T4: Intent
+    let intent_trans = Transition::builder("Intent")
+        .input(one(&intent_in))
+        .output(out_place(&intent_ready))
+        .action(fork())
+        .build();
+
+    // T5: TopicKnowledge
+    let topic_trans = Transition::builder("TopicKnowledge")
+        .input(one(&intent_ready))
+        .output(out_place(&topic_ready))
+        .action(fork())
+        .build();
+
+    // T6: Search (read intentReady, inhibited by guardViolation, low priority)
+    let search_trans = Transition::builder("Search")
+        .input(one(&search_in))
+        .output(out_place(&search_ready))
+        .read(read(&intent_ready))
+        .inhibitor(inhibitor(&guard_violation))
+        .priority(-5)
+        .action(fork())
+        .build();
+
+    // T7: OutputGuard (reads guardSafe)
+    let output_guard_trans = Transition::builder("OutputGuard")
+        .input(one(&output_guard_in))
+        .output(out_place(&output_guard_done))
+        .read(read(&guard_safe))
+        .action(fork())
+        .build();
+
+    // T8: Compose (AND-join of 3 parallel paths, high priority)
+    let compose_trans = Transition::builder("Compose")
+        .input(one(&guard_safe))
+        .input(one(&search_ready))
+        .input(one(&topic_ready))
+        .output(out_place(&response))
+        .priority(10)
+        .action(fork())
+        .build();
+
+    let net = PetriNet::builder("ComplexWorkflow")
+        .transition(fork_trans)
+        .transition(guard_trans)
+        .transition(handle_violation)
+        .transition(intent_trans)
+        .transition(topic_trans)
+        .transition(search_trans)
+        .transition(output_guard_trans)
+        .transition(compose_trans)
+        .build();
+
+    (net, input)
+}
+
+fn complex_workflow(c: &mut Criterion) {
+    let (net, start) = build_complex_workflow();
+    c.bench_function("complex_workflow/8t_13p", |b| {
+        b.iter(|| {
+            let mut marking = Marking::new();
+            marking.add(&start, Token::at(1, 0));
+            let mut executor = BitmapNetExecutor::<NoopEventStore>::new(
+                &net,
+                marking,
+                ExecutorOptions::default(),
+            );
+            executor.run_sync();
+            black_box(executor.marking().count("v_response"));
+        })
+    });
+}
+
 criterion_group!(
     benches,
     single_passthrough,
@@ -294,6 +409,7 @@ criterion_group!(
     noop_vs_inmemory,
     async_linear_chain,
     mixed_chain,
-    async_fan_out
+    async_fan_out,
+    complex_workflow
 );
 criterion_main!(benches);

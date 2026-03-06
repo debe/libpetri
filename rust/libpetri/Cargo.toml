@@ -12,7 +12,14 @@ libpetri-runtime = { workspace = true }
 libpetri-export = { workspace = true }
 libpetri-verification = { workspace = true }
 
+[dev-dependencies]
+tokio = { workspace = true }
+
 [features]
 default = []
 tokio = ["libpetri-runtime/tokio"]
 z3 = ["libpetri-verification/z3"]
+
+[[example]]
+name = "basic"
+required-features = ["tokio"]
