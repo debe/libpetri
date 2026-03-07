@@ -53,6 +53,8 @@ public final class StyleConstants {
     public static final int EDGE_FONT_SIZE = 10;
     public static final double NODESEP = 0.5;
     public static final double RANKSEP = 0.75;
+    public static final String FORCE_LABELS = "true";
+    public static final String OVERLAP = "false";
 
     // ======================== Lookup ========================
 
