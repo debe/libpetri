@@ -53,6 +53,8 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
     // Graph attributes
     graph.graph_attrs.push(("nodesep".into(), styles::NODESEP.to_string()));
     graph.graph_attrs.push(("ranksep".into(), styles::RANKSEP.to_string()));
+    graph.graph_attrs.push(("forcelabels".into(), styles::FORCE_LABELS.into()));
+    graph.graph_attrs.push(("overlap".into(), styles::OVERLAP.into()));
 
     // Node defaults
     graph.node_defaults.push(("fontname".into(), styles::FONT_FAMILY.into()));

@@ -152,6 +152,8 @@ public final class PetriNetGraphMapper {
             Map.of(
                 "nodesep", String.valueOf(StyleConstants.NODESEP),
                 "ranksep", String.valueOf(StyleConstants.RANKSEP),
+                "forcelabels", StyleConstants.FORCE_LABELS,
+                "overlap", StyleConstants.OVERLAP,
                 "fontname", StyleConstants.FONT_FAMILY
             ),
             Map.of(

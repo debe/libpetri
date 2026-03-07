@@ -100,3 +100,5 @@ pub const FONT_EDGE_SIZE: f64 = 9.0;
 // Graph spacing
 pub const NODESEP: f64 = 0.5;
 pub const RANKSEP: f64 = 0.75;
+pub const FORCE_LABELS: &str = "true";
+pub const OVERLAP: &str = "false";

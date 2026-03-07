@@ -178,6 +178,8 @@ export function mapToGraph(net: PetriNet, config: DotConfig = DEFAULT_DOT_CONFIG
     graphAttrs: {
       nodesep: String(GRAPH.nodesep),
       ranksep: String(GRAPH.ranksep),
+      forcelabels: String(GRAPH.forcelabels),
+      overlap: String(GRAPH.overlap),
       fontname: FONT.family,
     },
     nodeDefaults: {
