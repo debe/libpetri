@@ -3,7 +3,6 @@ package org.libpetri.core;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Context provided to transition actions.
@@ -31,13 +30,45 @@ import java.util.stream.Collectors;
  * }</pre>
  */
 public final class TransitionContext {
-    private final Transition transition;
-    private final TokenInput rawInput;
-    private final TokenOutput rawOutput;
-    private final Set<Place<?>> allowedInputs;
-    private final Set<Place<?>> allowedReads;
-    private final Set<Place<?>> allowedOutputs;
-    private final Map<Class<?>, Object> executionContext;
+
+    /**
+     * ScopedValue carrying the current TransitionContext during action execution.
+     * Allows framework code (logging interceptors, middleware) to access the
+     * active transition context without explicit parameter threading.
+     *
+     * <pre>{@code
+     * // Inside a logging adapter or framework interceptor:
+     * TransitionContext ctx = TransitionContext.current();
+     * if (ctx != null) {
+     *     String transition = ctx.transitionName();
+     * }
+     * }</pre>
+     */
+    private static final ScopedValue<TransitionContext> CURRENT = ScopedValue.newInstance();
+
+    /**
+     * Returns the TransitionContext bound to the current thread, or null if
+     * not executing within a transition action.
+     */
+    public static TransitionContext current() {
+        return CURRENT.isBound() ? CURRENT.get() : null;
+    }
+
+    /**
+     * Returns the ScopedValue carrier for binding during action execution.
+     * Used by executors to bind the context before invoking the action.
+     */
+    public static ScopedValue<TransitionContext> scopedValue() {
+        return CURRENT;
+    }
+
+    private Transition transition;
+    private TokenInput rawInput;
+    private TokenOutput rawOutput;
+    private Set<Place<?>> allowedInputs;
+    private Set<Place<?>> allowedReads;
+    private Set<Place<?>> allowedOutputs;
+    private Map<Class<?>, Object> executionContext;
 
     public TransitionContext(Transition transition, TokenInput rawInput, TokenOutput rawOutput) {
         this(transition, rawInput, rawOutput, Map.of());
@@ -52,6 +83,16 @@ public final class TransitionContext {
         this.allowedReads = transition.readPlaces();
         this.allowedOutputs = transition.outputPlaces();
         this.executionContext = Map.copyOf(executionContext);
+    }
+
+    /**
+     * Updates the execution context for reuse. Input/output must be cleared separately
+     * by the caller before re-populating.
+     *
+     * @param executionContext new execution context map
+     */
+    public void resetExecutionContext(Map<Class<?>, Object> executionContext) {
+        this.executionContext = executionContext.isEmpty() ? Map.of() : Map.copyOf(executionContext);
     }
 
     // ==================== Input Access (consumed) ====================
@@ -239,6 +280,19 @@ public final class TransitionContext {
     }
 
     // ==================== Internal ====================
+
+    /**
+     * Returns underlying input container for the executor.
+     *
+     * <p><b>Internal API:</b> This method is intended for use by {@code NetExecutor}
+     * to access or reset the raw token input. Application code should
+     * use {@link #input(Place)} instead.
+     *
+     * @return the raw token input container
+     */
+    public TokenInput rawInput() {
+        return rawInput;
+    }
 
     /**
      * Returns underlying output collector for the executor.

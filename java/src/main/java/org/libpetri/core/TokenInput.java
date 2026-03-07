@@ -24,7 +24,16 @@ import java.util.Map;
  * @see TokenOutput for collecting output tokens
  */
 public final class TokenInput {
-    private final Map<Place<?>, List<Token<?>>> tokens = new HashMap<>();
+    private final Map<Place<?>, List<Token<?>>> tokens;
+
+    public TokenInput() {
+        this.tokens = new HashMap<>();
+    }
+
+    /** Construct with expected number of input places to avoid HashMap resize. */
+    public TokenInput(int expectedPlaces) {
+        this.tokens = HashMap.newHashMap(expectedPlaces);
+    }
 
     /**
      * Add a token (used by executor when firing transition).
@@ -32,6 +41,15 @@ public final class TokenInput {
     public <T> TokenInput add(Place<T> place, Token<T> token) {
         tokens.computeIfAbsent(place, _ -> new ArrayList<>()).add(token);
         return this;
+    }
+
+    /**
+     * Clears all tokens for reuse. Retains per-place lists to avoid re-allocation.
+     */
+    public void clear() {
+        for (var list : tokens.values()) {
+            list.clear();
+        }
     }
 
     /**
