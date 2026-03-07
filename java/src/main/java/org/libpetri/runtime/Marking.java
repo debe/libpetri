@@ -66,6 +66,16 @@ public final class Marking {
         return new Marking(tokens);
     }
 
+    // ======================== Bulk Operations ========================
+
+    /**
+     * Removes all tokens from all places.
+     * Package-private for use by CompiledNetExecutor to sync from ring buffers.
+     */
+    void clear() {
+        tokens.clear();
+    }
+
     // ======================== Token Addition ========================
 
     /**

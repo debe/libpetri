@@ -1,9 +1,9 @@
 package org.libpetri.core;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Collects output tokens produced by a transition action.
@@ -65,13 +65,20 @@ public final class TokenOutput {
     }
 
     /**
+     * Clears all collected outputs for reuse.
+     */
+    public void clear() {
+        entries.clear();
+    }
+
+    /**
      * Returns the set of places that received tokens.
      * Used by the executor for output validation.
      */
     public Set<Place<?>> placesWithTokens() {
-        return entries.stream()
-            .map(Entry::place)
-            .collect(Collectors.toUnmodifiableSet());
+        var set = new HashSet<Place<?>>(entries.size() * 2);
+        for (var entry : entries) set.add(entry.place());
+        return set;
     }
 
     /**
