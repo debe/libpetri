@@ -16,7 +16,7 @@
 
 ## Why libpetri
 
-- **Executable formal models** — Not a simulator. A production VM where Petri nets are the program: typed tokens are data, transitions are instructions, timing constraints are deadlines, and the executor is a scheduler. Suitable for agent orchestration, workflow automation, protocol modeling, game logic, UI state machines, and anything with concurrency.
+- **Executable formal models** — Not a simulator. A production runtime where Petri nets are the program: typed tokens are data, transitions are instructions, timing constraints are deadlines, and the executor is a scheduler. Suitable for agent orchestration, workflow automation, protocol modeling, game logic, UI state machines, and anything with concurrency.
 - **Three implementations, one spec** — Java, TypeScript, and Rust share [145 language-agnostic requirements](spec/00-index.md) covering every arc type, timing variant, and execution phase. Same behavior, verified independently.
 - **Turing-complete** — Coloured Petri Nets with inhibitor arcs can simulate any Turing machine. libpetri's nets can model arbitrary computation, not just finite-state workflows.
 
@@ -30,7 +30,7 @@
 | **Input cardinality** | `one`, `exactly(n)`, `all` (drain), `atLeast(n)` — with optional guard predicates |
 | **Output routing** | `place` (single), `and` (fork), `xor` (choice), `timeout`, `forwardInput` |
 | **Timing** | Immediate, Deadline, Delayed, Window, Exact — with urgent deadline enforcement |
-| **Executor** | Bitmap-based O(W) enablement, dirty-set optimization, priority + FIFO scheduling. Experimental compiled VM engine with 2–4x speedup. |
+| **Executor** | Bitmap-based O(W) enablement, dirty-set optimization, priority + FIFO scheduling. Experimental precompiled flat-array executor with 2–4x speedup. |
 | **Concurrency** | Single-threaded orchestrator, concurrent async actions (virtual threads / promises / Tokio tasks) |
 | **Environment places** | External event injection for long-running, event-driven workflows |
 | **Events** | 13 event types, pluggable stores (in-memory, noop, logging, debug) |
@@ -253,6 +253,33 @@ const net = PetriNet.builder('DebugUI')
 
 ---
 
+## Example: Java 25 Parser — Pushing Petri Nets to the Limit
+
+The [`examples/java-parser/`](examples/java-parser/) module implements a **complete Java 25 parser as a Coloured Time Petri Net** — 167 grammar productions compiled into 2,335 places and 2,326 transitions. This is a stress test demonstrating that Petri net execution overhead is acceptable even under extreme workloads, not a competitor to javac's hand-tuned recursive descent parser.
+
+**Grammar fragment** — 3 productions compiled to a 33-place, 31-transition net, showing the hierarchical structure of compiled grammar rules:
+
+<p align="center">
+  <img src="docs/example-parser-grammar-fragment.svg" alt="Grammar fragment — 3 productions compiled to a Petri net" width="800">
+</p>
+
+**Full parser net** — all 167 productions, 2,335 places, 2,326 transitions:
+
+<p align="center">
+  <img src="docs/example-java-parser.svg" alt="Full Java 25 parser — 2,335 places, 2,326 transitions" width="800">
+</p>
+
+**How it works:**
+
+- **Coloured tokens** — A single `ParseState` token carries position, call stack, and AST through the net. No global mutable state.
+- **Grammar-to-net compilation** — Each grammar element (terminal, sequence, choice, repetition, optional, non-terminal call/return) maps to a specific net pattern. The compiler produces a `PetriNet` from an EBNF-like `Grammar` definition.
+- **Structural sharing** — Non-terminal calls push a return-site ID onto the token's call stack; a shared return-dispatch transition routes the token back to the correct call site via XOR guards.
+- **PrecompiledNetExecutor** — The flat-array executor with `skipOutputValidation` handles the 2,300+ transitions efficiently. Standard `BitmapNetExecutor` works too, but the precompiled path is faster at this scale.
+
+**Self-parse results:** Parses all 85 libpetri core Java source files (17,395 lines) in ~500ms (~34,000 lines/sec). The overhead is measurable compared to javac, but the fact that a general-purpose Petri net runtime can parse a full programming language at all — and do so correctly across 85 real-world files — proves CTPN execution scales far beyond typical workflow orchestration.
+
+---
+
 ## API at a Glance
 
 <details>
@@ -408,11 +435,11 @@ The executor runs a single-threaded orchestration loop with six phases per cycle
 
 All three share the same architecture: immutable net definitions, builder-pattern construction, bitmap-based enablement with dirty-set optimization, and a single-threaded orchestrator dispatching async actions to a separate task pool. Rust uses a `tokio` feature flag for async execution; the debug protocol is not yet implemented in Rust.
 
-### CompiledNetExecutor — A Petri Net VM (Java, Experimental)
+### PrecompiledNetExecutor — Flat-Array Executor (Java, Experimental)
 
-The `BitmapNetExecutor` interprets the net definition on every firing: it pattern-matches on sealed arc types, looks up tokens in HashMaps, and sorts enabled transitions by priority. The `CompiledNetExecutor` eliminates all of this by treating a Petri net as a program to be compiled and executed on a purpose-built virtual machine.
+The `BitmapNetExecutor` interprets the net definition on every firing: it pattern-matches on sealed arc types, looks up tokens in HashMaps, and sorts enabled transitions by priority. The `PrecompiledNetExecutor` eliminates all of this by precompiling the net into flat arrays and operation sequences for direct execution.
 
-**Compilation.** `NetProgram.compile(net)` transforms a `PetriNet` into flat arrays and microprograms. Each transition's input and reset arcs become a sequence of integer opcodes:
+**Compilation.** `PrecompiledNet.compile(net)` transforms a `PetriNet` into flat arrays and operation sequences. Each transition's input and reset arcs become a sequence of integer opcodes:
 
 ```
 CONSUME_ONE(0)      placeId
@@ -422,14 +449,14 @@ CONSUME_ATLEAST(3)  placeId  minimum
 RESET(4)            placeId
 ```
 
-Timing constraints are precomputed to both nanoseconds and milliseconds. Priority levels are pre-sorted and indexed. Output specs are analyzed so that the common case (single output place) is a direct array lookup. The compiled `NetProgram` is immutable and can be reused across executor instances.
+Timing constraints are precomputed to both nanoseconds and milliseconds. Priority levels are pre-sorted and indexed. Output specs are analyzed so that the common case (single output place) is a direct array lookup. The compiled `PrecompiledNet` is immutable and can be reused across executor instances.
 
-**Execution.** The VM replaces every abstraction on the hot path with flat-array operations:
+**Execution.** The precompiled executor replaces every abstraction on the hot path with flat-array operations:
 
-| BitmapNetExecutor | CompiledNetExecutor |
+| BitmapNetExecutor | PrecompiledNetExecutor |
 |---|---|
 | `Map<Place, ArrayDeque<Token>>` | Ring buffers indexed by place ID — O(1) add/remove/peek, no hashing |
-| Sealed-type pattern matching per arc | `switch` on int opcodes in a flat `int[]` microprogram |
+| Sealed-type pattern matching per arc | `switch` on int opcodes in a flat `int[]` operation sequence |
 | `TreeMap` sort of enabled transitions per cycle | Priority-partitioned circular queues — O(1) next-to-fire |
 | `new TransitionContext()` per firing | Pooled context/input/output objects — zero allocation on sync path |
 | Per-place `Map.get()` for token access | Direct array index: `tokenPool[placeOffset[pid] + localIndex]` |
@@ -438,13 +465,13 @@ The execution loop has the same six phases as `BitmapNetExecutor` and produces i
 
 **Where the speedup comes from.** On pure-sync chains, the compiled path does almost no allocation and touches only contiguous arrays, giving 2–4x speedup that grows with scale (2.3x at 10 transitions, 4.3x at 10,000). On async-dominated workloads the virtual thread scheduling cost dominates both executors equally, so the speedup converges to ~1x for small chains and emerges only at scale. Mixed workloads (the common real-world pattern) see 1.6–3.3x.
 
-**Status.** Experimental. The API is stable and the executor is semantically complete, but it is not yet integrated with the debug protocol. Java only.
+**Status.** The API is stable and the executor is semantically complete — it passes the same 141-test suite as BitmapNetExecutor. Java only.
 
 ---
 
 ## Performance
 
-Measured with noop event store. Java uses JMH (1 fork, 2 warmup, 3 measurement iterations); TypeScript uses vitest bench; Rust uses Criterion. All times in microseconds (µs/op, lower is better). Java columns show both the standard `BitmapNetExecutor` and the experimental `CompiledNetExecutor` (a Petri net VM that compiles nets to flat-array microprograms).
+Measured with noop event store. Java uses JMH (1 fork, 2 warmup, 3 measurement iterations); TypeScript uses vitest bench; Rust uses Criterion. All times in microseconds (µs/op, lower is better). Java columns show both the standard `BitmapNetExecutor` and the `PrecompiledNetExecutor` (a precompiled flat-array executor that compiles nets to operation sequences).
 
 **Concurrency model note:** In Java the orchestrator runs on its own virtual thread and dispatches each action to a separate virtual thread, so no action can ever block the runtime loop. This gives true multicore parallelism for CPU-bound actions. In TypeScript the orchestrator and all actions share a single-core event loop with zero scheduling overhead but no parallelism. In Rust the sync executor is single-threaded with no runtime overhead; the async executor uses Tokio's multi-threaded task pool for true parallelism. In these benchmarks all actions are trivial, so Java's per-thread scheduling cost is visible while its multicore advantage is not. For real workloads with CPU-bound actions Java and Rust scale across cores while TypeScript remains single-threaded.
 
@@ -452,7 +479,7 @@ Measured with noop event store. Java uses JMH (1 fork, 2 warmup, 3 measurement i
 
 All transitions use synchronous (passthrough) actions.
 
-| Transitions | Java Bitmap (µs) | Java Compiled (µs) | Speedup | TypeScript (µs) | Rust (µs) | Target (PERF-021) |
+| Transitions | Java Bitmap (µs) | Java Precompiled (µs) | Speedup | TypeScript (µs) | Rust (µs) | Target (PERF-021) |
 |---|---|---|---|---|---|---|
 | 10 | 8.7 | 3.8 | 2.3x | 31.7 | 13.6 | < 100 |
 | 20 | 17.3 | 7.2 | 2.4x | 59.0 | 26.7 | |
@@ -469,7 +496,7 @@ All transitions use synchronous (passthrough) actions.
 
 All transitions dispatch to a virtual thread / microtask / Tokio task.
 
-| Transitions | Java Bitmap (µs) | Java Compiled (µs) | Speedup | TypeScript (µs) | Rust (µs) |
+| Transitions | Java Bitmap (µs) | Java Precompiled (µs) | Speedup | TypeScript (µs) | Rust (µs) |
 |---|---|---|---|---|---|
 | 5 | 19.3 | 19.5 | 1.0x | 29.7 | 8.3 |
 | 10 | 38.4 | 37.5 | 1.0x | 56.0 | 16.3 |
@@ -483,7 +510,7 @@ All transitions dispatch to a virtual thread / microtask / Tokio task.
 
 Two transitions are async, the rest synchronous — the common real-world pattern.
 
-| Transitions | Java Bitmap (µs) | Java Compiled (µs) | Speedup | TypeScript (µs) | Rust (µs) |
+| Transitions | Java Bitmap (µs) | Java Precompiled (µs) | Speedup | TypeScript (µs) | Rust (µs) |
 |---|---|---|---|---|---|
 | 10 | 17.3 | 11.1 | 1.6x | 36.5 | 8.5 |
 | 20 | 27.3 | 15.8 | 1.7x | 62.5 | 15.2 |
@@ -496,7 +523,7 @@ Two transitions are async, the rest synchronous — the common real-world patter
 
 One dispatch transition fans out to N parallel async branches, then joins.
 
-| Branches | Java Bitmap (µs) | Java Compiled (µs) | Speedup | TypeScript (µs) | Rust (µs) |
+| Branches | Java Bitmap (µs) | Java Precompiled (µs) | Speedup | TypeScript (µs) | Rust (µs) |
 |---|---|---|---|---|---|
 | 5 | 24.9 | 19.7 | 1.3x | 39.1 | 12.0 |
 | 10 | 33.1 | 24.0 | 1.4x | 70.0 | 23.8 |
@@ -504,7 +531,7 @@ One dispatch transition fans out to N parallel async branches, then joins.
 
 ### Complex Workflows
 
-| Scenario | Java Bitmap (µs) | Java Compiled (µs) | Speedup | TypeScript (µs) | Rust (µs) |
+| Scenario | Java Bitmap (µs) | Java Precompiled (µs) | Speedup | TypeScript (µs) | Rust (µs) |
 |---|---|---|---|---|---|
 | Order pipeline (8t, 13p) | 19.0 | 9.7 | 2.0x | 33.4 | 12.0 |
 | Large workflow (16t, 17p) | 35.9 | 25.8 | 1.4x | — | — |
@@ -521,7 +548,7 @@ Impact of different event store implementations on the complex workflow:
 | debugAware | 21.7 | +13% |
 | debug + LogCapture | 22.1 | +15% |
 
-### Event Store Overhead (Java CompiledNetExecutor)
+### Event Store Overhead (Java PrecompiledNetExecutor)
 
 | Event Store | µs/op | Overhead vs noop |
 |---|---|---|
