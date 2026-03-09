@@ -56,14 +56,10 @@ impl TransitionContext {
     // ==================== Input Access (consumed) ====================
 
     /// Get single consumed input value. Returns error if place not declared or wrong type.
-    pub fn input<T: Send + Sync + 'static>(
-        &self,
-        place_name: &str,
-    ) -> Result<Arc<T>, ActionError> {
-        let tokens = self
-            .inputs
-            .get(place_name)
-            .ok_or_else(|| ActionError::new(format!("Place '{place_name}' not in declared inputs")))?;
+    pub fn input<T: Send + Sync + 'static>(&self, place_name: &str) -> Result<Arc<T>, ActionError> {
+        let tokens = self.inputs.get(place_name).ok_or_else(|| {
+            ActionError::new(format!("Place '{place_name}' not in declared inputs"))
+        })?;
         if tokens.len() != 1 {
             return Err(ActionError::new(format!(
                 "Place '{place_name}' consumed {} tokens, use inputs() for batched access",
@@ -78,10 +74,9 @@ impl TransitionContext {
         &self,
         place_name: &str,
     ) -> Result<Vec<Arc<T>>, ActionError> {
-        let tokens = self
-            .inputs
-            .get(place_name)
-            .ok_or_else(|| ActionError::new(format!("Place '{place_name}' not in declared inputs")))?;
+        let tokens = self.inputs.get(place_name).ok_or_else(|| {
+            ActionError::new(format!("Place '{place_name}' not in declared inputs"))
+        })?;
         tokens
             .iter()
             .map(|t| self.downcast_value::<T>(t, place_name))
@@ -90,12 +85,13 @@ impl TransitionContext {
 
     /// Get the raw (type-erased) value of the first input token.
     pub fn input_raw(&self, place_name: &str) -> Result<Arc<dyn Any + Send + Sync>, ActionError> {
-        let tokens = self
-            .inputs
-            .get(place_name)
-            .ok_or_else(|| ActionError::new(format!("Place '{place_name}' not in declared inputs")))?;
+        let tokens = self.inputs.get(place_name).ok_or_else(|| {
+            ActionError::new(format!("Place '{place_name}' not in declared inputs"))
+        })?;
         if tokens.is_empty() {
-            return Err(ActionError::new(format!("No tokens for place '{place_name}'")));
+            return Err(ActionError::new(format!(
+                "No tokens for place '{place_name}'"
+            )));
         }
         Ok(Arc::clone(&tokens[0].value))
     }
@@ -108,16 +104,14 @@ impl TransitionContext {
     // ==================== Read Access (not consumed) ====================
 
     /// Get read-only context value. Returns error if place not declared.
-    pub fn read<T: Send + Sync + 'static>(
-        &self,
-        place_name: &str,
-    ) -> Result<Arc<T>, ActionError> {
-        let tokens = self
-            .reads
-            .get(place_name)
-            .ok_or_else(|| ActionError::new(format!("Place '{place_name}' not in declared reads")))?;
+    pub fn read<T: Send + Sync + 'static>(&self, place_name: &str) -> Result<Arc<T>, ActionError> {
+        let tokens = self.reads.get(place_name).ok_or_else(|| {
+            ActionError::new(format!("Place '{place_name}' not in declared reads"))
+        })?;
         if tokens.is_empty() {
-            return Err(ActionError::new(format!("No tokens for read place '{place_name}'")));
+            return Err(ActionError::new(format!(
+                "No tokens for read place '{place_name}'"
+            )));
         }
         self.downcast_value::<T>(&tokens[0], place_name)
     }
@@ -127,10 +121,9 @@ impl TransitionContext {
         &self,
         place_name: &str,
     ) -> Result<Vec<Arc<T>>, ActionError> {
-        let tokens = self
-            .reads
-            .get(place_name)
-            .ok_or_else(|| ActionError::new(format!("Place '{place_name}' not in declared reads")))?;
+        let tokens = self.reads.get(place_name).ok_or_else(|| {
+            ActionError::new(format!("Place '{place_name}' not in declared reads"))
+        })?;
         tokens
             .iter()
             .map(|t| self.downcast_value::<T>(t, place_name))
@@ -207,8 +200,7 @@ impl TransitionContext {
 
     /// Store an execution context value.
     pub fn set_execution_context<T: Send + Sync + 'static>(&mut self, key: &str, value: T) {
-        self.execution_ctx
-            .insert(key.to_string(), Box::new(value));
+        self.execution_ctx.insert(key.to_string(), Box::new(value));
     }
 
     /// Retrieve an execution context value.
@@ -237,6 +229,16 @@ impl TransitionContext {
     /// Collects all output entries (used by executor).
     pub fn take_outputs(&mut self) -> Vec<OutputEntry> {
         std::mem::take(&mut self.outputs)
+    }
+
+    /// Reclaims the inputs HashMap for reuse (used by executor to avoid per-firing allocation).
+    pub fn take_inputs(&mut self) -> HashMap<Arc<str>, Vec<ErasedToken>> {
+        std::mem::take(&mut self.inputs)
+    }
+
+    /// Reclaims the reads HashMap for reuse (used by executor to avoid per-firing allocation).
+    pub fn take_reads(&mut self) -> HashMap<Arc<str>, Vec<ErasedToken>> {
+        std::mem::take(&mut self.reads)
     }
 
     /// Returns a reference to the output entries.

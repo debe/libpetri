@@ -1,7 +1,9 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
-use libpetri::*;
 use libpetri::runtime::environment::ExternalEvent;
+use libpetri::runtime::precompiled_executor::PrecompiledNetExecutor;
+use libpetri::runtime::precompiled_net::PrecompiledNet;
+use libpetri::*;
 
 fn build_linear_chain(n: usize) -> (PetriNet, Place<i32>) {
     let places: Vec<Place<i32>> = (0..=n).map(|i| Place::new(format!("p{i}"))).collect();
@@ -33,11 +35,8 @@ fn single_passthrough(c: &mut Criterion) {
         b.iter(|| {
             let mut marking = Marking::new();
             marking.add(&p1, Token::at(42, 0));
-            let mut executor = BitmapNetExecutor::<NoopEventStore>::new(
-                &net,
-                marking,
-                ExecutorOptions::default(),
-            );
+            let mut executor =
+                BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
             executor.run_sync();
             black_box(executor.marking().count("p2"));
         })
@@ -92,7 +91,9 @@ fn build_fan_out(fan: usize) -> (PetriNet, Place<i32>, Place<i32>) {
         );
     }
 
-    let net = PetriNet::builder("fan_out").transitions(transitions).build();
+    let net = PetriNet::builder("fan_out")
+        .transitions(transitions)
+        .build();
     (net, start, end)
 }
 
@@ -154,11 +155,8 @@ fn noop_vs_inmemory(c: &mut Criterion) {
         b.iter(|| {
             let mut marking = Marking::new();
             marking.add(&start, Token::at(1, 0));
-            let mut executor = BitmapNetExecutor::<NoopEventStore>::new(
-                &net,
-                marking,
-                ExecutorOptions::default(),
-            );
+            let mut executor =
+                BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
             executor.run_sync();
         })
     });
@@ -195,8 +193,7 @@ fn async_linear_chain(c: &mut Criterion) {
                         marking,
                         ExecutorOptions::default(),
                     );
-                    let (_tx, rx) =
-                        tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+                    let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
                     executor.run_async(rx).await;
                     black_box(executor.marking().count(&format!("p{n}")));
                 })
@@ -205,14 +202,14 @@ fn async_linear_chain(c: &mut Criterion) {
     }
 }
 
-fn build_mixed_chain(n: usize) -> (PetriNet, Place<i32>) {
+fn build_mixed_chain(n: usize, async_count: usize) -> (PetriNet, Place<i32>) {
     let places: Vec<Place<i32>> = (0..=n).map(|i| Place::new(format!("p{i}"))).collect();
     let transitions: Vec<Transition> = (0..n)
         .map(|i| {
             let mut builder = Transition::builder(format!("t{i}"))
                 .input(one(&places[i]))
                 .output(out_place(&places[i + 1]));
-            if i % 2 == 0 {
+            if i < async_count {
                 builder = builder.action(async_action(|ctx| async { Ok(ctx) }));
             } else {
                 builder = builder.action(fork());
@@ -234,7 +231,7 @@ fn mixed_chain(c: &mut Criterion) {
         .unwrap();
 
     for &n in &[10, 20, 50, 100, 200, 500] {
-        let (net, start) = build_mixed_chain(n);
+        let (net, start) = build_mixed_chain(n, 2);
         c.bench_function(&format!("mixed_chain/{n}"), |b| {
             b.iter(|| {
                 rt.block_on(async {
@@ -245,8 +242,7 @@ fn mixed_chain(c: &mut Criterion) {
                         marking,
                         ExecutorOptions::default(),
                     );
-                    let (_tx, rx) =
-                        tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+                    let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
                     executor.run_async(rx).await;
                     black_box(executor.marking().count(&format!("p{n}")));
                 })
@@ -275,8 +271,7 @@ fn async_fan_out(c: &mut Criterion) {
                         marking,
                         ExecutorOptions::default(),
                     );
-                    let (_tx, rx) =
-                        tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+                    let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
                     executor.run_async(rx).await;
                     black_box(executor.marking().count("end"));
                 })
@@ -315,7 +310,10 @@ fn build_complex_workflow() -> (PetriNet, Place<i32>) {
     // T2: Guard (XOR output - safe or violation)
     let guard_trans = Transition::builder("Guard")
         .input(one(&guard_in))
-        .output(xor(vec![out_place(&guard_safe), out_place(&guard_violation)]))
+        .output(xor(vec![
+            out_place(&guard_safe),
+            out_place(&guard_violation),
+        ]))
         .action(fork())
         .build();
 
@@ -389,15 +387,165 @@ fn complex_workflow(c: &mut Criterion) {
         b.iter(|| {
             let mut marking = Marking::new();
             marking.add(&start, Token::at(1, 0));
-            let mut executor = BitmapNetExecutor::<NoopEventStore>::new(
-                &net,
-                marking,
-                ExecutorOptions::default(),
-            );
+            let mut executor =
+                BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
             executor.run_sync();
             black_box(executor.marking().count("v_response"));
         })
     });
+}
+
+// ==================== Precompiled Executor Benchmarks ====================
+
+fn precompiled_single_passthrough(c: &mut Criterion) {
+    let p1 = Place::<i32>::new("p1");
+    let p2 = Place::<i32>::new("p2");
+    let t = Transition::builder("t1")
+        .input(one(&p1))
+        .output(out_place(&p2))
+        .action(passthrough())
+        .build();
+    let net = PetriNet::builder("single").transition(t).build();
+    let compiled = CompiledNet::compile(&net);
+    let prog = PrecompiledNet::from_compiled(&compiled);
+
+    c.bench_function("precompiled_single_passthrough", |b| {
+        b.iter(|| {
+            let mut marking = Marking::new();
+            marking.add(&p1, Token::at(42, 0));
+            let mut executor = PrecompiledNetExecutor::<NoopEventStore>::new(&prog, marking);
+            let result = executor.run_sync();
+            black_box(result.count("p2"));
+        })
+    });
+}
+
+fn precompiled_sync_linear_chain(c: &mut Criterion) {
+    for &n in &[5, 10, 20, 50, 100, 200, 500] {
+        let (net, start) = build_linear_chain(n);
+        let compiled = CompiledNet::compile(&net);
+        let prog = PrecompiledNet::from_compiled(&compiled);
+        c.bench_function(&format!("precompiled_sync_linear_chain/{n}"), |b| {
+            b.iter(|| {
+                let mut marking = Marking::new();
+                marking.add(&start, Token::at(1, 0));
+                let mut executor = PrecompiledNetExecutor::<NoopEventStore>::new(&prog, marking);
+                let result = executor.run_sync();
+                black_box(result.count(&format!("p{n}")));
+            })
+        });
+    }
+}
+
+fn precompiled_parallel_fan_out(c: &mut Criterion) {
+    for &fan in &[5, 10, 20] {
+        let (net, start, _end) = build_fan_out(fan);
+        let compiled = CompiledNet::compile(&net);
+        let prog = PrecompiledNet::from_compiled(&compiled);
+        c.bench_function(&format!("precompiled_parallel_fan_out/{fan}"), |b| {
+            b.iter(|| {
+                let mut marking = Marking::new();
+                for _ in 0..fan {
+                    marking.add(&start, Token::at(1, 0));
+                }
+                let mut executor = PrecompiledNetExecutor::<NoopEventStore>::new(&prog, marking);
+                let result = executor.run_sync();
+                black_box(result.count("end"));
+            })
+        });
+    }
+}
+
+fn precompiled_compilation(c: &mut Criterion) {
+    for &n in &[10, 50, 100, 500] {
+        let places: Vec<Place<i32>> = (0..=n).map(|i| Place::new(format!("p{i}"))).collect();
+        let transitions: Vec<Transition> = (0..n)
+            .map(|i| {
+                Transition::builder(format!("t{i}"))
+                    .input(one(&places[i]))
+                    .output(out_place(&places[i + 1]))
+                    .action(fork())
+                    .build()
+            })
+            .collect();
+
+        let net = PetriNet::builder("chain").transitions(transitions).build();
+
+        c.bench_function(&format!("precompiled_compilation/{n}"), |b| {
+            b.iter(|| {
+                let compiled = CompiledNet::compile(black_box(&net));
+                let prog = PrecompiledNet::from_compiled(&compiled);
+                black_box(&prog);
+            })
+        });
+    }
+}
+
+fn precompiled_complex_workflow(c: &mut Criterion) {
+    let (net, start) = build_complex_workflow();
+    let compiled = CompiledNet::compile(&net);
+    let prog = PrecompiledNet::from_compiled(&compiled);
+    c.bench_function("precompiled_complex_workflow/8t_13p", |b| {
+        b.iter(|| {
+            let mut marking = Marking::new();
+            marking.add(&start, Token::at(1, 0));
+            let mut executor = PrecompiledNetExecutor::<NoopEventStore>::new(&prog, marking);
+            let result = executor.run_sync();
+            black_box(result.count("v_response"));
+        })
+    });
+}
+
+fn precompiled_async_linear_chain(c: &mut Criterion) {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
+    for &n in &[5, 10, 20, 50, 100, 200, 500] {
+        let (net, start) = build_linear_chain(n);
+        let compiled = CompiledNet::compile(&net);
+        let prog = PrecompiledNet::from_compiled(&compiled);
+        c.bench_function(&format!("precompiled_async_linear_chain/{n}"), |b| {
+            b.iter(|| {
+                rt.block_on(async {
+                    let mut marking = Marking::new();
+                    marking.add(&start, Token::at(1, 0));
+                    let mut executor =
+                        PrecompiledNetExecutor::<NoopEventStore>::new(&prog, marking);
+                    let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+                    let result = executor.run_async(rx).await;
+                    black_box(result.count(&format!("p{n}")));
+                })
+            })
+        });
+    }
+}
+
+fn precompiled_mixed_chain(c: &mut Criterion) {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
+    for &n in &[10, 20, 50, 100, 200, 500] {
+        let (net, start) = build_mixed_chain(n, 2);
+        let compiled = CompiledNet::compile(&net);
+        let prog = PrecompiledNet::from_compiled(&compiled);
+        c.bench_function(&format!("precompiled_mixed_chain/{n}"), |b| {
+            b.iter(|| {
+                rt.block_on(async {
+                    let mut marking = Marking::new();
+                    marking.add(&start, Token::at(1, 0));
+                    let mut executor =
+                        PrecompiledNetExecutor::<NoopEventStore>::new(&prog, marking);
+                    let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+                    let result = executor.run_async(rx).await;
+                    black_box(result.count(&format!("p{n}")));
+                })
+            })
+        });
+    }
 }
 
 criterion_group!(
@@ -410,6 +558,13 @@ criterion_group!(
     async_linear_chain,
     mixed_chain,
     async_fan_out,
-    complex_workflow
+    complex_workflow,
+    precompiled_single_passthrough,
+    precompiled_sync_linear_chain,
+    precompiled_parallel_fan_out,
+    precompiled_compilation,
+    precompiled_complex_workflow,
+    precompiled_async_linear_chain,
+    precompiled_mixed_chain,
 );
 criterion_main!(benches);
