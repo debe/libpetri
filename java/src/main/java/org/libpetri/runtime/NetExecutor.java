@@ -607,9 +607,13 @@ public final class NetExecutor implements PetriNetExecutor {
 
             // Poll until either a transition completes or an external event arrives
             while (!anyCompletion.isDone() && !closed.get()) {
+                long timedWaitMs = millisUntilNextTimedTransition();
+                if (timedWaitMs <= 0) return;  // timed transition ready
+                long waitMs = Math.min(50, timedWaitMs);
+
                 // Check for external events with short timeout
                 try {
-                    if (wakeUpSignal.tryAcquire(50, TimeUnit.MILLISECONDS)) {
+                    if (wakeUpSignal.tryAcquire(waitMs, TimeUnit.MILLISECONDS)) {
                         // External event arrived - drain excess permits and return
                         wakeUpSignal.drainPermits();
                         return;

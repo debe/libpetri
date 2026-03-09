@@ -422,6 +422,64 @@ class BitmapNetExecutorTest {
                 assertTrue(elapsed >= 25, "Should have waited ~30ms, got " + elapsed + "ms");
             }
         }
+
+        @Test
+        void delayedTransition_firesOnTime_whileInFlightTransitionRunning() {
+            // Reproduces the bug where awaitCompletionOrEvent() delays timed transitions
+            // until an in-flight transition completes.
+            //
+            // Net topology:
+            //   slowInput --[SlowAction (500ms)]--> slowOutput
+            //   timedInput --[TimedAction (100ms delay)]--> timedOutput
+            //
+            // Both transitions are initially enabled. The timed transition (100ms)
+            // should fire DURING the slow transition (500ms), not after it.
+            var slowInput = Place.of("slowInput", SimpleValue.class);
+            var slowOutput = Place.of("slowOutput", SimpleValue.class);
+            var timedInput = Place.of("timedInput", SimpleValue.class);
+            var timedOutput = Place.of("timedOutput", SimpleValue.class);
+            var timedFireTime = new AtomicReference<Long>();
+
+            long beforeNanos = System.nanoTime();
+
+            var slowTransition = Transition.builder("SlowAction")
+                .inputs(In.one(slowInput))
+                .outputs(Out.place(slowOutput))
+                .action(ctx -> CompletableFuture.runAsync(() -> {
+                    try { Thread.sleep(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                    ctx.output(slowOutput, new SimpleValue("slow"));
+                }, testExecutor))
+                .build();
+
+            var timedTransition = Transition.builder("TimedAction")
+                .inputs(In.one(timedInput))
+                .outputs(Out.place(timedOutput))
+                .timing(Timing.delayed(Duration.ofMillis(100)))
+                .action(ctx -> {
+                    timedFireTime.set(System.nanoTime());
+                    ctx.output(timedOutput, ctx.input(timedInput));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+
+            var net = PetriNet.builder("TimedDuringInFlight")
+                .transitions(slowTransition, timedTransition)
+                .build();
+
+            try (var executor = BitmapNetExecutor.create(net, Map.of(
+                    slowInput, List.of(Token.of(new SimpleValue("go"))),
+                    timedInput, List.of(Token.of(new SimpleValue("go")))))) {
+                var result = executor.run();
+
+                assertTrue(result.hasTokens(slowOutput));
+                assertTrue(result.hasTokens(timedOutput));
+
+                long timedElapsedMs = (timedFireTime.get() - beforeNanos) / 1_000_000;
+                // Timed transition should fire at ~100ms, not ~500ms (when slow completes)
+                assertTrue(timedElapsedMs < 250,
+                    "Timed transition should fire at ~100ms during in-flight, but fired at " + timedElapsedMs + "ms");
+            }
+        }
     }
 
     // ==================== Cardinality ====================

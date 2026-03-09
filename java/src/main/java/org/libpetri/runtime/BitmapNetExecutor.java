@@ -929,8 +929,12 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
             CompletableFuture<Object> anyCompletion = CompletableFuture.anyOf(futures);
 
             while (!anyCompletion.isDone() && !closed.get()) {
+                long timedWaitMs = millisUntilNextTimedTransition();
+                if (timedWaitMs <= 0) return;  // timed transition ready
+                long waitMs = Math.min(50, timedWaitMs);
+
                 try {
-                    if (wakeUpSignal.tryAcquire(50, TimeUnit.MILLISECONDS)) {
+                    if (wakeUpSignal.tryAcquire(waitMs, TimeUnit.MILLISECONDS)) {
                         wakeUpSignal.drainPermits();
                         return;
                     }
