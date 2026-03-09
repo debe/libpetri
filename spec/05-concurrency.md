@@ -1,6 +1,6 @@
 # 05 — Concurrency
 
-This document specifies the concurrency model: single-threaded orchestrator, async action dispatch, bitmap executor optimization, and wake-up mechanisms.
+This document specifies the concurrency model: single-threaded orchestrator, async action dispatch, bitmap executor optimization, precompiled flat-array executor, and wake-up mechanisms.
 
 ---
 
@@ -141,6 +141,147 @@ Phases 2 and 3 are only reached if Phase 1 passes, minimizing work for most tran
 3. A transition with a guard requires Phase 3 to scan tokens.
 
 **Test derivation:** Mix of simple and complex transitions; verify correct enablement with minimal re-evaluation.
+
+---
+
+## Precompiled Flat-Array Executor
+
+#### CONC-020: Precompiled Net Representation
+
+**Priority:** SHOULD
+
+The precompiled net extends the compiled net [CONC-007] by further compiling the net topology into flat arrays and operation sequences that eliminate virtual dispatch and hash map lookups from the hot path. The precompiled representation includes:
+- Flat arrays of length T (transition count) for per-transition data: timing, priorities, enablement masks, operation sequences
+- Opcode-based consume operation sequences per transition [CONC-021]
+- Ring buffer token storage indexed by place ID [CONC-022]
+- Priority-partitioned ready queues [CONC-023]
+- Precomputed timing arrays [CONC-024]
+- Sparse enablement masks [PERF-042]
+
+The precompiled net is immutable after construction.
+
+**Acceptance Criteria:**
+1. Precompiled net is constructed from a compiled net or directly from a symbolic net.
+2. All per-transition data is stored in parallel arrays indexed by transition ID.
+3. No hash map lookups occur during execution.
+4. The precompiled net is immutable — no mutation after compile().
+
+**Depends on:** [CONC-007]
+**Test derivation:** Compile a net; verify all arrays are correctly populated and match the symbolic net.
+
+---
+
+#### CONC-021: Opcode-Based Consume Operations
+
+**Priority:** SHOULD
+
+Each transition's input and reset arcs are compiled into a flat integer array of opcodes. During firing, the executor iterates the opcode array instead of pattern-matching on sealed arc types. Read arcs are compiled into a separate place-ID array.
+
+Opcodes:
+- `CONSUME_ONE(0) placeId` — consume one token from place
+- `CONSUME_N(1) placeId count` — consume exactly N tokens
+- `CONSUME_ALL(2) placeId` — consume all tokens
+- `CONSUME_ATLEAST(3) placeId minimum` — consume at least N tokens (takes all)
+- `RESET(4) placeId` — clear all tokens from place
+
+**Acceptance Criteria:**
+1. Each transition has a precompiled consume operation array.
+2. Read arcs are compiled into a separate place-ID array (reads do not consume).
+3. Firing a transition iterates the opcode array without type dispatch.
+4. All five opcodes produce the same observable behavior as the corresponding arc types.
+
+**Test derivation:** Compile a net with all arc types; fire transitions; verify token consumption matches bitmap executor.
+
+---
+
+#### CONC-022: Flat-Array Token Storage
+
+**Priority:** SHOULD
+
+Token storage uses ring buffers indexed by place ID for O(1) access. Each place has a dedicated ring buffer that preserves FIFO ordering [CORE-013] and grows dynamically when capacity is exceeded.
+
+**Acceptance Criteria:**
+1. Token access is O(1) by place ID — no hashing or map lookup.
+2. FIFO ordering is preserved (oldest token consumed first).
+3. Ring buffers grow dynamically when capacity is exceeded.
+4. Token count per place is available in O(1).
+
+**Depends on:** [CORE-013]
+**Test derivation:** Add and consume tokens in various orders; verify FIFO ordering and correct counts.
+
+---
+
+#### CONC-023: Priority-Partitioned Ready Queues
+
+**Priority:** SHOULD
+
+Distinct priority values are sorted descending at compile time. Each priority level has its own FIFO queue. Transition selection scans priority levels in descending order and picks the first non-empty queue, giving O(L) selection where L is the number of distinct priority levels (typically 1–3).
+
+Each transition maps to a priority index for O(1) ready-queue insertion.
+
+**Acceptance Criteria:**
+1. Distinct priority levels are precomputed and sorted descending.
+2. Each priority level has a separate FIFO queue.
+3. Transition selection is O(L) where L = distinct priority levels.
+4. Within the same priority, FIFO ordering by enablement time is preserved.
+
+**Depends on:** [EXEC-002]
+**Test derivation:** Net with 3 priority levels; verify transitions fire in correct priority order with FIFO within each level.
+
+---
+
+#### CONC-024: Precomputed Timing Arrays
+
+**Priority:** SHOULD
+
+Timing constraints are precomputed into flat arrays at compile time to avoid virtual dispatch on timing types during execution:
+- `earliestNanos[]` / `earliestMillis[]` — earliest firing time per transition
+- `latestNanos[]` / `latestMillis[]` — latest firing time (MAX_VALUE if no deadline)
+- `hasDeadline[]` — boolean flag per transition
+- `allImmediate` — global flag: true if all transitions are immediate
+- `anyDeadlines` — global flag: true if any transition has a deadline
+
+Millisecond arrays are precomputed to avoid nanosecond-to-millisecond division on the hot path.
+
+**Acceptance Criteria:**
+1. Timing arrays are populated at compile time, not computed per cycle.
+2. `allImmediate` flag allows skipping timing checks entirely for immediate-only nets.
+3. `anyDeadlines` flag allows skipping deadline enforcement when no deadlines exist.
+4. Precomputed millisecond values match the nanosecond values (within rounding).
+
+**Test derivation:** Compile nets with various timing configurations; verify array values and global flags.
+
+---
+
+#### CONC-025: Lazy Marking Synchronization
+
+**Priority:** SHOULD
+
+The executor maintains token state internally in ring buffers [CONC-022] and materializes a Marking object lazily — only when needed for events [EVT-014], debug inspection, or the execution result [EXEC-041]. During normal execution cycles, no Marking object is created or updated.
+
+**Acceptance Criteria:**
+1. Normal execution cycles do not create or update a Marking object.
+2. Marking is materialized on demand for event emission, debug, or result.
+3. The materialized Marking accurately reflects the current ring buffer state.
+
+**Test derivation:** Execute a net with noop event store; verify no Marking object is created until result is requested.
+
+---
+
+#### CONC-026: Optional Output Validation Skip
+
+**Priority:** MAY
+
+The executor MAY support an opt-in builder option to skip XOR/AND output specification validation [EXEC-021] for known-correct nets. When enabled, output tokens are deposited without verifying that exactly one XOR branch or all AND branches produced output.
+
+This is a performance optimization for production use where nets have been verified at development time.
+
+**Acceptance Criteria:**
+1. The option is opt-in (validation is on by default).
+2. When enabled, output tokens are deposited without validation.
+3. When disabled, output validation behaves identically to the bitmap executor.
+
+**Test derivation:** Enable skip; fire transition with XOR output; verify tokens deposited without validation error.
 
 ---
 

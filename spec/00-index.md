@@ -34,13 +34,13 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | [02-input-output-specs.md](02-input-output-specs.md) | IO | Input cardinality, composite output routing, validation | 15 |
 | [03-timing.md](03-timing.md) | TIME | Firing intervals, clock semantics, deadline enforcement | 11 |
 | [04-execution-model.md](04-execution-model.md) | EXEC | Orchestrator loop, scheduling, token consumption, failure, quiescence | 15 |
-| [05-concurrency.md](05-concurrency.md) | CONC | Single-threaded orchestrator, bitmap executor, async actions, wake-up | 11 |
+| [05-concurrency.md](05-concurrency.md) | CONC | Single-threaded orchestrator, bitmap executor, precompiled flat-array executor, async actions, wake-up | 18 |
 | [06-environment-places.md](06-environment-places.md) | ENV | External event injection, long-running mode | 9 |
 | [07-verification.md](07-verification.md) | VER | SMT/IC3, state class graph, structural analysis | 10 |
 | [08-events-observability.md](08-events-observability.md) | EVT | Event types, event store, log capture | 20 |
 | [09-export.md](09-export.md) | EXP | Graph export, formal interchange | 10 |
-| [10-performance.md](10-performance.md) | PERF | Scaling, benchmarks, memory efficiency | 11 |
-| **Total** | | | **145** |
+| [10-performance.md](10-performance.md) | PERF | Scaling, benchmarks, memory efficiency, flat-array executor performance | 14 |
+| **Total** | | | **155** |
 
 ---
 
@@ -60,6 +60,13 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | CONC-010 | Orchestrator Wake-Up | MUST | — |
 | CONC-011 | Inline Synchronous Execution | SHOULD | — |
 | CONC-012 | Concurrent Action Limit | MAY | — |
+| CONC-020 | Precompiled Net Representation | SHOULD | CONC-007 |
+| CONC-021 | Opcode-Based Consume Operations | SHOULD | — |
+| CONC-022 | Flat-Array Token Storage | SHOULD | CORE-013 |
+| CONC-023 | Priority-Partitioned Ready Queues | SHOULD | EXEC-002 |
+| CONC-024 | Precomputed Timing Arrays | SHOULD | — |
+| CONC-025 | Lazy Marking Synchronization | SHOULD | — |
+| CONC-026 | Optional Output Validation Skip | MAY | — |
 
 ### CORE — Core Model
 | ID | Title | Priority | Depends On |
@@ -201,6 +208,9 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | PERF-022 | Regression Detection | MUST | — |
 | PERF-030 | Bitmap Memory Efficiency | MUST | — |
 | PERF-031 | Token Storage Efficiency | SHOULD | — |
+| PERF-040 | Flat-Array Memory Layout | SHOULD | CONC-020 |
+| PERF-041 | Precompiled Executor Target Speedup | SHOULD | CONC-020, PERF-020 |
+| PERF-042 | Sparse Enablement Masks | SHOULD | CONC-004, CONC-020 |
 
 ### TIME — Timing
 | ID | Title | Priority | Depends On |
@@ -238,8 +248,8 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Priority | Count | Description |
 |----------|-------|-------------|
 | MUST     | 110   | Core contract; all implementations must conform |
-| SHOULD   | 29    | Recommended; implementations should include unless technically infeasible |
-| MAY      | 6     | Optional; implementations may include |
+| SHOULD   | 38    | Recommended; implementations should include unless technically infeasible |
+| MAY      | 7     | Optional; implementations may include |
 
 ---
 
@@ -261,6 +271,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Log capture | Action log → events | SLF4J LogCaptureScope | ctx.log() | Not yet |
 | Debug event store | Live tailing | ✓ | ✓ | — |
 | Action binding | Separated from structure | ✓ (bindActions) | ✓ (bindActions) | NetStructureBuilder |
+| Precompiled flat-array executor | 2–4× speedup via flat arrays | ✓ (PrecompiledNetExecutor) | Not yet | Not yet |
 | Inline sync execution | Avoid task dispatch | — | — | ✓ (try_run_inline) |
 
 \* Rust uses 64-bit words matching Java.
@@ -298,8 +309,10 @@ This matrix maps spec requirements to test classes/files in each implementation.
 | EVT-001–014 | `NetEventTest` | `net-event.test.ts` | `net_event::tests` |
 | EVT-020–024 | `EventStoreTest` | `event-store.test.ts` | `event_store::tests` |
 | EXP-001–008 | `DotExporterTest` | `dot-exporter.test.ts` | `dot_renderer::tests`, `mapper::tests` |
+| CONC-020–026 | `PrecompiledNetExecutorEngineTest` | — | — |
 | PERF-001–004 | `BitmapNetExecutorBenchmark` | — | — |
 | PERF-020–022 | — | — | — |
+| PERF-040–042 | `PrecompiledNetExecutorBenchmark` | — | — |
 
 ---
 
