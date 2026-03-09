@@ -201,8 +201,8 @@ impl Dbm {
             let upper = constrained[old_idx * dim + f];
             let lower = (-constrained[f * dim + old_idx]).max(0.0);
 
-            new_data[new_idx] = -lower;  // row 0, col new_idx
-            new_data[new_idx * new_dim] = upper;  // row new_idx, col 0
+            new_data[new_idx] = -lower; // row 0, col new_idx
+            new_data[new_idx * new_dim] = upper; // row new_idx, col 0
 
             // Inter-clock constraints between persistent transitions
             for (pj, &old_j) in persistent_clocks.iter().enumerate() {
@@ -216,8 +216,8 @@ impl Dbm {
         let offset = persistent_clocks.len();
         for (k, _) in new_clock_names.iter().enumerate() {
             let idx = offset + k + 1;
-            new_data[idx] = -new_lower_bounds[k];  // row 0, col idx
-            new_data[idx * new_dim] = new_upper_bounds[k];  // row idx, col 0
+            new_data[idx] = -new_lower_bounds[k]; // row 0, col idx
+            new_data[idx * new_dim] = new_upper_bounds[k]; // row idx, col 0
         }
 
         // Build new clock names
@@ -246,7 +246,12 @@ impl Dbm {
         for i in 0..self.clock_names.len() {
             let lo = self.lower_bound(i);
             let hi = self.upper_bound(i);
-            parts.push(format!("{}:[{},{}]", self.clock_names[i], format_bound(lo), format_bound(hi)));
+            parts.push(format!(
+                "{}:[{},{}]",
+                self.clock_names[i],
+                format_bound(lo),
+                format_bound(hi)
+            ));
         }
         format!("DBM{{{}}}", parts.join(", "))
     }
@@ -328,11 +333,7 @@ mod tests {
 
     #[test]
     fn dbm_create_with_bounds() {
-        let dbm = Dbm::create(
-            vec!["t1".into(), "t2".into()],
-            &[5.0, 3.0],
-            &[10.0, 8.0],
-        );
+        let dbm = Dbm::create(vec!["t1".into(), "t2".into()], &[5.0, 3.0], &[10.0, 8.0]);
         assert_eq!(dbm.clock_names().len(), 2);
         assert_eq!(dbm.lower_bound(0), 5.0);
         assert_eq!(dbm.upper_bound(0), 10.0);
@@ -373,11 +374,7 @@ mod tests {
 
     #[test]
     fn dbm_let_time_pass() {
-        let dbm = Dbm::create(
-            vec!["t1".into()],
-            &[5.0],
-            &[10.0],
-        );
+        let dbm = Dbm::create(vec!["t1".into()], &[5.0], &[10.0]);
         let passed = dbm.let_time_pass();
         // After time passage, lower bound should be 0
         assert_eq!(passed.lower_bound(0), 0.0);
@@ -401,11 +398,7 @@ mod tests {
 
     #[test]
     fn dbm_fire_transition() {
-        let dbm = Dbm::create(
-            vec!["t1".into(), "t2".into()],
-            &[5.0, 3.0],
-            &[10.0, 8.0],
-        );
+        let dbm = Dbm::create(vec!["t1".into(), "t2".into()], &[5.0, 3.0], &[10.0, 8.0]);
         let passed = dbm.let_time_pass();
 
         // Fire t1 (clock 0), t2 persists (clock 1)
@@ -423,11 +416,7 @@ mod tests {
 
     #[test]
     fn dbm_fire_with_newly_enabled() {
-        let dbm = Dbm::create(
-            vec!["t1".into()],
-            &[0.0],
-            &[f64::INFINITY],
-        );
+        let dbm = Dbm::create(vec!["t1".into()], &[0.0], &[f64::INFINITY]);
         let passed = dbm.let_time_pass();
 
         // Fire t1, enable t2 and t3
@@ -474,11 +463,7 @@ mod tests {
     #[test]
     fn dbm_fire_persistent_bounds_adjusted() {
         // After firing t1 with t2 persistent, t2's bounds should be relative to fire time
-        let dbm = Dbm::create(
-            vec!["t1".into(), "t2".into()],
-            &[0.0, 0.0],
-            &[5.0, 10.0],
-        );
+        let dbm = Dbm::create(vec!["t1".into(), "t2".into()], &[0.0, 0.0], &[5.0, 10.0]);
         let passed = dbm.let_time_pass();
 
         let result = passed.fire_transition(
@@ -496,21 +481,11 @@ mod tests {
 
     #[test]
     fn dbm_fire_replaces_fired_clock() {
-        let dbm = Dbm::create(
-            vec!["t1".into()],
-            &[0.0],
-            &[5.0],
-        );
+        let dbm = Dbm::create(vec!["t1".into()], &[0.0], &[5.0]);
         let passed = dbm.let_time_pass();
 
         // Fire t1, enable t2 with different bounds
-        let result = passed.fire_transition(
-            0,
-            &["t2".into()],
-            &[1.0],
-            &[3.0],
-            &[],
-        );
+        let result = passed.fire_transition(0, &["t2".into()], &[1.0], &[3.0], &[]);
 
         assert_eq!(result.clock_names().len(), 1);
         assert_eq!(result.clock_names()[0], "t2");
@@ -536,11 +511,7 @@ mod tests {
     #[test]
     fn dbm_multiple_clocks_inter_constraints() {
         // Two clocks with tight constraints
-        let dbm = Dbm::create(
-            vec!["t1".into(), "t2".into()],
-            &[1.0, 2.0],
-            &[3.0, 4.0],
-        );
+        let dbm = Dbm::create(vec!["t1".into(), "t2".into()], &[1.0, 2.0], &[3.0, 4.0]);
         assert!(!dbm.is_empty());
 
         // After canonicalization, inter-clock constraints should be tightened
@@ -573,11 +544,7 @@ mod tests {
 
     #[test]
     fn dbm_let_time_pass_preserves_upper() {
-        let dbm = Dbm::create(
-            vec!["t1".into(), "t2".into()],
-            &[3.0, 5.0],
-            &[10.0, 15.0],
-        );
+        let dbm = Dbm::create(vec!["t1".into(), "t2".into()], &[3.0, 5.0], &[10.0, 15.0]);
         let passed = dbm.let_time_pass();
         assert_eq!(passed.lower_bound(0), 0.0);
         assert_eq!(passed.lower_bound(1), 0.0);

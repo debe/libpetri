@@ -77,18 +77,16 @@ impl ErasedToken {
 
     /// Attempts to downcast back to a typed token.
     pub fn downcast<T: Send + Sync + 'static>(&self) -> Option<Token<T>> {
-        self.value
-            .downcast_ref::<T>()
-            .map(|_| {
-                // Safety: we verified the type matches, so the Arc contains T
-                let value = Arc::clone(&self.value);
-                // SAFETY: downcast_ref confirmed the type
-                let typed: Arc<T> = unsafe {
-                    let raw = Arc::into_raw(value);
-                    Arc::from_raw(raw.cast::<T>())
-                };
-                Token::from_arc(typed, self.created_at)
-            })
+        self.value.downcast_ref::<T>().map(|_| {
+            // Safety: we verified the type matches, so the Arc contains T
+            let value = Arc::clone(&self.value);
+            // SAFETY: downcast_ref confirmed the type
+            let typed: Arc<T> = unsafe {
+                let raw = Arc::into_raw(value);
+                Arc::from_raw(raw.cast::<T>())
+            };
+            Token::from_arc(typed, self.created_at)
+        })
     }
 }
 

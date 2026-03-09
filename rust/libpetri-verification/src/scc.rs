@@ -63,11 +63,7 @@ struct TarjanState {
     next_index: usize,
 }
 
-fn strong_connect(
-    v: usize,
-    successors: &impl Fn(usize) -> Vec<usize>,
-    state: &mut TarjanState,
-) {
+fn strong_connect(v: usize, successors: &impl Fn(usize) -> Vec<usize>, state: &mut TarjanState) {
     state.index_map[v] = Some(state.next_index);
     state.lowlink[v] = state.next_index;
     state.next_index += 1;

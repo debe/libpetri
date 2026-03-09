@@ -118,10 +118,7 @@ impl<'a> TimePetriNetAnalyzer<'a> {
         report.push(format!("Net: {}", self.net.name()));
         report.push(format!("Places: {}", self.net.places().len()));
         report.push(format!("Transitions: {}", self.net.transitions().len()));
-        report.push(format!(
-            "Goal places: [{}]\n",
-            self.goal_places.join(", ")
-        ));
+        report.push(format!("Goal places: [{}]\n", self.goal_places.join(", ")));
 
         // Phase 1: Build State Class Graph
         report.push("Phase 1: Building State Class Graph...".to_string());
@@ -141,7 +138,11 @@ impl<'a> TimePetriNetAnalyzer<'a> {
         report.push(format!("  Edges: {}", scg.edge_count()));
         report.push(format!(
             "  Complete: {}",
-            if scg.is_complete() { "YES" } else { "NO (truncated)" }
+            if scg.is_complete() {
+                "YES"
+            } else {
+                "NO (truncated)"
+            }
         ));
 
         if !scg.is_complete() {
@@ -174,9 +175,8 @@ impl<'a> TimePetriNetAnalyzer<'a> {
 
         // Phase 4: Check goal liveness
         report.push("Phase 4: Verifying Goal Liveness...".to_string());
-        report.push(
-            "  Property: From every reachable state, a goal state is reachable".to_string(),
-        );
+        report
+            .push("  Property: From every reachable state, a goal state is reachable".to_string());
 
         let mut terminal_without_goal = 0;
         for scc in &terminal_sccs {
@@ -206,16 +206,11 @@ impl<'a> TimePetriNetAnalyzer<'a> {
 
         // Phase 5: Check classical liveness (L4)
         report.push("Phase 5: Verifying Classical Liveness (L4)...".to_string());
-        report.push(
-            "  Property: Every transition can fire from every reachable marking".to_string(),
-        );
+        report
+            .push("  Property: Every transition can fire from every reachable marking".to_string());
 
-        let all_transition_names: HashSet<&str> = self
-            .net
-            .transitions()
-            .iter()
-            .map(|t| t.name())
-            .collect();
+        let all_transition_names: HashSet<&str> =
+            self.net.transitions().iter().map(|t| t.name()).collect();
 
         let mut terminal_missing_transitions = 0;
         for scc in &terminal_sccs {
@@ -289,14 +284,10 @@ impl<'a> TimePetriNetAnalyzer<'a> {
         } else {
             report.push("CLASSICAL LIVENESS (L4) NOT VERIFIED".to_string());
             if terminal_missing_transitions > 0 {
-                report.push(
-                    "  Some terminal SCCs don't contain all transitions.".to_string(),
-                );
+                report.push("  Some terminal SCCs don't contain all transitions.".to_string());
             }
             if !scg.is_complete() {
-                report.push(
-                    "  (State class graph incomplete - cannot prove L4)".to_string(),
-                );
+                report.push("  (State class graph incomplete - cannot prove L4)".to_string());
             }
         }
 
@@ -353,10 +344,7 @@ impl<'a> TimePetriNetAnalyzer<'a> {
     }
 }
 
-fn compute_backward_reachability(
-    scg: &StateClassGraph,
-    goals: &HashSet<usize>,
-) -> HashSet<usize> {
+fn compute_backward_reachability(scg: &StateClassGraph, goals: &HashSet<usize>) -> HashSet<usize> {
     let mut reachable: HashSet<usize> = goals.clone();
     let mut queue: Vec<usize> = goals.iter().copied().collect();
 
@@ -460,9 +448,7 @@ mod tests {
             .output(out_place(&p_a))
             .build();
 
-        let net = PetriNet::builder("circular")
-            .transitions([t1, t2])
-            .build();
+        let net = PetriNet::builder("circular").transitions([t1, t2]).build();
 
         let result = TimePetriNetAnalyzer::for_net(&net)
             .initial_marking(MarkingStateBuilder::new().tokens("A", 1).build())
@@ -516,9 +502,7 @@ mod tests {
             .output(out_place(&p_a))
             .build();
 
-        let net = PetriNet::builder("circular")
-            .transitions([t1, t2])
-            .build();
+        let net = PetriNet::builder("circular").transitions([t1, t2]).build();
 
         let result = TimePetriNetAnalyzer::for_net(&net)
             .initial_marking(MarkingStateBuilder::new().tokens("A", 1).build())
@@ -659,9 +643,7 @@ mod tests {
             .output(out_place(&p_ready))
             .build();
 
-        let net = PetriNet::builder("env-net")
-            .transitions([t1, t2])
-            .build();
+        let net = PetriNet::builder("env-net").transitions([t1, t2]).build();
 
         let result = TimePetriNetAnalyzer::for_net(&net)
             .initial_marking(MarkingStateBuilder::new().tokens("ready", 1).build())
@@ -717,9 +699,7 @@ mod tests {
             .output(out_place(&p_ready))
             .build();
 
-        let net = PetriNet::builder("env-net")
-            .transitions([t1, t2])
-            .build();
+        let net = PetriNet::builder("env-net").transitions([t1, t2]).build();
 
         let result = TimePetriNetAnalyzer::for_net(&net)
             .initial_marking(MarkingStateBuilder::new().tokens("ready", 1).build())
@@ -747,9 +727,7 @@ mod tests {
             .output(out_place(&p_a))
             .build();
 
-        let net = PetriNet::builder("circular")
-            .transitions([t1, t2])
-            .build();
+        let net = PetriNet::builder("circular").transitions([t1, t2]).build();
 
         let result = TimePetriNetAnalyzer::for_net(&net)
             .initial_marking(MarkingStateBuilder::new().tokens("A", 1).build())

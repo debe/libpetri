@@ -42,12 +42,14 @@ impl StateClassGraph {
     }
 
     /// Builds the state class graph for a Time Petri Net using BFS exploration.
-    pub fn build(
-        net: &PetriNet,
-        initial_marking: &MarkingState,
-        max_classes: usize,
-    ) -> Self {
-        Self::build_with_env(net, initial_marking, max_classes, &[], &EnvironmentAnalysisMode::Ignore)
+    pub fn build(net: &PetriNet, initial_marking: &MarkingState, max_classes: usize) -> Self {
+        Self::build_with_env(
+            net,
+            initial_marking,
+            max_classes,
+            &[],
+            &EnvironmentAnalysisMode::Ignore,
+        )
     }
 
     /// Builds with environment place support.
@@ -61,22 +63,32 @@ impl StateClassGraph {
         let env_set: HashSet<&str> = env_places.iter().copied().collect();
         let enabled = find_enabled_transitions(net, initial_marking, &env_set, env_mode);
         let clock_names: Vec<String> = enabled.clone();
-        let lower_bounds: Vec<f64> = enabled.iter().map(|name| {
-            let t = net.transitions().iter().find(|t| t.name() == name.as_str()).unwrap();
-            t.timing().earliest() as f64 / 1000.0
-        }).collect();
-        let upper_bounds: Vec<f64> = enabled.iter().map(|name| {
-            let t = net.transitions().iter().find(|t| t.name() == name.as_str()).unwrap();
-            t.timing().latest() as f64 / 1000.0
-        }).collect();
+        let lower_bounds: Vec<f64> = enabled
+            .iter()
+            .map(|name| {
+                let t = net
+                    .transitions()
+                    .iter()
+                    .find(|t| t.name() == name.as_str())
+                    .unwrap();
+                t.timing().earliest() as f64 / 1000.0
+            })
+            .collect();
+        let upper_bounds: Vec<f64> = enabled
+            .iter()
+            .map(|name| {
+                let t = net
+                    .transitions()
+                    .iter()
+                    .find(|t| t.name() == name.as_str())
+                    .unwrap();
+                t.timing().latest() as f64 / 1000.0
+            })
+            .collect();
 
         let initial_dbm = Dbm::create(clock_names, &lower_bounds, &upper_bounds);
         let initial_dbm = initial_dbm.let_time_pass();
-        let initial_class = StateClass::new(
-            initial_marking.clone(),
-            initial_dbm,
-            enabled,
-        );
+        let initial_class = StateClass::new(initial_marking.clone(), initial_dbm, enabled);
 
         let mut graph = StateClassGraph::new();
         let initial_key = initial_class.canonical_key();
@@ -99,7 +111,9 @@ impl StateClassGraph {
             let current = graph.classes[current_idx].clone();
 
             for (clock_idx, transition_name) in current.enabled_transitions.iter().enumerate() {
-                let transition = net.transitions().iter()
+                let transition = net
+                    .transitions()
+                    .iter()
                     .find(|t| t.name() == transition_name.as_str())
                     .unwrap();
 
@@ -141,8 +155,16 @@ impl StateClassGraph {
                         transition_name: transition_name.clone(),
                         branch_index,
                     });
-                    graph.successors.entry(current_idx).or_default().push(target_idx);
-                    graph.predecessors.entry(target_idx).or_default().push(current_idx);
+                    graph
+                        .successors
+                        .entry(current_idx)
+                        .or_default()
+                        .push(target_idx);
+                    graph
+                        .predecessors
+                        .entry(target_idx)
+                        .or_default()
+                        .push(current_idx);
                 }
             }
         }
@@ -308,7 +330,8 @@ fn expand_transition(
                 .into_iter()
                 .enumerate()
                 .map(|(i, b)| {
-                    let places: HashSet<String> = b.into_iter().map(|p| p.name().to_string()).collect();
+                    let places: HashSet<String> =
+                        b.into_iter().map(|p| p.name().to_string()).collect();
                     (i, places)
                 })
                 .collect()
@@ -327,13 +350,19 @@ fn compute_successor(
     env_places: &HashSet<&str>,
     env_mode: &EnvironmentAnalysisMode,
 ) -> StateClass {
-    let transition = net.transitions().iter()
+    let transition = net
+        .transitions()
+        .iter()
         .find(|t| t.name() == fired_name)
         .unwrap();
 
     // 1. Compute new marking
     let new_marking = fire_transition_marking(
-        &current.marking, transition, output_places, env_places, env_mode,
+        &current.marking,
+        transition,
+        output_places,
+        env_places,
+        env_mode,
     );
 
     // 2. Determine persistent and newly enabled transitions
@@ -355,14 +384,28 @@ fn compute_successor(
         .collect();
 
     // 3. Compute successor DBM
-    let new_lower_bounds: Vec<f64> = newly_enabled.iter().map(|name| {
-        let t = net.transitions().iter().find(|t| t.name() == name.as_str()).unwrap();
-        t.timing().earliest() as f64 / 1000.0
-    }).collect();
-    let new_upper_bounds: Vec<f64> = newly_enabled.iter().map(|name| {
-        let t = net.transitions().iter().find(|t| t.name() == name.as_str()).unwrap();
-        t.timing().latest() as f64 / 1000.0
-    }).collect();
+    let new_lower_bounds: Vec<f64> = newly_enabled
+        .iter()
+        .map(|name| {
+            let t = net
+                .transitions()
+                .iter()
+                .find(|t| t.name() == name.as_str())
+                .unwrap();
+            t.timing().earliest() as f64 / 1000.0
+        })
+        .collect();
+    let new_upper_bounds: Vec<f64> = newly_enabled
+        .iter()
+        .map(|name| {
+            let t = net
+                .transitions()
+                .iter()
+                .find(|t| t.name() == name.as_str())
+                .unwrap();
+            t.timing().latest() as f64 / 1000.0
+        })
+        .collect();
 
     let new_dbm = current.dbm.fire_transition(
         fired_clock,
@@ -602,9 +645,7 @@ mod tests {
         assert!(scg.edges().is_empty());
 
         // Without inhibitor — transition enabled
-        let initial_free = MarkingStateBuilder::new()
-            .tokens("p1", 1)
-            .build();
+        let initial_free = MarkingStateBuilder::new().tokens("p1", 1).build();
         let scg2 = StateClassGraph::build(&net, &initial_free, 1000);
         assert!(scg2.class_count() >= 2);
         let target = MarkingStateBuilder::new().tokens("p2", 1).build();
@@ -628,9 +669,7 @@ mod tests {
             .timing(libpetri_core::timing::window(50, 200))
             .build();
 
-        let net = PetriNet::builder("timed")
-            .transitions([t1, t2])
-            .build();
+        let net = PetriNet::builder("timed").transitions([t1, t2]).build();
 
         let initial = MarkingStateBuilder::new().tokens("p1", 1).build();
         let scg = StateClassGraph::build(&net, &initial, 1000);
@@ -732,9 +771,7 @@ mod tests {
             .output(out_place(&p_ready))
             .build();
 
-        let net = PetriNet::builder("env-cycle")
-            .transitions([t1, t2])
-            .build();
+        let net = PetriNet::builder("env-cycle").transitions([t1, t2]).build();
 
         let initial = MarkingStateBuilder::new().tokens("ready", 1).build();
 

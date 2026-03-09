@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::action::BoxedAction;
 use crate::place::PlaceRef;
-use crate::transition::{rebuild_with_action, Transition};
+use crate::transition::{Transition, rebuild_with_action};
 
 /// Immutable definition of a Time Petri Net structure.
 ///
@@ -190,10 +190,7 @@ mod tests {
 
         // Bind a new action
         let mut bindings = std::collections::HashMap::new();
-        bindings.insert(
-            "t1".to_string(),
-            crate::action::passthrough(),
-        );
+        bindings.insert("t1".to_string(), crate::action::passthrough());
         let net2 = net.bind_actions(&bindings);
         assert_eq!(net2.transitions().len(), 1);
         assert_eq!(net2.transitions()[0].name(), "t1");

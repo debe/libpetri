@@ -94,7 +94,11 @@ fn extract_marking(s: &str, flat: &FlatNet) -> Option<MarkingState> {
     let args = content[prefix.len()..].trim().trim_end_matches(')');
     let values: Vec<i64> = args
         .split_whitespace()
-        .filter_map(|tok| tok.trim_matches(|c: char| !c.is_ascii_digit() && c != '-').parse().ok())
+        .filter_map(|tok| {
+            tok.trim_matches(|c: char| !c.is_ascii_digit() && c != '-')
+                .parse()
+                .ok()
+        })
         .collect();
 
     if values.len() != flat.place_count {

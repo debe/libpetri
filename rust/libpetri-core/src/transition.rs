@@ -1,13 +1,13 @@
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::action::{passthrough, BoxedAction};
+use crate::action::{BoxedAction, passthrough};
 use crate::arc::{Inhibitor, Read, Reset};
 use crate::input::In;
-use crate::output::{find_forward_inputs, find_timeout, all_places, Out};
+use crate::output::{Out, all_places, find_forward_inputs, find_timeout};
 use crate::place::PlaceRef;
-use crate::timing::{immediate, Timing};
+use crate::timing::{Timing, immediate};
 
 /// Unique identifier for a transition instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -289,8 +289,7 @@ impl TransitionBuilder {
         let input_places: HashSet<PlaceRef> =
             self.input_specs.iter().map(|s| s.place().clone()).collect();
 
-        let read_places: HashSet<PlaceRef> =
-            self.reads.iter().map(|r| r.place.clone()).collect();
+        let read_places: HashSet<PlaceRef> = self.reads.iter().map(|r| r.place.clone()).collect();
 
         let output_places: HashSet<PlaceRef> = self
             .output_spec
@@ -406,9 +405,7 @@ mod tests {
     #[test]
     fn no_action_timeout() {
         let p = Place::<i32>::new("out");
-        let t = Transition::builder("test")
-            .output(out_place(&p))
-            .build();
+        let t = Transition::builder("test").output(out_place(&p)).build();
         assert_eq!(t.action_timeout(), None);
     }
 }

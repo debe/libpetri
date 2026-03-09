@@ -7,15 +7,9 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub enum NetEvent {
     /// Net execution started.
-    ExecutionStarted {
-        net_name: Arc<str>,
-        timestamp: u64,
-    },
+    ExecutionStarted { net_name: Arc<str>, timestamp: u64 },
     /// Net execution completed (no more enabled transitions, no in-flight actions).
-    ExecutionCompleted {
-        net_name: Arc<str>,
-        timestamp: u64,
-    },
+    ExecutionCompleted { net_name: Arc<str>, timestamp: u64 },
     /// Transition became enabled (all input/inhibitor/read conditions satisfied).
     TransitionEnabled {
         transition_name: Arc<str>,

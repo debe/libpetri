@@ -17,10 +17,7 @@ pub enum Timing {
     /// Must wait, then can fire anytime. [after, inf)
     Delayed { after_ms: u64 },
     /// Can fire within [earliest, latest].
-    Window {
-        earliest_ms: u64,
-        latest_ms: u64,
-    },
+    Window { earliest_ms: u64, latest_ms: u64 },
     /// Fires at precisely the specified time. [at, at]
     Exact { at_ms: u64 },
 }

@@ -32,7 +32,13 @@ impl Default for DotConfig {
 /// Sanitize a name for use as a DOT identifier.
 pub fn sanitize(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -51,19 +57,31 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
     graph.rankdir = config.direction;
 
     // Graph attributes
-    graph.graph_attrs.push(("nodesep".into(), styles::NODESEP.to_string()));
-    graph.graph_attrs.push(("ranksep".into(), styles::RANKSEP.to_string()));
-    graph.graph_attrs.push(("forcelabels".into(), styles::FORCE_LABELS.into()));
-    graph.graph_attrs.push(("overlap".into(), styles::OVERLAP.into()));
+    graph
+        .graph_attrs
+        .push(("nodesep".into(), styles::NODESEP.to_string()));
+    graph
+        .graph_attrs
+        .push(("ranksep".into(), styles::RANKSEP.to_string()));
+    graph
+        .graph_attrs
+        .push(("forcelabels".into(), styles::FORCE_LABELS.into()));
+    graph
+        .graph_attrs
+        .push(("overlap".into(), styles::OVERLAP.into()));
 
     // Node defaults
-    graph.node_defaults.push(("fontname".into(), styles::FONT_FAMILY.into()));
+    graph
+        .node_defaults
+        .push(("fontname".into(), styles::FONT_FAMILY.into()));
     graph
         .node_defaults
         .push(("fontsize".into(), styles::FONT_NODE_SIZE.to_string()));
 
     // Edge defaults
-    graph.edge_defaults.push(("fontname".into(), styles::FONT_FAMILY.into()));
+    graph
+        .edge_defaults
+        .push(("fontname".into(), styles::FONT_FAMILY.into()));
     graph
         .edge_defaults
         .push(("fontsize".into(), styles::FONT_EDGE_SIZE.to_string()));
@@ -149,8 +167,7 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
 
         // Output edges
         if let Some(out_spec) = t.output_spec() {
-            let reset_places: HashSet<&str> =
-                t.resets().iter().map(|r| r.place.name()).collect();
+            let reset_places: HashSet<&str> = t.resets().iter().map(|r| r.place.name()).collect();
             output_edges(&t_id, out_spec, &reset_places, &mut graph.edges);
         }
 
@@ -246,10 +263,7 @@ fn place_category(
     }
 }
 
-fn transition_label(
-    t: &libpetri_core::transition::Transition,
-    config: &DotConfig,
-) -> String {
+fn transition_label(t: &libpetri_core::transition::Transition, config: &DotConfig) -> String {
     let mut label = t.name().to_string();
 
     if config.show_intervals && *t.timing() != libpetri_core::timing::Timing::Immediate {
@@ -279,12 +293,7 @@ fn input_label(spec: &In) -> Option<String> {
 }
 
 #[allow(clippy::only_used_in_recursion)]
-fn output_edges(
-    t_id: &str,
-    out: &Out,
-    reset_places: &HashSet<&str>,
-    edges: &mut Vec<GraphEdge>,
-) {
+fn output_edges(t_id: &str, out: &Out, reset_places: &HashSet<&str>, edges: &mut Vec<GraphEdge>) {
     match out {
         Out::Place(p) => {
             let to_id = format!("p_{}", sanitize(p.name()));
@@ -307,8 +316,7 @@ fn output_edges(
         }
         Out::Xor(children) => {
             for (i, child) in children.iter().enumerate() {
-                let branch_label = infer_branch_label(child)
-                    .unwrap_or_else(|| format!("b{i}"));
+                let branch_label = infer_branch_label(child).unwrap_or_else(|| format!("b{i}"));
                 output_edges_with_label(t_id, child, Some(&branch_label), edges);
             }
         }
@@ -333,12 +341,7 @@ fn output_edges(
     }
 }
 
-fn output_edges_with_label(
-    t_id: &str,
-    out: &Out,
-    label: Option<&str>,
-    edges: &mut Vec<GraphEdge>,
-) {
+fn output_edges_with_label(t_id: &str, out: &Out, label: Option<&str>, edges: &mut Vec<GraphEdge>) {
     match out {
         Out::Place(p) => {
             let to_id = format!("p_{}", sanitize(p.name()));
@@ -420,9 +423,7 @@ mod tests {
             .output(out_place(&p_end))
             .build();
 
-        let net = PetriNet::builder("test")
-            .transitions([t1, t2])
-            .build();
+        let net = PetriNet::builder("test").transitions([t1, t2]).build();
 
         let graph = map_to_graph(&net, &DotConfig::default());
 
