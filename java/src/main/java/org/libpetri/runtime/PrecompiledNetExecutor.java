@@ -12,17 +12,17 @@ import org.libpetri.event.EventStore;
 import org.libpetri.event.NetEvent;
 
 /**
- * High-performance compiled Petri net executor — a "Petri Net VM".
+ * High-performance precompiled flat-array Petri net executor.
  *
- * <p>Compiles a {@link PetriNet} into a {@link NetProgram} of flat-array microprograms
- * and executes transitions via opcode dispatch, eliminating all virtual dispatch,
+ * <p>Compiles a {@link PetriNet} into a {@link PrecompiledNet} of flat-array operation
+ * sequences and executes transitions via opcode dispatch, eliminating all virtual dispatch,
  * HashMap lookups, and priority sorting from the hot path.
  *
  * <h2>Key Optimizations over {@link BitmapNetExecutor}</h2>
  * <ul>
  *   <li><b>Flat array token storage</b> — ring buffers indexed by place ID replace
  *       {@code Map<Place, ArrayDeque>} for O(1) access with no hashing</li>
- *   <li><b>Microprogram execution</b> — each transition's input/reset arcs are
+ *   <li><b>Opcode-based consume operations</b> — each transition's input/reset arcs are
  *       precompiled to a flat {@code int[]} of opcodes, eliminating sealed-type
  *       pattern matching per firing</li>
  *   <li><b>Priority-partitioned ready queues</b> — O(1) next-to-fire selection
@@ -35,17 +35,17 @@ import org.libpetri.event.NetEvent;
  * <p>Same as {@link BitmapNetExecutor}: single orchestrator thread owns all mutable
  * state; virtual threads execute async actions and signal completion via lock-free queues.
  *
- * @see NetProgram
+ * @see PrecompiledNet
  * @see BitmapNetExecutor
  */
-public final class CompiledNetExecutor implements PetriNetExecutor {
+public final class PrecompiledNetExecutor implements PetriNetExecutor {
     static final int WORD_SHIFT = 6;
     static final int BIT_MASK = 63;
 
     private static final int INITIAL_RING_CAPACITY = 4;
     private static final long AWAIT_POLL_MS = 50;
 
-    private final NetProgram program;
+    private final PrecompiledNet program;
     private final EventStore eventStore;
     private final ExecutorService executor;
     private final ExecutionContextProvider executionContextProvider;
@@ -133,14 +133,17 @@ public final class CompiledNetExecutor implements PetriNetExecutor {
     private Thread orchestratorThread;
 
     @SuppressWarnings({"unchecked", "deprecation"})
-    private CompiledNetExecutor(
-        NetProgram program,
+    private final boolean skipOutputValidation;
+
+    private PrecompiledNetExecutor(
+        PrecompiledNet program,
         Map<Place<?>, List<Token<?>>> initialTokens,
         EventStore eventStore,
         ExecutorService executor,
         Set<EnvironmentPlace<?>> environmentPlaces,
         boolean longRunning,
-        ExecutionContextProvider executionContextProvider
+        ExecutionContextProvider executionContextProvider,
+        boolean skipOutputValidation
     ) {
         this.program = program;
         this.eventStore = eventStore;
@@ -148,6 +151,7 @@ public final class CompiledNetExecutor implements PetriNetExecutor {
         this.environmentPlaces = environmentPlaces;
         this.longRunning = longRunning;
         this.executionContextProvider = executionContextProvider;
+        this.skipOutputValidation = skipOutputValidation;
         this.startNanos = System.nanoTime();
 
         this.eventStoreEnabled = eventStore.isEnabled();
@@ -377,14 +381,14 @@ public final class CompiledNetExecutor implements PetriNetExecutor {
 
     // ==================== Factory Methods ====================
 
-    public static CompiledNetExecutor create(
+    public static PrecompiledNetExecutor create(
         PetriNet net,
         Map<Place<?>, List<Token<?>>> initialTokens
     ) {
         return builder(net, initialTokens).build();
     }
 
-    public static CompiledNetExecutor create(
+    public static PrecompiledNetExecutor create(
         PetriNet net,
         Map<Place<?>, List<Token<?>>> initialTokens,
         EventStore eventStore
@@ -399,11 +403,12 @@ public final class CompiledNetExecutor implements PetriNetExecutor {
     public static final class Builder {
         private final PetriNet net;
         private final Map<Place<?>, List<Token<?>>> initialTokens;
-        private NetProgram program = null;
+        private PrecompiledNet program = null;
         private EventStore eventStore = EventStore.noop();
         private ExecutorService executor = null;
         private Set<EnvironmentPlace<?>> environmentPlaces = Set.of();
         private boolean longRunning = false;
+        private boolean skipOutputValidation = false;
         private ExecutionContextProvider executionContextProvider = ExecutionContextProvider.NOOP;
 
         private Builder(PetriNet net, Map<Place<?>, List<Token<?>>> initialTokens) {
@@ -411,7 +416,7 @@ public final class CompiledNetExecutor implements PetriNetExecutor {
             this.initialTokens = Objects.requireNonNull(initialTokens);
         }
 
-        public Builder program(NetProgram program) {
+        public Builder program(PrecompiledNet program) {
             this.program = Objects.requireNonNull(program);
             return this;
         }
@@ -447,15 +452,27 @@ public final class CompiledNetExecutor implements PetriNetExecutor {
             return this;
         }
 
+        /**
+         * Skip output validation for trusted transition actions.
+         * When enabled, the executor does not verify that transition outputs
+         * match their declared output specs. This eliminates significant overhead
+         * for high-throughput workloads where actions are known to be correct.
+         */
+        public Builder skipOutputValidation(boolean skip) {
+            this.skipOutputValidation = skip;
+            return this;
+        }
+
         @SuppressWarnings("deprecation")
-        public CompiledNetExecutor build() {
-            var prog = program != null ? program : NetProgram.compile(net);
+        public PrecompiledNetExecutor build() {
+            var prog = program != null ? program : PrecompiledNet.compile(net);
             ExecutorService exec = executor != null
                 ? executor
                 : Executors.newVirtualThreadPerTaskExecutor();
-            return new CompiledNetExecutor(
+            return new PrecompiledNetExecutor(
                 prog, initialTokens, eventStore, exec,
-                environmentPlaces, longRunning, executionContextProvider
+                environmentPlaces, longRunning, executionContextProvider,
+                skipOutputValidation
             );
         }
     }
@@ -846,7 +863,7 @@ public final class CompiledNetExecutor implements PetriNetExecutor {
         }
     }
 
-    // ==================== Microprogram Execution ====================
+    // ==================== Consume Operation Execution ====================
 
     @SuppressWarnings("unchecked")
     private void fireTransition(int tid) {
@@ -861,13 +878,13 @@ public final class CompiledNetExecutor implements PetriNetExecutor {
 
         List<Token<?>> consumed = trackConsumed ? new ArrayList<>() : null;
 
-        // Execute fire microprogram
-        int[] prog = program.firePrograms[tid];
+        // Execute consume operations
+        int[] prog = program.consumeOps[tid];
         int pc = 0;
         while (pc < prog.length) {
             int opcode = prog[pc++];
             switch (opcode) {
-                case NetProgram.CONSUME_ONE -> {
+                case PrecompiledNet.CONSUME_ONE -> {
                     int pid = prog[pc++];
                     Token<?> token = ringRemoveFirst(pid);
                     if (consumed != null) consumed.add(token);
@@ -875,7 +892,7 @@ public final class CompiledNetExecutor implements PetriNetExecutor {
                     if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
                         Instant.now(), program.placesById[pid].name(), token));
                 }
-                case NetProgram.CONSUME_N -> {
+                case PrecompiledNet.CONSUME_N -> {
                     int pid = prog[pc++];
                     int count = prog[pc++];
                     Place<Object> place = (Place<Object>) program.placesById[pid];
@@ -887,7 +904,7 @@ public final class CompiledNetExecutor implements PetriNetExecutor {
                             Instant.now(), place.name(), token));
                     }
                 }
-                case NetProgram.CONSUME_ALL -> {
+                case PrecompiledNet.CONSUME_ALL -> {
                     int pid = prog[pc++];
                     int count = tokenCounts[pid];
                     Place<Object> place = (Place<Object>) program.placesById[pid];
@@ -899,7 +916,7 @@ public final class CompiledNetExecutor implements PetriNetExecutor {
                             Instant.now(), place.name(), token));
                     }
                 }
-                case NetProgram.CONSUME_ATLEAST -> {
+                case PrecompiledNet.CONSUME_ATLEAST -> {
                     int pid = prog[pc++];
                     pc++; // skip minimum (already verified during enablement)
                     int count = tokenCounts[pid];
@@ -912,7 +929,7 @@ public final class CompiledNetExecutor implements PetriNetExecutor {
                             Instant.now(), place.name(), token));
                     }
                 }
-                case NetProgram.RESET -> {
+                case PrecompiledNet.RESET -> {
                     int pid = prog[pc++];
                     int count = tokenCounts[pid];
                     for (int i = 0; i < count; i++) {
@@ -929,7 +946,7 @@ public final class CompiledNetExecutor implements PetriNetExecutor {
         }
 
         // Execute read program
-        int[] readProg = program.readPrograms[tid];
+        int[] readProg = program.readOps[tid];
         for (int rpid : readProg) {
             Token<?> token = ringPeekFirst(rpid);
             if (token != null) {
@@ -1235,6 +1252,7 @@ public final class CompiledNetExecutor implements PetriNetExecutor {
     // ==================== Output Validation ====================
 
     private void validateOutput(int tid, Transition t, TokenOutput outputs) {
+        if (skipOutputValidation) return;
         int simplePid = program.simpleOutputPlaceId[tid];
         if (simplePid == -2) return; // no output spec
         if (simplePid >= 0) {

@@ -13,25 +13,25 @@ import org.libpetri.core.Token;
 import org.libpetri.event.EventStore;
 
 @Timeout(60)
-class CompiledNetExecutorEngineTest extends AbstractNetExecutorEngineTest {
+class PrecompiledNetExecutorEngineTest extends AbstractNetExecutorEngineTest {
 
     @Override
     protected PetriNetExecutor createExecutor(PetriNet net, Map<Place<?>, List<Token<?>>> initial) {
-        return CompiledNetExecutor.create(net, initial);
+        return PrecompiledNetExecutor.create(net, initial);
     }
 
     @Override
     protected PetriNetExecutor createExecutor(PetriNet net, Map<Place<?>, List<Token<?>>> initial, EventStore store) {
-        return CompiledNetExecutor.create(net, initial, store);
+        return PrecompiledNetExecutor.create(net, initial, store);
     }
 
     @Override
     protected PetriNetExecutor createExecutorWithEnv(PetriNet net, Map<Place<?>, List<Token<?>>> initial, EventStore store, Set<EnvironmentPlace<?>> envPlaces) {
-        return CompiledNetExecutor.builder(net, initial).eventStore(store).environmentPlaces(envPlaces).build();
+        return PrecompiledNetExecutor.builder(net, initial).eventStore(store).environmentPlaces(envPlaces).build();
     }
 
     @Override
     protected PetriNetExecutor createExecutorWithEnv(PetriNet net, Map<Place<?>, List<Token<?>>> initial, Set<EnvironmentPlace<?>> envPlaces) {
-        return CompiledNetExecutor.builder(net, initial).environmentPlaces(envPlaces).build();
+        return PrecompiledNetExecutor.builder(net, initial).environmentPlaces(envPlaces).build();
     }
 }

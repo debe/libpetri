@@ -70,7 +70,7 @@ public final class Marking {
 
     /**
      * Removes all tokens from all places.
-     * Package-private for use by CompiledNetExecutor to sync from ring buffers.
+     * Package-private for use by PrecompiledNetExecutor to sync from ring buffers.
      */
     void clear() {
         tokens.clear();
