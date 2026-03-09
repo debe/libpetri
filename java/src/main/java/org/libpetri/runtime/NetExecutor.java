@@ -607,9 +607,12 @@ public final class NetExecutor implements PetriNetExecutor {
 
             // Poll until either a transition completes or an external event arrives
             while (!anyCompletion.isDone() && !closed.get()) {
+                // Use the shorter of the default poll interval and time until next timed transition
+                long pollMs = Math.max(1, Math.min(50, millisUntilNextTimedTransition()));
+
                 // Check for external events with short timeout
                 try {
-                    if (wakeUpSignal.tryAcquire(50, TimeUnit.MILLISECONDS)) {
+                    if (wakeUpSignal.tryAcquire(pollMs, TimeUnit.MILLISECONDS)) {
                         // External event arrived - drain excess permits and return
                         wakeUpSignal.drainPermits();
                         return;
@@ -623,6 +626,9 @@ public final class NetExecutor implements PetriNetExecutor {
                 if (!completionQueue.isEmpty() || !externalEventQueue.isEmpty()) {
                     return;
                 }
+
+                // Timed transition may have become ready (pollMs was bounded by timer)
+                if (millisUntilNextTimedTransition() <= 0) return;
             }
 
             // Drain any accumulated permits
@@ -643,6 +649,9 @@ public final class NetExecutor implements PetriNetExecutor {
 
         for (var entry : enabledAt.entrySet()) {
             Transition t = entry.getKey();
+            // Skip immediate/unconstrained transitions — they have no timing to wait for
+            if (t.timing() instanceof Timing.Immediate || t.timing() instanceof Timing.Unconstrained) continue;
+
             long enabledNanos = entry.getValue();
             long elapsedMs = (nowNanos - enabledNanos) / 1_000_000;
 
