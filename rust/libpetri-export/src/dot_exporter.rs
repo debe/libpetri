@@ -1,7 +1,7 @@
 use libpetri_core::petri_net::PetriNet;
 
 use crate::dot_renderer::render_dot;
-use crate::mapper::{map_to_graph, DotConfig};
+use crate::mapper::{DotConfig, map_to_graph};
 
 /// Convenience function: maps a PetriNet to DOT format string.
 pub fn dot_export(net: &PetriNet, config: Option<&DotConfig>) -> String {

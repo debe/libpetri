@@ -3,8 +3,8 @@
 //! 3 typed places, 2 transitions with real actions and timing, DOT export,
 //! async execution via Tokio.
 
-use libpetri::*;
 use libpetri::runtime::environment::ExternalEvent;
+use libpetri::*;
 
 #[tokio::main]
 async fn main() {
@@ -53,11 +53,8 @@ async fn main() {
     let mut marking = Marking::new();
     marking.add(&order, Token::at("ORD-001".to_string(), 0));
 
-    let mut executor = BitmapNetExecutor::<NoopEventStore>::new(
-        &net,
-        marking,
-        ExecutorOptions::default(),
-    );
+    let mut executor =
+        BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
     let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
     executor.run_async(rx).await;
 

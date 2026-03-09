@@ -28,11 +28,7 @@ pub struct FlatNet {
 /// Flattens a PetriNet: XOR branches are expanded into separate flat transitions.
 pub fn flatten(net: &PetriNet) -> FlatNet {
     // Collect and sort places for stable indexing
-    let mut places: Vec<String> = net
-        .places()
-        .iter()
-        .map(|p| p.name().to_string())
-        .collect();
+    let mut places: Vec<String> = net.places().iter().map(|p| p.name().to_string()).collect();
     places.sort();
     places.dedup();
 

@@ -71,9 +71,9 @@ fn find_minimal_siphons(flat: &FlatNet) -> Vec<Vec<usize>> {
             .collect();
 
         // Check if it's truly minimal (not a superset of existing siphon)
-        let is_superset = siphons.iter().any(|existing: &Vec<usize>| {
-            existing.iter().all(|p| siphon_places.contains(p))
-        });
+        let is_superset = siphons
+            .iter()
+            .any(|existing: &Vec<usize>| existing.iter().all(|p| siphon_places.contains(p)));
 
         if !is_superset {
             siphons.push(siphon_places);
@@ -198,9 +198,7 @@ mod tests {
             .output(out_place(&out2))
             .build();
 
-        let net = PetriNet::builder("deadlock")
-            .transitions([t1, t2])
-            .build();
+        let net = PetriNet::builder("deadlock").transitions([t1, t2]).build();
 
         let flat = flatten(&net);
         let result = structural_check(&flat);

@@ -63,7 +63,6 @@ pub struct ExecutorOptions {
     pub long_running: bool,
 }
 
-
 impl<E: EventStore> BitmapNetExecutor<E> {
     /// Creates a new executor for the given net with initial tokens.
     pub fn new(net: &PetriNet, initial_tokens: Marking, options: ExecutorOptions) -> Self {
@@ -281,13 +280,10 @@ impl<E: EventStore> BitmapNetExecutor<E> {
             } else if can_now && was_enabled && self.has_input_from_reset_place(tid) {
                 self.enabled_at_ms[tid] = now_ms;
                 if E::ENABLED {
-                    self.event_store
-                        .append(NetEvent::TransitionClockRestarted {
-                            transition_name: Arc::clone(
-                                self.compiled.transition(tid).name_arc(),
-                            ),
-                            timestamp: now_millis(),
-                        });
+                    self.event_store.append(NetEvent::TransitionClockRestarted {
+                        transition_name: Arc::clone(self.compiled.transition(tid).name_arc()),
+                        timestamp: now_millis(),
+                    });
                 }
             }
         }
@@ -412,16 +408,12 @@ impl<E: EventStore> BitmapNetExecutor<E> {
         });
 
         // Take fresh snapshot
-        self.firing_snap_buffer
-            .copy_from_slice(&self.marked_places);
+        self.firing_snap_buffer.copy_from_slice(&self.marked_places);
 
         for (tid, _, _) in ready {
-            if self.enabled_flags[tid]
-                && self.can_enable(tid, &self.firing_snap_buffer.clone())
-            {
+            if self.enabled_flags[tid] && self.can_enable(tid, &self.firing_snap_buffer.clone()) {
                 self.fire_transition_sync(tid);
-                self.firing_snap_buffer
-                    .copy_from_slice(&self.marked_places);
+                self.firing_snap_buffer.copy_from_slice(&self.marked_places);
             } else {
                 self.enabled_flags[tid] = false;
                 self.enabled_transition_count -= 1;
@@ -488,12 +480,13 @@ impl<E: EventStore> BitmapNetExecutor<E> {
         let mut read_tokens: HashMap<Arc<str>, Vec<ErasedToken>> = HashMap::new();
         for arc in &read_arcs {
             if let Some(queue) = self.marking.queue(arc.place.name())
-                && let Some(token) = queue.front() {
-                    read_tokens
-                        .entry(Arc::clone(arc.place.name_arc()))
-                        .or_default()
-                        .push(token.clone());
-                }
+                && let Some(token) = queue.front()
+            {
+                read_tokens
+                    .entry(Arc::clone(arc.place.name_arc()))
+                    .or_default()
+                    .push(token.clone());
+            }
         }
 
         // Reset arcs
@@ -572,8 +565,7 @@ impl<E: EventStore> BitmapNetExecutor<E> {
         outputs: Vec<OutputEntry>,
     ) {
         for entry in outputs {
-            self.marking
-                .add_erased(&entry.place_name, entry.token);
+            self.marking.add_erased(&entry.place_name, entry.token);
 
             if let Some(pid) = self.compiled.place_id(&entry.place_name) {
                 bitmap::set_bit(&mut self.marked_places, pid);
@@ -590,8 +582,7 @@ impl<E: EventStore> BitmapNetExecutor<E> {
     }
 
     fn update_bitmap_after_consumption(&mut self, tid: usize) {
-        let consumption_pids: Vec<usize> =
-            self.compiled.consumption_place_ids(tid).to_vec();
+        let consumption_pids: Vec<usize> = self.compiled.consumption_place_ids(tid).to_vec();
         for pid in consumption_pids {
             let place = self.compiled.place(pid);
             if !self.marking.has_tokens(place.name()) {
@@ -837,17 +828,13 @@ impl<E: EventStore> BitmapNetExecutor<E> {
                 .then_with(|| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
         });
 
-        self.firing_snap_buffer
-            .copy_from_slice(&self.marked_places);
+        self.firing_snap_buffer.copy_from_slice(&self.marked_places);
 
         let mut fired_any = false;
         for (tid, _, _) in ready {
-            if self.enabled_flags[tid]
-                && self.can_enable(tid, &self.firing_snap_buffer.clone())
-            {
+            if self.enabled_flags[tid] && self.can_enable(tid, &self.firing_snap_buffer.clone()) {
                 self.fire_transition_async(tid, completion_tx, in_flight_count);
-                self.firing_snap_buffer
-                    .copy_from_slice(&self.marked_places);
+                self.firing_snap_buffer.copy_from_slice(&self.marked_places);
                 fired_any = true;
             } else {
                 self.enabled_flags[tid] = false;
@@ -1062,18 +1049,15 @@ fn now_millis() -> u64 {
 
 /// Validates that the produced outputs satisfy the output spec.
 #[allow(dead_code)]
-fn validate_out_spec(
-    out: &Out,
-    produced_places: &HashSet<Arc<str>>,
-) -> bool {
+fn validate_out_spec(out: &Out, produced_places: &HashSet<Arc<str>>) -> bool {
     match out {
         Out::Place(p) => produced_places.contains(p.name()),
-        Out::And(children) => children.iter().all(|c| validate_out_spec(c, produced_places)),
-        Out::Xor(children) => {
-            children
-                .iter()
-                .any(|c| validate_out_spec(c, produced_places))
-        }
+        Out::And(children) => children
+            .iter()
+            .all(|c| validate_out_spec(c, produced_places)),
+        Out::Xor(children) => children
+            .iter()
+            .any(|c| validate_out_spec(c, produced_places)),
         Out::Timeout { child, .. } => validate_out_spec(child, produced_places),
         Out::ForwardInput { to, .. } => produced_places.contains(to.name()),
     }
@@ -1134,11 +1118,8 @@ mod tests {
         let mut marking = Marking::new();
         marking.add(&p1, Token::at(42, 0));
 
-        let mut executor = BitmapNetExecutor::<InMemoryEventStore>::new(
-            &net,
-            marking,
-            ExecutorOptions::default(),
-        );
+        let mut executor =
+            BitmapNetExecutor::<InMemoryEventStore>::new(&net, marking, ExecutorOptions::default());
         executor.run_sync();
 
         let store = executor.event_store();
@@ -1266,9 +1247,7 @@ mod tests {
             })
             .collect();
 
-        let net = PetriNet::builder("chain5")
-            .transitions(transitions)
-            .build();
+        let net = PetriNet::builder("chain5").transitions(transitions).build();
 
         let mut marking = Marking::new();
         marking.add(&places[0], Token::at(1, 0));
@@ -1294,8 +1273,11 @@ mod tests {
         let net = PetriNet::builder("test").transition(t).build();
 
         // No tokens — transition should not fire
-        let mut executor =
-            BitmapNetExecutor::<NoopEventStore>::new(&net, Marking::new(), ExecutorOptions::default());
+        let mut executor = BitmapNetExecutor::<NoopEventStore>::new(
+            &net,
+            Marking::new(),
+            ExecutorOptions::default(),
+        );
         executor.run_sync();
         assert_eq!(executor.marking().count("p1"), 0);
         assert_eq!(executor.marking().count("p2"), 0);
@@ -1627,7 +1609,9 @@ mod tests {
             .input(one(&p_in))
             .output(out_place(&p_out))
             .action(libpetri_core::action::sync_action(|_ctx| {
-                Err(libpetri_core::action::ActionError::new("intentional failure"))
+                Err(libpetri_core::action::ActionError::new(
+                    "intentional failure",
+                ))
             }))
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -1635,9 +1619,8 @@ mod tests {
         let mut marking = Marking::new();
         marking.add(&p_in, Token::at(42, 0));
 
-        let mut executor = BitmapNetExecutor::<InMemoryEventStore>::new(
-            &net, marking, ExecutorOptions::default(),
-        );
+        let mut executor =
+            BitmapNetExecutor::<InMemoryEventStore>::new(&net, marking, ExecutorOptions::default());
         executor.run_sync();
 
         // Token consumed even though action failed
@@ -1646,7 +1629,11 @@ mod tests {
 
         // Failure event should be recorded
         let events = executor.event_store().events();
-        assert!(events.iter().any(|e| matches!(e, NetEvent::TransitionFailed { .. })));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, NetEvent::TransitionFailed { .. }))
+        );
     }
 
     #[test]
@@ -1663,22 +1650,49 @@ mod tests {
         let mut marking = Marking::new();
         marking.add(&p1, Token::at(1, 0));
 
-        let mut executor = BitmapNetExecutor::<InMemoryEventStore>::new(
-            &net, marking, ExecutorOptions::default(),
-        );
+        let mut executor =
+            BitmapNetExecutor::<InMemoryEventStore>::new(&net, marking, ExecutorOptions::default());
         executor.run_sync();
 
         let events = executor.event_store().events();
 
         // Should have: ExecutionStarted, TransitionEnabled, TokenRemoved, TransitionStarted,
         // TokenAdded, TransitionCompleted, ExecutionCompleted
-        assert!(events.iter().any(|e| matches!(e, NetEvent::ExecutionStarted { .. })));
-        assert!(events.iter().any(|e| matches!(e, NetEvent::TransitionEnabled { .. })));
-        assert!(events.iter().any(|e| matches!(e, NetEvent::TransitionStarted { .. })));
-        assert!(events.iter().any(|e| matches!(e, NetEvent::TransitionCompleted { .. })));
-        assert!(events.iter().any(|e| matches!(e, NetEvent::TokenRemoved { .. })));
-        assert!(events.iter().any(|e| matches!(e, NetEvent::TokenAdded { .. })));
-        assert!(events.iter().any(|e| matches!(e, NetEvent::ExecutionCompleted { .. })));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, NetEvent::ExecutionStarted { .. }))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, NetEvent::TransitionEnabled { .. }))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, NetEvent::TransitionStarted { .. }))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, NetEvent::TransitionCompleted { .. }))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, NetEvent::TokenRemoved { .. }))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, NetEvent::TokenAdded { .. }))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, NetEvent::ExecutionCompleted { .. }))
+        );
     }
 
     #[test]
@@ -1705,8 +1719,11 @@ mod tests {
     #[test]
     fn empty_net_completes() {
         let net = PetriNet::builder("empty").build();
-        let mut executor =
-            BitmapNetExecutor::<NoopEventStore>::new(&net, Marking::new(), ExecutorOptions::default());
+        let mut executor = BitmapNetExecutor::<NoopEventStore>::new(
+            &net,
+            Marking::new(),
+            ExecutorOptions::default(),
+        );
         executor.run_sync();
         assert!(executor.is_quiescent());
     }
@@ -1807,9 +1824,7 @@ mod tests {
             .priority(1)
             .build();
 
-        let net = PetriNet::builder("test")
-            .transitions([t_clear, t1])
-            .build();
+        let net = PetriNet::builder("test").transitions([t_clear, t1]).build();
 
         let mut marking = Marking::new();
         marking.add(&p1, Token::at((), 0));
@@ -1857,8 +1872,8 @@ mod tests {
             BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
         executor.run_sync();
 
-        assert_eq!(executor.marking().count("in"), 0);    // consumed
-        assert_eq!(executor.marking().count("ctx"), 1);   // read, not consumed
+        assert_eq!(executor.marking().count("in"), 0); // consumed
+        assert_eq!(executor.marking().count("ctx"), 1); // read, not consumed
         assert_eq!(executor.marking().count("clear"), 0); // reset
         assert_eq!(executor.marking().count("out"), 1);
         let peeked = executor.marking().peek(&p_out).unwrap();
@@ -1880,7 +1895,8 @@ mod tests {
                 .input(one(inp))
                 .output(out_place(outp))
                 .action(libpetri_core::action::sync_action(move |ctx| {
-                    let v = ctx.input::<i32>("p1")
+                    let v = ctx
+                        .input::<i32>("p1")
                         .or_else(|_| ctx.input::<i32>("p2"))
                         .or_else(|_| ctx.input::<i32>("p3"))
                         .unwrap();
@@ -1894,9 +1910,7 @@ mod tests {
         let t2 = make_doubler("t2", &p2, &p3);
         let t3 = make_doubler("t3", &p3, &p4);
 
-        let net = PetriNet::builder("chain")
-            .transitions([t1, t2, t3])
-            .build();
+        let net = PetriNet::builder("chain").transitions([t1, t2, t3]).build();
 
         let mut marking = Marking::new();
         marking.add(&p1, Token::at(1, 0));
@@ -1993,9 +2007,7 @@ mod tests {
             }))
             .build();
 
-        let net = PetriNet::builder("mutex")
-            .transitions([t_w1, t_w2])
-            .build();
+        let net = PetriNet::builder("mutex").transitions([t_w1, t_w2]).build();
 
         let mut marking = Marking::new();
         marking.add(&p_mutex, Token::at((), 0));
@@ -2150,9 +2162,7 @@ mod tests {
             .action(libpetri_core::action::fork())
             .build();
 
-        let net = PetriNet::builder("test")
-            .transitions([t_a, t_b])
-            .build();
+        let net = PetriNet::builder("test").transitions([t_a, t_b]).build();
 
         let mut marking = Marking::new();
         marking.add(&p1, Token::at((), 0));
@@ -2186,9 +2196,7 @@ mod tests {
             .priority(1)
             .build();
 
-        let net = PetriNet::builder("test")
-            .transitions([t_hi, t_lo])
-            .build();
+        let net = PetriNet::builder("test").transitions([t_hi, t_lo]).build();
 
         let mut marking = Marking::new();
         marking.add(&p, Token::at((), 0));
@@ -2239,11 +2247,8 @@ mod tests {
         let mut marking = Marking::new();
         marking.add(&p1, Token::at((), 0));
 
-        let mut executor = BitmapNetExecutor::<InMemoryEventStore>::new(
-            &net,
-            marking,
-            ExecutorOptions::default(),
-        );
+        let mut executor =
+            BitmapNetExecutor::<InMemoryEventStore>::new(&net, marking, ExecutorOptions::default());
         executor.run_sync();
 
         let events = executor.event_store().events();
@@ -2374,7 +2379,7 @@ mod tests {
 mod async_tests {
     use super::*;
     use crate::environment::ExternalEvent;
-    use libpetri_core::action::{async_action, fork, ActionError};
+    use libpetri_core::action::{ActionError, async_action, fork};
     use libpetri_core::input::one;
     use libpetri_core::output::out_place;
     use libpetri_core::place::Place;
@@ -2487,7 +2492,10 @@ mod async_tests {
         let mut executor = BitmapNetExecutor::<NoopEventStore>::new(
             &net,
             marking,
-            ExecutorOptions { long_running: true, ..Default::default() },
+            ExecutorOptions {
+                long_running: true,
+                ..Default::default()
+            },
         );
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
@@ -2534,10 +2542,26 @@ mod async_tests {
         let events = executor.event_store().events();
         assert!(!events.is_empty());
         // Should have ExecutionStarted, TransitionStarted, TransitionCompleted, ExecutionCompleted
-        assert!(events.iter().any(|e| matches!(e, NetEvent::ExecutionStarted { .. })));
-        assert!(events.iter().any(|e| matches!(e, NetEvent::TransitionStarted { .. })));
-        assert!(events.iter().any(|e| matches!(e, NetEvent::TransitionCompleted { .. })));
-        assert!(events.iter().any(|e| matches!(e, NetEvent::ExecutionCompleted { .. })));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, NetEvent::ExecutionStarted { .. }))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, NetEvent::TransitionStarted { .. }))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, NetEvent::TransitionCompleted { .. }))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, NetEvent::ExecutionCompleted { .. }))
+        );
     }
 
     #[tokio::test]
@@ -2545,9 +2569,8 @@ mod async_tests {
         let p1 = Place::<i32>::new("p1");
         let p2 = Place::<i32>::new("p2");
 
-        let action = async_action(|_ctx| async move {
-            Err(ActionError::new("intentional failure"))
-        });
+        let action =
+            async_action(|_ctx| async move { Err(ActionError::new("intentional failure")) });
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
@@ -2571,7 +2594,11 @@ mod async_tests {
 
         // Failure event recorded
         let events = executor.event_store().events();
-        assert!(events.iter().any(|e| matches!(e, NetEvent::TransitionFailed { .. })));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, NetEvent::TransitionFailed { .. }))
+        );
     }
 
     #[tokio::test]
@@ -2595,7 +2622,10 @@ mod async_tests {
         let mut executor = BitmapNetExecutor::<NoopEventStore>::new(
             &net,
             marking,
-            ExecutorOptions { long_running: true, ..Default::default() },
+            ExecutorOptions {
+                long_running: true,
+                ..Default::default()
+            },
         );
 
         let start = std::time::Instant::now();
@@ -2607,7 +2637,10 @@ mod async_tests {
         });
         executor.run_async(rx).await;
 
-        assert!(start.elapsed().as_millis() >= 80, "delayed(100) should wait ~100ms");
+        assert!(
+            start.elapsed().as_millis() >= 80,
+            "delayed(100) should wait ~100ms"
+        );
         assert_eq!(executor.marking().count("p2"), 1);
         assert_eq!(*executor.marking().peek(&p2).unwrap(), 10);
     }
@@ -2633,7 +2666,10 @@ mod async_tests {
         let mut executor = BitmapNetExecutor::<NoopEventStore>::new(
             &net,
             marking,
-            ExecutorOptions { long_running: true, ..Default::default() },
+            ExecutorOptions {
+                long_running: true,
+                ..Default::default()
+            },
         );
 
         let start = std::time::Instant::now();
@@ -2644,7 +2680,10 @@ mod async_tests {
         });
         executor.run_async(rx).await;
 
-        assert!(start.elapsed().as_millis() >= 80, "exact(100) should wait ~100ms");
+        assert!(
+            start.elapsed().as_millis() >= 80,
+            "exact(100) should wait ~100ms"
+        );
         assert_eq!(executor.marking().count("p2"), 1);
         assert_eq!(*executor.marking().peek(&p2).unwrap(), 20);
     }
@@ -2670,7 +2709,10 @@ mod async_tests {
         let mut executor = BitmapNetExecutor::<NoopEventStore>::new(
             &net,
             marking,
-            ExecutorOptions { long_running: true, ..Default::default() },
+            ExecutorOptions {
+                long_running: true,
+                ..Default::default()
+            },
         );
 
         let start = std::time::Instant::now();
@@ -2681,15 +2723,18 @@ mod async_tests {
         });
         executor.run_async(rx).await;
 
-        assert!(start.elapsed().as_millis() >= 40, "window(50,200) should wait >= ~50ms");
+        assert!(
+            start.elapsed().as_millis() >= 40,
+            "window(50,200) should wait >= ~50ms"
+        );
         assert_eq!(executor.marking().count("p2"), 1);
         assert_eq!(*executor.marking().peek(&p2).unwrap(), 30);
     }
 
     #[tokio::test]
     async fn async_deadline_enforcement() {
-        use libpetri_core::timing::window;
         use libpetri_core::action::sync_action;
+        use libpetri_core::timing::window;
 
         let p_slow = Place::<i32>::new("p_slow");
         let p_windowed = Place::<i32>::new("p_windowed");
@@ -2735,7 +2780,10 @@ mod async_tests {
         let mut executor = BitmapNetExecutor::<InMemoryEventStore>::new(
             &net,
             marking,
-            ExecutorOptions { long_running: true, ..Default::default() },
+            ExecutorOptions {
+                long_running: true,
+                ..Default::default()
+            },
         );
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
@@ -2778,7 +2826,10 @@ mod async_tests {
         let mut executor = BitmapNetExecutor::<NoopEventStore>::new(
             &net,
             marking,
-            ExecutorOptions { long_running: true, ..Default::default() },
+            ExecutorOptions {
+                long_running: true,
+                ..Default::default()
+            },
         );
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
@@ -2798,7 +2849,11 @@ mod async_tests {
 
         executor.run_async(rx).await;
 
-        assert_eq!(executor.marking().count("p2"), 5, "all 5 injected tokens should arrive");
+        assert_eq!(
+            executor.marking().count("p2"),
+            5,
+            "all 5 injected tokens should arrive"
+        );
     }
 
     #[tokio::test]
@@ -2815,13 +2870,10 @@ mod async_tests {
                 .input(one(inp))
                 .output(out_place(outp))
                 .action(async_action(|mut ctx| async move {
-                    let v: i32 = *ctx.input::<i32>(ctx.transition_name()
-                        .replace("t", "p").as_str())?;
+                    let v: i32 =
+                        *ctx.input::<i32>(ctx.transition_name().replace("t", "p").as_str())?;
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                    ctx.output(
-                        &ctx.transition_name().replace("t", "out"),
-                        v,
-                    )?;
+                    ctx.output(&ctx.transition_name().replace("t", "out"), v)?;
                     Ok(ctx)
                 }))
                 .build()
@@ -2831,7 +2883,9 @@ mod async_tests {
         let t2 = make_transition("t2", &p2, &out2);
         let t3 = make_transition("t3", &p3, &out3);
 
-        let net = PetriNet::builder("parallel").transitions([t1, t2, t3]).build();
+        let net = PetriNet::builder("parallel")
+            .transitions([t1, t2, t3])
+            .build();
         let mut marking = Marking::new();
         marking.add(&p1, Token::at(1, 0));
         marking.add(&p2, Token::at(2, 0));
@@ -2865,7 +2919,11 @@ mod async_tests {
 
         let order: Arc<Mutex<Vec<i32>>> = Arc::new(Mutex::new(Vec::new()));
 
-        let make_chain = |name: &str, inp: &Place<i32>, outp: &Place<i32>, id: i32, order: Arc<Mutex<Vec<i32>>>| {
+        let make_chain = |name: &str,
+                          inp: &Place<i32>,
+                          outp: &Place<i32>,
+                          id: i32,
+                          order: Arc<Mutex<Vec<i32>>>| {
             let inp_name: Arc<str> = Arc::from(inp.name());
             let outp_name: Arc<str> = Arc::from(outp.name());
             Transition::builder(name)
@@ -3059,7 +3117,10 @@ mod async_tests {
         let mut executor = BitmapNetExecutor::<NoopEventStore>::new(
             &net,
             marking,
-            ExecutorOptions { long_running: true, ..Default::default() },
+            ExecutorOptions {
+                long_running: true,
+                ..Default::default()
+            },
         );
 
         // No injections; keep channel open long enough for the delayed transition to fire
@@ -3077,7 +3138,7 @@ mod async_tests {
     #[tokio::test]
     #[ignore = "Executor does not yet implement per-action timeout (Out::Timeout) in the async path"]
     async fn async_timeout_produces_timeout_token() {
-        use libpetri_core::output::{xor, timeout_place};
+        use libpetri_core::output::{timeout_place, xor};
 
         let p1 = Place::<i32>::new("p1");
         let success = Place::<i32>::new("success");
@@ -3114,7 +3175,7 @@ mod async_tests {
     #[tokio::test]
     #[ignore = "Executor does not yet implement per-action timeout (Out::Timeout) in the async path"]
     async fn async_timeout_normal_when_fast() {
-        use libpetri_core::output::{xor, timeout_place};
+        use libpetri_core::output::{timeout_place, xor};
 
         let p1 = Place::<i32>::new("p1");
         let success = Place::<i32>::new("success");
@@ -3165,7 +3226,10 @@ mod async_tests {
         let mut executor = BitmapNetExecutor::<InMemoryEventStore>::new(
             &net,
             marking,
-            ExecutorOptions { long_running: true, ..Default::default() },
+            ExecutorOptions {
+                long_running: true,
+                ..Default::default()
+            },
         );
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
@@ -3185,12 +3249,16 @@ mod async_tests {
         let events = executor.event_store().events();
         // Should have TokenAdded for the injected token into p1
         assert!(
-            events.iter().any(|e| matches!(e, NetEvent::TokenAdded { place_name, .. } if &**place_name == "p1")),
+            events.iter().any(
+                |e| matches!(e, NetEvent::TokenAdded { place_name, .. } if &**place_name == "p1")
+            ),
             "expected TokenAdded event for injected token into p1"
         );
         // And also TokenAdded for the output into p2
         assert!(
-            events.iter().any(|e| matches!(e, NetEvent::TokenAdded { place_name, .. } if &**place_name == "p2")),
+            events.iter().any(
+                |e| matches!(e, NetEvent::TokenAdded { place_name, .. } if &**place_name == "p2")
+            ),
             "expected TokenAdded event for output token into p2"
         );
     }

@@ -78,10 +78,7 @@ impl TransitionAction for Passthrough {
 /// Transform action: applies function to context, copies result to ALL output places.
 pub fn transform<F>(f: F) -> BoxedAction
 where
-    F: Fn(&mut TransitionContext) -> Arc<dyn std::any::Any + Send + Sync>
-        + Send
-        + Sync
-        + 'static,
+    F: Fn(&mut TransitionContext) -> Arc<dyn std::any::Any + Send + Sync> + Send + Sync + 'static,
 {
     Arc::new(Transform(f))
 }
@@ -139,10 +136,7 @@ impl TransitionAction for Fork {
 /// Produce action: produces a single token with the given value to the specified place.
 pub fn produce<T: Send + Sync + 'static>(place_name: Arc<str>, value: T) -> BoxedAction {
     let value = Arc::new(value) as Arc<dyn std::any::Any + Send + Sync>;
-    Arc::new(Produce {
-        place_name,
-        value,
-    })
+    Arc::new(Produce { place_name, value })
 }
 
 struct Produce {

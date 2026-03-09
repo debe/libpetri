@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use libpetri_core::input::{required_count, In};
+use libpetri_core::input::{In, required_count};
 use libpetri_core::petri_net::PetriNet;
 use libpetri_core::place::PlaceRef;
 use libpetri_core::transition::Transition;
@@ -19,7 +19,7 @@ pub struct CardinalityCheck {
 ///
 /// Uses u64 bitmasks (64 bits per word) for O(W) enablement checks
 /// where W = ceil(place_count / 64).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CompiledNet {
     net: PetriNet,
     pub(crate) place_count: usize,
@@ -78,12 +78,10 @@ impl CompiledNet {
         let mut needs_masks = vec![0u64; transition_count * word_count];
         let mut inhibitor_masks = vec![0u64; transition_count * word_count];
         let mut consumption_place_ids = Vec::with_capacity(transition_count);
-        let mut cardinality_checks: Vec<Option<CardinalityCheck>> =
-            vec![None; transition_count];
+        let mut cardinality_checks: Vec<Option<CardinalityCheck>> = vec![None; transition_count];
         let mut has_guards = vec![false; transition_count];
 
-        let mut place_to_transitions_tmp: Vec<HashSet<usize>> =
-            vec![HashSet::new(); place_count];
+        let mut place_to_transitions_tmp: Vec<HashSet<usize>> = vec![HashSet::new(); place_count];
 
         for (net_idx, t) in net.transitions().iter().enumerate() {
             let tid = net_idx;
@@ -136,10 +134,7 @@ impl CompiledNet {
             for inh in t.inhibitors() {
                 let pid = place_index[inh.place.name_arc()];
                 if word_count > 0 {
-                    bitmap::set_bit(
-                        &mut inhibitor_masks[mask_base..mask_base + word_count],
-                        pid,
-                    );
+                    bitmap::set_bit(&mut inhibitor_masks[mask_base..mask_base + word_count], pid);
                 }
                 place_to_transitions_tmp[pid].insert(tid);
             }

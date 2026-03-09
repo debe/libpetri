@@ -37,7 +37,11 @@ impl StateClass {
 
     /// Generates a canonical key for deduplication.
     pub fn canonical_key(&self) -> String {
-        format!("{}|{}", self.marking.canonical_key(), self.dbm.canonical_string())
+        format!(
+            "{}|{}",
+            self.marking.canonical_key(),
+            self.dbm.canonical_string()
+        )
     }
 }
 

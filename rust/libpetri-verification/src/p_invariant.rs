@@ -141,11 +141,7 @@ fn gcd_row(row: &[i64]) -> i64 {
 }
 
 fn gcd(a: u64, b: u64) -> u64 {
-    if b == 0 {
-        a
-    } else {
-        gcd(b, a % b)
-    }
+    if b == 0 { a } else { gcd(b, a % b) }
 }
 
 #[cfg(test)]
@@ -235,9 +231,7 @@ mod tests {
     #[test]
     fn no_output_transition_no_invariant() {
         let p1 = Place::<i32>::new("p1");
-        let t = Transition::builder("t1")
-            .input(one(&p1))
-            .build();
+        let t = Transition::builder("t1").input(one(&p1)).build();
         let net = PetriNet::builder("test").transition(t).build();
 
         let flat = flatten(&net);

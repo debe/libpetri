@@ -1,9 +1,7 @@
 use crate::graph::*;
 
 /// DOT keywords that must be quoted when used as identifiers.
-const DOT_KEYWORDS: &[&str] = &[
-    "graph", "digraph", "subgraph", "node", "edge", "strict",
-];
+const DOT_KEYWORDS: &[&str] = &["graph", "digraph", "subgraph", "node", "edge", "strict"];
 
 /// Renders a Graph to a DOT format string.
 pub fn render_dot(graph: &Graph) -> String {
@@ -217,9 +215,7 @@ fn needs_quoting(id: &str) -> bool {
 }
 
 fn is_dot_keyword(id: &str) -> bool {
-    DOT_KEYWORDS
-        .iter()
-        .any(|kw| kw.eq_ignore_ascii_case(id))
+    DOT_KEYWORDS.iter().any(|kw| kw.eq_ignore_ascii_case(id))
 }
 
 #[cfg(test)]

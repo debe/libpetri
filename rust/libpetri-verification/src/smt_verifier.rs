@@ -230,15 +230,9 @@ impl<'a> SmtVerifier<'a> {
 
 /// Result from Z3 Spacer.
 enum Z3Result {
-    Unsat {
-        invariant_formula: Option<String>,
-    },
-    Sat {
-        answer: String,
-    },
-    Unknown {
-        reason: String,
-    },
+    Unsat { invariant_formula: Option<String> },
+    Sat { answer: String },
+    Unknown { reason: String },
 }
 
 /// Runs Z3 Spacer on the given SMT-LIB2 string.
@@ -328,9 +322,7 @@ fn process_z3_result(
     report: &mut String,
 ) -> (Verdict, DecodedTrace, Vec<String>) {
     match result {
-        Z3Result::Unsat {
-            invariant_formula,
-        } => {
+        Z3Result::Unsat { invariant_formula } => {
             report.push_str("Result: UNSAT (property proven)\n");
             let discovered = if let Some(formula) = invariant_formula {
                 report.push_str(&format!("Inductive invariant: {formula}\n"));

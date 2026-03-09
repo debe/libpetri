@@ -37,9 +37,7 @@ impl Marking {
 
     /// Returns the number of tokens in a place.
     pub fn count(&self, place_name: &str) -> usize {
-        self.tokens
-            .get(place_name)
-            .map_or(0, |q| q.len())
+        self.tokens.get(place_name).map_or(0, |q| q.len())
     }
 
     /// Returns true if a place has any tokens.
@@ -52,16 +50,12 @@ impl Marking {
         self.tokens
             .get(place.name())
             .and_then(|q| q.front())
-            .and_then(|t| {
-                t.downcast::<T>().map(|token| token.value_arc())
-            })
+            .and_then(|t| t.downcast::<T>().map(|token| token.value_arc()))
     }
 
     /// Removes and returns the first token from a place (FIFO).
     pub fn remove_first(&mut self, place_name: &str) -> Option<ErasedToken> {
-        self.tokens
-            .get_mut(place_name)
-            .and_then(|q| q.pop_front())
+        self.tokens.get_mut(place_name).and_then(|q| q.pop_front())
     }
 
     /// Removes and returns the first token matching a guard predicate.
@@ -71,9 +65,7 @@ impl Marking {
         guard: &dyn Fn(&dyn Any) -> bool,
     ) -> Option<ErasedToken> {
         let queue = self.tokens.get_mut(place_name)?;
-        let pos = queue
-            .iter()
-            .position(|t| guard(t.value.as_ref()))?;
+        let pos = queue.iter().position(|t| guard(t.value.as_ref()))?;
         queue.remove(pos)
     }
 
@@ -108,11 +100,7 @@ impl Marking {
     }
 
     /// Counts tokens matching a guard predicate.
-    pub fn count_matching(
-        &self,
-        place_name: &str,
-        guard: &dyn Fn(&dyn Any) -> bool,
-    ) -> usize {
+    pub fn count_matching(&self, place_name: &str, guard: &dyn Fn(&dyn Any) -> bool) -> usize {
         self.tokens
             .get(place_name)
             .map_or(0, |q| q.iter().filter(|t| guard(t.value.as_ref())).count())

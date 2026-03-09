@@ -51,10 +51,7 @@ pub fn encode(
             count.to_string()
         })
         .collect();
-    lines.push(format!(
-        "(assert (Reachable {}))",
-        m0_values.join(" ")
-    ));
+    lines.push(format!("(assert (Reachable {}))", m0_values.join(" ")));
     lines.push(String::new());
 
     // Transition rules
@@ -149,12 +146,7 @@ fn encode_transition_rule(
                     conditions.push(format!("(= {} (+ {} {}))", mp_vars[i], m_vars[i], delta));
                 }
                 std::cmp::Ordering::Less => {
-                    conditions.push(format!(
-                        "(= {} (- {} {}))",
-                        mp_vars[i],
-                        m_vars[i],
-                        -delta
-                    ));
+                    conditions.push(format!("(= {} (- {} {}))", mp_vars[i], m_vars[i], -delta));
                 }
                 std::cmp::Ordering::Equal => {
                     conditions.push(format!("(= {} {})", mp_vars[i], m_vars[i]));
@@ -346,14 +338,7 @@ mod tests {
     fn encode_deadlock_free_produces_valid_smt2() {
         let (net, marking) = simple_chain_net();
         let flat = flatten(&net);
-        let encoding = encode(
-            &flat,
-            &marking,
-            &SmtProperty::DeadlockFree,
-            &[],
-            &[],
-            &[],
-        );
+        let encoding = encode(&flat, &marking, &SmtProperty::DeadlockFree, &[], &[], &[]);
 
         assert!(encoding.smt2.contains("(set-logic HORN)"));
         assert!(encoding.smt2.contains("(declare-fun Reachable"));
@@ -366,14 +351,7 @@ mod tests {
     fn encode_contains_init_rule() {
         let (net, marking) = simple_chain_net();
         let flat = flatten(&net);
-        let encoding = encode(
-            &flat,
-            &marking,
-            &SmtProperty::DeadlockFree,
-            &[],
-            &[],
-            &[],
-        );
+        let encoding = encode(&flat, &marking, &SmtProperty::DeadlockFree, &[], &[], &[]);
 
         // Should contain (assert (Reachable ...)) for initial marking
         assert!(encoding.smt2.contains("(assert (Reachable"));
@@ -383,14 +361,7 @@ mod tests {
     fn encode_contains_transition_rules() {
         let (net, marking) = simple_chain_net();
         let flat = flatten(&net);
-        let encoding = encode(
-            &flat,
-            &marking,
-            &SmtProperty::DeadlockFree,
-            &[],
-            &[],
-            &[],
-        );
+        let encoding = encode(&flat, &marking, &SmtProperty::DeadlockFree, &[], &[], &[]);
 
         // Should contain forall with quantified variables
         assert!(encoding.smt2.contains("(forall"));

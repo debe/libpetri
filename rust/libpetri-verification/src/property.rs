@@ -51,7 +51,10 @@ mod tests {
 
     #[test]
     fn property_descriptions() {
-        assert_eq!(SmtProperty::deadlock_free().description(), "Deadlock freedom");
+        assert_eq!(
+            SmtProperty::deadlock_free().description(),
+            "Deadlock freedom"
+        );
         assert_eq!(
             SmtProperty::mutual_exclusion(vec!["p1".into(), "p2".into()]).description(),
             "Mutual exclusion: p1, p2"

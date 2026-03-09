@@ -35,7 +35,10 @@ mod tests {
     #[test]
     fn mode_constructors() {
         assert_eq!(always_available(), EnvironmentAnalysisMode::AlwaysAvailable);
-        assert_eq!(bounded(3), EnvironmentAnalysisMode::Bounded { max_tokens: 3 });
+        assert_eq!(
+            bounded(3),
+            EnvironmentAnalysisMode::Bounded { max_tokens: 3 }
+        );
         assert_eq!(ignore(), EnvironmentAnalysisMode::Ignore);
     }
 }
