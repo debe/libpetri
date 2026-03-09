@@ -203,3 +203,62 @@ Token storage should be efficient for the common case where places hold 0-5 toke
 2. Places with few tokens use compact sequential storage (e.g., array-backed deque or array).
 
 **Test derivation:** Create marking with 100 places, 3 tokens each; verify memory usage is reasonable.
+
+---
+
+## Flat-Array Executor Performance
+
+#### PERF-040: Flat-Array Memory Layout
+
+**Priority:** SHOULD
+
+The precompiled executor SHOULD use a flat-array memory layout with no hash map lookups on the hot path. Per-transition data is stored in parallel arrays of length T (transition count) indexed by transition ID. Token storage uses ring buffers indexed by place ID. In-flight transition tracking uses arrays indexed by transition ID.
+
+**Acceptance Criteria:**
+1. No hash map lookups occur during the execution loop (consume, fire, complete, enable).
+2. Per-transition timing, priority, masks, and opcodes are in parallel arrays.
+3. Token access is by integer place ID, not by place object lookup.
+4. In-flight tracking is by integer transition ID, not by transition object lookup.
+
+**Depends on:** [CONC-020]
+**Test derivation:** Profile execution of a 100-transition net; verify no hash map operations on the hot path.
+
+---
+
+#### PERF-041: Precompiled Executor Target Speedup
+
+**Priority:** SHOULD
+
+The precompiled flat-array executor SHOULD achieve 2–4× speedup on synchronous chains compared to the bitmap executor. This target assumes passthrough/sync actions, warm runtime, and noop event store.
+
+Benchmark scenarios SHOULD include precompiled executor results alongside bitmap executor results [PERF-020] for direct comparison.
+
+**Acceptance Criteria:**
+1. Benchmark suite includes precompiled executor variants for chain scenarios.
+2. Precompiled executor achieves measurable speedup over bitmap executor on sync chains.
+3. Results are documented alongside bitmap executor benchmarks.
+
+**Depends on:** [CONC-020], [PERF-020]
+**Test derivation:** Run sync chain benchmarks with both executors; compare throughput.
+
+---
+
+#### PERF-042: Sparse Enablement Masks
+
+**Priority:** SHOULD
+
+Enablement masks SHOULD use a sparse representation to avoid scanning zero words in large nets. Three cases:
+- **Empty** (sentinel value): skip the check entirely (e.g., transition with no input places or no inhibitors)
+- **Single-word** (fast path): store word index + mask value; one AND + one compare operation
+- **Multi-word sparse**: store only non-zero word indices and their mask values; iterate only non-zero entries
+
+This avoids scanning W words when most are zero (common in large, sparse nets).
+
+**Acceptance Criteria:**
+1. Empty masks are detected and skipped with no computation.
+2. Single-word masks use one AND + one compare (no loop).
+3. Multi-word sparse masks iterate only non-zero words.
+4. Enablement results are identical to full-width bitmap checks.
+
+**Depends on:** [CONC-004], [CONC-020]
+**Test derivation:** Net with 200 places where each transition touches 2–3 places; verify sparse check matches full bitmap check and is faster.
