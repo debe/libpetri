@@ -39,7 +39,7 @@ Thumbs.db
 jacoco*.html
 
 # Benchmark results
-*-benchmark-results.json
+**/benchmark-results.json
 
 # Release bundles
 *-bundle.zip
