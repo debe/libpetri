@@ -8,7 +8,7 @@ import org.libpetri.debug.DebugEventStore;
 import org.libpetri.debug.LogCaptureScopeForwardingExecutor;
 import org.libpetri.event.EventStore;
 import org.libpetri.runtime.BitmapNetExecutor;
-import org.libpetri.runtime.CompiledNetExecutor;
+import org.libpetri.runtime.PrecompiledNetExecutor;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -82,8 +82,8 @@ public class BitmapNetExecutorBenchmark {
     // Complex workflow
     private WorkflowNetWithStart complexWorkflow;
 
-    // Precompiled NetPrograms (avoid recompilation per invocation)
-    private java.util.Map<PetriNet, org.libpetri.runtime.NetProgram> compiledPrograms;
+    // Precompiled nets (avoid recompilation per invocation)
+    private java.util.Map<PetriNet, org.libpetri.runtime.PrecompiledNet> compiledPrograms;
 
     @State(Scope.Thread)
     public static class EventStoreState {
@@ -242,7 +242,7 @@ public class BitmapNetExecutorBenchmark {
         // Build complex workflow
         complexWorkflow = buildComplexWorkflow();
 
-        // Precompile NetPrograms for CompiledNetExecutor benchmarks
+        // Precompile nets for PrecompiledNetExecutor benchmarks
         compiledPrograms = new java.util.IdentityHashMap<>();
         for (var net : List.of(
             syncLinearNet10, syncLinearNet20, syncLinearNet50, syncLinearNet100, syncLinearNet200, syncLinearNet500,
@@ -252,7 +252,7 @@ public class BitmapNetExecutorBenchmark {
             parallelNet5, parallelNet10, parallelNet20,
             largeNet, complexWorkflow.net
         )) {
-            compiledPrograms.put(net, org.libpetri.runtime.NetProgram.compile(net));
+            compiledPrograms.put(net, org.libpetri.runtime.PrecompiledNet.compile(net));
         }
     }
 
@@ -1189,7 +1189,7 @@ public class BitmapNetExecutorBenchmark {
             List.of(Token.of(new BenchToken("start")))
         );
         try (
-            var exec = CompiledNetExecutor.builder(net, input)
+            var exec = PrecompiledNetExecutor.builder(net, input)
                 .program(compiledPrograms.get(net))
                 .eventStore(EventStore.noop())
                 .executor(virtualExecutor)
@@ -1205,7 +1205,7 @@ public class BitmapNetExecutorBenchmark {
             List.of(Token.of(new BenchToken("start")))
         );
         try (
-            var executor = CompiledNetExecutor.builder(complexWorkflow.net, input)
+            var executor = PrecompiledNetExecutor.builder(complexWorkflow.net, input)
                 .program(compiledPrograms.get(complexWorkflow.net))
                 .eventStore(store)
                 .executor(exec)

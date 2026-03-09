@@ -5,12 +5,12 @@ import java.util.*;
 import org.libpetri.core.*;
 
 /**
- * Compiled representation of a {@link PetriNet} for the {@link CompiledNetExecutor} VM.
+ * Precompiled flat-array net representation of a {@link PetriNet} for the {@link PrecompiledNetExecutor}.
  *
- * <p>Compiles the net topology into flat arrays and microprograms that eliminate
+ * <p>Compiles the net topology into flat arrays and operation sequences that eliminate
  * virtual dispatch and sealed-type pattern matching from the hot path.
  *
- * <h2>Microprograms</h2>
+ * <h2>Consume Operations</h2>
  * <p>Each transition's input/reset arcs are compiled into a flat {@code int[]} of opcodes:
  * <pre>
  *   CONSUME_ONE(0)     placeId
@@ -24,12 +24,12 @@ import org.libpetri.core.*;
  * <p>Distinct priority values are pre-sorted descending and indexed. Each transition
  * maps to a priority index for O(1) ready-queue insertion.
  *
- * @see CompiledNetExecutor
+ * @see PrecompiledNetExecutor
  * @see CompiledNet
  */
-public final class NetProgram {
+public final class PrecompiledNet {
 
-    // Microprogram opcodes
+    // Consume operation opcodes
     static final int CONSUME_ONE     = 0;
     static final int CONSUME_N       = 1;
     static final int CONSUME_ALL     = 2;
@@ -50,9 +50,9 @@ public final class NetProgram {
     final Map<Place<?>, Integer> placeIndex;
     final IdentityHashMap<Transition, Integer> transitionIndex;
 
-    // Microprograms per transition
-    final int[][] firePrograms;   // consume/reset opcodes
-    final int[][] readPrograms;   // read-arc place IDs
+    // Operation sequences per transition
+    final int[][] consumeOps;   // consume/reset opcodes
+    final int[][] readOps;      // read-arc place IDs
 
     // Enablement masks (reused from CompiledNet)
     final long[][] needsMaskWords;
@@ -105,7 +105,7 @@ public final class NetProgram {
     final int[][] inhibitorSparseIndices;
     final long[][] inhibitorSparseMasks;
 
-    private NetProgram(CompiledNet compiled) {
+    private PrecompiledNet(CompiledNet compiled) {
         this.netName = compiled.net().name();
         this.placeCount = compiled.placeCount();
         this.transitionCount = compiled.transitionCount();
@@ -165,9 +165,9 @@ public final class NetProgram {
                           inhibitorSparseIndices, inhibitorSparseMasks, tid);
         }
 
-        // Compile microprograms
-        this.firePrograms = new int[transitionCount][];
-        this.readPrograms = new int[transitionCount][];
+        // Compile consume/read operation sequences
+        this.consumeOps = new int[transitionCount][];
+        this.readOps = new int[transitionCount][];
         this.inputPlaceMaskWords = new long[transitionCount][];
 
         this.simpleOutputPlaceId = new int[transitionCount];
@@ -175,8 +175,8 @@ public final class NetProgram {
 
         for (int tid = 0; tid < transitionCount; tid++) {
             Transition t = transitionsById[tid];
-            firePrograms[tid] = compileFireProgram(t);
-            readPrograms[tid] = compileReadProgram(t);
+            consumeOps[tid] = compileFireProgram(t);
+            readOps[tid] = compileReadProgram(t);
             inputPlaceMaskWords[tid] = compileInputMask(t);
 
             // Precompute input place count (for TokenInput pre-sizing)
@@ -244,26 +244,26 @@ public final class NetProgram {
     }
 
     /**
-     * Compiles a PetriNet into a NetProgram.
+     * Compiles a PetriNet into a PrecompiledNet.
      *
      * @param net the symbolic Petri net
-     * @return compiled program ready for VM execution
+     * @return precompiled net ready for execution
      */
-    public static NetProgram compile(PetriNet net) {
-        return new NetProgram(CompiledNet.compile(net));
+    public static PrecompiledNet compile(PetriNet net) {
+        return new PrecompiledNet(CompiledNet.compile(net));
     }
 
     /**
      * Compiles using an existing CompiledNet to reuse its masks and indices.
      *
      * @param compiled pre-compiled net
-     * @return compiled program ready for VM execution
+     * @return precompiled net ready for execution
      */
-    public static NetProgram compile(CompiledNet compiled) {
-        return new NetProgram(compiled);
+    public static PrecompiledNet compile(CompiledNet compiled) {
+        return new PrecompiledNet(compiled);
     }
 
-    // ==================== Microprogram Compilation ====================
+    // ==================== Operation Sequence Compilation ====================
 
     private int[] compileFireProgram(Transition t) {
         // Estimate size: each input spec needs 2-3 ints, each reset needs 2
