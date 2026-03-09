@@ -2411,6 +2411,50 @@ abstract class AbstractNetExecutorEngineTest {
                     "High priority fires first: " + order);
             }
         }
+
+        @Test
+        void timedTransitionFiresDuringAsyncAction() throws Exception {
+            var start = Place.of("start", SimpleValue.class);
+            var timedInput = Place.of("timedInput", SimpleValue.class);
+            var slowDone = Place.of("slowDone", SimpleValue.class);
+            var timedDone = Place.of("timedDone", SimpleValue.class);
+
+            var timedFiredAt = new AtomicLong();
+            long testStart = System.nanoTime();
+
+            var slow = Transition.builder("slow")
+                .inputs(one(start)).outputs(place(slowDone))
+                .action(ctx -> CompletableFuture.supplyAsync(() -> {
+                    try { Thread.sleep(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                    ctx.output(slowDone, new SimpleValue("slow"));
+                    return null;
+                }))
+                .build();
+
+            var timed = Transition.builder("timed")
+                .inputs(one(timedInput)).outputs(place(timedDone))
+                .timing(Timing.delayed(Duration.ofMillis(100)))
+                .action(ctx -> {
+                    timedFiredAt.set((System.nanoTime() - testStart) / 1_000_000);
+                    ctx.output(timedDone, new SimpleValue("timed"));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+
+            var net = PetriNet.builder("TimedDuringAsync").transitions(slow, timed).build();
+
+            try (var executor = createExecutor(net, Map.of(
+                    start, List.of(Token.of(new SimpleValue("go"))),
+                    timedInput, List.of(Token.of(new SimpleValue("go")))))) {
+                var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
+
+                assertTrue(result.hasTokens(slowDone), "slow should complete");
+                assertTrue(result.hasTokens(timedDone), "timed should complete");
+                assertTrue(timedFiredAt.get() < 300,
+                    "Timed transition should fire during async action (~100ms), but fired at "
+                    + timedFiredAt.get() + "ms");
+            }
+        }
     }
 
     // ==================== SECTION 9: ASYNC ACTION TESTS ====================

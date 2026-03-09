@@ -1188,8 +1188,10 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
             CompletableFuture.anyOf(Arrays.copyOf(awaitFuturesBuffer, count));
 
         while (!anyCompletion.isDone() && !closed.get()) {
+            long pollMs = program.allImmediate ? AWAIT_POLL_MS
+                : Math.max(1, Math.min(AWAIT_POLL_MS, nanosUntilNextTimedTransition() / 1_000_000));
             try {
-                if (wakeUpSignal.tryAcquire(AWAIT_POLL_MS, TimeUnit.MILLISECONDS)) {
+                if (wakeUpSignal.tryAcquire(pollMs, TimeUnit.MILLISECONDS)) {
                     wakeUpSignal.drainPermits();
                     return;
                 }
@@ -1198,6 +1200,9 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
                 return;
             }
             if (!completionQueue.isEmpty() || !externalEventQueue.isEmpty()) return;
+
+            // Timed transition may have become ready (pollMs was bounded by timer)
+            if (!program.allImmediate && nanosUntilNextTimedTransition() <= 0) return;
         }
         wakeUpSignal.drainPermits();
     }
@@ -1212,7 +1217,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
                 int localW = Long.numberOfTrailingZeros(summary);
                 summary &= summary - 1;
                 int w = (s << WORD_SHIFT) | localW;
-                long word = enabledBitmap[w];
+                long word = enabledBitmap[w] & program.timedMask[w]; // only check timed transitions
                 while (word != 0) {
                     int bit = Long.numberOfTrailingZeros(word);
                     int tid = (w << WORD_SHIFT) | bit;

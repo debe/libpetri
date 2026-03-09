@@ -83,6 +83,8 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
     private final boolean eventStoreEnabled;
     /** Cached flag: true if all transitions have immediate timing (earliest=0, no deadline). */
     private final boolean allImmediate;
+    /** Bitmap mask of transitions that have non-trivial timing (delayed, windowed, deadline, exact). */
+    private final long[] timedMask;
     /** Cached flag: true if all transitions share the same priority. */
     private final boolean allSamePriority;
     /** Number of currently enabled transitions — maintained incrementally for O(1) queries. */
@@ -175,6 +177,13 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         }
         this.hasAnyDeadlines = anyDeadlines;
         this.allImmediate = allImm;
+        this.timedMask = new long[transitionWords];
+        for (int tid = 0; tid < compiled.transitionCount(); tid++) {
+            Transition t = compiled.transition(tid);
+            if (!(t.timing() instanceof Timing.Immediate) && !(t.timing() instanceof Timing.Unconstrained)) {
+                timedMask[tid >>> WORD_SHIFT] |= 1L << (tid & BIT_MASK);
+            }
+        }
         this.allSamePriority = samePrio;
 
         this.transitionInputPlaces = precomputeInputPlaces(compiled.net());
@@ -929,8 +938,9 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
             CompletableFuture<Object> anyCompletion = CompletableFuture.anyOf(futures);
 
             while (!anyCompletion.isDone() && !closed.get()) {
+                long pollMs = allImmediate ? 50 : Math.max(1, Math.min(50, millisUntilNextTimedTransition()));
                 try {
-                    if (wakeUpSignal.tryAcquire(50, TimeUnit.MILLISECONDS)) {
+                    if (wakeUpSignal.tryAcquire(pollMs, TimeUnit.MILLISECONDS)) {
                         wakeUpSignal.drainPermits();
                         return;
                     }
@@ -939,6 +949,9 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
                     return;
                 }
                 if (!completionQueue.isEmpty() || !externalEventQueue.isEmpty()) return;
+
+                // Timed transition may have become ready (pollMs was bounded by timer)
+                if (!allImmediate && millisUntilNextTimedTransition() <= 0) return;
             }
             wakeUpSignal.drainPermits();
         }
@@ -949,7 +962,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         long minWaitMs = Long.MAX_VALUE;
 
         for (int w = 0; w < transitionWords; w++) {
-            long word = enabledBitmap[w];
+            long word = enabledBitmap[w] & timedMask[w]; // only check timed transitions
             while (word != 0) {
                 int bit = Long.numberOfTrailingZeros(word);
                 int tid = (w << WORD_SHIFT) | bit;

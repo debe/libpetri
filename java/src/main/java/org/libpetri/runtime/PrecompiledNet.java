@@ -82,6 +82,8 @@ public final class PrecompiledNet {
     final boolean allImmediate;
     final boolean allSamePriority;
     final boolean anyDeadlines;
+    /** Bitmap mask of transitions that have non-trivial timing (delayed, windowed, deadline, exact). */
+    final long[] timedMask;
 
     // Output validation: precomputed for fast path
     // For Out.Place specs, stores the single expected place ID; -1 for complex specs; -2 for no spec
@@ -220,6 +222,14 @@ public final class PrecompiledNet {
         }
         this.anyDeadlines = anyDl;
         this.allImmediate = allImm;
+        int transitionWords = (transitionCount + 63) >>> 6;
+        this.timedMask = new long[transitionWords];
+        for (int tid = 0; tid < transitionCount; tid++) {
+            Transition t = transitionsById[tid];
+            if (!(t.timing() instanceof Timing.Immediate) && !(t.timing() instanceof Timing.Unconstrained)) {
+                timedMask[tid >>> 6] |= 1L << (tid & 63);
+            }
+        }
 
         // Precompute priorities
         this.priorities = new int[transitionCount];
