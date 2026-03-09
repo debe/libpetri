@@ -50,6 +50,8 @@
 //! - [`verification`] — Formal verification (P-invariants, state class graphs, SMT)
 
 pub use libpetri_core as core;
+#[cfg(feature = "debug")]
+pub use libpetri_debug as debug;
 pub use libpetri_event as event;
 pub use libpetri_export as export;
 pub use libpetri_runtime as runtime;
@@ -57,17 +59,17 @@ pub use libpetri_verification as verification;
 
 // Re-export commonly used types at the top level
 pub use libpetri_core::action::{
-    async_action, fork, passthrough, produce, sync_action, transform, ActionError, BoxedAction,
+    ActionError, BoxedAction, async_action, fork, passthrough, produce, sync_action, transform,
 };
-pub use libpetri_core::arc::{inhibitor, read, reset, Inhibitor, Read, Reset};
+pub use libpetri_core::arc::{Inhibitor, Read, Reset, inhibitor, read, reset};
 pub use libpetri_core::context::TransitionContext;
-pub use libpetri_core::input::{all, at_least, exactly, one, In};
+pub use libpetri_core::input::{In, all, at_least, exactly, one};
 pub use libpetri_core::output::{
-    and, and_places, forward_input, out_place, timeout, timeout_place, xor, xor_places, Out,
+    Out, and, and_places, forward_input, out_place, timeout, timeout_place, xor, xor_places,
 };
 pub use libpetri_core::petri_net::PetriNet;
 pub use libpetri_core::place::{EnvironmentPlace, Place, PlaceRef};
-pub use libpetri_core::timing::{deadline, delayed, exact, immediate, window, Timing};
+pub use libpetri_core::timing::{Timing, deadline, delayed, exact, immediate, window};
 pub use libpetri_core::token::Token;
 pub use libpetri_core::transition::Transition;
 
@@ -76,5 +78,10 @@ pub use libpetri_event::net_event::NetEvent;
 
 pub use libpetri_export::dot_exporter::dot_export;
 
+pub use libpetri_runtime::compiled_net::CompiledNet;
 pub use libpetri_runtime::executor::{BitmapNetExecutor, ExecutorOptions};
 pub use libpetri_runtime::marking::Marking;
+pub use libpetri_runtime::precompiled_executor::{
+    PrecompiledExecutorBuilder, PrecompiledNetExecutor,
+};
+pub use libpetri_runtime::precompiled_net::PrecompiledNet;

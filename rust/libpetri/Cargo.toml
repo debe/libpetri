@@ -11,6 +11,7 @@ libpetri-event = { workspace = true }
 libpetri-runtime = { workspace = true }
 libpetri-export = { workspace = true }
 libpetri-verification = { workspace = true }
+libpetri-debug = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
@@ -19,6 +20,7 @@ tokio = { workspace = true }
 default = []
 tokio = ["libpetri-runtime/tokio"]
 z3 = ["libpetri-verification/z3"]
+debug = ["dep:libpetri-debug"]
 
 [[example]]
 name = "basic"

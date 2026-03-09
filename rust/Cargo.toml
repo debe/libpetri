@@ -6,12 +6,13 @@ members = [
     "libpetri-runtime",
     "libpetri-export",
     "libpetri-verification",
+    "libpetri-debug",
     "libpetri",
     "benches",
 ]
 
 [workspace.package]
-version = "1.1.0"
+version = "1.2.0"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/libpetri/libpetri"
@@ -22,5 +23,6 @@ libpetri-event = { path = "libpetri-event" }
 libpetri-runtime = { path = "libpetri-runtime" }
 libpetri-export = { path = "libpetri-export" }
 libpetri-verification = { path = "libpetri-verification" }
+libpetri-debug = { path = "libpetri-debug" }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "sync", "macros"] }
 criterion = { version = "0.5", features = ["html_reports"] }
