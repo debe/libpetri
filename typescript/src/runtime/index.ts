@@ -14,5 +14,8 @@ export type { CardinalityCheck } from './compiled-net.js';
 export { BitmapNetExecutor } from './bitmap-net-executor.js';
 export type { BitmapNetExecutorOptions } from './bitmap-net-executor.js';
 export type { PetriNetExecutor } from './petri-net-executor.js';
+export { PrecompiledNet } from './precompiled-net.js';
+export { PrecompiledNetExecutor } from './precompiled-net-executor.js';
+export type { PrecompiledNetExecutorOptions } from './precompiled-net-executor.js';
 export { OutViolationError } from './out-violation-error.js';
 export { validateOutSpec, produceTimeoutOutput } from './executor-support.js';

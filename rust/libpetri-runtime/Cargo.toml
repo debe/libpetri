@@ -3,6 +3,8 @@ name = "libpetri-runtime"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
 description = "Bitmap executor runtime for libpetri Coloured Time Petri Net engine"
 
 [dependencies]

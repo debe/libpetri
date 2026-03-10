@@ -3,6 +3,8 @@ name = "libpetri-export"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
 description = "DOT export pipeline for libpetri Coloured Time Petri Net engine"
 
 [dependencies]

@@ -3,6 +3,8 @@ name = "libpetri-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
 description = "Core types for libpetri Coloured Time Petri Net engine"
 
 [dependencies]
