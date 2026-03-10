@@ -271,6 +271,7 @@ version = "1.2.0"
 dependencies = [
  "libpetri-core",
  "libpetri-debug",
+ "libpetri-docgen",
  "libpetri-event",
  "libpetri-export",
  "libpetri-runtime",
@@ -302,6 +303,14 @@ dependencies = [
  "libpetri-export",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "libpetri-docgen"
+version = "1.2.0"
+dependencies = [
+ "libpetri-core",
+ "libpetri-export",
 ]
 
 [[package]]

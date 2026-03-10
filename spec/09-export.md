@@ -174,6 +174,6 @@ The engine MAY support generating diagrams from net structure annotations at com
 **Implementation notes:**
 - Java: `@NetStructure` annotation processed by `@petrinet` Javadoc taglet to generate DOT→SVG diagrams
 - TypeScript: `@petrinet` TypeDoc plugin resolves net definitions and generates embedded SVG diagrams
-- Rust: Not implemented
+- Rust: `libpetri-docgen` build-dependency crate generates DOT→SVG diagrams via `SvgGenerator` / `generate_svg()`
 
 **Test derivation:** Annotated net structure; build project; verify diagram generated.
