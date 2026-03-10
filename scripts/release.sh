@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 JAVA_DIR="$PROJECT_ROOT/java"
 TS_DIR="$PROJECT_ROOT/typescript"
+RUST_DIR="$PROJECT_ROOT/rust"
 
 # --- Defaults ---
 DRY_RUN=false
@@ -15,17 +16,19 @@ usage() {
     cat <<EOF
 Usage: $(basename "$0") [--dry-run] <version>
 
-Release libpetri to Maven Central and npm.
+Release libpetri to Maven Central, npm, and crates.io.
 
 Maven handles Java: build, test, sign (local GPG agent), bundle,
 upload to Central Portal, and wait for publication.
 npm handles TypeScript: build, test, publish.
+Cargo handles Rust: build, test, publish (crates in dependency order).
 
 Prerequisites:
   - GPG signing key available to gpg-agent
   - ~/.m2/settings.xml with <server id="central"> credentials
   - gh CLI authenticated (for GitHub release)
   - npm authenticated with publish access to 'libpetri'
+  - cargo login (crates.io token in ~/.cargo/credentials.toml)
 
 Arguments:
   version       Release version (e.g. 0.4.0)
@@ -88,6 +91,11 @@ if ! npm whoami >/dev/null 2>&1; then
     error "Not logged in to npm. Run 'npm login' or set an auth token first."
 fi
 
+# cargo authenticated
+if [[ ! -f ~/.cargo/credentials.toml ]]; then
+    error "No cargo credentials found. Run 'cargo login' first."
+fi
+
 # Check tag doesn't already exist (unless dry-run)
 if [[ "$DRY_RUN" == false ]]; then
     if git -C "$PROJECT_ROOT" rev-parse "v${VERSION}" >/dev/null 2>&1; then
@@ -103,9 +111,17 @@ cd "$JAVA_DIR"
 cd "$TS_DIR"
 npm version "$VERSION" --no-git-tag-version --allow-same-version
 
+# Rust: update workspace version and dependency versions in Cargo.toml
+cd "$RUST_DIR"
+# Workspace version (inherited by all crates via version.workspace = true)
+sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+# Workspace dependency version pins (path = "...", version = "X.Y.Z")
+sed -i "s/\(path = \"[^\"]*\"\), version = \"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\"/\1, version = \"$VERSION\"/g" Cargo.toml
+
 # --- Commit the version bump ---
 cd "$PROJECT_ROOT"
 git add java/pom.xml typescript/package.json typescript/package-lock.json
+git add rust/Cargo.toml
 git diff --cached --quiet || git commit -m "release: ${VERSION}"
 
 # --- Java: Build / Deploy ---
@@ -135,13 +151,49 @@ npm test
 if [[ "$DRY_RUN" == true ]]; then
     info "Dry run: verifying npm package contents"
     npm pack --dry-run
-    info "Dry run complete. Java artifacts in java/target/, TypeScript in typescript/dist/"
+fi
+
+# --- Rust: build, test, publish ---
+info "Building and testing Rust crates"
+cd "$RUST_DIR"
+
+cargo build --all-features
+cargo test --all-features
+
+RUST_CRATES=(
+    libpetri-core
+    libpetri-event
+    libpetri-runtime
+    libpetri-export
+    libpetri-verification
+    libpetri-debug
+    libpetri
+)
+
+if [[ "$DRY_RUN" == true ]]; then
+    info "Dry run: verifying crate packages"
+    for crate in "${RUST_CRATES[@]}"; do
+        (cd "$crate" && cargo package --allow-dirty 2>&1 | tail -1)
+    done
+    info "Dry run complete. Java artifacts in java/target/, TypeScript in typescript/dist/, Rust crates verified."
     info "Note: version commit created. Run 'git reset HEAD~1' to undo if needed."
     exit 0
 fi
 
 info "Publishing to npm"
+cd "$TS_DIR"
 npm publish
+
+info "Publishing Rust crates to crates.io"
+cd "$RUST_DIR"
+for crate in "${RUST_CRATES[@]}"; do
+    info "Publishing $crate"
+    (cd "$crate" && cargo publish)
+    # crates.io needs time to index before dependents can publish
+    if [[ "$crate" != "libpetri" ]]; then
+        sleep 15
+    fi
+done
 
 # --- Tag and release ---
 cd "$PROJECT_ROOT"
@@ -156,4 +208,4 @@ gh release create "v${VERSION}" \
     --title "v${VERSION}" \
     --generate-notes
 
-info "Released v${VERSION} to Maven Central, npm, and GitHub."
+info "Released v${VERSION} to Maven Central, npm, crates.io, and GitHub."
