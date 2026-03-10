@@ -30,7 +30,7 @@
 | **Input cardinality** | `one`, `exactly(n)`, `all` (drain), `atLeast(n)` — with optional guard predicates |
 | **Output routing** | `place` (single), `and` (fork), `xor` (choice), `timeout`, `forwardInput` |
 | **Timing** | Immediate, Deadline, Delayed, Window, Exact — with urgent deadline enforcement |
-| **Executor** | Bitmap-based O(W) enablement, dirty-set optimization, priority + FIFO scheduling. Precompiled flat-array executor with 2–4x speedup (Java, Rust). |
+| **Executor** | Bitmap-based O(W) enablement, dirty-set optimization, priority + FIFO scheduling. Precompiled flat-array executor with 1.5–4× speedup (Java, TypeScript, Rust). |
 | **Concurrency** | Single-threaded orchestrator, concurrent async actions (virtual threads / promises / Tokio tasks) |
 | **Environment places** | External event injection for long-running, event-driven workflows |
 | **Events** | 13 event types, pluggable stores (in-memory, noop, logging, debug) |
@@ -435,7 +435,7 @@ The executor runs a single-threaded orchestration loop with six phases per cycle
 
 All three share the same architecture: immutable net definitions, builder-pattern construction, bitmap-based enablement with dirty-set optimization, and a single-threaded orchestrator dispatching async actions to a separate task pool. Rust uses a `tokio` feature flag for async execution and a `debug` feature flag for the debug protocol.
 
-### PrecompiledNetExecutor — Flat-Array Executor (Java, Rust)
+### PrecompiledNetExecutor — Flat-Array Executor (Java, TypeScript, Rust)
 
 The `BitmapNetExecutor` interprets the net definition on every firing: it pattern-matches on sealed arc types, looks up tokens in HashMaps, and sorts enabled transitions by priority. The `PrecompiledNetExecutor` eliminates all of this by precompiling the net into flat arrays and operation sequences for direct execution.
 
@@ -455,17 +455,17 @@ Timing constraints are precomputed to milliseconds. Priority levels are pre-sort
 
 | BitmapNetExecutor | PrecompiledNetExecutor |
 |---|---|
-| `Map<Place, ArrayDeque<Token>>` | Ring buffers indexed by place ID — O(1) add/remove/peek, no hashing |
+| `Map<Place, ArrayDeque<Token>>` | Per-place token arrays indexed by place ID — no hashing |
 | Sealed-type pattern matching per arc | `switch` on int opcodes in a flat `int[]` operation sequence |
 | `TreeMap` sort of enabled transitions per cycle | Priority-partitioned circular queues — O(1) next-to-fire |
 | `new TransitionContext()` per firing | Pooled context/input/output objects — zero allocation on sync path |
-| Per-place `Map.get()` for token access | Direct array index: `tokenPool[placeOffset[pid] + localIndex]` |
+| Per-place `Map.get()` for token access | Direct array index by place ID — cached place references |
 
-Additional Rust-specific optimizations: precomputed `Arc<str>` name arrays indexed by place/transition ID, reusable HashMap buffers reclaimed between firings, sparse enablement masks (Empty/Single/Multi variants), and two-level summary bitmaps for dirty-set and enabled-set iteration.
+Java and Rust additionally use ring buffers for token storage and two-level summary bitmaps for dirty/enabled iteration. Rust-specific optimizations: precomputed `Arc<str>` name arrays, reusable HashMap buffers, sparse enablement masks (Empty/Single/Multi variants).
 
 The execution loop has the same six phases as `BitmapNetExecutor` and produces identical results. In Java it passes the same 141-test suite via abstract base class inheritance; in Rust it has its own 25-test suite. The concurrency model is also identical: single orchestrator thread with concurrent async actions (virtual threads in Java, Tokio tasks in Rust).
 
-**Where the speedup comes from.** On pure-sync chains, the compiled path does almost no allocation and touches only contiguous arrays, giving 2–4x speedup that grows with scale. On async-dominated workloads the thread scheduling cost dominates both executors equally, so the speedup converges to ~1x for small chains and emerges only at scale. Mixed workloads (the common real-world pattern) see 1.6–3.3x.
+**Where the speedup comes from.** On pure-sync chains, the compiled path does almost no allocation and touches only contiguous arrays, giving 1.4–4× speedup that grows with scale. On async-dominated workloads the scheduling cost dominates both executors equally, so the speedup converges to ~1× for small chains and emerges at scale. Mixed workloads (the common real-world pattern) see 1.3–3.6×.
 
 ---
 
@@ -481,14 +481,14 @@ Measured with noop event store. Java uses JMH (1 fork, 2 warmup, 3 measurement i
 
 All transitions use synchronous (passthrough) actions.
 
-| Transitions | Java Bitmap (µs) | Java Precompiled (µs) | Speedup | TypeScript (µs) | Rust Bitmap (µs) | Rust Precompiled (µs) | Speedup | Target (PERF-021) |
-|---|---|---|---|---|---|---|---|---|
-| 10 | 8.7 | 3.8 | 2.3x | 31.7 | 12.8 | 5.0 | 2.6x | < 100 |
-| 20 | 17.3 | 7.2 | 2.4x | 59.0 | 26.8 | 9.3 | 2.9x | |
-| 50 | 41.7 | 16.9 | 2.5x | 104.9 | 66.7 | 21.3 | 3.1x | < 500 |
-| 100 | 83.5 | 35.7 | 2.3x | 139.6 | 135.6 | 41.1 | 3.3x | |
-| 200 | 174.8 | 71.1 | 2.5x | 206.0 | 286.7 | 83.3 | 3.4x | |
-| 500 | 552.0 | 185.4 | 3.0x | 442.0 | 783.2 | 206.6 | 3.8x | |
+| Transitions | Java Bitmap (µs) | Java Precompiled (µs) | Speedup | TS Bitmap (µs) | TS Precompiled (µs) | Speedup | Rust Bitmap (µs) | Rust Precompiled (µs) | Speedup | Target (PERF-021) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 10 | 8.7 | 3.8 | 2.3x | 28.1 | 20.2 | 1.4x | 12.8 | 5.0 | 2.6x | < 100 |
+| 20 | 17.3 | 7.2 | 2.4x | 52.4 | 37.0 | 1.4x | 26.8 | 9.3 | 2.9x | |
+| 50 | 41.7 | 16.9 | 2.5x | 91.0 | 59.8 | 1.5x | 66.7 | 21.3 | 3.1x | < 500 |
+| 100 | 83.5 | 35.7 | 2.3x | 123.8 | 66.3 | 1.9x | 135.6 | 41.1 | 3.3x | |
+| 200 | 174.8 | 71.1 | 2.5x | 191.6 | 82.1 | 2.3x | 286.7 | 83.3 | 3.4x | |
+| 500 | 552.0 | 185.4 | 3.0x | 429.9 | 112.2 | 3.8x | 783.2 | 206.6 | 3.8x | |
 | 1000 | 1432.6 | 394.0 | 3.6x | — | — | — | | |
 | 2000 | 3128.8 | 875.8 | 3.6x | — | — | — | | |
 | 5000 | 10402.3 | 2578.4 | 4.0x | — | — | — | | |
@@ -498,44 +498,44 @@ All transitions use synchronous (passthrough) actions.
 
 All transitions dispatch to a virtual thread / microtask / Tokio task.
 
-| Transitions | Java Bitmap (µs) | Java Precompiled (µs) | Speedup | TypeScript (µs) | Rust Bitmap (µs) | Rust Precompiled (µs) | Speedup |
-|---|---|---|---|---|---|---|---|
-| 5 | 19.3 | 19.5 | 1.0x | 29.7 | 8.1 | 4.4 | 1.8x |
-| 10 | 38.4 | 37.5 | 1.0x | 56.0 | 15.3 | 7.9 | 1.9x |
-| 20 | 79.1 | 78.7 | 1.0x | 108.2 | 31.2 | 15.2 | 2.1x |
-| 50 | 189.5 | 194.1 | 1.0x | 191.3 | 80.9 | 34.3 | 2.4x |
-| 100 | 413.6 | 352.2 | 1.2x | 254.7 | 160.4 | 65.5 | 2.4x |
-| 200 | 804.7 | 308.0 | 2.6x | 299.3 | 328.7 | 129.1 | 2.5x |
-| 500 | 1719.9 | 712.3 | 2.4x | 562.8 | 890.6 | 335.0 | 2.7x |
+| Transitions | Java Bitmap (µs) | Java Precompiled (µs) | Speedup | TS Bitmap (µs) | TS Precompiled (µs) | Speedup | Rust Bitmap (µs) | Rust Precompiled (µs) | Speedup |
+|---|---|---|---|---|---|---|---|---|---|
+| 5 | 19.3 | 19.5 | 1.0x | 26.1 | 23.2 | 1.1x | 8.1 | 4.4 | 1.8x |
+| 10 | 38.4 | 37.5 | 1.0x | 49.3 | 44.5 | 1.1x | 15.3 | 7.9 | 1.9x |
+| 20 | 79.1 | 78.7 | 1.0x | 96.0 | 83.7 | 1.1x | 31.2 | 15.2 | 2.1x |
+| 50 | 189.5 | 194.1 | 1.0x | 161.6 | 133.8 | 1.2x | 80.9 | 34.3 | 2.4x |
+| 100 | 413.6 | 352.2 | 1.2x | 197.6 | 143.3 | 1.4x | 160.4 | 65.5 | 2.4x |
+| 200 | 804.7 | 308.0 | 2.6x | 274.1 | 162.2 | 1.7x | 328.7 | 129.1 | 2.5x |
+| 500 | 1719.9 | 712.3 | 2.4x | 515.0 | 213.4 | 2.4x | 890.6 | 335.0 | 2.7x |
 
 ### Mixed Linear Chains (2 async)
 
 Two transitions are async, the rest synchronous — the common real-world pattern.
 
-| Transitions | Java Bitmap (µs) | Java Precompiled (µs) | Speedup | TypeScript (µs) | Rust Bitmap (µs) | Rust Precompiled (µs) | Speedup |
-|---|---|---|---|---|---|---|---|
-| 10 | 17.3 | 11.1 | 1.6x | 36.5 | 7.3 | 2.5 | 2.9x |
-| 20 | 27.3 | 15.8 | 1.7x | 62.5 | 13.8 | 2.7 | 5.1x |
-| 50 | 52.9 | 27.0 | 2.0x | 105.8 | 33.5 | 3.3 | 10.2x |
-| 100 | 98.9 | 44.5 | 2.2x | 142.9 | 66.0 | 4.5 | 14.7x |
-| 200 | 196.0 | 80.7 | 2.4x | 217.1 | 125.1 | 7.0 | 17.9x |
-| 500 | 634.7 | 191.3 | 3.3x | 481.5 | 322.3 | 13.7 | 23.5x |
+| Transitions | Java Bitmap (µs) | Java Precompiled (µs) | Speedup | TS Bitmap (µs) | TS Precompiled (µs) | Speedup | Rust Bitmap (µs) | Rust Precompiled (µs) | Speedup |
+|---|---|---|---|---|---|---|---|---|---|
+| 10 | 17.3 | 11.1 | 1.6x | 33.3 | 25.5 | 1.3x | 7.3 | 2.5 | 2.9x |
+| 20 | 27.3 | 15.8 | 1.7x | 59.3 | 45.8 | 1.3x | 13.8 | 2.7 | 5.1x |
+| 50 | 52.9 | 27.0 | 2.0x | 97.3 | 68.2 | 1.4x | 33.5 | 3.3 | 10.2x |
+| 100 | 98.9 | 44.5 | 2.2x | 131.7 | 71.3 | 1.8x | 66.0 | 4.5 | 14.7x |
+| 200 | 196.0 | 80.7 | 2.4x | 196.6 | 82.5 | 2.4x | 125.1 | 7.0 | 17.9x |
+| 500 | 634.7 | 191.3 | 3.3x | 424.5 | 119.3 | 3.6x | 322.3 | 13.7 | 23.5x |
 
 ### Parallel Fan-Out
 
 One dispatch transition fans out to N parallel async branches, then joins.
 
-| Branches | Java Bitmap (µs) | Java Precompiled (µs) | Speedup | TypeScript (µs) | Rust Bitmap (µs) | Rust Precompiled (µs) | Speedup |
-|---|---|---|---|---|---|---|---|
-| 5 | 24.9 | 19.7 | 1.3x | 39.1 | 11.7 | 5.3 | 2.2x |
-| 10 | 33.1 | 24.0 | 1.4x | 70.0 | 23.1 | 9.2 | 2.5x |
-| 20 | 46.7 | 31.9 | 1.5x | 151.3 | 47.0 | 17.7 | 2.7x |
+| Branches | Java Bitmap (µs) | Java Precompiled (µs) | Speedup | TS Bitmap (µs) | TS Precompiled (µs) | Speedup | Rust Bitmap (µs) | Rust Precompiled (µs) | Speedup |
+|---|---|---|---|---|---|---|---|---|---|
+| 5 | 24.9 | 19.7 | 1.3x | 34.7 | 28.6 | 1.2x | 11.7 | 5.3 | 2.2x |
+| 10 | 33.1 | 24.0 | 1.4x | 62.7 | 53.7 | 1.2x | 23.1 | 9.2 | 2.5x |
+| 20 | 46.7 | 31.9 | 1.5x | 134.5 | 119.3 | 1.1x | 47.0 | 17.7 | 2.7x |
 
 ### Complex Workflows
 
-| Scenario | Java Bitmap (µs) | Java Precompiled (µs) | Speedup | TypeScript (µs) | Rust Bitmap (µs) | Rust Precompiled (µs) | Speedup |
-|---|---|---|---|---|---|---|---|
-| Order pipeline (8t, 13p) | 19.0 | 9.7 | 2.0x | 33.4 | 10.9 | 4.1 | 2.7x |
+| Scenario | Java Bitmap (µs) | Java Precompiled (µs) | Speedup | TS Bitmap (µs) | TS Precompiled (µs) | Speedup | Rust Bitmap (µs) | Rust Precompiled (µs) | Speedup |
+|---|---|---|---|---|---|---|---|---|---|
+| Order pipeline (8t, 13p) | 19.0 | 9.7 | 2.0x | 29.1 | 24.0 | 1.2x | 10.9 | 4.1 | 2.7x |
 | Large workflow (16t, 17p) | 35.9 | 25.8 | 1.4x | — | — | — | |
 
 ### Event Store Overhead (Java BitmapNetExecutor)
@@ -565,19 +565,26 @@ Impact of different event store implementations on the complex workflow:
 
 Time to compile a PetriNet into a CompiledNet / PrecompiledNet (bitmap masks, reverse indexes, opcode sequences).
 
-| Places | TypeScript (µs) | Rust CompiledNet (µs) | Rust PrecompiledNet (µs) |
-|---|---|---|---|
-| 10 | 10.9 | 5.9 | 13.8 |
-| 50 | 47.9 | 32.1 | 69.3 |
-| 100 | 66.3 | 63.0 | 132.0 |
-| 500 | 348.2 | 314.3 | 689.4 |
+| Places | TS CompiledNet (µs) | TS PrecompiledNet (µs) | Rust CompiledNet (µs) | Rust PrecompiledNet (µs) |
+|---|---|---|---|---|
+| 10 | 7.1 | 9.9 | 5.9 | 13.8 |
+| 50 | 29.5 | 42.9 | 32.1 | 69.3 |
+| 100 | 58.3 | 83.7 | 63.0 | 132.0 |
+| 500 | 281.9 | 462.3 | 314.3 | 689.4 |
 
-### Event Store Overhead (TypeScript)
+### Event Store Overhead (TypeScript BitmapNetExecutor)
 
 | Event Store | µs/op | Overhead vs noop |
 |---|---|---|
-| noop | 34.0 | — |
-| inMemory | 34.3 | +0.9% |
+| noop | 29.1 | — |
+| inMemory | 29.8 | +2% |
+
+### Event Store Overhead (TypeScript PrecompiledNetExecutor)
+
+| Event Store | µs/op | Overhead vs noop |
+|---|---|---|
+| noop | 23.4 | — |
+| inMemory | 24.2 | +3% |
 
 ### Event Store Overhead (Rust)
 

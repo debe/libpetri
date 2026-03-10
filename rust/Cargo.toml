@@ -16,13 +16,14 @@ version = "1.2.0"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/libpetri/libpetri"
+homepage = "https://libpetri.org"
 
 [workspace.dependencies]
-libpetri-core = { path = "libpetri-core" }
-libpetri-event = { path = "libpetri-event" }
-libpetri-runtime = { path = "libpetri-runtime" }
-libpetri-export = { path = "libpetri-export" }
-libpetri-verification = { path = "libpetri-verification" }
-libpetri-debug = { path = "libpetri-debug" }
+libpetri-core = { path = "libpetri-core", version = "1.2.0" }
+libpetri-event = { path = "libpetri-event", version = "1.2.0" }
+libpetri-runtime = { path = "libpetri-runtime", version = "1.2.0" }
+libpetri-export = { path = "libpetri-export", version = "1.2.0" }
+libpetri-verification = { path = "libpetri-verification", version = "1.2.0" }
+libpetri-debug = { path = "libpetri-debug", version = "1.2.0" }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "sync", "macros"] }
 criterion = { version = "0.5", features = ["html_reports"] }

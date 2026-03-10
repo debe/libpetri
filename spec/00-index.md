@@ -271,7 +271,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Log capture | Action log → events | SLF4J LogCaptureScope | ctx.log() | Not yet |
 | Debug event store | Live tailing | ✓ | ✓ | — |
 | Action binding | Separated from structure | ✓ (bindActions) | ✓ (bindActions) | NetStructureBuilder |
-| Precompiled flat-array executor | 2–4× speedup via flat arrays | ✓ (PrecompiledNetExecutor) | Not yet | Not yet |
+| Precompiled flat-array executor | 2–4× speedup via flat arrays | ✓ (PrecompiledNetExecutor) | ✓ (PrecompiledNetExecutor) | Not yet |
 | Inline sync execution | Avoid task dispatch | — | — | ✓ (try_run_inline) |
 
 \* Rust uses 64-bit words matching Java.
@@ -309,10 +309,10 @@ This matrix maps spec requirements to test classes/files in each implementation.
 | EVT-001–014 | `NetEventTest` | `net-event.test.ts` | `net_event::tests` |
 | EVT-020–024 | `EventStoreTest` | `event-store.test.ts` | `event_store::tests` |
 | EXP-001–008 | `DotExporterTest` | `dot-exporter.test.ts` | `dot_renderer::tests`, `mapper::tests` |
-| CONC-020–026 | `PrecompiledNetExecutorEngineTest` | — | — |
+| CONC-020–026 | `PrecompiledNetExecutorEngineTest` | `precompiled-net-executor.test.ts` | — |
 | PERF-001–004 | `BitmapNetExecutorBenchmark` | — | — |
 | PERF-020–022 | — | — | — |
-| PERF-040–042 | `PrecompiledNetExecutorBenchmark` | — | — |
+| PERF-040–042 | `PrecompiledNetExecutorBenchmark` | `precompiled-net-executor.bench.ts` | — |
 
 ---
 

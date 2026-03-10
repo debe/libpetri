@@ -1,6 +1,10 @@
 package org.libpetri.examples.parser;
 
 import com.sun.source.util.JavacTask;
+import org.libpetri.core.Token;
+import org.libpetri.examples.parser.compiler.ParseState;
+import org.libpetri.examples.parser.lexer.JavaLexer;
+import org.libpetri.runtime.NetExecutor;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.RunnerException;
@@ -16,6 +20,7 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -137,6 +142,27 @@ public class ParserBenchmark {
             return last;
         }
         return parser.parse(source);
+    }
+
+    @Benchmark
+    public Object netExecutorParse() {
+        if (sourceKind.equals("selfParse")) {
+            Object last = null;
+            for (var src : selfParseSources) last = parseWithNetExecutor(src);
+            return last;
+        }
+        return parseWithNetExecutor(source);
+    }
+
+    private Object parseWithNetExecutor(String src) {
+        var tokens = JavaLexer.tokenize(src).toArray(org.libpetri.examples.parser.lexer.LexToken[]::new);
+        var initialState = ParseState.initial(tokens);
+        var compiledNet = parser.compiledNet();
+        try (var executor = NetExecutor.create(
+                compiledNet.net(),
+                Map.of(compiledNet.startPlace(), List.of(new Token<>(initialState, ParseState.EPOCH))))) {
+            return executor.run();
+        }
     }
 
     @Benchmark
