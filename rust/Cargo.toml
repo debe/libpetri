@@ -7,6 +7,7 @@ members = [
     "libpetri-export",
     "libpetri-verification",
     "libpetri-debug",
+    "libpetri-docgen",
     "libpetri",
     "benches",
 ]
@@ -25,5 +26,6 @@ libpetri-runtime = { path = "libpetri-runtime", version = "1.2.0" }
 libpetri-export = { path = "libpetri-export", version = "1.2.0" }
 libpetri-verification = { path = "libpetri-verification", version = "1.2.0" }
 libpetri-debug = { path = "libpetri-debug", version = "1.2.0" }
+libpetri-docgen = { path = "libpetri-docgen", version = "1.2.0" }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "sync", "macros"] }
 criterion = { version = "0.5", features = ["html_reports"] }

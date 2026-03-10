@@ -15,6 +15,9 @@ libpetri-export = { workspace = true }
 libpetri-verification = { workspace = true }
 libpetri-debug = { workspace = true, optional = true }
 
+[build-dependencies]
+libpetri-docgen = { workspace = true }
+
 [dev-dependencies]
 tokio = { workspace = true }
 
