@@ -1,12 +1,18 @@
 # libpetri
 
+[![CI](https://github.com/debe/libpetri/actions/workflows/ci.yml/badge.svg)](https://github.com/debe/libpetri/actions/workflows/ci.yml)
+[![Maven Central](https://img.shields.io/maven-central/v/org.libpetri/libpetri)](https://central.sonatype.com/artifact/org.libpetri/libpetri)
+[![npm](https://img.shields.io/npm/v/libpetri)](https://www.npmjs.com/package/libpetri)
+[![crates.io](https://img.shields.io/crates/v/libpetri)](https://crates.io/crates/libpetri)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+
 **A high-performance Coloured Time Petri Net runtime** — a Turing-complete execution engine where typed tokens flow through places, transitions fire under real-time constraints, and async actions execute concurrently. Formal verification proves safety properties via SMT/IC3.
 
 | Implementation | Language | Runtime | Status |
 |---|---|---|---|
 | [**libpetri-java**](java/) | Java 25 | Virtual threads | Production |
 | [**libpetri-ts**](typescript/) | TypeScript 5.7 | Promises / event loop | Production |
-| [**libpetri-rust**](rust/) | Rust 2024 | Tokio async tasks | Prerelease |
+| [**libpetri-rust**](rust/) | Rust 2024 | Tokio async tasks | Production |
 
 > See [`spec/`](spec/) for the language-agnostic contract all implementations follow.
 
