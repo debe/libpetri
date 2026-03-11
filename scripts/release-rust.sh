@@ -103,11 +103,11 @@ cargo test --all-features
 RUST_CRATES=(
     libpetri-core
     libpetri-event
-    libpetri-runtime
     libpetri-export
+    libpetri-docgen
+    libpetri-runtime
     libpetri-verification
     libpetri-debug
-    libpetri-docgen
     libpetri
 )
 
