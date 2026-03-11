@@ -33,11 +33,12 @@
 //!
 #![doc = include_str!(concat!(env!("OUT_DIR"), "/basic_chain.svg"))]
 //!
-//! ## Example: Order Processing Pipeline
+//! ## Example: LLM Agent Pipeline
 //!
-//! A showcase net demonstrating all arc types (input, output, read, inhibitor, reset),
-//! both place types (regular + environment), all timing modes (immediate, deadline,
-//! delayed, window, exact), and patterns (AND-fork, AND-join, XOR, priority).
+//! An agent orchestration net demonstrating all arc types (input, output, read,
+//! inhibitor, reset), environment places (keyboard events), all timing modes
+//! (immediate, window, deadline, delayed, exact), AND-fork, priority, and coloured
+//! tokens (`String` messages + `()` control signals).
 //!
 #![doc = include_str!(concat!(env!("OUT_DIR"), "/showcase.svg"))]
 //!
