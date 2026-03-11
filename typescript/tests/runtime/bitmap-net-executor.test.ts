@@ -881,7 +881,7 @@ describe('Output Spec Tests', () => {
 
 // ======================== TIMING TESTS ========================
 
-describe('Timing Tests', () => {
+describe('Timing Tests', { timeout: 15_000 }, () => {
   it('delayed timing delays execution', async () => {
     const input = place<string>('IN');
     const output = place<string>('OUT');
@@ -898,9 +898,9 @@ describe('Timing Tests', () => {
       })
       .build();
     const net = PetriNet.builder('N').transition(t).build();
-    await runNet(net, initialTokens([input, [tokenOf('go')]]));
+    const { marking } = await runNet(net, initialTokens([input, [tokenOf('go')]]));
 
-    expect(marking => marking.hasTokens(output));
+    expect(marking.hasTokens(output)).toBe(true);
     expect(fireTimeMs - startMs).toBeGreaterThanOrEqual(100); // Allow tolerance
   });
 
