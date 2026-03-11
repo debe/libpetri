@@ -167,6 +167,7 @@ RUST_CRATES=(
     libpetri-export
     libpetri-verification
     libpetri-debug
+    libpetri-docgen
     libpetri
 )
 
