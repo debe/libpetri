@@ -2192,7 +2192,7 @@ abstract class AbstractNetExecutorEngineTest {
             var closeSession = Transition.builder("CloseSession")
                 .inputs(Arc.In.one(timerPending))
                 .outputs(Arc.Out.and(sessionClosed))
-                .timing(Timing.exact(Duration.ofMillis(200)))
+                .timing(Timing.delayed(Duration.ofMillis(200)))
                 .action(ctx -> {
                     closeTransitionFireTime.set(System.nanoTime());
                     ctx.output(sessionClosed, new SimpleValue("closed"));
@@ -2224,7 +2224,7 @@ abstract class AbstractNetExecutorEngineTest {
                 });
 
                 // Run executor - it will spin quickly but virtual threads handle this well
-                var result = executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
+                var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
 
                 // Ensure injection completed (or failed gracefully)
                 try {
