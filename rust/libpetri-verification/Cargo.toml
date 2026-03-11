@@ -11,6 +11,9 @@ description = "Formal verification for libpetri Coloured Time Petri Net engine"
 [dependencies]
 libpetri-core = { workspace = true }
 
+[build-dependencies]
+libpetri-docgen = { workspace = true }
+
 [features]
 default = []
 z3 = []

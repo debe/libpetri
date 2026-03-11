@@ -129,7 +129,7 @@ impl SvgGenerator {
         Self {
             out_dir: None,
             config: DotConfig::default(),
-            strip_dimensions: true,
+            strip_dimensions: false,
         }
     }
 
@@ -165,8 +165,12 @@ impl SvgGenerator {
         let dot_source = dot_export(net, Some(&self.config));
         let svg = dot_to_svg(&dot_source, self.strip_dimensions);
 
+        // Wrap in <div> so rustdoc's markdown parser treats it as a raw HTML
+        // block instead of wrapping it in <p> tags (which breaks the SVG).
+        let wrapped = format!("<div>\n{svg}\n</div>");
+
         let svg_path = out_dir.join(format!("{name}.svg"));
-        fs::write(&svg_path, svg).expect("failed to write SVG file");
+        fs::write(&svg_path, wrapped).expect("failed to write SVG file");
 
         println!("cargo::rerun-if-changed=build.rs");
         svg_path
@@ -227,19 +231,21 @@ fn try_dot_command(dot_source: &str, strip_dimensions: bool) -> Option<String> {
         }
     }
 
-    // Strip explicit width/height so the SVG scales via viewBox + CSS
+    // Optionally strip fixed pt dimensions for responsive sizing.
+    // NOTE: rustdoc inline SVGs need explicit width+height to avoid collapsing
+    // to zero size. When strip_dimensions is false, we keep the original
+    // Graphviz pt values and just add max-width:100% via a style attribute.
     if strip_dimensions {
-        svg = svg
-            .replacen(
-                &find_attr(&svg, "width").unwrap_or_default(),
-                "",
-                1,
-            )
-            .replacen(
-                &find_attr(&svg, "height").unwrap_or_default(),
-                "",
-                1,
-            );
+        if let Some(w) = find_attr(&svg, "width") {
+            svg = svg.replacen(&w, "", 1);
+        }
+        if let Some(h) = find_attr(&svg, "height") {
+            svg = svg.replacen(&h, "", 1);
+        }
+        svg = svg.replacen("<svg", r#"<svg width="100%""#, 1);
+    } else {
+        // Keep original dimensions but add max-width so wide SVGs shrink to fit.
+        svg = svg.replacen("<svg", r#"<svg style="max-width:100%""#, 1);
     }
 
     Some(svg)

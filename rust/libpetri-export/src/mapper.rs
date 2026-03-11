@@ -114,16 +114,19 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
 
         let node = GraphNode {
             id,
-            label: name.to_string(),
+            label: String::new(),
             shape,
             fill: Some(style.fill.to_string()),
             stroke: Some(style.stroke.to_string()),
             penwidth: Some(style.penwidth),
             semantic_id: Some(name.to_string()),
             style: style.style.map(|s| s.to_string()),
-            height: None,
-            width: None,
-            attrs: Vec::new(),
+            height: style.height,
+            width: style.width,
+            attrs: vec![
+                ("xlabel".into(), name.to_string()),
+                ("fixedsize".into(), "true".into()),
+            ],
         };
         graph.nodes.push(node);
     }
@@ -142,8 +145,8 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
             penwidth: Some(styles::TRANSITION.penwidth),
             semantic_id: Some(t.name().to_string()),
             style: None,
-            height: None,
-            width: None,
+            height: styles::TRANSITION.height,
+            width: styles::TRANSITION.width,
             attrs: Vec::new(),
         });
 
@@ -159,7 +162,7 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
                 color: Some(styles::INPUT_EDGE.color.to_string()),
                 style: Some(EdgeLineStyle::Solid),
                 arrowhead: Some(ArrowHead::Normal),
-                penwidth: Some(styles::INPUT_EDGE.penwidth),
+                penwidth: styles::INPUT_EDGE.penwidth,
                 arc_type: Some("input".into()),
                 attrs: Vec::new(),
             });
@@ -181,7 +184,7 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
                 color: Some(styles::INHIBITOR_EDGE.color.to_string()),
                 style: Some(EdgeLineStyle::Solid),
                 arrowhead: Some(ArrowHead::Odot),
-                penwidth: Some(styles::INHIBITOR_EDGE.penwidth),
+                penwidth: styles::INHIBITOR_EDGE.penwidth,
                 arc_type: Some("inhibitor".into()),
                 attrs: Vec::new(),
             });
@@ -193,11 +196,11 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
             graph.edges.push(GraphEdge {
                 from: from_id,
                 to: t_id.clone(),
-                label: None,
+                label: Some("read".into()),
                 color: Some(styles::READ_EDGE.color.to_string()),
                 style: Some(EdgeLineStyle::Dashed),
                 arrowhead: Some(ArrowHead::Normal),
-                penwidth: Some(styles::READ_EDGE.penwidth),
+                penwidth: styles::READ_EDGE.penwidth,
                 arc_type: Some("read".into()),
                 attrs: Vec::new(),
             });
@@ -212,11 +215,11 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
             graph.edges.push(GraphEdge {
                 from: t_id.clone(),
                 to: from_id,
-                label: None,
+                label: Some("reset".into()),
                 color: Some(styles::RESET_EDGE.color.to_string()),
                 style: Some(EdgeLineStyle::Bold),
                 arrowhead: Some(ArrowHead::Normal),
-                penwidth: Some(styles::RESET_EDGE.penwidth),
+                penwidth: styles::RESET_EDGE.penwidth,
                 arc_type: Some("reset".into()),
                 attrs: Vec::new(),
             });
@@ -264,31 +267,31 @@ fn place_category(
 }
 
 fn transition_label(t: &libpetri_core::transition::Transition, config: &DotConfig) -> String {
-    let mut label = t.name().to_string();
+    let mut parts = vec![t.name().to_string()];
 
     if config.show_intervals && *t.timing() != libpetri_core::timing::Timing::Immediate {
         let earliest = t.timing().earliest();
         let latest = t.timing().latest();
         if latest < libpetri_core::timing::MAX_DURATION_MS {
-            label.push_str(&format!("\n[{earliest}, {latest}]"));
+            parts.push(format!("[{earliest}, {latest}]ms"));
         } else {
-            label.push_str(&format!("\n[{earliest}, \u{221e})"));
+            parts.push(format!("[{earliest}, \u{221e})ms"));
         }
     }
 
     if config.show_priority && t.priority() != 0 {
-        label.push_str(&format!("\nP={}", t.priority()));
+        parts.push(format!("prio={}", t.priority()));
     }
 
-    label
+    parts.join(" ")
 }
 
 fn input_label(spec: &In) -> Option<String> {
     match spec {
         In::One { .. } => None,
-        In::Exactly { count, .. } => Some(count.to_string()),
+        In::Exactly { count, .. } => Some(format!("\u{00d7}{count}")),
         In::All { .. } => Some("*".to_string()),
-        In::AtLeast { minimum, .. } => Some(format!("{minimum}+")),
+        In::AtLeast { minimum, .. } => Some(format!("\u{2265}{minimum}")),
     }
 }
 
@@ -304,7 +307,7 @@ fn output_edges(t_id: &str, out: &Out, reset_places: &HashSet<&str>, edges: &mut
                 color: Some(styles::OUTPUT_EDGE.color.to_string()),
                 style: Some(EdgeLineStyle::Solid),
                 arrowhead: Some(ArrowHead::Normal),
-                penwidth: Some(styles::OUTPUT_EDGE.penwidth),
+                penwidth: styles::OUTPUT_EDGE.penwidth,
                 arc_type: Some("output".into()),
                 attrs: Vec::new(),
             });
@@ -315,25 +318,25 @@ fn output_edges(t_id: &str, out: &Out, reset_places: &HashSet<&str>, edges: &mut
             }
         }
         Out::Xor(children) => {
-            for (i, child) in children.iter().enumerate() {
-                let branch_label = infer_branch_label(child).unwrap_or_else(|| format!("b{i}"));
-                output_edges_with_label(t_id, child, Some(&branch_label), edges);
+            for child in children {
+                let branch_label = infer_branch_label(child);
+                output_edges_with_label(t_id, child, branch_label.as_deref(), edges);
             }
         }
-        Out::Timeout { after_ms: _, child } => {
-            output_edges(t_id, child, reset_places, edges);
-            // The timeout itself is handled by the action
+        Out::Timeout { after_ms, child } => {
+            let label = format!("\u{23f1}{after_ms}ms");
+            output_edges_with_label(t_id, child, Some(&label), edges);
         }
         Out::ForwardInput { from, to } => {
             let to_id = format!("p_{}", sanitize(to.name()));
             edges.push(GraphEdge {
                 from: t_id.to_string(),
                 to: to_id,
-                label: Some(format!("\u{21a9} {}", from.name())),
+                label: Some(format!("\u{27f5}{}", from.name())),
                 color: Some(styles::OUTPUT_EDGE.color.to_string()),
                 style: Some(EdgeLineStyle::Dashed),
                 arrowhead: Some(ArrowHead::Normal),
-                penwidth: Some(styles::OUTPUT_EDGE.penwidth),
+                penwidth: styles::OUTPUT_EDGE.penwidth,
                 arc_type: Some("output".into()),
                 attrs: Vec::new(),
             });
@@ -352,7 +355,7 @@ fn output_edges_with_label(t_id: &str, out: &Out, label: Option<&str>, edges: &m
                 color: Some(styles::OUTPUT_EDGE.color.to_string()),
                 style: Some(EdgeLineStyle::Solid),
                 arrowhead: Some(ArrowHead::Normal),
-                penwidth: Some(styles::OUTPUT_EDGE.penwidth),
+                penwidth: styles::OUTPUT_EDGE.penwidth,
                 arc_type: Some("output".into()),
                 attrs: Vec::new(),
             });
@@ -361,6 +364,24 @@ fn output_edges_with_label(t_id: &str, out: &Out, label: Option<&str>, edges: &m
             for child in children {
                 output_edges_with_label(t_id, child, label, edges);
             }
+        }
+        Out::ForwardInput { from, to } => {
+            let to_id = format!("p_{}", sanitize(to.name()));
+            let fwd_label = match label {
+                Some(l) => format!("{l} \u{27f5}{}", from.name()),
+                None => format!("\u{27f5}{}", from.name()),
+            };
+            edges.push(GraphEdge {
+                from: t_id.to_string(),
+                to: to_id,
+                label: Some(fwd_label),
+                color: Some(styles::OUTPUT_EDGE.color.to_string()),
+                style: Some(EdgeLineStyle::Dashed),
+                arrowhead: Some(ArrowHead::Normal),
+                penwidth: styles::OUTPUT_EDGE.penwidth,
+                arc_type: Some("output".into()),
+                attrs: Vec::new(),
+            });
         }
         _ => {
             output_edges(t_id, out, &HashSet::new(), edges);
@@ -371,6 +392,8 @@ fn output_edges_with_label(t_id: &str, out: &Out, label: Option<&str>, edges: &m
 fn infer_branch_label(out: &Out) -> Option<String> {
     match out {
         Out::Place(p) => Some(p.name().to_string()),
+        Out::Timeout { after_ms, .. } => Some(format!("\u{23f1}{after_ms}ms")),
+        Out::ForwardInput { to, .. } => Some(to.name().to_string()),
         _ => None,
     }
 }
@@ -431,8 +454,148 @@ mod tests {
         let start_node = graph.nodes.iter().find(|n| n.id == "p_start").unwrap();
         assert_eq!(start_node.fill.as_deref(), Some(styles::START_PLACE.fill));
 
-        // Find end place (blue)
+        // Find end place (blue, doublecircle)
         let end_node = graph.nodes.iter().find(|n| n.id == "p_end").unwrap();
         assert_eq!(end_node.fill.as_deref(), Some(styles::END_PLACE.fill));
+        assert_eq!(end_node.shape, NodeShape::DoubleCircle);
+    }
+
+    #[test]
+    fn places_have_empty_label_and_xlabel() {
+        let p1 = Place::<i32>::new("Start");
+        let p2 = Place::<i32>::new("End");
+        let t = Transition::builder("t1")
+            .input(one(&p1))
+            .output(out_place(&p2))
+            .build();
+        let net = PetriNet::builder("test").transition(t).build();
+
+        let graph = map_to_graph(&net, &DotConfig::default());
+
+        for node in &graph.nodes {
+            if node.id.starts_with("p_") {
+                assert_eq!(node.label, "", "Place label should be empty");
+                let xlabel = node.attrs.iter().find(|(k, _)| k == "xlabel");
+                assert!(xlabel.is_some(), "Place should have xlabel");
+                let fixedsize = node.attrs.iter().find(|(k, _)| k == "fixedsize");
+                assert_eq!(fixedsize.unwrap().1, "true");
+            }
+        }
+    }
+
+    #[test]
+    fn transition_has_dimensions() {
+        let p1 = Place::<i32>::new("p1");
+        let p2 = Place::<i32>::new("p2");
+        let t = Transition::builder("t1")
+            .input(one(&p1))
+            .output(out_place(&p2))
+            .build();
+        let net = PetriNet::builder("test").transition(t).build();
+
+        let graph = map_to_graph(&net, &DotConfig::default());
+
+        let t_node = graph.nodes.iter().find(|n| n.id == "t_t1").unwrap();
+        assert_eq!(t_node.height, Some(0.4));
+        assert_eq!(t_node.width, Some(0.8));
+    }
+
+    #[test]
+    fn input_labels_use_unicode() {
+        use libpetri_core::input::{exactly, at_least};
+
+        let p1 = Place::<i32>::new("p1");
+        let p2 = Place::<i32>::new("p2");
+
+        let t = Transition::builder("t1")
+            .input(exactly(3, &p1))
+            .output(out_place(&p2))
+            .build();
+        let net = PetriNet::builder("test").transition(t).build();
+        let graph = map_to_graph(&net, &DotConfig::default());
+        let edge = &graph.edges[0];
+        assert_eq!(edge.label.as_deref(), Some("\u{00d7}3"));
+
+        let t2 = Transition::builder("t2")
+            .input(at_least(2, &p1))
+            .output(out_place(&p2))
+            .build();
+        let net2 = PetriNet::builder("test2").transition(t2).build();
+        let graph2 = map_to_graph(&net2, &DotConfig::default());
+        let edge2 = &graph2.edges[0];
+        assert_eq!(edge2.label.as_deref(), Some("\u{2265}2"));
+    }
+
+    #[test]
+    fn edge_penwidth_only_set_when_style_has_some() {
+        let p1 = Place::<i32>::new("p1");
+        let p2 = Place::<i32>::new("p2");
+        let t = Transition::builder("t1")
+            .input(one(&p1))
+            .output(out_place(&p2))
+            .build();
+        let net = PetriNet::builder("test").transition(t).build();
+
+        let graph = map_to_graph(&net, &DotConfig::default());
+
+        // Input/output edges should have no penwidth (styles have None)
+        for edge in &graph.edges {
+            assert_eq!(edge.penwidth, None, "input/output edges should have no penwidth");
+        }
+    }
+
+    #[test]
+    fn transition_label_space_separated() {
+        let p1 = Place::<i32>::new("p1");
+        let p2 = Place::<i32>::new("p2");
+        let t = Transition::builder("fire")
+            .input(one(&p1))
+            .output(out_place(&p2))
+            .timing(libpetri_core::timing::Timing::Delayed { after_ms: 500 })
+            .build();
+        let net = PetriNet::builder("test").transition(t).build();
+
+        let graph = map_to_graph(&net, &DotConfig::default());
+        let t_node = graph.nodes.iter().find(|n| n.id == "t_fire").unwrap();
+        assert_eq!(t_node.label, "fire [500, \u{221e})ms");
+    }
+
+    #[test]
+    fn read_edge_has_label() {
+        use libpetri_core::arc::read;
+
+        let p1 = Place::<i32>::new("p1");
+        let p2 = Place::<i32>::new("p2");
+        let cfg = Place::<i32>::new("cfg");
+        let t = Transition::builder("t1")
+            .input(one(&p1))
+            .output(out_place(&p2))
+            .read(read(&cfg))
+            .build();
+        let net = PetriNet::builder("test").transition(t).build();
+
+        let graph = map_to_graph(&net, &DotConfig::default());
+        let read_edge = graph.edges.iter().find(|e| e.arc_type.as_deref() == Some("read")).unwrap();
+        assert_eq!(read_edge.label.as_deref(), Some("read"));
+    }
+
+    #[test]
+    fn reset_edge_has_label_and_penwidth() {
+        use libpetri_core::arc::reset;
+
+        let p1 = Place::<i32>::new("p1");
+        let p2 = Place::<i32>::new("p2");
+        let cache = Place::<i32>::new("cache");
+        let t = Transition::builder("t1")
+            .input(one(&p1))
+            .output(out_place(&p2))
+            .reset(reset(&cache))
+            .build();
+        let net = PetriNet::builder("test").transition(t).build();
+
+        let graph = map_to_graph(&net, &DotConfig::default());
+        let reset_edge = graph.edges.iter().find(|e| e.arc_type.as_deref() == Some("reset")).unwrap();
+        assert_eq!(reset_edge.label.as_deref(), Some("reset"));
+        assert_eq!(reset_edge.penwidth, Some(2.0));
     }
 }

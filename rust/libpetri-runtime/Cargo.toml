@@ -13,6 +13,9 @@ libpetri-core = { workspace = true }
 libpetri-event = { workspace = true }
 tokio = { workspace = true, optional = true }
 
+[build-dependencies]
+libpetri-docgen = { workspace = true }
+
 [features]
 default = []
 tokio = ["dep:tokio"]

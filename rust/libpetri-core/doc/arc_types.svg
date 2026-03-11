@@ -1,0 +1,79 @@
+<div>
+<svg style="max-width:100%" width="317pt" height="168pt"
+ viewBox="0.00 0.00 317.00 168.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 164)">
+<title>ArcTypes</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-164 313,-164 313,4 -4,4"/>
+<!-- p_result -->
+<g id="node1" class="node">
+<title>p_result</title>
+<ellipse fill="#cce5ff" stroke="#004085" stroke-width="2" cx="292.5" cy="-119.5" rx="12.5" ry="12.5"/>
+<ellipse fill="none" stroke="#004085" stroke-width="2" cx="292.5" cy="-119.5" rx="16.5" ry="16.5"/>
+<text text-anchor="middle" x="261" y="-93.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">result</text>
+</g>
+<!-- p_blocked -->
+<g id="node2" class="node">
+<title>p_blocked</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="55.5" cy="-147.5" rx="12.5" ry="12.5"/>
+<text text-anchor="middle" x="21.5" y="-125.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">blocked</text>
+</g>
+<!-- t_process -->
+<g id="node6" class="node">
+<title>t_process</title>
+<polygon fill="#fff3cd" stroke="#856404" points="200,-101 141,-101 141,-72 200,-72 200,-101"/>
+<text text-anchor="middle" x="170.5" y="-83.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">process</text>
+</g>
+<!-- p_blocked&#45;&gt;t_process -->
+<g id="edge3" class="edge">
+<title>p_blocked&#45;&gt;t_process</title>
+<path fill="none" stroke="#dc3545" d="M66.93,-141.87C82.38,-133.53 112.04,-117.52 135.51,-104.85"/>
+<ellipse fill="none" stroke="#dc3545" cx="139.06" cy="-102.93" rx="4" ry="4"/>
+</g>
+<!-- p_source -->
+<g id="node3" class="node">
+<title>p_source</title>
+<ellipse fill="#d4edda" stroke="#28a745" stroke-width="2" cx="55.5" cy="-86.5" rx="12.5" ry="12.5"/>
+<text text-anchor="middle" x="24.5" y="-64.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">source</text>
+</g>
+<!-- p_source&#45;&gt;t_process -->
+<g id="edge1" class="edge">
+<title>p_source&#45;&gt;t_process</title>
+<path fill="none" stroke="#333333" d="M68.17,-86.5C82.87,-86.5 108.87,-86.5 130.86,-86.5"/>
+<polygon fill="#333333" stroke="#333333" points="130.94,-90 140.94,-86.5 130.94,-83 130.94,-90"/>
+</g>
+<!-- p_cleared -->
+<g id="node4" class="node">
+<title>p_cleared</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="292.5" cy="-54.5" rx="12.5" ry="12.5"/>
+<text text-anchor="middle" x="260" y="-32.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">cleared</text>
+</g>
+<!-- p_context -->
+<g id="node5" class="node">
+<title>p_context</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="55.5" cy="-25.5" rx="12.5" ry="12.5"/>
+<text text-anchor="middle" x="24" y="-3.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">context</text>
+</g>
+<!-- p_context&#45;&gt;t_process -->
+<g id="edge4" class="edge">
+<title>p_context&#45;&gt;t_process</title>
+<path fill="none" stroke="#6c757d" stroke-dasharray="5,2" d="M66.93,-31.13C81.98,-39.25 110.52,-54.66 133.68,-67.16"/>
+<polygon fill="#6c757d" stroke="#6c757d" points="132.11,-70.3 142.58,-71.97 135.44,-64.14 132.11,-70.3"/>
+<text text-anchor="middle" x="104.5" y="-58.5" font-family="Helvetica,Arial,sans-serif" font-size="10.00">read</text>
+</g>
+<!-- t_process&#45;&gt;p_result -->
+<g id="edge2" class="edge">
+<title>t_process&#45;&gt;p_result</title>
+<path fill="none" stroke="#333333" d="M200.24,-94.4C220.49,-99.97 247.31,-107.35 266.63,-112.66"/>
+<polygon fill="#333333" stroke="#333333" points="265.94,-116.1 276.51,-115.38 267.79,-109.35 265.94,-116.1"/>
+</g>
+<!-- t_process&#45;&gt;p_cleared -->
+<g id="edge5" class="edge">
+<title>t_process&#45;&gt;p_cleared</title>
+<path fill="none" stroke="#fd7e14" stroke-width="2" d="M200.24,-78.84C221.89,-73.06 251.07,-65.28 270.54,-60.09"/>
+<polygon fill="#fd7e14" stroke="#fd7e14" stroke-width="2" points="271.49,-63.46 280.26,-57.5 269.69,-56.69 271.49,-63.46"/>
+<text text-anchor="middle" x="238" y="-73.5" font-family="Helvetica,Arial,sans-serif" font-size="10.00">reset</text>
+</g>
+</g>
+</svg>
+
+</div>

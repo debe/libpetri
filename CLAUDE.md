@@ -95,12 +95,14 @@ cd debug-ui && npm ci && npm run build
 
 ## Release
 
+Each language has its own release script and versioning. Tags are prefixed by language (e.g. `rust/v1.3.2`, `java/v1.3.1`).
+
 - **Homepage**: https://libpetri.org (redirects to GitHub via GitHub Pages from `docs/`)
-- **Maven Central**: `org.libpetri:libpetri` — released via `scripts/release.sh <version>`
-- **npm**: `libpetri`
-- Release script handles: build, test, GPG sign, deploy to Maven Central, npm publish, git tag, GitHub release
-- `scripts/release.sh --dry-run <version>` to verify without publishing
-- Prerequisites: GPG key, `~/.m2/settings.xml` with Central credentials, `gh` CLI, `npm` auth
+- **Maven Central**: `org.libpetri:libpetri` — `scripts/release-java.sh <version>` (GPG key, `~/.m2/settings.xml`)
+- **npm**: `libpetri` — `scripts/release-typescript.sh <version>` (npm auth)
+- **crates.io**: `libpetri` — `scripts/release-rust.sh <version>` (cargo login)
+- All scripts support `--dry-run` to verify without publishing
+- Prerequisites per script: `gh` CLI, plus language-specific auth (see script `--help`)
 
 ## Key Conventions
 
