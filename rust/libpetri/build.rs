@@ -9,7 +9,10 @@ fn main() {
     SvgGenerator::new()
         .config(DotConfig {
             direction: RankDir::LeftToRight,
-            environment_places: HashSet::from(["CancelRequest".to_string()]),
+            environment_places: HashSet::from([
+                "UserInput".to_string(),
+                "SummarizeCmd".to_string(),
+            ]),
             ..DotConfig::default()
         })
         .generate("showcase", &showcase());
@@ -39,98 +42,89 @@ fn basic_chain() -> PetriNet {
         .build()
 }
 
-/// Order processing pipeline showcasing all arc types, timing modes, and patterns.
+/// LLM agent orchestration pipeline showcasing all arc types, timing modes, and patterns.
+///
+/// Coloured tokens flow through an agent pipeline: user messages (String) are routed
+/// to either a deep-analysis agent or a quick-reply agent based on an urgency control
+/// place. Conversation history accumulates via AND-fork. External keyboard events
+/// trigger summarization. A watchdog produces urgency after inactivity.
+///
+/// Arc types: input, output, read (Conversation context), inhibitor (Urgency blocks
+/// deep path), reset (Complete clears stale Urgency).
+/// Timing: immediate, window, deadline, delayed, exact.
 fn showcase() -> PetriNet {
-    let order = Place::<String>::new("Order");
-    let active = Place::<String>::new("Active");
-    let validating = Place::<String>::new("Validating");
-    let in_stock = Place::<String>::new("InStock");
-    let payment_ok = Place::<String>::new("PaymentOk");
-    let payment_failed = Place::<String>::new("PaymentFailed");
-    let ready = Place::<String>::new("Ready");
-    let shipped = Place::<String>::new("Shipped");
-    let rejected = Place::<String>::new("Rejected");
-    let cancelled = Place::<String>::new("Cancelled");
-    let overdue = Place::<String>::new("Overdue");
-    let cancel_request = Place::<String>::new("CancelRequest");
+    // Coloured places — String messages, () control signals
+    let user_input   = Place::<String>::new("UserInput");     // env: keyboard events
+    let pending      = Place::<String>::new("Pending");       // message awaiting agent
+    let conversation = Place::<String>::new("Conversation");  // history (accumulates)
+    let urgency      = Place::<()>::new("Urgency");           // urgency control signal
+    let thinking     = Place::<String>::new("Thinking");      // deep analysis in progress
+    let response     = Place::<String>::new("Response");      // agent output
+    let summarize_cmd = Place::<()>::new("SummarizeCmd");     // env: "summarize" trigger
+    let summary      = Place::<String>::new("Summary");       // conversation summary
 
+    // Receive: keyboard input → AND-fork into processing queue + conversation history
     let receive = Transition::builder("Receive")
-        .input(one(&order))
-        .output(and(vec![out_place(&active), out_place(&validating), out_place(&in_stock)]))
+        .input(one(&user_input))
+        .output(and(vec![out_place(&pending), out_place(&conversation)]))
         .timing(immediate())
         .priority(10)
         .action(fork())
         .build();
 
-    let authorize = Transition::builder("Authorize")
-        .input(one(&validating))
-        .output(xor_places(&[&payment_ok, &payment_failed]))
-        .timing(window(200, 5000))
+    // DeepAgent: slow, thorough analysis — blocked when urgent
+    let deep_agent = Transition::builder("DeepAgent")
+        .input(one(&pending))
+        .read(read(&conversation))
+        .inhibitor(inhibitor(&urgency))
+        .output(out_place(&thinking))
+        .timing(window(500, 5000))
         .action(fork())
         .build();
 
-    let retry_payment = Transition::builder("RetryPayment")
-        .input(one(&payment_failed))
-        .output(xor_places(&[&payment_ok, &payment_failed]))
-        .inhibitor(inhibitor(&overdue))
+    // QuickAgent: fast reply — fires only when urgency is present (consumes it)
+    let quick_agent = Transition::builder("QuickAgent")
+        .input(one(&pending))
+        .input(one(&urgency))
+        .read(read(&conversation))
+        .output(out_place(&response))
+        .timing(immediate())
+        .action(fork())
+        .build();
+
+    // Complete: deep analysis finishes — clears any stale urgency via reset arc
+    let complete = Transition::builder("Complete")
+        .input(one(&thinking))
+        .reset(reset(&urgency))
+        .output(out_place(&response))
+        .timing(deadline(3000))
+        .action(fork())
+        .build();
+
+    // Summarize: external "summarize" command — reads full conversation context
+    let summarize = Transition::builder("Summarize")
+        .input(one(&summarize_cmd))
+        .read(read(&conversation))
+        .output(out_place(&summary))
         .timing(delayed(1000))
         .action(fork())
         .build();
 
-    let approve = Transition::builder("Approve")
-        .input(one(&payment_ok))
-        .input(one(&in_stock))
-        .output(out_place(&ready))
-        .timing(deadline(2000))
-        .action(fork())
-        .build();
-
-    let ship = Transition::builder("Ship")
-        .input(one(&ready))
-        .read(read(&active))
-        .inhibitor(inhibitor(&cancelled))
-        .output(out_place(&shipped))
-        .timing(immediate())
-        .action(fork())
-        .build();
-
-    let reject = Transition::builder("Reject")
-        .input(one(&payment_failed))
-        .input(one(&overdue))
-        .reset(reset(&in_stock))
-        .output(out_place(&rejected))
-        .timing(immediate())
-        .action(fork())
-        .build();
-
-    let cancel = Transition::builder("Cancel")
-        .input(one(&cancel_request))
-        .inhibitor(inhibitor(&shipped))
-        .inhibitor(inhibitor(&rejected))
-        .output(out_place(&cancelled))
-        .timing(immediate())
-        .action(fork())
-        .build();
-
-    let monitor = Transition::builder("Monitor")
-        .read(read(&active))
-        .inhibitor(inhibitor(&shipped))
-        .inhibitor(inhibitor(&rejected))
-        .inhibitor(inhibitor(&cancelled))
-        .inhibitor(inhibitor(&overdue))
-        .output(out_place(&overdue))
+    // Watchdog: produces urgency after 10s inactivity — self-inhibits (fires at most once)
+    let watchdog = Transition::builder("Watchdog")
+        .read(read(&conversation))
+        .inhibitor(inhibitor(&urgency))
+        .output(out_place(&urgency))
         .timing(exact(10000))
         .action(fork())
         .build();
 
-    PetriNet::builder("OrderProcessingPipeline")
+    PetriNet::builder("AgentPipeline")
         .transition(receive)
-        .transition(authorize)
-        .transition(retry_payment)
-        .transition(approve)
-        .transition(ship)
-        .transition(reject)
-        .transition(cancel)
-        .transition(monitor)
+        .transition(deep_agent)
+        .transition(quick_agent)
+        .transition(complete)
+        .transition(summarize)
+        .transition(watchdog)
         .build()
 }
