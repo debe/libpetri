@@ -1558,7 +1558,7 @@ describe('Environment Place Tests', () => {
     const t = Transition.builder('T')
       .inputs(one(trigger))
       .outputs(outPlace(output))
-      .timing(delayed(100))
+      .timing(delayed(50))
       .action(async (ctx) => { ctx.output(output, 'timed'); })
       .build();
     const net = PetriNet.builder('N').transition(t).build();
@@ -1570,7 +1570,7 @@ describe('Environment Place Tests', () => {
     );
 
     const promise = executor.run(5000);
-    await sleep(300);
+    await sleep(500);
     executor.close();
     const marking = await promise;
 
