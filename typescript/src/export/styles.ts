@@ -1,3 +1,6 @@
+// GENERATED from spec/petri-net-styles.json — do not edit manually.
+// Regenerate with: scripts/generate-styles.sh
+
 /**
  * Style loader for Petri net visualization.
  *
@@ -47,19 +50,19 @@ export interface GraphStyle {
 // Keep in sync with the spec file.
 
 const NODE_STYLES: Record<NodeCategory, NodeVisual> = {
-  place:       { shape: 'circle',  fill: '#FFFFFF', stroke: '#333333', penwidth: 1.5, width: 0.35 },
-  start:       { shape: 'circle',  fill: '#d4edda', stroke: '#28a745', penwidth: 2.0, width: 0.35 },
-  end:         { shape: 'circle',  fill: '#cce5ff', stroke: '#004085', penwidth: 2.0, width: 0.35 },
-  environment: { shape: 'circle',  fill: '#f8d7da', stroke: '#721c24', penwidth: 2.0, style: 'dashed', width: 0.35 },
-  transition:  { shape: 'box',     fill: '#fff3cd', stroke: '#856404', penwidth: 1.0, height: 0.4, width: 0.8 },
+  place:        { shape: 'circle',  fill: '#FFFFFF', stroke: '#333333', penwidth: 1.5, width: 0.35 },
+  start:        { shape: 'circle',  fill: '#d4edda', stroke: '#28a745', penwidth: 2.0, width: 0.35 },
+  end:          { shape: 'doublecircle',  fill: '#cce5ff', stroke: '#004085', penwidth: 2.0, width: 0.35 },
+  environment:  { shape: 'circle',  fill: '#f8d7da', stroke: '#721c24', penwidth: 2.0, style: 'dashed', width: 0.35 },
+  transition:   { shape: 'box',  fill: '#fff3cd', stroke: '#856404', penwidth: 1.0, height: 0.4, width: 0.8 },
 };
 
 const EDGE_STYLES: Record<EdgeCategory, EdgeVisual> = {
   input:     { color: '#333333', style: 'solid',  arrowhead: 'normal' },
   output:    { color: '#333333', style: 'solid',  arrowhead: 'normal' },
   inhibitor: { color: '#dc3545', style: 'solid',  arrowhead: 'odot' },
-  read:      { color: '#6c757d', style: 'dashed', arrowhead: 'normal' },
-  reset:     { color: '#fd7e14', style: 'bold',   arrowhead: 'normal', penwidth: 2.0 },
+  read:      { color: '#6c757d', style: 'dashed',  arrowhead: 'normal' },
+  reset:     { color: '#fd7e14', style: 'bold',  arrowhead: 'normal',  penwidth: 2.0 },
 };
 
 export const FONT: FontStyle = { family: 'Helvetica,Arial,sans-serif', nodeSize: 12, edgeSize: 10 };

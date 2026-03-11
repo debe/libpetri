@@ -48,6 +48,21 @@
 //! - [`runtime`] — Bitmap-based executor (sync + async)
 //! - [`export`] — DOT/Graphviz export pipeline
 //! - [`verification`] — Formal verification (P-invariants, state class graphs, SMT)
+//!
+//! ## Executors
+//!
+//! Two executors are available:
+//! - [`BitmapNetExecutor`] — General-purpose, bitmap-based enablement checks
+//! - [`PrecompiledNetExecutor`] — High-performance alternative with ring buffers,
+//!   opcode dispatch, and two-level summary bitmaps
+//!
+//! ## Feature Flags
+//!
+//! | Feature | Effect |
+//! |---------|--------|
+//! | `tokio` | Enables `run_async()` on both executors (external event injection) |
+//! | `z3` | Enables SMT-based IC3/PDR model checking in [`verification`] |
+//! | `debug` | Enables the `debug` module (WebSocket debug protocol) |
 
 pub use libpetri_core as core;
 #[cfg(feature = "debug")]

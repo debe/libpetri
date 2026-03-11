@@ -45,7 +45,7 @@ describe('dotExport', () => {
     expect(dot).toMatch(/p_In \[.*label=""/);
     expect(dot).toMatch(/p_In \[.*xlabel="In"/);
     expect(dot).toMatch(/p_In \[.*fixedsize="true"/);
-    expect(dot).toMatch(/p_Out \[.*shape="circle"/);
+    expect(dot).toMatch(/p_Out \[.*shape="doublecircle"/);
     // Transitions are boxes
     expect(dot).toMatch(/t_T \[.*shape="box"/);
   });
