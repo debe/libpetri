@@ -1,220 +1,438 @@
 <div>
-<svg style="max-width:100%" width="712pt" height="580pt"
- viewBox="0.00 0.00 712.00 580.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
-<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 576)">
+<svg style="max-width:100%" width="2306pt" height="758pt"
+ viewBox="0.00 0.00 2306.00 757.50" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 753.5)">
 <title>AgentPipeline</title>
-<polygon fill="white" stroke="transparent" points="-4,4 -4,-576 708,-576 708,4 -4,4"/>
-<!-- p_Thinking -->
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-753.5 2302,-753.5 2302,4 -4,4"/>
+<!-- p_ContextReady -->
 <g id="node1" class="node">
-<title>p_Thinking</title>
-<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="64.5" cy="-505.5" rx="12.5" ry="12.5"/>
-<text text-anchor="middle" x="28.5" y="-483.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Thinking</text>
+<title>p_ContextReady</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="1242.5" cy="-362" rx="12.5" ry="12.5"/>
+<text text-anchor="middle" x="1217" y="-339.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">ContextReady</text>
 </g>
-<!-- t_Complete -->
-<g id="node12" class="node">
-<title>t_Complete</title>
-<polygon fill="#fff3cd" stroke="#856404" points="265,-472 132,-472 132,-443 265,-443 265,-472"/>
-<text text-anchor="middle" x="198.5" y="-454.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Complete [0, 3000]ms</text>
+<!-- t_DeepAgent -->
+<g id="node18" class="node">
+<title>t_DeepAgent</title>
+<polygon fill="#fff3cd" stroke="#856404" points="1489,-376.5 1328,-376.5 1328,-347.5 1489,-347.5 1489,-376.5"/>
+<text text-anchor="middle" x="1408.5" y="-358.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">DeepAgent [500, 10000]ms</text>
 </g>
-<!-- p_Thinking&#45;&gt;t_Complete -->
-<g id="edge12" class="edge">
-<title>p_Thinking&#45;&gt;t_Complete</title>
-<path fill="none" stroke="#333333" d="M76.75,-501.41C92.45,-495.7 121.92,-484.98 147.81,-475.57"/>
-<polygon fill="#333333" stroke="#333333" points="149.32,-478.74 157.53,-472.04 146.93,-472.16 149.32,-478.74"/>
+<!-- p_ContextReady&#45;&gt;t_DeepAgent -->
+<g id="edge17" class="edge">
+<title>p_ContextReady&#45;&gt;t_DeepAgent</title>
+<path fill="none" stroke="#333333" d="M1255.03,-362C1268.62,-362 1292.51,-362 1317.4,-362"/>
+<polygon fill="#333333" stroke="#333333" points="1317.73,-365.5 1327.73,-362 1317.73,-358.5 1317.73,-365.5"/>
 </g>
-<!-- p_UserInput -->
+<!-- p_Summary -->
 <g id="node2" class="node">
-<title>p_UserInput</title>
-<ellipse fill="#f8d7da" stroke="#721c24" stroke-width="2" stroke-dasharray="5,2" cx="64.5" cy="-270.5" rx="12.5" ry="12.5"/>
-<text text-anchor="middle" x="26" y="-248.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">UserInput</text>
+<title>p_Summary</title>
+<ellipse fill="#cce5ff" stroke="#004085" stroke-width="2" cx="989.5" cy="-289" rx="12.5" ry="12.5"/>
+<ellipse fill="none" stroke="#004085" stroke-width="2" cx="989.5" cy="-289" rx="16.5" ry="16.5"/>
+<text text-anchor="middle" x="947" y="-262.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Summary</text>
 </g>
-<!-- t_Receive -->
-<g id="node9" class="node">
-<title>t_Receive</title>
-<polygon fill="#fff3cd" stroke="#856404" points="250.5,-285 146.5,-285 146.5,-256 250.5,-256 250.5,-285"/>
-<text text-anchor="middle" x="198.5" y="-267.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Receive prio=10</text>
+<!-- t_GatherContext -->
+<g id="node16" class="node">
+<title>t_GatherContext</title>
+<polygon fill="#fff3cd" stroke="#856404" points="1175,-375.5 1082,-375.5 1082,-346.5 1175,-346.5 1175,-375.5"/>
+<text text-anchor="middle" x="1128.5" y="-357.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">GatherContext</text>
 </g>
-<!-- p_UserInput&#45;&gt;t_Receive -->
-<g id="edge1" class="edge">
-<title>p_UserInput&#45;&gt;t_Receive</title>
-<path fill="none" stroke="#333333" d="M77.21,-270.5C90.67,-270.5 113.8,-270.5 136.2,-270.5"/>
-<polygon fill="#333333" stroke="#333333" points="136.4,-274 146.4,-270.5 136.4,-267 136.4,-274"/>
+<!-- p_Summary&#45;&gt;t_GatherContext -->
+<g id="edge12" class="edge">
+<title>p_Summary&#45;&gt;t_GatherContext</title>
+<path fill="none" stroke="#6c757d" stroke-dasharray="5,2" d="M1005.23,-283.31C1018.74,-279.02 1039.02,-274.97 1055,-282 1080.75,-293.32 1101.35,-318.79 1113.92,-337.77"/>
+<polygon fill="#6c757d" stroke="#6c757d" points="1110.97,-339.64 1119.28,-346.22 1116.88,-335.9 1110.97,-339.64"/>
+<text text-anchor="middle" x="1044" y="-285" font-family="Helvetica,Arial,sans-serif" font-size="10.00">read</text>
+</g>
+<!-- t_GatherFresh -->
+<g id="node17" class="node">
+<title>t_GatherFresh</title>
+<polygon fill="#fff3cd" stroke="#856404" points="1170,-450.5 1087,-450.5 1087,-421.5 1170,-421.5 1170,-450.5"/>
+<text text-anchor="middle" x="1128.5" y="-432.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">GatherFresh</text>
+</g>
+<!-- p_Summary&#45;&gt;t_GatherFresh -->
+<g id="edge15" class="edge">
+<title>p_Summary&#45;&gt;t_GatherFresh</title>
+<path fill="none" stroke="#dc3545" d="M1000.52,-301.35C1016.92,-321.37 1050.83,-361.92 1082,-394 1089.14,-401.35 1097.27,-409.05 1104.67,-415.82"/>
+<ellipse fill="none" stroke="#dc3545" cx="1107.7" cy="-418.57" rx="4" ry="4"/>
 </g>
 <!-- p_Pending -->
 <g id="node3" class="node">
 <title>p_Pending</title>
-<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="357.5" cy="-441.5" rx="12.5" ry="12.5"/>
-<text text-anchor="middle" x="322.5" y="-419.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Pending</text>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="989.5" cy="-503" rx="12.5" ry="12.5"/>
+<text text-anchor="middle" x="954.5" y="-480.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Pending</text>
 </g>
-<!-- t_DeepAgent -->
-<g id="node10" class="node">
-<title>t_DeepAgent</title>
-<polygon fill="#fff3cd" stroke="#856404" points="609,-467 454,-467 454,-438 609,-438 609,-467"/>
-<text text-anchor="middle" x="531.5" y="-449.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">DeepAgent [500, 5000]ms</text>
+<!-- p_Pending&#45;&gt;t_GatherContext -->
+<g id="edge9" class="edge">
+<title>p_Pending&#45;&gt;t_GatherContext</title>
+<path fill="none" stroke="#333333" d="M998.38,-494.07C1013.99,-476.49 1050.07,-436.28 1082,-404 1088.96,-396.96 1096.73,-389.49 1103.84,-382.78"/>
+<polygon fill="#333333" stroke="#333333" points="1106.33,-385.25 1111.24,-375.86 1101.55,-380.14 1106.33,-385.25"/>
 </g>
-<!-- p_Pending&#45;&gt;t_DeepAgent -->
-<g id="edge4" class="edge">
-<title>p_Pending&#45;&gt;t_DeepAgent</title>
-<path fill="none" stroke="#333333" d="M368.52,-447.77C376.86,-452.59 389.22,-458.87 401,-461.5 414.63,-464.55 429.24,-465.59 443.57,-465.42"/>
-<polygon fill="#333333" stroke="#333333" points="444.05,-468.91 453.94,-465.1 443.83,-461.91 444.05,-468.91"/>
+<!-- p_Pending&#45;&gt;t_GatherFresh -->
+<g id="edge13" class="edge">
+<title>p_Pending&#45;&gt;t_GatherFresh</title>
+<path fill="none" stroke="#333333" d="M1001.55,-498.27C1014.47,-492.69 1036.45,-483.02 1055,-474 1067,-468.16 1079.95,-461.5 1091.54,-455.39"/>
+<polygon fill="#333333" stroke="#333333" points="1093.3,-458.42 1100.5,-450.65 1090.02,-452.24 1093.3,-458.42"/>
 </g>
-<!-- t_QuickAgent -->
-<g id="node11" class="node">
-<title>t_QuickAgent</title>
-<polygon fill="#fff3cd" stroke="#856404" points="571,-386 492,-386 492,-357 571,-357 571,-386"/>
-<text text-anchor="middle" x="531.5" y="-368.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">QuickAgent</text>
+<!-- p_Thinking -->
+<g id="node4" class="node">
+<title>p_Thinking</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="1556.5" cy="-362" rx="12.5" ry="12.5"/>
+<text text-anchor="middle" x="1520.5" y="-339.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Thinking</text>
 </g>
-<!-- p_Pending&#45;&gt;t_QuickAgent -->
-<g id="edge8" class="edge">
-<title>p_Pending&#45;&gt;t_QuickAgent</title>
-<path fill="none" stroke="#333333" d="M369.26,-437.12C391.97,-427.88 445.95,-405.91 485.21,-389.93"/>
-<polygon fill="#333333" stroke="#333333" points="486.9,-393.02 494.85,-386.01 484.27,-386.54 486.9,-393.02"/>
+<!-- t_Complete -->
+<g id="node21" class="node">
+<title>t_Complete</title>
+<polygon fill="#fff3cd" stroke="#856404" points="1757,-377.5 1624,-377.5 1624,-348.5 1757,-348.5 1757,-377.5"/>
+<text text-anchor="middle" x="1690.5" y="-359.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Complete [0, 3000]ms</text>
+</g>
+<!-- p_Thinking&#45;&gt;t_Complete -->
+<g id="edge27" class="edge">
+<title>p_Thinking&#45;&gt;t_Complete</title>
+<path fill="none" stroke="#333333" d="M1569.21,-362.09C1579.76,-362.17 1596.25,-362.29 1613.67,-362.43"/>
+<polygon fill="#333333" stroke="#333333" points="1613.97,-365.93 1624,-362.5 1614.02,-358.93 1613.97,-365.93"/>
+</g>
+<!-- t_Dump -->
+<g id="node22" class="node">
+<title>t_Dump</title>
+<polygon fill="#fff3cd" stroke="#856404" points="2040.5,-264.5 1982.5,-264.5 1982.5,-235.5 2040.5,-235.5 2040.5,-264.5"/>
+<text text-anchor="middle" x="2011.5" y="-246.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Dump</text>
+</g>
+<!-- p_Thinking&#45;&gt;t_Dump -->
+<g id="edge32" class="edge">
+<title>p_Thinking&#45;&gt;t_Dump</title>
+<path fill="none" stroke="#333333" d="M1568.03,-356.2C1580.89,-349.32 1603.48,-337.92 1624,-331 1738.65,-292.31 1771.45,-297.23 1890,-273 1917.45,-267.39 1948.5,-261.47 1972.21,-257.04"/>
+<polygon fill="#333333" stroke="#333333" points="1973.03,-260.45 1982.22,-255.18 1971.74,-253.57 1973.03,-260.45"/>
 </g>
 <!-- p_Response -->
-<g id="node4" class="node">
+<g id="node5" class="node">
 <title>p_Response</title>
-<ellipse fill="#cce5ff" stroke="#004085" stroke-width="2" cx="687.5" cy="-555.5" rx="12.5" ry="12.5"/>
-<ellipse fill="none" stroke="#004085" stroke-width="2" cx="687.5" cy="-555.5" rx="16.5" ry="16.5"/>
-<text text-anchor="middle" x="643.5" y="-529.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Response</text>
+<ellipse fill="#cce5ff" stroke="#004085" stroke-width="2" cx="1846.5" cy="-363" rx="12.5" ry="12.5"/>
+<ellipse fill="none" stroke="#004085" stroke-width="2" cx="1846.5" cy="-363" rx="16.5" ry="16.5"/>
+<text text-anchor="middle" x="1802.5" y="-336.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Response</text>
+</g>
+<!-- t_Timeout -->
+<g id="node19" class="node">
+<title>t_Timeout</title>
+<polygon fill="#fff3cd" stroke="#856404" points="2084,-595.5 1939,-595.5 1939,-566.5 2084,-566.5 2084,-595.5"/>
+<text text-anchor="middle" x="2011.5" y="-577.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Timeout [5000, 5000]ms</text>
+</g>
+<!-- p_Response&#45;&gt;t_Timeout -->
+<g id="edge20" class="edge">
+<title>p_Response&#45;&gt;t_Timeout</title>
+<path fill="none" stroke="#dc3545" d="M1862.37,-368.19C1876.55,-373.75 1897.79,-383.74 1912,-398 1959.59,-445.76 1990.19,-521.3 2003.24,-558.62"/>
+<ellipse fill="none" stroke="#dc3545" cx="2004.61" cy="-562.62" rx="4" ry="4"/>
+</g>
+<!-- p_Response&#45;&gt;t_Complete -->
+<g id="edge30" class="edge">
+<title>p_Response&#45;&gt;t_Complete</title>
+<path fill="none" stroke="#dc3545" d="M1832.02,-371.05C1816.84,-374.83 1790.95,-376.65 1765.49,-376.49"/>
+<ellipse fill="none" stroke="#dc3545" cx="1761.26" cy="-376.43" rx="4" ry="4"/>
+</g>
+<!-- p_Response&#45;&gt;t_Dump -->
+<g id="edge33" class="edge">
+<title>p_Response&#45;&gt;t_Dump</title>
+<path fill="none" stroke="#6c757d" stroke-dasharray="5,2" d="M1853.62,-347.97C1860.44,-332.91 1872.83,-310.03 1890,-296 1913.77,-276.57 1946.65,-264.76 1972.05,-257.98"/>
+<polygon fill="#6c757d" stroke="#6c757d" points="1973.24,-261.29 1982.09,-255.46 1971.54,-254.5 1973.24,-261.29"/>
+<text text-anchor="middle" x="1901" y="-299" font-family="Helvetica,Arial,sans-serif" font-size="10.00">read</text>
+</g>
+<!-- p_Processing -->
+<g id="node6" class="node">
+<title>p_Processing</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="1556.5" cy="-546" rx="12.5" ry="12.5"/>
+<text text-anchor="middle" x="1513.5" y="-523.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Processing</text>
+</g>
+<!-- p_Processing&#45;&gt;t_Timeout -->
+<g id="edge22" class="edge">
+<title>p_Processing&#45;&gt;t_Timeout</title>
+<path fill="none" stroke="#6c757d" stroke-dasharray="5,2" d="M1569.15,-546.9C1618.82,-550.74 1815.49,-565.93 1928.83,-574.69"/>
+<polygon fill="#6c757d" stroke="#6c757d" points="1928.62,-578.18 1938.86,-575.46 1929.16,-571.2 1928.62,-578.18"/>
+<text text-anchor="middle" x="1793.5" y="-567" font-family="Helvetica,Arial,sans-serif" font-size="10.00">read</text>
+</g>
+<!-- t_QuickAgent -->
+<g id="node20" class="node">
+<title>t_QuickAgent</title>
+<polygon fill="#fff3cd" stroke="#856404" points="2298,-383.5 2219,-383.5 2219,-354.5 2298,-354.5 2298,-383.5"/>
+<text text-anchor="middle" x="2258.5" y="-365.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">QuickAgent</text>
+</g>
+<!-- p_Processing&#45;&gt;t_QuickAgent -->
+<g id="edge23" class="edge">
+<title>p_Processing&#45;&gt;t_QuickAgent</title>
+<path fill="none" stroke="#333333" d="M1568.17,-540.86C1590.26,-530.69 1642.85,-509 1689.5,-509 1689.5,-509 1689.5,-509 1902,-509 2031.03,-509 2169.22,-428.17 2228.16,-389.35"/>
+<polygon fill="#333333" stroke="#333333" points="2230.22,-392.18 2236.6,-383.72 2226.34,-386.36 2230.22,-392.18"/>
+</g>
+<!-- p_Processing&#45;&gt;t_Complete -->
+<g id="edge28" class="edge">
+<title>p_Processing&#45;&gt;t_Complete</title>
+<path fill="none" stroke="#333333" d="M1563.34,-535.14C1570.53,-522.01 1583.37,-499.37 1596,-481 1619.74,-446.47 1650.42,-408.92 1670.03,-385.66"/>
+<polygon fill="#333333" stroke="#333333" points="1672.92,-387.66 1676.72,-377.77 1667.58,-383.14 1672.92,-387.66"/>
 </g>
 <!-- p_Conversation -->
-<g id="node5" class="node">
+<g id="node7" class="node">
 <title>p_Conversation</title>
-<ellipse fill="#cce5ff" stroke="#004085" stroke-width="2" cx="357.5" cy="-189.5" rx="12.5" ry="12.5"/>
-<ellipse fill="none" stroke="#004085" stroke-width="2" cx="357.5" cy="-189.5" rx="16.5" ry="16.5"/>
-<text text-anchor="middle" x="305" y="-163.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Conversation</text>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="326.5" cy="-298" rx="12.5" ry="12.5"/>
+<text text-anchor="middle" x="278" y="-275.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Conversation</text>
 </g>
-<!-- p_Conversation&#45;&gt;t_DeepAgent -->
-<g id="edge7" class="edge">
-<title>p_Conversation&#45;&gt;t_DeepAgent</title>
-<path fill="none" stroke="#6c757d" stroke-dasharray="5,2" d="M363.46,-204.97C377.69,-248.64 419.35,-371.73 447,-403.5 457.59,-415.67 471.98,-425.6 485.82,-433.26"/>
-<polygon fill="#6c757d" stroke="#6c757d" points="484.32,-436.43 494.8,-437.97 487.57,-430.23 484.32,-436.43"/>
-<text text-anchor="middle" x="410.5" y="-354.5" font-family="Helvetica,Arial,sans-serif" font-size="10.00">read</text>
+<!-- p_Conversation&#45;&gt;t_GatherContext -->
+<g id="edge11" class="edge">
+<title>p_Conversation&#45;&gt;t_GatherContext</title>
+<path fill="none" stroke="#6c757d" stroke-dasharray="5,2" d="M337.37,-304.5C362.78,-320.6 432.98,-361 497.5,-361 497.5,-361 497.5,-361 990.5,-361 1017.14,-361 1046.69,-361 1071.51,-361"/>
+<polygon fill="#6c757d" stroke="#6c757d" points="1071.83,-364.5 1081.83,-361 1071.83,-357.5 1071.83,-364.5"/>
+<text text-anchor="middle" x="719.5" y="-364" font-family="Helvetica,Arial,sans-serif" font-size="10.00">read</text>
+</g>
+<!-- p_Conversation&#45;&gt;t_GatherFresh -->
+<g id="edge16" class="edge">
+<title>p_Conversation&#45;&gt;t_GatherFresh</title>
+<path fill="none" stroke="#6c757d" stroke-dasharray="5,2" d="M333.72,-308.75C353.29,-341.05 417.14,-435 497.5,-435 497.5,-435 497.5,-435 946,-435 990.02,-435 1040.05,-435.3 1076.42,-435.57"/>
+<polygon fill="#6c757d" stroke="#6c757d" points="1076.75,-439.07 1086.77,-435.65 1076.8,-432.07 1076.75,-439.07"/>
+<text text-anchor="middle" x="719.5" y="-438" font-family="Helvetica,Arial,sans-serif" font-size="10.00">read</text>
 </g>
 <!-- p_Conversation&#45;&gt;t_QuickAgent -->
-<g id="edge11" class="edge">
+<g id="edge26" class="edge">
 <title>p_Conversation&#45;&gt;t_QuickAgent</title>
-<path fill="none" stroke="#6c757d" stroke-dasharray="5,2" d="M369.52,-201.16C397.69,-230.97 472.71,-310.35 509.53,-349.31"/>
-<polygon fill="#6c757d" stroke="#6c757d" points="507.36,-352.11 516.77,-356.98 512.45,-347.3 507.36,-352.11"/>
-<text text-anchor="middle" x="410.5" y="-257.5" font-family="Helvetica,Arial,sans-serif" font-size="10.00">read</text>
+<path fill="none" stroke="#6c757d" stroke-dasharray="5,2" d="M328.51,-285.57C333.85,-229.18 363.78,0 497.5,0 497.5,0 497.5,0 2152.5,0 2224.21,0 2249.57,-261.07 2255.82,-344.02"/>
+<polygon fill="#6c757d" stroke="#6c757d" points="2252.34,-344.36 2256.55,-354.08 2259.32,-343.85 2252.34,-344.36"/>
+<text text-anchor="middle" x="1291.5" y="-3" font-family="Helvetica,Arial,sans-serif" font-size="10.00">read</text>
 </g>
-<!-- t_Summarize -->
-<g id="node13" class="node">
-<title>t_Summarize</title>
-<polygon fill="#fff3cd" stroke="#856404" points="603,-70 460,-70 460,-41 603,-41 603,-70"/>
-<text text-anchor="middle" x="531.5" y="-52.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Summarize [1000, ∞)ms</text>
+<!-- t_AutoSummarize -->
+<g id="node23" class="node">
+<title>t_AutoSummarize</title>
+<polygon fill="#fff3cd" stroke="#856404" points="582,-294.5 415,-294.5 415,-265.5 582,-265.5 582,-294.5"/>
+<text text-anchor="middle" x="498.5" y="-276.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">AutoSummarize [2000, ∞)ms</text>
 </g>
-<!-- p_Conversation&#45;&gt;t_Summarize -->
-<g id="edge17" class="edge">
-<title>p_Conversation&#45;&gt;t_Summarize</title>
-<path fill="none" stroke="#6c757d" stroke-dasharray="5,2" d="M363.89,-174.13C370.4,-157.51 382.79,-131.18 401,-114.5 420.7,-96.46 446.85,-83.14 470.5,-73.76"/>
-<polygon fill="#6c757d" stroke="#6c757d" points="472,-76.94 480.11,-70.11 469.52,-70.39 472,-76.94"/>
-<text text-anchor="middle" x="410.5" y="-117.5" font-family="Helvetica,Arial,sans-serif" font-size="10.00">read</text>
+<!-- p_Conversation&#45;&gt;t_AutoSummarize -->
+<g id="edge34" class="edge">
+<title>p_Conversation&#45;&gt;t_AutoSummarize</title>
+<path fill="none" stroke="#333333" d="M336.12,-289.58C343.41,-283.09 354.48,-274.64 366,-271 381.36,-266.15 398.22,-264.65 414.58,-265.02"/>
+<polygon fill="#333333" stroke="#333333" points="414.54,-268.52 424.69,-265.48 414.86,-261.53 414.54,-268.52"/>
+<text text-anchor="middle" x="377" y="-274" font-family="Helvetica,Arial,sans-serif" font-size="10.00">≥3</text>
 </g>
-<!-- t_Watchdog -->
+<!-- t_ToolSummarize -->
+<g id="node24" class="node">
+<title>t_ToolSummarize</title>
+<polygon fill="#fff3cd" stroke="#856404" points="886.5,-193.5 787.5,-193.5 787.5,-164.5 886.5,-164.5 886.5,-193.5"/>
+<text text-anchor="middle" x="837" y="-175.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">ToolSummarize</text>
+</g>
+<!-- p_Conversation&#45;&gt;t_ToolSummarize -->
+<g id="edge41" class="edge">
+<title>p_Conversation&#45;&gt;t_ToolSummarize</title>
+<path fill="none" stroke="#6c757d" stroke-dasharray="5,2" d="M327.56,-285.45C328.42,-261.19 334.06,-207.97 366,-182 488.16,-82.7 693.12,-131.36 786.71,-161.37"/>
+<polygon fill="#6c757d" stroke="#6c757d" points="785.62,-164.7 796.22,-164.48 787.8,-158.05 785.62,-164.7"/>
+<text text-anchor="middle" x="620" y="-130" font-family="Helvetica,Arial,sans-serif" font-size="10.00">read</text>
+</g>
+<!-- p_KeyboardEvent -->
+<g id="node8" class="node">
+<title>p_KeyboardEvent</title>
+<ellipse fill="#f8d7da" stroke="#721c24" stroke-width="2" stroke-dasharray="5,2" cx="1556.5" cy="-735" rx="12.5" ry="12.5"/>
+<text text-anchor="middle" x="1503" y="-712.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">KeyboardEvent</text>
+</g>
+<!-- t_Typing -->
 <g id="node14" class="node">
-<title>t_Watchdog</title>
-<polygon fill="#fff3cd" stroke="#856404" points="616,-257 447,-257 447,-228 616,-228 616,-257"/>
-<text text-anchor="middle" x="531.5" y="-239.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Watchdog [10000, 10000]ms</text>
+<title>t_Typing</title>
+<polygon fill="#fff3cd" stroke="#856404" points="1738,-749.5 1643,-749.5 1643,-720.5 1738,-720.5 1738,-749.5"/>
+<text text-anchor="middle" x="1690.5" y="-731.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Typing prio=20</text>
 </g>
-<!-- p_Conversation&#45;&gt;t_Watchdog -->
-<g id="edge20" class="edge">
-<title>p_Conversation&#45;&gt;t_Watchdog</title>
-<path fill="none" stroke="#6c757d" stroke-dasharray="5,2" d="M365.57,-174.71C372.57,-161.94 384.62,-144.36 401,-136.5 408.61,-132.85 412.17,-133.35 420,-136.5 461.48,-153.18 496.15,-193.69 515.05,-219.52"/>
-<polygon fill="#6c757d" stroke="#6c757d" points="512.42,-221.86 521.07,-227.98 518.13,-217.8 512.42,-221.86"/>
-<text text-anchor="middle" x="410.5" y="-139.5" font-family="Helvetica,Arial,sans-serif" font-size="10.00">read</text>
+<!-- p_KeyboardEvent&#45;&gt;t_Typing -->
+<g id="edge1" class="edge">
+<title>p_KeyboardEvent&#45;&gt;t_Typing</title>
+<path fill="none" stroke="#333333" d="M1569.21,-735C1583.62,-735 1609.11,-735 1632.93,-735"/>
+<polygon fill="#333333" stroke="#333333" points="1632.99,-738.5 1642.99,-735 1632.99,-731.5 1632.99,-738.5"/>
+</g>
+<!-- p_Summarizing -->
+<g id="node9" class="node">
+<title>p_Summarizing</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="670.5" cy="-280" rx="12.5" ry="12.5"/>
+<text text-anchor="middle" x="623" y="-257.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Summarizing</text>
+</g>
+<!-- p_Summarizing&#45;&gt;t_AutoSummarize -->
+<g id="edge36" class="edge">
+<title>p_Summarizing&#45;&gt;t_AutoSummarize</title>
+<path fill="none" stroke="#dc3545" d="M659.77,-286.71C645.76,-290.94 618.49,-293.2 590.35,-293.47"/>
+<ellipse fill="none" stroke="#dc3545" cx="586.01" cy="-293.48" rx="4" ry="4"/>
+</g>
+<!-- p_Summarizing&#45;&gt;t_ToolSummarize -->
+<g id="edge40" class="edge">
+<title>p_Summarizing&#45;&gt;t_ToolSummarize</title>
+<path fill="none" stroke="#dc3545" d="M678.57,-269.75C696.8,-251.72 746.73,-218.84 785.52,-197.43"/>
+<ellipse fill="none" stroke="#dc3545" cx="789.1" cy="-195.49" rx="4" ry="4"/>
+</g>
+<!-- t_SummaryDone -->
+<g id="node25" class="node">
+<title>t_SummaryDone</title>
+<polygon fill="#fff3cd" stroke="#856404" points="918,-304.5 756,-304.5 756,-275.5 918,-275.5 918,-304.5"/>
+<text text-anchor="middle" x="837" y="-286.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">SummaryDone [0, 2000]ms</text>
+</g>
+<!-- p_Summarizing&#45;&gt;t_SummaryDone -->
+<g id="edge43" class="edge">
+<title>p_Summarizing&#45;&gt;t_SummaryDone</title>
+<path fill="none" stroke="#333333" d="M683.07,-280.7C696.75,-281.54 720.87,-283 745.96,-284.53"/>
+<polygon fill="#333333" stroke="#333333" points="745.79,-288.02 755.98,-285.14 746.21,-281.04 745.79,-288.02"/>
+</g>
+<!-- p_TopicChange -->
+<g id="node10" class="node">
+<title>p_TopicChange</title>
+<ellipse fill="#f8d7da" stroke="#721c24" stroke-width="2" stroke-dasharray="5,2" cx="670.5" cy="-68" rx="12.5" ry="12.5"/>
+<text text-anchor="middle" x="622" y="-45.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">TopicChange</text>
+</g>
+<!-- p_TopicChange&#45;&gt;t_ToolSummarize -->
+<g id="edge38" class="edge">
+<title>p_TopicChange&#45;&gt;t_ToolSummarize</title>
+<path fill="none" stroke="#333333" d="M681.3,-74.61C705.31,-90.81 767.89,-133.04 805.69,-158.55"/>
+<polygon fill="#333333" stroke="#333333" points="804.02,-161.64 814.27,-164.34 807.94,-155.84 804.02,-161.64"/>
+</g>
+<!-- p_Composing -->
+<g id="node11" class="node">
+<title>p_Composing</title>
+<ellipse fill="#cce5ff" stroke="#004085" stroke-width="2" cx="1846.5" cy="-657" rx="12.5" ry="12.5"/>
+<ellipse fill="none" stroke="#004085" stroke-width="2" cx="1846.5" cy="-657" rx="16.5" ry="16.5"/>
+<text text-anchor="middle" x="1799" y="-630.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Composing</text>
+</g>
+<!-- p_Composing&#45;&gt;t_Timeout -->
+<g id="edge21" class="edge">
+<title>p_Composing&#45;&gt;t_Timeout</title>
+<path fill="none" stroke="#dc3545" d="M1861.68,-650.39C1886.05,-639.03 1936.66,-615.43 1972.07,-598.92"/>
+<ellipse fill="none" stroke="#dc3545" cx="1975.75" cy="-597.2" rx="4" ry="4"/>
 </g>
 <!-- p_Urgency -->
-<g id="node6" class="node">
+<g id="node12" class="node">
 <title>p_Urgency</title>
-<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="357.5" cy="-355.5" rx="12.5" ry="12.5"/>
-<text text-anchor="middle" x="322.5" y="-333.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Urgency</text>
-</g>
-<!-- p_Urgency&#45;&gt;t_DeepAgent -->
-<g id="edge6" class="edge">
-<title>p_Urgency&#45;&gt;t_DeepAgent</title>
-<path fill="none" stroke="#dc3545" d="M368.74,-361.28C393.59,-375.29 457.95,-411.58 497.58,-433.94"/>
-<ellipse fill="none" stroke="#dc3545" cx="501.2" cy="-435.98" rx="4" ry="4"/>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="2151.5" cy="-520" rx="12.5" ry="12.5"/>
+<text text-anchor="middle" x="2116.5" y="-497.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Urgency</text>
 </g>
 <!-- p_Urgency&#45;&gt;t_QuickAgent -->
-<g id="edge9" class="edge">
+<g id="edge24" class="edge">
 <title>p_Urgency&#45;&gt;t_QuickAgent</title>
-<path fill="none" stroke="#333333" d="M370.05,-356.57C392.52,-358.67 443.28,-363.39 481.74,-366.96"/>
-<polygon fill="#333333" stroke="#333333" points="481.44,-370.45 491.72,-367.89 482.09,-363.48 481.44,-370.45"/>
+<path fill="none" stroke="#333333" d="M2159.39,-510.09C2175.89,-486.36 2218.04,-425.75 2241.36,-392.21"/>
+<polygon fill="#333333" stroke="#333333" points="2244.3,-394.12 2247.13,-383.91 2238.55,-390.12 2244.3,-394.12"/>
 </g>
-<!-- p_Urgency&#45;&gt;t_Watchdog -->
-<g id="edge19" class="edge">
-<title>p_Urgency&#45;&gt;t_Watchdog</title>
-<path fill="none" stroke="#dc3545" d="M359.81,-343.14C363.83,-320.77 377.15,-284.48 401,-265.5 412.29,-256.52 425.58,-249.49 439.26,-244.23"/>
-<ellipse fill="none" stroke="#dc3545" cx="443.13" cy="-242.85" rx="4" ry="4"/>
+<!-- p_UserMessage -->
+<g id="node13" class="node">
+<title>p_UserMessage</title>
+<ellipse fill="#f8d7da" stroke="#721c24" stroke-width="2" stroke-dasharray="5,2" cx="87.5" cy="-546" rx="12.5" ry="12.5"/>
+<text text-anchor="middle" x="37.5" y="-523.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">UserMessage</text>
 </g>
-<!-- p_SummarizeCmd -->
-<g id="node7" class="node">
-<title>p_SummarizeCmd</title>
-<ellipse fill="#f8d7da" stroke="#721c24" stroke-width="2" stroke-dasharray="5,2" cx="357.5" cy="-25.5" rx="12.5" ry="12.5"/>
-<text text-anchor="middle" x="302" y="-3.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">SummarizeCmd</text>
+<!-- t_Receive -->
+<g id="node15" class="node">
+<title>t_Receive</title>
+<polygon fill="#fff3cd" stroke="#856404" points="259,-560.5 155,-560.5 155,-531.5 259,-531.5 259,-560.5"/>
+<text text-anchor="middle" x="207" y="-542.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Receive prio=10</text>
 </g>
-<!-- p_SummarizeCmd&#45;&gt;t_Summarize -->
-<g id="edge15" class="edge">
-<title>p_SummarizeCmd&#45;&gt;t_Summarize</title>
-<path fill="none" stroke="#333333" d="M370.05,-27.51C386.64,-30.41 418.63,-35.99 449.71,-41.41"/>
-<polygon fill="#333333" stroke="#333333" points="449.29,-44.89 459.75,-43.16 450.5,-37.99 449.29,-44.89"/>
+<!-- p_UserMessage&#45;&gt;t_Receive -->
+<g id="edge4" class="edge">
+<title>p_UserMessage&#45;&gt;t_Receive</title>
+<path fill="none" stroke="#333333" d="M100.2,-546C110.92,-546 127.68,-546 144.72,-546"/>
+<polygon fill="#333333" stroke="#333333" points="144.75,-549.5 154.75,-546 144.75,-542.5 144.75,-549.5"/>
 </g>
-<!-- p_Summary -->
-<g id="node8" class="node">
-<title>p_Summary</title>
-<ellipse fill="#cce5ff" stroke="#004085" stroke-width="2" cx="687.5" cy="-55.5" rx="12.5" ry="12.5"/>
-<ellipse fill="none" stroke="#004085" stroke-width="2" cx="687.5" cy="-55.5" rx="16.5" ry="16.5"/>
-<text text-anchor="middle" x="645" y="-29.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">Summary</text>
+<!-- t_Typing&#45;&gt;p_Composing -->
+<g id="edge2" class="edge">
+<title>t_Typing&#45;&gt;p_Composing</title>
+<path fill="none" stroke="#333333" d="M1720.47,-720.33C1749.95,-705.39 1795.09,-682.53 1822.3,-668.75"/>
+<polygon fill="#333333" stroke="#333333" points="1824.12,-671.75 1831.46,-664.11 1820.95,-665.51 1824.12,-671.75"/>
+</g>
+<!-- t_Typing&#45;&gt;p_Urgency -->
+<g id="edge3" class="edge">
+<title>t_Typing&#45;&gt;p_Urgency</title>
+<path fill="none" stroke="#fd7e14" stroke-width="2" d="M1738.17,-730.93C1816.79,-721.98 1977.48,-694.51 2084,-614 2110.02,-594.33 2129.89,-561.55 2140.87,-540.36"/>
+<polygon fill="#fd7e14" stroke="#fd7e14" stroke-width="2" points="2144.08,-541.78 2145.41,-531.26 2137.82,-538.65 2144.08,-541.78"/>
+<text text-anchor="middle" x="1901" y="-705" font-family="Helvetica,Arial,sans-serif" font-size="10.00">reset</text>
 </g>
 <!-- t_Receive&#45;&gt;p_Pending -->
-<g id="edge2" class="edge">
+<g id="edge5" class="edge">
 <title>t_Receive&#45;&gt;p_Pending</title>
-<path fill="none" stroke="#333333" d="M217.8,-285.28C241.5,-304.93 283.4,-341.37 314,-377.5 325.93,-391.59 337.38,-409.15 345.39,-422.31"/>
-<polygon fill="#333333" stroke="#333333" points="342.44,-424.2 350.56,-431 348.46,-420.62 342.44,-424.2"/>
+<path fill="none" stroke="#333333" d="M237.14,-531.38C260.45,-521.03 294.28,-509 325.5,-509 325.5,-509 325.5,-509 838,-509 883.71,-509 937.16,-506.2 966.48,-504.43"/>
+<polygon fill="#333333" stroke="#333333" points="967.04,-507.9 976.8,-503.78 966.6,-500.91 967.04,-507.9"/>
+</g>
+<!-- t_Receive&#45;&gt;p_Processing -->
+<g id="edge6" class="edge">
+<title>t_Receive&#45;&gt;p_Processing</title>
+<path fill="none" stroke="#333333" d="M237.14,-560.62C260.45,-570.97 294.28,-583 325.5,-583 325.5,-583 325.5,-583 1409.5,-583 1455.64,-583 1507.54,-565.42 1535.34,-554.5"/>
+<polygon fill="#333333" stroke="#333333" points="1536.79,-557.68 1544.75,-550.69 1534.17,-551.19 1536.79,-557.68"/>
 </g>
 <!-- t_Receive&#45;&gt;p_Conversation -->
-<g id="edge3" class="edge">
+<g id="edge7" class="edge">
 <title>t_Receive&#45;&gt;p_Conversation</title>
-<path fill="none" stroke="#333333" d="M227.93,-255.83C258.13,-240.25 305.29,-215.92 333.31,-201.46"/>
-<polygon fill="#333333" stroke="#333333" points="335.09,-204.48 342.37,-196.79 331.88,-198.26 335.09,-204.48"/>
+<path fill="none" stroke="#333333" d="M215,-531.23C235.11,-488.78 293.09,-366.42 316.01,-318.03"/>
+<polygon fill="#333333" stroke="#333333" points="319.22,-319.42 320.34,-308.89 312.9,-316.42 319.22,-319.42"/>
+</g>
+<!-- t_Receive&#45;&gt;p_Composing -->
+<g id="edge8" class="edge">
+<title>t_Receive&#45;&gt;p_Composing</title>
+<path fill="none" stroke="#fd7e14" stroke-width="2" d="M214.8,-560.51C230.03,-590.6 269.94,-657 325.5,-657 325.5,-657 325.5,-657 1691.5,-657 1736.5,-657 1788.91,-657 1819.52,-657"/>
+<polygon fill="#fd7e14" stroke="#fd7e14" stroke-width="2" points="1819.76,-660.5 1829.76,-657 1819.76,-653.5 1819.76,-660.5"/>
+<text text-anchor="middle" x="1044" y="-660" font-family="Helvetica,Arial,sans-serif" font-size="10.00">reset</text>
+</g>
+<!-- t_GatherContext&#45;&gt;p_ContextReady -->
+<g id="edge10" class="edge">
+<title>t_GatherContext&#45;&gt;p_ContextReady</title>
+<path fill="none" stroke="#333333" d="M1175.05,-361.41C1190.42,-361.54 1206.87,-361.69 1219.56,-361.8"/>
+<polygon fill="#333333" stroke="#333333" points="1219.59,-365.3 1229.62,-361.89 1219.65,-358.3 1219.59,-365.3"/>
+</g>
+<!-- t_GatherFresh&#45;&gt;p_ContextReady -->
+<g id="edge14" class="edge">
+<title>t_GatherFresh&#45;&gt;p_ContextReady</title>
+<path fill="none" stroke="#333333" d="M1152.84,-421.43C1167.37,-412.28 1186.39,-400.13 1203,-389 1209.65,-384.54 1216.86,-379.54 1223.22,-375.06"/>
+<polygon fill="#333333" stroke="#333333" points="1225.64,-377.64 1231.77,-369 1221.59,-371.93 1225.64,-377.64"/>
 </g>
 <!-- t_DeepAgent&#45;&gt;p_Thinking -->
-<g id="edge5" class="edge">
+<g id="edge18" class="edge">
 <title>t_DeepAgent&#45;&gt;p_Thinking</title>
-<path fill="none" stroke="#333333" d="M497.37,-467.12C475.79,-475.9 446.77,-486.34 420,-491.5 296.08,-515.37 143.45,-510 87.43,-506.9"/>
-<polygon fill="#333333" stroke="#333333" points="87.46,-503.4 77.27,-506.31 87.05,-510.39 87.46,-503.4"/>
+<path fill="none" stroke="#333333" d="M1489.33,-362C1505.48,-362 1521.17,-362 1533.22,-362"/>
+<polygon fill="#333333" stroke="#333333" points="1533.55,-365.5 1543.55,-362 1533.55,-358.5 1533.55,-365.5"/>
+</g>
+<!-- t_Timeout&#45;&gt;p_Urgency -->
+<g id="edge19" class="edge">
+<title>t_Timeout&#45;&gt;p_Urgency</title>
+<path fill="none" stroke="#333333" d="M2045.55,-566.39C2071.99,-554.7 2108.19,-538.7 2130.42,-528.87"/>
+<polygon fill="#333333" stroke="#333333" points="2132.11,-531.95 2139.84,-524.71 2129.28,-525.55 2132.11,-531.95"/>
 </g>
 <!-- t_QuickAgent&#45;&gt;p_Response -->
-<g id="edge10" class="edge">
+<g id="edge25" class="edge">
 <title>t_QuickAgent&#45;&gt;p_Response</title>
-<path fill="none" stroke="#333333" d="M567.65,-386.09C583.87,-394.13 602.47,-405.37 616,-419.5 647.1,-451.98 667.87,-500.87 678.39,-530.34"/>
-<polygon fill="#333333" stroke="#333333" points="675.11,-531.58 681.68,-539.89 681.73,-529.3 675.11,-531.58"/>
+<path fill="none" stroke="#333333" d="M2218.85,-368.43C2135.93,-367.22 1942.85,-364.4 1873.16,-363.38"/>
+<polygon fill="#333333" stroke="#333333" points="1873.12,-359.87 1863.07,-363.23 1873.02,-366.87 1873.12,-359.87"/>
 </g>
 <!-- t_Complete&#45;&gt;p_Response -->
-<g id="edge13" class="edge">
+<g id="edge29" class="edge">
 <title>t_Complete&#45;&gt;p_Response</title>
-<path fill="none" stroke="#333333" d="M265.18,-470.72C374.08,-492.63 587.34,-535.55 660.86,-550.34"/>
-<polygon fill="#333333" stroke="#333333" points="660.55,-553.85 671.05,-552.39 661.93,-546.99 660.55,-553.85"/>
+<path fill="none" stroke="#333333" d="M1757.26,-349.63C1780.19,-349.1 1804.49,-350.2 1821.77,-352.93"/>
+<polygon fill="#333333" stroke="#333333" points="1821.53,-356.45 1832.02,-354.95 1822.89,-349.58 1821.53,-356.45"/>
 </g>
 <!-- t_Complete&#45;&gt;p_Urgency -->
-<g id="edge14" class="edge">
+<g id="edge31" class="edge">
 <title>t_Complete&#45;&gt;p_Urgency</title>
-<path fill="none" stroke="#fd7e14" stroke-width="2" d="M221.99,-442.89C253.07,-422.69 308.6,-386.62 337.63,-367.76"/>
-<polygon fill="#fd7e14" stroke="#fd7e14" stroke-width="2" points="339.91,-370.45 346.39,-362.07 336.1,-364.58 339.91,-370.45"/>
-<text text-anchor="middle" x="303" y="-400.5" font-family="Helvetica,Arial,sans-serif" font-size="10.00">reset</text>
+<path fill="none" stroke="#fd7e14" stroke-width="2" d="M1718.08,-377.7C1736.28,-387.4 1761.16,-399.94 1784,-409 1911.74,-459.69 2072.16,-500.89 2129.19,-514.88"/>
+<polygon fill="#fd7e14" stroke="#fd7e14" stroke-width="2" points="2128.63,-518.35 2139.17,-517.31 2130.28,-511.54 2128.63,-518.35"/>
+<text text-anchor="middle" x="1901" y="-457" font-family="Helvetica,Arial,sans-serif" font-size="10.00">reset</text>
 </g>
-<!-- t_Summarize&#45;&gt;p_Summary -->
-<g id="edge16" class="edge">
-<title>t_Summarize&#45;&gt;p_Summary</title>
-<path fill="none" stroke="#333333" d="M603.19,-55.5C623.75,-55.5 644.91,-55.5 660.76,-55.5"/>
-<polygon fill="#333333" stroke="#333333" points="660.81,-59 670.81,-55.5 660.81,-52 660.81,-59"/>
+<!-- t_AutoSummarize&#45;&gt;p_Conversation -->
+<g id="edge37" class="edge">
+<title>t_AutoSummarize&#45;&gt;p_Conversation</title>
+<path fill="none" stroke="#fd7e14" stroke-width="2" d="M414.93,-288.74C390.81,-291.3 366.43,-293.88 349.56,-295.66"/>
+<polygon fill="#fd7e14" stroke="#fd7e14" stroke-width="2" points="348.76,-292.23 339.18,-296.76 349.5,-299.19 348.76,-292.23"/>
+<text text-anchor="middle" x="377" y="-296" font-family="Helvetica,Arial,sans-serif" font-size="10.00">reset</text>
 </g>
-<!-- t_Watchdog&#45;&gt;p_Urgency -->
-<g id="edge18" class="edge">
-<title>t_Watchdog&#45;&gt;p_Urgency</title>
-<path fill="none" stroke="#333333" d="M508.56,-257.07C480.84,-266.3 432.93,-276.1 401,-301.5 388.54,-311.41 378.96,-326.05 372.07,-338.12"/>
-<polygon fill="#333333" stroke="#333333" points="368.88,-336.67 367.12,-347.12 375.01,-340.04 368.88,-336.67"/>
+<!-- t_AutoSummarize&#45;&gt;p_Summarizing -->
+<g id="edge35" class="edge">
+<title>t_AutoSummarize&#45;&gt;p_Summarizing</title>
+<path fill="none" stroke="#333333" d="M582.01,-266.51C607.41,-266.4 633.1,-267.9 650.02,-271.02"/>
+<polygon fill="#333333" stroke="#333333" points="649.23,-274.43 659.77,-273.29 650.83,-267.61 649.23,-274.43"/>
+</g>
+<!-- t_ToolSummarize&#45;&gt;p_Conversation -->
+<g id="edge42" class="edge">
+<title>t_ToolSummarize&#45;&gt;p_Conversation</title>
+<path fill="none" stroke="#fd7e14" stroke-width="2" d="M787.33,-186.67C708.88,-199.09 549.63,-224.61 415,-248 393.18,-251.79 385.44,-246.4 366,-257 355.95,-262.48 347.03,-271.54 340.31,-279.76"/>
+<polygon fill="#fd7e14" stroke="#fd7e14" stroke-width="2" points="337.44,-277.75 334.15,-287.82 343,-282 337.44,-277.75"/>
+<text text-anchor="middle" x="620" y="-219" font-family="Helvetica,Arial,sans-serif" font-size="10.00">reset</text>
+</g>
+<!-- t_ToolSummarize&#45;&gt;p_Summarizing -->
+<g id="edge39" class="edge">
+<title>t_ToolSummarize&#45;&gt;p_Summarizing</title>
+<path fill="none" stroke="#333333" d="M824.23,-193.62C796.71,-217.91 727.88,-260.85 692.79,-276.35"/>
+<polygon fill="#333333" stroke="#333333" points="691.06,-273.28 683.07,-280.23 693.65,-279.78 691.06,-273.28"/>
+</g>
+<!-- t_SummaryDone&#45;&gt;p_Summary -->
+<g id="edge44" class="edge">
+<title>t_SummaryDone&#45;&gt;p_Summary</title>
+<path fill="none" stroke="#333333" d="M918.1,-289.47C934.28,-289.36 950.16,-289.25 962.73,-289.17"/>
+<polygon fill="#333333" stroke="#333333" points="962.87,-292.67 972.85,-289.1 962.82,-285.67 962.87,-292.67"/>
 </g>
 </g>
 </svg>
