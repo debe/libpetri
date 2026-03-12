@@ -175,7 +175,7 @@ let net = PetriNet::builder("AgentPipeline")
 ```
 
 <p align="center">
-  <img src="doc/showcase.svg" alt="Racing LLM Agent Pipeline Petri Net">
+  <img src="https://raw.githubusercontent.com/debe/libpetri/main/rust/libpetri/doc/showcase.svg" alt="Racing LLM Agent Pipeline Petri Net">
 </p>
 
 All five arc types (input, output, **read**, **inhibitor**, **reset**), all five timing
