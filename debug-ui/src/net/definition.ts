@@ -31,7 +31,7 @@ import { renderVisibleEvents } from './actions/event-log.js';
 import {
   applyEventToState, buildCheckpoints, seekToIndex,
   stopPlayback, updatePlaybackControls, updateTimelinePosition,
-  updateSpeedButtons, calculatePlaybackDelay,
+  updateSpeedButtons, calculatePlaybackDelay, checkClientBreakpoints,
 } from './actions/playback.js';
 import { updateMarkingInspector, renderTokenInspector } from './actions/inspectors.js';
 import { showModal, closeModal } from './actions/modal.js';
@@ -439,6 +439,19 @@ export function buildDebugNet(): {
         // At end — stop playback and switch back to paused
         stopPlayback();
         updatePlaybackControls(true);
+        executor.injectValue(p.userClickPause, undefined);
+        return;
+      }
+
+      // Check breakpoints before stepping
+      const nextEvent = events[currentState.eventIndex]!;
+      const bpTokens = executor.getMarking().peekTokens(p.breakpoints);
+      const bpList = bpTokens.length > 0 ? bpTokens[0]!.value as BreakpointConfig[] : [];
+      const hit = checkClientBreakpoints(nextEvent, bpList);
+      if (hit) {
+        stopPlayback();
+        updatePlaybackControls(true);
+        highlightBreakpointInList(hit.id);
         executor.injectValue(p.userClickPause, undefined);
         return;
       }

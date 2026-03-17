@@ -442,6 +442,33 @@ describe('debug net integration', () => {
     expect(inspector!.innerHTML).toContain('Void');
   });
 
+  it('replay breakpoint halts playback at matching event', async () => {
+    await subscribeWith('replay');
+
+    // Send events: alternating TokenAdded and TransitionEnabled
+    await executor.injectValue(p.wsMessage, makeEventBatch(20) as DebugResponse);
+    await settle();
+
+    // Set breakpoint on TransitionEnabled (odd indices in makeEventBatch)
+    await executor.injectValue(p.userSetBreakpoint, {
+      id: 'bp-test', type: 'TRANSITION_ENABLED', target: null, enabled: true,
+    });
+    await settle();
+
+    // Click play
+    await executor.injectValue(p.userClickPlay, undefined);
+    await settle(500);
+
+    const state = readUIState(executor);
+    expect(state).not.toBeNull();
+    // First TransitionEnabled is at index 1 — playback should stop BEFORE stepping past it
+    expect(state!.eventIndex).toBe(1);
+
+    // Should be back in paused state
+    const playing = executor.getMarking().peekTokens(p.replayPlaying);
+    expect(playing).toHaveLength(0);
+  });
+
   it('clicking a token in token inspector opens value modal', async () => {
     await subscribeWith('live');
 
