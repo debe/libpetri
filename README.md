@@ -168,7 +168,7 @@ cd rust && cargo test
 
 ## Showcase: Debug UI — A Petri Net That Debugs Petri Nets
 
-The libpetri debug UI is itself a Coloured Time Petri Net — 53 transitions, 51 places (including 30 environment places). The entire UI lifecycle (WebSocket connection, session management, message dispatch, diagram rendering, replay playback, live debugging, breakpoints, search, session archives) is modeled and executed as a CTPN.
+The libpetri debug UI is itself a Coloured Time Petri Net — 55 transitions, 53 places (including 31 environment places). The entire UI lifecycle (WebSocket connection, session management, message dispatch, diagram rendering, replay playback, live debugging, breakpoints, search, session archives) is modeled and executed as a CTPN.
 
 <p align="center">
   <img src="docs/showcase-debug-ui.svg" alt="Debug UI — A Petri Net That Debugs Petri Nets" width="800">
@@ -183,7 +183,7 @@ The libpetri debug UI is itself a Coloured Time Petri Net — 53 transitions, 51
 | **Message Dispatch** | 12 | Guard predicates on input arcs filter WebSocket messages by type |
 | **Diagram** | 1 | Async DOT→SVG rendering via Graphviz WASM |
 | **UI Fan-Out** | 4 | Single `stateDirty` token AND-forks to 3 parallel updates (highlighting, event-log, marking) |
-| **Replay Playback** | 8 | Play/pause/auto-step/step-fwd/step-back/seek/restart/run-to-end with checkpoint-based random access |
+| **Replay Playback** | 10 | Play/pause/auto-step/step-fwd/step-back/seek/restart/run-to-end/breakpoint-pause/breakpoint-resume with checkpoint-based random access |
 | **Live Mode** | 4 | Pause/resume/step-forward/step-back via WebSocket commands |
 | **Inspector** | 1 | Place click → token inspection |
 | **Modal** | 2 | Open/close with mutual exclusion (modalClosed ↔ modalOpen) |
@@ -249,7 +249,7 @@ const t_update_highlighting = Transition.builder('t_update_highlighting')
   .action(async (ctx) => { /* updateDiagramHighlighting */ })
   .build();
 
-// ... 53 transitions total
+// ... 55 transitions total
 const net = PetriNet.builder('DebugUI')
   .transitions(t_connect, t_on_open, /* ... */)
   .build();
