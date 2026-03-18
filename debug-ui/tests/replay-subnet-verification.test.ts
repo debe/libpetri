@@ -23,32 +23,46 @@ const Z3_TIMEOUT = 60_000;
 /**
  * Build a minimal model of the replay subnet:
  *
- *   Places: replayPaused, replayPlaying, autoStepTick, uiState
- *   Env places: userClickPlay, userClickPause, userClickStepFwd
+ *   Places: replayPaused, replayPlaying, breakpointPaused, autoStepTick, uiState
+ *   Env places: userClickPlay, userClickPause, userClickStepFwd, breakpointHit
  *
- *   t_play:      replayPaused + userClickPlay → replayPlaying + autoStepTick
- *   t_pause:     replayPlaying + userClickPause → replayPaused
- *   t_auto_step: autoStepTick, reads replayPlaying → userClickStepFwd
- *   t_step_fwd:  uiState + userClickStepFwd → uiState
+ *   t_play:         replayPaused + userClickPlay → replayPlaying + autoStepTick
+ *   t_play_from_bp: breakpointPaused + userClickPlay → replayPlaying + autoStepTick
+ *   t_pause:        replayPlaying + userClickPause → replayPaused
+ *   t_bp_stop:      replayPlaying + breakpointHit → breakpointPaused
+ *   t_auto_step:    autoStepTick, reads replayPlaying → userClickStepFwd
+ *   t_step_fwd:     uiState + userClickStepFwd → uiState
  */
 function buildReplaySubnet() {
   const replayPaused = place<void>('replayPaused');
   const replayPlaying = place<void>('replayPlaying');
+  const breakpointPaused = place<void>('breakpointPaused');
   const autoStepTick = environmentPlace<void>('autoStepTick');
   const uiState = place<void>('uiState');
 
   const userClickPlay = environmentPlace<void>('userClickPlay');
   const userClickPause = environmentPlace<void>('userClickPause');
   const userClickStepFwd = environmentPlace<void>('userClickStepFwd');
+  const breakpointHit = environmentPlace<void>('breakpointHit');
 
   const t_play = Transition.builder('t_play')
     .inputs(one(replayPaused), one(userClickPlay.place))
     .outputs(and(outPlace(replayPlaying), outPlace(autoStepTick.place)))
     .build();
 
+  const t_play_from_bp = Transition.builder('t_play_from_bp')
+    .inputs(one(breakpointPaused), one(userClickPlay.place))
+    .outputs(and(outPlace(replayPlaying), outPlace(autoStepTick.place)))
+    .build();
+
   const t_pause = Transition.builder('t_pause')
     .inputs(one(replayPlaying), one(userClickPause.place))
     .outputs(outPlace(replayPaused))
+    .build();
+
+  const t_bp_stop = Transition.builder('t_bp_stop')
+    .inputs(one(replayPlaying), one(breakpointHit.place))
+    .outputs(outPlace(breakpointPaused))
     .build();
 
   const t_auto_step = Transition.builder('t_auto_step')
@@ -63,23 +77,23 @@ function buildReplaySubnet() {
     .build();
 
   const net = PetriNet.builder('ReplaySubnet')
-    .transitions(t_play, t_pause, t_auto_step, t_step_fwd)
+    .transitions(t_play, t_play_from_bp, t_pause, t_bp_stop, t_auto_step, t_step_fwd)
     .build();
 
   return {
     net,
-    replayPaused, replayPlaying, autoStepTick, uiState,
-    userClickPlay, userClickPause, userClickStepFwd,
+    replayPaused, replayPlaying, breakpointPaused, autoStepTick, uiState,
+    userClickPlay, userClickPause, userClickStepFwd, breakpointHit,
   };
 }
 
 describe('replay subnet formal verification', () => {
   it('mutual exclusion: replayPlaying and replayPaused', async () => {
-    const { net, replayPaused, replayPlaying, uiState, autoStepTick, userClickPlay, userClickPause, userClickStepFwd } = buildReplaySubnet();
+    const { net, replayPaused, replayPlaying, uiState, autoStepTick, userClickPlay, userClickPause, userClickStepFwd, breakpointHit } = buildReplaySubnet();
 
     const result = await SmtVerifier.forNet(net)
       .initialMarking(m => m.tokens(replayPaused, 1).tokens(uiState, 1))
-      .environmentPlaces(userClickPlay, userClickPause, userClickStepFwd, autoStepTick)
+      .environmentPlaces(userClickPlay, userClickPause, userClickStepFwd, autoStepTick, breakpointHit)
       .environmentMode(unbounded())
       .property(mutualExclusion(replayPlaying, replayPaused))
       .timeout(30_000)
@@ -88,12 +102,40 @@ describe('replay subnet formal verification', () => {
     expect(result.verdict.type).toBe('proven');
   }, Z3_TIMEOUT);
 
-  it('place bound: uiState <= 1', async () => {
-    const { net, replayPaused, uiState, autoStepTick, userClickPlay, userClickPause, userClickStepFwd } = buildReplaySubnet();
+  it('mutual exclusion: replayPlaying and breakpointPaused', async () => {
+    const { net, replayPaused, replayPlaying, breakpointPaused, uiState, autoStepTick, userClickPlay, userClickPause, userClickStepFwd, breakpointHit } = buildReplaySubnet();
 
     const result = await SmtVerifier.forNet(net)
       .initialMarking(m => m.tokens(replayPaused, 1).tokens(uiState, 1))
-      .environmentPlaces(userClickPlay, userClickPause, userClickStepFwd, autoStepTick)
+      .environmentPlaces(userClickPlay, userClickPause, userClickStepFwd, autoStepTick, breakpointHit)
+      .environmentMode(unbounded())
+      .property(mutualExclusion(replayPlaying, breakpointPaused))
+      .timeout(30_000)
+      .verify();
+
+    expect(result.verdict.type).toBe('proven');
+  }, Z3_TIMEOUT);
+
+  it('mutual exclusion: replayPaused and breakpointPaused', async () => {
+    const { net, replayPaused, breakpointPaused, uiState, autoStepTick, userClickPlay, userClickPause, userClickStepFwd, breakpointHit } = buildReplaySubnet();
+
+    const result = await SmtVerifier.forNet(net)
+      .initialMarking(m => m.tokens(replayPaused, 1).tokens(uiState, 1))
+      .environmentPlaces(userClickPlay, userClickPause, userClickStepFwd, autoStepTick, breakpointHit)
+      .environmentMode(unbounded())
+      .property(mutualExclusion(replayPaused, breakpointPaused))
+      .timeout(30_000)
+      .verify();
+
+    expect(result.verdict.type).toBe('proven');
+  }, Z3_TIMEOUT);
+
+  it('place bound: uiState <= 1', async () => {
+    const { net, replayPaused, uiState, autoStepTick, userClickPlay, userClickPause, userClickStepFwd, breakpointHit } = buildReplaySubnet();
+
+    const result = await SmtVerifier.forNet(net)
+      .initialMarking(m => m.tokens(replayPaused, 1).tokens(uiState, 1))
+      .environmentPlaces(userClickPlay, userClickPause, userClickStepFwd, autoStepTick, breakpointHit)
       .environmentMode(unbounded())
       .property(placeBound(uiState, 1))
       .timeout(30_000)
@@ -103,11 +145,11 @@ describe('replay subnet formal verification', () => {
   }, Z3_TIMEOUT);
 
   it('place bound: replayPlaying <= 1', async () => {
-    const { net, replayPaused, replayPlaying, uiState, autoStepTick, userClickPlay, userClickPause, userClickStepFwd } = buildReplaySubnet();
+    const { net, replayPaused, replayPlaying, uiState, autoStepTick, userClickPlay, userClickPause, userClickStepFwd, breakpointHit } = buildReplaySubnet();
 
     const result = await SmtVerifier.forNet(net)
       .initialMarking(m => m.tokens(replayPaused, 1).tokens(uiState, 1))
-      .environmentPlaces(userClickPlay, userClickPause, userClickStepFwd, autoStepTick)
+      .environmentPlaces(userClickPlay, userClickPause, userClickStepFwd, autoStepTick, breakpointHit)
       .environmentMode(unbounded())
       .property(placeBound(replayPlaying, 1))
       .timeout(30_000)
@@ -116,15 +158,43 @@ describe('replay subnet formal verification', () => {
     expect(result.verdict.type).toBe('proven');
   }, Z3_TIMEOUT);
 
-  it('deadlock-freedom with sink places', async () => {
-    const { net, replayPaused, uiState, autoStepTick, userClickPlay, userClickPause, userClickStepFwd } = buildReplaySubnet();
+  it('place bound: breakpointPaused <= 1', async () => {
+    const { net, replayPaused, breakpointPaused, uiState, autoStepTick, userClickPlay, userClickPause, userClickStepFwd, breakpointHit } = buildReplaySubnet();
 
-    // replayPaused is a valid idle state (not a deadlock), so mark it as a sink
     const result = await SmtVerifier.forNet(net)
       .initialMarking(m => m.tokens(replayPaused, 1).tokens(uiState, 1))
-      .environmentPlaces(userClickPlay, userClickPause, userClickStepFwd, autoStepTick)
+      .environmentPlaces(userClickPlay, userClickPause, userClickStepFwd, autoStepTick, breakpointHit)
       .environmentMode(unbounded())
-      .sinkPlaces(replayPaused)
+      .property(placeBound(breakpointPaused, 1))
+      .timeout(30_000)
+      .verify();
+
+    expect(result.verdict.type).toBe('proven');
+  }, Z3_TIMEOUT);
+
+  it('mutual exclusion: breakpointPaused and autoStepTick', async () => {
+    const { net, replayPaused, breakpointPaused, autoStepTick, uiState, userClickPlay, userClickPause, userClickStepFwd, breakpointHit } = buildReplaySubnet();
+
+    const result = await SmtVerifier.forNet(net)
+      .initialMarking(m => m.tokens(replayPaused, 1).tokens(uiState, 1))
+      .environmentPlaces(userClickPlay, userClickPause, userClickStepFwd, autoStepTick, breakpointHit)
+      .environmentMode(unbounded())
+      .property(mutualExclusion(breakpointPaused, autoStepTick.place))
+      .timeout(30_000)
+      .verify();
+
+    expect(result.verdict.type).toBe('proven');
+  }, Z3_TIMEOUT);
+
+  it('deadlock-freedom with sink places', async () => {
+    const { net, replayPaused, breakpointPaused, uiState, autoStepTick, userClickPlay, userClickPause, userClickStepFwd, breakpointHit } = buildReplaySubnet();
+
+    // replayPaused and breakpointPaused are valid idle states (not deadlocks), so mark them as sinks
+    const result = await SmtVerifier.forNet(net)
+      .initialMarking(m => m.tokens(replayPaused, 1).tokens(uiState, 1))
+      .environmentPlaces(userClickPlay, userClickPause, userClickStepFwd, autoStepTick, breakpointHit)
+      .environmentMode(unbounded())
+      .sinkPlaces(replayPaused, breakpointPaused)
       .property(deadlockFree())
       .timeout(30_000)
       .verify();

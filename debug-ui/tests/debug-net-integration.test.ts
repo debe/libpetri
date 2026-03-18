@@ -99,7 +99,7 @@ describe('debug net integration', () => {
     shared.currentSession = null;
     shared.currentMode = null;
     shared.replay = { allEvents: [], checkpoints: [], checkpointInterval: 20 };
-    shared.playback = { timer: null, animationFrame: null, speed: 1 };
+    shared.playback = { timer: null, animationFrame: null, speed: 1, breakpointHitIndex: null };
     shared.svgNodeCache = null;
     shared.prevHighlighted = { shapes: [], edges: [] };
     shared.allSessions = [];
@@ -464,9 +464,140 @@ describe('debug net integration', () => {
     // First TransitionEnabled is at index 1 — playback should stop BEFORE stepping past it
     expect(state!.eventIndex).toBe(1);
 
-    // Should be back in paused state
+    // Should be in breakpointPaused state (not replayPlaying, not replayPaused)
     const playing = executor.getMarking().peekTokens(p.replayPlaying);
     expect(playing).toHaveLength(0);
+    const bpPaused = executor.getMarking().peekTokens(p.breakpointPaused);
+    expect(bpPaused).toHaveLength(1);
+
+    // Button should be yellow (breakpoint hit)
+    const btn = document.getElementById('btn-pause')!;
+    expect(btn.classList.contains('bg-yellow-600')).toBe(true);
+    expect(btn.classList.contains('bg-green-700')).toBe(false);
+
+    // Resume: click play again — should advance past the breakpoint
+    await executor.injectValue(p.userClickPlay, undefined);
+    await settle(500);
+
+    const stateAfter = readUIState(executor);
+    expect(stateAfter).not.toBeNull();
+    // Should have advanced past index 1 (the breakpoint hit index) and stopped at index 3 (next TransitionEnabled)
+    expect(stateAfter!.eventIndex).toBe(3);
+
+    // Button should be yellow again (hit next breakpoint)
+    expect(btn.classList.contains('bg-yellow-600')).toBe(true);
+
+    // Should be in breakpointPaused again
+    const bpPaused2 = executor.getMarking().peekTokens(p.breakpointPaused);
+    expect(bpPaused2).toHaveLength(1);
+  });
+
+  // ======================== DOM button breakpoint tests ========================
+
+  it('breakpoint resume via DOM button click', async () => {
+    const { bindDomEvents } = await import('../src/dom/bindings.js');
+    bindDomEvents(executor);
+
+    await subscribeWith('replay');
+    await executor.injectValue(p.wsMessage, makeEventBatch(20) as DebugResponse);
+    await settle();
+
+    // Set breakpoint on TransitionEnabled
+    await executor.injectValue(p.userSetBreakpoint, {
+      id: 'bp-dom', type: 'TRANSITION_ENABLED', target: null, enabled: true,
+    });
+    await settle();
+
+    // Start playback (direct injection OK for initial play)
+    await executor.injectValue(p.userClickPlay, undefined);
+    await settle(500);
+
+    // Verify breakpoint hit state
+    expect(readUIState(executor)!.eventIndex).toBe(1);
+    const bpPaused = executor.getMarking().peekTokens(p.breakpointPaused);
+    expect(bpPaused).toHaveLength(1);
+
+    // Verify yellow button
+    const btn = document.getElementById('btn-pause')!;
+    expect(btn.classList.contains('bg-yellow-600')).toBe(true);
+
+    // Resume via DOM button click (NOT direct injection)
+    btn.click();
+    await settle(500);
+
+    // Should have advanced past breakpoint to next match
+    const stateAfter = readUIState(executor);
+    expect(stateAfter!.eventIndex).toBe(3);
+    expect(btn.classList.contains('bg-yellow-600')).toBe(true);
+  });
+
+  it('breakpoint on first event (index 0) via DOM button', async () => {
+    const { bindDomEvents } = await import('../src/dom/bindings.js');
+    bindDomEvents(executor);
+
+    await subscribeWith('replay');
+    // TokenAdded at index 0
+    await executor.injectValue(p.wsMessage, makeEventBatch(10) as DebugResponse);
+    await settle();
+
+    // Set breakpoint on TokenAdded (even indices)
+    await executor.injectValue(p.userSetBreakpoint, {
+      id: 'bp-first', type: 'TOKEN_ADDED', target: null, enabled: true,
+    });
+    await settle();
+
+    // Start playback
+    await executor.injectValue(p.userClickPlay, undefined);
+    await settle(500);
+
+    // Should stop at index 0 (first event is TokenAdded)
+    expect(readUIState(executor)!.eventIndex).toBe(0);
+    const bpPaused = executor.getMarking().peekTokens(p.breakpointPaused);
+    expect(bpPaused).toHaveLength(1);
+
+    // Resume via DOM button
+    const btn = document.getElementById('btn-pause')!;
+    expect(btn.classList.contains('bg-yellow-600')).toBe(true);
+    btn.click();
+    await settle(500);
+
+    // Should advance to next TokenAdded at index 2
+    expect(readUIState(executor)!.eventIndex).toBe(2);
+  });
+
+  it('multiple consecutive DOM-click resumes through breakpoints', async () => {
+    const { bindDomEvents } = await import('../src/dom/bindings.js');
+    bindDomEvents(executor);
+
+    await subscribeWith('replay');
+    await executor.injectValue(p.wsMessage, makeEventBatch(20) as DebugResponse);
+    await settle();
+
+    // Breakpoint on TransitionEnabled (indices 1, 3, 5, 7, ...)
+    await executor.injectValue(p.userSetBreakpoint, {
+      id: 'bp-multi', type: 'TRANSITION_ENABLED', target: null, enabled: true,
+    });
+    await settle();
+
+    // Start playback
+    await executor.injectValue(p.userClickPlay, undefined);
+    await settle(500);
+
+    const btn = document.getElementById('btn-pause')!;
+    const expectedStops = [1, 3, 5];
+
+    for (const expectedIndex of expectedStops) {
+      expect(readUIState(executor)!.eventIndex).toBe(expectedIndex);
+      expect(btn.classList.contains('bg-yellow-600')).toBe(true);
+      expect(executor.getMarking().peekTokens(p.breakpointPaused)).toHaveLength(1);
+
+      // Resume via DOM button click
+      btn.click();
+      await settle(500);
+    }
+
+    // After 3 resumes, should be at index 7
+    expect(readUIState(executor)!.eventIndex).toBe(7);
   });
 
   it('clicking a token in token inspector opens value modal', async () => {

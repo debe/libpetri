@@ -200,9 +200,10 @@ export function stopPlayback(): void {
 }
 
 /** Update playback controls based on paused state. */
-export function updatePlaybackControls(paused: boolean): void {
+export function updatePlaybackControls(paused: boolean | 'breakpoint'): void {
   const iconPause = el.iconPause;
   const iconPlay = el.iconPlay;
+  const btn = el.btnPause;
 
   if (paused) {
     iconPause.classList.add('hidden');
@@ -210,6 +211,13 @@ export function updatePlaybackControls(paused: boolean): void {
   } else {
     iconPause.classList.remove('hidden');
     iconPlay.classList.add('hidden');
+  }
+
+  btn.classList.remove('bg-green-700', 'hover:bg-green-600', 'bg-yellow-600', 'hover:bg-yellow-500');
+  if (paused === 'breakpoint') {
+    btn.classList.add('bg-yellow-600', 'hover:bg-yellow-500');
+  } else {
+    btn.classList.add('bg-green-700', 'hover:bg-green-600');
   }
 }
 
