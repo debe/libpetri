@@ -294,7 +294,7 @@ export function buildDebugNet(): {
     .timing(immediate())
     .action(async (ctx) => {
       const msg = ctx.input(p.wsMessage.place) as Extract<DebugResponse, { type: 'breakpointHit' }>;
-      updatePlaybackControls(true);
+      updatePlaybackControls('breakpoint');
       highlightBreakpointInList(msg.breakpointId);
     })
     .build();
@@ -443,18 +443,22 @@ export function buildDebugNet(): {
         return;
       }
 
-      // Check breakpoints before stepping
-      const nextEvent = events[currentState.eventIndex]!;
-      const bpTokens = executor.getMarking().peekTokens(p.breakpoints);
-      const bpList = bpTokens.length > 0 ? bpTokens[0]!.value as BreakpointConfig[] : [];
-      const hit = checkClientBreakpoints(nextEvent, bpList);
-      if (hit) {
-        stopPlayback();
-        updatePlaybackControls(true);
-        highlightBreakpointInList(hit.id);
-        executor.injectValue(p.userClickPause, undefined);
-        return;
+      // Check breakpoints before stepping (skip if we just resumed from this index)
+      if (shared.playback.breakpointHitIndex !== currentState.eventIndex) {
+        const nextEvent = events[currentState.eventIndex]!;
+        const bpTokens = executor.getMarking().peekTokens(p.breakpoints);
+        const bpList = bpTokens.length > 0 ? bpTokens[0]!.value as BreakpointConfig[] : [];
+        const hit = checkClientBreakpoints(nextEvent, bpList);
+        if (hit) {
+          shared.playback.breakpointHitIndex = currentState.eventIndex;
+          stopPlayback();
+          highlightBreakpointInList(hit.id);
+          executor.injectValue(p.breakpointHit, undefined);
+          return;
+        }
       }
+      // Clear breakpointHitIndex — we're advancing past it
+      shared.playback.breakpointHitIndex = null;
 
       // Step forward by injecting userClickStepFwd
       executor.injectValue(p.userClickStepFwd, undefined);
@@ -475,6 +479,29 @@ export function buildDebugNet(): {
       stopPlayback();
       updatePlaybackControls(true);
       ctx.output(p.replayPaused.place, undefined);
+    })
+    .build();
+
+  const t_replay_breakpoint_stop = Transition.builder('t_replay_breakpoint_stop')
+    .inputs(one(p.replayPlaying), one(p.breakpointHit.place))
+    .outputs(outPlace(p.breakpointPaused))
+    .timing(immediate())
+    .action(async (ctx) => {
+      stopPlayback();
+      updatePlaybackControls('breakpoint');
+      ctx.output(p.breakpointPaused, undefined);
+    })
+    .build();
+
+  const t_replay_play_from_bp = Transition.builder('t_replay_play_from_bp')
+    .inputs(one(p.breakpointPaused), one(p.userClickPlay.place))
+    .reads(p.replaySession.place)
+    .outputs(outPlace(p.replayPlaying))
+    .timing(immediate())
+    .action(async (ctx) => {
+      updatePlaybackControls(false);
+      executor.injectValue(p.autoStepTick, undefined);
+      ctx.output(p.replayPlaying, undefined);
     })
     .build();
 
@@ -509,6 +536,7 @@ export function buildDebugNet(): {
     .outputs(and(outPlace(p.uiState), outPlace(p.stateDirty)))
     .timing(immediate())
     .action(async (ctx) => {
+      shared.playback.breakpointHitIndex = null;
       const state = ctx.input(p.uiState) as UIState;
       if (state.eventIndex > 0) {
         const newState = seekToIndex(state.eventIndex - 1);
@@ -527,6 +555,7 @@ export function buildDebugNet(): {
     .outputs(and(outPlace(p.uiState), outPlace(p.stateDirty)))
     .timing(immediate())
     .action(async (ctx) => {
+      shared.playback.breakpointHitIndex = null;
       const targetIndex = ctx.input(p.userSeekSlider.place) as number;
       const newState = seekToIndex(targetIndex);
       updateTimelinePosition(newState.eventIndex, newState.totalEvents);
@@ -541,6 +570,7 @@ export function buildDebugNet(): {
     .outputs(and(outPlace(p.uiState), outPlace(p.stateDirty)))
     .timing(immediate())
     .action(async (ctx) => {
+      shared.playback.breakpointHitIndex = null;
       const newState = seekToIndex(0);
       updateTimelinePosition(0, newState.totalEvents);
       ctx.output(p.uiState, newState);
@@ -554,6 +584,7 @@ export function buildDebugNet(): {
     .outputs(and(outPlace(p.uiState), outPlace(p.stateDirty)))
     .timing(immediate())
     .action(async (ctx) => {
+      shared.playback.breakpointHitIndex = null;
       const events = shared.replay.allEvents;
       const newState = seekToIndex(events.length);
       updateTimelinePosition(newState.eventIndex, newState.totalEvents);
@@ -814,7 +845,8 @@ export function buildDebugNet(): {
       t_on_bp_cleared, t_on_filter_applied, t_on_unsubscribed, t_on_error,
       t_render_dot,
       t_fan_out_dirty, t_update_highlighting, t_update_event_log, t_update_marking,
-      t_replay_play, t_replay_auto_step, t_replay_pause, t_replay_step_fwd, t_replay_step_back,
+      t_replay_play, t_replay_auto_step, t_replay_pause, t_replay_breakpoint_stop, t_replay_play_from_bp,
+      t_replay_step_fwd, t_replay_step_back,
       t_replay_seek, t_replay_restart, t_replay_run_to_end,
       t_live_pause, t_live_resume, t_live_step_fwd, t_live_step_back,
       t_inspect_place,

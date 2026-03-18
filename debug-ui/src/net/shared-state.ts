@@ -19,6 +19,7 @@ interface MutablePlaybackTimerState {
   timer: ReturnType<typeof setTimeout> | null;
   animationFrame: number | null;
   speed: number;
+  breakpointHitIndex: number | null;
 }
 
 /** Mutable shared state. */
@@ -36,6 +37,7 @@ export const shared = {
     timer: null,
     animationFrame: null,
     speed: 1.0,
+    breakpointHitIndex: null,
   } as MutablePlaybackTimerState,
   /** Virtual scroll state */
   virtualLog: {
