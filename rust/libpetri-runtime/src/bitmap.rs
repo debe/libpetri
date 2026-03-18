@@ -208,4 +208,25 @@ mod tests {
         assert!(is_empty(&[0u64, 0u64]));
         assert!(!is_empty(&[0u64, 1u64]));
     }
+
+    #[test]
+    fn contains_all_sign_bit() {
+        // Bit 63 is the sign bit for i64 / high bit for u64
+        let mut snapshot = vec![0u64; 1];
+        set_bit(&mut snapshot, 63);
+        let mut mask = vec![0u64; 1];
+        set_bit(&mut mask, 63);
+        assert!(contains_all(&snapshot, &mask));
+        assert!(!contains_all(&[0u64], &mask));
+    }
+
+    #[test]
+    fn intersects_sign_bit() {
+        let mut snapshot = vec![0u64; 1];
+        set_bit(&mut snapshot, 63);
+        let mut mask = vec![0u64; 1];
+        set_bit(&mut mask, 63);
+        assert!(intersects(&snapshot, &mask));
+        assert!(!intersects(&[0u64], &mask));
+    }
 }
