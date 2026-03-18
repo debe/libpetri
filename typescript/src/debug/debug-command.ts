@@ -24,6 +24,9 @@ export interface EventFilter {
   readonly eventTypes: readonly string[] | null;
   readonly transitionNames: readonly string[] | null;
   readonly placeNames: readonly string[] | null;
+  readonly excludeEventTypes?: readonly string[] | null;
+  readonly excludeTransitionNames?: readonly string[] | null;
+  readonly excludePlaceNames?: readonly string[] | null;
 }
 
 export type DebugCommand =
@@ -45,5 +48,5 @@ export type DebugCommand =
   | { readonly type: 'uploadArchive'; readonly fileName: string; readonly data: string };
 
 export function eventFilterAll(): EventFilter {
-  return { eventTypes: null, transitionNames: null, placeNames: null };
+  return { eventTypes: null, transitionNames: null, placeNames: null, excludeEventTypes: null, excludeTransitionNames: null, excludePlaceNames: null };
 }

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && cp dist/index.html ../java/src/main/resources/debug-ui/index.html",
     "preview": "vite preview",
     "docs": "node --import ./register-hooks.mjs --import tsx ./node_modules/.bin/typedoc",
     "test": "vitest run",

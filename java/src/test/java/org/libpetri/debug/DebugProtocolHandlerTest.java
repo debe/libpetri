@@ -249,11 +249,48 @@ class DebugProtocolHandlerTest {
             handler.handleCommand("c1", new DebugCommand.Subscribe("s1",
                     DebugCommand.SubscriptionMode.live, 0));
             handler.handleCommand("c1", new DebugCommand.SetFilter("s1",
-                    new DebugCommand.EventFilter(Set.of("TransitionEnabled"), null, null)));
+                    new DebugCommand.EventFilter(Set.of("TransitionEnabled"), null, null, null, null, null)));
 
             var filterApplied = lastResponseOfType(DebugResponse.FilterApplied.class);
             assertNotNull(filterApplied);
             assertEquals("s1", filterApplied.sessionId());
+        }
+
+        @Test
+        void shouldExcludeByTransitionName() {
+            connectClient("c1");
+            var now = Instant.now();
+            registerSessionWithEvents("s1",
+                    new NetEvent.TransitionEnabled(now, "T1"),
+                    new NetEvent.TransitionEnabled(now, "T2"),
+                    new NetEvent.TransitionEnabled(now, "T3"));
+
+            handler.handleCommand("c1", new DebugCommand.Subscribe("s1",
+                    DebugCommand.SubscriptionMode.live, 0));
+            handler.handleCommand("c1", new DebugCommand.SetFilter("s1",
+                    new DebugCommand.EventFilter(null, null, null, null, Set.of("T2"), null)));
+
+            var filterApplied = lastResponseOfType(DebugResponse.FilterApplied.class);
+            assertNotNull(filterApplied);
+        }
+
+        @Test
+        void shouldCombineIncludeAndExcludeFilters() {
+            connectClient("c1");
+            var now = Instant.now();
+            registerSessionWithEvents("s1",
+                    new NetEvent.TransitionEnabled(now, "T1"),
+                    new NetEvent.TransitionEnabled(now, "T2"),
+                    new NetEvent.TokenAdded(now, "P1", Token.of("val")));
+
+            handler.handleCommand("c1", new DebugCommand.Subscribe("s1",
+                    DebugCommand.SubscriptionMode.live, 0));
+            handler.handleCommand("c1", new DebugCommand.SetFilter("s1",
+                    new DebugCommand.EventFilter(Set.of("TransitionEnabled"), null, null,
+                            null, Set.of("T2"), null)));
+
+            var filterApplied = lastResponseOfType(DebugResponse.FilterApplied.class);
+            assertNotNull(filterApplied);
         }
 
         @Test

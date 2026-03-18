@@ -38,6 +38,9 @@ export interface FilterState {
   readonly eventTypes: readonly string[];
   readonly transitionNames: readonly string[];
   readonly placeNames: readonly string[];
+  readonly excludeEventTypes: readonly string[];
+  readonly excludeTransitionNames: readonly string[];
+  readonly excludePlaceNames: readonly string[];
   /** Precomputed filtered indices into UIState.events, null = no filter active */
   readonly filteredIndices: readonly number[] | null;
 }
