@@ -620,19 +620,39 @@ class SubscriptionState {
 
     const filter = sub.filter;
 
+    // Event type: include then exclude
+    const eventType = eventTypeToName(event);
     if (filter.eventTypes && filter.eventTypes.length > 0) {
-      const eventType = eventTypeToName(event);
       if (!filter.eventTypes.includes(eventType)) return false;
     }
-
-    if (filter.transitionNames && filter.transitionNames.length > 0) {
-      const name = extractTransitionName(event);
-      if (!name || !filter.transitionNames.includes(name)) return false;
+    if (filter.excludeEventTypes && filter.excludeEventTypes.length > 0) {
+      if (filter.excludeEventTypes.includes(eventType)) return false;
     }
 
-    if (filter.placeNames && filter.placeNames.length > 0) {
-      const name = extractPlaceName(event);
-      if (!name || !filter.placeNames.includes(name)) return false;
+    // Transition name: extract once, include then exclude
+    const needTransition = (filter.transitionNames && filter.transitionNames.length > 0)
+      || (filter.excludeTransitionNames && filter.excludeTransitionNames.length > 0);
+    if (needTransition) {
+      const tn = extractTransitionName(event);
+      if (filter.transitionNames && filter.transitionNames.length > 0) {
+        if (!tn || !filter.transitionNames.includes(tn)) return false;
+      }
+      if (filter.excludeTransitionNames && filter.excludeTransitionNames.length > 0) {
+        if (tn && filter.excludeTransitionNames.includes(tn)) return false;
+      }
+    }
+
+    // Place name: extract once, include then exclude
+    const needPlace = (filter.placeNames && filter.placeNames.length > 0)
+      || (filter.excludePlaceNames && filter.excludePlaceNames.length > 0);
+    if (needPlace) {
+      const pn = extractPlaceName(event);
+      if (filter.placeNames && filter.placeNames.length > 0) {
+        if (!pn || !filter.placeNames.includes(pn)) return false;
+      }
+      if (filter.excludePlaceNames && filter.excludePlaceNames.length > 0) {
+        if (pn && filter.excludePlaceNames.includes(pn)) return false;
+      }
     }
 
     return true;

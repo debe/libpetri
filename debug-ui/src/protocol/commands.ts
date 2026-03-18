@@ -23,6 +23,9 @@ export interface EventFilter {
   readonly eventTypes: readonly string[] | null;
   readonly transitionNames: readonly string[] | null;
   readonly placeNames: readonly string[] | null;
+  readonly excludeEventTypes?: readonly string[] | null;
+  readonly excludeTransitionNames?: readonly string[] | null;
+  readonly excludePlaceNames?: readonly string[] | null;
 }
 
 export type DebugCommand =

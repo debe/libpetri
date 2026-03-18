@@ -655,27 +655,40 @@ public class DebugProtocolHandler {
 
             var filter = sub.filter;
 
-            // Check event types filter
+            // Event type: include then exclude
+            String eventType = event.getClass().getSimpleName();
             if (filter.eventTypes() != null && !filter.eventTypes().isEmpty()) {
-                String eventType = event.getClass().getSimpleName();
-                if (!filter.eventTypes().contains(eventType)) {
-                    return false;
+                if (!filter.eventTypes().contains(eventType)) return false;
+            }
+            if (filter.excludeEventTypes() != null && !filter.excludeEventTypes().isEmpty()) {
+                if (filter.excludeEventTypes().contains(eventType)) return false;
+            }
+
+            // Transition name: extract once, include then exclude
+            boolean needTransitionName =
+                (filter.transitionNames() != null && !filter.transitionNames().isEmpty())
+                || (filter.excludeTransitionNames() != null && !filter.excludeTransitionNames().isEmpty());
+            if (needTransitionName) {
+                String tn = extractTransitionName(event);
+                if (filter.transitionNames() != null && !filter.transitionNames().isEmpty()) {
+                    if (tn == null || !filter.transitionNames().contains(tn)) return false;
+                }
+                if (filter.excludeTransitionNames() != null && !filter.excludeTransitionNames().isEmpty()) {
+                    if (tn != null && filter.excludeTransitionNames().contains(tn)) return false;
                 }
             }
 
-            // Check transition names filter
-            if (filter.transitionNames() != null && !filter.transitionNames().isEmpty()) {
-                String transitionName = extractTransitionName(event);
-                if (transitionName == null || !filter.transitionNames().contains(transitionName)) {
-                    return false;
+            // Place name: extract once, include then exclude
+            boolean needPlaceName =
+                (filter.placeNames() != null && !filter.placeNames().isEmpty())
+                || (filter.excludePlaceNames() != null && !filter.excludePlaceNames().isEmpty());
+            if (needPlaceName) {
+                String pn = extractPlaceName(event);
+                if (filter.placeNames() != null && !filter.placeNames().isEmpty()) {
+                    if (pn == null || !filter.placeNames().contains(pn)) return false;
                 }
-            }
-
-            // Check place names filter
-            if (filter.placeNames() != null && !filter.placeNames().isEmpty()) {
-                String placeName = extractPlaceName(event);
-                if (placeName == null || !filter.placeNames().contains(placeName)) {
-                    return false;
+                if (filter.excludePlaceNames() != null && !filter.excludePlaceNames().isEmpty()) {
+                    if (pn != null && filter.excludePlaceNames().contains(pn)) return false;
                 }
             }
 

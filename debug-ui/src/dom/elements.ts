@@ -34,6 +34,8 @@ export let el: {
   filterEventType: HTMLSelectElement;
   filterTransition: HTMLInputElement;
   filterPlace: HTMLInputElement;
+  filterExcludeTransition: HTMLInputElement;
+  filterExcludePlace: HTMLInputElement;
   applyFilter: HTMLButtonElement;
   clearFilter: HTMLButtonElement;
   searchInput: HTMLInputElement;
@@ -100,6 +102,8 @@ export function initElements(): void {
     filterEventType: getEl<HTMLSelectElement>('filter-event-type'),
     filterTransition: getEl<HTMLInputElement>('filter-transition'),
     filterPlace: getEl<HTMLInputElement>('filter-place'),
+    filterExcludeTransition: getEl<HTMLInputElement>('filter-exclude-transition'),
+    filterExcludePlace: getEl<HTMLInputElement>('filter-exclude-place'),
     applyFilter: getEl<HTMLButtonElement>('apply-filter'),
     clearFilter: getEl<HTMLButtonElement>('clear-filter'),
     searchInput: getEl<HTMLInputElement>('search-input'),

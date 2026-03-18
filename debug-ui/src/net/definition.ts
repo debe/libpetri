@@ -861,7 +861,7 @@ export function buildDebugNet(): {
 
   // ======================== Initial Tokens ========================
 
-  const emptyFilterState: FilterState = { eventTypes: [], transitionNames: [], placeNames: [], filteredIndices: null };
+  const emptyFilterState: FilterState = { eventTypes: [], transitionNames: [], placeNames: [], excludeEventTypes: [], excludeTransitionNames: [], excludePlaceNames: [], filteredIndices: null };
   const emptySearchState: SearchState = { searchTerm: '', matches: [], currentMatchIndex: -1 };
 
   const initialTokens = new Map<Place<unknown>, Token<unknown>[]>([

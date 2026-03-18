@@ -204,14 +204,20 @@ public sealed interface DebugCommand {
      * @param eventTypes event types to include (null = all)
      * @param transitionNames transitions to include (null = all)
      * @param placeNames places to include (null = all)
+     * @param excludeEventTypes event types to exclude (null = exclude nothing)
+     * @param excludeTransitionNames transitions to exclude (null = exclude nothing)
+     * @param excludePlaceNames places to exclude (null = exclude nothing)
      */
     record EventFilter(
         Set<String> eventTypes,
         Set<String> transitionNames,
-        Set<String> placeNames
+        Set<String> placeNames,
+        Set<String> excludeEventTypes,
+        Set<String> excludeTransitionNames,
+        Set<String> excludePlaceNames
     ) {
         public static EventFilter all() {
-            return new EventFilter(null, null, null);
+            return new EventFilter(null, null, null, null, null, null);
         }
     }
 

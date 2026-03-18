@@ -590,39 +590,71 @@ fn session_summary(session: &DebugSession) -> SessionSummary {
 fn matches_filter(filter: &Option<EventFilter>, event: &NetEvent) -> bool {
     let Some(filter) = filter else { return true };
 
+    // Event type: include then exclude
+    let event_type = event_type_name(event);
     if let Some(ref types) = filter.event_types {
-        if !types.is_empty() {
-            let name = event_type_name(event);
-            if !types.iter().any(|t| t == name) {
-                return false;
+        if !types.is_empty() && !types.iter().any(|t| t == event_type) {
+            return false;
+        }
+    }
+    if let Some(ref types) = filter.exclude_event_types {
+        if !types.is_empty() && types.iter().any(|t| t == event_type) {
+            return false;
+        }
+    }
+
+    // Transition name: extract once, include then exclude
+    let need_transition = filter.transition_names.as_ref().is_some_and(|n| !n.is_empty())
+        || filter.exclude_transition_names.as_ref().is_some_and(|n| !n.is_empty());
+    if need_transition {
+        let t_name = extract_transition_name(event);
+        if let Some(ref names) = filter.transition_names {
+            if !names.is_empty() {
+                match t_name {
+                    Some(n) => {
+                        if !names.iter().any(|t| t == n) {
+                            return false;
+                        }
+                    }
+                    None => return false,
+                }
+            }
+        }
+        if let Some(ref names) = filter.exclude_transition_names {
+            if !names.is_empty() {
+                if let Some(n) = t_name {
+                    if names.iter().any(|t| t == n) {
+                        return false;
+                    }
+                }
             }
         }
     }
 
-    if let Some(ref names) = filter.transition_names {
-        if !names.is_empty() {
-            let t_name = extract_transition_name(event);
-            match t_name {
-                Some(n) => {
-                    if !names.iter().any(|t| t == n) {
-                        return false;
+    // Place name: extract once, include then exclude
+    let need_place = filter.place_names.as_ref().is_some_and(|n| !n.is_empty())
+        || filter.exclude_place_names.as_ref().is_some_and(|n| !n.is_empty());
+    if need_place {
+        let p_name = extract_place_name(event);
+        if let Some(ref names) = filter.place_names {
+            if !names.is_empty() {
+                match p_name {
+                    Some(n) => {
+                        if !names.iter().any(|t| t == n) {
+                            return false;
+                        }
                     }
+                    None => return false,
                 }
-                None => return false,
             }
         }
-    }
-
-    if let Some(ref names) = filter.place_names {
-        if !names.is_empty() {
-            let p_name = extract_place_name(event);
-            match p_name {
-                Some(n) => {
-                    if !names.iter().any(|t| t == n) {
+        if let Some(ref names) = filter.exclude_place_names {
+            if !names.is_empty() {
+                if let Some(n) = p_name {
+                    if names.iter().any(|t| t == n) {
                         return false;
                     }
                 }
-                None => return false,
             }
         }
     }
@@ -1033,33 +1065,79 @@ mod tests {
         // Type filter matching
         let filter = EventFilter {
             event_types: Some(vec!["TransitionStarted".into()]),
-            transition_names: None,
-            place_names: None,
+            ..Default::default()
         };
         assert!(matches_filter(&Some(filter), &event));
 
         // Type filter not matching
         let filter = EventFilter {
             event_types: Some(vec!["TokenAdded".into()]),
-            transition_names: None,
-            place_names: None,
+            ..Default::default()
         };
         assert!(!matches_filter(&Some(filter), &event));
 
         // Transition name filter
         let filter = EventFilter {
-            event_types: None,
             transition_names: Some(vec!["t1".into()]),
-            place_names: None,
+            ..Default::default()
         };
         assert!(matches_filter(&Some(filter), &event));
 
         let filter = EventFilter {
-            event_types: None,
             transition_names: Some(vec!["t2".into()]),
-            place_names: None,
+            ..Default::default()
         };
         assert!(!matches_filter(&Some(filter), &event));
+    }
+
+    #[test]
+    fn filter_exclusion() {
+        let event = NetEvent::TransitionStarted {
+            transition_name: Arc::from("t1"),
+            timestamp: 0,
+        };
+
+        // Exclude by transition name
+        let filter = EventFilter {
+            exclude_transition_names: Some(vec!["t1".into()]),
+            ..Default::default()
+        };
+        assert!(!matches_filter(&Some(filter), &event));
+
+        // Exclude different transition — should pass
+        let filter = EventFilter {
+            exclude_transition_names: Some(vec!["t2".into()]),
+            ..Default::default()
+        };
+        assert!(matches_filter(&Some(filter), &event));
+
+        // Exclude by event type
+        let filter = EventFilter {
+            exclude_event_types: Some(vec!["TransitionStarted".into()]),
+            ..Default::default()
+        };
+        assert!(!matches_filter(&Some(filter), &event));
+    }
+
+    #[test]
+    fn filter_combined_include_exclude() {
+        let event_t1 = NetEvent::TransitionStarted {
+            transition_name: Arc::from("t1"),
+            timestamp: 0,
+        };
+        let event_t2 = NetEvent::TransitionStarted {
+            transition_name: Arc::from("t2"),
+            timestamp: 0,
+        };
+
+        // Include TransitionStarted, exclude t2
+        let filter = EventFilter {
+            event_types: Some(vec!["TransitionStarted".into()]),
+            exclude_transition_names: Some(vec!["t2".into()]),
+            ..Default::default()
+        };
+        assert!(matches_filter(&Some(filter.clone()), &event_t1));
+        assert!(!matches_filter(&Some(filter), &event_t2));
     }
 
     #[test]

@@ -73,7 +73,10 @@ export function renderVisibleEvents(uiState: UIState, filterState: FilterState):
 function buildFilteredIndices(events: readonly NetEventInfo[], filterState: FilterState, totalEvents: number): readonly number[] {
   const hasFilter = filterState.eventTypes.length > 0
     || filterState.transitionNames.length > 0
-    || filterState.placeNames.length > 0;
+    || filterState.placeNames.length > 0
+    || filterState.excludeEventTypes.length > 0
+    || filterState.excludeTransitionNames.length > 0
+    || filterState.excludePlaceNames.length > 0;
 
   if (!hasFilter) {
     return Array.from({ length: Math.min(events.length, totalEvents) }, (_, i) => i);
@@ -94,6 +97,9 @@ function matchesFilter(event: NetEventInfo, filter: FilterState): boolean {
   if (filter.eventTypes.length > 0 && !filter.eventTypes.includes(event.type)) return false;
   if (filter.transitionNames.length > 0 && event.transitionName && !filter.transitionNames.includes(event.transitionName)) return false;
   if (filter.placeNames.length > 0 && event.placeName && !filter.placeNames.includes(event.placeName)) return false;
+  if (filter.excludeEventTypes.length > 0 && filter.excludeEventTypes.includes(event.type)) return false;
+  if (filter.excludeTransitionNames.length > 0 && event.transitionName && filter.excludeTransitionNames.includes(event.transitionName)) return false;
+  if (filter.excludePlaceNames.length > 0 && event.placeName && filter.excludePlaceNames.includes(event.placeName)) return false;
   return true;
 }
 

@@ -40,6 +40,12 @@ pub struct EventFilter {
     pub event_types: Option<Vec<String>>,
     pub transition_names: Option<Vec<String>>,
     pub place_names: Option<Vec<String>>,
+    #[serde(default)]
+    pub exclude_event_types: Option<Vec<String>>,
+    #[serde(default)]
+    pub exclude_transition_names: Option<Vec<String>>,
+    #[serde(default)]
+    pub exclude_place_names: Option<Vec<String>>,
 }
 
 impl EventFilter {
@@ -181,6 +187,35 @@ mod tests {
         assert!(back.event_types.is_none());
         assert!(back.transition_names.is_none());
         assert!(back.place_names.is_none());
+        assert!(back.exclude_event_types.is_none());
+        assert!(back.exclude_transition_names.is_none());
+        assert!(back.exclude_place_names.is_none());
+    }
+
+    #[test]
+    fn serde_event_filter_backward_compat() {
+        let json = r#"{"eventTypes":["TransitionStarted"],"transitionNames":null,"placeNames":null}"#;
+        let filter: EventFilter = serde_json::from_str(json).unwrap();
+        assert!(filter.exclude_event_types.is_none());
+        assert!(filter.exclude_transition_names.is_none());
+        assert!(filter.exclude_place_names.is_none());
+    }
+
+    #[test]
+    fn serde_event_filter_with_exclusions() {
+        let filter = EventFilter {
+            event_types: None,
+            transition_names: None,
+            place_names: None,
+            exclude_event_types: Some(vec!["LogMessage".into()]),
+            exclude_transition_names: Some(vec!["t1".into()]),
+            exclude_place_names: None,
+        };
+        let json = serde_json::to_string(&filter).unwrap();
+        let back: EventFilter = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.exclude_event_types, Some(vec!["LogMessage".into()]));
+        assert_eq!(back.exclude_transition_names, Some(vec!["t1".into()]));
+        assert!(back.exclude_place_names.is_none());
     }
 
     #[test]

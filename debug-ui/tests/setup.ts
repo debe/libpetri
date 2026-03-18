@@ -37,6 +37,7 @@ const ELEMENT_IDS = [
   'breakpoint-form', 'bp-type', 'bp-target', 'bp-save', 'bp-cancel',
   'event-log', 'event-count', 'clear-events', 'jump-to-latest',
   'filter-event-type', 'filter-transition', 'filter-place',
+  'filter-exclude-transition', 'filter-exclude-place',
   'apply-filter', 'clear-filter',
   'search-input', 'search-results', 'search-prev', 'search-next', 'search-clear',
   'btn-restart', 'btn-step-back', 'btn-pause',
@@ -67,7 +68,9 @@ export function setupDOM(): void {
     } else if (id === 'session-select' || id === 'filter-event-type' || id === 'mode-select' || id === 'bp-type'
       || id === 'net-name-filter') {
       tag = 'select';
-    } else if (id === 'filter-transition' || id === 'filter-place' || id === 'bp-target'
+    } else if (id === 'filter-transition' || id === 'filter-place'
+      || id === 'filter-exclude-transition' || id === 'filter-exclude-place'
+      || id === 'bp-target'
       || id === 'search-input' || id === 'timeline-slider'
       || id === 'archive-search' || id === 'archive-upload') {
       tag = 'input';
