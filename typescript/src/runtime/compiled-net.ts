@@ -253,7 +253,10 @@ export function containsAll(snapshot: Uint32Array, mask: Uint32Array): boolean {
     const m = mask[i]!;
     if (m === 0) continue;
     const s = i < snapshot.length ? snapshot[i]! : 0;
-    if ((s & m) !== m) return false;
+    // Use >>> 0 to coerce the bitwise AND result to unsigned. Without this,
+    // when bit 31 (the sign bit) is set, (s & m) returns a negative signed
+    // int32 while m (from Uint32Array) is unsigned, causing a false mismatch.
+    if (((s & m) >>> 0) !== m) return false;
   }
   return true;
 }

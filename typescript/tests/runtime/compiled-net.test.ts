@@ -59,6 +59,45 @@ describe('Bitmap Helpers', () => {
     const mask = new Uint32Array(1);
     expect(containsAll(snapshot, mask)).toBe(true);
   });
+
+  it('containsAll with bit 31 (sign bit) set', () => {
+    const snapshot = new Uint32Array(1);
+    setBit(snapshot, 31);
+    const mask = new Uint32Array(1);
+    setBit(mask, 31);
+    expect(containsAll(snapshot, mask)).toBe(true);
+
+    // bit 31 not in snapshot → false
+    const empty = new Uint32Array(1);
+    expect(containsAll(empty, mask)).toBe(false);
+  });
+
+  it('intersects with bit 31 (sign bit) set', () => {
+    const snapshot = new Uint32Array(1);
+    setBit(snapshot, 31);
+    const mask = new Uint32Array(1);
+    setBit(mask, 31);
+    expect(intersects(snapshot, mask)).toBe(true);
+
+    const noSign = new Uint32Array(1);
+    setBit(noSign, 0);
+    expect(intersects(noSign, mask)).toBe(false);
+  });
+
+  it('containsAll with bit 31 in both words (multi-word)', () => {
+    const snapshot = new Uint32Array(2);
+    setBit(snapshot, 31); // sign bit of word 0
+    setBit(snapshot, 63); // sign bit of word 1
+    const mask = new Uint32Array(2);
+    setBit(mask, 31);
+    setBit(mask, 63);
+    expect(containsAll(snapshot, mask)).toBe(true);
+
+    // missing bit 63 → false
+    const partial = new Uint32Array(2);
+    setBit(partial, 31);
+    expect(containsAll(partial, mask)).toBe(false);
+  });
 });
 
 describe('CompiledNet', () => {
