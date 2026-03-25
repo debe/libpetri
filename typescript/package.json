@@ -57,7 +57,7 @@
     "@viz-js/viz": "^3.25.0",
     "tsup": "^8.5.1",
     "typedoc": "^0.28.17",
-    "typescript": "^5.9.3",
+    "typescript": "^6.0.2",
     "vitest": "^4.0.18"
   },
   "peerDependencies": {
