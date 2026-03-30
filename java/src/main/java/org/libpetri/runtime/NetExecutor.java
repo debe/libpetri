@@ -113,10 +113,13 @@ public final class NetExecutor implements PetriNetExecutor {
     /** Wake-up signal for instant response to external events. */
     private final Semaphore wakeUpSignal = new Semaphore(0);
 
-    /** Long-running mode flag - if true, executor waits for events instead of terminating. */
-    private final boolean longRunning;
+    /** Whether this executor has environment places (implies long-running behavior). */
+    private final boolean hasEnvironmentPlaces;
 
-    /** Tracks if close() was called to terminate long-running executor. */
+    /** Tracks if drain() was called — reject new inject() calls. */
+    private final AtomicBoolean draining = new AtomicBoolean(false);
+
+    /** Tracks if close() was called — immediate shutdown. */
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
     private volatile boolean running = false;
@@ -127,7 +130,6 @@ public final class NetExecutor implements PetriNetExecutor {
         EventStore eventStore,
         ExecutorService executor,
         Set<EnvironmentPlace<?>> environmentPlaces,
-        boolean longRunning,
         ExecutionContextProvider executionContextProvider
     ) {
         this.net = net;
@@ -135,7 +137,7 @@ public final class NetExecutor implements PetriNetExecutor {
         this.eventStore = eventStore;
         this.executor = executor;
         this.environmentPlaces = environmentPlaces;
-        this.longRunning = longRunning;
+        this.hasEnvironmentPlaces = !environmentPlaces.isEmpty();
         this.executionContextProvider = executionContextProvider;
         this.startNanos = System.nanoTime();
 
@@ -180,7 +182,6 @@ public final class NetExecutor implements PetriNetExecutor {
             EventStore.inMemory(),
             Executors.newVirtualThreadPerTaskExecutor(),
             Set.of(),
-            false,
             ExecutionContextProvider.NOOP
         );
     }
@@ -204,7 +205,6 @@ public final class NetExecutor implements PetriNetExecutor {
             eventStore,
             Executors.newVirtualThreadPerTaskExecutor(),
             Set.of(),
-            false,
             ExecutionContextProvider.NOOP
         );
     }
@@ -230,7 +230,6 @@ public final class NetExecutor implements PetriNetExecutor {
             eventStore,
             executor,
             Set.of(),
-            false,
             ExecutionContextProvider.NOOP
         );
     }
@@ -255,7 +254,6 @@ public final class NetExecutor implements PetriNetExecutor {
         private EventStore eventStore = EventStore.inMemory();
         private ExecutorService executor = null; // null = create virtual thread executor
         private Set<EnvironmentPlace<?>> environmentPlaces = Set.of();
-        private boolean longRunning = false;
         private ExecutionContextProvider executionContextProvider = ExecutionContextProvider.NOOP;
 
         private Builder(PetriNet net, Map<Place<?>, List<Token<?>>> initialTokens) {
@@ -307,23 +305,6 @@ public final class NetExecutor implements PetriNetExecutor {
         }
 
         /**
-         * Enables long-running mode.
-         *
-         * <p>In long-running mode, the executor waits for external events instead
-         * of terminating when no transitions are enabled. Use this for reactive
-         * Petri nets that respond to continuous external input.
-         *
-         * <p>Call {@link NetExecutor#close()} to terminate a long-running executor.
-         *
-         * @param enabled true to enable long-running mode
-         * @return this builder
-         */
-        public Builder longRunning(boolean enabled) {
-            this.longRunning = enabled;
-            return this;
-        }
-
-        /**
          * Sets the execution context provider for injecting context into transitions.
          *
          * <p>The provider is called once per transition firing, allowing external
@@ -353,7 +334,6 @@ public final class NetExecutor implements PetriNetExecutor {
                 eventStore,
                 exec,
                 environmentPlaces,
-                longRunning,
                 executionContextProvider
             );
         }
@@ -434,7 +414,7 @@ public final class NetExecutor implements PetriNetExecutor {
                 "Place " + place.name() + " is not registered as an environment place"
             ));
         }
-        if (closed.get()) {
+        if (closed.get() || draining.get()) {
             return CompletableFuture.completedFuture(false);
         }
 
@@ -480,7 +460,7 @@ public final class NetExecutor implements PetriNetExecutor {
         );
         emitMarkingSnapshot();
 
-        while (running && !Thread.currentThread().isInterrupted() && !closed.get()) {
+        while (running && !Thread.currentThread().isInterrupted()) {
             // Process completed transitions
             processCompletedTransitions();
 
@@ -527,11 +507,16 @@ public final class NetExecutor implements PetriNetExecutor {
      * Determines if executor should terminate.
      */
     private boolean shouldTerminate() {
-        if (longRunning) {
-            // In long-running mode, only terminate if explicitly closed
-            return closed.get();
+        if (closed.get()) {
+            // ENV-013: immediate close — wait for in-flight actions to complete
+            return inFlight.isEmpty() && completionQueue.isEmpty();
         }
-        // Standard mode: terminate when quiescent (no enabled + no in-flight)
+        if (hasEnvironmentPlaces) {
+            return draining.get()
+                && enabledAt.isEmpty()
+                && inFlight.isEmpty()
+                && completionQueue.isEmpty();
+        }
         return enabledAt.isEmpty() && inFlight.isEmpty() && completionQueue.isEmpty();
     }
 
@@ -540,6 +525,7 @@ public final class NetExecutor implements PetriNetExecutor {
      */
     @SuppressWarnings("unchecked")
     private void processExternalEvents() {
+        if (closed.get()) return; // ENV-013: leave queued events for drainPendingExternalEvents()
         ExternalEvent<?> event;
         while ((event = externalEventQueue.poll()) != null) {
             try {
@@ -568,8 +554,10 @@ public final class NetExecutor implements PetriNetExecutor {
      * Waits for work to become available.
      */
     private void awaitWork() {
-        // Fast path: check if work is already available
-        if (!completionQueue.isEmpty() || !externalEventQueue.isEmpty()) {
+        // Fast path: check if work is already available.
+        // When closed, ignore external queue — processExternalEvents() won't consume it,
+        // drainPendingExternalEvents() handles it after the loop exits.
+        if (!completionQueue.isEmpty() || (!closed.get() && !externalEventQueue.isEmpty())) {
             return;
         }
 
@@ -577,11 +565,11 @@ public final class NetExecutor implements PetriNetExecutor {
         if (!inFlight.isEmpty()) {
             // Wait for transition completion OR external event
             awaitCompletionOrEvent();
-        } else if (longRunning && !environmentPlaces.isEmpty()) {
-            // Long-running mode: wait for external events
+        } else if (hasEnvironmentPlaces && !draining.get()) {
+            // Wait for external events
             awaitExternalEvent();
         }
-        // If not long-running and no in-flight, loop will terminate
+        // If no env places and no in-flight, loop will terminate
     }
 
     /**
@@ -595,7 +583,7 @@ public final class NetExecutor implements PetriNetExecutor {
         for (var flight : inFlight.values()) {
             if (flight.future().isDone()) return;
         }
-        if (!completionQueue.isEmpty() || !externalEventQueue.isEmpty()) return;
+        if (!completionQueue.isEmpty() || (!closed.get() && !externalEventQueue.isEmpty())) return;
 
         if (!inFlight.isEmpty()) {
             var futures = inFlight.values().stream()
@@ -623,7 +611,7 @@ public final class NetExecutor implements PetriNetExecutor {
                 }
 
                 // Check queues (external event may have arrived without permit)
-                if (!completionQueue.isEmpty() || !externalEventQueue.isEmpty()) {
+                if (!completionQueue.isEmpty() || (!closed.get() && !externalEventQueue.isEmpty())) {
                     return;
                 }
 
@@ -673,7 +661,7 @@ public final class NetExecutor implements PetriNetExecutor {
     }
 
     /**
-     * Waits for external event in long-running mode.
+     * Waits for external event when environment places are registered.
      *
      * <p>Uses timed wait when there are delayed transitions waiting to fire,
      * ensuring the executor wakes up when timed transitions become ready.
@@ -1157,17 +1145,16 @@ public final class NetExecutor implements PetriNetExecutor {
                 "'%s': output does not satisfy declared spec".formatted(t.name())));
     }
 
-    /**
-     * Closes the executor, signaling it to terminate.
-     *
-     * <p>In long-running mode, this wakes up the orchestrator thread so it
-     * can exit gracefully. Any pending external events will be completed
-     * with {@code false}.
-     */
+    @Override
+    public void drain() {
+        draining.set(true);
+        wakeUp();
+    }
+
     @Override
     public void close() {
-        running = false;
+        draining.set(true);
         closed.set(true);
-        wakeUp(); // Wake up orchestrator if waiting
+        wakeUp();
     }
 }

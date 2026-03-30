@@ -620,12 +620,12 @@ The [`spec/`](spec/) directory defines the complete engine contract — **145 re
 | [03-timing.md](spec/03-timing.md) | TIME | Firing intervals, clock semantics, deadlines | 11 |
 | [04-execution-model.md](spec/04-execution-model.md) | EXEC | Orchestrator loop, scheduling, quiescence | 15 |
 | [05-concurrency.md](spec/05-concurrency.md) | CONC | Bitmap executor, async actions, wake-up | 11 |
-| [06-environment-places.md](spec/06-environment-places.md) | ENV | External event injection, long-running mode | 9 |
+| [06-environment-places.md](spec/06-environment-places.md) | ENV | External event injection, implicit long-running behavior, executor lifecycle | 10 |
 | [07-verification.md](spec/07-verification.md) | VER | SMT/IC3, state class graph, structural analysis | 10 |
 | [08-events-observability.md](spec/08-events-observability.md) | EVT | Event types, event store, log capture | 20 |
 | [09-export.md](spec/09-export.md) | EXP | Graph export, formal interchange | 10 |
 | [10-performance.md](spec/10-performance.md) | PERF | Scaling, benchmarks, memory efficiency | 11 |
-| **Total** | | | **145** |
+| **Total** | | | **156** |
 
 **Priority:** 110 MUST · 29 SHOULD · 6 MAY
 

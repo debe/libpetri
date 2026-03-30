@@ -64,7 +64,6 @@ interface ExternalEvent<T = any> {
 export interface BitmapNetExecutorOptions {
   eventStore?: EventStore;
   environmentPlaces?: Set<EnvironmentPlace<any>>;
-  longRunning?: boolean;
   /** Provides execution context data for each transition firing. */
   executionContextProvider?: (transitionName: string, consumed: Token<any>[]) => Map<string, unknown>;
 }
@@ -92,7 +91,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
   private readonly marking: Marking;
   private readonly eventStore: EventStore;
   private readonly environmentPlaces: Set<string>;
-  private readonly longRunning: boolean;
+  private readonly hasEnvironmentPlaces: boolean;
   private readonly executionContextProvider?: (transitionName: string, consumed: Token<any>[]) => Map<string, unknown>;
   private readonly startMs: number;
   private readonly hasAnyDeadlines: boolean;
@@ -135,6 +134,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
   private readonly transitionInputPlaceNames: Map<Transition, Set<string>>;
 
   private running = false;
+  private draining = false;
   private closed = false;
 
   constructor(
@@ -148,7 +148,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     this.environmentPlaces = new Set(
       [...(options.environmentPlaces ?? [])].map(ep => ep.place.name)
     );
-    this.longRunning = options.longRunning ?? false;
+    this.hasEnvironmentPlaces = this.environmentPlaces.size > 0;
     this.executionContextProvider = options.executionContextProvider;
     this.startMs = performance.now();
 
@@ -228,7 +228,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       marking: this.snapshotMarking(),
     });
 
-    while (this.running && !this.closed) {
+    while (this.running) {
       this.processCompletedTransitions();
       this.processExternalEvents();
       this.updateDirtyTransitions();
@@ -277,7 +277,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     if (!this.environmentPlaces.has(envPlace.place.name)) {
       throw new Error(`Place ${envPlace.place.name} is not registered as an environment place`);
     }
-    if (this.closed) return false;
+    if (this.closed || this.draining) return false;
 
     return new Promise<boolean>((resolve, reject) => {
       this.externalQueue.push({
@@ -319,7 +319,16 @@ export class BitmapNetExecutor implements PetriNetExecutor {
   }
 
   private shouldTerminate(): boolean {
-    if (this.longRunning) return this.closed;
+    if (this.closed) {
+      // ENV-013: immediate close — wait for in-flight actions to complete
+      return this.inFlight.size === 0 && this.completionQueue.length === 0;
+    }
+    if (this.hasEnvironmentPlaces) {
+      return this.draining
+        && this.enabledTransitionCount === 0
+        && this.inFlight.size === 0
+        && this.completionQueue.length === 0;
+    }
     return this.enabledTransitionCount === 0
       && this.inFlight.size === 0
       && this.completionQueue.length === 0;
@@ -794,6 +803,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
 
   private processExternalEvents(): void {
     if (this.externalQueue.length === 0) return;
+    if (this.closed) return; // ENV-013: leave queued events for drainPendingExternalEvents()
     // In-place iteration is safe: processing is synchronous and .push() only
     // happens from microtasks which cannot interleave within this loop.
     const len = this.externalQueue.length;
@@ -839,13 +849,17 @@ export class BitmapNetExecutor implements PetriNetExecutor {
    * After the yield, re-checks queues and `this.closed` for close-during-yield safety.
    */
   private async awaitWork(): Promise<void> {
-    if (this.completionQueue.length > 0 || this.externalQueue.length > 0) return;
+    // When closed, ignore external queue — processExternalEvents() won't consume it,
+    // and drainPendingExternalEvents() handles it after the loop exits.
+    if (this.completionQueue.length > 0 || (!this.closed && this.externalQueue.length > 0)) return;
 
     // Flush microtask queue: sync actions complete via .then() which schedules a
     // microtask. A single await here lets those fire before we build a full
     // Promise.race (~5 allocations). For async workloads this adds ~0.05us.
     await Promise.resolve();
-    if (this.completionQueue.length > 0 || this.externalQueue.length > 0 || this.closed) return;
+    if (this.completionQueue.length > 0 || (!this.closed && this.externalQueue.length > 0)) return;
+    // ENV-013: when closed with no in-flight, exit immediately for shouldTerminate()
+    if (this.closed && this.inFlight.size === 0) return;
 
     const promises = this.awaitPromises;
     promises.length = 0;
@@ -858,13 +872,16 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       promises.push(Promise.race(arr));
     }
 
-    // 2. External event wake-up
-    promises.push(new Promise<void>(resolve => { this.wakeUpResolve = resolve; }));
+    // When closed, only wait for in-flight completions — skip event/timer promises
+    if (!this.closed) {
+      // 2. External event wake-up
+      promises.push(new Promise<void>(resolve => { this.wakeUpResolve = resolve; }));
 
-    // 3. Timer for next delayed transition
-    const timerMs = this.millisUntilNextTimedTransition();
-    if (timerMs > 0 && timerMs < Infinity) {
-      promises.push(new Promise<void>(r => setTimeout(r, timerMs)));
+      // 3. Timer for next delayed transition
+      const timerMs = this.millisUntilNextTimedTransition();
+      if (timerMs > 0 && timerMs < Infinity) {
+        promises.push(new Promise<void>(r => setTimeout(r, timerMs)));
+      }
     }
 
     if (promises.length > 0) {
@@ -950,8 +967,13 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     return this.startMs.toString(16);
   }
 
+  drain(): void {
+    this.draining = true;
+    this.wakeUp();
+  }
+
   close(): void {
-    this.running = false;
+    this.draining = true;
     this.closed = true;
     this.wakeUp();
   }

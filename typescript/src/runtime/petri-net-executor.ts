@@ -12,6 +12,9 @@ export interface PetriNetExecutor {
   /** Inject an external token. Returns true if accepted. */
   inject<T>(place: EnvironmentPlace<T>, token: Token<T>): Promise<boolean>;
 
-  /** Shut down the executor. */
+  /** Graceful shutdown: reject new inject() calls, process queued events, terminate at quiescence. */
+  drain(): void;
+
+  /** Immediate shutdown: discard queued events, wait for in-flight, terminate. */
   close(): void;
 }

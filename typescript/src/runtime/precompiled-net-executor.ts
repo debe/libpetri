@@ -56,7 +56,6 @@ interface ExternalEvent<T = any> {
 export interface PrecompiledNetExecutorOptions {
   eventStore?: EventStore;
   environmentPlaces?: Set<EnvironmentPlace<any>>;
-  longRunning?: boolean;
   executionContextProvider?: (transitionName: string, consumed: Token<any>[]) => Map<string, unknown>;
   /** Skip output spec validation for trusted actions (CONC-026). */
   skipOutputValidation?: boolean;
@@ -74,7 +73,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
   private readonly program: PrecompiledNet;
   private readonly eventStore: EventStore;
   private readonly environmentPlaces: Set<string>;
-  private readonly longRunning: boolean;
+  private readonly hasEnvironmentPlaces: boolean;
   private readonly executionContextProvider?: (transitionName: string, consumed: Token<any>[]) => Map<string, unknown>;
   private readonly skipOutputValidation: boolean;
   private readonly startMs: number;
@@ -127,6 +126,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
 
   // ==================== Lifecycle ====================
   private running = false;
+  private draining = false;
   private closed = false;
 
   // ==================== Lazy Marking ====================
@@ -142,7 +142,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     this.environmentPlaces = new Set(
       [...(options.environmentPlaces ?? [])].map(ep => ep.place.name)
     );
-    this.longRunning = options.longRunning ?? false;
+    this.hasEnvironmentPlaces = this.environmentPlaces.size > 0;
     this.executionContextProvider = options.executionContextProvider;
     this.skipOutputValidation = options.skipOutputValidation ?? false;
     this.startMs = performance.now();
@@ -254,7 +254,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       marking: this.snapshotMarking(),
     });
 
-    while (this.running && !this.closed) {
+    while (this.running) {
       this.processCompletedTransitions();
       this.processExternalEvents();
       this.updateDirtyTransitions();
@@ -295,7 +295,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     if (!this.environmentPlaces.has(envPlace.place.name)) {
       throw new Error(`Place ${envPlace.place.name} is not registered as an environment place`);
     }
-    if (this.closed) return false;
+    if (this.closed || this.draining) return false;
 
     return new Promise<boolean>((resolve, reject) => {
       this.externalQueue.push({
@@ -335,7 +335,16 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
   }
 
   private shouldTerminate(): boolean {
-    if (this.longRunning) return this.closed;
+    if (this.closed) {
+      // ENV-013: immediate close — wait for in-flight actions to complete
+      return this.inFlightCount === 0 && this.completionQueue.length === 0;
+    }
+    if (this.hasEnvironmentPlaces) {
+      return this.draining
+        && this.enabledTransitionCount === 0
+        && this.inFlightCount === 0
+        && this.completionQueue.length === 0;
+    }
     return this.enabledTransitionCount === 0
       && this.inFlightCount === 0
       && this.completionQueue.length === 0;
@@ -932,6 +941,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
 
   private processExternalEvents(): void {
     if (this.externalQueue.length === 0) return;
+    if (this.closed) return; // ENV-013: leave queued events for drainPendingExternalEvents()
     const prog = this.program;
     const len = this.externalQueue.length;
 
@@ -966,10 +976,14 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
   // ======================== Await Work ========================
 
   private async awaitWork(): Promise<void> {
-    if (this.completionQueue.length > 0 || this.externalQueue.length > 0) return;
+    // When closed, ignore external queue — processExternalEvents() won't consume it,
+    // and drainPendingExternalEvents() handles it after the loop exits.
+    if (this.completionQueue.length > 0 || (!this.closed && this.externalQueue.length > 0)) return;
 
     await Promise.resolve();
-    if (this.completionQueue.length > 0 || this.externalQueue.length > 0 || this.closed) return;
+    if (this.completionQueue.length > 0 || (!this.closed && this.externalQueue.length > 0)) return;
+    // ENV-013: when closed with no in-flight, exit immediately for shouldTerminate()
+    if (this.closed && this.inFlightCount === 0) return;
 
     const promises = this.awaitPromises;
     promises.length = 0;
@@ -988,13 +1002,16 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       }
     }
 
-    // External event wake-up
-    promises.push(new Promise<void>(resolve => { this.wakeUpResolve = resolve; }));
+    // When closed, only wait for in-flight completions — skip event/timer promises
+    if (!this.closed) {
+      // External event wake-up
+      promises.push(new Promise<void>(resolve => { this.wakeUpResolve = resolve; }));
 
-    // Timer for next timed transition
-    const timerMs = this.millisUntilNextTimedTransition();
-    if (timerMs > 0 && timerMs < Infinity) {
-      promises.push(new Promise<void>(r => setTimeout(r, timerMs)));
+      // Timer for next timed transition
+      const timerMs = this.millisUntilNextTimedTransition();
+      if (timerMs > 0 && timerMs < Infinity) {
+        promises.push(new Promise<void>(r => setTimeout(r, timerMs)));
+      }
     }
 
     if (promises.length > 0) {
@@ -1085,8 +1102,13 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     return this.startMs.toString(16);
   }
 
+  drain(): void {
+    this.draining = true;
+    this.wakeUp();
+  }
+
   close(): void {
-    this.running = false;
+    this.draining = true;
     this.closed = true;
     this.wakeUp();
   }

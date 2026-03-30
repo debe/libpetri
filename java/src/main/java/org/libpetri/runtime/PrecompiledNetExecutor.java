@@ -127,7 +127,8 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
     // ==================== Environment & Lifecycle ====================
 
     private final Set<EnvironmentPlace<?>> environmentPlaces;
-    private final boolean longRunning;
+    private final boolean hasEnvironmentPlaces;
+    private final AtomicBoolean draining = new AtomicBoolean(false);
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private volatile boolean running = false;
     private Thread orchestratorThread;
@@ -141,7 +142,6 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
         EventStore eventStore,
         ExecutorService executor,
         Set<EnvironmentPlace<?>> environmentPlaces,
-        boolean longRunning,
         ExecutionContextProvider executionContextProvider,
         boolean skipOutputValidation
     ) {
@@ -149,7 +149,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
         this.eventStore = eventStore;
         this.executor = executor;
         this.environmentPlaces = environmentPlaces;
-        this.longRunning = longRunning;
+        this.hasEnvironmentPlaces = !environmentPlaces.isEmpty();
         this.executionContextProvider = executionContextProvider;
         this.skipOutputValidation = skipOutputValidation;
         this.startNanos = System.nanoTime();
@@ -407,7 +407,6 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
         private EventStore eventStore = EventStore.noop();
         private ExecutorService executor = null;
         private Set<EnvironmentPlace<?>> environmentPlaces = Set.of();
-        private boolean longRunning = false;
         private boolean skipOutputValidation = false;
         private ExecutionContextProvider executionContextProvider = ExecutionContextProvider.NOOP;
 
@@ -442,11 +441,6 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
             return this;
         }
 
-        public Builder longRunning(boolean enabled) {
-            this.longRunning = enabled;
-            return this;
-        }
-
         public Builder executionContextProvider(ExecutionContextProvider provider) {
             this.executionContextProvider = Objects.requireNonNull(provider);
             return this;
@@ -471,7 +465,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
                 : Executors.newVirtualThreadPerTaskExecutor();
             return new PrecompiledNetExecutor(
                 prog, initialTokens, eventStore, exec,
-                environmentPlaces, longRunning, executionContextProvider,
+                environmentPlaces, executionContextProvider,
                 skipOutputValidation
             );
         }
@@ -503,7 +497,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
                 "Place " + place.name() + " is not registered as an environment place"
             ));
         }
-        if (closed.get()) {
+        if (closed.get() || draining.get()) {
             return CompletableFuture.completedFuture(false);
         }
         var event = new ExternalEvent<>(place.place(), token, new CompletableFuture<>());
@@ -525,7 +519,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
 
     /**
      * Syncs the Marking instance from ring buffers. Only called when marking()
-     * is accessed (end of execution, external inspection in long-running mode),
+     * is accessed (end of execution, external inspection with environment places),
      * never on the hot path.
      */
     @SuppressWarnings("unchecked")
@@ -566,8 +560,14 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
     }
 
     @Override
+    public void drain() {
+        draining.set(true);
+        wakeUp();
+    }
+
+    @Override
     public void close() {
-        running = false;
+        draining.set(true);
         closed.set(true);
         wakeUp();
     }
@@ -586,7 +586,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
         markAllDirty();
         emitMarkingSnapshot();
 
-        while (running && !Thread.currentThread().isInterrupted() && !closed.get()) {
+        while (running && !Thread.currentThread().isInterrupted()) {
             processCompletedTransitions();
             processExternalEvents();
             updateDirtyTransitions();
@@ -645,7 +645,16 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
     }
 
     private boolean shouldTerminate() {
-        if (longRunning) return closed.get();
+        if (closed.get()) {
+            // ENV-013: immediate close — wait for in-flight actions to complete
+            return inFlightCount == 0 && completionQueue.isEmpty();
+        }
+        if (hasEnvironmentPlaces) {
+            return draining.get()
+                && enabledTransitionCount == 0
+                && inFlightCount == 0
+                && completionQueue.isEmpty();
+        }
         return enabledTransitionCount == 0 && inFlightCount == 0 && completionQueue.isEmpty();
     }
 
@@ -1136,6 +1145,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
 
     @SuppressWarnings("unchecked")
     private void processExternalEvents() {
+        if (closed.get()) return; // ENV-013: leave queued events for drainPendingExternalEvents()
         ExternalEvent<?> event;
         while ((event = externalEventQueue.poll()) != null) {
             try {
@@ -1160,11 +1170,13 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
     // ==================== Await Work ====================
 
     private void awaitWork() {
-        if (!completionQueue.isEmpty() || !externalEventQueue.isEmpty()) return;
+        // When closed, ignore external queue — processExternalEvents() won't consume it,
+        // drainPendingExternalEvents() handles it after the loop exits.
+        if (!completionQueue.isEmpty() || (!closed.get() && !externalEventQueue.isEmpty())) return;
 
         if (inFlightCount > 0) {
             awaitCompletionOrEvent();
-        } else if (enabledTransitionCount > 0 || (longRunning && !environmentPlaces.isEmpty())) {
+        } else if (enabledTransitionCount > 0 || (hasEnvironmentPlaces && !draining.get())) {
             // Wait for timed transitions to become ready, or for external events
             awaitExternalEvent();
         }
@@ -1175,7 +1187,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
         for (int tid = 0; tid < program.transitionCount; tid++) {
             if (inFlightFutures[tid] != null && inFlightFutures[tid].isDone()) return;
         }
-        if (!completionQueue.isEmpty() || !externalEventQueue.isEmpty()) return;
+        if (!completionQueue.isEmpty() || (!closed.get() && !externalEventQueue.isEmpty())) return;
 
         // Collect in-flight futures into pre-allocated buffer
         int count = 0;
@@ -1199,7 +1211,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
                 Thread.currentThread().interrupt();
                 return;
             }
-            if (!completionQueue.isEmpty() || !externalEventQueue.isEmpty()) return;
+            if (!completionQueue.isEmpty() || (!closed.get() && !externalEventQueue.isEmpty())) return;
 
             // Timed transition may have become ready (pollMs was bounded by timer)
             if (!program.allImmediate && nanosUntilNextTimedTransition() <= 0) return;

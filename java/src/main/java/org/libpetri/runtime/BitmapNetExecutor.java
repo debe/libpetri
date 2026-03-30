@@ -120,10 +120,13 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
     /** Wake-up signal for instant response to events. */
     private final Semaphore wakeUpSignal = new Semaphore(0);
 
-    /** Long-running mode flag. */
-    private final boolean longRunning;
+    /** Whether this executor has environment places (implies long-running behavior). */
+    private final boolean hasEnvironmentPlaces;
 
-    /** Tracks if close() was called. */
+    /** Tracks if drain() was called — reject new inject() calls. */
+    private final AtomicBoolean draining = new AtomicBoolean(false);
+
+    /** Tracks if close() was called — immediate shutdown. */
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
     private volatile boolean running = false;
@@ -138,7 +141,6 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         EventStore eventStore,
         ExecutorService executor,
         Set<EnvironmentPlace<?>> environmentPlaces,
-        boolean longRunning,
         ExecutionContextProvider executionContextProvider
     ) {
         this.compiled = compiled;
@@ -146,7 +148,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         this.eventStore = eventStore;
         this.executor = executor;
         this.environmentPlaces = environmentPlaces;
-        this.longRunning = longRunning;
+        this.hasEnvironmentPlaces = !environmentPlaces.isEmpty();
         this.executionContextProvider = executionContextProvider;
         this.startNanos = System.nanoTime();
 
@@ -272,7 +274,6 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         private EventStore eventStore = EventStore.noop();
         private ExecutorService executor = null;
         private Set<EnvironmentPlace<?>> environmentPlaces = Set.of();
-        private boolean longRunning = false;
         private ExecutionContextProvider executionContextProvider = ExecutionContextProvider.NOOP;
 
         private Builder(PetriNet net, Map<Place<?>, List<Token<?>>> initialTokens) {
@@ -310,11 +311,6 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
             return this;
         }
 
-        public Builder longRunning(boolean enabled) {
-            this.longRunning = enabled;
-            return this;
-        }
-
         public Builder executionContextProvider(ExecutionContextProvider provider) {
             this.executionContextProvider = Objects.requireNonNull(provider);
             return this;
@@ -328,7 +324,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
                 : Executors.newVirtualThreadPerTaskExecutor();
             return new BitmapNetExecutor(
                 compiled, marking, eventStore, exec,
-                environmentPlaces, longRunning, executionContextProvider
+                environmentPlaces, executionContextProvider
             );
         }
     }
@@ -357,7 +353,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
                 "Place " + place.name() + " is not registered as an environment place"
             ));
         }
-        if (closed.get()) {
+        if (closed.get() || draining.get()) {
             return CompletableFuture.completedFuture(false);
         }
         var event = new ExternalEvent<>(place.place(), token, new CompletableFuture<>());
@@ -388,7 +384,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         markAllDirty();
         emitMarkingSnapshot();
 
-        while (running && !Thread.currentThread().isInterrupted() && !closed.get()) {
+        while (running && !Thread.currentThread().isInterrupted()) {
             processCompletedTransitions();
             processExternalEvents();
             updateDirtyTransitions();
@@ -444,8 +440,16 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
     }
 
     private boolean shouldTerminate() {
-        if (longRunning) return closed.get();
-        // Standard mode: terminate when quiescent
+        if (closed.get()) {
+            // ENV-013: immediate close — wait for in-flight actions to complete
+            return inFlight.isEmpty() && completionQueue.isEmpty();
+        }
+        if (hasEnvironmentPlaces) {
+            return draining.get()
+                && enabledTransitionCount == 0
+                && inFlight.isEmpty()
+                && completionQueue.isEmpty();
+        }
         return enabledTransitionCount == 0 && inFlight.isEmpty() && completionQueue.isEmpty();
     }
 
@@ -888,6 +892,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
 
     @SuppressWarnings("unchecked")
     private void processExternalEvents() {
+        if (closed.get()) return; // ENV-013: leave queued events for drainPendingExternalEvents()
         ExternalEvent<?> event;
         while ((event = externalEventQueue.poll()) != null) {
             try {
@@ -915,11 +920,13 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
     // ======================== Await Work ========================
 
     private void awaitWork() {
-        if (!completionQueue.isEmpty() || !externalEventQueue.isEmpty()) return;
+        // When closed, ignore external queue — processExternalEvents() won't consume it,
+        // drainPendingExternalEvents() handles it after the loop exits.
+        if (!completionQueue.isEmpty() || (!closed.get() && !externalEventQueue.isEmpty())) return;
 
         if (!inFlight.isEmpty()) {
             awaitCompletionOrEvent();
-        } else if (longRunning && !environmentPlaces.isEmpty()) {
+        } else if (hasEnvironmentPlaces && !draining.get()) {
             awaitExternalEvent();
         }
     }
@@ -928,7 +935,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         for (var flight : inFlight.values()) {
             if (flight.future().isDone()) return;
         }
-        if (!completionQueue.isEmpty() || !externalEventQueue.isEmpty()) return;
+        if (!completionQueue.isEmpty() || (!closed.get() && !externalEventQueue.isEmpty())) return;
 
         if (!inFlight.isEmpty()) {
             var futures = inFlight.values().stream()
@@ -948,7 +955,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
                     Thread.currentThread().interrupt();
                     return;
                 }
-                if (!completionQueue.isEmpty() || !externalEventQueue.isEmpty()) return;
+                if (!completionQueue.isEmpty() || (!closed.get() && !externalEventQueue.isEmpty())) return;
 
                 // Timed transition may have become ready (pollMs was bounded by timer)
                 if (!allImmediate && millisUntilNextTimedTransition() <= 0) return;
@@ -1117,8 +1124,14 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
     }
 
     @Override
+    public void drain() {
+        draining.set(true);
+        wakeUp();
+    }
+
+    @Override
     public void close() {
-        running = false;
+        draining.set(true);
         closed.set(true);
         wakeUp();
     }

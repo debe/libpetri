@@ -567,7 +567,6 @@ class BitmapNetExecutorTest {
 
             try (var executor = BitmapNetExecutor.builder(net, Map.of())
                     .environmentPlaces(env)
-                    .longRunning(true)
                     .build()) {
 
                 var runFuture = CompletableFuture.supplyAsync(executor::run, testExecutor);
@@ -582,8 +581,8 @@ class BitmapNetExecutorTest {
                 // Give executor time to process
                 Thread.sleep(100);
 
-                // Close to terminate
-                executor.close();
+                // Drain to terminate
+                executor.drain();
                 var result = runFuture.get(2, TimeUnit.SECONDS);
                 assertTrue(result.hasTokens(output));
             }
@@ -619,7 +618,6 @@ class BitmapNetExecutorTest {
 
             try (var executor = BitmapNetExecutor.builder(net, Map.of())
                     .environmentPlaces(env)
-                    .longRunning(true)
                     .build()) {
 
                 var runFuture = CompletableFuture.supplyAsync(executor::run, testExecutor);
@@ -661,7 +659,7 @@ class BitmapNetExecutorTest {
                     Thread.sleep(50);
                 }
 
-                executor.close();
+                executor.drain();
                 runFuture.get(2, TimeUnit.SECONDS);
 
                 assertEquals(totalInjections, processedCount.get(),

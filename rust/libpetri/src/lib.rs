@@ -103,3 +103,8 @@ pub use libpetri_runtime::precompiled_executor::{
     PrecompiledExecutorBuilder, PrecompiledNetExecutor,
 };
 pub use libpetri_runtime::precompiled_net::PrecompiledNet;
+
+#[cfg(feature = "tokio")]
+pub use libpetri_runtime::environment::{ExecutorSignal, ExternalEvent};
+#[cfg(feature = "tokio")]
+pub use libpetri_runtime::executor_handle::ExecutorHandle;

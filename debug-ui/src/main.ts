@@ -24,7 +24,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Create executor
   const executor = new BitmapNetExecutor(net, initialTokens, {
     environmentPlaces: allEnvironmentPlaces,
-    longRunning: true,
   });
 
   // Store executor reference for transition actions

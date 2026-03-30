@@ -1,6 +1,6 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
-use libpetri::runtime::environment::ExternalEvent;
+use libpetri::runtime::environment::ExecutorSignal;
 use libpetri::runtime::precompiled_executor::PrecompiledNetExecutor;
 use libpetri::runtime::precompiled_net::PrecompiledNet;
 use libpetri::*;
@@ -193,7 +193,7 @@ fn async_linear_chain(c: &mut Criterion) {
                         marking,
                         ExecutorOptions::default(),
                     );
-                    let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+                    let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
                     executor.run_async(rx).await;
                     black_box(executor.marking().count(&format!("p{n}")));
                 })
@@ -242,7 +242,7 @@ fn mixed_chain(c: &mut Criterion) {
                         marking,
                         ExecutorOptions::default(),
                     );
-                    let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+                    let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
                     executor.run_async(rx).await;
                     black_box(executor.marking().count(&format!("p{n}")));
                 })
@@ -271,7 +271,7 @@ fn async_fan_out(c: &mut Criterion) {
                         marking,
                         ExecutorOptions::default(),
                     );
-                    let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+                    let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
                     executor.run_async(rx).await;
                     black_box(executor.marking().count("end"));
                 })
@@ -513,7 +513,7 @@ fn precompiled_async_linear_chain(c: &mut Criterion) {
                     marking.add(&start, Token::at(1, 0));
                     let mut executor =
                         PrecompiledNetExecutor::<NoopEventStore>::new(&prog, marking);
-                    let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+                    let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
                     let result = executor.run_async(rx).await;
                     black_box(result.count(&format!("p{n}")));
                 })
@@ -539,7 +539,7 @@ fn precompiled_mixed_chain(c: &mut Criterion) {
                     marking.add(&start, Token::at(1, 0));
                     let mut executor =
                         PrecompiledNetExecutor::<NoopEventStore>::new(&prog, marking);
-                    let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+                    let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
                     let result = executor.run_async(rx).await;
                     black_box(result.count(&format!("p{n}")));
                 })

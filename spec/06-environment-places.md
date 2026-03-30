@@ -1,6 +1,6 @@
 # 06 — Environment Places
 
-This document specifies external event injection via environment places and long-running mode.
+This document specifies external event injection via environment places, implicit long-running behavior, and executor lifecycle (drain/close).
 
 ---
 
@@ -61,7 +61,7 @@ The inject operation returns a future/promise that completes when the token has 
 
 **Acceptance Criteria:**
 1. Future completes with true/success when token is in marking.
-2. Future completes with false/error if executor is closed.
+2. Future completes with false/error if executor is closed or draining.
 
 **Test derivation:** Inject token; await future; verify token in marking after future resolves.
 
@@ -79,54 +79,69 @@ Injecting a token wakes the orchestrator from idle immediately. The orchestrator
 3. Token is processed promptly (within one cycle).
 
 **Depends on:** [CONC-010]
-**Test derivation:** Start executor in long-running mode; wait for quiescence; inject token; verify processing within milliseconds.
+**Test derivation:** Start executor with environment places; wait for quiescence; inject token; verify processing within milliseconds.
 
 ---
 
-#### ENV-006: inject() Rejection on Closed Executor
+#### ENV-006: inject() Rejection on Closed or Draining Executor
 
 **Priority:** MUST
 
-If the executor has been closed (execution completed or explicitly shut down), inject() returns an error or false rather than silently dropping the token.
+If the executor has been closed, is draining, or execution has completed, inject() returns an error or false rather than silently dropping the token.
 
 **Acceptance Criteria:**
 1. After executor closes, inject() returns error/false.
-2. No token is silently lost.
+2. After drain(), inject() returns error/false.
+3. No token is silently lost.
 
-**Test derivation:** Run executor to completion; call inject(); verify error returned.
-
----
-
-## Long-Running Mode
-
-#### ENV-010: Long-Running Mode
-
-**Priority:** MUST
-
-In long-running mode, the executor does NOT terminate at quiescence (when no transitions are enabled and none are in-flight). Instead, it waits for external events that may enable new transitions.
-
-**Acceptance Criteria:**
-1. Long-running flag is set at executor construction.
-2. Executor reaches quiescence but does not terminate.
-3. Injecting a token resumes execution.
-4. Executor terminates only when explicitly closed.
-
-**Test derivation:** Long-running executor; all transitions fire; verify executor still running; inject token; verify new transition fires; close executor; verify termination.
+**Test derivation:** Run executor to completion; call inject(); verify error returned. Call drain(); inject(); verify error returned.
 
 ---
 
-#### ENV-011: Explicit Close
+## Implicit Long-Running Behavior
+
+#### ENV-010: Implicit Long-Running Behavior
 
 **Priority:** MUST
 
-A long-running executor can be explicitly closed, causing it to terminate after processing any remaining in-flight actions.
+When environment places are registered with the executor, the executor does NOT terminate at quiescence (when no transitions are enabled and none are in-flight). Instead, it waits for external events that may enable new transitions. This behavior is derived from the presence of environment places — no explicit flag is needed.
+
+When no environment places are registered, the executor terminates at quiescence per [EXEC-040].
 
 **Acceptance Criteria:**
-1. close() method signals the executor to shut down.
-2. In-flight actions are allowed to complete before termination.
-3. After close(), inject() returns error/false.
+1. Registering environment places causes executor to wait at quiescence instead of terminating.
+2. No explicit long-running flag exists on the executor API.
+3. Executor with environment places does not terminate at quiescence.
+4. Executor without environment places terminates at quiescence.
+5. Injecting a token resumes execution from quiescence.
 
-**Test derivation:** Long-running executor with in-flight action; call close(); verify action completes; verify executor terminates.
+**Test derivation:** Executor with environment places; all transitions fire; verify executor still running; inject token; verify new transition fires; drain executor; verify termination.
+
+---
+
+## Executor Lifecycle
+
+#### ENV-011: Graceful Drain
+
+**Priority:** MUST
+
+The executor provides a `drain()` method that signals graceful shutdown. After `drain()` is called:
+1. New `inject()` calls are rejected (return error/false).
+2. Already-queued external events are processed normally.
+3. In-flight actions are allowed to complete.
+4. The executor terminates when quiescent (no enabled transitions, no in-flight, no pending events).
+
+For executors without environment places, `drain()` is a no-op since the executor already terminates at quiescence.
+
+**Acceptance Criteria:**
+1. `drain()` method is available on the executor.
+2. After `drain()`, `inject()` returns error/false.
+3. Already-queued events are processed before termination.
+4. In-flight actions complete before termination.
+5. Executor terminates when quiescent after drain.
+
+**Depends on:** [ENV-010]
+**Test derivation:** Executor with env places; inject tokens; call drain(); verify queued events processed; verify new inject rejected; verify termination at quiescence.
 
 ---
 
@@ -143,3 +158,26 @@ The engine supports event-driven workflow patterns where ~10 environment places 
 
 **Depends on:** [ENV-001], [ENV-002], [ENV-010]
 **Test derivation:** Build a net with 10 environment places; inject events from multiple sources; verify correct transition firing.
+
+---
+
+#### ENV-013: Immediate Close
+
+**Priority:** MUST
+
+The executor provides a `close()` method for immediate shutdown. After `close()` is called:
+1. New `inject()` calls are rejected (return error/false).
+2. Queued external events are discarded (completed with false).
+3. In-flight actions are allowed to complete.
+4. The executor terminates after in-flight actions complete.
+
+Calling `close()` after `drain()` escalates from graceful to immediate shutdown.
+
+**Acceptance Criteria:**
+1. `close()` signals immediate shutdown.
+2. Queued events are drained with false (not processed).
+3. In-flight actions complete before termination.
+4. `inject()` returns error/false after close.
+
+**Depends on:** [ENV-010]
+**Test derivation:** Executor with in-flight action; call close(); verify action completes; verify queued events discarded; verify executor terminates.

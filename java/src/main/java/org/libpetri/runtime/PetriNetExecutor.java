@@ -38,6 +38,28 @@ public interface PetriNetExecutor extends AutoCloseable {
 
     String executionId();
 
+    /**
+     * Initiates graceful shutdown per [ENV-011].
+     *
+     * <p>After this call, new {@code inject()} calls are rejected (return {@code false}).
+     * Already-queued external events are processed normally. In-flight actions complete.
+     * The executor terminates when quiescent.
+     *
+     * <p>For executors without environment places this is a no-op since the
+     * executor already terminates at quiescence.
+     */
+    void drain();
+
+    /**
+     * Initiates immediate shutdown per [ENV-013].
+     *
+     * <p>After this call, new {@code inject()} calls are rejected. Queued external
+     * events are discarded (completed with {@code false}). In-flight actions are
+     * allowed to complete. The executor terminates after in-flight completion.
+     *
+     * <p>Calling {@code close()} after {@code drain()} escalates from graceful
+     * to immediate shutdown.
+     */
     @Override
     void close();
 }

@@ -35,12 +35,12 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | [03-timing.md](03-timing.md) | TIME | Firing intervals, clock semantics, deadline enforcement | 11 |
 | [04-execution-model.md](04-execution-model.md) | EXEC | Orchestrator loop, scheduling, token consumption, failure, quiescence | 15 |
 | [05-concurrency.md](05-concurrency.md) | CONC | Single-threaded orchestrator, bitmap executor, precompiled flat-array executor, async actions, wake-up | 18 |
-| [06-environment-places.md](06-environment-places.md) | ENV | External event injection, long-running mode | 9 |
+| [06-environment-places.md](06-environment-places.md) | ENV | External event injection, implicit long-running behavior, executor lifecycle | 10 |
 | [07-verification.md](07-verification.md) | VER | SMT/IC3, state class graph, structural analysis | 10 |
 | [08-events-observability.md](08-events-observability.md) | EVT | Event types, event store, log capture | 20 |
 | [09-export.md](09-export.md) | EXP | Graph export, formal interchange | 10 |
 | [10-performance.md](10-performance.md) | PERF | Scaling, benchmarks, memory efficiency, flat-array executor performance | 14 |
-| **Total** | | | **155** |
+| **Total** | | | **156** |
 
 ---
 
@@ -113,10 +113,11 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | ENV-003 | inject() Thread Safety | MUST | — |
 | ENV-004 | inject() Completion Semantics | MUST | — |
 | ENV-005 | inject() Wake-Up | MUST | CONC-010 |
-| ENV-006 | inject() Rejection on Closed Executor | MUST | — |
-| ENV-010 | Long-Running Mode | MUST | — |
-| ENV-011 | Explicit Close | MUST | — |
+| ENV-006 | inject() Rejection on Closed or Draining Executor | MUST | — |
+| ENV-010 | Implicit Long-Running Behavior | MUST | — |
+| ENV-011 | Graceful Drain | MUST | ENV-010 |
 | ENV-012 | Event-Driven Workflow Pattern | SHOULD | ENV-001, 002, 010 |
+| ENV-013 | Immediate Close | MUST | ENV-010 |
 
 ### EVT — Events & Observability
 | ID | Title | Priority | Depends On |
@@ -303,7 +304,7 @@ This matrix maps spec requirements to test classes/files in each implementation.
 | EXEC-040–041 | `NetExecutorTest` | `bitmap-net-executor.test.ts` | `executor::tests` |
 | CONC-004–008 | `BitmapNetExecutorTest` | `compiled-net.test.ts` | `compiled_net::tests`, `bitmap::tests` |
 | ENV-001–006 | `EnvironmentPlaceTest` | `environment.test.ts` | `injector::tests` |
-| ENV-010–012 | `LongRunningTest` | `long-running.test.ts` | — |
+| ENV-010–013 | `EnvironmentPlaceTest` | `environment.test.ts` | `environment::tests` |
 | VER-001–006 | `SmtVerifierTest` | `smt-verifier.test.ts` | `structural_check::tests`, `p_invariant::tests` |
 | VER-010–011 | `StateClassGraphTest` | `analysis/*.test.ts` | `state_class_graph::tests` |
 | EVT-001–014 | `NetEventTest` | `net-event.test.ts` | `net_event::tests` |
@@ -328,7 +329,7 @@ These patterns are derived from a representative real-time event-driven workflow
 | XOR exactly-one routing | [IO-012] | Guard → safe/violation; Classification → branch A/branch B |
 | In.all() drain semantics | [IO-003] | Buffered data drained on processing window open |
 | Competitive scheduling | [EXEC-003] + [TIME-014] | Primary action P=10 vs fallback P=-10 with 3s delay |
-| Long-running mode | [ENV-010] | Session awaits external events indefinitely |
+| Implicit long-running behavior | [ENV-010] | Session awaits external events indefinitely |
 | Multiple environment places | [ENV-012] | Activity signals, data streams, tool requests, state changes |
 | Action timeout | [EXEC-022] | Guard actions with 2s timeout |
 | Stale detection via read arc | [EXEC-050] | Commit action reads latest timestamp to detect staleness |
