@@ -594,7 +594,7 @@ public final class NetExecutor implements PetriNetExecutor {
             CompletableFuture<Object> anyCompletion = CompletableFuture.anyOf(futures);
 
             // Poll until either a transition completes or an external event arrives
-            while (!anyCompletion.isDone() && !closed.get()) {
+            while (!anyCompletion.isDone()) {
                 // Use the shorter of the default poll interval and time until next timed transition
                 long pollMs = Math.max(1, Math.min(50, millisUntilNextTimedTransition()));
 

@@ -944,7 +944,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
 
             CompletableFuture<Object> anyCompletion = CompletableFuture.anyOf(futures);
 
-            while (!anyCompletion.isDone() && !closed.get()) {
+            while (!anyCompletion.isDone()) {
                 long pollMs = allImmediate ? 50 : Math.max(1, Math.min(50, millisUntilNextTimedTransition()));
                 try {
                     if (wakeUpSignal.tryAcquire(pollMs, TimeUnit.MILLISECONDS)) {
