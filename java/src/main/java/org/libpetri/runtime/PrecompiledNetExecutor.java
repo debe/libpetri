@@ -1199,7 +1199,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
         CompletableFuture<Object> anyCompletion =
             CompletableFuture.anyOf(Arrays.copyOf(awaitFuturesBuffer, count));
 
-        while (!anyCompletion.isDone() && !closed.get()) {
+        while (!anyCompletion.isDone()) {
             long pollMs = program.allImmediate ? AWAIT_POLL_MS
                 : Math.max(1, Math.min(AWAIT_POLL_MS, nanosUntilNextTimedTransition() / 1_000_000));
             try {

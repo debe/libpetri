@@ -671,6 +671,85 @@ abstract class AbstractNetExecutorEnvironmentTest {
                     "Inject after close should return false");
             }
         }
+
+        /**
+         * Regression test for 1.5.0 CPU spin: close() with in-flight async actions
+         * caused awaitCompletionOrEvent() to exit immediately (tight spin at 100% CPU).
+         *
+         * <p>Detects the spin by measuring orchestrator thread CPU time via ThreadMXBean.
+         * Without the fix, the thread burns ~500ms of CPU. With the fix, it polls at
+         * 50ms intervals and consumes &lt; 50ms of CPU.
+         */
+        @Test
+        @DisplayName("close() with in-flight action does not spin CPU (regression)")
+        void close_withInFlightAction_doesNotSpinCPU() throws Exception {
+            Place<StringValue> envPlace = Place.of("ENV_INPUT", StringValue.class);
+            EnvironmentPlace<StringValue> envInput = EnvironmentPlace.of(envPlace);
+            Place<StringValue> output = Place.of("OUTPUT", StringValue.class);
+
+            AtomicBoolean actionStarted = new AtomicBoolean(false);
+
+            Transition slow = Transition.builder("slow500ms")
+                .inputs(Arc.In.one(envPlace))
+                .outputs(Arc.Out.and(output))
+                .timing(Timing.deadline(Duration.ofMillis(10_000)))
+                .action(ctx -> CompletableFuture.runAsync(() -> {
+                    actionStarted.set(true);
+                    try { Thread.sleep(500); } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    ctx.output(output, new StringValue("done"));
+                }, testExecutor))
+                .build();
+
+            PetriNet net = PetriNet.builder("SpinTest").transitions(slow).build();
+
+            try (PetriNetExecutor executor = createWithEnvPlaces(net, Map.of(envPlace, List.of()), Set.of(envInput))) {
+                // Run executor on a named thread so we can measure its CPU time
+                var threadMXBean = java.lang.management.ManagementFactory.getThreadMXBean();
+                var threadRef = new java.util.concurrent.atomic.AtomicLong();
+
+                ExecutorService orchestrator = Executors.newSingleThreadExecutor(r -> {
+                    Thread t = new Thread(r, "spin-test-orchestrator");
+                    threadRef.set(t.getId());
+                    return t;
+                });
+                Future<Marking> runFuture = orchestrator.submit((Callable<Marking>) executor::run);
+
+                Thread.sleep(50L);
+
+                // Inject a token to start the slow 500ms action
+                executor.inject(envInput, Token.of(new StringValue("go")));
+
+                // Wait for action to start
+                long deadline = System.currentTimeMillis() + 1_000;
+                while (!actionStarted.get() && System.currentTimeMillis() < deadline) {
+                    Thread.sleep(10L);
+                }
+                assertTrue(actionStarted.get(), "Action should have started");
+
+                // Record CPU time, then close()
+                long cpuBefore = threadMXBean.getThreadCpuTime(threadRef.get());
+                executor.close();
+
+                // Wait for executor to finish (action takes ~500ms)
+                Marking marking = runFuture.get(3, TimeUnit.SECONDS);
+                long cpuAfter = threadMXBean.getThreadCpuTime(threadRef.get());
+                orchestrator.shutdownNow();
+
+                long cpuDeltaMs = (cpuAfter - cpuBefore) / 1_000_000;
+
+                // In-flight action should still complete per ENV-013
+                assertTrue(marking.hasTokens(output),
+                    "In-flight action output should be in marking");
+
+                // CPU time should be well under 200ms during the ~500ms wait.
+                // Without fix: ~500ms CPU (tight spin). With fix: ~5ms (50ms polling).
+                assertTrue(cpuDeltaMs < 200,
+                    "Orchestrator thread consumed " + cpuDeltaMs +
+                    "ms of CPU during close() — suspected spin (threshold: 200ms)");
+            }
+        }
     }
 
     @Nested
