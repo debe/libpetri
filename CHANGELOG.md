@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.5.1
+
+### Bug Fixes
+
+- **Fixed CPU spin in `close()` with in-flight async actions (Java).** Calling `close()` while
+  async transition actions were running caused the orchestrator thread to spin at 100% CPU until
+  those actions completed. The `awaitCompletionOrEvent()` poll loop now blocks with 50ms polling
+  intervals instead of exiting immediately when `closed` is set. Affects all three Java executors:
+  `BitmapNetExecutor`, `NetExecutor`, `PrecompiledNetExecutor`. TypeScript and Rust were not
+  affected (event-driven architectures). Regression introduced in 1.5.0.
+
 ## 1.5.0
 
 ### Breaking Changes
