@@ -18,12 +18,12 @@ class PrecompiledNetExecutorEnvironmentTest extends AbstractNetExecutorEnvironme
     }
 
     @Override
-    protected PetriNetExecutor createLongRunning(PetriNet net, Map<Place<?>, List<Token<?>>> initial, Set<EnvironmentPlace<?>> envPlaces) {
-        return PrecompiledNetExecutor.builder(net, initial).environmentPlaces(envPlaces).longRunning(true).build();
+    protected PetriNetExecutor createWithEnvPlaces(PetriNet net, Map<Place<?>, List<Token<?>>> initial, Set<EnvironmentPlace<?>> envPlaces) {
+        return PrecompiledNetExecutor.builder(net, initial).environmentPlaces(envPlaces).build();
     }
 
     @Override
-    protected PetriNetExecutor createLongRunningWithStore(PetriNet net, Map<Place<?>, List<Token<?>>> initial, EventStore store, Set<EnvironmentPlace<?>> envPlaces) {
-        return PrecompiledNetExecutor.builder(net, initial).eventStore(store).environmentPlaces(envPlaces).longRunning(true).build();
+    protected PetriNetExecutor createWithEnvPlacesAndStore(PetriNet net, Map<Place<?>, List<Token<?>>> initial, EventStore store, Set<EnvironmentPlace<?>> envPlaces) {
+        return PrecompiledNetExecutor.builder(net, initial).eventStore(store).environmentPlaces(envPlaces).build();
     }
 }

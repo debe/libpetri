@@ -23,7 +23,7 @@ function initialTokens(...entries: [Place<any>, Token<any>[]][]): Map<Place<any>
 async function runNet(
   net: PetriNet,
   tokens: Map<Place<any>, Token<any>[]>,
-  options?: { eventStore?: InMemoryEventStore; longRunning?: boolean; environmentPlaces?: Set<EnvironmentPlace<any>> },
+  options?: { eventStore?: InMemoryEventStore; environmentPlaces?: Set<EnvironmentPlace<any>> },
 ): Promise<{ marking: Marking; executor: BitmapNetExecutor }> {
   const executor = new BitmapNetExecutor(net, tokens, options);
   const marking = await executor.run(5000);
@@ -1432,13 +1432,12 @@ describe('Executor Close Tests', () => {
     const net = PetriNet.builder('N').transition(t).build();
 
     const executor = new BitmapNetExecutor(net, initialTokens(), {
-      longRunning: true,
       environmentPlaces: new Set([envP]),
     });
 
     const promise = executor.run(5000);
-    // Close after a short delay
-    setTimeout(() => executor.close(), 50);
+    // Drain after a short delay
+    setTimeout(() => executor.drain(), 50);
     const marking = await promise;
     expect(marking).toBeDefined();
   });
@@ -1447,7 +1446,7 @@ describe('Executor Close Tests', () => {
 // ======================== ENVIRONMENT PLACE TESTS ========================
 
 describe('Environment Place Tests', () => {
-  it('long running executor wakes on environment injection', async () => {
+  it('executor with env places wakes on environment injection', async () => {
     const envP = environmentPlace<string>('ENV');
     const input = envP.place;
     const output = place<string>('OUT');
@@ -1460,7 +1459,6 @@ describe('Environment Place Tests', () => {
     const net = PetriNet.builder('N').transition(t).build();
 
     const executor = new BitmapNetExecutor(net, initialTokens(), {
-      longRunning: true,
       environmentPlaces: new Set([envP]),
     });
 
@@ -1471,9 +1469,9 @@ describe('Environment Place Tests', () => {
     const accepted = await executor.inject(envP, tokenOf('injected'));
     expect(accepted).toBe(true);
 
-    // Close and collect
+    // Drain and collect
     await sleep(50);
-    executor.close();
+    executor.drain();
     const marking = await promise;
 
     expect(marking.hasTokens(output)).toBe(true);
@@ -1488,7 +1486,6 @@ describe('Environment Place Tests', () => {
     const net = PetriNet.builder('N').transition(t).build();
 
     const executor = new BitmapNetExecutor(net, initialTokens(), {
-      longRunning: true,
       environmentPlaces: new Set([envP]),
     });
 
@@ -1496,7 +1493,7 @@ describe('Environment Place Tests', () => {
 
     await expect(executor.inject(nonEnvP, tokenOf('x'))).rejects.toThrow('not registered');
 
-    executor.close();
+    executor.drain();
     await promise;
   });
 
@@ -1513,7 +1510,6 @@ describe('Environment Place Tests', () => {
     const net = PetriNet.builder('N').transition(t).build();
 
     const executor = new BitmapNetExecutor(net, initialTokens(), {
-      longRunning: true,
       environmentPlaces: new Set([envP]),
     });
 
@@ -1525,7 +1521,7 @@ describe('Environment Place Tests', () => {
     }
 
     await sleep(100);
-    executor.close();
+    executor.drain();
     const marking = await promise;
 
     expect(marking.tokenCount(output)).toBe(10);
@@ -1538,7 +1534,6 @@ describe('Environment Place Tests', () => {
     const net = PetriNet.builder('N').transition(t).build();
 
     const executor = new BitmapNetExecutor(net, initialTokens(), {
-      longRunning: true,
       environmentPlaces: new Set([envP]),
     });
 
@@ -1550,7 +1545,133 @@ describe('Environment Place Tests', () => {
     expect(result).toBe(false);
   });
 
-  it('delayed transition fires without external event in long-running mode', async () => {
+  it('close discards queued external events [ENV-013]', async () => {
+    const envP = environmentPlace<string>('ENV');
+    const input = envP.place;
+    const output = place<string>('OUT');
+
+    // Slow transition to keep executor busy while we queue more events
+    const t = Transition.builder('T')
+      .inputs(one(input))
+      .outputs(outPlace(output))
+      .action(async (ctx) => {
+        await sleep(500);
+        ctx.output(output, ctx.input(input));
+      })
+      .build();
+    const net = PetriNet.builder('N').transition(t).build();
+
+    const executor = new BitmapNetExecutor(net, initialTokens(), {
+      environmentPlaces: new Set([envP]),
+    });
+
+    const promise = executor.run(5000);
+    await sleep(30);
+
+    // Inject first token to start the slow transition
+    await executor.inject(envP, tokenOf('first'));
+    await sleep(30);
+
+    // Inject second token while first is in-flight (queued)
+    const pendingResult = executor.inject(envP, tokenOf('pending'));
+
+    // Close immediately — should discard the pending event
+    executor.close();
+    const marking = await promise;
+
+    // The pending inject should complete with false (discarded, not processed)
+    expect(await pendingResult).toBe(false);
+  });
+
+  it('close waits for in-flight actions before terminating [ENV-013]', async () => {
+    const envP = environmentPlace<string>('ENV');
+    const input = envP.place;
+    const output = place<string>('OUT');
+
+    let actionStarted = false;
+    const t = Transition.builder('T')
+      .inputs(one(input))
+      .outputs(outPlace(output))
+      .action(async (ctx) => {
+        actionStarted = true;
+        await sleep(200);
+        ctx.output(output, 'completed');
+      })
+      .build();
+    const net = PetriNet.builder('N').transition(t).build();
+
+    const executor = new BitmapNetExecutor(net, initialTokens(), {
+      environmentPlaces: new Set([envP]),
+    });
+
+    const promise = executor.run(5000);
+    await sleep(30);
+
+    // Inject token to start the async action
+    await executor.inject(envP, tokenOf('go'));
+    await sleep(30);
+    expect(actionStarted).toBe(true);
+
+    // Close while in-flight — ENV-013 requires in-flight to complete
+    executor.close();
+    const marking = await promise;
+
+    // The in-flight action should have completed and produced output
+    expect(marking.hasTokens(output)).toBe(true);
+  });
+
+  it('drain then close escalates to immediate shutdown [ENV-013]', async () => {
+    const envP = environmentPlace<string>('ENV');
+    const input = envP.place;
+    const output = place<string>('OUT');
+
+    let actionStarted = false;
+    let actionCanFinish = false;
+    const t = Transition.builder('T')
+      .inputs(one(input))
+      .outputs(outPlace(output))
+      .action(async (ctx) => {
+        actionStarted = true;
+        while (!actionCanFinish) await sleep(10);
+        ctx.output(output, 'done');
+      })
+      .build();
+    const net = PetriNet.builder('N').transition(t).build();
+
+    const executor = new BitmapNetExecutor(net, initialTokens(), {
+      environmentPlaces: new Set([envP]),
+    });
+
+    const promise = executor.run(5000);
+    await sleep(30);
+
+    // Inject token to start slow action
+    await executor.inject(envP, tokenOf('go'));
+    await sleep(30);
+    expect(actionStarted).toBe(true);
+
+    // Queue another injection while first is in-flight
+    const pendingResult = executor.inject(envP, tokenOf('queued'));
+
+    // Drain first — rejects new injections
+    executor.drain();
+    const postDrainResult = await executor.inject(envP, tokenOf('rejected'));
+    expect(postDrainResult).toBe(false);
+
+    // Escalate to close — discards queued events
+    executor.close();
+
+    // Let the in-flight action complete
+    actionCanFinish = true;
+    const marking = await promise;
+
+    // In-flight action should complete per ENV-013
+    expect(marking.hasTokens(output)).toBe(true);
+    // Pending inject should be discarded
+    expect(await pendingResult).toBe(false);
+  });
+
+  it('delayed transition fires without external event with env places', async () => {
     const envP = environmentPlace<string>('ENV');
     const trigger = place<string>('TRIGGER');
     const output = place<string>('OUT');
@@ -1566,12 +1687,12 @@ describe('Environment Place Tests', () => {
     const executor = new BitmapNetExecutor(
       net,
       initialTokens([trigger, [tokenOf('go')]]),
-      { longRunning: true, environmentPlaces: new Set([envP]) },
+      { environmentPlaces: new Set([envP]) },
     );
 
     const promise = executor.run(5000);
     await sleep(500);
-    executor.close();
+    executor.drain();
     const marking = await promise;
 
     expect(marking.hasTokens(output)).toBe(true);
@@ -1591,7 +1712,6 @@ describe('Environment Place Tests', () => {
     const net = PetriNet.builder('N').transition(t).build();
 
     const executor = new BitmapNetExecutor(net, initialTokens(), {
-      longRunning: true,
       environmentPlaces: new Set([envP]),
       eventStore,
     });
@@ -1600,7 +1720,7 @@ describe('Environment Place Tests', () => {
     await sleep(20);
     await executor.inject(envP, tokenOf('test'));
     await sleep(50);
-    executor.close();
+    executor.drain();
     await promise;
 
     const tokenAdded = eventsOfType(eventStore, 'token-added');

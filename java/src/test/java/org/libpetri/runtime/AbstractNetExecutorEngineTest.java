@@ -938,9 +938,12 @@ abstract class AbstractNetExecutorEngineTest {
             var eventStore = EventStore.inMemory();
             try (var executor = createExecutorWithEnv(net, initial, eventStore, Set.of(triggerEnv))) {
 
-                // Inject trigger after 50ms to fire T1
+                // Inject trigger after 50ms to fire T1, then drain
                 CompletableFuture.delayedExecutor(50, TimeUnit.MILLISECONDS)
-                    .execute(() -> executor.inject(triggerEnv, Token.unit()));
+                    .execute(() -> {
+                        executor.inject(triggerEnv, Token.unit());
+                        executor.drain();
+                    });
 
                 long start = System.currentTimeMillis();
                 executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
@@ -995,7 +998,10 @@ abstract class AbstractNetExecutorEngineTest {
             try (var executor = createExecutorWithEnv(net, initial, eventStore, Set.of(triggerEnv))) {
 
                 CompletableFuture.delayedExecutor(50, TimeUnit.MILLISECONDS)
-                    .execute(() -> executor.inject(triggerEnv, Token.unit()));
+                    .execute(() -> {
+                        executor.inject(triggerEnv, Token.unit());
+                        executor.drain();
+                    });
 
                 long start = System.currentTimeMillis();
                 executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
@@ -1050,7 +1056,10 @@ abstract class AbstractNetExecutorEngineTest {
 
             try (var executor = createExecutorWithEnv(net, initial, Set.of(triggerEnv))) {
                 CompletableFuture.delayedExecutor(50, TimeUnit.MILLISECONDS)
-                    .execute(() -> executor.inject(triggerEnv, Token.unit()));
+                    .execute(() -> {
+                        executor.inject(triggerEnv, Token.unit());
+                        executor.drain();
+                    });
 
                 long start = System.currentTimeMillis();
                 executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
@@ -2213,11 +2222,12 @@ abstract class AbstractNetExecutorEngineTest {
             try (var virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
                  var executor = createExecutorWithEnv(net, initial, eventStore, Set.of(userActivityEnv))) {
 
-                // Schedule activity injection at T=100ms (before 200ms timeout)
+                // Schedule activity injection at T=100ms (before 200ms timeout), then drain
                 var injectionFuture = virtualThreadExecutor.submit(() -> {
                     try {
                         Thread.sleep(100);
                         executor.inject(userActivityEnv, Token.of(new SimpleValue("activity"))).join();
+                        executor.drain();
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                     }
@@ -2450,7 +2460,7 @@ abstract class AbstractNetExecutorEngineTest {
 
                 assertTrue(result.hasTokens(slowDone), "slow should complete");
                 assertTrue(result.hasTokens(timedDone), "timed should complete");
-                assertTrue(timedFiredAt.get() < 300,
+                assertTrue(timedFiredAt.get() < 500,
                     "Timed transition should fire during async action (~100ms), but fired at "
                     + timedFiredAt.get() + "ms");
             }

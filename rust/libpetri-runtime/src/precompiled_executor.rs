@@ -32,8 +32,7 @@ pub struct PrecompiledNetExecutor<'a, E: EventStore> {
     event_store: E,
     #[allow(dead_code)]
     environment_places: HashSet<Arc<str>>,
-    #[allow(dead_code)]
-    long_running: bool,
+    has_environment_places: bool,
     #[allow(dead_code)]
     skip_output_validation: bool,
 
@@ -85,7 +84,6 @@ pub struct PrecompiledExecutorBuilder<'a, E: EventStore> {
     initial_marking: Marking,
     event_store: Option<E>,
     environment_places: HashSet<Arc<str>>,
-    long_running: bool,
     skip_output_validation: bool,
 }
 
@@ -102,12 +100,6 @@ impl<'a, E: EventStore> PrecompiledExecutorBuilder<'a, E> {
         self
     }
 
-    /// Enables long-running mode.
-    pub fn long_running(mut self, enabled: bool) -> Self {
-        self.long_running = enabled;
-        self
-    }
-
     /// Skips output validation for trusted transition actions.
     pub fn skip_output_validation(mut self, skip: bool) -> Self {
         self.skip_output_validation = skip;
@@ -121,7 +113,6 @@ impl<'a, E: EventStore> PrecompiledExecutorBuilder<'a, E> {
             self.initial_marking,
             self.event_store.unwrap_or_default(),
             self.environment_places,
-            self.long_running,
             self.skip_output_validation,
         )
     }
@@ -138,7 +129,6 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
             initial_marking,
             event_store: None,
             environment_places: HashSet::new(),
-            long_running: false,
             skip_output_validation: false,
         }
     }
@@ -151,7 +141,6 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
             E::default(),
             HashSet::new(),
             false,
-            false,
         )
     }
 
@@ -160,7 +149,6 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
         initial_marking: Marking,
         event_store: E,
         environment_places: HashSet<Arc<str>>,
-        long_running: bool,
         skip_output_validation: bool,
     ) -> Self {
         let pc = program.place_count();
@@ -221,8 +209,8 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
         Self {
             program,
             event_store,
+            has_environment_places: !environment_places.is_empty(),
             environment_places,
-            long_running,
             skip_output_validation,
             token_pool,
             place_offset,
@@ -441,7 +429,7 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
     }
 
     fn should_terminate(&self) -> bool {
-        if self.long_running {
+        if self.has_environment_places {
             return false;
         }
         self.enabled_transition_count == 0
@@ -1132,7 +1120,7 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
 
 // Async path
 #[cfg(feature = "tokio")]
-use crate::environment::ExternalEvent;
+use crate::environment::ExecutorSignal;
 
 #[cfg(feature = "tokio")]
 struct ActionCompletion {
@@ -1143,9 +1131,15 @@ struct ActionCompletion {
 #[cfg(feature = "tokio")]
 impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
     /// Runs the executor asynchronously with tokio.
+    ///
+    /// External events are injected via [`ExecutorSignal::Event`]. Lifecycle
+    /// signals [`ExecutorSignal::Drain`] and [`ExecutorSignal::Close`] control
+    /// graceful and immediate shutdown respectively. Use
+    /// [`ExecutorHandle`](crate::executor_handle::ExecutorHandle) for RAII-managed
+    /// lifecycle with automatic drain on drop.
     pub async fn run_async(
         &mut self,
-        mut event_rx: tokio::sync::mpsc::UnboundedReceiver<ExternalEvent>,
+        mut signal_rx: tokio::sync::mpsc::UnboundedReceiver<ExecutorSignal>,
     ) -> Marking {
         let (completion_tx, mut completion_rx) =
             tokio::sync::mpsc::unbounded_channel::<ActionCompletion>();
@@ -1154,7 +1148,9 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
         self.mark_all_dirty();
 
         let mut in_flight_count: usize = 0;
-        let mut event_channel_open = true;
+        let mut signal_channel_open = true;
+        let mut draining = false;
+        let mut closed = false;
 
         if E::ENABLED {
             let now = now_millis();
@@ -1190,18 +1186,37 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
                 }
             }
 
-            // Phase 2: Process external events
-            while let Ok(event) = event_rx.try_recv() {
-                if let Some(pid) = self.program.place_id(&event.place_name) {
-                    self.ring_add_last(pid, event.token);
-                    self.set_marking_bit(pid);
-                    self.mark_dirty(pid);
-                }
-                if E::ENABLED {
-                    self.event_store.append(NetEvent::TokenAdded {
-                        place_name: Arc::clone(&event.place_name),
-                        timestamp: now_millis(),
-                    });
+            // Phase 2: Process signals (external events + lifecycle)
+            while let Ok(signal) = signal_rx.try_recv() {
+                match signal {
+                    ExecutorSignal::Event(event) if !draining => {
+                        if let Some(pid) = self.program.place_id(&event.place_name) {
+                            self.ring_add_last(pid, event.token);
+                            self.set_marking_bit(pid);
+                            self.mark_dirty(pid);
+                        }
+                        if E::ENABLED {
+                            self.event_store.append(NetEvent::TokenAdded {
+                                place_name: Arc::clone(&event.place_name),
+                                timestamp: now_millis(),
+                            });
+                        }
+                    }
+                    ExecutorSignal::Event(_) => {
+                        // Draining: discard events arriving after drain signal
+                    }
+                    ExecutorSignal::Drain => {
+                        draining = true;
+                    }
+                    ExecutorSignal::Close => {
+                        closed = true;
+                        draining = true;
+                        // Discard remaining queued signals per ENV-013.
+                        // Note: events already processed earlier in this try_recv batch
+                        // are kept (single-channel design); Java/TS discard all queued
+                        // events via an atomic flag checked at processExternalEvents() entry.
+                        while signal_rx.try_recv().is_ok() {}
+                    }
                 }
             }
 
@@ -1214,12 +1229,21 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
                 self.enforce_deadlines(cycle_now);
             }
 
-            // Termination check
+            // Termination check — O(1) flag checks
+            if closed && in_flight_count == 0 {
+                break; // ENV-013: immediate close, in-flight completed
+            }
+            if draining
+                && self.enabled_transition_count == 0
+                && in_flight_count == 0
+            {
+                break; // ENV-011: graceful drain, quiescent
+            }
             if self.enabled_transition_count == 0
                 && in_flight_count == 0
-                && (!self.long_running || !event_channel_open)
+                && (!self.has_environment_places || !signal_channel_open)
             {
-                break;
+                break; // Standard termination
             }
 
             // Phase 5: Fire ready transitions
@@ -1231,10 +1255,10 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
             }
 
             // Phase 6: Await work
-            if in_flight_count == 0 && !self.long_running {
+            if in_flight_count == 0 && !self.has_environment_places {
                 break;
             }
-            if in_flight_count == 0 && !event_channel_open {
+            if in_flight_count == 0 && (draining || !signal_channel_open) {
                 break;
             }
 
@@ -1264,9 +1288,9 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
                         }
                     }
                 }
-                result = event_rx.recv(), if event_channel_open => {
+                result = signal_rx.recv(), if signal_channel_open && !closed => {
                     match result {
-                        Some(event) => {
+                        Some(ExecutorSignal::Event(event)) if !draining => {
                             if let Some(pid) = self.program.place_id(&event.place_name) {
                                 self.ring_add_last(pid, event.token);
                                 self.set_marking_bit(pid);
@@ -1279,8 +1303,19 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
                                 });
                             }
                         }
+                        Some(ExecutorSignal::Event(_)) => {
+                            // Draining: discard events
+                        }
+                        Some(ExecutorSignal::Drain) => {
+                            draining = true;
+                        }
+                        Some(ExecutorSignal::Close) => {
+                            closed = true;
+                            draining = true;
+                            while signal_rx.try_recv().is_ok() {}
+                        }
                         None => {
-                            event_channel_open = false;
+                            signal_channel_open = false;
                         }
                     }
                 }
@@ -2295,8 +2330,10 @@ mod tests {
     #[cfg(feature = "tokio")]
     mod async_tests {
         use super::*;
+        use crate::environment::ExternalEvent;
         use libpetri_core::action::async_action;
         use libpetri_core::petri_net::PetriNet;
+        use libpetri_core::token::ErasedToken;
 
         #[tokio::test]
         async fn async_linear_chain() {
@@ -2319,7 +2356,7 @@ mod tests {
             marking.add(&places[0], Token::at(1, 0));
 
             let mut executor = PrecompiledNetExecutor::<NoopEventStore>::new(&prog, marking);
-            let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+            let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
             let result = executor.run_async(rx).await;
 
             assert_eq!(result.count("p0"), 0);
@@ -2345,10 +2382,194 @@ mod tests {
             marking.add(&p1, Token::at(42, 0));
 
             let mut executor = PrecompiledNetExecutor::<NoopEventStore>::new(&prog, marking);
-            let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+            let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
             let result = executor.run_async(rx).await;
 
             assert_eq!(result.count("p1"), 0);
+        }
+
+        // ==================== Drain/Close lifecycle tests ====================
+
+        #[tokio::test]
+        async fn async_drain_terminates_at_quiescence() {
+            let p1 = Place::<i32>::new("p1");
+            let p2 = Place::<i32>::new("p2");
+
+            let t1 = Transition::builder("t1")
+                .input(one(&p1))
+                .output(out_place(&p2))
+                .action(fork())
+                .build();
+
+            let net = PetriNet::builder("test").transition(t1).build();
+            let compiled = CompiledNet::compile(&net);
+            let prog = PrecompiledNet::from_compiled(&compiled);
+
+            let marking = Marking::new();
+            let mut executor = PrecompiledNetExecutor::<NoopEventStore>::builder(&prog, marking)
+                .environment_places(["p1"].iter().map(|s| Arc::from(*s)).collect())
+                .build();
+
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                tx.send(ExecutorSignal::Event(ExternalEvent {
+                    place_name: Arc::from("p1"),
+                    token: ErasedToken::from_typed(&Token::at(42, 0)),
+                }))
+                .unwrap();
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                tx.send(ExecutorSignal::Drain).unwrap();
+            });
+
+            let result = executor.run_async(rx).await;
+            assert_eq!(result.count("p2"), 1);
+        }
+
+        #[tokio::test]
+        async fn async_drain_rejects_post_drain_events() {
+            let p1 = Place::<i32>::new("p1");
+            let p2 = Place::<i32>::new("p2");
+
+            let t1 = Transition::builder("t1")
+                .input(one(&p1))
+                .output(out_place(&p2))
+                .action(fork())
+                .build();
+
+            let net = PetriNet::builder("test").transition(t1).build();
+            let compiled = CompiledNet::compile(&net);
+            let prog = PrecompiledNet::from_compiled(&compiled);
+
+            let marking = Marking::new();
+            let mut executor = PrecompiledNetExecutor::<NoopEventStore>::builder(&prog, marking)
+                .environment_places(["p1"].iter().map(|s| Arc::from(*s)).collect())
+                .build();
+
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                tx.send(ExecutorSignal::Drain).unwrap();
+                tx.send(ExecutorSignal::Event(ExternalEvent {
+                    place_name: Arc::from("p1"),
+                    token: ErasedToken::from_typed(&Token::at(99, 0)),
+                }))
+                .unwrap();
+            });
+
+            let result = executor.run_async(rx).await;
+            assert_eq!(result.count("p2"), 0);
+        }
+
+        #[tokio::test]
+        async fn async_close_discards_queued_events() {
+            let p1 = Place::<i32>::new("p1");
+            let p2 = Place::<i32>::new("p2");
+
+            let t1 = Transition::builder("t1")
+                .input(one(&p1))
+                .output(out_place(&p2))
+                .action(fork())
+                .build();
+
+            let net = PetriNet::builder("test").transition(t1).build();
+            let compiled = CompiledNet::compile(&net);
+            let prog = PrecompiledNet::from_compiled(&compiled);
+
+            let marking = Marking::new();
+            let mut executor = PrecompiledNetExecutor::<NoopEventStore>::builder(&prog, marking)
+                .environment_places(["p1"].iter().map(|s| Arc::from(*s)).collect())
+                .build();
+
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+
+            tx.send(ExecutorSignal::Event(ExternalEvent {
+                place_name: Arc::from("p1"),
+                token: ErasedToken::from_typed(&Token::at(1, 0)),
+            }))
+            .unwrap();
+            tx.send(ExecutorSignal::Close).unwrap();
+            tx.send(ExecutorSignal::Event(ExternalEvent {
+                place_name: Arc::from("p1"),
+                token: ErasedToken::from_typed(&Token::at(2, 0)),
+            }))
+            .unwrap();
+            drop(tx);
+
+            let result = executor.run_async(rx).await;
+            assert!(result.count("p2") <= 1);
+        }
+
+        #[tokio::test]
+        async fn async_close_after_drain_escalates() {
+            let p1 = Place::<i32>::new("p1");
+            let p2 = Place::<i32>::new("p2");
+
+            let t1 = Transition::builder("t1")
+                .input(one(&p1))
+                .output(out_place(&p2))
+                .action(fork())
+                .build();
+
+            let net = PetriNet::builder("test").transition(t1).build();
+            let compiled = CompiledNet::compile(&net);
+            let prog = PrecompiledNet::from_compiled(&compiled);
+
+            let marking = Marking::new();
+            let mut executor = PrecompiledNetExecutor::<NoopEventStore>::builder(&prog, marking)
+                .environment_places(["p1"].iter().map(|s| Arc::from(*s)).collect())
+                .build();
+
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                tx.send(ExecutorSignal::Drain).unwrap();
+                tx.send(ExecutorSignal::Close).unwrap();
+            });
+
+            let _result = executor.run_async(rx).await;
+            // Test passes if run_async returns — close escalated from drain
+        }
+
+        #[tokio::test]
+        async fn async_handle_raii_drain_on_drop() {
+            use crate::executor_handle::ExecutorHandle;
+
+            let p1 = Place::<i32>::new("p1");
+            let p2 = Place::<i32>::new("p2");
+
+            let t1 = Transition::builder("t1")
+                .input(one(&p1))
+                .output(out_place(&p2))
+                .action(fork())
+                .build();
+
+            let net = PetriNet::builder("test").transition(t1).build();
+            let compiled = CompiledNet::compile(&net);
+            let prog = PrecompiledNet::from_compiled(&compiled);
+
+            let marking = Marking::new();
+            let mut executor = PrecompiledNetExecutor::<NoopEventStore>::builder(&prog, marking)
+                .environment_places(["p1"].iter().map(|s| Arc::from(*s)).collect())
+                .build();
+
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                let mut handle = ExecutorHandle::new(tx);
+                handle.inject(
+                    Arc::from("p1"),
+                    ErasedToken::from_typed(&Token::at(7, 0)),
+                );
+                // handle dropped here — RAII sends Drain automatically
+            });
+
+            let result = executor.run_async(rx).await;
+            assert_eq!(result.count("p2"), 1);
         }
     }
 }

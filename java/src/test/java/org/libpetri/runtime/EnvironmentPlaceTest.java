@@ -40,7 +40,6 @@ class EnvironmentPlaceTest {
 
         try (var executor = NetExecutor.builder(net, Map.of())
                 .environmentPlaces(envPlace)
-                .longRunning(true)
                 .build()) {
 
             // Start executor in background
@@ -61,8 +60,8 @@ class EnvironmentPlaceTest {
             // Wait a bit for transition to fire
             Thread.sleep(100);
 
-            // Close executor
-            executor.close();
+            // Drain executor
+            executor.drain();
             var result = resultFuture.get(1, TimeUnit.SECONDS);
 
             assertTrue(result.hasTokens(outputPlace));
@@ -88,23 +87,22 @@ class EnvironmentPlaceTest {
     }
 
     @Test
-    @DisplayName("Long-running executor waits for external events")
-    void longRunningWaitsForEvents() throws Exception {
+    @DisplayName("Executor with env places waits for external events")
+    void envPlacesExecutorWaitsForEvents() throws Exception {
         var envPlace = EnvironmentPlace.of(Place.of("Input", String.class));
         var net = PetriNet.builder("Test").places(envPlace.place()).build();
 
         try (var executor = NetExecutor.builder(net, Map.of())
                 .environmentPlaces(envPlace)
-                .longRunning(true)
                 .build()) {
 
             var resultFuture = CompletableFuture.supplyAsync(executor::run, testExecutor);
 
             // Should not terminate immediately (unlike standard mode)
             Thread.sleep(200);
-            assertFalse(resultFuture.isDone(), "Should not terminate without explicit close");
+            assertFalse(resultFuture.isDone(), "Should not terminate without drain");
 
-            executor.close();
+            executor.drain();
             resultFuture.get(1, TimeUnit.SECONDS);
         }
     }
@@ -144,7 +142,6 @@ class EnvironmentPlaceTest {
 
         try (var executor = NetExecutor.builder(net, Map.of())
                 .environmentPlaces(envPlace)
-                .longRunning(true)
                 .build()) {
 
             var resultFuture = CompletableFuture.supplyAsync(executor::run, testExecutor);
@@ -162,7 +159,7 @@ class EnvironmentPlaceTest {
             // Wait for processing
             Thread.sleep(200);
 
-            executor.close();
+            executor.drain();
             resultFuture.get(1, TimeUnit.SECONDS);
 
             assertEquals(numTokens, counter.get(), "All tokens should be processed");
@@ -170,7 +167,7 @@ class EnvironmentPlaceTest {
     }
 
     @Test
-    @DisplayName("Standard executor (non-long-running) terminates when quiescent")
+    @DisplayName("Executor without env places terminates when quiescent")
     void standardExecutorTerminatesWhenQuiescent() throws Exception {
         var place = Place.of("Start", String.class);
         var net = PetriNet.builder("Test").places(place).build();

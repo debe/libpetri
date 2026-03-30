@@ -4,7 +4,7 @@
 //! async execution via Tokio.
 
 use libpetri::core::token::ErasedToken;
-use libpetri::runtime::environment::ExternalEvent;
+use libpetri::runtime::environment::{ExecutorSignal, ExternalEvent};
 use libpetri::*;
 
 #[tokio::main]
@@ -206,13 +206,13 @@ async fn main() {
     let mut executor =
         BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
 
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
 
     // Inject a user message into the environment place
-    tx.send(ExternalEvent {
+    tx.send(ExecutorSignal::Event(ExternalEvent {
         place_name: user_message.name().into(),
         token: ErasedToken::from_typed(&Token::at("User: What is a Petri net?".to_string(), 0)),
-    })
+    }))
     .unwrap();
 
     // Drop sender so the executor knows no more events are coming

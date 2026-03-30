@@ -28,8 +28,7 @@ pub struct BitmapNetExecutor<E: EventStore> {
     event_store: E,
     #[allow(dead_code)]
     environment_places: HashSet<Arc<str>>,
-    #[allow(dead_code)]
-    long_running: bool,
+    has_environment_places: bool,
 
     // Bitmaps
     marked_places: Vec<u64>,
@@ -60,7 +59,6 @@ pub struct BitmapNetExecutor<E: EventStore> {
 #[derive(Default)]
 pub struct ExecutorOptions {
     pub environment_places: HashSet<Arc<str>>,
-    pub long_running: bool,
 }
 
 impl<E: EventStore> BitmapNetExecutor<E> {
@@ -111,8 +109,8 @@ impl<E: EventStore> BitmapNetExecutor<E> {
             compiled,
             marking: initial_tokens,
             event_store: E::default(),
+            has_environment_places: !options.environment_places.is_empty(),
             environment_places: options.environment_places,
-            long_running: options.long_running,
             marked_places: vec![0u64; word_count],
             dirty_set: vec![0u64; dirty_word_count],
             marking_snap_buffer: vec![0u64; word_count],
@@ -226,7 +224,7 @@ impl<E: EventStore> BitmapNetExecutor<E> {
     }
 
     fn should_terminate(&self) -> bool {
-        if self.long_running {
+        if self.has_environment_places {
             return false;
         }
         self.enabled_transition_count == 0
@@ -615,7 +613,7 @@ impl<E: EventStore> BitmapNetExecutor<E> {
 }
 
 #[cfg(feature = "tokio")]
-use crate::environment::ExternalEvent;
+use crate::environment::ExecutorSignal;
 
 /// Completion message sent by async actions back to the executor.
 #[cfg(feature = "tokio")]
@@ -632,13 +630,16 @@ impl<E: EventStore> BitmapNetExecutor<E> {
     /// inline; async actions are spawned as tokio tasks and their completions
     /// are collected via an mpsc channel.
     ///
-    /// The executor also accepts external events via `inject()` for
-    /// environment place token injection.
+    /// External events are injected via [`ExecutorSignal::Event`]. Lifecycle
+    /// signals [`ExecutorSignal::Drain`] and [`ExecutorSignal::Close`] control
+    /// graceful and immediate shutdown respectively. Use
+    /// [`ExecutorHandle`](crate::executor_handle::ExecutorHandle) for RAII-managed
+    /// lifecycle with automatic drain on drop.
     ///
     /// Returns the final marking when the executor quiesces or is closed.
     pub async fn run_async(
         &mut self,
-        mut event_rx: tokio::sync::mpsc::UnboundedReceiver<ExternalEvent>,
+        mut signal_rx: tokio::sync::mpsc::UnboundedReceiver<ExecutorSignal>,
     ) -> &Marking {
         let (completion_tx, mut completion_rx) =
             tokio::sync::mpsc::unbounded_channel::<ActionCompletion>();
@@ -647,7 +648,9 @@ impl<E: EventStore> BitmapNetExecutor<E> {
         self.mark_all_dirty();
 
         let mut in_flight_count: usize = 0;
-        let mut event_channel_open = true;
+        let mut signal_channel_open = true;
+        let mut draining = false;
+        let mut closed = false;
 
         if E::ENABLED {
             let now = now_millis();
@@ -683,18 +686,37 @@ impl<E: EventStore> BitmapNetExecutor<E> {
                 }
             }
 
-            // Phase 2: Process external events
-            while let Ok(event) = event_rx.try_recv() {
-                self.marking.add_erased(&event.place_name, event.token);
-                if let Some(pid) = self.compiled.place_id(&event.place_name) {
-                    bitmap::set_bit(&mut self.marked_places, pid);
-                    self.mark_dirty(pid);
-                }
-                if E::ENABLED {
-                    self.event_store.append(NetEvent::TokenAdded {
-                        place_name: Arc::clone(&event.place_name),
-                        timestamp: now_millis(),
-                    });
+            // Phase 2: Process signals (external events + lifecycle)
+            while let Ok(signal) = signal_rx.try_recv() {
+                match signal {
+                    ExecutorSignal::Event(event) if !draining => {
+                        self.marking.add_erased(&event.place_name, event.token);
+                        if let Some(pid) = self.compiled.place_id(&event.place_name) {
+                            bitmap::set_bit(&mut self.marked_places, pid);
+                            self.mark_dirty(pid);
+                        }
+                        if E::ENABLED {
+                            self.event_store.append(NetEvent::TokenAdded {
+                                place_name: Arc::clone(&event.place_name),
+                                timestamp: now_millis(),
+                            });
+                        }
+                    }
+                    ExecutorSignal::Event(_) => {
+                        // Draining: discard events arriving after drain signal
+                    }
+                    ExecutorSignal::Drain => {
+                        draining = true;
+                    }
+                    ExecutorSignal::Close => {
+                        closed = true;
+                        draining = true;
+                        // Discard remaining queued signals per ENV-013.
+                        // Note: events already processed earlier in this try_recv batch
+                        // are kept (single-channel design); Java/TS discard all queued
+                        // events via an atomic flag checked at processExternalEvents() entry.
+                        while signal_rx.try_recv().is_ok() {}
+                    }
                 }
             }
 
@@ -707,12 +729,21 @@ impl<E: EventStore> BitmapNetExecutor<E> {
                 self.enforce_deadlines(cycle_now);
             }
 
-            // Termination check
+            // Termination check — O(1) flag checks
+            if closed && in_flight_count == 0 {
+                break; // ENV-013: immediate close, in-flight completed
+            }
+            if draining
+                && self.enabled_transition_count == 0
+                && in_flight_count == 0
+            {
+                break; // ENV-011: graceful drain, quiescent
+            }
             if self.enabled_transition_count == 0
                 && in_flight_count == 0
-                && (!self.long_running || !event_channel_open)
+                && (!self.has_environment_places || !signal_channel_open)
             {
-                break;
+                break; // Standard termination
             }
 
             // Phase 5: Fire ready transitions
@@ -726,10 +757,10 @@ impl<E: EventStore> BitmapNetExecutor<E> {
             }
 
             // Phase 6: Await work (completion, external event, or timer)
-            if in_flight_count == 0 && !self.long_running {
+            if in_flight_count == 0 && !self.has_environment_places {
                 break;
             }
-            if in_flight_count == 0 && !event_channel_open {
+            if in_flight_count == 0 && (draining || !signal_channel_open) {
                 break;
             }
 
@@ -759,9 +790,9 @@ impl<E: EventStore> BitmapNetExecutor<E> {
                         }
                     }
                 }
-                result = event_rx.recv(), if event_channel_open => {
+                result = signal_rx.recv(), if signal_channel_open && !closed => {
                     match result {
-                        Some(event) => {
+                        Some(ExecutorSignal::Event(event)) if !draining => {
                             self.marking.add_erased(&event.place_name, event.token);
                             if let Some(pid) = self.compiled.place_id(&event.place_name) {
                                 bitmap::set_bit(&mut self.marked_places, pid);
@@ -774,8 +805,19 @@ impl<E: EventStore> BitmapNetExecutor<E> {
                                 });
                             }
                         }
+                        Some(ExecutorSignal::Event(_)) => {
+                            // Draining: discard events
+                        }
+                        Some(ExecutorSignal::Drain) => {
+                            draining = true;
+                        }
+                        Some(ExecutorSignal::Close) => {
+                            closed = true;
+                            draining = true;
+                            while signal_rx.try_recv().is_ok() {}
+                        }
                         None => {
-                            event_channel_open = false;
+                            signal_channel_open = false;
                         }
                     }
                 }
@@ -2378,7 +2420,7 @@ mod tests {
 #[cfg(all(test, feature = "tokio"))]
 mod async_tests {
     use super::*;
-    use crate::environment::ExternalEvent;
+    use crate::environment::{ExecutorSignal, ExternalEvent};
     use libpetri_core::action::{ActionError, async_action, fork};
     use libpetri_core::input::one;
     use libpetri_core::output::out_place;
@@ -2405,7 +2447,7 @@ mod async_tests {
         let mut executor =
             BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
 
-        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
         executor.run_async(rx).await;
 
         assert_eq!(executor.marking().count("p2"), 1);
@@ -2436,7 +2478,7 @@ mod async_tests {
         let mut executor =
             BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
 
-        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
         executor.run_async(rx).await;
 
         assert_eq!(executor.marking().count("p2"), 1);
@@ -2468,7 +2510,7 @@ mod async_tests {
         let mut executor =
             BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
 
-        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
         executor.run_async(rx).await;
 
         assert_eq!(executor.marking().count("p3"), 1);
@@ -2493,21 +2535,20 @@ mod async_tests {
             &net,
             marking,
             ExecutorOptions {
-                long_running: true,
-                ..Default::default()
+                environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
             },
         );
 
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
 
         // Inject a token after a short delay, then close the channel
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             let token = Token::at(77, 0);
-            tx.send(ExternalEvent {
+            tx.send(ExecutorSignal::Event(ExternalEvent {
                 place_name: Arc::from("p1"),
                 token: ErasedToken::from_typed(&token),
-            })
+            }))
             .unwrap();
             // Drop tx to close the channel and let executor terminate
         });
@@ -2536,7 +2577,7 @@ mod async_tests {
         let mut executor =
             BitmapNetExecutor::<InMemoryEventStore>::new(&net, marking, ExecutorOptions::default());
 
-        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
         executor.run_async(rx).await;
 
         let events = executor.event_store().events();
@@ -2585,7 +2626,7 @@ mod async_tests {
         let mut executor =
             BitmapNetExecutor::<InMemoryEventStore>::new(&net, marking, ExecutorOptions::default());
 
-        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
         executor.run_async(rx).await;
 
         // Token consumed but no output produced
@@ -2623,13 +2664,12 @@ mod async_tests {
             &net,
             marking,
             ExecutorOptions {
-                long_running: true,
-                ..Default::default()
+                environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
             },
         );
 
         let start = std::time::Instant::now();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
         // Keep channel open long enough for the delayed transition to fire
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(300)).await;
@@ -2667,13 +2707,12 @@ mod async_tests {
             &net,
             marking,
             ExecutorOptions {
-                long_running: true,
-                ..Default::default()
+                environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
             },
         );
 
         let start = std::time::Instant::now();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(300)).await;
             drop(tx);
@@ -2710,13 +2749,12 @@ mod async_tests {
             &net,
             marking,
             ExecutorOptions {
-                long_running: true,
-                ..Default::default()
+                environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
             },
         );
 
         let start = std::time::Instant::now();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(400)).await;
             drop(tx);
@@ -2781,12 +2819,11 @@ mod async_tests {
             &net,
             marking,
             ExecutorOptions {
-                long_running: true,
-                ..Default::default()
+                environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
             },
         );
 
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             drop(tx);
@@ -2827,21 +2864,20 @@ mod async_tests {
             &net,
             marking,
             ExecutorOptions {
-                long_running: true,
-                ..Default::default()
+                environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
             },
         );
 
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
 
         tokio::spawn(async move {
             for i in 0..5 {
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                 let token = Token::at(i, 0);
-                tx.send(ExternalEvent {
+                tx.send(ExecutorSignal::Event(ExternalEvent {
                     place_name: Arc::from("p1"),
                     token: ErasedToken::from_typed(&token),
-                })
+                }))
                 .unwrap();
             }
             // Drop tx to close channel
@@ -2895,7 +2931,7 @@ mod async_tests {
             BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
 
         let start = std::time::Instant::now();
-        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
         executor.run_async(rx).await;
         let elapsed = start.elapsed().as_millis();
 
@@ -2955,7 +2991,7 @@ mod async_tests {
         let mut executor =
             BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
 
-        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
         executor.run_async(rx).await;
 
         assert_eq!(executor.marking().count("p4"), 1);
@@ -3007,7 +3043,7 @@ mod async_tests {
         let mut executor =
             BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
 
-        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
         executor.run_async(rx).await;
 
         assert_eq!(executor.marking().count("p2"), 0);
@@ -3046,7 +3082,7 @@ mod async_tests {
 
         let mut executor =
             BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
-        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
         executor.run_async(rx).await;
 
         assert_eq!(executor.marking().count("left"), 1);
@@ -3089,7 +3125,7 @@ mod async_tests {
         let mut executor =
             BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
 
-        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
         executor.run_async(rx).await;
 
         assert_eq!(executor.marking().count("done"), 1);
@@ -3118,13 +3154,12 @@ mod async_tests {
             &net,
             marking,
             ExecutorOptions {
-                long_running: true,
-                ..Default::default()
+                environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
             },
         );
 
         // No injections; keep channel open long enough for the delayed transition to fire
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(300)).await;
             drop(tx);
@@ -3165,7 +3200,7 @@ mod async_tests {
         let mut executor =
             BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
 
-        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
         executor.run_async(rx).await;
 
         assert_eq!(executor.marking().count("timeout_out"), 1);
@@ -3202,7 +3237,7 @@ mod async_tests {
         let mut executor =
             BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
 
-        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
         executor.run_async(rx).await;
 
         assert_eq!(executor.marking().count("success"), 1);
@@ -3227,20 +3262,19 @@ mod async_tests {
             &net,
             marking,
             ExecutorOptions {
-                long_running: true,
-                ..Default::default()
+                environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
             },
         );
 
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
 
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             let token = Token::at(99, 0);
-            tx.send(ExternalEvent {
+            tx.send(ExecutorSignal::Event(ExternalEvent {
                 place_name: Arc::from("p1"),
                 token: ErasedToken::from_typed(&token),
-            })
+            }))
             .unwrap();
         });
 
@@ -3285,11 +3319,218 @@ mod async_tests {
         let mut executor =
             BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
 
-        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExternalEvent>();
+        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
         executor.run_async(rx).await;
 
         // Inhibitor should block — token remains in p1, nothing in p2
         assert_eq!(executor.marking().count("p1"), 1);
         assert_eq!(executor.marking().count("p2"), 0);
+    }
+
+    // ==================== Drain/Close lifecycle tests ====================
+
+    #[tokio::test]
+    async fn async_drain_terminates_at_quiescence() {
+        let p1 = Place::<i32>::new("p1");
+        let p2 = Place::<i32>::new("p2");
+
+        let t1 = Transition::builder("t1")
+            .input(one(&p1))
+            .output(out_place(&p2))
+            .action(fork())
+            .build();
+
+        let net = PetriNet::builder("test").transition(t1).build();
+        let marking = Marking::new();
+
+        let mut executor = BitmapNetExecutor::<NoopEventStore>::new(
+            &net,
+            marking,
+            ExecutorOptions {
+                environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
+            },
+        );
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            // Inject a token, then drain
+            tx.send(ExecutorSignal::Event(ExternalEvent {
+                place_name: Arc::from("p1"),
+                token: ErasedToken::from_typed(&Token::at(42, 0)),
+            }))
+            .unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            tx.send(ExecutorSignal::Drain).unwrap();
+        });
+
+        executor.run_async(rx).await;
+
+        // The injected token should have been processed
+        assert_eq!(executor.marking().count("p2"), 1);
+        assert_eq!(*executor.marking().peek(&p2).unwrap(), 42);
+    }
+
+    #[tokio::test]
+    async fn async_drain_rejects_post_drain_events() {
+        let p1 = Place::<i32>::new("p1");
+        let p2 = Place::<i32>::new("p2");
+
+        let t1 = Transition::builder("t1")
+            .input(one(&p1))
+            .output(out_place(&p2))
+            .action(fork())
+            .build();
+
+        let net = PetriNet::builder("test").transition(t1).build();
+        let marking = Marking::new();
+
+        let mut executor = BitmapNetExecutor::<NoopEventStore>::new(
+            &net,
+            marking,
+            ExecutorOptions {
+                environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
+            },
+        );
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            // Send Drain first, then an event — event should be discarded
+            tx.send(ExecutorSignal::Drain).unwrap();
+            tx.send(ExecutorSignal::Event(ExternalEvent {
+                place_name: Arc::from("p1"),
+                token: ErasedToken::from_typed(&Token::at(99, 0)),
+            }))
+            .unwrap();
+        });
+
+        executor.run_async(rx).await;
+
+        // Event sent after drain should not have been processed
+        assert_eq!(executor.marking().count("p2"), 0);
+    }
+
+    #[tokio::test]
+    async fn async_close_discards_queued_events() {
+        let p1 = Place::<i32>::new("p1");
+        let p2 = Place::<i32>::new("p2");
+
+        let t1 = Transition::builder("t1")
+            .input(one(&p1))
+            .output(out_place(&p2))
+            .action(fork())
+            .build();
+
+        let net = PetriNet::builder("test").transition(t1).build();
+        let marking = Marking::new();
+
+        let mut executor = BitmapNetExecutor::<NoopEventStore>::new(
+            &net,
+            marking,
+            ExecutorOptions {
+                environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
+            },
+        );
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+
+        // Queue events then close — close should discard all pending events
+        tx.send(ExecutorSignal::Event(ExternalEvent {
+            place_name: Arc::from("p1"),
+            token: ErasedToken::from_typed(&Token::at(1, 0)),
+        }))
+        .unwrap();
+        tx.send(ExecutorSignal::Close).unwrap();
+        tx.send(ExecutorSignal::Event(ExternalEvent {
+            place_name: Arc::from("p1"),
+            token: ErasedToken::from_typed(&Token::at(2, 0)),
+        }))
+        .unwrap();
+        drop(tx);
+
+        executor.run_async(rx).await;
+
+        // The first event arrives before Close — it gets processed in the first
+        // try_recv batch. Close then discards all remaining events.
+        // So at most 1 token should be in p2 (the one before Close).
+        assert!(executor.marking().count("p2") <= 1);
+    }
+
+    #[tokio::test]
+    async fn async_close_after_drain_escalates() {
+        let p1 = Place::<i32>::new("p1");
+        let p2 = Place::<i32>::new("p2");
+
+        let t1 = Transition::builder("t1")
+            .input(one(&p1))
+            .output(out_place(&p2))
+            .action(fork())
+            .build();
+
+        let net = PetriNet::builder("test").transition(t1).build();
+        let marking = Marking::new();
+
+        let mut executor = BitmapNetExecutor::<NoopEventStore>::new(
+            &net,
+            marking,
+            ExecutorOptions {
+                environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
+            },
+        );
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            // Drain first, then escalate to close
+            tx.send(ExecutorSignal::Drain).unwrap();
+            tx.send(ExecutorSignal::Close).unwrap();
+        });
+
+        // Executor should terminate — close escalates from drain
+        executor.run_async(rx).await;
+        // No assertions needed — the test passes if run_async returns
+    }
+
+    #[tokio::test]
+    async fn async_handle_raii_drain_on_drop() {
+        use crate::executor_handle::ExecutorHandle;
+
+        let p1 = Place::<i32>::new("p1");
+        let p2 = Place::<i32>::new("p2");
+
+        let t1 = Transition::builder("t1")
+            .input(one(&p1))
+            .output(out_place(&p2))
+            .action(fork())
+            .build();
+
+        let net = PetriNet::builder("test").transition(t1).build();
+        let marking = Marking::new();
+
+        let mut executor = BitmapNetExecutor::<NoopEventStore>::new(
+            &net,
+            marking,
+            ExecutorOptions {
+                environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
+            },
+        );
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            let mut handle = ExecutorHandle::new(tx);
+            handle.inject(Arc::from("p1"), ErasedToken::from_typed(&Token::at(7, 0)));
+            // handle dropped here — RAII sends Drain automatically
+        });
+
+        executor.run_async(rx).await;
+
+        assert_eq!(executor.marking().count("p2"), 1);
+        assert_eq!(*executor.marking().peek(&p2).unwrap(), 7);
     }
 }

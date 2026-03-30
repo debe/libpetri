@@ -214,7 +214,7 @@ The engine does not provide transaction rollback. Once tokens are consumed by a 
 
 **Priority:** MUST
 
-In standard (non-long-running) mode, the executor terminates when ALL of the following hold:
+When no environment places are registered, the executor terminates when ALL of the following hold:
 1. No transitions are enabled.
 2. No transitions are in-flight (executing actions).
 3. No external events are pending.

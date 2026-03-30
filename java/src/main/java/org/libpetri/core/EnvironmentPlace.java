@@ -32,7 +32,6 @@ package org.libpetri.core;
  * // Use in executor
  * var executor = NetExecutor.builder(net, Map.of())
  *     .environmentPlaces(inputEnv)
- *     .longRunning(true)
  *     .build();
  *
  * // Inject from any thread

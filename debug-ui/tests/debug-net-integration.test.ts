@@ -109,7 +109,6 @@ describe('debug net integration', () => {
     const { net, initialTokens } = buildDebugNet();
     executor = new BitmapNetExecutor(net, initialTokens, {
       environmentPlaces: allEnvironmentPlaces,
-      longRunning: true,
     });
     setExecutor(executor);
     executor.run();

@@ -22,7 +22,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * Abstract test suite for environment place and long-running executor behavior.
+ * Abstract test suite for environment place executor behavior.
  *
  * <p>Subclasses provide executor creation via factory methods, allowing the same
  * tests to run against different executor implementations.
@@ -31,19 +31,19 @@ abstract class AbstractNetExecutorEnvironmentTest {
 
     protected abstract PetriNetExecutor createExecutor(PetriNet net, Map<Place<?>, List<Token<?>>> initial);
 
-    protected abstract PetriNetExecutor createLongRunning(PetriNet net, Map<Place<?>, List<Token<?>>> initial, Set<EnvironmentPlace<?>> envPlaces);
+    protected abstract PetriNetExecutor createWithEnvPlaces(PetriNet net, Map<Place<?>, List<Token<?>>> initial, Set<EnvironmentPlace<?>> envPlaces);
 
-    protected abstract PetriNetExecutor createLongRunningWithStore(PetriNet net, Map<Place<?>, List<Token<?>>> initial, EventStore store, Set<EnvironmentPlace<?>> envPlaces);
+    protected abstract PetriNetExecutor createWithEnvPlacesAndStore(PetriNet net, Map<Place<?>, List<Token<?>>> initial, EventStore store, Set<EnvironmentPlace<?>> envPlaces);
 
     record StringValue(String data) {}
 
     private final ExecutorService testExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
     @Nested
-    class LongRunningEnvironmentTests {
+    class EnvironmentPlaceTests {
 
         @Test
-        void longRunningExecutor_wakesOnEnvironmentInjection()
+        void executorWithEnvPlaces_wakesOnEnvironmentInjection()
             throws Exception {
             Place<StringValue> envPlace = Place.of(
                 "ENV_INPUT",
@@ -79,9 +79,9 @@ abstract class AbstractNetExecutorEnvironmentTest {
             Map<Place<?>, List<Token<?>>> initial = Map.of(envPlace, List.of()); // starts idle
 
             try (
-                PetriNetExecutor executor = createLongRunning(net, initial, Set.of(envInput))
+                PetriNetExecutor executor = createWithEnvPlaces(net, initial, Set.of(envInput))
             ) {
-                // Run executor on a dedicated thread to simulate long-running orchestrator
+                // Run executor on a dedicated thread to simulate orchestrator with env places
                 ExecutorService orchestrator =
                     Executors.newSingleThreadExecutor();
                 Future<Marking> runFuture = orchestrator.submit(
@@ -121,15 +121,15 @@ abstract class AbstractNetExecutorEnvironmentTest {
                     marking.peekFirst(processed).value().data()
                 );
 
-                // Executor is long-running and should still be running until close()
+                // Executor with env places should still be running until drain()
                 assertFalse(
                     runFuture.isDone(),
-                    "Long-running executor should not complete automatically"
+                    "Executor with env places should not complete automatically"
                 );
 
-                executor.close();
+                executor.drain();
 
-                // After close, orchestrator should eventually terminate
+                // After drain, orchestrator should eventually terminate
                 Marking finalMarking = runFuture.get(2, TimeUnit.SECONDS);
                 assertSame(
                     marking,
@@ -242,7 +242,7 @@ abstract class AbstractNetExecutorEnvironmentTest {
             Map<Place<?>, List<Token<?>>> initial = Map.of(envPlace, List.of());
 
             try (
-                PetriNetExecutor executor = createLongRunning(net, initial, Set.of(envInput))
+                PetriNetExecutor executor = createWithEnvPlaces(net, initial, Set.of(envInput))
             ) {
                 ExecutorService orchestrator =
                     Executors.newSingleThreadExecutor();
@@ -289,14 +289,14 @@ abstract class AbstractNetExecutorEnvironmentTest {
                 assertEquals(0, executor.inFlightCount());
                 assertEquals(0, executor.enabledCount());
 
-                executor.close();
+                executor.drain();
                 runFuture.get(2, TimeUnit.SECONDS);
                 orchestrator.shutdownNow();
             }
         }
 
         /**
-         * Ensures multiple quick injections correctly wake the long-running executor
+         * Ensures multiple quick injections correctly wake the executor with env places
          * and all tokens are processed.
          */
         @Test
@@ -328,7 +328,7 @@ abstract class AbstractNetExecutorEnvironmentTest {
             Map<Place<?>, List<Token<?>>> initial = Map.of(envPlace, List.of());
 
             try (
-                PetriNetExecutor executor = createLongRunning(net, initial, Set.of(envInput))
+                PetriNetExecutor executor = createWithEnvPlaces(net, initial, Set.of(envInput))
             ) {
                 ExecutorService orchestrator =
                     Executors.newSingleThreadExecutor();
@@ -358,20 +358,20 @@ abstract class AbstractNetExecutorEnvironmentTest {
                 Marking marking = executor.marking();
                 assertEquals(count, marking.tokenCount(sink));
 
-                executor.close();
+                executor.drain();
                 runFuture.get(2, TimeUnit.SECONDS);
                 orchestrator.shutdownNow();
             }
         }
 
         /**
-         * Verifies that a timed transition fires in long-running mode without requiring
+         * Verifies that a timed transition fires without requiring
          * external events to wake the executor. This is a regression test for the bug
          * where awaitExternalEvent() blocked indefinitely on wakeUpSignal.acquire().
          */
         @Test
-        @DisplayName("Delayed transition fires autonomously in long-running mode (regression test)")
-        void delayedTransition_firesWithoutExternalEvent_inLongRunningMode() throws Exception {
+        @DisplayName("Delayed transition fires autonomously with env places (regression test)")
+        void delayedTransition_firesWithoutExternalEvent_withEnvPlaces() throws Exception {
             Place<StringValue> input = Place.of("Input", StringValue.class);
             EnvironmentPlace<StringValue> envInput = EnvironmentPlace.of(input);
             Place<StringValue> output = Place.of("Output", StringValue.class);
@@ -394,7 +394,7 @@ abstract class AbstractNetExecutorEnvironmentTest {
                 input, List.of(Token.of(new StringValue("test")))
             );
 
-            try (PetriNetExecutor executor = createLongRunning(net, initial, Set.of(envInput))) {
+            try (PetriNetExecutor executor = createWithEnvPlaces(net, initial, Set.of(envInput))) {
 
                 // Run executor on a dedicated thread
                 ExecutorService orchestrator = Executors.newSingleThreadExecutor();
@@ -418,10 +418,10 @@ abstract class AbstractNetExecutorEnvironmentTest {
                 assertTrue(marking.hasTokens(output), "Output should have token");
                 assertEquals("test", marking.peekFirst(output).value().data());
 
-                // Executor should still be running (long-running mode)
-                assertFalse(runFuture.isDone(), "Long-running executor should not complete automatically");
+                // Executor should still be running (env places registered)
+                assertFalse(runFuture.isDone(), "Executor with env places should not complete automatically");
 
-                executor.close();
+                executor.drain();
                 runFuture.get(2, TimeUnit.SECONDS);
                 orchestrator.shutdownNow();
             }
@@ -469,14 +469,14 @@ abstract class AbstractNetExecutorEnvironmentTest {
 
             AtomicBoolean actionStarted = new AtomicBoolean(false);
 
-            // Slow transition that blocks for a while
+            // Transition that blocks long enough to queue a second inject while in-flight
             Transition slow = Transition.builder("slow")
                 .inputs(Arc.In.one(envPlace))
                 .outputs(Arc.Out.and(output))
                 .timing(Timing.deadline(Duration.ofMillis(10_000)))
                 .action(ctx -> CompletableFuture.runAsync(() -> {
                     actionStarted.set(true);
-                    try { Thread.sleep(5_000); } catch (InterruptedException e) {
+                    try { Thread.sleep(500); } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                     }
                     ctx.output(output, new StringValue("done"));
@@ -485,7 +485,7 @@ abstract class AbstractNetExecutorEnvironmentTest {
 
             PetriNet net = PetriNet.builder("DrainTest").transitions(slow).build();
 
-            try (PetriNetExecutor executor = createLongRunning(net, Map.of(envPlace, List.of()), Set.of(envInput))) {
+            try (PetriNetExecutor executor = createWithEnvPlaces(net, Map.of(envPlace, List.of()), Set.of(envInput))) {
                 ExecutorService orchestrator = Executors.newSingleThreadExecutor();
                 Future<Marking> runFuture = orchestrator.submit((Callable<Marking>) executor::run);
 
@@ -511,10 +511,127 @@ abstract class AbstractNetExecutorEnvironmentTest {
                 runFuture.get(3, TimeUnit.SECONDS);
                 orchestrator.shutdownNow();
 
-                // After close, the pending inject may have been processed or drained
-                // Either way, the future should complete without hanging
+                // After close, pending inject should be discarded per ENV-013
                 Boolean result = pendingInject.get(1, TimeUnit.SECONDS);
-                assertNotNull(result, "Pending inject future should complete");
+                assertFalse(result, "Pending inject should be discarded on close()");
+            }
+        }
+
+        @Test
+        void close_waitsForInFlightActions_ENV013() throws Exception {
+            Place<StringValue> envPlace = Place.of("ENV_INPUT", StringValue.class);
+            EnvironmentPlace<StringValue> envInput = EnvironmentPlace.of(envPlace);
+            Place<StringValue> output = Place.of("OUTPUT", StringValue.class);
+
+            AtomicBoolean actionStarted = new AtomicBoolean(false);
+
+            Transition slow = Transition.builder("slow")
+                .inputs(Arc.In.one(envPlace))
+                .outputs(Arc.Out.and(output))
+                .timing(Timing.deadline(Duration.ofMillis(10_000)))
+                .action(ctx -> CompletableFuture.runAsync(() -> {
+                    actionStarted.set(true);
+                    try { Thread.sleep(200); } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    ctx.output(output, new StringValue("completed"));
+                }, testExecutor))
+                .build();
+
+            PetriNet net = PetriNet.builder("CloseInFlightTest").transitions(slow).build();
+
+            try (PetriNetExecutor executor = createWithEnvPlaces(net, Map.of(envPlace, List.of()), Set.of(envInput))) {
+                ExecutorService orchestrator = Executors.newSingleThreadExecutor();
+                Future<Marking> runFuture = orchestrator.submit((Callable<Marking>) executor::run);
+
+                Thread.sleep(50L);
+
+                // Inject a token to start the slow transition
+                executor.inject(envInput, Token.of(new StringValue("go")));
+
+                // Wait for action to start
+                long deadline = System.currentTimeMillis() + 1_000;
+                while (!actionStarted.get() && System.currentTimeMillis() < deadline) {
+                    Thread.sleep(10L);
+                }
+                assertTrue(actionStarted.get(), "Action should have started");
+
+                // Close while the action is in-flight — ENV-013 requires it to complete
+                executor.close();
+
+                Marking marking = runFuture.get(3, TimeUnit.SECONDS);
+                orchestrator.shutdownNow();
+
+                // The in-flight action should have completed and produced its output
+                assertTrue(marking.hasTokens(output),
+                    "In-flight action output should be in final marking per ENV-013");
+            }
+        }
+
+        @Test
+        void drainThenClose_escalatesToImmediateShutdown() throws Exception {
+            Place<StringValue> envPlace = Place.of("ENV_INPUT", StringValue.class);
+            EnvironmentPlace<StringValue> envInput = EnvironmentPlace.of(envPlace);
+            Place<StringValue> output = Place.of("OUTPUT", StringValue.class);
+
+            AtomicBoolean actionStarted = new AtomicBoolean(false);
+            AtomicBoolean actionCanFinish = new AtomicBoolean(false);
+
+            Transition slow = Transition.builder("slow")
+                .inputs(Arc.In.one(envPlace))
+                .outputs(Arc.Out.and(output))
+                .timing(Timing.deadline(Duration.ofMillis(10_000)))
+                .action(ctx -> CompletableFuture.runAsync(() -> {
+                    actionStarted.set(true);
+                    while (!actionCanFinish.get()) {
+                        try { Thread.sleep(10); } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            break;
+                        }
+                    }
+                    ctx.output(output, new StringValue("done"));
+                }, testExecutor))
+                .build();
+
+            PetriNet net = PetriNet.builder("EscalateTest").transitions(slow).build();
+
+            try (PetriNetExecutor executor = createWithEnvPlaces(net, Map.of(envPlace, List.of()), Set.of(envInput))) {
+                ExecutorService orchestrator = Executors.newSingleThreadExecutor();
+                Future<Marking> runFuture = orchestrator.submit((Callable<Marking>) executor::run);
+
+                Thread.sleep(50L);
+
+                // Inject a token and wait for in-flight action to start
+                executor.inject(envInput, Token.of(new StringValue("go")));
+                long deadline = System.currentTimeMillis() + 1_000;
+                while (!actionStarted.get() && System.currentTimeMillis() < deadline) {
+                    Thread.sleep(10L);
+                }
+                assertTrue(actionStarted.get(), "Action should have started");
+
+                // Queue a second injection while first is in-flight
+                CompletableFuture<Boolean> pendingInject = executor.inject(
+                    envInput, Token.of(new StringValue("queued")));
+
+                // Drain first — rejects new inject but processes queued events
+                executor.drain();
+                CompletableFuture<Boolean> postDrainInject = executor.inject(
+                    envInput, Token.of(new StringValue("rejected")));
+                assertFalse(postDrainInject.get(1, TimeUnit.SECONDS),
+                    "Inject after drain should return false");
+
+                // Escalate to close — should discard queued events
+                executor.close();
+
+                // Let the in-flight action finish
+                actionCanFinish.set(true);
+
+                Marking marking = runFuture.get(3, TimeUnit.SECONDS);
+                orchestrator.shutdownNow();
+
+                // In-flight action should have completed per ENV-013
+                assertTrue(marking.hasTokens(output),
+                    "In-flight action should complete even after close");
             }
         }
 
@@ -536,7 +653,7 @@ abstract class AbstractNetExecutorEnvironmentTest {
 
             PetriNet net = PetriNet.builder("InjectAfterClose").transitions(t).build();
 
-            try (PetriNetExecutor executor = createLongRunning(net, Map.of(envPlace, List.of()), Set.of(envInput))) {
+            try (PetriNetExecutor executor = createWithEnvPlaces(net, Map.of(envPlace, List.of()), Set.of(envInput))) {
                 ExecutorService orchestrator = Executors.newSingleThreadExecutor();
                 Future<Marking> runFuture = orchestrator.submit((Callable<Marking>) executor::run);
 
@@ -589,7 +706,7 @@ abstract class AbstractNetExecutorEnvironmentTest {
             Map<Place<?>, List<Token<?>>> initial = Map.of(envPlace, List.of());
 
             try (
-                PetriNetExecutor executor = createLongRunningWithStore(net, initial, store, Set.of(envInput))
+                PetriNetExecutor executor = createWithEnvPlacesAndStore(net, initial, store, Set.of(envInput))
             ) {
                 ExecutorService orchestrator =
                     Executors.newSingleThreadExecutor();
