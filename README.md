@@ -677,6 +677,15 @@ Rust 2024 edition, workspace with 6 crates. Feature flags: `tokio` (async execut
 
 ---
 
+## Errata
+
+| Versions | Issue | Severity | Fixed in |
+|---|---|---|---|
+| 1.5.0–1.5.1 (Java), 1.5.0 (Rust) | `drain()` with enabled timed transitions causes 100% CPU spin (Java) or premature termination (Rust). Workaround: call `close()` instead. | High | 1.5.2 (Java), 1.5.1 (Rust) |
+| 1.5.0 (Java) | `close()` with in-flight async actions causes 100% CPU spin. | High | 1.5.1 (Java) |
+
+See [CHANGELOG.md](CHANGELOG.md) for details.
+
 ## License
 
 [Apache License 2.0](LICENSE)
