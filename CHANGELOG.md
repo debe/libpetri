@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.5.2
+
+### Bug Fixes
+
+- **Fixed CPU spin in `drain()` with enabled timed transitions (Java, Rust).** Calling `drain()`
+  on an executor with environment places while timed transitions were enabled but not yet ready
+  (nothing in-flight) caused the orchestrator to spin at 100% CPU. In Java, `awaitWork()` fell
+  through without blocking because `hasEnvironmentPlaces && !draining.get()` was false and no
+  other branch applied. In Rust, the same condition caused premature termination (dropping
+  enabled timed transitions). With 20 concurrent nets on 4 cores, total CPU burned was ~5,600ms
+  for a 400ms wall-clock window. Affects `BitmapNetExecutor` and `NetExecutor` (Java),
+  `BitmapNetExecutor` and `PrecompiledNetExecutor` (Rust async). Java `PrecompiledNetExecutor`
+  and TypeScript were already correct. Regression introduced in 1.5.0.
+
 ## 1.5.1
 
 ### Bug Fixes
