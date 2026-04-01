@@ -1254,11 +1254,16 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
                 continue;
             }
 
-            // Phase 6: Await work
-            if in_flight_count == 0 && !self.has_environment_places {
+            // Phase 6: Await work (completion, external event, or timer)
+            if in_flight_count == 0 && !self.has_environment_places
+                && self.enabled_transition_count == 0
+            {
                 break;
             }
-            if in_flight_count == 0 && (draining || !signal_channel_open) {
+            if in_flight_count == 0
+                && self.enabled_transition_count == 0
+                && (draining || !signal_channel_open)
+            {
                 break;
             }
 
