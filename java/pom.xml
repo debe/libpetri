@@ -40,8 +40,8 @@
 
         <!-- Dependency versions -->
         <guava.version>33.5.0-jre</guava.version>
-        <jackson.version>2.21.1</jackson.version>
-        <javasmt-z3.version>4.14.0</javasmt-z3.version>
+        <jackson.version>2.21.2</jackson.version>
+        <javasmt-z3.version>4.16.0</javasmt-z3.version>
         <junit.version>6.0.3</junit.version>
         <lz4.version>1.8.0</lz4.version>
         <jmh.version>1.37</jmh.version>
