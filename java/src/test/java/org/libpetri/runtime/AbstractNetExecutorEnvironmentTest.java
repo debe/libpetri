@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -683,6 +684,10 @@ abstract class AbstractNetExecutorEnvironmentTest {
         @Test
         @DisplayName("close() with in-flight action does not spin CPU (regression)")
         void close_withInFlightAction_doesNotSpinCPU() throws Exception {
+            var threadMXBean = java.lang.management.ManagementFactory.getThreadMXBean();
+            Assumptions.assumeTrue(threadMXBean.isThreadCpuTimeSupported(),
+                "Thread CPU time not supported on this JVM");
+
             Place<StringValue> envPlace = Place.of("ENV_INPUT", StringValue.class);
             EnvironmentPlace<StringValue> envInput = EnvironmentPlace.of(envPlace);
             Place<StringValue> output = Place.of("OUTPUT", StringValue.class);
@@ -705,8 +710,6 @@ abstract class AbstractNetExecutorEnvironmentTest {
             PetriNet net = PetriNet.builder("SpinTest").transitions(slow).build();
 
             try (PetriNetExecutor executor = createWithEnvPlaces(net, Map.of(envPlace, List.of()), Set.of(envInput))) {
-                // Run executor on a named thread so we can measure its CPU time
-                var threadMXBean = java.lang.management.ManagementFactory.getThreadMXBean();
                 var threadRef = new java.util.concurrent.atomic.AtomicLong();
 
                 ExecutorService orchestrator = Executors.newSingleThreadExecutor(r -> {
@@ -748,6 +751,217 @@ abstract class AbstractNetExecutorEnvironmentTest {
                 assertTrue(cpuDeltaMs < 200,
                     "Orchestrator thread consumed " + cpuDeltaMs +
                     "ms of CPU during close() — suspected spin (threshold: 200ms)");
+            }
+        }
+
+        /**
+         * Regression test: drain() with enabled timed transitions (nothing in-flight)
+         * causes awaitWork() to fall through without blocking — tight spin at 100% CPU.
+         *
+         * <p>The bug is in awaitWork(): when draining=true, the {@code hasEnvironmentPlaces &&
+         * !draining.get()} branch is skipped, and since inFlight is empty, no blocking occurs.
+         * Meanwhile shouldTerminate() returns false because enabledTransitionCount > 0.
+         *
+         * <p>Detects the spin by measuring orchestrator thread CPU time via ThreadMXBean.
+         * Without the fix, the thread burns ~500ms+ of CPU during the 600ms delayed transition wait.
+         * With the fix, it polls at bounded intervals and consumes &lt; 50ms.
+         */
+        @Test
+        @DisplayName("drain() with enabled timed transitions does not spin CPU (regression)")
+        void drain_withEnabledTimedTransitions_doesNotSpinCPU() throws Exception {
+            var threadMXBean = java.lang.management.ManagementFactory.getThreadMXBean();
+            Assumptions.assumeTrue(threadMXBean.isThreadCpuTimeSupported(),
+                "Thread CPU time not supported on this JVM");
+
+            Place<StringValue> envPlace = Place.of("ENV_INPUT", StringValue.class);
+            EnvironmentPlace<StringValue> envInput = EnvironmentPlace.of(envPlace);
+            Place<StringValue> intermediate = Place.of("INTERMEDIATE", StringValue.class);
+            Place<StringValue> output = Place.of("OUTPUT", StringValue.class);
+
+            // T1: immediate sync transition — consumes env token, produces to intermediate
+            Transition t1 = Transition.builder("immediate")
+                .inputs(Arc.In.one(envPlace))
+                .outputs(Arc.Out.and(intermediate))
+                .action(ctx -> {
+                    ctx.output(intermediate, ctx.input(envPlace));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+
+            // T2: delayed 600ms — consumes intermediate, produces to output
+            // After T1 fires synchronously, T2 is enabled but not ready (600ms delay).
+            // Nothing is in-flight, so awaitWork() must wait on the timer, not spin.
+            Transition t2 = Transition.builder("delayed600ms")
+                .inputs(Arc.In.one(intermediate))
+                .outputs(Arc.Out.and(output))
+                .timing(Timing.delayed(Duration.ofMillis(600)))
+                .action(ctx -> {
+                    ctx.output(output, ctx.input(intermediate));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+
+            PetriNet net = PetriNet.builder("DrainTimedSpinTest")
+                .transitions(t1, t2)
+                .build();
+
+            try (PetriNetExecutor executor = createWithEnvPlaces(
+                    net, Map.of(envPlace, List.of()), Set.of(envInput))) {
+
+                var threadRef = new java.util.concurrent.atomic.AtomicLong();
+
+                ExecutorService orchestrator = Executors.newSingleThreadExecutor(r -> {
+                    Thread t = new Thread(r, "drain-timed-spin-test");
+                    threadRef.set(t.getId());
+                    return t;
+                });
+                Future<Marking> runFuture = orchestrator.submit((Callable<Marking>) executor::run);
+
+                Thread.sleep(50L);
+
+                // Inject a token — T1 fires immediately (sync), enabling T2 (delayed 600ms)
+                executor.inject(envInput, Token.of(new StringValue("go")));
+
+                // Give T1 time to fire and enable T2
+                Thread.sleep(50L);
+
+                // Record CPU time, then drain.
+                // At this point: T2 is enabled but waiting 600ms, nothing in-flight.
+                long cpuBefore = threadMXBean.getThreadCpuTime(threadRef.get());
+                executor.drain();
+
+                // Wait for executor to finish — T2 should fire after its delay
+                Marking marking = runFuture.get(5, TimeUnit.SECONDS);
+                long cpuAfter = threadMXBean.getThreadCpuTime(threadRef.get());
+                orchestrator.shutdownNow();
+
+                long cpuDeltaMs = (cpuAfter - cpuBefore) / 1_000_000;
+
+                // T2 should have fired and produced output
+                assertTrue(marking.hasTokens(output),
+                    "Delayed transition should complete after drain");
+
+                // CPU time should be well under 200ms during the ~600ms delay wait.
+                // Without fix: ~600ms CPU (tight spin). With fix: ~5ms (timer-bounded polling).
+                assertTrue(cpuDeltaMs < 200,
+                    "Orchestrator thread consumed " + cpuDeltaMs +
+                    "ms of CPU after drain() — suspected spin (threshold: 200ms)");
+            }
+        }
+
+        /**
+         * Stress test: 20 concurrent net instances with environment places and timed
+         * transitions, all drained simultaneously. Detects aggregate CPU spin.
+         *
+         * <p>Uses per-thread CPU deltas (before/after drain) to isolate spin from
+         * legitimate startup work.
+         */
+        @Test
+        @DisplayName("20 concurrent nets with drain() do not saturate CPU (stress)")
+        void manyConcurrentNets_drain_doesNotSaturateCPU() throws Exception {
+            var threadMXBean = java.lang.management.ManagementFactory.getThreadMXBean();
+            Assumptions.assumeTrue(threadMXBean.isThreadCpuTimeSupported(),
+                "Thread CPU time not supported on this JVM");
+
+            int netCount = 20;
+
+            record NetInstance(PetriNetExecutor executor, Future<Marking> future,
+                              java.util.concurrent.atomic.AtomicLong threadRef,
+                              EnvironmentPlace<StringValue> envInput) {}
+
+            var allStarted = new java.util.concurrent.CountDownLatch(netCount);
+            ExecutorService orchestrators = Executors.newFixedThreadPool(netCount);
+            List<NetInstance> instances = new java.util.ArrayList<>();
+
+            try {
+                for (int i = 0; i < netCount; i++) {
+                    Place<StringValue> envPlace = Place.of("ENV_" + i, StringValue.class);
+                    EnvironmentPlace<StringValue> envInput = EnvironmentPlace.of(envPlace);
+                    Place<StringValue> mid = Place.of("MID_" + i, StringValue.class);
+                    Place<StringValue> out = Place.of("OUT_" + i, StringValue.class);
+
+                    Transition t1 = Transition.builder("imm_" + i)
+                        .inputs(Arc.In.one(envPlace))
+                        .outputs(Arc.Out.and(mid))
+                        .action(ctx -> {
+                            ctx.output(mid, ctx.input(envPlace));
+                            return CompletableFuture.completedFuture(null);
+                        })
+                        .build();
+
+                    Transition t2 = Transition.builder("delayed_" + i)
+                        .inputs(Arc.In.one(mid))
+                        .outputs(Arc.Out.and(out))
+                        .timing(Timing.delayed(Duration.ofMillis(500)))
+                        .action(ctx -> {
+                            ctx.output(out, ctx.input(mid));
+                            return CompletableFuture.completedFuture(null);
+                        })
+                        .build();
+
+                    PetriNet net = PetriNet.builder("StressNet_" + i)
+                        .transitions(t1, t2).build();
+
+                    PetriNetExecutor executor = createWithEnvPlaces(
+                        net, Map.of(envPlace, List.of()), Set.of(envInput));
+
+                    var threadRef = new java.util.concurrent.atomic.AtomicLong();
+                    Future<Marking> future = orchestrators.submit(() -> {
+                        threadRef.set(Thread.currentThread().getId());
+                        allStarted.countDown();
+                        return executor.run();
+                    });
+                    instances.add(new NetInstance(executor, future, threadRef, envInput));
+                }
+
+                assertTrue(allStarted.await(2, TimeUnit.SECONDS),
+                    "All orchestrator threads should start within 2s");
+
+                // Inject a token into each net — T1 fires immediately, enabling T2
+                for (var inst : instances) {
+                    inst.executor().inject(inst.envInput(), Token.of(new StringValue("go")));
+                }
+
+                // Wait for T1 to fire in all nets
+                Thread.sleep(100L);
+
+                // Snapshot per-thread CPU before drain
+                long[] cpuBefore = new long[netCount];
+                for (int i = 0; i < netCount; i++) {
+                    cpuBefore[i] = threadMXBean.getThreadCpuTime(instances.get(i).threadRef().get());
+                }
+                long wallBefore = System.nanoTime();
+
+                for (var inst : instances) {
+                    inst.executor().drain();
+                }
+
+                // Wait for all to finish
+                for (var inst : instances) {
+                    inst.future().get(5, TimeUnit.SECONDS);
+                }
+
+                long wallMs = (System.nanoTime() - wallBefore) / 1_000_000;
+
+                // Measure per-thread CPU delta since drain
+                long totalCpuDeltaMs = 0;
+                for (int i = 0; i < netCount; i++) {
+                    long after = threadMXBean.getThreadCpuTime(instances.get(i).threadRef().get());
+                    totalCpuDeltaMs += Math.max(0, after - cpuBefore[i]) / 1_000_000;
+                }
+
+                // With 20 spinning threads on 4 cores for ~500ms, we'd see ~2000ms total CPU.
+                // With fix: ~20 threads × ~5ms each ≈ ~100ms total CPU.
+                // Use 500ms threshold (generous but catches the pathological case).
+                assertTrue(totalCpuDeltaMs < 500,
+                    "Total orchestrator CPU across " + netCount + " nets: " + totalCpuDeltaMs +
+                    "ms (wall: " + wallMs + "ms) — suspected spin (threshold: 500ms)");
+
+            } finally {
+                for (var inst : instances) {
+                    inst.executor().close();
+                }
+                orchestrators.shutdownNow();
             }
         }
     }

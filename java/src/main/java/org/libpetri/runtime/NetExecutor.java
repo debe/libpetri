@@ -565,11 +565,11 @@ public final class NetExecutor implements PetriNetExecutor {
         if (!inFlight.isEmpty()) {
             // Wait for transition completion OR external event
             awaitCompletionOrEvent();
-        } else if (hasEnvironmentPlaces && !draining.get()) {
-            // Wait for external events
+        } else if (!enabledAt.isEmpty() || (hasEnvironmentPlaces && !draining.get())) {
+            // Wait for timed transitions to become ready, or for external events
             awaitExternalEvent();
         }
-        // If no env places and no in-flight, loop will terminate
+        // If nothing enabled/in-flight/env-waiting, loop will terminate via shouldTerminate()
     }
 
     /**

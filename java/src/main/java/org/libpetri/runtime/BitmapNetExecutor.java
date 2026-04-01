@@ -926,7 +926,8 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
 
         if (!inFlight.isEmpty()) {
             awaitCompletionOrEvent();
-        } else if (hasEnvironmentPlaces && !draining.get()) {
+        } else if (enabledTransitionCount > 0 || (hasEnvironmentPlaces && !draining.get())) {
+            // Wait for timed transitions to become ready, or for external events
             awaitExternalEvent();
         }
     }
