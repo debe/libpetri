@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.3
+
+### Dependency Updates
+
+- **lz4-java**: changed groupId from `org.lz4` to `at.yawk.lz4` (upstream artifact relocation).
+
 ## 1.5.2
 
 ### Bug Fixes
