@@ -1,0 +1,27 @@
+# Linguist overrides — keep GitHub language stats accurate
+
+# Documentation / GitHub Pages site
+docs/**            linguist-documentation
+
+# Generated SVGs
+*.svg              linguist-generated
+
+# Debug UI is a small support tool, not a primary language
+debug-ui/**        linguist-documentation
+
+# Scripts are support tooling
+scripts/**         linguist-documentation
+
+# Spec files are prose, not code
+spec/**            linguist-documentation
+
+# Theory / research papers
+theory/**          linguist-documentation
+
+# Lock files are generated
+**/package-lock.json  linguist-generated
+
+# Maven wrapper
+java/.mvn/**       linguist-generated
+java/mvnw          linguist-generated
+java/mvnw.cmd      linguist-generated
