@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+### New Features
+
+- **Bulk token output on `TransitionContext` (all three implementations).** Transition
+  actions can now push multiple tokens to the same output place in a single call,
+  avoiding the `for v in values { ctx.output(...) }` loop that previously incurred
+  per-element place-declaration validation:
+  - **Java**: added `@SafeVarargs public final <T> TransitionContext output(Place<T>, T...)`
+    and `<T> TransitionContext output(Place<T>, Iterable<? extends T>)`. Strict-match
+    overload resolution (JLS §15.12.2.5) keeps the existing single-value
+    `output(Place<T>, T)` call path unchanged.
+  - **TypeScript**: `ctx.output<T>(place, ...values: T[])` and `ctx.outputToken<T>(place, ...tokens)`
+    now accept rest parameters. Single-arg call sites continue to type-check.
+  - **Rust**: new `ctx.output_many<T>(place_name, impl IntoIterator<Item = T>)` method.
+    Accepts arrays, `Vec`, slice iterators, and iterator adaptors. The existing
+    single-value `output()` is untouched.
+
+  All three implementations validate the output place **once** before iterating, share
+  a single timestamp across the produced tokens (matching "fired at time T" semantics),
+  and fail fast on undeclared places without leaving partial output. See [CORE-062].
+
+### Spec Changes
+
+- **CORE-062 updated.** Extended the acceptance criteria to cover the bulk-form API,
+  the validate-once-fail-fast contract, and the empty-bulk-is-a-no-op degenerate case.
+
 ## 1.5.3
 
 ### Dependency Updates

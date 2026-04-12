@@ -171,6 +171,47 @@ impl TransitionContext {
         Ok(())
     }
 
+    /// Add multiple output values to the same place in a single call.
+    ///
+    /// Equivalent to calling [`output`](Self::output) once per element, but:
+    /// - Validates the declared-output set **once** before iterating, so
+    ///   an undeclared place returns `Err` before any element is appended.
+    /// - Pre-reserves capacity on the internal output collector from the
+    ///   iterator's `size_hint().0`.
+    /// - Shares a single `created_at` timestamp across all produced tokens,
+    ///   matching the "fired at time T" semantics of a single action firing.
+    ///
+    /// Accepts anything that implements [`IntoIterator`], including arrays,
+    /// `Vec`, slice iterators, and iterator adaptors.
+    ///
+    /// # Example
+    /// ```ignore
+    /// ctx.output_many("out", [1, 2, 3])?;
+    /// ctx.output_many("out", vec!["a", "b"])?;
+    /// ctx.output_many("out", (0..5))?;
+    /// ```
+    pub fn output_many<T: Send + Sync + 'static>(
+        &mut self,
+        place_name: &str,
+        values: impl IntoIterator<Item = T>,
+    ) -> Result<(), ActionError> {
+        let name = self.require_output(place_name)?;
+        let iter = values.into_iter();
+        let (lower, _) = iter.size_hint();
+        self.outputs.reserve(lower);
+        let created_at = crate::token::now_millis();
+        for value in iter {
+            self.outputs.push(OutputEntry {
+                place_name: Arc::clone(&name),
+                token: ErasedToken {
+                    value: Arc::new(value),
+                    created_at,
+                },
+            });
+        }
+        Ok(())
+    }
+
     fn require_output(&self, place_name: &str) -> Result<Arc<str>, ActionError> {
         self.allowed_outputs
             .get(place_name)
@@ -275,5 +316,89 @@ impl std::fmt::Debug for TransitionContext {
             .field("read_count", &self.reads.len())
             .field("output_count", &self.outputs.len())
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ctx_with_output(place_name: &str) -> TransitionContext {
+        let mut allowed = HashSet::new();
+        allowed.insert(Arc::<str>::from(place_name));
+        TransitionContext::new(
+            Arc::from("T"),
+            HashMap::new(),
+            HashMap::new(),
+            allowed,
+            None,
+        )
+    }
+
+    fn downcast_values<T: Send + Sync + 'static + Clone>(ctx: &TransitionContext) -> Vec<T> {
+        ctx.outputs()
+            .iter()
+            .map(|e| (*e.token.value.downcast_ref::<T>().unwrap()).clone())
+            .collect()
+    }
+
+    #[test]
+    fn output_many_from_array_appends_in_order() {
+        let mut ctx = ctx_with_output("out");
+        ctx.output_many("out", [1, 2, 3]).unwrap();
+        assert_eq!(downcast_values::<i32>(&ctx), vec![1, 2, 3]);
+        assert!(ctx.outputs().iter().all(|e| &*e.place_name == "out"));
+    }
+
+    #[test]
+    fn output_many_from_vec() {
+        let mut ctx = ctx_with_output("out");
+        ctx.output_many("out", vec!["a".to_string(), "b".to_string()])
+            .unwrap();
+        assert_eq!(
+            downcast_values::<String>(&ctx),
+            vec!["a".to_string(), "b".to_string()]
+        );
+    }
+
+    #[test]
+    fn output_many_from_range_iterator() {
+        let mut ctx = ctx_with_output("out");
+        ctx.output_many("out", 0..5i32).unwrap();
+        assert_eq!(downcast_values::<i32>(&ctx), vec![0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn output_many_empty_is_ok_and_no_op() {
+        let mut ctx = ctx_with_output("out");
+        let empty: [i32; 0] = [];
+        ctx.output_many("out", empty).unwrap();
+        assert!(ctx.outputs().is_empty());
+    }
+
+    #[test]
+    fn output_many_undeclared_place_errors_before_appending() {
+        let mut ctx = ctx_with_output("out");
+        let err = ctx.output_many("nope", [1, 2, 3]).unwrap_err();
+        assert!(format!("{err:?}").contains("not in declared outputs"));
+        assert!(ctx.outputs().is_empty());
+    }
+
+    #[test]
+    fn output_many_shares_timestamp_across_tokens() {
+        let mut ctx = ctx_with_output("out");
+        ctx.output_many("out", [10i32, 20, 30]).unwrap();
+        let ts: Vec<_> = ctx.outputs().iter().map(|e| e.token.created_at).collect();
+        assert_eq!(ts.len(), 3);
+        assert!(ts.windows(2).all(|w| w[0] == w[1]));
+    }
+
+    #[test]
+    fn single_output_still_works_alongside_output_many() {
+        // Smoke test: the existing output() path is untouched by the bulk addition.
+        let mut ctx = ctx_with_output("out");
+        ctx.output("out", 42i32).unwrap();
+        ctx.output_many("out", [43, 44]).unwrap();
+        assert_eq!(downcast_values::<i32>(&ctx), vec![42, 43, 44]);
     }
 }

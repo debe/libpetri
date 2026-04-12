@@ -440,14 +440,17 @@ The transition context provides access to read (non-consumed) token values from 
 
 **Priority:** MUST
 
-The transition context provides a way for actions to declare output tokens for production.
+The transition context provides a way for actions to declare output tokens for production, supporting both single-token and bulk-token forms on the same method.
 
 **Acceptance Criteria:**
-1. `output(place, value)` declares a token to produce.
-2. Producing to an undeclared output place results in an error.
+1. `output(place, value)` declares a single token to produce on the given output place.
+2. A bulk form accepting multiple values for the same output place in one call is available and produces one token per value in iteration order. Language shapes: Java varargs `output(Place<T>, T...)` plus `output(Place<T>, Iterable<? extends T>)`; TypeScript rest parameters `output<T>(place, ...values: T[])`; Rust `output_many<T>(place_name, impl IntoIterator<Item = T>)`.
+3. The bulk form validates the output place exactly once and reports an error **before** appending any tokens if the place is not declared, so undeclared-place errors do not leave partial output behind.
+4. An empty bulk call (zero values) is a no-op and returns successfully.
+5. Producing to an undeclared output place results in an error.
 
 **Depends on:** [CORE-035]
-**Test derivation:** Action calls `output(place, value)`; verify token appears in place after firing.
+**Test derivation:** Action calls `output(place, value)`; verify token appears in place after firing. Bulk form: action calls the bulk overload with three values; verify all three tokens appear in order. Bulk-undeclared: call bulk overload with a foreign place; verify error raised and no tokens appended.
 
 ---
 

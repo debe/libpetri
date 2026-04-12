@@ -227,6 +227,60 @@ public final class TransitionContext {
     }
 
     /**
+     * Add multiple output values to the same place in a single call.
+     *
+     * <p>Equivalent to calling {@link #output(Place, Object)} once per value,
+     * but validates the place once up front and uses a tight loop over the
+     * underlying collector instead of re-dispatching per element. An empty
+     * varargs is a no-op.
+     *
+     * <h3>Example</h3>
+     * <pre>{@code
+     * ctx.output(OUTPUT_PLACE, "a", "b", "c");
+     * }</pre>
+     *
+     * @param place  the output place to write to
+     * @param values the values to produce
+     * @return this context for chaining
+     * @throws IllegalArgumentException if place not declared as output in structure
+     */
+    @SafeVarargs
+    public final <T> TransitionContext output(Place<T> place, T... values) {
+        requireOutput(place);
+        for (T value : values) {
+            rawOutput.add(place, value);
+        }
+        return this;
+    }
+
+    /**
+     * Add multiple output values to the same place in a single call, from an {@link Iterable}.
+     *
+     * <p>Equivalent to calling {@link #output(Place, Object)} once per value,
+     * but validates the place once up front. Accepts any {@code Iterable},
+     * including {@code List}, {@code Set}, and streams materialised via
+     * {@code ::iterator}.
+     *
+     * <h3>Example</h3>
+     * <pre>{@code
+     * List<Integer> counts = computeCounts();
+     * ctx.output(COUNTS_PLACE, counts);
+     * }</pre>
+     *
+     * @param place  the output place to write to
+     * @param values the values to produce
+     * @return this context for chaining
+     * @throws IllegalArgumentException if place not declared as output in structure
+     */
+    public <T> TransitionContext output(Place<T> place, Iterable<? extends T> values) {
+        requireOutput(place);
+        for (T value : values) {
+            rawOutput.add(place, value);
+        }
+        return this;
+    }
+
+    /**
      * Returns declared output places.
      * Useful for structure-aware actions like fork().
      */
