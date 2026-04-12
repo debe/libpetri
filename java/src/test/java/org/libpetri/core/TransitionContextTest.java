@@ -2,6 +2,7 @@ package org.libpetri.core;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
@@ -142,5 +143,111 @@ class TransitionContextTest {
 
         assertTrue(ctx.hasExecutionContext(SpanContext.class));
         assertSame(mockSpanContext, ctx.executionContext(SpanContext.class));
+    }
+
+    // ==================== Bulk Output Tests ====================
+
+    @Test
+    void output_varargs_addsAllValuesInOrder() {
+        var transition = createTestTransition();
+        var input = new TokenInput();
+        input.add(INPUT_PLACE, Token.of(new TestValue("in")));
+        var output = new TokenOutput();
+        var ctx = new TransitionContext(transition, input, output);
+
+        ctx.output(OUTPUT_PLACE, new TestValue("a"), new TestValue("b"), new TestValue("c"));
+
+        var entries = output.entries();
+        assertEquals(3, entries.size());
+        assertEquals(new TestValue("a"), entries.get(0).token().value());
+        assertEquals(new TestValue("b"), entries.get(1).token().value());
+        assertEquals(new TestValue("c"), entries.get(2).token().value());
+        assertEquals(OUTPUT_PLACE, entries.get(0).place());
+    }
+
+    @Test
+    void output_varargs_emptyIsNoOp() {
+        var transition = createTestTransition();
+        var input = new TokenInput();
+        input.add(INPUT_PLACE, Token.of(new TestValue("in")));
+        var output = new TokenOutput();
+        var ctx = new TransitionContext(transition, input, output);
+
+        ctx.output(OUTPUT_PLACE, new TestValue[0]);
+
+        assertTrue(output.entries().isEmpty());
+    }
+
+    @Test
+    void output_varargs_undeclaredPlaceThrows() {
+        var transition = createTestTransition();
+        var input = new TokenInput();
+        input.add(INPUT_PLACE, Token.of(new TestValue("in")));
+        var ctx = new TransitionContext(transition, input, new TokenOutput());
+        var foreign = Place.of("Foreign", TestValue.class);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> ctx.output(foreign, new TestValue("a"), new TestValue("b")));
+    }
+
+    @Test
+    void output_iterable_addsAllValuesInOrder() {
+        var transition = createTestTransition();
+        var input = new TokenInput();
+        input.add(INPUT_PLACE, Token.of(new TestValue("in")));
+        var output = new TokenOutput();
+        var ctx = new TransitionContext(transition, input, output);
+
+        ctx.output(OUTPUT_PLACE, List.of(
+                new TestValue("x"),
+                new TestValue("y"),
+                new TestValue("z")));
+
+        var entries = output.entries();
+        assertEquals(3, entries.size());
+        assertEquals(new TestValue("x"), entries.get(0).token().value());
+        assertEquals(new TestValue("y"), entries.get(1).token().value());
+        assertEquals(new TestValue("z"), entries.get(2).token().value());
+    }
+
+    @Test
+    void output_iterable_emptyIsNoOp() {
+        var transition = createTestTransition();
+        var input = new TokenInput();
+        input.add(INPUT_PLACE, Token.of(new TestValue("in")));
+        var output = new TokenOutput();
+        var ctx = new TransitionContext(transition, input, output);
+
+        ctx.output(OUTPUT_PLACE, List.<TestValue>of());
+
+        assertTrue(output.entries().isEmpty());
+    }
+
+    @Test
+    void output_iterable_undeclaredPlaceThrows() {
+        var transition = createTestTransition();
+        var input = new TokenInput();
+        input.add(INPUT_PLACE, Token.of(new TestValue("in")));
+        var ctx = new TransitionContext(transition, input, new TokenOutput());
+        var foreign = Place.of("Foreign", TestValue.class);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> ctx.output(foreign, List.of(new TestValue("a"))));
+    }
+
+    @Test
+    void output_singleValueOverloadStillPreferred() {
+        // Strict-match resolution (JLS §15.12.2.5) should route single-value calls
+        // to the non-varargs output(Place, T) overload unchanged.
+        var transition = createTestTransition();
+        var input = new TokenInput();
+        input.add(INPUT_PLACE, Token.of(new TestValue("in")));
+        var output = new TokenOutput();
+        var ctx = new TransitionContext(transition, input, output);
+
+        ctx.output(OUTPUT_PLACE, new TestValue("single"));
+
+        assertEquals(1, output.entries().size());
+        assertEquals(new TestValue("single"), output.entries().get(0).token().value());
     }
 }

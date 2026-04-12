@@ -127,17 +127,39 @@ export class TransitionContext {
 
   // ==================== Output Access ====================
 
-  /** Add output value. Throws if place not declared as output. */
-  output<T>(place: Place<T>, value: T): this {
+  /**
+   * Add one or more output values to the same place in a single call.
+   *
+   * Validates the place once, then appends each value to the output
+   * collector. Calling with zero values is a no-op.
+   *
+   * @example
+   *   ctx.output(outPlace, 'a', 'b', 'c');
+   *   ctx.output(outPlace, ...someArray);
+   *
+   * @throws if place not declared as output.
+   */
+  output<T>(place: Place<T>, ...values: T[]): this {
     this.requireOutput(place);
-    this._rawOutput.add(place, value);
+    for (const value of values) {
+      this._rawOutput.add(place, value);
+    }
     return this;
   }
 
-  /** Add output token with metadata. */
-  outputToken<T>(place: Place<T>, token: Token<T>): this {
+  /**
+   * Add one or more pre-built output tokens to the same place in a single call.
+   *
+   * Validates the place once, then appends each token. Calling with zero
+   * tokens is a no-op.
+   *
+   * @throws if place not declared as output.
+   */
+  outputToken<T>(place: Place<T>, ...tokens: Token<T>[]): this {
     this.requireOutput(place);
-    this._rawOutput.addToken(place, token);
+    for (const token of tokens) {
+      this._rawOutput.addToken(place, token);
+    }
     return this;
   }
 

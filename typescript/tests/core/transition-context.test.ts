@@ -79,6 +79,40 @@ describe('TransitionContext', () => {
       const ctx = makeContext();
       expect(ctx.outputPlaces().size).toBe(1);
     });
+
+    it('produces multiple outputs via rest params', () => {
+      const ctx = makeContext();
+      ctx.output(outputPlace, 'a', 'b', 'c');
+      const entries = ctx.rawOutput().entries();
+      expect(entries).toHaveLength(3);
+      expect(entries.map(e => e.token.value)).toEqual(['a', 'b', 'c']);
+      expect(entries.every(e => e.place === outputPlace)).toBe(true);
+    });
+
+    it('produces multiple outputs via spread array', () => {
+      const ctx = makeContext();
+      const values = ['x', 'y', 'z'];
+      ctx.output(outputPlace, ...values);
+      expect(ctx.rawOutput().entries().map(e => e.token.value)).toEqual(['x', 'y', 'z']);
+    });
+
+    it('zero-value bulk output is a no-op', () => {
+      const ctx = makeContext();
+      ctx.output(outputPlace);
+      expect(ctx.rawOutput().entries()).toHaveLength(0);
+    });
+
+    it('bulk rejects undeclared output before appending anything', () => {
+      const ctx = makeContext();
+      expect(() => ctx.output(forbiddenPlace, 'a', 'b')).toThrow('not in declared outputs');
+      expect(ctx.rawOutput().entries()).toHaveLength(0);
+    });
+
+    it('outputToken accepts multiple tokens', () => {
+      const ctx = makeContext();
+      ctx.outputToken(outputPlace, tokenOf('t1'), tokenOf('t2'));
+      expect(ctx.rawOutput().entries().map(e => e.token.value)).toEqual(['t1', 't2']);
+    });
   });
 
   describe('structure info', () => {
