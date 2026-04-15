@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -75,14 +76,21 @@ public sealed interface DebugCommand {
      *
      * @param limit maximum sessions to return (default 50)
      * @param activeOnly only return active sessions
+     * @param tagFilter optional tag filter (AND semantics); null or empty matches all (libpetri 1.6.0+)
      */
     record ListSessions(
         Integer limit,
-        Boolean activeOnly
+        Boolean activeOnly,
+        Map<String, String> tagFilter
     ) implements DebugCommand {
         public ListSessions {
             if (limit == null) limit = 50;
             if (activeOnly == null) activeOnly = false;
+            if (tagFilter == null) tagFilter = Map.of();
+        }
+
+        public ListSessions(Integer limit, Boolean activeOnly) {
+            this(limit, activeOnly, Map.of());
         }
     }
 

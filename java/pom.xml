@@ -6,7 +6,7 @@
 
     <groupId>org.libpetri</groupId>
     <artifactId>libpetri</artifactId>
-    <version>1.5.3</version>
+    <version>1.7.0</version>
     <packaging>jar</packaging>
 
     <name>libpetri</name>

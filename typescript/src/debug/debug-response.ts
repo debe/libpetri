@@ -11,6 +11,12 @@ export interface SessionSummary {
   readonly startTime: string;
   readonly active: boolean;
   readonly eventCount: number;
+  /** User-defined session tags. Empty object if none. (libpetri 1.6.0+) */
+  readonly tags?: Readonly<Record<string, string>>;
+  /** ISO-8601 end time, present only for completed sessions. (libpetri 1.6.0+) */
+  readonly endTime?: string;
+  /** Session duration in milliseconds, present only for completed sessions. (libpetri 1.6.0+) */
+  readonly durationMs?: number;
 }
 
 export interface TokenInfo {

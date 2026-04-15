@@ -1,5 +1,6 @@
 package org.libpetri.debug;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 
@@ -246,18 +247,28 @@ public sealed interface DebugResponse {
     /**
      * Summary of a debug session for listing.
      *
+     * <p>{@code tags}, {@code endTime}, and {@code durationMs} were added in libpetri 1.6.0.
+     * Older clients that receive additional fields will ignore them (Jackson tolerance).
+     *
      * @param sessionId unique identifier
      * @param netName name of the Petri net
      * @param startTime when the session started (ISO-8601 format)
      * @param active whether the session is still running
      * @param eventCount number of events captured
+     * @param tags user-defined session tags (empty map if none)
+     * @param endTime when the session ended (ISO-8601), null while active
+     * @param durationMs session duration in milliseconds, null while active
      */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     record SessionSummary(
         String sessionId,
         String netName,
         String startTime,
         boolean active,
-        long eventCount
+        long eventCount,
+        @JsonInclude(JsonInclude.Include.NON_EMPTY) Map<String, String> tags,
+        String endTime,
+        Long durationMs
     ) {}
 
     /**

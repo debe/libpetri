@@ -22,6 +22,15 @@ export interface DebugSession {
   readonly startTime: number;
   readonly active: boolean;
   readonly importedStructure: NetStructure | null;
+  /** Stamped on first `complete()`. Undefined while the session is active. (libpetri 1.6.0+) */
+  readonly endTime?: number;
+  /**
+   * Per-session tag storage, mutated in place by the registry. The reference is
+   * readonly but the underlying object is not — prefer
+   * {@link DebugSessionRegistry.tag}/{@link DebugSessionRegistry.tagsFor}
+   * over direct access.
+   */
+  readonly tags: Record<string, string>;
 }
 
 /** Builds the net structure from a session's stored place and transition info. */
@@ -79,8 +88,12 @@ export class DebugSessionRegistry {
   /**
    * Registers a new debug session for the given Petri net.
    * Generates DOT diagram and extracts net structure.
+   *
+   * @param sessionId unique session id
+   * @param net the Petri net being executed
+   * @param tags optional user-defined tags (libpetri 1.6.0+) — e.g. `{channel: 'voice'}`
    */
-  register(sessionId: string, net: PetriNet): DebugSession {
+  register(sessionId: string, net: PetriNet, tags?: Readonly<Record<string, string>>): DebugSession {
     const dotDiagram = dotExport(net);
     const places = PlaceAnalysis.from(net);
     const eventStore = this._eventStoreFactory(sessionId);
@@ -95,6 +108,7 @@ export class DebugSessionRegistry {
       startTime: Date.now(),
       active: true,
       importedStructure: null,
+      tags: tags ? { ...tags } : {},
     };
 
     this.evictIfNecessary();
@@ -104,17 +118,23 @@ export class DebugSessionRegistry {
 
   /**
    * Marks a session as completed (no longer active) and notifies completion listeners.
+   *
+   * <p>Stamps `endTime = Date.now()` on the first completion. Idempotent: subsequent
+   * calls preserve the existing endTime. (libpetri 1.6.0+)
    */
   complete(sessionId: string): void {
     const session = this._sessions.get(sessionId);
     if (session) {
-      const completed: DebugSession = { ...session, active: false };
+      const endTime = session.endTime ?? Date.now();
+      // Spread preserves the same `tags` object reference, so any concurrent
+      // tag() call via the old session still writes to the right storage.
+      const completed: DebugSession = { ...session, active: false, endTime };
       this._sessions.set(sessionId, completed);
       this.notifyCompletionListeners(completed);
     }
   }
 
-  /** Removes a session from the registry. */
+  /** Removes a session from the registry. Tags die with the session. */
   remove(sessionId: string): DebugSession | undefined {
     const removed = this._sessions.get(sessionId);
     if (removed) {
@@ -129,17 +149,47 @@ export class DebugSessionRegistry {
     return this._sessions.get(sessionId);
   }
 
+  /**
+   * Sets or overwrites a single tag on a session. (libpetri 1.6.0+)
+   *
+   * Tags accumulate until the session is removed. Setting a key that already
+   * exists replaces its value.
+   *
+   * If `sessionId` is not a currently-registered session the call is a no-op.
+   * A tag write that races with {@link remove} is harmless — the write lands on
+   * the now-orphaned session object and is garbage collected along with it.
+   */
+  tag(sessionId: string, key: string, value: string): void {
+    const session = this._sessions.get(sessionId);
+    if (!session) return;
+    session.tags[key] = value;
+  }
+
+  /**
+   * Returns a snapshot of the tags attached to a session. Returns an empty
+   * object if the session has no tags or does not exist. (libpetri 1.6.0+)
+   */
+  tagsFor(sessionId: string): Readonly<Record<string, string>> {
+    const session = this._sessions.get(sessionId);
+    return session ? { ...session.tags } : {};
+  }
+
   /** Lists sessions, ordered by start time (most recent first). */
-  listSessions(limit: number): readonly DebugSession[] {
+  listSessions(limit: number, tagFilter?: Readonly<Record<string, string>>): readonly DebugSession[] {
     return [...this._sessions.values()]
+      .filter(s => this.matchesTagFilter(s, tagFilter))
       .sort((a, b) => b.startTime - a.startTime)
       .slice(0, limit);
   }
 
   /** Lists only active sessions. */
-  listActiveSessions(limit: number): readonly DebugSession[] {
+  listActiveSessions(
+    limit: number,
+    tagFilter?: Readonly<Record<string, string>>,
+  ): readonly DebugSession[] {
     return [...this._sessions.values()]
       .filter(s => s.active)
+      .filter(s => this.matchesTagFilter(s, tagFilter))
       .sort((a, b) => b.startTime - a.startTime)
       .slice(0, limit);
   }
@@ -151,6 +201,9 @@ export class DebugSessionRegistry {
 
   /**
    * Registers an imported (archived) session as an inactive, read-only session.
+   *
+   * @param endTime when the original session ended (libpetri 1.6.0+)
+   * @param tags user-defined tags attached to the imported session (libpetri 1.6.0+)
    */
   registerImported(
     sessionId: string,
@@ -159,6 +212,8 @@ export class DebugSessionRegistry {
     structure: NetStructure,
     eventStore: DebugEventStore,
     startTime: number,
+    endTime?: number,
+    tags?: Readonly<Record<string, string>>,
   ): DebugSession {
     this.evictIfNecessary();
 
@@ -172,10 +227,27 @@ export class DebugSessionRegistry {
       startTime,
       active: false,
       importedStructure: structure,
+      endTime,
+      tags: tags ? { ...tags } : {},
     };
 
     this._sessions.set(sessionId, session);
     return session;
+  }
+
+  /** AND-match: all filter entries must exactly match the session's tags. */
+  private matchesTagFilter(
+    session: DebugSession,
+    filter: Readonly<Record<string, string>> | undefined,
+  ): boolean {
+    if (!filter) return true;
+    const keys = Object.keys(filter);
+    if (keys.length === 0) return true;
+    const tags = session.tags;
+    for (const key of keys) {
+      if (tags[key] !== filter[key]) return false;
+    }
+    return true;
   }
 
   /** Notifies all completion listeners. Exceptions are caught and logged. */

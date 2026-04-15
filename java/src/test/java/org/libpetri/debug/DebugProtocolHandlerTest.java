@@ -166,6 +166,89 @@ class DebugProtocolHandlerTest {
             var sessionList = lastResponseOfType(DebugResponse.SessionList.class);
             assertEquals(2, sessionList.sessions().size());
         }
+
+        @Test
+        void shouldFilterSessionsByTag() {
+            connectClient("c1");
+            registry.register("voice-1", TEST_NET, java.util.Map.of("channel", "voice"));
+            registry.register("text-1", TEST_NET, java.util.Map.of("channel", "text"));
+            registry.register("voice-2", TEST_NET, java.util.Map.of("channel", "voice"));
+
+            handler.handleCommand("c1",
+                new DebugCommand.ListSessions(50, false, java.util.Map.of("channel", "voice")));
+
+            var sessionList = lastResponseOfType(DebugResponse.SessionList.class);
+            assertEquals(2, sessionList.sessions().size());
+            assertTrue(sessionList.sessions().stream()
+                .allMatch(s -> s.sessionId().startsWith("voice")));
+        }
+
+        @Test
+        void shouldPopulateNewSessionSummaryFieldsOverProtocol() {
+            connectClient("c1");
+            registry.register("s1", TEST_NET, java.util.Map.of("channel", "voice"));
+            registry.complete("s1");
+
+            handler.handleCommand("c1", new DebugCommand.ListSessions(50, false));
+
+            var sessionList = lastResponseOfType(DebugResponse.SessionList.class);
+            assertEquals(1, sessionList.sessions().size());
+            var summary = sessionList.sessions().getFirst();
+            assertEquals(java.util.Map.of("channel", "voice"), summary.tags());
+            assertNotNull(summary.endTime());
+            assertNotNull(summary.durationMs());
+        }
+
+        @Test
+        void shouldRoundTripSessionSummaryThroughJackson() throws Exception {
+            var mapper = new com.fasterxml.jackson.databind.ObjectMapper()
+                .registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+
+            var summary = new DebugResponse.SessionSummary(
+                "s1", "TestNet", "2026-04-15T10:30:00Z", false, 42L,
+                java.util.Map.of("channel", "voice", "env", "staging"),
+                "2026-04-15T10:35:00Z", 300_000L
+            );
+            var json = mapper.writeValueAsString(summary);
+            var tree = mapper.readTree(json);
+
+            // Cross-language interop: wire format must use camelCase keys.
+            assertEquals("s1", tree.get("sessionId").asText());
+            assertEquals("TestNet", tree.get("netName").asText());
+            assertEquals("2026-04-15T10:30:00Z", tree.get("startTime").asText());
+            assertFalse(tree.get("active").asBoolean());
+            assertEquals(42L, tree.get("eventCount").asLong());
+            assertTrue(tree.has("tags"), "tags field must be present when non-empty");
+            assertEquals("voice", tree.get("tags").get("channel").asText());
+            assertEquals("staging", tree.get("tags").get("env").asText());
+            assertEquals("2026-04-15T10:35:00Z", tree.get("endTime").asText());
+            assertEquals(300_000L, tree.get("durationMs").asLong());
+
+            var back = mapper.readValue(json, DebugResponse.SessionSummary.class);
+            assertEquals(summary, back);
+        }
+
+        @Test
+        void shouldOmitNullSessionSummaryFields() throws Exception {
+            var mapper = new com.fasterxml.jackson.databind.ObjectMapper()
+                .registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+
+            var activeSummary = new DebugResponse.SessionSummary(
+                "s1", "TestNet", "2026-04-15T10:30:00Z", true, 0L,
+                java.util.Map.of(), null, null
+            );
+            var json = mapper.writeValueAsString(activeSummary);
+            var tree = mapper.readTree(json);
+
+            // @JsonInclude(NON_NULL) omits endTime/durationMs while the session is active;
+            // @JsonInclude(NON_EMPTY) on tags omits the empty map. Cross-language parity:
+            // Rust skips empty HashMap, TS skips undefined — all three backends must agree.
+            assertFalse(tree.has("endTime"), "endTime must be omitted when null");
+            assertFalse(tree.has("durationMs"), "durationMs must be omitted when null");
+            assertFalse(tree.has("tags"), "tags must be omitted when empty");
+            assertEquals("s1", tree.get("sessionId").asText());
+            assertTrue(tree.get("active").asBoolean());
+        }
     }
 
     @Nested

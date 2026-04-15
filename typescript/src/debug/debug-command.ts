@@ -32,7 +32,13 @@ export interface EventFilter {
 export type DebugCommand =
   | { readonly type: 'subscribe'; readonly sessionId: string; readonly mode: SubscriptionMode; readonly fromIndex?: number }
   | { readonly type: 'unsubscribe'; readonly sessionId: string }
-  | { readonly type: 'listSessions'; readonly limit?: number; readonly activeOnly?: boolean }
+  | {
+      readonly type: 'listSessions';
+      readonly limit?: number;
+      readonly activeOnly?: boolean;
+      /** Optional tag filter (AND semantics). Empty or missing matches all. (libpetri 1.6.0+) */
+      readonly tagFilter?: Readonly<Record<string, string>>;
+    }
   | { readonly type: 'seek'; readonly sessionId: string; readonly timestamp: string }
   | { readonly type: 'playbackSpeed'; readonly sessionId: string; readonly speed: number }
   | { readonly type: 'filter'; readonly sessionId: string; readonly filter: EventFilter }

@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { DebugProtocolHandler, computeState } from '../../src/debug/debug-protocol-handler.js';
 import { DebugSessionRegistry } from '../../src/debug/debug-session-registry.js';
+import { DebugEventStore } from '../../src/debug/debug-event-store.js';
 import type { DebugCommand } from '../../src/debug/debug-command.js';
-import type { DebugResponse } from '../../src/debug/debug-response.js';
+import type { DebugResponse, NetStructure } from '../../src/debug/debug-response.js';
 import type { NetEvent } from '../../src/event/net-event.js';
 import { tokenOf } from '../../src/core/token.js';
 import { PetriNet } from '../../src/core/petri-net.js';
@@ -140,6 +141,66 @@ describe('DebugProtocolHandler', () => {
 
       const sessionList = lastResponseOfType('sessionList')!;
       expect(sessionList.sessions).toHaveLength(2);
+    });
+
+    it('should filter sessions by tag', () => {
+      setup();
+      connectClient('c1');
+      registry.register('voice-1', TEST_NET, { channel: 'voice' });
+      registry.register('text-1', TEST_NET, { channel: 'text' });
+      registry.register('voice-2', TEST_NET, { channel: 'voice' });
+
+      handler.handleCommand('c1', {
+        type: 'listSessions',
+        limit: 50,
+        activeOnly: false,
+        tagFilter: { channel: 'voice' },
+      });
+
+      const sessionList = lastResponseOfType('sessionList')!;
+      expect(sessionList.sessions).toHaveLength(2);
+      expect(sessionList.sessions.every(s => s.sessionId.startsWith('voice'))).toBe(true);
+      expect(sessionList.sessions[0]!.tags).toEqual({ channel: 'voice' });
+    });
+
+    it('should populate endTime and durationMs on completed sessions over protocol', () => {
+      setup();
+      connectClient('c1');
+      registry.register('s1', TEST_NET, { channel: 'voice' });
+      registry.complete('s1');
+
+      handler.handleCommand('c1', { type: 'listSessions', limit: 50, activeOnly: false });
+
+      const sessionList = lastResponseOfType('sessionList')!;
+      expect(sessionList.sessions).toHaveLength(1);
+      const summary = sessionList.sessions[0]!;
+      expect(summary.tags).toEqual({ channel: 'voice' });
+      expect(summary.endTime).toBeDefined();
+      expect(summary.durationMs).toBeDefined();
+    });
+
+    it('should preserve endTime and tags on imported sessions over the wire', () => {
+      setup();
+      connectClient('c1');
+      const structure: NetStructure = {
+        places: [{ name: 'P1', graphId: 'p_P1', tokenType: 'String', isStart: true, isEnd: false, isEnvironment: false }],
+        transitions: [{ name: 'T1', graphId: 't_T1' }],
+      };
+      registry.registerImported(
+        'imp1', 'NetX', 'digraph {}', structure, new DebugEventStore('imp1'),
+        /* startTime */ 1_000,
+        /* endTime   */ 2_500,
+        /* tags      */ { channel: 'voice', archived: 'true' },
+      );
+
+      handler.handleCommand('c1', { type: 'listSessions', limit: 50, activeOnly: false });
+
+      const sessionList = lastResponseOfType('sessionList')!;
+      expect(sessionList.sessions).toHaveLength(1);
+      const summary = sessionList.sessions[0]!;
+      expect(summary.endTime).toBeDefined();
+      expect(summary.durationMs).toBe(1500);
+      expect(summary.tags).toEqual({ channel: 'voice', archived: 'true' });
     });
   });
 

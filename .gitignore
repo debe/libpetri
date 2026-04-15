@@ -12,6 +12,7 @@ out/
 node_modules/
 dist/
 *.tsbuildinfo
+*.tgz
 
 # Rust
 target/
