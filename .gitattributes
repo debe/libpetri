@@ -9,6 +9,9 @@ docs/**            linguist-documentation
 # Debug UI is a small support tool, not a primary language
 debug-ui/**        linguist-documentation
 
+# Bundled debug-ui shipped inside the Java jar (built by scripts/build-debug-ui.sh)
+java/src/main/resources/debug-ui/**  linguist-generated
+
 # Scripts are support tooling
 scripts/**         linguist-documentation
 
