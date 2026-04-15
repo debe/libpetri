@@ -84,9 +84,11 @@ impl DebugProtocolHandler {
         }
 
         let result = match command {
-            DebugCommand::ListSessions { limit, active_only } => {
-                self.handle_list_sessions(client_id, limit, active_only)
-            }
+            DebugCommand::ListSessions {
+                limit,
+                active_only,
+                tag_filter,
+            } => self.handle_list_sessions(client_id, limit, active_only, tag_filter),
             DebugCommand::Subscribe {
                 session_id,
                 mode,
@@ -204,15 +206,20 @@ impl DebugProtocolHandler {
         client_id: &str,
         limit: Option<usize>,
         active_only: Option<bool>,
+        tag_filter: Option<HashMap<String, String>>,
     ) -> Result<(), String> {
         let limit = limit.unwrap_or(50);
+        let filter = tag_filter.unwrap_or_default();
         let sessions = if active_only.unwrap_or(false) {
-            self.session_registry.list_active_sessions(limit)
+            self.session_registry.list_active_sessions_tagged(limit, &filter)
         } else {
-            self.session_registry.list_sessions(limit)
+            self.session_registry.list_sessions_tagged(limit, &filter)
         };
 
-        let summaries: Vec<SessionSummary> = sessions.iter().map(|s| session_summary(s)).collect();
+        let summaries: Vec<SessionSummary> = sessions
+            .iter()
+            .map(|s| session_summary(s, &self.session_registry))
+            .collect();
 
         send_to(
             &self.clients,
@@ -577,13 +584,16 @@ fn send_in_batches(
     }
 }
 
-fn session_summary(session: &DebugSession) -> SessionSummary {
+fn session_summary(session: &DebugSession, registry: &DebugSessionRegistry) -> SessionSummary {
     SessionSummary {
         session_id: session.session_id.clone(),
         net_name: session.net_name.clone(),
         start_time: session.start_time.to_string(),
         active: session.active,
         event_count: session.event_store.event_count(),
+        tags: registry.tags_for(&session.session_id),
+        end_time: session.end_time.map(|t| t.to_string()),
+        duration_ms: session.duration_ms(),
     }
 }
 
@@ -862,6 +872,7 @@ mod tests {
             DebugCommand::ListSessions {
                 limit: None,
                 active_only: None,
+                tag_filter: None,
             },
         );
 
@@ -873,6 +884,96 @@ mod tests {
                 assert_eq!(sessions[0].net_name, "test");
             }
             _ => panic!("expected SessionList"),
+        }
+    }
+
+    fn tagged_net() -> libpetri_core::petri_net::PetriNet {
+        use libpetri_core::input::one;
+        use libpetri_core::output::out_place;
+        use libpetri_core::place::Place;
+        use libpetri_core::transition::Transition;
+
+        let p1 = Place::<i32>::new("p1");
+        let p2 = Place::<i32>::new("p2");
+        let t = Transition::builder("t1")
+            .input(one(&p1))
+            .output(out_place(&p2))
+            .build();
+        libpetri_core::petri_net::PetriNet::builder("test")
+            .transition(t)
+            .build()
+    }
+
+    #[test]
+    fn list_sessions_filters_by_tag() {
+        let net = tagged_net();
+        let mut registry = DebugSessionRegistry::new();
+        let mut voice = HashMap::new();
+        voice.insert("channel".to_string(), "voice".to_string());
+        let mut text = HashMap::new();
+        text.insert("channel".to_string(), "text".to_string());
+
+        registry.register_with_tags("voice-1".into(), &net, voice.clone());
+        registry.register_with_tags("text-1".into(), &net, text);
+        registry.register_with_tags("voice-2".into(), &net, voice.clone());
+
+        let mut handler = DebugProtocolHandler::new(registry);
+        let (sink, collected) = collector_sink();
+        handler.client_connected("c1".into(), sink);
+
+        let mut filter = HashMap::new();
+        filter.insert("channel".to_string(), "voice".to_string());
+        handler.handle_command(
+            "c1",
+            DebugCommand::ListSessions {
+                limit: None,
+                active_only: None,
+                tag_filter: Some(filter),
+            },
+        );
+
+        let responses = collected.lock().unwrap();
+        assert_eq!(responses.len(), 1);
+        match &responses[0] {
+            DebugResponse::SessionList { sessions } => {
+                assert_eq!(sessions.len(), 2);
+                assert!(sessions.iter().all(|s| s.session_id.starts_with("voice")));
+                // Verify the new 1.6.0 wire fields are populated.
+                assert_eq!(sessions[0].tags.get("channel"), Some(&"voice".to_string()));
+            }
+            _ => panic!("expected SessionList"),
+        }
+    }
+
+    #[test]
+    fn list_sessions_populates_end_time_and_duration_ms() {
+        let net = tagged_net();
+        let mut registry = DebugSessionRegistry::new();
+        registry.register("s1".into(), &net);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        registry.complete("s1");
+
+        let mut handler = DebugProtocolHandler::new(registry);
+        let (sink, collected) = collector_sink();
+        handler.client_connected("c1".into(), sink);
+
+        handler.handle_command(
+            "c1",
+            DebugCommand::ListSessions {
+                limit: None,
+                active_only: None,
+                tag_filter: None,
+            },
+        );
+
+        let responses = collected.lock().unwrap();
+        if let DebugResponse::SessionList { sessions } = &responses[0] {
+            assert_eq!(sessions.len(), 1);
+            assert!(!sessions[0].active);
+            assert!(sessions[0].end_time.is_some());
+            assert!(sessions[0].duration_ms.is_some());
+        } else {
+            panic!("expected SessionList");
         }
     }
 

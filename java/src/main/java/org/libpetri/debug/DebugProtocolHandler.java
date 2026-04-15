@@ -122,17 +122,11 @@ public class DebugProtocolHandler {
 
     private void handleListSessions(ClientState client, DebugCommand.ListSessions cmd) {
         var sessions = cmd.activeOnly()
-            ? sessionRegistry.listActiveSessions(cmd.limit())
-            : sessionRegistry.listSessions(cmd.limit());
+            ? sessionRegistry.listActiveSessions(cmd.limit(), cmd.tagFilter())
+            : sessionRegistry.listSessions(cmd.limit(), cmd.tagFilter());
 
         var summaries = sessions.stream()
-            .map(s -> new DebugResponse.SessionSummary(
-                s.sessionId(),
-                s.netName(),
-                s.startTime().toString(),
-                s.active(),
-                s.eventStore().eventCount()
-            ))
+            .map(sessionRegistry::summaryOf)
             .toList();
 
         send(client, new DebugResponse.SessionList(summaries));
@@ -434,9 +428,7 @@ public class DebugProtocolHandler {
     private void broadcastSessionList() {
         var sessions = sessionRegistry.listSessions(50);
         var summaries = sessions.stream()
-            .map(s -> new DebugResponse.SessionSummary(
-                s.sessionId(), s.netName(), s.startTime().toString(),
-                s.active(), s.eventStore().eventCount()))
+            .map(sessionRegistry::summaryOf)
             .toList();
         var response = new DebugResponse.SessionList(summaries);
         for (var clientState : clients.values()) {

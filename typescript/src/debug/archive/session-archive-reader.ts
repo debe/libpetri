@@ -1,5 +1,11 @@
 /**
  * Reads session archives from length-prefixed binary format.
+ *
+ * Handles both v1 (libpetri 1.5.x–1.6.x) and v2 (libpetri 1.7.0+) archives via
+ * a lenient "version probe": parse the header JSON once, switch on the
+ * `version` field, narrow to the correct concrete type, and normalize missing
+ * optional fields to their defaults. Events inside the body use the same wire
+ * format across versions, so the event read path is shared.
  */
 
 import { gunzipSync } from 'node:zlib';
@@ -7,8 +13,12 @@ import { DebugEventStore } from '../debug-event-store.js';
 import type { NetEventInfo } from '../debug-response.js';
 import type { NetEvent } from '../../event/net-event.js';
 import type { Token } from '../../core/token.js';
-import type { SessionArchive } from './session-archive.js';
-import { CURRENT_VERSION } from './session-archive.js';
+import type { SessionArchive, SessionArchiveV1, SessionArchiveV2 } from './session-archive.js';
+import {
+  CURRENT_VERSION,
+  MIN_SUPPORTED_VERSION,
+  emptyMetadata,
+} from './session-archive.js';
 
 export interface ImportedSession {
   readonly metadata: SessionArchive;
@@ -18,17 +28,12 @@ export interface ImportedSession {
 const MAX_EVENT_SIZE = 10 * 1024 * 1024; // 10 MB
 
 export class SessionArchiveReader {
-
   /** Reads only the metadata header from an archive. */
   readMetadata(compressed: Buffer): SessionArchive {
     const data = gunzipSync(compressed);
     const metaLen = data.readUInt32BE(0);
     const metaJson = data.subarray(4, 4 + metaLen).toString('utf-8');
-    const metadata: SessionArchive = JSON.parse(metaJson);
-    if (metadata.version !== CURRENT_VERSION) {
-      throw new Error(`Unsupported archive version: ${metadata.version} (expected ${CURRENT_VERSION})`);
-    }
-    return metadata;
+    return parseHeader(metaJson);
   }
 
   /** Reads the full archive: metadata + all events into a DebugEventStore. */
@@ -41,12 +46,9 @@ export class SessionArchiveReader {
     offset += 4;
     const metaJson = data.subarray(offset, offset + metaLen).toString('utf-8');
     offset += metaLen;
-    const metadata: SessionArchive = JSON.parse(metaJson);
-    if (metadata.version !== CURRENT_VERSION) {
-      throw new Error(`Unsupported archive version: ${metadata.version} (expected ${CURRENT_VERSION})`);
-    }
+    const metadata = parseHeader(metaJson);
 
-    // Read events
+    // Read events — same wire format across versions.
     const eventStore = new DebugEventStore(metadata.sessionId, Number.MAX_SAFE_INTEGER);
     while (offset < data.length) {
       if (offset + 4 > data.length) break;
@@ -65,6 +67,36 @@ export class SessionArchiveReader {
     }
 
     return { metadata, eventStore };
+  }
+}
+
+/**
+ * Peeks the archive `version` field via a single JSON parse, then narrows the
+ * result into the correct {@link SessionArchive} variant. v2-only optional
+ * fields (`tags`, `metadata`) are normalized to their empty defaults so
+ * callers never need to guard against `undefined` on a declared-v2 archive.
+ */
+function parseHeader(metaJson: string): SessionArchive {
+  const raw = JSON.parse(metaJson) as { version: number } & Record<string, unknown>;
+  switch (raw.version) {
+    case 1:
+      return raw as unknown as SessionArchiveV1;
+    case 2: {
+      const v2 = raw as unknown as SessionArchiveV2;
+      // Normalize: v2 defines tags + metadata as REQUIRED in the type, but a
+      // hand-written or partially-built header could omit them — fall back
+      // to empty defaults rather than emit `undefined` into typed code.
+      return {
+        ...v2,
+        tags: v2.tags ?? {},
+        metadata: v2.metadata ?? emptyMetadata(),
+      };
+    }
+    default:
+      throw new Error(
+        `Unsupported archive version: ${raw.version} ` +
+          `(reader supports ${MIN_SUPPORTED_VERSION}..${CURRENT_VERSION})`,
+      );
   }
 }
 

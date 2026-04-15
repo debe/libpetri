@@ -57,11 +57,14 @@ impl EventFilter {
 
 /// Commands from debug UI client to server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum DebugCommand {
     ListSessions {
         limit: Option<usize>,
         active_only: Option<bool>,
+        /// Optional tag filter (AND semantics). Empty or missing matches all. (libpetri 1.6.0+)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tag_filter: Option<std::collections::HashMap<String, String>>,
     },
     Subscribe {
         session_id: String,
@@ -152,16 +155,105 @@ mod tests {
         let cmd = DebugCommand::ListSessions {
             limit: None,
             active_only: Some(true),
+            tag_filter: None,
         };
         let json = serde_json::to_string(&cmd).unwrap();
         assert!(json.contains("\"type\":\"listSessions\""));
+        // `tag_filter: None` must be omitted from the wire so older clients parse it.
+        assert!(!json.contains("\"tagFilter\""));
         let back: DebugCommand = serde_json::from_str(&json).unwrap();
         match back {
-            DebugCommand::ListSessions { limit, active_only } => {
+            DebugCommand::ListSessions {
+                limit,
+                active_only,
+                tag_filter,
+            } => {
                 assert!(limit.is_none());
                 assert_eq!(active_only, Some(true));
+                assert!(tag_filter.is_none());
             }
             _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn serde_list_sessions_with_tag_filter() {
+        let mut filter = std::collections::HashMap::new();
+        filter.insert("channel".to_string(), "voice".to_string());
+        let cmd = DebugCommand::ListSessions {
+            limit: Some(10),
+            active_only: Some(false),
+            tag_filter: Some(filter),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        assert!(json.contains("\"tagFilter\""));
+        assert!(json.contains("\"activeOnly\""));
+        assert!(json.contains("\"channel\":\"voice\""));
+        let back: DebugCommand = serde_json::from_str(&json).unwrap();
+        if let DebugCommand::ListSessions { tag_filter, .. } = back {
+            let f = tag_filter.expect("tag_filter should be Some");
+            assert_eq!(f.get("channel"), Some(&"voice".to_string()));
+        } else {
+            panic!("wrong variant");
+        }
+    }
+
+    #[test]
+    fn serde_list_sessions_without_tag_filter() {
+        // Payloads without the 1.6.0 tag_filter field must still deserialize cleanly.
+        let json = r#"{"type":"listSessions","limit":10,"activeOnly":false}"#;
+        let cmd: DebugCommand = serde_json::from_str(json).unwrap();
+        if let DebugCommand::ListSessions {
+            limit,
+            active_only,
+            tag_filter,
+        } = cmd
+        {
+            assert_eq!(limit, Some(10));
+            assert_eq!(active_only, Some(false));
+            assert!(tag_filter.is_none());
+        } else {
+            panic!("wrong variant");
+        }
+    }
+
+    #[test]
+    fn serde_list_sessions_camelcase_interop() {
+        // Cross-language interop: a literal Java/TS-shaped payload must deserialize.
+        let json = r#"{"type":"listSessions","limit":10,"activeOnly":true,"tagFilter":{"channel":"voice","env":"staging"}}"#;
+        let cmd: DebugCommand = serde_json::from_str(json).unwrap();
+        if let DebugCommand::ListSessions {
+            limit,
+            active_only,
+            tag_filter,
+        } = cmd
+        {
+            assert_eq!(limit, Some(10));
+            assert_eq!(active_only, Some(true));
+            let f = tag_filter.expect("tag_filter should be Some");
+            assert_eq!(f.get("channel"), Some(&"voice".to_string()));
+            assert_eq!(f.get("env"), Some(&"staging".to_string()));
+        } else {
+            panic!("wrong variant");
+        }
+    }
+
+    #[test]
+    fn serde_subscribe_camelcase_interop() {
+        // Cross-language interop: Subscribe payload from Java/TS uses camelCase fields.
+        let json = r#"{"type":"subscribe","sessionId":"s1","mode":"live","fromIndex":10}"#;
+        let cmd: DebugCommand = serde_json::from_str(json).unwrap();
+        if let DebugCommand::Subscribe {
+            session_id,
+            mode,
+            from_index,
+        } = cmd
+        {
+            assert_eq!(session_id, "s1");
+            assert_eq!(mode, SubscriptionMode::Live);
+            assert_eq!(from_index, Some(10));
+        } else {
+            panic!("wrong variant");
         }
     }
 
@@ -224,6 +316,7 @@ mod tests {
             DebugCommand::ListSessions {
                 limit: Some(10),
                 active_only: None,
+                tag_filter: None,
             },
             DebugCommand::Subscribe {
                 session_id: "s1".into(),

@@ -9,7 +9,7 @@
 
 import type { NetEvent } from '../event/net-event.js';
 import type { DebugCommand, EventFilter, BreakpointConfig } from './debug-command.js';
-import type { DebugResponse, TokenInfo, NetEventInfo, ArchiveSummary } from './debug-response.js';
+import type { DebugResponse, TokenInfo, NetEventInfo, ArchiveSummary, SessionSummary } from './debug-response.js';
 import type { SessionArchiveStorage } from './archive/session-archive-storage.js';
 import { SessionArchiveReader } from './archive/session-archive-reader.js';
 import type { DebugSession } from './debug-session-registry.js';
@@ -87,18 +87,26 @@ export class DebugProtocolHandler {
   private handleListSessions(client: ClientState, cmd: Extract<DebugCommand, { type: 'listSessions' }>): void {
     const limit = cmd.limit ?? 50;
     const sessions = cmd.activeOnly
-      ? this._sessionRegistry.listActiveSessions(limit)
-      : this._sessionRegistry.listSessions(limit);
+      ? this._sessionRegistry.listActiveSessions(limit, cmd.tagFilter)
+      : this._sessionRegistry.listSessions(limit, cmd.tagFilter);
 
-    const summaries = sessions.map(s => ({
+    const summaries = sessions.map(s => this.toProtocolSummary(s));
+
+    this.send(client, { type: 'sessionList', sessions: summaries });
+  }
+
+  private toProtocolSummary(s: DebugSession): SessionSummary {
+    const tags = this._sessionRegistry.tagsFor(s.sessionId);
+    return {
       sessionId: s.sessionId,
       netName: s.netName,
       startTime: new Date(s.startTime).toISOString(),
       active: s.active,
       eventCount: s.eventStore.eventCount(),
-    }));
-
-    this.send(client, { type: 'sessionList', sessions: summaries });
+      tags: Object.keys(tags).length > 0 ? tags : undefined,
+      endTime: s.endTime !== undefined ? new Date(s.endTime).toISOString() : undefined,
+      durationMs: s.endTime !== undefined ? s.endTime - s.startTime : undefined,
+    };
   }
 
   private handleSubscribe(client: ClientState, cmd: Extract<DebugCommand, { type: 'subscribe' }>): void {
@@ -395,13 +403,7 @@ export class DebugProtocolHandler {
 
   private broadcastSessionList(): void {
     const sessions = this._sessionRegistry.listSessions(50);
-    const summaries = sessions.map(s => ({
-      sessionId: s.sessionId,
-      netName: s.netName,
-      startTime: new Date(s.startTime).toISOString(),
-      active: s.active,
-      eventCount: s.eventStore.eventCount(),
-    }));
+    const summaries = sessions.map(s => this.toProtocolSummary(s));
     const response: DebugResponse = { type: 'sessionList', sessions: summaries };
     for (const clientState of this._clients.values()) {
       try { this.send(clientState, response); } catch { /* best-effort broadcast */ }

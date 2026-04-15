@@ -284,4 +284,219 @@ describe('DebugSessionRegistry', () => {
       expect(structure.transitions).toEqual([]);
     });
   });
+
+  // ======================== Tags + endTime (libpetri 1.6.0) ========================
+
+  describe('tags and endTime', () => {
+    it('should register session with tags', () => {
+      const registry = new DebugSessionRegistry();
+      registry.register('session-1', TEST_NET, { channel: 'voice', env: 'staging' });
+
+      expect(registry.tagsFor('session-1')).toEqual({ channel: 'voice', env: 'staging' });
+    });
+
+    it('should default to empty tags when no tags arg provided', () => {
+      const registry = new DebugSessionRegistry();
+      registry.register('session-1', TEST_NET);
+
+      expect(registry.tagsFor('session-1')).toEqual({});
+    });
+
+    it('should return empty tags for unknown session', () => {
+      const registry = new DebugSessionRegistry();
+      expect(registry.tagsFor('never-registered')).toEqual({});
+    });
+
+    it('should set tag after registration', () => {
+      const registry = new DebugSessionRegistry();
+      registry.register('session-1', TEST_NET);
+
+      registry.tag('session-1', 'channel', 'text');
+      registry.tag('session-1', 'experiment', 'abc');
+
+      expect(registry.tagsFor('session-1')).toEqual({ channel: 'text', experiment: 'abc' });
+    });
+
+    it('should replace existing tag value', () => {
+      const registry = new DebugSessionRegistry();
+      registry.register('session-1', TEST_NET, { channel: 'voice' });
+
+      registry.tag('session-1', 'channel', 'text');
+
+      expect(registry.tagsFor('session-1')).toEqual({ channel: 'text' });
+    });
+
+    it('should no-op when tagging an unknown session', () => {
+      const registry = new DebugSessionRegistry();
+
+      registry.tag('never-registered', 'channel', 'voice');
+
+      expect(registry.tagsFor('never-registered')).toEqual({});
+      expect(registry.listSessions(10, { channel: 'voice' })).toHaveLength(0);
+    });
+
+    it('should no-op when tagging a removed session', () => {
+      const registry = new DebugSessionRegistry();
+      registry.register('session-1', TEST_NET);
+      registry.remove('session-1');
+
+      registry.tag('session-1', 'channel', 'voice');
+
+      expect(registry.tagsFor('session-1')).toEqual({});
+    });
+
+    it('should filter sessions by tag', () => {
+      const registry = new DebugSessionRegistry();
+      registry.register('text-1', TEST_NET, { channel: 'text' });
+      registry.register('voice-1', TEST_NET, { channel: 'voice' });
+      registry.register('voice-2', TEST_NET, { channel: 'voice' });
+
+      const voices = registry.listSessions(10, { channel: 'voice' });
+
+      expect(voices).toHaveLength(2);
+      expect(voices.every(s => s.sessionId.startsWith('voice'))).toBe(true);
+    });
+
+    it('should AND-match multiple tag keys', () => {
+      const registry = new DebugSessionRegistry();
+      registry.register('s1', TEST_NET, { channel: 'voice', env: 'staging' });
+      registry.register('s2', TEST_NET, { channel: 'voice', env: 'prod' });
+      registry.register('s3', TEST_NET, { channel: 'text', env: 'staging' });
+
+      const filtered = registry.listSessions(10, { channel: 'voice', env: 'staging' });
+
+      expect(filtered).toHaveLength(1);
+      expect(filtered[0]!.sessionId).toBe('s1');
+    });
+
+    it('should not match when a filter key value differs', () => {
+      const registry = new DebugSessionRegistry();
+      registry.register('s1', TEST_NET, { channel: 'voice', env: 'staging' });
+
+      const result = registry.listSessions(10, { channel: 'voice', env: 'prod' });
+
+      expect(result).toHaveLength(0);
+    });
+
+    it('should not match when a filter key is absent from session tags', () => {
+      const registry = new DebugSessionRegistry();
+      registry.register('s1', TEST_NET, { channel: 'voice' });
+
+      const result = registry.listSessions(10, { env: 'staging' });
+
+      expect(result).toHaveLength(0);
+    });
+
+    it('should filter active sessions by tag', () => {
+      const registry = new DebugSessionRegistry();
+      registry.register('active-voice', TEST_NET, { channel: 'voice' });
+      registry.register('completed-voice', TEST_NET, { channel: 'voice' });
+      registry.register('active-text', TEST_NET, { channel: 'text' });
+      registry.complete('completed-voice');
+
+      const activeVoices = registry.listActiveSessions(10, { channel: 'voice' });
+
+      expect(activeVoices).toHaveLength(1);
+      expect(activeVoices[0]!.sessionId).toBe('active-voice');
+    });
+
+    it('should stamp endTime on complete', () => {
+      const registry = new DebugSessionRegistry();
+      const session = registry.register('session-1', TEST_NET);
+      expect(session.endTime).toBeUndefined();
+
+      registry.complete('session-1');
+      const completed = registry.getSession('session-1')!;
+
+      expect(completed.endTime).toBeDefined();
+      expect(completed.active).toBe(false);
+    });
+
+    it('should preserve endTime on second complete', () => {
+      // Mock the system clock so the test proves preservation rather than racing Date.now().
+      // Without this, a fast runner can return the same millisecond twice and the test would
+      // pass trivially. With fake timers we *know* time advanced between the two complete()
+      // calls, so `secondEnd === firstEnd` can only hold if the code actually preserved it.
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date('2026-04-15T10:00:00Z'));
+
+        const registry = new DebugSessionRegistry();
+        registry.register('session-1', TEST_NET);
+
+        registry.complete('session-1');
+        const firstEnd = registry.getSession('session-1')!.endTime;
+        expect(firstEnd).toBe(Date.now());
+
+        vi.setSystemTime(new Date('2026-04-15T10:00:10Z'));
+        registry.complete('session-1');
+        const secondEnd = registry.getSession('session-1')!.endTime;
+
+        expect(secondEnd).toBe(firstEnd);
+        expect(secondEnd).not.toBe(Date.now());
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should have undefined duration for active session', () => {
+      const registry = new DebugSessionRegistry();
+      const session = registry.register('session-1', TEST_NET);
+
+      expect(session.endTime).toBeUndefined();
+    });
+
+    it('should clear tags on remove', () => {
+      const registry = new DebugSessionRegistry();
+      registry.register('session-1', TEST_NET, { channel: 'voice' });
+
+      registry.remove('session-1');
+
+      expect(registry.tagsFor('session-1')).toEqual({});
+    });
+
+    it('should register imported session with tags and endTime', () => {
+      const registry = new DebugSessionRegistry();
+      const structure: NetStructure = {
+        places: [{ name: 'P1', graphId: 'p_P1', tokenType: 'String', isStart: true, isEnd: false, isEnvironment: false }],
+        transitions: [{ name: 'T1', graphId: 't_T1' }],
+      };
+      const startTime = Date.now() - 60_000;
+      const endTime = Date.now();
+
+      const session = registry.registerImported(
+        'imported-1', 'TestNet', 'digraph{}', structure,
+        new DebugEventStore('imported-1'), startTime, endTime, { channel: 'voice', source: 'archive' }
+      );
+
+      expect(session.active).toBe(false);
+      expect(session.endTime).toBe(endTime);
+      expect(registry.tagsFor('imported-1')).toEqual({ channel: 'voice', source: 'archive' });
+    });
+
+    it('should preserve tag immutability', () => {
+      const registry = new DebugSessionRegistry();
+      const tags = { channel: 'voice' };
+      registry.register('session-1', TEST_NET, tags);
+
+      // Mutating the passed-in tags shouldn't affect stored tags
+      (tags as Record<string, string>).channel = 'text';
+
+      expect(registry.tagsFor('session-1').channel).toBe('voice');
+    });
+
+    it('should cleanup tags on eviction', () => {
+      const registry = new DebugSessionRegistry(2);
+      registry.register('session-1', TEST_NET, { channel: 'voice' });
+      registry.register('session-2', TEST_NET, { channel: 'text' });
+      registry.complete('session-1');
+
+      registry.register('session-3', TEST_NET, { channel: 'voice' });
+
+      expect(registry.getSession('session-1')).toBeUndefined();
+      expect(registry.tagsFor('session-1')).toEqual({});
+      expect(registry.tagsFor('session-2')).toEqual({ channel: 'text' });
+      expect(registry.tagsFor('session-3')).toEqual({ channel: 'voice' });
+    });
+  });
 });

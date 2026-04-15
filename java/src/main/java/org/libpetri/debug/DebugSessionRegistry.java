@@ -2,9 +2,12 @@ package org.libpetri.debug;
 
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -114,6 +117,23 @@ public class DebugSessionRegistry {
      * @return the created debug session
      */
     public DebugSession register(String sessionId, PetriNet net) {
+        return register(sessionId, net, Map.of());
+    }
+
+    /**
+     * Registers a new debug session with user-defined tags.
+     *
+     * <p>Tags are arbitrary {@code Map<String,String>} attributes attached to the session
+     * (e.g., {@code channel=voice}, {@code env=staging}). They can be used to filter
+     * sessions via {@link #listSessions(int, Map)} and are exposed in
+     * {@link SessionSummary#tags()}.
+     *
+     * @param sessionId unique identifier for the session
+     * @param net the Petri net being executed
+     * @param tags initial tags for the session (may be empty, not null)
+     * @return the created debug session
+     */
+    public DebugSession register(String sessionId, PetriNet net, Map<String, String> tags) {
         // Generate DOT diagram
         String dotDiagram = DotExporter.export(net, ExportConfig.minimal());
 
@@ -123,7 +143,8 @@ public class DebugSessionRegistry {
         // Create debug event store via factory
         var eventStore = eventStoreFactory.create(sessionId);
 
-        // Create session record
+        // Create session record. Tags live on the session itself so their lifetime
+        // is bound to the session object — no parallel map, no cleanup coordination.
         var session = new DebugSession(
             sessionId,
             net.name(),
@@ -133,7 +154,9 @@ public class DebugSessionRegistry {
             eventStore,
             Instant.now(),
             true,
-            null
+            null,
+            null,
+            tagStorage(tags)
         );
 
         // Evict old sessions if needed
@@ -143,8 +166,18 @@ public class DebugSessionRegistry {
         return session;
     }
 
+    private static ConcurrentHashMap<String, String> tagStorage(Map<String, String> initial) {
+        return initial == null || initial.isEmpty()
+            ? new ConcurrentHashMap<>()
+            : new ConcurrentHashMap<>(initial);
+    }
+
     /**
      * Marks a session as completed (no longer active) and notifies completion listeners.
+     *
+     * <p>Stamps {@code endTime = Instant.now()} on the session when transitioning from
+     * active to inactive. If the session is already inactive, the existing {@code endTime}
+     * is preserved (idempotent).
      *
      * <p>Listeners are notified <em>after</em> the session is marked inactive, outside
      * the ConcurrentHashMap lock to avoid holding the lock during potentially slow operations.
@@ -154,6 +187,10 @@ public class DebugSessionRegistry {
     public void complete(String sessionId) {
         var completedSession = new DebugSession[1];
         sessions.computeIfPresent(sessionId, (id, session) -> {
+            // Preserve existing endTime if already completed; stamp now on first completion.
+            // Tags CHM is reused by reference so any in-flight tag() on the old record still
+            // reaches the same storage.
+            var endTime = session.endTime() != null ? session.endTime() : Instant.now();
             var completed = new DebugSession(
                 session.sessionId(),
                 session.netName(),
@@ -163,7 +200,9 @@ public class DebugSessionRegistry {
                 session.eventStore(),
                 session.startTime(),
                 false,
-                session.importedStructure()
+                session.importedStructure(),
+                endTime,
+                session.tags()
             );
             completedSession[0] = completed;
             return completed;
@@ -174,7 +213,7 @@ public class DebugSessionRegistry {
     }
 
     /**
-     * Removes a session from the registry.
+     * Removes a session from the registry. Tags die with the session.
      *
      * @param sessionId the session to remove
      * @return the removed session, or empty if not found
@@ -185,6 +224,83 @@ public class DebugSessionRegistry {
             cleanupEventStore(removed.eventStore());
         }
         return Optional.ofNullable(removed);
+    }
+
+    /**
+     * Sets or overwrites a single tag on a session.
+     *
+     * <p>Tags accumulate until the session is removed. Setting a key that already exists
+     * replaces its value. This method is idempotent and thread-safe.
+     *
+     * <p>If {@code sessionId} does not correspond to a registered session the call is a
+     * no-op. Any tag write that races with {@link #remove(String)} is harmless: the write
+     * lands on the now-orphaned session object and is garbage collected alongside it.
+     *
+     * @param sessionId the session to tag
+     * @param key tag key (non-null)
+     * @param value tag value (non-null)
+     */
+    public void tag(String sessionId, String key, String value) {
+        Objects.requireNonNull(sessionId, "sessionId");
+        Objects.requireNonNull(key, "key");
+        Objects.requireNonNull(value, "value");
+        var session = sessions.get(sessionId);
+        if (session == null) {
+            LOG.log(Level.DEBUG, () -> "tag(" + sessionId + ", " + key + ") ignored: session not registered");
+            return;
+        }
+        session.tags().put(key, value);
+    }
+
+    /**
+     * Returns a snapshot of the tags attached to a session.
+     *
+     * @param sessionId the session id
+     * @return immutable tag map, or {@code Map.of()} if the session has no tags or does not exist
+     */
+    public Map<String, String> tagsFor(String sessionId) {
+        var session = sessions.get(sessionId);
+        return session == null ? Map.of() : Map.copyOf(session.tags());
+    }
+
+    /**
+     * Builds a wire-facing {@link DebugResponse.SessionSummary} for the given session,
+     * including tags and computed duration.
+     *
+     * <p>This is the single source of truth for session summaries. Protocol handlers and
+     * MCP tools should call this rather than constructing summaries by hand.
+     *
+     * @param session the session to summarize
+     * @return summary including tags, ISO-8601 endTime, and durationMs
+     */
+    public DebugResponse.SessionSummary summaryOf(DebugSession session) {
+        return new DebugResponse.SessionSummary(
+            session.sessionId(),
+            session.netName(),
+            session.startTime().toString(),
+            session.active(),
+            session.eventStore().eventCount(),
+            tagsFor(session.sessionId()),
+            session.endTime() != null ? session.endTime().toString() : null,
+            session.duration().map(Duration::toMillis).orElse(null)
+        );
+    }
+
+    /**
+     * Returns true if the session's tags match every entry in {@code filter} (AND semantics).
+     * An empty filter matches all sessions. Iterates the live CHM — no defensive copy.
+     */
+    private boolean matchesTagFilter(DebugSession session, Map<String, String> filter) {
+        if (filter == null || filter.isEmpty()) {
+            return true;
+        }
+        var tags = session.tags();
+        for (var entry : filter.entrySet()) {
+            if (!entry.getValue().equals(tags.get(entry.getKey()))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -204,7 +320,22 @@ public class DebugSessionRegistry {
      * @return list of sessions
      */
     public List<DebugSession> listSessions(int limit) {
+        return listSessions(limit, Map.of());
+    }
+
+    /**
+     * Lists sessions matching the given tag filter, ordered by start time (most recent first).
+     *
+     * <p>The filter uses AND semantics: a session is included only if every entry in
+     * {@code tagFilter} matches one of its tags exactly. Empty or null filter matches all.
+     *
+     * @param limit maximum number of sessions to return
+     * @param tagFilter tag key/value pairs required to match (empty for no filter)
+     * @return list of sessions
+     */
+    public List<DebugSession> listSessions(int limit, Map<String, String> tagFilter) {
         return sessions.values().stream()
+            .filter(s -> matchesTagFilter(s, tagFilter))
             .sorted(Comparator.comparing(DebugSession::startTime).reversed())
             .limit(limit)
             .toList();
@@ -217,8 +348,20 @@ public class DebugSessionRegistry {
      * @return list of active sessions
      */
     public List<DebugSession> listActiveSessions(int limit) {
+        return listActiveSessions(limit, Map.of());
+    }
+
+    /**
+     * Lists active sessions matching the given tag filter.
+     *
+     * @param limit maximum number of sessions to return
+     * @param tagFilter tag key/value pairs required to match (empty for no filter)
+     * @return list of active sessions
+     */
+    public List<DebugSession> listActiveSessions(int limit, Map<String, String> tagFilter) {
         return sessions.values().stream()
             .filter(DebugSession::active)
+            .filter(s -> matchesTagFilter(s, tagFilter))
             .sorted(Comparator.comparing(DebugSession::startTime).reversed())
             .limit(limit)
             .toList();
@@ -251,6 +394,26 @@ public class DebugSessionRegistry {
     public DebugSession registerImported(String sessionId, String netName, String dotDiagram,
                                          DebugResponse.NetStructure structure, DebugEventStore eventStore,
                                          Instant startTime) {
+        return registerImported(sessionId, netName, dotDiagram, structure, eventStore,
+            startTime, null, Map.of());
+    }
+
+    /**
+     * Registers an imported (archived) session with tags and endTime.
+     *
+     * @param sessionId unique identifier
+     * @param netName name of the Petri net
+     * @param dotDiagram DOT diagram source
+     * @param structure pre-built net structure
+     * @param eventStore populated event store
+     * @param startTime when the original session started
+     * @param endTime when the original session ended (nullable)
+     * @param tags tags attached to the imported session (may be empty)
+     * @return the registered session
+     */
+    public DebugSession registerImported(String sessionId, String netName, String dotDiagram,
+                                         DebugResponse.NetStructure structure, DebugEventStore eventStore,
+                                         Instant startTime, Instant endTime, Map<String, String> tags) {
         evictIfNecessary();
 
         var session = new DebugSession(
@@ -262,7 +425,9 @@ public class DebugSessionRegistry {
             eventStore,
             startTime,
             false,  // imported sessions are always inactive
-            structure
+            structure,
+            endTime,
+            tagStorage(tags)
         );
 
         sessions.put(sessionId, session);
@@ -295,7 +460,8 @@ public class DebugSessionRegistry {
             .iterator();
 
         while (sessions.size() >= maxSessions && candidates.hasNext()) {
-            var evicted = sessions.remove(candidates.next().sessionId());
+            var evictedId = candidates.next().sessionId();
+            var evicted = sessions.remove(evictedId);
             if (evicted != null) {
                 cleanupEventStore(evicted.eventStore());
             }
@@ -321,6 +487,9 @@ public class DebugSessionRegistry {
      * @param startTime when the session started
      * @param active whether the session is still running
      * @param importedStructure pre-built net structure for imported sessions (null for live sessions)
+     * @param endTime when the session ended (null while active; stamped on first {@code complete()})
+     * @param tags per-session tag storage — always non-null, thread-safe; prefer
+     *        {@link DebugSessionRegistry#tag(String, String, String)} / {@link DebugSessionRegistry#tagsFor(String)}
      */
     public record DebugSession(
         String sessionId,
@@ -331,21 +500,17 @@ public class DebugSessionRegistry {
         DebugEventStore eventStore,
         Instant startTime,
         boolean active,
-        DebugResponse.NetStructure importedStructure
+        DebugResponse.NetStructure importedStructure,
+        Instant endTime,
+        ConcurrentHashMap<String, String> tags
     ) {
         /**
-         * Returns a summary of this session for listing.
+         * Returns the session duration (startTime → endTime) if the session has completed.
          *
-         * @return session summary
+         * @return duration between start and end, or empty for active sessions
          */
-        public SessionSummary toSummary() {
-            return new SessionSummary(
-                sessionId,
-                netName,
-                startTime,
-                active,
-                eventStore.eventCount()
-            );
+        public Optional<Duration> duration() {
+            return endTime != null ? Optional.of(Duration.between(startTime, endTime)) : Optional.empty();
         }
 
         /**
@@ -388,21 +553,4 @@ public class DebugSessionRegistry {
             return new DebugResponse.NetStructure(placeInfos, transitionInfos);
         }
     }
-
-    /**
-     * Summary information for session listing (without full event store).
-     *
-     * @param sessionId unique identifier
-     * @param netName name of the Petri net
-     * @param startTime when the session started
-     * @param active whether the session is still running
-     * @param eventCount number of events captured
-     */
-    public record SessionSummary(
-        String sessionId,
-        String netName,
-        Instant startTime,
-        boolean active,
-        long eventCount
-    ) {}
 }

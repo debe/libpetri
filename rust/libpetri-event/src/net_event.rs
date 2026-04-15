@@ -131,4 +131,20 @@ impl NetEvent {
                 | NetEvent::ActionTimedOut { .. }
         )
     }
+
+    /// Returns true if this event carries any error signal — superset of
+    /// [`is_failure`](Self::is_failure) that additionally treats a
+    /// [`LogMessage`](NetEvent::LogMessage) at level `ERROR` (case-insensitive)
+    /// as an error. Used by the v2 archive writer to pre-compute the
+    /// `hasErrors` flag so listing/sampling tools can filter archives without
+    /// scanning their event bodies. (libpetri 1.7.0+)
+    pub fn has_error_signal(&self) -> bool {
+        match self {
+            NetEvent::TransitionFailed { .. }
+            | NetEvent::TransitionTimedOut { .. }
+            | NetEvent::ActionTimedOut { .. } => true,
+            NetEvent::LogMessage { level, .. } => level.eq_ignore_ascii_case("ERROR"),
+            _ => false,
+        }
+    }
 }
