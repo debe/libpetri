@@ -2,11 +2,26 @@ use crate::net_event::NetEvent;
 
 /// Trait for event storage during Petri net execution.
 ///
-/// The `ENABLED` constant allows zero-cost elimination of event recording
-/// when using `NoopEventStore` — the compiler eliminates all branches
-/// guarded by `if E::ENABLED`.
+/// Two const flags govern zero-cost opt-in behaviour. The compiler
+/// monomorphizes the executor against the concrete store type and eliminates
+/// any branch guarded by a const whose value is known at compile time.
+///
+/// - [`ENABLED`](Self::ENABLED) — when `false`, the executor skips every
+///   `append()` call (including argument construction) entirely. Used by
+///   `NoopEventStore` in production hot paths.
+/// - [`CAPTURES_TOKENS`](Self::CAPTURES_TOKENS) — when `true`, the executor
+///   attaches the live token payload to `TokenAdded` / `TokenRemoved` events
+///   via [`NetEvent::token_added_with`](crate::net_event::NetEvent::token_added_with).
+///   Opt-in because cloning the payload costs one `Arc` bump per token
+///   event and a heap allocation for the erased payload wrapper — acceptable
+///   under debug inspection, wasteful otherwise.
 pub trait EventStore: Default + Send {
     const ENABLED: bool;
+
+    /// Whether this store wants token payloads attached to `TokenAdded` /
+    /// `TokenRemoved` events. Defaults to `false` so existing implementations
+    /// opt in explicitly (debug-aware stores in `libpetri-debug`).
+    const CAPTURES_TOKENS: bool = false;
 
     fn append(&mut self, event: NetEvent);
     fn events(&self) -> &[NetEvent];
@@ -145,5 +160,14 @@ mod tests {
     fn enabled_constants() {
         const { assert!(!NoopEventStore::ENABLED) };
         const { assert!(InMemoryEventStore::ENABLED) };
+    }
+
+    #[test]
+    fn capture_tokens_defaults_off() {
+        // NoopEventStore opts out of token capture (monomorphization elides the
+        // Arc::new payload on hot paths). InMemoryEventStore is a testing store and
+        // inherits the default — debug-aware stores override CAPTURES_TOKENS = true.
+        const { assert!(!NoopEventStore::CAPTURES_TOKENS) };
+        const { assert!(!InMemoryEventStore::CAPTURES_TOKENS) };
     }
 }

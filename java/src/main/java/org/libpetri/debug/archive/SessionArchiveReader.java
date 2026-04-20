@@ -126,6 +126,7 @@ public final class SessionArchiveReader {
         return switch (probe.version()) {
             case 1 -> metadataMapper.readValue(metaBytes, SessionArchive.V1.class);
             case 2 -> metadataMapper.readValue(metaBytes, SessionArchive.V2.class);
+            case 3 -> metadataMapper.readValue(metaBytes, SessionArchive.V3.class);
             default -> throw new IOException(
                 "Unsupported archive version: " + probe.version()
                     + " (reader supports " + SessionArchive.MIN_SUPPORTED_VERSION

@@ -1,13 +1,33 @@
 //! Converts Rust `NetEvent` instances to serializable `NetEventInfo`.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use libpetri_event::net_event::NetEvent;
+use libpetri_event::token_payload::TokenPayload;
 
-use crate::debug_response::NetEventInfo;
+use crate::debug_response::{NetEventInfo, TokenInfo};
+use crate::token_projector_registry::TokenProjectorRegistry;
 
 /// Converts a `NetEvent` to a serializable `NetEventInfo`.
+///
+/// Equivalent to calling [`to_event_info_with_registry`] with a default
+/// (empty) registry: unknown token types fall back to the type-name + Debug
+/// projection, which is fine for the default debug experience. Callers that
+/// want typed JSON projection for their domain token types should use
+/// [`to_event_info_with_registry`] with a registry where those types are
+/// registered.
 pub fn to_event_info(event: &NetEvent) -> NetEventInfo {
+    to_event_info_with_registry(event, None)
+}
+
+/// Like [`to_event_info`] but lets the caller supply a
+/// [`TokenProjectorRegistry`] for typed JSON projection of token values
+/// on `TokenAdded` / `TokenRemoved` events.
+pub fn to_event_info_with_registry(
+    event: &NetEvent,
+    registry: Option<&TokenProjectorRegistry>,
+) -> NetEventInfo {
     match event {
         NetEvent::ExecutionStarted {
             net_name,
@@ -113,22 +133,26 @@ pub fn to_event_info(event: &NetEvent) -> NetEventInfo {
         NetEvent::TokenAdded {
             place_name,
             timestamp,
+            token,
+            ..
         } => NetEventInfo {
             event_type: "TokenAdded".into(),
             timestamp: format_timestamp(*timestamp),
             transition_name: None,
             place_name: Some(place_name.to_string()),
-            details: HashMap::new(),
+            details: token_details(token.as_ref(), registry, *timestamp),
         },
         NetEvent::TokenRemoved {
             place_name,
             timestamp,
+            token,
+            ..
         } => NetEventInfo {
             event_type: "TokenRemoved".into(),
             timestamp: format_timestamp(*timestamp),
             transition_name: None,
             place_name: Some(place_name.to_string()),
-            details: HashMap::new(),
+            details: token_details(token.as_ref(), registry, *timestamp),
         },
         NetEvent::LogMessage {
             transition_name,
@@ -163,6 +187,33 @@ pub fn to_event_info(event: &NetEvent) -> NetEventInfo {
 /// Uses simple numeric format since Rust's std doesn't have ISO-8601 formatting.
 fn format_timestamp(ms: u64) -> String {
     ms.to_string()
+}
+
+/// Projects an optional token payload into the `details` map for a
+/// `TokenAdded` / `TokenRemoved` `NetEventInfo`. Absent payloads yield an
+/// empty map; present payloads surface as
+/// `{"token": <TokenInfo>}` so the archive body format matches the
+/// TypeScript and Java protocols.
+fn token_details(
+    token: Option<&Arc<dyn TokenPayload>>,
+    registry: Option<&TokenProjectorRegistry>,
+    timestamp: u64,
+) -> HashMap<String, serde_json::Value> {
+    let Some(payload) = token else {
+        return HashMap::new();
+    };
+    let structured = registry.map(|r| r.project(payload.as_ref()));
+    let info = TokenInfo {
+        id: None,
+        token_type: payload.type_name().to_string(),
+        value: Some(format!("{:?}", payload)),
+        structured,
+        timestamp: Some(format_timestamp(timestamp)),
+    };
+    HashMap::from([(
+        "token".into(),
+        serde_json::to_value(info).unwrap_or(serde_json::Value::Null),
+    )])
 }
 
 /// Extracts a transition name from an event, if applicable.
@@ -230,10 +281,7 @@ mod tests {
 
     #[test]
     fn convert_token_added() {
-        let event = NetEvent::TokenAdded {
-            place_name: Arc::from("p1"),
-            timestamp: 3000,
-        };
+        let event = NetEvent::token_added(Arc::from("p1"), 3000);
         let info = to_event_info(&event);
         assert_eq!(info.event_type, "TokenAdded");
         assert_eq!(info.place_name.as_deref(), Some("p1"));
@@ -280,14 +328,8 @@ mod tests {
                 timeout_ms: 100,
                 timestamp: 8,
             },
-            NetEvent::TokenAdded {
-                place_name: Arc::from("p"),
-                timestamp: 9,
-            },
-            NetEvent::TokenRemoved {
-                place_name: Arc::from("p"),
-                timestamp: 10,
-            },
+            NetEvent::token_added(Arc::from("p"), 9),
+            NetEvent::token_removed(Arc::from("p"), 10),
             NetEvent::LogMessage {
                 transition_name: Arc::from("t"),
                 level: "INFO".into(),

@@ -8,6 +8,15 @@ export interface Token<T> {
   readonly value: T;
   /** Epoch milliseconds when the token was created. */
   readonly createdAt: number;
+  /**
+   * JSON-friendly projection of the token value, populated by
+   * {@link SessionArchiveReader} when hydrating a v3 archive so replay
+   * consumers see the same structured shape the writer emitted. Live tokens
+   * (produced by {@link tokenOf} / {@link tokenAt}) leave this `undefined`;
+   * the runtime ignores it. See [EVT-025](../../../spec/08-events-observability.md)
+   * AC5. (libpetri 1.8.0+)
+   */
+  readonly structured?: unknown;
 }
 
 /** Cached singleton unit token. */

@@ -22,7 +22,19 @@ export interface SessionSummary {
 export interface TokenInfo {
   readonly id: string | null;
   readonly type: string;
+  /**
+   * `String(value)` form — stable display field that the bundled debug UI relies on.
+   * Always populated unless compact mode strips values.
+   */
   readonly value: string | null;
+  /**
+   * Structured JSON representation of the token value when the value is a plain
+   * JSON-friendly object / enum-like string / primitive. Populated alongside `value`
+   * (not instead of) so LLM-facing consumers can project typed fields without parsing
+   * the stringified form. Omitted from the wire when absent.
+   * (libpetri 1.8.0+)
+   */
+  readonly structured?: unknown;
   readonly timestamp: string | null;
 }
 

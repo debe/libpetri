@@ -21,9 +21,12 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Round-trip tests for the libpetri 1.7.0 v2 archive format. These focus on the
- * format-version-specific behavior (richer header, pre-computed metadata, mixed bucket
- * coexistence) — the v1 round-trip is exercised by {@link SessionArchiveRoundTripTest}.
+ * Round-trip tests for the libpetri 1.7.x v2 archive header. Covers tags, {@code endTime},
+ * pre-computed metadata, and mixed-bucket coexistence with v1 and v3 archives. These
+ * tests call {@link SessionArchiveWriter#writeV2} explicitly because v2 is no longer the
+ * default emission (see {@link SessionArchive#CURRENT_VERSION}). The default-version
+ * round-trip lives in {@link SessionArchiveV3Test}; the v1 round-trip in
+ * {@link SessionArchiveRoundTripTest}.
  */
 class SessionArchiveV2Test {
 
@@ -42,15 +45,16 @@ class SessionArchiveV2Test {
     // ======================== v2 round-trip ========================
 
     @Test
-    void shouldDefaultToV2Format() throws IOException {
-        var session = registerWithEvents("default-v2", Map.of("channel", "voice"));
+    void shouldEmitV2WhenExplicitlyRequested() throws IOException {
+        var session = registerWithEvents("explicit-v2", Map.of("channel", "voice"));
 
-        var archive = writeAndReadHeader(session);
+        var buf = new ByteArrayOutputStream();
+        new SessionArchiveWriter().writeV2(session, buf);
+        var archive = new SessionArchiveReader().readMetadata(new ByteArrayInputStream(buf.toByteArray()));
 
-        assertEquals(SessionArchive.CURRENT_VERSION, archive.version(), "default writer should emit current version");
-        assertEquals(2, archive.version(), "current version should be 2 in libpetri 1.7.0");
+        assertEquals(2, archive.version(), "writeV2 must still emit version=2");
         assertInstanceOf(SessionArchive.V2.class, archive,
-            "default writer should produce a V2 record so callers can pattern-match on tags/endTime/metadata");
+            "writeV2 should produce a V2 record so callers can pattern-match on tags/endTime/metadata");
     }
 
     @Test
@@ -183,10 +187,10 @@ class SessionArchiveV2Test {
         var v1Bytes = new ByteArrayOutputStream();
         new SessionArchiveWriter().writeV1(v1Session, v1Bytes);
 
-        var v2Session = registry.register("modern", TEST_NET, Map.of("channel", "voice"));
+        var v2Session = registry.register("v2-explicit", TEST_NET, Map.of("channel", "voice"));
         v2Session.eventStore().append(new NetEvent.TransitionEnabled(Instant.now(), "Process"));
         var v2Bytes = new ByteArrayOutputStream();
-        new SessionArchiveWriter().write(v2Session, v2Bytes);
+        new SessionArchiveWriter().writeV2(v2Session, v2Bytes);
 
         var reader = new SessionArchiveReader();
         var v1Read = reader.readFull(new ByteArrayInputStream(v1Bytes.toByteArray()));
@@ -195,7 +199,7 @@ class SessionArchiveV2Test {
         assertInstanceOf(SessionArchive.V1.class, v1Read.metadata());
         assertInstanceOf(SessionArchive.V2.class, v2Read.metadata());
         assertEquals("legacy", v1Read.metadata().sessionId());
-        assertEquals("modern", v2Read.metadata().sessionId());
+        assertEquals("v2-explicit", v2Read.metadata().sessionId());
         assertEquals(Map.of("channel", "voice"), v2Read.metadata().tags());
         assertEquals(Map.of(), v1Read.metadata().tags(), "v1 default tag accessor must be empty");
     }
@@ -266,13 +270,13 @@ class SessionArchiveV2Test {
 
     private SessionArchive writeAndReadHeader(DebugSessionRegistry.DebugSession session) throws IOException {
         var buf = new ByteArrayOutputStream();
-        new SessionArchiveWriter().write(session, buf);
+        new SessionArchiveWriter().writeV2(session, buf);
         return new SessionArchiveReader().readMetadata(new ByteArrayInputStream(buf.toByteArray()));
     }
 
     private SessionArchiveReader.ImportedSession writeAndReadFull(DebugSessionRegistry.DebugSession session) throws IOException {
         var buf = new ByteArrayOutputStream();
-        new SessionArchiveWriter().write(session, buf);
+        new SessionArchiveWriter().writeV2(session, buf);
         return new SessionArchiveReader().readFull(new ByteArrayInputStream(buf.toByteArray()));
     }
 }

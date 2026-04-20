@@ -9,3 +9,4 @@ homepage.workspace = true
 description = "Core types for libpetri Coloured Time Petri Net engine"
 
 [dependencies]
+libpetri-event = { workspace = true }

@@ -13,7 +13,12 @@ import { DebugEventStore } from '../debug-event-store.js';
 import type { NetEventInfo } from '../debug-response.js';
 import type { NetEvent } from '../../event/net-event.js';
 import type { Token } from '../../core/token.js';
-import type { SessionArchive, SessionArchiveV1, SessionArchiveV2 } from './session-archive.js';
+import type {
+  SessionArchive,
+  SessionArchiveV1,
+  SessionArchiveV2,
+  SessionArchiveV3,
+} from './session-archive.js';
 import {
   CURRENT_VERSION,
   MIN_SUPPORTED_VERSION,
@@ -92,6 +97,14 @@ function parseHeader(metaJson: string): SessionArchive {
         metadata: v2.metadata ?? emptyMetadata(),
       };
     }
+    case 3: {
+      const v3 = raw as unknown as SessionArchiveV3;
+      return {
+        ...v3,
+        tags: v3.tags ?? {},
+        metadata: v3.metadata ?? emptyMetadata(),
+      };
+    }
     default:
       throw new Error(
         `Unsupported archive version: ${raw.version} ` +
@@ -115,12 +128,12 @@ function eventInfoToNetEvent(info: NetEventInfo): NetEvent {
     case 'TransitionClockRestarted':
       return { type: 'transition-clock-restarted', timestamp, transitionName: info.transitionName! };
     case 'TransitionStarted': {
-      const tokens = (d['consumedTokens'] as Array<{ type: string; value: string | null; timestamp: string | null }>)
+      const tokens = (d['consumedTokens'] as readonly WireTokenInfo[])
         .map(t => infoToToken(t));
       return { type: 'transition-started', timestamp, transitionName: info.transitionName!, consumedTokens: tokens };
     }
     case 'TransitionCompleted': {
-      const tokens = (d['producedTokens'] as Array<{ type: string; value: string | null; timestamp: string | null }>)
+      const tokens = (d['producedTokens'] as readonly WireTokenInfo[])
         .map(t => infoToToken(t));
       return { type: 'transition-completed', timestamp, transitionName: info.transitionName!, producedTokens: tokens, durationMs: d['durationMs'] as number };
     }
@@ -131,15 +144,15 @@ function eventInfoToNetEvent(info: NetEventInfo): NetEvent {
     case 'ActionTimedOut':
       return { type: 'action-timed-out', timestamp, transitionName: info.transitionName!, timeoutMs: d['timeoutMs'] as number };
     case 'TokenAdded': {
-      const t = d['token'] as { type: string; value: string | null; timestamp: string | null };
+      const t = d['token'] as WireTokenInfo;
       return { type: 'token-added', timestamp, placeName: info.placeName!, token: infoToToken(t) };
     }
     case 'TokenRemoved': {
-      const t = d['token'] as { type: string; value: string | null; timestamp: string | null };
+      const t = d['token'] as WireTokenInfo;
       return { type: 'token-removed', timestamp, placeName: info.placeName!, token: infoToToken(t) };
     }
     case 'MarkingSnapshot': {
-      const markingData = d['marking'] as Record<string, Array<{ type: string; value: string | null; timestamp: string | null }>>;
+      const markingData = d['marking'] as Record<string, readonly WireTokenInfo[]>;
       const marking = new Map<string, Token<unknown>[]>();
       for (const [place, tokens] of Object.entries(markingData)) {
         marking.set(place, tokens.map(t => infoToToken(t)));
@@ -163,9 +176,23 @@ function eventInfoToNetEvent(info: NetEventInfo): NetEvent {
   }
 }
 
-function infoToToken(t: { type: string; value: string | null; timestamp: string | null }): Token<unknown> {
-  return {
-    value: t.value,
-    createdAt: t.timestamp ? new Date(t.timestamp).getTime() : Date.now(),
-  };
+/**
+ * Wire shape of a serialized token body. Matches {@link TokenInfo} minus the
+ * `id` field (archives never emit token identity). `structured` is optional
+ * and preserved verbatim on replay per EVT-025 AC5.
+ */
+interface WireTokenInfo {
+  readonly type: string;
+  readonly value: string | null;
+  readonly structured?: unknown;
+  readonly timestamp: string | null;
+}
+
+function infoToToken(t: WireTokenInfo): Token<unknown> {
+  const createdAt = t.timestamp ? new Date(t.timestamp).getTime() : Date.now();
+  // Preserve `structured` only when the writer emitted it — keep live-token
+  // shape (no `structured` field) identical for tokens that lacked it.
+  return t.structured === undefined
+    ? { value: t.value, createdAt }
+    : { value: t.value, createdAt, structured: t.structured };
 }

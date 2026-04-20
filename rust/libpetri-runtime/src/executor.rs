@@ -10,6 +10,7 @@ use libpetri_core::token::ErasedToken;
 
 use libpetri_event::event_store::EventStore;
 use libpetri_event::net_event::NetEvent;
+use libpetri_event::token_payload::TokenPayload;
 
 use crate::bitmap;
 use crate::compiled_net::CompiledNet;
@@ -62,6 +63,31 @@ pub struct ExecutorOptions {
 }
 
 impl<E: EventStore> BitmapNetExecutor<E> {
+    /// Constructs a [`NetEvent::TokenAdded`] event, attaching the token payload only
+    /// when the event store opts in via [`EventStore::CAPTURES_TOKENS`]. The const gate
+    /// monomorphizes the `Arc::new(token.clone())` away for production (`NoopEventStore`)
+    /// paths.
+    #[inline(always)]
+    fn token_added_event(place: Arc<str>, ts: u64, tok: &ErasedToken) -> NetEvent {
+        if E::CAPTURES_TOKENS {
+            let payload: Arc<dyn TokenPayload> = Arc::new(tok.clone());
+            NetEvent::token_added_with(place, ts, payload)
+        } else {
+            NetEvent::token_added(place, ts)
+        }
+    }
+
+    /// Companion to [`token_added_event`](Self::token_added_event) for `TokenRemoved`.
+    #[inline(always)]
+    fn token_removed_event(place: Arc<str>, ts: u64, tok: &ErasedToken) -> NetEvent {
+        if E::CAPTURES_TOKENS {
+            let payload: Arc<dyn TokenPayload> = Arc::new(tok.clone());
+            NetEvent::token_removed_with(place, ts, payload)
+        } else {
+            NetEvent::token_removed(place, ts)
+        }
+    }
+
     /// Creates a new executor for the given net with initial tokens.
     pub fn new(net: &PetriNet, initial_tokens: Marking, options: ExecutorOptions) -> Self {
         let compiled = CompiledNet::compile(net);
@@ -461,10 +487,11 @@ impl<E: EventStore> BitmapNetExecutor<E> {
                 };
                 if let Some(token) = token {
                     if E::ENABLED {
-                        self.event_store.append(NetEvent::TokenRemoved {
-                            place_name: Arc::clone(&place_name_arc),
-                            timestamp: now_millis(),
-                        });
+                        self.event_store.append(Self::token_removed_event(
+                            Arc::clone(&place_name_arc),
+                            now_millis(),
+                            &token,
+                        ));
                     }
                     inputs
                         .entry(Arc::clone(&place_name_arc))
@@ -493,11 +520,12 @@ impl<E: EventStore> BitmapNetExecutor<E> {
             self.pending_reset_places
                 .insert(Arc::clone(arc.place.name_arc()));
             if E::ENABLED {
-                for _ in &removed {
-                    self.event_store.append(NetEvent::TokenRemoved {
-                        place_name: Arc::clone(arc.place.name_arc()),
-                        timestamp: now_millis(),
-                    });
+                for tok in &removed {
+                    self.event_store.append(Self::token_removed_event(
+                        Arc::clone(arc.place.name_arc()),
+                        now_millis(),
+                        tok,
+                    ));
                 }
             }
         }
@@ -563,6 +591,19 @@ impl<E: EventStore> BitmapNetExecutor<E> {
         outputs: Vec<OutputEntry>,
     ) {
         for entry in outputs {
+            // Build the event *before* `entry.token` moves into the marking so the
+            // payload (when captured) can borrow it. `Option` keeps production
+            // (`E::ENABLED = false`) fully elided via dead-code analysis.
+            let event = if E::ENABLED {
+                Some(Self::token_added_event(
+                    Arc::clone(&entry.place_name),
+                    now_millis(),
+                    &entry.token,
+                ))
+            } else {
+                None
+            };
+
             self.marking.add_erased(&entry.place_name, entry.token);
 
             if let Some(pid) = self.compiled.place_id(&entry.place_name) {
@@ -570,11 +611,8 @@ impl<E: EventStore> BitmapNetExecutor<E> {
                 self.mark_dirty(pid);
             }
 
-            if E::ENABLED {
-                self.event_store.append(NetEvent::TokenAdded {
-                    place_name: Arc::clone(&entry.place_name),
-                    timestamp: now_millis(),
-                });
+            if let Some(ev) = event {
+                self.event_store.append(ev);
             }
         }
     }
@@ -690,16 +728,22 @@ impl<E: EventStore> BitmapNetExecutor<E> {
             while let Ok(signal) = signal_rx.try_recv() {
                 match signal {
                     ExecutorSignal::Event(event) if !draining => {
+                        let captured = if E::ENABLED {
+                            Some(Self::token_added_event(
+                                Arc::clone(&event.place_name),
+                                now_millis(),
+                                &event.token,
+                            ))
+                        } else {
+                            None
+                        };
                         self.marking.add_erased(&event.place_name, event.token);
                         if let Some(pid) = self.compiled.place_id(&event.place_name) {
                             bitmap::set_bit(&mut self.marked_places, pid);
                             self.mark_dirty(pid);
                         }
-                        if E::ENABLED {
-                            self.event_store.append(NetEvent::TokenAdded {
-                                place_name: Arc::clone(&event.place_name),
-                                timestamp: now_millis(),
-                            });
+                        if let Some(ev) = captured {
+                            self.event_store.append(ev);
                         }
                     }
                     ExecutorSignal::Event(_) => {
@@ -798,16 +842,22 @@ impl<E: EventStore> BitmapNetExecutor<E> {
                 result = signal_rx.recv(), if signal_channel_open && !closed => {
                     match result {
                         Some(ExecutorSignal::Event(event)) if !draining => {
+                            let captured = if E::ENABLED {
+                                Some(Self::token_added_event(
+                                    Arc::clone(&event.place_name),
+                                    now_millis(),
+                                    &event.token,
+                                ))
+                            } else {
+                                None
+                            };
                             self.marking.add_erased(&event.place_name, event.token);
                             if let Some(pid) = self.compiled.place_id(&event.place_name) {
                                 bitmap::set_bit(&mut self.marked_places, pid);
                                 self.mark_dirty(pid);
                             }
-                            if E::ENABLED {
-                                self.event_store.append(NetEvent::TokenAdded {
-                                    place_name: Arc::clone(&event.place_name),
-                                    timestamp: now_millis(),
-                                });
+                            if let Some(ev) = captured {
+                                self.event_store.append(ev);
                             }
                         }
                         Some(ExecutorSignal::Event(_)) => {
@@ -938,10 +988,11 @@ impl<E: EventStore> BitmapNetExecutor<E> {
                 };
                 if let Some(token) = token {
                     if E::ENABLED {
-                        self.event_store.append(NetEvent::TokenRemoved {
-                            place_name: Arc::clone(&place_name_arc),
-                            timestamp: now_millis(),
-                        });
+                        self.event_store.append(Self::token_removed_event(
+                            Arc::clone(&place_name_arc),
+                            now_millis(),
+                            &token,
+                        ));
                     }
                     inputs
                         .entry(Arc::clone(&place_name_arc))
@@ -970,11 +1021,12 @@ impl<E: EventStore> BitmapNetExecutor<E> {
             self.pending_reset_places
                 .insert(Arc::clone(arc.place.name_arc()));
             if E::ENABLED {
-                for _ in &removed {
-                    self.event_store.append(NetEvent::TokenRemoved {
-                        place_name: Arc::clone(arc.place.name_arc()),
-                        timestamp: now_millis(),
-                    });
+                for tok in &removed {
+                    self.event_store.append(Self::token_removed_event(
+                        Arc::clone(arc.place.name_arc()),
+                        now_millis(),
+                        tok,
+                    ));
                 }
             }
         }

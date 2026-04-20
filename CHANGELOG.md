@@ -1,5 +1,71 @@
 # Changelog
 
+## 1.8.0
+
+### Archive format v3 (all three languages)
+
+`SessionArchive` gains a third variant (`V3`). The v3 header is structurally identical to
+v2 — same `endTime`, `tags`, pre-computed `metadata` — but the version bump signals that
+the event body format now carries **structured token payloads** alongside the legacy
+display string. See [EVT-025](spec/08-events-observability.md) for the full contract.
+
+Default writer output is now v3:
+
+- **Java**: `SessionArchiveWriter.write` emits v3. Tokens serialize as
+  `{valueType: <FQN>, v: <structured JSON>, createdAt}` with `{valueType, text}` fallback
+  for values Jackson cannot structure and `{valueType: "void"}` for unit tokens. The
+  reader resolves `valueType` via `Class.forName` — classes on the current classpath
+  hydrate with their original type; missing classes degrade to `Token<JsonNode>`
+  preserving the payload tree.
+- **TypeScript**: `SessionArchiveWriter.write` emits v3. `TokenInfo.structured` carries
+  the JSON projection (`JSON.parse(JSON.stringify(v))` with empty-object / symbol /
+  function filtering). `Token<T>` gains an optional `structured?` field that
+  `SessionArchiveReader.readFull` populates on replay — live tokens leave it undefined
+  and the runtime ignores it.
+- **Rust**: `SessionArchiveWriter::write_with_registry` emits v3 via a user-supplied
+  [`TokenProjectorRegistry`](rust/libpetri-debug/src/token_projector_registry.rs).
+  Replay hydrates each `TokenAdded` / `TokenRemoved` event with a `ReplayedTokenPayload
+  { type_name_str, value_json }` implementing the same `TokenPayload` trait as live
+  `ErasedToken`, so consumers treat live and replayed tokens uniformly. Executors only
+  attach the payload when `EventStore::CAPTURES_TOKENS = true`, so `NoopEventStore`
+  builds monomorphize the capture branch to dead code — zero overhead in production.
+
+### Backward compatibility
+
+- Readers in all three languages still accept v1 and v2 archives. Unknown versions are
+  rejected with an error naming the observed version and the supported range.
+- `writeV1` / `writeV2` (`write_v1` / `write_v2` in Rust) still exist, but note: the
+  writer no longer produces byte-for-byte 1.7.x event bodies — it always emits v3 token
+  shapes regardless of the header version. Consumers pinned to a 1.7.x reader may choke
+  on the extra `structured` field; either upgrade the reader or consume archives
+  produced by a 1.7.x writer.
+
+### Breaking changes
+
+- **Rust**: `NetEvent::TokenAdded` and `NetEvent::TokenRemoved` gain a third struct field
+  (`token: Option<Arc<dyn TokenPayload>>`). Both variants are now `#[non_exhaustive]`;
+  downstream pattern matches must use `{ place_name, timestamp, .. }` or explicitly
+  destructure `token`. Use the new `NetEvent::token_added(...)` /
+  `token_added_with(...)` constructors to build events (they keep the variant fields
+  private-by-convention and survive future field additions).
+- **Rust**: `libpetri-core` now depends on `libpetri-event` so that `ErasedToken` can
+  implement `TokenPayload`. This is a workspace-internal change; downstream crates pick
+  it up automatically via `libpetri` umbrella.
+- **TypeScript**: `Token<T>` gains an optional `structured?: unknown` field. Additive —
+  existing `{ value, createdAt }` literals remain valid. Consumers destructuring via
+  `{ value, createdAt, ...rest }` will pick up the extra field.
+- **Java**: No source-breaking changes. The serialized `NetEvent` JSON now emits tokens
+  in the new v3 shape — any hand-rolled Jackson deserializer for `Token` must understand
+  the v3 format (or use `NetEventSerializer` which does).
+
+### Security
+
+Archive deserialization is a trust boundary in all three languages — Java because
+`Class.forName` on an archive-supplied FQN triggers static initializers, TypeScript
+because a hostile `toJSON()` override could return misleading data, Rust because a
+hostile `type_name` string could misattribute a payload. Do not deserialize archives
+from untrusted network sources without a guard. See EVT-025 security note.
+
 ## 1.7.0
 
 ### Archive format v2 (all three languages)

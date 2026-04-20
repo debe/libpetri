@@ -15,14 +15,17 @@
  *
  * - **v1** (libpetri 1.5.x–1.6.x): original format. Header carries `sessionId`,
  *   `netName`, `dotDiagram`, `startTime`, `eventCount`, and net `structure`.
- * - **v2** (libpetri 1.7.0+): adds `endTime`, user-defined `tags`, and pre-computed
- *   {@link SessionMetadata} (event-type histogram, first/last event timestamps,
- *   hasErrors). Events inside v2 archives are serialized the same way as in v1 —
- *   only the header is enriched.
+ * - **v2** (libpetri 1.7.x): adds `endTime`, user-defined `tags`, and pre-computed
+ *   {@link SessionMetadata}. Events inside v2 archives use the legacy `toString`-based
+ *   token format — types are erased on disk.
+ * - **v3** (libpetri 1.8.0+): same header shape as v2. Differs in the event body —
+ *   token values are serialized with a `structured` JSON payload in addition to the
+ *   legacy `value` string, so consumers that understand the original shape can
+ *   surface typed fields without parsing the `toString` form.
  *
  * The {@link SessionArchiveReader} peeks the `version` field via a lenient JSON
- * parse and dispatches to the correct concrete type. Both v1 and v2 archives
- * remain readable and may coexist in the same storage bucket.
+ * parse and dispatches to the correct concrete type. All three versions coexist
+ * in the same storage bucket.
  */
 import type { NetStructure } from '../debug-response.js';
 
@@ -58,19 +61,31 @@ export interface SessionArchiveV2 extends SessionArchiveBase {
 }
 
 /**
+ * v3 archive header (libpetri 1.8.0+). Structurally identical to `SessionArchiveV2`;
+ * the version bump signals that the event body carries `structured` token payloads
+ * alongside the legacy `value` string.
+ */
+export interface SessionArchiveV3 extends SessionArchiveBase {
+  readonly version: 3;
+  readonly endTime?: string;
+  readonly tags: Readonly<Record<string, string>>;
+  readonly metadata: SessionMetadata;
+}
+
+/**
  * Discriminated union of all supported archive header versions.
  *
  * Type-narrowing example:
  * ```ts
- * if (archive.version === 2) {
- *   // TS knows archive is SessionArchiveV2 here — tags / endTime / metadata typed.
+ * if (archive.version >= 2) {
+ *   // TS knows archive has tags / endTime / metadata here.
  * }
  * ```
  */
-export type SessionArchive = SessionArchiveV1 | SessionArchiveV2;
+export type SessionArchive = SessionArchiveV1 | SessionArchiveV2 | SessionArchiveV3;
 
 /** Version written by default by {@link SessionArchiveWriter.write} (latest supported). */
-export const CURRENT_VERSION = 2;
+export const CURRENT_VERSION = 3;
 
 /** Lowest version {@link SessionArchiveReader} can decode. */
 export const MIN_SUPPORTED_VERSION = 1;

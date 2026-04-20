@@ -1,15 +1,18 @@
 //! Reads session archives from length-prefixed binary format.
 //!
-//! Handles both v1 (libpetri 1.5.x–1.6.x) and v2 (libpetri 1.7.0+) archives via
-//! a lenient version probe: deserialize the header bytes into a minimal
-//! [`VersionProbe`] struct, switch on the integer tag, and re-parse the full
-//! header into the correct concrete type. Events inside the body use the same
-//! wire format across versions, so the event read path is shared.
+//! Handles v1 (libpetri 1.5.x–1.6.x), v2 (libpetri 1.7.x), and v3 (libpetri
+//! 1.8.0+) archives via a lenient version probe: deserialize the header bytes
+//! into a minimal [`VersionProbe`] struct, switch on the integer tag, and
+//! re-parse the full header into the correct concrete type. Events inside the
+//! body share the same wire format across versions (the `structured` token
+//! field is serde-optional) so the event read path is shared.
 
+use std::any::Any;
 use std::io::Read;
 use std::sync::Arc;
 
 use flate2::read::GzDecoder;
+use libpetri_event::token_payload::TokenPayload;
 use serde::Deserialize;
 
 use crate::debug_event_store::DebugEventStore;
@@ -17,6 +20,7 @@ use crate::debug_response::NetEventInfo;
 
 use super::session_archive::{
     CURRENT_VERSION, MIN_SUPPORTED_VERSION, SessionArchive, SessionArchiveV1, SessionArchiveV2,
+    SessionArchiveV3,
 };
 
 /// Result of importing a session archive.
@@ -149,6 +153,11 @@ fn parse_header(meta_bytes: &[u8]) -> Result<SessionArchive, String> {
                 serde_json::from_slice(meta_bytes).map_err(|e| e.to_string())?;
             Ok(SessionArchive::V2(v2))
         }
+        3 => {
+            let v3: SessionArchiveV3 =
+                serde_json::from_slice(meta_bytes).map_err(|e| e.to_string())?;
+            Ok(SessionArchive::V3(v3))
+        }
         v => Err(format!(
             "Unsupported archive version: {v} (reader supports {MIN_SUPPORTED_VERSION}..{CURRENT_VERSION})"
         )),
@@ -240,14 +249,20 @@ fn event_info_to_net_event(
                 timestamp,
             }
         }
-        "TokenAdded" => NetEvent::TokenAdded {
-            place_name: Arc::from(info.place_name.as_deref().unwrap_or("unknown")),
-            timestamp,
-        },
-        "TokenRemoved" => NetEvent::TokenRemoved {
-            place_name: Arc::from(info.place_name.as_deref().unwrap_or("unknown")),
-            timestamp,
-        },
+        "TokenAdded" => {
+            let place = Arc::from(info.place_name.as_deref().unwrap_or("unknown"));
+            match hydrate_token_payload(&info) {
+                Some(payload) => NetEvent::token_added_with(place, timestamp, payload),
+                None => NetEvent::token_added(place, timestamp),
+            }
+        }
+        "TokenRemoved" => {
+            let place = Arc::from(info.place_name.as_deref().unwrap_or("unknown"));
+            match hydrate_token_payload(&info) {
+                Some(payload) => NetEvent::token_removed_with(place, timestamp, payload),
+                None => NetEvent::token_removed(place, timestamp),
+            }
+        }
         "LogMessage" => {
             let level = info
                 .details
@@ -275,6 +290,56 @@ fn event_info_to_net_event(
         }
     };
     Ok(event)
+}
+
+/// Token payload produced on the read side of a v3 archive replay.
+///
+/// Rust's replay reconstructs tokens as untyped JSON — we do not attempt to
+/// revive the original `T` (Rust has no name → type registry equivalent to
+/// Java's `Class.forName`). Consumers who need the original concrete type
+/// should look up the `type_name` string and deserialize `value_json` via
+/// their own `serde` registry.
+#[derive(Debug, Clone)]
+pub struct ReplayedTokenPayload {
+    /// Fully-qualified name captured by the original writer (via
+    /// [`ErasedToken::value_type_name`](libpetri_core::token::ErasedToken::value_type_name)).
+    pub type_name_str: String,
+    /// Structured JSON projection produced by the original writer's
+    /// [`TokenProjectorRegistry`](crate::TokenProjectorRegistry). May be
+    /// [`serde_json::Value::Null`] when the original archive lacked a
+    /// structured field (e.g. legacy v1/v2 bodies that only carried
+    /// `value`/`toString`).
+    pub value_json: serde_json::Value,
+}
+
+impl TokenPayload for ReplayedTokenPayload {
+    fn type_name(&self) -> &str {
+        &self.type_name_str
+    }
+
+    fn value_any(&self) -> &(dyn Any + Send + Sync) {
+        &self.value_json
+    }
+}
+
+/// Reads the `details.token` field produced by [`to_event_info_with_registry`]
+/// and returns a replay payload wrapping the structured JSON and carrier type
+/// name. Returns `None` for pre-v3 archives that omit the `token` entry.
+fn hydrate_token_payload(info: &NetEventInfo) -> Option<Arc<dyn TokenPayload>> {
+    let token_json = info.details.get("token")?;
+    let type_name_str = token_json
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let value_json = token_json
+        .get("structured")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    Some(Arc::new(ReplayedTokenPayload {
+        type_name_str,
+        value_json,
+    }))
 }
 
 #[cfg(test)]
@@ -458,14 +523,8 @@ mod tests {
             error: "err".into(),
             timestamp: 4,
         });
-        event_store.append(NetEvent::TokenAdded {
-            place_name: Arc::from("p"),
-            timestamp: 5,
-        });
-        event_store.append(NetEvent::TokenRemoved {
-            place_name: Arc::from("p"),
-            timestamp: 6,
-        });
+        event_store.append(NetEvent::token_added(Arc::from("p"), 5));
+        event_store.append(NetEvent::token_removed(Arc::from("p"), 6));
         event_store.append(NetEvent::ActionTimedOut {
             transition_name: Arc::from("t"),
             timeout_ms: 100,
@@ -514,16 +573,16 @@ mod tests {
     }
 
     #[test]
-    fn default_write_is_v2() {
+    fn default_write_is_v3() {
         let session = test_session_with_events();
         let compressed = super::super::SessionArchiveWriter::write(&session).unwrap();
         let metadata = SessionArchiveReader::read_metadata(&compressed).unwrap();
-        assert_eq!(metadata.version(), 2);
-        assert!(matches!(metadata, SessionArchive::V2(_)));
+        assert_eq!(metadata.version(), 3);
+        assert!(matches!(metadata, SessionArchive::V3(_)));
     }
 
     #[test]
-    fn v2_round_trip_preserves_tags_and_end_time() {
+    fn default_write_round_trip_preserves_tags_and_end_time() {
         let mut tags = HashMap::new();
         tags.insert("channel".to_string(), "voice".to_string());
         tags.insert("env".to_string(), "staging".to_string());
@@ -532,42 +591,42 @@ mod tests {
         let compressed = super::super::SessionArchiveWriter::write(&session).unwrap();
         let imported = SessionArchiveReader::read_full(&compressed).unwrap();
 
-        let SessionArchive::V2(v2) = &imported.metadata else {
-            panic!("expected v2");
+        let SessionArchive::V3(v3) = &imported.metadata else {
+            panic!("expected v3");
         };
-        assert_eq!(v2.tags, tags);
-        assert_eq!(v2.end_time, Some("5000".to_string()));
+        assert_eq!(v3.tags, tags);
+        assert_eq!(v3.end_time, Some("5000".to_string()));
     }
 
     #[test]
-    fn v2_metadata_histogram_matches_events() {
+    fn default_write_metadata_histogram_matches_events() {
         let session = test_session_with_events();
         // test_session_with_events appends: ExecutionStarted, TransitionStarted, TransitionCompleted.
         let compressed = super::super::SessionArchiveWriter::write(&session).unwrap();
         let imported = SessionArchiveReader::read_full(&compressed).unwrap();
 
-        let SessionArchive::V2(v2) = &imported.metadata else {
-            panic!("expected v2");
+        let SessionArchive::V3(v3) = &imported.metadata else {
+            panic!("expected v3");
         };
         assert_eq!(
-            v2.metadata.event_type_histogram.get("ExecutionStarted"),
+            v3.metadata.event_type_histogram.get("ExecutionStarted"),
             Some(&1)
         );
         assert_eq!(
-            v2.metadata.event_type_histogram.get("TransitionStarted"),
+            v3.metadata.event_type_histogram.get("TransitionStarted"),
             Some(&1)
         );
         assert_eq!(
-            v2.metadata.event_type_histogram.get("TransitionCompleted"),
+            v3.metadata.event_type_histogram.get("TransitionCompleted"),
             Some(&1)
         );
-        assert_eq!(v2.metadata.first_event_time, Some("1000".to_string()));
-        assert_eq!(v2.metadata.last_event_time, Some("3000".to_string()));
-        assert!(!v2.metadata.has_errors);
+        assert_eq!(v3.metadata.first_event_time, Some("1000".to_string()));
+        assert_eq!(v3.metadata.last_event_time, Some("3000".to_string()));
+        assert!(!v3.metadata.has_errors);
     }
 
     #[test]
-    fn v2_has_errors_for_transition_failed() {
+    fn default_write_has_errors_for_transition_failed() {
         let session = test_session_with_events();
         session.event_store.append(NetEvent::TransitionFailed {
             transition_name: Arc::from("t1"),
@@ -578,14 +637,14 @@ mod tests {
         let compressed = super::super::SessionArchiveWriter::write(&session).unwrap();
         let imported = SessionArchiveReader::read_full(&compressed).unwrap();
 
-        let SessionArchive::V2(v2) = &imported.metadata else {
-            panic!("expected v2");
+        let SessionArchive::V3(v3) = &imported.metadata else {
+            panic!("expected v3");
         };
-        assert!(v2.metadata.has_errors);
+        assert!(v3.metadata.has_errors);
     }
 
     #[test]
-    fn v2_has_errors_for_log_at_error_level() {
+    fn default_write_has_errors_for_log_at_error_level() {
         let session = test_session_with_events();
         session.event_store.append(NetEvent::LogMessage {
             transition_name: Arc::from("t1"),
@@ -597,14 +656,14 @@ mod tests {
         let compressed = super::super::SessionArchiveWriter::write(&session).unwrap();
         let imported = SessionArchiveReader::read_full(&compressed).unwrap();
 
-        let SessionArchive::V2(v2) = &imported.metadata else {
-            panic!("expected v2");
+        let SessionArchive::V3(v3) = &imported.metadata else {
+            panic!("expected v3");
         };
-        assert!(v2.metadata.has_errors);
+        assert!(v3.metadata.has_errors);
     }
 
     #[test]
-    fn v2_has_errors_for_log_at_lowercase_error_level() {
+    fn default_write_has_errors_for_log_at_lowercase_error_level() {
         let session = test_session_with_events();
         session.event_store.append(NetEvent::LogMessage {
             transition_name: Arc::from("t1"),
@@ -616,10 +675,10 @@ mod tests {
         let compressed = super::super::SessionArchiveWriter::write(&session).unwrap();
         let imported = SessionArchiveReader::read_full(&compressed).unwrap();
 
-        let SessionArchive::V2(v2) = &imported.metadata else {
-            panic!("expected v2");
+        let SessionArchive::V3(v3) = &imported.metadata else {
+            panic!("expected v3");
         };
-        assert!(v2.metadata.has_errors);
+        assert!(v3.metadata.has_errors);
     }
 
     #[test]
@@ -639,18 +698,144 @@ mod tests {
     }
 
     #[test]
-    fn reader_handles_mixed_v1_and_v2_archives() {
+    fn reader_handles_mixed_v1_v2_v3_archives() {
         let session = test_session_with_events();
         let v1_bytes = super::super::SessionArchiveWriter::write_v1(&session).unwrap();
-        let v2_bytes = super::super::SessionArchiveWriter::write(&session).unwrap();
+        let v2_bytes = super::super::SessionArchiveWriter::write_v2(&session).unwrap();
+        let v3_bytes = super::super::SessionArchiveWriter::write(&session).unwrap();
 
         let v1 = SessionArchiveReader::read_full(&v1_bytes).unwrap();
         let v2 = SessionArchiveReader::read_full(&v2_bytes).unwrap();
+        let v3 = SessionArchiveReader::read_full(&v3_bytes).unwrap();
 
         assert!(matches!(v1.metadata, SessionArchive::V1(_)));
         assert!(matches!(v2.metadata, SessionArchive::V2(_)));
+        assert!(matches!(v3.metadata, SessionArchive::V3(_)));
         assert_eq!(v1.event_store.event_count(), 3);
         assert_eq!(v2.event_store.event_count(), 3);
+        assert_eq!(v3.event_store.event_count(), 3);
+    }
+
+    #[test]
+    fn reader_accepts_v3_archives() {
+        use flate2::Compression;
+        use flate2::write::GzEncoder;
+        use std::io::Write;
+
+        // Hand-crafted v3 archive so the test is not coupled to the Rust writer —
+        // asserts that a third-party v3 archive round-trips with the payload hydrated.
+        let v3_header = br#"{"version":3,"sessionId":"v3-rust","netName":"n","dotDiagram":"digraph{}","startTime":"0","endTime":"5000","eventCount":1,"tags":{"channel":"voice"},"metadata":{"eventTypeHistogram":{"TokenAdded":1},"firstEventTime":"1000","lastEventTime":"1000","hasErrors":false},"structure":{"places":[],"transitions":[]}}"#;
+        let event = br#"{"type":"TokenAdded","timestamp":"1000","transitionName":null,"placeName":"P","details":{"token":{"id":null,"type":"TestMessage","value":"TestMessage{...}","structured":{"kind":"USER","text":"hi"},"timestamp":"1000"}}}"#;
+
+        let mut raw = Vec::new();
+        raw.extend_from_slice(&(v3_header.len() as u32).to_be_bytes());
+        raw.extend_from_slice(v3_header);
+        raw.extend_from_slice(&(event.len() as u32).to_be_bytes());
+        raw.extend_from_slice(event);
+
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&raw).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let imported = SessionArchiveReader::read_full(&compressed)
+            .expect("v3 archive must be readable on the Rust reader");
+
+        let SessionArchive::V3(v3) = &imported.metadata else {
+            panic!("expected V3 subtype, got {:?}", imported.metadata);
+        };
+        assert_eq!(v3.session_id, "v3-rust");
+        assert_eq!(v3.tags.get("channel"), Some(&"voice".to_string()));
+        assert_eq!(v3.end_time.as_deref(), Some("5000"));
+        assert_eq!(v3.metadata.event_type_histogram.get("TokenAdded"), Some(&1));
+        assert_eq!(imported.event_store.event_count(), 1);
+
+        // The hydrated event should carry a TokenPayload whose type_name and
+        // structured JSON survived the round-trip.
+        let events = imported.event_store.events();
+        let NetEvent::TokenAdded { token, .. } = &events[0] else {
+            panic!("expected TokenAdded, got {:?}", events[0]);
+        };
+        let payload = token.as_ref().expect("token payload must be hydrated on v3");
+        assert_eq!(payload.type_name(), "TestMessage");
+        let value_json = payload
+            .value_any()
+            .downcast_ref::<serde_json::Value>()
+            .expect("replay payload must carry serde_json::Value");
+        assert_eq!(value_json["kind"], "USER");
+        assert_eq!(value_json["text"], "hi");
+    }
+
+    #[test]
+    fn v3_roundtrip_preserves_structured_token() {
+        use crate::TokenProjectorRegistry;
+        use libpetri_core::token::{ErasedToken, Token};
+
+        #[derive(serde::Serialize, serde::Deserialize, Debug)]
+        struct Message {
+            kind: String,
+            text: String,
+        }
+
+        // 1. Build a session with a real typed-token event.
+        let event_store = Arc::new(DebugEventStore::new("v3-rt".into()));
+        let erased = ErasedToken::from_typed(&Token::new(Message {
+            kind: "USER".into(),
+            text: "hi".into(),
+        }));
+        let payload: Arc<dyn TokenPayload> = Arc::new(erased);
+        event_store.append(NetEvent::token_added_with(
+            Arc::from("P"),
+            1000,
+            Arc::clone(&payload),
+        ));
+
+        let session = DebugSession {
+            session_id: "v3-rt".into(),
+            net_name: "n".into(),
+            dot_diagram: "digraph {}".into(),
+            places: None,
+            transition_names: vec![],
+            event_store,
+            start_time: 0,
+            active: false,
+            imported_structure: Some(NetStructure {
+                places: vec![],
+                transitions: vec![],
+            }),
+            end_time: Some(5000),
+            tags: HashMap::new(),
+        };
+
+        // 2. Register the token type so `structured` contains typed JSON.
+        let registry = TokenProjectorRegistry::new();
+        registry.register::<Message>();
+
+        // 3. Write via the registry-aware writer, read back, assert structured JSON survives.
+        let compressed =
+            super::super::SessionArchiveWriter::write_with_registry(&session, &registry).unwrap();
+        let imported = SessionArchiveReader::read_full(&compressed).unwrap();
+
+        assert!(matches!(imported.metadata, SessionArchive::V3(_)));
+        let events = imported.event_store.events();
+        let NetEvent::TokenAdded { token, .. } = &events[0] else {
+            panic!("expected TokenAdded, got {:?}", events[0]);
+        };
+        let hydrated = token.as_ref().expect("payload must hydrate");
+        let value_json = hydrated
+            .value_any()
+            .downcast_ref::<serde_json::Value>()
+            .expect("replay payload carries serde_json::Value");
+        assert_eq!(value_json["kind"], "USER");
+        assert_eq!(value_json["text"], "hi");
+    }
+
+    #[test]
+    fn v2_writer_still_produces_v2_header() {
+        let session = test_session_with_events();
+        let compressed = super::super::SessionArchiveWriter::write_v2(&session).unwrap();
+        let metadata = SessionArchiveReader::read_metadata(&compressed).unwrap();
+        assert_eq!(metadata.version(), 2);
+        assert!(matches!(metadata, SessionArchive::V2(_)));
     }
 
     #[test]
@@ -676,7 +861,10 @@ mod tests {
             "unexpected error: {err}"
         );
         assert!(
-            err.contains(&format!("{}..{}", MIN_SUPPORTED_VERSION, CURRENT_VERSION)),
+            err.contains(&format!(
+                "{}..{}",
+                MIN_SUPPORTED_VERSION, CURRENT_VERSION
+            )),
             "expected supported-version range in error: {err}"
         );
     }

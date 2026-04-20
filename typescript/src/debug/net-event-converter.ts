@@ -158,17 +158,74 @@ export function toEventInfo(event: NetEvent, compact = false): NetEventInfo {
   }
 }
 
-/** Converts a Token to serializable TokenInfo with full value. */
+/**
+ * Converts a Token to a serializable {@link TokenInfo}.
+ *
+ * @remarks
+ * The emitted `type` is `value.constructor.name` for objects and `typeof value`
+ * for primitives — a *simple name*, not a fully-qualified type identifier.
+ * TypeScript has no portable FQN, so cross-language replay from TypeScript
+ * archives into a Java reader loses the original type identity (Java's
+ * `Class.forName` will fail on simple names) and falls through to the
+ * `Token<JsonNode>` graceful-degradation path. The `structured` payload
+ * survives intact across languages.
+ *
+ * The v3 archive body format described in [EVT-025](../../../spec/08-events-observability.md)
+ * always emits `structured` alongside `value` so the bundled debug UI keeps
+ * rendering while LLM-facing consumers get typed fields. See {@link structuredValue}
+ * for the projection rules.
+ */
 export function tokenInfo(token: Token<unknown>): TokenInfo {
   const value = token.value;
   const type = value != null ? typeof value === 'object' ? value.constructor.name : typeof value : 'null';
   const fullValue = value != null ? String(value) : 'null';
-  return {
+  const info: TokenInfo = {
     id: null,
     type,
     value: fullValue,
     timestamp: new Date(token.createdAt).toISOString(),
   };
+  const structured = structuredValue(value);
+  return structured === undefined ? info : { ...info, structured };
+}
+
+/**
+ * Projects a token value into a JSON-friendly representation for the `structured`
+ * TokenInfo field. Returns `undefined` when no useful projection exists (null values,
+ * opaque objects Jackson-on-the-Java-side would drop); callers omit the field in that
+ * case so wire size stays neutral for unstructurable tokens.
+ *
+ * @remarks
+ * Implementation notes:
+ * - Primitives and plain objects / arrays pass through untouched (already JSON-safe).
+ * - Maps / Sets are projected to a plain shape — debug tooling doesn't need the
+ *   prototype identity and JSON consumers can't use it anyway.
+ * - Classes with a `toJSON()` method are respected via structured clone (uses the
+ *   same path as `JSON.stringify`).
+ *
+ * Security: uses `JSON.parse(JSON.stringify(...))` which is safe against code
+ * execution and prototype pollution. A hostile token value with a custom
+ * `toJSON()` override could still return misleading data — archives are a
+ * trust boundary (see [EVT-025](../../../spec/08-events-observability.md)).
+ */
+function structuredValue(value: unknown): unknown | undefined {
+  if (value == null) return undefined;
+  const t = typeof value;
+  if (t === 'string' || t === 'number' || t === 'boolean') return value;
+  if (t === 'bigint') return String(value); // bigint → string for JSON-safety
+  if (t === 'symbol' || t === 'function') return undefined;
+  // Plain arrays / plain objects / objects with toJSON — JSON.parse(JSON.stringify(...))
+  // is the cheapest way to drop non-serializable fields and flatten to wire-ready shape.
+  try {
+    const cloned = JSON.parse(JSON.stringify(value));
+    // Skip empty objects — they're opaque beans with no useful structure, just inflating responses.
+    if (cloned && typeof cloned === 'object' && !Array.isArray(cloned) && Object.keys(cloned).length === 0) {
+      return undefined;
+    }
+    return cloned;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Converts a Token to compact TokenInfo (type only, no value). */

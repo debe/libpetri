@@ -8,6 +8,7 @@ use libpetri_core::token::ErasedToken;
 
 use libpetri_event::event_store::EventStore;
 use libpetri_event::net_event::NetEvent;
+use libpetri_event::token_payload::TokenPayload;
 
 use crate::bitmap;
 use crate::marking::Marking;
@@ -119,6 +120,31 @@ impl<'a, E: EventStore> PrecompiledExecutorBuilder<'a, E> {
 }
 
 impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
+    /// Constructs a [`NetEvent::TokenAdded`] event, attaching the token payload only
+    /// when the event store opts in via [`EventStore::CAPTURES_TOKENS`]. The const gate
+    /// monomorphizes the `Arc::new(token.clone())` away for production
+    /// (`NoopEventStore`) paths.
+    #[inline(always)]
+    fn token_added_event(place: Arc<str>, ts: u64, tok: &ErasedToken) -> NetEvent {
+        if E::CAPTURES_TOKENS {
+            let payload: Arc<dyn TokenPayload> = Arc::new(tok.clone());
+            NetEvent::token_added_with(place, ts, payload)
+        } else {
+            NetEvent::token_added(place, ts)
+        }
+    }
+
+    /// Companion to [`token_added_event`](Self::token_added_event) for `TokenRemoved`.
+    #[inline(always)]
+    fn token_removed_event(place: Arc<str>, ts: u64, tok: &ErasedToken) -> NetEvent {
+        if E::CAPTURES_TOKENS {
+            let payload: Arc<dyn TokenPayload> = Arc::new(tok.clone());
+            NetEvent::token_removed_with(place, ts, payload)
+        } else {
+            NetEvent::token_removed(place, ts)
+        }
+    }
+
     /// Creates a builder for a PrecompiledNetExecutor.
     pub fn builder(
         program: &'a PrecompiledNet<'a>,
@@ -753,10 +779,11 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
                     };
                     if let Some(token) = token {
                         if E::ENABLED {
-                            self.event_store.append(NetEvent::TokenRemoved {
-                                place_name: Arc::clone(&place_name_arc),
-                                timestamp: now_millis(),
-                            });
+                            self.event_store.append(Self::token_removed_event(
+                                Arc::clone(&place_name_arc),
+                                now_millis(),
+                                &token,
+                            ));
                         }
                         self.reusable_inputs
                             .entry(Arc::clone(&place_name_arc))
@@ -771,11 +798,12 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
                 let pid = self.program.place_id(arc.place.name()).unwrap();
                 let removed = self.ring_remove_all(pid);
                 if E::ENABLED {
-                    for _ in &removed {
-                        self.event_store.append(NetEvent::TokenRemoved {
-                            place_name: Arc::clone(arc.place.name_arc()),
-                            timestamp: now_millis(),
-                        });
+                    for tok in &removed {
+                        self.event_store.append(Self::token_removed_event(
+                            Arc::clone(arc.place.name_arc()),
+                            now_millis(),
+                            tok,
+                        ));
                     }
                 }
                 self.pending_reset_words[pid >> bitmap::WORD_SHIFT] |=
@@ -795,10 +823,11 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
                         pc += 1;
                         let token = self.ring_remove_first(pid);
                         if E::ENABLED {
-                            self.event_store.append(NetEvent::TokenRemoved {
-                                place_name: Arc::clone(&self.program.place_name_arcs[pid]),
-                                timestamp: now_millis(),
-                            });
+                            self.event_store.append(Self::token_removed_event(
+                                Arc::clone(&self.program.place_name_arcs[pid]),
+                                now_millis(),
+                                &token,
+                            ));
                         }
                         self.reusable_inputs
                             .entry(Arc::clone(&self.program.place_name_arcs[pid]))
@@ -813,10 +842,11 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
                         for _ in 0..count {
                             let token = self.ring_remove_first(pid);
                             if E::ENABLED {
-                                self.event_store.append(NetEvent::TokenRemoved {
-                                    place_name: Arc::clone(&self.program.place_name_arcs[pid]),
-                                    timestamp: now_millis(),
-                                });
+                                self.event_store.append(Self::token_removed_event(
+                                    Arc::clone(&self.program.place_name_arcs[pid]),
+                                    now_millis(),
+                                    &token,
+                                ));
                             }
                             self.reusable_inputs
                                 .entry(Arc::clone(&self.program.place_name_arcs[pid]))
@@ -834,10 +864,11 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
                         for _ in 0..count {
                             let token = self.ring_remove_first(pid);
                             if E::ENABLED {
-                                self.event_store.append(NetEvent::TokenRemoved {
-                                    place_name: Arc::clone(&self.program.place_name_arcs[pid]),
-                                    timestamp: now_millis(),
-                                });
+                                self.event_store.append(Self::token_removed_event(
+                                    Arc::clone(&self.program.place_name_arcs[pid]),
+                                    now_millis(),
+                                    &token,
+                                ));
                             }
                             self.reusable_inputs
                                 .entry(Arc::clone(&self.program.place_name_arcs[pid]))
@@ -850,12 +881,13 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
                         pc += 1;
                         let count = self.token_counts[pid];
                         for _ in 0..count {
-                            let _token = self.ring_remove_first(pid);
+                            let token = self.ring_remove_first(pid);
                             if E::ENABLED {
-                                self.event_store.append(NetEvent::TokenRemoved {
-                                    place_name: Arc::clone(&self.program.place_name_arcs[pid]),
-                                    timestamp: now_millis(),
-                                });
+                                self.event_store.append(Self::token_removed_event(
+                                    Arc::clone(&self.program.place_name_arcs[pid]),
+                                    now_millis(),
+                                    &token,
+                                ));
                             }
                         }
                         self.pending_reset_words[pid >> bitmap::WORD_SHIFT] |=
@@ -991,17 +1023,26 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
         outputs: Vec<OutputEntry>,
     ) {
         for entry in outputs {
+            // Build the event before `entry.token` moves into the ring buffer;
+            // `Option` keeps production (`E::ENABLED = false`) fully elided.
+            let event = if E::ENABLED {
+                Some(Self::token_added_event(
+                    Arc::clone(&entry.place_name),
+                    now_millis(),
+                    &entry.token,
+                ))
+            } else {
+                None
+            };
+
             if let Some(pid) = self.program.place_id(&entry.place_name) {
                 self.ring_add_last(pid, entry.token);
                 self.set_marking_bit(pid);
                 self.mark_dirty(pid);
             }
 
-            if E::ENABLED {
-                self.event_store.append(NetEvent::TokenAdded {
-                    place_name: Arc::clone(&entry.place_name),
-                    timestamp: now_millis(),
-                });
+            if let Some(ev) = event {
+                self.event_store.append(ev);
             }
         }
     }
@@ -1190,16 +1231,22 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
             while let Ok(signal) = signal_rx.try_recv() {
                 match signal {
                     ExecutorSignal::Event(event) if !draining => {
+                        let captured = if E::ENABLED {
+                            Some(Self::token_added_event(
+                                Arc::clone(&event.place_name),
+                                now_millis(),
+                                &event.token,
+                            ))
+                        } else {
+                            None
+                        };
                         if let Some(pid) = self.program.place_id(&event.place_name) {
                             self.ring_add_last(pid, event.token);
                             self.set_marking_bit(pid);
                             self.mark_dirty(pid);
                         }
-                        if E::ENABLED {
-                            self.event_store.append(NetEvent::TokenAdded {
-                                place_name: Arc::clone(&event.place_name),
-                                timestamp: now_millis(),
-                            });
+                        if let Some(ev) = captured {
+                            self.event_store.append(ev);
                         }
                     }
                     ExecutorSignal::Event(_) => {
@@ -1296,16 +1343,22 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
                 result = signal_rx.recv(), if signal_channel_open && !closed => {
                     match result {
                         Some(ExecutorSignal::Event(event)) if !draining => {
+                            let captured = if E::ENABLED {
+                                Some(Self::token_added_event(
+                                    Arc::clone(&event.place_name),
+                                    now_millis(),
+                                    &event.token,
+                                ))
+                            } else {
+                                None
+                            };
                             if let Some(pid) = self.program.place_id(&event.place_name) {
                                 self.ring_add_last(pid, event.token);
                                 self.set_marking_bit(pid);
                                 self.mark_dirty(pid);
                             }
-                            if E::ENABLED {
-                                self.event_store.append(NetEvent::TokenAdded {
-                                    place_name: Arc::clone(&event.place_name),
-                                    timestamp: now_millis(),
-                                });
+                            if let Some(ev) = captured {
+                                self.event_store.append(ev);
                             }
                         }
                         Some(ExecutorSignal::Event(_)) => {
@@ -1436,10 +1489,11 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
                 };
                 if let Some(token) = token {
                     if E::ENABLED {
-                        self.event_store.append(NetEvent::TokenRemoved {
-                            place_name: Arc::clone(&place_name_arc),
-                            timestamp: now_millis(),
-                        });
+                        self.event_store.append(Self::token_removed_event(
+                            Arc::clone(&place_name_arc),
+                            now_millis(),
+                            &token,
+                        ));
                     }
                     inputs
                         .entry(Arc::clone(&place_name_arc))
@@ -1466,11 +1520,12 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
             let pid = self.program.place_id(arc.place.name()).unwrap();
             let removed = self.ring_remove_all(pid);
             if E::ENABLED {
-                for _ in &removed {
-                    self.event_store.append(NetEvent::TokenRemoved {
-                        place_name: Arc::clone(arc.place.name_arc()),
-                        timestamp: now_millis(),
-                    });
+                for tok in &removed {
+                    self.event_store.append(Self::token_removed_event(
+                        Arc::clone(arc.place.name_arc()),
+                        now_millis(),
+                        tok,
+                    ));
                 }
             }
             self.pending_reset_words[pid >> bitmap::WORD_SHIFT] |=

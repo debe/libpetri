@@ -27,6 +27,7 @@ pub mod debug_session_registry;
 pub mod marking_cache;
 pub mod net_event_converter;
 pub mod place_analysis;
+pub mod token_projector_registry;
 
 // Re-exports for convenience
 pub use debug_aware_event_store::DebugAwareEventStore;
@@ -41,3 +42,4 @@ pub use debug_response::{
 pub use debug_session_registry::{DebugSession, DebugSessionRegistry};
 pub use marking_cache::ComputedState;
 pub use place_analysis::PlaceAnalysis;
+pub use token_projector_registry::TokenProjectorRegistry;
