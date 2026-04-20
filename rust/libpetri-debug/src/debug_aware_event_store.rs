@@ -46,6 +46,10 @@ impl<E: EventStore> DebugAwareEventStore<E> {
 impl<E: EventStore> EventStore for DebugAwareEventStore<E> {
     const ENABLED: bool = true;
 
+    /// Opt in so executors attach token payloads to `TokenAdded` / `TokenRemoved`
+    /// events — the archive writer and live debug UI both depend on them.
+    const CAPTURES_TOKENS: bool = true;
+
     fn append(&mut self, event: NetEvent) {
         // Always forward to debug store (swallow failures)
         self.debug_store.append(event.clone());

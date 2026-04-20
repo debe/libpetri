@@ -31,12 +31,16 @@ import java.util.Map;
  *
  * <h2>Format selection</h2>
  * <p>{@link #write(DebugSession, OutputStream)} defaults to {@link SessionArchive#CURRENT_VERSION}
- * (v2 as of libpetri 1.7.0). Callers that need to emit legacy archives — e.g., compatibility
- * tests or downstream writers that haven't upgraded their reader — can call
- * {@link #writeV1(DebugSession, OutputStream)}. v2 archives cost one extra pass over the
- * event store to pre-compute {@link SessionMetadata}; the savings at read time (no event
- * scan needed to answer hasErrors / histogram queries) pay it back the first time a caller
- * lists or samples a bucket of sessions.
+ * (v3 as of libpetri 1.8.0). Callers that need to emit legacy archives — e.g., compatibility
+ * tests or downstream writers pinned to older readers — can call
+ * {@link #writeV1(DebugSession, OutputStream)} or
+ * {@link #writeV2(DebugSession, OutputStream)}.
+ *
+ * <p>Note that the <em>event-body token format</em> is controlled by
+ * {@link org.libpetri.debug.NetEventSerializer} and always emits the current (v3)
+ * structured shape regardless of which header version is written; a 1.8.0+ writer cannot
+ * produce byte-for-byte 1.7.x event bodies. {@code writeV1/writeV2} therefore primarily
+ * exist to exercise the header-version dispatch code in the reader.
  *
  * @see SessionArchiveReader
  */
@@ -54,7 +58,7 @@ public final class SessionArchiveWriter {
 
     /**
      * Writes a complete session archive in the current archive format
-     * ({@link SessionArchive#CURRENT_VERSION}, which is v2 as of libpetri 1.7.0).
+     * ({@link SessionArchive#CURRENT_VERSION}, which is v3 as of libpetri 1.8.0).
      *
      * <p>The caller is responsible for closing the output stream.
      *
@@ -63,7 +67,7 @@ public final class SessionArchiveWriter {
      * @throws IOException if writing fails
      */
     public void write(DebugSession session, OutputStream out) throws IOException {
-        writeV2(session, out);
+        writeV3(session, out);
     }
 
     /**
@@ -110,6 +114,32 @@ public final class SessionArchiveWriter {
             eventStore.eventCount(),
             // Snapshot of tags at archive-write time — record the tag state that was current
             // when the session was archived, not whatever happens on the live session after.
+            Map.copyOf(session.tags()),
+            metadata,
+            session.buildNetStructure()
+        );
+
+        writeFramed(header, session, out);
+    }
+
+    /**
+     * Writes a session in the v3 format — same header shape as {@link #writeV2}, with a
+     * version tag of {@code 3} that signals structured (typed) token payloads in the event
+     * body. See {@link org.libpetri.debug.NetEventSerializer} for the on-wire token shape.
+     */
+    public void writeV3(DebugSession session, OutputStream out) throws IOException {
+        var eventStore = session.eventStore();
+
+        var metadata = SessionMetadata.computeFrom(eventStore::eventIterator);
+
+        var header = new SessionArchive.V3(
+            3,
+            session.sessionId(),
+            session.netName(),
+            session.dotDiagram(),
+            session.startTime(),
+            session.endTime(),
+            eventStore.eventCount(),
             Map.copyOf(session.tags()),
             metadata,
             session.buildNetStructure()

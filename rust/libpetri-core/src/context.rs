@@ -149,6 +149,7 @@ impl TransitionContext {
             token: ErasedToken {
                 value: Arc::new(value),
                 created_at: crate::token::now_millis(),
+                value_type_name: std::any::type_name::<T>(),
             },
         });
         Ok(())
@@ -166,6 +167,8 @@ impl TransitionContext {
             token: ErasedToken {
                 value,
                 created_at: crate::token::now_millis(),
+                // Raw path has already erased the static type — best we can surface.
+                value_type_name: "dyn Any",
             },
         });
         Ok(())
@@ -206,6 +209,7 @@ impl TransitionContext {
                 token: ErasedToken {
                     value: Arc::new(value),
                     created_at,
+                    value_type_name: std::any::type_name::<T>(),
                 },
             });
         }

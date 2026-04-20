@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::token_payload::TokenPayload;
+
 /// All observable events during Petri net execution.
 ///
 /// 13 event types as a discriminated union matching the TypeScript/Java implementations.
@@ -48,14 +50,31 @@ pub enum NetEvent {
         timestamp: u64,
     },
     /// Token added to a place.
+    ///
+    /// The optional `token` payload is populated only by event stores that opt in
+    /// via [`EventStore::CAPTURES_TOKENS`](crate::event_store::EventStore::CAPTURES_TOKENS).
+    /// Production stores (`NoopEventStore`, `InMemoryEventStore`) leave it `None`
+    /// so the capture path is monomorphized out — preserving the zero-cost event
+    /// recording invariant.
+    ///
+    /// Marked `#[non_exhaustive]` so future fields (e.g. token identity,
+    /// source-transition attribution) can be added without a breaking change;
+    /// downstream matches must use `{ .., .. }`.
+    #[non_exhaustive]
     TokenAdded {
         place_name: Arc<str>,
         timestamp: u64,
+        token: Option<Arc<dyn TokenPayload>>,
     },
     /// Token removed from a place.
+    ///
+    /// See [`TokenAdded`](Self::TokenAdded) for payload semantics and for the
+    /// `#[non_exhaustive]` contract.
+    #[non_exhaustive]
     TokenRemoved {
         place_name: Arc<str>,
         timestamp: u64,
+        token: Option<Arc<dyn TokenPayload>>,
     },
     /// Log message emitted by a transition action.
     LogMessage {
@@ -72,6 +91,38 @@ pub enum NetEvent {
 }
 
 impl NetEvent {
+    /// Constructs a [`TokenAdded`](Self::TokenAdded) event without a payload —
+    /// the default for production event stores.
+    pub fn token_added(place_name: Arc<str>, timestamp: u64) -> Self {
+        Self::TokenAdded { place_name, timestamp, token: None }
+    }
+
+    /// Constructs a [`TokenAdded`](Self::TokenAdded) event carrying a token
+    /// payload — used by debug-aware event stores that set
+    /// [`EventStore::CAPTURES_TOKENS = true`](crate::event_store::EventStore::CAPTURES_TOKENS).
+    pub fn token_added_with(
+        place_name: Arc<str>,
+        timestamp: u64,
+        token: Arc<dyn TokenPayload>,
+    ) -> Self {
+        Self::TokenAdded { place_name, timestamp, token: Some(token) }
+    }
+
+    /// Constructs a [`TokenRemoved`](Self::TokenRemoved) event without a payload.
+    pub fn token_removed(place_name: Arc<str>, timestamp: u64) -> Self {
+        Self::TokenRemoved { place_name, timestamp, token: None }
+    }
+
+    /// Constructs a [`TokenRemoved`](Self::TokenRemoved) event carrying a token
+    /// payload. See [`token_added_with`](Self::token_added_with).
+    pub fn token_removed_with(
+        place_name: Arc<str>,
+        timestamp: u64,
+        token: Arc<dyn TokenPayload>,
+    ) -> Self {
+        Self::TokenRemoved { place_name, timestamp, token: Some(token) }
+    }
+
     /// Returns the timestamp of this event.
     pub fn timestamp(&self) -> u64 {
         match self {

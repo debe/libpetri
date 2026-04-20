@@ -92,16 +92,19 @@ describe('SessionArchive v2 (libpetri 1.7.0)', () => {
   const writer = new SessionArchiveWriter();
   const reader = new SessionArchiveReader();
 
-  describe('default write format', () => {
-    it('should default to v2', () => {
+  describe('explicit v2 emission', () => {
+    // v2 is no longer the default (v3 is, as of 1.8.0). Callers that need a v2
+    // header must invoke `writeV2` directly; this test guards that entry point.
+    it('should emit v2 when writeV2 is called', () => {
       const registry = new DebugSessionRegistry();
-      registry.register('default-v2', TEST_NET, { channel: 'voice' });
+      registry.register('explicit-v2', TEST_NET, { channel: 'voice' });
 
-      const compressed = writer.write(registry.getSession('default-v2')!);
+      const compressed = writer.writeV2(registry.getSession('explicit-v2')!);
       const metadata = reader.readMetadata(compressed);
 
       expect(metadata.version).toBe(2);
-      expect(metadata.version).toBe(CURRENT_VERSION);
+      // Guard against accidental regression of CURRENT_VERSION — should be strictly greater.
+      expect(metadata.version).toBeLessThan(CURRENT_VERSION);
     });
   });
 
@@ -119,7 +122,7 @@ describe('SessionArchive v2 (libpetri 1.7.0)', () => {
       session.eventStore.append(transitionCompleted('Process', t0 + 50));
       registry.complete('voice-1');
 
-      const compressed = writer.write(registry.getSession('voice-1')!);
+      const compressed = writer.writeV2(registry.getSession('voice-1')!);
       const imported = reader.readFull(compressed);
 
       expect(imported.metadata.version).toBe(2);
@@ -137,7 +140,7 @@ describe('SessionArchive v2 (libpetri 1.7.0)', () => {
       const registry = new DebugSessionRegistry();
       registry.register('empty-v2', TEST_NET, { channel: 'text' });
 
-      const compressed = writer.write(registry.getSession('empty-v2')!);
+      const compressed = writer.writeV2(registry.getSession('empty-v2')!);
       const imported = reader.readFull(compressed);
 
       if (imported.metadata.version !== 2) throw new Error('expected v2');
@@ -160,7 +163,7 @@ describe('SessionArchive v2 (libpetri 1.7.0)', () => {
       session.eventStore.append(transitionStarted('Process', t0 + 20));
       session.eventStore.append(transitionCompleted('Process', t0 + 50));
 
-      const compressed = writer.write(session);
+      const compressed = writer.writeV2(session);
       const imported = reader.readFull(compressed);
 
       if (imported.metadata.version !== 2) throw new Error('expected v2');
@@ -198,7 +201,7 @@ describe('SessionArchive v2 (libpetri 1.7.0)', () => {
       session.eventStore.append(transitionStarted('Process', t0 + 100));
       session.eventStore.append(transitionCompleted('Process', t0 + 200));
 
-      const compressed = writer.write(session);
+      const compressed = writer.writeV2(session);
       const imported = reader.readFull(compressed);
 
       if (imported.metadata.version !== 2) throw new Error('expected v2');
@@ -218,7 +221,7 @@ describe('SessionArchive v2 (libpetri 1.7.0)', () => {
       const t0 = Date.parse('2026-04-15T10:00:00Z');
       session.eventStore.append(factory('Process', t0));
 
-      const compressed = writer.write(session);
+      const compressed = writer.writeV2(session);
       const imported = reader.readFull(compressed);
 
       if (imported.metadata.version !== 2) throw new Error('expected v2');
@@ -230,7 +233,7 @@ describe('SessionArchive v2 (libpetri 1.7.0)', () => {
       const session = registry.register('err-log', TEST_NET);
       session.eventStore.append(logMessage('ERROR', Date.parse('2026-04-15T10:00:00Z')));
 
-      const compressed = writer.write(session);
+      const compressed = writer.writeV2(session);
       const imported = reader.readFull(compressed);
 
       if (imported.metadata.version !== 2) throw new Error('expected v2');
@@ -242,7 +245,7 @@ describe('SessionArchive v2 (libpetri 1.7.0)', () => {
       const session = registry.register('err-log-lower', TEST_NET);
       session.eventStore.append(logMessage('error', Date.parse('2026-04-15T10:00:00Z')));
 
-      const compressed = writer.write(session);
+      const compressed = writer.writeV2(session);
       const imported = reader.readFull(compressed);
 
       if (imported.metadata.version !== 2) throw new Error('expected v2');
@@ -257,7 +260,7 @@ describe('SessionArchive v2 (libpetri 1.7.0)', () => {
       session.eventStore.append(logMessage('INFO', t0 + 1));
       session.eventStore.append(transitionCompleted('Process', t0 + 2));
 
-      const compressed = writer.write(session);
+      const compressed = writer.writeV2(session);
       const imported = reader.readFull(compressed);
 
       if (imported.metadata.version !== 2) throw new Error('expected v2');
@@ -291,7 +294,7 @@ describe('SessionArchive v2 (libpetri 1.7.0)', () => {
       v2Session.eventStore.append(transitionEnabled('Process', Date.now()));
 
       const v1Bytes = writer.writeV1(v1Session);
-      const v2Bytes = writer.write(v2Session); // default v2
+      const v2Bytes = writer.writeV2(v2Session); // default v2
 
       const v1Read = reader.readFull(v1Bytes);
       const v2Read = reader.readFull(v2Bytes);
@@ -342,7 +345,7 @@ describe('SessionArchive v2 (libpetri 1.7.0)', () => {
       const session = registry.register('wire-1', TEST_NET, { channel: 'voice' });
       session.eventStore.append(transitionEnabled('Process', Date.parse('2026-04-15T10:00:00Z')));
 
-      const compressed = writer.write(session);
+      const compressed = writer.writeV2(session);
       const raw = gunzipSync(compressed);
       const metaLen = raw.readUInt32BE(0);
       const headerJson = raw.subarray(4, 4 + metaLen).toString('utf-8');

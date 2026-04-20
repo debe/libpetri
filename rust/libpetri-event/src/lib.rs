@@ -35,3 +35,6 @@
 
 pub mod event_store;
 pub mod net_event;
+pub mod token_payload;
+
+pub use token_payload::TokenPayload;

@@ -1301,10 +1301,7 @@ mod tests {
 
         // Add some events
         for i in 0..5 {
-            store.append(NetEvent::TokenAdded {
-                place_name: Arc::from("p1"),
-                timestamp: i,
-            });
+            store.append(NetEvent::token_added(Arc::from("p1"), i));
         }
 
         handler.handle_command(

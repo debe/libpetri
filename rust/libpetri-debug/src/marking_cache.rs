@@ -118,6 +118,8 @@ pub fn apply_events(
             NetEvent::TokenAdded {
                 place_name,
                 timestamp,
+                token: _,
+                ..
             } => {
                 marking
                     .entry(place_name.to_string())
@@ -126,6 +128,7 @@ pub fn apply_events(
                         id: None,
                         token_type: "unknown".into(),
                         value: None,
+                        structured: None,
                         timestamp: Some(timestamp.to_string()),
                     });
             }
@@ -144,6 +147,7 @@ pub fn apply_events(
                             id: None,
                             token_type: "unknown".into(),
                             value: None,
+                            structured: None,
                             timestamp: None,
                         })
                         .collect();
@@ -210,17 +214,11 @@ mod tests {
     use std::sync::Arc;
 
     fn token_added(place: &str, ts: u64) -> NetEvent {
-        NetEvent::TokenAdded {
-            place_name: Arc::from(place),
-            timestamp: ts,
-        }
+        NetEvent::token_added(Arc::from(place), ts)
     }
 
     fn token_removed(place: &str, ts: u64) -> NetEvent {
-        NetEvent::TokenRemoved {
-            place_name: Arc::from(place),
-            timestamp: ts,
-        }
+        NetEvent::token_removed(Arc::from(place), ts)
     }
 
     fn transition_enabled(name: &str, ts: u64) -> NetEvent {

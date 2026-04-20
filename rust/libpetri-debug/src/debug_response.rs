@@ -26,6 +26,12 @@ pub struct SessionSummary {
 }
 
 /// Serializable token information.
+///
+/// `structured` (libpetri 1.8.0+) carries a typed JSON projection of the token
+/// value produced by [`TokenProjectorRegistry`](crate::TokenProjectorRegistry).
+/// Populated alongside `value` (not instead of) so the bundled debug UI keeps
+/// rendering unchanged while LLM-facing consumers get typed fields. Omitted
+/// from the wire when absent.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenInfo {
@@ -33,6 +39,8 @@ pub struct TokenInfo {
     #[serde(rename = "type")]
     pub token_type: String,
     pub value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured: Option<serde_json::Value>,
     pub timestamp: Option<String>,
 }
 

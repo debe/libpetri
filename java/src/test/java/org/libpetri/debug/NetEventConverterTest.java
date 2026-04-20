@@ -199,5 +199,63 @@ class NetEventConverterTest {
             assertNull(info.value());
             assertNotNull(info.timestamp());
         }
+
+        @Test
+        void shouldProjectRecordIntoStructuredField() {
+            var msg = new SampleMessage("USER", "hi", 2);
+            var info = NetEventConverter.tokenInfo(Token.of(msg));
+
+            assertEquals("SampleMessage", info.type());
+            // toString stays as the human-friendly display form
+            assertTrue(info.value().contains("SampleMessage"));
+            // Structured field is a JsonNode-like projection — consumers read named components
+            assertNotNull(info.structured(), "records with public accessors must project");
+            var structured = info.structured().toString();
+            assertTrue(structured.contains("USER"));
+            assertTrue(structured.contains("hi"));
+        }
+
+        @Test
+        void shouldEmitEnumNameInStructuredField() {
+            var info = NetEventConverter.tokenInfo(Token.of(SampleMode.VOICE));
+
+            assertEquals("SampleMode", info.type());
+            assertEquals("VOICE", info.structured(),
+                "enums surface as the name() string so LLM responses stay compact");
+        }
+
+        @Test
+        void shouldPassPrimitivesThroughStructured() {
+            assertEquals(42, NetEventConverter.tokenInfo(Token.of(42)).structured());
+            assertEquals("hello", NetEventConverter.tokenInfo(Token.of("hello")).structured());
+            assertEquals(true, NetEventConverter.tokenInfo(Token.of(true)).structured());
+        }
+
+        @Test
+        void shouldNotPopulateStructuredForUnitTokens() {
+            var info = NetEventConverter.tokenInfo(Token.unit());
+            assertNull(info.structured(),
+                "unit tokens have no meaningful payload — structured stays null");
+        }
+
+        @Test
+        void shouldLeaveStructuredNullForOpaqueBeans() {
+            var info = NetEventConverter.tokenInfo(Token.of(new OpaqueBean()));
+
+            assertEquals("OpaqueBean", info.type());
+            assertNull(info.structured(),
+                "Jackson-empty beans must not inflate the response with an empty object");
+        }
+    }
+
+    public record SampleMessage(String kind, String text, int length) {}
+
+    public enum SampleMode { TEXT, VOICE }
+
+    /** Has no public getters and no Jackson annotations → Jackson produces an empty node. */
+    public static final class OpaqueBean {
+        @SuppressWarnings("unused")
+        private final String secret = "hidden";
+        @Override public String toString() { return "OpaqueBean{***}"; }
     }
 }

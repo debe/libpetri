@@ -9,28 +9,42 @@
  *
  * ## Format selection
  *
- * `write()` defaults to {@link CURRENT_VERSION} (v2 as of libpetri 1.7.0).
+ * `write()` defaults to {@link CURRENT_VERSION} (v3 as of libpetri 1.8.0).
  * Callers that need to emit legacy archives — compatibility tests or readers
- * pinned to libpetri ≤ 1.6.1 — can call `writeV1()`. v2 archives cost one extra
- * pass over the event store to pre-compute {@link SessionMetadata}; the savings
- * at read time (no event scan needed for hasErrors / histogram queries) pay it
- * back the first time a caller lists or samples a bucket of sessions.
+ * pinned to older libpetri versions — can call `writeV1()` or `writeV2()`.
+ *
+ * Note: all writers now emit the v3 token body format (structured alongside
+ * value-string) regardless of header version. A 1.8.0+ writer cannot produce
+ * byte-for-byte 1.7.x event bodies.
+ *
+ * Cross-language note: the `type` field in each serialized `TokenInfo` is
+ * `value.constructor.name` — a simple name, not an FQN. Replaying a TypeScript
+ * archive through the Java reader therefore cannot reconstruct the original
+ * typed token (Java needs an FQN to `Class.forName`); Java falls through to
+ * `Token<JsonNode>` preserving the `structured` JSON payload. See
+ * {@link tokenInfo} for the full asymmetry and the [EVT-025](../../../../spec/08-events-observability.md)
+ * spec entry for the full wire-format contract.
  */
 
 import { gzipSync } from 'node:zlib';
 import type { DebugSession } from '../debug-session-registry.js';
 import { buildNetStructure } from '../debug-session-registry.js';
 import { toEventInfo } from '../net-event-converter.js';
-import type { SessionArchive, SessionArchiveV1, SessionArchiveV2 } from './session-archive.js';
+import type {
+  SessionArchive,
+  SessionArchiveV1,
+  SessionArchiveV2,
+  SessionArchiveV3,
+} from './session-archive.js';
 import { computeMetadata } from './session-metadata.js';
 
 export class SessionArchiveWriter {
   /**
-   * Writes a complete session archive in the current format (v2 as of 1.7.0)
+   * Writes a complete session archive in the current format (v3 as of 1.8.0)
    * and returns the compressed bytes.
    */
   write(session: DebugSession): Buffer {
-    return this.writeV2(session);
+    return this.writeV3(session);
   }
 
   /**
@@ -76,6 +90,32 @@ export class SessionArchiveWriter {
       // Snapshot of tags at archive-write time — record the state that was
       // current when the session was archived, not whatever happens on the
       // live session afterwards.
+      tags: { ...session.tags },
+      metadata,
+      structure: buildNetStructure(session),
+    };
+    return this.writeFramed(header, session);
+  }
+
+  /**
+   * Writes a session in the v3 format — same header shape as v2, with version=3
+   * signalling that token payloads carry a `structured` field alongside the
+   * legacy `value` string (see {@link tokenInfo}).
+   */
+  writeV3(session: DebugSession): Buffer {
+    const metadata = computeMetadata(session.eventStore);
+
+    const header: SessionArchiveV3 = {
+      version: 3,
+      sessionId: session.sessionId,
+      netName: session.netName,
+      dotDiagram: session.dotDiagram,
+      startTime: new Date(session.startTime).toISOString(),
+      endTime:
+        session.endTime !== undefined
+          ? new Date(session.endTime).toISOString()
+          : undefined,
+      eventCount: session.eventStore.eventCount(),
       tags: { ...session.tags },
       metadata,
       structure: buildNetStructure(session),

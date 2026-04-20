@@ -272,19 +272,36 @@ public sealed interface DebugResponse {
     ) {}
 
     /**
-     * Token information for display.
+     * Token information for display and downstream consumption.
      *
      * @param id unique token ID (if available)
-     * @param type token value type name
-     * @param value full string representation of token value
+     * @param type token value type simple name (display-friendly, LLM-budget-conscious)
+     * @param value full {@code toString()} of the token value — stable display field that
+     *     the bundled debug UI relies on; always populated unless {@code compact} mode
+     *     strips values explicitly
+     * @param structured structured JSON representation of the token value when Jackson
+     *     can serialize it, else {@code null}. Populated in addition to {@code value} so
+     *     LLM-facing MCP tools can surface typed fields (e.g. a {@code ClientMessage}'s
+     *     {@code message} field) without parsing the toString string. Omitted from the
+     *     wire when null via {@code @JsonInclude(NON_NULL)} at the consumer side
      * @param timestamp when token was created (ISO-8601 format)
      */
     record TokenInfo(
         String id,
         String type,
         String value,
+        Object structured,
         String timestamp
-    ) {}
+    ) {
+        /**
+         * Backwards-compatible convenience constructor used by callers that only produce the
+         * display-form token info (no structured payload). Keeps {@link org.libpetri.debug.DebugProtocolHandler}
+         * and other legacy callers compiling unchanged.
+         */
+        public TokenInfo(String id, String type, String value, String timestamp) {
+            this(id, type, value, null, timestamp);
+        }
+    }
 
     /**
      * Serializable representation of NetEvent.

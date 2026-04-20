@@ -2,6 +2,8 @@ use std::any::Any;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use libpetri_event::TokenPayload;
+
 /// An immutable token carrying a typed value through the Petri net.
 ///
 /// Tokens flow from place to place as transitions fire, carrying typed
@@ -60,18 +62,28 @@ pub fn unit_token() -> Token<()> {
 }
 
 /// Type-erased token for marking storage.
+///
+/// Carries the original value type name captured via
+/// [`std::any::type_name`] at erasure time so debug consumers can surface it
+/// (archive `valueType` / `TokenInfo.type`) without needing the projector
+/// registry to know about the concrete type up front.
 #[derive(Debug, Clone)]
 pub struct ErasedToken {
     pub value: Arc<dyn Any + Send + Sync>,
     pub created_at: u64,
+    /// Fully-qualified type name of the inner value, captured at
+    /// [`from_typed`](Self::from_typed) time. Example:
+    /// `"my_crate::ClientMessage"`. Treat as opaque display / lookup key.
+    pub value_type_name: &'static str,
 }
 
 impl ErasedToken {
-    /// Wraps a typed token into an erased token.
+    /// Wraps a typed token into an erased token, recording `T`'s type name.
     pub fn from_typed<T: Send + Sync + 'static>(token: &Token<T>) -> Self {
         Self {
             value: Arc::clone(&token.value) as Arc<dyn Any + Send + Sync>,
             created_at: token.created_at,
+            value_type_name: std::any::type_name::<T>(),
         }
     }
 
@@ -87,6 +99,20 @@ impl ErasedToken {
             };
             Token::from_arc(typed, self.created_at)
         })
+    }
+}
+
+/// Lets executors attach an `ErasedToken` directly to
+/// [`NetEvent::TokenAdded`](libpetri_event::net_event::NetEvent::TokenAdded) /
+/// [`TokenRemoved`](libpetri_event::net_event::NetEvent::TokenRemoved) when the
+/// event store has opted into token capture.
+impl TokenPayload for ErasedToken {
+    fn type_name(&self) -> &str {
+        self.value_type_name
+    }
+
+    fn value_any(&self) -> &(dyn Any + Send + Sync) {
+        &*self.value
     }
 }
 
