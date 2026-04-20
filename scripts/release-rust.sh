@@ -101,8 +101,8 @@ cargo build --all-features
 cargo test --all-features
 
 RUST_CRATES=(
-    libpetri-core
     libpetri-event
+    libpetri-core
     libpetri-export
     libpetri-docgen
     libpetri-runtime
