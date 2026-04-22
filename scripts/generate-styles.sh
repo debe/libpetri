@@ -56,6 +56,8 @@ GRAPH_NODESEP=$(j '.graph.nodesep')
 GRAPH_RANKSEP=$(j '.graph.ranksep')
 GRAPH_FORCELABELS=$(j '.graph.forcelabels')
 GRAPH_OVERLAP=$(j '.graph.overlap')
+GRAPH_OUTPUTORDER=$(j '.graph.outputorder')
+GRAPH_SPLINES=$(j '.graph.splines')
 
 # ======================== Generate Rust ========================
 
@@ -157,6 +159,8 @@ pub const NODESEP: f64 = $GRAPH_NODESEP;
 pub const RANKSEP: f64 = $GRAPH_RANKSEP;
 pub const FORCE_LABELS: &str = "$GRAPH_FORCELABELS";
 pub const OVERLAP: &str = "$GRAPH_OVERLAP";
+pub const OUTPUT_ORDER: &str = "$GRAPH_OUTPUTORDER";
+pub const SPLINES: &str = "$GRAPH_SPLINES";
 EOF
 } >> "$RUST_FILE"
 
@@ -289,6 +293,8 @@ EOF
     public static final double RANKSEP = $GRAPH_RANKSEP;
     public static final String FORCE_LABELS = "$GRAPH_FORCELABELS";
     public static final String OVERLAP = "$GRAPH_OVERLAP";
+    public static final String OUTPUT_ORDER = "$GRAPH_OUTPUTORDER";
+    public static final String SPLINES = "$GRAPH_SPLINES";
 
     // ======================== Lookup ========================
 
@@ -381,6 +387,8 @@ export interface GraphStyle {
   readonly ranksep: number;
   readonly forcelabels: boolean;
   readonly overlap: boolean;
+  readonly outputorder: string;
+  readonly splines: string;
 }
 
 // ======================== Inline Style Data ========================
@@ -410,7 +418,7 @@ TS_HEADER
   cat <<EOF
 export const FONT: FontStyle = { family: '$FONT_FAMILY', nodeSize: $FONT_NODE_SIZE, edgeSize: $FONT_EDGE_SIZE };
 
-export const GRAPH: GraphStyle = { nodesep: $GRAPH_NODESEP, ranksep: $GRAPH_RANKSEP, forcelabels: $GRAPH_FORCELABELS, overlap: $GRAPH_OVERLAP };
+export const GRAPH: GraphStyle = { nodesep: $GRAPH_NODESEP, ranksep: $GRAPH_RANKSEP, forcelabels: $GRAPH_FORCELABELS, overlap: $GRAPH_OVERLAP, outputorder: '$GRAPH_OUTPUTORDER', splines: '$GRAPH_SPLINES' };
 
 // ======================== Public API ========================
 
