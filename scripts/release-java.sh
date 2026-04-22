@@ -57,6 +57,16 @@ fi
 info()  { echo "==> $*"; }
 error() { echo "Error: $*" >&2; exit 1; }
 
+# Extract the CHANGELOG.md section for the given version (between `## <v>` and
+# the next `## `). Prints empty string if the version has no section.
+changelog_section() {
+    awk -v v="$1" '
+        $0 == "## " v { p = 1; next }
+        p && /^## / { exit }
+        p
+    ' "$PROJECT_ROOT/CHANGELOG.md"
+}
+
 # --- Validate prerequisites ---
 info "Validating prerequisites"
 
@@ -128,8 +138,15 @@ git push origin HEAD
 git push origin "java/v${VERSION}"
 
 info "Creating GitHub release"
-gh release create "java/v${VERSION}" \
-    --title "Java v${VERSION}" \
-    --generate-notes
+NOTES=$(changelog_section "$VERSION")
+if [[ -z "${NOTES// }" ]]; then
+    gh release create "java/v${VERSION}" \
+        --title "Java v${VERSION}" \
+        --generate-notes
+else
+    gh release create "java/v${VERSION}" \
+        --title "Java v${VERSION}" \
+        --notes "$NOTES"
+fi
 
 info "Released Java v${VERSION} to Maven Central and GitHub."
