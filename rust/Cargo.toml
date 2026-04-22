@@ -13,7 +13,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.8.0"
+version = "1.8.1"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
@@ -21,12 +21,12 @@ repository = "https://github.com/libpetri/libpetri"
 homepage = "https://libpetri.org"
 
 [workspace.dependencies]
-libpetri-core = { path = "libpetri-core", version = "1.8.0" }
-libpetri-event = { path = "libpetri-event", version = "1.8.0" }
-libpetri-runtime = { path = "libpetri-runtime", version = "1.8.0" }
-libpetri-export = { path = "libpetri-export", version = "1.8.0" }
-libpetri-verification = { path = "libpetri-verification", version = "1.8.0" }
-libpetri-debug = { path = "libpetri-debug", version = "1.8.0" }
-libpetri-docgen = { path = "libpetri-docgen", version = "1.8.0" }
+libpetri-core = { path = "libpetri-core", version = "1.8.1" }
+libpetri-event = { path = "libpetri-event", version = "1.8.1" }
+libpetri-runtime = { path = "libpetri-runtime", version = "1.8.1" }
+libpetri-export = { path = "libpetri-export", version = "1.8.1" }
+libpetri-verification = { path = "libpetri-verification", version = "1.8.1" }
+libpetri-debug = { path = "libpetri-debug", version = "1.8.1" }
+libpetri-docgen = { path = "libpetri-docgen", version = "1.8.1" }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "sync", "macros"] }
 criterion = { version = "0.8", features = ["html_reports"] }
