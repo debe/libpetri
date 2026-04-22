@@ -274,7 +274,7 @@ checksum = "b5b646652bf6661599e1da8901b3b9522896f01e736bad5f723fe7a3a27f899d"
 
 [[package]]
 name = "libpetri"
-version = "1.8.0"
+version = "1.8.1"
 dependencies = [
  "libpetri-core",
  "libpetri-debug",
@@ -288,7 +288,7 @@ dependencies = [
 
 [[package]]
 name = "libpetri-benches"
-version = "1.8.0"
+version = "1.8.1"
 dependencies = [
  "criterion",
  "libpetri",
@@ -297,14 +297,14 @@ dependencies = [
 
 [[package]]
 name = "libpetri-core"
-version = "1.8.0"
+version = "1.8.1"
 dependencies = [
  "libpetri-event",
 ]
 
 [[package]]
 name = "libpetri-debug"
-version = "1.8.0"
+version = "1.8.1"
 dependencies = [
  "crossbeam-channel",
  "flate2",
@@ -317,7 +317,7 @@ dependencies = [
 
 [[package]]
 name = "libpetri-docgen"
-version = "1.8.0"
+version = "1.8.1"
 dependencies = [
  "libpetri-core",
  "libpetri-export",
@@ -325,18 +325,18 @@ dependencies = [
 
 [[package]]
 name = "libpetri-event"
-version = "1.8.0"
+version = "1.8.1"
 
 [[package]]
 name = "libpetri-export"
-version = "1.8.0"
+version = "1.8.1"
 dependencies = [
  "libpetri-core",
 ]
 
 [[package]]
 name = "libpetri-runtime"
-version = "1.8.0"
+version = "1.8.1"
 dependencies = [
  "libpetri-core",
  "libpetri-docgen",
@@ -346,7 +346,7 @@ dependencies = [
 
 [[package]]
 name = "libpetri-verification"
-version = "1.8.0"
+version = "1.8.1"
 dependencies = [
  "libpetri-core",
  "libpetri-docgen",
@@ -593,9 +593,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.51.0"
+version = "1.52.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bd1c4c0fc4a7ab90fc15ef6daaa3ec3b893f004f915f2392557ed23237820cd"
+checksum = "b67dee974fe86fd92cc45b7a95fdd2f99a36a6d7b0d431a231178d3d670bbcc6"
 dependencies = [
  "pin-project-lite",
  "tokio-macros",
