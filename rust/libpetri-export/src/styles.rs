@@ -117,3 +117,5 @@ pub const NODESEP: f64 = 0.5;
 pub const RANKSEP: f64 = 0.75;
 pub const FORCE_LABELS: &str = "true";
 pub const OVERLAP: &str = "false";
+pub const OUTPUT_ORDER: &str = "edgesfirst";
+pub const SPLINES: &str = "curved";

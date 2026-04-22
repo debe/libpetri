@@ -296,4 +296,11 @@ class PetriNetGraphMapperTest {
         var graph = PetriNetGraphMapper.map(simpleNet(), ExportConfig.leftToRight());
         assertEquals(RankDir.LR, graph.rankdir());
     }
+
+    @Test
+    void graphAttrsIncludeOutputOrderAndSplines() {
+        var graph = PetriNetGraphMapper.map(simpleNet(), ExportConfig.DEFAULT);
+        assertEquals("edgesfirst", graph.graphAttrs().get("outputorder"));
+        assertEquals("curved", graph.graphAttrs().get("splines"));
+    }
 }

@@ -58,6 +58,8 @@ public final class StyleConstants {
     public static final double RANKSEP = 0.75;
     public static final String FORCE_LABELS = "true";
     public static final String OVERLAP = "false";
+    public static final String OUTPUT_ORDER = "edgesfirst";
+    public static final String SPLINES = "curved";
 
     // ======================== Lookup ========================
 

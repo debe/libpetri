@@ -15,10 +15,16 @@ function getViz() {
   return vizPromise;
 }
 
-/** Render DOT string to SVG and initialize panzoom. */
+/**
+ * Render DOT string to SVG and initialize panzoom.
+ *
+ * Engine is pinned to 'dot' so layout is deterministic across reloads; libpetri
+ * servers emit byte-stable DOT, and the 'dot' engine produces identical layout
+ * for identical input.
+ */
 export async function renderDotDiagram(dotSource: string): Promise<void> {
   const viz = await getViz();
-  const svgElement = viz.renderSVGElement(dotSource);
+  const svgElement = viz.renderSVGElement(dotSource, { engine: 'dot' });
 
   // Replace diagram content
   const container = el.dotDiagram;

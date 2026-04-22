@@ -42,6 +42,8 @@ export interface GraphStyle {
   readonly ranksep: number;
   readonly forcelabels: boolean;
   readonly overlap: boolean;
+  readonly outputorder: string;
+  readonly splines: string;
 }
 
 // ======================== Inline Style Data ========================
@@ -67,7 +69,7 @@ const EDGE_STYLES: Record<EdgeCategory, EdgeVisual> = {
 
 export const FONT: FontStyle = { family: 'Helvetica,Arial,sans-serif', nodeSize: 12, edgeSize: 10 };
 
-export const GRAPH: GraphStyle = { nodesep: 0.5, ranksep: 0.75, forcelabels: true, overlap: false };
+export const GRAPH: GraphStyle = { nodesep: 0.5, ranksep: 0.75, forcelabels: true, overlap: false, outputorder: 'edgesfirst', splines: 'curved' };
 
 // ======================== Public API ========================
 

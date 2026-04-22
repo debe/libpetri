@@ -69,6 +69,12 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
     graph
         .graph_attrs
         .push(("overlap".into(), styles::OVERLAP.into()));
+    graph
+        .graph_attrs
+        .push(("outputorder".into(), styles::OUTPUT_ORDER.into()));
+    graph
+        .graph_attrs
+        .push(("splines".into(), styles::SPLINES.into()));
 
     // Node defaults
     graph
@@ -597,5 +603,21 @@ mod tests {
         let reset_edge = graph.edges.iter().find(|e| e.arc_type.as_deref() == Some("reset")).unwrap();
         assert_eq!(reset_edge.label.as_deref(), Some("reset"));
         assert_eq!(reset_edge.penwidth, Some(2.0));
+    }
+
+    #[test]
+    fn graph_attrs_include_outputorder_and_splines() {
+        let p1 = Place::<i32>::new("p1");
+        let p2 = Place::<i32>::new("p2");
+        let t = Transition::builder("t1")
+            .input(one(&p1))
+            .output(out_place(&p2))
+            .build();
+        let net = PetriNet::builder("test").transition(t).build();
+
+        let graph = map_to_graph(&net, &DotConfig::default());
+        let find = |key: &str| graph.graph_attrs.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str());
+        assert_eq!(find("outputorder"), Some("edgesfirst"));
+        assert_eq!(find("splines"), Some("curved"));
     }
 }
