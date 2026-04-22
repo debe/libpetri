@@ -55,6 +55,16 @@ fi
 info()  { echo "==> $*"; }
 error() { echo "Error: $*" >&2; exit 1; }
 
+# Extract the CHANGELOG.md section for the given version (between `## <v>` and
+# the next `## `). Prints empty string if the version has no section.
+changelog_section() {
+    awk -v v="$1" '
+        $0 == "## " v { p = 1; next }
+        p && /^## / { exit }
+        p
+    ' "$PROJECT_ROOT/CHANGELOG.md"
+}
+
 # --- Validate prerequisites ---
 info "Validating prerequisites"
 
@@ -142,8 +152,15 @@ git push origin HEAD
 git push origin "rust/v${VERSION}"
 
 info "Creating GitHub release"
-gh release create "rust/v${VERSION}" \
-    --title "Rust v${VERSION}" \
-    --generate-notes
+NOTES=$(changelog_section "$VERSION")
+if [[ -z "${NOTES// }" ]]; then
+    gh release create "rust/v${VERSION}" \
+        --title "Rust v${VERSION}" \
+        --generate-notes
+else
+    gh release create "rust/v${VERSION}" \
+        --title "Rust v${VERSION}" \
+        --notes "$NOTES"
+fi
 
 info "Released Rust v${VERSION} to crates.io and GitHub."
