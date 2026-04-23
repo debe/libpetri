@@ -390,7 +390,6 @@ describe('mapToGraph', () => {
     expect(graph.graphAttrs['nodesep']).toBe('0.5');
     expect(graph.graphAttrs['ranksep']).toBe('0.75');
     expect(graph.graphAttrs['outputorder']).toBe('edgesfirst');
-    expect(graph.graphAttrs['splines']).toBe('curved');
     expect(graph.nodeDefaults['fontname']).toBeDefined();
   });
 });

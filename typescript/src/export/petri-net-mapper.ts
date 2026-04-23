@@ -182,7 +182,6 @@ export function mapToGraph(net: PetriNet, config: DotConfig = DEFAULT_DOT_CONFIG
       overlap: String(GRAPH.overlap),
       fontname: FONT.family,
       outputorder: GRAPH.outputorder,
-      splines: GRAPH.splines,
     },
     nodeDefaults: {
       fontname: FONT.family,
