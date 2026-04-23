@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.8.2
+
+### Revert `splines=curved`
+
+`splines=curved` from 1.8.1 produced overly wavy edge routing on dense nets — in
+practice noticeably worse than Graphviz's default B-spline routing. Removed.
+
+`outputorder=edgesfirst` is kept — that one is still the right fix for the
+label-under-edge overlap problem from 1.8.0.
+
 ## 1.8.1
 
 ### Debug-UI diagram readability

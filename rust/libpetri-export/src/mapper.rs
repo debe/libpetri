@@ -72,9 +72,6 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
     graph
         .graph_attrs
         .push(("outputorder".into(), styles::OUTPUT_ORDER.into()));
-    graph
-        .graph_attrs
-        .push(("splines".into(), styles::SPLINES.into()));
 
     // Node defaults
     graph
@@ -606,7 +603,7 @@ mod tests {
     }
 
     #[test]
-    fn graph_attrs_include_outputorder_and_splines() {
+    fn graph_attrs_include_outputorder() {
         let p1 = Place::<i32>::new("p1");
         let p2 = Place::<i32>::new("p2");
         let t = Transition::builder("t1")
@@ -618,6 +615,5 @@ mod tests {
         let graph = map_to_graph(&net, &DotConfig::default());
         let find = |key: &str| graph.graph_attrs.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str());
         assert_eq!(find("outputorder"), Some("edgesfirst"));
-        assert_eq!(find("splines"), Some("curved"));
     }
 }
