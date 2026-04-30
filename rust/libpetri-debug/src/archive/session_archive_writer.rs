@@ -60,18 +60,24 @@ impl SessionArchiveWriter {
 
     /// Writes a session in the legacy v1 format. Use only for compatibility
     /// testing or when producing archives for consumers pinned to libpetri ≤ 1.6.1.
+    ///
+    /// Mirrors the v2/v3 single-snapshot pattern: take one owned `Vec<NetEvent>` from
+    /// the store, then derive both `event_count` and the body from it. `event_store
+    /// .event_count()` is a *cumulative* counter (increments on append, never
+    /// decrements on eviction) so it would overstate the body after any eviction —
+    /// hence we use `events.len()` instead.
     pub fn write_v1(session: &DebugSession) -> Result<Vec<u8>, String> {
+        let events = session.event_store.events();
         let header = SessionArchiveV1 {
             version: 1,
             session_id: session.session_id.clone(),
             net_name: session.net_name.clone(),
             dot_diagram: session.dot_diagram.clone(),
             start_time: session.start_time.to_string(),
-            event_count: session.event_store.event_count(),
+            event_count: events.len(),
             structure: build_net_structure(session),
         };
         let header_bytes = serde_json::to_vec(&header).map_err(|e| e.to_string())?;
-        let events = session.event_store.events();
         Self::write_framed(&header_bytes, &events, None)
     }
 
@@ -167,5 +173,116 @@ impl SessionArchiveWriter {
         }
 
         encoder.finish().map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Verifies the EVT-025 invariant that an archive header's `event_count`
+    //! equals the number of events actually serialized into the body, after a
+    //! write→read round-trip.
+    //!
+    //! Regression: on libpetri ≤ 1.8.2 `write_v1` read header `event_count`
+    //! from `event_store.event_count()` (lifetime cumulative counter that never
+    //! decrements on eviction) while the body iterated retained events. After
+    //! any eviction the header overstated the body by exactly the eviction
+    //! count. v2 and v3 already snapshotted once via `events()` so they were
+    //! correct — but tests cover all three to lock in the invariant.
+
+    use super::*;
+    use crate::archive::session_archive::CURRENT_VERSION;
+    use crate::archive::session_archive_reader::SessionArchiveReader;
+    use crate::debug_event_store::DebugEventStore;
+    use crate::debug_session_registry::DebugSession;
+    use crate::place_analysis::PlaceAnalysis;
+    use libpetri_core::input::one;
+    use libpetri_core::output::out_place;
+    use libpetri_core::petri_net::PetriNet;
+    use libpetri_core::place::Place;
+    use libpetri_core::transition::Transition;
+    use libpetri_event::net_event::NetEvent;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    fn build_session(cap: usize, total_appends: usize) -> DebugSession {
+        let p1 = Place::<i32>::new("p1");
+        let p2 = Place::<i32>::new("p2");
+        let t = Transition::builder("t1")
+            .input(one(&p1))
+            .output(out_place(&p2))
+            .build();
+        let net = PetriNet::builder("evict-test").transition(t).build();
+
+        let event_store = Arc::new(DebugEventStore::with_capacity("evict-1".into(), cap));
+        for i in 0..total_appends {
+            event_store.append(NetEvent::TransitionCompleted {
+                transition_name: Arc::from("t1"),
+                timestamp: 1000 + i as u64,
+            });
+        }
+
+        let analysis = PlaceAnalysis::from_net(&net);
+        DebugSession {
+            session_id: "evict-1".into(),
+            net_name: "evict-test".into(),
+            dot_diagram: "digraph evict_test {}".into(),
+            places: Some(analysis),
+            transition_names: vec!["t1".into()],
+            event_store,
+            start_time: 1000,
+            active: false,
+            imported_structure: None,
+            end_time: None,
+            tags: HashMap::new(),
+        }
+    }
+
+    /// Header `event_count` must reflect retained body length, not the
+    /// cumulative lifetime counter on the event store.
+    #[test]
+    fn write_v1_event_count_equals_body_after_eviction() {
+        let cap = 10;
+        let session = build_session(cap, 100);
+
+        // Sanity: store has 100 cumulative appends but only `cap` retained.
+        assert_eq!(session.event_store.event_count(), 100);
+        assert_eq!(session.event_store.size(), cap);
+
+        let compressed = SessionArchiveWriter::write_v1(&session).unwrap();
+        let metadata = SessionArchiveReader::read_metadata(&compressed).unwrap();
+        let imported = SessionArchiveReader::read_full(&compressed).unwrap();
+
+        assert_eq!(metadata.event_count(), cap);
+        assert_eq!(imported.event_store.events().len(), cap);
+        assert_eq!(metadata.event_count(), imported.event_store.events().len());
+    }
+
+    #[test]
+    fn write_v2_event_count_equals_body_after_eviction() {
+        let cap = 10;
+        let session = build_session(cap, 100);
+
+        let compressed = SessionArchiveWriter::write_v2(&session).unwrap();
+        let metadata = SessionArchiveReader::read_metadata(&compressed).unwrap();
+        let imported = SessionArchiveReader::read_full(&compressed).unwrap();
+
+        assert_eq!(metadata.event_count(), cap);
+        assert_eq!(imported.event_store.events().len(), cap);
+        assert_eq!(metadata.event_count(), imported.event_store.events().len());
+    }
+
+    #[test]
+    fn write_v3_event_count_equals_body_after_eviction() {
+        let cap = 10;
+        let session = build_session(cap, 100);
+
+        let compressed = SessionArchiveWriter::write(&session).unwrap();
+        let metadata = SessionArchiveReader::read_metadata(&compressed).unwrap();
+        let imported = SessionArchiveReader::read_full(&compressed).unwrap();
+
+        assert_eq!(metadata.version(), CURRENT_VERSION);
+        assert_eq!(metadata.event_count(), cap);
+        assert_eq!(imported.event_store.events().len(), cap);
+        assert_eq!(metadata.event_count(), imported.event_store.events().len());
     }
 }
