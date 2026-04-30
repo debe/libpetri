@@ -6,12 +6,14 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import net.jpountz.lz4.LZ4FrameOutputStream;
 import org.libpetri.debug.DebugSessionRegistry.DebugSession;
 import org.libpetri.debug.NetEventSerializer;
+import org.libpetri.event.NetEvent;
 
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -75,16 +77,21 @@ public final class SessionArchiveWriter {
      * or when producing archives for consumers pinned to libpetri ≤ 1.5.3.
      */
     public void writeV1(DebugSession session, OutputStream out) throws IOException {
+        // Single snapshot — DebugEventStore.events() returns List.copyOf(...), an
+        // immutable defensive copy. The ConcurrentLinkedQueue's weakly-consistent
+        // iterator yields a prefix-consistent view; once captured, header eventCount
+        // and body both derive from this same list, so they cannot disagree. EVT-025 #8.
+        var events = session.eventStore().events();
         var header = new SessionArchive.V1(
             1,
             session.sessionId(),
             session.netName(),
             session.dotDiagram(),
             session.startTime(),
-            session.eventStore().eventCount(),
+            events.size(),
             session.buildNetStructure()
         );
-        writeFramed(header, session, out);
+        writeFramed(header, events, out);
     }
 
     /**
@@ -99,10 +106,9 @@ public final class SessionArchiveWriter {
      * read — cheap compared to the JSON serialization pass.
      */
     public void writeV2(DebugSession session, OutputStream out) throws IOException {
-        var eventStore = session.eventStore();
-
-        // First pass: aggregate stats. Single allocation for the histogram map.
-        var metadata = SessionMetadata.computeFrom(eventStore::eventIterator);
+        // Single snapshot drives metadata, header eventCount, and body. See writeV1.
+        var events = session.eventStore().events();
+        var metadata = SessionMetadata.fromEvents(events);
 
         var header = new SessionArchive.V2(
             2,
@@ -111,7 +117,7 @@ public final class SessionArchiveWriter {
             session.dotDiagram(),
             session.startTime(),
             session.endTime(),
-            eventStore.eventCount(),
+            events.size(),
             // Snapshot of tags at archive-write time — record the tag state that was current
             // when the session was archived, not whatever happens on the live session after.
             Map.copyOf(session.tags()),
@@ -119,7 +125,7 @@ public final class SessionArchiveWriter {
             session.buildNetStructure()
         );
 
-        writeFramed(header, session, out);
+        writeFramed(header, events, out);
     }
 
     /**
@@ -128,9 +134,9 @@ public final class SessionArchiveWriter {
      * body. See {@link org.libpetri.debug.NetEventSerializer} for the on-wire token shape.
      */
     public void writeV3(DebugSession session, OutputStream out) throws IOException {
-        var eventStore = session.eventStore();
-
-        var metadata = SessionMetadata.computeFrom(eventStore::eventIterator);
+        // Single snapshot drives metadata, header eventCount, and body. See writeV1.
+        var events = session.eventStore().events();
+        var metadata = SessionMetadata.fromEvents(events);
 
         var header = new SessionArchive.V3(
             3,
@@ -139,20 +145,24 @@ public final class SessionArchiveWriter {
             session.dotDiagram(),
             session.startTime(),
             session.endTime(),
-            eventStore.eventCount(),
+            events.size(),
             Map.copyOf(session.tags()),
             metadata,
             session.buildNetStructure()
         );
 
-        writeFramed(header, session, out);
+        writeFramed(header, events, out);
     }
 
     /**
      * Shared framing logic: LZ4 wrap, write length-prefixed header JSON, then
      * length-prefixed event JSON one by one.
+     *
+     * <p>Takes the events list (rather than the live {@code DebugSession}) so the body
+     * iterates the same immutable snapshot the caller used to populate the header. This
+     * is the invariant {@code header.eventCount() == events.size()} relies on.
      */
-    private void writeFramed(SessionArchive header, DebugSession session, OutputStream out) throws IOException {
+    private void writeFramed(SessionArchive header, List<NetEvent> events, OutputStream out) throws IOException {
         // BufferedOutputStream(64K) batches small DataOutputStream writes into large LZ4 blocks.
         // 4MB LZ4 block size: typical sessions fit in a single block for optimal compression.
         try (var dataOut = new DataOutputStream(
@@ -160,18 +170,17 @@ public final class SessionArchiveWriter {
                     new LZ4FrameOutputStream(out, LZ4FrameOutputStream.BLOCKSIZE.SIZE_4MB), 65_536))) {
 
             // Header — single alloc, known size. Jackson serializes the concrete record type
-            // (V1 or V2), so v1 bytes remain backwards-compatible with old readers.
+            // (V1, V2, or V3), so older bytes remain backwards-compatible with old readers.
             byte[] metaBytes = metadataMapper.writeValueAsBytes(header);
             dataOut.writeInt(metaBytes.length);
             dataOut.write(metaBytes);
 
             // Events — reusable serialization buffer, zero per-event alloc after first.
-            // Both v1 and v2 archives use the identical event wire format.
+            // All header versions share the identical event wire format.
             var serializeBuf = new ByteArrayOutputStream(512);
-            var it = session.eventStore().eventIterator();
-            while (it.hasNext()) {
+            for (var event : events) {
                 serializeBuf.reset();
-                eventSerializer.serializeTo(it.next(), serializeBuf);
+                eventSerializer.serializeTo(event, serializeBuf);
                 dataOut.writeInt(serializeBuf.size());
                 serializeBuf.writeTo(dataOut);
             }

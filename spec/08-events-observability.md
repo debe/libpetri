@@ -411,6 +411,13 @@ content, not wire layout.
    tokens on any v3-capable reader.
 7. TypeScript archives omit the `structured` field entirely when it would be empty or
    unprojectable (wire size is neutral for unstructurable tokens).
+8. The header `eventCount` field MUST equal the number of event records that follow in
+   the body. Implementations MUST NOT populate `eventCount` from a cumulative lifetime
+   counter on the event store; the value reflects retained body length only. After a
+   write→read round-trip, `archive.eventCount() == archive.events().size()` for all
+   three header versions and across all three language implementations. The writer
+   MUST take exactly one snapshot of the event store; header `eventCount`, V2/V3
+   metadata, and the event body MUST all derive from that single snapshot.
 
 **Implementation notes:**
 - Java: Full implementation — default writer emits v3, deserializer reconstructs original

@@ -29,6 +29,7 @@
 import { gzipSync } from 'node:zlib';
 import type { DebugSession } from '../debug-session-registry.js';
 import { buildNetStructure } from '../debug-session-registry.js';
+import type { NetEvent } from '../../event/net-event.js';
 import { toEventInfo } from '../net-event-converter.js';
 import type {
   SessionArchive,
@@ -52,16 +53,20 @@ export class SessionArchiveWriter {
    * testing or when producing archives for consumers pinned to libpetri ≤ 1.6.1.
    */
   writeV1(session: DebugSession): Buffer {
+    // Single snapshot — both header eventCount and body iterate the same frozen array.
+    // DebugEventStore.events() returns the live readonly array, so we spread once and
+    // freeze to make accidental mutation a runtime error.
+    const events: readonly NetEvent[] = Object.freeze([...session.eventStore.events()]);
     const header: SessionArchiveV1 = {
       version: 1,
       sessionId: session.sessionId,
       netName: session.netName,
       dotDiagram: session.dotDiagram,
       startTime: new Date(session.startTime).toISOString(),
-      eventCount: session.eventStore.eventCount(),
+      eventCount: events.length,
       structure: buildNetStructure(session),
     };
-    return this.writeFramed(header, session);
+    return this.writeFramed(header, events);
   }
 
   /**
@@ -74,7 +79,9 @@ export class SessionArchiveWriter {
    * passes walk the same sequence from the start.
    */
   writeV2(session: DebugSession): Buffer {
-    const metadata = computeMetadata(session.eventStore);
+    // Single snapshot drives metadata, header eventCount, and body. See writeV1.
+    const events: readonly NetEvent[] = Object.freeze([...session.eventStore.events()]);
+    const metadata = computeMetadata(events);
 
     const header: SessionArchiveV2 = {
       version: 2,
@@ -86,7 +93,7 @@ export class SessionArchiveWriter {
         session.endTime !== undefined
           ? new Date(session.endTime).toISOString()
           : undefined,
-      eventCount: session.eventStore.eventCount(),
+      eventCount: events.length,
       // Snapshot of tags at archive-write time — record the state that was
       // current when the session was archived, not whatever happens on the
       // live session afterwards.
@@ -94,7 +101,7 @@ export class SessionArchiveWriter {
       metadata,
       structure: buildNetStructure(session),
     };
-    return this.writeFramed(header, session);
+    return this.writeFramed(header, events);
   }
 
   /**
@@ -103,7 +110,9 @@ export class SessionArchiveWriter {
    * legacy `value` string (see {@link tokenInfo}).
    */
   writeV3(session: DebugSession): Buffer {
-    const metadata = computeMetadata(session.eventStore);
+    // Single snapshot drives metadata, header eventCount, and body. See writeV1.
+    const events: readonly NetEvent[] = Object.freeze([...session.eventStore.events()]);
+    const metadata = computeMetadata(events);
 
     const header: SessionArchiveV3 = {
       version: 3,
@@ -115,20 +124,24 @@ export class SessionArchiveWriter {
         session.endTime !== undefined
           ? new Date(session.endTime).toISOString()
           : undefined,
-      eventCount: session.eventStore.eventCount(),
+      eventCount: events.length,
       tags: { ...session.tags },
       metadata,
       structure: buildNetStructure(session),
     };
-    return this.writeFramed(header, session);
+    return this.writeFramed(header, events);
   }
 
   /**
    * Shared framing logic: length-prefixed header JSON, then length-prefixed
-   * event JSON, then gzip. Both v1 and v2 archives use the identical event
-   * wire format, so the body loop is version-agnostic.
+   * event JSON, then gzip. All header versions share the identical event wire
+   * format, so the body loop is version-agnostic.
+   *
+   * Takes the events snapshot directly so the body iterates the same array the
+   * caller used to populate {@link SessionArchive.eventCount} — preserving the
+   * `header.eventCount === events.length` invariant.
    */
-  private writeFramed(header: SessionArchive, session: DebugSession): Buffer {
+  private writeFramed(header: SessionArchive, events: readonly NetEvent[]): Buffer {
     const parts: Buffer[] = [];
 
     // Header
@@ -137,8 +150,8 @@ export class SessionArchiveWriter {
     metaLen.writeUInt32BE(metaBytes.length);
     parts.push(metaLen, metaBytes);
 
-    // Events — same serialization for both versions
-    for (const event of session.eventStore) {
+    // Events — same serialization across all header versions
+    for (const event of events) {
       const eventInfo = toEventInfo(event);
       const eventBytes = Buffer.from(JSON.stringify(eventInfo), 'utf-8');
       const eventLen = Buffer.alloc(4);

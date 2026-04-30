@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.8.3
+
+### Fix: archive header `eventCount` matches body length
+
+The session archive writer (Java/TS/Rust) populated header `eventCount` from
+`DebugEventStore.eventCount()` — the **lifetime cumulative append counter** that
+never decrements on eviction — while iterating the body from the live event queue.
+After any eviction, the header overstated the body by exactly the eviction count,
+breaking the `archive.eventCount() == archive.events().size()` round-trip
+invariant.
+
+A second, Java-only failure mode: header `eventCount`,
+`SessionMetadata.computeFrom(...)`, and the body loop were three separate reads of
+the concurrent `ConcurrentLinkedQueue`. A producer thread appending between any
+two reads desynchronised them.
+
+Fix: every writer entry-point now takes a single immutable snapshot of the event
+store and derives header `eventCount`, V2/V3 metadata, and the body iteration from
+that one list. Identical pattern across all three languages. Wire format is
+unchanged — old archives remain readable, new archives remain readable by older
+1.8.x readers (the field is canonical content, not wire layout).
+
+Codified as new acceptance criterion **EVT-025 #8**. Regression tests added in
+all three implementations: eviction round-trip in Java/TS/Rust, plus a virtual-thread
+concurrent-producer stress test on Java where `ConcurrentLinkedQueue` makes the race
+observable.
+
 ## 1.8.2
 
 ### Revert `splines=curved`
