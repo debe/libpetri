@@ -20,7 +20,8 @@ export interface BranchEdge {
 interface VirtualTransition {
   readonly transition: Transition;
   readonly branchIndex: number;
-  readonly outputPlaces: ReadonlySet<Place<any>>;
+  /** Multiset of outputs for this branch (place → token count). */
+  readonly outputPlaces: ReadonlyMap<Place<any>, number>;
 }
 
 /**
@@ -226,18 +227,18 @@ function classKey(sc: StateClass): string {
 }
 
 function expandTransition(t: Transition): VirtualTransition[] {
-  let branches: ReadonlyArray<ReadonlySet<Place<any>>>;
+  let branches: ReadonlyArray<ReadonlyMap<Place<any>, number>>;
 
   if (t.outputSpec !== null) {
     branches = enumerateBranches(t.outputSpec);
   } else {
-    branches = [new Set()];
+    branches = [new Map()];
   }
 
   return branches.map((outputPlaces, i) => ({
     transition: t,
     branchIndex: i,
-    outputPlaces: outputPlaces as ReadonlySet<Place<any>>,
+    outputPlaces,
   }));
 }
 
@@ -375,7 +376,7 @@ function checkPlaceEnabled(
 function fireTransition(
   marking: MarkingState,
   transition: Transition,
-  outputPlaces: ReadonlySet<Place<any>>,
+  outputPlaces: ReadonlyMap<Place<any>, number>,
   environmentPlaces: Set<Place<any>>,
   environmentMode: EnvironmentAnalysisMode,
 ): MarkingState {
@@ -395,9 +396,9 @@ function fireTransition(
     }
   }
 
-  // Produce to outputs
-  for (const place of outputPlaces) {
-    builder.addTokens(place, 1);
+  // Produce to outputs (multiset; counts come from Out.One=1 / Out.Exactly=N / etc.)
+  for (const [place, count] of outputPlaces) {
+    builder.addTokens(place, count);
   }
 
   return builder.build();

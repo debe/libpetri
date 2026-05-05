@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { validateOutSpec, produceTimeoutOutput } from '../../src/runtime/executor-support.js';
-import { outPlace, andPlaces, xorPlaces, timeout, forwardInput, and, xor } from '../../src/core/out.js';
+import { outOne, andPlaces, xorPlaces, timeout, forwardInput, and, xor } from '../../src/core/out.js';
 import { place } from '../../src/core/place.js';
 import { TokenInput } from '../../src/core/token-input.js';
 import { TokenOutput } from '../../src/core/token-output.js';
@@ -14,7 +14,7 @@ describe('validateOutSpec', () => {
   const pD = place('D');
 
   it('place spec satisfied', () => {
-    const spec = outPlace(pA);
+    const spec = outOne(pA);
     const produced = new Set(['A']);
     const result = validateOutSpec('T', spec, produced);
     expect(result).not.toBeNull();
@@ -22,7 +22,7 @@ describe('validateOutSpec', () => {
   });
 
   it('place spec not satisfied', () => {
-    const spec = outPlace(pA);
+    const spec = outOne(pA);
     const produced = new Set<string>();
     const result = validateOutSpec('T', spec, produced);
     expect(result).toBeNull();
@@ -77,7 +77,7 @@ describe('validateOutSpec', () => {
 
   it('timeout child validated', () => {
     const tOut = place('TIMEOUT');
-    const spec = timeout(100, outPlace(tOut));
+    const spec = timeout(100, outOne(tOut));
     const produced = new Set(['TIMEOUT']);
     const result = validateOutSpec('T', spec, produced);
     expect(result).not.toBeNull();
@@ -105,7 +105,7 @@ describe('produceTimeoutOutput', () => {
       new Set([input]), new Set(), new Set([output]),
     );
 
-    produceTimeoutOutput(ctx, outPlace(output));
+    produceTimeoutOutput(ctx, outOne(output));
     expect(tokenOutput.entries()).toHaveLength(1);
     expect(tokenOutput.entries()[0]!.place.name).toBe('OUT');
   });

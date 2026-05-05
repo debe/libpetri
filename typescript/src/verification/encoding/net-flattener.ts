@@ -127,12 +127,14 @@ export function flatten(
         }
       }
 
-      // Build post-vector from branch output places
+      // Build post-vector from branch output multiset (place -> count).
+      // Counts come from Out.One (=1), Out.Exactly (=N), and AND-collisions
+      // already canonicalized inside enumerateBranches.
       const postVector = new Array<number>(n).fill(0);
-      for (const p of branchPlaces) {
-        const idx = placeIndex.get(p.name);
+      for (const [place, count] of branchPlaces) {
+        const idx = placeIndex.get(place.name);
         if (idx !== undefined) {
-          postVector[idx] = 1;
+          postVector[idx] = count;
         }
       }
 
@@ -173,10 +175,10 @@ export function flatten(
   };
 }
 
-function enumerateOutputBranches(t: { outputSpec: Out | null }): ReadonlySet<Place<any>>[] {
+function enumerateOutputBranches(t: { outputSpec: Out | null }): ReadonlyArray<ReadonlyMap<Place<any>, number>> {
   if (t.outputSpec !== null) {
-    return enumerateBranches(t.outputSpec) as ReadonlySet<Place<any>>[];
+    return enumerateBranches(t.outputSpec);
   }
   // No outputs (sink transition)
-  return [new Set()];
+  return [new Map()];
 }

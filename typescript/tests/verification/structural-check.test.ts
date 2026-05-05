@@ -6,7 +6,7 @@ import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
 import { one } from '../../src/core/in.js';
-import { outPlace } from '../../src/core/out.js';
+import { outOne } from '../../src/core/out.js';
 
 describe('StructuralCheck', () => {
   it('circular net is deadlock-free', () => {
@@ -14,11 +14,11 @@ describe('StructuralCheck', () => {
     const pB = place('B');
     const t1 = Transition.builder('T1')
       .inputs(one(pA))
-      .outputs(outPlace(pB))
+      .outputs(outOne(pB))
       .build();
     const t2 = Transition.builder('T2')
       .inputs(one(pB))
-      .outputs(outPlace(pA))
+      .outputs(outOne(pA))
       .build();
     const net = PetriNet.builder('N').transitions(t1, t2).build();
     const flatNet = flatten(net);
@@ -42,7 +42,7 @@ describe('StructuralCheck', () => {
     const pB = place('B');
     const t = Transition.builder('T')
       .inputs(one(pA))
-      .outputs(outPlace(pB))
+      .outputs(outOne(pB))
       .build();
     const net = PetriNet.builder('N').transition(t).build();
     const flatNet = flatten(net);
@@ -58,7 +58,7 @@ describe('StructuralCheck', () => {
     const pB = place('B');
     const t = Transition.builder('T')
       .inputs(one(pA))
-      .outputs(outPlace(pB))
+      .outputs(outOne(pB))
       .build();
     const net = PetriNet.builder('N').transition(t).build();
     const flatNet = flatten(net);
@@ -75,11 +75,11 @@ describe('StructuralCheck', () => {
     const pB = place('B');
     const t1 = Transition.builder('T1')
       .inputs(one(pA))
-      .outputs(outPlace(pB))
+      .outputs(outOne(pB))
       .build();
     const t2 = Transition.builder('T2')
       .inputs(one(pB))
-      .outputs(outPlace(pA))
+      .outputs(outOne(pA))
       .build();
     const net = PetriNet.builder('N').transitions(t1, t2).build();
     const flatNet = flatten(net);
@@ -97,11 +97,11 @@ describe('StructuralCheck', () => {
     const pB = place('B');
     const t1 = Transition.builder('T1')
       .inputs(one(pA))
-      .outputs(outPlace(pB))
+      .outputs(outOne(pB))
       .build();
     const t2 = Transition.builder('T2')
       .inputs(one(pB))
-      .outputs(outPlace(pA))
+      .outputs(outOne(pA))
       .build();
     const net = PetriNet.builder('N').transitions(t1, t2).build();
     const flatNet = flatten(net);

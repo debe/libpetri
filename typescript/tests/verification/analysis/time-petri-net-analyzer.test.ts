@@ -6,7 +6,7 @@ import { Transition } from '../../../src/core/transition.js';
 import { PetriNet } from '../../../src/core/petri-net.js';
 import { place, environmentPlace } from '../../../src/core/place.js';
 import { one } from '../../../src/core/in.js';
-import { outPlace, xorPlaces } from '../../../src/core/out.js';
+import { outOne, xorPlaces } from '../../../src/core/out.js';
 import { immediate, delayed, window } from '../../../src/core/timing.js';
 import { alwaysAvailable, bounded, ignore } from '../../../src/verification/analysis/environment-analysis-mode.js';
 
@@ -17,9 +17,9 @@ describe('TimePetriNetAnalyzer', () => {
       const pB = place('B');
 
       const t1 = Transition.builder('t1')
-        .inputs(one(pA)).outputs(outPlace(pB)).build();
+        .inputs(one(pA)).outputs(outOne(pB)).build();
       const t2 = Transition.builder('t2')
-        .inputs(one(pB)).outputs(outPlace(pA)).build();
+        .inputs(one(pB)).outputs(outOne(pA)).build();
 
       const net = PetriNet.builder('circular')
         .transitions(t1, t2).build();
@@ -44,7 +44,7 @@ describe('TimePetriNetAnalyzer', () => {
 
       // A → B, no path to Goal
       const t1 = Transition.builder('t1')
-        .inputs(one(pA)).outputs(outPlace(pB)).build();
+        .inputs(one(pA)).outputs(outOne(pB)).build();
 
       const net = PetriNet.builder('deadend')
         .transitions(t1).place(pGoal).build();
@@ -67,9 +67,9 @@ describe('TimePetriNetAnalyzer', () => {
       const pB = place('B');
 
       const t1 = Transition.builder('t1')
-        .inputs(one(pA)).outputs(outPlace(pB)).build();
+        .inputs(one(pA)).outputs(outOne(pB)).build();
       const t2 = Transition.builder('t2')
-        .inputs(one(pB)).outputs(outPlace(pA)).build();
+        .inputs(one(pB)).outputs(outOne(pA)).build();
 
       const net = PetriNet.builder('circular')
         .transitions(t1, t2).build();
@@ -90,7 +90,7 @@ describe('TimePetriNetAnalyzer', () => {
       const pB = place('B');
 
       const t1 = Transition.builder('t1')
-        .inputs(one(pA)).outputs(outPlace(pB)).build();
+        .inputs(one(pA)).outputs(outOne(pB)).build();
 
       const net = PetriNet.builder('deadend')
         .transitions(t1).build();
@@ -115,9 +115,9 @@ describe('TimePetriNetAnalyzer', () => {
       // ready → process (consumes ready, env always available) → output
       // output → reset → ready (cycle back)
       const t1 = Transition.builder('process')
-        .inputs(one(pReady), one(env.place)).outputs(outPlace(pOut)).build();
+        .inputs(one(pReady), one(env.place)).outputs(outOne(pOut)).build();
       const t2 = Transition.builder('reset')
-        .inputs(one(pOut)).outputs(outPlace(pReady)).build();
+        .inputs(one(pOut)).outputs(outOne(pReady)).build();
 
       const net = PetriNet.builder('env-net')
         .transitions(t1, t2).build();
@@ -140,7 +140,7 @@ describe('TimePetriNetAnalyzer', () => {
       const pOut = place('output');
 
       const t1 = Transition.builder('process')
-        .inputs(one(env.place)).outputs(outPlace(pOut)).build();
+        .inputs(one(env.place)).outputs(outOne(pOut)).build();
 
       const net = PetriNet.builder('env-net')
         .transitions(t1).build();
@@ -164,9 +164,9 @@ describe('TimePetriNetAnalyzer', () => {
       const pOut = place('output');
 
       const t1 = Transition.builder('process')
-        .inputs(one(pReady), one(env.place)).outputs(outPlace(pOut)).build();
+        .inputs(one(pReady), one(env.place)).outputs(outOne(pOut)).build();
       const t2 = Transition.builder('reset')
-        .inputs(one(pOut)).outputs(outPlace(pReady)).build();
+        .inputs(one(pOut)).outputs(outOne(pReady)).build();
 
       const net = PetriNet.builder('env-net')
         .transitions(t1, t2).build();
@@ -194,9 +194,9 @@ describe('TimePetriNetAnalyzer', () => {
       const tChoice = Transition.builder('choice')
         .inputs(one(p0)).outputs(xorPlaces(pA, pB)).build();
       const tA = Transition.builder('fromA')
-        .inputs(one(pA)).outputs(outPlace(pEnd)).build();
+        .inputs(one(pA)).outputs(outOne(pEnd)).build();
       const tB = Transition.builder('fromB')
-        .inputs(one(pB)).outputs(outPlace(pEnd)).build();
+        .inputs(one(pB)).outputs(outOne(pEnd)).build();
 
       const net = PetriNet.builder('xor')
         .transitions(tChoice, tA, tB).build();
@@ -242,7 +242,7 @@ describe('TimePetriNetAnalyzer', () => {
       const pB = place('B');
 
       const t1 = Transition.builder('t1')
-        .inputs(one(pA)).outputs(outPlace(pB)).build();
+        .inputs(one(pA)).outputs(outOne(pB)).build();
 
       const net = PetriNet.builder('no-xor')
         .transitions(t1).build();
@@ -275,9 +275,9 @@ describe('TimePetriNetAnalyzer', () => {
       const pB = place('B');
 
       const t1 = Transition.builder('t1')
-        .inputs(one(pA)).outputs(outPlace(pB)).build();
+        .inputs(one(pA)).outputs(outOne(pB)).build();
       const t2 = Transition.builder('t2')
-        .inputs(one(pB)).outputs(outPlace(pA)).build();
+        .inputs(one(pB)).outputs(outOne(pA)).build();
 
       const net = PetriNet.builder('circular')
         .transitions(t1, t2).build();

@@ -19,8 +19,8 @@ export { inputArc, outputArc, inhibitorArc, readArc, resetArc, arcPlace, hasGuar
 export type { In, InOne, InExactly, InAll, InAtLeast } from './in.js';
 export { one, exactly, all, atLeast, requiredCount, consumptionCount } from './in.js';
 
-export type { Out, OutAnd, OutXor, OutPlace, OutTimeout, OutForwardInput } from './out.js';
-export { and, andPlaces, xor, xorPlaces, outPlace, timeout, timeoutPlace, forwardInput, allPlaces, enumerateBranches } from './out.js';
+export type { Out, OutAnd, OutXor, OutOne, OutExactly, OutTimeout, OutForwardInput } from './out.js';
+export { and, andPlaces, xor, xorPlaces, outOne, outExactly, timeout, timeoutPlace, forwardInput, allPlaces, enumerateBranches } from './out.js';
 
 export type { Timing, TimingImmediate, TimingDeadline, TimingDelayed, TimingWindow, TimingExact } from './timing.js';
 export { immediate, deadline, delayed, window, exact, earliest, latest, hasDeadline, MAX_DURATION_MS } from './timing.js';

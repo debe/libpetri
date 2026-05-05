@@ -6,11 +6,13 @@ import type { Place } from './place.js';
  *
  * - And: ALL children must receive tokens
  * - Xor: EXACTLY ONE child receives token
- * - Place: Leaf node representing a single output place
+ * - One: Leaf node — produce 1 token to a single output place (mirrors `In.One`)
+ * - Exactly: Leaf node — produce N tokens to a single output place (mirrors `In.Exactly`,
+ *   verification-only metadata; runtime production is determined by the action)
  * - Timeout: Timeout branch that activates if action exceeds duration
  * - ForwardInput: Forward consumed input to output on timeout
  */
-export type Out = OutAnd | OutXor | OutPlace | OutTimeout | OutForwardInput;
+export type Out = OutAnd | OutXor | OutOne | OutExactly | OutTimeout | OutForwardInput;
 
 export interface OutAnd {
   readonly type: 'and';
@@ -22,9 +24,16 @@ export interface OutXor {
   readonly children: readonly Out[];
 }
 
-export interface OutPlace {
-  readonly type: 'place';
+export interface OutOne {
+  readonly type: 'one';
   readonly place: Place<any>;
+}
+
+export interface OutExactly {
+  readonly type: 'exactly';
+  readonly place: Place<any>;
+  /** Number of tokens >= 1, used by formal analyzers (SCG, SMT). */
+  readonly count: number;
 }
 
 export interface OutTimeout {
@@ -51,7 +60,7 @@ export interface OutForwardInput {
  * and(xorPlaces(placeA, placeB), xorPlaces(placeC, placeD))
  *
  * // AND with a fixed place + XOR branch
- * and(outPlace(always), xorPlaces(left, right))
+ * and(one(always), xorPlaces(left, right))
  * ```
  */
 export function and(...children: Out[]): OutAnd {
@@ -63,7 +72,7 @@ export function and(...children: Out[]): OutAnd {
 
 /** AND-split from places: all places must receive tokens. */
 export function andPlaces(...places: Place<any>[]): OutAnd {
-  return and(...places.map(outPlace));
+  return and(...places.map(outOne));
 }
 
 /** XOR-split: exactly one child receives token. */
@@ -76,12 +85,33 @@ export function xor(...children: Out[]): OutXor {
 
 /** XOR-split from places: exactly one place receives token. */
 export function xorPlaces(...places: Place<any>[]): OutXor {
-  return xor(...places.map(outPlace));
+  return xor(...places.map(outOne));
 }
 
-/** Leaf output spec for a single place. */
-export function outPlace(p: Place<any>): OutPlace {
-  return { type: 'place', place: p };
+/**
+ * Leaf output spec for a single place — produce 1 token. Mirrors `In.one`.
+ * Prefixed with `out` to disambiguate from the `In.one` factory.
+ */
+export function outOne(p: Place<any>): OutOne {
+  if (p == null) {
+    throw new Error('One place cannot be null');
+  }
+  return { type: 'one', place: p };
+}
+
+/**
+ * Leaf output spec for a single place producing exactly N tokens.
+ * Mirrors `In.exactly`. Multiplicity is verification-only metadata; the runtime
+ * validator treats `Exactly(p, n)` identically to `One(p)`.
+ */
+export function outExactly(count: number, p: Place<any>): OutExactly {
+  if (p == null) {
+    throw new Error('Exactly place cannot be null');
+  }
+  if (!Number.isInteger(count) || count < 1) {
+    throw new Error(`count must be an integer >= 1, got: ${count}`);
+  }
+  return { type: 'exactly', place: p, count };
 }
 
 /** Timeout output: activates if action exceeds duration. */
@@ -94,7 +124,7 @@ export function timeout(afterMs: number, child: Out): OutTimeout {
 
 /** Timeout output pointing to a single place. */
 export function timeoutPlace(afterMs: number, p: Place<any>): OutTimeout {
-  return timeout(afterMs, outPlace(p));
+  return timeout(afterMs, outOne(p));
 }
 
 /** Forward consumed input value to output place on timeout. */
@@ -104,7 +134,7 @@ export function forwardInput(from: Place<any>, to: Place<any>): OutForwardInput 
 
 // ==================== Helper Functions ====================
 
-/** Collects all leaf places from this output spec (flattened). */
+/** Collects all leaf places from this output spec (flattened, no multiplicity). */
 export function allPlaces(out: Out): Set<Place<any>> {
   const result = new Set<Place<any>>();
   collectPlaces(out, result);
@@ -113,7 +143,10 @@ export function allPlaces(out: Out): Set<Place<any>> {
 
 function collectPlaces(out: Out, result: Set<Place<any>>): void {
   switch (out.type) {
-    case 'place':
+    case 'one':
+      result.add(out.place);
+      break;
+    case 'exactly':
       result.add(out.place);
       break;
     case 'forward-input':
@@ -134,30 +167,40 @@ function collectPlaces(out: Out, result: Set<Place<any>>): void {
 /**
  * Enumerates all possible output branches for structural analysis.
  *
- * - AND = single branch containing all child places (Cartesian product)
- * - XOR = one branch per alternative child
- * - Nested = Cartesian product for AND, union for XOR
+ * Each branch is a multiset (place → integer count):
+ * - One(P) contributes {P → 1}
+ * - Exactly(P, N) contributes {P → N}
+ * - ForwardInput(_, to) contributes {to → 1}
+ * - AND = Cartesian product of children's branches; on key collision, counts SUM
+ * - XOR = list-concatenation of children's branches (one per alternative)
+ * - Timeout = delegates to child
  */
-export function enumerateBranches(out: Out): ReadonlyArray<ReadonlySet<Place<any>>> {
+export function enumerateBranches(out: Out): ReadonlyArray<ReadonlyMap<Place<any>, number>> {
   switch (out.type) {
-    case 'place':
-      return [new Set([out.place])];
+    case 'one':
+      return [new Map([[out.place, 1]])];
+
+    case 'exactly':
+      return [new Map([[out.place, out.count]])];
 
     case 'forward-input':
-      return [new Set<Place<any>>([out.to])];
+      return [new Map<Place<any>, number>([[out.to, 1]])];
 
     case 'and': {
-      let result: Set<Place<any>>[] = [new Set()];
+      let result: Map<Place<any>, number>[] = [new Map()];
       for (const child of out.children) {
-        result = crossProduct(result, enumerateBranches(child) as Set<Place<any>>[]);
+        result = crossProduct(result, enumerateBranches(child));
       }
       return result;
     }
 
     case 'xor': {
-      const result: Set<Place<any>>[] = [];
+      const result: Map<Place<any>, number>[] = [];
       for (const child of out.children) {
-        result.push(...(enumerateBranches(child) as Set<Place<any>>[]));
+        for (const branch of enumerateBranches(child)) {
+          // Copy to a mutable Map (callers may mutate; ReadonlyMap forbids).
+          result.push(new Map(branch));
+        }
       }
       return result;
     }
@@ -168,14 +211,16 @@ export function enumerateBranches(out: Out): ReadonlyArray<ReadonlySet<Place<any
 }
 
 function crossProduct(
-  a: Set<Place<any>>[],
-  b: ReadonlyArray<ReadonlySet<Place<any>>>,
-): Set<Place<any>>[] {
-  const result: Set<Place<any>>[] = [];
-  for (const setA of a) {
-    for (const setB of b) {
-      const merged = new Set<Place<any>>(setA);
-      for (const p of setB) merged.add(p);
+  a: Map<Place<any>, number>[],
+  b: ReadonlyArray<ReadonlyMap<Place<any>, number>>,
+): Map<Place<any>, number>[] {
+  const result: Map<Place<any>, number>[] = [];
+  for (const mapA of a) {
+    for (const mapB of b) {
+      const merged = new Map<Place<any>, number>(mapA);
+      for (const [place, count] of mapB) {
+        merged.set(place, (merged.get(place) ?? 0) + count);
+      }
       result.push(merged);
     }
   }

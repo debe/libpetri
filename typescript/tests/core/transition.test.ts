@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
 import { one, exactly } from '../../src/core/in.js';
-import { xorPlaces, andPlaces, outPlace, forwardInput, timeout } from '../../src/core/out.js';
+import { xorPlaces, andPlaces, outOne, forwardInput, timeout } from '../../src/core/out.js';
 import { delayed, immediate } from '../../src/core/timing.js';
 import { passthrough } from '../../src/core/transition-action.js';
 
@@ -15,7 +15,7 @@ describe('Transition', () => {
   it('creates with builder', () => {
     const t = Transition.builder('MyTransition')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .build();
 
     expect(t.name).toBe('MyTransition');
@@ -109,7 +109,7 @@ describe('Transition', () => {
 
     const t2 = Transition.builder('T2')
       .inputs(one(p1))
-      .outputs(timeout(5000, outPlace(p3)))
+      .outputs(timeout(5000, outOne(p3)))
       .build();
 
     expect(t2.hasActionTimeout()).toBe(true);

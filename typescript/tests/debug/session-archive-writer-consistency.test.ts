@@ -21,7 +21,7 @@ import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
 import { one } from '../../src/core/in.js';
-import { outPlace } from '../../src/core/out.js';
+import { outOne } from '../../src/core/out.js';
 import type { NetEvent } from '../../src/event/net-event.js';
 
 const INPUT = place<string>('Input');
@@ -31,7 +31,7 @@ const TEST_NET = PetriNet.builder('ConsistencyNet')
   .transition(
     Transition.builder('Process')
       .inputs(one(INPUT))
-      .outputs(outPlace(OUTPUT))
+      .outputs(outOne(OUTPUT))
       .build(),
   )
   .build();

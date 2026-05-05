@@ -436,7 +436,9 @@ function compileReadProgram(t: Transition, compiled: CompiledNet): number[] {
 }
 
 function simpleOutputPlace(spec: Out, compiled: CompiledNet): number {
-  if (spec.type === 'place') {
+  // Out.One and Out.Exactly both map to a single output place at runtime
+  // (multiplicity is verification-only; runtime trusts the action's emit calls).
+  if (spec.type === 'one' || spec.type === 'exactly') {
     return compiled.placeId(spec.place);
   }
   return -1; // complex

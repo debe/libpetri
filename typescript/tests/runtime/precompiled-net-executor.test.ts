@@ -6,7 +6,7 @@ import { Transition } from '../../src/core/transition.js';
 import { place, environmentPlace } from '../../src/core/place.js';
 import type { Place, EnvironmentPlace } from '../../src/core/place.js';
 import { one, exactly, all, atLeast } from '../../src/core/in.js';
-import { outPlace, andPlaces, xor, xorPlaces, timeout, timeoutPlace, forwardInput, and } from '../../src/core/out.js';
+import { outOne, andPlaces, xor, xorPlaces, timeout, timeoutPlace, forwardInput, and } from '../../src/core/out.js';
 import { immediate, delayed, window, deadline } from '../../src/core/timing.js';
 import { tokenOf, unitToken } from '../../src/core/token.js';
 import type { Token } from '../../src/core/token.js';
@@ -42,7 +42,7 @@ describe('Input Arc Tests', () => {
     const output = place<string>('OUT');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => {
         ctx.output(output, ctx.input(input));
       })
@@ -60,7 +60,7 @@ describe('Input Arc Tests', () => {
     const output = place<string>('OUT');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => { ctx.output(output, 'result'); })
       .build();
     const net = PetriNet.builder('N').transition(t).build();
@@ -75,7 +75,7 @@ describe('Input Arc Tests', () => {
     const output = place<number>('OUT');
     const t = Transition.builder('T')
       .inputs(one(pA), one(pB))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => {
         ctx.output(output, ctx.input(pA) + ctx.input(pB));
       })
@@ -98,7 +98,7 @@ describe('Input Arc Tests', () => {
     const consumed: number[] = [];
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => {
         const v = ctx.input(input);
         consumed.push(v);
@@ -120,7 +120,7 @@ describe('Output Arc Tests', () => {
     const output = place<string>('OUT');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => { ctx.output(output, 'produced'); })
       .build();
     const net = PetriNet.builder('N').transition(t).build();
@@ -156,7 +156,7 @@ describe('Output Arc Tests', () => {
     const output = place<number>('OUT');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => {
         ctx.output(output, 1);
         ctx.output(output, 2);
@@ -180,7 +180,7 @@ describe('Inhibitor Arc Tests', () => {
     const blocker = place<string>('BLOCKER');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .inhibitor(blocker)
       .action(async (ctx) => { ctx.output(output, 'done'); })
       .build();
@@ -206,7 +206,7 @@ describe('Inhibitor Arc Tests', () => {
     const b2 = place<string>('B2');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .inhibitors(b1, b2)
       .action(async (ctx) => { ctx.output(output, 'done'); })
       .build();
@@ -241,14 +241,14 @@ describe('Inhibitor Arc Tests', () => {
     // clearBlocker has higher priority, consumes the blocker
     const clearBlocker = Transition.builder('ClearBlocker')
       .inputs(one(blocker))
-      .outputs(outPlace(cleared))
+      .outputs(outOne(cleared))
       .priority(10)
       .action(async (ctx) => { ctx.output(cleared, 'ok'); })
       .build();
 
     const main = Transition.builder('Main')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .inhibitor(blocker)
       .action(async (ctx) => { ctx.output(output, 'done'); })
       .build();
@@ -273,7 +273,7 @@ describe('Read Arc Tests', () => {
     const config = place<number>('CONFIG');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .read(config)
       .action(async (ctx) => {
         ctx.output(output, ctx.input(input) + ctx.read(config));
@@ -303,11 +303,11 @@ describe('Read Arc Tests', () => {
     const out2 = place<string>('OUT2');
 
     const t1 = Transition.builder('T1')
-      .inputs(one(in1)).outputs(outPlace(out1)).read(shared)
+      .inputs(one(in1)).outputs(outOne(out1)).read(shared)
       .action(async (ctx) => { ctx.output(out1, ctx.read(shared)); })
       .build();
     const t2 = Transition.builder('T2')
-      .inputs(one(in2)).outputs(outPlace(out2)).read(shared)
+      .inputs(one(in2)).outputs(outOne(out2)).read(shared)
       .action(async (ctx) => { ctx.output(out2, ctx.read(shared)); })
       .build();
 
@@ -330,7 +330,7 @@ describe('Read Arc Tests', () => {
     const rd2 = place<number>('RD2');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .reads(rd1, rd2)
       .action(async (ctx) => {
         ctx.output(output, ctx.read(rd1) + ctx.read(rd2));
@@ -367,7 +367,7 @@ describe('Reset Arc Tests', () => {
     const resetPlace = place<number>('RST');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .reset(resetPlace)
       .action(async (ctx) => { ctx.output(output, 'done'); })
       .build();
@@ -387,7 +387,7 @@ describe('Reset Arc Tests', () => {
     const resetPlace = place<number>('RST');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .reset(resetPlace)
       .action(async (ctx) => { ctx.output(output, 'done'); })
       .build();
@@ -404,7 +404,7 @@ describe('Reset Arc Tests', () => {
     const rst2 = place<number>('RST2');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .resets(rst1, rst2)
       .action(async (ctx) => { ctx.output(output, 'done'); })
       .build();
@@ -429,7 +429,7 @@ describe('Reset Arc Tests', () => {
     // Single transition: consumes ONE from inputPlace (input arc), removes ALL from resetPlace (reset arc)
     const t = Transition.builder('T')
       .inputs(one(trigger), one(inputPlace))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .reset(resetPlace)
       .action(async (ctx) => { ctx.output(output, 'done'); })
       .build();
@@ -458,7 +458,7 @@ describe('Combined Arc Tests', () => {
     const blocker = place<string>('BLOCKER');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .inhibitor(blocker)
       .action(async (ctx) => { ctx.output(output, 'done'); })
       .build();
@@ -483,7 +483,7 @@ describe('Combined Arc Tests', () => {
     const output = place<number>('OUT');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .read(config)
       .action(async (ctx) => {
         ctx.output(output, ctx.input(input) * ctx.read(config));
@@ -506,7 +506,7 @@ describe('Combined Arc Tests', () => {
     const resetPlace = place<number>('RST');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .reset(resetPlace)
       .action(async (ctx) => { ctx.output(output, 'done'); })
       .build();
@@ -527,7 +527,7 @@ describe('Combined Arc Tests', () => {
     const resetPlace = place<number>('RST');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .read(readPlace)
       .reset(resetPlace)
       .action(async (ctx) => { ctx.output(output, 'done'); })
@@ -553,7 +553,7 @@ describe('Combined Arc Tests', () => {
     const resetPlace = place<number>('RST');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .read(readPlace)
       .reset(resetPlace)
       .action(async (ctx) => { ctx.output(output, 'done'); })
@@ -578,7 +578,7 @@ describe('Combined Arc Tests', () => {
     const resetPlace = place<number>('RST');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .inhibitor(inhibitor)
       .read(readPlace)
       .reset(resetPlace)
@@ -606,7 +606,7 @@ describe('Combined Arc Tests', () => {
     const resetPlace = place<number>('RST');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .inhibitor(inhibitor)
       .read(readPlace)
       .reset(resetPlace)
@@ -634,7 +634,7 @@ describe('Combined Arc Tests', () => {
     const resetPlace = place<number>('RST');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .inhibitor(inhibitor)
       .read(readPlace)
       .reset(resetPlace)
@@ -660,14 +660,14 @@ describe('Combined Arc Tests', () => {
 
     const clearT = Transition.builder('Clear')
       .inputs(one(blocker))
-      .outputs(outPlace(outClear))
+      .outputs(outOne(outClear))
       .priority(50)
       .action(async (ctx) => { ctx.output(outClear, 'cleared'); })
       .build();
 
     const mainT = Transition.builder('Main')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .inhibitor(blocker)
       .action(async (ctx) => { ctx.output(output, 'done'); })
       .build();
@@ -691,7 +691,7 @@ describe('Cardinality Tests', () => {
     const output = place<number>('OUT');
     const t = Transition.builder('T')
       .inputs(exactly(3, input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => {
         const vals = ctx.inputs(input);
         ctx.output(output, vals.reduce((a, b) => a + b, 0));
@@ -713,7 +713,7 @@ describe('Cardinality Tests', () => {
     const resetPlace = place<string>('RST');
     const t = Transition.builder('T')
       .inputs(all(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .read(readPlace)
       .reset(resetPlace)
       .action(async (ctx) => {
@@ -740,7 +740,7 @@ describe('Cardinality Tests', () => {
     const output = place<number>('OUT');
     const t = Transition.builder('T')
       .inputs(atLeast(3, input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => {
         ctx.output(output, ctx.inputs(input).length);
       })
@@ -759,7 +759,7 @@ describe('Cardinality Tests', () => {
     const output = place<number>('OUT');
     const t = Transition.builder('T')
       .inputs(atLeast(3, input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => {
         ctx.output(output, ctx.inputs(input).length);
       })
@@ -864,7 +864,7 @@ describe('Output Spec Tests', () => {
     const eventStore = new InMemoryEventStore();
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => {
         // No output produced
       })
@@ -890,7 +890,7 @@ describe('Timing Tests', () => {
 
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .timing(delayed(50))
       .action(async (ctx) => {
         fireTimeMs = performance.now();
@@ -915,7 +915,7 @@ describe('Timing Tests', () => {
 
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .timing(immediate())
       .action(async (ctx) => {
         fireTimeMs = performance.now();
@@ -938,7 +938,7 @@ describe('Output Timeout Tests', () => {
     const timeoutOut = place<string>('TIMEOUT');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(xor(outPlace(success), timeoutPlace(50, timeoutOut)))
+      .outputs(xor(outOne(success), timeoutPlace(50, timeoutOut)))
       .action(async (ctx) => {
         await sleep(200);
         ctx.output(success, 'ok');
@@ -957,7 +957,7 @@ describe('Output Timeout Tests', () => {
     const timeoutOut = place<string>('TIMEOUT');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(xor(outPlace(success), timeoutPlace(500, timeoutOut)))
+      .outputs(xor(outOne(success), timeoutPlace(500, timeoutOut)))
       .action(async (ctx) => {
         ctx.output(success, 'ok');
       })
@@ -975,7 +975,7 @@ describe('Output Timeout Tests', () => {
     const retry = place<string>('RETRY');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(xor(outPlace(success), timeout(50, forwardInput(input, retry))))
+      .outputs(xor(outOne(success), timeout(50, forwardInput(input, retry))))
       .action(async (ctx) => {
         await sleep(200);
         ctx.output(success, 'ok');
@@ -996,7 +996,7 @@ describe('Output Timeout Tests', () => {
     const fallbackB = place<string>('FB');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(xor(outPlace(success), timeout(50, andPlaces(fallbackA, fallbackB))))
+      .outputs(xor(outOne(success), timeout(50, andPlaces(fallbackA, fallbackB))))
       .action(async (ctx) => {
         await sleep(200);
         ctx.output(success, 'ok');
@@ -1022,14 +1022,14 @@ describe('Priority Tests', () => {
 
     const tHigh = Transition.builder('High')
       .inputs(one(input))
-      .outputs(outPlace(outHigh))
+      .outputs(outOne(outHigh))
       .priority(10)
       .action(async (ctx) => { order.push('high'); ctx.output(outHigh, 'hi'); })
       .build();
 
     const tLow = Transition.builder('Low')
       .inputs(one(input))
-      .outputs(outPlace(outLow))
+      .outputs(outOne(outLow))
       .priority(1)
       .action(async (ctx) => { order.push('low'); ctx.output(outLow, 'lo'); })
       .build();
@@ -1051,7 +1051,7 @@ describe('Async Action Tests', () => {
     const output = place<string>('OUT');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => {
         await sleep(10);
         ctx.output(output, 'async-result');
@@ -1069,7 +1069,7 @@ describe('Async Action Tests', () => {
     const eventStore = new InMemoryEventStore();
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async () => {
         throw new Error('boom');
       })
@@ -1104,7 +1104,7 @@ describe('Async Action Tests', () => {
     const makeWorker = (name: string, inP: Place<string>, outP: Place<string>) =>
       Transition.builder(name)
         .inputs(one(inP))
-        .outputs(outPlace(outP))
+        .outputs(outOne(outP))
         .action(async (ctx) => {
           await sleep(100);
           ctx.output(outP, 'done');
@@ -1142,7 +1142,7 @@ describe('Async Action Tests', () => {
     const output = place<number>('OUT');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => {
         ctx.output(output, ctx.input(input) * 2);
       })
@@ -1165,15 +1165,15 @@ describe('Workflow Pattern Tests', () => {
     const seq: number[] = [];
 
     const t1 = Transition.builder('T1')
-      .inputs(one(p1)).outputs(outPlace(p2))
+      .inputs(one(p1)).outputs(outOne(p2))
       .action(async (ctx) => { seq.push(1); ctx.output(p2, ctx.input(p1)); })
       .build();
     const t2 = Transition.builder('T2')
-      .inputs(one(p2)).outputs(outPlace(p3))
+      .inputs(one(p2)).outputs(outOne(p3))
       .action(async (ctx) => { seq.push(2); ctx.output(p3, ctx.input(p2)); })
       .build();
     const t3 = Transition.builder('T3')
-      .inputs(one(p3)).outputs(outPlace(p4))
+      .inputs(one(p3)).outputs(outOne(p4))
       .action(async (ctx) => { seq.push(3); ctx.output(p4, ctx.input(p3)); })
       .build();
 
@@ -1197,15 +1197,15 @@ describe('Workflow Pattern Tests', () => {
       .action(async (ctx) => { ctx.output(left, 'l'); ctx.output(right, 'r'); })
       .build();
     const leftT = Transition.builder('Left')
-      .inputs(one(left)).outputs(outPlace(leftDone))
+      .inputs(one(left)).outputs(outOne(leftDone))
       .action(async (ctx) => { ctx.output(leftDone, 'ld'); })
       .build();
     const rightT = Transition.builder('Right')
-      .inputs(one(right)).outputs(outPlace(rightDone))
+      .inputs(one(right)).outputs(outOne(rightDone))
       .action(async (ctx) => { ctx.output(rightDone, 'rd'); })
       .build();
     const joinT = Transition.builder('Join')
-      .inputs(one(leftDone), one(rightDone)).outputs(outPlace(end))
+      .inputs(one(leftDone), one(rightDone)).outputs(outOne(end))
       .action(async (ctx) => { ctx.output(end, 'done'); })
       .build();
 
@@ -1322,7 +1322,7 @@ describe('Edge Cases and Error Handling', () => {
     const input = place<string>('IN');
     const output = place<string>('OUT');
     const t = Transition.builder('T')
-      .inputs(one(input)).outputs(outPlace(output))
+      .inputs(one(input)).outputs(outOne(output))
       .action(async (ctx) => { ctx.output(output, 'x'); })
       .build();
     const net = PetriNet.builder('N').transition(t).build();
@@ -1335,7 +1335,7 @@ describe('Edge Cases and Error Handling', () => {
     const input = place<string>('IN');
     const output = place<string>('OUT');
     const t = Transition.builder('T')
-      .inputs(one(input)).outputs(outPlace(output))
+      .inputs(one(input)).outputs(outOne(output))
       .action(async (ctx) => { fireCount++; ctx.output(output, 'x'); })
       .build();
     const net = PetriNet.builder('N').transition(t).build();
@@ -1347,7 +1347,7 @@ describe('Edge Cases and Error Handling', () => {
     const input = place<number>('IN');
     const output = place<number>('OUT');
     const t = Transition.builder('T')
-      .inputs(one(input)).outputs(outPlace(output))
+      .inputs(one(input)).outputs(outOne(output))
       .action(async (ctx) => { ctx.output(output, ctx.input(input)); })
       .build();
     const net = PetriNet.builder('N').transition(t).build();
@@ -1368,7 +1368,7 @@ describe('Event Store Tests', () => {
     const input = place<string>('IN');
     const output = place<string>('OUT');
     const t = Transition.builder('T')
-      .inputs(one(input)).outputs(outPlace(output))
+      .inputs(one(input)).outputs(outOne(output))
       .action(async (ctx) => { ctx.output(output, 'done'); })
       .build();
     const net = PetriNet.builder('N').transition(t).build();
@@ -1387,7 +1387,7 @@ describe('Event Store Tests', () => {
     const input = place<string>('IN');
     const output = place<string>('OUT');
     const t = Transition.builder('T')
-      .inputs(one(input)).outputs(outPlace(output))
+      .inputs(one(input)).outputs(outOne(output))
       .action(async (ctx) => { ctx.output(output, 'done'); })
       .build();
     const net = PetriNet.builder('N').transition(t).build();
@@ -1408,7 +1408,7 @@ describe('Executor Close Tests', () => {
 
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => { ctx.output(output, 'done'); })
       .build();
     const net = PetriNet.builder('N').transition(t).build();
@@ -1435,7 +1435,7 @@ describe('Environment Place Tests', () => {
 
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => { ctx.output(output, ctx.input(input)); })
       .build();
     const net = PetriNet.builder('N').transition(t).build();
@@ -1486,7 +1486,7 @@ describe('Environment Place Tests', () => {
 
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => { ctx.output(output, ctx.input(input)); })
       .build();
     const net = PetriNet.builder('N').transition(t).build();
@@ -1535,7 +1535,7 @@ describe('Environment Place Tests', () => {
     // Slow transition to keep executor busy while we queue more events
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => {
         await sleep(500);
         ctx.output(output, ctx.input(input));
@@ -1573,7 +1573,7 @@ describe('Environment Place Tests', () => {
     let actionStarted = false;
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => {
         actionStarted = true;
         await sleep(200);
@@ -1611,7 +1611,7 @@ describe('Environment Place Tests', () => {
     let actionCanFinish = false;
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => {
         actionStarted = true;
         while (!actionCanFinish) await sleep(10);
@@ -1660,7 +1660,7 @@ describe('Environment Place Tests', () => {
 
     const t = Transition.builder('T')
       .inputs(one(trigger))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .timing(delayed(50))
       .action(async (ctx) => { ctx.output(output, 'timed'); })
       .build();
@@ -1688,7 +1688,7 @@ describe('Environment Place Tests', () => {
 
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => { ctx.output(output, ctx.input(input)); })
       .build();
     const net = PetriNet.builder('N').transition(t).build();
@@ -1742,7 +1742,7 @@ describe('Firing Order Tests', () => {
     const output = place<number>('OUT');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => {
         await sleep(10);
         ctx.output(output, 42);
@@ -1781,7 +1781,7 @@ describe('Reset Arc Timer Restart Tests', () => {
     // T2: delayed by 200ms, fires off timerPlace
     const tTimeout = Transition.builder('Timeout')
       .inputs(one(timerPlace))
-      .outputs(outPlace(timedOut))
+      .outputs(outOne(timedOut))
       .timing(delayed(200))
       .action(async (ctx) => { ctx.output(timedOut, 'timeout'); })
       .build();
@@ -1808,7 +1808,7 @@ describe('Guarded Input Arc Tests', () => {
     const output = place<number>('OUT');
     const t = Transition.builder('T')
       .inputs(one(input, (v: number) => v > 5))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => { ctx.output(output, ctx.input(input)); })
       .build();
     const net = PetriNet.builder('N').transition(t).build();
@@ -1827,7 +1827,7 @@ describe('Guarded Input Arc Tests', () => {
     const output = place<number>('OUT');
     const t = Transition.builder('T')
       .inputs(one(input, (v: number) => v > 100))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => { ctx.output(output, ctx.input(input)); })
       .build();
     const net = PetriNet.builder('N').transition(t).build();
@@ -1846,7 +1846,7 @@ describe('Guarded Input Arc Tests', () => {
     const consumed: number[] = [];
     const t = Transition.builder('T')
       .inputs(one(input, (v: number) => v % 2 === 0))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => {
         const v = ctx.input(input);
         consumed.push(v);
@@ -1870,7 +1870,7 @@ describe('Guarded Input Arc Tests', () => {
     const output = place<number>('OUT');
     const t = Transition.builder('T')
       .inputs(exactly(2, input, (v: number) => v > 5))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => {
         ctx.output(output, ctx.inputs(input).reduce((a, b) => a + b, 0));
       })
@@ -1892,7 +1892,7 @@ describe('Guarded Input Arc Tests', () => {
     const output = place<number>('OUT');
     const t = Transition.builder('T')
       .inputs(exactly(3, input, (v: number) => v > 5))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => {
         ctx.output(output, ctx.inputs(input).reduce((a, b) => a + b, 0));
       })
@@ -1913,7 +1913,7 @@ describe('Guarded Input Arc Tests', () => {
     const blocker = place<string>('BLOCKER');
     const t = Transition.builder('T')
       .inputs(one(input, (v: number) => v > 0))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .inhibitor(blocker)
       .action(async (ctx) => { ctx.output(output, ctx.input(input)); })
       .build();
@@ -1947,14 +1947,14 @@ describe('Guarded Input Arc Tests', () => {
 
     const guarded = Transition.builder('Guarded')
       .inputs(one(input, (v: number) => v > 5))
-      .outputs(outPlace(matchedOut))
+      .outputs(outOne(matchedOut))
       .priority(10)
       .action(async (ctx) => { ctx.output(matchedOut, ctx.input(input)); })
       .build();
 
     const fallback = Transition.builder('Fallback')
       .inputs(one(input))
-      .outputs(outPlace(unmatchedOut))
+      .outputs(outOne(unmatchedOut))
       .priority(1)
       .action(async (ctx) => { ctx.output(unmatchedOut, ctx.input(input)); })
       .build();
@@ -1982,7 +1982,7 @@ describe('Deadline Enforcement Tests', () => {
 
     const t = Transition.builder('Windowed')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .timing(window(50, 200))
       .action(async (ctx) => { ctx.output(output, ctx.input(input)); })
       .build();
@@ -2016,14 +2016,14 @@ describe('Deadline Enforcement Tests', () => {
     // executor cycle runs and enforceDeadlines() detects: elapsed > latest → timed out.
     const windowed = Transition.builder('Windowed')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .timing(window(100, 150))
       .action(async (ctx) => { ctx.output(output, ctx.input(input)); })
       .build();
 
     const slow = Transition.builder('Slow')
       .inputs(one(slowInput))
-      .outputs(outPlace(slowOut))
+      .outputs(outOne(slowOut))
       .priority(100)
       .action(async (ctx) => {
         // Synchronous busy-wait blocks the event loop, preventing timer callbacks
@@ -2062,7 +2062,7 @@ describe('Marking Snapshot Tests', () => {
 
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .action(async (ctx) => { ctx.output(output, ctx.input(input)); })
       .build();
 
@@ -2095,7 +2095,7 @@ describe('Marking Snapshot Tests', () => {
 
     const t = Transition.builder('T')
       .inputs(one(a))
-      .outputs(outPlace(b))
+      .outputs(outOne(b))
       .action(async (ctx) => { ctx.output(b, ctx.input(a)); })
       .build();
 

@@ -5,7 +5,7 @@ import { MarkingState } from '../../../src/verification/marking-state.js';
 import { Transition } from '../../../src/core/transition.js';
 import { place } from '../../../src/core/place.js';
 import { one } from '../../../src/core/in.js';
-import { outPlace } from '../../../src/core/out.js';
+import { outOne } from '../../../src/core/out.js';
 import { immediate, delayed } from '../../../src/core/timing.js';
 
 describe('StateClass', () => {
@@ -14,12 +14,12 @@ describe('StateClass', () => {
 
   const t1 = Transition.builder('t1')
     .inputs(one(pA))
-    .outputs(outPlace(pB))
+    .outputs(outOne(pB))
     .build();
 
   const t2 = Transition.builder('t2')
     .inputs(one(pB))
-    .outputs(outPlace(pA))
+    .outputs(outOne(pA))
     .timing(delayed(1000))
     .build();
 

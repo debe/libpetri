@@ -134,8 +134,8 @@ export class TransitionContext {
    * collector. Calling with zero values is a no-op.
    *
    * @example
-   *   ctx.output(outPlace, 'a', 'b', 'c');
-   *   ctx.output(outPlace, ...someArray);
+   *   ctx.output(outOne, 'a', 'b', 'c');
+   *   ctx.output(outOne, ...someArray);
    *
    * @throws if place not declared as output.
    */

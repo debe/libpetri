@@ -87,7 +87,8 @@ export class PlaceAnalysis {
 function collectOutputPlaces(out: unknown): Place<unknown>[] {
   const spec = out as { type: string; place?: Place<unknown>; children?: unknown[]; child?: unknown; from?: Place<unknown>; to?: Place<unknown> };
   switch (spec.type) {
-    case 'place':
+    case 'one':
+    case 'exactly':
       return spec.place ? [spec.place] : [];
     case 'and':
     case 'xor':

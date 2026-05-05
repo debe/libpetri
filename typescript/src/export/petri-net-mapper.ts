@@ -266,12 +266,26 @@ function outputEdges(transitionId: string, out: Out, branchLabel: string | null)
   const outStyle = edgeStyle('output');
 
   switch (out.type) {
-    case 'place': {
+    case 'one': {
       const pid = 'p_' + sanitize(out.place.name);
       return [{
         from: transitionId,
         to: pid,
         label: branchLabel ?? undefined,
+        color: outStyle.color,
+        style: outStyle.style,
+        arrowhead: outStyle.arrowhead,
+        arcType: 'output',
+      }];
+    }
+
+    case 'exactly': {
+      const pid = 'p_' + sanitize(out.place.name);
+      const label = (branchLabel ? branchLabel + ' ' : '') + `×${out.count}`;
+      return [{
+        from: transitionId,
+        to: pid,
+        label,
         color: outStyle.color,
         style: outStyle.style,
         arrowhead: outStyle.arrowhead,
@@ -312,7 +326,8 @@ function outputEdges(transitionId: string, out: Out, branchLabel: string | null)
 
 function inferBranchLabel(out: Out): string | null {
   switch (out.type) {
-    case 'place': return out.place.name;
+    case 'one': return out.place.name;
+    case 'exactly': return `${out.place.name}\u00d7${out.count}`;
     case 'timeout': return `\u23f1${out.afterMs}ms`;
     case 'forward-input': return out.to.name;
     case 'and':

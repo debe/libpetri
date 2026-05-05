@@ -28,7 +28,8 @@ export interface XorBranchInfo {
   readonly totalBranches: number;
   readonly takenBranches: Set<number>;
   readonly untakenBranches: Set<number>;
-  readonly branchOutputs: ReadonlyArray<ReadonlySet<Place<any>>>;
+  /** Per-branch output multiset (place → token count). */
+  readonly branchOutputs: ReadonlyArray<ReadonlyMap<Place<any>, number>>;
 }
 
 /** Result of XOR branch analysis. */
@@ -298,7 +299,7 @@ function createXorBranchAnalysis(transitionBranches: Map<Transition, XorBranchIn
         if (info.untakenBranches.size > 0) {
           lines.push(`  UNREACHABLE: [${[...info.untakenBranches].join(', ')}]`);
           for (const idx of info.untakenBranches) {
-            const places = [...info.branchOutputs[idx]!].map(p => p.name).join(', ');
+            const places = [...info.branchOutputs[idx]!.keys()].map(p => p.name).join(', ');
             lines.push(`    Branch ${idx} outputs: [${places}]`);
           }
         } else {

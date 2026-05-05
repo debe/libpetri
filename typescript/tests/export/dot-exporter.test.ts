@@ -4,7 +4,7 @@ import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
 import { one, exactly } from '../../src/core/in.js';
-import { outPlace, andPlaces, xorPlaces, timeout } from '../../src/core/out.js';
+import { outOne, andPlaces, xorPlaces, timeout } from '../../src/core/out.js';
 import { delayed } from '../../src/core/timing.js';
 
 describe('dotExport', () => {
@@ -13,7 +13,7 @@ describe('dotExport', () => {
     const p2 = place('End');
     const t = Transition.builder('Process')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .build();
     const net = PetriNet.builder('SimpleNet').transition(t).build();
 
@@ -34,7 +34,7 @@ describe('dotExport', () => {
     const p2 = place('Out');
     const t = Transition.builder('T')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
 
@@ -59,7 +59,7 @@ describe('dotExport', () => {
 
     const t = Transition.builder('Process')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .inhibitor(blocker)
       .read(config)
       .reset(cache)
@@ -103,7 +103,7 @@ describe('dotExport', () => {
     const end = place('End');
     const t = Transition.builder('Batch')
       .inputs(exactly(3, start))
-      .outputs(outPlace(end))
+      .outputs(outOne(end))
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
 
@@ -117,7 +117,7 @@ describe('dotExport', () => {
     const p2 = place('End');
     const t = Transition.builder('Process')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .timing(delayed(500))
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
@@ -132,7 +132,7 @@ describe('dotExport', () => {
     const timeoutP = place('Timeout');
     const t = Transition.builder('Process')
       .inputs(one(start))
-      .outputs(timeout(5000, outPlace(timeoutP)))
+      .outputs(timeout(5000, outOne(timeoutP)))
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
 
@@ -146,7 +146,7 @@ describe('dotExport', () => {
     const p2 = place('End');
     const t = Transition.builder('T')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
 
@@ -160,7 +160,7 @@ describe('dotExport', () => {
     const output = place('Out');
     const t = Transition.builder('T')
       .inputs(one(envPlace))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
 
@@ -183,11 +183,11 @@ describe('dotExport', () => {
 
     const validate = Transition.builder('Validate')
       .inputs(one(pending))
-      .outputs(outPlace(validated))
+      .outputs(outOne(validated))
       .build();
     const process = Transition.builder('Process')
       .inputs(one(validated))
-      .outputs(outPlace(processed))
+      .outputs(outOne(processed))
       .build();
 
     const net = PetriNet.builder('Pipeline')

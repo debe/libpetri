@@ -4,7 +4,7 @@ import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place, environmentPlace } from '../../src/core/place.js';
 import { one, exactly, all, atLeast } from '../../src/core/in.js';
-import { outPlace, andPlaces, xorPlaces } from '../../src/core/out.js';
+import { outOne, outExactly, and, xor, andPlaces, xorPlaces } from '../../src/core/out.js';
 
 describe('NetFlattener', () => {
   it('assigns stable place indices sorted by name', () => {
@@ -13,7 +13,7 @@ describe('NetFlattener', () => {
     const pB = place('B');
     const t = Transition.builder('T')
       .inputs(one(pC), one(pA))
-      .outputs(outPlace(pB))
+      .outputs(outOne(pB))
       .build();
     const net = PetriNet.builder('N').transition(t).build();
     const flatNet = flatten(net);
@@ -34,7 +34,7 @@ describe('NetFlattener', () => {
     const output = place('OUT');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .build();
     const net = PetriNet.builder('N').transition(t).build();
     const flatNet = flatten(net);
@@ -55,7 +55,7 @@ describe('NetFlattener', () => {
     const output = place('OUT');
     const t = Transition.builder('T')
       .inputs(exactly(3, input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .build();
     const net = PetriNet.builder('N').transition(t).build();
     const flatNet = flatten(net);
@@ -69,7 +69,7 @@ describe('NetFlattener', () => {
     const output = place('OUT');
     const t = Transition.builder('T')
       .inputs(all(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .build();
     const net = PetriNet.builder('N').transition(t).build();
     const flatNet = flatten(net);
@@ -84,7 +84,7 @@ describe('NetFlattener', () => {
     const output = place('OUT');
     const t = Transition.builder('T')
       .inputs(atLeast(3, input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .build();
     const net = PetriNet.builder('N').transition(t).build();
     const flatNet = flatten(net);
@@ -101,7 +101,7 @@ describe('NetFlattener', () => {
     const rd = place('RD');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .inhibitor(inh)
       .read(rd)
       .build();
@@ -119,7 +119,7 @@ describe('NetFlattener', () => {
     const rst = place('RST');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .reset(rst)
       .build();
     const net = PetriNet.builder('N').transition(t).build();
@@ -159,7 +159,7 @@ describe('NetFlattener', () => {
     const output = place('OUT');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .build();
     const net = PetriNet.builder('N').transition(t).build();
     const flatNet = flatten(net);
@@ -205,7 +205,7 @@ describe('NetFlattener', () => {
     const output = place('OUT');
     const t = Transition.builder('T')
       .inputs(one(input))
-      .outputs(outPlace(output))
+      .outputs(outOne(output))
       .build();
     const net = PetriNet.builder('N').transition(t).build();
     const flatNet = flatten(net, new Set([envP]), bounded(3));
@@ -220,11 +220,11 @@ describe('NetFlattener', () => {
 
     const t1 = Transition.builder('T1')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .build();
     const t2 = Transition.builder('T2')
       .inputs(one(p2))
-      .outputs(outPlace(p3))
+      .outputs(outOne(p3))
       .build();
 
     const net = PetriNet.builder('Pipeline').transitions(t1, t2).build();
@@ -232,5 +232,69 @@ describe('NetFlattener', () => {
 
     expect(flatNet.places).toHaveLength(3);
     expect(flatNet.transitions).toHaveLength(2);
+  });
+
+  // ==================== Multiplicity (IO-018, IO-019) ====================
+
+  it('Out.and(P, P, P) post-vector reflects count 3', () => {
+    const input = place('Input');
+    const output = place('Output');
+    const t = Transition.builder('Triple')
+      .inputs(one(input))
+      .outputs(andPlaces(output, output, output))
+      .build();
+    const net = PetriNet.builder('RepeatedAndNet').transition(t).build();
+    const flatNet = flatten(net);
+
+    expect(flatNet.transitions).toHaveLength(1);
+    const ft = flatNet.transitions[0]!;
+    const outIdx = flatNet.placeIndex.get(output.name)!;
+    expect(ft.postVector[outIdx]).toBe(3);
+  });
+
+  it('Out.exactly(5, P) post-vector equals count', () => {
+    const input = place('Input');
+    const output = place('Output');
+    const t = Transition.builder('Five')
+      .inputs(one(input))
+      .outputs(outExactly(5, output))
+      .build();
+    const net = PetriNet.builder('ExactlyNet').transition(t).build();
+    const flatNet = flatten(net);
+
+    const ft = flatNet.transitions[0]!;
+    const outIdx = flatNet.placeIndex.get(output.name)!;
+    expect(ft.postVector[outIdx]).toBe(5);
+  });
+
+  it('AND of two exactly accumulates counts', () => {
+    const input = place('Input');
+    const output = place('Output');
+    const t = Transition.builder('Sum')
+      .inputs(one(input))
+      .outputs(and(outExactly(2, output), outExactly(3, output)))
+      .build();
+    const net = PetriNet.builder('SumNet').transition(t).build();
+    const flatNet = flatten(net);
+
+    const ft = flatNet.transitions[0]!;
+    const outIdx = flatNet.placeIndex.get(output.name)!;
+    expect(ft.postVector[outIdx]).toBe(5);
+  });
+
+  it('XOR with different counts: each branch carries its own count', () => {
+    const input = place('Input');
+    const output = place('Output');
+    const t = Transition.builder('Choice')
+      .inputs(one(input))
+      .outputs(xor(outOne(output), outExactly(3, output)))
+      .build();
+    const net = PetriNet.builder('XorCountsNet').transition(t).build();
+    const flatNet = flatten(net);
+
+    expect(flatNet.transitions).toHaveLength(2);
+    const outIdx = flatNet.placeIndex.get(output.name)!;
+    expect(flatNet.transitions[0]!.postVector[outIdx]).toBe(1);
+    expect(flatNet.transitions[1]!.postVector[outIdx]).toBe(3);
   });
 });

@@ -4,7 +4,7 @@ import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
 import { one, exactly, all, atLeast } from '../../src/core/in.js';
-import { outPlace, andPlaces, xorPlaces, timeout, forwardInput } from '../../src/core/out.js';
+import { outOne, andPlaces, xorPlaces, timeout, forwardInput } from '../../src/core/out.js';
 import { delayed, window } from '../../src/core/timing.js';
 
 describe('sanitize', () => {
@@ -28,7 +28,7 @@ describe('mapToGraph', () => {
   it('creates graph with correct id and rankdir', () => {
     const t = Transition.builder('Process')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .build();
     const net = PetriNet.builder('TestNet').transition(t).build();
     const graph = mapToGraph(net);
@@ -40,7 +40,7 @@ describe('mapToGraph', () => {
   it('creates place nodes with p_ prefix', () => {
     const t = Transition.builder('Process')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
     const graph = mapToGraph(net);
@@ -58,7 +58,7 @@ describe('mapToGraph', () => {
   it('creates transition nodes with t_ prefix', () => {
     const t = Transition.builder('Process')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
     const graph = mapToGraph(net);
@@ -73,7 +73,7 @@ describe('mapToGraph', () => {
   it('styles start places (no incoming arcs)', () => {
     const t = Transition.builder('Process')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
     const graph = mapToGraph(net);
@@ -86,7 +86,7 @@ describe('mapToGraph', () => {
   it('styles end places (no outgoing arcs)', () => {
     const t = Transition.builder('Process')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
     const graph = mapToGraph(net);
@@ -100,7 +100,7 @@ describe('mapToGraph', () => {
     const envPlace = place('Events');
     const t = Transition.builder('Process')
       .inputs(one(envPlace))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
     const graph = mapToGraph(net, {
@@ -118,7 +118,7 @@ describe('mapToGraph', () => {
   it('generates input edges for one()', () => {
     const t = Transition.builder('Process')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
     const graph = mapToGraph(net);
@@ -132,7 +132,7 @@ describe('mapToGraph', () => {
   it('generates input edges with cardinality label for exactly()', () => {
     const t = Transition.builder('Batch')
       .inputs(exactly(3, p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
     const graph = mapToGraph(net);
@@ -144,7 +144,7 @@ describe('mapToGraph', () => {
   it('generates input edges with * label for all()', () => {
     const t = Transition.builder('Drain')
       .inputs(all(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
     const graph = mapToGraph(net);
@@ -156,7 +156,7 @@ describe('mapToGraph', () => {
   it('generates input edges with >= label for atLeast()', () => {
     const t = Transition.builder('Accumulate')
       .inputs(atLeast(5, p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
     const graph = mapToGraph(net);
@@ -169,7 +169,7 @@ describe('mapToGraph', () => {
   it('generates output edges', () => {
     const t = Transition.builder('Process')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
     const graph = mapToGraph(net);
@@ -212,7 +212,7 @@ describe('mapToGraph', () => {
     const timeoutP = place('Timeout');
     const t = Transition.builder('Process')
       .inputs(one(p1))
-      .outputs(timeout(5000, outPlace(timeoutP)))
+      .outputs(timeout(5000, outOne(timeoutP)))
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
     const graph = mapToGraph(net);
@@ -241,7 +241,7 @@ describe('mapToGraph', () => {
     const pause = place('Pause');
     const t = Transition.builder('Process')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .inhibitor(pause)
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
@@ -259,7 +259,7 @@ describe('mapToGraph', () => {
     const config = place('Config');
     const t = Transition.builder('Process')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .read(config)
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
@@ -276,7 +276,7 @@ describe('mapToGraph', () => {
     const cache = place('Cache');
     const t = Transition.builder('Process')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .reset(cache)
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
@@ -312,7 +312,7 @@ describe('mapToGraph', () => {
   it('includes timing interval in transition label', () => {
     const t = Transition.builder('Process')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .timing(delayed(500))
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
@@ -325,7 +325,7 @@ describe('mapToGraph', () => {
   it('includes timing window in transition label', () => {
     const t = Transition.builder('Process')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .timing(window(100, 2000))
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
@@ -338,7 +338,7 @@ describe('mapToGraph', () => {
   it('includes priority in transition label', () => {
     const t = Transition.builder('Process')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .priority(10)
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
@@ -351,7 +351,7 @@ describe('mapToGraph', () => {
   it('omits timing and priority when config says so', () => {
     const t = Transition.builder('Process')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .timing(delayed(500))
       .priority(10)
       .build();
@@ -371,7 +371,7 @@ describe('mapToGraph', () => {
   it('respects direction config', () => {
     const t = Transition.builder('Process')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
     const graph = mapToGraph(net, { ...DEFAULT_DOT_CONFIG, direction: 'LR' });
@@ -382,7 +382,7 @@ describe('mapToGraph', () => {
   it('sets graph font and spacing attributes', () => {
     const t = Transition.builder('Process')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .build();
     const net = PetriNet.builder('Test').transition(t).build();
     const graph = mapToGraph(net);

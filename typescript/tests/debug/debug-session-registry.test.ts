@@ -7,7 +7,7 @@ import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
 import { one } from '../../src/core/in.js';
-import { outPlace } from '../../src/core/out.js';
+import { outOne } from '../../src/core/out.js';
 
 const INPUT = place<string>('Input');
 const OUTPUT = place<string>('Output');
@@ -16,7 +16,7 @@ const TEST_NET = PetriNet.builder('TestNet')
   .transition(
     Transition.builder('Process')
       .inputs(one(INPUT))
-      .outputs(outPlace(OUTPUT))
+      .outputs(outOne(OUTPUT))
       .build()
   )
   .build();

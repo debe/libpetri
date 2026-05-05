@@ -3,7 +3,7 @@ import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
 import { one } from '../../src/core/in.js';
-import { outPlace, andPlaces } from '../../src/core/out.js';
+import { outOne, andPlaces } from '../../src/core/out.js';
 import type { TransitionAction } from '../../src/core/transition-action.js';
 
 describe('PetriNet', () => {
@@ -14,7 +14,7 @@ describe('PetriNet', () => {
   it('creates net with builder', () => {
     const t = Transition.builder('T')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .build();
 
     const net = PetriNet.builder('TestNet')
@@ -56,7 +56,7 @@ describe('PetriNet', () => {
   it('bindActions replaces action by transition name', () => {
     const t = Transition.builder('T')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .build();
 
     const net = PetriNet.builder('Net')
@@ -83,7 +83,7 @@ describe('PetriNet', () => {
   it('bindActions with Map', () => {
     const t = Transition.builder('T')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .build();
 
     const net = PetriNet.builder('Net').transition(t).build();
@@ -121,7 +121,7 @@ describe('PetriNet', () => {
 
     const t = Transition.builder('T')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .inhibitor(inh)
       .read(rd)
       .reset(rst)
@@ -145,11 +145,11 @@ describe('PetriNet', () => {
   it('bindActionsWithResolver binds via resolver function', () => {
     const t1 = Transition.builder('T1')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .build();
     const t2 = Transition.builder('T2')
       .inputs(one(p2))
-      .outputs(outPlace(p3))
+      .outputs(outOne(p3))
       .build();
 
     const net = PetriNet.builder('Net').transitions(t1, t2).build();
@@ -176,11 +176,11 @@ describe('PetriNet', () => {
   it('multiple transitions', () => {
     const t1 = Transition.builder('T1')
       .inputs(one(p1))
-      .outputs(outPlace(p2))
+      .outputs(outOne(p2))
       .build();
     const t2 = Transition.builder('T2')
       .inputs(one(p2))
-      .outputs(outPlace(p3))
+      .outputs(outOne(p3))
       .build();
 
     const net = PetriNet.builder('Pipeline')

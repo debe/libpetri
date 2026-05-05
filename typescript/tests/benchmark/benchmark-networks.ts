@@ -9,7 +9,7 @@ import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
 import type { Place } from '../../src/core/place.js';
 import { one, exactly } from '../../src/core/in.js';
-import { outPlace, andPlaces, xor } from '../../src/core/out.js';
+import { outOne, andPlaces, xor } from '../../src/core/out.js';
 import type { Token } from '../../src/core/token.js';
 import { fork } from '../../src/core/transition-action.js';
 
@@ -53,7 +53,7 @@ export function buildSyncLinearChain(transitions: number): NetWithStart {
     builder.transition(
       Transition.builder(`sync_t${i + 1}`)
         .inputs(one(places[i]!))
-        .outputs(outPlace(to))
+        .outputs(outOne(to))
         .action(async (ctx) => {
           ctx.output(to, 'v');
         })
@@ -81,7 +81,7 @@ export function buildAsyncLinearChain(transitions: number): NetWithStart {
     builder.transition(
       Transition.builder(`t${i + 1}`)
         .inputs(one(places[i]!))
-        .outputs(outPlace(to))
+        .outputs(outOne(to))
         .action(async (ctx) => {
           await yieldAsync();
           ctx.output(to, 'v');
@@ -111,7 +111,7 @@ export function buildMixedLinearChain(total: number, asyncCount: number): NetWit
     builder.transition(
       Transition.builder(`mix_t${i + 1}`)
         .inputs(one(places[i]!))
-        .outputs(outPlace(to))
+        .outputs(outOne(to))
         .action(async (ctx) => {
           if (isAsync) await yieldAsync();
           ctx.output(to, 'v');
@@ -149,7 +149,7 @@ export function buildParallelFanOut(branches: number): NetWithStart {
     builder.transition(
       Transition.builder(`work${i}`)
         .inputs(one(bp))
-        .outputs(outPlace(joinPlace))
+        .outputs(outOne(joinPlace))
         .action(async (ctx) => {
           await yieldAsync();
           ctx.output(joinPlace, 'v');
@@ -160,7 +160,7 @@ export function buildParallelFanOut(branches: number): NetWithStart {
 
   const joinTrans = Transition.builder('join')
     .inputs(exactly(branches, joinPlace))
-    .outputs(outPlace(end))
+    .outputs(outOne(end))
     .action(async (ctx) => {
       await yieldAsync();
       ctx.output(end, 'done');
@@ -199,7 +199,7 @@ export function buildComplexWorkflow(): NetWithStart {
 
   const guardTrans = Transition.builder('Guard')
     .inputs(one(v_guardIn))
-    .outputs(xor(outPlace(v_guardSafe), outPlace(v_guardViolation)))
+    .outputs(xor(outOne(v_guardSafe), outOne(v_guardViolation)))
     .action(async (ctx) => {
       await yieldAsync();
       ctx.output(v_guardSafe, 'safe');
@@ -208,7 +208,7 @@ export function buildComplexWorkflow(): NetWithStart {
 
   const handleViolation = Transition.builder('HandleViolation')
     .inputs(one(v_guardViolation))
-    .outputs(outPlace(v_violated))
+    .outputs(outOne(v_violated))
     .inhibitor(v_guardSafe)
     .action(async (ctx) => {
       ctx.output(v_violated, 'violated');
@@ -217,7 +217,7 @@ export function buildComplexWorkflow(): NetWithStart {
 
   const intentTrans = Transition.builder('Intent')
     .inputs(one(v_intentIn))
-    .outputs(outPlace(v_intentReady))
+    .outputs(outOne(v_intentReady))
     .action(async (ctx) => {
       await yieldAsync();
       ctx.output(v_intentReady, 'intent');
@@ -226,7 +226,7 @@ export function buildComplexWorkflow(): NetWithStart {
 
   const topicTrans = Transition.builder('TopicKnowledge')
     .inputs(one(v_intentReady))
-    .outputs(outPlace(v_topicReady))
+    .outputs(outOne(v_topicReady))
     .action(async (ctx) => {
       await yieldAsync();
       ctx.output(v_topicReady, 'topic');
@@ -235,7 +235,7 @@ export function buildComplexWorkflow(): NetWithStart {
 
   const searchTrans = Transition.builder('Search')
     .inputs(one(v_searchIn))
-    .outputs(outPlace(v_searchReady))
+    .outputs(outOne(v_searchReady))
     .read(v_intentReady)
     .inhibitor(v_guardViolation)
     .priority(-5)
@@ -247,7 +247,7 @@ export function buildComplexWorkflow(): NetWithStart {
 
   const outputGuardTrans = Transition.builder('OutputGuard')
     .inputs(one(v_outputGuardIn))
-    .outputs(outPlace(v_outputGuardDone))
+    .outputs(outOne(v_outputGuardDone))
     .read(v_guardSafe)
     .action(async (ctx) => {
       await yieldAsync();
@@ -257,7 +257,7 @@ export function buildComplexWorkflow(): NetWithStart {
 
   const composeTrans = Transition.builder('Compose')
     .inputs(one(v_guardSafe), one(v_searchReady), one(v_topicReady))
-    .outputs(outPlace(v_response))
+    .outputs(outOne(v_response))
     .priority(10)
     .action(async (ctx) => {
       await yieldAsync();
@@ -292,7 +292,7 @@ export function buildCompilationTransitions(n: number): { places: Place<string>[
     transitions.push(
       Transition.builder(`ct${i}`)
         .inputs(one(places[i]!))
-        .outputs(outPlace(to))
+        .outputs(outOne(to))
         .action(fork())
         .build()
     );

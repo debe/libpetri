@@ -8,7 +8,7 @@ import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place, environmentPlace } from '../../src/core/place.js';
 import { one } from '../../src/core/in.js';
-import { outPlace, xorPlaces } from '../../src/core/out.js';
+import { outOne, outExactly, andPlaces, xorPlaces } from '../../src/core/out.js';
 import { unbounded } from '../../src/verification/encoding/net-flattener.js';
 
 // All tests in this file require Z3 WASM which is slow to initialize.
@@ -21,11 +21,11 @@ describe('SmtVerifier (Z3 integration)', () => {
     const pB = place('B');
     const t1 = Transition.builder('AtoB')
       .inputs(one(pA))
-      .outputs(outPlace(pB))
+      .outputs(outOne(pB))
       .build();
     const t2 = Transition.builder('BtoA')
       .inputs(one(pB))
-      .outputs(outPlace(pA))
+      .outputs(outOne(pA))
       .build();
     const net = PetriNet.builder('CircularNet').transitions(t1, t2).build();
 
@@ -46,11 +46,11 @@ describe('SmtVerifier (Z3 integration)', () => {
     const pB = place('B');
     const t1 = Transition.builder('AtoB')
       .inputs(one(pA))
-      .outputs(outPlace(pB))
+      .outputs(outOne(pB))
       .build();
     const t2 = Transition.builder('BtoA')
       .inputs(one(pB))
-      .outputs(outPlace(pA))
+      .outputs(outOne(pA))
       .build();
     const net = PetriNet.builder('MutualExclusion').transitions(t1, t2).build();
 
@@ -76,11 +76,11 @@ describe('SmtVerifier (Z3 integration)', () => {
     // With A=1, C=0: T1 fires -> B=1, then T2 needs B+C but C=0 -> DEADLOCK
     const t1 = Transition.builder('T1')
       .inputs(one(pA))
-      .outputs(outPlace(pB))
+      .outputs(outOne(pB))
       .build();
     const t2 = Transition.builder('T2')
       .inputs(one(pB), one(pC))
-      .outputs(outPlace(pA))
+      .outputs(outOne(pA))
       .build();
     const net = PetriNet.builder('DeadlockNet').transitions(t1, t2).build();
 
@@ -98,11 +98,11 @@ describe('SmtVerifier (Z3 integration)', () => {
     const pB = place('B');
     const t1 = Transition.builder('AtoB')
       .inputs(one(pA))
-      .outputs(outPlace(pB))
+      .outputs(outOne(pB))
       .build();
     const t2 = Transition.builder('BtoA')
       .inputs(one(pB))
-      .outputs(outPlace(pA))
+      .outputs(outOne(pA))
       .build();
     const net = PetriNet.builder('Bounded').transitions(t1, t2).build();
 
@@ -122,15 +122,15 @@ describe('SmtVerifier (Z3 integration)', () => {
 
     const t1 = Transition.builder('AtoB')
       .inputs(one(pA))
-      .outputs(outPlace(pB))
+      .outputs(outOne(pB))
       .build();
     const t2 = Transition.builder('BtoA')
       .inputs(one(pB))
-      .outputs(outPlace(pA))
+      .outputs(outOne(pA))
       .build();
     const t3 = Transition.builder('AtoC')
       .inputs(one(pA))
-      .outputs(outPlace(pC))
+      .outputs(outOne(pC))
       .build();
 
     // Net: A -> B -> A, A -> C (conservation: A+B+C=1)
@@ -154,11 +154,11 @@ describe('SmtVerifier (Z3 integration)', () => {
 
     const t1 = Transition.builder('T1')
       .inputs(one(pA))
-      .outputs(outPlace(pB))
+      .outputs(outOne(pB))
       .build();
     const t2 = Transition.builder('T2')
       .inputs(one(pB), one(pC))
-      .outputs(outPlace(pA))
+      .outputs(outOne(pA))
       .build();
     const net = PetriNet.builder('DeadlockNet').transitions(t1, t2).build();
 
@@ -178,11 +178,11 @@ describe('SmtVerifier (Z3 integration)', () => {
     const pB = place('B');
     const t1 = Transition.builder('AtoB')
       .inputs(one(pA))
-      .outputs(outPlace(pB))
+      .outputs(outOne(pB))
       .build();
     const t2 = Transition.builder('BtoA')
       .inputs(one(pB))
-      .outputs(outPlace(pA))
+      .outputs(outOne(pA))
       .build();
     const net = PetriNet.builder('N').transitions(t1, t2).build();
 
@@ -205,11 +205,11 @@ describe('SmtVerifier (Z3 integration)', () => {
     const pB = place('B');
     const t1 = Transition.builder('AtoB')
       .inputs(one(pA))
-      .outputs(outPlace(pB))
+      .outputs(outOne(pB))
       .build();
     const t2 = Transition.builder('BtoA')
       .inputs(one(pB))
-      .outputs(outPlace(pA))
+      .outputs(outOne(pA))
       .build();
     const net = PetriNet.builder('N').transitions(t1, t2).build();
 
@@ -243,7 +243,7 @@ describe('SmtVerifier (Z3 integration)', () => {
       .build();
     const complete = Transition.builder('Complete')
       .inputs(one(active))
-      .outputs(outPlace(idle))
+      .outputs(outOne(idle))
       .build();
 
     const net = PetriNet.builder('XorSinkNet').transitions(dispatch, complete).build();
@@ -265,11 +265,11 @@ describe('SmtVerifier (Z3 integration)', () => {
     const pB = place('B');
     const t1 = Transition.builder('AtoB')
       .inputs(one(pA))
-      .outputs(outPlace(pB))
+      .outputs(outOne(pB))
       .build();
     const t2 = Transition.builder('BtoA')
       .inputs(one(pB))
-      .outputs(outPlace(pA))
+      .outputs(outOne(pA))
       .build();
     const net = PetriNet.builder('N').transitions(t1, t2).build();
     const marking = MarkingState.builder().tokens(pA, 1).build();
@@ -281,5 +281,59 @@ describe('SmtVerifier (Z3 integration)', () => {
       .verify();
 
     expect(result.verdict.type).toBe('proven');
+  }, Z3_TIMEOUT);
+
+  // ==================== Output Multiplicity (IO-018, IO-019) ====================
+
+  it('Out.and(P, P, P) — placeBound reflects actual count of 3', async () => {
+    // Single firing produces 3 tokens to budget. Pre-fix this test fails
+    // because the post-vector was hardcoded to 1.
+    const trigger = place('Trigger');
+    const budget = place('Budget');
+    const t = Transition.builder('FillBudget')
+      .inputs(one(trigger))
+      .outputs(andPlaces(budget, budget, budget))
+      .build();
+    const net = PetriNet.builder('AndRepeatedNet').transition(t).build();
+    const marking = MarkingState.builder().tokens(trigger, 1).build();
+
+    const loose = await SmtVerifier.forNet(net)
+      .initialMarking(marking)
+      .property(placeBound(budget, 2))
+      .timeout(30_000)
+      .verify();
+    expect(loose.verdict.type).toBe('violated');
+
+    const tight = await SmtVerifier.forNet(net)
+      .initialMarking(marking)
+      .property(placeBound(budget, 3))
+      .timeout(30_000)
+      .verify();
+    expect(tight.verdict.type).toBe('proven');
+  }, Z3_TIMEOUT);
+
+  it('Out.exactly(3, P) — placeBound reflects actual count', async () => {
+    const trigger = place('Trigger');
+    const budget = place('Budget');
+    const t = Transition.builder('FillBudget')
+      .inputs(one(trigger))
+      .outputs(outExactly(3, budget))
+      .build();
+    const net = PetriNet.builder('ExactlyNet').transition(t).build();
+    const marking = MarkingState.builder().tokens(trigger, 1).build();
+
+    const loose = await SmtVerifier.forNet(net)
+      .initialMarking(marking)
+      .property(placeBound(budget, 2))
+      .timeout(30_000)
+      .verify();
+    expect(loose.verdict.type).toBe('violated');
+
+    const tight = await SmtVerifier.forNet(net)
+      .initialMarking(marking)
+      .property(placeBound(budget, 3))
+      .timeout(30_000)
+      .verify();
+    expect(tight.verdict.type).toBe('proven');
   }, Z3_TIMEOUT);
 });

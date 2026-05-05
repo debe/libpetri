@@ -31,7 +31,10 @@ export function validateOutSpec(
   producedPlaceNames: Set<string>,
 ): Set<string> | null {
   switch (spec.type) {
-    case 'place':
+    case 'one':
+    case 'exactly':
+      // Multiplicity is verification-only metadata; runtime validation matches
+      // One semantics (place must have received at least one token).
       return producedPlaceNames.has(spec.place.name)
         ? new Set([spec.place.name])
         : null;
@@ -87,7 +90,10 @@ export function validateOutSpec(
  */
 export function produceTimeoutOutput(context: TransitionContext, timeoutChild: Out): void {
   switch (timeoutChild.type) {
-    case 'place':
+    case 'one':
+    case 'exactly':
+      // Multiplicity is verification-only metadata; emit 1 sentinel token for
+      // timeout-branch activation, matching One semantics.
       context.output(timeoutChild.place, null);
       break;
     case 'forward-input': {

@@ -7,7 +7,7 @@ import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
 import { one } from '../../src/core/in.js';
-import { outPlace } from '../../src/core/out.js';
+import { outOne } from '../../src/core/out.js';
 
 describe('PInvariantComputer', () => {
   it('circular net finds conservation invariant', () => {
@@ -15,11 +15,11 @@ describe('PInvariantComputer', () => {
     const pB = place('B');
     const t1 = Transition.builder('T1')
       .inputs(one(pA))
-      .outputs(outPlace(pB))
+      .outputs(outOne(pB))
       .build();
     const t2 = Transition.builder('T2')
       .inputs(one(pB))
-      .outputs(outPlace(pA))
+      .outputs(outOne(pA))
       .build();
     const net = PetriNet.builder('N').transitions(t1, t2).build();
     const flatNet = flatten(net);
@@ -52,11 +52,11 @@ describe('PInvariantComputer', () => {
     const pC = place('C');
     const t1 = Transition.builder('T1')
       .inputs(one(pA))
-      .outputs(outPlace(pB))
+      .outputs(outOne(pB))
       .build();
     const t2 = Transition.builder('T2')
       .inputs(one(pB))
-      .outputs(outPlace(pC))
+      .outputs(outOne(pC))
       .build();
     const net = PetriNet.builder('N').transitions(t1, t2).build();
     const flatNet = flatten(net);
@@ -81,11 +81,11 @@ describe('PInvariantComputer', () => {
     const pB = place('B');
     const t1 = Transition.builder('T1')
       .inputs(one(pA))
-      .outputs(outPlace(pB))
+      .outputs(outOne(pB))
       .build();
     const t2 = Transition.builder('T2')
       .inputs(one(pB))
-      .outputs(outPlace(pA))
+      .outputs(outOne(pA))
       .build();
     const net = PetriNet.builder('N').transitions(t1, t2).build();
     const flatNet = flatten(net);
@@ -119,11 +119,11 @@ describe('PInvariantComputer', () => {
     const pD = place('D');
     const t1 = Transition.builder('T1')
       .inputs(one(pA))
-      .outputs(outPlace(pB))
+      .outputs(outOne(pB))
       .build();
     const t2 = Transition.builder('T2')
       .inputs(one(pB))
-      .outputs(outPlace(pD))
+      .outputs(outOne(pD))
       .build();
     // Note: D is a sink — no transition consumes from it
     const net = PetriNet.builder('N').transitions(t1, t2).build();

@@ -236,7 +236,8 @@ function findTimeout(out: Out | null): OutTimeout | null {
         if (found !== null) return found;
       }
       return null;
-    case 'place':
+    case 'one':
+    case 'exactly':
     case 'forward-input':
       return null;
   }
@@ -252,7 +253,8 @@ function findForwardInputs(out: Out): Array<{ from: Place<any>; to: Place<any> }
       return out.children.flatMap(findForwardInputs);
     case 'timeout':
       return findForwardInputs(out.child);
-    case 'place':
+    case 'one':
+    case 'exactly':
       return [];
   }
 }
