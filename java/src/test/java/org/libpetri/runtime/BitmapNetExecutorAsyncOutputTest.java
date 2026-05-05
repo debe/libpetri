@@ -144,7 +144,7 @@ class BitmapNetExecutorAsyncOutputTest {
         // Drainer: consumes OUTPUT_A + OUTPUT_B, restores TIMER_PENDING for next cycle
         var drainer = Transition.builder("Drainer")
                 .inputs(In.one(OUTPUT_A), In.one(OUTPUT_B))
-                .outputs(Out.place(TIMER_PENDING))
+                .outputs(Out.one(TIMER_PENDING))
                 .action(ctx -> {
                     ctx.output(TIMER_PENDING, Token.unit());
                     return CompletableFuture.completedFuture(null);
@@ -235,7 +235,7 @@ class BitmapNetExecutorAsyncOutputTest {
 
         var drainer = Transition.builder("Drainer")
                 .inputs(In.one(OUTPUT_A), In.one(OUTPUT_B))
-                .outputs(Out.place(TIMER_PENDING))
+                .outputs(Out.one(TIMER_PENDING))
                 .action(ctx -> {
                     ctx.output(TIMER_PENDING, Token.unit());
                     return CompletableFuture.completedFuture(null);

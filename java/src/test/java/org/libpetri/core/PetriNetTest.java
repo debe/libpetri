@@ -206,7 +206,7 @@ class PetriNetTest {
 
         var t = Transition.builder("t")
             .inputs(Arc.In.one(p1), Arc.In.one(p2))
-            .outputs(Arc.Out.place(output))
+            .outputs(Arc.Out.one(output))
             .build();
 
         // Verify original has inputSpecs

@@ -23,11 +23,11 @@ class PInvariantComputerTest {
 
         var t1 = Transition.builder("Forward")
             .inputs(In.one(pA))
-            .outputs(Out.place(pB))
+            .outputs(Out.one(pB))
             .build();
         var t2 = Transition.builder("Back")
             .inputs(In.one(pB))
-            .outputs(Out.place(pA))
+            .outputs(Out.one(pA))
             .build();
 
         var net = PetriNet.builder("Circular").transitions(t1, t2).build();
@@ -58,11 +58,11 @@ class PInvariantComputerTest {
 
         var t1 = Transition.builder("T1")
             .inputs(In.one(pA))
-            .outputs(Out.place(pB))
+            .outputs(Out.one(pB))
             .build();
         var t2 = Transition.builder("T2")
             .inputs(In.one(pB))
-            .outputs(Out.place(pC))
+            .outputs(Out.one(pC))
             .build();
 
         var net = PetriNet.builder("Pipeline").transitions(t1, t2).build();
@@ -83,8 +83,8 @@ class PInvariantComputerTest {
         var pA = Place.of("A", String.class);
         var pB = Place.of("B", String.class);
 
-        var t1 = Transition.builder("T1").inputs(In.one(pA)).outputs(Out.place(pB)).build();
-        var t2 = Transition.builder("T2").inputs(In.one(pB)).outputs(Out.place(pA)).build();
+        var t1 = Transition.builder("T1").inputs(In.one(pA)).outputs(Out.one(pB)).build();
+        var t2 = Transition.builder("T2").inputs(In.one(pB)).outputs(Out.one(pA)).build();
 
         var net = PetriNet.builder("Circular").transitions(t1, t2).build();
         var flatNet = NetFlattener.flatten(net, Set.of(), EnvironmentAnalysisMode.ignore());

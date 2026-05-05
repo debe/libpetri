@@ -13,7 +13,7 @@ import static org.libpetri.core.Arc.In.exactly;
 import static org.libpetri.core.Arc.In.one;
 import static org.libpetri.core.Arc.Out.and;
 import static org.libpetri.core.Arc.Out.forwardInput;
-import static org.libpetri.core.Arc.Out.place;
+
 import static org.libpetri.core.Arc.Out.timeout;
 import static org.libpetri.core.Arc.Out.xor;
 
@@ -72,7 +72,7 @@ abstract class AbstractNetExecutorEngineTest {
 
             var t = Transition.builder("t")
                 .inputs(one(input))
-                .outputs(place(output))
+                .outputs(Arc.Out.one(output))
                 .timing(Timing.deadline(Duration.ofMillis(100)))
                 .action(ctx -> {
                     ctx.output(output, ctx.input(input));
@@ -102,7 +102,7 @@ abstract class AbstractNetExecutorEngineTest {
 
             var t = Transition.builder("t")
                 .inputs(one(input))
-                .outputs(place(output))
+                .outputs(Arc.Out.one(output))
                 .timing(Timing.deadline(Duration.ofMillis(100)))
                 .action(TransitionAction.produce(output, new SimpleValue("created")))
                 .build();
@@ -125,7 +125,7 @@ abstract class AbstractNetExecutorEngineTest {
 
             var t = Transition.builder("t")
                 .inputs(one(inputA), one(inputB))
-                .outputs(place(output))
+                .outputs(Arc.Out.one(output))
                 .timing(Timing.deadline(Duration.ofMillis(100)))
                 .action(ctx -> {
                     var a = ctx.input(inputA);
@@ -176,7 +176,7 @@ abstract class AbstractNetExecutorEngineTest {
 
             var t = Transition.builder("t")
                 .inputs(one(placeA), one(placeB))  // NEW API - potential bug
-                .outputs(place(output))
+                .outputs(Arc.Out.one(output))
                 .timing(Timing.immediate())
                 .action(ctx -> {
                     fireCount.incrementAndGet();
@@ -213,7 +213,7 @@ abstract class AbstractNetExecutorEngineTest {
 
             var t = Transition.builder("t")
                 .inputs(one(placeA), one(placeB))
-                .outputs(place(output))
+                .outputs(Arc.Out.one(output))
                 .timing(Timing.immediate())
                 .action(ctx -> {
                     fireCount.incrementAndGet();
@@ -247,7 +247,7 @@ abstract class AbstractNetExecutorEngineTest {
 
             var t = Transition.builder("t")
                 .inputs(one(placeA), one(placeB))  // Requires tokens in BOTH places
-                .outputs(place(output))
+                .outputs(Arc.Out.one(output))
                 .timing(Timing.immediate())
                 .action(ctx -> {
                     fireCount.incrementAndGet();
@@ -1564,7 +1564,7 @@ abstract class AbstractNetExecutorEngineTest {
             var t = Transition.builder("t")
                 .inputs(exactly(3, input))
                 .inhibitor(inhibitor)
-                .outputs(place(output))
+                .outputs(Arc.Out.one(output))
                 .timing(Timing.deadline(Duration.ofMillis(100)))
                 .action(TransitionAction.produce(output, new SimpleValue("fired")))
                 .build();
@@ -1599,7 +1599,7 @@ abstract class AbstractNetExecutorEngineTest {
             var t = Transition.builder("t")
                 .inputs(exactly(3, input))
                 .inhibitor(inhibitor)
-                .outputs(place(output))
+                .outputs(Arc.Out.one(output))
                 .timing(Timing.deadline(Duration.ofMillis(100)))
                 .action(TransitionAction.produce(output, new SimpleValue("fired")))
                 .build();
@@ -1637,7 +1637,7 @@ abstract class AbstractNetExecutorEngineTest {
                 .inputs(all(input))
                 .read(readPlace)
                 .reset(resetPlace)
-                .outputs(place(output))
+                .outputs(Arc.Out.one(output))
                 .timing(Timing.deadline(Duration.ofMillis(100)))
                 .action(TransitionAction.produce(output, new SimpleValue("fired")))
                 .build();
@@ -1674,7 +1674,7 @@ abstract class AbstractNetExecutorEngineTest {
             var t = Transition.builder("t")
                 .inputs(atLeast(3, input))
                 .inhibitor(inhibitor)
-                .outputs(place(output))
+                .outputs(Arc.Out.one(output))
                 .timing(Timing.deadline(Duration.ofMillis(100)))
                 .action(TransitionAction.produce(output, new SimpleValue("fired")))
                 .build();
@@ -1706,7 +1706,7 @@ abstract class AbstractNetExecutorEngineTest {
             var t = Transition.builder("t")
                 .inputs(atLeast(3, input))
                 .inhibitor(inhibitor)
-                .outputs(place(output))
+                .outputs(Arc.Out.one(output))
                 .timing(Timing.deadline(Duration.ofMillis(100)))
                 .action(TransitionAction.produce(output, new SimpleValue("fired")))
                 .build();
@@ -1741,7 +1741,7 @@ abstract class AbstractNetExecutorEngineTest {
             var t = Transition.builder("t")
                 .inputs(exactly(2, input))
                 .reset(resetPlace)
-                .outputs(place(output))
+                .outputs(Arc.Out.one(output))
                 .timing(Timing.deadline(Duration.ofMillis(100)))
                 .action(TransitionAction.produce(output, new SimpleValue("fired")))
                 .build();
@@ -1965,7 +1965,7 @@ abstract class AbstractNetExecutorEngineTest {
 
             var t = Transition.builder("Process")
                 .inputs(Arc.In.one(input))
-                .outputs(xor(place(success), place(timeoutPlace)))
+                .outputs(xor(Arc.Out.one(success), Arc.Out.one(timeoutPlace)))
                 .action(wrappedAction)
                 .build();
 
@@ -2019,7 +2019,7 @@ abstract class AbstractNetExecutorEngineTest {
 
             var t = Transition.builder("Process")
                 .inputs(Arc.In.one(input))
-                .outputs(xor(place(success), place(timeoutPlace)))
+                .outputs(xor(Arc.Out.one(success), Arc.Out.one(timeoutPlace)))
                 .action(wrappedAction)
                 .build();
 
@@ -2433,7 +2433,7 @@ abstract class AbstractNetExecutorEngineTest {
             long testStart = System.nanoTime();
 
             var slow = Transition.builder("slow")
-                .inputs(one(start)).outputs(place(slowDone))
+                .inputs(one(start)).outputs(Arc.Out.one(slowDone))
                 .action(ctx -> CompletableFuture.supplyAsync(() -> {
                     try { Thread.sleep(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
                     ctx.output(slowDone, new SimpleValue("slow"));
@@ -2442,7 +2442,7 @@ abstract class AbstractNetExecutorEngineTest {
                 .build();
 
             var timed = Transition.builder("timed")
-                .inputs(one(timedInput)).outputs(place(timedDone))
+                .inputs(one(timedInput)).outputs(Arc.Out.one(timedDone))
                 .timing(Timing.delayed(Duration.ofMillis(100)))
                 .action(ctx -> {
                     timedFiredAt.set((System.nanoTime() - testStart) / 1_000_000);
@@ -3817,8 +3817,8 @@ abstract class AbstractNetExecutorEngineTest {
             var t = Transition.builder("slow")
                 .inputs(one(input))
                 .outputs(xor(
-                    place(success),
-                    timeout(Duration.ofMillis(50), place(timeoutPlace))))
+                    Arc.Out.one(success),
+                    timeout(Duration.ofMillis(50), Arc.Out.one(timeoutPlace))))
                 .action(ctx -> CompletableFuture.supplyAsync(() -> {
                     sleep(500);
                     ctx.output(success, new SimpleValue("late"));
@@ -3849,7 +3849,7 @@ abstract class AbstractNetExecutorEngineTest {
             var t = Transition.builder("slow")
                 .inputs(one(input))
                 .outputs(xor(
-                    place(success),
+                    Arc.Out.one(success),
                     timeout(Duration.ofMillis(50),
                         forwardInput(input, retry))))
                 .action(ctx -> CompletableFuture.supplyAsync(() -> {
@@ -3885,7 +3885,7 @@ abstract class AbstractNetExecutorEngineTest {
             var t = Transition.builder("slow")
                 .inputs(one(input))
                 .outputs(xor(
-                    place(success),
+                    Arc.Out.one(success),
                     timeout(Duration.ofMillis(50),
                         and(fallbackA, fallbackB))))
                 .action(ctx -> CompletableFuture.supplyAsync(() -> {
@@ -3919,8 +3919,8 @@ abstract class AbstractNetExecutorEngineTest {
             var t = Transition.builder("fast")
                 .inputs(one(input))
                 .outputs(xor(
-                    place(success),
-                    timeout(Duration.ofSeconds(5), place(timeoutPlace))))
+                    Arc.Out.one(success),
+                    timeout(Duration.ofSeconds(5), Arc.Out.one(timeoutPlace))))
                 .action(ctx -> {
                     ctx.output(success, new SimpleValue("done"));
                     return CompletableFuture.completedFuture(null);
@@ -4001,7 +4001,7 @@ abstract class AbstractNetExecutorEngineTest {
                 .outputs(xor(
                     and(placeA, placeB, placeC),
                     and(placeA, placeB),
-                    place(placeD)))
+                    Arc.Out.one(placeD)))
                 .timing(Timing.deadline(Duration.ofMillis(100)))
                 .action(ctx -> {
                     // Produce to all of A, B, C — most specific branch is AND(A,B,C)
@@ -4117,10 +4117,10 @@ abstract class AbstractNetExecutorEngineTest {
 
             var t = Transition.builder("missing-place")
                 .inputs(one(input))
-                .outputs(place(required))
+                .outputs(Arc.Out.one(required))
                 .timing(Timing.deadline(Duration.ofMillis(100)))
                 .action(ctx -> {
-                    // Produce NOTHING - Out.Place violation
+                    // Produce NOTHING - Out.One violation
                     return CompletableFuture.completedFuture(null);
                 })
                 .build();
@@ -4157,7 +4157,7 @@ abstract class AbstractNetExecutorEngineTest {
             var t = Transition.builder("forward-missing")
                 .inputs(one(input))
                 .outputs(and(
-                    place(normal),
+                    Arc.Out.one(normal),
                     forwardInput(input, forward)))
                 .timing(Timing.deadline(Duration.ofMillis(100)))
                 .action(ctx -> {
@@ -4232,7 +4232,7 @@ abstract class AbstractNetExecutorEngineTest {
 
             var t = Transition.builder("t")
                 .inputs(one(input))
-                .outputs(place(output))
+                .outputs(Arc.Out.one(output))
                 .timing(Timing.deadline(Duration.ofMillis(100)))
                 .action(ctx -> {
                     ctx.output(output, ctx.input(input));
@@ -4263,7 +4263,7 @@ abstract class AbstractNetExecutorEngineTest {
 
             var t = Transition.builder("t")
                 .inputs(one(input))
-                .outputs(place(output))
+                .outputs(Arc.Out.one(output))
                 .timing(Timing.deadline(Duration.ofMillis(100)))
                 .action(ctx -> {
                     ctx.output(output, ctx.input(input));
@@ -4313,7 +4313,7 @@ abstract class AbstractNetExecutorEngineTest {
 
             var t = Transition.builder("DeadlinedTransition")
                 .inputs(one(input))
-                .outputs(place(output))
+                .outputs(Arc.Out.one(output))
                 .timing(Timing.deadline(Duration.ofMillis(100)))
                 .action(ctx -> {
                     ctx.output(output, ctx.input(input));
@@ -4347,7 +4347,7 @@ abstract class AbstractNetExecutorEngineTest {
 
             var t = Transition.builder("WindowedTransition")
                 .inputs(one(input))
-                .outputs(place(output))
+                .outputs(Arc.Out.one(output))
                 .timing(Timing.window(Duration.ofMillis(50), Duration.ofMillis(200)))
                 .action(ctx -> {
                     ctx.output(output, ctx.input(input));
@@ -4379,7 +4379,7 @@ abstract class AbstractNetExecutorEngineTest {
 
             var t = Transition.builder("ExactTransition")
                 .inputs(one(input))
-                .outputs(place(output))
+                .outputs(Arc.Out.one(output))
                 .timing(Timing.exact(Duration.ofMillis(100)))
                 .action(ctx -> {
                     ctx.output(output, ctx.input(input));
@@ -4431,7 +4431,7 @@ abstract class AbstractNetExecutorEngineTest {
 
             var t = Transition.builder("Transfer")
                 .inputs(one(input))
-                .outputs(place(output))
+                .outputs(Arc.Out.one(output))
                 .action(ctx -> {
                     ctx.output(output, ctx.input(input));
                     return CompletableFuture.completedFuture(null);
@@ -4476,7 +4476,7 @@ abstract class AbstractNetExecutorEngineTest {
 
             var t = Transition.builder("Transfer")
                 .inputs(one(input))
-                .outputs(place(output))
+                .outputs(Arc.Out.one(output))
                 .action(ctx -> {
                     ctx.output(output, ctx.input(input));
                     return CompletableFuture.completedFuture(null);
@@ -4516,7 +4516,7 @@ abstract class AbstractNetExecutorEngineTest {
 
             var t = Transition.builder("Transfer")
                 .inputs(one(input))
-                .outputs(place(output))
+                .outputs(Arc.Out.one(output))
                 .action(ctx -> {
                     ctx.output(output, ctx.input(input));
                     return CompletableFuture.completedFuture(null);
@@ -4555,7 +4555,7 @@ abstract class AbstractNetExecutorEngineTest {
 
             var t = Transition.builder("t")
                 .inputs(one(input))
-                .outputs(place(output))
+                .outputs(Arc.Out.one(output))
                 .action(ctx -> {
                     ctx.output(output, ctx.input(input));
                     return CompletableFuture.completedFuture(null);
@@ -4669,7 +4669,7 @@ abstract class AbstractNetExecutorEngineTest {
         @Test
         void place_returnsDeclaredPlace() {
             var place = Place.of("TestPlace", SimpleValue.class);
-            assertEquals(place, one(place).place());
+            assertEquals(place, Arc.Out.one(place).place());
             assertEquals(place, exactly(3, place).place());
             assertEquals(place, all(place).place());
             assertEquals(place, atLeast(3, place).place());

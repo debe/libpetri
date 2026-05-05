@@ -123,7 +123,8 @@ public final class Transition {
                 .map(Transition::findTimeout)
                 .filter(Objects::nonNull)
                 .findFirst().orElse(null);
-            case Arc.Out.Place _ -> null;
+            case Arc.Out.One _ -> null;
+            case Arc.Out.Exactly _ -> null;
             case Arc.Out.ForwardInput _ -> null;
         };
     }
@@ -367,7 +368,8 @@ public final class Transition {
                     .flatMap(c -> findForwardInputs(c).stream())
                     .toList();
                 case Arc.Out.Timeout t -> findForwardInputs(t.child());
-                case Arc.Out.Place _ -> List.of();
+                case Arc.Out.One _ -> List.of();
+                case Arc.Out.Exactly _ -> List.of();
             };
         }
     }

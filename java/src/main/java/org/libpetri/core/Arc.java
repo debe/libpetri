@@ -3,8 +3,9 @@ package org.libpetri.core;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -249,7 +250,7 @@ public sealed interface Arc permits Arc.In, Arc.Inhibitor, Arc.Read, Arc.Reset {
      *
      * @see In for input specifications
      */
-    sealed interface Out permits Out.And, Out.Xor, Out.Place, Out.Timeout, Out.ForwardInput {
+    sealed interface Out permits Out.And, Out.Xor, Out.One, Out.Exactly, Out.Timeout, Out.ForwardInput {
 
         /**
          * AND-split: ALL children must receive tokens.
@@ -290,9 +291,43 @@ public sealed interface Arc permits Arc.In, Arc.Inhibitor, Arc.Read, Arc.Reset {
         }
 
         /**
-         * Leaf node: a single output place.
+         * Leaf node: produce 1 token to a single output place.
+         *
+         * <p>Mirrors {@link In.One} on the input side. In branch enumeration
+         * (see {@link #enumerateBranches()}), contributes count = 1 to the place.
          */
-        record Place(org.libpetri.core.Place<?> place) implements Out {}
+        record One(org.libpetri.core.Place<?> place) implements Out {
+            public One {
+                if (place == null) {
+                    throw new IllegalArgumentException("One place cannot be null");
+                }
+            }
+        }
+
+        /**
+         * Leaf node: produce exactly N tokens to a single output place, where N >= 1.
+         *
+         * <p>Mirrors {@link In.Exactly} on the input side. Multiplicity is
+         * <strong>verification-only metadata</strong>: at runtime, the action determines
+         * actual token production via {@code TokenOutput.add(...)} calls; the runtime
+         * validator ({@code ExecutorSupport.validateOutSpec}) checks set-membership only.
+         * In branch enumeration, contributes count = N to the place.
+         *
+         * <p>See spec IO-018 (Output Exactly) and IO-019 (Multiset Branch Algebra).
+         *
+         * @param place the output place
+         * @param count the number of tokens (>= 1) — modeled in formal verification
+         */
+        record Exactly(org.libpetri.core.Place<?> place, int count) implements Out {
+            public Exactly {
+                if (place == null) {
+                    throw new IllegalArgumentException("Exactly place cannot be null");
+                }
+                if (count < 1) {
+                    throw new IllegalArgumentException("count must be >= 1, got: " + count);
+                }
+            }
+        }
 
         /**
          * Timeout branch - activates if action exceeds duration.
@@ -365,11 +400,15 @@ public sealed interface Arc permits Arc.In, Arc.Inhibitor, Arc.Read, Arc.Reset {
          * Creates an AND-split with the given places.
          * All places must receive tokens for validation to pass.
          *
+         * <p>Each place is wrapped as {@link One}. To get multiplicity > 1 in the
+         * formal model, repeat a place (e.g. {@code Out.and(P, P, P)} produces a
+         * branch with count 3 to P) or use {@link #exactly(int, org.libpetri.core.Place)}.
+         *
          * @param places the output places
          * @return AND output spec
          */
         static And and(org.libpetri.core.Place<?>... places) {
-            return new And(Arrays.stream(places).<Out>map(Out.Place::new).toList());
+            return new And(Arrays.stream(places).<Out>map(Out.One::new).toList());
         }
 
         /**
@@ -391,17 +430,33 @@ public sealed interface Arc permits Arc.In, Arc.Inhibitor, Arc.Read, Arc.Reset {
          * @return XOR output spec
          */
         static Xor xor(org.libpetri.core.Place<?>... places) {
-            return new Xor(Arrays.stream(places).<Out>map(Out.Place::new).toList());
+            return new Xor(Arrays.stream(places).<Out>map(Out.One::new).toList());
         }
 
         /**
-         * Creates a leaf output spec for a single place.
+         * Creates a leaf output spec that produces 1 token to the given place.
+         *
+         * <p>Mirrors {@link In#one(org.libpetri.core.Place)} on the input side.
          *
          * @param p the output place
-         * @return Place output spec
+         * @return One output spec
          */
-        static Place place(org.libpetri.core.Place<?> p) {
-            return new Place(p);
+        static One one(org.libpetri.core.Place<?> p) {
+            return new One(p);
+        }
+
+        /**
+         * Creates a leaf output spec that produces exactly N tokens to the given place.
+         *
+         * <p>Mirrors {@link In#exactly(int, org.libpetri.core.Place)} on the input side.
+         * Multiplicity is verification-only metadata — see {@link Exactly} for details.
+         *
+         * @param count the number of tokens (>= 1) — modeled in formal verification
+         * @param p the output place
+         * @return Exactly output spec
+         */
+        static Exactly exactly(int count, org.libpetri.core.Place<?> p) {
+            return new Exactly(p, count);
         }
 
         /**
@@ -429,7 +484,7 @@ public sealed interface Arc permits Arc.In, Arc.Inhibitor, Arc.Read, Arc.Reset {
          * @return Timeout output spec
          */
         static Timeout timeout(Duration after, org.libpetri.core.Place<?> p) {
-            return new Timeout(after, place(p));
+            return new Timeout(after, one(p));
         }
 
         /**
@@ -457,7 +512,8 @@ public sealed interface Arc permits Arc.In, Arc.Inhibitor, Arc.Read, Arc.Reset {
          */
         default Set<org.libpetri.core.Place<?>> allPlaces() {
             return switch (this) {
-                case Place p -> Set.of(p.place());
+                case One p -> Set.of(p.place());
+                case Exactly e -> Set.of(e.place());
                 case ForwardInput f -> Set.of(f.to());
                 case And a -> a.children().stream()
                     .flatMap(c -> c.allPlaces().stream())
@@ -473,32 +529,43 @@ public sealed interface Arc permits Arc.In, Arc.Inhibitor, Arc.Read, Arc.Reset {
          * Enumerates all possible output branches for structural analysis.
          *
          * <p>This method is used by the {@code StateClassGraph} analyzer to expand
-         * XOR outputs into virtual transitions (one per branch). Each branch represents
-         * a distinct possible outcome of firing the transition.
+         * XOR outputs into virtual transitions (one per branch), and by the SMT
+         * {@code NetFlattener} to build per-transition post-vectors. Each branch is
+         * a <strong>multiset</strong> (place &rarr; integer count) of token productions.
          *
          * <ul>
-         *   <li>AND = single branch containing all child places (Cartesian product)</li>
-         *   <li>XOR = one branch per alternative child</li>
-         *   <li>Nested = Cartesian product for AND, union for XOR</li>
+         *   <li>{@link One}{@code (P)} contributes a single branch {@code {P&rarr;1}}</li>
+         *   <li>{@link Exactly}{@code (P, N)} contributes a single branch {@code {P&rarr;N}}</li>
+         *   <li>{@link ForwardInput}{@code (from, to)} contributes a single branch {@code {to&rarr;1}}</li>
+         *   <li>{@link And} = Cartesian product of children's branches; on key collision, counts SUM</li>
+         *   <li>{@link Xor} = list-concatenation of children's branches (one per alternative)</li>
+         *   <li>{@link Timeout} = delegates to child</li>
          * </ul>
          *
          * <h3>Examples</h3>
          * <pre>{@code
-         * Out.and(a, b).enumerateBranches()           // [{a, b}]
-         * Out.xor(a, b).enumerateBranches()           // [{a}, {b}]
-         * Out.xor(Out.and(a,b), Out.and(c,d))         // [{a,b}, {c,d}]
-         * Out.and(Out.xor(a,b), Out.xor(c,d))         // [{a,c}, {a,d}, {b,c}, {b,d}]
+         * Out.and(a, b).enumerateBranches()           // [{a:1, b:1}]
+         * Out.and(a, a, a).enumerateBranches()        // [{a:3}]   <-- counts sum
+         * Out.exactly(3, a).enumerateBranches()       // [{a:3}]
+         * Out.xor(a, b).enumerateBranches()           // [{a:1}, {b:1}]
+         * Out.xor(Out.and(a,b), Out.and(c,d))         // [{a:1, b:1}, {c:1, d:1}]
+         * Out.and(Out.xor(a,b), Out.xor(c,d))         // [{a:1, c:1}, {a:1, d:1}, {b:1, c:1}, {b:1, d:1}]
+         * Out.and(Out.exactly(2, a), Out.one(a))      // [{a:3}]   <-- AND sums on collision
+         * Out.xor(Out.one(a), Out.exactly(3, a))      // [{a:1}, {a:3}]   <-- XOR enumerates by branch
          * }</pre>
          *
-         * @return list of branches, where each branch is a set of places
+         * <p>See spec IO-016 (Branch Enumeration) and IO-019 (Multiset Branch Algebra).
+         *
+         * @return list of branches, where each branch is a multiset (place &rarr; count)
          */
-        default List<Set<org.libpetri.core.Place<?>>> enumerateBranches() {
+        default List<Map<org.libpetri.core.Place<?>, Integer>> enumerateBranches() {
             return switch (this) {
-                case Place p -> List.of(Set.of(p.place()));
-                case ForwardInput f -> List.of(Set.<org.libpetri.core.Place<?>>of(f.to()));
+                case One p -> List.of(Map.of(p.place(), 1));
+                case Exactly e -> List.of(Map.of(e.place(), e.count()));
+                case ForwardInput f -> List.of(Map.of(f.to(), 1));
 
                 case And and -> {
-                    List<Set<org.libpetri.core.Place<?>>> result = List.of(Set.of());
+                    List<Map<org.libpetri.core.Place<?>, Integer>> result = List.of(Map.of());
                     for (Out child : and.children()) {
                         result = crossProduct(result, child.enumerateBranches());
                     }
@@ -506,7 +573,7 @@ public sealed interface Arc permits Arc.In, Arc.Inhibitor, Arc.Read, Arc.Reset {
                 }
 
                 case Xor xor -> {
-                    var result = new ArrayList<Set<org.libpetri.core.Place<?>>>();
+                    var result = new ArrayList<Map<org.libpetri.core.Place<?>, Integer>>();
                     for (Out child : xor.children()) {
                         result.addAll(child.enumerateBranches());
                     }
@@ -518,18 +585,22 @@ public sealed interface Arc permits Arc.In, Arc.Inhibitor, Arc.Read, Arc.Reset {
         }
 
         /**
-         * Computes the Cartesian product of two branch lists.
-         * Each resulting branch is the union of one branch from each input list.
+         * Computes the Cartesian product of two branch lists, merging multisets by
+         * summing counts on shared keys.
+         *
+         * <p>Example: {@code crossProduct([{P:2}], [{P:3, Q:1}])} = {@code [{P:5, Q:1}]}.
          */
-        private static List<Set<org.libpetri.core.Place<?>>> crossProduct(
-                List<Set<org.libpetri.core.Place<?>>> a,
-                List<Set<org.libpetri.core.Place<?>>> b) {
-            var result = new ArrayList<Set<org.libpetri.core.Place<?>>>();
-            for (var setA : a) {
-                for (var setB : b) {
-                    var merged = new HashSet<org.libpetri.core.Place<?>>(setA);
-                    merged.addAll(setB);
-                    result.add(Set.copyOf(merged));
+        private static List<Map<org.libpetri.core.Place<?>, Integer>> crossProduct(
+                List<Map<org.libpetri.core.Place<?>, Integer>> a,
+                List<Map<org.libpetri.core.Place<?>, Integer>> b) {
+            var result = new ArrayList<Map<org.libpetri.core.Place<?>, Integer>>();
+            for (var mapA : a) {
+                for (var mapB : b) {
+                    var merged = new HashMap<org.libpetri.core.Place<?>, Integer>(mapA);
+                    for (var entry : mapB.entrySet()) {
+                        merged.merge(entry.getKey(), entry.getValue(), Integer::sum);
+                    }
+                    result.add(Map.copyOf(merged));
                 }
             }
             return result;

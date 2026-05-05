@@ -109,7 +109,7 @@ class NewApisTest {
 
             var t = Transition.builder("delayed")
                 .inputs(Arc.In.one(input))
-                .outputs(Arc.Out.place(output))
+                .outputs(Arc.Out.one(output))
                 .timing(Timing.delayed(Duration.ofMillis(100)))
                 .action(ctx -> {
                     ctx.output(output, ctx.input(input));
@@ -147,7 +147,7 @@ class NewApisTest {
             var t = Transition.builder("Search")
                 .inputs(Arc.In.one(input))
                 .outputs(Arc.Out.xor(
-                    Arc.Out.place(success),
+                    Arc.Out.one(success),
                     Arc.Out.timeout(Duration.ofMillis(500), timeout)
                 ))
                 .timing(Timing.immediate())
@@ -180,7 +180,7 @@ class NewApisTest {
             var t = Transition.builder("SlowSearch")
                 .inputs(Arc.In.one(input))
                 .outputs(Arc.Out.xor(
-                    Arc.Out.place(success),
+                    Arc.Out.one(success),
                     Arc.Out.timeout(Duration.ofMillis(50), timeoutPlace)
                 ))
                 .timing(Timing.immediate())
@@ -233,7 +233,7 @@ class NewApisTest {
             var t = Transition.builder("SearchWithRetry")
                 .inputs(Arc.In.one(query))
                 .outputs(Arc.Out.xor(
-                    Arc.Out.place(result),
+                    Arc.Out.one(result),
                     Arc.Out.timeout(Duration.ofMillis(50),
                         Arc.Out.forwardInput(query, retry))
                 ))
@@ -281,7 +281,7 @@ class NewApisTest {
                 Transition.builder("Invalid")
                     .inputs(Arc.In.one(input))
                     .outputs(Arc.Out.xor(
-                        Arc.Out.place(output),
+                        Arc.Out.one(output),
                         Arc.Out.timeout(Duration.ofMillis(100),
                             Arc.Out.forwardInput(other, output))  // 'other' is not an input
                     ))
@@ -307,7 +307,7 @@ class NewApisTest {
 
             var t = Transition.builder("OneAtATime")
                 .inputs(Arc.In.one(input))
-                .outputs(Arc.Out.place(output))
+                .outputs(Arc.Out.one(output))
                 .timing(Timing.immediate())
                 .action(ctx -> {
                     ctx.output(output, ctx.input(input));
@@ -343,7 +343,7 @@ class NewApisTest {
 
             var t = Transition.builder("BatchOf3")
                 .inputs(Arc.In.exactly(3, input))
-                .outputs(Arc.Out.place(output))
+                .outputs(Arc.Out.one(output))
                 .timing(Timing.immediate())
                 .action(ctx -> {
                     // Should receive exactly 3 tokens
@@ -385,7 +385,7 @@ class NewApisTest {
 
             var t = Transition.builder("DrainAll")
                 .inputs(Arc.In.all(input))
-                .outputs(Arc.Out.place(output))
+                .outputs(Arc.Out.one(output))
                 .timing(Timing.immediate())
                 .action(ctx -> {
                     var items = ctx.inputs(input);
@@ -427,7 +427,7 @@ class NewApisTest {
 
             var t = Transition.builder("AtLeast3")
                 .inputs(Arc.In.atLeast(3, input))
-                .outputs(Arc.Out.place(output))
+                .outputs(Arc.Out.one(output))
                 .timing(Timing.immediate())
                 .action(ctx -> {
                     var items = ctx.inputs(input);

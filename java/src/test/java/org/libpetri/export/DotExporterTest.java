@@ -20,7 +20,7 @@ class DotExporterTest {
     void producesValidDotForSimpleNet() {
         var t = Transition.builder("Process")
             .inputs(In.one(START))
-            .outputs(Out.place(END))
+            .outputs(Out.one(END))
             .build();
         var net = PetriNet.builder("SimpleNet").transition(t).build();
 
@@ -40,7 +40,7 @@ class DotExporterTest {
     void containsCircleShapesForPlacesAndBoxForTransitions() {
         var t = Transition.builder("T")
             .inputs(In.one(START))
-            .outputs(Out.place(END))
+            .outputs(Out.one(END))
             .build();
         var net = PetriNet.builder("Test").transition(t).build();
 
@@ -60,7 +60,7 @@ class DotExporterTest {
 
         var t = Transition.builder("Process")
             .inputs(In.one(input))
-            .outputs(Out.place(output))
+            .outputs(Out.one(output))
             .inhibitor(blocker)
             .read(config)
             .reset(cache)
@@ -106,7 +106,7 @@ class DotExporterTest {
     void handlesWeightedInputArcs() {
         var t = Transition.builder("Batch")
             .inputs(In.exactly(3, START))
-            .outputs(Out.place(END))
+            .outputs(Out.one(END))
             .build();
         var net = PetriNet.builder("Test").transition(t).build();
 
@@ -119,7 +119,7 @@ class DotExporterTest {
     void includesTimingInTransitionLabels() {
         var t = Transition.builder("Process")
             .inputs(In.one(START))
-            .outputs(Out.place(END))
+            .outputs(Out.one(END))
             .timing(Timing.delayed(Duration.ofMillis(500)))
             .build();
         var net = PetriNet.builder("Test").transition(t).build();
@@ -133,7 +133,7 @@ class DotExporterTest {
     void respectsConfigDirection() {
         var t = Transition.builder("T")
             .inputs(In.one(START))
-            .outputs(Out.place(END))
+            .outputs(Out.one(END))
             .build();
         var net = PetriNet.builder("Test").transition(t).build();
 
@@ -147,7 +147,7 @@ class DotExporterTest {
         var envPlace = Place.of("Events", String.class);
         var t = Transition.builder("T")
             .inputs(In.one(envPlace))
-            .outputs(Out.place(END))
+            .outputs(Out.one(END))
             .build();
         var net = PetriNet.builder("Test").transition(t).build();
 
@@ -166,11 +166,11 @@ class DotExporterTest {
 
         var validate = Transition.builder("Validate")
             .inputs(In.one(pending))
-            .outputs(Out.place(validated))
+            .outputs(Out.one(validated))
             .build();
         var process = Transition.builder("Process")
             .inputs(In.one(validated))
-            .outputs(Out.place(processed))
+            .outputs(Out.one(processed))
             .build();
 
         var net = PetriNet.builder("Pipeline")

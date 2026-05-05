@@ -83,7 +83,7 @@ class ArcTest {
         @Test
         void outPlace_storesPlace() {
             var place = Place.of("Output", TestValue.class);
-            var spec = Arc.Out.place(place);
+            var spec = Arc.Out.one(place);
 
             assertEquals(place, spec.place());
         }
@@ -110,7 +110,100 @@ class ArcTest {
         void outXor_rejectsLessThanTwoChildren() {
             var p1 = Place.of("P1", TestValue.class);
             assertThrows(IllegalArgumentException.class, () ->
-                Arc.Out.xor(Arc.Out.place(p1)));
+                Arc.Out.xor(Arc.Out.one(p1)));
+        }
+
+        // ==================== Multiset Branch Enumeration (IO-016, IO-018, IO-019) ====================
+
+        @Test
+        void out_one_singleBranchWithCount1() {
+            var p = Place.of("P", TestValue.class);
+            var branches = Arc.Out.one(p).enumerateBranches();
+            assertEquals(1, branches.size());
+            assertEquals(java.util.Map.of(p, 1), branches.get(0));
+        }
+
+        @Test
+        void out_exactly_singleBranchWithCountN() {
+            var p = Place.of("P", TestValue.class);
+            var branches = Arc.Out.exactly(3, p).enumerateBranches();
+            assertEquals(1, branches.size());
+            assertEquals(java.util.Map.of(p, 3), branches.get(0));
+        }
+
+        @Test
+        void out_andRepeatedPlace_sumsCounts() {
+            var p = Place.of("P", TestValue.class);
+            var branches = Arc.Out.and(p, p, p).enumerateBranches();
+            assertEquals(1, branches.size());
+            assertEquals(java.util.Map.of(p, 3), branches.get(0),
+                "Out.and(P, P, P) must sum to {P→3} — verifies multiset semantics");
+        }
+
+        @Test
+        void out_andMixedRepeated_sumsPerPlace() {
+            var p = Place.of("P", TestValue.class);
+            var q = Place.of("Q", TestValue.class);
+            var branches = Arc.Out.and(p, q, p).enumerateBranches();
+            assertEquals(1, branches.size());
+            assertEquals(java.util.Map.of(p, 2, q, 1), branches.get(0));
+        }
+
+        @Test
+        void out_andExactlyAndOne_sums() {
+            var p = Place.of("P", TestValue.class);
+            var branches = Arc.Out.and(Arc.Out.exactly(2, p), Arc.Out.one(p)).enumerateBranches();
+            assertEquals(1, branches.size());
+            assertEquals(java.util.Map.of(p, 3), branches.get(0));
+        }
+
+        @Test
+        void out_andTwoExactly_sums() {
+            var p = Place.of("P", TestValue.class);
+            var branches = Arc.Out.and(Arc.Out.exactly(2, p), Arc.Out.exactly(3, p)).enumerateBranches();
+            assertEquals(1, branches.size());
+            assertEquals(java.util.Map.of(p, 5), branches.get(0));
+        }
+
+        @Test
+        void out_xorPreservesPerBranchCounts() {
+            var p = Place.of("P", TestValue.class);
+            var q = Place.of("Q", TestValue.class);
+            var branches = Arc.Out.xor(Arc.Out.and(p, p), Arc.Out.exactly(3, q)).enumerateBranches();
+            assertEquals(2, branches.size());
+            assertEquals(java.util.Map.of(p, 2), branches.get(0));
+            assertEquals(java.util.Map.of(q, 3), branches.get(1));
+        }
+
+        @Test
+        void out_xorSamePlaceDifferentCounts_indexedSeparately() {
+            var p = Place.of("P", TestValue.class);
+            var branches = Arc.Out.xor(Arc.Out.one(p), Arc.Out.exactly(3, p)).enumerateBranches();
+            assertEquals(2, branches.size());
+            assertEquals(java.util.Map.of(p, 1), branches.get(0));
+            assertEquals(java.util.Map.of(p, 3), branches.get(1));
+        }
+
+        @Test
+        void out_exactly_rejectsZero() {
+            var p = Place.of("P", TestValue.class);
+            assertThrows(IllegalArgumentException.class, () -> Arc.Out.exactly(0, p));
+        }
+
+        @Test
+        void out_exactly_rejectsNegative() {
+            var p = Place.of("P", TestValue.class);
+            assertThrows(IllegalArgumentException.class, () -> Arc.Out.exactly(-1, p));
+        }
+
+        @Test
+        void out_one_rejectsNullPlace() {
+            assertThrows(IllegalArgumentException.class, () -> new Arc.Out.One(null));
+        }
+
+        @Test
+        void out_exactly_rejectsNullPlace() {
+            assertThrows(IllegalArgumentException.class, () -> new Arc.Out.Exactly(null, 1));
         }
     }
 

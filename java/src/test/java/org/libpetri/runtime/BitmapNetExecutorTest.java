@@ -35,7 +35,7 @@ class BitmapNetExecutorTest {
 
             var t = Transition.builder("t1")
                 .inputs(In.one(start))
-                .outputs(Out.place(end))
+                .outputs(Out.one(end))
                 .action(ctx -> {
                     ctx.output(end, new SimpleValue("result"));
                     return CompletableFuture.completedFuture(null);
@@ -63,7 +63,7 @@ class BitmapNetExecutorTest {
             var order = new AtomicInteger(0);
 
             var t1 = Transition.builder("t1")
-                .inputs(In.one(p1)).outputs(Out.place(p2))
+                .inputs(In.one(p1)).outputs(Out.one(p2))
                 .action(ctx -> {
                     assertEquals(0, order.getAndIncrement());
                     ctx.output(p2, new SimpleValue("1"));
@@ -71,7 +71,7 @@ class BitmapNetExecutorTest {
                 }).build();
 
             var t2 = Transition.builder("t2")
-                .inputs(In.one(p2)).outputs(Out.place(p3))
+                .inputs(In.one(p2)).outputs(Out.one(p3))
                 .action(ctx -> {
                     assertEquals(1, order.getAndIncrement());
                     ctx.output(p3, new SimpleValue("2"));
@@ -79,7 +79,7 @@ class BitmapNetExecutorTest {
                 }).build();
 
             var t3 = Transition.builder("t3")
-                .inputs(In.one(p3)).outputs(Out.place(p4))
+                .inputs(In.one(p3)).outputs(Out.one(p4))
                 .action(ctx -> {
                     assertEquals(2, order.getAndIncrement());
                     ctx.output(p4, new SimpleValue("3"));
@@ -103,7 +103,7 @@ class BitmapNetExecutorTest {
             var threadName = new AtomicReference<String>();
 
             var t = Transition.builder("async")
-                .inputs(In.one(start)).outputs(Out.place(end))
+                .inputs(In.one(start)).outputs(Out.one(end))
                 .action(ctx -> {
                     ctx.output(end, new SimpleValue("async"));
                     return CompletableFuture.supplyAsync(() -> {
@@ -136,7 +136,7 @@ class BitmapNetExecutorTest {
             var fired = new AtomicBoolean(false);
 
             var t = Transition.builder("inhibited")
-                .inputs(In.one(input)).outputs(Out.place(output))
+                .inputs(In.one(input)).outputs(Out.one(output))
                 .inhibitor(blocker)
                 .action(ctx -> {
                     fired.set(true);
@@ -167,7 +167,7 @@ class BitmapNetExecutorTest {
 
             // t_remove: consumes blocker
             var tRemove = Transition.builder("remove")
-                .inputs(In.one(unblock)).outputs(Out.place(blocker))
+                .inputs(In.one(unblock)).outputs(Out.one(blocker))
                 .action(ctx -> {
                     // Don't produce to blocker, just consume from unblock
                     return CompletableFuture.completedFuture(null);
@@ -180,7 +180,7 @@ class BitmapNetExecutorTest {
                 .build();
 
             var tInhibited = Transition.builder("inhibited")
-                .inputs(In.one(input)).outputs(Out.place(output))
+                .inputs(In.one(input)).outputs(Out.one(output))
                 .inhibitor(blocker)
                 .action(ctx -> {
                     ctx.output(output, new SimpleValue("done"));
@@ -211,7 +211,7 @@ class BitmapNetExecutorTest {
             var output = Place.of("output", SimpleValue.class);
 
             var t = Transition.builder("read")
-                .inputs(In.one(input)).outputs(Out.place(output))
+                .inputs(In.one(input)).outputs(Out.one(output))
                 .read(config)
                 .action(ctx -> {
                     ctx.output(output, new SimpleValue("done"));
@@ -238,7 +238,7 @@ class BitmapNetExecutorTest {
             var fired = new AtomicBoolean(false);
 
             var t = Transition.builder("needsRead")
-                .inputs(In.one(input)).outputs(Out.place(output))
+                .inputs(In.one(input)).outputs(Out.one(output))
                 .read(config)
                 .action(ctx -> {
                     fired.set(true);
@@ -269,7 +269,7 @@ class BitmapNetExecutorTest {
             var output = Place.of("output", SimpleValue.class);
 
             var t = Transition.builder("resetter")
-                .inputs(In.one(input)).outputs(Out.place(output))
+                .inputs(In.one(input)).outputs(Out.one(output))
                 .reset(toReset)
                 .action(ctx -> {
                     ctx.output(output, new SimpleValue("done"));
@@ -309,7 +309,7 @@ class BitmapNetExecutorTest {
 
             // t2: timed transition consuming from buffer
             var t2 = Transition.builder("timed")
-                .inputs(In.one(buffer)).outputs(Out.place(timedOutput))
+                .inputs(In.one(buffer)).outputs(Out.one(timedOutput))
                 .timing(Timing.delayed(Duration.ofMillis(10)))
                 .action(ctx -> {
                     ctx.output(timedOutput, new SimpleValue("timed"));
@@ -339,7 +339,7 @@ class BitmapNetExecutorTest {
             var highOut = Place.of("highOut", SimpleValue.class);
 
             var low = Transition.builder("low")
-                .inputs(In.one(shared)).outputs(Out.place(lowOut))
+                .inputs(In.one(shared)).outputs(Out.one(lowOut))
                 .priority(1)
                 .action(ctx -> {
                     ctx.output(lowOut, new SimpleValue("low"));
@@ -347,7 +347,7 @@ class BitmapNetExecutorTest {
                 }).build();
 
             var high = Transition.builder("high")
-                .inputs(In.one(shared)).outputs(Out.place(highOut))
+                .inputs(In.one(shared)).outputs(Out.one(highOut))
                 .priority(10)
                 .action(ctx -> {
                     ctx.output(highOut, new SimpleValue("high"));
@@ -379,7 +379,7 @@ class BitmapNetExecutorTest {
             long beforeNanos = System.nanoTime();
 
             var t = Transition.builder("delayed")
-                .inputs(In.one(start)).outputs(Out.place(end))
+                .inputs(In.one(start)).outputs(Out.one(end))
                 .timing(Timing.delayed(Duration.ofMillis(50)))
                 .action(ctx -> {
                     fireTime.set(System.nanoTime());
@@ -404,7 +404,7 @@ class BitmapNetExecutorTest {
             var end = Place.of("end", SimpleValue.class);
 
             var t = Transition.builder("windowed")
-                .inputs(In.one(start)).outputs(Out.place(end))
+                .inputs(In.one(start)).outputs(Out.one(end))
                 .timing(Timing.window(Duration.ofMillis(30), Duration.ofMillis(200)))
                 .action(ctx -> {
                     ctx.output(end, new SimpleValue("done"));
@@ -436,7 +436,7 @@ class BitmapNetExecutorTest {
 
             var t = Transition.builder("batch")
                 .inputs(In.exactly(3, input))
-                .outputs(Out.place(output))
+                .outputs(Out.one(output))
                 .action(ctx -> {
                     var items = ctx.inputs(input);
                     assertEquals(3, items.size());
@@ -465,7 +465,7 @@ class BitmapNetExecutorTest {
 
             var t = Transition.builder("drain")
                 .inputs(In.all(input))
-                .outputs(Out.place(output))
+                .outputs(Out.one(output))
                 .action(ctx -> {
                     var items = ctx.inputs(input);
                     ctx.output(output, new SimpleValue("drained:" + items.size()));
@@ -494,7 +494,7 @@ class BitmapNetExecutorTest {
 
             var t = Transition.builder("accumulate")
                 .inputs(In.atLeast(5, input))
-                .outputs(Out.place(output))
+                .outputs(Out.one(output))
                 .action(ctx -> {
                     fired.set(true);
                     ctx.output(output, new SimpleValue("accumulated"));
@@ -557,7 +557,7 @@ class BitmapNetExecutorTest {
             var output = Place.of("output", SimpleValue.class);
 
             var t = Transition.builder("react")
-                .inputs(In.one(envPlace)).outputs(Out.place(output))
+                .inputs(In.one(envPlace)).outputs(Out.one(output))
                 .action(ctx -> {
                     ctx.output(output, new SimpleValue("reacted"));
                     return CompletableFuture.completedFuture(null);
@@ -603,7 +603,7 @@ class BitmapNetExecutorTest {
             var processedCount = new AtomicInteger(0);
 
             var t = Transition.builder("consumer")
-                .inputs(In.one(envPlace)).outputs(Out.place(output))
+                .inputs(In.one(envPlace)).outputs(Out.one(output))
                 .action(ctx -> {
                     processedCount.incrementAndGet();
                     ctx.output(output, ctx.input(envPlace));
@@ -689,14 +689,14 @@ class BitmapNetExecutorTest {
                 .build();
 
             var work1 = Transition.builder("work1")
-                .inputs(In.one(branch1)).outputs(Out.place(done1))
+                .inputs(In.one(branch1)).outputs(Out.one(done1))
                 .action(ctx -> {
                     ctx.output(done1, new SimpleValue("w1"));
                     return CompletableFuture.completedFuture(null);
                 }).build();
 
             var work2 = Transition.builder("work2")
-                .inputs(In.one(branch2)).outputs(Out.place(done2))
+                .inputs(In.one(branch2)).outputs(Out.one(done2))
                 .action(ctx -> {
                     ctx.output(done2, new SimpleValue("w2"));
                     return CompletableFuture.completedFuture(null);
@@ -704,7 +704,7 @@ class BitmapNetExecutorTest {
 
             var join = Transition.builder("join")
                 .inputs(In.one(done1), In.one(done2))
-                .outputs(Out.place(result))
+                .outputs(Out.one(result))
                 .action(ctx -> {
                     ctx.output(result, new SimpleValue("joined"));
                     return CompletableFuture.completedFuture(null);
@@ -760,7 +760,7 @@ class BitmapNetExecutorTest {
             // Intent: produces intentReady (read by Search and TopicKnowledge)
             var intentTrans = Transition.builder("Intent")
                 .inputs(In.one(v_intentIn))
-                .outputs(Out.place(v_intentReady))
+                .outputs(Out.one(v_intentReady))
                 .action(ctx -> {
                     ctx.output(v_intentReady, new SimpleValue("intent"));
                     return CompletableFuture.completedFuture(null);
@@ -769,7 +769,7 @@ class BitmapNetExecutorTest {
             // TopicKnowledge: reads intentReady (doesn't consume), uses own input from fork
             var topicTrans = Transition.builder("TopicKnowledge")
                 .inputs(In.one(v_topicIn))
-                .outputs(Out.place(v_topicReady))
+                .outputs(Out.one(v_topicReady))
                 .read(v_intentReady)
                 .action(ctx -> {
                     ctx.output(v_topicReady, new SimpleValue("topic"));
@@ -779,7 +779,7 @@ class BitmapNetExecutorTest {
             // Search: reads intentReady, inhibited by guardViolation, low priority
             var searchTrans = Transition.builder("Search")
                 .inputs(In.one(v_searchIn))
-                .outputs(Out.place(v_searchReady))
+                .outputs(Out.one(v_searchReady))
                 .read(v_intentReady)
                 .inhibitor(v_guardViolation)
                 .priority(-5)
@@ -791,7 +791,7 @@ class BitmapNetExecutorTest {
             // Compose: AND-join of 3 parallel paths
             var composeTrans = Transition.builder("Compose")
                 .inputs(In.one(v_guardSafe), In.one(v_searchReady), In.one(v_topicReady))
-                .outputs(Out.place(v_response))
+                .outputs(Out.one(v_response))
                 .priority(10)
                 .action(ctx -> {
                     ctx.output(v_response, new SimpleValue("composed"));
@@ -822,7 +822,7 @@ class BitmapNetExecutorTest {
             var end = Place.of("end", SimpleValue.class);
 
             var t = Transition.builder("tracked")
-                .inputs(In.one(start)).outputs(Out.place(end))
+                .inputs(In.one(start)).outputs(Out.one(end))
                 .action(ctx -> {
                     ctx.output(end, new SimpleValue("done"));
                     return CompletableFuture.completedFuture(null);
@@ -857,10 +857,10 @@ class BitmapNetExecutorTest {
             var p3 = Place.of("p3", SimpleValue.class);
 
             var t1 = Transition.builder("t1")
-                .inputs(In.one(p1)).outputs(Out.place(p2))
+                .inputs(In.one(p1)).outputs(Out.one(p2))
                 .action(TransitionAction.passthrough()).build();
             var t2 = Transition.builder("t2")
-                .inputs(In.one(p2)).outputs(Out.place(p3))
+                .inputs(In.one(p2)).outputs(Out.one(p3))
                 .action(TransitionAction.passthrough()).build();
 
             var net = PetriNet.builder("Test").transitions(t1, t2).build();
@@ -888,7 +888,7 @@ class BitmapNetExecutorTest {
             var output = Place.of("output", SimpleValue.class);
 
             var t = Transition.builder("t")
-                .inputs(In.one(input)).outputs(Out.place(output))
+                .inputs(In.one(input)).outputs(Out.one(output))
                 .read(readP)
                 .action(TransitionAction.passthrough()).build();
 
@@ -909,7 +909,7 @@ class BitmapNetExecutorTest {
             var output = Place.of("output", SimpleValue.class);
 
             var t = Transition.builder("t")
-                .inputs(In.one(input)).outputs(Out.place(output))
+                .inputs(In.one(input)).outputs(Out.one(output))
                 .inhibitor(blocker)
                 .action(TransitionAction.passthrough()).build();
 
@@ -929,10 +929,10 @@ class BitmapNetExecutorTest {
             var out2 = Place.of("out2", SimpleValue.class);
 
             var t1 = Transition.builder("t1")
-                .inputs(In.one(shared)).outputs(Out.place(out1))
+                .inputs(In.one(shared)).outputs(Out.one(out1))
                 .action(TransitionAction.passthrough()).build();
             var t2 = Transition.builder("t2")
-                .inputs(In.one(shared)).outputs(Out.place(out2))
+                .inputs(In.one(shared)).outputs(Out.one(out2))
                 .action(TransitionAction.passthrough()).build();
 
             var net = PetriNet.builder("Test").transitions(t1, t2).build();
@@ -950,7 +950,7 @@ class BitmapNetExecutorTest {
             var output = Place.of("output", SimpleValue.class);
 
             var t = Transition.builder("t")
-                .inputs(In.one(input)).outputs(Out.place(output))
+                .inputs(In.one(input)).outputs(Out.one(output))
                 .inhibitor(blocker)
                 .action(TransitionAction.passthrough()).build();
 
@@ -989,7 +989,7 @@ class BitmapNetExecutorTest {
             var t = Transition.builder("slow")
                 .inputs(In.one(input))
                 .outputs(Out.xor(
-                    Out.place(success),
+                    Out.one(success),
                     Out.timeout(Duration.ofMillis(50), timeout)))
                 .action(ctx -> {
                     // Slow action - will timeout
@@ -1022,7 +1022,7 @@ class BitmapNetExecutorTest {
             var output = Place.of("output", SimpleValue.class);
 
             var t = Transition.builder("failing")
-                .inputs(In.one(input)).outputs(Out.place(output))
+                .inputs(In.one(input)).outputs(Out.one(output))
                 .action(ctx -> {
                     return CompletableFuture.failedFuture(new RuntimeException("boom"));
                 }).build();
@@ -1179,7 +1179,7 @@ class BitmapNetExecutorTest {
                 var to = places.get(i + 1);
                 builder.transition(
                     Transition.builder("t" + (i + 1))
-                        .inputs(In.one(from)).outputs(Out.place(to))
+                        .inputs(In.one(from)).outputs(Out.one(to))
                         .action(ctx -> {
                             ctx.output(to, new SimpleValue("v"));
                             return CompletableFuture.completedFuture(null);

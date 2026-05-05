@@ -32,7 +32,7 @@ class DebugProtocolHandlerTest {
             .transitions(
                     Transition.builder("Process")
                             .inputs(In.one(INPUT))
-                            .outputs(Out.place(OUTPUT))
+                            .outputs(Out.one(OUTPUT))
                             .build()
             )
             .build();

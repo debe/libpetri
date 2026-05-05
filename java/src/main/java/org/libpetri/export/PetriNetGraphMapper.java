@@ -192,10 +192,20 @@ public final class PetriNetGraphMapper {
         EdgeVisual outStyle = StyleConstants.edgeStyle(ArcType.OUTPUT);
 
         return switch (out) {
-            case Arc.Out.Place p -> {
+            case Arc.Out.One p -> {
                 String pid = "p_" + DotExporter.sanitize(p.place().name());
                 yield List.of(new GraphEdge(
                     transitionId, pid, branchLabel,
+                    outStyle.color(), outStyle.style(), outStyle.arrowhead(),
+                    outStyle.penwidth(), ArcType.OUTPUT, null
+                ));
+            }
+
+            case Arc.Out.Exactly e -> {
+                String pid = "p_" + DotExporter.sanitize(e.place().name());
+                String label = (branchLabel != null ? branchLabel + " " : "") + "×" + e.count();
+                yield List.of(new GraphEdge(
+                    transitionId, pid, label,
                     outStyle.color(), outStyle.style(), outStyle.arrowhead(),
                     outStyle.penwidth(), ArcType.OUTPUT, null
                 ));
@@ -231,7 +241,8 @@ public final class PetriNetGraphMapper {
 
     private static String inferBranchLabel(Arc.Out out) {
         return switch (out) {
-            case Arc.Out.Place p -> p.place().name();
+            case Arc.Out.One p -> p.place().name();
+            case Arc.Out.Exactly e -> e.place().name() + "\u00d7" + e.count();
             case Arc.Out.Timeout t -> "\u23f1" + t.after().toMillis() + "ms";
             case Arc.Out.ForwardInput f -> f.to().name();
             case Arc.Out.And _, Arc.Out.Xor _ -> null;

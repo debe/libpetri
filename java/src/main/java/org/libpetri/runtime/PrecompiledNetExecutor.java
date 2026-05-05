@@ -1273,7 +1273,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
         int simplePid = program.simpleOutputPlaceId[tid];
         if (simplePid == -2) return; // no output spec
         if (simplePid >= 0) {
-            // Fast path: Out.Place — just check the single expected place got a token
+            // Fast path: Out.One/Out.Exactly — check the single expected place got a token
             var entries = outputs.entries();
             for (var entry : entries) {
                 if (program.placeIndex.get(entry.place()) == simplePid) return;

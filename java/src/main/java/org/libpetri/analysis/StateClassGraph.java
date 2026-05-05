@@ -69,9 +69,9 @@ public final class StateClassGraph {
      * Berthomieu-Diaz algorithm unchanged while supporting formal XOR analysis.
      */
     private record VirtualTransition(
-        Transition transition,      // The original transition
-        int branchIndex,            // Which XOR branch (0 for non-XOR)
-        Set<Place<?>> outputPlaces  // The specific outputs for this branch
+        Transition transition,             // The original transition
+        int branchIndex,                   // Which XOR branch (0 for non-XOR)
+        Map<Place<?>, Integer> outputPlaces // Multiset of outputs for this branch (place -> token count)
     ) {
         String name() {
             return branchIndex == 0 && transition.outputSpec() == null
@@ -262,13 +262,13 @@ public final class StateClassGraph {
      * virtual transition in structural conflict with other branches.
      */
     private static List<VirtualTransition> expandTransition(Transition t) {
-        List<Set<Place<?>>> branches;
+        List<Map<Place<?>, Integer>> branches;
 
         if (t.outputSpec() != null) {
             branches = t.outputSpec().enumerateBranches();
         } else {
             // No outputs (sink transition)
-            branches = List.of(Set.of());
+            branches = List.of(Map.of());
         }
 
         var result = new ArrayList<VirtualTransition>();
@@ -506,7 +506,7 @@ public final class StateClassGraph {
      *
      * @param marking the current marking
      * @param transition the transition to fire
-     * @param outputPlaces specific output places to use (null = use transition's outputs)
+     * @param outputPlaces specific output multiset to use (null = use transition's outputs)
      * @param environmentPlaces places treated as environment
      * @param environmentMode how to handle environment places
      * @return the new marking after firing
@@ -514,7 +514,7 @@ public final class StateClassGraph {
     private static MarkingState fireTransition(
             MarkingState marking,
             Transition transition,
-            Set<Place<?>> outputPlaces,
+            Map<Place<?>, Integer> outputPlaces,
             Set<Place<?>> environmentPlaces,
             EnvironmentAnalysisMode environmentMode
     ) {
@@ -542,14 +542,15 @@ public final class StateClassGraph {
             }
         }
 
-        // Produce to outputs
+        // Produce to outputs (multiset; counts come from Out.One=1 / Out.Exactly=N / etc.)
         if (outputPlaces != null) {
-            // Use specific output places (XOR branch)
-            for (var place : outputPlaces) {
-                builder.addTokens(place, 1);
+            // Use specific output multiset (XOR branch)
+            for (var entry : outputPlaces.entrySet()) {
+                builder.addTokens(entry.getKey(), entry.getValue());
             }
         } else if (transition.outputSpec() != null) {
-            // Use all places from outputSpec (AND semantics for analysis)
+            // Use all places from outputSpec (AND semantics for analysis); fall back to count=1
+            // since the per-branch multiset is unavailable here.
             for (var place : transition.outputSpec().allPlaces()) {
                 builder.addTokens(place, 1);
             }

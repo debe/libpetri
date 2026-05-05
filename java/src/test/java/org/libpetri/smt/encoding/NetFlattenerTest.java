@@ -70,7 +70,7 @@ class NetFlattenerTest {
 
         var t = Transition.builder("T")
             .inputs(In.one(p1), In.exactly(3, p2))
-            .outputs(Out.place(p3))
+            .outputs(Out.one(p3))
             .build();
 
         var net = PetriNet.builder("Test").transitions(t).build();
@@ -98,7 +98,7 @@ class NetFlattenerTest {
 
         var t = Transition.builder("T")
             .inputs(In.all(p1))
-            .outputs(Out.place(p2))
+            .outputs(Out.one(p2))
             .build();
 
         var net = PetriNet.builder("Test").transitions(t).build();
@@ -121,7 +121,7 @@ class NetFlattenerTest {
             .inputs(In.one(p1))
             .inhibitor(p2)
             .read(p3)
-            .outputs(Out.place(p4))
+            .outputs(Out.one(p4))
             .build();
 
         var net = PetriNet.builder("Test").transitions(t).build();
@@ -143,7 +143,7 @@ class NetFlattenerTest {
 
         var t = Transition.builder("T")
             .inputs(In.one(envPlace))
-            .outputs(Out.place(output))
+            .outputs(Out.one(output))
             .build();
 
         var net = PetriNet.builder("Test").transitions(t).build();
@@ -184,5 +184,87 @@ class NetFlattenerTest {
         boolean branch0HasOut1 = ft0.postVector()[out1Idx] == 1;
         boolean branch1HasOut1 = ft1.postVector()[out1Idx] == 1;
         assertTrue(branch0HasOut1 ^ branch1HasOut1, "Exactly one branch should output to Out1");
+    }
+
+    // ==================== Multiplicity (IO-018, IO-019) ====================
+
+    @Test
+    void flattenAndRepeatedPlace_postVectorReflectsCount() {
+        var input = Place.of("Input", String.class);
+        var output = Place.of("Output", String.class);
+
+        var t = Transition.builder("Triple")
+            .inputs(In.one(input))
+            .outputs(Out.and(output, output, output))
+            .build();
+
+        var net = PetriNet.builder("RepeatedAndNet").transitions(t).build();
+        var flatNet = NetFlattener.flatten(net, Set.of(), EnvironmentAnalysisMode.ignore());
+
+        assertEquals(1, flatNet.transitionCount());
+        var ft = flatNet.transitions().get(0);
+        int outIdx = flatNet.indexOf(output);
+        assertEquals(3, ft.postVector()[outIdx],
+            "Out.and(P, P, P) must produce postVector[P] == 3 (multiset semantics)");
+    }
+
+    @Test
+    void flattenExactly_postVectorEqualsCount() {
+        var input = Place.of("Input", String.class);
+        var output = Place.of("Output", String.class);
+
+        var t = Transition.builder("Five")
+            .inputs(In.one(input))
+            .outputs(Out.exactly(5, output))
+            .build();
+
+        var net = PetriNet.builder("ExactlyNet").transitions(t).build();
+        var flatNet = NetFlattener.flatten(net, Set.of(), EnvironmentAnalysisMode.ignore());
+
+        var ft = flatNet.transitions().get(0);
+        int outIdx = flatNet.indexOf(output);
+        assertEquals(5, ft.postVector()[outIdx],
+            "Out.exactly(5, P) must produce postVector[P] == 5");
+    }
+
+    @Test
+    void flattenAndExactlySum_postVectorAccumulates() {
+        var input = Place.of("Input", String.class);
+        var output = Place.of("Output", String.class);
+
+        var t = Transition.builder("Sum")
+            .inputs(In.one(input))
+            .outputs(Out.and(Out.exactly(2, output), Out.exactly(3, output)))
+            .build();
+
+        var net = PetriNet.builder("SumNet").transitions(t).build();
+        var flatNet = NetFlattener.flatten(net, Set.of(), EnvironmentAnalysisMode.ignore());
+
+        var ft = flatNet.transitions().get(0);
+        int outIdx = flatNet.indexOf(output);
+        assertEquals(5, ft.postVector()[outIdx],
+            "AND must sum counts on shared keys: Exactly(2,P) AND Exactly(3,P) => 5");
+    }
+
+    @Test
+    void flattenXorDifferentCounts_eachBranchHasItsOwnCount() {
+        var input = Place.of("Input", String.class);
+        var output = Place.of("Output", String.class);
+
+        var t = Transition.builder("Choice")
+            .inputs(In.one(input))
+            .outputs(Out.xor(Out.one(output), Out.exactly(3, output)))
+            .build();
+
+        var net = PetriNet.builder("XorCountsNet").transitions(t).build();
+        var flatNet = NetFlattener.flatten(net, Set.of(), EnvironmentAnalysisMode.ignore());
+
+        assertEquals(2, flatNet.transitionCount(),
+            "XOR with two branches expands to 2 flat transitions");
+
+        int outIdx = flatNet.indexOf(output);
+        // Branch order is preserved: branch 0 = One(output), branch 1 = Exactly(3, output)
+        assertEquals(1, flatNet.transitions().get(0).postVector()[outIdx]);
+        assertEquals(3, flatNet.transitions().get(1).postVector()[outIdx]);
     }
 }

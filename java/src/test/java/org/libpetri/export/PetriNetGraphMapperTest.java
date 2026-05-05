@@ -19,7 +19,7 @@ class PetriNetGraphMapperTest {
     private PetriNet simpleNet() {
         var t = Transition.builder("Process")
             .inputs(In.one(START))
-            .outputs(Out.place(END))
+            .outputs(Out.one(END))
             .build();
         return PetriNet.builder("Test").transition(t).build();
     }
@@ -75,7 +75,7 @@ class PetriNetGraphMapperTest {
         var envPlace = Place.of("Events", String.class);
         var t = Transition.builder("Process")
             .inputs(In.one(envPlace))
-            .outputs(Out.place(END))
+            .outputs(Out.one(END))
             .build();
         var net = PetriNet.builder("Test").transition(t).build();
         var config = new ExportConfig(RankDir.TB, true, true, true, Set.of("Events"));
@@ -102,7 +102,7 @@ class PetriNetGraphMapperTest {
     void generatesExactlyInputLabel() {
         var t = Transition.builder("Batch")
             .inputs(In.exactly(3, START))
-            .outputs(Out.place(END))
+            .outputs(Out.one(END))
             .build();
         var net = PetriNet.builder("Test").transition(t).build();
         var graph = PetriNetGraphMapper.map(net, ExportConfig.DEFAULT);
@@ -115,7 +115,7 @@ class PetriNetGraphMapperTest {
     void generatesAllInputLabel() {
         var t = Transition.builder("Drain")
             .inputs(In.all(START))
-            .outputs(Out.place(END))
+            .outputs(Out.one(END))
             .build();
         var net = PetriNet.builder("Test").transition(t).build();
         var graph = PetriNetGraphMapper.map(net, ExportConfig.DEFAULT);
@@ -128,7 +128,7 @@ class PetriNetGraphMapperTest {
     void generatesAtLeastInputLabel() {
         var t = Transition.builder("Accum")
             .inputs(In.atLeast(5, START))
-            .outputs(Out.place(END))
+            .outputs(Out.one(END))
             .build();
         var net = PetriNet.builder("Test").transition(t).build();
         var graph = PetriNetGraphMapper.map(net, ExportConfig.DEFAULT);
@@ -183,7 +183,7 @@ class PetriNetGraphMapperTest {
         var pause = Place.of("Pause", String.class);
         var t = Transition.builder("Process")
             .inputs(In.one(START))
-            .outputs(Out.place(END))
+            .outputs(Out.one(END))
             .inhibitor(pause)
             .build();
         var net = PetriNet.builder("Test").transition(t).build();
@@ -201,7 +201,7 @@ class PetriNetGraphMapperTest {
         var config = Place.of("Config", String.class);
         var t = Transition.builder("Process")
             .inputs(In.one(START))
-            .outputs(Out.place(END))
+            .outputs(Out.one(END))
             .read(config)
             .build();
         var net = PetriNet.builder("Test").transition(t).build();
@@ -217,7 +217,7 @@ class PetriNetGraphMapperTest {
         var cache = Place.of("Cache", String.class);
         var t = Transition.builder("Process")
             .inputs(In.one(START))
-            .outputs(Out.place(END))
+            .outputs(Out.one(END))
             .reset(cache)
             .build();
         var net = PetriNet.builder("Test").transition(t).build();
@@ -252,7 +252,7 @@ class PetriNetGraphMapperTest {
     void includesTimingInLabel() {
         var t = Transition.builder("Process")
             .inputs(In.one(START))
-            .outputs(Out.place(END))
+            .outputs(Out.one(END))
             .timing(Timing.delayed(Duration.ofMillis(500)))
             .build();
         var net = PetriNet.builder("Test").transition(t).build();
@@ -266,7 +266,7 @@ class PetriNetGraphMapperTest {
     void includesPriorityInLabel() {
         var t = Transition.builder("Process")
             .inputs(In.one(START))
-            .outputs(Out.place(END))
+            .outputs(Out.one(END))
             .priority(10)
             .build();
         var net = PetriNet.builder("Test").transition(t).build();
@@ -280,7 +280,7 @@ class PetriNetGraphMapperTest {
     void minimalConfigHidesDetails() {
         var t = Transition.builder("Process")
             .inputs(In.one(START))
-            .outputs(Out.place(END))
+            .outputs(Out.one(END))
             .timing(Timing.delayed(Duration.ofMillis(500)))
             .priority(10)
             .build();

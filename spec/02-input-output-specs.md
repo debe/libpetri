@@ -133,17 +133,18 @@ Every input cardinality variant exposes two functions:
 
 ## Output Composition
 
-#### IO-010: Output Place (Leaf)
+#### IO-010: Output One (Leaf)
 
 **Priority:** MUST
 
-`Place(place)` — a leaf node representing a single output place. The action produces one or more tokens to this place.
+`One(place)` — a leaf node representing a single output place that receives exactly 1 token in the formal model. Mirrors `In.One` on the input side. The action emits one or more tokens to this place at runtime; the spec asserts the structural contract that the place receives at least one token.
 
 **Acceptance Criteria:**
 1. Output spec declares a single place.
 2. Produced tokens appear in the place.
+3. In branch enumeration, an `One(P)` leaf contributes count = 1 to `P` in the resulting multiset (see IO-019).
 
-**Test derivation:** Transition with Place output; action produces token; verify it appears.
+**Test derivation:** Transition with `One(P)` output; action produces a token to P; verify it appears.
 
 ---
 
@@ -217,7 +218,8 @@ Every input cardinality variant exposes two functions:
 After an action completes, the executor validates that produced tokens conform to the declared output specification:
 - **And**: all children satisfied
 - **Xor**: exactly one child satisfied
-- **Place**: place received tokens
+- **One**: place received tokens
+- **Exactly(p, n)**: place received tokens (multiplicity is verification-only metadata; the runtime checks set-membership only — see IO-018)
 
 Validation failure is treated as a transition failure (error event emitted, tokens not restored).
 
@@ -235,18 +237,23 @@ Validation failure is treated as a transition failure (error event emitted, toke
 
 **Priority:** SHOULD
 
-The output specification supports static enumeration of all possible output branches for structural analysis:
-- **And**: Cartesian product of child branches (single branch containing all places)
-- **Xor**: Union of child branches (one branch per alternative)
-- **Place**: Single branch containing the place
+The output specification supports static enumeration of all possible output branches for structural analysis. **Branches are multisets** (place → integer count), not sets — see IO-019 for the multiset algebra. Returns `List<Map<Place, Integer>>` (or the language-equivalent multiset representation).
+
+- **One(P)**: Single branch with `{P → 1}`
+- **Exactly(P, N)**: Single branch with `{P → N}`
+- **And(...)**: Cartesian product of child branches; on key collision, **counts sum**
+- **Xor(...)**: List-concatenation of child branches (one branch per alternative)
 - **Timeout**: Delegates to child branches
+- **ForwardInput(from, to)**: Single branch with `{to → 1}`
 
 **Acceptance Criteria:**
-1. `And(P1, P2)` → 1 branch: {P1, P2}
-2. `Xor(P1, P2)` → 2 branches: {P1}, {P2}
-3. `Xor(And(P1, P2), P3)` → 2 branches: {P1, P2}, {P3}
+1. `And(One(P1), One(P2))` → 1 branch: `{P1→1, P2→1}`
+2. `Xor(One(P1), One(P2))` → 2 branches: `{P1→1}`, `{P2→1}`
+3. `And(One(P), One(P), One(P))` → 1 branch: `{P→3}` (counts sum on collision)
+4. `And(Exactly(P, 2), One(P))` → 1 branch: `{P→3}`
+5. `Xor(And(One(P1), One(P2)), Exactly(P3, 5))` → 2 branches: `{P1→1, P2→1}`, `{P3→5}`
 
-**Test derivation:** Enumerate branches for nested structures; verify correct sets.
+**Test derivation:** Enumerate branches for nested structures; verify correct multisets.
 
 ---
 
@@ -254,10 +261,84 @@ The output specification supports static enumeration of all possible output bran
 
 **Priority:** MUST
 
-The output specification provides a method to collect all leaf places from the entire tree, regardless of And/Xor/Timeout structure.
+The output specification provides a method to collect all leaf places from the entire tree, regardless of And/Xor/Timeout structure. Returns a `Set<Place>` (no multiplicity — for multiplicity-aware enumeration, see IO-016).
 
 **Acceptance Criteria:**
-1. `Xor(And(P1, P2), Timeout(5s, P3))` → {P1, P2, P3}
-2. ForwardInput(from, to) contributes `to` to the set.
+1. `Xor(And(One(P1), One(P2)), Timeout(5s, One(P3)))` → `{P1, P2, P3}`
+2. `Exactly(P, 5)` contributes `{P}` to the set (count is irrelevant for `allPlaces`).
+3. `ForwardInput(from, to)` contributes `to` to the set.
 
-**Test derivation:** Nested output spec; verify allPlaces returns complete set.
+**Test derivation:** Nested output spec; verify `allPlaces` returns complete set.
+
+---
+
+#### IO-018: Output Exactly (Leaf)
+
+**Priority:** MUST
+
+`Exactly(place, n)` — a leaf node representing a single output place that receives exactly N tokens in the formal model, where N >= 1. Mirrors `In.Exactly` on the input side. Multiplicity is **verification-only metadata**: the runtime continues to use set-membership for structural validation (the action determines actual token production via `TokenOutput.add()` calls).
+
+**Acceptance Criteria:**
+1. Construction with `n < 1` is rejected (error or panic).
+2. In branch enumeration, `Exactly(P, N)` contributes count = N to P in the resulting multiset (see IO-019).
+3. The runtime validator treats `Exactly(P, N)` identically to `One(P)` — checks that P received at least one token, not that it received exactly N.
+4. `allPlaces` includes the place (without multiplicity).
+
+**Depends on:** [IO-010, IO-016, IO-019]
+**Test derivation:**
+- `Exactly(P, 3).enumerateBranches()` → `[{P→3}]`.
+- Construction with `n = 0` or `n = -1` raises an error.
+- Net with `Exactly(P, 5)` produces `postVector[idx(P)] == 5` in the flat-net encoding.
+- SMT verification: net firing transition `T` with `Exactly(P, 3)` proves `placeBound(P, 2)` is violated and `placeBound(P, 3)` holds.
+
+---
+
+#### IO-019: Multiset Branch Algebra
+
+**Priority:** MUST
+
+Branch enumeration (IO-016) treats output branches as multisets `Map<Place, Integer>` rather than sets. The algebra is:
+
+- **Leaf `One(P)`** contributes `{P → 1}`.
+- **Leaf `Exactly(P, N)`** contributes `{P → N}`.
+- **Leaf `ForwardInput(from, to)`** contributes `{to → 1}`.
+- **Composer `And(c1, c2, ...)`** is the Cartesian product of children's branch lists. When merging two branches into one (cross-product step), **counts sum on shared keys**:
+  - `merge({P→2, Q→1}, {P→3, R→1})` = `{P→5, Q→1, R→1}`
+- **Composer `Xor(c1, c2, ...)`** is the list-concatenation of children's branches. Each child's branches appear independently in the result list, indexed by branch position.
+- **Composer `Timeout(d, child)`** delegates: `enumerateBranches(Timeout(d, c)) = enumerateBranches(c)`.
+
+**Acceptance Criteria:**
+1. Leaves return single-branch lists with correct counts.
+2. AND merges by addition on collision (NOT max, NOT min, NOT union-set).
+3. XOR preserves branch indexing for downstream `XorBranchInfo` analysis.
+4. Nested compositions follow the algebra recursively.
+
+**Examples:**
+- `And(Exactly(P, 2), Exactly(P, 3))` → `[{P→5}]` (sum on AND)
+- `Xor(One(P), Exactly(P, 3))` → `[{P→1}, {P→3}]` (XOR enumerates by branch index)
+- `And(Xor(One(P), One(Q)), Xor(One(P), One(R)))` → `[{P→2}, {P→1, R→1}, {P→1, Q→1}, {Q→1, R→1}]` (cross-product where matching `P` choice in both XOR branches sums)
+
+**Test derivation:** Construct each example above and verify the multiset output matches.
+
+---
+
+#### IO-020: Output Cardinality Over-Approximation Idiom
+
+**Priority:** MAY
+
+When a transition's actual token production is **non-deterministic** (e.g., the action emits a variable number of tokens to a place depending on runtime input), users can over-approximate the production count using `Out.Exactly(N)` or repeated `One` leaves under `And`. This is sound for **monotone bounded properties** only.
+
+**Sound use cases:**
+- **Upper-bound proofs (`M[P] ≤ K`)**: model the worst-case production as `Exactly(P, N_max)`. If the property holds under maximum production, it holds under any lower production.
+- **Lower-bound proofs (`M[P] ≥ K`)**: model the least-favorable production as `Exactly(P, N_min)`.
+
+**Unsound use cases (require true non-determinism, see Phase B / future spec entries):**
+- Deadlock-freedom under variable production (a deadlock may exist only at intermediate token counts).
+- Mutual exclusion proofs that depend on non-monotone interactions with token counts.
+- Exact reachability of specific markings.
+
+**Acceptance Criteria:**
+1. The library does NOT enforce monotonicity automatically — users are responsible for choosing a sound over-approximation.
+2. The spec documents the technique with an example (e.g., reask-budget over-approximation modeled as `Exactly(REASK_BUDGET, 3)` instead of variable runtime production).
+
+**Test derivation:** This is a documentation requirement. Demonstrate via example test that an over-approximated net proves the upper-bound property.

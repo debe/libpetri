@@ -22,8 +22,12 @@ final class ExecutorSupport {
      */
     static Optional<Set<Place<?>>> validateOutSpec(String tName, Arc.Out spec, Set<Place<?>> produced) {
         return switch (spec) {
-            case Arc.Out.Place p -> produced.contains(p.place())
+            case Arc.Out.One p -> produced.contains(p.place())
                 ? Optional.of(Set.of(p.place()))
+                : Optional.empty();
+
+            case Arc.Out.Exactly e -> produced.contains(e.place())
+                ? Optional.of(Set.of(e.place()))
                 : Optional.empty();
 
             case Arc.Out.And and -> {
@@ -80,8 +84,12 @@ final class ExecutorSupport {
     @SuppressWarnings("unchecked")
     private static void produceTimeoutOutputRecursive(TransitionContext context, Arc.Out out) {
         switch (out) {
-            case Arc.Out.Place p ->
+            case Arc.Out.One p ->
                 context.output((Place<Object>) p.place(), Token.unit().value());
+            case Arc.Out.Exactly e ->
+                // Multiplicity is verification-only metadata; emit 1 sentinel token
+                // for timeout-branch activation, matching One semantics.
+                context.output((Place<Object>) e.place(), Token.unit().value());
             case Arc.Out.ForwardInput f -> {
                 Object value = context.input(f.from());
                 context.output((Place<Object>) f.to(), value);

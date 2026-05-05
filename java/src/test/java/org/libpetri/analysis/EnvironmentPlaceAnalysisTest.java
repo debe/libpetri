@@ -22,7 +22,7 @@ class EnvironmentPlaceAnalysisTest {
 
         var process = Transition.builder("Process")
             .inputs(In.one(inputEnv.place()))
-            .outputs(Out.place(output))
+            .outputs(Out.one(output))
             .build();
 
         var net = PetriNet.builder("Test").transitions(process).build();
@@ -48,7 +48,7 @@ class EnvironmentPlaceAnalysisTest {
 
         var process = Transition.builder("Process")
             .inputs(In.one(inputEnv.place()))
-            .outputs(Out.place(output))
+            .outputs(Out.one(output))
             .build();
 
         var net = PetriNet.builder("Test").transitions(process).build();
@@ -74,7 +74,7 @@ class EnvironmentPlaceAnalysisTest {
 
         var process = Transition.builder("Process")
             .inputs(In.one(inputEnv.place()))
-            .outputs(Out.place(output))
+            .outputs(Out.one(output))
             .build();
 
         var net = PetriNet.builder("Test").transitions(process).build();
@@ -101,7 +101,7 @@ class EnvironmentPlaceAnalysisTest {
         // Transition requires 2 input tokens
         var process = Transition.builder("ProcessTwo")
             .inputs(In.exactly(2, inputEnv.place()))
-            .outputs(Out.place(output))
+            .outputs(Out.one(output))
             .build();
 
         var net = PetriNet.builder("Test").transitions(process).build();
@@ -139,7 +139,7 @@ class EnvironmentPlaceAnalysisTest {
 
         var process = Transition.builder("Process")
             .inputs(In.one(input))
-            .outputs(Out.place(output))
+            .outputs(Out.one(output))
             .build();
 
         var net = PetriNet.builder("Test").transitions(process).build();
@@ -189,7 +189,7 @@ class EnvironmentPlaceAnalysisTest {
 
         var process = Transition.builder("Process")
             .inputs(In.one(inputEnv.place()))
-            .outputs(Out.place(output))
+            .outputs(Out.one(output))
             .build();
 
         var net = PetriNet.builder("Test").transitions(process).build();

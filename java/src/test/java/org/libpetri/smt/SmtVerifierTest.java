@@ -105,11 +105,11 @@ class SmtVerifierTest {
 
         var t1 = Transition.builder("AtoB")
             .inputs(In.one(p1))
-            .outputs(Out.place(p2))
+            .outputs(Out.one(p2))
             .build();
         var t2 = Transition.builder("BtoA")
             .inputs(In.one(p2))
-            .outputs(Out.place(p1))
+            .outputs(Out.one(p1))
             .build();
 
         var net = PetriNet.builder("MutualExclusion").transitions(t1, t2).build();
@@ -140,11 +140,11 @@ class SmtVerifierTest {
         // Then T2 needs B=1 AND C=1, but C=0 -> DEADLOCK
         var t1 = Transition.builder("T1")
             .inputs(In.one(p1))
-            .outputs(Out.place(p2))
+            .outputs(Out.one(p2))
             .build();
         var t2 = Transition.builder("T2")
             .inputs(In.one(p2), In.one(p3))
-            .outputs(Out.place(p1))
+            .outputs(Out.one(p1))
             .build();
 
         var net = PetriNet.builder("DeadlockNet").transitions(t1, t2).build();
@@ -166,11 +166,11 @@ class SmtVerifierTest {
 
         var t1 = Transition.builder("AtoB")
             .inputs(In.one(p1))
-            .outputs(Out.place(p2))
+            .outputs(Out.one(p2))
             .build();
         var t2 = Transition.builder("BtoA")
             .inputs(In.one(p2))
-            .outputs(Out.place(p1))
+            .outputs(Out.one(p1))
             .build();
 
         var net = PetriNet.builder("Bounded").transitions(t1, t2).build();
@@ -199,15 +199,15 @@ class SmtVerifierTest {
 
         var t1 = Transition.builder("AtoB")
             .inputs(In.one(pA))
-            .outputs(Out.place(pB))
+            .outputs(Out.one(pB))
             .build();
         var t2 = Transition.builder("BtoA")
             .inputs(In.one(pB))
-            .outputs(Out.place(pA))
+            .outputs(Out.one(pA))
             .build();
         var t3 = Transition.builder("AtoC")
             .inputs(In.one(pA))
-            .outputs(Out.place(pC))
+            .outputs(Out.one(pC))
             .build();
 
         // Net: A -> B -> A, A -> C
@@ -254,11 +254,11 @@ class SmtVerifierTest {
 
         var t1 = Transition.builder("T1")
             .inputs(In.one(p1))
-            .outputs(Out.place(p2))
+            .outputs(Out.one(p2))
             .build();
         var t2 = Transition.builder("T2")
             .inputs(In.one(p2), In.one(p3))
-            .outputs(Out.place(p1))
+            .outputs(Out.one(p1))
             .build();
 
         var net = PetriNet.builder("DeadlockNet").transitions(t1, t2).build();
@@ -303,7 +303,7 @@ class SmtVerifierTest {
             .build();
         var complete = Transition.builder("Complete")
             .inputs(In.one(active))
-            .outputs(Out.place(idle))
+            .outputs(Out.one(idle))
             .build();
 
         var net = PetriNet.builder("XorSinkNet").transitions(dispatch, complete).build();
@@ -334,11 +334,11 @@ class SmtVerifierTest {
         var t1 = Transition.builder("T1")
             .inputs(In.one(pA))
             .reset(pB)
-            .outputs(Out.place(pC))
+            .outputs(Out.one(pC))
             .build();
         var t2 = Transition.builder("T2")
             .inputs(In.one(pC))
-            .outputs(Out.place(pA))
+            .outputs(Out.one(pA))
             .build();
 
         var net = PetriNet.builder("ResetNet").transitions(t1, t2).build();
@@ -354,5 +354,77 @@ class SmtVerifierTest {
 
         assertFalse(result.isViolated(),
             "B with reset arc should never exceed initial value\n" + result.report());
+    }
+
+    // ==================== Output Multiplicity (IO-018, IO-019) ====================
+
+    @Test
+    @EnabledIf("z3Available")
+    void andRepeatedPlace_placeBoundReflectsActualCount() {
+        // Single firing of T produces 3 tokens to budget via Out.and(B, B, B).
+        // This test fails on `main` (post-vector hardcoded to 1, so the model thinks
+        // budget receives 1 token). After the multiset-counting fix, the post-vector
+        // is 3 and the bound proofs reflect actual production.
+        var trigger = Place.of("Trigger", String.class);
+        var budget = Place.of("Budget", String.class);
+
+        var t = Transition.builder("FillBudget")
+            .inputs(In.one(trigger))
+            .outputs(Out.and(budget, budget, budget))
+            .build();
+
+        var net = PetriNet.builder("AndRepeatedNet").transitions(t).build();
+
+        var loose = SmtVerifier.forNet(net)
+            .initialMarking(m -> m.tokens(trigger, 1))
+            .property(SmtProperty.placeBound(budget, 2))
+            .timeout(Duration.ofSeconds(10))
+            .verify();
+        assertTrue(loose.isViolated(),
+            "placeBound(Budget, 2) MUST be violated — Out.and(B, B, B) produces 3 tokens\n"
+            + loose.report());
+
+        var tight = SmtVerifier.forNet(net)
+            .initialMarking(m -> m.tokens(trigger, 1))
+            .property(SmtProperty.placeBound(budget, 3))
+            .timeout(Duration.ofSeconds(10))
+            .verify();
+        assertFalse(tight.isViolated(),
+            "placeBound(Budget, 3) MUST hold — Out.and(B, B, B) produces exactly 3\n"
+            + tight.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void exactly_placeBoundReflectsActualCount() {
+        // Symmetric proof using Out.exactly(3, P) instead of repeated leaves.
+        // Both forms must produce equivalent post-vectors and equivalent SMT proofs.
+        var trigger = Place.of("Trigger", String.class);
+        var budget = Place.of("Budget", String.class);
+
+        var t = Transition.builder("FillBudget")
+            .inputs(In.one(trigger))
+            .outputs(Out.exactly(3, budget))
+            .build();
+
+        var net = PetriNet.builder("ExactlyNet").transitions(t).build();
+
+        var loose = SmtVerifier.forNet(net)
+            .initialMarking(m -> m.tokens(trigger, 1))
+            .property(SmtProperty.placeBound(budget, 2))
+            .timeout(Duration.ofSeconds(10))
+            .verify();
+        assertTrue(loose.isViolated(),
+            "placeBound(Budget, 2) MUST be violated — Out.exactly(3, B) produces 3 tokens\n"
+            + loose.report());
+
+        var tight = SmtVerifier.forNet(net)
+            .initialMarking(m -> m.tokens(trigger, 1))
+            .property(SmtProperty.placeBound(budget, 3))
+            .timeout(Duration.ofSeconds(10))
+            .verify();
+        assertFalse(tight.isViolated(),
+            "placeBound(Budget, 3) MUST hold — Out.exactly(3, B) produces exactly 3\n"
+            + tight.report());
     }
 }

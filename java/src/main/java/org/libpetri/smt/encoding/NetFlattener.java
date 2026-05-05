@@ -111,12 +111,14 @@ public final class NetFlattener {
                     }
                 }
 
-                // Build post-vector from branch output places
+                // Build post-vector from branch output multiset (place -> count).
+                // Counts come from Out.One (=1), Out.Exactly (=N), and AND-collisions
+                // already canonicalized inside enumerateBranches.
                 int[] postVector = new int[n];
-                for (var place : branchPlaces) {
-                    int idx = placeIndex.getOrDefault(place, -1);
+                for (var entry : branchPlaces.entrySet()) {
+                    int idx = placeIndex.getOrDefault(entry.getKey(), -1);
                     if (idx >= 0) {
-                        postVector[idx] = 1;
+                        postVector[idx] = entry.getValue();
                     }
                 }
 
@@ -161,14 +163,15 @@ public final class NetFlattener {
 
     /**
      * Enumerates output branches for a transition.
-     * Returns list of place-sets (one per XOR branch).
+     * Returns list of place multisets (one per XOR branch); counts >= 1 reflect
+     * Out.Exactly multiplicity and AND-leaf summing.
      */
-    private static List<Set<Place<?>>> enumerateOutputBranches(Transition t) {
+    private static List<Map<Place<?>, Integer>> enumerateOutputBranches(Transition t) {
         if (t.outputSpec() != null) {
             return t.outputSpec().enumerateBranches();
         }
 
         // No outputs (sink transition)
-        return List.of(Set.of());
+        return List.of(Map.of());
     }
 }

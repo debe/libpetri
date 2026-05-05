@@ -6,7 +6,7 @@ import org.libpetri.core.*;
 import org.libpetri.runtime.NetExecutor;
 import static org.libpetri.core.Arc.In.one;
 import static org.libpetri.core.Arc.Out.and;
-import static org.libpetri.core.Arc.Out.place;
+
 import static org.libpetri.core.Arc.Out.xor;
 
 import java.time.Duration;
@@ -116,7 +116,7 @@ class HtpnPaperModelTest {
         // Guard [0, 500ms] - Validate input
         var guard = Transition.builder("Guard")
             .inputs(one(ready))
-            .outputs(place(validated))
+            .outputs(Arc.Out.one(validated))
             .timing(Timing.deadline(Duration.ofMillis(500)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 sleep(50);
@@ -152,7 +152,7 @@ class HtpnPaperModelTest {
         // Search [0, 3500ms] - Find products
         var search = Transition.builder("Search")
             .inputs(one(understood2))
-            .outputs(place(found))
+            .outputs(Arc.Out.one(found))
             .timing(Timing.deadline(Duration.ofMillis(3500)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 sleep(150);
@@ -163,7 +163,7 @@ class HtpnPaperModelTest {
         // Compose [0, 6000ms] - Generate response (waits for all inputs)
         var compose = Transition.builder("Compose")
             .inputs(one(validated), one(informed), one(promoted), one(found))
-            .outputs(place(drafted))
+            .outputs(Arc.Out.one(drafted))
             .timing(Timing.deadline(Duration.ofMillis(6000)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 sleep(300);
@@ -183,7 +183,7 @@ class HtpnPaperModelTest {
         // Filter [0, 500ms] - Apply output filtering
         var filter = Transition.builder("Filter")
             .inputs(one(drafted))
-            .outputs(place(answered))
+            .outputs(Arc.Out.one(answered))
             .timing(Timing.deadline(Duration.ofMillis(500)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 sleep(20);
@@ -262,7 +262,7 @@ class HtpnPaperModelTest {
 
         var guard = Transition.builder("Guard")
             .inputs(one(ready))
-            .outputs(place(validated))
+            .outputs(Arc.Out.one(validated))
             .timing(Timing.deadline(Duration.ofMillis(500)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 sleep(30);
@@ -295,7 +295,7 @@ class HtpnPaperModelTest {
         // Search that fails and produces to SearchFail place
         var search = Transition.builder("Search")
             .inputs(one(understood2))
-            .outputs(place(searchFail))
+            .outputs(Arc.Out.one(searchFail))
             .timing(Timing.deadline(Duration.ofMillis(3500)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 sleep(80);
@@ -306,7 +306,7 @@ class HtpnPaperModelTest {
         // Fallback [0, 100ms] - Use cached results when search fails
         var fallback = Transition.builder("Fallback")
             .inputs(one(searchFail))
-            .outputs(place(found))
+            .outputs(Arc.Out.one(found))
             .timing(Timing.deadline(Duration.ofMillis(100)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 sleep(10);
@@ -316,7 +316,7 @@ class HtpnPaperModelTest {
 
         var compose = Transition.builder("Compose")
             .inputs(one(validated), one(informed), one(promoted), one(found))
-            .outputs(place(drafted))
+            .outputs(Arc.Out.one(drafted))
             .timing(Timing.deadline(Duration.ofMillis(6000)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 sleep(150);
@@ -332,7 +332,7 @@ class HtpnPaperModelTest {
 
         var filter = Transition.builder("Filter")
             .inputs(one(drafted))
-            .outputs(place(answered))
+            .outputs(Arc.Out.one(answered))
             .timing(Timing.deadline(Duration.ofMillis(500)))
             .action(ctx -> {
                 var draft = ctx.input(drafted);
@@ -405,7 +405,7 @@ class HtpnPaperModelTest {
 
         var guard = Transition.builder("Guard")
             .inputs(one(ready))
-            .outputs(place(validated))
+            .outputs(Arc.Out.one(validated))
             .timing(Timing.deadline(Duration.ofMillis(500)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 sleep(20);
@@ -437,7 +437,7 @@ class HtpnPaperModelTest {
 
         var search = Transition.builder("Search")
             .inputs(one(understood2))
-            .outputs(place(found))
+            .outputs(Arc.Out.one(found))
             .timing(Timing.deadline(Duration.ofMillis(3500)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 sleep(40);
@@ -448,7 +448,7 @@ class HtpnPaperModelTest {
         // Compose that fails on first attempt
         var compose = Transition.builder("Compose")
             .inputs(one(validated), one(informed), one(promoted), one(found))
-            .outputs(place(composeFail))
+            .outputs(Arc.Out.one(composeFail))
             .timing(Timing.deadline(Duration.ofMillis(6000)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 sleep(100);
@@ -460,7 +460,7 @@ class HtpnPaperModelTest {
         // Retry transition
         var composeRetry = Transition.builder("ComposeRetry")
             .inputs(one(composeFail))
-            .outputs(place(drafted))
+            .outputs(Arc.Out.one(drafted))
             .timing(Timing.deadline(Duration.ofMillis(1000)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 sleep(80);
@@ -471,7 +471,7 @@ class HtpnPaperModelTest {
 
         var filter = Transition.builder("Filter")
             .inputs(one(drafted))
-            .outputs(place(answered))
+            .outputs(Arc.Out.one(answered))
             .timing(Timing.deadline(Duration.ofMillis(500)))
             .action(ctx -> {
                 var draft = ctx.input(drafted);
@@ -563,7 +563,7 @@ class HtpnPaperModelTest {
 
         var guard = Transition.builder("Guard")
             .inputs(one(ready))
-            .outputs(place(validated))
+            .outputs(Arc.Out.one(validated))
             .timing(Timing.deadline(Duration.ofMillis(guardDeadline)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 sleep(guardDeadline / 10);
@@ -595,7 +595,7 @@ class HtpnPaperModelTest {
 
         var search = Transition.builder("Search")
             .inputs(one(understood2))
-            .outputs(place(found))
+            .outputs(Arc.Out.one(found))
             .timing(Timing.deadline(Duration.ofMillis(searchDeadline)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 sleep(searchDeadline / 20);
@@ -605,7 +605,7 @@ class HtpnPaperModelTest {
 
         var compose = Transition.builder("Compose")
             .inputs(one(validated), one(informed), one(promoted), one(found))
-            .outputs(place(drafted))
+            .outputs(Arc.Out.one(drafted))
             .timing(Timing.deadline(Duration.ofMillis(composeDeadline)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 sleep(composeDeadline / 20);
@@ -617,7 +617,7 @@ class HtpnPaperModelTest {
 
         var filter = Transition.builder("Filter")
             .inputs(one(drafted))
-            .outputs(place(answered))
+            .outputs(Arc.Out.one(answered))
             .timing(Timing.deadline(Duration.ofMillis(filterDeadline)))
             .action(ctx -> {
                 var draft = ctx.input(drafted);

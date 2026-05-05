@@ -332,7 +332,7 @@ public final class TimePetriNetAnalyzer {
             int totalBranches,
             Set<Integer> takenBranches,
             Set<Integer> untakenBranches,
-            List<Set<Place<?>>> branchOutputs
+            List<Map<Place<?>, Integer>> branchOutputs
     ) {
         /**
          * Returns true if all XOR branches are reachable.
@@ -342,9 +342,9 @@ public final class TimePetriNetAnalyzer {
         }
 
         /**
-         * Returns the places for a specific branch.
+         * Returns the places (with multiplicity) produced by a specific branch.
          */
-        public Set<Place<?>> branchPlaces(int branchIndex) {
+        public Map<Place<?>, Integer> branchPlaces(int branchIndex) {
             return branchOutputs.get(branchIndex);
         }
     }
@@ -413,7 +413,7 @@ public final class TimePetriNetAnalyzer {
                     sb.append("  UNREACHABLE: ").append(info.untakenBranches()).append("\n");
                     for (var idx : info.untakenBranches()) {
                         sb.append("    Branch ").append(idx).append(" outputs: ")
-                          .append(formatPlaces(info.branchPlaces(idx))).append("\n");
+                          .append(formatPlaces(info.branchPlaces(idx).keySet())).append("\n");
                     }
                 } else {
                     sb.append("  All branches reachable\n");

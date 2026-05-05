@@ -19,7 +19,7 @@ class IncidenceMatrixTest {
 
         var t = Transition.builder("T")
             .inputs(In.one(p1))
-            .outputs(Out.place(p2))
+            .outputs(Out.one(p2))
             .build();
 
         var net = PetriNet.builder("Test").transitions(t).build();
@@ -49,11 +49,11 @@ class IncidenceMatrixTest {
 
         var t1 = Transition.builder("T1")
             .inputs(In.one(p1))
-            .outputs(Out.place(p2))
+            .outputs(Out.one(p2))
             .build();
         var t2 = Transition.builder("T2")
             .inputs(In.one(p2))
-            .outputs(Out.place(p3))
+            .outputs(Out.one(p3))
             .build();
 
         var net = PetriNet.builder("Test").transitions(t1, t2).build();
@@ -73,11 +73,11 @@ class IncidenceMatrixTest {
 
         var t1 = Transition.builder("Forward")
             .inputs(In.one(pA))
-            .outputs(Out.place(pB))
+            .outputs(Out.one(pB))
             .build();
         var t2 = Transition.builder("Back")
             .inputs(In.one(pB))
-            .outputs(Out.place(pA))
+            .outputs(Out.one(pA))
             .build();
 
         var net = PetriNet.builder("Circular").transitions(t1, t2).build();

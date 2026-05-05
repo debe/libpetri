@@ -64,19 +64,19 @@ public final class PaperNetworks {
         // Transitions with timing intervals [0, deadline]
         var ask = Transition.builder("ask")
             .inputs(In.one(pending))
-            .outputs(Out.place(ready))
+            .outputs(Out.one(ready))
             .timing(Timing.deadline(Duration.ofMillis(100)))
             .build();
 
         var guard = Transition.builder("Guard")
             .read(ready)
-            .outputs(Out.place(validated))
+            .outputs(Out.one(validated))
             .timing(Timing.deadline(Duration.ofMillis(500)))
             .build();
 
         var intent = Transition.builder("Intent")
             .read(ready)
-            .outputs(Out.place(understood))
+            .outputs(Out.one(understood))
             .timing(Timing.deadline(Duration.ofMillis(2000)))
             .build();
 
@@ -94,7 +94,7 @@ public final class PaperNetworks {
 
         var fallback = Transition.builder("Fallback")
             .inputs(In.one(searchFail))
-            .outputs(Out.place(found))
+            .outputs(Out.one(found))
             .inhibitor(urgent)
             .timing(Timing.deadline(Duration.ofMillis(100)))
             .build();
@@ -107,7 +107,7 @@ public final class PaperNetworks {
 
         var retry = Transition.builder("Retry")
             .inputs(In.one(composeFail))
-            .outputs(Out.place(drafted))
+            .outputs(Out.one(drafted))
             .inhibitor(urgent)
             .timing(Timing.deadline(Duration.ofMillis(1000)))
             .build();
@@ -116,19 +116,19 @@ public final class PaperNetworks {
         // This consumes ComposeFail when there's no time left for retry
         var showError = Transition.builder("ShowError")
             .inputs(In.one(composeFail), In.one(urgent))
-            .outputs(Out.place(errorShown))
+            .outputs(Out.one(errorShown))
             .timing(Timing.deadline(Duration.ofMillis(100)))
             .build();
 
         var filter = Transition.builder("Filter")
             .inputs(In.one(drafted))
-            .outputs(Out.place(answered))
+            .outputs(Out.one(answered))
             .timing(Timing.deadline(Duration.ofMillis(500)))
             .build();
 
         var timeout = Transition.builder("Timeout")
             .read(pending)
-            .outputs(Out.place(urgent))
+            .outputs(Out.one(urgent))
             .timing(Timing.exact(Duration.ofMillis(9000)))
             .build();
 
@@ -155,19 +155,19 @@ public final class PaperNetworks {
 
         var ask = Transition.builder("ask")
             .inputs(In.one(pending))
-            .outputs(Out.place(ready))
+            .outputs(Out.one(ready))
             .timing(Timing.deadline(Duration.ofMillis(100)))
             .build();
 
         var guard = Transition.builder("Guard")
             .read(ready)
-            .outputs(Out.place(validated))
+            .outputs(Out.one(validated))
             .timing(Timing.deadline(Duration.ofMillis(500)))
             .build();
 
         var intent = Transition.builder("Intent")
             .read(ready)
-            .outputs(Out.place(understood))
+            .outputs(Out.one(understood))
             .timing(Timing.deadline(Duration.ofMillis(2000)))
             .build();
 
@@ -179,19 +179,19 @@ public final class PaperNetworks {
 
         var search = Transition.builder("Search")
             .inputs(In.one(understood))
-            .outputs(Out.place(found))
+            .outputs(Out.one(found))
             .timing(Timing.deadline(Duration.ofMillis(3500)))
             .build();
 
         var compose = Transition.builder("Compose")
             .inputs(In.one(validated), In.one(informed), In.one(promoted), In.one(found))
-            .outputs(Out.place(drafted))
+            .outputs(Out.one(drafted))
             .timing(Timing.deadline(Duration.ofMillis(6000)))
             .build();
 
         var filter = Transition.builder("Filter")
             .inputs(In.one(drafted))
-            .outputs(Out.place(answered))
+            .outputs(Out.one(answered))
             .timing(Timing.deadline(Duration.ofMillis(500)))
             .build();
 
@@ -268,7 +268,7 @@ public final class PaperNetworks {
         // T4: Approve — deadline(2s), AND-join
         var approve = Transition.builder("Approve")
             .inputs(In.one(paymentOk), In.one(inStock))
-            .outputs(Out.place(ready))
+            .outputs(Out.one(ready))
             .timing(Timing.deadline(Duration.ofSeconds(2)))
             .build();
 
@@ -277,7 +277,7 @@ public final class PaperNetworks {
             .inputs(In.one(ready))
             .read(active)
             .inhibitor(cancelled)
-            .outputs(Out.place(shipped))
+            .outputs(Out.one(shipped))
             .timing(Timing.immediate())
             .build();
 
@@ -285,7 +285,7 @@ public final class PaperNetworks {
         var reject = Transition.builder("Reject")
             .inputs(In.one(paymentFailed), In.one(overdue))
             .reset(inStock)
-            .outputs(Out.place(rejected))
+            .outputs(Out.one(rejected))
             .timing(Timing.immediate())
             .build();
 
@@ -294,7 +294,7 @@ public final class PaperNetworks {
             .inputs(In.one(cancelRequest))
             .inhibitors(shipped, rejected)
             .resets(validating, paymentFailed, inStock, paymentOk, ready)
-            .outputs(Out.place(cancelled))
+            .outputs(Out.one(cancelled))
             .timing(Timing.immediate())
             .build();
 
@@ -302,7 +302,7 @@ public final class PaperNetworks {
         var monitor = Transition.builder("Monitor")
             .read(active)
             .inhibitors(shipped, rejected, cancelled, overdue)
-            .outputs(Out.place(overdue))
+            .outputs(Out.one(overdue))
             .timing(Timing.exact(Duration.ofSeconds(10)))
             .build();
 

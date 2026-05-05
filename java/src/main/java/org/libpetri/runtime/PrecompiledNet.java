@@ -86,7 +86,7 @@ public final class PrecompiledNet {
     final long[] timedMask;
 
     // Output validation: precomputed for fast path
-    // For Out.Place specs, stores the single expected place ID; -1 for complex specs; -2 for no spec
+    // For Out.One/Out.Exactly specs, stores the single expected place ID; -1 for complex specs; -2 for no spec
     final int[] simpleOutputPlaceId;
 
     // Input place count per transition (for pre-sizing TokenInput)
@@ -184,11 +184,15 @@ public final class PrecompiledNet {
             // Precompute input place count (for TokenInput pre-sizing)
             inputPlaceCount[tid] = t.inputSpecs().size() + t.reads().size();
 
-            // Precompute output validation fast path
+            // Precompute output validation fast path. Out.One and Out.Exactly both
+            // map to a single output place at the runtime level (multiplicity is
+            // verification-only metadata, not enforced by the runtime validator).
             if (t.outputSpec() == null) {
                 simpleOutputPlaceId[tid] = -2; // no spec
-            } else if (t.outputSpec() instanceof Arc.Out.Place p) {
+            } else if (t.outputSpec() instanceof Arc.Out.One p) {
                 simpleOutputPlaceId[tid] = placeIndex.get(p.place());
+            } else if (t.outputSpec() instanceof Arc.Out.Exactly e) {
+                simpleOutputPlaceId[tid] = placeIndex.get(e.place());
             } else {
                 simpleOutputPlaceId[tid] = -1; // complex spec, use full validation
             }
