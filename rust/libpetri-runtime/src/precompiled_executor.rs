@@ -1693,7 +1693,7 @@ mod tests {
     use crate::compiled_net::CompiledNet;
     use libpetri_core::action::{fork, passthrough, sync_action};
     use libpetri_core::input::one;
-    use libpetri_core::output::out_place;
+    use libpetri_core::output::out_one;
     use libpetri_core::petri_net::PetriNet;
     use libpetri_core::place::Place;
     use libpetri_core::token::Token;
@@ -1707,12 +1707,12 @@ mod tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .action(passthrough())
             .build();
         let t2 = Transition::builder("t2")
             .input(one(&p2))
-            .output(out_place(&p3))
+            .output(out_one(&p3))
             .action(passthrough())
             .build();
 
@@ -1744,8 +1744,8 @@ mod tests {
         let t1 = Transition::builder("t1")
             .input(one(&p1))
             .output(libpetri_core::output::and(vec![
-                out_place(&p2),
-                out_place(&p3),
+                out_one(&p2),
+                out_one(&p3),
             ]))
             .action(fork())
             .build();
@@ -1772,7 +1772,7 @@ mod tests {
             .map(|i| {
                 Transition::builder(format!("t{i}"))
                     .input(one(&places[i]))
-                    .output(out_place(&places[i + 1]))
+                    .output(out_one(&places[i + 1]))
                     .action(fork())
                     .build()
             })
@@ -1813,13 +1813,13 @@ mod tests {
 
         let t_high = Transition::builder("t_high")
             .input(one(&p))
-            .output(out_place(&out_a))
+            .output(out_one(&out_a))
             .action(passthrough())
             .priority(10)
             .build();
         let t_low = Transition::builder("t_low")
             .input(one(&p))
-            .output(out_place(&out_b))
+            .output(out_one(&out_b))
             .action(passthrough())
             .priority(1)
             .build();
@@ -1847,7 +1847,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .inhibitor(libpetri_core::arc::inhibitor(&p_inh))
             .action(passthrough())
             .build();
@@ -1875,7 +1875,7 @@ mod tests {
         let t = Transition::builder("t1")
             .input(one(&p_in))
             .read(libpetri_core::arc::read(&p_ctx))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(sync_action(|ctx| {
                 let v = ctx.input::<i32>("in")?;
                 let r = ctx.read::<i32>("ctx")?;
@@ -1908,7 +1908,7 @@ mod tests {
         let t = Transition::builder("t1")
             .input(one(&p_in))
             .reset(libpetri_core::arc::reset(&p_reset))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(fork())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -1935,7 +1935,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(libpetri_core::input::exactly(3, &p))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(sync_action(|ctx| {
                 let vals = ctx.inputs::<i32>("p")?;
                 for v in vals {
@@ -1967,7 +1967,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(libpetri_core::input::all(&p))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(sync_action(|ctx| {
                 let vals = ctx.inputs::<i32>("p")?;
                 ctx.output("out", vals.len() as i32)?;
@@ -1996,7 +1996,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(libpetri_core::input::at_least(3, &p))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(passthrough())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -2020,7 +2020,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(libpetri_core::input::at_least(3, &p))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(passthrough())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -2045,7 +2045,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(libpetri_core::input::one_guarded(&p, |v| *v > 5))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(fork())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -2070,7 +2070,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(libpetri_core::input::one_guarded(&p, |v| *v > 100))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(fork())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -2094,7 +2094,7 @@ mod tests {
         let p2 = Place::<i32>::new("p2");
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .action(fork())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -2152,7 +2152,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(one(&p_in))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(sync_action(|_ctx| {
                 Err(libpetri_core::action::ActionError::new(
                     "intentional failure",
@@ -2189,7 +2189,7 @@ mod tests {
         let t = Transition::builder("t1")
             .input(one(&p1))
             .input(one(&p2))
-            .output(out_place(&p3))
+            .output(out_one(&p3))
             .action(sync_action(|ctx| {
                 ctx.output("p3", 99i32)?;
                 Ok(())
@@ -2227,7 +2227,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(one(&p_in))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(sync_action(|ctx| {
                 let v = ctx.input::<i32>("in")?;
                 ctx.output("out", format!("value={v}"))?;
@@ -2256,8 +2256,8 @@ mod tests {
         let t = Transition::builder("t1")
             .input(one(&p_in))
             .output(libpetri_core::output::and(vec![
-                out_place(&p_a),
-                out_place(&p_b),
+                out_one(&p_a),
+                out_one(&p_b),
             ]))
             .action(libpetri_core::action::transform(|ctx| {
                 let v = ctx.input::<i32>("in").unwrap();
@@ -2299,10 +2299,10 @@ mod tests {
         let fork_trans = Transition::builder("Fork")
             .input(one(&input))
             .output(and(vec![
-                out_place(&guard_in),
-                out_place(&intent_in),
-                out_place(&search_in),
-                out_place(&output_guard_in),
+                out_one(&guard_in),
+                out_one(&intent_in),
+                out_one(&search_in),
+                out_one(&output_guard_in),
             ]))
             .action(fork())
             .build();
@@ -2310,34 +2310,34 @@ mod tests {
         let guard_trans = Transition::builder("Guard")
             .input(one(&guard_in))
             .output(xor(vec![
-                out_place(&guard_safe),
-                out_place(&guard_violation),
+                out_one(&guard_safe),
+                out_one(&guard_violation),
             ]))
             .action(fork())
             .build();
 
         let handle_violation = Transition::builder("HandleViolation")
             .input(one(&guard_violation))
-            .output(out_place(&_violated))
+            .output(out_one(&_violated))
             .inhibitor(libpetri_core::arc::inhibitor(&guard_safe))
             .action(fork())
             .build();
 
         let intent_trans = Transition::builder("Intent")
             .input(one(&intent_in))
-            .output(out_place(&intent_ready))
+            .output(out_one(&intent_ready))
             .action(fork())
             .build();
 
         let topic_trans = Transition::builder("TopicKnowledge")
             .input(one(&intent_ready))
-            .output(out_place(&topic_ready))
+            .output(out_one(&topic_ready))
             .action(fork())
             .build();
 
         let search_trans = Transition::builder("Search")
             .input(one(&search_in))
-            .output(out_place(&search_ready))
+            .output(out_one(&search_ready))
             .read(libpetri_core::arc::read(&intent_ready))
             .inhibitor(libpetri_core::arc::inhibitor(&guard_violation))
             .priority(-5)
@@ -2346,7 +2346,7 @@ mod tests {
 
         let output_guard_trans = Transition::builder("OutputGuard")
             .input(one(&output_guard_in))
-            .output(out_place(&_output_guard_done))
+            .output(out_one(&_output_guard_done))
             .read(libpetri_core::arc::read(&guard_safe))
             .action(fork())
             .build();
@@ -2355,7 +2355,7 @@ mod tests {
             .input(one(&guard_safe))
             .input(one(&search_ready))
             .input(one(&topic_ready))
-            .output(out_place(&response))
+            .output(out_one(&response))
             .priority(10)
             .action(fork())
             .build();
@@ -2402,7 +2402,7 @@ mod tests {
                 .map(|i| {
                     Transition::builder(format!("t{i}"))
                         .input(one(&places[i]))
-                        .output(out_place(&places[i + 1]))
+                        .output(out_one(&places[i + 1]))
                         .action(fork())
                         .build()
                 })
@@ -2430,7 +2430,7 @@ mod tests {
 
             let t = Transition::builder("t1")
                 .input(one(&p1))
-                .output(out_place(&p2))
+                .output(out_one(&p2))
                 .action(async_action(|ctx| async { Ok(ctx) }))
                 .build();
 
@@ -2457,7 +2457,7 @@ mod tests {
 
             let t1 = Transition::builder("t1")
                 .input(one(&p1))
-                .output(out_place(&p2))
+                .output(out_one(&p2))
                 .action(fork())
                 .build();
 
@@ -2494,7 +2494,7 @@ mod tests {
 
             let t1 = Transition::builder("t1")
                 .input(one(&p1))
-                .output(out_place(&p2))
+                .output(out_one(&p2))
                 .action(fork())
                 .build();
 
@@ -2530,7 +2530,7 @@ mod tests {
 
             let t1 = Transition::builder("t1")
                 .input(one(&p1))
-                .output(out_place(&p2))
+                .output(out_one(&p2))
                 .action(fork())
                 .build();
 
@@ -2569,7 +2569,7 @@ mod tests {
 
             let t1 = Transition::builder("t1")
                 .input(one(&p1))
-                .output(out_place(&p2))
+                .output(out_one(&p2))
                 .action(fork())
                 .build();
 
@@ -2603,7 +2603,7 @@ mod tests {
 
             let t1 = Transition::builder("t1")
                 .input(one(&p1))
-                .output(out_place(&p2))
+                .output(out_one(&p2))
                 .action(fork())
                 .build();
 

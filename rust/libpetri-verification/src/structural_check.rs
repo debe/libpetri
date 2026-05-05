@@ -136,7 +136,7 @@ mod tests {
     use super::*;
     use crate::net_flattener::flatten;
     use libpetri_core::input::one;
-    use libpetri_core::output::out_place;
+    use libpetri_core::output::out_one;
     use libpetri_core::petri_net::PetriNet;
     use libpetri_core::place::Place;
     use libpetri_core::transition::Transition;
@@ -149,7 +149,7 @@ mod tests {
         let p2 = Place::<i32>::new("p2");
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .build();
         let net = PetriNet::builder("test").transition(t).build();
 
@@ -164,11 +164,11 @@ mod tests {
         let p2 = Place::<i32>::new("p2");
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .build();
         let t2 = Transition::builder("t2")
             .input(one(&p2))
-            .output(out_place(&p1))
+            .output(out_one(&p1))
             .build();
         let net = PetriNet::builder("cycle").transitions([t1, t2]).build();
 
@@ -190,12 +190,12 @@ mod tests {
         let t1 = Transition::builder("t1")
             .input(one(&p1))
             .input(one(&shared))
-            .output(out_place(&out1))
+            .output(out_one(&out1))
             .build();
         let t2 = Transition::builder("t2")
             .input(one(&p2))
             .input(one(&shared))
-            .output(out_place(&out2))
+            .output(out_one(&out2))
             .build();
 
         let net = PetriNet::builder("deadlock").transitions([t1, t2]).build();

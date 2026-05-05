@@ -316,13 +316,13 @@ fn is_enabled(
 
 fn expand_transition(
     transition: &libpetri_core::transition::Transition,
-) -> Vec<(usize, HashSet<String>)> {
+) -> Vec<(usize, HashMap<String, usize>)> {
     if let Some(out_spec) = transition.output_spec() {
         let branches = enumerate_branches(out_spec);
         if branches.len() <= 1 {
-            let places: HashSet<String> = branches
+            let places: HashMap<String, usize> = branches
                 .into_iter()
-                .flat_map(|b| b.into_iter().map(|p| p.name().to_string()))
+                .flat_map(|b| b.into_iter().map(|(p, c)| (p.name().to_string(), c)))
                 .collect();
             vec![(0, places)]
         } else {
@@ -330,14 +330,14 @@ fn expand_transition(
                 .into_iter()
                 .enumerate()
                 .map(|(i, b)| {
-                    let places: HashSet<String> =
-                        b.into_iter().map(|p| p.name().to_string()).collect();
+                    let places: HashMap<String, usize> =
+                        b.into_iter().map(|(p, c)| (p.name().to_string(), c)).collect();
                     (i, places)
                 })
                 .collect()
         }
     } else {
-        vec![(0, HashSet::new())]
+        vec![(0, HashMap::new())]
     }
 }
 
@@ -346,7 +346,7 @@ fn compute_successor(
     current: &StateClass,
     fired_clock: usize,
     fired_name: &str,
-    output_places: &HashSet<String>,
+    output_places: &HashMap<String, usize>,
     env_places: &HashSet<&str>,
     env_mode: &EnvironmentAnalysisMode,
 ) -> StateClass {
@@ -425,7 +425,7 @@ fn compute_successor(
 fn fire_transition_marking(
     marking: &MarkingState,
     transition: &libpetri_core::transition::Transition,
-    output_places: &HashSet<String>,
+    output_places: &HashMap<String, usize>,
     env_places: &HashSet<&str>,
     env_mode: &EnvironmentAnalysisMode,
 ) -> MarkingState {
@@ -459,14 +459,15 @@ fn fire_transition_marking(
 
     let result = builder.build();
 
-    // Produce to outputs
+    // Produce to outputs (multiset; counts come from Out::One=1 / Out::Exactly=N
+    // / AND-collisions already canonicalized inside enumerate_branches)
     let mut output_builder = MarkingStateBuilder::new();
     for (place, count) in result.places() {
         output_builder = output_builder.tokens(place, count);
     }
-    for place in output_places {
-        let current = result.count(place);
-        output_builder = output_builder.tokens(place.as_str(), current + 1);
+    for (place, count) in output_places {
+        let current = result.count(place.as_str());
+        output_builder = output_builder.tokens(place.as_str(), current + count);
     }
 
     output_builder.build()
@@ -485,7 +486,7 @@ fn input_consume_count(spec: &In) -> usize {
 mod tests {
     use super::*;
     use libpetri_core::input::one;
-    use libpetri_core::output::out_place;
+    use libpetri_core::output::out_one;
     use libpetri_core::place::Place;
     use libpetri_core::transition::Transition;
 
@@ -495,7 +496,7 @@ mod tests {
         let p2 = Place::<i32>::new("p2");
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .build();
         let net = PetriNet::builder("chain").transition(t).build();
 
@@ -517,11 +518,11 @@ mod tests {
         let p2 = Place::<i32>::new("p2");
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .build();
         let t2 = Transition::builder("t2")
             .input(one(&p2))
-            .output(out_place(&p1))
+            .output(out_one(&p1))
             .build();
         let net = PetriNet::builder("cycle").transitions([t1, t2]).build();
 
@@ -539,11 +540,11 @@ mod tests {
         let p2 = Place::<i32>::new("p2");
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .build();
         let t2 = Transition::builder("t2")
             .input(one(&p2))
-            .output(out_place(&p1))
+            .output(out_one(&p1))
             .build();
         let net = PetriNet::builder("cycle").transitions([t1, t2]).build();
 
@@ -559,7 +560,7 @@ mod tests {
         let p2 = Place::<i32>::new("p2");
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .build();
         let net = PetriNet::builder("test").transition(t).build();
 
@@ -581,8 +582,8 @@ mod tests {
         let t = Transition::builder("t1")
             .input(one(&p))
             .output(libpetri_core::output::and(vec![
-                out_place(&a),
-                out_place(&b),
+                libpetri_core::output::out_one(&a),
+                libpetri_core::output::out_one(&b),
             ]))
             .build();
         let net = PetriNet::builder("fork").transition(t).build();
@@ -606,8 +607,8 @@ mod tests {
         let t = Transition::builder("t1")
             .input(one(&p))
             .output(libpetri_core::output::xor(vec![
-                out_place(&a),
-                out_place(&b),
+                libpetri_core::output::out_one(&a),
+                libpetri_core::output::out_one(&b),
             ]))
             .build();
         let net = PetriNet::builder("xor").transition(t).build();
@@ -631,7 +632,7 @@ mod tests {
         let t = Transition::builder("t1")
             .input(one(&p1))
             .inhibitor(libpetri_core::arc::inhibitor(&p_inh))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .build();
         let net = PetriNet::builder("test").transition(t).build();
 
@@ -660,12 +661,12 @@ mod tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .timing(libpetri_core::timing::delayed(100))
             .build();
         let t2 = Transition::builder("t2")
             .input(one(&p2))
-            .output(out_place(&p3))
+            .output(out_one(&p3))
             .timing(libpetri_core::timing::window(50, 200))
             .build();
 
@@ -693,12 +694,12 @@ mod tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&out_a))
+            .output(out_one(&out_a))
             .timing(libpetri_core::timing::delayed(100))
             .build();
         let t2 = Transition::builder("t2")
             .input(one(&p2))
-            .output(out_place(&out_b))
+            .output(out_one(&out_b))
             .timing(libpetri_core::timing::delayed(200))
             .build();
 
@@ -730,7 +731,7 @@ mod tests {
         let t = Transition::builder("t1")
             .input(one(&p_env))
             .input(one(&p_ready))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .build();
 
         let net = PetriNet::builder("env").transition(t).build();
@@ -764,11 +765,11 @@ mod tests {
         let t1 = Transition::builder("process")
             .input(one(&p_env))
             .input(one(&p_ready))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .build();
         let t2 = Transition::builder("reset")
             .input(one(&p_out))
-            .output(out_place(&p_ready))
+            .output(out_one(&p_ready))
             .build();
 
         let net = PetriNet::builder("env-cycle").transitions([t1, t2]).build();
@@ -796,7 +797,7 @@ mod tests {
         let p2 = Place::<i32>::new("p2");
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .build();
         let net = PetriNet::builder("test").transition(t).build();
 
@@ -812,7 +813,7 @@ mod tests {
         let p2 = Place::<i32>::new("p2");
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .build();
         let net = PetriNet::builder("test").transition(t).build();
 
@@ -832,8 +833,8 @@ mod tests {
         let t = Transition::builder("t1")
             .input(one(&p))
             .output(libpetri_core::output::xor(vec![
-                out_place(&a),
-                out_place(&b),
+                libpetri_core::output::out_one(&a),
+                libpetri_core::output::out_one(&b),
             ]))
             .build();
         let net = PetriNet::builder("xor").transition(t).build();
@@ -854,7 +855,7 @@ mod tests {
         let p2 = Place::<i32>::new("p2");
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .build();
         let net = PetriNet::builder("test").transition(t).build();
 

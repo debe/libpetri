@@ -32,7 +32,7 @@ let response      = Place::<String>::new("Response");       // delivered respons
 let typing = Transition::builder("Typing")
     .input(one(keyboard.place()))
     .reset(reset(&urgency))
-    .output(out_place(&composing))
+    .output(out_one(&composing))
     .timing(immediate())
     .priority(20)
     .action(fork())
@@ -44,9 +44,9 @@ let receive = Transition::builder("Receive")
     .input(one(user_message.place()))
     .reset(reset(&composing))
     .output(and(vec![
-        out_place(&pending),
-        out_place(&processing),
-        out_place(&conversation),
+        one(&pending),
+        one(&processing),
+        one(&conversation),
     ]))
     .timing(immediate())
     .priority(10)
@@ -58,7 +58,7 @@ let gather_context = Transition::builder("GatherContext")
     .input(one(&pending))
     .read(read(&conversation))
     .read(read(&summary))
-    .output(out_place(&context_ready))
+    .output(out_one(&context_ready))
     .timing(immediate())
     .action(fork())
     .build();
@@ -69,7 +69,7 @@ let gather_fresh = Transition::builder("GatherFresh")
     .input(one(&pending))
     .read(read(&conversation))
     .inhibitor(inhibitor(&summary))
-    .output(out_place(&context_ready))
+    .output(out_one(&context_ready))
     .timing(immediate())
     .action(fork())
     .build();
@@ -77,7 +77,7 @@ let gather_fresh = Transition::builder("GatherFresh")
 // DeepAgent: thorough analysis — consumes ContextReady, produces Thinking
 let deep_agent = Transition::builder("DeepAgent")
     .input(one(&context_ready))
-    .output(out_place(&thinking))
+    .output(out_one(&thinking))
     .timing(window(500, 10000))              // window: fires between 500ms and 10s
     .action(async_action(|mut ctx| async move {
         let msg: std::sync::Arc<String> = ctx.input("ContextReady")?;
@@ -92,7 +92,7 @@ let timeout = Transition::builder("Timeout")
     .read(read(&processing))
     .inhibitor(inhibitor(&response))
     .inhibitor(inhibitor(&composing))
-    .output(out_place(&urgency))
+    .output(out_one(&urgency))
     .timing(exact(5000))                     // exact: fires at precisely 5s
     .action(fork())
     .build();
@@ -102,7 +102,7 @@ let quick_agent = Transition::builder("QuickAgent")
     .input(one(&processing))
     .input(one(&urgency))
     .read(read(&conversation))
-    .output(out_place(&response))
+    .output(out_one(&response))
     .timing(immediate())
     .action(fork())
     .build();
@@ -113,7 +113,7 @@ let complete = Transition::builder("Complete")
     .input(one(&processing))
     .inhibitor(inhibitor(&response))         // inhibitor: can't fire if quick already answered
     .reset(reset(&urgency))                  // reset arc: clears any pending urgency
-    .output(out_place(&response))
+    .output(out_one(&response))
     .timing(deadline(3000))                  // deadline: must complete within 3s of enablement
     .action(fork())
     .build();
@@ -133,7 +133,7 @@ let auto_summarize = Transition::builder("AutoSummarize")
     .input(at_least(3, &conversation))       // at_least: need ≥3 messages
     .inhibitor(inhibitor(&summarizing))
     .reset(reset(&conversation))             // reset arc: clear remaining messages
-    .output(out_place(&summarizing))
+    .output(out_one(&summarizing))
     .timing(delayed(2000))                   // delayed: 2s cooldown
     .action(fork())
     .build();
@@ -144,7 +144,7 @@ let tool_summarize = Transition::builder("ToolSummarize")
     .read(read(&conversation))
     .inhibitor(inhibitor(&summarizing))
     .reset(reset(&conversation))
-    .output(out_place(&summarizing))
+    .output(out_one(&summarizing))
     .timing(immediate())
     .action(fork())
     .build();
@@ -153,7 +153,7 @@ let tool_summarize = Transition::builder("ToolSummarize")
 let summary_done = Transition::builder("SummaryDone")
     .input(one(&summarizing))
     .reset(reset(&summary))                  // reset arc: replace old summary
-    .output(out_place(&summary))
+    .output(out_one(&summary))
     .timing(deadline(2000))
     .action(fork())
     .build();

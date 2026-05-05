@@ -1150,7 +1150,10 @@ fn now_millis() -> u64 {
 #[allow(dead_code)]
 fn validate_out_spec(out: &Out, produced_places: &HashSet<Arc<str>>) -> bool {
     match out {
-        Out::Place(p) => produced_places.contains(p.name()),
+        Out::One(p) => produced_places.contains(p.name()),
+        // Multiplicity is verification-only metadata; runtime treats Exactly
+        // identically to One (set-membership only, count is advisory).
+        Out::Exactly { place, .. } => produced_places.contains(place.name()),
         Out::And(children) => children
             .iter()
             .all(|c| validate_out_spec(c, produced_places)),
@@ -1167,7 +1170,7 @@ mod tests {
     use super::*;
     use libpetri_core::action::passthrough;
     use libpetri_core::input::one;
-    use libpetri_core::output::out_place;
+    use libpetri_core::output::out_one;
     use libpetri_core::place::Place;
     use libpetri_core::token::Token;
     use libpetri_core::transition::Transition;
@@ -1180,12 +1183,12 @@ mod tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .action(passthrough())
             .build();
         let t2 = Transition::builder("t2")
             .input(one(&p2))
-            .output(out_place(&p3))
+            .output(out_one(&p3))
             .action(passthrough())
             .build();
 
@@ -1234,8 +1237,8 @@ mod tests {
         let t1 = Transition::builder("t1")
             .input(one(&p1))
             .output(libpetri_core::output::and(vec![
-                out_place(&p2),
-                out_place(&p3),
+                out_one(&p2),
+                out_one(&p3),
             ]))
             .action(libpetri_core::action::fork())
             .build();
@@ -1277,13 +1280,13 @@ mod tests {
         // Both consume from p, but t_high should fire first
         let t_high = Transition::builder("t_high")
             .input(one(&p))
-            .output(out_place(&out_a))
+            .output(out_one(&out_a))
             .action(libpetri_core::action::passthrough())
             .priority(10)
             .build();
         let t_low = Transition::builder("t_low")
             .input(one(&p))
-            .output(out_place(&out_b))
+            .output(out_one(&out_b))
             .action(libpetri_core::action::passthrough())
             .priority(1)
             .build();
@@ -1313,7 +1316,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .inhibitor(libpetri_core::arc::inhibitor(&p_inh))
             .action(libpetri_core::action::passthrough())
             .build();
@@ -1340,7 +1343,7 @@ mod tests {
             .map(|i| {
                 Transition::builder(format!("t{i}"))
                     .input(one(&places[i]))
-                    .output(out_place(&places[i + 1]))
+                    .output(out_one(&places[i + 1]))
                     .action(libpetri_core::action::fork())
                     .build()
             })
@@ -1366,7 +1369,7 @@ mod tests {
         let p2 = Place::<i32>::new("p2");
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .action(libpetri_core::action::fork())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -1391,7 +1394,7 @@ mod tests {
         let t = Transition::builder("t1")
             .input(one(&p1))
             .input(one(&p2))
-            .output(out_place(&p3))
+            .output(out_one(&p3))
             .action(libpetri_core::action::sync_action(|ctx| {
                 ctx.output("p3", 99i32)?;
                 Ok(())
@@ -1429,7 +1432,7 @@ mod tests {
         let t = Transition::builder("t1")
             .input(one(&p_in))
             .read(libpetri_core::arc::read(&p_ctx))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(libpetri_core::action::sync_action(|ctx| {
                 let v = ctx.input::<i32>("in")?;
                 let r = ctx.read::<i32>("ctx")?;
@@ -1461,7 +1464,7 @@ mod tests {
         let t = Transition::builder("t1")
             .input(one(&p_in))
             .reset(libpetri_core::arc::reset(&p_reset))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(libpetri_core::action::fork())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -1487,7 +1490,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(libpetri_core::input::exactly(3, &p))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(libpetri_core::action::sync_action(|ctx| {
                 let vals = ctx.inputs::<i32>("p")?;
                 for v in vals {
@@ -1519,7 +1522,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(libpetri_core::input::all(&p))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(libpetri_core::action::sync_action(|ctx| {
                 let vals = ctx.inputs::<i32>("p")?;
                 ctx.output("out", vals.len() as i32)?;
@@ -1547,7 +1550,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(libpetri_core::input::at_least(3, &p))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(libpetri_core::action::passthrough())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -1571,7 +1574,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(libpetri_core::input::at_least(3, &p))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(libpetri_core::action::passthrough())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -1595,7 +1598,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(libpetri_core::input::one_guarded(&p, |v| *v > 5))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(libpetri_core::action::fork())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -1621,7 +1624,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(libpetri_core::input::one_guarded(&p, |v| *v > 100))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(libpetri_core::action::fork())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -1648,8 +1651,8 @@ mod tests {
         let t = Transition::builder("t1")
             .input(one(&p_in))
             .output(libpetri_core::output::and(vec![
-                out_place(&p_a),
-                out_place(&p_b),
+                out_one(&p_a),
+                out_one(&p_b),
             ]))
             .action(libpetri_core::action::transform(|ctx| {
                 let v = ctx.input::<i32>("in").unwrap();
@@ -1678,7 +1681,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(one(&p_in))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(libpetri_core::action::sync_action(|ctx| {
                 let v = ctx.input::<i32>("in")?;
                 ctx.output("out", format!("value={v}"))?;
@@ -1706,7 +1709,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(one(&p_in))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(libpetri_core::action::sync_action(|_ctx| {
                 Err(libpetri_core::action::ActionError::new(
                     "intentional failure",
@@ -1741,7 +1744,7 @@ mod tests {
         let p2 = Place::<i32>::new("p2");
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .action(libpetri_core::action::fork())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -1800,7 +1803,7 @@ mod tests {
         let p2 = Place::<i32>::new("p2");
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .action(libpetri_core::action::fork())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -1833,7 +1836,7 @@ mod tests {
         let out = Place::<i32>::new("out");
         let t = Transition::builder("t1")
             .input(one(&p))
-            .output(out_place(&out))
+            .output(out_one(&out))
             .action(libpetri_core::action::fork())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -1855,7 +1858,7 @@ mod tests {
         let out = Place::<i32>::new("out");
         let t = Transition::builder("t1")
             .input(one(&p))
-            .output(out_place(&out))
+            .output(out_one(&out))
             .action(libpetri_core::action::fork())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -1879,7 +1882,7 @@ mod tests {
         let out = Place::<i32>::new("out");
         let t = Transition::builder("t1")
             .input(one(&p))
-            .output(out_place(&out))
+            .output(out_one(&out))
             .action(libpetri_core::action::fork())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -1909,7 +1912,7 @@ mod tests {
         // t_clear: consumes from inh, outputs to trigger
         let t_clear = Transition::builder("t_clear")
             .input(one(&p_inh))
-            .output(out_place(&p_trigger))
+            .output(out_one(&p_trigger))
             .action(libpetri_core::action::fork())
             .priority(10) // higher priority fires first
             .build();
@@ -1918,7 +1921,7 @@ mod tests {
         let t1 = Transition::builder("t1")
             .input(one(&p1))
             .inhibitor(libpetri_core::arc::inhibitor(&p_inh))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(libpetri_core::action::fork())
             .priority(1)
             .build();
@@ -1951,7 +1954,7 @@ mod tests {
             .input(one(&p_in))
             .read(libpetri_core::arc::read(&p_ctx))
             .reset(libpetri_core::arc::reset(&p_clear))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(libpetri_core::action::sync_action(|ctx| {
                 let v = ctx.input::<i32>("in")?;
                 let r = ctx.read::<String>("ctx")?;
@@ -1992,7 +1995,7 @@ mod tests {
             let out_name: Arc<str> = Arc::from(outp.name());
             Transition::builder(name)
                 .input(one(inp))
-                .output(out_place(outp))
+                .output(out_one(outp))
                 .action(libpetri_core::action::sync_action(move |ctx| {
                     let v = ctx
                         .input::<i32>("p1")
@@ -2033,8 +2036,8 @@ mod tests {
         let t_fork = Transition::builder("fork")
             .input(one(&p_start))
             .output(libpetri_core::output::and(vec![
-                out_place(&p_a),
-                out_place(&p_b),
+                out_one(&p_a),
+                out_one(&p_b),
             ]))
             .action(libpetri_core::action::fork())
             .build();
@@ -2042,7 +2045,7 @@ mod tests {
         let t_join = Transition::builder("join")
             .input(one(&p_a))
             .input(one(&p_b))
-            .output(out_place(&p_end))
+            .output(out_one(&p_end))
             .action(libpetri_core::action::sync_action(|ctx| {
                 let a = ctx.input::<i32>("a")?;
                 let b = ctx.input::<i32>("b")?;
@@ -2082,8 +2085,8 @@ mod tests {
             .input(one(&p_w1))
             .input(one(&p_mutex))
             .output(libpetri_core::output::and(vec![
-                out_place(&p_done1),
-                out_place(&p_mutex), // return mutex
+                out_one(&p_done1),
+                out_one(&p_mutex), // return mutex
             ]))
             .action(libpetri_core::action::sync_action(|ctx| {
                 ctx.output("done1", ())?;
@@ -2096,8 +2099,8 @@ mod tests {
             .input(one(&p_w2))
             .input(one(&p_mutex))
             .output(libpetri_core::output::and(vec![
-                out_place(&p_done2),
-                out_place(&p_mutex), // return mutex
+                out_one(&p_done2),
+                out_one(&p_mutex), // return mutex
             ]))
             .action(libpetri_core::action::sync_action(|ctx| {
                 ctx.output("done2", ())?;
@@ -2130,7 +2133,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(one(&p_in))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(libpetri_core::action::produce(
                 Arc::from("out"),
                 "produced_value".to_string(),
@@ -2157,8 +2160,8 @@ mod tests {
         let t = Transition::builder("t1")
             .input(one(&p))
             .output(libpetri_core::output::xor(vec![
-                out_place(&a),
-                out_place(&b),
+                out_one(&a),
+                out_one(&b),
             ]))
             .action(libpetri_core::action::sync_action(|ctx| {
                 let v = ctx.input::<i32>("p")?;
@@ -2191,9 +2194,9 @@ mod tests {
         let t = Transition::builder("t1")
             .input(one(&p))
             .output(libpetri_core::output::and(vec![
-                out_place(&a),
-                out_place(&b),
-                out_place(&c),
+                out_one(&a),
+                out_one(&b),
+                out_one(&c),
             ]))
             .action(libpetri_core::action::sync_action(|ctx| {
                 let v = ctx.input::<i32>("p")?;
@@ -2252,12 +2255,12 @@ mod tests {
 
         let t_a = Transition::builder("ta")
             .input(one(&p1))
-            .output(out_place(&out_a))
+            .output(out_one(&out_a))
             .action(libpetri_core::action::fork())
             .build();
         let t_b = Transition::builder("tb")
             .input(one(&p1))
-            .output(out_place(&out_b))
+            .output(out_one(&out_b))
             .action(libpetri_core::action::fork())
             .build();
 
@@ -2284,13 +2287,13 @@ mod tests {
 
         let t_hi = Transition::builder("hi")
             .input(one(&p))
-            .output(out_place(&out_hi))
+            .output(out_one(&out_hi))
             .action(libpetri_core::action::fork())
             .priority(10)
             .build();
         let t_lo = Transition::builder("lo")
             .input(one(&p))
-            .output(out_place(&out_lo))
+            .output(out_one(&out_lo))
             .action(libpetri_core::action::fork())
             .priority(1)
             .build();
@@ -2316,7 +2319,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(one(&p))
-            .output(out_place(&out))
+            .output(out_one(&out))
             .action(libpetri_core::action::fork())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -2338,7 +2341,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .action(libpetri_core::action::fork())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -2373,19 +2376,19 @@ mod tests {
         let t1 = Transition::builder("t1")
             .input(one(&p1))
             .output(libpetri_core::output::and(vec![
-                out_place(&p2),
-                out_place(&p3),
+                out_one(&p2),
+                out_one(&p3),
             ]))
             .action(libpetri_core::action::fork())
             .build();
         let t2 = Transition::builder("t2")
             .input(one(&p2))
-            .output(out_place(&p4))
+            .output(out_one(&p4))
             .action(libpetri_core::action::fork())
             .build();
         let t3 = Transition::builder("t3")
             .input(one(&p3))
-            .output(out_place(&p4))
+            .output(out_one(&p4))
             .action(libpetri_core::action::fork())
             .build();
 
@@ -2412,7 +2415,7 @@ mod tests {
 
         let t = Transition::builder("dec")
             .input(libpetri_core::input::one_guarded(&p, |v: &i32| *v > 0))
-            .output(out_place(&p))
+            .output(out_one(&p))
             .action(libpetri_core::action::sync_action(|ctx| {
                 let v = ctx.input::<i32>("p")?;
                 ctx.output("p", *v - 1)?;
@@ -2423,7 +2426,7 @@ mod tests {
         // When value hits 0, this transition moves it to done
         let t_done = Transition::builder("finish")
             .input(libpetri_core::input::one_guarded(&p, |v: &i32| *v == 0))
-            .output(out_place(&done))
+            .output(out_one(&done))
             .action(libpetri_core::action::fork())
             .build();
 
@@ -2451,7 +2454,7 @@ mod tests {
         let t = Transition::builder("combine")
             .input(one(&p_int))
             .input(one(&p_str))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .action(libpetri_core::action::sync_action(|ctx| {
                 let i = ctx.input::<i32>("ints")?;
                 let s = ctx.input::<String>("strs")?;
@@ -2480,7 +2483,7 @@ mod async_tests {
     use crate::environment::{ExecutorSignal, ExternalEvent};
     use libpetri_core::action::{ActionError, async_action, fork};
     use libpetri_core::input::one;
-    use libpetri_core::output::out_place;
+    use libpetri_core::output::out_one;
     use libpetri_core::place::Place;
     use libpetri_core::token::{ErasedToken, Token};
     use libpetri_core::transition::Transition;
@@ -2493,7 +2496,7 @@ mod async_tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .action(fork())
             .build();
 
@@ -2524,7 +2527,7 @@ mod async_tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .action(action)
             .build();
 
@@ -2550,13 +2553,13 @@ mod async_tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .action(fork())
             .build();
 
         let t2 = Transition::builder("t2")
             .input(one(&p2))
-            .output(out_place(&p3))
+            .output(out_one(&p3))
             .action(fork())
             .build();
 
@@ -2581,7 +2584,7 @@ mod async_tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .action(fork())
             .build();
 
@@ -2623,7 +2626,7 @@ mod async_tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .action(fork())
             .build();
 
@@ -2672,7 +2675,7 @@ mod async_tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .action(action)
             .build();
 
@@ -2708,7 +2711,7 @@ mod async_tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .timing(delayed(100))
             .action(fork())
             .build();
@@ -2751,7 +2754,7 @@ mod async_tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .timing(exact(100))
             .action(fork())
             .build();
@@ -2793,7 +2796,7 @@ mod async_tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .timing(window(50, 200))
             .action(fork())
             .build();
@@ -2841,7 +2844,7 @@ mod async_tests {
         // until after its deadline has passed.
         let t_slow = Transition::builder("slow")
             .input(one(&p_slow))
-            .output(out_place(&slow_out))
+            .output(out_one(&slow_out))
             .priority(10)
             .action(sync_action(|ctx| {
                 let v = ctx.input::<i32>("p_slow")?;
@@ -2859,7 +2862,7 @@ mod async_tests {
         // enforce_deadlines runs again, elapsed (~200ms) > latest (100ms) + tolerance.
         let t_windowed = Transition::builder("windowed")
             .input(one(&p_windowed))
-            .output(out_place(&windowed_out))
+            .output(out_one(&windowed_out))
             .timing(window(50, 100))
             .action(fork())
             .build();
@@ -2910,7 +2913,7 @@ mod async_tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .action(fork())
             .build();
 
@@ -2961,7 +2964,7 @@ mod async_tests {
         let make_transition = |name: &str, inp: &Place<i32>, outp: &Place<i32>| {
             Transition::builder(name)
                 .input(one(inp))
-                .output(out_place(outp))
+                .output(out_one(outp))
                 .action(async_action(|mut ctx| async move {
                     let v: i32 =
                         *ctx.input::<i32>(ctx.transition_name().replace("t", "p").as_str())?;
@@ -3021,7 +3024,7 @@ mod async_tests {
             let outp_name: Arc<str> = Arc::from(outp.name());
             Transition::builder(name)
                 .input(one(inp))
-                .output(out_place(outp))
+                .output(out_one(outp))
                 .action(async_action(move |mut ctx| {
                     let order = Arc::clone(&order);
                     let inp_name = Arc::clone(&inp_name);
@@ -3068,7 +3071,7 @@ mod async_tests {
         // Fork: p1 -> (p2, p3) via AND output
         let t_fork = Transition::builder("fork")
             .input(one(&p1))
-            .output(and(vec![out_place(&p2), out_place(&p3)]))
+            .output(and(vec![out_one(&p2), out_one(&p3)]))
             .action(libpetri_core::action::sync_action(|ctx| {
                 let v = ctx.input::<i32>("p1")?;
                 ctx.output("p2", *v)?;
@@ -3081,7 +3084,7 @@ mod async_tests {
         let t_join = Transition::builder("join")
             .input(one(&p2))
             .input(one(&p3))
-            .output(out_place(&p4))
+            .output(out_one(&p4))
             .action(libpetri_core::action::sync_action(|ctx| {
                 let a = ctx.input::<i32>("p2")?;
                 let b = ctx.input::<i32>("p3")?;
@@ -3119,7 +3122,7 @@ mod async_tests {
 
         let t = Transition::builder("xor_t")
             .input(one(&p))
-            .output(xor(vec![out_place(&left), out_place(&right)]))
+            .output(xor(vec![out_one(&left), out_one(&right)]))
             .action(libpetri_core::action::sync_action(|ctx| {
                 let v = ctx.input::<i32>("p")?;
                 if *v > 0 {
@@ -3157,7 +3160,7 @@ mod async_tests {
         // Loop transition: counter -> counter (increment), guarded to fire when < 3
         let t_loop = Transition::builder("loop")
             .input(one_guarded(&counter, |v: &i32| *v < 3))
-            .output(out_place(&counter))
+            .output(out_one(&counter))
             .action(libpetri_core::action::sync_action(|ctx| {
                 let v = ctx.input::<i32>("counter")?;
                 ctx.output("counter", *v + 1)?;
@@ -3168,7 +3171,7 @@ mod async_tests {
         // Exit transition: counter -> done, guarded to fire when >= 3
         let t_exit = Transition::builder("exit")
             .input(one_guarded(&counter, |v: &i32| *v >= 3))
-            .output(out_place(&done))
+            .output(out_one(&done))
             .action(fork())
             .build();
 
@@ -3198,7 +3201,7 @@ mod async_tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .timing(delayed(100))
             .action(fork())
             .build();
@@ -3239,7 +3242,7 @@ mod async_tests {
         let t1 = Transition::builder("t1")
             .input(one(&p1))
             .output(xor(vec![
-                out_place(&success),
+                out_one(&success),
                 timeout_place(50, &timeout_out),
             ]))
             .action(async_action(|mut ctx| async move {
@@ -3276,7 +3279,7 @@ mod async_tests {
         let t1 = Transition::builder("t1")
             .input(one(&p1))
             .output(xor(vec![
-                out_place(&success),
+                out_one(&success),
                 timeout_place(500, &timeout_out),
             ]))
             .action(async_action(|mut ctx| async move {
@@ -3308,7 +3311,7 @@ mod async_tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .action(fork())
             .build();
 
@@ -3362,7 +3365,7 @@ mod async_tests {
 
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .inhibitor(libpetri_core::arc::inhibitor(&p_inh))
             .action(fork())
             .build();
@@ -3393,7 +3396,7 @@ mod async_tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .action(fork())
             .build();
 
@@ -3436,7 +3439,7 @@ mod async_tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .action(fork())
             .build();
 
@@ -3477,7 +3480,7 @@ mod async_tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .action(fork())
             .build();
 
@@ -3523,7 +3526,7 @@ mod async_tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .action(fork())
             .build();
 
@@ -3561,7 +3564,7 @@ mod async_tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .action(fork())
             .build();
 

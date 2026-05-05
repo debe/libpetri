@@ -30,21 +30,21 @@ fn generate_executor_example() {
 
     let process_a = Transition::builder("process_a")
         .input(one(&branch_a))
-        .output(out_place(&join_place))
+        .output(out_one(&join_place))
         .timing(delayed(100))
         .action(fork())
         .build();
 
     let process_b = Transition::builder("process_b")
         .input(one(&branch_b))
-        .output(out_place(&join_place))
+        .output(out_one(&join_place))
         .timing(deadline(5000))
         .action(fork())
         .build();
 
     let complete = Transition::builder("complete")
         .input(exactly(2, &join_place))
-        .output(out_place(&done))
+        .output(out_one(&done))
         .timing(immediate())
         .action(fork())
         .build();
@@ -76,35 +76,35 @@ fn generate_precompiled_example() {
 
     let step_1 = Transition::builder("step_1")
         .input(one(&p0))
-        .output(out_place(&p1))
+        .output(out_one(&p1))
         .timing(immediate())
         .action(fork())
         .build();
 
     let step_2 = Transition::builder("step_2")
         .input(one(&p1))
-        .output(out_place(&p2))
+        .output(out_one(&p2))
         .timing(immediate())
         .action(fork())
         .build();
 
     let step_3 = Transition::builder("step_3")
         .input(one(&p2))
-        .output(out_place(&p3))
+        .output(out_one(&p3))
         .timing(immediate())
         .action(fork())
         .build();
 
     let step_4 = Transition::builder("step_4")
         .input(one(&p3))
-        .output(out_place(&p4))
+        .output(out_one(&p4))
         .timing(immediate())
         .action(fork())
         .build();
 
     let step_5 = Transition::builder("step_5")
         .input(one(&p4))
-        .output(out_place(&p5))
+        .output(out_one(&p5))
         .timing(immediate())
         .action(fork())
         .build();

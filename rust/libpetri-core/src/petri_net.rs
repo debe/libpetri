@@ -144,7 +144,7 @@ impl PetriNetBuilder {
 mod tests {
     use super::*;
     use crate::input::one;
-    use crate::output::out_place;
+    use crate::output::out_one;
     use crate::place::Place;
 
     #[test]
@@ -154,7 +154,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .build();
 
         let net = PetriNet::builder("test").transition(t).build();
@@ -182,7 +182,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .build();
 
         let net = PetriNet::builder("test").transition(t).build();
@@ -206,7 +206,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(one(&p_in))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .inhibitor(crate::arc::inhibitor(&p_inh))
             .read(crate::arc::read(&p_read))
             .reset(crate::arc::reset(&p_reset))

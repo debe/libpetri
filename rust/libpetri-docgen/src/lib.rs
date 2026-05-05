@@ -23,7 +23,7 @@
 //!
 //!     let t = Transition::builder("process")
 //!         .input(one(&p1))
-//!         .output(out_place(&p2))
+//!         .output(out_one(&p2))
 //!         .action(fork())
 //!         .build();
 //!
@@ -83,7 +83,10 @@ use std::process::Command;
 pub use libpetri_core::action::{fork, passthrough, produce, sync_action, transform};
 pub use libpetri_core::arc::{inhibitor, read, reset};
 pub use libpetri_core::input::{one, all, at_least, exactly};
-pub use libpetri_core::output::{and, and_places, out_place, timeout, timeout_place, xor, xor_places};
+pub use libpetri_core::output::{
+    out_one, out_exactly,
+    and, and_places, timeout, timeout_place, xor, xor_places,
+};
 pub use libpetri_core::petri_net::PetriNet;
 pub use libpetri_core::place::{EnvironmentPlace, Place};
 pub use libpetri_core::timing::{Timing, deadline, delayed, exact, immediate, window};
@@ -269,7 +272,7 @@ mod tests {
         let p2 = Place::<i32>::new("p2");
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .action(fork())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -314,7 +317,7 @@ mod tests {
         let p2 = Place::<i32>::new("b");
         let t = Transition::builder("t")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .action(fork())
             .build();
         let net = PetriNet::builder("test_gen").transition(t).build();

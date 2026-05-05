@@ -45,7 +45,7 @@
 //! use libpetri_core::transition::Transition;
 //! use libpetri_core::petri_net::PetriNet;
 //! use libpetri_core::input::one;
-//! use libpetri_core::output::out_place;
+//! use libpetri_core::output::out_one;
 //! use libpetri_core::action::fork;
 //! use libpetri_core::timing::delayed;
 //!
@@ -54,7 +54,7 @@
 //!
 //! let send = Transition::builder("send")
 //!     .input(one(&inbox))
-//!     .output(out_place(&outbox))
+//!     .output(out_one(&outbox))
 //!     .timing(delayed(100))
 //!     .action(fork())
 //!     .build();

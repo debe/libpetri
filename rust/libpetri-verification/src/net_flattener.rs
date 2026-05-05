@@ -76,15 +76,19 @@ pub fn flatten(net: &PetriNet) -> FlatNet {
             .map(|r| place_index[r.place.name()])
             .collect();
 
-        // Build post vectors: XOR branches expand into separate transitions
+        // Build post vectors: XOR branches expand into separate transitions.
+        // Counts come from Out::One=1 / Out::Exactly=N / AND-collisions already
+        // canonicalized inside enumerate_branches.
         if let Some(out_spec) = t.output_spec() {
             let branches = output::enumerate_branches(out_spec);
             if branches.len() <= 1 {
                 // No XOR or single branch
                 let mut post = vec![0i64; place_count];
-                for p in output::all_places(out_spec) {
-                    let pid = place_index[p.name()];
-                    post[pid] += 1;
+                if let Some(branch) = branches.first() {
+                    for (place, count) in branch {
+                        let pid = place_index[place.name()];
+                        post[pid] = *count as i64;
+                    }
                 }
                 flat_transitions.push(FlatTransition {
                     name: t.name().to_string(),
@@ -99,9 +103,9 @@ pub fn flatten(net: &PetriNet) -> FlatNet {
                 // XOR: one flat transition per branch
                 for (bi, branch) in branches.iter().enumerate() {
                     let mut post = vec![0i64; place_count];
-                    for p in branch {
-                        let pid = place_index[p.name()];
-                        post[pid] += 1;
+                    for (place, count) in branch {
+                        let pid = place_index[place.name()];
+                        post[pid] = *count as i64;
                     }
                     flat_transitions.push(FlatTransition {
                         name: format!("{}_b{}", t.name(), bi),
@@ -140,7 +144,7 @@ pub fn flatten(net: &PetriNet) -> FlatNet {
 mod tests {
     use super::*;
     use libpetri_core::input::one;
-    use libpetri_core::output::{out_place, xor};
+    use libpetri_core::output::{out_one, xor};
     use libpetri_core::place::Place;
     use libpetri_core::transition::Transition;
 
@@ -150,7 +154,7 @@ mod tests {
         let p2 = Place::<i32>::new("p2");
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .build();
         let net = PetriNet::builder("test").transition(t).build();
 
@@ -168,7 +172,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(one(&p))
-            .output(xor(vec![out_place(&a), out_place(&b)]))
+            .output(xor(vec![out_one(&a), out_one(&b)]))
             .build();
         let net = PetriNet::builder("test").transition(t).build();
 
@@ -176,5 +180,80 @@ mod tests {
         assert_eq!(flat.transitions.len(), 2);
         assert_eq!(flat.transitions[0].name, "t1_b0");
         assert_eq!(flat.transitions[1].name, "t1_b1");
+    }
+
+    // ==================== Multiplicity (IO-018, IO-019) ====================
+
+    #[test]
+    fn flatten_and_repeated_place_post_vector_is_three() {
+        use libpetri_core::output::and;
+        let input = Place::<i32>::new("input");
+        let output = Place::<i32>::new("output");
+        let t = Transition::builder("triple")
+            .input(one(&input))
+            .output(and(vec![out_one(&output), out_one(&output), out_one(&output)]))
+            .build();
+        let net = PetriNet::builder("repeated_and").transition(t).build();
+
+        let flat = flatten(&net);
+        assert_eq!(flat.transitions.len(), 1);
+        let pid = flat.place_index["output"];
+        assert_eq!(
+            flat.transitions[0].post[pid], 3,
+            "out_one(P) repeated three times under AND must produce post=3"
+        );
+    }
+
+    #[test]
+    fn flatten_exactly_post_vector_equals_count() {
+        use libpetri_core::output::out_exactly;
+        let input = Place::<i32>::new("input");
+        let output = Place::<i32>::new("output");
+        let t = Transition::builder("five")
+            .input(one(&input))
+            .output(out_exactly(5, &output))
+            .build();
+        let net = PetriNet::builder("exactly").transition(t).build();
+
+        let flat = flatten(&net);
+        let pid = flat.place_index["output"];
+        assert_eq!(flat.transitions[0].post[pid], 5);
+    }
+
+    #[test]
+    fn flatten_and_two_exactly_sum() {
+        use libpetri_core::output::{and, out_exactly};
+        let input = Place::<i32>::new("input");
+        let output = Place::<i32>::new("output");
+        let t = Transition::builder("sum")
+            .input(one(&input))
+            .output(and(vec![out_exactly(2, &output), out_exactly(3, &output)]))
+            .build();
+        let net = PetriNet::builder("sum").transition(t).build();
+
+        let flat = flatten(&net);
+        let pid = flat.place_index["output"];
+        assert_eq!(
+            flat.transitions[0].post[pid], 5,
+            "AND of two Exactly(_, _) must sum counts on shared keys"
+        );
+    }
+
+    #[test]
+    fn flatten_xor_different_counts_per_branch() {
+        use libpetri_core::output::out_exactly;
+        let input = Place::<i32>::new("input");
+        let output = Place::<i32>::new("output");
+        let t = Transition::builder("choice")
+            .input(one(&input))
+            .output(xor(vec![out_one(&output), out_exactly(3, &output)]))
+            .build();
+        let net = PetriNet::builder("xor_counts").transition(t).build();
+
+        let flat = flatten(&net);
+        assert_eq!(flat.transitions.len(), 2);
+        let pid = flat.place_index["output"];
+        assert_eq!(flat.transitions[0].post[pid], 1);
+        assert_eq!(flat.transitions[1].post[pid], 3);
     }
 }

@@ -301,12 +301,26 @@ fn input_label(spec: &In) -> Option<String> {
 #[allow(clippy::only_used_in_recursion)]
 fn output_edges(t_id: &str, out: &Out, reset_places: &HashSet<&str>, edges: &mut Vec<GraphEdge>) {
     match out {
-        Out::Place(p) => {
+        Out::One(p) => {
             let to_id = format!("p_{}", sanitize(p.name()));
             edges.push(GraphEdge {
                 from: t_id.to_string(),
                 to: to_id,
                 label: None,
+                color: Some(styles::OUTPUT_EDGE.color.to_string()),
+                style: Some(EdgeLineStyle::Solid),
+                arrowhead: Some(ArrowHead::Normal),
+                penwidth: styles::OUTPUT_EDGE.penwidth,
+                arc_type: Some("output".into()),
+                attrs: Vec::new(),
+            });
+        }
+        Out::Exactly { place, count } => {
+            let to_id = format!("p_{}", sanitize(place.name()));
+            edges.push(GraphEdge {
+                from: t_id.to_string(),
+                to: to_id,
+                label: Some(format!("\u{00d7}{count}")),
                 color: Some(styles::OUTPUT_EDGE.color.to_string()),
                 style: Some(EdgeLineStyle::Solid),
                 arrowhead: Some(ArrowHead::Normal),
@@ -349,12 +363,30 @@ fn output_edges(t_id: &str, out: &Out, reset_places: &HashSet<&str>, edges: &mut
 
 fn output_edges_with_label(t_id: &str, out: &Out, label: Option<&str>, edges: &mut Vec<GraphEdge>) {
     match out {
-        Out::Place(p) => {
+        Out::One(p) => {
             let to_id = format!("p_{}", sanitize(p.name()));
             edges.push(GraphEdge {
                 from: t_id.to_string(),
                 to: to_id,
                 label: label.map(|s| s.to_string()),
+                color: Some(styles::OUTPUT_EDGE.color.to_string()),
+                style: Some(EdgeLineStyle::Solid),
+                arrowhead: Some(ArrowHead::Normal),
+                penwidth: styles::OUTPUT_EDGE.penwidth,
+                arc_type: Some("output".into()),
+                attrs: Vec::new(),
+            });
+        }
+        Out::Exactly { place, count } => {
+            let to_id = format!("p_{}", sanitize(place.name()));
+            let count_label = match label {
+                Some(l) => format!("{l} \u{00d7}{count}"),
+                None => format!("\u{00d7}{count}"),
+            };
+            edges.push(GraphEdge {
+                from: t_id.to_string(),
+                to: to_id,
+                label: Some(count_label),
                 color: Some(styles::OUTPUT_EDGE.color.to_string()),
                 style: Some(EdgeLineStyle::Solid),
                 arrowhead: Some(ArrowHead::Normal),
@@ -394,7 +426,8 @@ fn output_edges_with_label(t_id: &str, out: &Out, label: Option<&str>, edges: &m
 
 fn infer_branch_label(out: &Out) -> Option<String> {
     match out {
-        Out::Place(p) => Some(p.name().to_string()),
+        Out::One(p) => Some(p.name().to_string()),
+        Out::Exactly { place, count } => Some(format!("{}\u{00d7}{count}", place.name())),
         Out::Timeout { after_ms, .. } => Some(format!("\u{23f1}{after_ms}ms")),
         Out::ForwardInput { to, .. } => Some(to.name().to_string()),
         _ => None,
@@ -405,7 +438,7 @@ fn infer_branch_label(out: &Out) -> Option<String> {
 mod tests {
     use super::*;
     use libpetri_core::input::one;
-    use libpetri_core::output::out_place;
+    use libpetri_core::output::out_one;
     use libpetri_core::place::Place;
     use libpetri_core::transition::Transition;
 
@@ -422,7 +455,7 @@ mod tests {
         let p2 = Place::<i32>::new("p2");
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .build();
         let net = PetriNet::builder("test").transition(t).build();
 
@@ -442,11 +475,11 @@ mod tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p_start))
-            .output(out_place(&p_mid))
+            .output(out_one(&p_mid))
             .build();
         let t2 = Transition::builder("t2")
             .input(one(&p_mid))
-            .output(out_place(&p_end))
+            .output(out_one(&p_end))
             .build();
 
         let net = PetriNet::builder("test").transitions([t1, t2]).build();
@@ -469,7 +502,7 @@ mod tests {
         let p2 = Place::<i32>::new("End");
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .build();
         let net = PetriNet::builder("test").transition(t).build();
 
@@ -492,7 +525,7 @@ mod tests {
         let p2 = Place::<i32>::new("p2");
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .build();
         let net = PetriNet::builder("test").transition(t).build();
 
@@ -512,7 +545,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(exactly(3, &p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .build();
         let net = PetriNet::builder("test").transition(t).build();
         let graph = map_to_graph(&net, &DotConfig::default());
@@ -521,7 +554,7 @@ mod tests {
 
         let t2 = Transition::builder("t2")
             .input(at_least(2, &p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .build();
         let net2 = PetriNet::builder("test2").transition(t2).build();
         let graph2 = map_to_graph(&net2, &DotConfig::default());
@@ -535,7 +568,7 @@ mod tests {
         let p2 = Place::<i32>::new("p2");
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .build();
         let net = PetriNet::builder("test").transition(t).build();
 
@@ -553,7 +586,7 @@ mod tests {
         let p2 = Place::<i32>::new("p2");
         let t = Transition::builder("fire")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .timing(libpetri_core::timing::Timing::Delayed { after_ms: 500 })
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -572,7 +605,7 @@ mod tests {
         let cfg = Place::<i32>::new("cfg");
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .read(read(&cfg))
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -591,7 +624,7 @@ mod tests {
         let cache = Place::<i32>::new("cache");
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .reset(reset(&cache))
             .build();
         let net = PetriNet::builder("test").transition(t).build();
@@ -608,7 +641,7 @@ mod tests {
         let p2 = Place::<i32>::new("p2");
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .build();
         let net = PetriNet::builder("test").transition(t).build();
 

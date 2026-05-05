@@ -92,7 +92,7 @@ impl PlaceAnalysis {
 mod tests {
     use super::*;
     use libpetri_core::input::one;
-    use libpetri_core::output::out_place;
+    use libpetri_core::output::out_one;
     use libpetri_core::place::Place;
     use libpetri_core::transition::Transition;
 
@@ -104,11 +104,11 @@ mod tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .build();
         let t2 = Transition::builder("t2")
             .input(one(&p2))
-            .output(out_place(&p3))
+            .output(out_one(&p3))
             .build();
 
         let net = PetriNet::builder("test").transitions([t1, t2]).build();

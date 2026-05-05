@@ -11,7 +11,7 @@ fn build_linear_chain(n: usize) -> (PetriNet, Place<i32>) {
         .map(|i| {
             Transition::builder(format!("t{i}"))
                 .input(one(&places[i]))
-                .output(out_place(&places[i + 1]))
+                .output(out_one(&places[i + 1]))
                 .action(fork())
                 .build()
         })
@@ -26,7 +26,7 @@ fn single_passthrough(c: &mut Criterion) {
     let p2 = Place::<i32>::new("p2");
     let t = Transition::builder("t1")
         .input(one(&p1))
-        .output(out_place(&p2))
+        .output(out_one(&p2))
         .action(passthrough())
         .build();
     let net = PetriNet::builder("single").transition(t).build();
@@ -74,7 +74,7 @@ fn build_fan_out(fan: usize) -> (PetriNet, Place<i32>, Place<i32>) {
         transitions.push(
             Transition::builder(format!("fan_out_{i}"))
                 .input(one(&start))
-                .output(out_place(m))
+                .output(out_one(m))
                 .action(fork())
                 .build(),
         );
@@ -85,7 +85,7 @@ fn build_fan_out(fan: usize) -> (PetriNet, Place<i32>, Place<i32>) {
         transitions.push(
             Transition::builder(format!("fan_in_{i}"))
                 .input(one(m))
-                .output(out_place(&end))
+                .output(out_one(&end))
                 .action(fork())
                 .build(),
         );
@@ -126,7 +126,7 @@ fn compilation(c: &mut Criterion) {
             .map(|i| {
                 Transition::builder(format!("t{i}"))
                     .input(one(&places[i]))
-                    .output(out_place(&places[i + 1]))
+                    .output(out_one(&places[i + 1]))
                     .action(fork())
                     .build()
             })
@@ -208,7 +208,7 @@ fn build_mixed_chain(n: usize, async_count: usize) -> (PetriNet, Place<i32>) {
         .map(|i| {
             let mut builder = Transition::builder(format!("t{i}"))
                 .input(one(&places[i]))
-                .output(out_place(&places[i + 1]));
+                .output(out_one(&places[i + 1]));
             if i < async_count {
                 builder = builder.action(async_action(|ctx| async { Ok(ctx) }));
             } else {
@@ -299,10 +299,10 @@ fn build_complex_workflow() -> (PetriNet, Place<i32>) {
     let fork_trans = Transition::builder("Fork")
         .input(one(&input))
         .output(and(vec![
-            out_place(&guard_in),
-            out_place(&intent_in),
-            out_place(&search_in),
-            out_place(&output_guard_in),
+            out_one(&guard_in),
+            out_one(&intent_in),
+            out_one(&search_in),
+            out_one(&output_guard_in),
         ]))
         .action(fork())
         .build();
@@ -311,8 +311,8 @@ fn build_complex_workflow() -> (PetriNet, Place<i32>) {
     let guard_trans = Transition::builder("Guard")
         .input(one(&guard_in))
         .output(xor(vec![
-            out_place(&guard_safe),
-            out_place(&guard_violation),
+            out_one(&guard_safe),
+            out_one(&guard_violation),
         ]))
         .action(fork())
         .build();
@@ -320,7 +320,7 @@ fn build_complex_workflow() -> (PetriNet, Place<i32>) {
     // T3: HandleViolation (inhibited by guard_safe)
     let handle_violation = Transition::builder("HandleViolation")
         .input(one(&guard_violation))
-        .output(out_place(&violated))
+        .output(out_one(&violated))
         .inhibitor(inhibitor(&guard_safe))
         .action(fork())
         .build();
@@ -328,21 +328,21 @@ fn build_complex_workflow() -> (PetriNet, Place<i32>) {
     // T4: Intent
     let intent_trans = Transition::builder("Intent")
         .input(one(&intent_in))
-        .output(out_place(&intent_ready))
+        .output(out_one(&intent_ready))
         .action(fork())
         .build();
 
     // T5: TopicKnowledge
     let topic_trans = Transition::builder("TopicKnowledge")
         .input(one(&intent_ready))
-        .output(out_place(&topic_ready))
+        .output(out_one(&topic_ready))
         .action(fork())
         .build();
 
     // T6: Search (read intentReady, inhibited by guardViolation, low priority)
     let search_trans = Transition::builder("Search")
         .input(one(&search_in))
-        .output(out_place(&search_ready))
+        .output(out_one(&search_ready))
         .read(read(&intent_ready))
         .inhibitor(inhibitor(&guard_violation))
         .priority(-5)
@@ -352,7 +352,7 @@ fn build_complex_workflow() -> (PetriNet, Place<i32>) {
     // T7: OutputGuard (reads guardSafe)
     let output_guard_trans = Transition::builder("OutputGuard")
         .input(one(&output_guard_in))
-        .output(out_place(&output_guard_done))
+        .output(out_one(&output_guard_done))
         .read(read(&guard_safe))
         .action(fork())
         .build();
@@ -362,7 +362,7 @@ fn build_complex_workflow() -> (PetriNet, Place<i32>) {
         .input(one(&guard_safe))
         .input(one(&search_ready))
         .input(one(&topic_ready))
-        .output(out_place(&response))
+        .output(out_one(&response))
         .priority(10)
         .action(fork())
         .build();
@@ -402,7 +402,7 @@ fn precompiled_single_passthrough(c: &mut Criterion) {
     let p2 = Place::<i32>::new("p2");
     let t = Transition::builder("t1")
         .input(one(&p1))
-        .output(out_place(&p2))
+        .output(out_one(&p2))
         .action(passthrough())
         .build();
     let net = PetriNet::builder("single").transition(t).build();
@@ -463,7 +463,7 @@ fn precompiled_compilation(c: &mut Criterion) {
             .map(|i| {
                 Transition::builder(format!("t{i}"))
                     .input(one(&places[i]))
-                    .output(out_place(&places[i + 1]))
+                    .output(out_one(&places[i + 1]))
                     .action(fork())
                     .build()
             })

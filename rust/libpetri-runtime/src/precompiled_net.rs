@@ -63,7 +63,8 @@ pub struct PrecompiledNet<'c> {
     pub(crate) distinct_priority_count: usize,
     pub(crate) all_same_priority: bool,
 
-    /// Simple output fast path: -2 = no spec, -1 = complex, >= 0 = Out::Place pid.
+    /// Simple output fast path: -2 = no spec, -1 = complex, >= 0 = pid for
+    /// Out::One or Out::Exactly (both single-place leaves).
     #[allow(dead_code)]
     pub(crate) simple_output_place_id: Vec<i32>,
 
@@ -112,11 +113,17 @@ impl<'c> PrecompiledNet<'c> {
 
             input_place_count.push(t.input_specs().len() + t.reads().len());
 
-            // Precompute output validation fast path
+            // Precompute output validation fast path. Both Out::One and
+            // Out::Exactly map to a single output place (multiplicity is
+            // verification-only metadata, not enforced by the runtime).
             match t.output_spec() {
                 None => simple_output_place_id.push(-2),
-                Some(Out::Place(p)) => {
+                Some(Out::One(p)) => {
                     simple_output_place_id.push(compiled.place_id(p.name()).unwrap_or(0) as i32);
+                }
+                Some(Out::Exactly { place, .. }) => {
+                    simple_output_place_id
+                        .push(compiled.place_id(place.name()).unwrap_or(0) as i32);
                 }
                 Some(_) => simple_output_place_id.push(-1),
             }
@@ -380,7 +387,7 @@ fn compile_input_mask(t: &Transition, compiled: &CompiledNet, word_count: usize)
 mod tests {
     use super::*;
     use libpetri_core::input::one;
-    use libpetri_core::output::out_place;
+    use libpetri_core::output::out_one;
     use libpetri_core::place::Place;
 
     fn simple_chain_net() -> PetriNet {
@@ -390,11 +397,11 @@ mod tests {
 
         let t1 = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .build();
         let t2 = Transition::builder("t2")
             .input(one(&p2))
-            .output(out_place(&p3))
+            .output(out_one(&p3))
             .build();
 
         PetriNet::builder("chain").transitions([t1, t2]).build()
@@ -456,12 +463,12 @@ mod tests {
 
         let t_high = Transition::builder("t_high")
             .input(one(&p))
-            .output(out_place(&out))
+            .output(out_one(&out))
             .priority(10)
             .build();
         let t_low = Transition::builder("t_low")
             .input(one(&p))
-            .output(out_place(&out))
+            .output(out_one(&out))
             .priority(1)
             .build();
 
@@ -485,7 +492,7 @@ mod tests {
 
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .inhibitor(libpetri_core::arc::inhibitor(&p_inh))
             .build();
 

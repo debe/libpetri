@@ -21,7 +21,7 @@ fn generate_mutex_example() {
     let enter_a = Transition::builder("enter_a")
         .input(one(&idle_a))
         .input(one(&mutex))
-        .output(out_place(&critical_a))
+        .output(out_one(&critical_a))
         .action(fork())
         .build();
 
@@ -34,7 +34,7 @@ fn generate_mutex_example() {
     let enter_b = Transition::builder("enter_b")
         .input(one(&idle_b))
         .input(one(&mutex))
-        .output(out_place(&critical_b))
+        .output(out_one(&critical_b))
         .action(fork())
         .build();
 

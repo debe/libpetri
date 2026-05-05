@@ -24,7 +24,7 @@
 //! use libpetri_core::transition::Transition;
 //! use libpetri_core::petri_net::PetriNet;
 //! use libpetri_core::input::one;
-//! use libpetri_core::output::out_place;
+//! use libpetri_core::output::out_one;
 //! use libpetri_core::action::fork;
 //! use libpetri_export::dot_exporter::dot_export;
 //!
@@ -33,7 +33,7 @@
 //!
 //! let t = Transition::builder("process")
 //!     .input(one(&p1))
-//!     .output(out_place(&p2))
+//!     .output(out_one(&p2))
 //!     .action(fork())
 //!     .build();
 //!

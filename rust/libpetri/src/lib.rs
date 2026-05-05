@@ -12,7 +12,7 @@
 //!
 //! let t = Transition::builder("process")
 //!     .input(one(&p1))
-//!     .output(out_place(&p2))
+//!     .output(out_one(&p2))
 //!     .action(fork())
 //!     .build();
 //!
@@ -83,7 +83,8 @@ pub use libpetri_core::arc::{Inhibitor, Read, Reset, inhibitor, read, reset};
 pub use libpetri_core::context::TransitionContext;
 pub use libpetri_core::input::{In, all, at_least, exactly, one};
 pub use libpetri_core::output::{
-    Out, and, and_places, forward_input, out_place, timeout, timeout_place, xor, xor_places,
+    Out, and, and_places, forward_input, out_exactly, out_one, timeout, timeout_place, xor,
+    xor_places,
 };
 pub use libpetri_core::petri_net::PetriNet;
 pub use libpetri_core::place::{EnvironmentPlace, Place, PlaceRef};

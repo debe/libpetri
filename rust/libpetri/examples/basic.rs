@@ -28,7 +28,7 @@ async fn main() {
     let typing = Transition::builder("Typing")
         .input(one(keyboard.place()))
         .reset(reset(&urgency))
-        .output(out_place(&composing))
+        .output(out_one(&composing))
         .timing(immediate())
         .priority(20)
         .action(fork())
@@ -39,9 +39,9 @@ async fn main() {
         .input(one(user_message.place()))
         .reset(reset(&composing))
         .output(and(vec![
-            out_place(&pending),
-            out_place(&processing),
-            out_place(&conversation),
+            out_one(&pending),
+            out_one(&processing),
+            out_one(&conversation),
         ]))
         .timing(immediate())
         .priority(10)
@@ -53,7 +53,7 @@ async fn main() {
         .input(one(&pending))
         .read(read(&conversation))
         .read(read(&summary))
-        .output(out_place(&context_ready))
+        .output(out_one(&context_ready))
         .timing(immediate())
         .action(async_action(|mut ctx| async move {
             let msg: std::sync::Arc<String> = ctx.input("Pending")?;
@@ -72,7 +72,7 @@ async fn main() {
         .input(one(&pending))
         .read(read(&conversation))
         .inhibitor(inhibitor(&summary))
-        .output(out_place(&context_ready))
+        .output(out_one(&context_ready))
         .timing(immediate())
         .action(async_action(|mut ctx| async move {
             let msg: std::sync::Arc<String> = ctx.input("Pending")?;
@@ -85,7 +85,7 @@ async fn main() {
     // 5. DeepAgent: thorough analysis — consumes ContextReady, produces Thinking
     let deep_agent = Transition::builder("DeepAgent")
         .input(one(&context_ready))
-        .output(out_place(&thinking))
+        .output(out_one(&thinking))
         .timing(window(500, 10000))
         .action(async_action(|mut ctx| async move {
             let msg: std::sync::Arc<String> = ctx.input("ContextReady")?;
@@ -100,7 +100,7 @@ async fn main() {
         .read(read(&processing))
         .inhibitor(inhibitor(&response))
         .inhibitor(inhibitor(&composing))
-        .output(out_place(&urgency))
+        .output(out_one(&urgency))
         .timing(exact(5000))
         .action(fork())
         .build();
@@ -110,7 +110,7 @@ async fn main() {
         .input(one(&processing))
         .input(one(&urgency))
         .read(read(&conversation))
-        .output(out_place(&response))
+        .output(out_one(&response))
         .timing(immediate())
         .action(async_action(|mut ctx| async move {
             let conv: std::sync::Arc<String> = ctx.read("Conversation")?;
@@ -126,7 +126,7 @@ async fn main() {
         .input(one(&processing))
         .inhibitor(inhibitor(&response))
         .reset(reset(&urgency))
-        .output(out_place(&response))
+        .output(out_one(&response))
         .timing(deadline(3000))
         .action(async_action(|mut ctx| async move {
             let thought: std::sync::Arc<String> = ctx.input("Thinking")?;
@@ -149,7 +149,7 @@ async fn main() {
         .input(at_least(3, &conversation))
         .inhibitor(inhibitor(&summarizing))
         .reset(reset(&conversation))
-        .output(out_place(&summarizing))
+        .output(out_one(&summarizing))
         .timing(delayed(2000))
         .action(fork())
         .build();
@@ -160,7 +160,7 @@ async fn main() {
         .read(read(&conversation))
         .inhibitor(inhibitor(&summarizing))
         .reset(reset(&conversation))
-        .output(out_place(&summarizing))
+        .output(out_one(&summarizing))
         .timing(immediate())
         .action(fork())
         .build();
@@ -169,7 +169,7 @@ async fn main() {
     let summary_done = Transition::builder("SummaryDone")
         .input(one(&summarizing))
         .reset(reset(&summary))
-        .output(out_place(&summary))
+        .output(out_one(&summary))
         .timing(deadline(2000))
         .action(fork())
         .build();

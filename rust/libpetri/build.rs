@@ -27,13 +27,13 @@ fn basic_chain() -> PetriNet {
 
     let t1 = Transition::builder("t1")
         .input(one(&p1))
-        .output(out_place(&p2))
+        .output(out_one(&p2))
         .action(fork())
         .build();
 
     let t2 = Transition::builder("t2")
         .input(one(&p2))
-        .output(out_place(&p3))
+        .output(out_one(&p3))
         .action(fork())
         .build();
 
@@ -93,7 +93,7 @@ fn showcase() -> PetriNet {
     let typing = Transition::builder("Typing")
         .input(one(&keyboard))
         .reset(reset(&urgency))
-        .output(out_place(&composing))
+        .output(out_one(&composing))
         .timing(immediate())
         .priority(20)
         .action(fork())
@@ -105,9 +105,9 @@ fn showcase() -> PetriNet {
         .input(one(&user_message))
         .reset(reset(&composing))
         .output(and(vec![
-            out_place(&pending),
-            out_place(&processing),
-            out_place(&conversation),
+            out_one(&pending),
+            out_one(&processing),
+            out_one(&conversation),
         ]))
         .timing(immediate())
         .priority(10)
@@ -119,7 +119,7 @@ fn showcase() -> PetriNet {
         .input(one(&pending))
         .read(read(&conversation))
         .read(read(&summary))
-        .output(out_place(&context_ready))
+        .output(out_one(&context_ready))
         .timing(immediate())
         .action(fork())
         .build();
@@ -129,7 +129,7 @@ fn showcase() -> PetriNet {
         .input(one(&pending))
         .read(read(&conversation))
         .inhibitor(inhibitor(&summary))
-        .output(out_place(&context_ready))
+        .output(out_one(&context_ready))
         .timing(immediate())
         .action(fork())
         .build();
@@ -137,7 +137,7 @@ fn showcase() -> PetriNet {
     // 5. DeepAgent: thorough analysis — consumes ContextReady, produces Thinking
     let deep_agent = Transition::builder("DeepAgent")
         .input(one(&context_ready))
-        .output(out_place(&thinking))
+        .output(out_one(&thinking))
         .timing(window(500, 10000))
         .action(fork())
         .build();
@@ -147,7 +147,7 @@ fn showcase() -> PetriNet {
         .read(read(&processing))
         .inhibitor(inhibitor(&response))
         .inhibitor(inhibitor(&composing))
-        .output(out_place(&urgency))
+        .output(out_one(&urgency))
         .timing(exact(5000))
         .action(fork())
         .build();
@@ -157,7 +157,7 @@ fn showcase() -> PetriNet {
         .input(one(&processing))
         .input(one(&urgency))
         .read(read(&conversation))
-        .output(out_place(&response))
+        .output(out_one(&response))
         .timing(immediate())
         .action(fork())
         .build();
@@ -168,7 +168,7 @@ fn showcase() -> PetriNet {
         .input(one(&processing))
         .inhibitor(inhibitor(&response))
         .reset(reset(&urgency))
-        .output(out_place(&response))
+        .output(out_one(&response))
         .timing(deadline(3000))
         .action(fork())
         .build();
@@ -187,7 +187,7 @@ fn showcase() -> PetriNet {
         .input(at_least(3, &conversation))
         .inhibitor(inhibitor(&summarizing))
         .reset(reset(&conversation))
-        .output(out_place(&summarizing))
+        .output(out_one(&summarizing))
         .timing(delayed(2000))
         .action(fork())
         .build();
@@ -198,7 +198,7 @@ fn showcase() -> PetriNet {
         .read(read(&conversation))
         .inhibitor(inhibitor(&summarizing))
         .reset(reset(&conversation))
-        .output(out_place(&summarizing))
+        .output(out_one(&summarizing))
         .timing(immediate())
         .action(fork())
         .build();
@@ -207,7 +207,7 @@ fn showcase() -> PetriNet {
     let summary_done = Transition::builder("SummaryDone")
         .input(one(&summarizing))
         .reset(reset(&summary))
-        .output(out_place(&summary))
+        .output(out_one(&summary))
         .timing(deadline(2000))
         .action(fork())
         .build();

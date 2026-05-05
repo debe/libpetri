@@ -15,7 +15,7 @@ pub fn dot_export(net: &PetriNet, config: Option<&DotConfig>) -> String {
 mod tests {
     use super::*;
     use libpetri_core::input::one;
-    use libpetri_core::output::out_place;
+    use libpetri_core::output::out_one;
     use libpetri_core::place::Place;
     use libpetri_core::transition::Transition;
 
@@ -25,7 +25,7 @@ mod tests {
         let p2 = Place::<i32>::new("p2");
         let t = Transition::builder("t1")
             .input(one(&p1))
-            .output(out_place(&p2))
+            .output(out_one(&p2))
             .build();
         let net = PetriNet::builder("test").transition(t).build();
 

@@ -338,7 +338,7 @@ pub(crate) fn rebuild_with_action(t: &Transition, action: BoxedAction) -> Transi
 mod tests {
     use super::*;
     use crate::input::one;
-    use crate::output::out_place;
+    use crate::output::out_one;
     use crate::place::Place;
 
     #[test]
@@ -348,7 +348,7 @@ mod tests {
 
         let t = Transition::builder("test")
             .input(one(&p_in))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .build();
 
         assert_eq!(t.name(), "test");
@@ -373,7 +373,7 @@ mod tests {
 
         let t = Transition::builder("test")
             .input(one(&p_in))
-            .output(out_place(&p_out))
+            .output(out_one(&p_out))
             .read(crate::arc::read(&p_read))
             .build();
 
@@ -405,7 +405,7 @@ mod tests {
     #[test]
     fn no_action_timeout() {
         let p = Place::<i32>::new("out");
-        let t = Transition::builder("test").output(out_place(&p)).build();
+        let t = Transition::builder("test").output(out_one(&p)).build();
         assert_eq!(t.action_timeout(), None);
     }
 }
