@@ -1,5 +1,11 @@
 // Petri Net Diagram Viewer
-// Provides: zoom/pan and fullscreen for pre-rendered SVG diagrams
+// Provides: zoom/pan and fullscreen for pre-rendered SVG diagrams.
+//
+// IMPORTANT: this file is mirrored at:
+//   - java/src/main/resources/javadoc/petrinet-diagrams.js
+//   - typescript/src/doclet/resources/petrinet-diagrams.js
+// Keep both copies byte-identical until they're unified into one source.
+// Same applies to the sibling petrinet-diagrams.css.
 
 (function() {
   if (document.readyState === 'loading') {
@@ -42,7 +48,9 @@ function enhanceDiagrams() {
       if (!e.ctrlKey) return;
       e.preventDefault();
       var delta = e.deltaY > 0 ? 0.9 : 1.1;
-      var newScale = Math.max(0.1, Math.min(5, scale * delta));
+      // Bounds match libpetri/render-dom (debug-ui, dev-preview) so doc and
+      // live diagrams zoom to the same depth.
+      var newScale = Math.max(0.02, Math.min(1000, scale * delta));
       var rect = container.getBoundingClientRect();
       var mouseX = e.clientX - rect.left - rect.width / 2;
       var mouseY = e.clientY - rect.top - rect.height / 2;

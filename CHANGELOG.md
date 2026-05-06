@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.8.5
+
+### Fix: doc-viewer zoom cap raised from 5x to 1000x
+
+`petrinet-diagrams.js` (the small pan/zoom/fullscreen helper inlined into
+Javadoc and TypeDoc HTML) clamped wheel zoom to `Math.min(5, ...)`, hitting
+a hard ceiling at 500%. Bumped to `Math.min(1000, ...)` and floor lowered
+from `0.1` to `0.02`, matching the bounds the live debug-ui and dev-preview
+viewers already use via `libpetri/render-dom` (panzoom defaults). Java and
+TypeScript ship parallel copies of this asset; both are updated and now
+carry a sync-reminder comment to keep them byte-identical.
+
+No Rust change — `libpetri-docgen` does not ship this JS asset.
+
 ## 1.8.4
 
 ### Feat: XOR/AND junction nodes + combined reset+output edges
