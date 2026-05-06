@@ -1,5 +1,57 @@
 # Changelog
 
+## 1.8.4
+
+### Feat: XOR/AND junction nodes + combined reset+output edges
+
+New visualization rules in `spec/09-export.md` (EXP-012, EXP-013, EXP-014,
+EXP-015), implemented identically in Java/TypeScript/Rust mappers:
+
+- **EXP-012** — Every `Out.Xor` / `Out.And` group with two or more children
+  now becomes a synthetic *diamond junction node* between the transition and
+  its children. The discriminator is an inline heavy glyph: `✕` (U+2715) for
+  XOR, `✚` (U+271A) for AND. Single-child groups still collapse to a direct
+  edge — no orphan junctions. New style categories `xor-junction` and
+  `and-junction` (shape `diamond`, fill `#FFFFFF`, stroke `#333333`,
+  width/height `0.3`, fontsize `14`, `fixedsize="true"`).
+- **EXP-013** — When a transition outputs to place `P` and resets `P`, the
+  separate output and reset edges collapse into one edge labelled `"reset+out"`,
+  styled as the new `reset-output` category (color `#fd7e14`, style `bold`,
+  penwidth `2.0`). The rule applies whether the output leaf is direct from the
+  transition or nested under a junction.
+- **EXP-014** — Junction IDs follow `j_<sanitizedTransition>__<kind>_<idx>`,
+  where `<idx>` is a flat depth-first pre-order counter starting at 0. Same
+  numbering scheme in all three languages, so DOT output is byte-identical
+  across implementations for the same input net. New round-trip stability
+  tests in each language assert that two consecutive exports produce
+  byte-equal DOT.
+- **EXP-015** — Compile-time doc generators (Javadoc taglet, `cargo doc`
+  build script, TypeDoc plugin) all delegate to their language's mapper, so
+  the new junction nodes and combined edges show up in generated SVGs without
+  any doc-generator-specific code.
+
+### Refactor: `EmitCtx` threaded through Out-tree emission
+
+Java `JunctionCtx`, Rust `EmitCtx<'_>`, and TypeScript `EmitCtx` bundle the
+mutable per-transition state (counter, reset-place set, combined accumulator,
+node + edge sinks) into a single value passed by the recursive emitter. The
+public mapper API is unchanged; internal helpers drop from nine arguments
+each to four (`out`, `parentId`, `branchLabel`, `ctx`). On the Java side this
+also retires the `int[] counter = { 0 }` mutable-array idiom; on the Rust
+side it lets `#[allow(clippy::too_many_arguments)]` go away.
+
+### New: `libpetri/render-dom` browser package entry
+
+A new TypeScript package entry exports `renderDotToContainer(dot, container,
+opts)` — a small wrapper around `@viz-js/viz` (Graphviz WASM) and `panzoom`
+that pins the `dot` engine for layout stability and disposes prior panzoom
+instances on re-render. The debug-ui (`debug-ui/src/net/actions/diagram.ts`)
+now imports this entry instead of bootstrapping viz.js + panzoom inline,
+deleting ~140 lines of duplicated setup. A new Vite-based `dev-preview/`
+sandbox uses the same module against the new `sample.dot` golden file for
+local visual iteration. The script `npm run regenerate-sample` reproduces
+that file deterministically from the TS mapper; it exercises every rule above.
+
 ## 1.8.3
 
 ### Fix: archive header `eventCount` matches body length
