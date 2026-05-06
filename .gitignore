@@ -44,3 +44,6 @@ jacoco*.html
 
 # Release bundles
 *-bundle.zip
+
+# Agent / harness metadata
+.claude/

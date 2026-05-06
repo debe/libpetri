@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { mapToGraph, sanitize, DEFAULT_DOT_CONFIG } from '../../src/export/petri-net-mapper.js';
+import { dotExport } from '../../src/export/dot-exporter.js';
 import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
 import { one, exactly, all, atLeast } from '../../src/core/in.js';
-import { outPlace, andPlaces, xorPlaces, timeout, forwardInput } from '../../src/core/out.js';
+import { outPlace, andPlaces, xorPlaces, and, xor, timeout, forwardInput } from '../../src/core/out.js';
 import { delayed, window } from '../../src/core/timing.js';
 
 describe('sanitize', () => {
@@ -179,7 +180,7 @@ describe('mapToGraph', () => {
     expect(outputEdge!.arcType).toBe('output');
   });
 
-  it('generates AND output edges (all children)', () => {
+  it('generates AND junction with edges to all children', () => {
     const p3 = place('Middle');
     const t = Transition.builder('Fork')
       .inputs(one(p1))
@@ -188,11 +189,27 @@ describe('mapToGraph', () => {
     const net = PetriNet.builder('Test').transition(t).build();
     const graph = mapToGraph(net);
 
-    const outEdges = graph.edges.filter(e => e.from === 't_Fork' && e.arcType === 'output');
-    expect(outEdges).toHaveLength(2);
+    // One AND junction node — diamond gateway: heavy '✚' label, white fill
+    const junction = graph.nodes.find(n => n.id.startsWith('j_Fork__and_'));
+    expect(junction).toBeDefined();
+    expect(junction!.shape).toBe('diamond');
+    expect(junction!.label).toBe('✚');
+    expect(junction!.fill).toBe('#FFFFFF');
+    expect(junction!.stroke).toBe('#333333');
+    expect(junction!.attrs?.fontsize).toBe('14');
+    expect(junction!.width).toBe(0.3);
+
+    // T → junction (one edge), junction → each child (two edges, no labels)
+    const tToJ = graph.edges.filter(e => e.from === 't_Fork' && e.to === junction!.id);
+    expect(tToJ).toHaveLength(1);
+    const jToChildren = graph.edges.filter(e => e.from === junction!.id && e.arcType === 'output');
+    expect(jToChildren).toHaveLength(2);
+    for (const e of jToChildren) {
+      expect(e.label).toBeUndefined();
+    }
   });
 
-  it('generates XOR output edges with branch labels', () => {
+  it('generates XOR junction with per-branch labels on junction→child edges', () => {
     const success = place('Success');
     const error = place('Error');
     const t = Transition.builder('Process')
@@ -202,10 +219,173 @@ describe('mapToGraph', () => {
     const net = PetriNet.builder('Test').transition(t).build();
     const graph = mapToGraph(net);
 
+    const junction = graph.nodes.find(n => n.id.startsWith('j_Process__xor_'));
+    expect(junction).toBeDefined();
+    expect(junction!.shape).toBe('diamond');
+    expect(junction!.label).toBe('✕');
+    expect(junction!.fill).toBe('#FFFFFF');
+    expect(junction!.attrs?.fontsize).toBe('14');
+
+    // T → junction has no branch label
+    const tToJ = graph.edges.find(e => e.from === 't_Process' && e.to === junction!.id);
+    expect(tToJ!.label).toBeUndefined();
+
+    // junction → child carries the place name as the branch label
     const successEdge = graph.edges.find(e => e.to === 'p_Success');
     const errorEdge = graph.edges.find(e => e.to === 'p_Error');
+    expect(successEdge!.from).toBe(junction!.id);
+    expect(errorEdge!.from).toBe(junction!.id);
     expect(successEdge!.label).toBe('Success');
     expect(errorEdge!.label).toBe('Error');
+  });
+
+  it('collapses single-child XOR/AND: no junction emitted', () => {
+    const p_only = place('Only');
+    // Note: xor() requires ≥2 children; constructor refuses single-child XOR.
+    // AND with one child is allowed by the core API.
+    const tAnd = Transition.builder('SingleAnd')
+      .inputs(one(p1))
+      .outputs(andPlaces(p_only))
+      .build();
+    const net = PetriNet.builder('Test').transition(tAnd).build();
+    const graph = mapToGraph(net);
+
+    const junctions = graph.nodes.filter(n => n.id.startsWith('j_'));
+    expect(junctions).toHaveLength(0);
+
+    // Single direct edge transition → place
+    const directEdge = graph.edges.find(e => e.from === 't_SingleAnd' && e.to === 'p_Only');
+    expect(directEdge).toBeDefined();
+    expect(directEdge!.arcType).toBe('output');
+  });
+
+  it('combines reset+output into a single styled edge', () => {
+    const cache = place('Cache');
+    const t = Transition.builder('Refresh')
+      .inputs(one(p1))
+      .outputs(outPlace(cache))
+      .reset(cache)
+      .build();
+    const net = PetriNet.builder('Test').transition(t).build();
+    const graph = mapToGraph(net);
+
+    // Exactly one edge to p_Cache, and it's the combined reset-output style
+    const edgesToCache = graph.edges.filter(e => e.to === 'p_Cache');
+    expect(edgesToCache).toHaveLength(1);
+    const combined = edgesToCache[0]!;
+    expect(combined.arcType).toBe('reset-output');
+    expect(combined.label).toBe('reset+out');
+    expect(combined.color).toBe('#fd7e14');
+    expect(combined.style).toBe('bold');
+    expect(combined.penwidth).toBe(2.0);
+
+    // No standalone reset edge for this place
+    const standaloneReset = graph.edges.find(e => e.arcType === 'reset' && e.to === 'p_Cache');
+    expect(standaloneReset).toBeUndefined();
+  });
+
+  it('keeps standalone reset+output combination distinct from non-combined reset', () => {
+    // Transition with reset(P) + output(P) AND a standalone reset to a different place.
+    const cache = place('Cache');
+    const tmp = place('Tmp');
+    const t = Transition.builder('Mixed')
+      .inputs(one(p1))
+      .outputs(outPlace(cache))
+      .reset(cache)
+      .reset(tmp)
+      .build();
+    const net = PetriNet.builder('Test').transition(t).build();
+    const graph = mapToGraph(net);
+
+    const cacheEdges = graph.edges.filter(e => e.to === 'p_Cache');
+    expect(cacheEdges).toHaveLength(1);
+    expect(cacheEdges[0]!.arcType).toBe('reset-output');
+
+    const tmpEdges = graph.edges.filter(e => e.to === 'p_Tmp');
+    expect(tmpEdges).toHaveLength(1);
+    expect(tmpEdges[0]!.arcType).toBe('reset');
+    expect(tmpEdges[0]!.label).toBe('reset');
+  });
+
+  it('combines reset+output through XOR junction (junction→child gets reset style)', () => {
+    const ok = place('Ok');
+    const cache = place('Cache');
+    const t = Transition.builder('Try')
+      .inputs(one(p1))
+      .outputs(xorPlaces(ok, cache))
+      .reset(cache)
+      .build();
+    const net = PetriNet.builder('Test').transition(t).build();
+    const graph = mapToGraph(net);
+
+    const junction = graph.nodes.find(n => n.id.startsWith('j_Try__xor_'));
+    expect(junction).toBeDefined();
+
+    // junction → Cache is the combined reset+out edge
+    const toCache = graph.edges.find(e => e.to === 'p_Cache');
+    expect(toCache!.from).toBe(junction!.id);
+    expect(toCache!.arcType).toBe('reset-output');
+    expect(toCache!.label).toBe('reset+out');
+
+    // junction → Ok is plain output
+    const toOk = graph.edges.find(e => e.to === 'p_Ok');
+    expect(toOk!.arcType).toBe('output');
+    expect(toOk!.label).toBe('Ok');
+  });
+
+  it('uses deterministic junction IDs in depth-first order', () => {
+    const a = place('A');
+    const b = place('B');
+    const c = place('C');
+    const d = place('D');
+    // AND( XOR(A, B), XOR(C, D) ) → root AND junction + two nested XOR junctions
+    const t = Transition.builder('Nested')
+      .inputs(one(p1))
+      .outputs(and(
+        xor(outPlace(a), outPlace(b)),
+        xor(outPlace(c), outPlace(d)),
+      ))
+      .build();
+    const net = PetriNet.builder('Test').transition(t).build();
+    const graph = mapToGraph(net);
+
+    const junctions = graph.nodes
+      .filter(n => n.id.startsWith('j_Nested__'))
+      .map(n => n.id);
+    // AND_0 emitted first, then XOR_1, then XOR_2
+    expect(junctions).toEqual([
+      'j_Nested__and_0',
+      'j_Nested__xor_1',
+      'j_Nested__xor_2',
+    ]);
+  });
+
+  // EXP-014 AC#2: repeated exports of the same net produce byte-identical DOT.
+  it('produces byte-identical DOT for repeated exports', () => {
+    const a = place('A');
+    const b = place('B');
+    const c = place('C');
+    const d = place('D');
+    const cache = place('Cache');
+
+    // Nested junctions + reset+output covers the full range of EXP-012/013/014 paths.
+    const nested = Transition.builder('Nested')
+      .inputs(one(p1))
+      .outputs(and(
+        xor(outPlace(a), outPlace(b)),
+        xor(outPlace(c), outPlace(d)),
+      ))
+      .build();
+    const refresh = Transition.builder('RefreshCache')
+      .inputs(one(a))
+      .outputs(outPlace(cache))
+      .reset(cache)
+      .build();
+    const net = PetriNet.builder('Stable').transition(nested).transition(refresh).build();
+
+    const first = dotExport(net);
+    const second = dotExport(net);
+    expect(second).toBe(first);
   });
 
   it('generates timeout output edges', () => {

@@ -42,6 +42,10 @@
         "import": "./dist/doclet/index.js",
         "types": "./dist/doclet/index.d.ts"
       }
+    },
+    "./render-dom": {
+      "import": "./dist/render-dom/index.js",
+      "types": "./dist/render-dom/index.d.ts"
     }
   },
   "scripts": {
@@ -50,18 +54,24 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "bench": "vitest bench",
-    "docs": "typedoc"
+    "docs": "typedoc",
+    "dev:preview": "vite -c dev-preview/vite.config.ts",
+    "regenerate-sample": "tsx scripts/regenerate-sample.ts"
   },
   "devDependencies": {
     "@types/node": "^25.4.0",
     "@viz-js/viz": "^3.25.0",
+    "panzoom": "^9.4.4",
     "tsup": "^8.5.1",
+    "tsx": "^4.21.0",
     "typedoc": "^0.28.17",
     "typescript": "^5.9.3",
+    "vite": "^6.4.2",
     "vitest": "^4.0.18"
   },
   "peerDependencies": {
     "@viz-js/viz": ">=3.0.0",
+    "panzoom": ">=9.0.0",
     "typedoc": ">=0.27.0"
   },
   "peerDependenciesMeta": {
@@ -69,6 +79,9 @@
       "optional": true
     },
     "@viz-js/viz": {
+      "optional": true
+    },
+    "panzoom": {
       "optional": true
     }
   },

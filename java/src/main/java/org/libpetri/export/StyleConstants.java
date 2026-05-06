@@ -24,13 +24,17 @@ public final class StyleConstants {
     public static final NodeVisual END           = new NodeVisual(NodeShape.DOUBLECIRCLE,  "#cce5ff", "#004085", 2.0, null, null, 0.35);
     public static final NodeVisual ENVIRONMENT   = new NodeVisual(NodeShape.CIRCLE,  "#f8d7da", "#721c24", 2.0, "dashed", null, 0.35);
     public static final NodeVisual TRANSITION    = new NodeVisual(NodeShape.BOX,  "#fff3cd", "#856404", 1.0, null, 0.4, 0.8);
+    public static final NodeVisual XOR_JUNCTION  = new NodeVisual(NodeShape.DIAMOND,  "#FFFFFF", "#333333", 1.0, null, 0.3, 0.3);
+    public static final NodeVisual AND_JUNCTION  = new NodeVisual(NodeShape.DIAMOND,  "#FFFFFF", "#333333", 1.0, null, 0.3, 0.3);
 
-    private static final Map<String, NodeVisual> NODE_STYLES = Map.of(
-        "place",       PLACE,
-        "start",       START,
-        "end",         END,
-        "environment", ENVIRONMENT,
-        "transition",  TRANSITION
+    private static final Map<String, NodeVisual> NODE_STYLES = Map.ofEntries(
+        Map.entry("place",        PLACE),
+        Map.entry("start",        START),
+        Map.entry("end",          END),
+        Map.entry("environment",  ENVIRONMENT),
+        Map.entry("transition",   TRANSITION),
+        Map.entry("xor-junction", XOR_JUNCTION),
+        Map.entry("and-junction", AND_JUNCTION)
     );
 
     // ======================== Edge Styles ========================
@@ -40,13 +44,15 @@ public final class StyleConstants {
     public static final EdgeVisual INHIBITOR_EDGE = new EdgeVisual("#dc3545", EdgeLineStyle.SOLID,  ArrowHead.ODOT);
     public static final EdgeVisual READ_EDGE      = new EdgeVisual("#6c757d", EdgeLineStyle.DASHED,  ArrowHead.NORMAL);
     public static final EdgeVisual RESET_EDGE     = new EdgeVisual("#fd7e14", EdgeLineStyle.BOLD,  ArrowHead.NORMAL, 2.0);
+    public static final EdgeVisual RESET_OUTPUT_EDGE = new EdgeVisual("#fd7e14", EdgeLineStyle.BOLD,  ArrowHead.NORMAL, 2.0);
 
     private static final Map<ArcType, EdgeVisual> EDGE_STYLES = Map.of(
-        ArcType.INPUT,     INPUT_EDGE,
-        ArcType.OUTPUT,    OUTPUT_EDGE,
-        ArcType.INHIBITOR, INHIBITOR_EDGE,
-        ArcType.READ,      READ_EDGE,
-        ArcType.RESET,     RESET_EDGE
+        ArcType.INPUT,        INPUT_EDGE,
+        ArcType.OUTPUT,       OUTPUT_EDGE,
+        ArcType.INHIBITOR,    INHIBITOR_EDGE,
+        ArcType.READ,         READ_EDGE,
+        ArcType.RESET,        RESET_EDGE,
+        ArcType.RESET_OUTPUT, RESET_OUTPUT_EDGE
     );
 
     // ======================== Font & Graph ========================

@@ -71,6 +71,26 @@ pub const TRANSITION: NodeVisual = NodeVisual {
     width: Some(0.8),
 };
 
+pub const XOR_JUNCTION: NodeVisual = NodeVisual {
+    shape: "diamond",
+    fill: "#FFFFFF",
+    stroke: "#333333",
+    penwidth: 1.0,
+    style: None,
+    height: Some(0.3),
+    width: Some(0.3),
+};
+
+pub const AND_JUNCTION: NodeVisual = NodeVisual {
+    shape: "diamond",
+    fill: "#FFFFFF",
+    stroke: "#333333",
+    penwidth: 1.0,
+    style: None,
+    height: Some(0.3),
+    width: Some(0.3),
+};
+
 // Edge styles
 pub const INPUT_EDGE: EdgeVisual = EdgeVisual {
     color: "#333333",
@@ -101,6 +121,13 @@ pub const READ_EDGE: EdgeVisual = EdgeVisual {
 };
 
 pub const RESET_EDGE: EdgeVisual = EdgeVisual {
+    color: "#fd7e14",
+    style: "bold",
+    penwidth: Some(2.0),
+    arrowhead: "normal",
+};
+
+pub const RESET_OUTPUT_EDGE: EdgeVisual = EdgeVisual {
     color: "#fd7e14",
     style: "bold",
     penwidth: Some(2.0),
