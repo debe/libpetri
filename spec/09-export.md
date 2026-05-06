@@ -177,3 +177,111 @@ The engine MAY support generating diagrams from net structure annotations at com
 - Rust: `libpetri-docgen` build-dependency crate generates DOT→SVG diagrams via `SvgGenerator` / `generate_svg()`
 
 **Test derivation:** Annotated net structure; build project; verify diagram generated.
+
+---
+
+## Visualization Rules — junctions and combined edges
+
+The following requirements specify the *visualization* layer that the mapper applies on top of the raw arc set, so XOR/AND fork structure and reset+output coupling are visible to a reader. They are mandatory for all language implementations so Java/TS/Rust mappers (and their doc generators) produce visually identical diagrams.
+
+#### EXP-012: XOR/AND Junction Nodes
+
+**Priority:** MUST
+
+For every `Out.Xor` or `Out.And` group with **two or more children**, the mapper MUST insert a synthetic *junction node* between the transition and the children. Single-child XOR/AND groups MUST NOT produce a junction (they are semantically pass-through).
+
+**Junction node attributes** (gateway convention — diamond + single heavy glyph):
+- **XOR junction**: shape `diamond`, fill `#FFFFFF`, stroke `#333333`, penwidth `1.0`, width `0.3`, height `0.3`, label `"✕"` (U+2715 Multiplication X), fontsize `14`, fixedsize `true`. Style category `xor-junction`.
+- **AND junction**: shape `diamond`, fill `#FFFFFF`, stroke `#333333`, penwidth `1.0`, width `0.3`, height `0.3`, label `"✚"` (U+271A Heavy Greek Cross), fontsize `14`, fixedsize `true`. Style category `and-junction`.
+
+The two kinds share a shape and color family; the inline heavy glyph (`✕` for exclusive choice, `✚` for parallel split) is the discriminator. Heavy dingbat variants are used (instead of the lightweight `×` U+00D7 / `+` U+002B) so the symbol stays legible at the small junction size where the diamonds read as scaffolding rather than first-class entities.
+
+**Edge routing:**
+- Edge `transition → junction`: output style, no label (or the timeout label `⏱<n>ms` if the group is wrapped in `Out.Timeout`).
+- Edge `junction → child` for an XOR junction: output style, label = the inferred branch label (place name for `Place`, target name for `ForwardInput`, `⏱<n>ms` for `Timeout`, or none if the child is itself a junction).
+- Edge `junction → child` for an AND junction: output style, no label.
+
+**Acceptance Criteria:**
+1. Net with `XOR(P_a, P_b)` exports one diamond junction labelled `"✕"` and two edges junction→{P_a, P_b}.
+2. Net with `AND(P_c, P_d)` exports one diamond junction labelled `"✚"` and two edges junction→{P_c, P_d}.
+3. Net with `XOR(P_a)` (single child) exports a direct edge transition→P_a, no junction.
+4. Nested groups (e.g. `XOR(AND(P_a, P_b), P_c)`) produce nested junctions.
+5. Java, TypeScript, and Rust mappers produce byte-identical junction nodes and edges for the same input net (modulo deterministic ordering already in place).
+
+**Test derivation:** For each language, build a net with `XOR(A, B)`, `AND(C, D)`, `XOR(A)`, and a nested case; export; assert junction node count, shape, and edge wiring.
+
+---
+
+#### EXP-013: Combined reset+output Edge
+
+**Priority:** MUST
+
+When a transition has both an output arc and a reset arc to the same place P, the mapper MUST emit **exactly one** edge to P, styled as the reset-output category (color `#fd7e14`, style `bold`, penwidth `2.0`, arrowhead `normal`) and labelled `"reset+out"`. The standalone output edge to P MUST be suppressed in this case. The standalone reset edge to P MUST be suppressed in this case.
+
+If a transition resets place P but does not output to P, the standalone reset edge with label `"reset"` MUST still be emitted (existing behavior preserved).
+
+If a transition outputs to P but does not reset P, the standalone output edge MUST be emitted (existing behavior preserved).
+
+The combination applies regardless of whether the output edge originates at the transition directly or at an XOR/AND junction underneath the transition (per EXP-012). When the output is a leaf under a junction, the *junction → P* edge is the one that becomes reset-styled with the `"reset+out"` label.
+
+**Acceptance Criteria:**
+1. Transition with `Out.Place(P)` and `reset(P)` exports one orange-bold edge T→P labelled `"reset+out"`. No black output edge to P. No standalone reset edge labelled `"reset"`.
+2. Transition with `Out.Place(P)` and no reset exports one black output edge.
+3. Transition with reset(P) and no output to P exports one orange-bold edge labelled `"reset"`.
+4. Transition with `Out.Xor(P, Q)` and `reset(P)` exports a junction; junction→P is reset-styled with label `"reset+out"`; junction→Q is plain output style.
+5. Java, TypeScript, and Rust mappers produce byte-identical edges for the same input.
+
+**Test derivation:** Build nets covering each acceptance case; assert exactly the expected edges (count, color, label) per language.
+
+**Worked DOT:** for a transition `Try` with `Out.Xor(P_Ok, P_Fail)` and `reset(P_Fail)` plus a transition `RefreshCache` with `Out.Place(P_Cache)` and `reset(P_Cache)`:
+
+```
+t_RefreshCache -> p_Cache       [color="#fd7e14", style="bold", arrowhead="normal", label="reset+out", penwidth=2];
+t_Try -> j_Try__xor_0           [color="#333333", style="solid", arrowhead="normal"];
+j_Try__xor_0 -> p_Ok            [color="#333333", style="solid", arrowhead="normal", label="Ok"];
+j_Try__xor_0 -> p_Fail          [color="#fd7e14", style="bold", arrowhead="normal", label="reset+out", penwidth=2];
+```
+
+Note that the through-junction case (line 4) is identical in style to the direct case (line 1); only the source node differs.
+
+---
+
+#### EXP-014: Junction ID Format and Layout Stability
+
+**Priority:** MUST
+
+Synthetic junction nodes MUST use IDs of the form `j_<transitionSanitized>__<kind>_<idx>`, where:
+- `transitionSanitized` is the transition's name with non-`[A-Za-z0-9_]` characters replaced by `_` (the same `sanitize` function used for place and transition IDs).
+- `<kind>` is `xor` or `and`.
+- `<idx>` is a non-negative integer. Junctions in a single transition's `Out` tree are numbered in depth-first pre-order, with the counter starting at `0` and incrementing once per emitted junction. Single-child XOR/AND groups collapse (per EXP-012) and consume no counter slot. Example: `t_Nested` with output `AND(XOR(a,b), XOR(c,d))` produces three junctions in the order `j_Nested__and_0`, `j_Nested__xor_1`, `j_Nested__xor_2`.
+
+The flat counter (rather than a hierarchical path-encoded index) keeps junction IDs short and human-scannable while still being uniquely determined by the depth-first traversal of the `Out` tree, which is what cross-language byte-equality requires.
+
+This guarantees:
+1. Junction IDs do not collide with place IDs (`p_…`) or transition IDs (`t_…`).
+2. Repeated exports of the same net produce byte-identical DOT (required for stable Graphviz `dot` layouts across reloads in debug-ui and reproducible doc-generated SVGs).
+3. Cross-language byte-equality of DOT output for the same input net.
+
+**Acceptance Criteria:**
+1. All junction IDs match the regex `j_[A-Za-z0-9_]+__(xor|and)_[0-9]+`.
+2. Two consecutive exports of the same net produce byte-equal DOT.
+3. Java, TypeScript, and Rust exports of the same net produce byte-equal DOT.
+
+**Test derivation:** Export same net twice in same language; diff. Export same net across all three languages; diff.
+
+---
+
+#### EXP-015: Doc Generator Parity
+
+**Priority:** MUST
+
+The compile-time diagram generators (EXP-011) MUST produce SVGs reflecting the visualization rules above. Specifically, `mvn javadoc:javadoc`, `cargo doc`, and the TypeDoc plugin MUST emit SVGs that include junction nodes (per EXP-012) and combined reset+output edges (per EXP-013) for any net that uses XOR/AND outputs or reset+output coupling.
+
+This is achieved by having all three doc generators delegate to their language's mapper; no doc-generator-specific code is required.
+
+**Acceptance Criteria:**
+1. Building Java docs for a net with `XOR(A, B)` includes an SVG containing a `<polygon>` element whose `points` attribute encodes a diamond shape (the XOR junction).
+2. Building Rust docs for the same net produces an SVG that, modulo whitespace, matches the Java SVG.
+3. Building TypeScript docs for the same net produces an SVG that matches.
+
+**Test derivation:** Build docs in each language for a small net with `XOR(A, B)` and `Out.Place(P) + reset(P)`; assert SVG content via grep for the expected shape/color signatures.

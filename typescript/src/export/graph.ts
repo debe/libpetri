@@ -48,7 +48,7 @@ export interface GraphEdge {
   readonly arrowhead: ArrowHead;
   readonly penwidth?: number;
   /** The arc type that produced this edge (for semantic queries). */
-  readonly arcType: 'input' | 'output' | 'inhibitor' | 'read' | 'reset';
+  readonly arcType: 'input' | 'output' | 'inhibitor' | 'read' | 'reset' | 'reset-output';
   readonly attrs?: Readonly<Record<string, string>>;
 }
 

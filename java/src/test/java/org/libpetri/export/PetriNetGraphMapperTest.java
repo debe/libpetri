@@ -148,7 +148,7 @@ class PetriNetGraphMapperTest {
     }
 
     @Test
-    void generatesXorBranchLabels() {
+    void generatesXorJunctionWithBranchLabels() {
         var success = Place.of("Success", String.class);
         var error = Place.of("Error", String.class);
         var t = Transition.builder("Process")
@@ -158,10 +158,181 @@ class PetriNetGraphMapperTest {
         var net = PetriNet.builder("Test").transition(t).build();
         var graph = PetriNetGraphMapper.map(net, ExportConfig.DEFAULT);
 
+        var junction = graph.nodes().stream()
+            .filter(n -> n.id().startsWith("j_Process__xor_"))
+            .findFirst().orElseThrow();
+        assertEquals(NodeShape.DIAMOND, junction.shape());
+        assertEquals("✕", junction.label());
+        assertEquals("#FFFFFF", junction.fill());
+        assertEquals("#333333", junction.stroke());
+        assertEquals("14", junction.attrs().get("fontsize"));
+
         var successEdge = graph.edges().stream().filter(e -> e.to().equals("p_Success")).findFirst().orElseThrow();
         var errorEdge = graph.edges().stream().filter(e -> e.to().equals("p_Error")).findFirst().orElseThrow();
+        assertEquals(junction.id(), successEdge.from());
+        assertEquals(junction.id(), errorEdge.from());
         assertEquals("Success", successEdge.label());
         assertEquals("Error", errorEdge.label());
+    }
+
+    @Test
+    void generatesAndJunction() {
+        var a = Place.of("A", String.class);
+        var b = Place.of("B", String.class);
+        var t = Transition.builder("Fork")
+            .inputs(In.one(START))
+            .outputs(Out.and(a, b))
+            .build();
+        var net = PetriNet.builder("Test").transition(t).build();
+        var graph = PetriNetGraphMapper.map(net, ExportConfig.DEFAULT);
+
+        var junction = graph.nodes().stream()
+            .filter(n -> n.id().startsWith("j_Fork__and_"))
+            .findFirst().orElseThrow();
+        assertEquals(NodeShape.DIAMOND, junction.shape());
+        assertEquals("✚", junction.label());
+        assertEquals("#FFFFFF", junction.fill());
+        assertEquals("#333333", junction.stroke());
+        assertEquals("14", junction.attrs().get("fontsize"));
+        assertEquals(0.3, junction.width());
+
+        // Single T → junction edge
+        var tToJ = graph.edges().stream()
+            .filter(e -> e.from().equals("t_Fork") && e.to().equals(junction.id()))
+            .toList();
+        assertEquals(1, tToJ.size());
+
+        // Two junction → child edges, no labels
+        var jToChildren = graph.edges().stream()
+            .filter(e -> e.from().equals(junction.id()) && e.arcType() == ArcType.OUTPUT)
+            .toList();
+        assertEquals(2, jToChildren.size());
+        for (var e : jToChildren) {
+            assertNull(e.label());
+        }
+    }
+
+    @Test
+    void singleChildAndCollapsesNoJunction() {
+        var only = Place.of("Only", String.class);
+        var t = Transition.builder("SingleAnd")
+            .inputs(In.one(START))
+            .outputs(Out.and(only))
+            .build();
+        var net = PetriNet.builder("Test").transition(t).build();
+        var graph = PetriNetGraphMapper.map(net, ExportConfig.DEFAULT);
+
+        var junctions = graph.nodes().stream().filter(n -> n.id().startsWith("j_")).toList();
+        assertTrue(junctions.isEmpty(), "single-child AND should not emit a junction");
+
+        var directEdge = graph.edges().stream()
+            .filter(e -> e.from().equals("t_SingleAnd") && e.to().equals("p_Only"))
+            .findFirst();
+        assertTrue(directEdge.isPresent());
+        assertEquals(ArcType.OUTPUT, directEdge.get().arcType());
+    }
+
+    @Test
+    void combinesResetAndOutputIntoSingleEdge() {
+        var cache = Place.of("Cache", String.class);
+        var t = Transition.builder("Refresh")
+            .inputs(In.one(START))
+            .outputs(Out.place(cache))
+            .reset(cache)
+            .build();
+        var net = PetriNet.builder("Test").transition(t).build();
+        var graph = PetriNetGraphMapper.map(net, ExportConfig.DEFAULT);
+
+        var edgesToCache = graph.edges().stream().filter(e -> e.to().equals("p_Cache")).toList();
+        assertEquals(1, edgesToCache.size());
+        var combined = edgesToCache.get(0);
+        assertEquals(ArcType.RESET_OUTPUT, combined.arcType());
+        assertEquals("reset+out", combined.label());
+        assertEquals("#fd7e14", combined.color());
+        assertEquals(EdgeLineStyle.BOLD, combined.style());
+        assertEquals(2.0, combined.penwidth());
+
+        // No standalone reset edge for Cache
+        var standalone = graph.edges().stream()
+            .filter(e -> e.arcType() == ArcType.RESET && e.to().equals("p_Cache"))
+            .findFirst();
+        assertTrue(standalone.isEmpty());
+    }
+
+    @Test
+    void combinesResetAndOutputThroughXorJunction() {
+        var ok = Place.of("Ok", String.class);
+        var cache = Place.of("Cache", String.class);
+        var t = Transition.builder("Try")
+            .inputs(In.one(START))
+            .outputs(Out.xor(ok, cache))
+            .reset(cache)
+            .build();
+        var net = PetriNet.builder("Test").transition(t).build();
+        var graph = PetriNetGraphMapper.map(net, ExportConfig.DEFAULT);
+
+        var junction = graph.nodes().stream()
+            .filter(n -> n.id().startsWith("j_Try__xor_"))
+            .findFirst().orElseThrow();
+
+        var toCache = graph.edges().stream().filter(e -> e.to().equals("p_Cache")).findFirst().orElseThrow();
+        assertEquals(junction.id(), toCache.from());
+        assertEquals(ArcType.RESET_OUTPUT, toCache.arcType());
+        assertEquals("reset+out", toCache.label());
+
+        var toOk = graph.edges().stream().filter(e -> e.to().equals("p_Ok")).findFirst().orElseThrow();
+        assertEquals(ArcType.OUTPUT, toOk.arcType());
+        assertEquals("Ok", toOk.label());
+    }
+
+    @Test
+    void deterministicJunctionIdsInDepthFirstOrder() {
+        var a = Place.of("A", String.class);
+        var b = Place.of("B", String.class);
+        var c = Place.of("C", String.class);
+        var d = Place.of("D", String.class);
+        // AND( XOR(a, b), XOR(c, d) )
+        var t = Transition.builder("Nested")
+            .inputs(In.one(START))
+            .outputs(Out.and(Out.xor(a, b), Out.xor(c, d)))
+            .build();
+        var net = PetriNet.builder("Test").transition(t).build();
+        var graph = PetriNetGraphMapper.map(net, ExportConfig.DEFAULT);
+
+        var ids = graph.nodes().stream()
+            .filter(n -> n.id().startsWith("j_Nested__"))
+            .map(GraphNode::id)
+            .toList();
+        assertEquals(java.util.List.of(
+            "j_Nested__and_0",
+            "j_Nested__xor_1",
+            "j_Nested__xor_2"
+        ), ids);
+    }
+
+    /** EXP-014 AC#2: repeated exports of the same net produce byte-identical DOT. */
+    @Test
+    void roundTripExportIsByteIdentical() {
+        var a = Place.of("A", String.class);
+        var b = Place.of("B", String.class);
+        var c = Place.of("C", String.class);
+        var d = Place.of("D", String.class);
+        var cache = Place.of("Cache", String.class);
+        // Nested junctions + reset+output covers the full range of EXP-012/013/014 emission paths.
+        var nested = Transition.builder("Nested")
+            .inputs(In.one(START))
+            .outputs(Out.and(Out.xor(a, b), Out.xor(c, d)))
+            .build();
+        var refresh = Transition.builder("RefreshCache")
+            .inputs(In.one(a))
+            .outputs(Out.place(cache))
+            .reset(cache)
+            .build();
+        var net = PetriNet.builder("Stable").transition(nested).transition(refresh).build();
+
+        String first = DotExporter.export(net, ExportConfig.DEFAULT);
+        String second = DotExporter.export(net, ExportConfig.DEFAULT);
+        assertEquals(first, second, "DOT output must be byte-identical across repeated exports");
     }
 
     @Test
