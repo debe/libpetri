@@ -109,16 +109,10 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
             PlaceCategory::Regular => &styles::PLACE,
         };
 
-        let shape = match style.shape {
-            "circle" => NodeShape::Circle,
-            "doublecircle" => NodeShape::DoubleCircle,
-            _ => NodeShape::Circle,
-        };
-
         let node = GraphNode {
             id,
             label: String::new(),
-            shape,
+            shape: shape_from_str(style.shape),
             fill: Some(style.fill.to_string()),
             stroke: Some(style.stroke.to_string()),
             penwidth: Some(style.penwidth),
@@ -137,6 +131,7 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
     // Create transition nodes and edges
     for t in net.transitions() {
         let t_id = format!("t_{}", sanitize(t.name()));
+        let t_sanitized = sanitize(t.name());
         let label = transition_label(t, config);
 
         graph.nodes.push(GraphNode {
@@ -152,6 +147,13 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
             width: styles::TRANSITION.width,
             attrs: Vec::new(),
         });
+
+        let reset_places: HashSet<String> = t
+            .resets()
+            .iter()
+            .map(|r| r.place.name().to_string())
+            .collect();
+        let mut combined: HashSet<String> = HashSet::new();
 
         // Input edges
         for in_spec in t.input_specs() {
@@ -171,10 +173,17 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
             });
         }
 
-        // Output edges
+        // Output edges + junction nodes
         if let Some(out_spec) = t.output_spec() {
-            let reset_places: HashSet<&str> = t.resets().iter().map(|r| r.place.name()).collect();
-            output_edges(&t_id, out_spec, &reset_places, &mut graph.edges);
+            let mut ctx = EmitCtx {
+                t_sanitized: &t_sanitized,
+                reset_places: &reset_places,
+                combined: &mut combined,
+                nodes: &mut graph.nodes,
+                edges: &mut graph.edges,
+                counter: 0,
+            };
+            emit_output(out_spec, &t_id, None, &mut ctx);
         }
 
         // Inhibitor edges
@@ -209,15 +218,15 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
             });
         }
 
-        // Reset edges (only those not overlapping with outputs)
+        // Standalone reset edges (only those not already combined with an output)
         for r in t.resets() {
-            if t.output_places().contains(&r.place) {
-                continue; // suppress if already an output
+            if combined.contains(r.place.name()) {
+                continue;
             }
-            let from_id = format!("p_{}", sanitize(r.place.name()));
+            let to_id = format!("p_{}", sanitize(r.place.name()));
             graph.edges.push(GraphEdge {
                 from: t_id.clone(),
-                to: from_id,
+                to: to_id,
                 label: Some("reset".into()),
                 color: Some(styles::RESET_EDGE.color.to_string()),
                 style: Some(EdgeLineStyle::Bold),
@@ -230,6 +239,19 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
     }
 
     graph
+}
+
+fn shape_from_str(s: &str) -> NodeShape {
+    match s {
+        "circle" => NodeShape::Circle,
+        "doublecircle" => NodeShape::DoubleCircle,
+        "box" => NodeShape::Box,
+        "diamond" => NodeShape::Diamond,
+        "ellipse" => NodeShape::Ellipse,
+        "point" => NodeShape::Point,
+        "record" => NodeShape::Record,
+        _ => NodeShape::Circle,
+    }
 }
 
 fn analyze_places(net: &PetriNet) -> (HashSet<String>, HashSet<String>) {
@@ -298,130 +320,166 @@ fn input_label(spec: &In) -> Option<String> {
     }
 }
 
-#[allow(clippy::only_used_in_recursion)]
-fn output_edges(t_id: &str, out: &Out, reset_places: &HashSet<&str>, edges: &mut Vec<GraphEdge>) {
+/// Mutable per-transition state threaded through the recursive Out-tree walk.
+///
+/// `counter` starts at 0 and increments once per emitted junction (depth-first
+/// pre-order). `combined` accumulates place names where a reset+output combination
+/// short-circuited the standalone reset edge.
+struct EmitCtx<'a> {
+    t_sanitized: &'a str,
+    reset_places: &'a HashSet<String>,
+    combined: &'a mut HashSet<String>,
+    nodes: &'a mut Vec<GraphNode>,
+    edges: &'a mut Vec<GraphEdge>,
+    counter: u32,
+}
+
+/// Emits output edges for an Out tree, inserting junction nodes for XOR/AND
+/// groups with two or more children. Combined reset+output edges replace plain
+/// output edges when a leaf place is also in `ctx.reset_places`.
+fn emit_output(out: &Out, parent_id: &str, branch_label: Option<&str>, ctx: &mut EmitCtx<'_>) {
     match out {
         Out::One(p) => {
             let to_id = format!("p_{}", sanitize(p.name()));
-            edges.push(GraphEdge {
-                from: t_id.to_string(),
-                to: to_id,
-                label: None,
-                color: Some(styles::OUTPUT_EDGE.color.to_string()),
-                style: Some(EdgeLineStyle::Solid),
-                arrowhead: Some(ArrowHead::Normal),
-                penwidth: styles::OUTPUT_EDGE.penwidth,
-                arc_type: Some("output".into()),
-                attrs: Vec::new(),
-            });
+            push_leaf_edge(parent_id, &to_id, p.name(), branch_label, ctx, false);
         }
         Out::Exactly { place, count } => {
             let to_id = format!("p_{}", sanitize(place.name()));
-            edges.push(GraphEdge {
-                from: t_id.to_string(),
-                to: to_id,
-                label: Some(format!("\u{00d7}{count}")),
-                color: Some(styles::OUTPUT_EDGE.color.to_string()),
-                style: Some(EdgeLineStyle::Solid),
-                arrowhead: Some(ArrowHead::Normal),
-                penwidth: styles::OUTPUT_EDGE.penwidth,
-                arc_type: Some("output".into()),
-                attrs: Vec::new(),
-            });
-        }
-        Out::And(children) => {
-            for child in children {
-                output_edges(t_id, child, reset_places, edges);
-            }
-        }
-        Out::Xor(children) => {
-            for child in children {
-                let branch_label = infer_branch_label(child);
-                output_edges_with_label(t_id, child, branch_label.as_deref(), edges);
-            }
-        }
-        Out::Timeout { after_ms, child } => {
-            let label = format!("\u{23f1}{after_ms}ms");
-            output_edges_with_label(t_id, child, Some(&label), edges);
+            let count_label = match branch_label {
+                Some(l) => format!("{l} \u{00d7}{count}"),
+                None => format!("\u{00d7}{count}"),
+            };
+            push_leaf_edge(parent_id, &to_id, place.name(), Some(&count_label), ctx, false);
         }
         Out::ForwardInput { from, to } => {
             let to_id = format!("p_{}", sanitize(to.name()));
-            edges.push(GraphEdge {
-                from: t_id.to_string(),
-                to: to_id,
-                label: Some(format!("\u{27f5}{}", from.name())),
-                color: Some(styles::OUTPUT_EDGE.color.to_string()),
-                style: Some(EdgeLineStyle::Dashed),
-                arrowhead: Some(ArrowHead::Normal),
-                penwidth: styles::OUTPUT_EDGE.penwidth,
-                arc_type: Some("output".into()),
-                attrs: Vec::new(),
-            });
+            let fwd_label = match branch_label {
+                Some(l) => format!("{l} \u{27f5}{}", from.name()),
+                None => format!("\u{27f5}{}", from.name()),
+            };
+            push_leaf_edge(parent_id, &to_id, to.name(), Some(&fwd_label), ctx, true);
+        }
+        Out::And(children) => {
+            emit_group("and", children, parent_id, branch_label, ctx);
+        }
+        Out::Xor(children) => {
+            emit_group("xor", children, parent_id, branch_label, ctx);
+        }
+        Out::Timeout { after_ms, child } => {
+            // Override any inherited branch_label: the timeout label fully
+            // describes this branch (the XOR pre-inference resolves to the
+            // same string).
+            let timeout_label = format!("\u{23f1}{after_ms}ms");
+            emit_output(child, parent_id, Some(&timeout_label), ctx);
         }
     }
 }
 
-fn output_edges_with_label(t_id: &str, out: &Out, label: Option<&str>, edges: &mut Vec<GraphEdge>) {
-    match out {
-        Out::One(p) => {
-            let to_id = format!("p_{}", sanitize(p.name()));
-            edges.push(GraphEdge {
-                from: t_id.to_string(),
-                to: to_id,
-                label: label.map(|s| s.to_string()),
-                color: Some(styles::OUTPUT_EDGE.color.to_string()),
-                style: Some(EdgeLineStyle::Solid),
-                arrowhead: Some(ArrowHead::Normal),
-                penwidth: styles::OUTPUT_EDGE.penwidth,
-                arc_type: Some("output".into()),
-                attrs: Vec::new(),
-            });
+fn emit_group(
+    kind: &str,
+    children: &[Out],
+    parent_id: &str,
+    branch_label: Option<&str>,
+    ctx: &mut EmitCtx<'_>,
+) {
+    // Single-child groups collapse: pass through.
+    if children.len() < 2 {
+        if children.len() == 1 {
+            emit_output(&children[0], parent_id, branch_label, ctx);
         }
-        Out::Exactly { place, count } => {
-            let to_id = format!("p_{}", sanitize(place.name()));
-            let count_label = match label {
-                Some(l) => format!("{l} \u{00d7}{count}"),
-                None => format!("\u{00d7}{count}"),
-            };
-            edges.push(GraphEdge {
-                from: t_id.to_string(),
-                to: to_id,
-                label: Some(count_label),
-                color: Some(styles::OUTPUT_EDGE.color.to_string()),
-                style: Some(EdgeLineStyle::Solid),
-                arrowhead: Some(ArrowHead::Normal),
-                penwidth: styles::OUTPUT_EDGE.penwidth,
-                arc_type: Some("output".into()),
-                attrs: Vec::new(),
-            });
-        }
-        Out::And(children) => {
-            for child in children {
-                output_edges_with_label(t_id, child, label, edges);
-            }
-        }
-        Out::ForwardInput { from, to } => {
-            let to_id = format!("p_{}", sanitize(to.name()));
-            let fwd_label = match label {
-                Some(l) => format!("{l} \u{27f5}{}", from.name()),
-                None => format!("\u{27f5}{}", from.name()),
-            };
-            edges.push(GraphEdge {
-                from: t_id.to_string(),
-                to: to_id,
-                label: Some(fwd_label),
-                color: Some(styles::OUTPUT_EDGE.color.to_string()),
-                style: Some(EdgeLineStyle::Dashed),
-                arrowhead: Some(ArrowHead::Normal),
-                penwidth: styles::OUTPUT_EDGE.penwidth,
-                arc_type: Some("output".into()),
-                attrs: Vec::new(),
-            });
-        }
-        _ => {
-            output_edges(t_id, out, &HashSet::new(), edges);
-        }
+        return;
     }
+
+    // Insert junction node — diamond gateway with heavy ✕ / ✚ glyph as discriminator.
+    let idx = ctx.counter;
+    ctx.counter += 1;
+    let junction_id = format!("j_{}__{kind}_{idx}", ctx.t_sanitized);
+    let (style, label) = if kind == "xor" {
+        (&styles::XOR_JUNCTION, "\u{2715}") // ✕
+    } else {
+        (&styles::AND_JUNCTION, "\u{271a}") // ✚
+    };
+    ctx.nodes.push(GraphNode {
+        id: junction_id.clone(),
+        label: label.to_string(),
+        shape: NodeShape::Diamond,
+        fill: Some(style.fill.to_string()),
+        stroke: Some(style.stroke.to_string()),
+        penwidth: Some(style.penwidth),
+        semantic_id: Some(junction_id.clone()),
+        style: style.style.map(|s| s.to_string()),
+        height: style.height,
+        width: style.width,
+        attrs: vec![
+            ("fixedsize".into(), "true".into()),
+            ("fontsize".into(), "14".into()),
+        ],
+    });
+
+    // Edge parent → junction (carries any inherited branch/timeout label).
+    ctx.edges.push(GraphEdge {
+        from: parent_id.to_string(),
+        to: junction_id.clone(),
+        label: branch_label.map(|s| s.to_string()),
+        color: Some(styles::OUTPUT_EDGE.color.to_string()),
+        style: Some(EdgeLineStyle::Solid),
+        arrowhead: Some(ArrowHead::Normal),
+        penwidth: styles::OUTPUT_EDGE.penwidth,
+        arc_type: Some("output".into()),
+        attrs: Vec::new(),
+    });
+
+    // Recurse children: XOR junction propagates per-branch labels; AND does not.
+    for child in children {
+        let child_label = if kind == "xor" {
+            infer_branch_label(child)
+        } else {
+            None
+        };
+        emit_output(child, &junction_id, child_label.as_deref(), ctx);
+    }
+}
+
+fn push_leaf_edge(
+    from_id: &str,
+    to_id: &str,
+    place_name: &str,
+    branch_label: Option<&str>,
+    ctx: &mut EmitCtx<'_>,
+    is_forward_input: bool,
+) {
+    if ctx.reset_places.contains(place_name) {
+        ctx.combined.insert(place_name.to_string());
+        ctx.edges.push(GraphEdge {
+            from: from_id.to_string(),
+            to: to_id.to_string(),
+            label: Some("reset+out".into()),
+            color: Some(styles::RESET_OUTPUT_EDGE.color.to_string()),
+            style: Some(EdgeLineStyle::Bold),
+            arrowhead: Some(ArrowHead::Normal),
+            penwidth: styles::RESET_OUTPUT_EDGE.penwidth,
+            arc_type: Some("reset-output".into()),
+            attrs: Vec::new(),
+        });
+        return;
+    }
+
+    let style = if is_forward_input {
+        EdgeLineStyle::Dashed
+    } else {
+        EdgeLineStyle::Solid
+    };
+    ctx.edges.push(GraphEdge {
+        from: from_id.to_string(),
+        to: to_id.to_string(),
+        label: branch_label.map(|s| s.to_string()),
+        color: Some(styles::OUTPUT_EDGE.color.to_string()),
+        style: Some(style),
+        arrowhead: Some(ArrowHead::Normal),
+        penwidth: styles::OUTPUT_EDGE.penwidth,
+        arc_type: Some("output".into()),
+        attrs: Vec::new(),
+    });
 }
 
 fn infer_branch_label(out: &Out) -> Option<String> {
@@ -538,7 +596,7 @@ mod tests {
 
     #[test]
     fn input_labels_use_unicode() {
-        use libpetri_core::input::{exactly, at_least};
+        use libpetri_core::input::{at_least, exactly};
 
         let p1 = Place::<i32>::new("p1");
         let p2 = Place::<i32>::new("p2");
@@ -576,7 +634,10 @@ mod tests {
 
         // Input/output edges should have no penwidth (styles have None)
         for edge in &graph.edges {
-            assert_eq!(edge.penwidth, None, "input/output edges should have no penwidth");
+            assert_eq!(
+                edge.penwidth, None,
+                "input/output edges should have no penwidth"
+            );
         }
     }
 
@@ -611,7 +672,11 @@ mod tests {
         let net = PetriNet::builder("test").transition(t).build();
 
         let graph = map_to_graph(&net, &DotConfig::default());
-        let read_edge = graph.edges.iter().find(|e| e.arc_type.as_deref() == Some("read")).unwrap();
+        let read_edge = graph
+            .edges
+            .iter()
+            .find(|e| e.arc_type.as_deref() == Some("read"))
+            .unwrap();
         assert_eq!(read_edge.label.as_deref(), Some("read"));
     }
 
@@ -630,9 +695,247 @@ mod tests {
         let net = PetriNet::builder("test").transition(t).build();
 
         let graph = map_to_graph(&net, &DotConfig::default());
-        let reset_edge = graph.edges.iter().find(|e| e.arc_type.as_deref() == Some("reset")).unwrap();
+        let reset_edge = graph
+            .edges
+            .iter()
+            .find(|e| e.arc_type.as_deref() == Some("reset"))
+            .unwrap();
         assert_eq!(reset_edge.label.as_deref(), Some("reset"));
         assert_eq!(reset_edge.penwidth, Some(2.0));
+    }
+
+    #[test]
+    fn xor_junction_with_branch_labels() {
+        use libpetri_core::output::{out_one, xor};
+
+        let p_in = Place::<i32>::new("In");
+        let success = Place::<i32>::new("Success");
+        let error = Place::<i32>::new("Error");
+        let t = Transition::builder("Process")
+            .input(one(&p_in))
+            .output(xor(vec![out_one(&success), out_one(&error)]))
+            .build();
+        let net = PetriNet::builder("test").transition(t).build();
+        let graph = map_to_graph(&net, &DotConfig::default());
+
+        let junction = graph
+            .nodes
+            .iter()
+            .find(|n| n.id.starts_with("j_Process__xor_"))
+            .expect("XOR junction should be emitted");
+        assert_eq!(junction.shape, NodeShape::Diamond);
+        assert_eq!(junction.label, "\u{2715}"); // ✕
+        assert_eq!(junction.fill.as_deref(), Some("#FFFFFF"));
+        assert_eq!(junction.stroke.as_deref(), Some("#333333"));
+        let fontsize = junction.attrs.iter().find(|(k, _)| k == "fontsize");
+        assert_eq!(fontsize.map(|(_, v)| v.as_str()), Some("14"));
+
+        let to_success = graph.edges.iter().find(|e| e.to == "p_Success").unwrap();
+        let to_error = graph.edges.iter().find(|e| e.to == "p_Error").unwrap();
+        assert_eq!(to_success.from, junction.id);
+        assert_eq!(to_error.from, junction.id);
+        assert_eq!(to_success.label.as_deref(), Some("Success"));
+        assert_eq!(to_error.label.as_deref(), Some("Error"));
+    }
+
+    #[test]
+    fn and_junction_no_labels() {
+        use libpetri_core::output::{and, out_one};
+
+        let p_in = Place::<i32>::new("In");
+        let a = Place::<i32>::new("A");
+        let b = Place::<i32>::new("B");
+        let t = Transition::builder("Fork")
+            .input(one(&p_in))
+            .output(and(vec![out_one(&a), out_one(&b)]))
+            .build();
+        let net = PetriNet::builder("test").transition(t).build();
+        let graph = map_to_graph(&net, &DotConfig::default());
+
+        let junction = graph
+            .nodes
+            .iter()
+            .find(|n| n.id.starts_with("j_Fork__and_"))
+            .expect("AND junction should be emitted");
+        assert_eq!(junction.shape, NodeShape::Diamond);
+        assert_eq!(junction.label, "\u{271a}"); // ✚
+        assert_eq!(junction.fill.as_deref(), Some("#FFFFFF"));
+        assert_eq!(junction.stroke.as_deref(), Some("#333333"));
+        let fontsize = junction.attrs.iter().find(|(k, _)| k == "fontsize");
+        assert_eq!(fontsize.map(|(_, v)| v.as_str()), Some("14"));
+        assert_eq!(junction.width, Some(0.3));
+
+        let t_to_j: Vec<_> = graph
+            .edges
+            .iter()
+            .filter(|e| e.from == "t_Fork" && e.to == junction.id)
+            .collect();
+        assert_eq!(t_to_j.len(), 1);
+
+        let j_to_children: Vec<_> = graph
+            .edges
+            .iter()
+            .filter(|e| e.from == junction.id && e.arc_type.as_deref() == Some("output"))
+            .collect();
+        assert_eq!(j_to_children.len(), 2);
+        for e in j_to_children {
+            assert!(e.label.is_none(), "AND junction edges should have no labels");
+        }
+    }
+
+    #[test]
+    fn single_child_and_collapses_no_junction() {
+        use libpetri_core::output::{and, out_one};
+
+        let p_in = Place::<i32>::new("In");
+        let only = Place::<i32>::new("Only");
+        let t = Transition::builder("SingleAnd")
+            .input(one(&p_in))
+            .output(and(vec![out_one(&only)]))
+            .build();
+        let net = PetriNet::builder("test").transition(t).build();
+        let graph = map_to_graph(&net, &DotConfig::default());
+
+        let junctions: Vec<_> = graph.nodes.iter().filter(|n| n.id.starts_with("j_")).collect();
+        assert!(junctions.is_empty(), "single-child AND should not emit a junction");
+
+        let direct = graph.edges.iter().find(|e| e.from == "t_SingleAnd" && e.to == "p_Only");
+        assert!(direct.is_some());
+        assert_eq!(direct.unwrap().arc_type.as_deref(), Some("output"));
+    }
+
+    #[test]
+    fn combines_reset_and_output_into_single_edge() {
+        use libpetri_core::arc::reset;
+
+        let p_in = Place::<i32>::new("In");
+        let cache = Place::<i32>::new("Cache");
+        let t = Transition::builder("Refresh")
+            .input(one(&p_in))
+            .output(out_one(&cache))
+            .reset(reset(&cache))
+            .build();
+        let net = PetriNet::builder("test").transition(t).build();
+        let graph = map_to_graph(&net, &DotConfig::default());
+
+        let edges_to_cache: Vec<_> = graph.edges.iter().filter(|e| e.to == "p_Cache").collect();
+        assert_eq!(edges_to_cache.len(), 1);
+        let combined = edges_to_cache[0];
+        assert_eq!(combined.arc_type.as_deref(), Some("reset-output"));
+        assert_eq!(combined.label.as_deref(), Some("reset+out"));
+        assert_eq!(combined.color.as_deref(), Some("#fd7e14"));
+        assert_eq!(combined.style, Some(EdgeLineStyle::Bold));
+        assert_eq!(combined.penwidth, Some(2.0));
+
+        let standalone = graph
+            .edges
+            .iter()
+            .find(|e| e.arc_type.as_deref() == Some("reset") && e.to == "p_Cache");
+        assert!(standalone.is_none());
+    }
+
+    #[test]
+    fn combines_reset_and_output_through_xor_junction() {
+        use libpetri_core::arc::reset;
+        use libpetri_core::output::{out_one, xor};
+
+        let p_in = Place::<i32>::new("In");
+        let ok = Place::<i32>::new("Ok");
+        let cache = Place::<i32>::new("Cache");
+        let t = Transition::builder("Try")
+            .input(one(&p_in))
+            .output(xor(vec![out_one(&ok), out_one(&cache)]))
+            .reset(reset(&cache))
+            .build();
+        let net = PetriNet::builder("test").transition(t).build();
+        let graph = map_to_graph(&net, &DotConfig::default());
+
+        let junction = graph
+            .nodes
+            .iter()
+            .find(|n| n.id.starts_with("j_Try__xor_"))
+            .expect("XOR junction should be emitted");
+
+        let to_cache = graph.edges.iter().find(|e| e.to == "p_Cache").unwrap();
+        assert_eq!(to_cache.from, junction.id);
+        assert_eq!(to_cache.arc_type.as_deref(), Some("reset-output"));
+        assert_eq!(to_cache.label.as_deref(), Some("reset+out"));
+
+        let to_ok = graph.edges.iter().find(|e| e.to == "p_Ok").unwrap();
+        assert_eq!(to_ok.arc_type.as_deref(), Some("output"));
+        assert_eq!(to_ok.label.as_deref(), Some("Ok"));
+    }
+
+    #[test]
+    fn deterministic_junction_ids_in_depth_first_order() {
+        use libpetri_core::output::{and, out_one, xor};
+
+        let p_in = Place::<i32>::new("In");
+        let a = Place::<i32>::new("A");
+        let b = Place::<i32>::new("B");
+        let c = Place::<i32>::new("C");
+        let d = Place::<i32>::new("D");
+        // AND( XOR(a, b), XOR(c, d) )
+        let t = Transition::builder("Nested")
+            .input(one(&p_in))
+            .output(and(vec![
+                xor(vec![out_one(&a), out_one(&b)]),
+                xor(vec![out_one(&c), out_one(&d)]),
+            ]))
+            .build();
+        let net = PetriNet::builder("test").transition(t).build();
+        let graph = map_to_graph(&net, &DotConfig::default());
+
+        let ids: Vec<_> = graph
+            .nodes
+            .iter()
+            .filter(|n| n.id.starts_with("j_Nested__"))
+            .map(|n| n.id.as_str())
+            .collect();
+        assert_eq!(
+            ids,
+            vec!["j_Nested__and_0", "j_Nested__xor_1", "j_Nested__xor_2"]
+        );
+    }
+
+    /// EXP-014 AC#2: repeated exports of the same net produce byte-identical DOT.
+    #[test]
+    fn round_trip_export_is_byte_identical() {
+        use crate::dot_renderer::render_dot;
+        use libpetri_core::arc::reset;
+        use libpetri_core::output::{and, out_one, xor};
+
+        let p_in = Place::<i32>::new("In");
+        let a = Place::<i32>::new("A");
+        let b = Place::<i32>::new("B");
+        let c = Place::<i32>::new("C");
+        let d = Place::<i32>::new("D");
+        let cache = Place::<i32>::new("Cache");
+
+        // Nested junctions + reset+output covers the full range of EXP-012/013/014 paths.
+        let nested = Transition::builder("Nested")
+            .input(one(&p_in))
+            .output(and(vec![
+                xor(vec![out_one(&a), out_one(&b)]),
+                xor(vec![out_one(&c), out_one(&d)]),
+            ]))
+            .build();
+        let refresh = Transition::builder("RefreshCache")
+            .input(one(&a))
+            .output(out_one(&cache))
+            .reset(reset(&cache))
+            .build();
+        let net = PetriNet::builder("Stable")
+            .transition(nested)
+            .transition(refresh)
+            .build();
+
+        let first = render_dot(&map_to_graph(&net, &DotConfig::default()));
+        let second = render_dot(&map_to_graph(&net, &DotConfig::default()));
+        assert_eq!(
+            first, second,
+            "DOT output must be byte-identical across repeated exports"
+        );
     }
 
     #[test]
@@ -646,7 +949,13 @@ mod tests {
         let net = PetriNet::builder("test").transition(t).build();
 
         let graph = map_to_graph(&net, &DotConfig::default());
-        let find = |key: &str| graph.graph_attrs.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str());
+        let find = |key: &str| {
+            graph
+                .graph_attrs
+                .iter()
+                .find(|(k, _)| k == key)
+                .map(|(_, v)| v.as_str())
+        };
         assert_eq!(find("outputorder"), Some("edgesfirst"));
     }
 }

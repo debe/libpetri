@@ -6,7 +6,7 @@ import org.libpetri.core.Transition;
 import org.libpetri.export.graph.*;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -18,9 +18,18 @@ import static java.util.stream.Collectors.joining;
 /**
  * Maps a PetriNet definition to a format-agnostic Graph.
  *
- * <p>This is where all the Petri net semantics live. The mapper understands
- * places, transitions, arcs, timing, and priority. It produces a Graph
- * that can be rendered to DOT (or any other format) without Petri net knowledge.
+ * <p>Petri net semantics live here. The mapper applies the visualization rules
+ * specified in {@code spec/09-export.md} (EXP-012, EXP-013, EXP-014):
+ *
+ * <ul>
+ *   <li>XOR / AND output groups with two or more children become synthetic
+ *       diamond junction nodes labelled with a heavy glyph:
+ *       {@code ✕} (U+2715) for XOR, {@code ✚} (U+271A) for AND.</li>
+ *   <li>Output and reset arcs to the same place collapse into a single edge
+ *       styled as the reset-output category and labelled {@code "reset+out"}.</li>
+ *   <li>Junction IDs use the form {@code j_<transition>__<kind>_<idx>}, where
+ *       {@code idx} is a depth-first pre-order counter starting at 0.</li>
+ * </ul>
  */
 public final class PetriNetGraphMapper {
 
@@ -78,9 +87,13 @@ public final class PetriNetGraphMapper {
             ));
         }
 
-        // Edges
+        // Edges and junction nodes
         for (var t : net.transitions()) {
             String tid = "t_" + DotExporter.sanitize(t.name());
+
+            Set<String> resetPlaces = t.resets().stream()
+                .map(r -> r.place().name())
+                .collect(Collectors.toSet());
 
             // Input arcs from inputSpecs
             for (var in : t.inputSpecs()) {
@@ -88,9 +101,9 @@ public final class PetriNetGraphMapper {
                 EdgeVisual inputStyle = StyleConstants.edgeStyle(ArcType.INPUT);
                 String label = switch (in) {
                     case Arc.In.One _ -> null;
-                    case Arc.In.Exactly e -> "\u00d7" + e.count();
+                    case Arc.In.Exactly e -> "×" + e.count();
                     case Arc.In.All _ -> "*";
-                    case Arc.In.AtLeast a -> "\u2265" + a.minimum();
+                    case Arc.In.AtLeast a -> "≥" + a.minimum();
                 };
                 edges.add(new GraphEdge(
                     pid, tid, label,
@@ -99,9 +112,11 @@ public final class PetriNetGraphMapper {
                 ));
             }
 
-            // Output arcs from outputSpec
+            // Output arcs from outputSpec — emits junction nodes + edges, marks combined places.
+            JunctionCtx ctx = new JunctionCtx(
+                DotExporter.sanitize(t.name()), resetPlaces, nodes, edges);
             if (t.outputSpec() != null) {
-                edges.addAll(outputEdges(tid, t.outputSpec(), null));
+                emitOutput(t.outputSpec(), tid, null, ctx);
             }
 
             // Inhibitor arcs
@@ -126,12 +141,9 @@ public final class PetriNetGraphMapper {
                 ));
             }
 
-            // Reset arcs (only those without matching output)
-            Set<String> outputPlaceNames = t.outputSpec() != null
-                ? t.outputSpec().allPlaces().stream().map(p -> p.name()).collect(Collectors.toSet())
-                : Set.of();
+            // Standalone reset arcs (only those not already combined with an output)
             for (var rst : t.resets()) {
-                if (!outputPlaceNames.contains(rst.place().name())) {
+                if (!ctx.combined.contains(rst.place().name())) {
                     String pid = "p_" + DotExporter.sanitize(rst.place().name());
                     EdgeVisual resetStyle = StyleConstants.edgeStyle(ArcType.RESET);
                     edges.add(new GraphEdge(
@@ -177,7 +189,7 @@ public final class PetriNetGraphMapper {
             var timing = t.timing();
             var max = timing.hasDeadline()
                 ? timing.latest().toMillis() + ""
-                : "\u221e";
+                : "∞";
             parts.add("[%d, %s]ms".formatted(timing.earliest().toMillis(), max));
         }
 
@@ -188,55 +200,138 @@ public final class PetriNetGraphMapper {
         return parts.build().collect(joining(" "));
     }
 
-    private static List<GraphEdge> outputEdges(String transitionId, Arc.Out out, String branchLabel) {
-        EdgeVisual outStyle = StyleConstants.edgeStyle(ArcType.OUTPUT);
+    /**
+     * Mutable per-transition state threaded through the recursive Out-tree walk.
+     *
+     * <p>{@code counter} starts at 0 and increments once per emitted junction
+     * (depth-first pre-order). {@code combined} accumulates place names where a
+     * reset+output combination short-circuited the standalone reset edge.
+     */
+    private static final class JunctionCtx {
+        final String tSanitized;
+        final Set<String> resetPlaces;
+        final Set<String> combined = new HashSet<>();
+        final List<GraphNode> nodes;
+        final List<GraphEdge> edges;
+        int counter = 0;
 
-        return switch (out) {
+        JunctionCtx(String tSanitized, Set<String> resetPlaces,
+                    List<GraphNode> nodes, List<GraphEdge> edges) {
+            this.tSanitized = tSanitized;
+            this.resetPlaces = resetPlaces;
+            this.nodes = nodes;
+            this.edges = edges;
+        }
+    }
+
+    /**
+     * Emits output edges for an Out tree, inserting junction nodes for XOR/AND
+     * groups with two or more children. Combined reset+output edges replace plain
+     * output edges when a leaf place is also in {@code ctx.resetPlaces}.
+     *
+     * @param out          current Out subtree
+     * @param parentId     id of the parent node (transition or junction)
+     * @param branchLabel  label to apply to the edge entering this Out (timeout/XOR-branch)
+     * @param ctx          per-transition junction context (counter, reset set, accumulators)
+     */
+    private static void emitOutput(Arc.Out out, String parentId, String branchLabel, JunctionCtx ctx) {
+        switch (out) {
             case Arc.Out.One p -> {
                 String pid = "p_" + DotExporter.sanitize(p.place().name());
-                yield List.of(new GraphEdge(
-                    transitionId, pid, branchLabel,
-                    outStyle.color(), outStyle.style(), outStyle.arrowhead(),
-                    outStyle.penwidth(), ArcType.OUTPUT, null
-                ));
+                pushLeafEdge(parentId, pid, p.place().name(), branchLabel, ctx, false);
             }
 
             case Arc.Out.Exactly e -> {
                 String pid = "p_" + DotExporter.sanitize(e.place().name());
                 String label = (branchLabel != null ? branchLabel + " " : "") + "×" + e.count();
-                yield List.of(new GraphEdge(
-                    transitionId, pid, label,
-                    outStyle.color(), outStyle.style(), outStyle.arrowhead(),
-                    outStyle.penwidth(), ArcType.OUTPUT, null
-                ));
+                pushLeafEdge(parentId, pid, e.place().name(), label, ctx, false);
             }
 
             case Arc.Out.ForwardInput f -> {
                 String pid = "p_" + DotExporter.sanitize(f.to().name());
-                String label = (branchLabel != null ? branchLabel + " " : "") + "\u27f5" + f.from().name();
-                yield List.of(new GraphEdge(
-                    transitionId, pid, label,
-                    outStyle.color(), EdgeLineStyle.DASHED, outStyle.arrowhead(),
-                    outStyle.penwidth(), ArcType.OUTPUT, null
-                ));
+                String fwdLabel = (branchLabel != null ? branchLabel + " " : "")
+                    + "⟵" + f.from().name();
+                pushLeafEdge(parentId, pid, f.to().name(), fwdLabel, ctx, true);
             }
 
-            case Arc.Out.And and -> and.children().stream()
-                .flatMap(c -> outputEdges(transitionId, c, branchLabel).stream())
-                .toList();
+            case Arc.Out.And and -> emitGroup("and", and.children(), parentId, branchLabel, ctx);
 
-            case Arc.Out.Xor xor -> {
-                var edges = new ArrayList<GraphEdge>();
-                for (var child : xor.children()) {
-                    String label = inferBranchLabel(child);
-                    edges.addAll(outputEdges(transitionId, child, label));
-                }
-                yield edges;
+            case Arc.Out.Xor xor -> emitGroup("xor", xor.children(), parentId, branchLabel, ctx);
+
+            case Arc.Out.Timeout t -> {
+                // Override any inherited branchLabel: the timeout label fully
+                // describes this branch (the XOR pre-inference resolves to the
+                // same string).
+                String timeoutLabel = "⏱" + t.after().toMillis() + "ms";
+                emitOutput(t.child(), parentId, timeoutLabel, ctx);
             }
+        }
+    }
 
-            case Arc.Out.Timeout t -> outputEdges(transitionId, t.child(),
-                "\u23f1" + t.after().toMillis() + "ms");
-        };
+    private static void emitGroup(String kind, List<Arc.Out> children,
+                                  String parentId, String branchLabel, JunctionCtx ctx) {
+        // Single-child groups collapse: pass through.
+        if (children.size() < 2) {
+            if (children.size() == 1) {
+                emitOutput(children.getFirst(), parentId, branchLabel, ctx);
+            }
+            return;
+        }
+
+        // Insert junction node — diamond gateway with heavy ✕ / ✚ glyph as discriminator.
+        int idx = ctx.counter++;
+        String junctionId = "j_" + ctx.tSanitized + "__" + kind + "_" + idx;
+        String category = kind.equals("xor") ? "xor-junction" : "and-junction";
+        NodeVisual jStyle = StyleConstants.nodeStyle(category);
+        ctx.nodes.add(new GraphNode(
+            junctionId,
+            kind.equals("xor") ? "✕" : "✚",
+            jStyle.shape(),
+            jStyle.fill(),
+            jStyle.stroke(),
+            jStyle.penwidth(),
+            junctionId,
+            jStyle.style(),
+            jStyle.height(),
+            jStyle.width(),
+            Map.of("fixedsize", "true", "fontsize", "14")
+        ));
+
+        // Edge parent → junction (carries any inherited branch/timeout label).
+        EdgeVisual outStyle = StyleConstants.edgeStyle(ArcType.OUTPUT);
+        ctx.edges.add(new GraphEdge(
+            parentId, junctionId, branchLabel,
+            outStyle.color(), outStyle.style(), outStyle.arrowhead(),
+            outStyle.penwidth(), ArcType.OUTPUT, null
+        ));
+
+        // Recurse children: XOR junction propagates per-branch labels; AND does not.
+        for (var child : children) {
+            String childLabel = kind.equals("xor") ? inferBranchLabel(child) : null;
+            emitOutput(child, junctionId, childLabel, ctx);
+        }
+    }
+
+    private static void pushLeafEdge(String fromId, String toId, String placeName,
+                                     String branchLabel, JunctionCtx ctx, boolean isForwardInput) {
+        if (ctx.resetPlaces.contains(placeName)) {
+            ctx.combined.add(placeName);
+            EdgeVisual ro = StyleConstants.edgeStyle(ArcType.RESET_OUTPUT);
+            ctx.edges.add(new GraphEdge(
+                fromId, toId, "reset+out",
+                ro.color(), ro.style(), ro.arrowhead(),
+                ro.penwidth(), ArcType.RESET_OUTPUT, null
+            ));
+            return;
+        }
+
+        EdgeVisual outStyle = StyleConstants.edgeStyle(ArcType.OUTPUT);
+        EdgeLineStyle style = isForwardInput ? EdgeLineStyle.DASHED : outStyle.style();
+        ctx.edges.add(new GraphEdge(
+            fromId, toId, branchLabel,
+            outStyle.color(), style, outStyle.arrowhead(),
+            outStyle.penwidth(), ArcType.OUTPUT, null
+        ));
     }
 
     private static String inferBranchLabel(Arc.Out out) {

@@ -1,54 +1,40 @@
 /**
  * Diagram transition actions: viz.js rendering, panzoom init, SVG cache, differential highlighting.
+ *
+ * The viz.js + panzoom pipeline is delegated to the shared `libpetri/render-dom`
+ * module so this app and the dev-preview Vite app render diagrams identically
+ * (single source of truth for visualization).
  */
 
-import { instance as vizInstance } from '@viz-js/viz';
-import panzoom from 'panzoom';
+import { renderDotToContainer } from 'libpetri/render-dom';
 import { shared } from '../shared-state.js';
 import { el } from '../../dom/elements.js';
 import type { SvgNodeCache, UIState, SessionData } from '../types.js';
 
-let vizPromise: Promise<Awaited<ReturnType<typeof vizInstance>>> | null = null;
-
-function getViz() {
-  if (!vizPromise) vizPromise = vizInstance();
-  return vizPromise;
-}
-
 /**
  * Render DOT string to SVG and initialize panzoom.
  *
- * Engine is pinned to 'dot' so layout is deterministic across reloads; libpetri
- * servers emit byte-stable DOT, and the 'dot' engine produces identical layout
- * for identical input.
+ * Layout is deterministic across reloads; libpetri servers emit byte-stable DOT
+ * (per spec EXP-014) and the 'dot' engine produces identical layout for identical input.
  */
 export async function renderDotDiagram(dotSource: string): Promise<void> {
-  const viz = await getViz();
-  const svgElement = viz.renderSVGElement(dotSource, { engine: 'dot' });
-
-  // Replace diagram content
-  const container = el.dotDiagram;
-  container.innerHTML = '';
-  container.appendChild(svgElement);
-
-  // Destroy previous panzoom
-  if (shared.panzoomInstance) {
-    shared.panzoomInstance.dispose();
-  }
-
-  // Init panzoom
-  shared.panzoomInstance = panzoom(svgElement, {
-    smoothScroll: false,
-    zoomDoubleClickSpeed: 1,
+  const { svg, panzoom } = await renderDotToContainer(dotSource, el.dotDiagram, {
+    previousPanzoom: shared.panzoomInstance,
   });
 
-  // Build SVG node cache for O(1) lookups
-  shared.svgNodeCache = buildSvgNodeCache(svgElement);
+  shared.panzoomInstance = panzoom;
+  shared.svgNodeCache = buildSvgNodeCache(svg);
 
   el.noSession.classList.add('hidden');
 }
 
-/** Build SVG node cache mapping graphIds/names to elements. */
+/**
+ * Build SVG node cache mapping graphIds/names to elements.
+ *
+ * Synthetic junction nodes (j_-prefixed, per spec EXP-014) are skipped: they
+ * are pure visualization scaffolding, not domain entities, and will never be
+ * looked up via the place/transition `graphId` indexes used by highlighting.
+ */
 function buildSvgNodeCache(svg: SVGSVGElement): SvgNodeCache {
   const nodesByName = new Map<string, Element>();
   const nodesByGraphId = new Map<string, Element>();
@@ -56,20 +42,18 @@ function buildSvgNodeCache(svg: SVGSVGElement): SvgNodeCache {
   const allNodeShapes: Element[] = [];
   const allEdgePaths: Element[] = [];
 
-  // Nodes: <g class="node"> with <title>graphId</title>
   const nodeGroups = svg.querySelectorAll('g.node');
   for (const g of nodeGroups) {
     const title = g.querySelector('title');
     if (!title) continue;
     const graphId = title.textContent?.trim() ?? '';
+    if (graphId.startsWith('j_')) continue;
     nodesByGraphId.set(graphId, g);
 
-    // Collect shapes (ellipse, polygon, rect)
     const shapes = g.querySelectorAll('ellipse, polygon, rect');
     for (const s of shapes) allNodeShapes.push(s);
   }
 
-  // Edges: <g class="edge"> with <title>from->to</title>
   const edgeGroups = svg.querySelectorAll('g.edge');
   for (const g of edgeGroups) {
     const title = g.querySelector('title');

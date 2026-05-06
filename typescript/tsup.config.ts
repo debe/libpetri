@@ -9,6 +9,7 @@ export default defineConfig({
     'verification/index': 'src/verification/index.ts',
     'debug/index': 'src/debug/index.ts',
     'doclet/index': 'src/doclet/index.ts',
+    'render-dom/index': 'src/render-dom/index.ts',
   },
   format: ['esm'],
   dts: true,

@@ -29,23 +29,23 @@ j() { jq -r "$1" "$SPEC"; }
 read_node() {
   local key=$1
   local prefix="${2:-}"
-  eval "${prefix}shape=$(j ".node.${key}.shape")"
-  eval "${prefix}fill=$(j ".node.${key}.fill")"
-  eval "${prefix}stroke=$(j ".node.${key}.stroke")"
-  eval "${prefix}penwidth=$(j ".node.${key}.penwidth")"
-  eval "${prefix}style=$(j ".node.${key}.style // empty")"
-  eval "${prefix}height=$(j ".node.${key}.height // empty")"
-  eval "${prefix}width=$(j ".node.${key}.width // empty")"
+  eval "${prefix}shape=$(j ".node[\"${key}\"].shape")"
+  eval "${prefix}fill=$(j ".node[\"${key}\"].fill")"
+  eval "${prefix}stroke=$(j ".node[\"${key}\"].stroke")"
+  eval "${prefix}penwidth=$(j ".node[\"${key}\"].penwidth")"
+  eval "${prefix}style=$(j ".node[\"${key}\"].style // empty")"
+  eval "${prefix}height=$(j ".node[\"${key}\"].height // empty")"
+  eval "${prefix}width=$(j ".node[\"${key}\"].width // empty")"
 }
 
 # Edge styles
 read_edge() {
   local key=$1
   local prefix="${2:-}"
-  eval "${prefix}color=$(j ".edge.${key}.color")"
-  eval "${prefix}estyle=$(j ".edge.${key}.style")"
-  eval "${prefix}arrowhead=$(j ".edge.${key}.arrowhead")"
-  eval "${prefix}epenwidth=$(j ".edge.${key}.penwidth // empty")"
+  eval "${prefix}color=$(j ".edge[\"${key}\"].color")"
+  eval "${prefix}estyle=$(j ".edge[\"${key}\"].style")"
+  eval "${prefix}arrowhead=$(j ".edge[\"${key}\"].arrowhead")"
+  eval "${prefix}epenwidth=$(j ".edge[\"${key}\"].penwidth // empty")"
 }
 
 # Font/graph
@@ -136,6 +136,10 @@ HEADER
   echo
   rust_node "TRANSITION" "transition"
   echo
+  rust_node "XOR_JUNCTION" "xor-junction"
+  echo
+  rust_node "AND_JUNCTION" "and-junction"
+  echo
   echo "// Edge styles"
   rust_edge "INPUT_EDGE" "input"
   echo
@@ -146,6 +150,8 @@ HEADER
   rust_edge "READ_EDGE" "read"
   echo
   rust_edge "RESET_EDGE" "reset"
+  echo
+  rust_edge "RESET_OUTPUT_EDGE" "reset-output"
   echo
   cat <<EOF
 // Font settings
@@ -173,6 +179,9 @@ java_shape() {
     circle) echo "NodeShape.CIRCLE" ;;
     doublecircle) echo "NodeShape.DOUBLECIRCLE" ;;
     box) echo "NodeShape.BOX" ;;
+    diamond) echo "NodeShape.DIAMOND" ;;
+    ellipse) echo "NodeShape.ELLIPSE" ;;
+    record) echo "NodeShape.RECORD" ;;
     *) echo "NodeShape.CIRCLE" ;;
   esac
 }
@@ -254,14 +263,18 @@ JAVA_HEADER
   java_node "END" "end"
   java_node "ENVIRONMENT" "environment"
   java_node "TRANSITION" "transition"
+  java_node "XOR_JUNCTION" "xor-junction"
+  java_node "AND_JUNCTION" "and-junction"
   echo
   cat <<'EOF'
-    private static final Map<String, NodeVisual> NODE_STYLES = Map.of(
-        "place",       PLACE,
-        "start",       START,
-        "end",         END,
-        "environment", ENVIRONMENT,
-        "transition",  TRANSITION
+    private static final Map<String, NodeVisual> NODE_STYLES = Map.ofEntries(
+        Map.entry("place",        PLACE),
+        Map.entry("start",        START),
+        Map.entry("end",          END),
+        Map.entry("environment",  ENVIRONMENT),
+        Map.entry("transition",   TRANSITION),
+        Map.entry("xor-junction", XOR_JUNCTION),
+        Map.entry("and-junction", AND_JUNCTION)
     );
 
     // ======================== Edge Styles ========================
@@ -272,14 +285,16 @@ EOF
   java_edge "INHIBITOR_EDGE" "inhibitor"
   java_edge "READ_EDGE" "read"
   java_edge "RESET_EDGE" "reset"
+  java_edge "RESET_OUTPUT_EDGE" "reset-output"
   echo
   cat <<EOF
     private static final Map<ArcType, EdgeVisual> EDGE_STYLES = Map.of(
-        ArcType.INPUT,     INPUT_EDGE,
-        ArcType.OUTPUT,    OUTPUT_EDGE,
-        ArcType.INHIBITOR, INHIBITOR_EDGE,
-        ArcType.READ,      READ_EDGE,
-        ArcType.RESET,     RESET_EDGE
+        ArcType.INPUT,        INPUT_EDGE,
+        ArcType.OUTPUT,       OUTPUT_EDGE,
+        ArcType.INHIBITOR,    INHIBITOR_EDGE,
+        ArcType.READ,         READ_EDGE,
+        ArcType.RESET,        RESET_EDGE,
+        ArcType.RESET_OUTPUT, RESET_OUTPUT_EDGE
     );
 
     // ======================== Font & Graph ========================
@@ -325,8 +340,11 @@ ts_node() {
   [[ -n "$n_width" ]] && extras="$extras width: $n_width,"
   # Remove trailing comma
   extras="${extras%,}"
-  printf "  %-13s { shape: '%s',  fill: '%s', stroke: '%s', penwidth: %s,%s },\n" \
-    "${key}:" "$n_shape" "$n_fill" "$n_stroke" "$n_penwidth" "$extras"
+  # Quote hyphenated keys (invalid as bare property names)
+  local key_out="${key}:"
+  [[ "$key" == *-* ]] && key_out="'${key}':"
+  printf "  %-15s { shape: '%s',  fill: '%s', stroke: '%s', penwidth: %s,%s },\n" \
+    "$key_out" "$n_shape" "$n_fill" "$n_stroke" "$n_penwidth" "$extras"
 }
 
 ts_edge() {
@@ -335,8 +353,10 @@ ts_edge() {
   local extras=""
   [[ -n "$e_epenwidth" ]] && extras=" penwidth: $e_epenwidth,"
   extras="${extras%,}"
-  printf "  %-10s { color: '%s', style: '%s',  arrowhead: '%s'%s },\n" \
-    "${key}:" "$e_color" "$e_estyle" "$e_arrowhead" "${extras:+, $extras}"
+  local key_out="${key}:"
+  [[ "$key" == *-* ]] && key_out="'${key}':"
+  printf "  %-14s { color: '%s', style: '%s',  arrowhead: '%s'%s },\n" \
+    "$key_out" "$e_color" "$e_estyle" "$e_arrowhead" "${extras:+, $extras}"
 }
 
 cat > "$TS_FILE" <<'TS_HEADER'
@@ -401,6 +421,8 @@ TS_HEADER
   ts_node "end"
   ts_node "environment"
   ts_node "transition"
+  ts_node "xor-junction"
+  ts_node "and-junction"
   echo "};"
   echo
   echo "const EDGE_STYLES: Record<EdgeCategory, EdgeVisual> = {"
@@ -409,6 +431,7 @@ TS_HEADER
   ts_edge "inhibitor"
   ts_edge "read"
   ts_edge "reset"
+  ts_edge "reset-output"
   echo "};"
   echo
   cat <<EOF
@@ -418,8 +441,8 @@ export const GRAPH: GraphStyle = { nodesep: $GRAPH_NODESEP, ranksep: $GRAPH_RANK
 
 // ======================== Public API ========================
 
-export type NodeCategory = 'place' | 'start' | 'end' | 'environment' | 'transition';
-export type EdgeCategory = 'input' | 'output' | 'inhibitor' | 'read' | 'reset';
+export type NodeCategory = 'place' | 'start' | 'end' | 'environment' | 'transition' | 'xor-junction' | 'and-junction';
+export type EdgeCategory = 'input' | 'output' | 'inhibitor' | 'read' | 'reset' | 'reset-output';
 
 /** Returns the visual style for the given node category. */
 export function nodeStyle(category: NodeCategory): NodeVisual {
