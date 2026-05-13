@@ -344,9 +344,12 @@ fn dot_to_svg(dot_source: &str, strip_dimensions: bool) -> String {
         return svg;
     }
 
-    // Fallback: embed DOT source as HTML pre block
+    // Fallback: embed DOT source as HTML pre block. The `language-text` class
+    // tells rustdoc to skip this when scanning for doctest code blocks — without
+    // it, rustdoc treats a bare `<pre><code>` as a Rust doctest and tries to
+    // compile the DOT source as Rust (failing on `[` after identifiers, etc.).
     format!(
-        "<pre><code>{}</code></pre>",
+        "<pre><code class=\"language-text\">{}</code></pre>",
         dot_source.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
     )
 }
@@ -438,7 +441,12 @@ mod tests {
     fn fallback_produces_pre_block() {
         let svg = dot_to_svg("digraph { a -> b }", false);
         // If dot is available, we get real SVG; if not, we get the fallback.
-        assert!(svg.contains("<svg") || svg.contains("<pre><code>"));
+        // The fallback must mark the block as non-Rust so rustdoc skips it as
+        // a doctest (otherwise CI without `dot` fails to compile DOT as Rust).
+        assert!(
+            svg.contains("<svg")
+                || svg.contains("<pre><code class=\"language-text\">")
+        );
     }
 
     #[test]
@@ -446,12 +454,13 @@ mod tests {
         let dot = "digraph { label=\"a < b & c > d\" }";
         // Force fallback by using the fallback function directly
         let html = format!(
-            "<pre><code>{}</code></pre>",
+            "<pre><code class=\"language-text\">{}</code></pre>",
             dot.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
         );
         assert!(html.contains("&lt;"));
         assert!(html.contains("&amp;"));
         assert!(html.contains("&gt;"));
+        assert!(html.contains("class=\"language-text\""));
     }
 
     #[test]
