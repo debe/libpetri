@@ -344,13 +344,20 @@ fn dot_to_svg(dot_source: &str, strip_dimensions: bool) -> String {
         return svg;
     }
 
-    // Fallback: embed DOT source as HTML pre block. The `language-text` class
-    // tells rustdoc to skip this when scanning for doctest code blocks — without
-    // it, rustdoc treats a bare `<pre><code>` as a Rust doctest and tries to
-    // compile the DOT source as Rust (failing on `[` after identifiers, etc.).
+    // Fallback: embed DOT source as HTML pre block. Strip blank lines from the
+    // source — the outer `<div>` wrapper applied by `SvgGenerator::generate` is a
+    // CommonMark Type 6 HTML block, which terminates at the first blank line.
+    // Once it terminates, the remaining 4-space-indented DOT lines become a
+    // Markdown indented code block (Rust by default) and rustdoc tries to compile
+    // them as Rust, failing on `[` after identifiers, etc.
+    let compact = dot_source
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
     format!(
         "<pre><code class=\"language-text\">{}</code></pre>",
-        dot_source.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+        compact.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
     )
 }
 
