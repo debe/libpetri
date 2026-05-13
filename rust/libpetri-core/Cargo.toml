@@ -10,3 +10,8 @@ description = "Core types for libpetri Coloured Time Petri Net engine"
 
 [dependencies]
 libpetri-event = { workspace = true }
+
+[dev-dependencies]
+# Property-based testing for orthogonality of compose+fuse and the
+# fromNet -> compose round-trip (see tests/composition_properties.rs).
+proptest = "1"

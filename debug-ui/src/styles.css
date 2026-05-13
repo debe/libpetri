@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Canonical viewer stylesheet — provides cluster overlay styling (tinted
+ * fill, dashed stroke, collapsed badges, filter dim) shared with the
+ * doclet/dev-preview/rustdoc surfaces. See typescript/src/viewer/resources/viewer.css. */
+@import "libpetri/viewer/css";
+
 /* Custom scrollbar for dark theme */
 ::-webkit-scrollbar {
     width: 8px;
@@ -69,3 +74,157 @@
 .json-number { color: #fcd34d; }
 .json-boolean { color: #c4b5fd; }
 .json-null { color: #9ca3af; }
+
+/* ======================== Subnet panel (MOD-041) ========================
+ * Sidebar listing composed SubnetInstances. Colour palette mirrors the
+ * doclet's petrinet-diagrams.css conventions: input/output/inout port
+ * blue/green/amber, channels purple. */
+.subnet-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.5rem;
+}
+.subnet-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.25rem 0.5rem 0.5rem;
+    border-bottom: 1px solid #374151;
+}
+.subnet-panel-empty {
+    text-align: center;
+}
+.subnet-panel-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+.subnet-card {
+    background: #1f2937;
+    border: 1px solid #374151;
+    border-radius: 0.5rem;
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+.subnet-card-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.4rem;
+}
+.subnet-card-prefix {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-weight: 600;
+    color: #e5e7eb;
+    font-size: 0.875rem;
+    word-break: break-all;
+}
+.subnet-card-defname {
+    font-style: italic;
+    color: #9ca3af;
+    font-size: 0.75rem;
+}
+.subnet-card-parent-badge {
+    font-size: 0.65rem;
+    color: #c4b5fd;
+    background: rgba(139, 92, 246, 0.12);
+    border: 1px solid rgba(139, 92, 246, 0.4);
+    padding: 0 0.35rem;
+    border-radius: 0.25rem;
+    margin-left: auto;
+}
+.subnet-card-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+.subnet-card-group-label {
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #6b7280;
+}
+.subnet-card-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+.subnet-badge {
+    display: inline-block;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.65rem;
+    padding: 0.05rem 0.35rem;
+    border: 1px solid;
+    border-radius: 0.25rem;
+    line-height: 1.4;
+    max-width: 12rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+/* Place badge — input-like blue (mirrors doclet input port). */
+.subnet-badge-place {
+    border-color: #1d4ed8;
+    color: #93c5fd;
+    background: rgba(29, 78, 216, 0.12);
+}
+/* Transition badge — channel purple (mirrors doclet channel badge). */
+.subnet-badge-transition {
+    border-color: #6d28d9;
+    color: #c4b5fd;
+    background: rgba(109, 40, 217, 0.12);
+}
+.subnet-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: 0.25rem;
+}
+.subnet-toggle {
+    font-size: 0.65rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 0.25rem;
+    background: #374151;
+    color: #d1d5db;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background-color 120ms, color 120ms, border-color 120ms;
+}
+.subnet-toggle:hover { background: #4b5563; }
+.subnet-toggle-collapse.subnet-toggle-on,
+.subnet-toggle-collapse:active {
+    background: rgba(59, 130, 246, 0.2);
+    color: #bfdbfe;
+    border-color: #3b82f6;
+}
+.subnet-toggle-isolate.subnet-toggle-on,
+.subnet-toggle-isolate:active {
+    background: rgba(245, 158, 11, 0.2);
+    color: #fde68a;
+    border-color: #f59e0b;
+}
+.subnet-toggle-breakpoint.subnet-toggle-on {
+    background: rgba(239, 68, 68, 0.18);
+    color: #fecaca;
+    border-color: #ef4444;
+}
+.subnet-toggle-filter:active {
+    background: rgba(34, 197, 94, 0.2);
+    color: #bbf7d0;
+    border-color: #22c55e;
+}
+
+/* Cluster overlay rules (MOD-040 / MOD-041) live in the canonical viewer
+ * stylesheet (imported above). The viewer.css ships:
+ *  - g.cluster > polygon/path tinted fill + dashed stroke + transition
+ *  - .cluster-collapsed muted fill + tighter dash
+ *  - .cluster-collapsed-badge italics
+ *  - g.node|g.edge.petri-dimmed opacity transition
+ *  - svg.has-active-filter hairline outline
+ * Override via the `--lpv-*` custom properties if the debug-ui needs a
+ * different theme. */

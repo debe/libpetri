@@ -27,6 +27,6 @@ public record GraphEdge(
     Map<String, String> attrs
 ) {
     public GraphEdge {
-        attrs = attrs != null ? Map.copyOf(attrs) : Map.of();
+        attrs = MapCopy.preservingOrder(attrs);
     }
 }

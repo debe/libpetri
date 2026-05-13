@@ -34,6 +34,7 @@ export let el: {
   filterEventType: HTMLSelectElement;
   filterTransition: HTMLInputElement;
   filterPlace: HTMLInputElement;
+  filterInstance: HTMLInputElement;
   filterExcludeTransition: HTMLInputElement;
   filterExcludePlace: HTMLInputElement;
   applyFilter: HTMLButtonElement;
@@ -73,6 +74,7 @@ export let el: {
   archiveDropZone: HTMLElement;
   archiveCloseBtn: HTMLButtonElement;
   archiveStatus: HTMLElement;
+  subnetPanel: HTMLElement;
 };
 
 /** Initialize all cached element references. Must be called after DOMContentLoaded. */
@@ -102,6 +104,7 @@ export function initElements(): void {
     filterEventType: getEl<HTMLSelectElement>('filter-event-type'),
     filterTransition: getEl<HTMLInputElement>('filter-transition'),
     filterPlace: getEl<HTMLInputElement>('filter-place'),
+    filterInstance: getEl<HTMLInputElement>('filter-instance'),
     filterExcludeTransition: getEl<HTMLInputElement>('filter-exclude-transition'),
     filterExcludePlace: getEl<HTMLInputElement>('filter-exclude-place'),
     applyFilter: getEl<HTMLButtonElement>('apply-filter'),
@@ -141,5 +144,6 @@ export function initElements(): void {
     archiveDropZone: getEl('archive-drop-zone'),
     archiveCloseBtn: getEl<HTMLButtonElement>('archive-close'),
     archiveStatus: getEl('archive-status'),
+    subnetPanel: getEl('subnet-panel'),
   };
 }

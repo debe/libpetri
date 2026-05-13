@@ -9,7 +9,43 @@ digraph SampleVisualizationNet {
     node [fontname="Helvetica,Arial,sans-serif", fontsize=12];
     edge [fontname="Helvetica,Arial,sans-serif", fontsize=10];
 
-    p_CustomerInput [label="", shape="circle", style="filled", fillcolor="#d4edda", color="#28a745", penwidth=2, width=0.35, xlabel="CustomerInput", fixedsize="true"];
+    subgraph cluster_producer {
+        label="producer";
+        style="rounded,dashed";
+        bgcolor="#FAFAFA";
+        penwidth=1.5;
+        p_producer_valid [label="", shape="circle", style="filled", fillcolor="#FFFFFF", color="#333333", penwidth=1.5, width=0.35, xlabel="producer/valid", fixedsize="true"];
+        p_producer_prepared [label="", shape="circle", style="filled", fillcolor="#FFFFFF", color="#333333", penwidth=1.5, width=0.35, xlabel="producer/prepared", fixedsize="true"];
+        p_producer_invalid [label="", shape="doublecircle", style="filled", fillcolor="#cce5ff", color="#004085", penwidth=2, width=0.35, xlabel="producer/invalid", fixedsize="true"];
+        t_producer_prepare [label="producer/prepare [0, ∞]ms", shape="box", style="filled", fillcolor="#fff3cd", color="#856404", penwidth=1, height=0.4, width=0.8];
+        t_producer_validate [label="producer/validate [0, 50]ms", shape="box", style="filled", fillcolor="#fff3cd", color="#856404", penwidth=1, height=0.4, width=0.8];
+        j_producer_validate__xor_0 [label="✕", shape="diamond", style="filled", fillcolor="#FFFFFF", color="#333333", penwidth=1, height=0.3, width=0.3, fixedsize="true", fontsize=14];
+        t_producer_prepare -> p_producer_prepared [color="#333333", style="solid", arrowhead="normal"];
+        p_producer_prepared -> t_producer_validate [color="#333333", style="solid", arrowhead="normal"];
+        t_producer_validate -> j_producer_validate__xor_0 [color="#333333", style="solid", arrowhead="normal"];
+        j_producer_validate__xor_0 -> p_producer_valid [color="#333333", style="solid", arrowhead="normal", label="producer/valid"];
+        j_producer_validate__xor_0 -> p_producer_invalid [color="#333333", style="solid", arrowhead="normal", label="producer/invalid"];
+    }
+
+    subgraph cluster_buffer {
+        label="buffer";
+        style="rounded,dashed";
+        bgcolor="#FAFAFA";
+        penwidth=1.5;
+        p_buffer_slots [label="", shape="circle", style="filled", fillcolor="#FFFFFF", color="#333333", penwidth=1.5, width=0.35, xlabel="buffer/slots", fixedsize="true"];
+        p_buffer_pending [label="", shape="circle", style="filled", fillcolor="#FFFFFF", color="#333333", penwidth=1.5, width=0.35, xlabel="buffer/pending", fixedsize="true"];
+        p_buffer_overflow [label="", shape="doublecircle", style="filled", fillcolor="#cce5ff", color="#004085", penwidth=2, width=0.35, xlabel="buffer/overflow", fixedsize="true"];
+        t_buffer_overflow [label="buffer/overflow [0, ∞]ms", shape="box", style="filled", fillcolor="#fff3cd", color="#856404", penwidth=1, height=0.4, width=0.8];
+        t_buffer_serve [label="buffer/serve [0, ∞]ms", shape="box", style="filled", fillcolor="#fff3cd", color="#856404", penwidth=1, height=0.4, width=0.8];
+        j_buffer_serve__and_0 [label="✚", shape="diamond", style="filled", fillcolor="#FFFFFF", color="#333333", penwidth=1, height=0.3, width=0.3, fixedsize="true", fontsize=14];
+        t_buffer_overflow -> p_buffer_overflow [color="#333333", style="solid", arrowhead="normal"];
+        p_buffer_slots -> t_buffer_overflow [color="#dc3545", style="solid", arrowhead="odot"];
+        p_buffer_pending -> t_buffer_serve [color="#333333", style="solid", arrowhead="normal"];
+        t_buffer_serve -> j_buffer_serve__and_0 [color="#333333", style="solid", arrowhead="normal"];
+        j_buffer_serve__and_0 -> p_buffer_slots [color="#333333", style="solid", arrowhead="normal"];
+    }
+
+    p_CustomerInput [label="", shape="circle", style="filled", fillcolor="#FFFFFF", color="#333333", penwidth=1.5, width=0.35, xlabel="CustomerInput", fixedsize="true"];
     p_GuardInput [label="", shape="circle", style="filled", fillcolor="#FFFFFF", color="#333333", penwidth=1.5, width=0.35, xlabel="GuardInput", fixedsize="true"];
     p_IntentInput [label="", shape="circle", style="filled", fillcolor="#FFFFFF", color="#333333", penwidth=1.5, width=0.35, xlabel="IntentInput", fixedsize="true"];
     p_AssistantInput [label="", shape="circle", style="filled", fillcolor="#FFFFFF", color="#333333", penwidth=1.5, width=0.35, xlabel="AssistantInput", fixedsize="true"];
@@ -33,6 +69,8 @@ digraph SampleVisualizationNet {
     p_MessageFinalized [label="", shape="doublecircle", style="filled", fillcolor="#cce5ff", color="#004085", penwidth=2, width=0.35, xlabel="MessageFinalized", fixedsize="true"];
     p_SearchInProgress [label="", shape="doublecircle", style="filled", fillcolor="#cce5ff", color="#004085", penwidth=2, width=0.35, xlabel="SearchInProgress", fixedsize="true"];
     p_Events [label="", shape="circle", style="filled,dashed", fillcolor="#f8d7da", color="#721c24", penwidth=2, width=0.35, xlabel="Events", fixedsize="true"];
+    p_Intake [label="", shape="circle", style="filled", fillcolor="#FFFFFF", color="#333333", penwidth=1.5, width=0.35, xlabel="Intake", fixedsize="true"];
+    p_ProducerTrigger [label="", shape="circle", style="filled", fillcolor="#d4edda", color="#28a745", penwidth=2, width=0.35, xlabel="ProducerTrigger", fixedsize="true"];
     t_ForkInput [label="ForkInput [0, ∞]ms", shape="box", style="filled", fillcolor="#fff3cd", color="#856404", penwidth=1, height=0.4, width=0.8];
     t_RefreshCache [label="RefreshCache [0, ∞]ms", shape="box", style="filled", fillcolor="#fff3cd", color="#856404", penwidth=1, height=0.4, width=0.8];
     t_Try [label="Try [0, ∞]ms", shape="box", style="filled", fillcolor="#fff3cd", color="#856404", penwidth=1, height=0.4, width=0.8];
@@ -44,6 +82,8 @@ digraph SampleVisualizationNet {
     t_Finalize [label="Finalize [0, ∞]ms", shape="box", style="filled", fillcolor="#fff3cd", color="#856404", penwidth=1, height=0.4, width=0.8];
     t_DrainEvents [label="DrainEvents [0, ∞]ms", shape="box", style="filled", fillcolor="#fff3cd", color="#856404", penwidth=1, height=0.4, width=0.8];
     t_Flush [label="Flush [0, ∞]ms", shape="box", style="filled", fillcolor="#fff3cd", color="#856404", penwidth=1, height=0.4, width=0.8];
+    t_sync [label="sync [0, ∞]ms", shape="box", style="filled", fillcolor="#fff3cd", color="#856404", penwidth=1, height=0.4, width=0.8];
+    t_sync [label="sync [0, ∞]ms", shape="box", style="filled", fillcolor="#fff3cd", color="#856404", penwidth=1, height=0.4, width=0.8];
     j_ForkInput__and_0 [label="✚", shape="diamond", style="filled", fillcolor="#FFFFFF", color="#333333", penwidth=1, height=0.3, width=0.3, fixedsize="true", fontsize=14];
     j_Try__xor_0 [label="✕", shape="diamond", style="filled", fillcolor="#FFFFFF", color="#333333", penwidth=1, height=0.3, width=0.3, fixedsize="true", fontsize=14];
     j_Validate__xor_0 [label="✕", shape="diamond", style="filled", fillcolor="#FFFFFF", color="#333333", penwidth=1, height=0.3, width=0.3, fixedsize="true", fontsize=14];
@@ -97,4 +137,12 @@ digraph SampleVisualizationNet {
     t_DrainEvents -> p_Conversation [color="#333333", style="solid", arrowhead="normal"];
     p_RetryQueue -> t_Flush [color="#333333", style="solid", arrowhead="normal", label="*"];
     t_Flush -> p_SearchInProgress [color="#333333", style="solid", arrowhead="normal"];
+    p_producer_valid -> t_sync [color="#333333", style="solid", arrowhead="normal"];
+    t_sync -> p_Intake [color="#333333", style="solid", arrowhead="normal"];
+    p_ProducerTrigger -> t_producer_prepare [color="#333333", style="solid", arrowhead="normal"];
+    p_Intake -> t_sync [color="#333333", style="solid", arrowhead="normal"];
+    p_buffer_slots -> t_sync [color="#333333", style="solid", arrowhead="normal"];
+    t_sync -> p_buffer_pending [color="#333333", style="solid", arrowhead="normal"];
+    p_Intake -> t_buffer_overflow [color="#333333", style="solid", arrowhead="normal"];
+    j_buffer_serve__and_0 -> p_CustomerInput [color="#333333", style="solid", arrowhead="normal"];
 }

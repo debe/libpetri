@@ -272,6 +272,7 @@ impl DebugProtocolHandler {
                 in_flight_transitions: computed.in_flight_transitions.clone(),
                 event_count: session.event_store.event_count(),
                 mode: mode_str.into(),
+                subnet_instances: crate::debug_session_registry::build_subnet_instances(session),
             },
         );
 

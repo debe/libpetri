@@ -243,6 +243,14 @@ export function checkClientBreakpoints(event: NetEventInfo, breakpointList: read
 }
 
 function matchesBreakpoint(bp: BreakpointConfig, event: NetEventInfo): boolean {
+  // Instance-prefix breakpoint: matches TransitionStarted whose transitionName
+  // begins with `<prefix>/`. The wire stores the prefix in `target`.
+  if (bp.type === 'INSTANCE_TRANSITION') {
+    if (event.type !== 'TransitionStarted') return false;
+    if (!event.transitionName || !bp.target) return false;
+    return event.transitionName.startsWith(bp.target + '/');
+  }
+
   const typeMap: Record<string, string> = {
     TRANSITION_ENABLED: 'TransitionEnabled',
     TRANSITION_START: 'TransitionStarted',

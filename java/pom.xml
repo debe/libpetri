@@ -6,7 +6,7 @@
 
     <groupId>org.libpetri</groupId>
     <artifactId>libpetri</artifactId>
-    <version>1.8.5</version>
+    <version>2.0.0</version>
     <packaging>jar</packaging>
 
     <name>libpetri</name>
@@ -313,6 +313,9 @@
                             <taglets>
                                 <taglet>
                                     <tagletClass>org.libpetri.doclet.PetriNetTaglet</tagletClass>
+                                </taglet>
+                                <taglet>
+                                    <tagletClass>org.libpetri.doclet.SubnetTaglet</tagletClass>
                                 </taglet>
                             </taglets>
                             <tagletpath>${project.build.outputDirectory}</tagletpath>

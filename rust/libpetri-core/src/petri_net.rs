@@ -1,18 +1,30 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::action::BoxedAction;
+use crate::compose::ComposeBindingsBuilder;
+use crate::fusion::{FusionSet, FusionSetBuilder};
+use crate::instance::Instance;
 use crate::place::PlaceRef;
+use crate::rewriter;
 use crate::transition::{Transition, rebuild_with_action};
 
 /// Immutable definition of a Time Petri Net structure.
 ///
 /// A PetriNet is a reusable definition that can be executed multiple times
 /// with different initial markings. Places are auto-collected from transitions.
+///
+/// Place storage is a `Vec<PlaceRef>` (rather than a `HashSet`) so that
+/// iteration order matches the order in which the builder discovered each
+/// distinct place — the cross-language byte-parity contract on the DOT
+/// exporter (per `[EXP-014]`, see `scripts/cross-lang-dot-parity.sh`)
+/// requires this stable order. Membership lookups remain available via
+/// `places().contains(...)` (linear scan over a small `Vec` is cheap for
+/// every realistic net size and never hot in practice).
 #[derive(Debug, Clone)]
 pub struct PetriNet {
     name: Arc<str>,
-    places: HashSet<PlaceRef>,
+    places: Vec<PlaceRef>,
     transitions: Vec<Transition>,
 }
 
@@ -22,8 +34,8 @@ impl PetriNet {
         &self.name
     }
 
-    /// Returns the set of all places in the net.
-    pub fn places(&self) -> &HashSet<PlaceRef> {
+    /// Returns all places in the net, in builder-insertion order.
+    pub fn places(&self) -> &[PlaceRef] {
         &self.places
     }
 
@@ -73,50 +85,71 @@ impl PetriNet {
 }
 
 /// Builder for constructing PetriNet instances.
+///
+/// Place storage is an order-preserving dedup'd `Vec` plus a parallel
+/// `HashSet` for O(1) membership — see [`PetriNet`] docs for the
+/// cross-language byte-parity rationale.
 pub struct PetriNetBuilder {
     name: Arc<str>,
-    places: HashSet<PlaceRef>,
+    places: Vec<PlaceRef>,
+    place_index: HashSet<PlaceRef>,
     transitions: Vec<Transition>,
+    fusion_sets: Vec<FusionSet>,
 }
 
 impl PetriNetBuilder {
     pub fn new(name: impl Into<Arc<str>>) -> Self {
         Self {
             name: name.into(),
-            places: HashSet::new(),
+            places: Vec::new(),
+            place_index: HashSet::new(),
             transitions: Vec::new(),
+            fusion_sets: Vec::new(),
+        }
+    }
+
+    /// Inserts a place if it was not previously present, preserving the
+    /// builder's insertion order. Centralised so every auto-collection
+    /// site (transition input/output/inhibitor/read/reset) goes through
+    /// the same dedup path.
+    fn insert_place(&mut self, place: PlaceRef) {
+        if self.place_index.insert(place.clone()) {
+            self.places.push(place);
         }
     }
 
     /// Add an explicit place.
     pub fn place(mut self, place: PlaceRef) -> Self {
-        self.places.insert(place);
+        self.insert_place(place);
         self
     }
 
     /// Add explicit places.
     pub fn places(mut self, places: impl IntoIterator<Item = PlaceRef>) -> Self {
-        self.places.extend(places);
+        for p in places {
+            self.insert_place(p);
+        }
         self
     }
 
     /// Add a transition (auto-collects places from arcs).
     pub fn transition(mut self, transition: Transition) -> Self {
-        // Auto-collect places
+        // Auto-collect places — order-preserving dedup so the resulting
+        // PetriNet's place iteration order matches Java/TS.
         for spec in transition.input_specs() {
-            self.places.insert(spec.place().clone());
+            self.insert_place(spec.place().clone());
         }
         for p in transition.output_places() {
-            self.places.insert(p.clone());
+            self.insert_place(p.clone());
         }
         for inh in transition.inhibitors() {
-            self.places.insert(inh.place.clone());
+            self.insert_place(inh.place.clone());
         }
         for r in transition.reads() {
-            self.places.insert(r.place.clone());
+            self.insert_place(r.place.clone());
         }
         for r in transition.resets() {
-            self.places.insert(r.place.clone());
+            self.insert_place(r.place.clone());
         }
         self.transitions.push(transition);
         self
@@ -130,14 +163,463 @@ impl PetriNetBuilder {
         self
     }
 
-    /// Build the PetriNet.
+    /// Composes a subnet [`Instance`] into this builder per **MOD-020** /
+    /// **MOD-023** (composition produces a flat net).
+    ///
+    /// For each `(port_name -> caller_place)` mapping:
+    /// - The instance's renamed port place is substituted with the caller's
+    ///   place at every arc in the instance's renamed body.
+    /// - Internal (non-port) places of the instance flow through with their
+    ///   prefixed names (per **MOD-012** isolation).
+    ///
+    /// Composition is **eager** — the rewrite happens here, not at
+    /// [`PetriNetBuilder::build`] (per [MOD-020] AC #5).
+    ///
+    /// This overload accepts only port mappings. Channel composition uses the
+    /// [`PetriNetBuilder::compose_with`] callback overload.
+    ///
+    /// # Type compatibility (MOD-022)
+    /// Rust does not reify generics on [`PlaceRef`] (the type-erased identity
+    /// used by arcs), so this overload performs **no runtime** token-type
+    /// check on the caller place. Compile-time safety is provided by the
+    /// typed [`compose::ComposeBindingsBuilder::bind_port`] signature on the
+    /// callback overload — prefer that overload when type safety matters.
+    ///
+    /// # Panics
+    /// - Panics if any `port_name` is not present on the instance's
+    ///   interface; the message names the bad port and lists known ports.
+    pub fn compose<P: 'static>(
+        self,
+        instance: &Instance<P>,
+        port_mappings: HashMap<Arc<str>, PlaceRef>,
+    ) -> Self {
+        compose_internal(self, instance, port_mappings, HashMap::new())
+    }
+
+    /// Typed overload of [`PetriNetBuilder::compose`] that accepts a closure
+    /// receiving a fresh [`compose::ComposeBindingsBuilder`] per **MOD-020**
+    /// (port composition) and **MOD-021** (channel composition).
+    ///
+    /// The closure registers port and channel bindings; the host builder
+    /// drains the recorded mappings and applies them.
+    ///
+    /// # Channel bindings (MOD-021)
+    /// For each recorded `(channel_name -> caller_transition)`, the
+    /// instance-side renamed channel transition (resolved via
+    /// [`crate::instance::Instance::channel`]) is merged with
+    /// `caller_transition` into a single transition in the resulting flat
+    /// net via [`crate::rewriter::merge_transitions`]. The merge is
+    /// caller-wins for identity (name, priority); see
+    /// [`crate::rewriter::merge_transitions`] for the full contract.
+    ///
+    /// # Panics
+    /// - Panics on the same conditions as [`PetriNetBuilder::compose`].
+    /// - Panics if any channel name is not declared on the instance's
+    ///   interface — the message names the bad channel and lists known
+    ///   channel names.
+    /// - Panics on conflicting non-`Immediate` timings between the two sides
+    ///   of a channel merge (per **MOD-021**).
+    pub fn compose_with<P: 'static>(
+        self,
+        instance: &Instance<P>,
+        bind: impl FnOnce(&mut ComposeBindingsBuilder<'_>),
+    ) -> Self {
+        let mut bindings = ComposeBindingsBuilder::new();
+        bind(&mut bindings);
+        // Consume the bindings builder, moving the recorded maps into
+        // compose_internal directly (no intermediate clone).
+        let (port_bindings, channel_bindings) = bindings.into_parts();
+        compose_internal(self, instance, port_bindings, channel_bindings)
+    }
+
+    /// Registers one or more [`FusionSet`] declarations on this builder, per
+    /// **MOD-060** (fusion set declaration) and **MOD-061** (fusion
+    /// resolution at build).
+    ///
+    /// Fusion is **orthogonal to subnet composition**: fuse sets are
+    /// accumulated here and applied during [`PetriNetBuilder::build`]
+    /// **after** all `compose(...)` calls have flattened subnet instances
+    /// into the builder's transition set. Registration order is irrelevant
+    /// to semantics — `fuse(set)` BEFORE `compose(...)` and `fuse(set)`
+    /// AFTER `compose(...)` both apply at the same point in the build
+    /// pipeline.
+    ///
+    /// # Validation
+    /// Cross-set overlap (a place name appearing in two fusion sets) is
+    /// detected at [`PetriNetBuilder::build`] and reported as a panic
+    /// naming the offending place and both sets.
+    pub fn fuse(mut self, sets: impl IntoIterator<Item = FusionSet>) -> Self {
+        for s in sets {
+            self.fusion_sets.push(s);
+        }
+        self
+    }
+
+    /// Sugar overload of [`PetriNetBuilder::fuse`] that constructs a single
+    /// [`FusionSet`] inline via a closure on a fresh [`FuseBuilder`], named
+    /// after this enclosing net.
+    ///
+    /// Equivalent to:
+    /// ```ignore
+    /// let mut b = FusionSet::builder("<netName>-fusion");
+    /// b = b.member(p1).member(p2);
+    /// builder.fuse([b.build()]);
+    /// ```
+    pub fn fuse_with(mut self, sets_builder: impl FnOnce(&mut FuseBuilder)) -> Self {
+        let mut fb = FuseBuilder {
+            inner: Some(FusionSet::builder(format!("{}-fusion", self.name))),
+        };
+        sets_builder(&mut fb);
+        let inner = fb
+            .inner
+            .expect("FuseBuilder.inner must remain Some after the closure runs");
+        self.fusion_sets.push(inner.build());
+        self
+    }
+
+    /// Build the [`PetriNet`].
+    ///
+    /// If any fusion sets were registered via [`PetriNetBuilder::fuse`] or
+    /// [`PetriNetBuilder::fuse_with`], applies fusion resolution per
+    /// **MOD-061** AFTER all transition/composition accumulation:
+    ///
+    /// 1. Detect overlapping fusion sets — a single place name declared in
+    ///    two sets is rejected via panic.
+    /// 2. Build the `non-canonical-name → canonical [`PlaceRef`]`
+    ///    substitution map across all sets.
+    /// 3. Walk every transition through [`crate::rewriter::apply_fusion`]
+    ///    to rewrite arc place references.
+    /// 4. Re-derive the place set from the rewritten transitions plus any
+    ///    caller-declared standalone places, dropping non-canonical members.
+    ///
+    /// If no fusion sets were registered, the build is the trivial
+    /// `PetriNet { name, places, transitions }` — the fusion machinery has
+    /// no per-build cost when unused.
+    ///
+    /// # Panics
+    /// Panics when two fusion sets share a place name.
     pub fn build(self) -> PetriNet {
-        PetriNet {
-            name: self.name,
-            places: self.places,
-            transitions: self.transitions,
+        if self.fusion_sets.is_empty() {
+            return PetriNet {
+                name: self.name,
+                places: self.places,
+                transitions: self.transitions,
+            };
+        }
+        build_with_fusion(self)
+    }
+}
+
+/// Sugar collector handed to [`PetriNetBuilder::fuse_with`].
+///
+/// The closure receives a `&mut FuseBuilder` and registers members via the
+/// typed [`FuseBuilder::member`] method. The wrapping
+/// [`PetriNetBuilder::fuse_with`] machinery owns the inner
+/// [`FusionSetBuilder`] across the closure boundary so the typed `<T>`
+/// pinning carries through unchanged.
+pub struct FuseBuilder {
+    inner: Option<FusionSetBuilder>,
+}
+
+impl FuseBuilder {
+    /// Appends a member to the inner [`FusionSet`]. The first member becomes
+    /// the canonical place per the convention documented on
+    /// [`crate::fusion::FusionSet`].
+    pub fn member<T: 'static>(&mut self, place: &crate::place::Place<T>) -> &mut Self {
+        let inner = self
+            .inner
+            .take()
+            .expect("FuseBuilder.member: inner builder was already consumed");
+        self.inner = Some(inner.member(place));
+        self
+    }
+}
+
+/// Fusion-resolution pass per **MOD-061**. Split out from
+/// [`PetriNetBuilder::build`] so the no-fusion fast path stays trivial.
+fn build_with_fusion(builder: PetriNetBuilder) -> PetriNet {
+    let PetriNetBuilder {
+        name,
+        places,
+        place_index: _,
+        transitions,
+        fusion_sets,
+    } = builder;
+
+    // Step 1: detect overlap. The same place name MUST NOT appear in more
+    // than one fusion set (Rust place identity is name-based, matching the
+    // PlaceRef Hash/Eq contract).
+    //
+    // Keying ownership by `Arc<str>` (the place's name) and pointing back at
+    // the owning fusion set's index lets us raise a contextual error message
+    // naming both sets when an overlap is detected.
+    let mut ownership: HashMap<Arc<str>, usize> = HashMap::new();
+    for (idx, set) in fusion_sets.iter().enumerate() {
+        for member in set.members() {
+            if let Some(&prior_idx) = ownership.get(member.name_arc()) {
+                if prior_idx != idx {
+                    let prior = &fusion_sets[prior_idx];
+                    panic!(
+                        "Fusion overlap: place '{}' appears in two fusion sets ('{}' and \
+                         '{}'). A place may appear in at most one fusion set (MOD-060).",
+                        member.name(),
+                        prior.name(),
+                        set.name()
+                    );
+                }
+            } else {
+                ownership.insert(Arc::clone(member.name_arc()), idx);
+            }
         }
     }
+
+    // Step 2: build the non-canonical-name → canonical PlaceRef substitution
+    // map. Single-member sets contribute nothing (no non-canonical members),
+    // so the map is naturally empty for the degenerate case.
+    let mut fusion_map: HashMap<Arc<str>, PlaceRef> = HashMap::new();
+    let mut non_canonical_names: HashSet<Arc<str>> = HashSet::new();
+    for set in &fusion_sets {
+        let canonical = set.canonical().clone();
+        for nc in set.non_canonical() {
+            fusion_map.insert(Arc::clone(nc.name_arc()), canonical.clone());
+            non_canonical_names.insert(Arc::clone(nc.name_arc()));
+        }
+    }
+
+    // Step 3: rewrite every transition's arcs through the fusion map.
+    // apply_fusion always returns a fresh Vec; if fusion_map is empty (single-
+    // member-only sets) the rewrite is structurally a no-op but still rebuilds
+    // Transition records — no observable difference.
+    let rewritten_transitions = rewriter::apply_fusion(transitions, &fusion_map);
+
+    // Step 4: re-derive the place set. Strategy: start from the current
+    // place list (preserving builder insertion order), drop every
+    // non-canonical member (they are gone from the net), then union in
+    // the places auto-discovered from the rewritten transitions. This
+    // preserves caller-declared standalone places that are unrelated to
+    // fusion, drops any standalone declarations of non-canonical members,
+    // and ensures canonical places end up present even if a caller never
+    // declared them standalone.
+    //
+    // Order-preserving dedup via a parallel `seen` HashSet — the resulting
+    // PetriNet's `places()` iteration order must remain deterministic for
+    // the cross-language byte-parity contract.
+    let mut rebuilt_places: Vec<PlaceRef> = Vec::with_capacity(places.len() + 16);
+    let mut seen: HashSet<PlaceRef> = HashSet::with_capacity(places.len() + 16);
+    let push = |p: PlaceRef, seen: &mut HashSet<PlaceRef>, dst: &mut Vec<PlaceRef>| {
+        if seen.insert(p.clone()) {
+            dst.push(p);
+        }
+    };
+    for p in &places {
+        if !non_canonical_names.contains(p.name_arc()) {
+            push(p.clone(), &mut seen, &mut rebuilt_places);
+        }
+    }
+    for t in &rewritten_transitions {
+        for spec in t.input_specs() {
+            push(spec.place().clone(), &mut seen, &mut rebuilt_places);
+        }
+        for p in t.output_places() {
+            push(p.clone(), &mut seen, &mut rebuilt_places);
+        }
+        for inh in t.inhibitors() {
+            push(inh.place.clone(), &mut seen, &mut rebuilt_places);
+        }
+        for r in t.reads() {
+            push(r.place.clone(), &mut seen, &mut rebuilt_places);
+        }
+        for r in t.resets() {
+            push(r.place.clone(), &mut seen, &mut rebuilt_places);
+        }
+    }
+
+    PetriNet {
+        name,
+        places: rebuilt_places,
+        transitions: rewritten_transitions,
+    }
+}
+
+/// Shared compose implementation: validates port and channel bindings,
+/// builds the place-substitution map, walks every renamed-body transition
+/// through [`crate::rewriter::substitute_places`], folds channel-bound
+/// transitions through [`crate::rewriter::merge_transitions`], and adds the
+/// resulting transitions to the supplied builder.
+///
+/// # Algorithm
+/// 1. For each `(port_name, caller_place)`:
+///    - Look up the renamed instance-side place via `instance.port_handles`
+///      (keyed by original port name) — the [`Instance::port`] machinery
+///      already resolves this against the interface's declared `TypeId`.
+///    - On unknown port name, panic with a message listing all known ports.
+///    - Insert `(renamed_iface_place_name -> caller_place)` into the merge
+///      map. The rewriter resolves arc places by name (matching the
+///      [`crate::place::PlaceRef`] identity model), so the key is the
+///      renamed name (post-prefix), not the original.
+/// 2. Walk every transition of `instance.renamed_body()`. For each, call
+///    [`crate::rewriter::substitute_places`] and stage the rewritten
+///    transition in a name-keyed working map (insertion-order preserved via
+///    a parallel `Vec<Arc<str>>`). The substitute primitive keeps the
+///    prefixed transition name unchanged (per **MOD-010** — prefixed names
+///    are already unique within the host) and rewrites only the arc place
+///    references.
+/// 3. For each `(channel_name, caller_transition)`:
+///    - Resolve the renamed instance-side transition name via
+///      `instance.channel(channel_name)` (panics on unknown channel — the
+///      message names the bad channel and lists known channels).
+///    - Apply the same place substitution to `caller_transition` so the
+///      caller-side arcs are also rewritten through the port map.
+///    - Merge via [`crate::rewriter::merge_transitions`] under
+///      `caller.name()` (caller-wins identity per **MOD-021**).
+///    - Replace the staged renamed instance-side entry with the merged
+///      transition under the merged name (drop the renamed name).
+/// 4. Drain the staged map into the host builder in insertion order so the
+///    transitions land deterministically.
+fn compose_internal<P: 'static>(
+    mut builder: PetriNetBuilder,
+    instance: &Instance<P>,
+    port_mappings: HashMap<Arc<str>, PlaceRef>,
+    channel_bindings: HashMap<Arc<str>, Transition>,
+) -> PetriNetBuilder {
+    let port_handles = instance.port_handles();
+
+    // Build merge_map: keyed by RENAMED instance-side place name (Arc<str>)
+    // -> caller PlaceRef. Pre-size for the no-realloc hot path. The
+    // rewriter resolves arc places by name (matching the PlaceRef identity
+    // model in compiled_net.rs), so the key is the renamed (post-prefix)
+    // name, not the original port name.
+    let mut merge_map: HashMap<Arc<str>, PlaceRef> =
+        HashMap::with_capacity(port_mappings.len());
+
+    for (port_name, caller_place) in &port_mappings {
+        // Validate the port name is known on the instance and resolve to
+        // the renamed (post-prefix) instance-side place via the port_handles
+        // map (populated by SubnetDef::instantiate). On unknown name, panic
+        // with a sorted list of known ports.
+        let renamed_iface = port_handles.get(port_name).unwrap_or_else(|| {
+            let mut known: Vec<&str> =
+                port_handles.keys().map(|n| n.as_ref()).collect();
+            known.sort_unstable();
+            panic!(
+                "compose: no port named '{}' on subnet '{}' (instance prefix '{}'). \
+                 Known ports: [{}]",
+                port_name,
+                instance.def_name(),
+                instance.prefix(),
+                known.join(", ")
+            );
+        });
+        merge_map.insert(Arc::clone(renamed_iface.name_arc()), caller_place.clone());
+    }
+
+    // ============================================================
+    //  Working transition map (mirror Java's LinkedHashMap)
+    // ============================================================
+    //
+    // Stage every rewritten instance-side transition into a name-keyed map
+    // so channel bindings can replace specific entries in O(1). A parallel
+    // `Vec<Arc<str>>` preserves insertion order so the resulting builder
+    // sees transitions in the same order they appear in the renamed body
+    // (deterministic, matching Java's LinkedHashMap iteration semantics).
+    //
+    // Pre-sized for the no-realloc hot path: capacity matches the renamed
+    // body's transition count.
+    let renamed_body = instance.renamed_body();
+    let cap = renamed_body.transitions().len();
+    let mut staged: HashMap<Arc<str>, Transition> = HashMap::with_capacity(cap);
+    let mut order: Vec<Arc<str>> = Vec::with_capacity(cap);
+
+    for t in renamed_body.transitions() {
+        let rewritten = rewriter::substitute_places(t, &merge_map);
+        let name = Arc::clone(rewritten.name_arc());
+        staged.insert(Arc::clone(&name), rewritten);
+        order.push(name);
+    }
+
+    // ============================================================
+    //  Channel composition (MOD-021)
+    // ============================================================
+    //
+    // For each binding, resolve the renamed instance-side transition by name
+    // via `instance.channel(...)`, apply the same port-place substitution to
+    // the caller-side transition, then merge under `caller.name()`. Replace
+    // the staged renamed entry in-place — we drop the renamed name from the
+    // working map and the order vector, and stage the merged transition
+    // under the caller's name. This matches the Java/TS semantics where the
+    // merged transition replaces both sides in the resulting flat net.
+    for (channel_name, caller_t) in &channel_bindings {
+        // Validate the channel name is known on the instance. On unknown
+        // name, panic with a sorted list of known channels.
+        let renamed_name: Arc<str> = match instance.channel_handles_get(channel_name) {
+            Some(n) => Arc::clone(n),
+            None => {
+                let mut known: Vec<&str> = instance
+                    .channel_handles_keys()
+                    .map(|n| n.as_ref())
+                    .collect();
+                known.sort_unstable();
+                panic!(
+                    "compose: no channel named '{}' on subnet '{}' (instance prefix '{}'). \
+                     Known channels: [{}]",
+                    channel_name,
+                    instance.def_name(),
+                    instance.prefix(),
+                    known.join(", ")
+                );
+            }
+        };
+
+        // The instance-side transition must be in the working map (it was
+        // staged in step 2). Remove it — we replace it with the merged
+        // version under the caller's name.
+        let instance_t = staged.remove(&renamed_name).unwrap_or_else(|| {
+            panic!(
+                "compose: channel '{}' resolved to instance-side transition '{}' which was not \
+                 staged from the renamed body — this is a libpetri internal invariant violation",
+                channel_name, renamed_name
+            )
+        });
+
+        // Apply the same port-place substitution to the caller-side
+        // transition's arcs so caller-side arcs that reference port-mapped
+        // places also resolve correctly. The caller's transition retains
+        // its name (per substitute_places semantics).
+        let rewritten_caller = rewriter::substitute_places(caller_t, &merge_map);
+        let merged_name: Arc<str> = Arc::clone(rewritten_caller.name_arc());
+
+        // Merge: caller-side wins identity (name, priority); arcs union;
+        // outputs wrap under Out::And; actions compose sequentially.
+        let merged = rewriter::merge_transitions(&rewritten_caller, &instance_t, Arc::clone(&merged_name));
+
+        // Replace the renamed name in the order vector with the merged
+        // name (preserving insertion order: the channel-merged transition
+        // lands at the position where the instance-side transition was).
+        // This matches Java's LinkedHashMap semantics: the merged entry
+        // replaces the renamed entry under a different key, but at the
+        // same iteration slot.
+        if let Some(pos) = order.iter().position(|n| n.as_ref() == renamed_name.as_ref()) {
+            order[pos] = Arc::clone(&merged_name);
+        } else {
+            // Defensive: every staged transition has its name in the order
+            // vector by construction; fall through to append rather than
+            // panic so a logic bug here doesn't lose the merged transition.
+            order.push(Arc::clone(&merged_name));
+        }
+        staged.insert(merged_name, merged);
+    }
+
+    // Drain the staged map into the host builder in insertion order. We
+    // pull from `staged` by name through the `order` vector to preserve
+    // determinism. Each call to `builder.transition(...)` auto-collects the
+    // transition's places (matching the existing pre-#21 behaviour).
+    for name in &order {
+        if let Some(t) = staged.remove(name) {
+            builder = builder.transition(t);
+        }
+    }
+
+    builder
 }
 
 #[cfg(test)]

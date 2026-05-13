@@ -1,11 +1,13 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use libpetri_core::input::In;
 use libpetri_core::output::{self, Out};
 use libpetri_core::petri_net::PetriNet;
 
+use crate::cluster_builder;
 use crate::graph::*;
 use crate::styles;
+use crate::subnet_prefixes::instance_prefix_of;
 
 /// Configuration for DOT export.
 #[derive(Debug, Clone)]
@@ -51,18 +53,27 @@ enum PlaceCategory {
     Regular,
 }
 
-/// Maps a PetriNet to a format-agnostic Graph.
+/// Maps a [`PetriNet`] to a format-agnostic [`Graph`].
+///
+/// The resulting graph is byte-equal across Java/TS/Rust per the EXP-014
+/// cross-language parity contract — see `scripts/cross-lang-dot-parity.sh`.
+/// Cluster subgraphs are emitted natively (not via post-processing) per
+/// MOD-040.
 pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
-    let mut graph = Graph::new(net.name());
+    let mut graph = Graph::new(sanitize(net.name()));
     graph.rankdir = config.direction;
 
-    // Graph attributes
-    graph
-        .graph_attrs
-        .push(("nodesep".into(), styles::NODESEP.to_string()));
-    graph
-        .graph_attrs
-        .push(("ranksep".into(), styles::RANKSEP.to_string()));
+    // Graph attributes — order matches Java's PetriNetGraphMapper and TS's
+    // mapToGraph object literal: nodesep, ranksep, forcelabels, overlap,
+    // fontname, outputorder.
+    graph.graph_attrs.push((
+        "nodesep".into(),
+        format_number(styles::NODESEP),
+    ));
+    graph.graph_attrs.push((
+        "ranksep".into(),
+        format_number(styles::RANKSEP),
+    ));
     graph
         .graph_attrs
         .push(("forcelabels".into(), styles::FORCE_LABELS.into()));
@@ -71,28 +82,40 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
         .push(("overlap".into(), styles::OVERLAP.into()));
     graph
         .graph_attrs
+        .push(("fontname".into(), styles::FONT_FAMILY.into()));
+    graph
+        .graph_attrs
         .push(("outputorder".into(), styles::OUTPUT_ORDER.into()));
 
     // Node defaults
     graph
         .node_defaults
         .push(("fontname".into(), styles::FONT_FAMILY.into()));
-    graph
-        .node_defaults
-        .push(("fontsize".into(), styles::FONT_NODE_SIZE.to_string()));
+    graph.node_defaults.push((
+        "fontsize".into(),
+        format_number(styles::FONT_NODE_SIZE),
+    ));
 
     // Edge defaults
     graph
         .edge_defaults
         .push(("fontname".into(), styles::FONT_FAMILY.into()));
-    graph
-        .edge_defaults
-        .push(("fontsize".into(), styles::FONT_EDGE_SIZE.to_string()));
+    graph.edge_defaults.push((
+        "fontsize".into(),
+        format_number(styles::FONT_EDGE_SIZE),
+    ));
 
     // Analyze places
     let (has_incoming, has_outgoing) = analyze_places(net);
 
-    // Create place nodes
+    // Track each emitted node's instance prefix (per MOD-040). Nodes
+    // without a prefix (no '/' in their semantic name) are absent from
+    // this map and stay at the top level after partitioning.
+    let mut node_id_to_prefix: HashMap<String, String> = HashMap::new();
+    let mut nodes: Vec<GraphNode> = Vec::new();
+    let mut edges: Vec<GraphEdge> = Vec::new();
+
+    // Place nodes
     for place_ref in net.places() {
         let name = place_ref.name();
         let id = format!("p_{}", sanitize(name));
@@ -109,7 +132,11 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
             PlaceCategory::Regular => &styles::PLACE,
         };
 
-        let node = GraphNode {
+        if let Some(prefix) = instance_prefix_of(name) {
+            node_id_to_prefix.insert(id.clone(), prefix.to_string());
+        }
+
+        nodes.push(GraphNode {
             id,
             label: String::new(),
             shape: shape_from_str(style.shape),
@@ -124,18 +151,21 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
                 ("xlabel".into(), name.to_string()),
                 ("fixedsize".into(), "true".into()),
             ],
-        };
-        graph.nodes.push(node);
+        });
     }
 
-    // Create transition nodes and edges
+    // Transition nodes (no edges yet — TS/Java emit transition nodes
+    // before edges as a separate pass).
     for t in net.transitions() {
         let t_id = format!("t_{}", sanitize(t.name()));
-        let t_sanitized = sanitize(t.name());
         let label = transition_label(t, config);
 
-        graph.nodes.push(GraphNode {
-            id: t_id.clone(),
+        if let Some(prefix) = instance_prefix_of(t.name()) {
+            node_id_to_prefix.insert(t_id.clone(), prefix.to_string());
+        }
+
+        nodes.push(GraphNode {
+            id: t_id,
             label,
             shape: NodeShape::Box,
             fill: Some(styles::TRANSITION.fill.to_string()),
@@ -147,6 +177,13 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
             width: styles::TRANSITION.width,
             attrs: Vec::new(),
         });
+    }
+
+    // Edges + junction nodes (second pass).
+    for t in net.transitions() {
+        let t_id = format!("t_{}", sanitize(t.name()));
+        let t_sanitized = sanitize(t.name());
+        let t_prefix = instance_prefix_of(t.name()).map(str::to_string);
 
         let reset_places: HashSet<String> = t
             .resets()
@@ -158,12 +195,10 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
         // Input edges
         for in_spec in t.input_specs() {
             let from_id = format!("p_{}", sanitize(in_spec.place_name()));
-            let label = input_label(in_spec);
-
-            graph.edges.push(GraphEdge {
+            edges.push(GraphEdge {
                 from: from_id,
                 to: t_id.clone(),
-                label,
+                label: input_label(in_spec),
                 color: Some(styles::INPUT_EDGE.color.to_string()),
                 style: Some(EdgeLineStyle::Solid),
                 arrowhead: Some(ArrowHead::Normal),
@@ -179,9 +214,11 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
                 t_sanitized: &t_sanitized,
                 reset_places: &reset_places,
                 combined: &mut combined,
-                nodes: &mut graph.nodes,
-                edges: &mut graph.edges,
+                nodes: &mut nodes,
+                edges: &mut edges,
                 counter: 0,
+                transition_prefix: t_prefix.as_deref(),
+                node_id_to_prefix: &mut node_id_to_prefix,
             };
             emit_output(out_spec, &t_id, None, &mut ctx);
         }
@@ -189,7 +226,7 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
         // Inhibitor edges
         for inh in t.inhibitors() {
             let from_id = format!("p_{}", sanitize(inh.place.name()));
-            graph.edges.push(GraphEdge {
+            edges.push(GraphEdge {
                 from: from_id,
                 to: t_id.clone(),
                 label: None,
@@ -205,7 +242,7 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
         // Read edges
         for r in t.reads() {
             let from_id = format!("p_{}", sanitize(r.place.name()));
-            graph.edges.push(GraphEdge {
+            edges.push(GraphEdge {
                 from: from_id,
                 to: t_id.clone(),
                 label: Some("read".into()),
@@ -224,7 +261,7 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
                 continue;
             }
             let to_id = format!("p_{}", sanitize(r.place.name()));
-            graph.edges.push(GraphEdge {
+            edges.push(GraphEdge {
                 from: t_id.clone(),
                 to: to_id,
                 label: Some("reset".into()),
@@ -238,7 +275,21 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
         }
     }
 
+    // Partition into cluster subgraphs per MOD-040 / EXP-016. When there
+    // are no prefixed names this is a structural no-op.
+    let partition = cluster_builder::partition(nodes, edges, &node_id_to_prefix);
+    graph.nodes = partition.top_level_nodes;
+    graph.edges = partition.top_level_edges;
+    graph.subgraphs = partition.top_level_subgraphs;
+
     graph
+}
+
+/// Local re-export of the renderer's number formatter so the mapper emits
+/// `0.5` and `1` rather than `0.5` and `1.0` for graph attribute values
+/// (cross-language byte-parity).
+fn format_number(value: f64) -> String {
+    crate::dot_renderer::format_number(value)
 }
 
 fn shape_from_str(s: &str) -> NodeShape {
@@ -280,11 +331,16 @@ fn place_category(
     has_outgoing: bool,
     is_environment: bool,
 ) -> PlaceCategory {
+    // Mirrors Java's `PlaceAnalysis.category` (which uses
+    // `isStart() = !hasIncoming` and `isEnd() = !hasOutgoing`) and TS's
+    // `placeCategory` so an orphan place (no incoming, no outgoing) is
+    // categorised as `Start` rather than `Regular`. Required for
+    // cross-language byte-parity per **EXP-016**/**MOD-040**.
     if is_environment {
         PlaceCategory::Environment
-    } else if !has_incoming && has_outgoing {
+    } else if !has_incoming {
         PlaceCategory::Start
-    } else if has_incoming && !has_outgoing {
+    } else if !has_outgoing {
         PlaceCategory::End
     } else {
         PlaceCategory::Regular
@@ -294,14 +350,18 @@ fn place_category(
 fn transition_label(t: &libpetri_core::transition::Transition, config: &DotConfig) -> String {
     let mut parts = vec![t.name().to_string()];
 
-    if config.show_intervals && *t.timing() != libpetri_core::timing::Timing::Immediate {
+    // Match Java/TS exactly: when show_intervals is on, always emit the
+    // bracket — even for Immediate transitions, which render as
+    // "[0, ∞]ms". (Earlier Rust impl skipped Immediate and used a
+    // half-open `)` for the unbounded side; both broke byte-parity.)
+    if config.show_intervals {
         let earliest = t.timing().earliest();
-        let latest = t.timing().latest();
-        if latest < libpetri_core::timing::MAX_DURATION_MS {
-            parts.push(format!("[{earliest}, {latest}]ms"));
+        let max = if t.timing().has_deadline() {
+            t.timing().latest().to_string()
         } else {
-            parts.push(format!("[{earliest}, \u{221e})ms"));
-        }
+            "\u{221e}".to_string()
+        };
+        parts.push(format!("[{earliest}, {max}]ms"));
     }
 
     if config.show_priority && t.priority() != 0 {
@@ -332,6 +392,13 @@ struct EmitCtx<'a> {
     nodes: &'a mut Vec<GraphNode>,
     edges: &'a mut Vec<GraphEdge>,
     counter: u32,
+    /// Instance prefix (e.g. `"b1"` or `"outer/inner"`) of the parent
+    /// transition — junction nodes inherit this so they live inside the
+    /// right cluster per MOD-040.
+    transition_prefix: Option<&'a str>,
+    /// Shared map populated during mapping; junction emitters add their
+    /// own entries under `transition_prefix`.
+    node_id_to_prefix: &'a mut HashMap<String, String>,
 }
 
 /// Emits output edges for an Out tree, inserting junction nodes for XOR/AND
@@ -407,6 +474,11 @@ fn emit_group(
             ("fontsize".into(), "14".into()),
         ],
     });
+    // Junctions belong to their parent transition's cluster per MOD-040.
+    if let Some(prefix) = ctx.transition_prefix {
+        ctx.node_id_to_prefix
+            .insert(junction_id.clone(), prefix.to_string());
+    }
 
     // Edge parent → junction (carries any inherited branch/timeout label).
     ctx.edges.push(GraphEdge {
@@ -645,7 +717,7 @@ mod tests {
 
         let graph = map_to_graph(&net, &DotConfig::default());
         let t_node = graph.nodes.iter().find(|n| n.id == "t_fire").unwrap();
-        assert_eq!(t_node.label, "fire [500, \u{221e})ms");
+        assert_eq!(t_node.label, "fire [500, \u{221e}]ms");
     }
 
     #[test]

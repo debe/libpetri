@@ -51,13 +51,15 @@ export interface GraphStyle {
 // Keep in sync with the spec file.
 
 const NODE_STYLES: Record<NodeCategory, NodeVisual> = {
-  place:          { shape: 'circle',  fill: '#FFFFFF', stroke: '#333333', penwidth: 1.5, width: 0.35 },
-  start:          { shape: 'circle',  fill: '#d4edda', stroke: '#28a745', penwidth: 2.0, width: 0.35 },
-  end:            { shape: 'doublecircle',  fill: '#cce5ff', stroke: '#004085', penwidth: 2.0, width: 0.35 },
-  environment:    { shape: 'circle',  fill: '#f8d7da', stroke: '#721c24', penwidth: 2.0, style: 'dashed', width: 0.35 },
-  transition:     { shape: 'box',  fill: '#fff3cd', stroke: '#856404', penwidth: 1.0, height: 0.4, width: 0.8 },
-  'xor-junction': { shape: 'diamond',  fill: '#FFFFFF', stroke: '#333333', penwidth: 1.0, height: 0.3, width: 0.3 },
-  'and-junction': { shape: 'diamond',  fill: '#FFFFFF', stroke: '#333333', penwidth: 1.0, height: 0.3, width: 0.3 },
+  place:           { shape: 'circle',  fill: '#FFFFFF', stroke: '#333333', penwidth: 1.5, width: 0.35 },
+  start:           { shape: 'circle',  fill: '#d4edda', stroke: '#28a745', penwidth: 2.0, width: 0.35 },
+  end:             { shape: 'doublecircle',  fill: '#cce5ff', stroke: '#004085', penwidth: 2.0, width: 0.35 },
+  environment:     { shape: 'circle',  fill: '#f8d7da', stroke: '#721c24', penwidth: 2.0, style: 'dashed', width: 0.35 },
+  transition:      { shape: 'box',  fill: '#fff3cd', stroke: '#856404', penwidth: 1.0, height: 0.4, width: 0.8 },
+  'xor-junction':  { shape: 'diamond',  fill: '#FFFFFF', stroke: '#333333', penwidth: 1.0, height: 0.3, width: 0.3 },
+  'and-junction':  { shape: 'diamond',  fill: '#FFFFFF', stroke: '#333333', penwidth: 1.0, height: 0.3, width: 0.3 },
+  'interface-port':{ shape: 'circle',  fill: '#e7f1ff', stroke: '#1d4ed8', penwidth: 2.0, style: 'dashed', width: 0.35 },
+  'sync-channel':  { shape: 'box',  fill: '#f3e8ff', stroke: '#6d28d9', penwidth: 1.5, height: 0.4, width: 0.8 },
 };
 
 const EDGE_STYLES: Record<EdgeCategory, EdgeVisual> = {
@@ -75,7 +77,7 @@ export const GRAPH: GraphStyle = { nodesep: 0.5, ranksep: 0.75, forcelabels: tru
 
 // ======================== Public API ========================
 
-export type NodeCategory = 'place' | 'start' | 'end' | 'environment' | 'transition' | 'xor-junction' | 'and-junction';
+export type NodeCategory = 'place' | 'start' | 'end' | 'environment' | 'transition' | 'xor-junction' | 'and-junction' | 'interface-port' | 'sync-channel';
 export type EdgeCategory = 'input' | 'output' | 'inhibitor' | 'read' | 'reset' | 'reset-output';
 
 /** Returns the visual style for the given node category. */

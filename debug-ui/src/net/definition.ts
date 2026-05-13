@@ -39,6 +39,7 @@ import {
   renderBreakpointList, highlightBreakpointInList,
 } from './actions/breakpoints.js';
 import { computeSearchMatches, updateSearchUI, nextSearchMatch, prevSearchMatch } from './actions/filter-search.js';
+import { setSubnetInstances, refreshSubnetPanel } from './actions/subnet-panel.js';
 
 /** Reference to the executor, set after creation. */
 let executor: BitmapNetExecutor;
@@ -164,6 +165,7 @@ export function buildDebugNet(): {
       updateAutocompleteOptions(sessionData.structure);
       updatePlaybackControls(isReplay);
       updateTimelinePosition(initialState.eventIndex, initialState.totalEvents);
+      setSubnetInstances(msg.subnetInstances);
 
       // Store session in the appropriate place via executor injection
       if (isReplay) {
@@ -306,6 +308,8 @@ export function buildDebugNet(): {
     .action(async (ctx) => {
       const msg = ctx.input(p.wsMessage.place) as Extract<DebugResponse, { type: 'breakpointList' }>;
       renderBreakpointList(msg.breakpoints);
+      // Keep the per-instance breakpoint toggle in sync with server state.
+      refreshSubnetPanel();
       ctx.output(p.breakpoints, [...msg.breakpoints]);
     })
     .build();
@@ -861,7 +865,7 @@ export function buildDebugNet(): {
 
   // ======================== Initial Tokens ========================
 
-  const emptyFilterState: FilterState = { eventTypes: [], transitionNames: [], placeNames: [], excludeEventTypes: [], excludeTransitionNames: [], excludePlaceNames: [], filteredIndices: null };
+  const emptyFilterState: FilterState = { eventTypes: [], transitionNames: [], placeNames: [], instancePrefixes: [], excludeEventTypes: [], excludeTransitionNames: [], excludePlaceNames: [], filteredIndices: null };
   const emptySearchState: SearchState = { searchTerm: '', matches: [], currentMatchIndex: -1 };
 
   const initialTokens = new Map<Place<unknown>, Token<unknown>[]>([

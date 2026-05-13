@@ -17,6 +17,10 @@ import org.libpetri.core.Transition;
 import org.libpetri.export.DotExporter;
 import org.libpetri.export.ExportConfig;
 import org.libpetri.export.PlaceAnalysis;
+import org.libpetri.export.SubnetPrefixes;
+
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 
 /**
  * Registry for managing Petri net debug sessions.
@@ -517,6 +521,10 @@ public class DebugSessionRegistry {
          * Builds the net structure from this session's stored place and transition info.
          * For imported sessions, returns the pre-built structure directly.
          *
+         * <p>Populates the per-place and per-transition {@code instancePrefix}
+         * field per <b>MOD-041</b>: derived from the {@code "/"} prefix
+         * portion of each name, or empty for flat names.
+         *
          * @return the net structure for debug protocol responses
          */
         public DebugResponse.NetStructure buildNetStructure() {
@@ -535,7 +543,8 @@ public class DebugSessionRegistry {
                         info.tokenType(),
                         info.isStart(),
                         info.isEnd(),
-                        false  // isEnvironment - not tracked at session level yet
+                        false,  // isEnvironment - not tracked at session level yet
+                        SubnetPrefixes.instancePrefixOf(name)
                     );
                 })
                 .toList();
@@ -545,12 +554,86 @@ public class DebugSessionRegistry {
                     var graphId = "t_" + DotExporter.sanitize(t.name());
                     return new DebugResponse.TransitionInfo(
                         t.name(),
-                        graphId
+                        graphId,
+                        SubnetPrefixes.instancePrefixOf(t.name())
                     );
                 })
                 .toList();
 
             return new DebugResponse.NetStructure(placeInfos, transitionInfos);
+        }
+
+        /**
+         * Derives the wire-facing subnet-instance descriptors per
+         * <b>MOD-041</b> from the session's net topology. Each unique
+         * instance prefix detected in transition or place names produces
+         * one descriptor whose {@code transitionNames} and
+         * {@code exposedPlaceNames} enumerate the prefixed elements
+         * belonging to that instance. {@code defName} is left {@code null}
+         * for v1 (the runtime does not track {@code SubnetDef} provenance
+         * once composed); {@code parentPrefix} is computed from the
+         * {@code "/"}-segment hierarchy.
+         *
+         * <p>For non-composed (flat) nets — no {@code "/"} in any name —
+         * this method returns an empty list per <b>MOD-041</b> AC#5.
+         *
+         * @return descriptors for every instance prefix present in the net,
+         *         or empty list when the net is flat
+         */
+        public java.util.List<DebugResponse.SubnetInstanceInfo> buildSubnetInstances() {
+            // Imported sessions don't carry live topology, so we can't derive
+            // instance descriptors. Return empty.
+            if (places == null) {
+                return java.util.List.of();
+            }
+
+            // Group transition names and place names by their instance prefix.
+            // LinkedHashMap preserves discovery order so the response is
+            // stable across repeated subscriptions.
+            var byPrefix = new LinkedHashMap<String, PrefixAccumulator>();
+
+            for (var t : transitions) {
+                SubnetPrefixes.instancePrefixOf(t.name()).ifPresent(prefix ->
+                    byPrefix.computeIfAbsent(prefix, _ -> new PrefixAccumulator())
+                            .transitionNames.add(t.name()));
+            }
+            for (var name : places.data().keySet()) {
+                SubnetPrefixes.instancePrefixOf(name).ifPresent(prefix ->
+                    byPrefix.computeIfAbsent(prefix, _ -> new PrefixAccumulator())
+                            .placeNames.add(name));
+            }
+
+            // Build the descriptors. Walk every prefix discovered above
+            // (which may include intermediate prefixes added implicitly by
+            // nested name segments — handled by also registering parent
+            // prefixes in the accumulator step below).
+            //
+            // Per MOD-041 AC#1 we want one descriptor per top-level OR
+            // nested instance — i.e. one per distinct prefix that appears
+            // in the data, NOT one per intermediate path segment.
+            // Intermediate-only prefixes (those that appear only as a
+            // parent of another prefix and have no transitions/places of
+            // their own) would still be valid to surface, but for the v1
+            // protocol we follow the spec wording strictly: one entry per
+            // top-level or nested instance present in the composed net.
+            var result = new java.util.ArrayList<DebugResponse.SubnetInstanceInfo>(byPrefix.size());
+            for (var entry : byPrefix.entrySet()) {
+                var prefix = entry.getKey();
+                var acc = entry.getValue();
+                result.add(new DebugResponse.SubnetInstanceInfo(
+                    prefix,
+                    null,  // defName: not derivable from name shape; v1 leaves null
+                    new LinkedHashSet<>(acc.transitionNames),
+                    new LinkedHashSet<>(acc.placeNames),
+                    SubnetPrefixes.parentOf(prefix)
+                ));
+            }
+            return java.util.List.copyOf(result);
+        }
+
+        private static final class PrefixAccumulator {
+            final LinkedHashSet<String> transitionNames = new LinkedHashSet<>();
+            final LinkedHashSet<String> placeNames = new LinkedHashSet<>();
         }
     }
 }

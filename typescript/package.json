@@ -1,6 +1,6 @@
 {
   "name": "libpetri",
-  "version": "1.8.5",
+  "version": "2.0.0",
   "description": "Coloured Time Petri Net engine — TypeScript port",
   "homepage": "https://libpetri.org",
   "repository": {
@@ -46,10 +46,17 @@
     "./render-dom": {
       "import": "./dist/render-dom/index.js",
       "types": "./dist/render-dom/index.d.ts"
-    }
+    },
+    "./viewer": {
+      "import": "./dist/viewer/index.js",
+      "types": "./dist/viewer/index.d.ts"
+    },
+    "./viewer/iife": "./dist/viewer/viewer.iife.js",
+    "./viewer/css": "./dist/viewer/viewer.css"
   },
   "scripts": {
     "build": "tsup",
+    "build:viewer": "tsup && node scripts/build-viewer-iife.mjs",
     "check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -61,6 +68,8 @@
   "devDependencies": {
     "@types/node": "^25.4.0",
     "@viz-js/viz": "^3.25.0",
+    "fast-check": "^3.23.2",
+    "happy-dom": "^20.9.0",
     "panzoom": "^9.4.4",
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",

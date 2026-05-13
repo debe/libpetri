@@ -5,6 +5,7 @@
  * mutable state for WebSocket, DOM caches, replay data, etc.
  */
 
+import type { ViewerHandle } from 'libpetri/viewer';
 import type { SvgNodeCache, Checkpoint, SessionData } from './types.js';
 import type { DebugCommand, NetEventInfo, SessionSummary } from '../protocol/index.js';
 
@@ -25,7 +26,12 @@ interface MutablePlaybackTimerState {
 /** Mutable shared state. */
 export const shared = {
   ws: null as WebSocket | null,
-  panzoomInstance: null as ReturnType<typeof import('panzoom')['default']> | null,
+  /**
+   * Active viewer handle returned from `mount()`. Holds panzoom + cluster
+   * overlay state for the currently rendered diagram. Replaces the old
+   * standalone `panzoomInstance` and the module-level cluster-overlay state.
+   */
+  viewerHandle: null as ViewerHandle | null,
   svgNodeCache: null as SvgNodeCache | null,
   prevHighlighted: { shapes: [] as Element[], edges: [] as Element[] },
   replay: {

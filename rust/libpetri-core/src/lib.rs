@@ -68,11 +68,19 @@
 
 pub mod action;
 pub mod arc;
+pub mod compose;
 pub mod context;
+pub mod fusion;
 pub mod input;
+pub mod instance;
+pub mod interface;
 pub mod output;
 pub mod petri_net;
 pub mod place;
+pub(crate) mod rewriter;
+pub mod subnet;
+pub mod subnet_def;
+pub mod subnet_instance;
 pub mod timing;
 pub mod token;
 pub mod transition;

@@ -5,10 +5,23 @@
 
 import type { Token } from '../core/token.js';
 import type { NetEvent } from '../event/net-event.js';
+import { eventInstancePrefix } from '../event/net-event.js';
 import type { NetEventInfo, TokenInfo } from './debug-response.js';
 
 /** Converts a NetEvent to a serializable NetEventInfo. */
 export function toEventInfo(event: NetEvent, compact = false): NetEventInfo {
+  const info = toEventInfoInner(event, compact);
+  // Per MOD-041: surface the derived instance prefix in the wire-facing
+  // details map so debug-UI clients can group node activity by instance
+  // without re-parsing names client-side. Flat-net events stay untouched —
+  // we never add an `instancePrefix` key when the name has no `/`, which
+  // keeps the pre-MOD-041 wire shape stable for non-composed nets.
+  const prefix = eventInstancePrefix(event);
+  if (prefix === undefined) return info;
+  return { ...info, details: { ...info.details, instancePrefix: prefix } };
+}
+
+function toEventInfoInner(event: NetEvent, compact = false): NetEventInfo {
   switch (event.type) {
     case 'execution-started':
       return {

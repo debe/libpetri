@@ -134,6 +134,18 @@ public final class DotRenderer {
             lines.add("%s    %s".formatted(indent, renderNode(node)));
         }
 
+        // Nested clusters per EXP-016 / MOD-040.
+        for (var nested : sg.subgraphs()) {
+            renderSubgraph(nested, indent + "    ", lines);
+        }
+
+        // Intra-cluster edges (both endpoints inside this cluster) — placed
+        // inside the cluster so Graphviz routes them correctly. Cross-cluster
+        // edges live on the top-level Graph.edges() list.
+        for (var edge : sg.edges()) {
+            lines.add("%s    %s".formatted(indent, renderEdge(edge)));
+        }
+
         lines.add("%s}".formatted(indent));
     }
 

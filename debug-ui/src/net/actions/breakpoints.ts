@@ -47,6 +47,7 @@ function formatBreakpointType(type: string): string {
     TRANSITION_FAIL: 'Transition Fail',
     TOKEN_ADDED: 'Token Added',
     TOKEN_REMOVED: 'Token Removed',
+    INSTANCE_TRANSITION: 'Instance (any transition)',
   };
   return map[type] ?? type;
 }
@@ -54,6 +55,15 @@ function formatBreakpointType(type: string): string {
 /** Generate a unique breakpoint ID. */
 export function generateBreakpointId(): string {
   return `bp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * Look up an active instance breakpoint by prefix among the last rendered
+ * breakpoint list. Returns the breakpoint config if one exists, undefined
+ * otherwise. Used by the subnet-panel to render the toggle's checked state.
+ */
+export function findInstanceBreakpoint(prefix: string): BreakpointConfig | undefined {
+  return lastBreakpoints.find(bp => bp.type === 'INSTANCE_TRANSITION' && bp.target === prefix);
 }
 
 /** Show the breakpoint form. */

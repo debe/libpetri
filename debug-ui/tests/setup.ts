@@ -36,7 +36,7 @@ const ELEMENT_IDS = [
   'breakpoint-list', 'add-breakpoint',
   'breakpoint-form', 'bp-type', 'bp-target', 'bp-save', 'bp-cancel',
   'event-log', 'event-count', 'clear-events', 'jump-to-latest',
-  'filter-event-type', 'filter-transition', 'filter-place',
+  'filter-event-type', 'filter-transition', 'filter-place', 'filter-instance',
   'filter-exclude-transition', 'filter-exclude-place',
   'apply-filter', 'clear-filter',
   'search-input', 'search-results', 'search-prev', 'search-next', 'search-clear',
@@ -48,9 +48,10 @@ const ELEMENT_IDS = [
   'diagram-context-menu', 'ctx-menu-header', 'ctx-menu-inspect',
   'ctx-bp-place-options', 'ctx-bp-transition-options',
   'value-modal', 'modal-title', 'modal-subtitle', 'modal-copy', 'modal-close', 'modal-json',
-  'transition-options', 'place-options',
+  'transition-options', 'place-options', 'instance-options',
   'net-name-filter', 'archive-btn', 'archive-modal', 'archive-search',
   'archive-table', 'archive-upload', 'archive-drop-zone', 'archive-close', 'archive-status',
+  'subnet-panel',
 ];
 
 /** Create all required DOM elements. */
@@ -68,13 +69,13 @@ export function setupDOM(): void {
     } else if (id === 'session-select' || id === 'filter-event-type' || id === 'mode-select' || id === 'bp-type'
       || id === 'net-name-filter') {
       tag = 'select';
-    } else if (id === 'filter-transition' || id === 'filter-place'
+    } else if (id === 'filter-transition' || id === 'filter-place' || id === 'filter-instance'
       || id === 'filter-exclude-transition' || id === 'filter-exclude-place'
       || id === 'bp-target'
       || id === 'search-input' || id === 'timeline-slider'
       || id === 'archive-search' || id === 'archive-upload') {
       tag = 'input';
-    } else if (id === 'transition-options' || id === 'place-options') {
+    } else if (id === 'transition-options' || id === 'place-options' || id === 'instance-options') {
       tag = 'datalist';
     }
     const el = document.createElement(tag);

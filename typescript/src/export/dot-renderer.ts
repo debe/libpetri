@@ -131,6 +131,22 @@ function renderSubgraph(sg: Subgraph, indent: string): string[] {
     lines.push(`${indent}    ${renderNode(node)}`);
   }
 
+  // Nested clusters per EXP-016 / MOD-040.
+  if (sg.subgraphs) {
+    for (const nested of sg.subgraphs) {
+      lines.push(...renderSubgraph(nested, indent + '    '));
+    }
+  }
+
+  // Intra-cluster edges (both endpoints inside this cluster) — placed inside
+  // the cluster so Graphviz routes them correctly. Cross-cluster edges live
+  // on the top-level Graph.edges list.
+  if (sg.edges) {
+    for (const e of sg.edges) {
+      lines.push(`${indent}    ${renderEdge(e)}`);
+    }
+  }
+
   lines.push(`${indent}}`);
   return lines;
 }

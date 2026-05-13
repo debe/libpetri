@@ -7,7 +7,13 @@ import type { PetriNet } from '../core/petri-net.js';
 import type { Transition } from '../core/transition.js';
 import { dotExport } from '../export/dot-exporter.js';
 import { sanitize } from '../export/petri-net-mapper.js';
-import type { NetStructure, PlaceInfo, TransitionInfo } from './debug-response.js';
+import { instancePrefixOf, parentOf } from '../export/subnet-prefixes.js';
+import type {
+  NetStructure,
+  PlaceInfo,
+  SubnetInstanceInfo,
+  TransitionInfo,
+} from './debug-response.js';
 import { PlaceAnalysis } from './place-analysis.js';
 import { DebugEventStore } from './debug-event-store.js';
 import type { SessionCompletionListener } from './session-completion-listener.js';
@@ -33,7 +39,13 @@ export interface DebugSession {
   readonly tags: Record<string, string>;
 }
 
-/** Builds the net structure from a session's stored place and transition info. */
+/**
+ * Builds the net structure from a session's stored place and transition info.
+ *
+ * Populates the per-place and per-transition `instancePrefix` field per
+ * `spec/11-modular-composition.md` **MOD-041**: derived from the `/` prefix
+ * portion of each name, omitted entirely for flat names.
+ */
 export function buildNetStructure(session: DebugSession): NetStructure {
   if (session.importedStructure) {
     return session.importedStructure;
@@ -46,14 +58,16 @@ export function buildNetStructure(session: DebugSession): NetStructure {
 
   const placeInfos: PlaceInfo[] = [];
   for (const [name, info] of places.data) {
-    placeInfos.push({
+    const placeInfo: PlaceInfo = {
       name,
       graphId: `p_${sanitize(name)}`,
       tokenType: info.tokenType,
       isStart: !info.hasIncoming,
       isEnd: !info.hasOutgoing,
       isEnvironment: false,
-    });
+      ...maybeInstancePrefix(name),
+    };
+    placeInfos.push(placeInfo);
   }
 
   const transitionInfos: TransitionInfo[] = [];
@@ -61,10 +75,91 @@ export function buildNetStructure(session: DebugSession): NetStructure {
     transitionInfos.push({
       name: t.name,
       graphId: `t_${sanitize(t.name)}`,
+      ...maybeInstancePrefix(t.name),
     });
   }
 
   return { places: placeInfos, transitions: transitionInfos };
+}
+
+/**
+ * Returns either `{ instancePrefix: <derived> }` or an empty object, so that
+ * spreading into a {@link PlaceInfo}/{@link TransitionInfo} omits the field
+ * entirely for flat names per **MOD-041**.
+ */
+function maybeInstancePrefix(name: string): { instancePrefix?: string } {
+  const prefix = instancePrefixOf(name);
+  return prefix === undefined ? {} : { instancePrefix: prefix };
+}
+
+/**
+ * Derives the wire-facing subnet-instance descriptors per
+ * `spec/11-modular-composition.md` **MOD-041** from the session's net
+ * topology. Each unique instance prefix detected in transition or place
+ * names produces one descriptor whose `transitionNames` and
+ * `exposedPlaceNames` enumerate the prefixed elements belonging to that
+ * instance. `defName` is omitted for v1 (the runtime does not track
+ * `SubnetDef` provenance once composed); `parentPrefix` is computed from
+ * the `/`-segment hierarchy.
+ *
+ * For non-composed (flat) nets — no `/` in any name — this function returns
+ * an empty array per **MOD-041** AC#5.
+ *
+ * @param session the debug session
+ * @returns descriptors for every instance prefix present in the net, or
+ *          empty array when the net is flat
+ */
+export function buildSubnetInstances(session: DebugSession): SubnetInstanceInfo[] {
+  // Imported sessions don't carry live topology, so we can't derive instance
+  // descriptors. Return empty.
+  if (!session.places) {
+    return [];
+  }
+
+  // Group transition names and place names by their instance prefix. Map
+  // preserves insertion order so the response is stable across repeated
+  // subscriptions.
+  interface PrefixAcc {
+    readonly transitionNames: string[];
+    readonly placeNames: string[];
+  }
+  const byPrefix = new Map<string, PrefixAcc>();
+  function ensure(prefix: string): PrefixAcc {
+    let acc = byPrefix.get(prefix);
+    if (!acc) {
+      acc = { transitionNames: [], placeNames: [] };
+      byPrefix.set(prefix, acc);
+    }
+    return acc;
+  }
+
+  for (const t of session.transitions) {
+    const prefix = instancePrefixOf(t.name);
+    if (prefix !== undefined) {
+      ensure(prefix).transitionNames.push(t.name);
+    }
+  }
+  for (const name of session.places.data.keys()) {
+    const prefix = instancePrefixOf(name);
+    if (prefix !== undefined) {
+      ensure(prefix).placeNames.push(name);
+    }
+  }
+
+  // One descriptor per top-level OR nested instance — i.e. one per distinct
+  // prefix that appears in the data, NOT one per intermediate path segment.
+  const result: SubnetInstanceInfo[] = [];
+  for (const [prefix, acc] of byPrefix) {
+    const parent = parentOf(prefix);
+    const info: SubnetInstanceInfo = {
+      prefix,
+      transitionNames: acc.transitionNames,
+      exposedPlaceNames: acc.placeNames,
+      ...(parent === undefined ? {} : { parentPrefix: parent }),
+    };
+    result.push(info);
+  }
+  return result;
 }
 
 export type EventStoreFactory = (sessionId: string) => DebugEventStore;

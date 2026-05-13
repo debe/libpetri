@@ -32,8 +32,8 @@ public record Graph(
         nodes = List.copyOf(nodes);
         edges = List.copyOf(edges);
         subgraphs = List.copyOf(subgraphs);
-        graphAttrs = Map.copyOf(graphAttrs);
-        nodeDefaults = Map.copyOf(nodeDefaults);
-        edgeDefaults = Map.copyOf(edgeDefaults);
+        graphAttrs = MapCopy.preservingOrder(graphAttrs);
+        nodeDefaults = MapCopy.preservingOrder(nodeDefaults);
+        edgeDefaults = MapCopy.preservingOrder(edgeDefaults);
     }
 }

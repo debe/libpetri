@@ -36,3 +36,22 @@ export { TokenOutput } from './token-output.js';
 
 export { Transition, TransitionBuilder } from './transition.js';
 export { PetriNet, PetriNetBuilder } from './petri-net.js';
+
+// Modular composition (spec/11-modular-composition.md). Scaffolding-level: types,
+// builders, and validation only — `instantiate(...)` and `compose(...)` land in
+// later tasks (#11, #12). See `subnet-def.ts` for status notes.
+export type { Subnet } from './subnet.js';
+export { closedSubnet, openSubnet } from './subnet.js';
+
+export type { Port, PortDirection, Channel } from './interface.js';
+export { Interface, InterfaceBuilder } from './interface.js';
+
+export type { VerificationHarness, VerificationResult } from './subnet-def.js';
+export { SubnetDef, SubnetDefBuilder } from './subnet-def.js';
+
+export { Instance } from './instance.js';
+export type { SubnetInstance } from './subnet-instance.js';
+
+export { ComposeBindings } from './compose-bindings.js';
+
+export { FusionSet, FusionSetBuilder } from './fusion-set.js';

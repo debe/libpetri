@@ -50,6 +50,7 @@ pub mod analyzer;
 pub mod counterexample;
 pub mod dbm;
 pub mod environment;
+pub mod harness;
 pub mod incidence_matrix;
 pub mod marking_state;
 pub mod net_flattener;

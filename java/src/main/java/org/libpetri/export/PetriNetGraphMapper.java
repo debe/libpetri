@@ -6,9 +6,12 @@ import org.libpetri.core.Transition;
 import org.libpetri.export.graph.*;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -49,13 +52,33 @@ public final class PetriNetGraphMapper {
         var nodes = new ArrayList<GraphNode>();
         var edges = new ArrayList<GraphEdge>();
 
+        // Track each emitted node's instance prefix (per [MOD-040]) so we can
+        // partition into subgraph clusters at the end. Nodes without a prefix
+        // (no '/' in their semantic name) are absent from this map and stay
+        // at the top level.
+        //
+        // LinkedHashMap (rather than HashMap) so iteration follows node-
+        // insertion order — the partitioner relies on that order to
+        // deterministically position cluster subgraphs in the rendered DOT,
+        // matching the TypeScript exporter (V8 Map iterates in insertion
+        // order). Required for cross-language byte-parity per [EXP-014].
+        var nodeIdToPrefix = new LinkedHashMap<String, String>();
+
         // Place nodes
         for (var entry : places.data().entrySet()) {
             String name = entry.getKey();
             String category = places.category(name, envNames);
             NodeVisual style = StyleConstants.nodeStyle(category);
+            String nodeId = "p_" + DotExporter.sanitize(name);
+            // LinkedHashMap so xlabel always renders before fixedsize —
+            // cross-language byte-parity (TS uses object-literal insertion
+            // order) requires the explicit order. See ClusterBuilder
+            // comment on Map.of() ordering.
+            var placeAttrs = new LinkedHashMap<String, String>();
+            placeAttrs.put("xlabel", name);
+            placeAttrs.put("fixedsize", "true");
             nodes.add(new GraphNode(
-                "p_" + DotExporter.sanitize(name),
+                nodeId,
                 "",
                 style.shape(),
                 style.fill(),
@@ -65,15 +88,18 @@ public final class PetriNetGraphMapper {
                 style.style(),
                 style.height(),
                 style.width(),
-                Map.of("xlabel", name, "fixedsize", "true")
+                placeAttrs
             ));
+            SubnetPrefixes.instancePrefixOf(name)
+                .ifPresent(prefix -> nodeIdToPrefix.put(nodeId, prefix));
         }
 
         // Transition nodes
         for (var t : net.transitions()) {
             NodeVisual style = StyleConstants.TRANSITION;
+            String tid = "t_" + DotExporter.sanitize(t.name());
             nodes.add(new GraphNode(
-                "t_" + DotExporter.sanitize(t.name()),
+                tid,
                 transitionLabel(t, config),
                 style.shape(),
                 style.fill(),
@@ -85,11 +111,16 @@ public final class PetriNetGraphMapper {
                 style.width(),
                 null
             ));
+            SubnetPrefixes.instancePrefixOf(t.name())
+                .ifPresent(prefix -> nodeIdToPrefix.put(tid, prefix));
         }
 
         // Edges and junction nodes
         for (var t : net.transitions()) {
             String tid = "t_" + DotExporter.sanitize(t.name());
+            // Junctions inherit their parent transition's instance prefix —
+            // tracked here so the partition step routes them correctly.
+            Optional<String> tPrefix = SubnetPrefixes.instancePrefixOf(t.name());
 
             Set<String> resetPlaces = t.resets().stream()
                 .map(r -> r.place().name())
@@ -114,7 +145,8 @@ public final class PetriNetGraphMapper {
 
             // Output arcs from outputSpec — emits junction nodes + edges, marks combined places.
             JunctionCtx ctx = new JunctionCtx(
-                DotExporter.sanitize(t.name()), resetPlaces, nodes, edges);
+                DotExporter.sanitize(t.name()), resetPlaces, nodes, edges,
+                tPrefix.orElse(null), nodeIdToPrefix);
             if (t.outputSpec() != null) {
                 emitOutput(t.outputSpec(), tid, null, ctx);
             }
@@ -155,29 +187,52 @@ public final class PetriNetGraphMapper {
             }
         }
 
+        // Partition nodes/edges into subgraph clusters per [MOD-040] / [EXP-016].
+        // When there are no prefixed names this is a structural no-op and the
+        // resulting Graph is byte-identical to the pre-cluster output.
+        var partition = ClusterBuilder.partition(nodes, edges, nodeIdToPrefix);
+
+        // LinkedHashMap so the rendered DOT lines come out in the same
+        // order the TypeScript object literal produces — required for
+        // cross-language byte-parity (see scripts/cross-lang-dot-parity.sh).
+        var graphAttrs = new LinkedHashMap<String, String>();
+        graphAttrs.put("nodesep", String.valueOf(StyleConstants.NODESEP));
+        graphAttrs.put("ranksep", String.valueOf(StyleConstants.RANKSEP));
+        graphAttrs.put("forcelabels", StyleConstants.FORCE_LABELS);
+        graphAttrs.put("overlap", StyleConstants.OVERLAP);
+        graphAttrs.put("fontname", StyleConstants.FONT_FAMILY);
+        graphAttrs.put("outputorder", StyleConstants.OUTPUT_ORDER);
+
+        var nodeDefaults = new LinkedHashMap<String, String>();
+        nodeDefaults.put("fontname", StyleConstants.FONT_FAMILY);
+        nodeDefaults.put("fontsize", String.valueOf(StyleConstants.NODE_FONT_SIZE));
+
+        var edgeDefaults = new LinkedHashMap<String, String>();
+        edgeDefaults.put("fontname", StyleConstants.FONT_FAMILY);
+        edgeDefaults.put("fontsize", String.valueOf(StyleConstants.EDGE_FONT_SIZE));
+
         return new Graph(
             DotExporter.sanitize(net.name()),
             config.direction(),
-            nodes,
-            edges,
-            List.of(),
-            Map.of(
-                "nodesep", String.valueOf(StyleConstants.NODESEP),
-                "ranksep", String.valueOf(StyleConstants.RANKSEP),
-                "forcelabels", StyleConstants.FORCE_LABELS,
-                "overlap", StyleConstants.OVERLAP,
-                "fontname", StyleConstants.FONT_FAMILY,
-                "outputorder", StyleConstants.OUTPUT_ORDER
-            ),
-            Map.of(
-                "fontname", StyleConstants.FONT_FAMILY,
-                "fontsize", String.valueOf(StyleConstants.NODE_FONT_SIZE)
-            ),
-            Map.of(
-                "fontname", StyleConstants.FONT_FAMILY,
-                "fontsize", String.valueOf(StyleConstants.EDGE_FONT_SIZE)
-            )
+            partition.topLevelNodes(),
+            partition.topLevelEdges(),
+            partition.topLevelSubgraphs(),
+            graphAttrs,
+            nodeDefaults,
+            edgeDefaults
         );
+    }
+
+    /**
+     * Returns the per-junction attribute map ({@code fixedsize, fontsize})
+     * preserving insertion order. Centralised to keep the cross-language
+     * byte-parity invariant explicit.
+     */
+    private static Map<String, String> junctionAttrs(String fontsize) {
+        var m = new LinkedHashMap<String, String>();
+        m.put("fixedsize", "true");
+        m.put("fontsize", fontsize);
+        return m;
     }
 
     // ======================== Helpers ========================
@@ -213,14 +268,25 @@ public final class PetriNetGraphMapper {
         final Set<String> combined = new HashSet<>();
         final List<GraphNode> nodes;
         final List<GraphEdge> edges;
+        // Instance prefix (e.g. "b1" or "outer/inner") of the parent transition
+        // — junction nodes inherit this so they live inside the right cluster
+        // per [MOD-040]. Null for transitions that are not part of any
+        // composed instance.
+        final String transitionPrefix;
+        // Shared map populated during mapping; junction emitters add their
+        // own entries under transitionPrefix.
+        final Map<String, String> nodeIdToPrefix;
         int counter = 0;
 
         JunctionCtx(String tSanitized, Set<String> resetPlaces,
-                    List<GraphNode> nodes, List<GraphEdge> edges) {
+                    List<GraphNode> nodes, List<GraphEdge> edges,
+                    String transitionPrefix, Map<String, String> nodeIdToPrefix) {
             this.tSanitized = tSanitized;
             this.resetPlaces = resetPlaces;
             this.nodes = nodes;
             this.edges = edges;
+            this.transitionPrefix = transitionPrefix;
+            this.nodeIdToPrefix = nodeIdToPrefix;
         }
     }
 
@@ -288,8 +354,12 @@ public final class PetriNetGraphMapper {
             jStyle.style(),
             jStyle.height(),
             jStyle.width(),
-            Map.of("fixedsize", "true", "fontsize", "14")
+            junctionAttrs("14")
         ));
+        // Junctions belong to their parent transition's cluster per [MOD-040].
+        if (ctx.transitionPrefix != null) {
+            ctx.nodeIdToPrefix.put(junctionId, ctx.transitionPrefix);
+        }
 
         // Edge parent → junction (carries any inherited branch/timeout label).
         EdgeVisual outStyle = StyleConstants.edgeStyle(ArcType.OUTPUT);

@@ -38,9 +38,10 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | [06-environment-places.md](06-environment-places.md) | ENV | External event injection, implicit long-running behavior, executor lifecycle | 10 |
 | [07-verification.md](07-verification.md) | VER | SMT/IC3, state class graph, structural analysis | 10 |
 | [08-events-observability.md](08-events-observability.md) | EVT | Event types, event store, log capture | 20 |
-| [09-export.md](09-export.md) | EXP | Graph export, formal interchange | 10 |
+| [09-export.md](09-export.md) | EXP | Graph export, formal interchange | 15 |
 | [10-performance.md](10-performance.md) | PERF | Scaling, benchmarks, memory efficiency, flat-array executor performance | 14 |
-| **Total** | | | **156** |
+| [11-modular-composition.md](11-modular-composition.md) | MOD | Open-net subnet definition, instantiation, port composition, channel fusion, action binding per instance, place fusion | 22 |
+| **Total** | | | **183** |
 
 ---
 
@@ -175,6 +176,11 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | EXP-008 | Styling | SHOULD | — |
 | EXP-010 | Formal Interchange Format | MAY | — |
 | EXP-011 | Compile-Time Diagram Generation | MAY | — |
+| EXP-012 | XOR/AND Junction Nodes | MUST | — |
+| EXP-013 | Combined reset+output Edge | MUST | — |
+| EXP-014 | Junction ID Format and Layout Stability | MUST | — |
+| EXP-015 | Doc Generator Parity | MUST | EXP-011, EXP-012, EXP-013 |
+| EXP-016 | Subnet Instance Cluster Subgraphs | SHOULD | EXP-001, EXP-014, MOD-010, MOD-040 |
 
 ### IO — Input/Output Specifications
 | ID | Title | Priority | Depends On |
@@ -194,6 +200,32 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | IO-015 | Output Validation | MUST | EVT-007 |
 | IO-016 | Branch Enumeration | SHOULD | — |
 | IO-017 | allPlaces Flattening | MUST | — |
+
+### MOD — Modular Composition
+| ID | Title | Priority | Depends On |
+|----|-------|----------|------------|
+| MOD-001 | SubnetDef Definition (open net + interface) | MUST | — |
+| MOD-002 | Subnet Identity (sealed/sum-type distinction from PetriNet) | MUST | — |
+| MOD-003 | Port Declaration (name + direction + place) | MUST | — |
+| MOD-004 | Port Direction Semantics (advisory; arcs govern flow) | SHOULD | CORE-030–035 |
+| MOD-005 | Channel Declaration (interface transitions for synchronous fusion) | MUST | — |
+| MOD-006 | Subnet Validation at Build | MUST | CORE-040, CORE-041 |
+| MOD-010 | Instance Creation via instantiate(prefix, params) | MUST | CORE-001, CORE-040 |
+| MOD-011 | Instance Handle Map (typed port + channel handles) | MUST | MOD-003, MOD-005, MOD-010 |
+| MOD-012 | Per-Instance State Isolation | MUST | MOD-010, CORE-070, TIME-010 |
+| MOD-013 | Nested Instantiation (prefix concatenation associative) | MUST | MOD-010, MOD-012, MOD-020 |
+| MOD-014 | SubnetDef.fromNet retrofit utility | MAY | MOD-001, MOD-006 |
+| MOD-020 | Composition Operation (port mapping by structural rewrite) | MUST | MOD-010, MOD-011 |
+| MOD-021 | Channel Composition (transition merge: arc union + conflict resolution) | MUST | MOD-005, CORE-021, TIME-001 |
+| MOD-022 | Type Compatibility at Compose | MUST | CORE-003, MOD-011, MOD-020 |
+| MOD-023 | Composition Produces Flat Net | MUST | MOD-020, MOD-021, CONC-007, EXEC-001 |
+| MOD-030 | Action Binding Per Instance (share-by-default, override via bindActions) | MUST | CORE-042, MOD-010 |
+| MOD-040 | Export Grouping (subgraph cluster_* per instance prefix) | SHOULD | MOD-010, EXP-001, EXP-014 |
+| MOD-041 | Debug Protocol Subnet Instances | SHOULD | MOD-010, MOD-013 |
+| MOD-050 | Verification Pass-Through on Composed Flat Net | MUST | MOD-023, VER-001 |
+| MOD-051 | SubnetDef.verify(harness) for local property verification | SHOULD | MOD-001, VER-001, ENV-001 |
+| MOD-060 | Fusion Set Declaration (orthogonal to composition) | MUST | CORE-003, MOD-020 |
+| MOD-061 | Fusion Resolution at build() | MUST | MOD-023, MOD-060, CORE-040 |
 
 ### PERF — Performance
 | ID | Title | Priority | Depends On |
@@ -248,9 +280,9 @@ This specification defines the **observable contract** of the Coloured Time Petr
 
 | Priority | Count | Description |
 |----------|-------|-------------|
-| MUST     | 110   | Core contract; all implementations must conform |
-| SHOULD   | 38    | Recommended; implementations should include unless technically infeasible |
-| MAY      | 7     | Optional; implementations may include |
+| MUST     | 131   | Core contract; all implementations must conform |
+| SHOULD   | 43    | Recommended; implementations should include unless technically infeasible |
+| MAY      | 8     | Optional; implementations may include |
 
 ---
 
@@ -274,6 +306,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Action binding | Separated from structure | ✓ (bindActions) | ✓ (bindActions) | NetStructureBuilder |
 | Precompiled flat-array executor | 2–4× speedup via flat arrays | ✓ (PrecompiledNetExecutor) | ✓ (PrecompiledNetExecutor) | Not yet |
 | Inline sync execution | Avoid task dispatch | — | — | ✓ (try_run_inline) |
+| Modular composition | Open-net subnets, instantiation, port composition, fusion | Not yet | Not yet | Not yet |
 
 \* Rust uses 64-bit words matching Java.
 
@@ -314,6 +347,28 @@ This matrix maps spec requirements to test classes/files in each implementation.
 | PERF-001–004 | `BitmapNetExecutorBenchmark` | — | — |
 | PERF-020–022 | — | — | — |
 | PERF-040–042 | `PrecompiledNetExecutorBenchmark` | `precompiled-net-executor.bench.ts` | — |
+| MOD-001 | `SubnetDefTest#builder_producesSubnetDef_withName_body_iface` | `subnet-def.test.ts > builder produces SubnetDef with name, body, iface` | `subnet_def::tests::subnet_def_builder_basic` |
+| MOD-002 | `SubnetDefTest#subnetDef_isSubnetOpen_andClosedWrapsPetriNet` | `subnet-def.test.ts > Subnet pattern matching on kind is exhaustive` | `subnet::tests::open_variant_carries_subnet_def` |
+| MOD-003 | `InterfaceTest#port_sealedHierarchy_isExhaustivelyPatternMatched`, `SubnetDefTest#inputOutputInoutPort_appearOnInterface` | `interface.test.ts > port discriminated direction is preserved through accessors` | `interface::tests::interface_builder_basic_ports` |
+| MOD-004 | `SubnetDefTest#inputOutputInoutPort_appearOnInterface` | `interface.test.ts > port discriminated direction is preserved through accessors` | `interface::tests::interface_builder_inout_port` |
+| MOD-005 | `InterfaceTest#channel_syncChannel_retrievableByName`, `SubnetDefTest#channel_declared_appearsOnInterface` | `interface.test.ts > channel retrievable by name` | `interface::tests::interface_builder_channel` |
+| MOD-006 | `SubnetDefTest#build_rejectsPortPlace_notInBody`, `build_rejectsChannelTransition_notInBody`, `build_rejectsDuplicatePortName_withinNamespace`, `build_rejectsDuplicateChannelName_withinNamespace` | `subnet-def.test.ts > build rejects port place not in body` (and three siblings) | `subnet_def::tests::rejects_port_referencing_non_body_place`, `rejects_duplicate_port_names`, `rejects_channel_referencing_non_body_transition`, `rejects_duplicate_channel_names` |
+| MOD-010 | `InstanceTest#instantiate_returnsRenamedBody`, `instantiate_renamedArcsReferenceRenamedPlaces` | `instantiate.test.ts > returns a renamed body where every place starts with prefix + "/"` | `subnet_def::tests::instantiate_returns_renamed_body` |
+| MOD-011 | `InstanceTest#instantiate_handleMap_returnsRenamedPort`, `port_typeMismatch_isRejected`, `port_unknownName_isRejected`, `channel_unknownName_isRejected` | `instantiate.test.ts > port handle returns the renamed Place<T> by ORIGINAL name`, `> channel handle returns the renamed Transition by ORIGINAL name` | `subnet_def::tests::instantiate_handle_map_returns_renamed_port`, `instantiate_handle_map_returns_renamed_channel`, `instance::tests::port_panics_on_wrong_type` |
+| MOD-012 | `InstanceTest#instantiate_perInstanceStateIsolation`, `ComposeTest#compose_twoProducerInstances_perInstanceState` | `instantiate.test.ts > two instances with different prefixes have disjoint place sets`, `compose.test.ts > compose_twoProducerInstances_perInstanceState` | `subnet_def::tests::instantiate_per_instance_state_isolation`, `compose_e2e::compose_two_producer_instances_per_instance_state` |
+| MOD-013 | `SubnetDotExportTest#dotExport_nestedInstance_nestedClusters` (covers nested prefix concatenation observably) | `subnet-dot-export.test.ts > dotExport_nestedInstance_nestedClusters` | `cluster_builder::tests::nested_prefixes_build_tree` |
+| MOD-014 | `SubnetDefFromNetTest#fromNet_validNet_succeeds`, `fromNet_portPlaceMissing_throws`, `fromNet_channelTransitionMissing_throws`, `fromNet_outputIsInstantiable` | `subnet-def-from-net.test.ts > valid net + iface yields a well-formed SubnetDef<void>` (and siblings) | `subnet_def::tests::from_net_wraps_existing_petri_net`, `from_net_rejects_port_referencing_non_body_place`, `from_net_rejects_channel_referencing_non_body_transition`, `from_net_result_paramtype_unit` |
+| MOD-020 | `ComposeTest#compose_singlePort_mergesPlace`, `compose_internalPlacesGetTheirOwnSlot`, `SubnetRewriterTest#renameNet_endToEnd_renamesEverythingAndFillsMaps` | `compose.test.ts > compose_singlePort_mergesPlace`, `> compose_internalPlacesGetTheirOwnSlot` | `compose::tests::compose_single_port_merges_place`, `compose_internal_places_get_their_own_slot` |
+| MOD-021 | `ChannelCompositionTest#channelMerge_unionsArcsFromBothSides` (+ 16 sibling cases) | `channel-composition.test.ts > channelMerge_unionsArcsFromBothSides` (+ 16 sibling cases) | `rewriter::tests::channel_merge_unions_arcs_from_both_sides` (+ 14 sibling cases), `channel_composition::channel_merge_end_to_end_retry_policy` |
+| MOD-022 | `ComposeTest#compose_typeMismatch_throwsIllegalArgumentException`, `compose_typedBindings_compileTimeSafe` | `compose.test.ts > compose_typeMismatch_compileTimeOnly: typed bindPort signature rejects wrong types at compile time` | `compose::tests::compose_typed_bindings_form` (compile-time enforcement; type errors validated by `cargo check`) |
+| MOD-023 | `ComposeTest#compose_producerBufferConsumer_endToEnd` | `compose.test.ts > compose_producerBufferConsumer_endToEnd: tokens flow producer -> buffer -> consumer` | `compose_e2e::compose_producer_buffer_consumer_end_to_end` |
+| MOD-030 | `InstanceTest#instantiate_actionsSharedByReference`, `bindActions_overridesOnlyForThisInstance`, `bindActions_partialOverride_leavesUnnamedTransitionsAlone` | `instantiate.test.ts > two instances of the same def share each transition's action by reference`, `> rebinds the action on the named transition (MOD-030)`, `> does not mutate the original instance (MOD-030: per-instance scope)` | `subnet_def::tests::instantiate_actions_shared_by_reference`, `bind_actions_overrides_only_for_this_instance`, `instance::tests::bind_actions_replaces_action_for_named_transition` |
+| MOD-040 | `SubnetDotExportTest#dotExport_singleInstance_oneCluster`, `dotExport_twoInstances_twoSiblingClusters`, `dotExport_nestedInstance_nestedClusters`, `dotExport_clusterIdsAreSanitized` | `subnet-dot-export.test.ts > dotExport_singleInstance_oneCluster`, `> dotExport_twoInstances_twoSiblingClusters`, `> dotExport_nestedInstance_nestedClusters`, `> dotExport_clusterIdsAreSanitized` | `cluster_builder::tests::single_prefix_groups_nodes_and_intra_edges`, `nested_prefixes_build_tree`, `subnet_diagrams::composed_with_clusters_emits_cluster_for_each_prefix` |
+| MOD-041 | `DebugProtocolSubnetTest#subscribed_composedNet_populatedSubnetInstances`, `subscribed_nestedInstance_parentPrefixSet`, `placeInfo_instancePrefix_populated`, `transitionInfo_instancePrefix_populated`, `netEventConverter_emitsInstancePrefixForPrefixedEvents` | `subnet-protocol.test.ts > subscribed_composedNet_populatedSubnetInstances`, `> subscribed_nestedInstance_parentPrefixSet`, `> placeInfo_instancePrefix_populated`, `> transitionInfo_instancePrefix_populated`, `> netEventConverter_emitsInstancePrefixForPrefixedEvents` | `debug_session_registry::tests::subscribed_composed_net_populated_subnet_instances`, `subscribed_nested_instance_parent_prefix_set`, `place_info_instance_prefix_populated_for_prefixed_names`, `transition_info_instance_prefix_populated_for_prefixed_names` |
+| MOD-050 | `SubnetVerifyTest#verify_returnsResultWithAllProperties`, `verify_leakyBucket_isKBounded` (verifier sees composed flat net with no special API) | `subnet-verify.test.ts > verify_returnsResultWithAllProperties — one entry per harness property`, `> verify_leakyBucket_isKBounded` | `subnet_verify::verify_leaky_bucket_is_k_bounded`, `subnet_verify::verify_synthetic_net_binds_all_ports` |
+| MOD-051 | `SubnetVerifyTest#verify_missingInputGenerator_throws`, `verify_outputPortOnly_doesNotRequireGenerator`, `verify_syntheticNetBindsAllPorts`, `verify_inputGenerator_isInvokedAtConstruction`, `verify_leakyBucket_isKBounded` | `subnet-verify.test.ts > verify_missingInputGenerator_throws — names the missing port`, `> verify_outputPortOnly_doesNotRequireGenerator`, `> verify_syntheticNetBindsAllPorts`, `> verify_inputGenerator_isInvokedAtConstruction`, `> verify_leakyBucket_isKBounded` | `harness::tests::verify_missing_input_generator_panics`, `verify_output_port_only_does_not_require_generator`, `verify_synthetic_net_binds_all_ports`, `verify_input_generator_invoked_at_construction`, `verify_returns_result_with_all_properties` |
+| MOD-060 | `FusionSetTest#fusionSet_firstMemberIsCanonical`, `fusionSet_typeHomogeneity_enforced`, `fusionSet_emptySet_throws`, `fusionSet_of_factoryConvenience` | `fusion-set.test.ts > firstMemberIsCanonical`, `> emptySet_throws`, `> singleMember_isValid`, `> of_factoryConvenience` | `fusion::tests::fusion_set_first_member_is_canonical`, `fusion_set_empty_panics`, `fusion_set_single_member_is_valid`, `fusion_set_of_factory` |
+| MOD-061 | `FusionTest#fuse_substitutesNonCanonicalInArcs`, `fuse_chained_threeBucketsShareLimiter`, `fuse_runsAfterCompose`, `fuse_andCompose_orthogonality` | `fusion.test.ts > fuse_substitutesNonCanonicalInArcs`, `> fuse_chained_threeBucketsShareLimiter`, `> fuse_runsAfterCompose`, `> fuse_andCompose_orthogonality` | `fusion::fuse_substitutes_non_canonical_in_arcs`, `fuse_chained_three_buckets_share_limiter`, `fuse_runs_after_compose`, `fuse_and_compose_orthogonality` |
 
 ---
 

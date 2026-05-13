@@ -10,7 +10,14 @@ export type BreakpointType =
   | 'TRANSITION_COMPLETE'
   | 'TRANSITION_FAIL'
   | 'TOKEN_ADDED'
-  | 'TOKEN_REMOVED';
+  | 'TOKEN_REMOVED'
+  /**
+   * Instance-level breakpoint per `spec/11-modular-composition.md` MOD-041:
+   * fires on any `TransitionStarted` event whose `transitionName` belongs to
+   * the subnet instance whose prefix is stored in {@link BreakpointConfig.target}
+   * (i.e. starts with `target + "/"`). The wire `target` carries the prefix.
+   */
+  | 'INSTANCE_TRANSITION';
 
 export interface BreakpointConfig {
   readonly id: string;

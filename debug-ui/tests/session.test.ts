@@ -26,6 +26,7 @@ function makeSubscribedResponse(overrides?: Partial<SubscribedResponse>): Subscr
     inFlightTransitions: [],
     eventCount: 42,
     mode: 'live',
+    subnetInstances: [],
     ...overrides,
   };
 }

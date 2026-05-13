@@ -57,6 +57,13 @@ pub struct NetEventInfo {
 }
 
 /// Information about a place in the net structure.
+///
+/// `instance_prefix` (libpetri 1.8.5+) carries the derived instance prefix
+/// per `spec/11-modular-composition.md` **MOD-041**: the substring before
+/// the last `/` in the place's name, or [`None`] when the place is not
+/// part of any composed subnet instance. Omitted from the JSON wire
+/// payload when [`None`] so the pre-MOD-041 wire shape stays
+/// byte-identical for non-composed nets.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaceInfo {
@@ -66,14 +73,49 @@ pub struct PlaceInfo {
     pub is_start: bool,
     pub is_end: bool,
     pub is_environment: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance_prefix: Option<String>,
 }
 
 /// Information about a transition in the net structure.
+///
+/// `instance_prefix` (libpetri 1.8.5+) carries the derived instance prefix
+/// per `spec/11-modular-composition.md` **MOD-041**. See [`PlaceInfo`] for
+/// the wire-shape contract.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransitionInfo {
     pub name: String,
     pub graph_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance_prefix: Option<String>,
+}
+
+/// Wire-facing descriptor of one composed subnet instance per
+/// `spec/11-modular-composition.md` **MOD-041**.
+///
+/// Mirrors `org.libpetri.debug.DebugResponse$SubnetInstanceInfo` (Java) and
+/// the TypeScript `SubnetInstanceInfo` interface: carries **names** instead
+/// of object references so JSON serialization stays simple. `def_name` is
+/// [`None`] in v1 (the runtime does not track `SubnetDef` provenance once
+/// composition has flattened the topology). `parent_prefix` is [`None`] for
+/// top-level instances and serialized via `skip_serializing_if` so flat-shape
+/// payloads stay compact.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubnetInstanceInfo {
+    /// Instantiation prefix (e.g. `"buf1"` or `"outer/inner"` for nested).
+    pub prefix: String,
+    /// Originating subnet definition name; absent in v1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub def_name: Option<String>,
+    /// Full prefixed transition names belonging to this instance.
+    pub transition_names: Vec<String>,
+    /// Full prefixed place names belonging to this instance.
+    pub exposed_place_names: Vec<String>,
+    /// Parent-instance prefix; absent for top-level instances.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_prefix: Option<String>,
 }
 
 /// Structure of a Petri net for the debug UI.
@@ -111,6 +153,14 @@ pub enum DebugResponse {
         in_flight_transitions: Vec<String>,
         event_count: usize,
         mode: String,
+        /// Composed subnet instance descriptors per
+        /// `spec/11-modular-composition.md` **MOD-041**. Empty for nets
+        /// produced without composition (no `/` in any node name) — keeps the
+        /// wire payload compact for the flat case. Defaults to an empty list
+        /// on deserialization so older clients/archives without this field
+        /// stay parseable. (libpetri 1.8.5+)
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        subnet_instances: Vec<SubnetInstanceInfo>,
     },
     Unsubscribed {
         session_id: String,
@@ -273,10 +323,12 @@ mod tests {
                     is_start: true,
                     is_end: false,
                     is_environment: false,
+                    instance_prefix: None,
                 }],
                 transitions: vec![TransitionInfo {
                     name: "t1".into(),
                     graph_id: "t_t1".into(),
+                    instance_prefix: None,
                 }],
             },
             current_marking: HashMap::new(),
@@ -284,6 +336,7 @@ mod tests {
             in_flight_transitions: vec![],
             event_count: 5,
             mode: "live".into(),
+            subnet_instances: vec![],
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"type\":\"subscribed\""));
@@ -330,6 +383,7 @@ mod tests {
             in_flight_transitions: vec![],
             event_count: 5,
             mode: "live".into(),
+            subnet_instances: vec![],
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"sessionId\":\"s1\""));

@@ -101,6 +101,7 @@ export function bindDomEvents(executor: BitmapNetExecutor): void {
       eventTypes: el.filterEventType.value ? [el.filterEventType.value] : [],
       transitionNames: el.filterTransition.value ? [el.filterTransition.value] : [],
       placeNames: el.filterPlace.value ? [el.filterPlace.value] : [],
+      instancePrefixes: el.filterInstance.value ? [el.filterInstance.value] : [],
       excludeEventTypes: [],
       excludeTransitionNames: el.filterExcludeTransition.value ? [el.filterExcludeTransition.value] : [],
       excludePlaceNames: el.filterExcludePlace.value ? [el.filterExcludePlace.value] : [],
@@ -113,12 +114,14 @@ export function bindDomEvents(executor: BitmapNetExecutor): void {
     el.filterEventType.value = '';
     el.filterTransition.value = '';
     el.filterPlace.value = '';
+    el.filterInstance.value = '';
     el.filterExcludeTransition.value = '';
     el.filterExcludePlace.value = '';
     const filter: FilterState = {
       eventTypes: [],
       transitionNames: [],
       placeNames: [],
+      instancePrefixes: [],
       excludeEventTypes: [],
       excludeTransitionNames: [],
       excludePlaceNames: [],

@@ -99,6 +99,53 @@ const marking = await executor.run();
 console.log(marking.peekTokens(output)); // [Token { value: 'HELLO' }]
 ```
 
+## Modular composition
+
+Build large nets by reusing open-net fragments. A `SubnetDef` is a structurally
+complete `PetriNet` plus a typed `Interface` of **ports** (typed places) and
+**channels** (transitions). Instantiating renames every internal element with a
+`prefix/name`; composing into a host substitutes port places and merges
+channel transitions.
+
+```typescript
+import { PetriNet, SubnetDef, FusionSet, place } from 'libpetri';
+
+const items = place<string>('items');
+const slots = place<string>('slots');
+const put = place<string>('put');
+const get = place<string>('get');
+
+const buffer = SubnetDef.builder<void>('Buffer')
+  .place(items).place(slots)
+  .transition(enqueue).transition(dequeue)
+  .inputPort('put', put)
+  .outputPort('get', get)
+  .build();
+
+const b1 = buffer.instantiate('b1').bindActions({ enqueue: enqueueImpl, dequeue: fork() });
+const b2 = buffer.instantiate('b2').bindActions({ enqueue: enqueueImpl, dequeue: fork() });
+
+const producerToB1 = place<string>('p1_to_b1');
+const b1ToB2 = place<string>('b1_to_b2');
+const b2ToConsumer = place<string>('b2_to_c');
+
+const net = PetriNet.builder('Pipeline')
+  .compose(b1, (bind) =>
+    bind.bindPort('put', producerToB1).bindPort('get', b1ToB2))
+  .compose(b2, (bind) =>
+    bind.bindPort('put', b1ToB2).bindPort('get', b2ToConsumer))
+  .fuse(FusionSet.of('sharedSlots', b1.port<string>('slots'), b2.port<string>('slots')))
+  .build();
+```
+
+Composition produces a flat `PetriNet`. Ports merge places by structural
+rewrite; channels (`bindChannel`) merge transitions with arc union, timing
+intersection, and caller-wins identity. `FusionSet` declares N-ary place
+equivalence applied **after** all `compose(...)` calls, regardless of
+registration order. Per-instance action overrides are supplied via
+`Instance.bindActions({ originalName: action })`. See
+[`spec/11-modular-composition.md`](../spec/11-modular-composition.md).
+
 ## Verification Example
 
 ```typescript

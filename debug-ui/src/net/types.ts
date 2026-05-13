@@ -38,6 +38,14 @@ export interface FilterState {
   readonly eventTypes: readonly string[];
   readonly transitionNames: readonly string[];
   readonly placeNames: readonly string[];
+  /**
+   * Instance-prefix facet per `spec/11-modular-composition.md` MOD-041. An
+   * event matches when its derived `instancePrefix` (computed from the
+   * `transitionName` / `placeName` substring before the last `/`, or carried
+   * directly in `event.details.instancePrefix`) appears in this list.
+   * AND-combined with the other facets.
+   */
+  readonly instancePrefixes: readonly string[];
   readonly excludeEventTypes: readonly string[];
   readonly excludeTransitionNames: readonly string[];
   readonly excludePlaceNames: readonly string[];

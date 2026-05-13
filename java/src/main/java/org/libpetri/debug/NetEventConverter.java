@@ -116,7 +116,7 @@ public final class NetEventConverter {
                 e.timestamp().toString(),
                 e.transitionName(),
                 null,
-                Map.of()
+                withInstancePrefix(Map.of(), e.instancePrefix())
             );
 
             case NetEvent.TransitionClockRestarted e -> new NetEventInfo(
@@ -124,7 +124,7 @@ public final class NetEventConverter {
                 e.timestamp().toString(),
                 e.transitionName(),
                 null,
-                Map.of()
+                withInstancePrefix(Map.of(), e.instancePrefix())
             );
 
             case NetEvent.TransitionStarted e -> new NetEventInfo(
@@ -132,9 +132,9 @@ public final class NetEventConverter {
                 e.timestamp().toString(),
                 e.transitionName(),
                 null,
-                Map.of(
+                withInstancePrefix(Map.of(
                     "consumedTokens", tokenList(e.consumedTokens(), compact)
-                )
+                ), e.instancePrefix())
             );
 
             case NetEvent.TransitionCompleted e -> new NetEventInfo(
@@ -142,10 +142,10 @@ public final class NetEventConverter {
                 e.timestamp().toString(),
                 e.transitionName(),
                 null,
-                Map.of(
+                withInstancePrefix(Map.of(
                     "producedTokens", tokenList(e.producedTokens(), compact),
                     "durationMs", e.duration().toMillis()
-                )
+                ), e.instancePrefix())
             );
 
             case NetEvent.TransitionFailed e -> new NetEventInfo(
@@ -153,10 +153,10 @@ public final class NetEventConverter {
                 e.timestamp().toString(),
                 e.transitionName(),
                 null,
-                Map.of(
+                withInstancePrefix(Map.of(
                     "errorMessage", e.errorMessage(),
                     "exceptionType", e.exceptionType()
-                )
+                ), e.instancePrefix())
             );
 
             case NetEvent.TransitionTimedOut e -> new NetEventInfo(
@@ -164,10 +164,10 @@ public final class NetEventConverter {
                 e.timestamp().toString(),
                 e.transitionName(),
                 null,
-                Map.of(
+                withInstancePrefix(Map.of(
                     "deadlineMs", e.deadline().toMillis(),
                     "actualDurationMs", e.actualDuration().toMillis()
-                )
+                ), e.instancePrefix())
             );
 
             case NetEvent.ActionTimedOut e -> new NetEventInfo(
@@ -175,9 +175,9 @@ public final class NetEventConverter {
                 e.timestamp().toString(),
                 e.transitionName(),
                 null,
-                Map.of(
+                withInstancePrefix(Map.of(
                     "timeoutMs", e.timeout().toMillis()
-                )
+                ), e.instancePrefix())
             );
 
             case NetEvent.TokenAdded e -> new NetEventInfo(
@@ -185,9 +185,9 @@ public final class NetEventConverter {
                 e.timestamp().toString(),
                 null,
                 e.placeName(),
-                Map.of(
+                withInstancePrefix(Map.of(
                     "token", compact ? compactTokenInfo(e.token()) : tokenInfo(e.token())
-                )
+                ), e.instancePrefix())
             );
 
             case NetEvent.TokenRemoved e -> new NetEventInfo(
@@ -195,9 +195,9 @@ public final class NetEventConverter {
                 e.timestamp().toString(),
                 null,
                 e.placeName(),
-                Map.of(
+                withInstancePrefix(Map.of(
                     "token", compact ? compactTokenInfo(e.token()) : tokenInfo(e.token())
-                )
+                ), e.instancePrefix())
             );
 
             case NetEvent.MarkingSnapshot e -> new NetEventInfo(
@@ -221,6 +221,7 @@ public final class NetEventConverter {
                 if (e.throwableMessage() != null) {
                     details.put("throwableMessage", e.throwableMessage());
                 }
+                e.instancePrefix().ifPresent(p -> details.put("instancePrefix", p));
                 yield new NetEventInfo(
                     "LogMessage",
                     e.timestamp().toString(),
@@ -230,6 +231,25 @@ public final class NetEventConverter {
                 );
             }
         };
+    }
+
+    /**
+     * Returns a details map containing all entries from {@code base} plus an
+     * {@code instancePrefix} entry when the prefix is present. When the
+     * prefix is empty, the input map is returned unchanged so flat-net
+     * events keep their pre-MOD-041 wire shape.
+     *
+     * <p>Per <b>MOD-041</b>, exposing the derived prefix on each event lets
+     * debug-UI clients group node activity by instance without re-parsing
+     * names client-side.
+     */
+    private static Map<String, Object> withInstancePrefix(
+            Map<String, Object> base, java.util.Optional<String> prefix) {
+        if (prefix.isEmpty()) return base;
+        var copy = new HashMap<String, Object>(base.size() + 1);
+        copy.putAll(base);
+        copy.put("instancePrefix", prefix.get());
+        return Map.copyOf(copy);
     }
 
     /**

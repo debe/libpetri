@@ -9,10 +9,22 @@ export type TransitionAction = (ctx: TransitionContext) => Promise<void>;
 
 // ==================== Built-in Actions ====================
 
-/** Identity action: produces no outputs. */
+/**
+ * Identity action: produces no outputs.
+ *
+ * Returns a stable singleton reference (cached on first call). Reference
+ * stability is relied on by {@link import('./internal/subnet-rewriter.js')
+ * .composeActions} during channel composition (MOD-021) to short-circuit a
+ * passthrough-on-both-sides merge to passthrough — saving a microtask hop
+ * and matching the Java implementation's behaviour where both transitions'
+ * default actions collapse to the builder's own passthrough default.
+ */
 export function passthrough(): TransitionAction {
-  return async () => {};
+  return PASSTHROUGH;
 }
+
+/** @internal Stable passthrough action — see {@link passthrough}. */
+const PASSTHROUGH: TransitionAction = async () => {};
 
 /**
  * Transform action: applies function to context, copies result to ALL output places.

@@ -140,6 +140,10 @@ HEADER
   echo
   rust_node "AND_JUNCTION" "and-junction"
   echo
+  rust_node "INTERFACE_PORT" "interface-port"
+  echo
+  rust_node "SYNC_CHANNEL" "sync-channel"
+  echo
   echo "// Edge styles"
   rust_edge "INPUT_EDGE" "input"
   echo

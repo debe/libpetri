@@ -36,6 +36,9 @@
 
     <!-- Main content -->
     <main class="flex-1 flex overflow-hidden min-h-0">
+        <!-- Far-left panel: Subnets -->
+        <aside id="subnet-panel" class="w-72 bg-gray-800 border-r border-gray-700 flex flex-col shrink-0 min-h-0 overflow-y-auto"></aside>
+
         <!-- Left panel: Diagram -->
         <div class="flex-1 p-4 min-h-0 flex flex-col">
             <div id="diagram-container" class="diagram-container flex-1 min-h-0">
@@ -125,6 +128,8 @@
                         <input id="filter-transition" type="text" list="transition-options" placeholder="Transition..."
                                class="bg-gray-700 rounded px-2 py-1 w-36 border border-gray-600 focus:outline-none focus:border-blue-500">
                         <input id="filter-place" type="text" list="place-options" placeholder="Place..."
+                               class="bg-gray-700 rounded px-2 py-1 w-36 border border-gray-600 focus:outline-none focus:border-blue-500">
+                        <input id="filter-instance" type="text" list="instance-options" placeholder="Instance..."
                                class="bg-gray-700 rounded px-2 py-1 w-36 border border-gray-600 focus:outline-none focus:border-blue-500">
                         <span class="text-gray-500">|</span>
                         <input id="filter-exclude-transition" type="text" list="transition-options" placeholder="Exclude transition..."
@@ -237,6 +242,7 @@
     <!-- Datalists for autocomplete -->
     <datalist id="transition-options"></datalist>
     <datalist id="place-options"></datalist>
+    <datalist id="instance-options"></datalist>
 
     <!-- Context Menu for Diagram -->
     <div id="diagram-context-menu" class="hidden fixed z-50 bg-gray-800 border border-gray-600 rounded-lg shadow-xl py-1 min-w-48">

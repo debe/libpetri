@@ -160,6 +160,55 @@ export function eventTransitionName(event: NetEvent): string | null {
   }
 }
 
+/**
+ * Returns the instance prefix derived from a place or transition name per
+ * `spec/11-modular-composition.md` **MOD-041**: the substring before the
+ * **last** `/`, or `undefined` when the name is not part of any composed
+ * subnet instance (no `/`).
+ *
+ * This helper is duplicated inside the event package (rather than delegated
+ * to {@link import('../export/subnet-prefixes.js')}) to keep the event
+ * subsystem dependency-free of the export layer per the package-isolation
+ * contract.
+ *
+ * @param name place or transition name (may be `null` / `undefined`)
+ * @returns derived instance prefix, or `undefined`
+ */
+export function instancePrefixOfName(name: string | null | undefined): string | undefined {
+  if (name == null) return undefined;
+  const idx = name.lastIndexOf('/');
+  if (idx <= 0) return undefined;
+  return name.substring(0, idx);
+}
+
+/**
+ * Derived instance prefix per **MOD-041** for any {@link NetEvent} that
+ * names a transition or a place. Returns `undefined` for execution lifecycle
+ * events and marking snapshots (which do not carry a single
+ * transition/place name) and for events whose name has no `/`.
+ *
+ * Mirrors the per-record `instancePrefix()` getter on the Java
+ * {@code NetEvent} sealed hierarchy.
+ */
+export function eventInstancePrefix(event: NetEvent): string | undefined {
+  switch (event.type) {
+    case 'transition-enabled':
+    case 'transition-clock-restarted':
+    case 'transition-started':
+    case 'transition-completed':
+    case 'transition-failed':
+    case 'transition-timed-out':
+    case 'action-timed-out':
+    case 'log-message':
+      return instancePrefixOfName(event.transitionName);
+    case 'token-added':
+    case 'token-removed':
+      return instancePrefixOfName(event.placeName);
+    default:
+      return undefined;
+  }
+}
+
 /** Checks if the event is a failure type. */
 export function isFailureEvent(event: NetEvent): boolean {
   return event.type === 'transition-failed'

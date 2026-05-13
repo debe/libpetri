@@ -91,6 +91,26 @@ pub const AND_JUNCTION: NodeVisual = NodeVisual {
     width: Some(0.3),
 };
 
+pub const INTERFACE_PORT: NodeVisual = NodeVisual {
+    shape: "circle",
+    fill: "#e7f1ff",
+    stroke: "#1d4ed8",
+    penwidth: 2.0,
+    style: Some("dashed"),
+    height: None,
+    width: Some(0.35),
+};
+
+pub const SYNC_CHANNEL: NodeVisual = NodeVisual {
+    shape: "box",
+    fill: "#f3e8ff",
+    stroke: "#6d28d9",
+    penwidth: 1.5,
+    style: None,
+    height: Some(0.4),
+    width: Some(0.8),
+};
+
 // Edge styles
 pub const INPUT_EDGE: EdgeVisual = EdgeVisual {
     color: "#333333",

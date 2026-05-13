@@ -16,6 +16,8 @@ A place is a named, typed container that holds tokens. Each place has a string n
 1. A place can be created with a name and a token type.
 2. The name is available for display, debugging, and export.
 
+**Note:** When a place is part of a subnet body composed into an enclosing net, its observable name is rewritten by prefix concatenation per [MOD-010] (separator `/`). The naming rule is owned by MOD; CORE only requires that *some* string name exists and is stable.
+
 **Test derivation:** Create a place with name "Ready" and token type String; verify name and type are retrievable.
 
 ---
@@ -30,6 +32,8 @@ Two places are considered equal if and only if they have the same identity. Iden
 1. A place is equal to itself.
 2. Two independently constructed places with different names are never equal.
 3. Place identity is stable across the lifetime of a net.
+
+**Note:** The naming convention used by modular composition (`prefix/originalName` per [MOD-010]) means that the *same* logical body place, instantiated under two different prefixes, yields two distinct places by this identity rule — which is exactly what per-instance state isolation per [MOD-012] requires.
 
 **Test derivation:** Create two places with different names; verify inequality. Create one place and reference it twice; verify equality.
 
