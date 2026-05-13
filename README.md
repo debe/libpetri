@@ -6,7 +6,9 @@
 [![crates.io](https://img.shields.io/crates/v/libpetri)](https://crates.io/crates/libpetri)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
-**A high-performance Coloured Time Petri Net runtime** — a Turing-complete execution engine where typed tokens flow through places, transitions fire under real-time constraints, and async actions execute concurrently. Formal verification proves safety properties via SMT/IC3.
+**A modern Coloured Time Petri Net runtime with first-class composability.**
+
+Write small, reusable subnets with typed interfaces. Compose them into systems the way you compose modules in a programming language. Run them on a real-time-aware executor. Prove them correct with SMT.
 
 | Implementation | Language | Runtime | Status |
 |---|---|---|---|
@@ -22,9 +24,9 @@
 
 ## Why libpetri
 
-- **Executable formal models** — Not a simulator. A production runtime where Petri nets are the program: typed tokens are data, transitions are instructions, timing constraints are deadlines, and the executor is a scheduler. Suitable for agent orchestration, workflow automation, protocol modeling, game logic, UI state machines, and anything with concurrency.
-- **Three implementations, one spec** — Java, TypeScript, and Rust share [183 language-agnostic requirements](spec/00-index.md) covering every arc type, timing variant, and execution phase. Same behavior, verified independently.
-- **Modular composition** — Build large nets from reusable open-net fragments with typed interfaces (ports + channels), structural-rewrite composition, place fusion for shared state, and per-instance action binding. All three languages.
+- **Composable like a module system** — Define small subnets with typed interfaces (ports + channels), instantiate them with prefix-scoped state, and compose them by structural rewrite into a flat production net. `FusionSet` for shared cross-instance state, per-instance action overrides. Same five abstractions across Java, TypeScript, and Rust.
+- **Executable, not a simulator** — Production runtime where Petri nets *are* the program. Typed tokens carry data, transitions are instructions, timing constraints are deadlines, and the executor is a scheduler. Suitable for agent orchestration, workflow automation, protocol modeling, game logic, UI state machines, and anything with concurrency.
+- **Three implementations, one spec** — Java 25, TypeScript 5.7, and Rust 2024 share [183 language-agnostic requirements](spec/00-index.md) covering every arc type, timing variant, execution phase, and the modular composition surface. Same behavior, verified independently.
 - **Turing-complete** — Coloured Petri Nets with inhibitor arcs can simulate any Turing machine. libpetri's nets can model arbitrary computation, not just finite-state workflows.
 
 ---
@@ -33,6 +35,7 @@
 
 | Capability | Details |
 |---|---|
+| **Modular composition** | Open subnets with typed interfaces (ports + channels), composition via structural rewrite, place fusion for shared state, per-instance action binding |
 | **Arc types** | Input, Output, Inhibitor, Read (non-consuming), Reset (clear all) |
 | **Input cardinality** | `one`, `exactly(n)`, `all` (drain), `atLeast(n)` — with optional guard predicates |
 | **Output routing** | `place` (single), `and` (fork), `xor` (choice), `timeout`, `forwardInput` |
@@ -40,7 +43,6 @@
 | **Executor** | Bitmap-based O(W) enablement, dirty-set optimization, priority + FIFO scheduling. Precompiled flat-array executor with 1.5–4× speedup (Java, TypeScript, Rust). |
 | **Concurrency** | Single-threaded orchestrator, concurrent async actions (virtual threads / promises / Tokio tasks) |
 | **Environment places** | External event injection for long-running, event-driven workflows |
-| **Modular composition** | Open subnets with typed interfaces (ports + channels), composition via structural rewrite, place fusion for shared state, per-instance action binding |
 | **Events** | 13 event types, pluggable stores (in-memory, noop, logging, debug) |
 | **Formal verification** | SMT/IC3 via Z3 — deadlock freedom, mutual exclusion, place bounds, unreachability |
 | **Structural analysis** | P-invariants (Farkas), siphon/trap pre-checks, XOR branch analysis |
@@ -165,6 +167,54 @@ executor.run_async(rx).await;
 ```bash
 cd rust && cargo test
 ```
+
+---
+
+## Modular Composition
+
+Build large Petri nets the way you build large programs: out of small, reusable, parameterised pieces. A `SubnetDef` is the unit of reuse — a `PetriNet` body paired with a typed `Interface` of named **ports** (boundary places) and **channels** (boundary transitions for synchronous fusion). `def.instantiate("p1", params)` returns an `Instance` whose internal names are scoped to `p1/…`, so multiple instances of the same definition retain isolated state. `PetriNet.builder().compose(...)` weaves an instance into a host net by structural rewrite; the result is a flat `PetriNet` indistinguishable from a hand-written one.
+
+```java
+// A reusable producer: one internal place, one transition, exposes an output port.
+var out = Place.of("out", Integer.class);
+var produce = Transition.builder("produce")
+    .outputs(Out.place(out)).build();
+var producer = SubnetDef.builder("Producer")
+    .place(out).transition(produce)
+    .outputPort("output", out)
+    .build();
+
+// A bounded buffer: typed parameter (capacity), two ports, one sync channel.
+var items = Place.of("items", Integer.class);
+var slots = Place.of("slots", Integer.class);
+var enqueue = Transition.builder("enqueue")
+    .inputs(In.one(slots)).outputs(Out.place(items)).build();
+var dequeue = Transition.builder("dequeue")
+    .inputs(In.one(items)).outputs(Out.place(slots)).build();
+var buffer = SubnetDef.builder("Buffer", Integer.class)
+    .place(items).place(slots)
+    .transition(enqueue).transition(dequeue)
+    .inputPort("put", slots).outputPort("get", items)
+    .channel("backpressure", enqueue)
+    .build();
+
+// Instantiate and compose into a host net.
+var p = producer.instantiate("p1");
+var b = buffer.instantiate("b1", 4);
+var wire = Place.of("wire", Integer.class);
+
+var system = PetriNet.builder("Pipeline")
+    .compose(p, bindings -> bindings.bindPort("output", wire))
+    .compose(b, bindings -> bindings.bindPort("put", wire))
+    .fuse(FusionSet.of("limiter", b.port("slots", Integer.class)))
+    .build();
+```
+
+Instance renaming runs at `instantiate(...)`; every internal place and transition becomes `prefix/name`. Port bindings rewrite arcs so the port place merges into the caller's place. Channel bindings merge the boundary transition with a caller-side transition: arc union, timing intersection, caller-wins priority, sequential actions. `FusionSet` is orthogonal to compose — declare N places of the same token type as equivalent and substitution to a canonical place runs after all `compose(...)` calls (ideal for shared cross-instance state like a global rate limiter). Per-instance action overrides via `instance.bindActions(map)`; un-named transitions keep the SubnetDef's default action.
+
+TypeScript and Rust expose the same five abstractions — `SubnetDef`, `Instance`, `Interface`, `FusionSet`, and `compose()` on the builder — with idiomatic syntax in each language. Composed nets render with one `subgraph cluster_*` per instance prefix on DOT export (EXP-016). The debug protocol carries `SubnetInstance` descriptors on subscribed/place/transition messages, and `SubnetDef.verify(harness)` runs SMT properties against a subnet in isolation by wrapping it in a synthetic enclosing net.
+
+See [`spec/11-modular-composition.md`](spec/11-modular-composition.md) for the full 22-requirement contract (MOD-001..061).
 
 ---
 
@@ -412,54 +462,6 @@ const result = await SmtVerifier.forNet(net)
 console.log(result.verdict.type);   // 'proven'
 console.log(result.verdict.method); // 'structural' (Commoner's theorem)
 ```
-
----
-
-## Modular Composition
-
-Large Coloured Time Petri Nets are built by reusing small **open-net fragments**. A `SubnetDef` pairs a `PetriNet` body with a typed `Interface`: named **ports** (boundary places, direction-advisory) and named **channels** (boundary transitions for synchronous fusion). Instances rename every internal element to `prefix/originalName` so multiple instances of the same definition retain isolated state. `PetriNet.builder().compose(...)` merges an instance into the hosting net by structural rewrite; the result is a flat `PetriNet` indistinguishable from a hand-written one.
-
-```java
-// A reusable producer: one internal place, one transition, exposes an output port.
-var out = Place.of("out", Integer.class);
-var produce = Transition.builder("produce")
-    .outputs(Out.place(out)).build();
-var producer = SubnetDef.builder("Producer")
-    .place(out).transition(produce)
-    .outputPort("output", out)
-    .build();
-
-// A bounded buffer: typed parameter (capacity), two ports, one sync channel.
-var items = Place.of("items", Integer.class);
-var slots = Place.of("slots", Integer.class);
-var enqueue = Transition.builder("enqueue")
-    .inputs(In.one(slots)).outputs(Out.place(items)).build();
-var dequeue = Transition.builder("dequeue")
-    .inputs(In.one(items)).outputs(Out.place(slots)).build();
-var buffer = SubnetDef.builder("Buffer", Integer.class)
-    .place(items).place(slots)
-    .transition(enqueue).transition(dequeue)
-    .inputPort("put", slots).outputPort("get", items)
-    .channel("backpressure", enqueue)
-    .build();
-
-// Instantiate and compose into a host net.
-var p = producer.instantiate("p1");
-var b = buffer.instantiate("b1", 4);
-var wire = Place.of("wire", Integer.class);
-
-var system = PetriNet.builder("Pipeline")
-    .compose(p, bindings -> bindings.bindPort("output", wire))
-    .compose(b, bindings -> bindings.bindPort("put", wire))
-    .fuse(FusionSet.of("limiter", b.port("slots", Integer.class)))
-    .build();
-```
-
-Instance renaming runs at `instantiate(...)`; every internal place and transition becomes `prefix/name`. Port bindings rewrite arcs so the port place merges into the caller's place. Channel bindings merge the boundary transition with a caller-side transition: arc union, timing intersection, caller-wins priority, sequential actions. `FusionSet` is orthogonal to compose — declare N places of the same token type as equivalent and substitution to a canonical place runs after all `compose(...)` calls (ideal for shared cross-instance state like a global rate limiter). Per-instance action overrides via `instance.bindActions(map)`; un-named transitions keep the SubnetDef's default action.
-
-TypeScript and Rust expose the same five abstractions — `SubnetDef`, `Instance`, `Interface`, `FusionSet`, and `compose()` on the builder — with idiomatic syntax in each language. Composed nets render with one `subgraph cluster_*` per instance prefix on DOT export (EXP-016). The debug protocol carries `SubnetInstance` descriptors on subscribed/place/transition messages, and `SubnetDef.verify(harness)` runs SMT properties against a subnet in isolation by wrapping it in a synthetic enclosing net.
-
-See [`spec/11-modular-composition.md`](spec/11-modular-composition.md) for the full 22-requirement contract (MOD-001..061).
 
 ---
 
