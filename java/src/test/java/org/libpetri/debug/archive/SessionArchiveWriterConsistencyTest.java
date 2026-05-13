@@ -124,8 +124,19 @@ class SessionArchiveWriterConsistencyTest {
             }
         });
 
-        // Let the producer build up a backlog before the writer starts.
-        Thread.sleep(2);
+        // Wait deterministically for the producer to land at least one event before the
+        // writer snapshots. A bare Thread.sleep(2) was racy on slow/contended CI runners
+        // where the virtual thread had not yet executed its first append by the time the
+        // writer took its snapshot, making header.eventCount() == 0.
+        long deadlineNanos = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+        while (session.eventStore().size() == 0 && System.nanoTime() < deadlineNanos) {
+            Thread.onSpinWait();
+        }
+        if (session.eventStore().size() == 0) {
+            stop.set(true);
+            producer.join();
+            throw new AssertionError("producer thread failed to append any events within 5s");
+        }
 
         var bytes = writeArchive(session);
 
