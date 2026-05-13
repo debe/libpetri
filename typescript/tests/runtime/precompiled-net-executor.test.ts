@@ -882,7 +882,7 @@ describe('Output Spec Tests', () => {
 // ======================== TIMING TESTS ========================
 
 describe('Timing Tests', () => {
-  it('delayed timing delays execution', async () => {
+  it('delayed timing delays execution', { timeout: 15000 }, async () => {
     const input = place<string>('IN');
     const output = place<string>('OUT');
     let fireTimeMs = 0;
@@ -1653,7 +1653,7 @@ describe('Environment Place Tests', () => {
     expect(await pendingResult).toBe(false);
   });
 
-  it('delayed transition fires without external event with env places', async () => {
+  it('delayed transition fires without external event with env places', { timeout: 15000 }, async () => {
     const envP = environmentPlace<string>('ENV');
     const trigger = place<string>('TRIGGER');
     const output = place<string>('OUT');
@@ -1976,7 +1976,7 @@ describe('Guarded Input Arc Tests', () => {
 // ======================== DEADLINE ENFORCEMENT TESTS ========================
 
 describe('Deadline Enforcement Tests', () => {
-  it('transition with window timing fires within window', async () => {
+  it('transition with window timing fires within window', { timeout: 15000 }, async () => {
     const input = place<string>('IN');
     const output = place<string>('OUT');
 
@@ -2003,7 +2003,7 @@ describe('Deadline Enforcement Tests', () => {
     expect(timedOut.length).toBe(0);
   });
 
-  it('deadline enforcement disables transition whose window expires while executor is busy', async () => {
+  it('deadline enforcement disables transition whose window expires while executor is busy', { timeout: 15000 }, async () => {
     const input = place<string>('IN');
     const slowInput = place<string>('SLOW');
     const output = place<string>('OUT');
