@@ -83,6 +83,24 @@
  *     .build();  // places are auto-collected from transition arcs
  * }</pre>
  *
+ * <h3>Modular Composition (Subnet family)</h3>
+ * Reusable open net fragments are modeled by the {@link org.libpetri.core.Subnet}
+ * sealed sum type, with two variants:
+ * <ul>
+ *   <li>{@link org.libpetri.core.Subnet.Closed Subnet.Closed} — wraps a
+ *       runnable {@link org.libpetri.core.PetriNet}.</li>
+ *   <li>{@link org.libpetri.core.Subnet.Open Subnet.Open} — implemented by
+ *       {@link org.libpetri.core.SubnetDef SubnetDef}{@code <P>}, an open
+ *       net fragment with a declared {@link org.libpetri.core.Interface}
+ *       (ports + channels) and a typed parameter {@code P}.</li>
+ * </ul>
+ * A {@link org.libpetri.core.SubnetDef} is materialised into an
+ * {@link org.libpetri.core.Instance Instance}{@code <P>} via
+ * {@code instantiate(prefix, params)}. The
+ * {@link org.libpetri.core.SubnetInstance} record is the debug-UI-facing
+ * descriptor of one composed instance. See
+ * {@code spec/11-modular-composition.md} (MOD-001..MOD-061) for the contract.
+ *
  * <h2>Design Principles</h2>
  * <ul>
  *   <li><b>Immutability</b> - all core types are immutable after construction</li>

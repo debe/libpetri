@@ -116,13 +116,31 @@ pub struct GraphEdge {
     pub attrs: Vec<(String, String)>,
 }
 
-/// A subgraph (cluster).
+/// A subgraph (cluster) in the graph.
+///
+/// Subgraphs may nest arbitrarily via [`Subgraph::subgraphs`] to model
+/// nested subnet instance prefixes per `spec/11-modular-composition.md`
+/// **MOD-040** and `spec/09-export.md` **EXP-016**. Edges whose endpoints
+/// both live inside the same cluster are placed inside that cluster via
+/// [`Subgraph::edges`] so Graphviz routes them correctly. Cross-cluster
+/// (or fully top-level) edges live on the parent [`Graph::edges`] list.
 #[derive(Debug, Clone)]
 pub struct Subgraph {
+    /// Subgraph identifier — the renderer prefixes this with `cluster_`.
     pub id: String,
+    /// Optional display label (typically the un-sanitized prefix string for
+    /// human readability per [EXP-016]).
     pub label: Option<String>,
+    /// Nodes contained directly in this subgraph (excluding nodes inside
+    /// nested [`Subgraph::subgraphs`]).
     pub nodes: Vec<GraphNode>,
+    /// Edges whose source and target both live inside this subgraph.
     pub edges: Vec<GraphEdge>,
+    /// Nested child subgraphs.
+    pub subgraphs: Vec<Subgraph>,
+    /// Optional extra DOT attributes (style, bgcolor, penwidth, ...). Stored
+    /// as a `Vec<(K, V)>` because cross-language byte-parity requires
+    /// insertion-order preservation.
     pub attrs: Vec<(String, String)>,
 }
 

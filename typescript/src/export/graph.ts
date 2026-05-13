@@ -54,10 +54,24 @@ export interface GraphEdge {
 
 // ======================== Subgraph ========================
 
+/**
+ * A subgraph (cluster) in the graph.
+ *
+ * Subgraphs may nest arbitrarily via {@link subgraphs} to model nested subnet
+ * instance prefixes per {@code spec/11-modular-composition.md} **MOD-040** and
+ * {@code spec/09-export.md} **EXP-016**. Edges whose endpoints both live
+ * inside the same cluster are placed inside that cluster via {@link edges} so
+ * Graphviz routes them correctly. Cross-cluster (or fully top-level) edges
+ * live on the parent {@link Graph#edges} list.
+ */
 export interface Subgraph {
   readonly id: string;
   readonly label?: string;
   readonly nodes: readonly GraphNode[];
+  /** Edges whose source and target both live inside this subgraph. */
+  readonly edges?: readonly GraphEdge[];
+  /** Nested child subgraphs (deeper instance prefixes). */
+  readonly subgraphs?: readonly Subgraph[];
   readonly attrs?: Readonly<Record<string, string>>;
 }
 

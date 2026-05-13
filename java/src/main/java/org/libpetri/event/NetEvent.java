@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 import org.libpetri.core.Token;
@@ -48,6 +49,28 @@ public sealed interface NetEvent {
      * @return event timestamp
      */
     Instant timestamp();
+
+    /**
+     * Returns the instance prefix derived from a place or transition name
+     * per {@code spec/11-modular-composition.md} <b>MOD-041</b>: the
+     * substring before the <b>last</b> {@code "/"}, or
+     * {@link Optional#empty()} when the name is not part of any composed
+     * subnet instance (no {@code "/"}).
+     *
+     * <p>This helper is duplicated inside the event package (rather than
+     * delegated to {@code org.libpetri.export.SubnetPrefixes}) to keep the
+     * event subsystem dependency-free of the export layer per the
+     * package-isolation contract.
+     *
+     * @param name place or transition name (may be null)
+     * @return derived instance prefix, or empty
+     */
+    static Optional<String> instancePrefixOf(String name) {
+        if (name == null) return Optional.empty();
+        int idx = name.lastIndexOf('/');
+        if (idx <= 0) return Optional.empty();
+        return Optional.of(name.substring(0, idx));
+    }
 
     // ======================== Execution Lifecycle ========================
 
@@ -95,7 +118,10 @@ public sealed interface NetEvent {
     record TransitionEnabled(
         Instant timestamp,
         String transitionName
-    ) implements NetEvent {}
+    ) implements NetEvent {
+        /** Derived instance prefix per [MOD-041]; empty when not part of any composed instance. */
+        public Optional<String> instancePrefix() { return NetEvent.instancePrefixOf(transitionName); }
+    }
 
     /**
      * Emitted when a timed transition's clock is restarted.
@@ -111,7 +137,10 @@ public sealed interface NetEvent {
     record TransitionClockRestarted(
         Instant timestamp,
         String transitionName
-    ) implements NetEvent {}
+    ) implements NetEvent {
+        /** Derived instance prefix per [MOD-041]; empty when not part of any composed instance. */
+        public Optional<String> instancePrefix() { return NetEvent.instancePrefixOf(transitionName); }
+    }
 
     /**
      * Emitted when a transition starts firing.
@@ -132,6 +161,8 @@ public sealed interface NetEvent {
         public TransitionStarted {
             consumedTokens = List.copyOf(consumedTokens);
         }
+        /** Derived instance prefix per [MOD-041]; empty when not part of any composed instance. */
+        public Optional<String> instancePrefix() { return NetEvent.instancePrefixOf(transitionName); }
     }
 
     /**
@@ -154,6 +185,8 @@ public sealed interface NetEvent {
         public TransitionCompleted {
             producedTokens = List.copyOf(producedTokens);
         }
+        /** Derived instance prefix per [MOD-041]; empty when not part of any composed instance. */
+        public Optional<String> instancePrefix() { return NetEvent.instancePrefixOf(transitionName); }
     }
 
     /**
@@ -172,7 +205,10 @@ public sealed interface NetEvent {
         String transitionName,
         String errorMessage,
         String exceptionType
-    ) implements NetEvent {}
+    ) implements NetEvent {
+        /** Derived instance prefix per [MOD-041]; empty when not part of any composed instance. */
+        public Optional<String> instancePrefix() { return NetEvent.instancePrefixOf(transitionName); }
+    }
 
     /**
      * Emitted when a transition exceeds its deadline.
@@ -189,7 +225,10 @@ public sealed interface NetEvent {
         String transitionName,
         Duration deadline,
         Duration actualDuration
-    ) implements NetEvent {}
+    ) implements NetEvent {
+        /** Derived instance prefix per [MOD-041]; empty when not part of any composed instance. */
+        public Optional<String> instancePrefix() { return NetEvent.instancePrefixOf(transitionName); }
+    }
 
     /**
      * Emitted when a transition's action exceeds its Out.Timeout duration.
@@ -206,7 +245,10 @@ public sealed interface NetEvent {
         Instant timestamp,
         String transitionName,
         Duration timeout
-    ) implements NetEvent {}
+    ) implements NetEvent {
+        /** Derived instance prefix per [MOD-041]; empty when not part of any composed instance. */
+        public Optional<String> instancePrefix() { return NetEvent.instancePrefixOf(transitionName); }
+    }
 
     // ======================== Token Movement ========================
 
@@ -223,7 +265,10 @@ public sealed interface NetEvent {
         Instant timestamp,
         String placeName,
         Token<?> token
-    ) implements NetEvent {}
+    ) implements NetEvent {
+        /** Derived instance prefix per [MOD-041]; empty when not part of any composed instance. */
+        public Optional<String> instancePrefix() { return NetEvent.instancePrefixOf(placeName); }
+    }
 
     /**
      * Emitted when a token is removed from a place.
@@ -239,7 +284,10 @@ public sealed interface NetEvent {
         Instant timestamp,
         String placeName,
         Token<?> token
-    ) implements NetEvent {}
+    ) implements NetEvent {
+        /** Derived instance prefix per [MOD-041]; empty when not part of any composed instance. */
+        public Optional<String> instancePrefix() { return NetEvent.instancePrefixOf(placeName); }
+    }
 
     // ======================== Log Capture ========================
 
@@ -266,7 +314,10 @@ public sealed interface NetEvent {
         String message,
         String throwable,
         String throwableMessage
-    ) implements NetEvent {}
+    ) implements NetEvent {
+        /** Derived instance prefix per [MOD-041]; empty when not part of any composed instance. */
+        public Optional<String> instancePrefix() { return NetEvent.instancePrefixOf(transitionName); }
+    }
 
     // ======================== Checkpointing ========================
 

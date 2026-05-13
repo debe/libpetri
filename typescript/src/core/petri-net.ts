@@ -2,6 +2,10 @@ import type { Place } from './place.js';
 import type { TransitionAction } from './transition-action.js';
 import { passthrough } from './transition-action.js';
 import { Transition } from './transition.js';
+import type { Instance } from './instance.js';
+import { ComposeBindings, __createComposeBindings } from './compose-bindings.js';
+import { applyFusion, mergeTransitions, substitutePlaces } from './internal/subnet-rewriter.js';
+import { FusionSet, FusionSetBuilder } from './fusion-set.js';
 
 /** @internal Symbol key restricting construction to the builder and bindActions. */
 const PETRI_NET_KEY = Symbol('PetriNet.internal');
@@ -69,6 +73,7 @@ export class PetriNetBuilder {
   private readonly _name: string;
   private readonly _places = new Set<Place<any>>();
   private readonly _transitions = new Set<Transition>();
+  private readonly _fusionSets: FusionSet[] = [];
 
   constructor(name: string) {
     this._name = name;
@@ -113,8 +118,348 @@ export class PetriNetBuilder {
     return this;
   }
 
+  /**
+   * Composes a subnet {@link Instance} into this builder per **MOD-020**
+   * (composition operation), **MOD-021** (channel composition), **MOD-022**
+   * (type compatibility), and **MOD-023** (composition produces a flat net).
+   *
+   * Two overloads are supported:
+   *
+   * 1. **Map / Record overload** — the runtime-checked form. Pass a
+   *    `Map<string, Place<unknown>>` or a `Record<string, Place<unknown>>`
+   *    keyed by the subnet's **original** (pre-prefix) port names. No
+   *    channel bindings are recorded by this overload.
+   *
+   * 2. **Callback overload** — the typed form. Pass a callback receiving a
+   *    fresh {@link ComposeBindings}; register port bindings via
+   *    `bindings.bindPort<T>(name, place)` so TypeScript checks each
+   *    binding's token type at compile time per [MOD-022]. Synchronous
+   *    channels may be merged with caller-side transitions via
+   *    `bindings.bindChannel(name, t)` per [MOD-021].
+   *
+   * For each port binding `(portName -> callerPlace)`, the instance's
+   * renamed port place is substituted with the caller place at every arc
+   * in the instance's renamed body via the `subnet-rewriter` module.
+   * Internal (non-port) places of the instance flow through with their
+   * prefixed names. Composition is **eager** — the rewrite happens here,
+   * not at `build()` (per [MOD-020] AC #5).
+   *
+   * For each channel binding `(channelName -> callerTransition)`, the
+   * instance's renamed channel transition and the caller-side transition
+   * are merged into one transition in the resulting flat net per [MOD-021].
+   * If the caller-side transition has not been added to this builder yet,
+   * it is added implicitly during the merge step.
+   *
+   * @throws when a port name is unknown on the instance's interface, when a
+   *         channel name is unknown on the interface, or when caller- and
+   *         instance-side transition timings conflict (per [MOD-021]).
+   */
+  compose(
+    instance: Instance<unknown>,
+    portMappings: ReadonlyMap<string, Place<unknown>> | Record<string, Place<unknown>>,
+  ): this;
+  compose(
+    instance: Instance<unknown>,
+    bind: (b: ComposeBindings) => void,
+  ): this;
+  compose(
+    instance: Instance<unknown>,
+    arg:
+      | ReadonlyMap<string, Place<unknown>>
+      | Record<string, Place<unknown>>
+      | ((b: ComposeBindings) => void),
+  ): this {
+    if (typeof arg === 'function') {
+      const bindings = __createComposeBindings();
+      arg(bindings);
+      return this.composeInternal(instance, bindings.portBindings(), bindings.channelBindings());
+    }
+
+    const portMappings: ReadonlyMap<string, Place<unknown>> =
+      arg instanceof Map ? arg : new Map(Object.entries(arg));
+    return this.composeInternal(instance, portMappings, new Map());
+  }
+
+  /**
+   * @internal Shared compose implementation: validates port and channel
+   * bindings, builds the place-substitution map, walks every renamed-body
+   * transition through {@link substitutePlaces}, applies channel merges per
+   * [MOD-021], and adds the resulting transitions to this builder.
+   *
+   * ## Channel-merge flow ([MOD-021])
+   *
+   * 1. Collect rewritten instance transitions into a working `Map<string,
+   *    Transition>` keyed by prefixed transition name (deferred — not yet
+   *    added to the builder's transition set).
+   * 2. For each channel binding, resolve the renamed instance-side
+   *    transition through `instance.channel(channelName)`, then look up its
+   *    rewritten counterpart in the working map by name.
+   * 3. Replace the working-map entry with a {@link mergeTransitions} result
+   *    that fuses caller-side + instance-side; remove the rewritten
+   *    instance-side entry. Also replace (or add) the caller-side
+   *    transition in this builder's transition set with the same merged
+   *    result, indexed under the caller's name slot.
+   * 4. Add the surviving (un-merged) entries to this builder.
+   *
+   * The deferral matters: writing the rewritten instance transitions to the
+   * builder eagerly would force a second "remove-then-replace" pass to
+   * apply the channel merges, complicating the place-collection invariants.
+   * Collecting first and merging second keeps the builder's transition set
+   * finalized exactly once.
+   *
+   * Keying the working map by prefixed transition name (rather than by
+   * Transition reference) is also robust against a prior
+   * {@link Instance.bindActions} call that may have rebuilt the renamed-body
+   * transitions, breaking identity equality between the body and the
+   * channel-handle map — but the prefixed names remain stable.
+   */
+  private composeInternal(
+    instance: Instance<unknown>,
+    portMappings: ReadonlyMap<string, Place<unknown>>,
+    channelBindings: ReadonlyMap<string, Transition>,
+  ): this {
+    const iface = instance.def.iface;
+
+    // Build mergeMap: keyed by RENAMED instance-side place name -> caller
+    // place. The subnet-rewriter resolves arc-place references by name
+    // (matching TS Place identity model: name-based equality per
+    // runtime/compiled-net.ts), so we key by the renamed name.
+    const mergeMap = new Map<string, Place<unknown>>();
+
+    for (const [portName, callerPlace] of portMappings) {
+      const port = iface.port(portName);
+      if (port === undefined) {
+        const knownPorts: string[] = [];
+        for (const p of iface.ports.values()) knownPorts.push(p.name);
+        throw new Error(
+          `compose: no port named '${portName}' on subnet '${instance.def.name}' ` +
+          `(instance prefix '${instance.prefix}'). Known ports: [${knownPorts.join(', ')}]`,
+        );
+      }
+
+      // Resolve the renamed instance-side place via the typed accessor;
+      // this gives us the rewritten Place<unknown> in the instance body.
+      const ifacePlace = instance.port<unknown>(portName);
+      mergeMap.set(ifacePlace.name, callerPlace);
+    }
+
+    // Step 1: Stage rewritten instance transitions in a working map keyed
+    // by prefixed transition name. The substitutePlaces primitive keeps
+    // the prefixed transition name unchanged (per MOD-010 — prefixed names
+    // are already unique within the host) and rewrites only the arc place
+    // references.
+    const rewrittenByName = new Map<string, Transition>();
+    for (const t of instance.renamedBody.transitions) {
+      rewrittenByName.set(t.name, substitutePlaces(t, mergeMap));
+    }
+
+    // Step 2: Apply channel merges. For each binding, locate the rewritten
+    // instance-side transition by name, fuse it with the caller-side
+    // transition, and replace the working-map entry. Also replace the
+    // caller-side transition in this builder's transition set with the
+    // merged result (or add it if the caller did not pre-add it).
+    for (const [channelName, callerTrans] of channelBindings) {
+      // Resolve the renamed instance-side channel transition. instance.channel
+      // throws on unknown name; we re-wrap with a more contextual message.
+      let instanceRenamedChannel: Transition;
+      try {
+        instanceRenamedChannel = instance.channel(channelName);
+      } catch (cause) {
+        const knownChannels: string[] = [];
+        for (const c of iface.channels.values()) knownChannels.push(c.name);
+        const err = new Error(
+          `compose: no channel named '${channelName}' on subnet '${instance.def.name}' ` +
+          `(instance prefix '${instance.prefix}'). Known channels: [${knownChannels.join(', ')}]`,
+        );
+        // Preserve cause chain for diagnostics (Node 16.9+ supports the
+        // standard Error cause option).
+        (err as Error & { cause?: unknown }).cause = cause;
+        throw err;
+      }
+
+      // Look up the rewritten (port-substituted) version of the renamed
+      // channel transition by name.
+      const rewrittenInstanceChannel = rewrittenByName.get(instanceRenamedChannel.name);
+      if (rewrittenInstanceChannel === undefined) {
+        // Defensive: SubnetDef.builder validation guarantees the channel's
+        // transition is a member of the renamed body.
+        /* istanbul ignore next */
+        throw new Error(
+          `compose: channel '${channelName}' resolved to a transition ` +
+          `'${instanceRenamedChannel.name}' that is not present in the renamed body. ` +
+          `This indicates a SubnetDef invariant violation.`,
+        );
+      }
+
+      // Build the merged transition (caller-wins identity per MOD-021).
+      const merged = mergeTransitions(callerTrans, rewrittenInstanceChannel, callerTrans.name);
+
+      // Step 2a: Remove the rewritten instance-side transition from the
+      // working map (it merges away — only the merged result remains under
+      // the caller's transition slot in the builder).
+      rewrittenByName.delete(instanceRenamedChannel.name);
+
+      // Step 2b: Replace the caller-side transition (if present) in this
+      // builder's transition set with the merged result. If the caller did
+      // not pre-add it, simply add the merged transition — the user's
+      // intent to use callerTrans is captured via the binding itself.
+      this._transitions.delete(callerTrans);
+      this.transition(merged);
+    }
+
+    // Step 3: Add the surviving (un-merged) rewritten transitions to the
+    // builder. transition() auto-collects places — internal (non-merged)
+    // renamed places are added under their prefixed names; caller places
+    // already in the builder's place set get deduped via Place name.
+    for (const rewritten of rewrittenByName.values()) {
+      this.transition(rewritten);
+    }
+
+    return this;
+  }
+
+  /**
+   * Registers one or more {@link FusionSet} declarations on this builder, per
+   * **MOD-060** (fusion set declaration) and **MOD-061** (fusion resolution
+   * at build).
+   *
+   * Fusion is **orthogonal to subnet composition**: fuse sets are accumulated
+   * here and applied during {@link build} **after** all `compose(...)` calls
+   * have flattened subnet instances into the builder's transition set.
+   * Registration order is irrelevant to semantics — `fuse(set)` BEFORE
+   * `compose(...)` and `fuse(set)` AFTER `compose(...)` both apply at the
+   * same point in the build pipeline.
+   *
+   * ## Validation
+   *
+   * Cross-set overlap (a place appearing in two fusion sets) is detected at
+   * {@link build} and reported as an `Error` naming the offending place and
+   * both sets.
+   *
+   * Two overloads are supported:
+   *
+   * 1. **Spread overload** — pass one or more pre-built {@link FusionSet}
+   *    values (e.g., from `FusionSet.of(...)` or
+   *    `FusionSet.builder(...).build()`).
+   * 2. **Sugar overload** — pass a callback receiving a fresh
+   *    {@link FusionSetBuilder} named after the enclosing net; register
+   *    members via `b.member(place)`. Equivalent to
+   *    `FusionSet.builder('<netName>-fusion').<callback>.build()` followed by
+   *    `fuse(...)` on the result.
+   */
+  fuse(...sets: FusionSet[]): this;
+  fuse(declarer: (b: FusionSetBuilder) => void): this;
+  fuse(...args: [(b: FusionSetBuilder) => void] | FusionSet[]): this {
+    if (args.length === 1 && typeof args[0] === 'function') {
+      const declarer = args[0] as (b: FusionSetBuilder) => void;
+      const fb = FusionSet.builder(this._name + '-fusion');
+      declarer(fb);
+      this._fusionSets.push(fb.build());
+      return this;
+    }
+    for (const s of args as FusionSet[]) {
+      if (s === undefined || s === null) {
+        throw new Error('fuse: fusion set must not be null');
+      }
+      this._fusionSets.push(s);
+    }
+    return this;
+  }
+
+  /**
+   * Builds the immutable {@link PetriNet}, applying fusion resolution (per
+   * **MOD-061**) AFTER all transition/composition accumulation:
+   *
+   * 1. Detect overlapping fusion sets — a single place declared in two sets
+   *    is rejected with an `Error`.
+   * 2. Build the `non-canonical → canonical` substitution map across all
+   *    sets, keyed by non-canonical place name (matching the rewriter's
+   *    Map<string, Place<unknown>> convention — TypeScript Place identity is
+   *    name-based per `runtime/compiled-net.ts`).
+   * 3. Walk every transition through {@link applyFusion} to rewrite arc place
+   *    references.
+   * 4. Re-derive the place set from the rewritten transitions plus any
+   *    caller-declared standalone places, dropping non-canonical members.
+   *    Caller-declared standalone places that happen to be non-canonical
+   *    members are also dropped.
+   *
+   * If no fusion sets were registered, the build is the trivial
+   * `new PetriNet(...)` — the fusion machinery has no per-build cost when
+   * unused.
+   *
+   * @throws when two fusion sets share a place
+   */
   build(): PetriNet {
-    return new PetriNet(PETRI_NET_KEY, this._name, this._places, this._transitions);
+    if (this._fusionSets.length === 0) {
+      return new PetriNet(PETRI_NET_KEY, this._name, this._places, this._transitions);
+    }
+    return this.buildWithFusion();
+  }
+
+  /**
+   * @internal Fusion-resolution pass per **MOD-061**. Split out from
+   * {@link build} so the no-fusion fast path stays trivial.
+   */
+  private buildWithFusion(): PetriNet {
+    // Step 1: detect overlap. The same place name MUST NOT appear in more
+    // than one fusion set (TypeScript Place identity is name-based per
+    // `runtime/compiled-net.ts`).
+    const ownership = new Map<string, FusionSet>();
+    for (const set of this._fusionSets) {
+      for (const member of set.members) {
+        const prior = ownership.get(member.name);
+        if (prior !== undefined && prior !== set) {
+          throw new Error(
+            `Fusion overlap: place '${member.name}' appears in two fusion sets ` +
+              `('${prior.name}' and '${set.name}'). A place may appear in at most ` +
+              `one fusion set (MOD-060).`,
+          );
+        }
+        ownership.set(member.name, set);
+      }
+    }
+
+    // Step 2: build the non-canonical-name → canonical-place substitution
+    // map. Single-member sets contribute nothing (no non-canonical members),
+    // so the map is naturally empty for the degenerate case.
+    const fusionMap = new Map<string, Place<unknown>>();
+    const nonCanonicalNames = new Set<string>();
+    for (const set of this._fusionSets) {
+      const canonical = set.canonical;
+      for (const nc of set.nonCanonical()) {
+        fusionMap.set(nc.name, canonical);
+        nonCanonicalNames.add(nc.name);
+      }
+    }
+
+    // Step 3: rewrite every transition's arcs through the fusion map.
+    // applyFusion always returns a fresh set; if fusionMap is empty (single-
+    // member-only sets) the rewrite is structurally a no-op but still rebuilds
+    // Transition records — no observable difference.
+    const rewrittenTransitions = applyFusion(this._transitions, fusionMap);
+
+    // Step 4: re-derive the place set. Strategy: start from the current
+    // place set, drop every non-canonical member (they are gone from the
+    // net), then union in the places auto-discovered from the rewritten
+    // transitions. This preserves caller-declared standalone places that are
+    // unrelated to fusion, drops any standalone declarations of non-canonical
+    // members, and ensures canonical places end up present even if a caller
+    // never declared them standalone.
+    const rebuiltPlaces = new Set<Place<any>>();
+    for (const p of this._places) {
+      if (!nonCanonicalNames.has(p.name)) {
+        rebuiltPlaces.add(p);
+      }
+    }
+    for (const t of rewrittenTransitions) {
+      for (const spec of t.inputSpecs) rebuiltPlaces.add(spec.place);
+      for (const p of t.outputPlaces()) rebuiltPlaces.add(p);
+      for (const inh of t.inhibitors) rebuiltPlaces.add(inh.place);
+      for (const r of t.reads) rebuiltPlaces.add(r.place);
+      for (const r of t.resets) rebuiltPlaces.add(r.place);
+    }
+
+    return new PetriNet(PETRI_NET_KEY, this._name, rebuiltPlaces, rewrittenTransitions);
   }
 }
 

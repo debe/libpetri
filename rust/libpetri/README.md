@@ -182,6 +182,62 @@ All five arc types (input, output, **read**, **inhibitor**, **reset**), all five
 modes (immediate, window, deadline, delayed, exact), environment places, priority
 scheduling, AND-fork, dump semantics, and coloured tokens.
 
+## Modular Composition
+
+Build large nets by reusing open-net fragments. A `SubnetDef` pairs a
+structurally complete `PetriNet` with a typed `Interface` of **ports** (typed
+places) and **channels** (transitions). Instantiating renames every internal
+element to `prefix/name`; composing into a host substitutes port places and
+merges channel transitions.
+
+```rust
+use libpetri::*;
+use libpetri::core::subnet_def::SubnetDef;
+use libpetri::core::fusion::FusionSet;
+
+let items = Place::<String>::new("items");
+let slots = Place::<String>::new("slots");
+let put = Place::<String>::new("put");
+let get = Place::<String>::new("get");
+
+let buffer = SubnetDef::<()>::builder("Buffer")
+    .place(&items).place(&slots)
+    .transition(enqueue).transition(dequeue)
+    .input_port("put", &put)
+    .output_port("get", &get)
+    .build();
+
+let b1 = buffer.instantiate("b1", ()).bind_actions(b1_actions);
+let b2 = buffer.instantiate("b2", ()).bind_actions(b2_actions);
+
+let producer_to_b1 = Place::<String>::new("p_to_b1");
+let b1_to_b2 = Place::<String>::new("b1_to_b2");
+let b2_to_consumer = Place::<String>::new("b2_to_c");
+
+let slots_b1 = b1.port::<String>("slots");
+let slots_b2 = b2.port::<String>("slots");
+
+let net = PetriNet::builder("Pipeline")
+    .compose_with(&b1, |b| {
+        b.bind_port::<String>("put", &producer_to_b1)
+            .bind_port::<String>("get", &b1_to_b2);
+    })
+    .compose_with(&b2, |b| {
+        b.bind_port::<String>("put", &b1_to_b2)
+            .bind_port::<String>("get", &b2_to_consumer);
+    })
+    .fuse([FusionSet::of("sharedSlots", &slots_b1, &[&slots_b2])])
+    .build();
+```
+
+Composition produces a flat `PetriNet`. Ports merge places by structural
+rewrite; channels (`bind_channel`) merge transitions with arc union, timing
+intersection, and caller-wins identity. `FusionSet` declares N-ary place
+equivalence applied **after** all `compose_with(...)` calls, regardless of
+registration order. Per-instance action overrides are supplied via
+`Instance::bind_actions(HashMap<Arc<str>, BoxedAction>)`. See
+[`spec/11-modular-composition.md`](https://github.com/debe/libpetri/blob/main/spec/11-modular-composition.md).
+
 ## Crate Structure
 
 | Crate | Description |

@@ -1,15 +1,62 @@
+/* ============================================================
+ *  Canonical libpetri Petri-net diagram viewer stylesheet.
+ *
+ *  Source of truth: typescript/src/viewer/resources/viewer.css.
+ *  This file is the union of the old petrinet-diagrams.css (Javadoc taglet)
+ *  and the cluster-overlay rules from debug-ui/src/styles.css. It is
+ *  shipped as `petrinet-diagrams.css` to all consumers via the build
+ *  script (scripts/build-viewer.sh). Edit HERE, not in the consumer dirs.
+ *
+ *  All visual constants surface as CSS custom properties (`--lpv-*`) so
+ *  individual consumers can theme without forking. Defaults match the
+ *  doclet palette + the user's "clusters must be visually obvious"
+ *  feedback (deeper tint, thicker stroke, more prominent dash).
+ * ============================================================ */
+
+:root,
+.petrinet-diagram,
+.libpetri-viewer {
+  --lpv-bg:                       #fafafa;
+  --lpv-header-bg:                #f0f0f0;
+  --lpv-border:                   #ddd;
+  --lpv-text:                     #111827;
+  --lpv-muted:                    #6b7280;
+
+  /* Cluster visuals — user feedback: clusters must be visually obvious.
+     Bumped the cluster background from a near-white tint to a saturated
+     indigo wash, thickened the stroke, and lengthened the dashes. */
+  --lpv-cluster-bg:               #eef2ff;
+  --lpv-cluster-bg-collapsed:     #cbd5e1;
+  --lpv-cluster-stroke-width:     2.2;
+  --lpv-cluster-stroke-dash:      6 3;
+  --lpv-cluster-fill-tint:        rgba(99, 102, 241, 0.08);
+
+  --lpv-dim-opacity:              0.2;
+  --lpv-active-filter-outline:    rgba(245, 158, 11, 0.4);
+
+  --lpv-legend-bg:                rgba(255, 255, 255, 0.95);
+  --lpv-chip-bg:                  #ffffff;
+  --lpv-chip-active-bg:           #111827;
+}
+
+/* ============================================================
+ *  Top-level diagram container
+ *  Kept for backward compatibility with the existing Javadoc/Rustdoc
+ *  taglet markup. Live consumers (debug-ui, dev-preview) don't use the
+ *  outer .petrinet-diagram chrome; their styling lives in debug-ui CSS.
+ * ============================================================ */
 .petrinet-diagram {
   margin: 1.5em 0;
-  border: 1px solid #ddd;
+  border: 1px solid var(--lpv-border);
   border-radius: 8px;
-  background: #fafafa;
+  background: var(--lpv-bg);
 }
 
 .petrinet-diagram h4 {
   margin: 0;
   padding: 12px 16px;
-  background: #f0f0f0;
-  border-bottom: 1px solid #ddd;
+  background: var(--lpv-header-bg);
+  border-bottom: 1px solid var(--lpv-border);
   border-radius: 8px 8px 0 0;
 }
 
@@ -123,4 +170,295 @@
 
 .zoom-indicator.visible {
   opacity: 1;
+}
+
+/* ============================================================
+ *  Subnet header (badges row above the diagram)
+ * ============================================================ */
+.petrinet-diagram .subnet-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f8fafc;
+}
+
+.subnet-header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  flex-wrap: wrap;
+}
+
+.subnet-header-label {
+  font-weight: 600;
+  color: var(--lpv-muted);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+}
+
+.subnet-header-name {
+  font-weight: 600;
+  color: var(--lpv-text);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.subnet-header-of {
+  color: var(--lpv-muted);
+  font-size: 12px;
+}
+
+.subnet-header-param,
+.subnet-header-params {
+  color: #6d28d9;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+}
+
+.subnet-header-params-null {
+  color: #9ca3af;
+  font-style: italic;
+}
+
+.subnet-header-badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.subnet-header-badge-interface {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.subnet-header-badges {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.interface-port-badge,
+.interface-channel-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  border: 1px solid;
+  background: white;
+}
+
+.interface-port-badge .badge-direction,
+.interface-channel-badge .badge-direction {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.interface-port-badge .badge-name,
+.interface-channel-badge .badge-name {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-weight: 500;
+}
+
+.interface-port-badge .badge-type {
+  color: var(--lpv-muted);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10px;
+}
+
+.interface-port-badge-input  { border-color: #1d4ed8; color: #1d4ed8; background: #e7f1ff; }
+.interface-port-badge-output { border-color: #047857; color: #047857; background: #d1fae5; }
+.interface-port-badge-inout  { border-color: #b45309; color: #b45309; background: #fef3c7; }
+.interface-channel-badge     { border-color: #6d28d9; color: #6d28d9; background: #f3e8ff; }
+
+/* ============================================================
+ *  Cluster legend sidebar
+ * ============================================================ */
+.petrinet-diagram .diagram-legend,
+.libpetri-viewer .diagram-legend {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: var(--lpv-legend-bg);
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 12px;
+  z-index: 9;
+  max-height: calc(100% - 16px);
+  overflow-y: auto;
+  min-width: 160px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.diagram-legend .legend-title {
+  font-weight: 600;
+  color: var(--lpv-muted);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+
+.diagram-legend .legend-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.diagram-legend .legend-row:hover {
+  background: #f3f4f6;
+}
+
+.diagram-legend .legend-ribbon {
+  width: 4px;
+  height: 16px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+
+.diagram-legend .legend-label {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  flex: 1 1 auto;
+  color: var(--lpv-text);
+}
+
+.diagram-legend .legend-count {
+  color: #9ca3af;
+  font-size: 10px;
+}
+
+/* ============================================================
+ *  Filter chips
+ * ============================================================ */
+.petrinet-diagram .diagram-filter-strip,
+.libpetri-viewer .diagram-filter-strip {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  background: var(--lpv-legend-bg);
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  z-index: 8;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.filter-strip-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--lpv-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 14px;
+  font-size: 11px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  background: var(--lpv-chip-bg);
+  border: 1px solid #d1d5db;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+}
+
+.filter-chip:hover {
+  background: #f3f4f6;
+}
+
+.filter-chip-active {
+  background: var(--lpv-chip-active-bg);
+  color: white;
+  border-color: var(--lpv-chip-active-bg);
+}
+
+.filter-chip-active .chip-dot {
+  outline: 2px solid rgba(255, 255, 255, 0.4);
+}
+
+.filter-chip .chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* ============================================================
+ *  Cluster visual baseline — make clusters visually obvious
+ *
+ *  These rules apply globally to any rendered SVG that lives inside
+ *  a `.petrinet-diagram` OR a `.libpetri-viewer` host. Tinted fill,
+ *  thicker stroke, more prominent dash. Stroke colour is injected
+ *  inline by the cluster-overlay (deterministic HSL per prefix).
+ * ============================================================ */
+g.cluster > polygon,
+g.cluster > path {
+  fill: var(--lpv-cluster-bg);
+  stroke-width: var(--lpv-cluster-stroke-width);
+  stroke-dasharray: var(--lpv-cluster-stroke-dash);
+  transition: fill 0.2s ease, stroke 0.2s ease;
+}
+
+/* ============================================================
+ *  Cluster collapse / expand state
+ * ============================================================ */
+.cluster-collapsed > polygon,
+.cluster-collapsed > path {
+  fill: var(--lpv-cluster-bg-collapsed) !important;
+  stroke-dasharray: 3 3;
+}
+
+.cluster-collapsed-badge {
+  font-style: italic;
+  pointer-events: none;
+}
+
+/* Sibling nodes/edges hidden while their cluster is collapsed. The cluster
+ * <g> retains its layout box (border, label, badge); the interior elements
+ * disappear so the box reads as a single tile. */
+g.node.petri-collapsed-inside,
+g.edge.petri-collapsed-inside {
+  display: none;
+}
+
+/* ============================================================
+ *  Filter dim state (CSS-driven, applied per node by JS)
+ * ============================================================ */
+g.node.petri-dimmed,
+g.edge.petri-dimmed {
+  opacity: var(--lpv-dim-opacity);
+  transition: opacity 0.2s ease;
+}
+
+g.node:not(.petri-dimmed),
+g.edge:not(.petri-dimmed) {
+  transition: opacity 0.2s ease;
+}
+
+/* When the filter is active, give the SVG a hairline ring so the user
+   has a global signal that they're seeing a filtered view, not a partial
+   net. Matches the debug-ui's previous treatment. */
+svg.has-active-filter {
+  outline: 1px solid var(--lpv-active-filter-outline);
+  outline-offset: -1px;
 }

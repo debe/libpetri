@@ -16,3 +16,4 @@ export * from './smt-verification-result.js';
 export { SmtVerifier } from './smt-verifier.js';
 export * from './z3/index.js';
 export * from './analysis/index.js';
+export type { VerificationHarness, VerificationResult, TokenSupplier } from './verification-harness.js';

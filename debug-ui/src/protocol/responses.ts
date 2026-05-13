@@ -34,16 +34,50 @@ export interface PlaceInfo {
   readonly isStart: boolean;
   readonly isEnd: boolean;
   readonly isEnvironment: boolean;
+  /**
+   * Derived instance prefix per `spec/11-modular-composition.md` MOD-041:
+   * substring before the last `/` of {@link name}; omitted from the wire
+   * when the place is not part of any composed subnet instance.
+   */
+  readonly instancePrefix?: string;
 }
 
 export interface TransitionInfo {
   readonly name: string;
   readonly graphId: string;
+  /**
+   * Derived instance prefix per `spec/11-modular-composition.md` MOD-041:
+   * substring before the last `/` of {@link name}; omitted from the wire
+   * when the transition is not part of any composed subnet instance.
+   */
+  readonly instancePrefix?: string;
 }
 
 export interface NetStructure {
   readonly places: readonly PlaceInfo[];
   readonly transitions: readonly TransitionInfo[];
+}
+
+/**
+ * Wire-facing descriptor of one composed subnet instance per
+ * `spec/11-modular-composition.md` MOD-041. Mirrors {@code SubnetInstanceInfo}
+ * in Java and TypeScript: carries fully-prefixed names rather than object
+ * references so the JSON shape stays simple. {@link defName} and
+ * {@link parentPrefix} are omitted entirely from the wire when absent
+ * (the v1 runtime does not track subnet-def provenance after composition,
+ * and top-level instances have no parent).
+ */
+export interface SubnetInstanceInfo {
+  /** Instantiation prefix (e.g. `"buf1"` or `"outer/inner"` for nested). */
+  readonly prefix: string;
+  /** Originating subnet definition name; absent in v1. */
+  readonly defName?: string;
+  /** Full prefixed transition names belonging to this instance. */
+  readonly transitionNames: readonly string[];
+  /** Full prefixed place names belonging to this instance. */
+  readonly exposedPlaceNames: readonly string[];
+  /** Parent-instance prefix; absent for top-level instances. */
+  readonly parentPrefix?: string;
 }
 
 export interface ArchiveSummary {
@@ -66,6 +100,11 @@ export type DebugResponse =
       readonly inFlightTransitions: readonly string[];
       readonly eventCount: number;
       readonly mode: string;
+      /**
+       * Composed subnet instance descriptors per `spec/11-modular-composition.md`
+       * MOD-041. Always present; empty array for flat (non-composed) nets.
+       */
+      readonly subnetInstances: readonly SubnetInstanceInfo[];
     }
   | { readonly type: 'unsubscribed'; readonly sessionId: string }
   | { readonly type: 'event'; readonly sessionId: string; readonly index: number; readonly event: NetEventInfo }

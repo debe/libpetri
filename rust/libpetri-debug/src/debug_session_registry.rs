@@ -7,9 +7,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use libpetri_core::petri_net::PetriNet;
 use libpetri_export::dot_exporter::dot_export;
 use libpetri_export::mapper::sanitize;
+use libpetri_export::subnet_prefixes::{instance_prefix_of, parent_of};
 
 use crate::debug_event_store::DebugEventStore;
-use crate::debug_response::{NetStructure, PlaceInfo, TransitionInfo};
+use crate::debug_response::{NetStructure, PlaceInfo, SubnetInstanceInfo, TransitionInfo};
 use crate::place_analysis::PlaceAnalysis;
 
 /// A registered debug session.
@@ -64,6 +65,7 @@ pub fn build_net_structure(session: &DebugSession) -> NetStructure {
             is_start: !info.has_incoming,
             is_end: !info.has_outgoing,
             is_environment: false,
+            instance_prefix: instance_prefix_of(name).map(str::to_owned),
         })
         .collect();
 
@@ -73,6 +75,7 @@ pub fn build_net_structure(session: &DebugSession) -> NetStructure {
         .map(|name| TransitionInfo {
             name: name.clone(),
             graph_id: format!("t_{}", sanitize(name)),
+            instance_prefix: instance_prefix_of(name).map(str::to_owned),
         })
         .collect();
 
@@ -80,6 +83,53 @@ pub fn build_net_structure(session: &DebugSession) -> NetStructure {
         places: place_infos,
         transitions: transition_infos,
     }
+}
+
+/// Builds the per-instance descriptors for [`DebugResponse::Subscribed`]
+/// from a session per `spec/11-modular-composition.md` **MOD-041**.
+///
+/// Walks the session's place + transition names, groups any name containing
+/// `/` by its full instance prefix (everything before the *last* `/`), and
+/// emits one [`SubnetInstanceInfo`] per unique prefix. `def_name` is left
+/// `None` (the runtime does not retain `SubnetDef` provenance once
+/// composition has flattened the topology — same convention as Java/TS).
+/// Nested instances surface a `parent_prefix` derived via
+/// [`parent_of`].
+pub fn build_subnet_instances(session: &DebugSession) -> Vec<SubnetInstanceInfo> {
+    use std::collections::BTreeMap;
+    let mut buckets: BTreeMap<String, (Vec<String>, Vec<String>)> = BTreeMap::new();
+
+    if let Some(ref places) = session.places {
+        for (name, _) in places.data() {
+            if let Some(prefix) = instance_prefix_of(name) {
+                buckets
+                    .entry(prefix.to_owned())
+                    .or_default()
+                    .1
+                    .push(name.clone());
+            }
+        }
+    }
+    for name in &session.transition_names {
+        if let Some(prefix) = instance_prefix_of(name) {
+            buckets
+                .entry(prefix.to_owned())
+                .or_default()
+                .0
+                .push(name.clone());
+        }
+    }
+
+    buckets
+        .into_iter()
+        .map(|(prefix, (transitions, places))| SubnetInstanceInfo {
+            parent_prefix: parent_of(&prefix).map(str::to_owned),
+            prefix,
+            def_name: None,
+            transition_names: transitions,
+            exposed_place_names: places,
+        })
+        .collect()
 }
 
 /// Factory function for creating `DebugEventStore` instances.
@@ -856,6 +906,179 @@ mod tests {
         assert_eq!(tags.len(), 4, "four even-indexed threads tagged the session");
         for k in ["k0", "k2", "k4", "k6"] {
             assert_eq!(tags.get(k), Some(&"v".to_string()), "missing tag {k}");
+        }
+    }
+
+    // ============================================================
+    // MOD-041 — Debug Protocol Subnet Instances
+    // ============================================================
+    //
+    // These tests cover MOD-041 (SHOULD): the debug protocol exposes
+    // composed subnet instances in `Subscribed.subnet_instances` and
+    // an `instance_prefix` derived from the node's name on each
+    // `PlaceInfo`/`TransitionInfo`. Mirrors Java's `DebugProtocolSubnetTest`
+    // and TS's `subnet-protocol.test.ts`.
+
+    use libpetri_core::interface::{Interface, PortDirection};
+    use libpetri_core::subnet_def::SubnetDef;
+
+    // Tiny producer subnet: one `output` port, one internal `nextItem`
+    // place, one `produce` transition.
+    fn producer_subnet() -> SubnetDef {
+        let output: Place<i32> = Place::new("output");
+        let next_item: Place<i32> = Place::new("nextItem");
+        let produce = Transition::builder("produce")
+            .input(one(&next_item))
+            .output(out_place(&output))
+            .build();
+        let body = PetriNet::builder("producer").transition(produce).build();
+        let iface = Interface::builder().output_port("output", &output).build();
+        let _ = PortDirection::Output; // import-use silencer if compiler complains
+        SubnetDef::from_net(body, iface)
+    }
+
+    fn register_session_for(net: &PetriNet, sid: &str) -> DebugSession {
+        let mut registry = DebugSessionRegistry::new();
+        let _ = registry.register(sid.into(), net);
+        registry.remove(sid).expect("session was just registered")
+    }
+
+    #[test]
+    fn subscribed_flat_net_empty_subnet_instances() {
+        let net = test_net(); // no `/` in any name
+        let session = register_session_for(&net, "flat");
+        let instances = build_subnet_instances(&session);
+        assert!(
+            instances.is_empty(),
+            "flat net should produce no subnet instances, got: {instances:?}"
+        );
+    }
+
+    #[test]
+    fn subscribed_composed_net_populated_subnet_instances() {
+        let prod = producer_subnet();
+        let buffer: Place<i32> = Place::new("buffer");
+        let inst = prod.instantiate("p1", ());
+        let host = PetriNet::builder("host")
+            .place((&buffer).into())
+            .compose_with(&inst, |b| {
+                b.bind_port("output", &buffer);
+            })
+            .build();
+
+        let session = register_session_for(&host, "composed");
+        let instances = build_subnet_instances(&session);
+
+        assert_eq!(instances.len(), 1, "expected exactly one subnet instance");
+        let info = &instances[0];
+        assert_eq!(info.prefix, "p1");
+        assert!(info.def_name.is_none(), "v1 does not retain provenance");
+        assert!(info.parent_prefix.is_none(), "top-level instance");
+        assert!(
+            info.transition_names.iter().any(|n| n == "p1/produce"),
+            "expected p1/produce in transitions: {:?}",
+            info.transition_names
+        );
+        assert!(
+            info.exposed_place_names.iter().any(|n| n == "p1/nextItem"),
+            "expected p1/nextItem in exposed places: {:?}",
+            info.exposed_place_names
+        );
+    }
+
+    #[test]
+    fn subscribed_nested_instance_parent_prefix_set() {
+        // Build a name-shape that simulates nested instantiation: any node
+        // name with two `/`-segments produces a nested-style descriptor.
+        // We synthesize this by hand-naming places/transitions on a flat
+        // net so the build_subnet_instances grouping has both an outer
+        // and an inner prefix.
+        let p1: Place<i32> = Place::new("outer/inner/leaf");
+        let p2: Place<i32> = Place::new("outer/inner/result");
+        let t = Transition::builder("outer/inner/proc")
+            .input(one(&p1))
+            .output(out_place(&p2))
+            .build();
+        let net = PetriNet::builder("nested").transition(t).build();
+        let session = register_session_for(&net, "nested");
+
+        let instances = build_subnet_instances(&session);
+        let nested = instances
+            .iter()
+            .find(|i| i.prefix == "outer/inner")
+            .expect("expected an outer/inner instance entry");
+        assert_eq!(nested.parent_prefix.as_deref(), Some("outer"));
+    }
+
+    #[test]
+    fn place_info_instance_prefix_populated_for_prefixed_names() {
+        let prod = producer_subnet();
+        let buffer: Place<i32> = Place::new("buffer");
+        let inst = prod.instantiate("p1", ());
+        let host = PetriNet::builder("host")
+            .place((&buffer).into())
+            .compose_with(&inst, |b| {
+                b.bind_port("output", &buffer);
+            })
+            .build();
+        let session = register_session_for(&host, "ps");
+        let structure = build_net_structure(&session);
+
+        let next_item = structure
+            .places
+            .iter()
+            .find(|p| p.name == "p1/nextItem")
+            .expect("expected p1/nextItem in structure");
+        assert_eq!(next_item.instance_prefix.as_deref(), Some("p1"));
+    }
+
+    #[test]
+    fn place_info_flat_place_has_no_instance_prefix() {
+        let net = test_net();
+        let session = register_session_for(&net, "flat-place");
+        let structure = build_net_structure(&session);
+        for place in &structure.places {
+            assert!(
+                place.instance_prefix.is_none(),
+                "flat place {} should have no instance_prefix",
+                place.name
+            );
+        }
+    }
+
+    #[test]
+    fn transition_info_instance_prefix_populated_for_prefixed_names() {
+        let prod = producer_subnet();
+        let buffer: Place<i32> = Place::new("buffer");
+        let inst = prod.instantiate("p1", ());
+        let host = PetriNet::builder("host")
+            .place((&buffer).into())
+            .compose_with(&inst, |b| {
+                b.bind_port("output", &buffer);
+            })
+            .build();
+        let session = register_session_for(&host, "ts");
+        let structure = build_net_structure(&session);
+
+        let produce = structure
+            .transitions
+            .iter()
+            .find(|t| t.name == "p1/produce")
+            .expect("expected p1/produce in structure");
+        assert_eq!(produce.instance_prefix.as_deref(), Some("p1"));
+    }
+
+    #[test]
+    fn transition_info_flat_transition_has_no_instance_prefix() {
+        let net = test_net();
+        let session = register_session_for(&net, "flat-trans");
+        let structure = build_net_structure(&session);
+        for trans in &structure.transitions {
+            assert!(
+                trans.instance_prefix.is_none(),
+                "flat transition {} should have no instance_prefix",
+                trans.name
+            );
         }
     }
 }

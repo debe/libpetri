@@ -13,6 +13,7 @@ import { startRafLoop } from './dom/raf-loop.js';
 import { buildDebugNet, setExecutor } from './net/definition.js';
 import { allEnvironmentPlaces } from './net/places.js';
 import { shared } from './net/shared-state.js';
+import { setSubnetPanelExecutor, refreshSubnetPanel } from './net/actions/subnet-panel.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
   // Initialize cached DOM references
@@ -28,6 +29,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Store executor reference for transition actions
   setExecutor(executor);
+  setSubnetPanelExecutor(executor);
+
+  // Render the (initially empty) subnet panel placeholder so the sidebar
+  // doesn't appear blank before the first `subscribed` response arrives.
+  refreshSubnetPanel();
 
   // Wire DOM events → environment place injections
   bindDomEvents(executor);

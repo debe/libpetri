@@ -60,6 +60,7 @@ function makeSubscribedResponse(mode: 'live' | 'replay' = 'live'): Extract<Debug
     inFlightTransitions: [],
     eventCount: 0,
     mode,
+    subnetInstances: [],
   };
 }
 
@@ -101,6 +102,7 @@ describe('debug net integration', () => {
     shared.replay = { allEvents: [], checkpoints: [], checkpointInterval: 20 };
     shared.playback = { timer: null, animationFrame: null, speed: 1, breakpointHitIndex: null };
     shared.svgNodeCache = null;
+    shared.viewerHandle = null;
     shared.prevHighlighted = { shapes: [], edges: [] };
     shared.allSessions = [];
     shared.netNameFilter = '';

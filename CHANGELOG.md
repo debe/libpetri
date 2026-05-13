@@ -1,5 +1,136 @@
 # Changelog
 
+## 2.0.0 (unreleased)
+
+**libpetri 2.0 is about modular composition.** You can now build large
+Petri nets the way you build large programs — by writing small reusable
+pieces and snapping them together. Producer, buffer, consumer, rate
+limiter: each becomes a self-contained subnet with a typed interface,
+and the composition machinery wires them up.
+
+Everything from 1.x still works. The 2.0 surface is additive — your
+existing builders, runtime, events, exports, and verification code
+compile unchanged.
+
+### Subnets and instances
+
+Define a reusable fragment as a `SubnetDef`. It looks like a normal net,
+but its boundary is declared as an `Interface` with two kinds of names:
+
+- **Ports** — boundary places that a host net can wire into its own
+  places. Typed by token type.
+- **Channels** — boundary transitions that fuse with host transitions
+  when composed, giving you synchronous coupling between subnets.
+
+A `SubnetDef` is a template. Call `def.instantiate("p1", params)` to get
+an `Instance`, which is the same net with everything renamed to
+`p1/<originalName>`. Instantiate it twice and you get two independent
+copies that won't collide. Instances also inherit shared default
+actions from the def, and you can override per-instance with
+`bindActions(...)` — the rest of the instance keeps the shared
+reference, so changing the def's action propagates to every instance
+that didn't override it.
+
+You can retrofit an existing 1.x `PetriNet` as a subnet via
+`SubnetDef.fromNet(net, iface)` without rewriting it.
+
+### Composing with the builder
+
+The new `PetriNet.builder().compose(instance, bindings)` method weaves
+an instance into the enclosing net:
+
+```java
+var producer = SubnetDef.<Void>builder("Producer")…build();
+var buffer   = SubnetDef.<Integer>builder("Buffer")…build();
+
+var system = PetriNet.builder("Pipeline")
+    .compose(producer.instantiate("p"), b ->
+        b.bindPort("output", hostInput))
+    .compose(buffer.instantiate("b", 4), b ->
+        b.bindPort("in", hostInput).bindChannel("backpressure", limiter))
+    .build();
+```
+
+What this does:
+
+- **Port bindings** rewrite every arc on the instance so the port place
+  becomes the host place. After `build()` the two places are the same
+  place.
+- **Channel bindings** merge the instance's boundary transition with a
+  host transition: arc union, timing intersection, caller-wins
+  priority, sequential action composition.
+
+`build()` returns a flat `PetriNet`. The executor, exporter, verifier,
+and event store see no difference from a hand-written net.
+
+### FusionSet — shared places across instances
+
+When two instances need to share state — a single rate limiter across
+three workers, one bounded buffer feeding two consumers — declare a
+`FusionSet` of equivalent places:
+
+```java
+.fuse(FusionSet.of("limiter",
+    workerA.port("slots", Integer.class),
+    workerB.port("slots", Integer.class),
+    workerC.port("slots", Integer.class)))
+```
+
+At `build()`, the non-canonical members are substituted away. Fusion is
+orthogonal to composition: declare it before or after your `compose(...)`
+calls — same result.
+
+### Better visualization for composed nets
+
+DOT exports now emit one `subgraph cluster_*` per instance prefix, with
+nested instances producing nested clusters. Output is byte-identical to
+1.x for any net that doesn't use composition. The Java doclet picks up
+the same data: a new `@SubnetStructure` annotation and the
+`{@subnet Name}` inline tag let you point at subnet defs from doc
+comments, and `SubnetDotExport` renders compact interface-only diagrams
+(ports and channels, no internals) for API reference pages.
+
+### Debug protocol speaks subnets
+
+The debug-ui has a new subnet panel. The wire protocol's `Subscribed`,
+`PlaceInfo`, and `TransitionInfo` responses now carry instance
+descriptors so the UI can walk composed nets by prefix and let you
+drill in.
+
+### Verifying a subnet on its own
+
+You can now prove properties about a subnet in isolation, before you
+compose it into anything:
+
+```java
+var result = bufferDef.verify(
+    VerificationHarness.<Integer>builder(4)
+        .input("in", () -> Token.of(...))
+        .property(new PlaceBound("items", 4))
+        .build());
+```
+
+The harness wraps the subnet in a synthetic enclosing net, feeds the
+declared input ports from environment generators, and runs the standard
+Z3/SMT verifier. You get back a `VerificationResult` with per-property
+outcomes plus `allHold()` / `firstFailure()` shortcuts. Verifying an
+already-composed flat net works exactly like 1.x — no API change there.
+
+### Migration from 1.x
+
+No code changes needed. Update your dependency to `2.0.0` and existing
+code keeps working. The new modular-composition APIs are available
+under:
+
+- **Java** — `org.libpetri.core.{SubnetDef, Instance, Interface, FusionSet, ComposeBindings, Subnet}` plus `org.libpetri.verification.VerificationHarness`.
+- **TypeScript** — re-exported from `libpetri`: `SubnetDef`, `Instance`, `Interface`, `FusionSet`, `ComposeBindings`, `VerificationHarness`.
+- **Rust** — new modules in `libpetri-core` (`subnet`, `compose`, `fusion`, `interface`, `instance`); `libpetri-verification` gains the harness; `libpetri-export` gains cluster output.
+
+For a complete worked example see the **Modular Composition** section
+in the top-level README. The full formal contract lives in
+`spec/11-modular-composition.md` (22 new requirements, MOD-001..061);
+spec totals are now 183 across 11 documents.
+
 ## 1.8.5
 
 ### Fix: doc-viewer zoom cap raised from 5x to 1000x

@@ -90,6 +90,26 @@ pub enum NetEvent {
     },
 }
 
+/// Returns the instance prefix carried by a node name, or [`None`] when the
+/// name has no `/` (i.e. is not part of any composed subnet instance) per
+/// `spec/11-modular-composition.md` **MOD-041**.
+///
+/// The prefix is the substring up to (but not including) the **last** `/`
+/// — so `producer1/internal` returns `Some("producer1")` and
+/// `outer/inner/leaf` returns `Some("outer/inner")`.
+///
+/// Duplicated locally inside the event package (rather than delegated to
+/// `libpetri_export::subnet_prefixes`) to keep the event subsystem
+/// dependency-free of the export layer per the package-isolation contract.
+/// Mirrors `org.libpetri.event.NetEvent#instancePrefixOf`.
+pub fn instance_prefix_of(name: &str) -> Option<&str> {
+    let idx = name.rfind('/')?;
+    if idx == 0 {
+        return None;
+    }
+    Some(&name[..idx])
+}
+
 impl NetEvent {
     /// Constructs a [`TokenAdded`](Self::TokenAdded) event without a payload —
     /// the default for production event stores.
@@ -140,6 +160,25 @@ impl NetEvent {
             | NetEvent::LogMessage { timestamp, .. }
             | NetEvent::MarkingSnapshot { timestamp, .. } => *timestamp,
         }
+    }
+
+    /// Returns the place name if this event is place-related.
+    pub fn place_name(&self) -> Option<&str> {
+        match self {
+            NetEvent::TokenAdded { place_name, .. }
+            | NetEvent::TokenRemoved { place_name, .. } => Some(place_name),
+            _ => None,
+        }
+    }
+
+    /// Returns the derived instance prefix per **MOD-041** for this event,
+    /// computed from whichever of [`Self::transition_name`] or
+    /// [`Self::place_name`] is populated. Returns [`None`] for events that
+    /// don't carry a node name (e.g. [`Self::ExecutionStarted`],
+    /// [`Self::MarkingSnapshot`]) or when the carried name is flat (no `/`).
+    pub fn instance_prefix(&self) -> Option<&str> {
+        let name = self.transition_name().or_else(|| self.place_name())?;
+        instance_prefix_of(name)
     }
 
     /// Returns the transition name if this event is transition-related.

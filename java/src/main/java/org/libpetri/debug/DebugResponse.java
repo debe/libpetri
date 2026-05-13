@@ -6,6 +6,8 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * Responses sent from server to debug UI client via WebSocket.
@@ -56,6 +58,11 @@ public sealed interface DebugResponse {
     /**
      * Confirmation of subscription with initial state.
      *
+     * <p>The {@code subnetInstances} field carries the post-composition
+     * subnet instance descriptors per {@code spec/11-modular-composition.md}
+     * <b>MOD-041</b>. For nets that were not produced via composition (no
+     * {@code "/"} in any node name) the list is empty.
+     *
      * @param sessionId the subscribed session
      * @param netName the Petri net name
      * @param dotDiagram DOT (Graphviz) diagram of the net
@@ -65,6 +72,7 @@ public sealed interface DebugResponse {
      * @param inFlightTransitions currently executing transitions (started but not yet completed/failed/timed out)
      * @param eventCount total events in session
      * @param mode subscription mode (live or replay)
+     * @param subnetInstances composed subnet instance descriptors (empty for flat nets); per <b>MOD-041</b>
      */
     record Subscribed(
         String sessionId,
@@ -75,8 +83,29 @@ public sealed interface DebugResponse {
         List<String> enabledTransitions,
         List<String> inFlightTransitions,
         long eventCount,
-        String mode
-    ) implements DebugResponse {}
+        String mode,
+        List<SubnetInstanceInfo> subnetInstances
+    ) implements DebugResponse {
+        /**
+         * Backwards-compatible constructor used by older call sites that
+         * pre-date the {@code subnetInstances} field. Always passes an empty
+         * list so wire shape stays stable for non-composed nets.
+         */
+        public Subscribed(
+            String sessionId,
+            String netName,
+            String dotDiagram,
+            NetStructure structure,
+            Map<String, List<TokenInfo>> currentMarking,
+            List<String> enabledTransitions,
+            List<String> inFlightTransitions,
+            long eventCount,
+            String mode
+        ) {
+            this(sessionId, netName, dotDiagram, structure, currentMarking,
+                enabledTransitions, inFlightTransitions, eventCount, mode, List.of());
+        }
+    }
 
     /**
      * Confirmation of unsubscription.
@@ -340,12 +369,22 @@ public sealed interface DebugResponse {
     /**
      * Information about a place in the Petri net.
      *
+     * <p>The {@code instancePrefix} field is derived from the place's name
+     * per {@code spec/11-modular-composition.md} <b>MOD-041</b>: it is the
+     * substring before the last {@code "/"}, or {@code null} for flat
+     * names. Jackson serializes the {@code null} field as omitted via
+     * {@code @JsonInclude(NON_NULL)} so flat-net payloads stay compact and
+     * the wire shape pre-MOD-041 is preserved for non-composed nets. Use
+     * {@link #instancePrefix()} to retrieve the field as an
+     * {@link Optional} when reading from Java.
+     *
      * @param name authoritative identifier (matches events/marking keys)
      * @param graphId sanitized ID with "p_" prefix (matches DOT/SVG node IDs)
      * @param tokenType simple name of the token type for this place
      * @param isStart true if this is a start place (no incoming arcs)
      * @param isEnd true if this is an end place (no outgoing arcs)
      * @param isEnvironment true if this is an environment place (external event injection)
+     * @param instancePrefixOrNull nullable instance prefix; per <b>MOD-041</b>
      */
     record PlaceInfo(
         String name,
@@ -353,17 +392,116 @@ public sealed interface DebugResponse {
         String tokenType,
         boolean isStart,
         boolean isEnd,
-        boolean isEnvironment
-    ) {}
+        boolean isEnvironment,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        @com.fasterxml.jackson.annotation.JsonProperty("instancePrefix")
+        String instancePrefixOrNull
+    ) {
+        /**
+         * Backwards-compatible constructor used by call sites that pre-date
+         * MOD-041. Sets {@code instancePrefix} to absent (null on the wire).
+         */
+        public PlaceInfo(String name, String graphId, String tokenType,
+                         boolean isStart, boolean isEnd, boolean isEnvironment) {
+            this(name, graphId, tokenType, isStart, isEnd, isEnvironment, (String) null);
+        }
+
+        /**
+         * Convenience constructor that accepts an {@link Optional} for
+         * call sites that already work with the optional API shape.
+         */
+        public PlaceInfo(String name, String graphId, String tokenType,
+                         boolean isStart, boolean isEnd, boolean isEnvironment,
+                         Optional<String> instancePrefix) {
+            this(name, graphId, tokenType, isStart, isEnd, isEnvironment,
+                instancePrefix == null ? null : instancePrefix.orElse(null));
+        }
+
+        /** Returns the derived instance prefix per [MOD-041] as an {@link Optional}. */
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        public Optional<String> instancePrefix() {
+            return Optional.ofNullable(instancePrefixOrNull);
+        }
+    }
 
     /**
      * Information about a transition in the Petri net.
      *
      * @param name authoritative identifier (matches events)
      * @param graphId sanitized ID with "t_" prefix (matches DOT/SVG node IDs)
+     * @param instancePrefixOrNull nullable instance prefix; per <b>MOD-041</b>
      */
     record TransitionInfo(
         String name,
-        String graphId
-    ) {}
+        String graphId,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        @com.fasterxml.jackson.annotation.JsonProperty("instancePrefix")
+        String instancePrefixOrNull
+    ) {
+        public TransitionInfo(String name, String graphId) {
+            this(name, graphId, (String) null);
+        }
+
+        public TransitionInfo(String name, String graphId, Optional<String> instancePrefix) {
+            this(name, graphId, instancePrefix == null ? null : instancePrefix.orElse(null));
+        }
+
+        /** Returns the derived instance prefix per [MOD-041] as an {@link Optional}. */
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        public Optional<String> instancePrefix() {
+            return Optional.ofNullable(instancePrefixOrNull);
+        }
+    }
+
+    /**
+     * Wire-facing descriptor of one composed subnet instance per
+     * {@code spec/11-modular-composition.md} <b>MOD-041</b>.
+     *
+     * <p>This mirrors {@link org.libpetri.core.SubnetInstance} but carries
+     * <b>names</b> instead of object references, so that JSON serialization
+     * stays simple (sets of strings rather than recursively-serialized
+     * Place/Transition records). {@code parentPrefix} is null on the wire
+     * for top-level instances and serialized via {@code @JsonInclude(NON_NULL)}
+     * to keep flat-shape payloads compact.
+     *
+     * @param prefix the instantiation prefix (e.g. {@code "buf1"} or
+     *               {@code "outer/inner"} for nested instances)
+     * @param defName originating subnet definition name, or {@code null}
+     *                when not derivable from name shape alone
+     * @param transitionNames full prefixed transition names belonging to this instance
+     * @param exposedPlaceNames full prefixed place names belonging to this instance
+     * @param parentPrefixOrNull nullable parent-instance prefix; null for top-level
+     */
+    record SubnetInstanceInfo(
+        String prefix,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String defName,
+        Set<String> transitionNames,
+        Set<String> exposedPlaceNames,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        @com.fasterxml.jackson.annotation.JsonProperty("parentPrefix")
+        String parentPrefixOrNull
+    ) {
+        public SubnetInstanceInfo {
+            transitionNames = Set.copyOf(transitionNames);
+            exposedPlaceNames = Set.copyOf(exposedPlaceNames);
+        }
+
+        /**
+         * Convenience constructor accepting an {@link Optional} for the
+         * {@code parentPrefix} field — call sites that already work with the
+         * optional shape can pass it directly.
+         */
+        public SubnetInstanceInfo(String prefix, String defName,
+                                  Set<String> transitionNames, Set<String> exposedPlaceNames,
+                                  Optional<String> parentPrefix) {
+            this(prefix, defName, transitionNames, exposedPlaceNames,
+                parentPrefix == null ? null : parentPrefix.orElse(null));
+        }
+
+        /** Returns the parent prefix per [MOD-041] as an {@link Optional}. */
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        public Optional<String> parentPrefix() {
+            return Optional.ofNullable(parentPrefixOrNull);
+        }
+    }
 }

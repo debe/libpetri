@@ -1,6 +1,6 @@
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use crate::context::TransitionContext;
 
@@ -59,8 +59,20 @@ pub type BoxedAction = Arc<dyn TransitionAction>;
 // ==================== Built-in Actions ====================
 
 /// Identity action: produces no outputs. Executes synchronously.
+///
+/// Returns the singleton `Passthrough` instance so `Arc::ptr_eq` reliably
+/// detects "this action is the no-op default" — used by
+/// [`crate::rewriter::compose_actions`] (channel composition, **MOD-021**) to
+/// collapse passthrough-on-both-sides to passthrough.
 pub fn passthrough() -> BoxedAction {
-    Arc::new(Passthrough)
+    static PASSTHROUGH: LazyLock<BoxedAction> = LazyLock::new(|| Arc::new(Passthrough));
+    Arc::clone(&PASSTHROUGH)
+}
+
+/// Returns true when the given action is the singleton passthrough action
+/// returned by [`passthrough`]. Reference identity check via `Arc::ptr_eq`.
+pub(crate) fn is_passthrough(action: &BoxedAction) -> bool {
+    Arc::ptr_eq(action, &passthrough())
 }
 
 struct Passthrough;

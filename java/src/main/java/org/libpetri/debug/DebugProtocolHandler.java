@@ -153,6 +153,8 @@ public class DebugProtocolHandler {
 
         // Generate net structure from stored place/transition info
         var structure = debugSession.buildNetStructure();
+        // Per MOD-041, derive subnet-instance descriptors from the topology.
+        var subnetInstances = debugSession.buildSubnetInstances();
 
         send(client, new DebugResponse.Subscribed(
             cmd.sessionId(),
@@ -163,7 +165,8 @@ public class DebugProtocolHandler {
             computed.enabledTransitions(),
             computed.inFlightTransitions(),
             eventStore.eventCount(),
-            cmd.mode().name()
+            cmd.mode().name(),
+            subnetInstances
         ));
 
         // THEN create subscription (which may send EventBatch)

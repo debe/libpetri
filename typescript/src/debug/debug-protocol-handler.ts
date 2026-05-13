@@ -13,7 +13,11 @@ import type { DebugResponse, TokenInfo, NetEventInfo, ArchiveSummary, SessionSum
 import type { SessionArchiveStorage } from './archive/session-archive-storage.js';
 import { SessionArchiveReader } from './archive/session-archive-reader.js';
 import type { DebugSession } from './debug-session-registry.js';
-import { type DebugSessionRegistry, buildNetStructure } from './debug-session-registry.js';
+import {
+  type DebugSessionRegistry,
+  buildNetStructure,
+  buildSubnetInstances,
+} from './debug-session-registry.js';
 import type { Subscription } from './debug-event-store.js';
 import { MarkingCache } from './marking-cache.js';
 import { toEventInfo, tokenInfo, convertMarking } from './net-event-converter.js';
@@ -122,6 +126,7 @@ export class DebugProtocolHandler {
     const events = eventStore.events();
     const computed = computeState(events);
     const structure = buildNetStructure(debugSession);
+    const subnetInstances = buildSubnetInstances(debugSession);
 
     this.send(client, {
       type: 'subscribed',
@@ -134,6 +139,7 @@ export class DebugProtocolHandler {
       inFlightTransitions: computed.inFlightTransitions,
       eventCount: eventStore.eventCount(),
       mode: cmd.mode,
+      subnetInstances,
     });
 
     const fromIndex = cmd.fromIndex ?? 0;

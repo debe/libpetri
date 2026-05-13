@@ -1,13 +1,15 @@
 {
   "version": 2,
   "node": {
-    "place":        { "shape": "circle",       "fill": "#FFFFFF", "stroke": "#333333", "penwidth": 1.5, "width": 0.35 },
-    "start":        { "shape": "circle",       "fill": "#d4edda", "stroke": "#28a745", "penwidth": 2.0, "width": 0.35 },
-    "end":          { "shape": "doublecircle", "fill": "#cce5ff", "stroke": "#004085", "penwidth": 2.0, "width": 0.35 },
-    "environment":  { "shape": "circle",       "fill": "#f8d7da", "stroke": "#721c24", "penwidth": 2.0, "style": "dashed", "width": 0.35 },
-    "transition":   { "shape": "box",          "fill": "#fff3cd", "stroke": "#856404", "penwidth": 1.0, "height": 0.4, "width": 0.8 },
-    "xor-junction": { "shape": "diamond",      "fill": "#FFFFFF", "stroke": "#333333", "penwidth": 1.0, "width": 0.3, "height": 0.3 },
-    "and-junction": { "shape": "diamond",      "fill": "#FFFFFF", "stroke": "#333333", "penwidth": 1.0, "width": 0.3, "height": 0.3 }
+    "place":            { "shape": "circle",       "fill": "#FFFFFF", "stroke": "#333333", "penwidth": 1.5, "width": 0.35 },
+    "start":            { "shape": "circle",       "fill": "#d4edda", "stroke": "#28a745", "penwidth": 2.0, "width": 0.35 },
+    "end":              { "shape": "doublecircle", "fill": "#cce5ff", "stroke": "#004085", "penwidth": 2.0, "width": 0.35 },
+    "environment":      { "shape": "circle",       "fill": "#f8d7da", "stroke": "#721c24", "penwidth": 2.0, "style": "dashed", "width": 0.35 },
+    "transition":       { "shape": "box",          "fill": "#fff3cd", "stroke": "#856404", "penwidth": 1.0, "height": 0.4, "width": 0.8 },
+    "xor-junction":     { "shape": "diamond",      "fill": "#FFFFFF", "stroke": "#333333", "penwidth": 1.0, "width": 0.3, "height": 0.3 },
+    "and-junction":     { "shape": "diamond",      "fill": "#FFFFFF", "stroke": "#333333", "penwidth": 1.0, "width": 0.3, "height": 0.3 },
+    "interface-port":   { "shape": "circle",       "fill": "#e7f1ff", "stroke": "#1d4ed8", "penwidth": 2.0, "style": "dashed", "width": 0.35 },
+    "sync-channel":     { "shape": "box",          "fill": "#f3e8ff", "stroke": "#6d28d9", "penwidth": 1.5, "height": 0.4, "width": 0.8 }
   },
   "edge": {
     "input":        { "color": "#333333", "style": "solid",  "arrowhead": "normal" },
@@ -16,6 +18,10 @@
     "read":         { "color": "#6c757d", "style": "dashed", "arrowhead": "normal" },
     "reset":        { "color": "#fd7e14", "style": "bold",   "arrowhead": "normal", "penwidth": 2.0 },
     "reset-output": { "color": "#fd7e14", "style": "bold",   "arrowhead": "normal", "penwidth": 2.0 }
+  },
+  "cluster": {
+    "subnet-cluster":           { "style": "rounded,dashed", "bgcolor": "#FAFAFA", "penwidth": 1.5, "labelloc": "t" },
+    "subnet-cluster-collapsed": { "style": "rounded,filled", "bgcolor": "#EDEDED", "penwidth": 1.5, "labelloc": "t" }
   },
   "animation": {
     "tokenDot":     "#007bff",

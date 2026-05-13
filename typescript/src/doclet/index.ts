@@ -1,8 +1,9 @@
 /**
  * TypeDoc plugin for compile-time Petri net visualization.
  *
- * Generates interactive DOT/SVG diagrams from PetriNet definitions
- * and embeds them directly in TypeDoc output with pan/zoom/fullscreen support.
+ * Generates interactive DOT/SVG diagrams from `PetriNet`, `SubnetDef`, and
+ * `Instance` definitions and embeds them directly in TypeDoc output with
+ * pan/zoom/fullscreen + cluster collapse/expand support.
  *
  * ## Usage
  *
@@ -11,21 +12,28 @@
  * { "plugin": ["libpetri/doclet"] }
  * ```
  *
- * Then annotate exports with `@petrinet`:
+ * Then annotate exports with `@petrinet` (full body) or `@subnet`
+ * (interface-only):
  * ```typescript
  * /**
  *  * Order processing workflow.
  *  *
  *  * @petrinet ./definition#STRUCTURE
  *  *{@literal /}
+ *
+ * /**
+ *  * Wraps a {@subnet ./definition#BOUNDED_BUFFER} for back-pressure.
+ *  *{@literal /}
  * ```
  *
  * ## Tag format
  *
  * ```
- * @petrinet ./path/to/module#exportName      — access a PetriNet constant
- * @petrinet ./path/to/module#functionName()  — call a function returning PetriNet
+ * @petrinet ./path/to/module#exportName      — access a static export
+ * @petrinet ./path/to/module#functionName()  — call a function returning one
  * @petrinet #localExport                     — resolve from same file
+ *
+ * @subnet ./path/to/module#SUBNET_DEF        — interface-only inline diagram
  * ```
  *
  * Mirrors: `org.libpetri.doclet` (Java)
@@ -34,6 +42,8 @@
  */
 
 export { load } from './petri-net-plugin.js';
-export { renderSvg, escapeHtml } from './diagram-renderer.js';
+export { renderSvg, renderSubnetSvg, escapeHtml } from './diagram-renderer.js';
 export { dotToSvg } from './svg-renderer.js';
 export { resolveNet, type ResolvedNet } from './net-resolver.js';
+export { forSubnetDef, forInstance } from './subnet-header.js';
+export { fullBody as subnetFullBody, interfaceOnly as subnetInterfaceOnly } from './subnet-dot-export.js';

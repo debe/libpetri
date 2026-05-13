@@ -1,5 +1,7 @@
 package org.libpetri.export.graph;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -15,7 +17,8 @@ import java.util.Map;
  * @param style optional DOT style (e.g., "dashed"), null for default
  * @param height optional fixed height
  * @param width optional fixed width
- * @param attrs optional extra DOT attributes
+ * @param attrs optional extra DOT attributes (insertion order preserved for
+ *              cross-language byte-parity, see {@code DotRenderer})
  */
 public record GraphNode(
     String id,
@@ -31,6 +34,6 @@ public record GraphNode(
     Map<String, String> attrs
 ) {
     public GraphNode {
-        attrs = attrs != null ? Map.copyOf(attrs) : Map.of();
+        attrs = MapCopy.preservingOrder(attrs);
     }
 }

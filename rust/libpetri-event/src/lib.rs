@@ -37,4 +37,5 @@ pub mod event_store;
 pub mod net_event;
 pub mod token_payload;
 
+pub use net_event::instance_prefix_of;
 pub use token_payload::TokenPayload;

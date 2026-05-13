@@ -21,6 +21,8 @@ import { earliest, latest, hasDeadline } from '../core/timing.js';
 import type { Graph, GraphNode, GraphEdge, RankDir } from './graph.js';
 import { nodeStyle, edgeStyle, FONT, GRAPH } from './styles.js';
 import type { NodeCategory } from './styles.js';
+import { partition } from './cluster-builder.js';
+import { instancePrefixOf } from './subnet-prefixes.js';
 
 // ======================== Configuration ========================
 
@@ -54,12 +56,19 @@ export function mapToGraph(net: PetriNet, config: DotConfig = DEFAULT_DOT_CONFIG
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
 
+  // Track each emitted node's instance prefix (per [MOD-040]) so we can
+  // partition into subgraph clusters at the end. Nodes without a prefix (no
+  // '/' in their semantic name) are absent from this map and stay at the top
+  // level.
+  const nodeIdToPrefix = new Map<string, string>();
+
   // Place nodes
   for (const [name, info] of places) {
     const category = placeCategory(info, envNames.has(name));
     const style = nodeStyle(category);
+    const nodeId = 'p_' + sanitize(name);
     nodes.push({
-      id: 'p_' + sanitize(name),
+      id: nodeId,
       label: '',
       shape: style.shape,
       fill: style.fill,
@@ -70,13 +79,18 @@ export function mapToGraph(net: PetriNet, config: DotConfig = DEFAULT_DOT_CONFIG
       width: style.width,
       attrs: { xlabel: name, fixedsize: 'true' },
     });
+    const prefix = instancePrefixOf(name);
+    if (prefix !== undefined) {
+      nodeIdToPrefix.set(nodeId, prefix);
+    }
   }
 
   // Transition nodes
   for (const t of net.transitions) {
     const style = nodeStyle('transition');
+    const tid = 't_' + sanitize(t.name);
     nodes.push({
-      id: 't_' + sanitize(t.name),
+      id: tid,
       label: transitionLabel(t, config),
       shape: style.shape,
       fill: style.fill,
@@ -86,12 +100,19 @@ export function mapToGraph(net: PetriNet, config: DotConfig = DEFAULT_DOT_CONFIG
       height: style.height,
       width: style.width,
     });
+    const prefix = instancePrefixOf(t.name);
+    if (prefix !== undefined) {
+      nodeIdToPrefix.set(tid, prefix);
+    }
   }
 
   // Edges (and junction nodes)
   for (const t of net.transitions) {
     const tid = 't_' + sanitize(t.name);
     const tSanitized = sanitize(t.name);
+    // Junctions inherit their parent transition's instance prefix — tracked
+    // here so the partition step routes them correctly.
+    const tPrefix = instancePrefixOf(t.name);
     const resetPlaces = new Set(t.resets.map(r => r.place.name));
     const combined = new Set<string>();
 
@@ -131,6 +152,8 @@ export function mapToGraph(net: PetriNet, config: DotConfig = DEFAULT_DOT_CONFIG
         nodes,
         edges,
         counter: 0,
+        transitionPrefix: tPrefix,
+        nodeIdToPrefix,
       };
       emitOutput(t.outputSpec, tid, null, ctx);
     }
@@ -183,12 +206,17 @@ export function mapToGraph(net: PetriNet, config: DotConfig = DEFAULT_DOT_CONFIG
     }
   }
 
+  // Partition nodes/edges into subgraph clusters per [MOD-040] / [EXP-016].
+  // When there are no prefixed names this is a structural no-op and the
+  // resulting Graph is byte-identical to the pre-cluster output.
+  const partitioned = partition(nodes, edges, nodeIdToPrefix);
+
   return {
     id: sanitize(net.name),
     rankdir: config.direction,
-    nodes,
-    edges,
-    subgraphs: [],
+    nodes: partitioned.topLevelNodes,
+    edges: partitioned.topLevelEdges,
+    subgraphs: partitioned.topLevelSubgraphs,
     graphAttrs: {
       nodesep: String(GRAPH.nodesep),
       ranksep: String(GRAPH.ranksep),
@@ -290,6 +318,18 @@ interface EmitCtx {
   readonly nodes: GraphNode[];
   readonly edges: GraphEdge[];
   counter: number;
+  /**
+   * Instance prefix (e.g. "b1" or "outer/inner") of the parent transition —
+   * junction nodes inherit this so they live inside the right cluster per
+   * [MOD-040]. Undefined for transitions that are not part of any composed
+   * instance.
+   */
+  readonly transitionPrefix: string | undefined;
+  /**
+   * Shared map populated during mapping; junction emitters add their own
+   * entries under transitionPrefix.
+   */
+  readonly nodeIdToPrefix: Map<string, string>;
 }
 
 /**
@@ -346,6 +386,10 @@ function emitOutput(out: Out, parentId: string, branchLabel: string | null, ctx:
         width: jStyle.width,
         attrs: { fixedsize: 'true', fontsize: '14' },
       });
+      // Junctions belong to their parent transition's cluster per [MOD-040].
+      if (ctx.transitionPrefix !== undefined) {
+        ctx.nodeIdToPrefix.set(junctionId, ctx.transitionPrefix);
+      }
 
       // Edge parent → junction (carries any inherited branch/timeout label).
       const outStyle = edgeStyle('output');

@@ -2,15 +2,18 @@
  * Javadoc taglets for compile-time Petri net visualization.
  *
  * <h2>Overview</h2>
- * <p>This package provides custom Javadoc taglets that generate DOT/SVG diagrams
- * from static {@link org.libpetri.core.PetriNet} definitions. The diagrams
- * are rendered to SVG at build time via Graphviz and embedded directly in the
- * generated Javadoc HTML with interactive pan/zoom/fullscreen support.
+ * <p>This package provides custom Javadoc taglets that generate DOT diagrams
+ * from static {@link org.libpetri.core.PetriNet} definitions. The DOT source
+ * is embedded in the generated Javadoc HTML alongside the canonical
+ * {@code LibpetriViewer} bundle, which renders DOT &rarr; SVG client-side
+ * (via an embedded Graphviz WASM build) and wires interactive pan/zoom plus
+ * cluster legend, filter, and collapse chrome.
  *
  * <h2>Taglets</h2>
  * <dl>
  *   <dt>{@link org.libpetri.doclet.PetriNetTaglet @petrinet}</dt>
- *   <dd>Auto-generates a DOT→SVG diagram from a static PetriNet field.
+ *   <dd>Auto-generates an interactive diagram from a static PetriNet,
+ *       SubnetDef, or Instance field.
  *       Usage: {@code @petrinet FIELD_NAME} or {@code @petrinet ClassName.FIELD_NAME}</dd>
  * </dl>
  *

@@ -11,27 +11,46 @@ import jdk.javadoc.doclet.Taglet;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.TypeElement;
-import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
-import java.nio.charset.StandardCharsets;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+import org.libpetri.core.Instance;
 import org.libpetri.core.NetStructure;
 import org.libpetri.core.PetriNet;
+import org.libpetri.core.SubnetDef;
+import org.libpetri.core.SubnetStructure;
 import org.libpetri.export.DotExporter;
 
 /**
  * Javadoc taglet that auto-generates Petri net diagrams from static fields.
  *
- * <p>This taglet generates DOT diagrams from {@link PetriNet} fields, converts
- * them to SVG using the {@code dot} command-line tool, and embeds the SVG inline
- * in the Javadoc output. If {@code dot} is not available on the PATH, the DOT
- * source is rendered as a {@code <pre><code>} block instead.
+ * <p>This taglet generates DOT diagrams from static fields whose value is a
+ * {@link PetriNet}, {@link SubnetDef}, or {@link Instance}, embeds the DOT
+ * source on the page, and hands rendering off to the inlined canonical
+ * {@code LibpetriViewer} bundle which converts DOT &rarr; SVG client-side
+ * (via an embedded Graphviz WASM build). No external tooling is required on
+ * the doc-generation host. The DOT source is also exposed in a collapsible
+ * {@code <details>} block beneath each diagram.
+ *
+ * <h2>Resolution paths</h2>
+ * <ol>
+ *   <li>{@link PetriNet} — full body diagram (existing behaviour).</li>
+ *   <li>{@link SubnetDef} — body diagram with the interface ports highlighted
+ *       at the cluster boundary, plus a header showing the subnet name and
+ *       declared parameter type.</li>
+ *   <li>{@link Instance} — renamed body diagram (already prefix-clustered by
+ *       the DOT exporter), plus a header showing the instance prefix, the
+ *       originating definition name, and the params summary.</li>
+ * </ol>
+ *
+ * <h2>Auto-discovery</h2>
+ * Both {@link NetStructure} and {@link SubnetStructure} fields are discovered
+ * when the tag is invoked with an empty reference. The legacy {@code @NetStructure}
+ * scan continues to work unchanged.
  *
  * <h2>Usage</h2>
  *
@@ -47,24 +66,29 @@ import org.libpetri.export.DotExporter;
  * }
  * }</pre>
  *
- * <h3>Reference a field in another class</h3>
+ * <h3>Reference a subnet definition</h3>
  * <pre>{@code
  * /**
- *  * Uses the order workflow.
+ *  * Bounded buffer subnet.
  *  *
- *  * @petrinet MyWorkflow.STRUCTURE
+ *  * @petrinet BOUNDED_BUFFER
  *  *{@literal /}
+ * public class BufferLib {
+ *     public static final SubnetDef<Void> BOUNDED_BUFFER = ...;
+ * }
  * }</pre>
  *
- * <h3>Inline usage</h3>
+ * <h3>Inline interface-only citation</h3>
  * <pre>{@code
  * /**
- *  * The workflow is defined by {@petrinet STRUCTURE}
+ *  * Wraps a {@subnet BOUNDED_BUFFER} for back-pressure.
  *  *{@literal /}
  * }</pre>
  *
  * @see DotExporter
  * @see PetriNet
+ * @see SubnetDef
+ * @see Instance
  */
 public class PetriNetTaglet implements Taglet {
 
@@ -79,7 +103,7 @@ public class PetriNetTaglet implements Taglet {
 
     @Override
     public void init(DocletEnvironment env, Doclet doclet) {
-        // DocletEnvironment not needed - we use reflection to load PetriNet classes
+        // DocletEnvironment not needed - we use reflection to load Petri net classes
     }
 
     @Override
@@ -140,80 +164,95 @@ public class PetriNetTaglet implements Taglet {
         };
     }
 
-    private String generateDiagram(String reference, Element contextElement) {
+    /**
+     * Resolves the reference and renders the diagram. Package-private so the
+     * sibling {@link SubnetTaglet} can reuse the resolution path without
+     * duplicating the reflection plumbing.
+     */
+    String generateDiagram(String reference, Element contextElement) {
         // Clean up the reference (block tags may have extra content after the field name)
         reference = reference.trim().split("\\s+")[0];
         try {
-            var petriNet = resolvePetriNet(reference, contextElement);
-            if (petriNet == null) {
+            var resolved = resolveReference(reference, contextElement);
+            if (resolved == null) {
                 var errorRef = reference.isBlank()
                         ? "(auto-discovery in " + getEnclosingClassName(contextElement) + ")"
                         : reference;
-                return errorHtml("Cannot resolve PetriNet: " + errorRef);
+                return errorHtml("Cannot resolve PetriNet/SubnetDef/Instance: " + errorRef);
             }
 
-            var dot = DotExporter.export(petriNet);
-            var svg = dotToSvg(dot);
-            if (svg != null) {
-                return DiagramRenderer.renderSvg(petriNet.name(), svg, dot);
-            }
-            // Fallback: render DOT as preformatted text
-            return DiagramRenderer.renderSvg(petriNet.name(),
-                    "<pre><code>" + DiagramRenderer.escapeHtml(dot) + "</code></pre>", dot);
-
+            return switch (resolved) {
+                case ResolvedNet net -> renderNet(net.value());
+                case ResolvedSubnetDef def -> renderSubnetDef(def.value(), false);
+                case ResolvedInstance inst -> renderInstance(inst.value());
+            };
         } catch (Exception e) {
             return errorHtml("Error generating diagram for '" + reference + "': " + e.getMessage());
         }
     }
 
     /**
-     * Converts a DOT string to SVG by invoking the {@code dot} command-line tool.
-     *
-     * @param dot the DOT source
-     * @return SVG string, or {@code null} if {@code dot} is not available
+     * Inline-only entry point used by {@link SubnetTaglet} to render an
+     * interface-only diagram for a {@link SubnetDef} field. When the resolved
+     * reference is not a SubnetDef, falls back to the regular diagram.
      */
-    private String dotToSvg(String dot) {
+    String generateInterfaceOnly(String reference, Element contextElement) {
+        reference = reference.trim().split("\\s+")[0];
         try {
-            var process = new ProcessBuilder("dot", "-Tsvg")
-                    .redirectErrorStream(true)
-                    .start();
-            process.getOutputStream().write(dot.getBytes(StandardCharsets.UTF_8));
-            process.getOutputStream().close();
-
-            var svg = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-
-            if (!process.waitFor(30, TimeUnit.SECONDS)) {
-                process.destroyForcibly();
-                LOG.log(System.Logger.Level.WARNING, "dot process timed out");
-                return null;
+            var resolved = resolveReference(reference, contextElement);
+            if (resolved == null) {
+                return errorHtml("Cannot resolve SubnetDef: " + reference);
             }
-
-            if (process.exitValue() != 0) {
-                LOG.log(System.Logger.Level.WARNING, "dot exited with code {0}: {1}",
-                        process.exitValue(), svg);
-                return null;
-            }
-
-            // Strip XML prolog and DOCTYPE — invalid inside HTML5
-            int svgStart = svg.indexOf("<svg");
-            if (svgStart > 0) svg = svg.substring(svgStart);
-
-            // Strip explicit width/height attributes (e.g. "1942pt") so the SVG
-            // scales via viewBox + CSS instead of overriding with fixed pt sizes
-            svg = svg.replaceFirst("\\s+width=\"[^\"]*\"", "");
-            svg = svg.replaceFirst("\\s+height=\"[^\"]*\"", "");
-
-            return svg;
-        } catch (IOException e) {
-            LOG.log(System.Logger.Level.DEBUG, "dot not available on PATH: {0}", e.getMessage());
-            return null;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return null;
+            return switch (resolved) {
+                case ResolvedSubnetDef def -> renderSubnetDef(def.value(), true);
+                case ResolvedNet net -> renderNet(net.value());
+                case ResolvedInstance inst -> renderInstance(inst.value());
+            };
+        } catch (Exception e) {
+            return errorHtml("Error generating subnet interface for '" + reference + "': " + e.getMessage());
         }
     }
 
-    private PetriNet resolvePetriNet(String reference, Element contextElement) {
+    // ============================================================
+    //  Rendering paths (one per resolved type)
+    // ============================================================
+    //
+    // The renderer no longer pre-renders SVG via the `dot` command-line
+    // tool. The canonical LibpetriViewer bundle (inlined by DiagramRenderer)
+    // converts DOT → SVG client-side via an embedded Graphviz WASM build,
+    // so we only need to hand it the DOT source.
+
+    private String renderNet(PetriNet petriNet) {
+        var dot = DotExporter.export(petriNet);
+        return DiagramRenderer.renderDot(petriNet.name(), dot);
+    }
+
+    private String renderSubnetDef(SubnetDef<?> def, boolean interfaceOnly) {
+        var dot = interfaceOnly
+            ? SubnetDotExport.interfaceOnly(def)
+            : SubnetDotExport.fullBody(def);
+        var header = SubnetHeader.forSubnetDef(def, interfaceOnly);
+        var title = def.name() + (interfaceOnly ? " (interface)" : "");
+        return DiagramRenderer.renderSubnetDot(title, header, dot);
+    }
+
+    private String renderInstance(Instance<?> instance) {
+        var dot = DotExporter.export(instance.renamedBody());
+        var header = SubnetHeader.forInstance(instance);
+        var title = instance.def().name() + " :: " + instance.prefix();
+        return DiagramRenderer.renderSubnetDot(title, header, dot);
+    }
+
+    // ============================================================
+    //  Reference resolution (PetriNet / SubnetDef / Instance)
+    // ============================================================
+
+    sealed interface Resolved permits ResolvedNet, ResolvedSubnetDef, ResolvedInstance {}
+    record ResolvedNet(PetriNet value) implements Resolved {}
+    record ResolvedSubnetDef(SubnetDef<?> value) implements Resolved {}
+    record ResolvedInstance(Instance<?> value) implements Resolved {}
+
+    private Resolved resolveReference(String reference, Element contextElement) {
         // Determine the class and field name
         String className;
         String fieldName;
@@ -245,48 +284,60 @@ public class PetriNetTaglet implements Taglet {
             return null;
         }
 
-        // 1. If explicit reference given, try field by name first
+        // 1. If explicit reference given, try field by name first.
         if (!reference.isBlank()) {
-            PetriNet result = tryFieldByName(clazz, fieldName);
-            if (result != null) {
-                return result;
+            var byName = tryFieldByName(clazz, fieldName);
+            if (byName != null) {
+                return byName;
             }
-            // Explicit reference didn't resolve - log before falling back to auto-discovery
             LOG.log(System.Logger.Level.DEBUG,
-                    "Explicit reference ''{0}'' not found in {1}, falling back to @NetStructure discovery",
+                    "Explicit reference ''{0}'' not found in {1}, falling back to annotation discovery",
                     fieldName, clazz.getName());
         }
 
-        // 2. Look for @NetStructure annotated field
+        // 2. Look for annotated fields (NetStructure or SubnetStructure).
         return findAnnotatedField(clazz);
     }
 
-    private PetriNet tryFieldByName(Class<?> clazz, String fieldName) {
+    private Resolved tryFieldByName(Class<?> clazz, String fieldName) {
         try {
             var field = clazz.getDeclaredField(fieldName);
             field.setAccessible(true);
-            return (PetriNet) field.get(null);
+            return wrap(field.get(null));
         } catch (NoSuchFieldException | IllegalAccessException |
                  ExceptionInInitializerError | NoClassDefFoundError e) {
             return null;
         }
     }
 
-    private PetriNet findAnnotatedField(Class<?> clazz) {
+    private Resolved findAnnotatedField(Class<?> clazz) {
         for (Field field : clazz.getDeclaredFields()) {
-            if (field.isAnnotationPresent(NetStructure.class)
-                    && Modifier.isStatic(field.getModifiers())
-                    && PetriNet.class.isAssignableFrom(field.getType())) {
-                try {
-                    field.setAccessible(true);
-                    return (PetriNet) field.get(null);
-                } catch (IllegalAccessException | ExceptionInInitializerError | NoClassDefFoundError e) {
-                    LOG.log(System.Logger.Level.DEBUG,
-                            "Failed to access @NetStructure field {0}.{1}: {2}",
-                            clazz.getName(), field.getName(), e.getMessage());
-                }
+            if (!Modifier.isStatic(field.getModifiers())) continue;
+            var hasNet = field.isAnnotationPresent(NetStructure.class);
+            var hasSubnet = field.isAnnotationPresent(SubnetStructure.class);
+            if (!hasNet && !hasSubnet) continue;
+            try {
+                field.setAccessible(true);
+                var resolved = wrap(field.get(null));
+                if (resolved != null) return resolved;
+            } catch (IllegalAccessException | ExceptionInInitializerError | NoClassDefFoundError e) {
+                LOG.log(System.Logger.Level.DEBUG,
+                        "Failed to access annotated field {0}.{1}: {2}",
+                        clazz.getName(), field.getName(), e.getMessage());
             }
         }
+        return null;
+    }
+
+    /**
+     * Wraps a field value into a {@link Resolved} or returns {@code null} when
+     * the value is not one of the supported types.
+     */
+    private static Resolved wrap(Object value) {
+        if (value == null) return null;
+        if (value instanceof PetriNet net) return new ResolvedNet(net);
+        if (value instanceof SubnetDef<?> def) return new ResolvedSubnetDef(def);
+        if (value instanceof Instance<?> inst) return new ResolvedInstance(inst);
         return null;
     }
 

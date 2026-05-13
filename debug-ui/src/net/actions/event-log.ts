@@ -74,6 +74,7 @@ function buildFilteredIndices(events: readonly NetEventInfo[], filterState: Filt
   const hasFilter = filterState.eventTypes.length > 0
     || filterState.transitionNames.length > 0
     || filterState.placeNames.length > 0
+    || filterState.instancePrefixes.length > 0
     || filterState.excludeEventTypes.length > 0
     || filterState.excludeTransitionNames.length > 0
     || filterState.excludePlaceNames.length > 0;
@@ -97,10 +98,30 @@ function matchesFilter(event: NetEventInfo, filter: FilterState): boolean {
   if (filter.eventTypes.length > 0 && !filter.eventTypes.includes(event.type)) return false;
   if (filter.transitionNames.length > 0 && event.transitionName && !filter.transitionNames.includes(event.transitionName)) return false;
   if (filter.placeNames.length > 0 && event.placeName && !filter.placeNames.includes(event.placeName)) return false;
+  if (filter.instancePrefixes.length > 0) {
+    const prefix = instancePrefixOfEvent(event);
+    if (!prefix || !filter.instancePrefixes.includes(prefix)) return false;
+  }
   if (filter.excludeEventTypes.length > 0 && filter.excludeEventTypes.includes(event.type)) return false;
   if (filter.excludeTransitionNames.length > 0 && event.transitionName && filter.excludeTransitionNames.includes(event.transitionName)) return false;
   if (filter.excludePlaceNames.length > 0 && event.placeName && filter.excludePlaceNames.includes(event.placeName)) return false;
   return true;
+}
+
+/**
+ * Derive the instance prefix for an event per `spec/11-modular-composition.md`
+ * MOD-041. Prefers an explicit `event.details.instancePrefix` (emitted by Java
+ * and TypeScript converters when the underlying node belongs to a composed
+ * instance); otherwise falls back to the substring before the last `/` of
+ * `transitionName` / `placeName`. Returns `null` when neither applies.
+ */
+export function instancePrefixOfEvent(event: NetEventInfo): string | null {
+  const explicit = event.details?.['instancePrefix'];
+  if (typeof explicit === 'string' && explicit.length > 0) return explicit;
+  const name = event.transitionName ?? event.placeName;
+  if (!name) return null;
+  const idx = name.lastIndexOf('/');
+  return idx > 0 ? name.slice(0, idx) : null;
 }
 
 /** Create a single event log entry element. */

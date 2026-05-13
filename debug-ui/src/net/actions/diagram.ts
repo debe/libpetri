@@ -1,31 +1,85 @@
 /**
- * Diagram transition actions: viz.js rendering, panzoom init, SVG cache, differential highlighting.
+ * Diagram transition actions: viewer mount, SVG cache, differential highlighting.
  *
- * The viz.js + panzoom pipeline is delegated to the shared `libpetri/render-dom`
- * module so this app and the dev-preview Vite app render diagrams identically
- * (single source of truth for visualization).
+ * Rendering + cluster overlay are delegated to the canonical
+ * {@link import('libpetri/viewer').mount} so this app renders identically to
+ * the doclet/dev-preview/rustdoc surfaces (single source of truth).
+ *
+ * The debug-ui keeps its own surrounding chrome (sidebar, panels, dark theme)
+ * so we pass `chrome: false` and translate the subnet sidebar's
+ * `subnet:collapse` / `subnet:isolate` window events (emitted by
+ * {@link import('../../dom/components/subnet-panel.js').mountSubnetPanel})
+ * into `handle.collapse` / `handle.expand` / `handle.filter` calls.
  */
 
-import { renderDotToContainer } from 'libpetri/render-dom';
+import { mount } from 'libpetri/viewer';
 import { shared } from '../shared-state.js';
 import { el } from '../../dom/elements.js';
 import type { SvgNodeCache, UIState, SessionData } from '../types.js';
 
+/** Lazily-attached, app-scoped translation of subnet sidebar events. */
+let subnetListenersAttached = false;
+
 /**
- * Render DOT string to SVG and initialize panzoom.
+ * Render DOT string to SVG, attach panzoom, surface cluster overlay controls.
  *
  * Layout is deterministic across reloads; libpetri servers emit byte-stable DOT
  * (per spec EXP-014) and the 'dot' engine produces identical layout for identical input.
  */
 export async function renderDotDiagram(dotSource: string): Promise<void> {
-  const { svg, panzoom } = await renderDotToContainer(dotSource, el.dotDiagram, {
-    previousPanzoom: shared.panzoomInstance,
+  const previousHandle = shared.viewerHandle;
+
+  const handle = await mount(dotSource, el.dotDiagram, {
+    previousHandle,
+    chrome: false,
   });
 
-  shared.panzoomInstance = panzoom;
-  shared.svgNodeCache = buildSvgNodeCache(svg);
+  shared.viewerHandle = handle;
+  shared.svgNodeCache = buildSvgNodeCache(handle.svg);
+
+  attachSubnetListeners();
 
   el.noSession.classList.add('hidden');
+}
+
+/**
+ * Translate the subnet sidebar's window events (`subnet:collapse` /
+ * `subnet:isolate`, dispatched by `mountSubnetPanel`) into method calls on
+ * the live `shared.viewerHandle`. Both events toggle: re-firing the same
+ * event reverses the action.
+ *
+ * Attached lazily on first render; listeners live for the lifetime of the
+ * tab and operate on whichever handle is currently live in `shared`.
+ */
+function attachSubnetListeners(): void {
+  if (subnetListenersAttached) return;
+  subnetListenersAttached = true;
+
+  window.addEventListener('subnet:collapse', (ev: Event) => {
+    const detail = (ev as CustomEvent<{ prefix: string }>).detail;
+    const prefix = detail?.prefix;
+    if (!prefix) return;
+    const handle = shared.viewerHandle;
+    if (!handle) return;
+    if (handle.collapsedPrefixes.has(prefix)) {
+      handle.expand(prefix);
+    } else {
+      handle.collapse(prefix);
+    }
+  });
+
+  window.addEventListener('subnet:isolate', (ev: Event) => {
+    const detail = (ev as CustomEvent<{ prefix: string }>).detail;
+    const prefix = detail?.prefix;
+    if (!prefix) return;
+    const handle = shared.viewerHandle;
+    if (!handle) return;
+    if (handle.activeFilter === prefix) {
+      handle.filter(null);
+    } else {
+      handle.filter(prefix);
+    }
+  });
 }
 
 /**
@@ -77,6 +131,7 @@ function buildSvgNodeCache(svg: SVGSVGElement): SvgNodeCache {
 /** Differential SVG highlighting based on current state. */
 export function updateDiagramHighlighting(uiState: UIState, session: SessionData | null): void {
   const cache = shared.svgNodeCache;
+  const handle = shared.viewerHandle;
   if (!cache || !session) return;
 
   // 1. Reset previously highlighted elements (differential: O(prev) not O(all))
@@ -106,6 +161,10 @@ export function updateDiagramHighlighting(uiState: UIState, session: SessionData
 
     const node = cache.nodesByGraphId.get(placeInfo.graphId);
     if (!node) continue;
+    // Skip nodes inside a collapsed cluster — their shapes are detached
+    // from the live SVG so painting stroke/filter has no visible effect
+    // and would just dirty the prevHighlighted set with stale references.
+    if (handle?.isInsideCollapsedCluster(placeInfo.graphId)) continue;
 
     const shapes = node.querySelectorAll('ellipse, polygon, rect');
     for (const shape of shapes) {
@@ -122,6 +181,7 @@ export function updateDiagramHighlighting(uiState: UIState, session: SessionData
 
     const node = cache.nodesByGraphId.get(tInfo.graphId);
     if (!node) continue;
+    if (handle?.isInsideCollapsedCluster(tInfo.graphId)) continue;
 
     const shapes = node.querySelectorAll('ellipse, polygon, rect');
     for (const shape of shapes) {
@@ -145,6 +205,7 @@ export function updateDiagramHighlighting(uiState: UIState, session: SessionData
 
     const node = cache.nodesByGraphId.get(tInfo.graphId);
     if (!node) continue;
+    if (handle?.isInsideCollapsedCluster(tInfo.graphId)) continue;
 
     const shapes = node.querySelectorAll('ellipse, polygon, rect');
     for (const shape of shapes) {
@@ -167,10 +228,7 @@ export function updateDiagramHighlighting(uiState: UIState, session: SessionData
   shared.prevHighlighted = { shapes: newShapes, edges: newEdges };
 }
 
-/** Reset zoom on panzoom instance. */
+/** Reset zoom on the active viewer handle. */
 export function resetZoom(): void {
-  if (shared.panzoomInstance) {
-    shared.panzoomInstance.zoomAbs(0, 0, 1);
-    shared.panzoomInstance.moveTo(0, 0);
-  }
+  shared.viewerHandle?.resetZoom();
 }

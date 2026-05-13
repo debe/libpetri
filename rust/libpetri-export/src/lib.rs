@@ -69,8 +69,10 @@
 //! - **Dot-headed** arrows — inhibitor arcs
 //! - **Double** arrows — reset arcs
 
+pub mod cluster_builder;
 pub mod dot_exporter;
 pub mod dot_renderer;
 pub mod graph;
 pub mod mapper;
 pub mod styles;
+pub mod subnet_prefixes;

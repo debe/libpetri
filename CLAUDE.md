@@ -89,6 +89,48 @@ scripts/build-debug-ui.sh
 cd debug-ui && npm ci && npm run build
 ```
 
+### Viewer (`typescript/src/viewer/`)
+
+Canonical Petri-net diagram viewer — **one source of truth** for DOT→SVG
+rendering plus the cluster overlay (collapse/expand, isolate filter,
+deterministic per-prefix HSL palette, legend, filter chips). Used by:
+
+- `debug-ui` (live debug sessions)
+- `dev-preview` (Vite iteration loop)
+- Java javadoc taglet (`DiagramRenderer.java`)
+- Rust docgen (`libpetri-docgen`)
+- TypeScript doclet plugin
+
+Two build outputs feed those consumers:
+
+- **ESM**: `typescript/dist/viewer/index.{js,d.ts}` — imported as `libpetri/viewer`
+  by bundled consumers (debug-ui, dev-preview, TS doclet at build time).
+- **IIFE**: `typescript/dist/viewer/viewer.iife.js` — self-contained, inlines
+  `@viz-js/viz` (Graphviz WASM is shipped as a base64 blob inside viz.js, so
+  no sidecar `.wasm` file is needed) + `panzoom`. Exposes
+  `window.LibpetriViewer = { mount, discoverClusters, colorForPrefix, … }`.
+  This is what Java javadoc and Rust docgen embed for offline doc pages.
+- **CSS**: `typescript/dist/viewer/viewer.css` — single canonical stylesheet
+  using `--lpv-*` CSS custom properties for theming.
+
+```bash
+# Build the viewer + distribute to all three doc-generator resource dirs.
+# Replaces petrinet-diagrams.{js,css} in each. Diff-verified byte-identical.
+scripts/build-viewer.sh
+```
+
+**Hard rule**: edits to viewer behaviour **must** happen in
+`typescript/src/viewer/`. The three resource directories below are
+**build outputs** and must not be hand-edited; the build script overwrites
+them:
+
+- `java/src/main/resources/javadoc/petrinet-diagrams.{js,css}`
+- `rust/libpetri-docgen/resources/petrinet-diagrams.{js,css}`
+- `typescript/src/doclet/resources/petrinet-diagrams.{js,css}`
+
+Each consumer loads the file as before (no path change) — only the file
+contents change, and they're identical across the three destinations.
+
 ## Specification
 
 `spec/` contains 10 spec files with requirement prefixes: CORE, IO, TIME, EXEC, CONC, ENV, VER, EVT, EXP, PERF. Requirements use MUST/SHOULD/MAY priority and have testable acceptance criteria. Cross-references use `[PREFIX-NNN]` format.
