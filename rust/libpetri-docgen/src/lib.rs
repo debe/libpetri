@@ -489,7 +489,10 @@ mod tests {
 
         assert!(path.exists());
         let content = fs::read_to_string(&path).unwrap();
-        assert!(content.contains("<svg") || content.contains("<pre><code>"));
+        assert!(
+            content.contains("<svg")
+                || content.contains("<pre><code class=\"language-text\">")
+        );
         fs::remove_file(path).ok();
     }
 }
