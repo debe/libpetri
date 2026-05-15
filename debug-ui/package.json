@@ -12,19 +12,19 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@viz-js/viz": "^3.11.0",
+    "@viz-js/viz": "^3.27.0",
     "libpetri": "file:../typescript",
-    "panzoom": "^9.4.3"
+    "panzoom": "^9.4.4"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.0.0",
-    "tailwindcss": "^4.0.0",
-    "tsx": "^4.19.0",
-    "typedoc": "^0.28.0",
-    "typescript": "^5.7.0",
-    "happy-dom": "^17.4.4",
-    "vite": "^6.0.0",
-    "vite-plugin-singlefile": "^2.3.0",
-    "vitest": "^3.0.0"
+    "@tailwindcss/vite": "^4.3.0",
+    "tailwindcss": "^4.3.0",
+    "tsx": "^4.22.0",
+    "typedoc": "^0.28.19",
+    "typescript": "^5.9.3",
+    "happy-dom": "^20.9.0",
+    "vite": "^8.0.13",
+    "vite-plugin-singlefile": "^2.3.3",
+    "vitest": "^4.1.6"
   }
 }
