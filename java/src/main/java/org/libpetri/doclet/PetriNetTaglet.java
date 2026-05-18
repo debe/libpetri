@@ -11,11 +11,19 @@ import jdk.javadoc.doclet.Taglet;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.TypeElement;
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.nio.charset.StandardCharsets;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 import org.libpetri.core.Instance;
@@ -94,6 +102,32 @@ public class PetriNetTaglet implements Taglet {
 
     private static final String NAME = "petrinet";
     private static final System.Logger LOG = System.getLogger(PetriNetTaglet.class.getName());
+
+    /**
+     * Cached {@code dot} availability probe result.
+     * <ul>
+     *   <li>{@code null} — not yet probed; next call to {@link #tryDotRender}
+     *       will attempt to invoke {@code dot}.</li>
+     *   <li>{@code Boolean.TRUE} — at least one successful render has
+     *       completed; further calls go straight to invocation.</li>
+     *   <li>{@code Boolean.FALSE} — the binary is missing or wedged; all
+     *       further calls short-circuit to {@link Optional#empty()} so the
+     *       taglet falls back to the DOT-embed path.</li>
+     * </ul>
+     * A non-zero exit code from {@code dot} on a particular diagram does
+     * <strong>not</strong> poison the cache — it's likely a malformed input,
+     * not a missing binary, so the next diagram still gets a fair attempt.
+     */
+    private static volatile Boolean dotAvailable;
+
+    /**
+     * Memoizes successful renders so the same DOT source isn't forked through
+     * {@code dot} twice. A single net field can be referenced from many javadoc
+     * pages; without this cache each reference costs another process fork.
+     * Empty results are cached too — a per-diagram failure is deterministic
+     * for that DOT input, so re-running can't recover.
+     */
+    private static final ConcurrentHashMap<String, Optional<String>> svgCache = new ConcurrentHashMap<>();
 
     /**
      * Required public no-arg constructor.
@@ -217,14 +251,20 @@ public class PetriNetTaglet implements Taglet {
     //  Rendering paths (one per resolved type)
     // ============================================================
     //
-    // The renderer no longer pre-renders SVG via the `dot` command-line
-    // tool. The canonical LibpetriViewer bundle (inlined by DiagramRenderer)
-    // converts DOT → SVG client-side via an embedded Graphviz WASM build,
-    // so we only need to hand it the DOT source.
+    // Hybrid render strategy: try to pre-render the DOT source into SVG via
+    // the `dot` command-line tool at doc-generation time; on success embed
+    // the SVG raw via DiagramRenderer.renderSvg (slim viewer bundle, no
+    // Graphviz WASM on page load); on failure or missing binary, fall back
+    // to the client-render path via DiagramRenderer.renderDot which embeds
+    // the DOT source as a data-dot attribute and lets the in-page viewer
+    // bundle render it via its embedded Graphviz WASM build.
 
     private String renderNet(PetriNet petriNet) {
         var dot = DotExporter.export(petriNet);
-        return DiagramRenderer.renderDot(petriNet.name(), dot);
+        var svg = tryDotRender(dot);
+        return svg.isPresent()
+            ? DiagramRenderer.renderSvg(petriNet.name(), svg.get(), dot)
+            : DiagramRenderer.renderDot(petriNet.name(), dot);
     }
 
     private String renderSubnetDef(SubnetDef<?> def, boolean interfaceOnly) {
@@ -233,14 +273,141 @@ public class PetriNetTaglet implements Taglet {
             : SubnetDotExport.fullBody(def);
         var header = SubnetHeader.forSubnetDef(def, interfaceOnly);
         var title = def.name() + (interfaceOnly ? " (interface)" : "");
-        return DiagramRenderer.renderSubnetDot(title, header, dot);
+        var svg = tryDotRender(dot);
+        return svg.isPresent()
+            ? DiagramRenderer.renderSubnetSvg(title, header, svg.get(), dot)
+            : DiagramRenderer.renderSubnetDot(title, header, dot);
     }
 
     private String renderInstance(Instance<?> instance) {
         var dot = DotExporter.export(instance.renamedBody());
         var header = SubnetHeader.forInstance(instance);
         var title = instance.def().name() + " :: " + instance.prefix();
-        return DiagramRenderer.renderSubnetDot(title, header, dot);
+        var svg = tryDotRender(dot);
+        return svg.isPresent()
+            ? DiagramRenderer.renderSubnetSvg(title, header, svg.get(), dot)
+            : DiagramRenderer.renderSubnetDot(title, header, dot);
+    }
+
+    /**
+     * Attempts to pre-render the supplied DOT source into SVG via the
+     * {@code dot} command-line tool. Package-private so the sibling test
+     * class can drive it directly.
+     *
+     * <p>Failure semantics:
+     * <ul>
+     *   <li>If {@code dot} is not on {@code PATH} the {@link ProcessBuilder}
+     *       throws an {@link IOException} and the cache is poisoned so all
+     *       subsequent calls short-circuit.</li>
+     *   <li>If {@code dot} runs but exits non-zero (typically a malformed
+     *       diagram) the call returns {@link Optional#empty()} but does
+     *       <strong>not</strong> poison the cache.</li>
+     *   <li>If {@code dot} wedges past 30 seconds the process is killed and
+     *       the cache is poisoned (a wedged binary is functionally missing).</li>
+     *   <li>On success the cache flips to {@link Boolean#TRUE} and the SVG
+     *       bytes are returned UTF-8 decoded.</li>
+     * </ul>
+     *
+     * @param dot the DOT source code
+     * @return the rendered SVG, or {@link Optional#empty()} if {@code dot} is
+     *     unavailable or rendering failed
+     */
+    static Optional<String> tryDotRender(String dot) {
+        if (Boolean.FALSE.equals(dotAvailable)) {
+            return Optional.empty();
+        }
+        return svgCache.computeIfAbsent(dot, PetriNetTaglet::doDotRender);
+    }
+
+    private static Optional<String> doDotRender(String dot) {
+        Process process = null;
+        try {
+            // Drain stderr separately rather than merging into stdout — `dot`
+            // emits warnings (font-not-found, etc.) routinely, and merging
+            // would corrupt the SVG bytes. Without a stderr drain at all, the
+            // ~64 KB OS pipe fills, dot blocks in write(), waitFor(30s) kills
+            // it, and the cache flips to FALSE — silently disabling the
+            // pre-render path for the rest of the doc build.
+            var pb = new ProcessBuilder("dot", "-Tsvg").redirectErrorStream(false);
+            process = pb.start();
+
+            var p = process;
+            CompletableFuture<String> outFuture = CompletableFuture.supplyAsync(() -> {
+                try {
+                    return new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            CompletableFuture<String> errFuture = CompletableFuture.supplyAsync(() -> {
+                try {
+                    return new String(p.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
+                } catch (IOException e) {
+                    return "";
+                }
+            });
+
+            try (var out = process.getOutputStream()) {
+                out.write(dot.getBytes(StandardCharsets.UTF_8));
+            }
+
+            if (!process.waitFor(30, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                dotAvailable = false; // a wedged dot is as good as missing
+                return Optional.empty();
+            }
+
+            if (process.exitValue() != 0) {
+                // Per-diagram failure (bad input) — don't poison the cache.
+                var stderr = errFuture.getNow("");
+                if (!stderr.isBlank()) {
+                    LOG.log(System.Logger.Level.DEBUG, "dot exit {0}: {1}",
+                            process.exitValue(), stderr);
+                }
+                return Optional.empty();
+            }
+
+            dotAvailable = true;
+            var svg = outFuture.get(1, TimeUnit.SECONDS);
+            var stderr = errFuture.getNow("");
+            if (!stderr.isBlank()) {
+                LOG.log(System.Logger.Level.DEBUG, "dot warnings: {0}", stderr);
+            }
+            return Optional.of(svg);
+        } catch (IOException e) {
+            // `dot` not on PATH (typical "command not found"). Poison cache.
+            dotAvailable = false;
+            return Optional.empty();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            if (process != null) process.destroyForcibly();
+            return Optional.empty();
+        } catch (ExecutionException | TimeoutException e) {
+            if (process != null) process.destroyForcibly();
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Resets the cached {@code dot} availability probe. Package-private hook
+     * for tests; production code never calls this.
+     */
+    static void resetDotAvailability() {
+        dotAvailable = null;
+        svgCache.clear();
+    }
+
+    /**
+     * Reads the cached {@code dot} availability probe result without
+     * triggering a probe. Package-private accessor for tests; production
+     * code never calls this.
+     *
+     * @return {@code null} if not yet probed; {@link Boolean#TRUE} if a
+     *     probe succeeded; {@link Boolean#FALSE} if the binary is missing
+     *     or wedged
+     */
+    static Boolean dotAvailableCache() {
+        return dotAvailable;
     }
 
     // ============================================================

@@ -25,10 +25,15 @@ echo "==> Building canonical viewer (typescript/)..."
 (cd "$REPO_ROOT/typescript" && npm run build:viewer)
 
 VIEWER_JS="$REPO_ROOT/typescript/dist/viewer/viewer.iife.js"
+VIEWER_STATIC_JS="$REPO_ROOT/typescript/dist/viewer/viewer-static.iife.js"
 VIEWER_CSS="$REPO_ROOT/typescript/dist/viewer/viewer.css"
 
 if [[ ! -f "$VIEWER_JS" ]]; then
   echo "ERROR: $VIEWER_JS missing after build" >&2
+  exit 1
+fi
+if [[ ! -f "$VIEWER_STATIC_JS" ]]; then
+  echo "ERROR: $VIEWER_STATIC_JS missing after build" >&2
   exit 1
 fi
 if [[ ! -f "$VIEWER_CSS" ]]; then
@@ -48,6 +53,14 @@ for dest in "${DESTS[@]}"; do
   cp "$VIEWER_CSS" "$dest/petrinet-diagrams.css"
   echo "==> Wrote $dest/petrinet-diagrams.{js,css}"
 done
+
+# Slim bundle: only the Java javadoc taglet currently pre-renders SVG via
+# `dot -Tsvg` and inlines this stripped-down viewer (WASM blob stubbed out).
+# Rust/TS doc generators have no pre-render path yet, so they don't consume
+# it — adding the file to their resources would just bloat the published
+# crate / npm package. Wire them up here when a consumer lands.
+cp "$VIEWER_STATIC_JS" "${DESTS[0]}/petrinet-diagrams-static.js"
+echo "==> Wrote ${DESTS[0]}/petrinet-diagrams-static.js (Java-only)"
 
 echo "==> Verifying byte-identical mirrors..."
 diff "${DESTS[0]}/petrinet-diagrams.js"  "${DESTS[1]}/petrinet-diagrams.js"  >/dev/null
