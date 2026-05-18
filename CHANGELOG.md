@@ -1,6 +1,8 @@
 # Changelog
 
-## 2.0.0 (unreleased)
+## 2.0.0
+
+*Released 2026-05-18*
 
 **libpetri 2.0 is about modular composition.** You can now build large
 Petri nets the way you build large programs — by writing small reusable
@@ -115,6 +117,20 @@ declared input ports from environment generators, and runs the standard
 Z3/SMT verifier. You get back a `VerificationResult` with per-property
 outcomes plus `allHold()` / `firstFailure()` shortcuts. Verifying an
 already-composed flat net works exactly like 1.x — no API change there.
+
+### Faster doc pages: pre-rendered SVG
+
+The Java javadoc taglet now pre-renders each diagram at doc-generation
+time when `dot` is on `PATH`, embedding the resulting SVG directly and
+shipping a slim `viewer-static.iife.js` bundle (~26KB) that drops the
+inlined Graphviz WASM. Page-load latency drops dramatically on doc
+pages with many `{@petrinet ...}` references. When `dot` isn't
+available the taglet transparently falls back to client-side rendering
+with the full bundle — no configuration needed.
+
+The viewer's `mount()` now accepts `null` as the DOT source (adopts an
+existing `<svg>` child), and gains a `fit()` method plus built-in
+Reset and Fullscreen chrome buttons when `chrome:true`.
 
 ### Migration from 1.x
 
