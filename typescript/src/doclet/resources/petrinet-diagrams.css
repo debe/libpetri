@@ -83,7 +83,35 @@
   height: 100%;
 }
 
-.petrinet-diagram .diagram-controls {
+/* 2.0 mount target — the host div emitted by the Java/Rust/TS doclet
+   taglets. Needs the same sizing constraints as the legacy
+   .diagram-container, otherwise the host grows to the Graphviz-emitted
+   SVG intrinsic size and produces a 9000+ px tall column. With this
+   rule the SVG fills the constrained host and viewBox auto-fits. */
+.petrinet-diagram-viewer {
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 70vh;
+  min-height: 400px;
+  max-height: 700px;
+  overflow: hidden;
+  background: var(--lpv-bg);
+  border: 1px solid var(--lpv-border);
+  border-radius: 4px;
+}
+
+/* Override Graphviz's explicit pt width/height on the rendered SVG.
+   Without this the SVG retains its intrinsic 5021pt × 7203pt size,
+   defeating the host height constraint. */
+.petrinet-diagram-viewer > svg {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.petrinet-diagram .diagram-controls,
+.libpetri-viewer .diagram-controls {
   position: absolute;
   top: 8px;
   right: 8px;
@@ -92,7 +120,8 @@
   z-index: 10;
 }
 
-.petrinet-diagram .diagram-btn {
+.petrinet-diagram .diagram-btn,
+.libpetri-viewer .diagram-btn {
   padding: 6px 10px;
   border: 1px solid #ccc;
   border-radius: 4px;
@@ -102,7 +131,8 @@
   min-width: 32px;
 }
 
-.petrinet-diagram .diagram-btn:hover {
+.petrinet-diagram .diagram-btn:hover,
+.libpetri-viewer .diagram-btn:hover {
   background: #e8e8e8;
 }
 
@@ -152,6 +182,15 @@
 .diagram-fullscreen svg {
   max-width: none;
   max-height: none;
+}
+
+/* 2.0 host is the mount target itself (no .diagram-container wrapper),
+   so size the direct child SVG to fill the viewport in fullscreen. */
+.libpetri-viewer.diagram-fullscreen > svg {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
 }
 
 /* Zoom indicator */

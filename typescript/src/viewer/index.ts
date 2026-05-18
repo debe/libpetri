@@ -24,7 +24,6 @@
  * @module viewer
  */
 
-import { renderDotToSvg } from './render.js';
 import {
   attachPanzoom,
   DEFAULT_PANZOOM_OPTS,
@@ -74,6 +73,8 @@ export interface ViewerHandle {
   filter(prefix: string | null): void;
   /** Reset pan/zoom to the identity transform. */
   resetZoom(): void;
+  /** Scale and translate so the full diagram fits the host viewport. */
+  fit(): void;
   /** Reports whether `graphId` is inside a currently-collapsed cluster. */
   isInsideCollapsedCluster(graphId: string): boolean;
   /** Tear down: dispose panzoom and detach listeners. */
@@ -105,9 +106,20 @@ export interface MountOptions {
  *
  * The container's existing children are removed before the new SVG is
  * appended (the same teardown behaviour `renderDotToContainer` used to provide).
+ *
+ * Pass `dotSource === null` to adopt an SVG already present as a direct child
+ * of `container` (pre-rendered SVG path — e.g. the Java javadoc taglet emits
+ * `dot -Tsvg` at build time). In that mode the viewer never imports the
+ * runtime DOT renderer, which lets the static IIFE bundle drop `@viz-js/viz`
+ * entirely.
+ *
+ * NOTE: when shipping a pre-rendered SVG (`dotSource === null`), do NOT also
+ * pass `previousHandle` — the handle's `dispose()` runs before SVG detection
+ * and would orphan the host. The Java taglet mounts once per page so this is
+ * a non-issue in practice.
  */
 export async function mount(
-  dotSource: string,
+  dotSource: string | null,
   container: HTMLElement,
   opts: MountOptions = {},
 ): Promise<ViewerHandle> {
@@ -121,10 +133,25 @@ export async function mount(
     previousHandle.dispose();
   }
 
-  const svg = await renderDotToSvg(dotSource);
-
-  container.innerHTML = '';
-  container.appendChild(svg);
+  // Gate on dotSource (not on "SVG present") — debug-ui re-renders by
+  // passing DOT with `previousHandle` and the leftover SVG must NOT be
+  // misread as pre-rendered. Java passes literal `null` for the
+  // pre-rendered path.
+  let svg: SVGSVGElement;
+  const existing = container.querySelector(':scope > svg');
+  if (dotSource == null) {
+    if (!(existing instanceof SVGSVGElement)) {
+      throw new Error('mount: no DOT source and no pre-rendered SVG');
+    }
+    svg = existing;
+  } else {
+    // Dynamic import so the static IIFE entry can alias './render.js' to a
+    // throwing stub and drop the @viz-js/viz dependency.
+    const { renderDotToSvg } = await import('./render.js');
+    svg = await renderDotToSvg(dotSource);
+    container.innerHTML = '';
+    container.appendChild(svg);
+  }
   // Tag the host so the canonical CSS (which scopes to .libpetri-viewer)
   // applies even when the consumer didn't wrap us in a .petrinet-diagram.
   container.classList.add('libpetri-viewer');
@@ -162,6 +189,28 @@ export async function mount(
     strip.innerHTML = '<span class="filter-strip-label">Show only:</span>';
     chromeRoot.appendChild(strip);
 
+    const controls = document.createElement('div');
+    controls.className = 'diagram-controls';
+    controls.style.pointerEvents = 'auto';
+    const resetBtn = document.createElement('button');
+    resetBtn.type = 'button';
+    resetBtn.className = 'diagram-btn btn-reset';
+    resetBtn.title = 'Reset view';
+    resetBtn.textContent = 'Reset';
+    // Reset = return to the meaningful default (fit-to-host), not the
+    // mathematical identity transform. `resetZoom()` stays on the handle
+    // API for callers that want raw identity.
+    resetBtn.addEventListener('click', () => handle.fit());
+    const fsBtn = document.createElement('button');
+    fsBtn.type = 'button';
+    fsBtn.className = 'diagram-btn btn-fullscreen';
+    fsBtn.title = 'Toggle fullscreen';
+    fsBtn.textContent = 'Fullscreen';
+    fsBtn.addEventListener('click', () => toggleFullscreen(container, fsBtn));
+    controls.appendChild(resetBtn);
+    controls.appendChild(fsBtn);
+    chromeRoot.appendChild(controls);
+
     // Position parent must be relative for the absolute chrome to anchor.
     if (getComputedStyle(container).position === 'static') {
       container.style.position = 'relative';
@@ -170,6 +219,19 @@ export async function mount(
 
     renderLegend(legend);
     renderFilterStrip(strip);
+  }
+
+  // In-page lightbox fullscreen: toggle a CSS class on the host and
+  // re-fit. We deliberately don't invoke the native Fullscreen API —
+  // users want the diagram to expand inside the page, not yank the
+  // browser into OS-level fullscreen.
+  function toggleFullscreen(host: HTMLElement, btn: HTMLButtonElement): void {
+    const isFs = host.classList.toggle('diagram-fullscreen');
+    btn.textContent = isFs ? 'Exit fullscreen' : 'Fullscreen';
+    // Re-fit on both enter and exit — the available area changed, so the
+    // previous transform is no longer the right size. Defer a frame so
+    // flex layout settles before getBBox + clientWidth/Height reads.
+    requestAnimationFrame(() => handle.fit());
   }
 
   function renderLegend(legend: HTMLElement): void {
@@ -308,6 +370,19 @@ export async function mount(
         // panzoom internals can throw if the element was detached; ignore.
       }
     },
+    fit(): void {
+      if (disposed) return;
+      try {
+        // With the host CSS-sized and the SVG forced to width/height: 100%
+        // (see .petrinet-diagram-viewer rules in viewer.css), the browser
+        // auto-fits viewBox content via preserveAspectRatio="xMidYMid meet".
+        // "Fit" is therefore the panzoom identity transform — no math needed.
+        panzoomInstance.zoomAbs(0, 0, 1);
+        panzoomInstance.moveTo(0, 0);
+      } catch {
+        // panzoom internals can throw if the element was detached; ignore.
+      }
+    },
     isInsideCollapsedCluster(graphId: string): boolean {
       return overlayIsInsideCollapsedCluster(svg, clusters, collapsedPrefixes, graphId);
     },
@@ -336,6 +411,11 @@ export async function mount(
   }
 
   ensureChrome();
+
+  // Default state: fit-to-host. Huge diagrams shouldn't mount at 1:1
+  // (the user only sees the top-left corner). Deferred a frame so the
+  // SVG has been laid out before getBBox + clientWidth/Height reads.
+  requestAnimationFrame(() => handle.fit());
 
   return handle;
 }

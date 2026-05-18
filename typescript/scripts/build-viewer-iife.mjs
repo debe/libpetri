@@ -1,39 +1,36 @@
 #!/usr/bin/env node
 /**
- * Build the self-contained IIFE bundle of the canonical viewer.
+ * Build the self-contained IIFE bundle(s) of the canonical viewer.
  *
- * Output: typescript/dist/viewer/viewer.iife.js
+ * Outputs:
+ *  - typescript/dist/viewer/viewer.iife.js
+ *      Full bundle — inlines @viz-js/viz (Graphviz WASM as a base64 blob
+ *      inside the JS, no sidecar .wasm needed) and panzoom. ~1.5 MB.
+ *      Exposes `window.LibpetriViewer`.
+ *  - typescript/dist/viewer/viewer-static.iife.js
+ *      Slim bundle — drops @viz-js/viz by aliasing `./render.js` to the
+ *      throwing stub `./render-stub.ts`. Intended for pages that ship a
+ *      pre-rendered <svg> (Java javadoc taglet running `dot -Tsvg` at
+ *      build time). Exposes the SAME `window.LibpetriViewer` global so
+ *      the Java init script doesn't need to know which bundle loaded.
+ *      Callers must invoke `mount(null, container, opts)`.
  *
- * The bundle inlines:
- *  - @viz-js/viz (which itself ships the Graphviz WASM as a base64 blob
- *    inside the JS, so no sidecar .wasm file is required), and
- *  - panzoom (small DOM library).
- *
- * Exposes:
- *   window.LibpetriViewer = { mount, discoverClusters, colorForPrefix,
- *                             DEFAULT_PANZOOM_OPTS, VIEWER_CSS_VARIABLES };
- *
- * This bundle is what the Java/Rust doc-generators embed (as
- * `petrinet-diagrams.js`). It must work offline — no CDN fetches, no
- * external WASM file. Verified by inspecting node_modules/@viz-js/viz/dist:
- * `viz-global.js` is a 1.4MB single file with the WASM payload embedded as
- * a base64 string; esbuild bundles it intact.
- *
- * We also copy the canonical CSS to dist/viewer/viewer.css so consumers
+ * Also copies the canonical CSS to dist/viewer/viewer.css so consumers
  * can ship it alongside the JS bundle.
  */
 import { build } from 'esbuild';
 import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const tsRoot = join(here, '..');
 const outDir = join(tsRoot, 'dist', 'viewer');
 mkdirSync(outDir, { recursive: true });
 
-// Small adapter so the IIFE bundle exposes the public surface on window.
 const banner = `/*! libpetri viewer (IIFE) — generated, do not edit; source: typescript/src/viewer/ */`;
+
+// -- Full bundle --------------------------------------------------------------
 
 const entryShim = join(outDir, '.iife-entry.js');
 writeFileSync(
@@ -60,14 +57,68 @@ await build({
   logLevel: 'info',
 });
 
-// Remove the throw-away entry shim now that esbuild has consumed it.
 rmSync(entryShim, { force: true });
 
-// Copy the canonical CSS next to the IIFE.
+// -- Slim (static) bundle -----------------------------------------------------
+
+const staticEntryShim = join(outDir, '.iife-entry-static.js');
+writeFileSync(
+  staticEntryShim,
+  `import * as Viewer from '${join(tsRoot, 'src', 'viewer', 'index-static.ts').replace(/\\/g, '/')}';
+globalThis.LibpetriViewer = Viewer;
+`,
+);
+
+// Remap `./render.js` (referenced via dynamic `await import('./render.js')`
+// inside `mount()`) to the throwing stub. esbuild's `alias:` config key only
+// applies to package specifiers, so we use the documented `onResolve` plugin
+// pattern for relative paths. `external: ['@viz-js/viz']` is belt-and-braces:
+// if the stub fails to take, esbuild errors out at build time instead of
+// silently bundling viz.js.
+const renderStubPath = resolve(tsRoot, 'src', 'viewer', 'render-stub.ts');
+const renderStubPlugin = {
+  name: 'render-stub',
+  setup(b) {
+    b.onResolve({ filter: /(^|\/)render(\.js)?$/ }, (args) => {
+      // Only remap when the import originates inside our viewer directory,
+      // so we don't accidentally hijack unrelated `./render` imports from
+      // third-party deps. Normalize backslashes so the check works on
+      // Windows (where args.importer carries native separators).
+      const importerNorm = args.importer.replace(/\\/g, '/');
+      if (!importerNorm.includes('src/viewer/')) {
+        return null;
+      }
+      return { path: renderStubPath };
+    });
+  },
+};
+
+await build({
+  entryPoints: [staticEntryShim],
+  bundle: true,
+  format: 'iife',
+  platform: 'browser',
+  target: ['es2022'],
+  outfile: join(outDir, 'viewer-static.iife.js'),
+  loader: { '.wasm': 'binary' },
+  banner: { js: banner },
+  minify: true,
+  sourcemap: false,
+  legalComments: 'none',
+  external: ['@viz-js/viz'],
+  plugins: [renderStubPlugin],
+  logLevel: 'info',
+});
+
+rmSync(staticEntryShim, { force: true });
+
+// -- CSS ----------------------------------------------------------------------
+
 copyFileSync(
   join(tsRoot, 'src', 'viewer', 'resources', 'viewer.css'),
   join(outDir, 'viewer.css'),
 );
 
 console.log('Built', join(outDir, 'viewer.iife.js'));
+console.log('Built', join(outDir, 'viewer-static.iife.js'));
 console.log('Built', join(outDir, 'viewer.css'));
