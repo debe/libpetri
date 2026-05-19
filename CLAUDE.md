@@ -161,8 +161,8 @@ the implementation's existing `Place` equality:
 This divergence is documented in MOD-024 (last paragraph of the body, the
 SHOULD note on "implementations whose Place equality is name-only"). A future
 breaking change that adds `tokenType` to TS Place and `TypeId` to Rust Place
-would close this gap and warrant a coordinated TS/Rust 3.0 release; Java is
-already on 2.3 with the additive MOD-024 overload, so its semver is unaffected.
+would close this gap and warrant a coordinated TS/Rust 3.0 release. All three
+languages are on 2.3.x with the additive MOD-024 overload.
 
 ## Key Conventions
 
