@@ -192,6 +192,90 @@ public final class PetriNet {
         }
 
         /**
+         * Composes a subnet {@link Instance} into this builder using
+         * <b>identity-default port inference</b> per <b>MOD-024</b>.
+         *
+         * <p>Each declared interface port auto-binds to its own
+         * {@code port.place()} — the {@link Place} the SubnetDef builder
+         * declared via {@code .inputPort(name, hostPlace)} (or {@code
+         * outputPort} / {@code inoutPort}). That place is the SubnetDef's
+         * statement of "which host place this port shares with." If the host
+         * builder already has an equal place declared, the two merge by
+         * {@link Place} record equality; if not, the place arrives implicitly
+         * via the rewritten transitions' arcs (same flow as explicit
+         * {@code bindPort}).
+         *
+         * <p>If the subnet declares no interface ports at all, every body
+         * place is checked against this builder's place set; matches are
+         * auto-bound, the rest stay private (prefix-renamed). This supports
+         * SubnetDefs that omit explicit {@code inputPort/outputPort/inoutPort}
+         * declarations and rely entirely on body-level place identity.
+         *
+         * <h3>Channels (MOD-021)</h3>
+         * <p>This overload does <b>not</b> auto-bind channels — transition
+         * identity is more delicate than place identity. If the subnet's
+         * interface declares any channel, an {@link IllegalStateException} is
+         * raised; use {@link #compose(Instance, Consumer)} with explicit
+         * {@link ComposeBindings#bindChannel(String, Transition)} calls.
+         *
+         * <h3>Use the {@code Consumer} overload when</h3>
+         * <ul>
+         *   <li>you need to rewire a port to a host place <i>other</i> than
+         *       the one carried by the subnet's interface (a rename),</li>
+         *   <li>the subnet declares any channel,</li>
+         *   <li>the subnet defines reusable / parametric ports whose host
+         *       targets differ across instances.</li>
+         * </ul>
+         *
+         * @param instance the subnet instance to compose
+         * @return this builder, for chaining
+         * @throws IllegalStateException when the subnet declares channels
+         */
+        public Builder compose(Instance<?> instance) {
+            Objects.requireNonNull(instance, "instance");
+            var iface = instance.def().iface();
+
+            if (!iface.channels().isEmpty()) {
+                throw new IllegalStateException(
+                    "compose(Instance): subnet '" + instance.def().name()
+                        + "' (instance prefix '" + instance.prefix()
+                        + "') declares channels " + ifaceChannelNames(iface)
+                        + "; auto-compose does not bind channels."
+                        + " Use compose(instance, Consumer) with explicit bindChannel(...).");
+            }
+
+            if (!iface.ports().isEmpty()) {
+                // Explicit interface: each declared port auto-binds to its own
+                // declared place. The SubnetDef's .inputPort(name, hostPlace)
+                // statement IS the host wiring — trust it.
+                var portMappings = new LinkedHashMap<String, Place<?>>();
+                for (var port : iface.ports()) {
+                    portMappings.put(port.name(), port.place());
+                }
+                return composeInternal(instance, portMappings, Map.of());
+            }
+
+            // No declared interface — infer the merge set from body places that
+            // are also on the host builder. Bypass the iface.port name lookup
+            // (compose_internal would error on the absent port) and build the
+            // mergeMap directly from (renamed body place → host place).
+            var renamedPlaces = instance.renamedBody().places();
+            var mergeMap = new HashMap<Place<?>, Place<?>>(renamedPlaces.size());
+            var prefix = instance.prefix() + "/";
+            for (var renamed : renamedPlaces) {
+                // Defensive: rename pass should always prefix every body place,
+                // but SubnetDef.fromNet retrofits may carry un-prefixed places.
+                if (!renamed.name().startsWith(prefix)) continue;
+                var originalName = renamed.name().substring(prefix.length());
+                var probe = Place.of(originalName, renamed.tokenType());
+                if (places.contains(probe)) {
+                    mergeMap.put(renamed, probe);
+                }
+            }
+            return applyComposition(instance, mergeMap, Map.of());
+        }
+
+        /**
          * Composes a subnet {@link Instance} into this builder per
          * <b>MOD-020</b> (composition operation), <b>MOD-022</b> (type
          * compatibility), and <b>MOD-023</b> (composition produces a flat net).
@@ -341,6 +425,27 @@ public final class PetriNet {
 
                 mergeMap.put(ifacePlace, callerPlace);
             }
+
+            return applyComposition(instance, mergeMap, channelBindings);
+        }
+
+        /**
+         * Shared post-mergeMap pipeline: rewrites renamed-body transitions
+         * through the supplied {@code mergeMap}, applies channel merges per
+         * <b>MOD-021</b>, and adds the surviving transitions to the builder.
+         *
+         * <p>Used by both the explicit-binding paths
+         * ({@link #composeInternal} → {@link #compose(Instance, Map)} /
+         * {@link #compose(Instance, Consumer)}) and the auto-compose path
+         * ({@link #compose(Instance)}). The two paths differ only in how
+         * {@code mergeMap} (renamed-instance Place → host Place) is built.
+         */
+        private Builder applyComposition(
+            Instance<?> instance,
+            Map<Place<?>, Place<?>> mergeMap,
+            Map<String, Transition> channelBindings
+        ) {
+            var iface = instance.def().iface();
 
             // Step 1: Walk every transition of the renamed body and substitute
             // port places. Stage the rewritten transitions in a working map

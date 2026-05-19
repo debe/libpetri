@@ -146,6 +146,24 @@ Each language has its own release script and versioning. Tags are prefixed by la
 - All scripts support `--dry-run` to verify without publishing
 - Prerequisites per script: `gh` CLI, plus language-specific auth (see script `--help`)
 
+### Cross-language Place equality — divergence note (MOD-024)
+
+- **Java** `Place` is a `record (name, tokenType)` — equality is **structural on both fields**.
+- **TypeScript** `Place<T>` is an `interface { name }` with a phantom `_phantom?: T` — equality is **name-based at runtime** (no `tokenType` field exists).
+- **Rust** `Place<T>` derives a name-only `PartialEq`/`Hash` impl (the `PhantomData<T>` does not participate).
+
+`compose(instance)` / `compose_auto` (per `spec/11-modular-composition.md` MOD-024) uses
+the implementation's existing `Place` equality:
+
+- Java: dedupes by `(name, tokenType)` — two same-named different-typed places do NOT merge.
+- TS / Rust: dedupes by name only — two same-named different-typed places WOULD merge.
+
+This divergence is documented in MOD-024 (last paragraph of the body, the
+SHOULD note on "implementations whose Place equality is name-only"). A future
+breaking change that adds `tokenType` to TS Place and `TypeId` to Rust Place
+would close this gap and warrant a coordinated TS/Rust 3.0 release; Java is
+already on 2.3 with the additive MOD-024 overload, so its semver is unaffected.
+
 ## Key Conventions
 
 - Immutable data everywhere — Place, Token, PetriNet, and CompiledNet are all immutable after construction.
