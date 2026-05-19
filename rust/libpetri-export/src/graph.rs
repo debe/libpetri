@@ -50,6 +50,8 @@ pub enum EdgeLineStyle {
     Solid,
     Dashed,
     Bold,
+    /// Invisible edge — used for ghost cluster-to-cluster layout hints (spec EXP-017).
+    Invis,
 }
 
 impl EdgeLineStyle {
@@ -58,6 +60,7 @@ impl EdgeLineStyle {
             EdgeLineStyle::Solid => "solid",
             EdgeLineStyle::Dashed => "dashed",
             EdgeLineStyle::Bold => "bold",
+            EdgeLineStyle::Invis => "invis",
         }
     }
 }

@@ -51,6 +51,12 @@
       "import": "./dist/viewer/index.js",
       "types": "./dist/viewer/index.d.ts"
     },
+    "./viewer/layout": {
+      "node": {
+        "import": "./dist/viewer/layout/index.js",
+        "types": "./dist/viewer/layout/index.d.ts"
+      }
+    },
     "./viewer/iife": "./dist/viewer/viewer.iife.js",
     "./viewer/css": "./dist/viewer/viewer.css"
   },
@@ -68,6 +74,7 @@
   "devDependencies": {
     "@types/node": "^25.8.0",
     "@viz-js/viz": "^3.27.0",
+    "elkjs": "^0.11.1",
     "fast-check": "^4.8.0",
     "happy-dom": "^20.9.0",
     "panzoom": "^9.4.4",
@@ -80,6 +87,7 @@
   },
   "peerDependencies": {
     "@viz-js/viz": ">=3.0.0",
+    "elkjs": ">=0.9.0",
     "panzoom": ">=9.0.0",
     "typedoc": ">=0.27.0"
   },
@@ -88,6 +96,9 @@
       "optional": true
     },
     "@viz-js/viz": {
+      "optional": true
+    },
+    "elkjs": {
       "optional": true
     },
     "panzoom": {

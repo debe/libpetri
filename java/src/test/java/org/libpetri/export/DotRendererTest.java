@@ -170,4 +170,32 @@ class DotRendererTest {
         var dot = DotRenderer.render(graph);
         assertTrue(dot.contains("rankdir=LR;"));
     }
+
+    // EXP-017: ghost edge rendering — style=invis with ltail/lhead.
+    @Test
+    void rendersGhostEdgeWithLheadLtail() {
+        var attrs = new java.util.LinkedHashMap<String, String>();
+        attrs.put("ltail", "cluster_left");
+        attrs.put("lhead", "cluster_right");
+        var e = new GraphEdge("p_left_a", "p_right_b", null, "#000000",
+            EdgeLineStyle.INVIS, ArrowHead.NONE, null, ArcType.GHOST, attrs);
+        var graph = new Graph("test", RankDir.TB,
+            List.of(placeNode("p_left_a", "a"), placeNode("p_right_b", "b")),
+            List.of(e),
+            List.of(), Map.of(), Map.of(), Map.of());
+        var dot = DotRenderer.render(graph);
+        assertTrue(dot.contains("style=\"invis\""), dot);
+        assertTrue(dot.contains("arrowhead=\"none\""), dot);
+        assertTrue(dot.contains("ltail=\"cluster_left\""), dot);
+        assertTrue(dot.contains("lhead=\"cluster_right\""), dot);
+    }
+
+    // EXP-017: compound=true emitted when present in graphAttrs.
+    @Test
+    void rendersCompoundTrue() {
+        var graph = new Graph("test", RankDir.TB, List.of(), List.of(), List.of(),
+            Map.of("compound", "true"), Map.of(), Map.of());
+        var dot = DotRenderer.render(graph);
+        assertTrue(dot.contains("compound=\"true\""), dot);
+    }
 }

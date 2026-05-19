@@ -1,5 +1,8 @@
 package org.libpetri.export;
 
+import org.libpetri.export.graph.ArcType;
+import org.libpetri.export.graph.ArrowHead;
+import org.libpetri.export.graph.EdgeLineStyle;
 import org.libpetri.export.graph.GraphEdge;
 import org.libpetri.export.graph.GraphNode;
 import org.libpetri.export.graph.Subgraph;
@@ -145,6 +148,13 @@ final class ClusterBuilder {
             }
         }
 
+        // Step 3.5: synthesize ghost edges for 1-hop cluster_X → orphan →
+        // cluster_Y paths so Graphviz (with compound=true) can constrain the
+        // two clusters' relative layout. Ghost edges are style=invis — they
+        // carry layout weight only; the visible flow still goes through the
+        // orphan via the real edges. Per spec EXP-017.
+        topLevelEdges.addAll(synthesizeGhostEdges(nodes, edges, nodeIdToPrefix));
+
         // Step 4: assemble Subgraph records bottom-up so children are built
         // before they're consumed by parents.
         var built = new HashMap<String, Subgraph>();
@@ -205,6 +215,81 @@ final class ClusterBuilder {
             built.append(seg);
             accumulator.putIfAbsent(built.toString(), Boolean.TRUE);
         }
+    }
+
+    /**
+     * Synthesizes one invisible ghost edge per ordered
+     * {@code (cluster_X, cluster_Y)} pair bridged by at least one top-level
+     * orphan node via a 1-hop path. The ghost edge carries
+     * {@code style=invis, ltail=cluster_<sanitizedX>, lhead=cluster_<sanitizedY>}
+     * so Graphviz (with {@code compound=true}) treats it as a real
+     * cluster-to-cluster layout constraint without producing any visible
+     * artifact. Per spec EXP-017.
+     *
+     * <p>Determinism: walks orphans in {@code nodes} order, walks each
+     * orphan's incoming/outgoing edges in {@code edges} order. First-witness
+     * wins for anchor node selection. Matches the iteration discipline in
+     * the TypeScript/Rust mirrors so cross-language byte-parity holds.
+     */
+    private static List<GraphEdge> synthesizeGhostEdges(
+            List<GraphNode> nodes,
+            List<GraphEdge> edges,
+            Map<String, String> nodeIdToPrefix) {
+
+        // Index edges by their orphan endpoint. An orphan is any node whose
+        // id is not in nodeIdToPrefix.
+        var incomingByOrphan = new HashMap<String, List<GraphEdge>>();
+        var outgoingByOrphan = new HashMap<String, List<GraphEdge>>();
+        for (var edge : edges) {
+            var fromHasPrefix = nodeIdToPrefix.containsKey(edge.from());
+            var toHasPrefix = nodeIdToPrefix.containsKey(edge.to());
+            if (fromHasPrefix && !toHasPrefix) {
+                incomingByOrphan.computeIfAbsent(edge.to(), k -> new ArrayList<>()).add(edge);
+            }
+            if (!fromHasPrefix && toHasPrefix) {
+                outgoingByOrphan.computeIfAbsent(edge.from(), k -> new ArrayList<>()).add(edge);
+            }
+        }
+
+        // Walk orphans in nodes order. For each (clusterX, clusterY) ordered
+        // pair with X != Y, record the first witness anchor pair.
+        // LinkedHashMap keyed by "X\0Y" so emission order is deterministic.
+        record Anchor(String from, String to, String x, String y) {}
+        var ghosts = new LinkedHashMap<String, Anchor>();
+        for (var node : nodes) {
+            if (nodeIdToPrefix.containsKey(node.id())) continue;
+            var incoming = incomingByOrphan.get(node.id());
+            var outgoing = outgoingByOrphan.get(node.id());
+            if (incoming == null || outgoing == null) continue;
+            for (var eIn : incoming) {
+                var x = nodeIdToPrefix.get(eIn.from());
+                for (var eOut : outgoing) {
+                    var y = nodeIdToPrefix.get(eOut.to());
+                    if (x.equals(y)) continue;
+                    var key = x + "\0" + y;
+                    ghosts.putIfAbsent(key, new Anchor(eIn.from(), eOut.to(), x, y));
+                }
+            }
+        }
+
+        var result = new ArrayList<GraphEdge>(ghosts.size());
+        for (var anchor : ghosts.values()) {
+            var attrs = new LinkedHashMap<String, String>();
+            attrs.put("ltail", "cluster_" + DotExporter.sanitize(anchor.x()));
+            attrs.put("lhead", "cluster_" + DotExporter.sanitize(anchor.y()));
+            result.add(new GraphEdge(
+                anchor.from(),
+                anchor.to(),
+                null,
+                "#000000",
+                EdgeLineStyle.INVIS,
+                ArrowHead.NONE,
+                null,
+                ArcType.GHOST,
+                attrs
+            ));
+        }
+        return result;
     }
 
     /**

@@ -308,3 +308,37 @@ This requirement does NOT alter the styling, junction, or arc rendering rules of
 
 **Depends on:** [EXP-001], [EXP-014], [MOD-010], [MOD-040]
 **Test derivation:** Compose two instances with prefixes `b1` and `b2`; export DOT; assert cluster blocks present, members correct, IDs sanitized. Compose nested instances; assert nested cluster subgraphs.
+
+---
+
+#### EXP-017: Compound Cluster Layout Hints
+
+**Priority:** SHOULD
+
+DOT export SHOULD set `compound=true` at the digraph level unconditionally so Graphviz honours `lhead` and `ltail` attributes on edges that cross cluster boundaries. This is a no-op for flat (uncomposed) nets but keeps the digraph header uniform across all exports.
+
+For every ordered pair of distinct subnet-instance clusters `(cluster_X, cluster_Y)` that are bridged by at least one top-level orphan node via a single-hop path — i.e. there exists some node `a` in `cluster_X`, some top-level orphan node `o` (no instance prefix per [EXP-016]), and some node `b` in `cluster_Y` such that the edges `a → o` and `o → b` both exist — the exporter MUST emit exactly one invisible ghost edge with:
+
+- `style = invis` (no visible artifact; pure layout constraint)
+- `arrowhead = none`
+- `ltail = "cluster_" + sanitize(X)` (matches the cluster id defined by [EXP-016])
+- `lhead = "cluster_" + sanitize(Y)`
+
+The ghost edge's source and target node ids MUST be the first-witness anchor pair: the `a` from the first encountered `a → o` edge and the `b` from the first encountered `o → b` edge, in input iteration order (nodes scanned in their original input order; for each orphan, incoming edges then outgoing edges scanned in their original input order). Graphviz then has a real cluster-to-cluster connection to constrain layout, while the visible flow still passes through the orphan via the original real edges.
+
+Multiple orphans bridging the same ordered cluster pair `(X, Y)` collapse to one ghost edge (dedup by ordered pair). The reverse direction `(Y, X)` is a separate ghost edge when its own 1-hop path exists. Orphan paths that fall entirely inside a single cluster (`X == Y`) or that only touch one clustered neighbour MUST NOT produce a ghost edge.
+
+This requirement does NOT change [EXP-016] cluster membership, the visible edge set, or styling rules. It only adds the `compound=true` graph attribute and the synthesized ghost edges.
+
+**Acceptance Criteria:**
+1. Every DOT export contains `compound="true"` as a top-level graph attribute.
+2. A net where `cluster_left` and `cluster_right` are bridged by a single orphan transition produces exactly one ghost edge with `style=invis`, `arrowhead=none`, `ltail="cluster_left"`, `lhead="cluster_right"`.
+3. Three orphans bridging the same `(left, right)` pair still produce exactly one ghost edge (dedup by ordered pair).
+4. Bidirectional bridging (`left → o1 → right` and `right → o2 → left`) produces two ghost edges, one per direction.
+5. An orphan with `X → o → X` (same cluster on both sides) produces no ghost edge.
+6. An orphan with only one clustered neighbour produces no ghost edge.
+7. A flat net (no instance prefixes) produces no ghost edges but still emits `compound="true"`.
+8. Anchor node selection is deterministic and matches across Java, TypeScript, and Rust exporters byte-for-byte for the same composed input.
+
+**Depends on:** [EXP-016], [EXP-014]
+**Test derivation:** Build a composed net with two instances and an orphan transition between them; export DOT in each language; assert one `style="invis"` edge with matching `ltail`/`lhead`. Add bidirectional and multi-orphan variants. Verify `compound="true"` on a flat net.

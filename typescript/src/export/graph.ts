@@ -16,7 +16,7 @@ export type RankDir = 'TB' | 'BT' | 'LR' | 'RL';
 
 export type NodeShape = 'circle' | 'doublecircle' | 'box' | 'diamond' | 'ellipse' | 'record';
 
-export type EdgeLineStyle = 'solid' | 'dashed' | 'bold';
+export type EdgeLineStyle = 'solid' | 'dashed' | 'bold' | 'invis';
 
 export type ArrowHead = 'normal' | 'odot' | 'none' | 'diamond' | 'dot';
 
@@ -48,7 +48,7 @@ export interface GraphEdge {
   readonly arrowhead: ArrowHead;
   readonly penwidth?: number;
   /** The arc type that produced this edge (for semantic queries). */
-  readonly arcType: 'input' | 'output' | 'inhibitor' | 'read' | 'reset' | 'reset-output';
+  readonly arcType: 'input' | 'output' | 'inhibitor' | 'read' | 'reset' | 'reset-output' | 'ghost';
   readonly attrs?: Readonly<Record<string, string>>;
 }
 

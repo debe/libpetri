@@ -572,4 +572,17 @@ describe('mapToGraph', () => {
     expect(graph.graphAttrs['outputorder']).toBe('edgesfirst');
     expect(graph.nodeDefaults['fontname']).toBeDefined();
   });
+
+  // EXP-017: compound=true is emitted on every net so Graphviz can honor
+  // ltail/lhead on the ghost edges synthesized by the cluster builder.
+  it('sets compound=true on graphAttrs (EXP-017)', () => {
+    const t = Transition.builder('Process')
+      .inputs(one(p1))
+      .outputs(outPlace(p2))
+      .build();
+    const net = PetriNet.builder('Test').transition(t).build();
+    const graph = mapToGraph(net);
+
+    expect(graph.graphAttrs['compound']).toBe('true');
+  });
 });

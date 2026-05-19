@@ -224,6 +224,7 @@ export function mapToGraph(net: PetriNet, config: DotConfig = DEFAULT_DOT_CONFIG
       overlap: String(GRAPH.overlap),
       fontname: FONT.family,
       outputorder: GRAPH.outputorder,
+      compound: 'true',
     },
     nodeDefaults: {
       fontname: FONT.family,
