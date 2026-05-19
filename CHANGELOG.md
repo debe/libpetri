@@ -1,5 +1,108 @@
 # Changelog
 
+## 2.1.0
+
+*Released 2026-05-19*
+
+**libpetri 2.1 is about visual coherence at scale.** Composed nets with many
+subnets now lay out cleanly in DOT/Graphviz, and the canonical viewer gains a
+production-grade C0 layout pipeline shared across debug-ui, the Javadoc taglet,
+Rustdoc, and TypeDoc.
+
+### Spec — EXP-017: compound cluster layout hints
+
+The DOT export sets `compound="true"` unconditionally on the digraph and emits
+*invisible ghost edges* connecting clusters bridged by single-hop orphan paths.
+Graphviz uses the `ltail`/`lhead` hints on those ghost edges to keep
+cluster-to-cluster flow direction stable while the visible edges still pass
+through the real orphan transitions.
+
+The synthesis is deterministic across Java, Rust, and TypeScript exporters:
+ghost-edge anchors are the first-witness `(a → o, o → b)` pair encountered in
+input iteration order, ordered cluster pairs `(X, Y)` collapse to one ghost edge
+each, and `X == X` or single-neighbour orphans produce nothing. Eight
+acceptance criteria are codified in `spec/09-export.md` and mirrored in
+`ClusterBuilderTest` in all three languages.
+
+### Viewer — canonical C0 layout pipeline
+
+`typescript/src/viewer/layout/` is now the single source of truth for the
+multi-cluster layout flow used by every documentation surface:
+
+1. `parseLibpetriDot(dot)` — typed graph model from libpetri-exported DOT
+2. `foldOrphans(graph, 0.7)` — adopt orphan nodes into their dominant cluster
+   when ≥70 % of their edges point there
+3. `replicateShared(graph)` — clone shared places into every foreign cluster
+   they touch, redirect edges to local copies (`p_${id}__rep__${cluster}`
+   naming is load-bearing — downstream overlays key off it)
+4. `elkLayout(graph)` — ELK placement; orphans are wrapped in a synthetic
+   `cluster_orchestrator` so they pack alongside real subnets
+5. `writeBack(graph, layout)` — re-emit DOT with `pos="x,y!"` pins and
+   cluster `bb="…"` so Graphviz `neato -n` produces the final SVG
+
+Around the rendered SVG the viewer ships four idempotent overlays:
+
+- **`c0-annotations.ts`** — `data-id` / `data-src` / `data-dst` / `data-instance`
+  injection plus `intra-cluster` / `cross-cluster` edge classes
+- **`replica-tagging.ts`** — `.petri-replica` + `data-replica-of` on every clone
+  of a shared place, plus the ⇄ glyph for visual identification
+- **`highlight.ts`** — click-to-highlight that walks through junctions and
+  surfaces every real neighbour; highlighting a shared place highlights every
+  copy together
+- **`visibility.ts`** — directed-reachability orphan visibility that hides
+  unrelated orphan chains when only a subset of clusters is shown
+
+The new `chrome/sidebar.ts` replaces the legacy legend + filter strip with a
+cluster-chip sidebar: plain-click toggles, shift-click isolates, ctrl/cmd-click
+multi-selects, plus show-all / hide-all and a highlight-mode toggle.
+
+`mount()` returns two new C0-only methods: `handle.highlight(nodeId)` and
+`handle.setVisibility(state)`. Both are gated on `layout: 'elk'` (the new
+default); pass `layout: 'graphviz'` for the plain pre-2.1 rendering.
+
+A 16-entry LRU cache in `render.ts` (keyed on FNV-1a of the DOT source) makes
+re-mounts on identical DOT skip the entire pipeline.
+
+### Doclet — opt-in Node-CLI pre-render for Javadoc
+
+`PetriNetTaglet` now tries a Node-CLI pre-render path before falling back to
+`dot -Tsvg`. Set `LIBPETRI_PRERENDER_SCRIPT` (or `-Dlibpetri.prerender.script=…`
+to survive the Gradle daemon's env capture) to the path of
+`typescript/scripts/prerender-c0.mjs` and the taglet pipes DOT to Node, runs the
+full C0 pipeline, and embeds the resulting SVG inline. ~1 second per 14-subnet
+diagram; cached per-DOT-source for the lifetime of the doc build.
+
+Both render paths share a single `runSubprocessRenderer` driver with a typed
+`SubprocessRendererConfig` record — concurrent stdout/stderr drain to avoid the
+OS pipe-fill deadlock, per-renderer timeout, cache-poison hook on missing or
+wedged binaries. ~120 LOC of duplication is gone.
+
+### Distribution
+
+The canonical viewer bundle (`viewer.iife.js`, `viewer.css`) is built once from
+`typescript/src/viewer/` and synced byte-identically to all three doclet
+destinations (`java/src/main/resources/javadoc/`, `rust/libpetri-docgen/resources/`,
+`typescript/src/doclet/resources/`). The viewer's public ESM surface gains
+`libpetri/viewer/layout` so the Node prerender script and any external tooling
+can drive the C0 pipeline directly.
+
+### Performance
+
+- Cluster building is O(N + E + O·I·G) with no hidden O(n²); ghost-edge dedup
+  is O(1) per ordered pair.
+- The C0 overlays batch DOM mutations after computing target state — no
+  interleaved getBBox / setAttribute, no layout thrash.
+- ELK runs once per unique DOT input; downstream overlays are O(N + E) walks
+  with map-backed lookups.
+
+### Compatibility
+
+`libpetri 2.1.0` is a strict superset of `2.0.0`: no public API was removed,
+no behaviour changed for nets that don't compose subnets. Consumers that
+explicitly want the pre-2.1 viewer behaviour can pass `layout: 'graphviz'`
+to `mount()`. The Javadoc taglet's legacy `dot -Tsvg` path still runs when
+the C0 env var / sysprop is unset.
+
 ## 2.0.0
 
 *Released 2026-05-18*
