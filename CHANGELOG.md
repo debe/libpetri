@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 2.3.1
+
+*Released 2026-05-19*
 
 **Doc generators consolidate on the client-side viewer.** The Java taglet, the
 Rust `libpetri-docgen` crate, and the TypeScript doclet plugin all stop trying
