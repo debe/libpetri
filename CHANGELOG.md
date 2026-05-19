@@ -1,5 +1,52 @@
 # Changelog
 
+## 2.2.0
+
+*Released 2026-05-19*
+
+**libpetri 2.2 adds a runtime subnet-visibility toggle to the canonical viewer.**
+Every diagram surface — debug-ui, dev-preview, Javadoc, Rustdoc, TypeDoc — now
+exposes a chrome button that flips between the clustered (post-2.1) view and
+the flat pre-subnets view without leaving the page.
+
+### Viewer — clustered ↔ flat toggle
+
+The viewer's chrome strip grows a **Flat view / Subnets view** button next to
+**Reset** and **Fullscreen**. Clicking it re-mounts the diagram with the
+alternate variant: in flat mode the `subgraph cluster_*` wrappers and their
+`ltail`/`lhead` cross-cluster references are stripped, so Graphviz lays the
+graph out without visual groupings. Same nodes, same edges, no clusters.
+
+New on the public viewer API (`typescript/src/viewer/`):
+
+- `MountOptions.subnets?: 'show' | 'hide'` — initial mode. Defaults to
+  `'show'`; inherits from `previousHandle` when omitted so live re-renders
+  preserve the user's choice.
+- `ViewerHandle.subnets` — current mode (read-only).
+- `ViewerHandle.setSubnets(mode)` / `toggleSubnets()` — programmatic switch.
+  Returns the new handle (the toggle triggers an internal re-mount because
+  Graphviz lays out cluster boundaries during layout).
+- `libpetri-viewer:remount` CustomEvent dispatched on the host container
+  whenever an internal re-mount happens. Consumers that cache the handle
+  (e.g. debug-ui) can listen and update their reference.
+- `flattenClusters(dot)` exported from `libpetri/viewer` — pure function
+  for callers who want to derive flat DOT directly.
+
+### Distribution
+
+The new viewer bundle is synced byte-identically to all three doclet
+destinations (`java/src/main/resources/javadoc/`, `rust/libpetri-docgen/resources/`,
+`typescript/src/doclet/resources/`). No changes to `DotExporter` / export
+APIs in any language — the toggle is purely a viewer-layer concern.
+
+### Compatibility
+
+`libpetri 2.2.0` is a strict superset of `2.1.0`: no public API was removed,
+no behaviour changed for callers that don't opt into the new options.
+Diagrams mount in clustered mode by default. The toggle button is rendered
+but disabled on the pre-rendered-SVG mount path (`mount(null, …)`) because
+no DOT is available for the alternate render.
+
 ## 2.1.0
 
 *Released 2026-05-19*

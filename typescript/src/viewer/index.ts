@@ -45,6 +45,7 @@ import { applyHighlight } from './highlight.js';
 import { tagReplicas } from './replica-tagging.js';
 import { applyVisibility, type VisibilityState } from './visibility.js';
 import { VIEWER_CSS_VARIABLES } from './styles.js';
+import { flattenClusters } from './dot-flatten.js';
 
 export {
   colorForPrefix,
@@ -53,6 +54,17 @@ export {
   DEFAULT_PANZOOM_OPTS,
 };
 export type { ClusterDescriptor, PanzoomInstance, PanzoomOptions };
+
+/**
+ * Subnet (cluster) visibility mode.
+ *
+ * - `'show'` — render the DOT as-is with `subgraph cluster_*` groupings
+ *   visible (the default; the post-subnets layout).
+ * - `'hide'` — render a flattened variant that drops cluster wrappers
+ *   and the `ltail`/`lhead` cluster references on cross-cluster edges.
+ *   Same nodes and edges, no visual grouping.
+ */
+export type SubnetVisibility = 'show' | 'hide';
 
 /** Handle returned by {@link mount}. */
 export interface ViewerHandle {
@@ -66,6 +78,22 @@ export interface ViewerHandle {
   readonly collapsedPrefixes: ReadonlySet<string>;
   /** Currently active "show only <prefix>" filter, or null. */
   readonly activeFilter: string | null;
+  /** Current subnet visibility mode. */
+  readonly subnets: SubnetVisibility;
+  /**
+   * Switch between the clustered (`'show'`) and flat (`'hide'`) views.
+   * Triggers an internal re-mount via the canonical {@link mount} path —
+   * the SVG is regenerated because Graphviz lays out cluster boundaries
+   * during layout. Returns the new handle; the old one is disposed.
+   *
+   * After re-mount, the host container dispatches a bubbling
+   * `libpetri-viewer:remount` CustomEvent whose `detail.handle` is the
+   * fresh handle. Consumers that cache the handle (e.g. the debug-ui)
+   * should listen on the container and update their reference.
+   */
+  setSubnets(mode: SubnetVisibility): Promise<ViewerHandle>;
+  /** Flip {@link subnets} to the other mode and re-mount. See {@link setSubnets}. */
+  toggleSubnets(): Promise<ViewerHandle>;
   /** Collapse a single cluster by prefix. No-op if unknown. */
   collapse(prefix: string): void;
   /** Expand a single cluster by prefix. No-op if unknown. */
@@ -123,6 +151,15 @@ export interface MountOptions {
    * cached on the DOT hash; re-mounts on identical DOT skip the pipeline.
    */
   readonly layout?: 'elk' | 'graphviz';
+  /**
+   * Initial subnet visibility mode. Defaults to `'show'` (clustered view).
+   * Pass `'hide'` to mount with the flat view from the start. The chrome
+   * button toggles between the two at runtime; see {@link ViewerHandle.setSubnets}.
+   *
+   * If `previousHandle` is supplied and `subnets` is omitted, the previous
+   * handle's mode is inherited so live re-renders preserve the user's choice.
+   */
+  readonly subnets?: SubnetVisibility;
 }
 
 /**
@@ -153,6 +190,9 @@ export async function mount(
     ? new Set(previousHandle.collapsedPrefixes)
     : new Set<string>();
   const preservedFilter = previousHandle?.activeFilter ?? null;
+  // Subnet mode: explicit opt wins, else inherit from previousHandle, else default to 'show'.
+  const subnetsMode: SubnetVisibility =
+    opts.subnets ?? previousHandle?.subnets ?? 'show';
 
   if (previousHandle) {
     previousHandle.dispose();
@@ -174,9 +214,14 @@ export async function mount(
     // throwing stub and drop the @viz-js/viz + elkjs dependencies.
     const renderModule = await import('./render.js');
     const useElk = (opts.layout ?? 'elk') === 'elk';
+    // When subnets are hidden, render a flattened variant. The original
+    // DOT is kept around so toggleSubnets can re-mount with the clustered
+    // view without callers having to supply DOT a second time.
+    const renderedDot =
+      subnetsMode === 'hide' ? flattenClusters(dotSource) : dotSource;
     svg = useElk
-      ? await renderModule.renderDotToSvgWithElkLayout(dotSource)
-      : await renderModule.renderDotToSvg(dotSource);
+      ? await renderModule.renderDotToSvgWithElkLayout(renderedDot)
+      : await renderModule.renderDotToSvg(renderedDot);
     container.innerHTML = '';
     container.appendChild(svg);
   }
@@ -231,6 +276,23 @@ export async function mount(
     fsBtn.title = 'Toggle fullscreen';
     fsBtn.textContent = 'Fullscreen';
     fsBtn.addEventListener('click', () => toggleFullscreen(container, fsBtn));
+    // Subnet view toggle: hidden in pre-rendered-SVG mode (no DOT to
+    // re-render against). Button label describes the action — what
+    // clicking it will do, not the current state.
+    const subnetsBtn = document.createElement('button');
+    subnetsBtn.type = 'button';
+    subnetsBtn.className = 'diagram-btn btn-subnets';
+    subnetsBtn.title =
+      subnetsMode === 'show' ? 'Hide subnet groupings' : 'Show subnet groupings';
+    subnetsBtn.textContent = subnetsMode === 'show' ? 'Flat view' : 'Subnets view';
+    if (dotSource == null) {
+      subnetsBtn.disabled = true;
+      subnetsBtn.title = 'Subnet toggle unavailable for pre-rendered SVG';
+    }
+    subnetsBtn.addEventListener('click', () => {
+      void handle.toggleSubnets();
+    });
+    controls.appendChild(subnetsBtn);
     controls.appendChild(resetBtn);
     controls.appendChild(fsBtn);
     chromeRoot.appendChild(controls);
@@ -242,7 +304,9 @@ export async function mount(
 
     // The cluster-chip sidebar is the C0 chrome — only mount when
     // there's a renderable layout and at least one cluster to show.
-    if (layoutMode === 'elk' && clusters.size > 0) {
+    // In flat (subnets: 'hide') mode the SVG has no clusters by
+    // construction; the explicit gate keeps the intent obvious.
+    if (layoutMode === 'elk' && subnetsMode === 'show' && clusters.size > 0) {
       sidebarHandle = mountSidebar(container, clusters, {
         onVisibilityChange: (state) => handle.setVisibility(state),
         onHighlightModeChange: (enabled) => {
@@ -272,6 +336,33 @@ export async function mount(
     },
     get activeFilter() {
       return activeFilter;
+    },
+    get subnets() {
+      return subnetsMode;
+    },
+    setSubnets(mode: SubnetVisibility): Promise<ViewerHandle> {
+      // Re-mount via the canonical path so all teardown + state preservation
+      // (collapse set, filter) runs through the same code as external
+      // re-renders. The original dotSource is reused — pre-rendered SVG
+      // mode (dotSource === null) can't toggle and is a no-op resolve.
+      if (dotSource == null) return Promise.resolve(handle);
+      if (mode === subnetsMode) return Promise.resolve(handle);
+      return mount(dotSource, container, {
+        ...opts,
+        previousHandle: handle,
+        subnets: mode,
+      }).then((next) => {
+        container.dispatchEvent(
+          new CustomEvent('libpetri-viewer:remount', {
+            bubbles: true,
+            detail: { handle: next, subnets: mode },
+          }),
+        );
+        return next;
+      });
+    },
+    toggleSubnets(): Promise<ViewerHandle> {
+      return handle.setSubnets(subnetsMode === 'show' ? 'hide' : 'show');
     },
     collapse(prefix: string): void {
       if (disposed) return;
