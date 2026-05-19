@@ -232,6 +232,91 @@ impl PetriNetBuilder {
         compose_internal(self, instance, port_bindings, channel_bindings)
     }
 
+    /// Identity-default auto-compose per **MOD-024**.
+    ///
+    /// Each declared interface port auto-binds to its own un-prefixed
+    /// host-wiring [`PlaceRef`] — the [`crate::place::Place<T>`] the
+    /// [`crate::subnet_def::SubnetDef`] builder declared via
+    /// `.input_port(name, place)` / `.output_port(name, place)` /
+    /// `.inout_port(name, place)`. If the host builder already declares
+    /// an equal-named place, the two are deduped by [`PlaceRef`]'s
+    /// name-based [`PartialEq`]/[`Hash`] (see
+    /// `spec/11-modular-composition.md` MOD-024 note on name-only matching).
+    ///
+    /// If the subnet declares no interface ports at all, body places are
+    /// matched against the host builder's place set **by name**; matches
+    /// are auto-bound, the rest stay private under their prefixed names
+    /// per [MOD-010] and [MOD-012].
+    ///
+    /// Channels are NOT auto-bound — transition identity is too delicate
+    /// for inference. If the subnet declares any channel, this method
+    /// panics directing the caller to [`PetriNetBuilder::compose_with`].
+    ///
+    /// # Panics
+    /// - Panics when the subnet declares any channel.
+    pub fn compose_auto<P: 'static>(self, instance: &Instance<P>) -> Self {
+        // Channel guard: auto-compose refuses subnets with channels.
+        if instance.channel_handles_keys().next().is_some() {
+            let mut channel_names: Vec<&str> =
+                instance.channel_handles_keys().map(|n| n.as_ref()).collect();
+            channel_names.sort_unstable();
+            panic!(
+                "compose_auto: subnet '{}' (instance prefix '{}') declares channels [{}]; \
+                 auto-compose does not bind channels. \
+                 Use compose_with(instance, |b| b.bind_channel(...)) with explicit channel bindings.",
+                instance.def_name(),
+                instance.prefix(),
+                channel_names.join(", ")
+            );
+        }
+
+        let port_handles = instance.port_handles();
+        let prefix_slash = format!("{}/", instance.prefix());
+
+        if !port_handles.is_empty() {
+            // Explicit interface path: each port auto-binds to the
+            // un-prefixed PlaceRef carried by its declaration. The renamed
+            // PlaceRef's name is "{prefix}/{original_place_name}"; strip the
+            // prefix to recover the original. When the host pre-declared an
+            // equal-named place we prefer its `Arc<str>` to keep identity
+            // stable across the merge (matches the explicit-compose path's
+            // identity semantics and saves one Arc allocation per port).
+            let mut port_mappings: HashMap<Arc<str>, PlaceRef> =
+                HashMap::with_capacity(port_handles.len());
+            for (port_name, renamed_place) in port_handles {
+                let original_name = renamed_place
+                    .name_arc()
+                    .strip_prefix(prefix_slash.as_str())
+                    .map(Arc::<str>::from)
+                    .unwrap_or_else(|| Arc::clone(renamed_place.name_arc()));
+                let probe = PlaceRef::new(original_name);
+                let mapped = self.place_index.get(&probe).cloned().unwrap_or(probe);
+                port_mappings.insert(Arc::clone(port_name), mapped);
+            }
+            return compose_internal(self, instance, port_mappings, HashMap::new());
+        }
+
+        // No declared interface — infer the merge set from body places
+        // that also exist on this builder. Build the (renamed-name ->
+        // host PlaceRef) merge_map directly and short-circuit the
+        // port-name validation that compose_internal would otherwise perform.
+        let renamed_places = instance.renamed_body().places();
+        let mut merge_map: HashMap<Arc<str>, PlaceRef> =
+            HashMap::with_capacity(renamed_places.len());
+        for renamed in renamed_places {
+            // Defensive: rename pass should always prefix body places, but
+            // SubnetDef::from_net retrofits may carry un-prefixed places.
+            let Some(original) = renamed.name_arc().strip_prefix(prefix_slash.as_str()) else {
+                continue;
+            };
+            let probe = PlaceRef::new(Arc::<str>::from(original));
+            if let Some(host) = self.place_index.get(&probe) {
+                merge_map.insert(Arc::clone(renamed.name_arc()), host.clone());
+            }
+        }
+        apply_composition(self, instance, merge_map, HashMap::new())
+    }
+
     /// Registers one or more [`FusionSet`] declarations on this builder, per
     /// **MOD-060** (fusion set declaration) and **MOD-061** (fusion
     /// resolution at build).
@@ -477,7 +562,7 @@ fn build_with_fusion(builder: PetriNetBuilder) -> PetriNet {
 /// 4. Drain the staged map into the host builder in insertion order so the
 ///    transitions land deterministically.
 fn compose_internal<P: 'static>(
-    mut builder: PetriNetBuilder,
+    builder: PetriNetBuilder,
     instance: &Instance<P>,
     port_mappings: HashMap<Arc<str>, PlaceRef>,
     channel_bindings: HashMap<Arc<str>, Transition>,
@@ -513,6 +598,20 @@ fn compose_internal<P: 'static>(
         merge_map.insert(Arc::clone(renamed_iface.name_arc()), caller_place.clone());
     }
 
+    apply_composition(builder, instance, merge_map, channel_bindings)
+}
+
+/// Shared post-merge-map composition pipeline used by both the explicit-
+/// binding paths ([`PetriNetBuilder::compose`] / [`PetriNetBuilder::compose_with`])
+/// and the auto-compose path ([`PetriNetBuilder::compose_auto`] per **MOD-024**).
+/// The two paths differ only in how the (renamed Place name -> host PlaceRef)
+/// `merge_map` is built.
+fn apply_composition<P: 'static>(
+    mut builder: PetriNetBuilder,
+    instance: &Instance<P>,
+    merge_map: HashMap<Arc<str>, PlaceRef>,
+    channel_bindings: HashMap<Arc<str>, Transition>,
+) -> PetriNetBuilder {
     // ============================================================
     //  Working transition map (mirror Java's LinkedHashMap)
     // ============================================================

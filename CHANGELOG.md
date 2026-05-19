@@ -1,5 +1,74 @@
 # Changelog
 
+## 2.3.0
+
+*Released 2026-05-19*
+
+**libpetri 2.3 adds identity-default auto-composition (MOD-024) to the
+modular-composition layer.** A single-argument `compose(instance)` overload
+auto-binds every declared interface port to the host place carried on its
+declaration, eliminating the boilerplate of `compose(instance, b -> b.bindPort("name", host))`
+when the subnet's interface already states the host wiring.
+
+This release publishes the Java implementation; Rust and TypeScript receive
+the same overload but stay on 2.1.0 pending a coordinated breaking-change
+cycle (see *Compatibility* below).
+
+### `PetriNet.Builder.compose(Instance)` — auto-compose (MOD-024)
+
+```java
+// Before — explicit per-port wiring repeated at every call site:
+host.compose(producer.instantiate("p1"),
+             b -> b.bindPort("output", sharedQueue));
+
+// After — port.place() carries the host wiring; auto-compose trusts it:
+host.compose(producer.instantiate("p1"));
+```
+
+- Every declared port auto-binds to its own `port.place()` (the `Place` the
+  `SubnetDef` builder declared via `.inputPort(name, hostPlace)` /
+  `outputPort` / `inoutPort`).
+- When the subnet declares **no** interface ports, body places are matched
+  against the host builder's place set by `Place` record equality
+  (`(name, tokenType)` in Java); matches merge, the rest stay private under
+  their prefixed names per MOD-010 / MOD-012.
+- Channels are **not** auto-bound. A subnet that declares any channel makes
+  `compose(instance)` throw `IllegalStateException` naming the channels and
+  pointing at the `compose(Instance, Consumer)` overload — transition
+  identity is too delicate for inference.
+- The auto-compose path shares the rewrite pipeline (`applyComposition`)
+  with the explicit overloads, so the resulting flat net is structurally
+  identical to a hand-written `compose(instance, bindings)` call per
+  MOD-023.
+
+### Spec
+
+- New requirement **MOD-024** (`spec/11-modular-composition.md`) —
+  Identity-Default Port Inference (auto-compose), SHOULD-level.
+- `spec/00-index.md` summary updated: SHOULD count 43 → 44.
+
+### Cross-language `Place` equality — divergence note
+
+`compose(instance)` uses the implementation's existing `Place` equality:
+
+- **Java** (this release): `Place` is a record `(name, tokenType)` — dedupes
+  by both fields. Two same-named different-typed places do **not** merge.
+- **TypeScript / Rust** (unreleased; equivalent overload present): `Place`
+  equality is **name-only**, so same-named different-typed places would
+  merge. This is the spec's "permissive matching" carve-out (MOD-024 last
+  paragraph).
+
+A future TS/Rust 3.0 release will close this gap by adding a token-type tag
+to `Place` and tightening equality.
+
+### Compatibility
+
+`libpetri-java 2.3.0` is a strict additive extension of `2.2.0`. No public
+API was removed; behaviour for callers that don't invoke the new overload
+is unchanged. The new method is one overload on `PetriNet.Builder`; the
+three pre-existing overloads (`Map`, `Consumer`, no-arg-was-illegal) keep
+their signatures.
+
 ## 2.2.0
 
 *Released 2026-05-19*

@@ -154,6 +154,7 @@ export class PetriNetBuilder {
    *         channel name is unknown on the interface, or when caller- and
    *         instance-side transition timings conflict (per [MOD-021]).
    */
+  compose(instance: Instance<unknown>): this;
   compose(
     instance: Instance<unknown>,
     portMappings: ReadonlyMap<string, Place<unknown>> | Record<string, Place<unknown>>,
@@ -164,11 +165,14 @@ export class PetriNetBuilder {
   ): this;
   compose(
     instance: Instance<unknown>,
-    arg:
+    arg?:
       | ReadonlyMap<string, Place<unknown>>
       | Record<string, Place<unknown>>
       | ((b: ComposeBindings) => void),
   ): this {
+    if (arg === undefined) {
+      return this.composeAuto(instance);
+    }
     if (typeof arg === 'function') {
       const bindings = __createComposeBindings();
       arg(bindings);
@@ -178,6 +182,81 @@ export class PetriNetBuilder {
     const portMappings: ReadonlyMap<string, Place<unknown>> =
       arg instanceof Map ? arg : new Map(Object.entries(arg));
     return this.composeInternal(instance, portMappings, new Map());
+  }
+
+  /**
+   * Identity-default auto-compose per **MOD-024**.
+   *
+   * Each declared interface port auto-binds to its own `port.place` — the
+   * Place the SubnetDef builder declared via `.inputPort(name, hostPlace)`
+   * (or `outputPort` / `inoutPort`). If the host builder already declares
+   * the equal place, the two merge; if not, the place arrives implicitly
+   * via the rewritten transitions' arcs (same flow as explicit `bindPort`).
+   *
+   * If the subnet declares no interface ports at all, body places are
+   * checked against this builder's place set **by name** (matching the
+   * existing TS Place equality semantics; see [CORE-002] note in
+   * `spec/11-modular-composition.md` MOD-024). Body places that don't match
+   * stay private under their prefixed names per [MOD-010].
+   *
+   * Channels are NOT auto-bound — transition identity is too delicate for
+   * inference. If the subnet declares any channel, this overload throws.
+   */
+  private composeAuto(instance: Instance<unknown>): this {
+    const iface = instance.def.iface;
+
+    if (iface.channels.size > 0) {
+      const channelNames: string[] = [];
+      for (const c of iface.channels.values()) channelNames.push(c.name);
+      channelNames.sort();
+      throw new Error(
+        `compose(Instance): subnet '${instance.def.name}' ` +
+        `(instance prefix '${instance.prefix}') declares channels [${channelNames.join(', ')}]` +
+        `; auto-compose does not bind channels.` +
+        ` Use compose(instance, bind => bind.bindChannel(...)) with explicit channel bindings.`,
+      );
+    }
+
+    // Pre-index host places by name. The TS `_places: Set<Place>` dedupes
+    // by reference (Place is an interface with only `name`), so when the
+    // host pre-declared a Place object that is value-equal-by-name but a
+    // different reference from the SubnetDef port's carried place, we
+    // prefer the host reference: arc rewriting funnels through it and the
+    // port's own Place object never enters `_places`. Same intent as
+    // Rust's `place_index.get(&probe).cloned().unwrap_or(probe)` and
+    // Java's record-equality `places.contains(probe)` in this branch.
+    const hostByName = new Map<string, Place<unknown>>();
+    for (const p of this._places) hostByName.set(p.name, p);
+
+    if (iface.ports.size > 0) {
+      // Explicit interface: each declared port auto-binds to its own
+      // declared place. The SubnetDef's inputPort/outputPort/inoutPort
+      // statement IS the host wiring — trust it. When a host place with
+      // the same name already exists, use the host reference so the
+      // merged net has a single Place per name.
+      const portMappings = new Map<string, Place<unknown>>();
+      for (const port of iface.ports.values()) {
+        const hostMatch = hostByName.get(port.place.name);
+        portMappings.set(port.name, hostMatch ?? port.place);
+      }
+      return this.composeInternal(instance, portMappings, new Map());
+    }
+
+    // No declared interface — infer the merge set from body places that
+    // also exist on the host builder (matched by name). Build the
+    // renamed-name -> host-place map directly and apply the composition.
+
+    const mergeMap = new Map<string, Place<unknown>>();
+    const prefix = instance.prefix + '/';
+    for (const renamed of instance.renamedBody.places) {
+      if (!renamed.name.startsWith(prefix)) continue;
+      const originalName = renamed.name.substring(prefix.length);
+      const hostMatch = hostByName.get(originalName);
+      if (hostMatch !== undefined) {
+        mergeMap.set(renamed.name, hostMatch);
+      }
+    }
+    return this.applyComposition(instance, mergeMap, new Map());
   }
 
   /**
@@ -242,6 +321,25 @@ export class PetriNetBuilder {
       const ifacePlace = instance.port<unknown>(portName);
       mergeMap.set(ifacePlace.name, callerPlace);
     }
+
+    return this.applyComposition(instance, mergeMap, channelBindings);
+  }
+
+  /**
+   * Shared post-mergeMap pipeline: rewrites renamed-body transitions
+   * through `mergeMap`, applies channel merges per **MOD-021**, and adds
+   * the surviving transitions to the builder.
+   *
+   * Used by both the explicit-binding path (`composeInternal`) and the
+   * auto-compose path (`composeAuto` per **MOD-024**). The two paths differ
+   * only in how the (renamed Place name → host Place) `mergeMap` is built.
+   */
+  private applyComposition(
+    instance: Instance<unknown>,
+    mergeMap: Map<string, Place<unknown>>,
+    channelBindings: ReadonlyMap<string, Transition>,
+  ): this {
+    const iface = instance.def.iface;
 
     // Step 1: Stage rewritten instance transitions in a working map keyed
     // by prefixed transition name. The substitutePlaces primitive keeps
