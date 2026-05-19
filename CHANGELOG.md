@@ -5,14 +5,16 @@
 *Released 2026-05-19*
 
 **libpetri 2.3 adds identity-default auto-composition (MOD-024) to the
-modular-composition layer.** A single-argument `compose(instance)` overload
-auto-binds every declared interface port to the host place carried on its
-declaration, eliminating the boilerplate of `compose(instance, b -> b.bindPort("name", host))`
-when the subnet's interface already states the host wiring.
+modular-composition layer across all three languages.** A single-argument
+`compose(instance)` overload auto-binds every declared interface port to
+the host place carried on its declaration, eliminating the boilerplate of
+`compose(instance, b -> b.bindPort("name", host))` when the subnet's
+interface already states the host wiring.
 
-This release publishes the Java implementation; Rust and TypeScript receive
-the same overload but stay on 2.1.0 pending a coordinated breaking-change
-cycle (see *Compatibility* below).
+Released across Java, Rust, and TypeScript at 2.3.0. Rust and TypeScript
+skip the 2.2.0 number — that section's content (the viewer subnet-visibility
+toggle) shipped only in Java 2.2.0 to Maven Central; the same toggle code
+is present in this Rust/TypeScript 2.3.0 release alongside MOD-024.
 
 ### `PetriNet.Builder.compose(Instance)` — auto-compose (MOD-024)
 
@@ -63,11 +65,17 @@ to `Place` and tightening equality.
 
 ### Compatibility
 
-`libpetri-java 2.3.0` is a strict additive extension of `2.2.0`. No public
-API was removed; behaviour for callers that don't invoke the new overload
-is unchanged. The new method is one overload on `PetriNet.Builder`; the
-three pre-existing overloads (`Map`, `Consumer`, no-arg-was-illegal) keep
-their signatures.
+`libpetri 2.3.0` is a strict additive extension of the prior published
+versions (Java 2.2.0, Rust 2.1.0, TypeScript 2.1.0). No public API was
+removed; behaviour for callers that don't invoke the new overload is
+unchanged. The new method is one overload on `PetriNet.Builder` /
+`PetriNetBuilder`; pre-existing overloads keep their signatures.
+
+For TypeScript and Rust, this release also brings to npm/crates.io the
+**viewer subnet-visibility toggle** documented in the `## 2.2.0` section
+below (already in `main` since 2026-05-19 but never published to those
+registries). Java had that release on its own; this release reunifies the
+three languages on the same version number.
 
 ## 2.2.0
 
