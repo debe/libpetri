@@ -136,6 +136,13 @@
   background: #e8e8e8;
 }
 
+.petrinet-diagram .diagram-btn:disabled,
+.libpetri-viewer .diagram-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: white;
+}
+
 .petrinet-diagram details {
   padding: 0 16px 16px;
 }
