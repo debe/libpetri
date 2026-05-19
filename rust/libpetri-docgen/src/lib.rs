@@ -1,9 +1,14 @@
-//! Build-script helper for generating Petri net SVG diagrams in rustdoc.
+//! Build-script helper for embedding Petri net diagrams in rustdoc.
 //!
 //! This crate is intended as a **build-dependency**. It takes a [`PetriNet`]
-//! definition, exports it to DOT via [`dot_export`], renders it to SVG using the
-//! `dot` CLI tool, and writes the result to `OUT_DIR` so it can be embedded in
-//! rustdoc with [`include_str!`].
+//! definition, exports it to DOT via [`dot_export`], wraps the DOT source in
+//! a self-contained HTML page (CSS + the canonical `LibpetriViewer` IIFE +
+//! the DOT in a `data-dot` attribute), and writes the result to `OUT_DIR` so
+//! it can be embedded in rustdoc with [`include_str!`].
+//!
+//! The bundled viewer renders DOT → SVG client-side via an embedded Graphviz
+//! WASM build, so the doc-generation host does **not** need any external
+//! tooling installed.
 //!
 //! # Quick Start
 //!
@@ -40,44 +45,13 @@
 //! #![doc = include_str!(concat!(env!("OUT_DIR"), "/my_workflow.svg"))]
 //! ```
 //!
-//! # Fallback
-//!
-//! If `dot` (Graphviz) is not installed, the SVG file will contain the DOT source
-//! rendered as a `<pre><code>` block instead. Install Graphviz for proper SVG output:
-//!
-//! ```sh
-//! # Debian/Ubuntu
-//! sudo apt install graphviz
-//! # macOS
-//! brew install graphviz
-//! ```
-//!
-//! # Advanced Configuration
-//!
-//! Use [`SvgGenerator`] for control over output directory and DOT export settings:
-//!
-//! ```rust,no_run
-//! use libpetri_docgen::*;
-//! use libpetri_docgen::export::mapper::DotConfig;
-//! use libpetri_docgen::export::graph::RankDir;
-//!
-//! # fn main() {
-//! # let net = PetriNet::builder("example").build();
-//! let config = DotConfig {
-//!     direction: RankDir::LeftToRight,
-//!     ..DotConfig::default()
-//! };
-//!
-//! SvgGenerator::new()
-//!     .config(config)
-//!     .generate("my_net", &net);
-//! # }
-//! ```
+//! The generated file is named `{name}.svg` by convention — the extension is
+//! a historical "embed token", not a content-type claim. The file actually
+//! contains self-contained HTML (the viewer renders the SVG at view time).
 
 use std::env;
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
 
 // Re-export core types so users only need one build-dependency.
 pub use libpetri_core::action::{fork, passthrough, produce, sync_action, transform};
@@ -102,7 +76,7 @@ pub mod diagram_renderer;
 pub mod subnet_dot_export;
 pub mod subnet_header;
 
-/// Generates an SVG file from a [`PetriNet`] and writes it to `OUT_DIR`.
+/// Generates a diagram file from a [`PetriNet`] and writes it to `OUT_DIR`.
 ///
 /// This is the simplest entry point. It uses the default DOT export configuration
 /// and automatically reads `OUT_DIR` from the environment.
@@ -112,20 +86,19 @@ pub mod subnet_header;
 /// #![doc = include_str!(concat!(env!("OUT_DIR"), "/my_net.svg"))]
 /// ```
 ///
-/// Emits `cargo::rerun-if-changed=build.rs` so the SVG is regenerated when the
+/// Emits `cargo::rerun-if-changed=build.rs` so the file is regenerated when the
 /// build script changes.
 pub fn generate_svg(name: &str, net: &PetriNet) -> PathBuf {
     SvgGenerator::new().generate(name, net)
 }
 
-/// Builder for configurable SVG generation.
+/// Builder for configurable diagram generation.
 ///
 /// Use this when you need to customize the DOT export configuration or output
 /// directory. For simple cases, prefer [`generate_svg`].
 pub struct SvgGenerator {
     out_dir: Option<PathBuf>,
     config: DotConfig,
-    strip_dimensions: bool,
 }
 
 impl SvgGenerator {
@@ -136,7 +109,6 @@ impl SvgGenerator {
         Self {
             out_dir: None,
             config: DotConfig::default(),
-            strip_dimensions: false,
         }
     }
 
@@ -152,32 +124,22 @@ impl SvgGenerator {
         self
     }
 
-    /// Whether to strip explicit `width`/`height` attributes from the SVG so it
-    /// scales responsively via `viewBox`. Default: `true`.
-    pub fn strip_dimensions(mut self, strip: bool) -> Self {
-        self.strip_dimensions = strip;
-        self
-    }
-
-    /// Generates the SVG file and returns its path.
+    /// Generates the diagram file and returns its path. The host does not
+    /// need any external tooling installed — the bundled viewer renders the
+    /// SVG client-side.
     ///
     /// Emits `cargo::rerun-if-changed=build.rs`.
     pub fn generate(self, name: &str, net: &PetriNet) -> PathBuf {
         let out_dir = self.resolve_out_dir();
         let dot_source = dot_export(net, Some(&self.config));
-        let svg = dot_to_svg(&dot_source, self.strip_dimensions);
-
-        // Wrap in <div> so rustdoc's markdown parser treats it as a raw HTML
-        // block instead of wrapping it in <p> tags (which breaks the SVG).
-        let wrapped = format!("<div>\n{svg}\n</div>");
-        Self::write_and_announce(&out_dir, name, &wrapped)
+        let html = diagram_renderer::render_svg(Some(net.name()), &dot_source);
+        Self::write_and_announce(&out_dir, name, &html)
     }
 
     /// Generates an HTML wrapper for a [`SubnetDef`] and returns its path.
     /// The rendered HTML embeds the canonical `window.LibpetriViewer` bundle
     /// (CSS + JS) and the DOT source — the viewer renders the SVG and
-    /// wires legend / filter chrome client-side. No pre-rendered SVG is
-    /// produced for this path; the `dot` CLI is not invoked.
+    /// wires legend / filter chrome client-side.
     pub fn generate_subnet_def<P: 'static>(self, name: &str, def: &SubnetDef<P>) -> PathBuf {
         let out_dir = self.resolve_out_dir();
         let dot_source = subnet_dot_export::full_body(def);
@@ -219,7 +181,20 @@ impl SvgGenerator {
 
     fn write_and_announce(out_dir: &std::path::Path, name: &str, content: &str) -> PathBuf {
         let svg_path = out_dir.join(format!("{name}.svg"));
-        fs::write(&svg_path, content).expect("failed to write SVG file");
+        // Strip blank lines so the file stays one contiguous HTML block when
+        // rustdoc embeds it via `include_str!`. CommonMark Type 6 / Type 7
+        // HTML blocks terminate at the first blank line, after which any
+        // 4-space-indented DOT lines become markdown indented code blocks
+        // (Rust by default) and rustdoc tries to compile them. Our bundled
+        // CSS and DOT source both contain blank lines naturally — they're
+        // pure formatting in CSS/HTML and discarded by Graphviz, so stripping
+        // them is safe.
+        let compact: String = content
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(&svg_path, &compact).expect("failed to write diagram file");
         println!("cargo::rerun-if-changed=build.rs");
         svg_path
     }
@@ -240,7 +215,7 @@ impl Default for SvgGenerator {
 /// `cluster_iface_<name>` subgraph. Mirrors Java's `SubnetDotExport.fullBody`
 /// and TypeScript's `subnet-dot-export.fullBody`.
 ///
-/// To write the rendered SVG to disk, prefer [`generate_subnet_def_svg`] or
+/// To write the rendered diagram to disk, prefer [`generate_subnet_def_svg`] or
 /// the [`petrinet_doc_svg!`] macro.
 pub fn dot_export_subnet_def<P: 'static>(def: &SubnetDef<P>) -> String {
     subnet_dot_export::full_body(def)
@@ -261,27 +236,28 @@ pub fn dot_export_composed_with_clusters(net: &PetriNet) -> String {
     dot_export(net, None)
 }
 
-/// Generates an SVG file from a [`SubnetDef`] and writes it to `OUT_DIR`.
+/// Generates a diagram file from a [`SubnetDef`] and writes it to `OUT_DIR`.
 ///
 /// Convenience entry point analogous to [`generate_svg`] but specialised for
-/// subnet definitions. The rendered SVG includes the inlined CSS + JS so the
+/// subnet definitions. The rendered HTML includes the inlined CSS + JS so the
 /// rustdoc viewer gets the same collapse/expand interactions as Java/TS.
 pub fn generate_subnet_def_svg<P: 'static>(name: &str, def: &SubnetDef<P>) -> PathBuf {
     SvgGenerator::new().generate_subnet_def(name, def)
 }
 
-/// Generates an SVG file from an [`Instance`] and writes it to `OUT_DIR`.
+/// Generates a diagram file from an [`Instance`] and writes it to `OUT_DIR`.
 pub fn generate_instance_svg<P: 'static>(name: &str, instance: &Instance<P>) -> PathBuf {
     SvgGenerator::new().generate_instance(name, instance)
 }
 
-/// Generates an SVG file from a composed flat [`PetriNet`] (with cluster
+/// Generates a diagram file from a composed flat [`PetriNet`] (with cluster
 /// post-processing) and writes it to `OUT_DIR`.
 pub fn generate_composed_svg(name: &str, net: &PetriNet) -> PathBuf {
     SvgGenerator::new().generate_composed(name, net)
 }
 
-/// Convenience macro: generate an SVG and embed it in rustdoc with one call.
+/// Convenience macro: generate a diagram file and embed it in rustdoc with
+/// one call.
 ///
 /// The macro accepts a [`PetriNet`], [`SubnetDef`], or [`Instance`] expression
 /// and an output filename (without `.svg`). The implementation dispatches to
@@ -313,9 +289,9 @@ macro_rules! petrinet_doc_svg {
 
 /// Trait dispatched-to by the [`petrinet_doc_svg!`] macro. Accepts a
 /// `&PetriNet`, `&SubnetDef<P>`, or `&Instance<P>` and returns the path of
-/// the written SVG (under `OUT_DIR`).
+/// the written file (under `OUT_DIR`).
 pub trait PetriDocSvg {
-    /// Generate an SVG for `self` under `$OUT_DIR/<outname>.svg`.
+    /// Generate a diagram file for `self` under `$OUT_DIR/<outname>.svg`.
     fn generate(self, outname: &str) -> PathBuf;
 }
 
@@ -335,93 +311,6 @@ impl<P: 'static> PetriDocSvg for &Instance<P> {
     fn generate(self, outname: &str) -> PathBuf {
         generate_instance_svg(outname, self)
     }
-}
-
-/// Converts DOT source to SVG using the `dot` CLI tool.
-/// Falls back to a `<pre><code>` block if `dot` is not available.
-fn dot_to_svg(dot_source: &str, strip_dimensions: bool) -> String {
-    if let Some(svg) = try_dot_command(dot_source, strip_dimensions) {
-        return svg;
-    }
-
-    // Fallback: embed DOT source as HTML pre block. Strip blank lines from the
-    // source — the outer `<div>` wrapper applied by `SvgGenerator::generate` is a
-    // CommonMark Type 6 HTML block, which terminates at the first blank line.
-    // Once it terminates, the remaining 4-space-indented DOT lines become a
-    // Markdown indented code block (Rust by default) and rustdoc tries to compile
-    // them as Rust, failing on `[` after identifiers, etc.
-    let compact = dot_source
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
-    format!(
-        "<pre><code class=\"language-text\">{}</code></pre>",
-        compact.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
-    )
-}
-
-/// Attempts to run `dot -Tsvg` and returns the SVG string, or `None` if `dot` is
-/// unavailable or fails.
-fn try_dot_command(dot_source: &str, strip_dimensions: bool) -> Option<String> {
-    use std::io::Write;
-
-    let mut child = Command::new("dot")
-        .args(["-Tsvg"])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .ok()?;
-
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(dot_source.as_bytes())
-        .ok()?;
-
-    let output = child.wait_with_output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-
-    let mut svg = String::from_utf8(output.stdout).ok()?;
-
-    // Strip XML prolog and DOCTYPE — invalid inside HTML5
-    if let Some(svg_start) = svg.find("<svg") {
-        if svg_start > 0 {
-            svg = svg[svg_start..].to_string();
-        }
-    }
-
-    // Optionally strip fixed pt dimensions for responsive sizing.
-    // NOTE: rustdoc inline SVGs need explicit width+height to avoid collapsing
-    // to zero size. When strip_dimensions is false, we keep the original
-    // Graphviz pt values and just add max-width:100% via a style attribute.
-    if strip_dimensions {
-        if let Some(w) = find_attr(&svg, "width") {
-            svg = svg.replacen(&w, "", 1);
-        }
-        if let Some(h) = find_attr(&svg, "height") {
-            svg = svg.replacen(&h, "", 1);
-        }
-        svg = svg.replacen("<svg", r#"<svg width="100%""#, 1);
-    } else {
-        // Keep original dimensions but add max-width so wide SVGs shrink to fit.
-        svg = svg.replacen("<svg", r#"<svg style="max-width:100%""#, 1);
-    }
-
-    Some(svg)
-}
-
-/// Finds an HTML attribute like ` width="1234pt"` in the SVG string.
-fn find_attr(svg: &str, attr: &str) -> Option<String> {
-    let pattern = format!(" {attr}=\"");
-    let start = svg.find(&pattern)?;
-    let value_start = start + pattern.len();
-    let end = svg[value_start..].find('"')? + value_start + 1;
-    Some(svg[start..end].to_string())
 }
 
 #[cfg(test)]
@@ -445,40 +334,6 @@ mod tests {
     }
 
     #[test]
-    fn fallback_produces_pre_block() {
-        let svg = dot_to_svg("digraph { a -> b }", false);
-        // If dot is available, we get real SVG; if not, we get the fallback.
-        // The fallback must mark the block as non-Rust so rustdoc skips it as
-        // a doctest (otherwise CI without `dot` fails to compile DOT as Rust).
-        assert!(
-            svg.contains("<svg")
-                || svg.contains("<pre><code class=\"language-text\">")
-        );
-    }
-
-    #[test]
-    fn fallback_escapes_html() {
-        let dot = "digraph { label=\"a < b & c > d\" }";
-        // Force fallback by using the fallback function directly
-        let html = format!(
-            "<pre><code class=\"language-text\">{}</code></pre>",
-            dot.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
-        );
-        assert!(html.contains("&lt;"));
-        assert!(html.contains("&amp;"));
-        assert!(html.contains("&gt;"));
-        assert!(html.contains("class=\"language-text\""));
-    }
-
-    #[test]
-    fn find_attr_extracts_width() {
-        let svg = r#"<svg width="100pt" height="200pt" viewBox="0 0 100 200">"#;
-        assert_eq!(find_attr(svg, "width"), Some(r#" width="100pt""#.to_string()));
-        assert_eq!(find_attr(svg, "height"), Some(r#" height="200pt""#.to_string()));
-        assert_eq!(find_attr(svg, "missing"), None);
-    }
-
-    #[test]
     fn generate_to_custom_dir() {
         let p1 = Place::<i32>::new("a");
         let p2 = Place::<i32>::new("b");
@@ -496,10 +351,12 @@ mod tests {
 
         assert!(path.exists());
         let content = fs::read_to_string(&path).unwrap();
-        assert!(
-            content.contains("<svg")
-                || content.contains("<pre><code class=\"language-text\">")
-        );
+        // The new client-side path embeds DOT in a data-dot attribute and
+        // mounts the canonical viewer; there is no inline <svg> and no
+        // <pre><code class="language-text"> fallback block.
+        assert!(content.contains("data-dot=\""));
+        assert!(content.contains("LibpetriViewer.mount"));
+        assert!(!content.contains("<pre><code class=\"language-text\">"));
         fs::remove_file(path).ok();
     }
 }

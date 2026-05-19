@@ -11,19 +11,11 @@ import jdk.javadoc.doclet.Taglet;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.TypeElement;
-import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
-import java.nio.charset.StandardCharsets;
 import java.util.EnumSet;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 import org.libpetri.core.Instance;
@@ -102,32 +94,6 @@ public class PetriNetTaglet implements Taglet {
 
     private static final String NAME = "petrinet";
     private static final System.Logger LOG = System.getLogger(PetriNetTaglet.class.getName());
-
-    /**
-     * Cached {@code dot} availability probe result.
-     * <ul>
-     *   <li>{@code null} — not yet probed; next call to {@link #tryDotRender}
-     *       will attempt to invoke {@code dot}.</li>
-     *   <li>{@code Boolean.TRUE} — at least one successful render has
-     *       completed; further calls go straight to invocation.</li>
-     *   <li>{@code Boolean.FALSE} — the binary is missing or wedged; all
-     *       further calls short-circuit to {@link Optional#empty()} so the
-     *       taglet falls back to the DOT-embed path.</li>
-     * </ul>
-     * A non-zero exit code from {@code dot} on a particular diagram does
-     * <strong>not</strong> poison the cache — it's likely a malformed input,
-     * not a missing binary, so the next diagram still gets a fair attempt.
-     */
-    private static volatile Boolean dotAvailable;
-
-    /**
-     * Memoizes successful renders so the same DOT source isn't forked through
-     * {@code dot} twice. A single net field can be referenced from many javadoc
-     * pages; without this cache each reference costs another process fork.
-     * Empty results are cached too — a per-diagram failure is deterministic
-     * for that DOT input, so re-running can't recover.
-     */
-    private static final ConcurrentHashMap<String, Optional<String>> svgCache = new ConcurrentHashMap<>();
 
     /**
      * Required public no-arg constructor.
@@ -250,21 +216,9 @@ public class PetriNetTaglet implements Taglet {
     // ============================================================
     //  Rendering paths (one per resolved type)
     // ============================================================
-    //
-    // Hybrid render strategy: try to pre-render the DOT source into SVG via
-    // the `dot` command-line tool at doc-generation time; on success embed
-    // the SVG raw via DiagramRenderer.renderSvg (slim viewer bundle, no
-    // Graphviz WASM on page load); on failure or missing binary, fall back
-    // to the client-render path via DiagramRenderer.renderDot which embeds
-    // the DOT source as a data-dot attribute and lets the in-page viewer
-    // bundle render it via its embedded Graphviz WASM build.
 
     private String renderNet(PetriNet petriNet) {
-        var dot = DotExporter.export(petriNet);
-        var svg = tryRenderPipeline(dot);
-        return svg.isPresent()
-            ? DiagramRenderer.renderSvg(petriNet.name(), svg.get(), dot)
-            : DiagramRenderer.renderDot(petriNet.name(), dot);
+        return DiagramRenderer.renderDot(petriNet.name(), DotExporter.export(petriNet));
     }
 
     private String renderSubnetDef(SubnetDef<?> def, boolean interfaceOnly) {
@@ -273,333 +227,14 @@ public class PetriNetTaglet implements Taglet {
             : SubnetDotExport.fullBody(def);
         var header = SubnetHeader.forSubnetDef(def, interfaceOnly);
         var title = def.name() + (interfaceOnly ? " (interface)" : "");
-        var svg = tryRenderPipeline(dot);
-        return svg.isPresent()
-            ? DiagramRenderer.renderSubnetSvg(title, header, svg.get(), dot)
-            : DiagramRenderer.renderSubnetDot(title, header, dot);
+        return DiagramRenderer.renderSubnetDot(title, header, dot);
     }
 
     private String renderInstance(Instance<?> instance) {
         var dot = DotExporter.export(instance.renamedBody());
         var header = SubnetHeader.forInstance(instance);
         var title = instance.def().name() + " :: " + instance.prefix();
-        var svg = tryRenderPipeline(dot);
-        return svg.isPresent()
-            ? DiagramRenderer.renderSubnetSvg(title, header, svg.get(), dot)
-            : DiagramRenderer.renderSubnetDot(title, header, dot);
-    }
-
-    /**
-     * Try the C0 Node-CLI pre-render first; on miss fall back to the legacy
-     * {@code dot -Tsvg} path. When the env var {@code LIBPETRI_PRERENDER_SCRIPT}
-     * is unset (or the CLI fails) we never invoke Node, so doc builds in
-     * environments without it pay no penalty.
-     */
-    static Optional<String> tryRenderPipeline(String dot) {
-        var c0 = tryC0Prerender(dot);
-        if (c0.isPresent()) return c0;
-        return tryDotRender(dot);
-    }
-
-    /**
-     * Shared subprocess-renderer driver used by both the {@code dot -Tsvg}
-     * path ({@link #doDotRender}) and the Node-CLI C0 path
-     * ({@link #doC0Prerender}). The two paths differ only in the binary they
-     * spawn, the timeout they tolerate, and which static field acts as the
-     * cache-poison flag — everything else (stdin pipe-in, concurrent
-     * stdout/stderr drain, exit handling) is identical.
-     *
-     * <p>The dual {@link CompletableFuture} stream drain is load-bearing:
-     * without a separate stderr reader, a renderer that prints to stderr
-     * (font warnings, ELK info logs) will fill its ~64 KB OS pipe, block in
-     * {@code write()}, and the outer {@link Process#waitFor} will kill it
-     * after the timeout — silently disabling the renderer for the rest of
-     * the doc build via the cache-poison hook.
-     *
-     * <p>Failure semantics:
-     * <ul>
-     *   <li>Binary missing → {@link IOException} caught, poison fires,
-     *       optionally logged at WARNING (see
-     *       {@link SubprocessRendererConfig#logPermanentFailures()}).</li>
-     *   <li>Wedged past {@code processTimeoutSeconds} → process killed,
-     *       poison fires, optionally logged at WARNING.</li>
-     *   <li>Non-zero exit (typically a malformed diagram) → {@link
-     *       Optional#empty()} returned, poison does NOT fire (the next
-     *       diagram still gets a fair attempt).</li>
-     * </ul>
-     *
-     * @param cfg renderer configuration (command, timeouts, poison hook, label)
-     * @param dot DOT source piped to the subprocess on stdin
-     * @return the rendered SVG, or {@link Optional#empty()} on any failure
-     */
-    private static Optional<String> runSubprocessRenderer(
-            SubprocessRendererConfig cfg, String dot) {
-        Process process = null;
-        try {
-            var pb = new ProcessBuilder(cfg.command()).redirectErrorStream(false);
-            process = pb.start();
-
-            var p = process;
-            CompletableFuture<String> outFuture = CompletableFuture.supplyAsync(() -> {
-                try {
-                    return new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
-            });
-            CompletableFuture<String> errFuture = CompletableFuture.supplyAsync(() -> {
-                try {
-                    return new String(p.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-                } catch (IOException e) {
-                    return "";
-                }
-            });
-
-            try (var out = process.getOutputStream()) {
-                out.write(dot.getBytes(StandardCharsets.UTF_8));
-            }
-
-            if (!process.waitFor(cfg.processTimeoutSeconds(), TimeUnit.SECONDS)) {
-                process.destroyForcibly();
-                if (cfg.logPermanentFailures()) {
-                    LOG.log(System.Logger.Level.WARNING,
-                        "{0} wedged past {1}s; falling back to next renderer.",
-                        cfg.label(), cfg.processTimeoutSeconds());
-                }
-                cfg.onPermanentFailure().run();
-                return Optional.empty();
-            }
-
-            if (process.exitValue() != 0) {
-                // Per-diagram failure (bad input) — don't poison.
-                var stderr = errFuture.getNow("");
-                if (!stderr.isBlank()) {
-                    LOG.log(System.Logger.Level.DEBUG, "{0} exit {1}: {2}",
-                            cfg.label(), process.exitValue(), stderr);
-                }
-                return Optional.empty();
-            }
-
-            var svg = outFuture.get(cfg.outputDrainTimeoutSeconds(), TimeUnit.SECONDS);
-            var stderr = errFuture.getNow("");
-            if (!stderr.isBlank()) {
-                LOG.log(System.Logger.Level.DEBUG, "{0} warnings: {1}", cfg.label(), stderr);
-            }
-            return Optional.of(svg);
-        } catch (IOException e) {
-            // Binary not on PATH or unreadable. Poison.
-            if (cfg.logPermanentFailures()) {
-                LOG.log(System.Logger.Level.WARNING,
-                    "{0} binary unavailable: {1}", cfg.label(), e.getMessage());
-            }
-            cfg.onPermanentFailure().run();
-            return Optional.empty();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            if (process != null) process.destroyForcibly();
-            return Optional.empty();
-        } catch (ExecutionException | TimeoutException e) {
-            if (process != null) process.destroyForcibly();
-            return Optional.empty();
-        }
-    }
-
-    /**
-     * Configuration for {@link #runSubprocessRenderer}. Java 25 record keeps
-     * the parameter list type-safe and self-documenting.
-     *
-     * @param command argv passed to {@link ProcessBuilder}
-     * @param processTimeoutSeconds hard upper bound on subprocess wall time
-     * @param outputDrainTimeoutSeconds extra time (typically 1–2s) to wait
-     *     for the stdout drain {@link CompletableFuture} after the process
-     *     itself has exited cleanly
-     * @param label short human-readable name used in log messages
-     * @param onPermanentFailure cache-poison hook; invoked when the binary
-     *     is missing or wedges, NOT on per-diagram failures (exit ≠ 0)
-     * @param logPermanentFailures when {@code true}, permanent failures log
-     *     at WARNING; when {@code false} (the {@code dot} case) the failure
-     *     is silent because missing {@code dot} is common and shouldn't
-     *     spam every doc build
-     */
-    private record SubprocessRendererConfig(
-            String[] command,
-            int processTimeoutSeconds,
-            int outputDrainTimeoutSeconds,
-            String label,
-            Runnable onPermanentFailure,
-            boolean logPermanentFailures) {}
-
-    /**
-     * Attempts to pre-render the supplied DOT source into SVG via the
-     * {@code dot} command-line tool. Package-private so the sibling test
-     * class can drive it directly.
-     *
-     * <p>Failure semantics:
-     * <ul>
-     *   <li>If {@code dot} is not on {@code PATH} the {@link ProcessBuilder}
-     *       throws an {@link IOException} and the cache is poisoned so all
-     *       subsequent calls short-circuit.</li>
-     *   <li>If {@code dot} runs but exits non-zero (typically a malformed
-     *       diagram) the call returns {@link Optional#empty()} but does
-     *       <strong>not</strong> poison the cache.</li>
-     *   <li>If {@code dot} wedges past 30 seconds the process is killed and
-     *       the cache is poisoned (a wedged binary is functionally missing).</li>
-     *   <li>On success the cache flips to {@link Boolean#TRUE} and the SVG
-     *       bytes are returned UTF-8 decoded.</li>
-     * </ul>
-     *
-     * @param dot the DOT source code
-     * @return the rendered SVG, or {@link Optional#empty()} if {@code dot} is
-     *     unavailable or rendering failed
-     */
-    static Optional<String> tryDotRender(String dot) {
-        if (Boolean.FALSE.equals(dotAvailable)) {
-            return Optional.empty();
-        }
-        return svgCache.computeIfAbsent(dot, PetriNetTaglet::doDotRender);
-    }
-
-    private static Optional<String> doDotRender(String dot) {
-        var cfg = new SubprocessRendererConfig(
-                new String[]{"dot", "-Tsvg"},
-                /* processTimeoutSeconds   */ 30,
-                /* outputDrainTimeoutSeconds */ 1,
-                /* label                   */ "dot",
-                /* onPermanentFailure      */ () -> dotAvailable = false,
-                /* logPermanentFailures    */ false);
-        var svg = runSubprocessRenderer(cfg, dot);
-        if (svg.isPresent()) {
-            dotAvailable = true;
-        }
-        return svg;
-    }
-
-    /**
-     * Resets the cached availability probes for both the {@code dot} and the
-     * C0 prerender paths, and clears all memoized SVG outputs.
-     * Package-private hook for tests; production code never calls this.
-     */
-    static void resetDotAvailability() {
-        dotAvailable = null;
-        c0ScriptResolved = null;
-        svgCache.clear();
-        c0SvgCache.clear();
-    }
-
-    // ============================================================
-    //  C0 pre-render via the libpetri Node CLI
-    // ============================================================
-    //
-    // Opt-in via env var LIBPETRI_PRERENDER_SCRIPT (or system property
-    // libpetri.prerender.script — preferred, see resolveC0Script). When set,
-    // the taglet shells out to `node $LIBPETRI_PRERENDER_SCRIPT`, pipes DOT
-    // to stdin, reads SVG from stdout. The Node script runs the same
-    // parse → fold → replicate → ELK → writeBack → Graphviz neato (nop=1)
-    // pipeline the in-browser viewer uses, so pre-rendered and
-    // client-rendered diagrams look identical. ~1s for the 14-subnet
-    // Marvin VoiceWorkflowConfig.
-
-    private static final String C0_SCRIPT_ENV = "LIBPETRI_PRERENDER_SCRIPT";
-    private static final String C0_SCRIPT_SYSPROP = "libpetri.prerender.script";
-
-    /**
-     * Resolved path to the C0 prerender script:
-     * <ul>
-     *   <li>{@code null} — not yet probed.</li>
-     *   <li>non-empty {@link Optional} — script found and at least one
-     *       invocation succeeded (or hasn't been tried yet, but env is set).</li>
-     *   <li>empty {@link Optional} — env unset or script missing; skip the
-     *       Node path for the rest of the doc build.</li>
-     * </ul>
-     */
-    private static volatile Optional<String> c0ScriptResolved;
-
-    private static final ConcurrentHashMap<String, Optional<String>> c0SvgCache = new ConcurrentHashMap<>();
-
-    /**
-     * Attempts to pre-render the supplied DOT source via the C0 Node CLI
-     * (see {@link #C0_SCRIPT_ENV} / {@link #C0_SCRIPT_SYSPROP}). Cached
-     * per-DOT-source to avoid forking Node twice for the same diagram
-     * across multiple javadoc pages. Package-private so tests can drive it.
-     *
-     * <p>Failure semantics (mirror {@link #tryDotRender}, with the C0 twist
-     * that the env-var/sysprop opt-in must be honoured first):
-     * <ul>
-     *   <li>If neither {@link #C0_SCRIPT_ENV} nor {@link #C0_SCRIPT_SYSPROP}
-     *       is set, returns {@link Optional#empty()} immediately — Node is
-     *       never invoked.</li>
-     *   <li>If {@code node} is not on {@code PATH} or the script wedges
-     *       past 60 seconds, {@link #c0ScriptResolved} is poisoned and all
-     *       further calls short-circuit.</li>
-     *   <li>If the script exits non-zero on a particular diagram, returns
-     *       {@link Optional#empty()} but does NOT poison.</li>
-     * </ul>
-     *
-     * @param dot the DOT source code
-     * @return the rendered SVG, or {@link Optional#empty()} on any failure
-     */
-    static Optional<String> tryC0Prerender(String dot) {
-        var script = resolveC0Script();
-        if (script.isEmpty()) return Optional.empty();
-        return c0SvgCache.computeIfAbsent(dot, d -> doC0Prerender(script.get(), d));
-    }
-
-    /**
-     * Resolves the C0 prerender script path from the JVM system property
-     * {@link #C0_SCRIPT_SYSPROP} (preferred) or the environment variable
-     * {@link #C0_SCRIPT_ENV}. The sysprop is checked first because Gradle
-     * daemons capture {@code env} at startup, so a shell-set env var
-     * doesn't reach a re-used daemon's forked javadoc JVM — but
-     * {@code -Dprop=value} (jFlags) always does. The result is memoized in
-     * {@link #c0ScriptResolved} so the filesystem is probed exactly once.
-     *
-     * @return the absolute path to the script, or {@link Optional#empty()}
-     *     when neither source is set or the file is not readable
-     */
-    private static Optional<String> resolveC0Script() {
-        var cached = c0ScriptResolved;
-        if (cached != null) return cached;
-        var path = System.getProperty(C0_SCRIPT_SYSPROP);
-        if (path == null || path.isBlank()) {
-            path = System.getenv(C0_SCRIPT_ENV);
-        }
-        if (path == null || path.isBlank()) {
-            c0ScriptResolved = Optional.empty();
-            return c0ScriptResolved;
-        }
-        var file = new java.io.File(path);
-        if (!file.isFile() || !file.canRead()) {
-            LOG.log(System.Logger.Level.WARNING,
-                "C0 prerender script ''{0}'' is not readable; falling back to dot/client.", path);
-            c0ScriptResolved = Optional.empty();
-            return c0ScriptResolved;
-        }
-        c0ScriptResolved = Optional.of(path);
-        return c0ScriptResolved;
-    }
-
-    private static Optional<String> doC0Prerender(String scriptPath, String dot) {
-        var cfg = new SubprocessRendererConfig(
-                new String[]{"node", scriptPath},
-                /* processTimeoutSeconds   */ 60,
-                /* outputDrainTimeoutSeconds */ 2,
-                /* label                   */ "C0 prerender",
-                /* onPermanentFailure      */ () -> c0ScriptResolved = Optional.empty(),
-                /* logPermanentFailures    */ true);
-        return runSubprocessRenderer(cfg, dot);
-    }
-
-    /**
-     * Reads the cached {@code dot} availability probe result without
-     * triggering a probe. Package-private accessor for tests; production
-     * code never calls this.
-     *
-     * @return {@code null} if not yet probed; {@link Boolean#TRUE} if a
-     *     probe succeeded; {@link Boolean#FALSE} if the binary is missing
-     *     or wedged
-     */
-    static Boolean dotAvailableCache() {
-        return dotAvailable;
+        return DiagramRenderer.renderSubnetDot(title, header, dot);
     }
 
     // ============================================================

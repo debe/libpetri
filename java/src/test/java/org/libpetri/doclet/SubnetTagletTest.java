@@ -4,7 +4,6 @@ import com.sun.source.doctree.DocTree;
 import com.sun.source.doctree.TextTree;
 import com.sun.source.doctree.UnknownBlockTagTree;
 import org.junit.jupiter.api.Test;
-import java.util.Optional;
 import org.libpetri.core.Arc;
 import org.libpetri.core.Instance;
 import org.libpetri.core.NetStructure;
@@ -271,12 +270,10 @@ class SubnetTagletTest {
 
     @Test
     void taglet_wiresLibpetriViewer() {
-        // The renderer must emit (in BOTH the DOT-embed and pre-rendered SVG
-        // paths):
+        // The renderer must emit:
         //   - an init script that calls LibpetriViewer.mount(..., {chrome:true})
         //   - the new idempotency guard (window._libpetriViewerInit)
-        // It MUST NOT emit the legacy hand-written IIFE hooks regardless of
-        // which path was selected:
+        // It MUST NOT emit the legacy hand-written IIFE hooks:
         //   - PetriNetDiagrams.toggleFullscreen onclick handler
         //   - empty <aside class="diagram-legend"> placeholder
         //   - empty <div class="diagram-filter-strip"> placeholder
@@ -285,11 +282,6 @@ class SubnetTagletTest {
         // runtime by the LibpetriViewer chrome — not as static HTML —
         // so we no longer guard against the `btn-fullscreen` string
         // (it legitimately appears inside the inlined JS bundle).
-        //
-        // Data-dot-specific shape assertions live in dotPath_emitsDataDotHost
-        // below (driven directly through DiagramRenderer.renderDot so the
-        // contract is covered even on hosts where `dot` IS available and the
-        // taglet takes the pre-rendered SVG path).
         var taglet = new PetriNetTaglet();
         var html = taglet.toString(blockTag("PLAIN_NET"), classElement(SubnetTagletTest.class));
 
@@ -322,10 +314,9 @@ class SubnetTagletTest {
 
     @Test
     void dotPath_emitsDataDotHost() {
-        // The DOT-embed fallback path must emit a viewer container carrying
-        // the DOT source as a `data-dot` attribute. Driven directly through
-        // DiagramRenderer.renderDot so the contract is covered regardless of
-        // host `dot` availability.
+        // The renderer must emit a viewer container carrying the DOT source
+        // as a `data-dot` attribute. Driven directly through
+        // DiagramRenderer.renderDot.
         var dot = "digraph { p_NET_INPUT -> t_Process -> p_NET_OUTPUT }";
         var html = DiagramRenderer.renderDot("PlainNet", dot);
 
@@ -340,10 +331,7 @@ class SubnetTagletTest {
     @Test
     void taglet_dataDotEscapesQuotes() {
         // Confirm that any quote characters in the DOT source are HTML-escaped
-        // so the data-dot attribute stays well-formed. Driven directly through
-        // DiagramRenderer.renderDot so the contract is covered regardless of
-        // host `dot` availability (the taglet may take the SVG path if `dot`
-        // is on PATH, in which case there is no data-dot attribute at all).
+        // so the data-dot attribute stays well-formed.
         var dot = "digraph{\"a\"->\"b\"}";
         var html = DiagramRenderer.renderDot("Title", dot);
 
@@ -358,72 +346,6 @@ class SubnetTagletTest {
             "DOT quotes should be escaped to &quot; inside the attribute:\n" + attrValue);
         assertFalse(attrValue.contains("\""),
             "no raw double-quotes should remain inside the attribute value:\n" + attrValue);
-    }
-
-    @Test
-    void renderSvg_embedsSvgRawWithoutDataDot() {
-        var svg = "<svg viewBox='0 0 100 100'><circle r='10' cx='50' cy='50'/></svg>";
-        var html = DiagramRenderer.renderSvg("Title", svg, "digraph{a->b}");
-        assertTrue(html.contains("<svg viewBox"), "SVG embedded raw:\n" + html);
-        assertFalse(html.contains("data-dot="), "no data-dot attribute:\n" + html);
-        // The SVG sits immediately inside the viewer host (possibly with
-        // whitespace introduced by the text-block formatter).
-        assertTrue(html.matches("(?s).*petrinet-diagram-viewer\">\\s*<svg.*"),
-            "SVG sits immediately inside the viewer host:\n" + html);
-        assertTrue(html.contains("LibpetriViewer.mount(null,"),
-            "mount call passes null DOT for pre-rendered path:\n" + html);
-        assertTrue(html.contains("View DOT Source"),
-            "details block retained:\n" + html);
-        assertTrue(html.contains("digraph{a-&gt;b}"),
-            "DOT in details is HTML-escaped:\n" + html);
-    }
-
-    @Test
-    void renderSubnetSvg_includesHeaderAndSubnetClass() {
-        var svg = "<svg/>";
-        var html = DiagramRenderer.renderSubnetSvg(
-            "Title", "<div class=\"subnet-header\">HDR</div>", svg, "digraph{}");
-        assertTrue(html.contains("petrinet-diagram subnet-diagram"),
-            "wrapper should carry subnet-diagram class:\n" + html);
-        assertTrue(html.contains("<div class=\"subnet-header\">HDR</div>"),
-            "subnet header HTML should be embedded verbatim:\n" + html);
-        assertFalse(html.contains("data-dot="),
-            "no data-dot attribute on the SVG path:\n" + html);
-    }
-
-    @Test
-    void tryDotRender_cachesAvailability() {
-        // Reset cache so we're guaranteed to drive a real probe on the
-        // first call. After the first call the cache must be set (either
-        // Boolean.TRUE on hosts with `dot` on PATH, or Boolean.FALSE on
-        // hosts without it — both are valid post-probe states).
-        PetriNetTaglet.resetDotAvailability();
-        assertNull(PetriNetTaglet.dotAvailableCache(),
-            "cache should be null after reset");
-
-        Optional<String> first = PetriNetTaglet.tryDotRender("digraph{}");
-        Boolean afterFirst = PetriNetTaglet.dotAvailableCache();
-        assertNotNull(afterFirst,
-            "cache should be populated after the first probe");
-
-        if (first.isPresent()) {
-            assertEquals(Boolean.TRUE, afterFirst,
-                "successful render should cache TRUE");
-        } else {
-            // Either the binary was missing (cache FALSE) or the per-diagram
-            // render failed (cache still null). The probe above used a
-            // well-formed empty DOT, so the only failure modes are missing
-            // binary (FALSE) or a wedged binary (FALSE). Don't allow
-            // Boolean.TRUE with empty result — that would be a bug.
-            assertNotEquals(Boolean.TRUE, afterFirst,
-                "empty result must not be cached as TRUE");
-        }
-
-        // A second probe should leave the cache in the same state — neither
-        // call should reset or flip it spuriously.
-        PetriNetTaglet.tryDotRender("digraph{}");
-        assertEquals(afterFirst, PetriNetTaglet.dotAvailableCache(),
-            "cache should remain stable across calls");
     }
 
     // ============================================================

@@ -167,21 +167,10 @@ export interface MountOptions {
  * and surface cluster overlay controls.
  *
  * The container's existing children are removed before the new SVG is
- * appended (the same teardown behaviour `renderDotToContainer` used to provide).
- *
- * Pass `dotSource === null` to adopt an SVG already present as a direct child
- * of `container` (pre-rendered SVG path — e.g. the Java javadoc taglet emits
- * `dot -Tsvg` at build time). In that mode the viewer never imports the
- * runtime DOT renderer, which lets the static IIFE bundle drop `@viz-js/viz`
- * entirely.
- *
- * NOTE: when shipping a pre-rendered SVG (`dotSource === null`), do NOT also
- * pass `previousHandle` — the handle's `dispose()` runs before SVG detection
- * and would orphan the host. The Java taglet mounts once per page so this is
- * a non-issue in practice.
+ * appended.
  */
 export async function mount(
-  dotSource: string | null,
+  dotSource: string,
   container: HTMLElement,
   opts: MountOptions = {},
 ): Promise<ViewerHandle> {
@@ -198,33 +187,18 @@ export async function mount(
     previousHandle.dispose();
   }
 
-  // Gate on dotSource (not on "SVG present") — debug-ui re-renders by
-  // passing DOT with `previousHandle` and the leftover SVG must NOT be
-  // misread as pre-rendered. Java passes literal `null` for the
-  // pre-rendered path.
-  let svg: SVGSVGElement;
-  const existing = container.querySelector(':scope > svg');
-  if (dotSource == null) {
-    if (!(existing instanceof SVGSVGElement)) {
-      throw new Error('mount: no DOT source and no pre-rendered SVG');
-    }
-    svg = existing;
-  } else {
-    // Dynamic import so the static IIFE entry can alias './render.js' to a
-    // throwing stub and drop the @viz-js/viz + elkjs dependencies.
-    const renderModule = await import('./render.js');
-    const useElk = (opts.layout ?? 'elk') === 'elk';
-    // When subnets are hidden, render a flattened variant. The original
-    // DOT is kept around so toggleSubnets can re-mount with the clustered
-    // view without callers having to supply DOT a second time.
-    const renderedDot =
-      subnetsMode === 'hide' ? flattenClusters(dotSource) : dotSource;
-    svg = useElk
-      ? await renderModule.renderDotToSvgWithElkLayout(renderedDot)
-      : await renderModule.renderDotToSvg(renderedDot);
-    container.innerHTML = '';
-    container.appendChild(svg);
-  }
+  const renderModule = await import('./render.js');
+  const useElk = (opts.layout ?? 'elk') === 'elk';
+  // When subnets are hidden, render a flattened variant. The original
+  // DOT is kept around so toggleSubnets can re-mount with the clustered
+  // view without callers having to supply DOT a second time.
+  const renderedDot =
+    subnetsMode === 'hide' ? flattenClusters(dotSource) : dotSource;
+  const svg: SVGSVGElement = useElk
+    ? await renderModule.renderDotToSvgWithElkLayout(renderedDot)
+    : await renderModule.renderDotToSvg(renderedDot);
+  container.innerHTML = '';
+  container.appendChild(svg);
   // Tag the host so the canonical CSS (which scopes to .libpetri-viewer)
   // applies even when the consumer didn't wrap us in a .petrinet-diagram.
   container.classList.add('libpetri-viewer');
@@ -276,8 +250,7 @@ export async function mount(
     fsBtn.title = 'Toggle fullscreen';
     fsBtn.textContent = 'Fullscreen';
     fsBtn.addEventListener('click', () => toggleFullscreen(container, fsBtn));
-    // Subnet view toggle: hidden in pre-rendered-SVG mode (no DOT to
-    // re-render against). Button label describes the action — what
+    // Subnet view toggle. Button label describes the action — what
     // clicking it will do, not the current state.
     const subnetsBtn = document.createElement('button');
     subnetsBtn.type = 'button';
@@ -285,10 +258,6 @@ export async function mount(
     subnetsBtn.title =
       subnetsMode === 'show' ? 'Hide subnet groupings' : 'Show subnet groupings';
     subnetsBtn.textContent = subnetsMode === 'show' ? 'Flat view' : 'Subnets view';
-    if (dotSource == null) {
-      subnetsBtn.disabled = true;
-      subnetsBtn.title = 'Subnet toggle unavailable for pre-rendered SVG';
-    }
     subnetsBtn.addEventListener('click', () => {
       void handle.toggleSubnets();
     });
@@ -343,9 +312,7 @@ export async function mount(
     setSubnets(mode: SubnetVisibility): Promise<ViewerHandle> {
       // Re-mount via the canonical path so all teardown + state preservation
       // (collapse set, filter) runs through the same code as external
-      // re-renders. The original dotSource is reused — pre-rendered SVG
-      // mode (dotSource === null) can't toggle and is a no-op resolve.
-      if (dotSource == null) return Promise.resolve(handle);
+      // re-renders. The original dotSource is reused.
       if (mode === subnetsMode) return Promise.resolve(handle);
       return mount(dotSource, container, {
         ...opts,

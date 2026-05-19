@@ -51,12 +51,6 @@
       "import": "./dist/viewer/index.js",
       "types": "./dist/viewer/index.d.ts"
     },
-    "./viewer/layout": {
-      "node": {
-        "import": "./dist/viewer/layout/index.js",
-        "types": "./dist/viewer/layout/index.d.ts"
-      }
-    },
     "./viewer/iife": "./dist/viewer/viewer.iife.js",
     "./viewer/css": "./dist/viewer/viewer.css"
   },
