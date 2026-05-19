@@ -12,6 +12,7 @@ export default defineConfig({
     'doclet/index': 'src/doclet/index.ts',
     'render-dom/index': 'src/render-dom/index.ts',
     'viewer/index': 'src/viewer/index.ts',
+    'viewer/layout/index': 'src/viewer/layout/index.ts',
   },
   format: ['esm'],
   dts: true,

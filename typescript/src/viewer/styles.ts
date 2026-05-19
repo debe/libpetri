@@ -29,6 +29,23 @@ export const VIEWER_CSS_VARIABLES = [
   '--lpv-legend-bg',
   '--lpv-chip-bg',
   '--lpv-chip-active-bg',
+  // C0 sidebar + replica + highlight (Stage 5)
+  '--lpv-sidebar-bg',
+  '--lpv-sidebar-border',
+  '--lpv-sidebar-text',
+  '--lpv-sidebar-muted',
+  '--lpv-sidebar-chip-bg',
+  '--lpv-sidebar-chip-hover-bg',
+  '--lpv-sidebar-chip-off-opacity',
+  '--lpv-shared-glyph-color',
+  '--lpv-replica-fill',
+  '--lpv-replica-stroke',
+  '--lpv-highlight-stroke',
+  '--lpv-highlight-glow',
+  '--lpv-neighbor-stroke',
+  '--lpv-faded-node-opacity',
+  '--lpv-faded-edge-opacity',
+  '--lpv-faded-cluster-opacity',
 ] as const;
 
 export type ViewerCssVariable = (typeof VIEWER_CSS_VARIABLES)[number];

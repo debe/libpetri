@@ -200,4 +200,26 @@ describe('renderDot', () => {
     const result = renderDot(emptyGraph({ rankdir: 'LR' }));
     expect(result).toContain('rankdir=LR;');
   });
+
+  it('emits invis style and ltail/lhead for ghost edges (EXP-017)', () => {
+    const result = renderDot(emptyGraph({
+      nodes: [placeNode('p_left_a', 'a'), placeNode('p_right_b', 'b')],
+      edges: [edge('p_left_a', 'p_right_b', {
+        style: 'invis',
+        arrowhead: 'none',
+        arcType: 'ghost',
+        attrs: { ltail: 'cluster_left', lhead: 'cluster_right' },
+      })],
+    }));
+
+    expect(result).toContain('style="invis"');
+    expect(result).toContain('ltail="cluster_left"');
+    expect(result).toContain('lhead="cluster_right"');
+    expect(result).toContain('arrowhead="none"');
+  });
+
+  it('emits compound=true when set in graphAttrs (EXP-017)', () => {
+    const result = renderDot(emptyGraph({ graphAttrs: { compound: 'true' } }));
+    expect(result).toContain('compound="true"');
+  });
 });

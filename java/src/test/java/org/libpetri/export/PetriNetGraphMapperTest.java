@@ -473,4 +473,12 @@ class PetriNetGraphMapperTest {
         var graph = PetriNetGraphMapper.map(simpleNet(), ExportConfig.DEFAULT);
         assertEquals("edgesfirst", graph.graphAttrs().get("outputorder"));
     }
+
+    // EXP-017: compound=true is emitted on every net so Graphviz can honor
+    // ltail/lhead on the ghost edges synthesized by the cluster builder.
+    @Test
+    void graphAttrsIncludeCompoundTrue() {
+        var graph = PetriNetGraphMapper.map(simpleNet(), ExportConfig.DEFAULT);
+        assertEquals("true", graph.graphAttrs().get("compound"));
+    }
 }

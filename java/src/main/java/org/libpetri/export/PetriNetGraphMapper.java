@@ -202,6 +202,7 @@ public final class PetriNetGraphMapper {
         graphAttrs.put("overlap", StyleConstants.OVERLAP);
         graphAttrs.put("fontname", StyleConstants.FONT_FAMILY);
         graphAttrs.put("outputorder", StyleConstants.OUTPUT_ORDER);
+        graphAttrs.put("compound", "true");
 
         var nodeDefaults = new LinkedHashMap<String, String>();
         nodeDefaults.put("fontname", StyleConstants.FONT_FAMILY);

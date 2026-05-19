@@ -132,6 +132,15 @@ export function partition(
     }
   }
 
+  // Step 3.5: synthesize ghost edges for 1-hop cluster_X → orphan → cluster_Y
+  // paths so Graphviz (with compound=true) can constrain the two clusters'
+  // relative layout. Ghost edges are style=invis — they carry layout weight
+  // only; the visible flow still goes through the orphan via the real edges.
+  // Per spec EXP-017.
+  for (const ghost of synthesizeGhostEdges(nodes, edges, nodeIdToPrefix)) {
+    topLevelEdges.push(ghost);
+  }
+
   // Step 4: assemble Subgraph records bottom-up so children are built before
   // they're consumed by parents.
   const built = new Map<string, Subgraph>();
@@ -193,6 +202,91 @@ function registerPrefixChain(prefix: string | undefined, accumulator: Map<string
       accumulator.set(built, true);
     }
   }
+}
+
+/**
+ * Synthesizes one invisible ghost edge per ordered (cluster_X, cluster_Y)
+ * pair that is bridged by at least one top-level orphan node via a 1-hop
+ * path (i.e. some edge X-node → orphan and some edge orphan → Y-node). The
+ * ghost edge carries `style=invis, ltail=cluster_<sanitizedX>,
+ * lhead=cluster_<sanitizedY>` so Graphviz (with `compound=true`) treats it
+ * as a real cluster-to-cluster layout constraint without producing any
+ * visible artifact. Per spec EXP-017.
+ *
+ * Determinism: walks orphans in `nodes` order, walks each orphan's
+ * incoming/outgoing edges in `edges` order. First-witness wins for anchor
+ * node selection. This matches the iteration discipline in the Java/Rust
+ * mirrors so cross-language byte-parity holds.
+ */
+function synthesizeGhostEdges(
+  nodes: readonly GraphNode[],
+  edges: readonly GraphEdge[],
+  nodeIdToPrefix: ReadonlyMap<string, string>,
+): GraphEdge[] {
+  // Index edges by their orphan endpoint. An orphan is any node whose id is
+  // not in nodeIdToPrefix.
+  const incomingByOrphan = new Map<string, GraphEdge[]>();
+  const outgoingByOrphan = new Map<string, GraphEdge[]>();
+  for (const edge of edges) {
+    const fromHasPrefix = nodeIdToPrefix.has(edge.from);
+    const toHasPrefix = nodeIdToPrefix.has(edge.to);
+    if (fromHasPrefix && !toHasPrefix) {
+      let list = incomingByOrphan.get(edge.to);
+      if (list === undefined) {
+        list = [];
+        incomingByOrphan.set(edge.to, list);
+      }
+      list.push(edge);
+    }
+    if (!fromHasPrefix && toHasPrefix) {
+      let list = outgoingByOrphan.get(edge.from);
+      if (list === undefined) {
+        list = [];
+        outgoingByOrphan.set(edge.from, list);
+      }
+      list.push(edge);
+    }
+  }
+
+  // Walk orphans in nodes order. For each (clusterX_prefix, clusterY_prefix)
+  // ordered pair with X !== Y, record the first witness anchor pair.
+  // Map<"X\0Y", { from, to, x, y }> — using an insertion-ordered Map for
+  // deterministic emission order.
+  const ghosts = new Map<string, { from: string; to: string; x: string; y: string }>();
+  for (const node of nodes) {
+    if (nodeIdToPrefix.has(node.id)) continue;
+    const incoming = incomingByOrphan.get(node.id);
+    const outgoing = outgoingByOrphan.get(node.id);
+    if (incoming === undefined || outgoing === undefined) continue;
+    for (const eIn of incoming) {
+      const x = nodeIdToPrefix.get(eIn.from)!;
+      for (const eOut of outgoing) {
+        const y = nodeIdToPrefix.get(eOut.to)!;
+        if (x === y) continue;
+        const key = `${x}\0${y}`;
+        if (!ghosts.has(key)) {
+          ghosts.set(key, { from: eIn.from, to: eOut.to, x, y });
+        }
+      }
+    }
+  }
+
+  const result: GraphEdge[] = [];
+  for (const { from, to, x, y } of ghosts.values()) {
+    result.push({
+      from,
+      to,
+      color: '#000000',
+      style: 'invis',
+      arrowhead: 'none',
+      arcType: 'ghost',
+      attrs: {
+        ltail: 'cluster_' + sanitize(x),
+        lhead: 'cluster_' + sanitize(y),
+      },
+    });
+  }
+  return result;
 }
 
 /**

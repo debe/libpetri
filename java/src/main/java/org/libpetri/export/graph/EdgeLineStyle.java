@@ -4,7 +4,8 @@ package org.libpetri.export.graph;
 public enum EdgeLineStyle {
     SOLID("solid"),
     DASHED("dashed"),
-    BOLD("bold");
+    BOLD("bold"),
+    INVIS("invis");
 
     private final String dotValue;
 

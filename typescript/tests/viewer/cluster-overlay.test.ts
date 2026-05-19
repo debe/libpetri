@@ -309,38 +309,44 @@ describe('viewer cluster overlay', () => {
   });
 
   describe('chrome', () => {
-    it('renders a legend row per cluster and an "all" filter chip', async () => {
+    it('mounts the C0 sidebar with one chip per cluster', async () => {
       const handle = await mount('digraph G {}', container, { chrome: true });
-      const legend = container.querySelector('.diagram-legend');
-      const strip = container.querySelector('.diagram-filter-strip');
-      expect(legend).not.toBeNull();
-      expect(strip).not.toBeNull();
-      expect(legend!.querySelectorAll('.legend-row').length).toBe(2);
-      expect(strip!.querySelectorAll('.filter-chip').length).toBe(3); // all + 2 prefixes
-      expect(strip!.querySelector('.filter-chip-active')?.textContent).toBe('all');
+      const sidebar = container.querySelector('.libpetri-sidebar');
+      expect(sidebar).not.toBeNull();
+      const chips = sidebar!.querySelectorAll<HTMLElement>('.libpetri-sidebar-chip');
+      expect(chips.length).toBe(2);
+      expect([...chips].map((c) => c.dataset.prefix).sort()).toEqual(['buf1', 'buf2']);
+      // Initial state: all chips visible (no .is-off)
+      for (const c of chips) expect(c.classList.contains('is-off')).toBe(false);
       handle.dispose();
+      expect(container.querySelector('.libpetri-sidebar')).toBeNull();
     });
 
-    it('legend row click toggles collapse via the handle', async () => {
+    it('chip click toggles cluster visibility and adds is-hidden to the cluster', async () => {
       const handle = await mount('digraph G {}', container, { chrome: true });
-      const legend = container.querySelector('.diagram-legend')!;
-      const rows = legend.querySelectorAll<HTMLElement>('.legend-row');
-      rows[0]!.click();
-      expect(handle.collapsedPrefixes.has('buf1')).toBe(true);
-      rows[0]!.click();
-      expect(handle.collapsedPrefixes.has('buf1')).toBe(false);
+      const chip = container.querySelector<HTMLElement>(
+        '.libpetri-sidebar-chip[data-prefix="buf1"]',
+      )!;
+      chip.click();
+      expect(chip.classList.contains('is-off')).toBe(true);
+      const buf1Cluster = handle.svg.querySelectorAll('g.cluster')[0]!;
+      expect(buf1Cluster.classList.contains('is-hidden')).toBe(true);
+      chip.click();
+      expect(chip.classList.contains('is-off')).toBe(false);
+      expect(buf1Cluster.classList.contains('is-hidden')).toBe(false);
     });
 
-    it('filter chip click toggles the filter', async () => {
+    it('"hide all" hides every cluster + orphans, "show all" restores', async () => {
       const handle = await mount('digraph G {}', container, { chrome: true });
-      const strip = container.querySelector('.diagram-filter-strip')!;
-      const chips = strip.querySelectorAll<HTMLElement>('.filter-chip');
-      const buf1Chip = [...chips].find((c) => c.dataset.prefix === 'buf1')!;
-      buf1Chip.click();
-      expect(handle.activeFilter).toBe('buf1');
-      expect(buf1Chip.classList.contains('filter-chip-active')).toBe(true);
-      buf1Chip.click();
-      expect(handle.activeFilter).toBeNull();
+      const sidebar = container.querySelector('.libpetri-sidebar')!;
+      const [showAll, hideAll] = Array.from(
+        sidebar.querySelectorAll<HTMLButtonElement>('.libpetri-sidebar-actions button'),
+      );
+      hideAll!.click();
+      const clusters = handle.svg.querySelectorAll('g.cluster');
+      for (const c of clusters) expect(c.classList.contains('is-hidden')).toBe(true);
+      showAll!.click();
+      for (const c of clusters) expect(c.classList.contains('is-hidden')).toBe(false);
     });
   });
 

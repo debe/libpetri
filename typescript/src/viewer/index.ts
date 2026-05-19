@@ -39,6 +39,11 @@ import {
   setClusterCollapsed,
   type ClusterDescriptor,
 } from './cluster-overlay.js';
+import { annotateSvgForC0 } from './c0-annotations.js';
+import { mountSidebar, type SidebarHandle } from './chrome/sidebar.js';
+import { applyHighlight } from './highlight.js';
+import { tagReplicas } from './replica-tagging.js';
+import { applyVisibility, type VisibilityState } from './visibility.js';
 import { VIEWER_CSS_VARIABLES } from './styles.js';
 
 export {
@@ -77,6 +82,18 @@ export interface ViewerHandle {
   fit(): void;
   /** Reports whether `graphId` is inside a currently-collapsed cluster. */
   isInsideCollapsedCluster(graphId: string): boolean;
+  /**
+   * Highlight a node and every DOM copy of the same logical place; walk
+   * junctions to surface real neighbors. Pass `null` to clear. C0-only.
+   */
+  highlight(nodeId: string | null): void;
+  /** The node id currently highlighted, or `null`. */
+  readonly highlightedNodeId: string | null;
+  /**
+   * Set the cluster-visibility state: which clusters render, and whether
+   * directed-reachable orphans render. C0-only.
+   */
+  setVisibility(state: VisibilityState): void;
   /** Tear down: dispose panzoom and detach listeners. */
   dispose(): void;
 }
@@ -98,6 +115,14 @@ export interface MountOptions {
   readonly onClusterFilter?: (prefix: string | null) => void;
   /** When true, append a legend sidebar + filter chip strip inside `container`. */
   readonly chrome?: boolean;
+  /**
+   * Layout strategy. `'elk'` (default) runs the C0 pipeline — parse → fold
+   * → replicate → ELK → Graphviz `neato` pin mode — and tags replica
+   * nodes for the click-all-copies + ⇄ overlay. `'graphviz'` runs the
+   * plain Graphviz `dot` engine and skips replica tagging. The result is
+   * cached on the DOT hash; re-mounts on identical DOT skip the pipeline.
+   */
+  readonly layout?: 'elk' | 'graphviz';
 }
 
 /**
@@ -146,9 +171,12 @@ export async function mount(
     svg = existing;
   } else {
     // Dynamic import so the static IIFE entry can alias './render.js' to a
-    // throwing stub and drop the @viz-js/viz dependency.
-    const { renderDotToSvg } = await import('./render.js');
-    svg = await renderDotToSvg(dotSource);
+    // throwing stub and drop the @viz-js/viz + elkjs dependencies.
+    const renderModule = await import('./render.js');
+    const useElk = (opts.layout ?? 'elk') === 'elk';
+    svg = useElk
+      ? await renderModule.renderDotToSvgWithElkLayout(dotSource)
+      : await renderModule.renderDotToSvg(dotSource);
     container.innerHTML = '';
     container.appendChild(svg);
   }
@@ -159,35 +187,34 @@ export async function mount(
   const panzoomInstance = attachPanzoom(svg, opts.panzoom);
   const clusters = discoverClusters(svg);
   paintClusterBorders(clusters);
+  const layoutMode = opts.layout ?? 'elk';
+  if (layoutMode === 'elk') {
+    tagReplicas(svg);
+    annotateSvgForC0(svg);
+  }
 
   const collapsedPrefixes = new Set<string>();
   let activeFilter: string | null = null;
+  let highlightedNodeId: string | null = null;
   let disposed = false;
 
   // Chrome elements (created lazily; only when chrome:true is requested).
   // Re-rendering through the same handle does not duplicate them.
   let chromeRoot: HTMLElement | null = null;
+  let sidebarHandle: SidebarHandle | null = null;
+  let highlightModeEnabled = true;
 
   function ensureChrome(): void {
     if (!opts.chrome) return;
     if (chromeRoot && chromeRoot.parentNode === container) return;
+
+    // Reset + Fullscreen controls anchor top-right; the C0 sidebar
+    // (top-left) replaces the legacy legend + filter strip.
     chromeRoot = document.createElement('div');
     chromeRoot.className = 'libpetri-viewer-chrome';
     chromeRoot.style.position = 'absolute';
     chromeRoot.style.inset = '0';
     chromeRoot.style.pointerEvents = 'none';
-
-    const legend = document.createElement('div');
-    legend.className = 'diagram-legend';
-    legend.style.pointerEvents = 'auto';
-    legend.innerHTML = '<div class="legend-title">Clusters</div>';
-    chromeRoot.appendChild(legend);
-
-    const strip = document.createElement('div');
-    strip.className = 'diagram-filter-strip';
-    strip.style.pointerEvents = 'auto';
-    strip.innerHTML = '<span class="filter-strip-label">Show only:</span>';
-    chromeRoot.appendChild(strip);
 
     const controls = document.createElement('div');
     controls.className = 'diagram-controls';
@@ -197,9 +224,6 @@ export async function mount(
     resetBtn.className = 'diagram-btn btn-reset';
     resetBtn.title = 'Reset view';
     resetBtn.textContent = 'Reset';
-    // Reset = return to the meaningful default (fit-to-host), not the
-    // mathematical identity transform. `resetZoom()` stays on the handle
-    // API for callers that want raw identity.
     resetBtn.addEventListener('click', () => handle.fit());
     const fsBtn = document.createElement('button');
     fsBtn.type = 'button';
@@ -211,14 +235,22 @@ export async function mount(
     controls.appendChild(fsBtn);
     chromeRoot.appendChild(controls);
 
-    // Position parent must be relative for the absolute chrome to anchor.
     if (getComputedStyle(container).position === 'static') {
       container.style.position = 'relative';
     }
     container.appendChild(chromeRoot);
 
-    renderLegend(legend);
-    renderFilterStrip(strip);
+    // The cluster-chip sidebar is the C0 chrome — only mount when
+    // there's a renderable layout and at least one cluster to show.
+    if (layoutMode === 'elk' && clusters.size > 0) {
+      sidebarHandle = mountSidebar(container, clusters, {
+        onVisibilityChange: (state) => handle.setVisibility(state),
+        onHighlightModeChange: (enabled) => {
+          highlightModeEnabled = enabled;
+          if (!enabled) handle.highlight(null);
+        },
+      });
+    }
   }
 
   // In-page lightbox fullscreen: toggle a CSS class on the host and
@@ -228,80 +260,7 @@ export async function mount(
   function toggleFullscreen(host: HTMLElement, btn: HTMLButtonElement): void {
     const isFs = host.classList.toggle('diagram-fullscreen');
     btn.textContent = isFs ? 'Exit fullscreen' : 'Fullscreen';
-    // Re-fit on both enter and exit — the available area changed, so the
-    // previous transform is no longer the right size. Defer a frame so
-    // flex layout settles before getBBox + clientWidth/Height reads.
     requestAnimationFrame(() => handle.fit());
-  }
-
-  function renderLegend(legend: HTMLElement): void {
-    legend.innerHTML = '<div class="legend-title">Clusters</div>';
-    for (const cluster of clusters.values()) {
-      const row = document.createElement('div');
-      row.className = 'legend-row';
-      row.innerHTML =
-        '<span class="legend-ribbon" style="background:' + cluster.color + '"></span>' +
-        '<span class="legend-label"></span>' +
-        '<span class="legend-count"></span>';
-      (row.querySelector('.legend-label') as HTMLElement).textContent = cluster.prefix;
-      (row.querySelector('.legend-count') as HTMLElement).textContent = String(cluster.nodeCount);
-      row.addEventListener('click', () => {
-        if (collapsedPrefixes.has(cluster.prefix)) {
-          handle.expand(cluster.prefix);
-        } else {
-          handle.collapse(cluster.prefix);
-        }
-      });
-      legend.appendChild(row);
-    }
-  }
-
-  function renderFilterStrip(strip: HTMLElement): void {
-    strip.innerHTML = '<span class="filter-strip-label">Show only:</span>';
-    const allChip = document.createElement('button');
-    allChip.type = 'button';
-    allChip.className = 'filter-chip filter-chip-all filter-chip-active';
-    allChip.textContent = 'all';
-    allChip.addEventListener('click', () => {
-      handle.filter(null);
-    });
-    strip.appendChild(allChip);
-    for (const cluster of clusters.values()) {
-      const chip = document.createElement('button');
-      chip.type = 'button';
-      chip.className = 'filter-chip';
-      chip.style.borderColor = cluster.color;
-      chip.dataset.prefix = cluster.prefix;
-      chip.innerHTML =
-        '<span class="chip-dot" style="background:' + cluster.color + '"></span>';
-      chip.append(document.createTextNode(cluster.prefix));
-      chip.addEventListener('click', () => {
-        if (activeFilter === cluster.prefix) {
-          handle.filter(null);
-        } else {
-          handle.filter(cluster.prefix);
-        }
-      });
-      strip.appendChild(chip);
-    }
-  }
-
-  function refreshChromeActiveStates(): void {
-    if (!chromeRoot) return;
-    const strip = chromeRoot.querySelector('.diagram-filter-strip');
-    if (!strip) return;
-    strip.querySelectorAll<HTMLElement>('.filter-chip').forEach((chip) => {
-      chip.classList.remove('filter-chip-active');
-    });
-    if (activeFilter === null) {
-      strip
-        .querySelector<HTMLElement>('.filter-chip-all')
-        ?.classList.add('filter-chip-active');
-    } else {
-      strip
-        .querySelector<HTMLElement>(`.filter-chip[data-prefix="${activeFilter}"]`)
-        ?.classList.add('filter-chip-active');
-    }
   }
 
   const handle: ViewerHandle = {
@@ -359,7 +318,6 @@ export async function mount(
       activeFilter = prefix;
       overlayApplyFilter(svg, prefix);
       opts.onClusterFilter?.(prefix);
-      refreshChromeActiveStates();
     },
     resetZoom(): void {
       if (disposed) return;
@@ -386,6 +344,20 @@ export async function mount(
     isInsideCollapsedCluster(graphId: string): boolean {
       return overlayIsInsideCollapsedCluster(svg, clusters, collapsedPrefixes, graphId);
     },
+    get highlightedNodeId() {
+      return highlightedNodeId;
+    },
+    highlight(nodeId: string | null): void {
+      if (disposed) return;
+      if (layoutMode !== 'elk') return;
+      highlightedNodeId = nodeId;
+      applyHighlight(svg, nodeId);
+    },
+    setVisibility(state: VisibilityState): void {
+      if (disposed) return;
+      if (layoutMode !== 'elk') return;
+      applyVisibility(svg, state);
+    },
     dispose(): void {
       if (disposed) return;
       disposed = true;
@@ -394,6 +366,8 @@ export async function mount(
       } catch {
         // ignore
       }
+      sidebarHandle?.dispose();
+      sidebarHandle = null;
       if (chromeRoot && chromeRoot.parentNode === container) {
         container.removeChild(chromeRoot);
       }
@@ -408,6 +382,26 @@ export async function mount(
   }
   if (preservedFilter !== null) {
     handle.filter(preservedFilter);
+  }
+
+  // C0 click-to-highlight: clicking a node highlights it + every copy of
+  // the same logical place. Clicking the SVG background (or the already-
+  // highlighted node) clears. The sidebar's "Click node → highlight"
+  // toggle gates the binding via `highlightModeEnabled`.
+  if (layoutMode === 'elk') {
+    svg.addEventListener('click', (ev) => {
+      if (!highlightModeEnabled) return;
+      const target = ev.target;
+      if (!(target instanceof Element)) return;
+      const nodeG = target.closest('g.node') as SVGGElement | null;
+      if (!nodeG) {
+        handle.highlight(null);
+        return;
+      }
+      const id = nodeG.getAttribute('data-id');
+      if (!id) return;
+      handle.highlight(id === highlightedNodeId ? null : id);
+    });
   }
 
   ensureChrome();

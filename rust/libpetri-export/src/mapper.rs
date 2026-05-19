@@ -86,6 +86,12 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
     graph
         .graph_attrs
         .push(("outputorder".into(), styles::OUTPUT_ORDER.into()));
+    // EXP-017: compound=true enables Graphviz to honor lhead/ltail on the
+    // ghost cluster-to-cluster layout hint edges synthesized by the cluster
+    // builder.
+    graph
+        .graph_attrs
+        .push(("compound".into(), "true".into()));
 
     // Node defaults
     graph

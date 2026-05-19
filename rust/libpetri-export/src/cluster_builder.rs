@@ -21,7 +21,7 @@
 
 use std::collections::HashMap;
 
-use crate::graph::{GraphEdge, GraphNode, Subgraph};
+use crate::graph::{ArrowHead, EdgeLineStyle, GraphEdge, GraphNode, Subgraph};
 use crate::mapper::sanitize;
 use crate::subnet_prefixes::parent_of;
 
@@ -127,11 +127,34 @@ pub fn partition(
 
     // Step 3: route edges into the deepest cluster containing both
     // endpoints. Cross-cluster edges stay at the top level.
+    //
+    // We also build per-orphan incoming/outgoing edge lists in the same pass
+    // so Step 3.5 (ghost-edge synthesis) doesn't need a second iteration.
+    // An orphan is any node id not in `node_id_to_prefix`. Maps are keyed by
+    // orphan id; the values are Vecs in input-edge order for determinism.
     let mut top_level_edges: Vec<GraphEdge> = Vec::new();
+    let mut incoming_by_orphan: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    let mut outgoing_by_orphan: HashMap<String, Vec<(String, String)>> = HashMap::new();
     for edge in edges {
-        let from_prefix = node_id_to_prefix.get(&edge.from).map(String::as_str);
-        let to_prefix = node_id_to_prefix.get(&edge.to).map(String::as_str);
-        match deepest_common_prefix(from_prefix, to_prefix) {
+        let from_prefix_opt = node_id_to_prefix.get(&edge.from).cloned();
+        let to_prefix_opt = node_id_to_prefix.get(&edge.to).cloned();
+        // Track orphan-bridging entries before consuming `edge`.
+        match (&from_prefix_opt, &to_prefix_opt) {
+            (Some(x), None) => {
+                incoming_by_orphan
+                    .entry(edge.to.clone())
+                    .or_default()
+                    .push((edge.from.clone(), x.clone()));
+            }
+            (None, Some(y)) => {
+                outgoing_by_orphan
+                    .entry(edge.from.clone())
+                    .or_default()
+                    .push((edge.to.clone(), y.clone()));
+            }
+            _ => {}
+        }
+        match deepest_common_prefix(from_prefix_opt.as_deref(), to_prefix_opt.as_deref()) {
             Some(common) => prefix_state
                 .get_mut(common)
                 .expect("common prefix registered above")
@@ -139,6 +162,58 @@ pub fn partition(
                 .push(edge),
             None => top_level_edges.push(edge),
         }
+    }
+
+    // Step 3.5: synthesize ghost edges for 1-hop cluster_X → orphan →
+    // cluster_Y paths so Graphviz (with compound=true) can constrain the
+    // two clusters' relative layout. Ghost edges are style=invis — they
+    // carry layout weight only; the visible flow still goes through the
+    // orphan via the real edges. Per spec EXP-017.
+    //
+    // Determinism: walk orphans in `top_level_nodes` order, walk each
+    // orphan's incoming/outgoing entries in edge-input order (filled above).
+    // First-witness wins for anchor node selection. Matches the iteration
+    // discipline in the TypeScript/Java mirrors.
+    let mut ghost_keys: Vec<(String, String)> = Vec::new();
+    let mut ghost_anchors: HashMap<(String, String), (String, String)> = HashMap::new();
+    for node in &top_level_nodes {
+        let incoming = match incoming_by_orphan.get(&node.id) {
+            Some(v) => v,
+            None => continue,
+        };
+        let outgoing = match outgoing_by_orphan.get(&node.id) {
+            Some(v) => v,
+            None => continue,
+        };
+        for (in_from, x) in incoming {
+            for (out_to, y) in outgoing {
+                if x == y {
+                    continue;
+                }
+                let key = (x.clone(), y.clone());
+                if !ghost_anchors.contains_key(&key) {
+                    ghost_anchors.insert(key.clone(), (in_from.clone(), out_to.clone()));
+                    ghost_keys.push(key);
+                }
+            }
+        }
+    }
+    for key in &ghost_keys {
+        let (from_id, to_id) = &ghost_anchors[key];
+        top_level_edges.push(GraphEdge {
+            from: from_id.clone(),
+            to: to_id.clone(),
+            label: None,
+            color: Some("#000000".into()),
+            style: Some(EdgeLineStyle::Invis),
+            arrowhead: Some(ArrowHead::None),
+            penwidth: None,
+            arc_type: Some("ghost".into()),
+            attrs: vec![
+                ("ltail".into(), format!("cluster_{}", sanitize(&key.0))),
+                ("lhead".into(), format!("cluster_{}", sanitize(&key.1))),
+            ],
+        });
     }
 
     // Step 4: assemble Subgraph values bottom-up so children are built
@@ -333,5 +408,223 @@ mod tests {
         assert_eq!(outer.nodes.len(), 1);
         assert_eq!(outer.subgraphs.len(), 1);
         assert_eq!(outer.subgraphs[0].nodes.len(), 1);
+    }
+
+    // ===== EXP-017: ghost-edge synthesis =====
+
+    fn ghost_count(edges: &[GraphEdge]) -> usize {
+        edges
+            .iter()
+            .filter(|e| e.arc_type.as_deref() == Some("ghost"))
+            .count()
+    }
+
+    fn ghosts(edges: &[GraphEdge]) -> Vec<&GraphEdge> {
+        edges
+            .iter()
+            .filter(|e| e.arc_type.as_deref() == Some("ghost"))
+            .collect()
+    }
+
+    fn get_attr<'a>(e: &'a GraphEdge, key: &str) -> Option<&'a str> {
+        e.attrs.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+    }
+
+    #[test]
+    fn ghost_single_orphan_bridges_two_clusters() {
+        let nodes = vec![
+            make_node("p_left_a"),
+            make_node("t_orphan"),
+            make_node("p_right_b"),
+        ];
+        let edges = vec![
+            make_edge("p_left_a", "t_orphan"),
+            make_edge("t_orphan", "p_right_b"),
+        ];
+        let mut prefix = HashMap::new();
+        prefix.insert("p_left_a".to_string(), "left".to_string());
+        prefix.insert("p_right_b".to_string(), "right".to_string());
+
+        let p = partition(nodes, edges, &prefix);
+
+        assert_eq!(p.top_level_edges.len(), 3, "2 original + 1 ghost");
+        let gs = ghosts(&p.top_level_edges);
+        assert_eq!(gs.len(), 1);
+        assert_eq!(gs[0].style, Some(EdgeLineStyle::Invis));
+        assert_eq!(gs[0].arrowhead, Some(ArrowHead::None));
+        assert_eq!(get_attr(gs[0], "ltail"), Some("cluster_left"));
+        assert_eq!(get_attr(gs[0], "lhead"), Some("cluster_right"));
+        assert_eq!(gs[0].from, "p_left_a");
+        assert_eq!(gs[0].to, "p_right_b");
+    }
+
+    #[test]
+    fn ghost_dedups_three_orphans_bridging_same_pair() {
+        let nodes = vec![
+            make_node("p_left_a"),
+            make_node("t_o1"),
+            make_node("t_o2"),
+            make_node("t_o3"),
+            make_node("p_right_b"),
+        ];
+        let edges = vec![
+            make_edge("p_left_a", "t_o1"),
+            make_edge("t_o1", "p_right_b"),
+            make_edge("p_left_a", "t_o2"),
+            make_edge("t_o2", "p_right_b"),
+            make_edge("p_left_a", "t_o3"),
+            make_edge("t_o3", "p_right_b"),
+        ];
+        let mut prefix = HashMap::new();
+        prefix.insert("p_left_a".to_string(), "left".to_string());
+        prefix.insert("p_right_b".to_string(), "right".to_string());
+
+        let p = partition(nodes, edges, &prefix);
+
+        let gs = ghosts(&p.top_level_edges);
+        assert_eq!(gs.len(), 1);
+        assert_eq!(get_attr(gs[0], "ltail"), Some("cluster_left"));
+        assert_eq!(get_attr(gs[0], "lhead"), Some("cluster_right"));
+    }
+
+    #[test]
+    fn ghost_ordered_pair_directions_are_distinct() {
+        let nodes = vec![
+            make_node("p_left_a"),
+            make_node("t_fwd"),
+            make_node("p_right_b"),
+            make_node("t_back"),
+        ];
+        let edges = vec![
+            make_edge("p_left_a", "t_fwd"),
+            make_edge("t_fwd", "p_right_b"),
+            make_edge("p_right_b", "t_back"),
+            make_edge("t_back", "p_left_a"),
+        ];
+        let mut prefix = HashMap::new();
+        prefix.insert("p_left_a".to_string(), "left".to_string());
+        prefix.insert("p_right_b".to_string(), "right".to_string());
+
+        let p = partition(nodes, edges, &prefix);
+
+        let gs = ghosts(&p.top_level_edges);
+        assert_eq!(gs.len(), 2);
+        let mut pairs: Vec<String> = gs
+            .iter()
+            .map(|g| format!("{}->{}", get_attr(g, "ltail").unwrap(), get_attr(g, "lhead").unwrap()))
+            .collect();
+        pairs.sort();
+        assert_eq!(
+            pairs,
+            vec![
+                "cluster_left->cluster_right".to_string(),
+                "cluster_right->cluster_left".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn ghost_none_when_orphan_touches_one_cluster() {
+        let nodes = vec![make_node("p_a1"), make_node("t_orphan"), make_node("p_a2")];
+        let edges = vec![
+            make_edge("p_a1", "t_orphan"),
+            make_edge("t_orphan", "p_a2"),
+        ];
+        let mut prefix = HashMap::new();
+        prefix.insert("p_a1".to_string(), "same".to_string());
+        prefix.insert("p_a2".to_string(), "same".to_string());
+
+        let p = partition(nodes, edges, &prefix);
+
+        assert_eq!(ghost_count(&p.top_level_edges), 0);
+    }
+
+    #[test]
+    fn ghost_none_when_orphan_has_only_one_clustered_neighbour() {
+        let nodes = vec![make_node("p_left_a"), make_node("t_orphan"), make_node("p_top")];
+        let edges = vec![
+            make_edge("p_left_a", "t_orphan"),
+            make_edge("t_orphan", "p_top"),
+        ];
+        let mut prefix = HashMap::new();
+        prefix.insert("p_left_a".to_string(), "left".to_string());
+
+        let p = partition(nodes, edges, &prefix);
+
+        assert_eq!(ghost_count(&p.top_level_edges), 0);
+    }
+
+    #[test]
+    fn ghost_flat_net_emits_none() {
+        let nodes = vec![make_node("p_a"), make_node("t_x"), make_node("p_b")];
+        let edges = vec![make_edge("p_a", "t_x"), make_edge("t_x", "p_b")];
+        let p = partition(nodes, edges, &HashMap::new());
+        assert_eq!(p.top_level_edges.len(), 2);
+        assert_eq!(ghost_count(&p.top_level_edges), 0);
+    }
+
+    #[test]
+    fn ghost_sanitizes_slashed_prefixes() {
+        let nodes = vec![
+            make_node("p_outer_inner_a"),
+            make_node("t_orphan"),
+            make_node("p_far_b"),
+        ];
+        let edges = vec![
+            make_edge("p_outer_inner_a", "t_orphan"),
+            make_edge("t_orphan", "p_far_b"),
+        ];
+        let mut prefix = HashMap::new();
+        prefix.insert("p_outer_inner_a".to_string(), "outer/inner".to_string());
+        prefix.insert("p_far_b".to_string(), "far".to_string());
+
+        let p = partition(nodes, edges, &prefix);
+
+        let gs = ghosts(&p.top_level_edges);
+        assert_eq!(gs.len(), 1);
+        assert_eq!(get_attr(gs[0], "ltail"), Some("cluster_outer_inner"));
+        assert_eq!(get_attr(gs[0], "lhead"), Some("cluster_far"));
+    }
+
+    #[test]
+    fn ghost_multiple_pairs() {
+        let nodes = vec![
+            make_node("p_left_a"),
+            make_node("p_mid_a"),
+            make_node("p_right_a"),
+            make_node("t_o1"),
+            make_node("t_o2"),
+            make_node("t_o3"),
+        ];
+        let edges = vec![
+            make_edge("p_left_a", "t_o1"),
+            make_edge("t_o1", "p_right_a"),
+            make_edge("p_left_a", "t_o2"),
+            make_edge("t_o2", "p_mid_a"),
+            make_edge("p_mid_a", "t_o3"),
+            make_edge("t_o3", "p_right_a"),
+        ];
+        let mut prefix = HashMap::new();
+        prefix.insert("p_left_a".to_string(), "left".to_string());
+        prefix.insert("p_mid_a".to_string(), "mid".to_string());
+        prefix.insert("p_right_a".to_string(), "right".to_string());
+
+        let p = partition(nodes, edges, &prefix);
+
+        let gs = ghosts(&p.top_level_edges);
+        assert_eq!(gs.len(), 3);
+        let mut pairs: Vec<String> = gs
+            .iter()
+            .map(|g| format!("{}->{}", get_attr(g, "ltail").unwrap(), get_attr(g, "lhead").unwrap()))
+            .collect();
+        pairs.sort();
+        assert_eq!(
+            pairs,
+            vec![
+                "cluster_left->cluster_mid".to_string(),
+                "cluster_left->cluster_right".to_string(),
+                "cluster_mid->cluster_right".to_string(),
+            ]
+        );
     }
 }
