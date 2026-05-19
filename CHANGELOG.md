@@ -1,5 +1,53 @@
 # Changelog
 
+## Unreleased
+
+**Doc generators consolidate on the client-side viewer.** The Java taglet, the
+Rust `libpetri-docgen` crate, and the TypeScript doclet plugin all stop trying
+to render DOT → SVG at build time and instead embed the DOT source in a
+`data-dot` attribute. The bundled `LibpetriViewer` IIFE (Graphviz WASM baked
+in) renders client-side on first view. Doc-generation hosts no longer need
+`dot` or Node installed, and the per-tag subprocess overhead is gone.
+
+### Removed
+
+- **Java taglet**: subprocess machinery (`tryDotRender`, `tryC0Prerender`,
+  `runSubprocessRenderer`, the per-DOT SVG caches, the `dotAvailable`
+  cache-poison flag, and the `LIBPETRI_PRERENDER_SCRIPT` /
+  `-Dlibpetri.prerender.script` env-var integration). `DiagramRenderer`
+  loses its `renderSvg` / `renderSubnetSvg` paths and the `Body` switching
+  record.
+- **Rust `libpetri-docgen`**: the `dot` CLI fallback (`dot_to_svg`,
+  `try_dot_command`, `find_attr`) and the `strip_dimensions` builder option.
+- **TypeScript viewer**: `viewer-static.iife.js` (the slim ~26 KB bundle that
+  stubbed Graphviz WASM), `index-static.ts`, and `render-stub.ts`. The
+  remaining `mount(dotSource, …)` signature drops its `null` overload — the
+  static-adopt branch is gone.
+- **Build artifacts**: `scripts/prerender-c0.mjs` (Node prerender CLI) and the
+  slim-bundle copy step in `scripts/build-viewer.sh`.
+
+### Breaking — TypeScript `libpetri` npm package
+
+- The `libpetri/viewer/layout` subpath export is **removed**. It existed only
+  to serve the prerender CLI and the Java taglet's hybrid path, both of which
+  are gone. The underlying `preprocess` / `elk-place` modules are still
+  available internally and via direct dist imports if needed.
+
+### Spec
+
+- `spec/09-export.md` EXP-011 and EXP-015 reworded: implementation notes now
+  describe DOT-in-`data-dot` embedding for all three generators; EXP-015
+  acceptance criteria assert DOT content (extracted from `data-dot`) instead
+  of rendered SVG shape.
+
+### Compatibility
+
+`build-viewer.sh` still installs byte-identical `petrinet-diagrams.{js,css}`
+to all three doc-generator resource dirs; the invariant is unchanged. The
+viewer's ESM entry (`libpetri/viewer`) and IIFE entry (`libpetri/viewer/iife`)
+keep their public shape. Only consumers reaching into `libpetri/viewer/layout`
+need to migrate.
+
 ## 2.3.0
 
 *Released 2026-05-19*

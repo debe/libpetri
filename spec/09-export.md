@@ -172,9 +172,11 @@ The engine MAY support generating diagrams from net structure annotations at com
 2. Diagrams are generated without running the net.
 
 **Implementation notes:**
-- Java: `@NetStructure` annotation processed by `@petrinet` Javadoc taglet to generate DOT→SVG diagrams
-- TypeScript: `@petrinet` TypeDoc plugin resolves net definitions and generates embedded SVG diagrams
-- Rust: `libpetri-docgen` build-dependency crate generates DOT→SVG diagrams via `SvgGenerator` / `generate_svg()`
+- Java: `@NetStructure` annotation processed by `@petrinet` Javadoc taglet to embed DOT in `data-dot` attributes
+- TypeScript: `@petrinet` TypeDoc plugin resolves net definitions and embeds DOT in `data-dot` attributes
+- Rust: `libpetri-docgen` build-dependency crate emits DOT-in-HTML via `SvgGenerator` / `generate_svg()`
+
+All three generators emit self-contained HTML pages that inline the canonical `LibpetriViewer` IIFE bundle (with `@viz-js/viz` Graphviz WASM baked in). DOT → SVG conversion happens client-side at view time. No external tooling (`dot`, `node`, etc.) is required on the doc-generation host.
 
 **Test derivation:** Annotated net structure; build project; verify diagram generated.
 
@@ -275,16 +277,16 @@ This guarantees:
 
 **Priority:** MUST
 
-The compile-time diagram generators (EXP-011) MUST produce SVGs reflecting the visualization rules above. Specifically, `mvn javadoc:javadoc`, `cargo doc`, and the TypeDoc plugin MUST emit SVGs that include junction nodes (per EXP-012) and combined reset+output edges (per EXP-013) for any net that uses XOR/AND outputs or reset+output coupling.
+The compile-time diagram generators (EXP-011) MUST embed DOT sources reflecting the visualization rules above. Specifically, `mvn javadoc:javadoc`, `cargo doc`, and the TypeDoc plugin MUST emit DOT that includes junction nodes (per EXP-012) and combined reset+output edges (per EXP-013) for any net that uses XOR/AND outputs or reset+output coupling. Rendering of that DOT into SVG happens client-side at view time via the bundled `LibpetriViewer` IIFE (per EXP-011).
 
 This is achieved by having all three doc generators delegate to their language's mapper; no doc-generator-specific code is required.
 
 **Acceptance Criteria:**
-1. Building Java docs for a net with `XOR(A, B)` includes an SVG containing a `<polygon>` element whose `points` attribute encodes a diamond shape (the XOR junction).
-2. Building Rust docs for the same net produces an SVG that, modulo whitespace, matches the Java SVG.
-3. Building TypeScript docs for the same net produces an SVG that matches.
+1. Building Java docs for a net with `XOR(A, B)` includes a `data-dot` attribute whose DOT source declares a diamond-shaped junction node (the XOR junction).
+2. Building Rust docs for the same net produces a DOT source that, modulo whitespace, matches the Java DOT.
+3. Building TypeScript docs for the same net produces a DOT source that matches.
 
-**Test derivation:** Build docs in each language for a small net with `XOR(A, B)` and `Out.Place(P) + reset(P)`; assert SVG content via grep for the expected shape/color signatures.
+**Test derivation:** Build docs in each language for a small net with `XOR(A, B)` and `Out.Place(P) + reset(P)`; extract the embedded DOT (the `data-dot` attribute) and assert content via grep for the expected shape/color signatures.
 
 ---
 

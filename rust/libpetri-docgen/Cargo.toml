@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "Build-script helper for generating Petri net SVG diagrams in rustdoc"
+description = "Build-script helper for embedding Petri net diagrams in rustdoc (DOT + client-side viewer)"
 
 [dependencies]
 libpetri-core = { workspace = true }
