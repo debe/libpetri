@@ -31,6 +31,9 @@
             <button id="reset-zoom" class="px-3 py-1.5 bg-gray-700 rounded text-sm hover:bg-gray-600 transition-colors">
                 Reset Zoom
             </button>
+            <button id="toggle-subnets" class="px-3 py-1.5 bg-gray-700 rounded text-sm hover:bg-gray-600 transition-colors" title="Toggle clustered subnets vs flat one-net view">
+                Flat View
+            </button>
         </div>
     </header>
 
@@ -40,7 +43,7 @@
         <aside id="subnet-panel" class="w-72 bg-gray-800 border-r border-gray-700 flex flex-col shrink-0 min-h-0 overflow-y-auto"></aside>
 
         <!-- Left panel: Diagram -->
-        <div class="flex-1 p-4 min-h-0 flex flex-col">
+        <div class="flex-1 p-4 min-h-0 min-w-0 flex flex-col">
             <div id="diagram-container" class="diagram-container flex-1 min-h-0">
                 <div id="dot-diagram" class="w-full h-full"></div>
                 <div id="no-session" class="flex items-center justify-center h-full text-gray-500 absolute inset-0">
@@ -50,7 +53,7 @@
         </div>
 
         <!-- Right panel: Inspector -->
-        <aside class="w-96 bg-gray-800 border-l border-gray-700 flex flex-col shrink-0 min-h-0">
+        <aside id="inspector-panel" class="w-96 bg-gray-800 border-l border-gray-700 flex flex-col shrink-0 min-h-0">
             <!-- Marking Inspector -->
             <div class="p-4 border-b border-gray-700">
                 <h2 class="font-medium mb-3 text-gray-200">Current Marking</h2>

@@ -14,6 +14,11 @@ dist/
 *.tsbuildinfo
 *.tgz
 
+# Playwright (debug-ui e2e)
+test-results/
+playwright-report/
+.playwright/
+
 # Rust
 target/
 
@@ -47,3 +52,5 @@ jacoco*.html
 
 # Agent / harness metadata
 .claude/
+.pi/
+.rpiv/

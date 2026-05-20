@@ -5,7 +5,7 @@
  * mutable state for WebSocket, DOM caches, replay data, etc.
  */
 
-import type { ViewerHandle } from 'libpetri/viewer';
+import type { SubnetVisibility, ViewerHandle } from 'libpetri/viewer';
 import type { SvgNodeCache, Checkpoint, SessionData } from './types.js';
 import type { DebugCommand, NetEventInfo, SessionSummary } from '../protocol/index.js';
 
@@ -32,6 +32,8 @@ export const shared = {
    * standalone `panzoomInstance` and the module-level cluster-overlay state.
    */
   viewerHandle: null as ViewerHandle | null,
+  /** Diagram subnet visibility: `'show'` = clustered, `'hide'` = flat one-net. */
+  subnetsMode: 'show' as SubnetVisibility,
   svgNodeCache: null as SvgNodeCache | null,
   prevHighlighted: { shapes: [] as Element[], edges: [] as Element[] },
   replay: {

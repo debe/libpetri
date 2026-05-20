@@ -15,6 +15,7 @@ export let el: {
   sessionSelect: HTMLSelectElement;
   refreshSessions: HTMLButtonElement;
   resetZoom: HTMLButtonElement;
+  toggleSubnets: HTMLButtonElement;
   diagramContainer: HTMLElement;
   dotDiagram: HTMLElement;
   noSession: HTMLElement;
@@ -85,6 +86,7 @@ export function initElements(): void {
     sessionSelect: getEl<HTMLSelectElement>('session-select'),
     refreshSessions: getEl<HTMLButtonElement>('refresh-sessions'),
     resetZoom: getEl<HTMLButtonElement>('reset-zoom'),
+    toggleSubnets: getEl<HTMLButtonElement>('toggle-subnets'),
     diagramContainer: getEl('diagram-container'),
     dotDiagram: getEl('dot-diagram'),
     noSession: getEl('no-session'),

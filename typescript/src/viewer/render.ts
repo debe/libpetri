@@ -23,6 +23,7 @@ import {
   replicateShared,
 } from './layout/preprocess.js';
 import { elkLayout, writeBack } from './layout/elk-place.js';
+import type { ElkLayoutConfig } from './layout/elk-place.js';
 
 type Viz = Awaited<ReturnType<typeof vizInstance>>;
 
@@ -86,23 +87,27 @@ export function _clearElkLayoutCache(): void {
 /**
  * Run the C0 layout pipeline against a libpetri DOT source and return the
  * rendered SVG. The expensive steps (preprocess + ELK layout + DOT rewrite)
- * are cached keyed on the input DOT's hash, so re-mounts on the same net
- * structure skip everything except the Graphviz pin-mode draw.
+ * are cached keyed on the input DOT's hash plus the layout config, so
+ * re-mounts on the same net structure and config skip everything except the
+ * Graphviz pin-mode draw.
  *
  * Per-tick marking updates do NOT call this — they toggle classes on the
  * already-mounted SVG. ELK only runs when the net structure changes.
+ *
+ * `cfg` tunes the ELK stage — see {@link ElkLayoutConfig}.
  */
 export async function renderDotToSvgWithElkLayout(
   dotSource: string,
+  cfg?: ElkLayoutConfig,
 ): Promise<SVGSVGElement> {
-  const key = fnv1a(dotSource);
+  const key = fnv1a(dotSource + '\0' + JSON.stringify(cfg ?? {}));
   let pinnedDot = getCachedPinnedDot(key);
   if (pinnedDot === undefined) {
     const graph = replicateShared(
       foldOrphans(parseLibpetriDot(dotSource), 0.7),
       { max: Infinity },
     );
-    const layout = await elkLayout(graph);
+    const layout = await elkLayout(graph, cfg);
     pinnedDot = writeBack(graph, layout);
     setCachedPinnedDot(key, pinnedDot);
   }

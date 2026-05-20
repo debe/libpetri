@@ -40,6 +40,10 @@ export function bindDomEvents(executor: BitmapNetExecutor): void {
     resetZoom();
   });
 
+  el.toggleSubnets.addEventListener('click', () => {
+    executor.injectValue(p.userToggleSubnets, undefined);
+  });
+
   // ======================== Playback controls ========================
 
   el.btnPause.addEventListener('click', () => {
