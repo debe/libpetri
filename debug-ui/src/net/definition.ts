@@ -26,7 +26,7 @@ import {
   requestArchiveList, renderArchiveList, showArchiveBrowser, hideArchiveBrowser,
   requestImportArchive, uploadArchiveFile,
 } from './actions/archive.js';
-import { renderDotDiagram, updateDiagramHighlighting } from './actions/diagram.js';
+import { renderDotDiagram, updateDiagramHighlighting, toggleSubnetMode } from './actions/diagram.js';
 import { renderVisibleEvents } from './actions/event-log.js';
 import {
   applyEventToState, buildCheckpoints, seekToIndex,
@@ -365,6 +365,17 @@ export function buildDebugNet(): {
       const dot = ctx.input(p.dotSource) as string;
       await renderDotDiagram(dot);
       ctx.output(p.svgReady, undefined);
+    })
+    .build();
+
+  const t_toggle_subnets = Transition.builder('t_toggle_subnets')
+    .inputs(one(p.userToggleSubnets.place))
+    .outputs(outPlace(p.highlightDirty))
+    .timing(immediate())
+    .action(async (ctx) => {
+      await toggleSubnetMode();
+      // Re-mount cleared the SVG highlights; re-apply against the new cache.
+      ctx.output(p.highlightDirty, undefined);
     })
     .build();
 
@@ -847,7 +858,7 @@ export function buildDebugNet(): {
       t_on_session_list, t_on_event, t_on_event_batch, t_on_marking_snapshot,
       t_on_playback_state, t_on_breakpoint_hit, t_on_bp_list, t_on_bp_set,
       t_on_bp_cleared, t_on_filter_applied, t_on_unsubscribed, t_on_error,
-      t_render_dot,
+      t_render_dot, t_toggle_subnets,
       t_fan_out_dirty, t_update_highlighting, t_update_event_log, t_update_marking,
       t_replay_play, t_replay_auto_step, t_replay_pause, t_replay_breakpoint_stop, t_replay_play_from_bp,
       t_replay_step_fwd, t_replay_step_back,

@@ -186,3 +186,113 @@ describe('writeBack', () => {
     expect(intentNodeTitles.length).toBeGreaterThan(3);
   }, 30_000);
 });
+
+describe('elkLayout — clusterLayout + leafPacking config', () => {
+  /**
+   * A DOT with two clusters: `cluster_hub` — one transition fanning N reset
+   * arcs to N degree-1 leaf places (the FORK_INPUT-style pathology) — and
+   * `cluster_flow` — an ordinary place→transition flow with no side-effect
+   * leaves.
+   */
+  function syntheticDot(resetLeaves: number): string {
+    const l: string[] = ['digraph G {', '  rankdir=TB;'];
+    l.push('  subgraph cluster_hub {');
+    l.push('    label="hub";');
+    l.push('    t_hub [label="hub/ForkInput", shape="box"];');
+    for (let i = 0; i < resetLeaves; i++) {
+      // Realistic place-name width — reset-target places have long names.
+      l.push(`    p_leaf${i} [label="ResetTargetPlace_${i}", shape="circle"];`);
+    }
+    l.push('  }');
+    l.push('  subgraph cluster_flow {');
+    l.push('    label="flow";');
+    l.push('    t_a [label="flow/A", shape="box"];');
+    l.push('    p_mid [label="mid", shape="circle"];');
+    l.push('    t_b [label="flow/B", shape="box"];');
+    l.push('  }');
+    for (let i = 0; i < resetLeaves; i++) {
+      l.push(`  t_hub -> p_leaf${i} [label="reset", color="#fd7e14"];`);
+    }
+    l.push('  t_a -> p_mid;');
+    l.push('  p_mid -> t_b;');
+    l.push('}');
+    return l.join('\n');
+  }
+
+  const build = (dot: string) =>
+    replicateShared(foldOrphans(parseLibpetriDot(dot), 0.7), { max: Infinity });
+
+  const aspect = (b: { width: number; height: number }) => b.width / b.height;
+
+  it('default config packs a reset-leaf-dominated cluster (no wide row)', async () => {
+    const graph = build(syntheticDot(14));
+    const off = await elkLayout(graph, { leafPacking: false });
+    const on = await elkLayout(graph); // default — leafPacking enabled
+
+    const hubOff = off.clusterBoxes.get('cluster_hub')!;
+    const hubOn = on.clusterBoxes.get('cluster_hub')!;
+
+    // Without packing the 14 leaves form one wide ELK layer; with packing
+    // they become a compact grid block — markedly narrower and less
+    // width-biased.
+    expect(aspect(hubOn)).toBeLessThan(aspect(hubOff));
+    expect(aspect(hubOn)).toBeLessThan(2);
+    expect(hubOn.width).toBeLessThan(hubOff.width * 0.7);
+
+    // Every leaf still has a position, inside the hub box.
+    for (let i = 0; i < 14; i++) {
+      const pos = on.nodePositions.get(`p_leaf${i}`);
+      expect(pos, `p_leaf${i} missing position`).toBeDefined();
+      const cx = pos!.x + pos!.width / 2;
+      const cy = pos!.y + pos!.height / 2;
+      expect(cx).toBeGreaterThanOrEqual(hubOn.x);
+      expect(cx).toBeLessThanOrEqual(hubOn.x + hubOn.width);
+      expect(cy).toBeGreaterThanOrEqual(hubOn.y);
+      expect(cy).toBeLessThanOrEqual(hubOn.y + hubOn.height);
+    }
+  });
+
+  it('leaves a non-dominated cluster untouched by leaf packing', async () => {
+    const graph = build(syntheticDot(14));
+    const off = await elkLayout(graph, { leafPacking: false });
+    const on = await elkLayout(graph);
+
+    // cluster_flow has zero side-effect leaves — identical box either way.
+    const flowOff = off.clusterBoxes.get('cluster_flow')!;
+    const flowOn = on.clusterBoxes.get('cluster_flow')!;
+    expect(flowOn.width).toBeCloseTo(flowOff.width, 5);
+    expect(flowOn.height).toBeCloseTo(flowOff.height, 5);
+  });
+
+  it('honours the minLeaves threshold', async () => {
+    const graph = build(syntheticDot(14));
+    const off = await elkLayout(graph, { leafPacking: false });
+    // 14 leaves < minLeaves 20 → not dominated → identical to disabled.
+    const tuned = await elkLayout(graph, { leafPacking: { minLeaves: 20 } });
+    const hubOff = off.clusterBoxes.get('cluster_hub')!;
+    const hubTuned = tuned.clusterBoxes.get('cluster_hub')!;
+    expect(hubTuned.width).toBeCloseTo(hubOff.width, 5);
+    expect(hubTuned.height).toBeCloseTo(hubOff.height, 5);
+  });
+
+  it('clusterLayout: rectpacking lays every node out without error', async () => {
+    const graph = build(syntheticDot(14));
+    const layout = await elkLayout(graph, { clusterLayout: 'rectpacking' });
+    for (const [, cluster] of graph.clusters) {
+      for (const nodeId of cluster.nodes) {
+        if (graph.nodes.has(nodeId)) {
+          expect(layout.nodePositions.has(nodeId)).toBe(true);
+        }
+      }
+    }
+    expect(layout.totalWidth).toBeGreaterThan(0);
+  });
+
+  it('still draws every reset edge after packing (writeBack)', async () => {
+    const graph = build(syntheticDot(14));
+    const layout = await elkLayout(graph);
+    const dot = writeBack(graph, layout);
+    const resetEdges = dot.match(/->[^;]*label="reset"/g) ?? [];
+    expect(resetEdges.length).toBe(14);
+  });
+});

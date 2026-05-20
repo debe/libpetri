@@ -30,7 +30,7 @@ vi.mock('panzoom', () => ({
 /** All element IDs needed by initElements(). */
 const ELEMENT_IDS = [
   'status-dot', 'status-text',
-  'session-select', 'refresh-sessions', 'reset-zoom',
+  'session-select', 'refresh-sessions', 'reset-zoom', 'toggle-subnets',
   'diagram-container', 'dot-diagram', 'no-session',
   'marking-inspector', 'token-inspector',
   'breakpoint-list', 'add-breakpoint',
@@ -60,6 +60,7 @@ export function setupDOM(): void {
     if (document.getElementById(id)) continue;
     let tag = 'div';
     if (id.startsWith('btn-') || id.endsWith('-sessions') || id === 'reset-zoom'
+      || id === 'toggle-subnets'
       || id === 'add-breakpoint' || id.startsWith('bp-save') || id.startsWith('bp-cancel')
       || id === 'apply-filter' || id === 'clear-filter'
       || id === 'search-prev' || id === 'search-next' || id === 'search-clear'

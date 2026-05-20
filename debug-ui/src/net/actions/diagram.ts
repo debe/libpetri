@@ -32,6 +32,7 @@ export async function renderDotDiagram(dotSource: string): Promise<void> {
   const handle = await mount(dotSource, el.dotDiagram, {
     previousHandle,
     chrome: false,
+    subnets: shared.subnetsMode,
   });
 
   shared.viewerHandle = handle;
@@ -40,6 +41,28 @@ export async function renderDotDiagram(dotSource: string): Promise<void> {
   attachSubnetListeners();
 
   el.noSession.classList.add('hidden');
+}
+
+/**
+ * Flip the diagram between clustered (`'show'`) and flat one-net
+ * (`'hide'`) subnet visibility.
+ *
+ * Re-mounts via the viewer handle (the SVG is regenerated because
+ * Graphviz lays out cluster boundaries during layout), refreshes the
+ * stale SVG node cache, and updates the header toggle button label.
+ * Highlighting is re-applied by the caller emitting `highlightDirty`.
+ */
+export async function toggleSubnetMode(): Promise<void> {
+  const handle = shared.viewerHandle;
+  if (!handle) return;
+
+  const next = await handle.toggleSubnets();
+  shared.viewerHandle = next;
+  shared.subnetsMode = next.subnets;
+  shared.svgNodeCache = buildSvgNodeCache(next.svg);
+  shared.prevHighlighted = { shapes: [], edges: [] };
+
+  el.toggleSubnets.textContent = next.subnets === 'hide' ? 'Subnet View' : 'Flat View';
 }
 
 /**

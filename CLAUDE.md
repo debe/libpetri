@@ -89,6 +89,16 @@ scripts/build-debug-ui.sh
 cd debug-ui && npm ci && npm run build
 ```
 
+The debug-ui has a Playwright layout-regression suite in `debug-ui/e2e/` (a
+real browser is needed because the vitest `happy-dom` env does not compute CSS
+layout). It is a local dev tool — not run in CI:
+
+```bash
+cd debug-ui
+npx playwright install chromium   # one-time
+npm run test:e2e
+```
+
 ### Viewer (`typescript/src/viewer/`)
 
 Canonical Petri-net diagram viewer — **one source of truth** for DOT→SVG

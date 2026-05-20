@@ -92,6 +92,7 @@ export const userOpenArchiveBrowser = environmentPlace<void>('userOpenArchiveBro
 export const userImportArchive = environmentPlace<string>('userImportArchive');
 export const userUploadArchive = environmentPlace<File>('userUploadArchive');
 export const userFilterNetName = environmentPlace<string>('userFilterNetName');
+export const userToggleSubnets = environmentPlace<void>('userToggleSubnets');
 export const rafTick = environmentPlace<void>('rafTick');
 
 /** All environment places for executor registration. */
@@ -103,6 +104,7 @@ export const allEnvironmentPlaces = new Set([
   userClickPlace, userSetBreakpoint, userClearBreakpoint,
   userApplyFilter, userSearch, userSearchPrev, userSearchNext, userOpenModal, userCloseModal,
   userOpenArchiveBrowser, userImportArchive, userUploadArchive, userFilterNetName,
+  userToggleSubnets,
   rafTick,
   liveSession, replaySession, replayPaused, breakpointHit, autoStepTick,
 ]);

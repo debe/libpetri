@@ -46,6 +46,11 @@ import { tagReplicas } from './replica-tagging.js';
 import { applyVisibility, type VisibilityState } from './visibility.js';
 import { VIEWER_CSS_VARIABLES } from './styles.js';
 import { flattenClusters } from './dot-flatten.js';
+import type {
+  ClusterLayout,
+  ElkLayoutConfig,
+  LeafPackingOptions,
+} from './layout/elk-place.js';
 
 export {
   colorForPrefix,
@@ -54,6 +59,7 @@ export {
   DEFAULT_PANZOOM_OPTS,
 };
 export type { ClusterDescriptor, PanzoomInstance, PanzoomOptions };
+export type { ClusterLayout, ElkLayoutConfig, LeafPackingOptions };
 
 /**
  * Subnet (cluster) visibility mode.
@@ -152,6 +158,23 @@ export interface MountOptions {
    */
   readonly layout?: 'elk' | 'graphviz';
   /**
+   * Per-subnet ELK algorithm, used within the `'elk'` pipeline. `'layered'`
+   * (default) gives each subnet a place→transition rank flow; `'rectpacking'`
+   * packs every subnet's nodes as a compact 2-D grid (maximally compact, but
+   * intra-cluster flow order is lost). Ignored when {@link layout} is
+   * `'graphviz'`.
+   */
+  readonly clusterLayout?: ClusterLayout;
+  /**
+   * Within the `'elk'` + `'layered'` pipeline, pack "side-effect leaf"
+   * places (places whose only arcs are reset/read) into a grid sub-block,
+   * in clusters where they dominate — so a transition with many reset arcs
+   * doesn't string its leaves into one wide row. `true` (default) enables
+   * it; `false` disables it; an object tunes the threshold / arc types.
+   * See {@link LeafPackingOptions}.
+   */
+  readonly leafPacking?: boolean | LeafPackingOptions;
+  /**
    * Initial subnet visibility mode. Defaults to `'show'` (clustered view).
    * Pass `'hide'` to mount with the flat view from the start. The chrome
    * button toggles between the two at runtime; see {@link ViewerHandle.setSubnets}.
@@ -194,8 +217,12 @@ export async function mount(
   // view without callers having to supply DOT a second time.
   const renderedDot =
     subnetsMode === 'hide' ? flattenClusters(dotSource) : dotSource;
+  const elkConfig: ElkLayoutConfig = {
+    clusterLayout: opts.clusterLayout,
+    leafPacking: opts.leafPacking,
+  };
   const svg: SVGSVGElement = useElk
-    ? await renderModule.renderDotToSvgWithElkLayout(renderedDot)
+    ? await renderModule.renderDotToSvgWithElkLayout(renderedDot, elkConfig)
     : await renderModule.renderDotToSvg(renderedDot);
   container.innerHTML = '';
   container.appendChild(svg);
