@@ -1,5 +1,38 @@
 # Changelog
 
+## 2.3.2
+
+*Released 2026-05-20*
+
+**Configurable ELK layout for the canonical viewer, with side-effect-leaf
+packing on by default.** The viewer's ELK placement stage gains an
+`ElkLayoutConfig` — a per-subnet algorithm (`clusterLayout`) and side-effect-leaf
+packing (`leafPacking`). A subnet dominated by "side-effect leaf" places (places
+whose only intra-cluster arcs are reset/read) now packs those leaves into a
+compact grid sub-block instead of stringing them into one wide row, so a
+transition with many reset arcs lays out far more readably. Packing is enabled
+by default, so every doc-generated diagram — Java javadoc, Rust `libpetri-docgen`,
+and the TypeScript doclet — inherits the improvement through the regenerated
+`petrinet-diagrams.js` bundle. Cross-generator parity is unchanged: all three
+embed the same bundle and mount it with the same defaults.
+
+### Added
+
+- **TypeScript viewer**: `ElkLayoutConfig` (`clusterLayout: 'layered' |
+  'rectpacking'`, `leafPacking: boolean | LeafPackingOptions`), surfaced through
+  `MountOptions` and the `renderDotToSvgWithElkLayout` render entry. The render
+  cache key now incorporates the layout config.
+- **debug-ui**: the "Flat View" control is wired to the viewer's subnet
+  visibility toggle; a Playwright layout-regression suite (`debug-ui/e2e/`) is
+  added as a local dev tool — it is not run in CI.
+
+### Compatibility
+
+`build-viewer.sh` still installs byte-identical `petrinet-diagrams.{js,css}` to
+all three doc-generator resource dirs. The Java jar's bundled debug-ui is
+refreshed. No API is removed; `ElkLayoutConfig` is additive and every field is
+optional.
+
 ## 2.3.1
 
 *Released 2026-05-19*
