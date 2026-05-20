@@ -355,6 +355,104 @@ public final class PetriNet {
         }
 
         /**
+         * Composes a subnet {@link SubnetDef} <b>directly</b> into this builder
+         * per <b>MOD-025</b> — <b>without instantiation</b>, and without the
+         * prefix-renaming of {@link SubnetDef#instantiate}.
+         *
+         * <p>Every body place and transition is added under its <b>original</b>
+         * (un-prefixed) name. Places merge into this builder purely by
+         * {@link Place} equality: a body place whose name and token type equal
+         * an enclosing-net place <i>is</i> that place in the composed flat net.
+         * This is the mode for wiring a subnet in as a single shared copy.
+         *
+         * <p>Direct composition is <b>order-independent</b>: composing the same
+         * set of subnets in any order yields the same flat net, because merging
+         * is by {@link Place} equality and not by a probe of the builder's
+         * place set at call time — contrast the no-interface body-inference
+         * branch of {@link #compose(Instance)} (MOD-024), which is
+         * order-sensitive.
+         *
+         * <p>For multiple <i>independent</i> copies — each with isolated
+         * per-instance state per MOD-012 — use {@link SubnetDef#instantiate}
+         * followed by {@link #compose(Instance)} instead.
+         *
+         * <h3>Rejections</h3>
+         * <ul>
+         *   <li>A body transition whose name already exists in this builder is
+         *       rejected — direct composition merges by name; use
+         *       {@code instantiate(prefix)} for independent copies.</li>
+         *   <li>A body place whose name equals an enclosing-net place but whose
+         *       token type differs is rejected.</li>
+         *   <li>A subnet whose interface declares any channel is rejected —
+         *       direct composition does not bind channels; use
+         *       {@code instantiate(prefix)} + {@link #compose(Instance, Consumer)}.</li>
+         * </ul>
+         *
+         * @param def the subnet definition to compose directly (non-null)
+         * @return this builder, for chaining
+         * @throws IllegalStateException    when the subnet declares channels, or
+         *                                  a body transition name collides with
+         *                                  a transition already in this builder
+         * @throws IllegalArgumentException when a body place's token type
+         *                                  conflicts with an enclosing-net place
+         */
+        public Builder compose(SubnetDef<?> def) {
+            Objects.requireNonNull(def, "def");
+            var iface = def.iface();
+
+            // MOD-025: direct composition does not bind channels.
+            if (!iface.channels().isEmpty()) {
+                throw new IllegalStateException(
+                    "compose(SubnetDef): subnet '" + def.name()
+                        + "' declares channels " + ifaceChannelNames(iface)
+                        + "; direct composition does not bind channels."
+                        + " Use def.instantiate(prefix) + compose(instance, Consumer)"
+                        + " with explicit bindChannel(...).");
+            }
+
+            var body = def.body();
+
+            // MOD-025: a body transition whose name already exists here is
+            // almost always a mistake — instantiate(prefix) is the multi-copy path.
+            var hostTransitionNames = new HashSet<String>(transitions.size() * 2);
+            for (var t : transitions) hostTransitionNames.add(t.name());
+            for (var t : body.transitions()) {
+                if (hostTransitionNames.contains(t.name())) {
+                    throw new IllegalStateException(
+                        "compose(SubnetDef): transition '" + t.name()
+                            + "' from subnet '" + def.name()
+                            + "' collides with a transition already in net '" + name
+                            + "'. Direct composition merges by name; for independent"
+                            + " copies use def.instantiate(prefix) + compose(instance).");
+                }
+            }
+
+            // MOD-025: Place is a record with structural (name, tokenType)
+            // equality — a same-named place with a different token type would
+            // create two distinct places sharing one name. Reject it.
+            var hostPlacesByName = new HashMap<String, Place<?>>(places.size() * 2);
+            for (var p : places) hostPlacesByName.put(p.name(), p);
+            for (var p : body.places()) {
+                var host = hostPlacesByName.get(p.name());
+                if (host != null && !host.tokenType().equals(p.tokenType())) {
+                    throw new IllegalArgumentException(
+                        "compose(SubnetDef): place '" + p.name() + "' has token type "
+                            + host.tokenType().getName() + " in net '" + name
+                            + "' but " + p.tokenType().getName() + " in subnet '"
+                            + def.name() + "' (MOD-025).");
+                }
+            }
+
+            // Add body places first (captures arc-less standalone places), then
+            // transitions — transition() auto-collects arc places, deduped by
+            // Place equality. Mirrors SubnetRewriter.renameNet's places-then-
+            // transitions ordering so DOT export stays insertion-stable.
+            for (var p : body.places()) place(p);
+            for (var t : body.transitions()) transition(t);
+            return this;
+        }
+
+        /**
          * Shared implementation: validates port and channel bindings, builds
          * the place-substitution map, walks every renamed-body transition
          * through {@link SubnetRewriter#substitutePlaces}, and applies channel

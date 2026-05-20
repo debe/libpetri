@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.4.0
+
+**Direct subnet composition.** A new mode composes a `SubnetDef` into a host
+net *without* instantiation/prefix-renaming — body places and transitions keep
+their original names and merge by name. Unlike the auto-compose body-inference
+fallback (MOD-024) it is order-independent. `instantiate(prefix)` + instance
+composition is unchanged, and remains the path for independent copies.
+
+- **API**: `compose(SubnetDef)` overload (Java/TS); `compose_direct(&SubnetDef)`
+  in Rust (no overloading).
+- A body transition name that collides with the host, or a subnet declaring a
+  channel, is rejected at compose time.
+- New requirement **MOD-025** (MUST). Strictly additive — no API removed, no
+  core type changed.
+
 ## 2.3.2
 
 *Released 2026-05-20*
