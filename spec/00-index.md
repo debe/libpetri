@@ -40,8 +40,8 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | [08-events-observability.md](08-events-observability.md) | EVT | Event types, event store, log capture | 20 |
 | [09-export.md](09-export.md) | EXP | Graph export, formal interchange | 15 |
 | [10-performance.md](10-performance.md) | PERF | Scaling, benchmarks, memory efficiency, flat-array executor performance | 14 |
-| [11-modular-composition.md](11-modular-composition.md) | MOD | Open-net subnet definition, instantiation, port composition, channel fusion, action binding per instance, place fusion | 22 |
-| **Total** | | | **183** |
+| [11-modular-composition.md](11-modular-composition.md) | MOD | Open-net subnet definition, instantiation, port composition, channel fusion, action binding per instance, place fusion | 23 |
+| **Total** | | | **184** |
 
 ---
 
@@ -220,6 +220,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | MOD-022 | Type Compatibility at Compose | MUST | CORE-003, MOD-011, MOD-020 |
 | MOD-023 | Composition Produces Flat Net | MUST | MOD-020, MOD-021, CONC-007, EXEC-001 |
 | MOD-024 | Identity-Default Port Inference (auto-compose) | SHOULD | MOD-003, MOD-005, MOD-010, MOD-020, MOD-023 |
+| MOD-025 | Direct Composition (compose a subnet without instantiation) | MUST | MOD-001, MOD-020, MOD-023, CORE-040 |
 | MOD-030 | Action Binding Per Instance (share-by-default, override via bindActions) | MUST | CORE-042, MOD-010 |
 | MOD-040 | Export Grouping (subgraph cluster_* per instance prefix) | SHOULD | MOD-010, EXP-001, EXP-014 |
 | MOD-041 | Debug Protocol Subnet Instances | SHOULD | MOD-010, MOD-013 |
@@ -281,7 +282,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 
 | Priority | Count | Description |
 |----------|-------|-------------|
-| MUST     | 131   | Core contract; all implementations must conform |
+| MUST     | 132   | Core contract; all implementations must conform |
 | SHOULD   | 44    | Recommended; implementations should include unless technically infeasible |
 | MAY      | 8     | Optional; implementations may include |
 
@@ -364,6 +365,7 @@ This matrix maps spec requirements to test classes/files in each implementation.
 | MOD-022 | `ComposeTest#compose_typeMismatch_throwsIllegalArgumentException`, `compose_typedBindings_compileTimeSafe` | `compose.test.ts > compose_typeMismatch_compileTimeOnly: typed bindPort signature rejects wrong types at compile time` | `compose::tests::compose_typed_bindings_form` (compile-time enforcement; type errors validated by `cargo check`) |
 | MOD-023 | `ComposeTest#compose_producerBufferConsumer_endToEnd` | `compose.test.ts > compose_producerBufferConsumer_endToEnd: tokens flow producer -> buffer -> consumer` | `compose_e2e::compose_producer_buffer_consumer_end_to_end` |
 | MOD-024 | `AutoComposeTest#autoCompose_structurallyEqualToExplicitBindPort` (+ 7 sibling cases: explicit-interface match, host-no-pre-declare via arcs, no-interface body inference, channel rejection, multi-subnet e2e, inout port, empty body) | `auto-compose.test.ts > autoCompose_structurallyEqualToExplicitBindPort` (+ 7 sibling cases) | `auto_compose::auto_compose_structurally_equal_to_explicit_bind_port` (+ 7 sibling cases) |
+| MOD-025 | `ComposeDirectTest#composeDirect_mergesBodyPlacesByName` (+ 12 sibling scenarios, `SCG-1/2` reachability + order-independence) | `compose-direct.test.ts > composeDirect_mergesBodyPlacesByName` (+ sibling scenarios) | `compose_direct_e2e::compose_direct_merges_body_places_by_name` (+ siblings; validation panics covered by `compose_direct_subnet_with_channel_panics` / `compose_direct_transition_name_collision_panics`) |
 | MOD-030 | `InstanceTest#instantiate_actionsSharedByReference`, `bindActions_overridesOnlyForThisInstance`, `bindActions_partialOverride_leavesUnnamedTransitionsAlone` | `instantiate.test.ts > two instances of the same def share each transition's action by reference`, `> rebinds the action on the named transition (MOD-030)`, `> does not mutate the original instance (MOD-030: per-instance scope)` | `subnet_def::tests::instantiate_actions_shared_by_reference`, `bind_actions_overrides_only_for_this_instance`, `instance::tests::bind_actions_replaces_action_for_named_transition` |
 | MOD-040 | `SubnetDotExportTest#dotExport_singleInstance_oneCluster`, `dotExport_twoInstances_twoSiblingClusters`, `dotExport_nestedInstance_nestedClusters`, `dotExport_clusterIdsAreSanitized` | `subnet-dot-export.test.ts > dotExport_singleInstance_oneCluster`, `> dotExport_twoInstances_twoSiblingClusters`, `> dotExport_nestedInstance_nestedClusters`, `> dotExport_clusterIdsAreSanitized` | `cluster_builder::tests::single_prefix_groups_nodes_and_intra_edges`, `nested_prefixes_build_tree`, `subnet_diagrams::composed_with_clusters_emits_cluster_for_each_prefix` |
 | MOD-041 | `DebugProtocolSubnetTest#subscribed_composedNet_populatedSubnetInstances`, `subscribed_nestedInstance_parentPrefixSet`, `placeInfo_instancePrefix_populated`, `transitionInfo_instancePrefix_populated`, `netEventConverter_emitsInstancePrefixForPrefixedEvents` | `subnet-protocol.test.ts > subscribed_composedNet_populatedSubnetInstances`, `> subscribed_nestedInstance_parentPrefixSet`, `> placeInfo_instancePrefix_populated`, `> transitionInfo_instancePrefix_populated`, `> netEventConverter_emitsInstancePrefixForPrefixedEvents` | `debug_session_registry::tests::subscribed_composed_net_populated_subnet_instances`, `subscribed_nested_instance_parent_prefix_set`, `place_info_instance_prefix_populated_for_prefixed_names`, `transition_info_instance_prefix_populated_for_prefixed_names` |

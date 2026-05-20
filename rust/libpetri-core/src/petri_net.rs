@@ -7,6 +7,7 @@ use crate::fusion::{FusionSet, FusionSetBuilder};
 use crate::instance::Instance;
 use crate::place::PlaceRef;
 use crate::rewriter;
+use crate::subnet_def::SubnetDef;
 use crate::transition::{Transition, rebuild_with_action};
 
 /// Immutable definition of a Time Petri Net structure.
@@ -315,6 +316,90 @@ impl PetriNetBuilder {
             }
         }
         apply_composition(self, instance, merge_map, HashMap::new())
+    }
+
+    /// Composes a subnet [`SubnetDef`] **directly** into this builder per
+    /// **MOD-025** — **without instantiation**, and without the prefix-
+    /// renaming of [`crate::subnet_def::SubnetDef::instantiate`].
+    ///
+    /// Every body place and transition is added under its **original**
+    /// (un-prefixed) name. Places merge into this builder by name: a body
+    /// place whose name equals an enclosing-net place *is* that place in the
+    /// composed flat net (the builder's place index dedups by name via
+    /// [`PlaceRef`]'s name-based [`PartialEq`]/[`Hash`]). This is the mode for
+    /// wiring a subnet in as a single shared copy.
+    ///
+    /// Direct composition is **order-independent**: composing the same set of
+    /// subnets in any order yields the same flat net, because merging is by
+    /// place name and not by a probe of the builder's place set at call time
+    /// — contrast the no-interface body-inference branch of
+    /// [`PetriNetBuilder::compose_auto`] (MOD-024), which is order-sensitive.
+    ///
+    /// For multiple *independent* copies — each with isolated per-instance
+    /// state per [MOD-012] — use
+    /// [`crate::subnet_def::SubnetDef::instantiate`] followed by
+    /// [`PetriNetBuilder::compose`] instead.
+    ///
+    /// A token-type conflict on a same-named place cannot be detected: Rust
+    /// [`PlaceRef`] identity is name-only (the documented carve-out, same as
+    /// MOD-024).
+    ///
+    /// # Panics
+    /// - Panics when the subnet's interface declares any channel — direct
+    ///   composition does not bind channels; use `instantiate` +
+    ///   [`PetriNetBuilder::compose_with`].
+    /// - Panics when a body transition's name collides with a transition
+    ///   already in this builder — use `instantiate(prefix)` for independent
+    ///   copies.
+    pub fn compose_direct<P: 'static>(self, def: &SubnetDef<P>) -> Self {
+        // MOD-025: direct composition does not bind channels.
+        let mut channel_names: Vec<&str> =
+            def.iface().channels().map(|c| c.name.as_ref()).collect();
+        if !channel_names.is_empty() {
+            channel_names.sort_unstable();
+            panic!(
+                "compose_direct: subnet '{}' declares channels [{}]; direct \
+                 composition does not bind channels. Use def.instantiate(prefix) \
+                 + compose_with(instance, |b| b.bind_channel(...)).",
+                def.name(),
+                channel_names.join(", ")
+            );
+        }
+
+        let body = def.body();
+
+        // MOD-025: a body transition whose name already exists here is almost
+        // always a mistake — instantiate(prefix) is the multi-copy path.
+        {
+            let host_names: HashSet<&str> =
+                self.transitions.iter().map(|t| t.name()).collect();
+            for t in body.transitions() {
+                if host_names.contains(t.name()) {
+                    panic!(
+                        "compose_direct: transition '{}' from subnet '{}' collides with \
+                         a transition already in net '{}'. Direct composition merges by \
+                         name; for independent copies use def.instantiate(prefix) + \
+                         compose(instance).",
+                        t.name(),
+                        def.name(),
+                        self.name
+                    );
+                }
+            }
+        }
+
+        // Rust PlaceRef identity is name-only, so the builder's place index
+        // dedups body places against host places by name automatically — no
+        // arc rewrite is needed. Add body places first (captures arc-less
+        // standalone places), then transitions.
+        let mut builder = self;
+        for p in body.places() {
+            builder = builder.place(p.clone());
+        }
+        for t in body.transitions() {
+            builder = builder.transition(t.clone());
+        }
+        builder
     }
 
     /// Registers one or more [`FusionSet`] declarations on this builder, per

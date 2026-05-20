@@ -3,6 +3,7 @@ import type { TransitionAction } from './transition-action.js';
 import { passthrough } from './transition-action.js';
 import { Transition } from './transition.js';
 import type { Instance } from './instance.js';
+import { SubnetDef } from './subnet-def.js';
 import { ComposeBindings, __createComposeBindings } from './compose-bindings.js';
 import { applyFusion, mergeTransitions, substitutePlaces } from './internal/subnet-rewriter.js';
 import { FusionSet, FusionSetBuilder } from './fusion-set.js';
@@ -163,13 +164,18 @@ export class PetriNetBuilder {
     instance: Instance<unknown>,
     bind: (b: ComposeBindings) => void,
   ): this;
+  compose(def: SubnetDef<unknown>): this;
   compose(
-    instance: Instance<unknown>,
+    instanceOrDef: Instance<unknown> | SubnetDef<unknown>,
     arg?:
       | ReadonlyMap<string, Place<unknown>>
       | Record<string, Place<unknown>>
       | ((b: ComposeBindings) => void),
   ): this {
+    if (instanceOrDef instanceof SubnetDef) {
+      return this.composeDirect(instanceOrDef);
+    }
+    const instance = instanceOrDef;
     if (arg === undefined) {
       return this.composeAuto(instance);
     }
@@ -182,6 +188,90 @@ export class PetriNetBuilder {
     const portMappings: ReadonlyMap<string, Place<unknown>> =
       arg instanceof Map ? arg : new Map(Object.entries(arg));
     return this.composeInternal(instance, portMappings, new Map());
+  }
+
+  /**
+   * Composes a subnet {@link SubnetDef} **directly** into this builder per
+   * **MOD-025** — **without instantiation**, and without the prefix-renaming
+   * of {@link SubnetDef.instantiate}.
+   *
+   * Every body place and transition is added under its **original**
+   * (un-prefixed) name. Places merge into this builder by name: a body place
+   * whose name equals an enclosing-net place *is* that place in the composed
+   * flat net. This is the mode for wiring a subnet in as a single shared copy.
+   *
+   * Direct composition is **order-independent**: composing the same set of
+   * subnets in any order yields the same flat net, because merging is by
+   * place name and not by a probe of the builder's place set at call time —
+   * contrast the no-interface body-inference branch of {@link composeAuto}
+   * (MOD-024), which is order-sensitive.
+   *
+   * For multiple *independent* copies — each with isolated per-instance state
+   * per [MOD-012] — use {@link SubnetDef.instantiate} + the `compose(instance)`
+   * overload instead.
+   *
+   * Rejections: a body transition whose name already exists in this builder
+   * (use `instantiate(prefix)` for independent copies); a subnet whose
+   * interface declares any channel (direct composition does not bind
+   * channels — use `instantiate` + the channel-binding `compose` overload).
+   *
+   * Token-type conflicts on a same-named place cannot be detected: TS
+   * {@link Place} equality is name-only at runtime (the documented carve-out,
+   * same as MOD-024).
+   *
+   * @throws when the subnet declares channels, or a body transition name
+   *         collides with a transition already in this builder.
+   */
+  private composeDirect(def: SubnetDef<unknown>): this {
+    const iface = def.iface;
+
+    // MOD-025: direct composition does not bind channels.
+    if (iface.channels.size > 0) {
+      const channelNames: string[] = [];
+      for (const c of iface.channels.values()) channelNames.push(c.name);
+      channelNames.sort();
+      throw new Error(
+        `compose(SubnetDef): subnet '${def.name}' declares channels ` +
+        `[${channelNames.join(', ')}]; direct composition does not bind channels.` +
+        ` Use def.instantiate(prefix) + compose(instance, bind => bind.bindChannel(...)).`,
+      );
+    }
+
+    const body = def.body;
+
+    // MOD-025: a body transition whose name already exists here is almost
+    // always a mistake — instantiate(prefix) is the multi-copy path.
+    const hostTransitionNames = new Set<string>();
+    for (const t of this._transitions) hostTransitionNames.add(t.name);
+    for (const t of body.transitions) {
+      if (hostTransitionNames.has(t.name)) {
+        throw new Error(
+          `compose(SubnetDef): transition '${t.name}' from subnet '${def.name}' ` +
+          `collides with a transition already in net '${this._name}'. Direct ` +
+          `composition merges by name; for independent copies use ` +
+          `def.instantiate(prefix) + compose(instance).`,
+        );
+      }
+    }
+
+    // Canonicalize place references. TS `Set<Place>` dedups by reference, so
+    // a body place value-equal-by-name to a host place must be funnelled
+    // through the single host reference (same intent as composeAuto). Body
+    // places with a new name are canonical as themselves; arcs referencing
+    // them are left untouched by substitutePlaces.
+    const hostByName = new Map<string, Place<unknown>>();
+    for (const p of this._places) hostByName.set(p.name, p);
+
+    const mergeMap = new Map<string, Place<unknown>>();
+    for (const p of body.places) {
+      const host = hostByName.get(p.name);
+      this.place(host ?? p);
+      if (host !== undefined) mergeMap.set(p.name, host);
+    }
+    for (const t of body.transitions) {
+      this.transition(substitutePlaces(t, mergeMap));
+    }
+    return this;
   }
 
   /**
