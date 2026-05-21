@@ -460,6 +460,61 @@ Direct-compose a channel-declaring subnet; assert rejection naming the channel.
 
 ---
 
+#### MOD-026: Subnet-Membership Metadata for Direct Composition
+
+**Priority:** SHOULD
+
+Direct composition per [MOD-025] erases the `prefix/` name segments that
+[MOD-040] and [EXP-016] rely on to reconstruct subnet clusters. To keep
+cluster-aware export available for directly-composed nets, the builder SHOULD
+record **subnet-membership metadata** on the net it builds: a mapping from node
+name (place or transition) to the name of the owning subnet.
+
+The mapping is resolved from the per-`compose(SubnetDef)` contributions:
+
+1. Every place and transition added by a `compose(SubnetDef)` call is recorded
+   as contributed by that subnet (its definition name per [MOD-001]).
+2. A node contributed by **exactly one** subnet maps to that subnet.
+3. A place contributed by **two or more** subnets is a shared rendezvous place
+   with no single owner and MUST be **absent** from the mapping (it renders
+   outside any cluster). A transition cannot be multiply-contributed — the
+   transition-name-collision rejection of [MOD-025] forbids it.
+4. A node of a net not built via direct composition is absent from the mapping.
+   Instance composition per [MOD-024] records no membership — those nodes carry
+   their `prefix/` names and cluster via [MOD-040]'s name-based detection.
+
+A subnet definition name containing the `/` separator MUST be sanitized (each
+`/` replaced) before it is recorded, so a membership value never triggers the
+nested-cluster splitting that [MOD-040] applies to `/`-bearing prefixes.
+
+The mapping is immutable, carried on the built net, and observability-only: it
+does NOT affect execution, marking, or any property of [MOD-023] (the net is
+still flat). Action binding per [CORE-042] rebuilds transitions but preserves
+their names, so the mapping survives a re-bind unchanged. Fusion per [MOD-061]
+removes the non-canonical places it merges away; their membership entries MUST
+be dropped so the mapping names only nodes that still exist.
+
+**Acceptance Criteria:**
+1. Direct-composing two subnets `A` and `B` records each private node under its
+   subnet: a place or transition contributed only by `A` maps to `A`.
+2. A place named identically in two directly-composed subnets is absent from
+   the mapping.
+3. A net not built via direct composition (flat, or instance-composed) has an
+   empty membership mapping.
+4. Direct-composing the same subnets in opposite orders yields equal mappings.
+5. Fusing away a non-canonical place removes its membership entry; the
+   surviving canonical place keeps its own.
+6. A subnet definition name containing `/` is recorded with `/` replaced.
+
+**Depends on:** [MOD-025], [MOD-023], [MOD-001]
+**Test derivation:** Direct-compose a producer subnet and a consumer subnet
+sharing a place `pipe`; assert each subnet's private place/transition maps to
+its subnet name and `pipe` is absent. Build a flat net; assert an empty
+mapping. Direct-compose then fuse two places; assert the non-canonical place's
+entry is gone.
+
+---
+
 ## Action Binding
 
 #### MOD-030: Action Binding Per Instance (share-by-default, override via bindActions)
@@ -497,11 +552,16 @@ This requirement extends [CORE-042] (action binding separation) into the modular
 
 **Priority:** SHOULD
 
-DOT export per [EXP-001] of a composed net SHOULD emit a `subgraph cluster_<sanitizedPrefix>` block for each top-level instance prefix detected in place and transition names. Membership of the cluster is every node whose name begins with `<prefix>/`. Nested instance prefixes (per [MOD-013]) produce nested cluster subgraphs.
+DOT export per [EXP-001] of a composed net SHOULD emit a `subgraph cluster_<sanitizedKey>` block grouping the nodes of each subnet. The exporter determines a node's cluster key from one of two sources:
 
-The sanitization function applied to the prefix MUST match the existing DOT ID sanitization per [EXP-014] (non-`[A-Za-z0-9_]` characters, including `/`, replaced by `_`).
+- **Subnet-membership metadata** ([MOD-026]), when the net carries any. A node mapped to subnet `S` is grouped under `cluster_<sanitize(S)>`; a node with no entry (a shared rendezvous place, or a node from instance composition) is not grouped by metadata.
+- **Instance-prefix detection**, the fallback. A node whose name begins with `<prefix>/` is grouped under `cluster_<sanitize(prefix)>`; nested instance prefixes (per [MOD-013]) produce nested cluster subgraphs.
 
-The cluster label SHOULD be the original (un-sanitized) prefix string for human readability.
+When the net carries membership metadata, the exporter SHOULD prefer it, and SHOULD fall back to instance-prefix detection for any node without a metadata entry — so a builder that mixes direct and instance composition keeps both cluster kinds. The cluster source MAY be made caller-selectable (e.g. an explicit metadata-only, prefix-only, or no-clustering override); the default SHOULD be the metadata-when-present behaviour above.
+
+The sanitization function applied to the key MUST match the existing DOT ID sanitization per [EXP-014] (non-`[A-Za-z0-9_]` characters, including `/`, replaced by `_`).
+
+The cluster label SHOULD be the original (un-sanitized) key string — the prefix, or the subnet name — for human readability.
 
 This requirement does NOT change the styling, junction, or arc-rendering rules of EXP-002..EXP-014; it only adds grouping structure.
 
@@ -509,11 +569,13 @@ This requirement does NOT change the styling, junction, or arc-rendering rules o
 1. Compose two instances with prefixes `b1` and `b2`; export DOT; verify the output contains `subgraph cluster_b1 { ... }` and `subgraph cluster_b2 { ... }` blocks.
 2. Each cluster block contains exactly the nodes whose names begin with the corresponding prefix.
 3. Nested instance prefixes produce nested cluster subgraphs.
-4. A net with no composed instances (no `/` in any name) produces no cluster subgraphs.
+4. A net with no composed instances and no membership metadata (no `/` in any name) produces no cluster subgraphs.
 5. Cluster IDs match the regex `cluster_[A-Za-z0-9_]+` (sanitized per [EXP-014]).
+6. A net carrying [MOD-026] membership metadata emits a `subgraph cluster_<subnetName>` block per subnet; each subnet's private nodes appear inside its block and a shared (multi-subnet) place appears at the top level.
+7. With both membership metadata and `prefix/`-named instance nodes in one net, metadata-mapped nodes cluster by subnet name and prefix-named nodes cluster by prefix.
 
-**Depends on:** [MOD-010], [EXP-001], [EXP-014]
-**Test derivation:** Build a composed net with two top-level instances; export; assert cluster blocks present with correct membership and IDs.
+**Depends on:** [MOD-010], [MOD-026], [EXP-001], [EXP-014]
+**Test derivation:** Build a composed net with two top-level instances; export; assert cluster blocks present with correct membership and IDs. Build a directly-composed net of two subnets; export; assert one `subgraph cluster_<subnetName>` per subnet with the shared place at top level.
 
 ---
 

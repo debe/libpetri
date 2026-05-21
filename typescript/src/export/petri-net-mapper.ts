@@ -26,12 +26,33 @@ import { instancePrefixOf } from './subnet-prefixes.js';
 
 // ======================== Configuration ========================
 
+/**
+ * Selects how DOT export groups nodes into `subgraph cluster_*` blocks (per
+ * **MOD-040** / **EXP-016**).
+ *
+ * - `'auto'` — use subnet-membership metadata (per MOD-026) when the net
+ *   carries any; otherwise fall back to instance-prefix name detection.
+ *   Default.
+ * - `'metadata'` — strictly cluster from subnet-membership metadata; a node
+ *   with no metadata entry — including a prefix-named instance node — is not
+ *   clustered. Use `'auto'` to also cluster prefix-named nodes.
+ * - `'prefix'` — always cluster from instance-prefix name segments; ignore
+ *   metadata.
+ * - `'none'` — emit no clusters; every node renders at the top level.
+ */
+export type ClusterSource = 'auto' | 'metadata' | 'prefix' | 'none';
+
 export interface DotConfig {
   readonly direction: RankDir;
   readonly showTypes: boolean;
   readonly showIntervals: boolean;
   readonly showPriority: boolean;
   readonly environmentPlaces?: ReadonlySet<string>;
+  /**
+   * How to group nodes into `subgraph cluster_*` blocks (per MOD-040 /
+   * EXP-016). Additive; defaults to `'auto'` when omitted.
+   */
+  readonly clusterSource?: ClusterSource;
 }
 
 export const DEFAULT_DOT_CONFIG: DotConfig = {
@@ -56,11 +77,18 @@ export function mapToGraph(net: PetriNet, config: DotConfig = DEFAULT_DOT_CONFIG
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
 
-  // Track each emitted node's instance prefix (per [MOD-040]) so we can
-  // partition into subgraph clusters at the end. Nodes without a prefix (no
-  // '/' in their semantic name) are absent from this map and stay at the top
-  // level.
+  // Track each emitted node's cluster key (per [MOD-040]) so we can partition
+  // into subgraph clusters at the end. Nodes with no cluster key are absent
+  // from this map and stay at the top level.
   const nodeIdToPrefix = new Map<string, string>();
+
+  // MOD-040 / EXP-016: 'auto' uses subnet-membership metadata (MOD-026) when
+  // present and falls back to instance-prefix detection; 'metadata' is strict
+  // (metadata only, no fallback); 'prefix' ignores metadata; 'none' suppresses
+  // clustering. Flat and prefix-instantiated nets stay byte-identical under
+  // 'auto'.
+  const membership = net.subnetMembership;
+  const clusterSource: ClusterSource = config.clusterSource ?? 'auto';
 
   // Place nodes
   for (const [name, info] of places) {
@@ -79,9 +107,9 @@ export function mapToGraph(net: PetriNet, config: DotConfig = DEFAULT_DOT_CONFIG
       width: style.width,
       attrs: { xlabel: name, fixedsize: 'true' },
     });
-    const prefix = instancePrefixOf(name);
-    if (prefix !== undefined) {
-      nodeIdToPrefix.set(nodeId, prefix);
+    const key = clusterKeyOf(name, clusterSource, membership);
+    if (key !== undefined) {
+      nodeIdToPrefix.set(nodeId, key);
     }
   }
 
@@ -100,9 +128,9 @@ export function mapToGraph(net: PetriNet, config: DotConfig = DEFAULT_DOT_CONFIG
       height: style.height,
       width: style.width,
     });
-    const prefix = instancePrefixOf(t.name);
-    if (prefix !== undefined) {
-      nodeIdToPrefix.set(tid, prefix);
+    const key = clusterKeyOf(t.name, clusterSource, membership);
+    if (key !== undefined) {
+      nodeIdToPrefix.set(tid, key);
     }
   }
 
@@ -110,9 +138,9 @@ export function mapToGraph(net: PetriNet, config: DotConfig = DEFAULT_DOT_CONFIG
   for (const t of net.transitions) {
     const tid = 't_' + sanitize(t.name);
     const tSanitized = sanitize(t.name);
-    // Junctions inherit their parent transition's instance prefix — tracked
-    // here so the partition step routes them correctly.
-    const tPrefix = instancePrefixOf(t.name);
+    // Junctions inherit their parent transition's cluster key — tracked here
+    // so the partition step routes them correctly.
+    const tPrefix = clusterKeyOf(t.name, clusterSource, membership);
     const resetPlaces = new Set(t.resets.map(r => r.place.name));
     const combined = new Set<string>();
 
@@ -287,6 +315,45 @@ function placeCategory(info: PlaceInfo, isEnvironment: boolean): NodeCategory {
 }
 
 // ======================== Helpers ========================
+
+/**
+ * Resolves the cluster key for a node (place or transition) per **MOD-040** /
+ * **EXP-016**:
+ *
+ * - `'auto'` — the owning subnet name from membership metadata (MOD-026),
+ *   falling back to instance-prefix detection for any node without an entry,
+ *   so mixed direct + instance composition keeps both cluster kinds.
+ * - `'metadata'` — strictly the owning subnet name; a node with no metadata
+ *   entry is not clustered.
+ * - `'prefix'` — strictly the instance-prefix segment; metadata is ignored.
+ * - `'none'` — never clustered.
+ *
+ * @param nodeName the semantic node name (place or transition)
+ * @param source the configured cluster source
+ * @param membership the net's subnet-membership map (MOD-026)
+ * @returns the cluster key, or `undefined` when the node is not clustered
+ */
+function clusterKeyOf(
+  nodeName: string,
+  source: ClusterSource,
+  membership: ReadonlyMap<string, string>,
+): string | undefined {
+  switch (source) {
+    case 'none':
+      return undefined;
+    case 'prefix':
+      return instancePrefixOf(nodeName);
+    case 'metadata':
+      return membership.get(nodeName);
+    case 'auto':
+      return membership.get(nodeName) ?? instancePrefixOf(nodeName);
+    default: {
+      // Exhaustiveness guard: a future ClusterSource member is a compile error.
+      const _exhaustive: never = source;
+      return _exhaustive;
+    }
+  }
+}
 
 function transitionLabel(t: Transition, config: DotConfig): string {
   const parts = [t.name];

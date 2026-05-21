@@ -13,6 +13,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { dotExport } from '../../src/export/dot-exporter.js';
+import { DEFAULT_DOT_CONFIG } from '../../src/export/petri-net-mapper.js';
 import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place, type Place } from '../../src/core/place.js';
@@ -242,5 +243,152 @@ describe('dotExport — subnet clusters (EXP-016 / MOD-040)', () => {
     const inConsCluster = crossEdgeIdx > consStart && crossEdgeIdx < consEnd;
     expect(inProdCluster).toBe(false);
     expect(inConsCluster).toBe(false);
+  });
+
+  // ============================================================
+  //  MOD-026 / MOD-040: direct composition clusters by subnet name
+  // ============================================================
+
+  /** A producer whose output place is named `pipe` (wires by name). */
+  function pipeProducer(): SubnetDef<void> {
+    const seed = place<string>('seed');
+    const pipe = place<string>('pipe');
+    return SubnetDef.builder('PipeProducer')
+      .place(seed)
+      .place(pipe)
+      .transition(Transition.builder('emit').inputs(one(seed)).outputs(outPlace(pipe)).build())
+      .build();
+  }
+
+  /** A consumer whose input place is named `pipe` (wires by name). */
+  function pipeConsumer(): SubnetDef<void> {
+    const pipe = place<string>('pipe');
+    const sink = place<string>('sink');
+    return SubnetDef.builder('PipeConsumer')
+      .place(pipe)
+      .place(sink)
+      .transition(Transition.builder('eat').inputs(one(pipe)).outputs(outPlace(sink)).build())
+      .build();
+  }
+
+  it('dotExport_directComposed_clustersBySubnetName', () => {
+    // MOD-026: a directly-composed net has no '/' prefixes, but the recorded
+    // subnet-membership metadata lets the exporter cluster each subnet's
+    // private nodes under cluster_<subnetName>.
+    const net = PetriNet.builder('Pipeline')
+      .compose(pipeProducer())
+      .compose(pipeConsumer())
+      .build();
+
+    const dot = dotExport(net);
+
+    expect(dot).toContain('subgraph cluster_PipeProducer {');
+    expect(dot).toContain('subgraph cluster_PipeConsumer {');
+
+    const prodStart = find(dot, 'subgraph cluster_PipeProducer {', 0);
+    const prodEnd = find(dot, '}', prodStart);
+    const prodBody = dot.substring(prodStart, prodEnd);
+    expect(prodBody).toContain('p_seed');
+    expect(prodBody).toContain('t_emit');
+
+    const consStart = find(dot, 'subgraph cluster_PipeConsumer {', 0);
+    const consEnd = find(dot, '}', consStart);
+    const consBody = dot.substring(consStart, consEnd);
+    expect(consBody).toContain('p_sink');
+    expect(consBody).toContain('t_eat');
+
+    // The shared 'pipe' place has no single owner — it must render at the top
+    // level, outside both clusters.
+    expect(prodBody.includes('p_pipe')).toBe(false);
+    expect(consBody.includes('p_pipe')).toBe(false);
+  });
+
+  it('dotExport_directComposed_clusterSourcePrefix_ignoresMetadata', () => {
+    // ClusterSource 'prefix' clusters only by '/' name segments; a
+    // direct-composed net has none, so no clusters are emitted.
+    const net = PetriNet.builder('Pipeline')
+      .compose(pipeProducer())
+      .compose(pipeConsumer())
+      .build();
+
+    const dot = dotExport(net, { ...DEFAULT_DOT_CONFIG, clusterSource: 'prefix' });
+
+    expect(dot.includes('subgraph cluster_')).toBe(false);
+  });
+
+  it('dotExport_clusterSourceNone_suppressesAllClusters', () => {
+    // ClusterSource 'none' suppresses clustering even for a prefix-
+    // instantiated net that would otherwise cluster.
+    const producerInst = producer().instantiate('producer1');
+    const sink = place<string>('hostSink');
+    const host = PetriNet.builder('Host')
+      .place(sink)
+      .compose(producerInst, { output: sink as Place<unknown> })
+      .build();
+
+    const dot = dotExport(host, { ...DEFAULT_DOT_CONFIG, clusterSource: 'none' });
+
+    expect(dot.includes('subgraph cluster_')).toBe(false);
+  });
+
+  // ============================================================
+  //  MOD-040 / EXP-016 AC#7: mixed direct + instance composition
+  // ============================================================
+
+  it('dotExport_mixedDirectAndInstance_bothClusterKinds', () => {
+    // MOD-040 AC#7: a net that both directly composes a subnet and instance-
+    // composes another carries metadata for the direct nodes and '/' prefixes
+    // for the instance nodes. Under the default 'auto' source the exporter
+    // clusters direct nodes by subnet name and instance nodes by prefix —
+    // both cluster kinds coexist.
+    const producerInst = producer().instantiate('inst1');
+    const hostSink = place<string>('hostSink');
+
+    const net = PetriNet.builder('Mixed')
+      .place(hostSink)
+      .compose(pipeProducer())
+      .compose(producerInst, { output: hostSink as Place<unknown> })
+      .build();
+
+    const dot = dotExport(net);
+
+    // Direct-composed subnet → metadata cluster keyed by subnet name.
+    expect(dot).toContain('subgraph cluster_PipeProducer {');
+    // Instance-composed subnet → prefix cluster keyed by instance prefix.
+    expect(dot).toContain('subgraph cluster_inst1 {');
+
+    const metaStart = find(dot, 'subgraph cluster_PipeProducer {', 0);
+    const metaEnd = find(dot, '}', metaStart);
+    const metaBody = dot.substring(metaStart, metaEnd);
+    expect(metaBody).toContain('p_seed');
+    expect(metaBody).toContain('t_emit');
+    expect(metaBody.includes('inst1')).toBe(false);
+
+    const instStart = find(dot, 'subgraph cluster_inst1 {', 0);
+    const instEnd = find(dot, '}', instStart);
+    const instBody = dot.substring(instStart, instEnd);
+    expect(instBody).toContain('p_inst1_nextItem');
+    expect(instBody).toContain('t_inst1_produce');
+  });
+
+  // ============================================================
+  //  MOD-040 / EXP-016: ClusterSource 'metadata' is strict (no fallback)
+  // ============================================================
+
+  it('dotExport_clusterSourceMetadata_ignoresPrefixOnlyNet', () => {
+    // ClusterSource 'metadata' clusters strictly from subnet-membership
+    // metadata. An instance-composed net carries no metadata — only '/'
+    // prefixes — so 'metadata' emits no clusters at all. This is what
+    // distinguishes 'metadata' from 'auto', which would cluster by prefix.
+    const producerInst = producer().instantiate('producer1');
+    const sink = place<string>('hostSink');
+    const host = PetriNet.builder('Host')
+      .place(sink)
+      .compose(producerInst, { output: sink as Place<unknown> })
+      .build();
+
+    const dot = dotExport(host, { ...DEFAULT_DOT_CONFIG, clusterSource: 'metadata' });
+
+    expect(dot.includes('subgraph cluster_')).toBe(false);
   });
 });

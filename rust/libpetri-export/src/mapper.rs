@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use libpetri_core::input::In;
 use libpetri_core::output::{self, Out};
@@ -17,6 +18,10 @@ pub struct DotConfig {
     pub show_intervals: bool,
     pub show_priority: bool,
     pub environment_places: HashSet<String>,
+    /// How to group nodes into `subgraph cluster_*` blocks (per MOD-040 /
+    /// EXP-016). Additive field — defaults to [`ClusterSource::Auto`], which
+    /// keeps byte-identical output for flat and prefix-instantiated nets.
+    pub cluster_source: ClusterSource,
 }
 
 impl Default for DotConfig {
@@ -27,6 +32,7 @@ impl Default for DotConfig {
             show_intervals: true,
             show_priority: true,
             environment_places: HashSet::new(),
+            cluster_source: ClusterSource::Auto,
         }
     }
 }
@@ -114,12 +120,20 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
     // Analyze places
     let (has_incoming, has_outgoing) = analyze_places(net);
 
-    // Track each emitted node's instance prefix (per MOD-040). Nodes
-    // without a prefix (no '/' in their semantic name) are absent from
-    // this map and stay at the top level after partitioning.
+    // Track each emitted node's cluster key (per MOD-040). Nodes with no
+    // key are absent from this map and stay at the top level after
+    // partitioning.
     let mut node_id_to_prefix: HashMap<String, String> = HashMap::new();
     let mut nodes: Vec<GraphNode> = Vec::new();
     let mut edges: Vec<GraphEdge> = Vec::new();
+
+    // MOD-040 / EXP-016: Auto uses subnet-membership metadata (MOD-026) when
+    // present and falls back to instance-prefix detection; Metadata is strict
+    // (metadata only, no fallback); Prefix ignores metadata; None suppresses
+    // clustering. Flat and prefix-instantiated nets stay byte-identical under
+    // Auto.
+    let membership = net.subnet_membership();
+    let cluster_source = config.cluster_source;
 
     // Place nodes
     for place_ref in net.places() {
@@ -138,8 +152,8 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
             PlaceCategory::Regular => &styles::PLACE,
         };
 
-        if let Some(prefix) = instance_prefix_of(name) {
-            node_id_to_prefix.insert(id.clone(), prefix.to_string());
+        if let Some(key) = cluster_key_of(name, cluster_source, membership) {
+            node_id_to_prefix.insert(id.clone(), key);
         }
 
         nodes.push(GraphNode {
@@ -166,8 +180,8 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
         let t_id = format!("t_{}", sanitize(t.name()));
         let label = transition_label(t, config);
 
-        if let Some(prefix) = instance_prefix_of(t.name()) {
-            node_id_to_prefix.insert(t_id.clone(), prefix.to_string());
+        if let Some(key) = cluster_key_of(t.name(), cluster_source, membership) {
+            node_id_to_prefix.insert(t_id.clone(), key);
         }
 
         nodes.push(GraphNode {
@@ -189,7 +203,9 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
     for t in net.transitions() {
         let t_id = format!("t_{}", sanitize(t.name()));
         let t_sanitized = sanitize(t.name());
-        let t_prefix = instance_prefix_of(t.name()).map(str::to_string);
+        // Junctions inherit their parent transition's cluster key — tracked
+        // here so the partition step routes them correctly.
+        let t_prefix = cluster_key_of(t.name(), cluster_source, membership);
 
         let reset_places: HashSet<String> = t
             .resets()
@@ -289,6 +305,33 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
     graph.subgraphs = partition.top_level_subgraphs;
 
     graph
+}
+
+/// Resolves the cluster key for a node (place or transition) per
+/// **MOD-040** / **EXP-016**:
+///
+/// - [`ClusterSource::Auto`] — the owning subnet name from membership
+///   metadata (MOD-026), falling back to instance-prefix detection for any
+///   node without an entry, so mixed direct + instance composition keeps both
+///   cluster kinds.
+/// - [`ClusterSource::Metadata`] — strictly the owning subnet name; a node
+///   with no metadata entry is not clustered.
+/// - [`ClusterSource::Prefix`] — strictly the instance-prefix segment;
+///   metadata is ignored.
+/// - [`ClusterSource::None`] — never clustered.
+fn cluster_key_of(
+    node_name: &str,
+    source: ClusterSource,
+    membership: &HashMap<Arc<str>, Arc<str>>,
+) -> Option<String> {
+    let from_metadata = || membership.get(node_name).map(|s| s.to_string());
+    let from_prefix = || instance_prefix_of(node_name).map(str::to_string);
+    match source {
+        ClusterSource::None => None,
+        ClusterSource::Prefix => from_prefix(),
+        ClusterSource::Metadata => from_metadata(),
+        ClusterSource::Auto => from_metadata().or_else(from_prefix),
+    }
 }
 
 /// Local re-export of the renderer's number formatter so the mapper emits

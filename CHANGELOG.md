@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.5.0
+
+**Subnet clustering for direct composition.** `compose(SubnetDef)` now records
+which subnet each place/transition came from, and the DOT exporter renders
+`subgraph cluster_<subnetName>` blocks from that metadata — so a directly-composed
+net (no `prefix/` names) still groups each subnet visually. Strictly additive: a
+net not built via direct composition exports byte-identically to before.
+
+- **API**: `PetriNet.subnetMembership()` — `node-name → subnet-name` map
+  (`subnet_membership()` in Rust). New `ExportConfig.ClusterSource`
+  (`AUTO` | `METADATA` | `PREFIX` | `NONE`); `AUTO` (default) uses metadata when
+  present and falls back to instance-prefix detection.
+- **Viewer**: cluster discovery recovers membership by geometric containment, so
+  directly-composed clusters report correct member counts in javadoc, rustdoc and
+  the debug UI.
+- New requirement **MOD-026** (SHOULD); **MOD-040** / **EXP-016** amended. No API removed.
+
 ## 2.4.0
 
 **Direct subnet composition.** A new mode composes a `SubnetDef` into a host

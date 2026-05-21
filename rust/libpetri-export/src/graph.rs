@@ -1,3 +1,23 @@
+/// Selects how DOT export groups nodes into `subgraph cluster_*` blocks
+/// (per `spec/11-modular-composition.md` **MOD-040** /
+/// `spec/09-export.md` **EXP-016**).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ClusterSource {
+    /// Use subnet-membership metadata (per MOD-026) when the net carries
+    /// any; otherwise fall back to instance-prefix name detection. Default.
+    #[default]
+    Auto,
+    /// Strictly cluster from subnet-membership metadata (per MOD-026); a node
+    /// with no metadata entry — including a prefix-named instance node — is
+    /// not clustered. Use [`ClusterSource::Auto`] to also cluster
+    /// prefix-named nodes.
+    Metadata,
+    /// Always cluster from instance-prefix name segments; ignore metadata.
+    Prefix,
+    /// Emit no clusters — every node renders at the top level.
+    None,
+}
+
 /// Direction of graph layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RankDir {

@@ -64,6 +64,14 @@ public final class PetriNetGraphMapper {
         // order). Required for cross-language byte-parity per [EXP-014].
         var nodeIdToPrefix = new LinkedHashMap<String, String>();
 
+        // MOD-040 / EXP-016: AUTO uses subnet-membership metadata (MOD-026)
+        // when present and falls back to instance-prefix detection; METADATA
+        // is strict (metadata only, no fallback); PREFIX ignores metadata;
+        // NONE suppresses clustering. Flat and prefix-instantiated nets stay
+        // byte-identical under AUTO.
+        var membership = net.subnetMembership();
+        var clusterSource = config.clusterSource();
+
         // Place nodes
         for (var entry : places.data().entrySet()) {
             String name = entry.getKey();
@@ -90,8 +98,8 @@ public final class PetriNetGraphMapper {
                 style.width(),
                 placeAttrs
             ));
-            SubnetPrefixes.instancePrefixOf(name)
-                .ifPresent(prefix -> nodeIdToPrefix.put(nodeId, prefix));
+            clusterKeyOf(name, clusterSource, membership)
+                .ifPresent(key -> nodeIdToPrefix.put(nodeId, key));
         }
 
         // Transition nodes
@@ -111,16 +119,16 @@ public final class PetriNetGraphMapper {
                 style.width(),
                 null
             ));
-            SubnetPrefixes.instancePrefixOf(t.name())
-                .ifPresent(prefix -> nodeIdToPrefix.put(tid, prefix));
+            clusterKeyOf(t.name(), clusterSource, membership)
+                .ifPresent(key -> nodeIdToPrefix.put(tid, key));
         }
 
         // Edges and junction nodes
         for (var t : net.transitions()) {
             String tid = "t_" + DotExporter.sanitize(t.name());
-            // Junctions inherit their parent transition's instance prefix —
+            // Junctions inherit their parent transition's cluster key —
             // tracked here so the partition step routes them correctly.
-            Optional<String> tPrefix = SubnetPrefixes.instancePrefixOf(t.name());
+            Optional<String> tPrefix = clusterKeyOf(t.name(), clusterSource, membership);
 
             Set<String> resetPlaces = t.resets().stream()
                 .map(r -> r.place().name())
@@ -237,6 +245,37 @@ public final class PetriNetGraphMapper {
     }
 
     // ======================== Helpers ========================
+
+    /**
+     * Resolves the cluster key for a node (place or transition) per
+     * <b>MOD-040</b> / <b>EXP-016</b>:
+     * <ul>
+     *   <li>{@code AUTO} — the owning subnet name from membership metadata
+     *       (MOD-026), falling back to instance-prefix detection for any node
+     *       without an entry, so mixed direct + instance composition keeps
+     *       both cluster kinds.</li>
+     *   <li>{@code METADATA} — strictly the owning subnet name; a node with no
+     *       metadata entry is not clustered.</li>
+     *   <li>{@code PREFIX} — strictly the instance-prefix segment; metadata is
+     *       ignored.</li>
+     *   <li>{@code NONE} — never clustered.</li>
+     * </ul>
+     */
+    private static Optional<String> clusterKeyOf(
+            String nodeName, ExportConfig.ClusterSource source,
+            Map<String, String> membership) {
+        return switch (source) {
+            case NONE -> Optional.empty();
+            case PREFIX -> SubnetPrefixes.instancePrefixOf(nodeName);
+            case METADATA -> Optional.ofNullable(membership.get(nodeName));
+            case AUTO -> {
+                var subnet = membership.get(nodeName);
+                yield subnet != null
+                    ? Optional.of(subnet)
+                    : SubnetPrefixes.instancePrefixOf(nodeName);
+            }
+        };
+    }
 
     private static String transitionLabel(Transition t, ExportConfig config) {
         var parts = Stream.<String>builder().add(t.name());

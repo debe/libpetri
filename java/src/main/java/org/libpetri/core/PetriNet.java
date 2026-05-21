@@ -41,8 +41,13 @@ public final class PetriNet {
     private final String name;
     private final Set<Place<?>> places;
     private final Set<Transition> transitions;
+    // MOD-026: node name -> owning subnet name, for cluster-aware DOT export.
+    // Recorded by Builder.compose(SubnetDef); empty for every net not built
+    // via direct composition.
+    private final Map<String, String> subnetMembership;
 
-    private PetriNet(String name, Set<Place<?>> places, Set<Transition> transitions) {
+    private PetriNet(String name, Set<Place<?>> places, Set<Transition> transitions,
+                     Map<String, String> subnetMembership) {
         this.name = name;
         // Preserve the builder's LinkedHashSet insertion order — Set.copyOf
         // would discard it (its iteration order is unspecified per the JDK
@@ -50,11 +55,30 @@ public final class PetriNet {
         // depends on stable iteration order, see PetriNet.Builder.
         this.places = java.util.Collections.unmodifiableSet(new java.util.LinkedHashSet<>(places));
         this.transitions = java.util.Collections.unmodifiableSet(new java.util.LinkedHashSet<>(transitions));
+        // LinkedHashMap copy gives the subnetMembership() accessor a stable,
+        // deterministic iteration order for callers. Cluster render order
+        // does NOT depend on it: PetriNetGraphMapper iterates the net's nodes
+        // (themselves insertion-ordered) and only looks up membership, so a
+        // plain HashMap would export byte-identically — Rust uses one. The
+        // ordered copy here is purely for public-accessor stability.
+        this.subnetMembership = java.util.Collections.unmodifiableMap(
+            new java.util.LinkedHashMap<>(subnetMembership));
     }
 
     public String name() { return name; }
     public Set<Place<?>> places() { return places; }
     public Set<Transition> transitions() { return transitions; }
+
+    /**
+     * Subnet-membership metadata per <b>MOD-026</b>: maps each node name
+     * (place or transition) contributed by exactly one directly-composed
+     * subnet to that subnet's name. Shared places contributed by two or more
+     * subnets, and every node of a net not built via
+     * {@link Builder#compose(SubnetDef)}, are absent. Never null — empty when
+     * there is no metadata. The DOT exporter renders {@code subgraph
+     * cluster_*} blocks from this map.
+     */
+    public Map<String, String> subnetMembership() { return subnetMembership; }
 
     /**
      * Creates a new PetriNet with actions bound to transitions.
@@ -113,7 +137,9 @@ public final class PetriNet {
                 boundTransitions.add(t);
             }
         }
-        return new PetriNet(name, places, boundTransitions);
+        // MOD-026: bindActions rebuilds transitions but preserves their names,
+        // so name-keyed membership metadata survives a session bind unchanged.
+        return new PetriNet(name, places, boundTransitions, subnetMembership);
     }
 
     /**
@@ -159,6 +185,11 @@ public final class PetriNet {
         private final java.util.LinkedHashSet<Place<?>> places = new java.util.LinkedHashSet<>();
         private final java.util.LinkedHashSet<Transition> transitions = new java.util.LinkedHashSet<>();
         private final List<FusionSet> fusionSets = new ArrayList<>();
+        // MOD-026: node name -> set of subnet names that contributed it via
+        // compose(SubnetDef), in first-contribution order. Resolved to
+        // single-owner membership at build().
+        private final LinkedHashMap<String, LinkedHashSet<String>> subnetContributions =
+            new LinkedHashMap<>();
 
         private Builder(String name) {
             this.name = name;
@@ -447,8 +478,22 @@ public final class PetriNet {
             // transitions — transition() auto-collects arc places, deduped by
             // Place equality. Mirrors SubnetRewriter.renameNet's places-then-
             // transitions ordering so DOT export stays insertion-stable.
-            for (var p : body.places()) place(p);
-            for (var t : body.transitions()) transition(t);
+            //
+            // MOD-026: record which subnet each node came from so cluster-aware
+            // DOT export can reconstruct subgraphs without prefix names. The
+            // subnet name is sanitised of '/' so it never triggers spurious
+            // nested-cluster splitting in the exporter.
+            var subnetName = def.name().replace('/', '_');
+            for (var p : body.places()) {
+                place(p);
+                subnetContributions.computeIfAbsent(p.name(), k -> new LinkedHashSet<>())
+                    .add(subnetName);
+            }
+            for (var t : body.transitions()) {
+                transition(t);
+                subnetContributions.computeIfAbsent(t.name(), k -> new LinkedHashSet<>())
+                    .add(subnetName);
+            }
             return this;
         }
 
@@ -728,17 +773,63 @@ public final class PetriNet {
          * @throws IllegalStateException when two fusion sets share a place
          */
         public PetriNet build() {
+            var membership = resolveSubnetMembership();
             if (fusionSets.isEmpty()) {
-                return new PetriNet(name, places, transitions);
+                return new PetriNet(name, places, transitions, membership);
             }
-            return buildWithFusion();
+            return buildWithFusion(membership);
+        }
+
+        /**
+         * Resolves the per-compose contributions recorded by
+         * {@link #compose(SubnetDef)} into the final node-name → subnet-name
+         * membership map per <b>MOD-026</b>. A node contributed by exactly one
+         * subnet maps to that subnet; a place contributed by two or more
+         * subnets is a shared rendezvous place and is omitted (it renders
+         * top-level, outside any cluster). Returns an empty map — the common
+         * case — when no subnet was composed directly.
+         */
+        private Map<String, String> resolveSubnetMembership() {
+            if (subnetContributions.isEmpty()) {
+                return Map.of();
+            }
+            var resolved = new LinkedHashMap<String, String>();
+            for (var entry : subnetContributions.entrySet()) {
+                var owners = entry.getValue();
+                if (owners.size() == 1) {
+                    resolved.put(entry.getKey(), owners.iterator().next());
+                }
+            }
+            return resolved;
+        }
+
+        /**
+         * Drops membership entries for places removed by fusion: a
+         * non-canonical fused member no longer exists in the net, so its
+         * {@code node-name → subnet} entry would dangle. The surviving
+         * canonical place keeps its own entry. Per <b>MOD-026</b>.
+         */
+        private static Map<String, String> filterFusedMembership(
+                Map<String, String> membership, Set<Place<?>> nonCanonical) {
+            if (membership.isEmpty() || nonCanonical.isEmpty()) {
+                return membership;
+            }
+            var nonCanonicalNames = new HashSet<String>();
+            for (var p : nonCanonical) nonCanonicalNames.add(p.name());
+            var filtered = new LinkedHashMap<String, String>();
+            for (var e : membership.entrySet()) {
+                if (!nonCanonicalNames.contains(e.getKey())) {
+                    filtered.put(e.getKey(), e.getValue());
+                }
+            }
+            return filtered;
         }
 
         /**
          * Fusion-resolution pass per <b>MOD-061</b>. Split out from {@link #build()}
          * so the no-fusion fast path stays trivial.
          */
-        private PetriNet buildWithFusion() {
+        private PetriNet buildWithFusion(Map<String, String> membership) {
             // Step 1: detect overlap. The same place identity (Place is a
             // record, so equality is structural on name+tokenType) MUST NOT
             // appear in more than one fusion set in v1 per the spec note.
@@ -796,7 +887,8 @@ public final class PetriNet {
                 for (var rs  : t.resets())     rebuiltPlaces.add(rs.place());
             }
 
-            return new PetriNet(name, rebuiltPlaces, rewrittenTransitions);
+            return new PetriNet(name, rebuiltPlaces, rewrittenTransitions,
+                filterFusedMembership(membership, nonCanonicalSet));
         }
     }
 }

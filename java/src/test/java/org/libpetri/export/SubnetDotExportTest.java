@@ -7,9 +7,11 @@ import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
 import org.libpetri.core.SubnetDef;
 import org.libpetri.core.Transition;
+import org.libpetri.export.graph.RankDir;
 import org.libpetri.fixtures.SubnetFixtures;
 
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -292,5 +294,173 @@ class SubnetDotExportTest {
             "cross-cluster edge must not be inside cluster_prod");
         assertFalse(inConsCluster,
             "cross-cluster edge must not be inside cluster_cons");
+    }
+
+    // ============================================================
+    //  MOD-026 / MOD-040: direct composition clusters by subnet name
+    // ============================================================
+
+    /** A producer whose output place is named {@code pipe} (wires by name). */
+    private static SubnetDef<Void> pipeProducer() {
+        Place<String> seed = Place.of("seed", String.class);
+        Place<String> pipe = Place.of("pipe", String.class);
+        return SubnetDef.builder("PipeProducer")
+            .place(seed).place(pipe)
+            .transition(Transition.builder("emit")
+                .inputs(In.one(seed)).outputs(Out.place(pipe)).build())
+            .build();
+    }
+
+    /** A consumer whose input place is named {@code pipe} (wires by name). */
+    private static SubnetDef<Void> pipeConsumer() {
+        Place<String> pipe = Place.of("pipe", String.class);
+        Place<String> sink = Place.of("sink", String.class);
+        return SubnetDef.builder("PipeConsumer")
+            .place(pipe).place(sink)
+            .transition(Transition.builder("eat")
+                .inputs(In.one(pipe)).outputs(Out.place(sink)).build())
+            .build();
+    }
+
+    @Test
+    void dotExport_directComposed_clustersBySubnetName() {
+        // MOD-026: a directly-composed net has no '/' prefixes, but the
+        // recorded subnet-membership metadata lets the exporter cluster each
+        // subnet's private nodes under cluster_<subnetName>.
+        var net = PetriNet.builder("Pipeline")
+            .compose(pipeProducer())
+            .compose(pipeConsumer())
+            .build();
+
+        var dot = DotExporter.export(net);
+
+        assertTrue(dot.contains("subgraph cluster_PipeProducer {"),
+            "direct composition must cluster by subnet name. DOT:\n" + dot);
+        assertTrue(dot.contains("subgraph cluster_PipeConsumer {"),
+            "direct composition must cluster by subnet name. DOT:\n" + dot);
+
+        int prodStart = find(dot, "subgraph cluster_PipeProducer {", 0);
+        int prodEnd = find(dot, "}", prodStart);
+        String prodBody = dot.substring(prodStart, prodEnd);
+        assertTrue(prodBody.contains("p_seed"), "seed must be in the producer cluster");
+        assertTrue(prodBody.contains("t_emit"), "emit must be in the producer cluster");
+
+        int consStart = find(dot, "subgraph cluster_PipeConsumer {", 0);
+        int consEnd = find(dot, "}", consStart);
+        String consBody = dot.substring(consStart, consEnd);
+        assertTrue(consBody.contains("p_sink"), "sink must be in the consumer cluster");
+        assertTrue(consBody.contains("t_eat"), "eat must be in the consumer cluster");
+
+        // The shared 'pipe' place has no single owner — it must render at the
+        // top level, outside both clusters.
+        assertFalse(prodBody.contains("p_pipe"),
+            "shared place 'pipe' must not be inside the producer cluster");
+        assertFalse(consBody.contains("p_pipe"),
+            "shared place 'pipe' must not be inside the consumer cluster");
+    }
+
+    @Test
+    void dotExport_directComposed_clusterSourcePrefix_ignoresMetadata() {
+        // ClusterSource.PREFIX clusters only by '/' name segments; a
+        // direct-composed net has none, so no clusters are emitted.
+        var net = PetriNet.builder("Pipeline")
+            .compose(pipeProducer())
+            .compose(pipeConsumer())
+            .build();
+
+        var config = new ExportConfig(RankDir.TB, true, true, true, Set.of(),
+            ExportConfig.ClusterSource.PREFIX);
+        var dot = DotExporter.export(net, config);
+
+        assertFalse(dot.contains("subgraph cluster_"),
+            "ClusterSource.PREFIX must ignore subnet metadata. DOT:\n" + dot);
+    }
+
+    @Test
+    void dotExport_clusterSourceNone_suppressesAllClusters() {
+        // ClusterSource.NONE suppresses clustering even for a prefix-
+        // instantiated net that would otherwise cluster.
+        var producer = SubnetFixtures.producer().instantiate("producer1");
+        Place<String> sink = Place.of("hostSink", String.class);
+        var host = PetriNet.builder("Host")
+            .place(sink)
+            .compose(producer, Map.of("output", sink))
+            .build();
+
+        var config = new ExportConfig(RankDir.TB, true, true, true, Set.of(),
+            ExportConfig.ClusterSource.NONE);
+        var dot = DotExporter.export(host, config);
+
+        assertFalse(dot.contains("subgraph cluster_"),
+            "ClusterSource.NONE must emit no clusters. DOT:\n" + dot);
+    }
+
+    // ============================================================
+    //  MOD-040 / EXP-016 AC#7: mixed direct + instance composition
+    // ============================================================
+
+    @Test
+    void dotExport_mixedDirectAndInstance_bothClusterKinds() {
+        // MOD-040 AC#7: a net that both directly composes a subnet and
+        // instance-composes another carries metadata for the direct nodes and
+        // '/' prefixes for the instance nodes. Under the default AUTO source
+        // the exporter clusters direct nodes by subnet name and instance nodes
+        // by prefix — both cluster kinds coexist.
+        var producerInstance = SubnetFixtures.producer().instantiate("inst1");
+        Place<String> hostSink = Place.of("hostSink", String.class);
+
+        var net = PetriNet.builder("Mixed")
+            .place(hostSink)
+            .compose(pipeProducer())
+            .compose(producerInstance, Map.of("output", hostSink))
+            .build();
+
+        var dot = DotExporter.export(net);
+
+        // Direct-composed subnet → metadata cluster keyed by subnet name.
+        assertTrue(dot.contains("subgraph cluster_PipeProducer {"),
+            "direct-composed subnet must cluster by subnet name. DOT:\n" + dot);
+        // Instance-composed subnet → prefix cluster keyed by instance prefix.
+        assertTrue(dot.contains("subgraph cluster_inst1 {"),
+            "instance-composed subnet must cluster by prefix. DOT:\n" + dot);
+
+        int metaStart = find(dot, "subgraph cluster_PipeProducer {", 0);
+        int metaEnd = find(dot, "}", metaStart);
+        String metaBody = dot.substring(metaStart, metaEnd);
+        assertTrue(metaBody.contains("p_seed") && metaBody.contains("t_emit"),
+            "metadata cluster must hold the direct subnet's nodes. Cluster:\n" + metaBody);
+        assertFalse(metaBody.contains("inst1"),
+            "metadata cluster must not absorb prefix-named instance nodes. Cluster:\n" + metaBody);
+
+        int instStart = find(dot, "subgraph cluster_inst1 {", 0);
+        int instEnd = find(dot, "}", instStart);
+        String instBody = dot.substring(instStart, instEnd);
+        assertTrue(instBody.contains("p_inst1_nextItem") && instBody.contains("t_inst1_produce"),
+            "prefix cluster must hold the instance's renamed nodes. Cluster:\n" + instBody);
+    }
+
+    // ============================================================
+    //  MOD-040 / EXP-016: ClusterSource.METADATA is strict (no fallback)
+    // ============================================================
+
+    @Test
+    void dotExport_clusterSourceMetadata_ignoresPrefixOnlyNet() {
+        // ClusterSource.METADATA clusters strictly from subnet-membership
+        // metadata. An instance-composed net carries no metadata — only '/'
+        // prefixes — so METADATA emits no clusters at all. This is what
+        // distinguishes METADATA from AUTO, which would cluster by prefix.
+        var producer = SubnetFixtures.producer().instantiate("producer1");
+        Place<String> sink = Place.of("hostSink", String.class);
+        var host = PetriNet.builder("Host")
+            .place(sink)
+            .compose(producer, Map.of("output", sink))
+            .build();
+
+        var config = new ExportConfig(RankDir.TB, true, true, true, Set.of(),
+            ExportConfig.ClusterSource.METADATA);
+        var dot = DotExporter.export(host, config);
+
+        assertFalse(dot.contains("subgraph cluster_"),
+            "ClusterSource.METADATA must not fall back to prefix detection. DOT:\n" + dot);
     }
 }
