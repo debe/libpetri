@@ -44,6 +44,14 @@ interface ClusterAugment {
 }
 type AugmentedGroup = SVGGElement & ClusterAugment;
 
+/** Axis-aligned bounding box parsed from a cluster's border shape. */
+interface Rect {
+  readonly minX: number;
+  readonly minY: number;
+  readonly maxX: number;
+  readonly maxY: number;
+}
+
 /**
  * Walk the SVG, find every `<g class="cluster">`, derive the prefix from
  * each cluster's `<title>` (`cluster_<sanitized>`), and tag every cluster-
@@ -52,10 +60,16 @@ type AugmentedGroup = SVGGElement & ClusterAugment;
  *
  * Graphviz emits cluster nodes as SIBLINGS of the cluster `<g>`, not as
  * children — `<g class="cluster">` only carries title, polygon border, and
- * the cluster's text label. To recover cluster membership we match each
- * node's `<title>` (the original graph id) against libpetri's prefixing
- * convention: interior places are emitted as `p_<prefix>_<name>`,
- * transitions as `t_<prefix>_<name>`, and junctions as `j_<prefix>_<name>`.
+ * the cluster's text label. Cluster membership is recovered two ways:
+ *
+ *  - **Name-based** — instance composition prefixes interior names
+ *    (`p_<prefix>_…`, `t_<prefix>_…`, `j_<prefix>_…`) or uses slash-separated
+ *    names (`<prefix>/…`).
+ *  - **Geometric** — direct composition (spec MOD-026) keeps each node's
+ *    original, un-prefixed name, so the only structural signal left in the
+ *    rendered SVG is the node's drawn position: a node whose centre falls
+ *    inside the cluster's border box belongs to it. This is what Graphviz
+ *    itself draws the box around.
  *
  * Does not split nested-cluster prefixes (`outer_inner` could mean either
  * `outer/inner` or a flat `outer_inner` prefix — Graphviz sanitisation is
@@ -77,6 +91,7 @@ export function discoverClusters(svg: SVGSVGElement): Map<string, ClusterDescrip
     const prefix = raw.slice('cluster_'.length);
     if (out.has(prefix)) continue;
 
+    const rect = clusterRect(g);
     let nodeCount = 0;
     for (const node of allNodes) {
       // Don't re-tag a node already claimed by an inner (more specific)
@@ -86,7 +101,7 @@ export function discoverClusters(svg: SVGSVGElement): Map<string, ClusterDescrip
       const nodeTitle = directChild(node, 'title');
       if (!nodeTitle) continue;
       const id = (nodeTitle.textContent ?? '').trim();
-      if (nodeBelongsToPrefix(id, prefix)) {
+      if (nodeBelongsToCluster(id, node, prefix, rect)) {
         node.setAttribute('data-instance', prefix);
         nodeCount++;
       }
@@ -100,6 +115,43 @@ export function discoverClusters(svg: SVGSVGElement): Map<string, ClusterDescrip
     });
   }
   return out;
+}
+
+/**
+ * Does this node belong to the cluster — by name (instance composition) or
+ * by geometry (direct composition, MOD-026)? The name test is exact and
+ * cheap, so it runs first; the geometric fallback only fires for plain-named
+ * nodes whose owning cluster left no trace in the node id.
+ *
+ * The geometric test assumes Graphviz lays cluster boxes out disjointly —
+ * which holds for direct-composition clusters: the mapper always emits those
+ * as top-level subgraphs (subnet names are sanitised of `/`, so they never
+ * nest). A node is claimed by the first document-order cluster whose border
+ * box contains its centre; a shared rendezvous place, drawn between clusters,
+ * falls inside none. Geometry is never consulted for prefix-named nodes, so
+ * nested instance clusters — whose nodes always carry a `/`-prefix — keep
+ * their exact name-based membership.
+ */
+function nodeBelongsToCluster(
+  nodeId: string,
+  node: SVGGElement,
+  prefix: string,
+  rect: Rect | null,
+): boolean {
+  if (nodeBelongsToPrefix(nodeId, prefix)) return true;
+  if (rect) {
+    const c = nodeCenter(node);
+    if (
+      c &&
+      c.x >= rect.minX &&
+      c.x <= rect.maxX &&
+      c.y >= rect.minY &&
+      c.y <= rect.maxY
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -118,6 +170,101 @@ function nodeBelongsToPrefix(nodeId: string, prefix: string): boolean {
     nodeId.startsWith(`t_${prefix}_`) ||
     nodeId.startsWith(`j_${prefix}_`)
   );
+}
+
+/**
+ * Parse a cluster `<g>`'s border into an axis-aligned bounding box. The
+ * border is a `<polygon>` (square clusters) or `<path>` (rounded clusters);
+ * either way every coordinate number is extracted and reduced to min/max.
+ * Returns `null` when no border or no coordinates are present.
+ */
+function clusterRect(group: SVGGElement): Rect | null {
+  const border = directChild(group, 'polygon') ?? directChild(group, 'path');
+  if (!border) return null;
+  const raw =
+    border.getAttribute('points') ?? border.getAttribute('d') ?? '';
+  return boundsOf(raw);
+}
+
+/**
+ * Resolve a node `<g>`'s centre from its first drawn shape — `cx`/`cy` for an
+ * ellipse, or the bounding-box centre of a polygon/path. Returns `null` when
+ * the node carries no positioned shape (e.g. a hand-built test fixture).
+ */
+function nodeCenter(node: SVGGElement): { x: number; y: number } | null {
+  const ellipse = directChild(node, 'ellipse');
+  if (ellipse) {
+    const x = parseFloat(ellipse.getAttribute('cx') ?? '');
+    const y = parseFloat(ellipse.getAttribute('cy') ?? '');
+    if (!Number.isNaN(x) && !Number.isNaN(y)) return { x, y };
+  }
+  const shape = directChild(node, 'polygon') ?? directChild(node, 'path');
+  if (shape) {
+    const bounds = boundsOf(
+      shape.getAttribute('points') ?? shape.getAttribute('d') ?? '',
+    );
+    if (bounds) {
+      return {
+        x: (bounds.minX + bounds.maxX) / 2,
+        y: (bounds.minY + bounds.maxY) / 2,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Reduce a coordinate string (SVG `points` or path `d`) to a bounding box.
+ * Numbers alternate x,y — the convention for both polygon points and the
+ * absolute `M`/`L`/`C` commands Graphviz emits for cluster/node shapes.
+ */
+function boundsOf(coords: string): Rect | null {
+  const nums = coords.match(/-?\d+(?:\.\d+)?/g);
+  if (!nums || nums.length < 2) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (let i = 0; i + 1 < nums.length; i += 2) {
+    const x = parseFloat(nums[i]!);
+    const y = parseFloat(nums[i + 1]!);
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  if (minX === Infinity) return null;
+  return { minX, minY, maxX, maxY };
+}
+
+/**
+ * Build a `node graph-id → cluster prefix` map from the `data-instance`
+ * attributes {@link discoverClusters} tagged. Lets edge-level logic resolve
+ * an endpoint's cluster without re-deriving membership from the node name —
+ * essential for direct composition, where node names carry no prefix.
+ */
+function nodeClusterMap(svg: SVGSVGElement): Map<string, string> {
+  const map = new Map<string, string>();
+  svg.querySelectorAll<SVGGElement>('g.node[data-instance]').forEach((node) => {
+    const di = node.getAttribute('data-instance');
+    const title = directChild(node, 'title');
+    const id = (title?.textContent ?? '').trim();
+    if (di && id) map.set(id, di);
+  });
+  return map;
+}
+
+/**
+ * Does an edge endpoint (a node graph-id) belong to the given cluster? Tries
+ * the name-based test first (instance composition, incl. nested prefixes via
+ * string-prefix), then the resolved membership map (direct composition).
+ */
+function endpointInCluster(
+  id: string,
+  prefix: string,
+  clusterMap: Map<string, string>,
+): boolean {
+  return nodeBelongsToPrefix(id, prefix) || clusterMap.get(id) === prefix;
 }
 
 /**
@@ -189,6 +336,7 @@ export function setClusterCollapsed(cluster: ClusterDescriptor, collapsed: boole
 
     // Hide interior-interior edges. Edges' titles are `from->to`; we hide
     // an edge only when BOTH endpoints belong to this cluster.
+    const clusterMap = nodeClusterMap(root);
     root.querySelectorAll<SVGGElement>('g.edge').forEach((edge) => {
       const titleEl = directChild(edge, 'title');
       if (!titleEl) return;
@@ -197,7 +345,10 @@ export function setClusterCollapsed(cluster: ClusterDescriptor, collapsed: boole
       if (arrow < 0) return;
       const from = t.slice(0, arrow);
       const to = t.slice(arrow + 2);
-      if (nodeBelongsToPrefix(from, cluster.prefix) && nodeBelongsToPrefix(to, cluster.prefix)) {
+      if (
+        endpointInCluster(from, cluster.prefix, clusterMap) &&
+        endpointInCluster(to, cluster.prefix, clusterMap)
+      ) {
         edge.classList.add('petri-collapsed-inside');
         hidden.push(edge);
       }
@@ -250,6 +401,7 @@ export function applyFilter(svg: SVGSVGElement, prefix: string | null): void {
   }
   svg.setAttribute('data-active-filter', prefix);
   svg.classList.add('has-active-filter');
+  const clusterMap = nodeClusterMap(svg);
   svg.querySelectorAll('g.node').forEach((node) => {
     const di = node.getAttribute('data-instance');
     const match =
@@ -270,7 +422,10 @@ export function applyFilter(svg: SVGSVGElement, prefix: string | null): void {
     const from = titleText.slice(0, arrow);
     const to = titleText.slice(arrow + 2);
     const matches = (name: string): boolean =>
-      name.indexOf(prefix + '/') >= 0 || name.indexOf(prefix + '_') >= 0 || name === prefix;
+      name.indexOf(prefix + '/') >= 0 ||
+      name.indexOf(prefix + '_') >= 0 ||
+      name === prefix ||
+      clusterMap.get(name) === prefix;
     if (matches(from) || matches(to)) edge.classList.remove('petri-dimmed');
     else edge.classList.add('petri-dimmed');
   });
@@ -290,9 +445,10 @@ export function isInsideCollapsedCluster(
 ): boolean {
   if (collapsedPrefixes.size === 0) return false;
   if (!svg) return false;
+  const clusterMap = nodeClusterMap(svg);
   for (const prefix of collapsedPrefixes) {
     if (!clusters.has(prefix)) continue;
-    if (nodeBelongsToPrefix(graphId, prefix)) return true;
+    if (endpointInCluster(graphId, prefix, clusterMap)) return true;
   }
   return false;
 }

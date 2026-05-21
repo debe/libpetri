@@ -10,7 +10,7 @@
 export type { Graph, GraphNode, GraphEdge, Subgraph, RankDir, NodeShape, EdgeLineStyle, ArrowHead } from './graph.js';
 export type { NodeVisual, EdgeVisual, NodeCategory, EdgeCategory } from './styles.js';
 export { nodeStyle, edgeStyle, FONT, GRAPH } from './styles.js';
-export type { DotConfig } from './petri-net-mapper.js';
+export type { DotConfig, ClusterSource } from './petri-net-mapper.js';
 export { mapToGraph, sanitize, DEFAULT_DOT_CONFIG } from './petri-net-mapper.js';
 export { renderDot } from './dot-renderer.js';
 export { dotExport } from './dot-exporter.js';

@@ -27,6 +27,16 @@ pub struct PetriNet {
     name: Arc<str>,
     places: Vec<PlaceRef>,
     transitions: Vec<Transition>,
+    /// MOD-026: node name -> owning subnet name, for cluster-aware DOT
+    /// export. Recorded by [`PetriNetBuilder::compose_direct`]; empty for
+    /// every net not built via direct composition.
+    ///
+    /// A plain `HashMap` is correct here even though the cross-language
+    /// byte-parity contract demands deterministic DOT output: the exporter
+    /// iterates over the net's nodes (themselves order-preserving) and
+    /// *looks up* membership, so the map's own iteration order never
+    /// reaches the rendered DOT — no `IndexMap` is needed.
+    subnet_membership: HashMap<Arc<str>, Arc<str>>,
 }
 
 impl PetriNet {
@@ -43,6 +53,17 @@ impl PetriNet {
     /// Returns the transitions in the net.
     pub fn transitions(&self) -> &[Transition] {
         &self.transitions
+    }
+
+    /// Subnet-membership metadata per **MOD-026**: maps each node name
+    /// (place or transition) contributed by exactly one directly-composed
+    /// subnet to that subnet's name. Shared places contributed by two or
+    /// more subnets, and every node of a net not built via
+    /// [`PetriNetBuilder::compose_direct`], are absent. Never `None` —
+    /// empty when there is no metadata. The DOT exporter renders `subgraph
+    /// cluster_*` blocks from this map.
+    pub fn subnet_membership(&self) -> &HashMap<Arc<str>, Arc<str>> {
+        &self.subnet_membership
     }
 
     /// Creates a new PetriNet with actions bound to transitions by name.
@@ -72,10 +93,14 @@ impl PetriNet {
             })
             .collect();
 
+        // MOD-026: bind_actions rebuilds transitions but preserves their
+        // names, so name-keyed membership metadata survives a session bind
+        // unchanged — clone it through.
         PetriNet {
             name: Arc::clone(&self.name),
             places: self.places.clone(),
             transitions,
+            subnet_membership: self.subnet_membership.clone(),
         }
     }
 
@@ -96,6 +121,10 @@ pub struct PetriNetBuilder {
     place_index: HashSet<PlaceRef>,
     transitions: Vec<Transition>,
     fusion_sets: Vec<FusionSet>,
+    /// MOD-026: node name -> set of subnet names that contributed it via
+    /// [`PetriNetBuilder::compose_direct`]. Resolved to single-owner
+    /// membership at [`PetriNetBuilder::build`].
+    subnet_contributions: HashMap<Arc<str>, HashSet<Arc<str>>>,
 }
 
 impl PetriNetBuilder {
@@ -106,6 +135,7 @@ impl PetriNetBuilder {
             place_index: HashSet::new(),
             transitions: Vec::new(),
             fusion_sets: Vec::new(),
+            subnet_contributions: HashMap::new(),
         }
     }
 
@@ -392,12 +422,30 @@ impl PetriNetBuilder {
         // dedups body places against host places by name automatically — no
         // arc rewrite is needed. Add body places first (captures arc-less
         // standalone places), then transitions.
+        //
+        // MOD-026: record which subnet each node came from so cluster-aware
+        // DOT export can reconstruct subgraphs without prefix names. The
+        // subnet name is sanitised of '/' so it never triggers spurious
+        // nested-cluster splitting in the exporter.
+        let subnet_name: Arc<str> = Arc::from(def.name().replace('/', "_"));
         let mut builder = self;
         for p in body.places() {
+            let key = Arc::clone(p.name_arc());
             builder = builder.place(p.clone());
+            builder
+                .subnet_contributions
+                .entry(key)
+                .or_default()
+                .insert(Arc::clone(&subnet_name));
         }
         for t in body.transitions() {
+            let key = Arc::clone(t.name_arc());
             builder = builder.transition(t.clone());
+            builder
+                .subnet_contributions
+                .entry(key)
+                .or_default()
+                .insert(Arc::clone(&subnet_name));
         }
         builder
     }
@@ -469,15 +517,36 @@ impl PetriNetBuilder {
     /// # Panics
     /// Panics when two fusion sets share a place name.
     pub fn build(self) -> PetriNet {
+        let membership = resolve_subnet_membership(&self.subnet_contributions);
         if self.fusion_sets.is_empty() {
             return PetriNet {
                 name: self.name,
                 places: self.places,
                 transitions: self.transitions,
+                subnet_membership: membership,
             };
         }
-        build_with_fusion(self)
+        build_with_fusion(self, membership)
     }
+}
+
+/// Resolves the per-`compose_direct` contributions into the final
+/// `node-name -> subnet-name` membership map per **MOD-026**. A node
+/// contributed by exactly one subnet maps to that subnet; a place
+/// contributed by two or more subnets is a shared rendezvous place and is
+/// omitted (it renders top-level, outside any cluster). Returns an empty
+/// map — the common case — when no subnet was composed directly.
+fn resolve_subnet_membership(
+    contributions: &HashMap<Arc<str>, HashSet<Arc<str>>>,
+) -> HashMap<Arc<str>, Arc<str>> {
+    let mut resolved: HashMap<Arc<str>, Arc<str>> = HashMap::new();
+    for (node, owners) in contributions {
+        if owners.len() == 1 {
+            let owner = owners.iter().next().expect("len == 1");
+            resolved.insert(Arc::clone(node), Arc::clone(owner));
+        }
+    }
+    resolved
 }
 
 /// Sugar collector handed to [`PetriNetBuilder::fuse_with`].
@@ -507,13 +576,22 @@ impl FuseBuilder {
 
 /// Fusion-resolution pass per **MOD-061**. Split out from
 /// [`PetriNetBuilder::build`] so the no-fusion fast path stays trivial.
-fn build_with_fusion(builder: PetriNetBuilder) -> PetriNet {
+///
+/// `membership` is the resolved MOD-026 subnet-membership map; it is
+/// filtered here so entries naming a non-canonical fused place — which no
+/// longer exists in the net — are dropped (the surviving canonical place
+/// keeps its own entry).
+fn build_with_fusion(
+    builder: PetriNetBuilder,
+    membership: HashMap<Arc<str>, Arc<str>>,
+) -> PetriNet {
     let PetriNetBuilder {
         name,
         places,
         place_index: _,
         transitions,
         fusion_sets,
+        subnet_contributions: _,
     } = builder;
 
     // Step 1: detect overlap. The same place name MUST NOT appear in more
@@ -604,10 +682,26 @@ fn build_with_fusion(builder: PetriNetBuilder) -> PetriNet {
         }
     }
 
+    // MOD-026: drop membership entries for places removed by fusion. A
+    // non-canonical fused member no longer exists in the net, so its
+    // `node-name -> subnet` entry would dangle. The surviving canonical
+    // place keeps its entry. Transitions are never fused away, so their
+    // entries always survive.
+    let filtered_membership: HashMap<Arc<str>, Arc<str>> =
+        if membership.is_empty() || non_canonical_names.is_empty() {
+            membership
+        } else {
+            membership
+                .into_iter()
+                .filter(|(node, _)| !non_canonical_names.contains(node))
+                .collect()
+        };
+
     PetriNet {
         name,
         places: rebuilt_places,
         transitions: rewritten_transitions,
+        subnet_membership: filtered_membership,
     }
 }
 
@@ -860,6 +954,211 @@ mod tests {
         let net2 = net.bind_actions(&bindings);
         assert_eq!(net2.transitions().len(), 1);
         assert_eq!(net2.transitions()[0].name(), "t1");
+    }
+
+    // ============================================================
+    //  MOD-026: subnet-membership metadata for direct composition
+    // ============================================================
+
+    /// A producer subnet whose output place is named `pipe` (wires by name).
+    fn pipe_producer() -> SubnetDef<()> {
+        let seed = Place::<String>::new("seed");
+        let pipe = Place::<String>::new("pipe");
+        SubnetDef::<()>::builder("PipeProducer")
+            .place(&seed)
+            .place(&pipe)
+            .transition(
+                Transition::builder("emit")
+                    .input(one(&seed))
+                    .output(out_place(&pipe))
+                    .build(),
+            )
+            .build()
+    }
+
+    /// A consumer subnet whose input place is named `pipe` (wires by name).
+    fn pipe_consumer() -> SubnetDef<()> {
+        let pipe = Place::<String>::new("pipe");
+        let sink = Place::<String>::new("sink");
+        SubnetDef::<()>::builder("PipeConsumer")
+            .place(&pipe)
+            .place(&sink)
+            .transition(
+                Transition::builder("eat")
+                    .input(one(&pipe))
+                    .output(out_place(&sink))
+                    .build(),
+            )
+            .build()
+    }
+
+    #[test]
+    fn direct_compose_records_membership_per_subnet() {
+        let net = PetriNet::builder("Host")
+            .compose_direct(&pipe_producer())
+            .compose_direct(&pipe_consumer())
+            .build();
+
+        let m = net.subnet_membership();
+        assert_eq!(m.get("seed").map(|s| s.as_ref()), Some("PipeProducer"));
+        assert_eq!(m.get("emit").map(|s| s.as_ref()), Some("PipeProducer"));
+        assert_eq!(m.get("sink").map(|s| s.as_ref()), Some("PipeConsumer"));
+        assert_eq!(m.get("eat").map(|s| s.as_ref()), Some("PipeConsumer"));
+    }
+
+    #[test]
+    fn direct_compose_shared_place_has_no_membership_entry() {
+        // 'pipe' is contributed by both subnets — a shared rendezvous place
+        // with no single owner, so it carries no membership entry.
+        let net = PetriNet::builder("Host")
+            .compose_direct(&pipe_producer())
+            .compose_direct(&pipe_consumer())
+            .build();
+
+        assert!(
+            !net.subnet_membership().contains_key("pipe"),
+            "a place contributed by 2+ subnets must have no membership entry"
+        );
+    }
+
+    #[test]
+    fn direct_compose_membership_is_order_independent() {
+        let ab = PetriNet::builder("Host")
+            .compose_direct(&pipe_producer())
+            .compose_direct(&pipe_consumer())
+            .build();
+        let ba = PetriNet::builder("Host")
+            .compose_direct(&pipe_consumer())
+            .compose_direct(&pipe_producer())
+            .build();
+
+        assert_eq!(
+            ab.subnet_membership(),
+            ba.subnet_membership(),
+            "membership must not depend on compose order"
+        );
+    }
+
+    #[test]
+    fn flat_net_has_empty_membership() {
+        let a = Place::<String>::new("a");
+        let b = Place::<String>::new("b");
+        let net = PetriNet::builder("Flat")
+            .transition(
+                Transition::builder("move")
+                    .input(one(&a))
+                    .output(out_place(&b))
+                    .build(),
+            )
+            .build();
+
+        assert!(
+            net.subnet_membership().is_empty(),
+            "a hand-written flat net carries no subnet membership"
+        );
+    }
+
+    #[test]
+    fn instance_compose_has_empty_membership() {
+        // compose_auto is the prefix-rename path — it records no membership;
+        // the exporter clusters those nodes by name prefix.
+        let p_in = Place::<String>::new("in");
+        let p_out = Place::<String>::new("out");
+        let producer = SubnetDef::<()>::builder("Producer")
+            .input_port("in", &p_in)
+            .output_port("out", &p_out)
+            .transition(
+                Transition::builder("produce")
+                    .input(one(&p_in))
+                    .output(out_place(&p_out))
+                    .build(),
+            )
+            .build();
+        let instance = producer.instantiate_unit("p1");
+        let net = PetriNet::builder("Host").compose_auto(&instance).build();
+
+        assert!(
+            net.subnet_membership().is_empty(),
+            "instance composition records no membership metadata"
+        );
+    }
+
+    #[test]
+    fn direct_compose_then_fuse_drops_non_canonical_entry() {
+        // Fusion removes the non-canonical place 'b'; its membership entry
+        // must be dropped so the map names only places that still exist.
+        let a = Place::<String>::new("a");
+        let b = Place::<String>::new("b");
+        let subnet = SubnetDef::<()>::builder("AB")
+            .transition(
+                Transition::builder("move")
+                    .input(one(&a))
+                    .output(out_place(&b))
+                    .build(),
+            )
+            .build();
+
+        let net = PetriNet::builder("Host")
+            .compose_direct(&subnet)
+            .fuse([FusionSet::of("ab", &a, &[&b])])
+            .build();
+
+        assert_eq!(
+            net.subnet_membership().get("a").map(|s| s.as_ref()),
+            Some("AB"),
+            "the canonical fused place keeps its membership entry"
+        );
+        assert!(
+            !net.subnet_membership().contains_key("b"),
+            "the non-canonical fused place must lose its membership entry"
+        );
+        assert_eq!(
+            net.subnet_membership().get("move").map(|s| s.as_ref()),
+            Some("AB"),
+            "transitions are unaffected by fusion"
+        );
+    }
+
+    #[test]
+    fn bind_actions_preserves_membership() {
+        let net = PetriNet::builder("Host")
+            .compose_direct(&pipe_producer())
+            .compose_direct(&pipe_consumer())
+            .build();
+
+        let mut bindings = std::collections::HashMap::new();
+        bindings.insert("emit".to_string(), crate::action::passthrough());
+        let bound = net.bind_actions(&bindings);
+
+        assert_eq!(
+            net.subnet_membership(),
+            bound.subnet_membership(),
+            "bind_actions rebuilds transitions by name — membership must survive"
+        );
+    }
+
+    #[test]
+    fn direct_compose_subnet_name_with_slash_is_sanitised() {
+        // A subnet name containing '/' must be sanitised so it never triggers
+        // spurious nested-cluster splitting in the exporter.
+        let x = Place::<String>::new("x");
+        let y = Place::<String>::new("y");
+        let subnet = SubnetDef::<()>::builder("group/sub")
+            .transition(
+                Transition::builder("step")
+                    .input(one(&x))
+                    .output(out_place(&y))
+                    .build(),
+            )
+            .build();
+
+        let net = PetriNet::builder("Host").compose_direct(&subnet).build();
+
+        assert_eq!(
+            net.subnet_membership().get("step").map(|s| s.as_ref()),
+            Some("group_sub"),
+            "'/' in a subnet name must be replaced with '_'"
+        );
     }
 
     #[test]

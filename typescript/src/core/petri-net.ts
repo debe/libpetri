@@ -22,17 +22,32 @@ export class PetriNet {
   readonly places: ReadonlySet<Place<any>>;
   readonly transitions: ReadonlySet<Transition>;
 
+  /**
+   * Subnet-membership metadata per **MOD-026**: maps each node name (place or
+   * transition) contributed by exactly one directly-composed subnet to that
+   * subnet's name. Shared places contributed by two or more subnets, and every
+   * node of a net not built via {@link PetriNetBuilder.compose}`(SubnetDef)`,
+   * are absent. Never null — an empty map when there is no metadata. The DOT
+   * exporter renders `subgraph cluster_*` blocks from this map.
+   *
+   * V8 `Map` is insertion-ordered, preserving compose order so cluster
+   * subgraphs render deterministically (cross-language byte-parity).
+   */
+  readonly subnetMembership: ReadonlyMap<string, string>;
+
   /** @internal Use {@link PetriNet.builder} to create instances. */
   constructor(
     key: symbol,
     name: string,
     places: ReadonlySet<Place<any>>,
     transitions: ReadonlySet<Transition>,
+    subnetMembership: ReadonlyMap<string, string> = new Map(),
   ) {
     if (key !== PETRI_NET_KEY) throw new Error('Use PetriNet.builder() to create instances');
     this.name = name;
     this.places = places;
     this.transitions = transitions;
+    this.subnetMembership = subnetMembership;
   }
 
   /**
@@ -62,7 +77,10 @@ export class PetriNet {
         boundTransitions.add(t);
       }
     }
-    return new PetriNet(PETRI_NET_KEY, this.name, this.places, boundTransitions);
+    // MOD-026: bindActions rebuilds transitions but preserves their names, so
+    // name-keyed membership metadata survives a session bind unchanged.
+    return new PetriNet(PETRI_NET_KEY, this.name, this.places, boundTransitions,
+      this.subnetMembership);
   }
 
   static builder(name: string): PetriNetBuilder {
@@ -75,6 +93,11 @@ export class PetriNetBuilder {
   private readonly _places = new Set<Place<any>>();
   private readonly _transitions = new Set<Transition>();
   private readonly _fusionSets: FusionSet[] = [];
+  // MOD-026: node name -> set of subnet names that contributed it via
+  // compose(SubnetDef), in first-contribution order. Resolved to single-owner
+  // membership at build(). V8 Map/Set iterate in insertion order, preserving
+  // compose order for cross-language byte-parity.
+  private readonly _subnetContributions = new Map<string, Set<string>>();
 
   constructor(name: string) {
     this._name = name;
@@ -262,16 +285,34 @@ export class PetriNetBuilder {
     const hostByName = new Map<string, Place<unknown>>();
     for (const p of this._places) hostByName.set(p.name, p);
 
+    // MOD-026: record which subnet each node came from so cluster-aware DOT
+    // export can reconstruct subgraphs without prefix names. The subnet name
+    // is sanitised of '/' so it never triggers spurious nested-cluster
+    // splitting in the exporter.
+    const subnetName = def.name.replace(/\//g, '_');
+
     const mergeMap = new Map<string, Place<unknown>>();
     for (const p of body.places) {
       const host = hostByName.get(p.name);
       this.place(host ?? p);
       if (host !== undefined) mergeMap.set(p.name, host);
+      this.recordContribution(p.name, subnetName);
     }
     for (const t of body.transitions) {
       this.transition(substitutePlaces(t, mergeMap));
+      this.recordContribution(t.name, subnetName);
     }
     return this;
+  }
+
+  /** @internal MOD-026: records a node as contributed by the named subnet. */
+  private recordContribution(nodeName: string, subnetName: string): void {
+    let owners = this._subnetContributions.get(nodeName);
+    if (owners === undefined) {
+      owners = new Set<string>();
+      this._subnetContributions.set(nodeName, owners);
+    }
+    owners.add(subnetName);
   }
 
   /**
@@ -578,17 +619,59 @@ export class PetriNetBuilder {
    * @throws when two fusion sets share a place
    */
   build(): PetriNet {
+    const membership = this.resolveSubnetMembership();
     if (this._fusionSets.length === 0) {
-      return new PetriNet(PETRI_NET_KEY, this._name, this._places, this._transitions);
+      return new PetriNet(PETRI_NET_KEY, this._name, this._places, this._transitions,
+        membership);
     }
-    return this.buildWithFusion();
+    return this.buildWithFusion(membership);
+  }
+
+  /**
+   * @internal Resolves the per-compose contributions recorded by
+   * `composeDirect` into the final node-name → subnet-name membership map per
+   * **MOD-026**. A node contributed by exactly one subnet maps to that subnet;
+   * a place contributed by two or more subnets is a shared rendezvous place
+   * and is omitted (it renders top-level, outside any cluster). Returns an
+   * empty map — the common case — when no subnet was composed directly.
+   */
+  private resolveSubnetMembership(): Map<string, string> {
+    const resolved = new Map<string, string>();
+    for (const [nodeName, owners] of this._subnetContributions) {
+      if (owners.size === 1) {
+        resolved.set(nodeName, owners.values().next().value as string);
+      }
+    }
+    return resolved;
+  }
+
+  /**
+   * @internal Drops membership entries for places removed by fusion: a
+   * non-canonical fused member no longer exists in the net, so its
+   * `node-name → subnet` entry would dangle. The surviving canonical place
+   * keeps its own entry. Per **MOD-026**.
+   */
+  private static filterFusedMembership(
+    membership: Map<string, string>,
+    nonCanonicalNames: ReadonlySet<string>,
+  ): Map<string, string> {
+    if (membership.size === 0 || nonCanonicalNames.size === 0) {
+      return membership;
+    }
+    const filtered = new Map<string, string>();
+    for (const [key, value] of membership) {
+      if (!nonCanonicalNames.has(key)) {
+        filtered.set(key, value);
+      }
+    }
+    return filtered;
   }
 
   /**
    * @internal Fusion-resolution pass per **MOD-061**. Split out from
    * {@link build} so the no-fusion fast path stays trivial.
    */
-  private buildWithFusion(): PetriNet {
+  private buildWithFusion(membership: Map<string, string>): PetriNet {
     // Step 1: detect overlap. The same place name MUST NOT appear in more
     // than one fusion set (TypeScript Place identity is name-based per
     // `runtime/compiled-net.ts`).
@@ -647,7 +730,8 @@ export class PetriNetBuilder {
       for (const r of t.resets) rebuiltPlaces.add(r.place);
     }
 
-    return new PetriNet(PETRI_NET_KEY, this._name, rebuiltPlaces, rewrittenTransitions);
+    return new PetriNet(PETRI_NET_KEY, this._name, rebuiltPlaces, rewrittenTransitions,
+      PetriNetBuilder.filterFusedMembership(membership, nonCanonicalNames));
   }
 }
 

@@ -365,4 +365,131 @@ describe('viewer cluster overlay', () => {
       buf2Nodes.forEach((n) => expect(n.classList.contains('petri-dimmed')).toBe(false));
     });
   });
+
+  // ----------------------------------------------------------------------
+  // Direct composition (MOD-026): nodes keep their original, un-prefixed
+  // names, so cluster membership cannot be recovered from `p_<prefix>_…` /
+  // `<prefix>/…` name segments. discoverClusters must fall back to geometric
+  // containment — a node whose rendered centre sits inside the cluster's
+  // border box belongs to that cluster.
+  // ----------------------------------------------------------------------
+  describe('direct composition (geometric membership)', () => {
+    function geoNode(graphId: string, cx: number, cy: number): SVGGElement {
+      const g = document.createElementNS(SVG_NS, 'g') as SVGGElement;
+      g.setAttribute('class', 'node');
+      const title = document.createElementNS(SVG_NS, 'title');
+      title.textContent = graphId;
+      g.appendChild(title);
+      const ellipse = document.createElementNS(SVG_NS, 'ellipse');
+      ellipse.setAttribute('cx', String(cx));
+      ellipse.setAttribute('cy', String(cy));
+      ellipse.setAttribute('rx', '8');
+      ellipse.setAttribute('ry', '8');
+      g.appendChild(ellipse);
+      return g;
+    }
+
+    // Graphviz draws a `rounded,dashed` cluster border as a <path>, not a
+    // <polygon> — mirror that so the test exercises the real code path.
+    function geoCluster(
+      prefix: string, x0: number, y0: number, x1: number, y1: number,
+    ): SVGGElement {
+      const g = document.createElementNS(SVG_NS, 'g') as SVGGElement;
+      g.setAttribute('class', 'cluster');
+      const title = document.createElementNS(SVG_NS, 'title');
+      title.textContent = `cluster_${prefix}`;
+      g.appendChild(title);
+      const border = document.createElementNS(SVG_NS, 'path');
+      border.setAttribute(
+        'd',
+        `M${x0},${y0} L${x1},${y0} L${x1},${y1} L${x0},${y1} Z`,
+      );
+      g.appendChild(border);
+      const label = document.createElementNS(SVG_NS, 'text');
+      label.textContent = prefix;
+      g.appendChild(label);
+      return g;
+    }
+
+    // A directly-composed pipeline: producer + consumer subnets, each with
+    // private plain-named nodes, plus a shared rendezvous place `p_pipe`
+    // rendered between (outside) both cluster boxes. Graphviz emits nodes as
+    // SIBLINGS of the cluster <g>, so this fixture does too.
+    function makeDirectComposedSvg(): SVGSVGElement {
+      const svg = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
+      svg.appendChild(geoCluster('PipeProducer', 0, 0, 100, 100));
+      svg.appendChild(geoCluster('PipeConsumer', 200, 0, 300, 100));
+      svg.appendChild(geoNode('p_seed', 30, 50)); // inside producer
+      svg.appendChild(geoNode('t_emit', 70, 50)); // inside producer
+      svg.appendChild(geoNode('p_sink', 230, 50)); // inside consumer
+      svg.appendChild(geoNode('t_eat', 270, 50)); // inside consumer
+      svg.appendChild(geoNode('p_pipe', 150, 50)); // shared — between boxes
+      svg.appendChild(makeEdge('p_seed', 't_emit')); // interior to producer
+      svg.appendChild(makeEdge('t_emit', 'p_pipe')); // producer -> shared
+      svg.appendChild(makeEdge('p_pipe', 't_eat')); // shared -> consumer
+      return svg;
+    }
+
+    it('counts cluster members by geometric containment', () => {
+      const svg = makeDirectComposedSvg();
+      document.body.appendChild(svg);
+      const clusters = discoverClusters(svg);
+
+      expect(clusters.get('PipeProducer')?.nodeCount).toBe(2);
+      expect(clusters.get('PipeConsumer')?.nodeCount).toBe(2);
+    });
+
+    it('leaves the shared rendezvous place outside every cluster', () => {
+      const svg = makeDirectComposedSvg();
+      document.body.appendChild(svg);
+      discoverClusters(svg);
+
+      const pipe = [...svg.querySelectorAll('g.node')].find(
+        (n) => n.querySelector('title')?.textContent === 'p_pipe',
+      );
+      expect(pipe).toBeDefined();
+      expect(pipe!.getAttribute('data-instance')).toBeNull();
+    });
+
+    it('tags geometrically-contained nodes with data-instance', () => {
+      const svg = makeDirectComposedSvg();
+      document.body.appendChild(svg);
+      discoverClusters(svg);
+
+      expect(svg.querySelectorAll('g.node[data-instance="PipeProducer"]').length).toBe(2);
+      expect(svg.querySelectorAll('g.node[data-instance="PipeConsumer"]').length).toBe(2);
+    });
+
+    it('collapse hides interior nodes + the interior edge, keeps the boundary edge', async () => {
+      setMockSvgFactory(makeDirectComposedSvg);
+      const handle = await mount('digraph G {}', container);
+      handle.collapse('PipeProducer');
+
+      const hiddenNodes = handle.svg.querySelectorAll(
+        'g.node[data-instance="PipeProducer"].petri-collapsed-inside',
+      );
+      expect(hiddenNodes.length).toBe(2);
+
+      const edges = [...handle.svg.querySelectorAll('g.edge')];
+      const interior = edges.find(
+        (e) => e.querySelector('title')?.textContent === 'p_seed->t_emit',
+      );
+      const boundary = edges.find(
+        (e) => e.querySelector('title')?.textContent === 't_emit->p_pipe',
+      );
+      expect(interior!.classList.contains('petri-collapsed-inside')).toBe(true);
+      expect(boundary!.classList.contains('petri-collapsed-inside')).toBe(false);
+    });
+
+    it('filter keeps a direct-composed interior edge visible', async () => {
+      setMockSvgFactory(makeDirectComposedSvg);
+      const handle = await mount('digraph G {}', container);
+      handle.filter('PipeProducer');
+
+      const interior = [...handle.svg.querySelectorAll('g.edge')].find(
+        (e) => e.querySelector('title')?.textContent === 'p_seed->t_emit',
+      );
+      expect(interior!.classList.contains('petri-dimmed')).toBe(false);
+    });
+  });
 });

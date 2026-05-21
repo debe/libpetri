@@ -294,22 +294,28 @@ This is achieved by having all three doc generators delegate to their language's
 
 **Priority:** SHOULD
 
-DOT export of a net produced by modular composition (per [MOD-020]) SHOULD emit a `subgraph cluster_<sanitizedPrefix>` block for each top-level instance prefix detected in place and transition node names. Membership of the cluster is exactly those nodes whose names begin with `<prefix>/` (the separator established by [MOD-010]). Nested instance prefixes (per [MOD-013]) MUST produce nested cluster subgraphs.
+DOT export of a net produced by modular composition (per [MOD-020]) SHOULD emit a `subgraph cluster_<sanitizedKey>` block grouping each subnet's nodes. The cluster key is drawn from one of two sources, per [MOD-040]:
 
-The sanitization function applied to the prefix MUST match the existing DOT ID sanitization per [EXP-014] (non-`[A-Za-z0-9_]` characters, including `/`, replaced by `_`). The cluster `label` attribute SHOULD carry the original (un-sanitized) prefix string for human readability.
+- **Subnet-membership metadata** ([MOD-026]) carried by a directly-composed net — a node mapped to subnet `S` clusters under `cluster_<sanitize(S)>`; a shared (multi-subnet) place has no entry and stays top-level.
+- **Instance-prefix detection** — a node whose name begins with `<prefix>/` (the separator established by [MOD-010]) clusters under `cluster_<sanitize(prefix)>`. Nested instance prefixes (per [MOD-013]) MUST produce nested cluster subgraphs.
 
-This requirement does NOT alter the styling, junction, or arc rendering rules of EXP-002..EXP-015; it adds grouping structure only. A net with no composed instances (no `/` in any node name) MUST produce no cluster subgraphs.
+When the net carries membership metadata the exporter SHOULD prefer it and fall back to instance-prefix detection for any node without an entry, so direct and instance composition coexist. The cluster source MAY be caller-selectable (metadata-only, prefix-only, or no clustering); the default SHOULD be metadata-when-present.
+
+The sanitization function applied to the key MUST match the existing DOT ID sanitization per [EXP-014] (non-`[A-Za-z0-9_]` characters, including `/`, replaced by `_`). The cluster `label` attribute SHOULD carry the original (un-sanitized) key string for human readability.
+
+This requirement does NOT alter the styling, junction, or arc rendering rules of EXP-002..EXP-015; it adds grouping structure only. A net with neither composed instances nor membership metadata (no `/` in any node name) MUST produce no cluster subgraphs.
 
 **Acceptance Criteria:**
 1. A net composed from two top-level instances with prefixes `b1` and `b2` exports DOT containing `subgraph cluster_b1 { ... }` and `subgraph cluster_b2 { ... }` blocks.
 2. Each cluster block contains exactly the nodes whose names begin with the corresponding prefix.
 3. Nested instances produce nested cluster subgraphs (e.g., `cluster_outer` containing `cluster_outer_inner`).
-4. A net with no `/` in any node name produces no cluster subgraphs.
+4. A net with no `/` in any node name and no membership metadata produces no cluster subgraphs.
 5. Cluster IDs match the regex `cluster_[A-Za-z0-9_]+` and are deterministic across repeated exports.
 6. Java, TypeScript, and Rust mappers produce byte-identical cluster blocks (subject to MOD support in each language) for the same composed input.
+7. A directly-composed net carrying [MOD-026] metadata exports one `subgraph cluster_<subnetName>` block per subnet, with each subnet's private nodes inside and shared places at the top level.
 
-**Depends on:** [EXP-001], [EXP-014], [MOD-010], [MOD-040]
-**Test derivation:** Compose two instances with prefixes `b1` and `b2`; export DOT; assert cluster blocks present, members correct, IDs sanitized. Compose nested instances; assert nested cluster subgraphs.
+**Depends on:** [EXP-001], [EXP-014], [MOD-010], [MOD-026], [MOD-040]
+**Test derivation:** Compose two instances with prefixes `b1` and `b2`; export DOT; assert cluster blocks present, members correct, IDs sanitized. Compose nested instances; assert nested cluster subgraphs. Direct-compose two subnets; assert one `cluster_<subnetName>` block per subnet.
 
 ---
 
