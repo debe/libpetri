@@ -48,12 +48,12 @@ const asyncLinear100 = buildAsyncLinearChain(100);
 const asyncLinear200 = buildAsyncLinearChain(200);
 const asyncLinear500 = buildAsyncLinearChain(500);
 
-const mixedLinear10 = buildMixedLinearChain(10, 2);
-const mixedLinear20 = buildMixedLinearChain(20, 2);
-const mixedLinear50 = buildMixedLinearChain(50, 2);
-const mixedLinear100 = buildMixedLinearChain(100, 2);
-const mixedLinear200 = buildMixedLinearChain(200, 2);
-const mixedLinear500 = buildMixedLinearChain(500, 2);
+const mixedLinear10 = buildMixedLinearChain(10);
+const mixedLinear20 = buildMixedLinearChain(20);
+const mixedLinear50 = buildMixedLinearChain(50);
+const mixedLinear100 = buildMixedLinearChain(100);
+const mixedLinear200 = buildMixedLinearChain(200);
+const mixedLinear500 = buildMixedLinearChain(500);
 
 const parallel5 = buildParallelFanOut(5);
 const parallel10 = buildParallelFanOut(10);
@@ -86,7 +86,7 @@ describe('async linear chain', () => {
 
 // ==================== Mixed Linear Benchmarks ====================
 
-describe('mixed linear chain (2 async)', () => {
+describe('mixed linear chain (~2% sync, rest async)', () => {
   bench('10 transitions', () => runNet(mixedLinear10.net, mixedLinear10.start));
   bench('20 transitions', () => runNet(mixedLinear20.net, mixedLinear20.start));
   bench('50 transitions', () => runNet(mixedLinear50.net, mixedLinear50.start));

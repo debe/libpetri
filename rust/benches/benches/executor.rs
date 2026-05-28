@@ -202,17 +202,21 @@ fn async_linear_chain(c: &mut Criterion) {
     }
 }
 
-fn build_mixed_chain(n: usize, async_count: usize) -> (PetriNet, Place<i32>) {
+/// Builds a chain where ~2% of transitions are synchronous (fast-path
+/// validators / guards) and the rest are async (I/O, network, LLM calls) —
+/// the typical real-world workload shape.
+fn build_mixed_chain(n: usize) -> (PetriNet, Place<i32>) {
+    let sync_count = n / 50;
     let places: Vec<Place<i32>> = (0..=n).map(|i| Place::new(format!("p{i}"))).collect();
     let transitions: Vec<Transition> = (0..n)
         .map(|i| {
             let mut builder = Transition::builder(format!("t{i}"))
                 .input(one(&places[i]))
                 .output(out_place(&places[i + 1]));
-            if i < async_count {
-                builder = builder.action(async_action(|ctx| async { Ok(ctx) }));
-            } else {
+            if i < sync_count {
                 builder = builder.action(fork());
+            } else {
+                builder = builder.action(async_action(|ctx| async { Ok(ctx) }));
             }
             builder.build()
         })
@@ -231,7 +235,7 @@ fn mixed_chain(c: &mut Criterion) {
         .unwrap();
 
     for &n in &[10, 20, 50, 100, 200, 500] {
-        let (net, start) = build_mixed_chain(n, 2);
+        let (net, start) = build_mixed_chain(n);
         c.bench_function(&format!("mixed_chain/{n}"), |b| {
             b.iter(|| {
                 rt.block_on(async {
@@ -529,7 +533,7 @@ fn precompiled_mixed_chain(c: &mut Criterion) {
         .unwrap();
 
     for &n in &[10, 20, 50, 100, 200, 500] {
-        let (net, start) = build_mixed_chain(n, 2);
+        let (net, start) = build_mixed_chain(n);
         let compiled = CompiledNet::compile(&net);
         let prog = PrecompiledNet::from_compiled(compiled);
         c.bench_function(&format!("precompiled_mixed_chain/{n}"), |b| {

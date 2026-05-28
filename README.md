@@ -475,20 +475,20 @@ All transitions dispatch to a virtual thread / microtask / Tokio task.
 | 200 | 738.1 | 410.4 | 1501.7 | 179.1 | 333.8 | 128.1 | **366.3** |
 | 500 | 2332.4 | 717.4 | 4713.4 | 243.5 | 959.4 | 336.2 | **811.1** |
 
-### Mixed Linear Chains (2 async)
+### Mixed Linear Chains (~2% sync, rest async)
 
-Two transitions are async, the rest synchronous — the common real-world pattern.
+The common real-world pattern: most transitions dispatch async work (I/O, LLM calls, network) and a small fraction (~2%) are synchronous fast-paths (in-memory decisions, guard checks, validation). The bench uses `sync_count = n / 50` synchronous transitions, the rest async — N=50 → 1 sync, N=100 → 2 sync, N=500 → 10 sync; chains of N ≤ 20 are 100% async (the 2% formula rounds to zero).
 
-| Transitions | Java Bitmap | Java Precomp. | TS Bitmap | TS Precomp. | Rust Bitmap | Rust Precomp. | **Python (sync cb)** |
+| Transitions | Java Bitmap | Java Precomp. | TS Bitmap | TS Precomp. | Rust Bitmap | Rust Precomp. | **Python (async cb)** |
 |---|---|---|---|---|---|---|---|
-| 10  | 20.5 | 11.2 | 43.9 | 31.0 | 8.3 | 2.3 | **14.1** |
-| 20  | 31.2 | 17.1 | 80.4 | 54.6 | 15.3 | 2.6 | **24.8** |
-| 50  | 60.7 | 29.0 | 175.2 | 78.2 | 39.3 | 3.3 | **55.7** |
-| 100 | 127.5 | 52.8 | 366.8 | 110.3 | 80.4 | 4.6 | **108.2** |
-| 200 | 236.7 | 80.5 | 858.0 | 97.6 | 156.0 | 6.9 | — |
-| 500 | 715.5 | 230.6 | 2640.8 | 146.7 | 336.8 | 14.0 | — |
+| 10  | 39.1 | 37.0 | 65.8 | 47.0 | 7.3 | 2.2 | **164.0** |
+| 20  | 82.3 | 76.4 | 106.4 | 93.9 | 14.1 | 2.5 | **289.2** |
+| 50  | 175.5 | 182.7 | 267.7 | 150.0 | 36.9 | 3.7 | **542.6** |
+| 100 | 353.9 | 311.0 | 580.3 | 150.3 | 74.3 | 5.3 | **1005.3** |
+| 200 | 725.2 | 343.6 | 1382.9 | 165.7 | 140.5 | 8.7 | — |
+| 500 | 1689.9 | 668.0 | 4009.6 | 203.2 | 336.7 | 18.7 | — |
 
-Python's "mixed chain" closest equivalent in the suite is `bench_chain_sync_callback[N]`: every transition runs a Python `def f(ctx): ctx.output(...)`. For a Python `async def` callback per fire, see `bench_chain_async_callback[N]` in [`python/benches/RESULTS_2026-05-27.md`](python/benches/RESULTS_2026-05-27.md) — the centerpiece of the Python perf sprint that landed −78.8% in 2.6.0.
+Python's closest equivalent is `bench_chain_async_callback[N]` — every transition runs a Python `async def f(ctx): ctx.output(...)`, an upper bound for the mostly-async pattern.
 
 ### Parallel Fan-Out
 

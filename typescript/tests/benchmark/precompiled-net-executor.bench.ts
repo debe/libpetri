@@ -64,12 +64,12 @@ const asyncLinear100Prog = PrecompiledNet.compile(asyncLinear100.net);
 const asyncLinear200Prog = PrecompiledNet.compile(asyncLinear200.net);
 const asyncLinear500Prog = PrecompiledNet.compile(asyncLinear500.net);
 
-const mixedLinear10 = buildMixedLinearChain(10, 2);
-const mixedLinear20 = buildMixedLinearChain(20, 2);
-const mixedLinear50 = buildMixedLinearChain(50, 2);
-const mixedLinear100 = buildMixedLinearChain(100, 2);
-const mixedLinear200 = buildMixedLinearChain(200, 2);
-const mixedLinear500 = buildMixedLinearChain(500, 2);
+const mixedLinear10 = buildMixedLinearChain(10);
+const mixedLinear20 = buildMixedLinearChain(20);
+const mixedLinear50 = buildMixedLinearChain(50);
+const mixedLinear100 = buildMixedLinearChain(100);
+const mixedLinear200 = buildMixedLinearChain(200);
+const mixedLinear500 = buildMixedLinearChain(500);
 
 const mixedLinear10Prog = PrecompiledNet.compile(mixedLinear10.net);
 const mixedLinear20Prog = PrecompiledNet.compile(mixedLinear20.net);
@@ -114,7 +114,7 @@ describe('async linear chain', () => {
 
 // ==================== Mixed Linear Benchmarks ====================
 
-describe('mixed linear chain (2 async)', () => {
+describe('mixed linear chain (~2% sync, rest async)', () => {
   bench('10 transitions', () => runNet(mixedLinear10.net, mixedLinear10.start, mixedLinear10Prog));
   bench('20 transitions', () => runNet(mixedLinear20.net, mixedLinear20.start, mixedLinear20Prog));
   bench('50 transitions', () => runNet(mixedLinear50.net, mixedLinear50.start, mixedLinear50Prog));
