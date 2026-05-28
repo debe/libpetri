@@ -8,16 +8,16 @@ use libpetri_core::token::ErasedToken;
 
 use libpetri_event::event_store::EventStore;
 use libpetri_event::net_event::NetEvent;
-use libpetri_event::token_payload::TokenPayload;
 
 use crate::bitmap;
+use crate::executor_core::deadline::{
+    DEADLINE_TOLERANCE_MS, elapsed_ms_since, now_millis,
+};
+use crate::executor_core::event_payload::{token_added_event, token_removed_event};
 use crate::marking::Marking;
 use crate::precompiled_net::{
     CONSUME_ALL, CONSUME_ATLEAST, CONSUME_N, CONSUME_ONE, PrecompiledNet, RESET,
 };
-
-/// Tolerance for deadline enforcement to account for timer jitter.
-const DEADLINE_TOLERANCE_MS: f64 = 5.0;
 
 /// Initial capacity for ring buffer per place.
 const INITIAL_RING_CAPACITY: usize = 4;
@@ -120,31 +120,6 @@ impl<'a, E: EventStore> PrecompiledExecutorBuilder<'a, E> {
 }
 
 impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
-    /// Constructs a [`NetEvent::TokenAdded`] event, attaching the token payload only
-    /// when the event store opts in via [`EventStore::CAPTURES_TOKENS`]. The const gate
-    /// monomorphizes the `Arc::new(token.clone())` away for production
-    /// (`NoopEventStore`) paths.
-    #[inline(always)]
-    fn token_added_event(place: Arc<str>, ts: u64, tok: &ErasedToken) -> NetEvent {
-        if E::CAPTURES_TOKENS {
-            let payload: Arc<dyn TokenPayload> = Arc::new(tok.clone());
-            NetEvent::token_added_with(place, ts, payload)
-        } else {
-            NetEvent::token_added(place, ts)
-        }
-    }
-
-    /// Companion to [`token_added_event`](Self::token_added_event) for `TokenRemoved`.
-    #[inline(always)]
-    fn token_removed_event(place: Arc<str>, ts: u64, tok: &ErasedToken) -> NetEvent {
-        if E::CAPTURES_TOKENS {
-            let payload: Arc<dyn TokenPayload> = Arc::new(tok.clone());
-            NetEvent::token_removed_with(place, ts, payload)
-        } else {
-            NetEvent::token_removed(place, ts)
-        }
-    }
-
     /// Creates a builder for a PrecompiledNetExecutor.
     pub fn builder(
         program: &'a PrecompiledNet,
@@ -779,7 +754,7 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
                     };
                     if let Some(token) = token {
                         if E::ENABLED {
-                            self.event_store.append(Self::token_removed_event(
+                            self.event_store.append(token_removed_event::<E>(
                                 Arc::clone(&place_name_arc),
                                 now_millis(),
                                 &token,
@@ -799,7 +774,7 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
                 let removed = self.ring_remove_all(pid);
                 if E::ENABLED {
                     for tok in &removed {
-                        self.event_store.append(Self::token_removed_event(
+                        self.event_store.append(token_removed_event::<E>(
                             Arc::clone(arc.place.name_arc()),
                             now_millis(),
                             tok,
@@ -823,7 +798,7 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
                         pc += 1;
                         let token = self.ring_remove_first(pid);
                         if E::ENABLED {
-                            self.event_store.append(Self::token_removed_event(
+                            self.event_store.append(token_removed_event::<E>(
                                 Arc::clone(&self.program.place_name_arcs[pid]),
                                 now_millis(),
                                 &token,
@@ -842,7 +817,7 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
                         for _ in 0..count {
                             let token = self.ring_remove_first(pid);
                             if E::ENABLED {
-                                self.event_store.append(Self::token_removed_event(
+                                self.event_store.append(token_removed_event::<E>(
                                     Arc::clone(&self.program.place_name_arcs[pid]),
                                     now_millis(),
                                     &token,
@@ -864,7 +839,7 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
                         for _ in 0..count {
                             let token = self.ring_remove_first(pid);
                             if E::ENABLED {
-                                self.event_store.append(Self::token_removed_event(
+                                self.event_store.append(token_removed_event::<E>(
                                     Arc::clone(&self.program.place_name_arcs[pid]),
                                     now_millis(),
                                     &token,
@@ -883,7 +858,7 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
                         for _ in 0..count {
                             let token = self.ring_remove_first(pid);
                             if E::ENABLED {
-                                self.event_store.append(Self::token_removed_event(
+                                self.event_store.append(token_removed_event::<E>(
                                     Arc::clone(&self.program.place_name_arcs[pid]),
                                     now_millis(),
                                     &token,
@@ -1026,7 +1001,7 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
             // Build the event before `entry.token` moves into the ring buffer;
             // `Option` keeps production (`E::ENABLED = false`) fully elided.
             let event = if E::ENABLED {
-                Some(Self::token_added_event(
+                Some(token_added_event::<E>(
                     Arc::clone(&entry.place_name),
                     now_millis(),
                     &entry.token,
@@ -1084,7 +1059,7 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
     }
 
     fn elapsed_ms(&self) -> f64 {
-        self.start_time.elapsed().as_secs_f64() * 1000.0
+        elapsed_ms_since(self.start_time)
     }
 
     // ==================== Marking Sync ====================
@@ -1232,7 +1207,7 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
                 match signal {
                     ExecutorSignal::Event(event) if !draining => {
                         let captured = if E::ENABLED {
-                            Some(Self::token_added_event(
+                            Some(token_added_event::<E>(
                                 Arc::clone(&event.place_name),
                                 now_millis(),
                                 &event.token,
@@ -1344,7 +1319,7 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
                     match result {
                         Some(ExecutorSignal::Event(event)) if !draining => {
                             let captured = if E::ENABLED {
-                                Some(Self::token_added_event(
+                                Some(token_added_event::<E>(
                                     Arc::clone(&event.place_name),
                                     now_millis(),
                                     &event.token,
@@ -1489,7 +1464,7 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
                 };
                 if let Some(token) = token {
                     if E::ENABLED {
-                        self.event_store.append(Self::token_removed_event(
+                        self.event_store.append(token_removed_event::<E>(
                             Arc::clone(&place_name_arc),
                             now_millis(),
                             &token,
@@ -1521,7 +1496,7 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
             let removed = self.ring_remove_all(pid);
             if E::ENABLED {
                 for tok in &removed {
-                    self.event_store.append(Self::token_removed_event(
+                    self.event_store.append(token_removed_event::<E>(
                         Arc::clone(arc.place.name_arc()),
                         now_millis(),
                         tok,
@@ -1678,13 +1653,6 @@ fn grow_ring_static(
     ring_head[pid] = 0;
     ring_tail[pid] = count;
     ring_capacity[pid] = new_cap;
-}
-
-fn now_millis() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
 }
 
 #[cfg(test)]

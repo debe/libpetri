@@ -65,6 +65,7 @@ pub mod bitmap;
 pub mod compiled_net;
 pub mod environment;
 pub mod executor;
+pub(crate) mod executor_core;
 #[cfg(feature = "tokio")]
 pub mod executor_handle;
 pub mod marking;

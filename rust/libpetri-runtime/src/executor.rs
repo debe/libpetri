@@ -4,20 +4,19 @@ use std::time::Instant;
 
 use libpetri_core::context::{OutputEntry, TransitionContext};
 use libpetri_core::input::In;
-use libpetri_core::output::Out;
 use libpetri_core::petri_net::PetriNet;
 use libpetri_core::token::ErasedToken;
 
 use libpetri_event::event_store::EventStore;
 use libpetri_event::net_event::NetEvent;
-use libpetri_event::token_payload::TokenPayload;
 
 use crate::bitmap;
 use crate::compiled_net::CompiledNet;
+use crate::executor_core::deadline::{
+    DEADLINE_TOLERANCE_MS, elapsed_ms_since, now_millis,
+};
+use crate::executor_core::event_payload::{token_added_event, token_removed_event};
 use crate::marking::Marking;
-
-/// Tolerance for deadline enforcement to account for timer jitter.
-const DEADLINE_TOLERANCE_MS: f64 = 5.0;
 
 /// Bitmap-based executor for Coloured Time Petri Nets.
 ///
@@ -63,31 +62,6 @@ pub struct ExecutorOptions {
 }
 
 impl<E: EventStore> BitmapNetExecutor<E> {
-    /// Constructs a [`NetEvent::TokenAdded`] event, attaching the token payload only
-    /// when the event store opts in via [`EventStore::CAPTURES_TOKENS`]. The const gate
-    /// monomorphizes the `Arc::new(token.clone())` away for production (`NoopEventStore`)
-    /// paths.
-    #[inline(always)]
-    fn token_added_event(place: Arc<str>, ts: u64, tok: &ErasedToken) -> NetEvent {
-        if E::CAPTURES_TOKENS {
-            let payload: Arc<dyn TokenPayload> = Arc::new(tok.clone());
-            NetEvent::token_added_with(place, ts, payload)
-        } else {
-            NetEvent::token_added(place, ts)
-        }
-    }
-
-    /// Companion to [`token_added_event`](Self::token_added_event) for `TokenRemoved`.
-    #[inline(always)]
-    fn token_removed_event(place: Arc<str>, ts: u64, tok: &ErasedToken) -> NetEvent {
-        if E::CAPTURES_TOKENS {
-            let payload: Arc<dyn TokenPayload> = Arc::new(tok.clone());
-            NetEvent::token_removed_with(place, ts, payload)
-        } else {
-            NetEvent::token_removed(place, ts)
-        }
-    }
-
     /// Creates a new executor for the given net with initial tokens.
     pub fn new(net: &PetriNet, initial_tokens: Marking, options: ExecutorOptions) -> Self {
         let compiled = CompiledNet::compile(net);
@@ -487,7 +461,7 @@ impl<E: EventStore> BitmapNetExecutor<E> {
                 };
                 if let Some(token) = token {
                     if E::ENABLED {
-                        self.event_store.append(Self::token_removed_event(
+                        self.event_store.append(token_removed_event::<E>(
                             Arc::clone(&place_name_arc),
                             now_millis(),
                             &token,
@@ -521,7 +495,7 @@ impl<E: EventStore> BitmapNetExecutor<E> {
                 .insert(Arc::clone(arc.place.name_arc()));
             if E::ENABLED {
                 for tok in &removed {
-                    self.event_store.append(Self::token_removed_event(
+                    self.event_store.append(token_removed_event::<E>(
                         Arc::clone(arc.place.name_arc()),
                         now_millis(),
                         tok,
@@ -595,7 +569,7 @@ impl<E: EventStore> BitmapNetExecutor<E> {
             // payload (when captured) can borrow it. `Option` keeps production
             // (`E::ENABLED = false`) fully elided via dead-code analysis.
             let event = if E::ENABLED {
-                Some(Self::token_added_event(
+                Some(token_added_event::<E>(
                     Arc::clone(&entry.place_name),
                     now_millis(),
                     &entry.token,
@@ -646,7 +620,7 @@ impl<E: EventStore> BitmapNetExecutor<E> {
     }
 
     fn elapsed_ms(&self) -> f64 {
-        self.start_time.elapsed().as_secs_f64() * 1000.0
+        elapsed_ms_since(self.start_time)
     }
 }
 
@@ -729,7 +703,7 @@ impl<E: EventStore> BitmapNetExecutor<E> {
                 match signal {
                     ExecutorSignal::Event(event) if !draining => {
                         let captured = if E::ENABLED {
-                            Some(Self::token_added_event(
+                            Some(token_added_event::<E>(
                                 Arc::clone(&event.place_name),
                                 now_millis(),
                                 &event.token,
@@ -843,7 +817,7 @@ impl<E: EventStore> BitmapNetExecutor<E> {
                     match result {
                         Some(ExecutorSignal::Event(event)) if !draining => {
                             let captured = if E::ENABLED {
-                                Some(Self::token_added_event(
+                                Some(token_added_event::<E>(
                                     Arc::clone(&event.place_name),
                                     now_millis(),
                                     &event.token,
@@ -988,7 +962,7 @@ impl<E: EventStore> BitmapNetExecutor<E> {
                 };
                 if let Some(token) = token {
                     if E::ENABLED {
-                        self.event_store.append(Self::token_removed_event(
+                        self.event_store.append(token_removed_event::<E>(
                             Arc::clone(&place_name_arc),
                             now_millis(),
                             &token,
@@ -1022,7 +996,7 @@ impl<E: EventStore> BitmapNetExecutor<E> {
                 .insert(Arc::clone(arc.place.name_arc()));
             if E::ENABLED {
                 for tok in &removed {
-                    self.event_store.append(Self::token_removed_event(
+                    self.event_store.append(token_removed_event::<E>(
                         Arc::clone(arc.place.name_arc()),
                         now_millis(),
                         tok,
@@ -1136,29 +1110,6 @@ impl<E: EventStore> BitmapNetExecutor<E> {
         }
 
         min_wait
-    }
-}
-
-fn now_millis() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
-/// Validates that the produced outputs satisfy the output spec.
-#[allow(dead_code)]
-fn validate_out_spec(out: &Out, produced_places: &HashSet<Arc<str>>) -> bool {
-    match out {
-        Out::Place(p) => produced_places.contains(p.name()),
-        Out::And(children) => children
-            .iter()
-            .all(|c| validate_out_spec(c, produced_places)),
-        Out::Xor(children) => children
-            .iter()
-            .any(|c| validate_out_spec(c, produced_places)),
-        Out::Timeout { child, .. } => validate_out_spec(child, produced_places),
-        Out::ForwardInput { to, .. } => produced_places.contains(to.name()),
     }
 }
 
