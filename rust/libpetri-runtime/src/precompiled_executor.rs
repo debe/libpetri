@@ -29,7 +29,7 @@ const INITIAL_RING_CAPACITY: usize = 4;
 /// for sparse iteration. Generic over `E: EventStore` for zero-cost
 /// noop event recording.
 pub struct PrecompiledNetExecutor<'a, E: EventStore> {
-    program: &'a PrecompiledNet<'a>,
+    program: &'a PrecompiledNet,
     event_store: E,
     #[allow(dead_code)]
     environment_places: HashSet<Arc<str>>,
@@ -81,7 +81,7 @@ pub struct PrecompiledNetExecutor<'a, E: EventStore> {
 
 /// Builder for PrecompiledNetExecutor.
 pub struct PrecompiledExecutorBuilder<'a, E: EventStore> {
-    program: &'a PrecompiledNet<'a>,
+    program: &'a PrecompiledNet,
     initial_marking: Marking,
     event_store: Option<E>,
     environment_places: HashSet<Arc<str>>,
@@ -147,7 +147,7 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
 
     /// Creates a builder for a PrecompiledNetExecutor.
     pub fn builder(
-        program: &'a PrecompiledNet<'a>,
+        program: &'a PrecompiledNet,
         initial_marking: Marking,
     ) -> PrecompiledExecutorBuilder<'a, E> {
         PrecompiledExecutorBuilder {
@@ -160,7 +160,7 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
     }
 
     /// Creates a new executor with default options.
-    pub fn new(program: &'a PrecompiledNet<'a>, initial_marking: Marking) -> Self {
+    pub fn new(program: &'a PrecompiledNet, initial_marking: Marking) -> Self {
         Self::new_inner(
             program,
             initial_marking,
@@ -171,7 +171,7 @@ impl<'a, E: EventStore> PrecompiledNetExecutor<'a, E> {
     }
 
     fn new_inner(
-        program: &'a PrecompiledNet<'a>,
+        program: &'a PrecompiledNet,
         initial_marking: Marking,
         event_store: E,
         environment_places: HashSet<Arc<str>>,
@@ -1724,7 +1724,7 @@ mod tests {
     fn sync_passthrough_chain() {
         let (net, p1, _p2, _p3) = simple_chain();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         let mut marking = Marking::new();
         marking.add(&p1, Token::at(42, 0));
@@ -1752,7 +1752,7 @@ mod tests {
 
         let net = PetriNet::builder("fork").transition(t1).build();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         let mut marking = Marking::new();
         marking.add(&p1, Token::at(42, 0));
@@ -1780,7 +1780,7 @@ mod tests {
 
         let net = PetriNet::builder("chain5").transitions(transitions).build();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         let mut marking = Marking::new();
         marking.add(&places[0], Token::at(1, 0));
@@ -1796,7 +1796,7 @@ mod tests {
     fn sync_no_initial_tokens() {
         let (net, _, _, _) = simple_chain();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
         let marking = Marking::new();
         let mut executor = PrecompiledNetExecutor::<NoopEventStore>::new(&prog, marking);
         let result = executor.run_to_completion();
@@ -1828,7 +1828,7 @@ mod tests {
             .transitions([t_high, t_low])
             .build();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         let mut marking = Marking::new();
         marking.add(&p, Token::at((), 0));
@@ -1854,7 +1854,7 @@ mod tests {
 
         let net = PetriNet::builder("inhibitor").transition(t).build();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         let mut marking = Marking::new();
         marking.add(&p1, Token::at((), 0));
@@ -1885,7 +1885,7 @@ mod tests {
             .build();
         let net = PetriNet::builder("test").transition(t).build();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         let mut marking = Marking::new();
         marking.add(&p_in, Token::at(10, 0));
@@ -1913,7 +1913,7 @@ mod tests {
             .build();
         let net = PetriNet::builder("test").transition(t).build();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         let mut marking = Marking::new();
         marking.add(&p_in, Token::at((), 0));
@@ -1946,7 +1946,7 @@ mod tests {
             .build();
         let net = PetriNet::builder("test").transition(t).build();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         let mut marking = Marking::new();
         for i in 0..5 {
@@ -1976,7 +1976,7 @@ mod tests {
             .build();
         let net = PetriNet::builder("test").transition(t).build();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         let mut marking = Marking::new();
         for i in 0..5 {
@@ -2001,7 +2001,7 @@ mod tests {
             .build();
         let net = PetriNet::builder("test").transition(t).build();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         let mut marking = Marking::new();
         marking.add(&p, Token::at(1, 0));
@@ -2025,7 +2025,7 @@ mod tests {
             .build();
         let net = PetriNet::builder("test").transition(t).build();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         let mut marking = Marking::new();
         for i in 0..5 {
@@ -2050,7 +2050,7 @@ mod tests {
             .build();
         let net = PetriNet::builder("test").transition(t).build();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         let mut marking = Marking::new();
         marking.add(&p, Token::at(3, 0));
@@ -2075,7 +2075,7 @@ mod tests {
             .build();
         let net = PetriNet::builder("test").transition(t).build();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         let mut marking = Marking::new();
         marking.add(&p, Token::at(3, 0));
@@ -2099,7 +2099,7 @@ mod tests {
             .build();
         let net = PetriNet::builder("test").transition(t).build();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         let mut marking = Marking::new();
         marking.add(&p1, Token::at(1, 0));
@@ -2161,7 +2161,7 @@ mod tests {
             .build();
         let net = PetriNet::builder("test").transition(t).build();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         let mut marking = Marking::new();
         marking.add(&p_in, Token::at(42, 0));
@@ -2197,7 +2197,7 @@ mod tests {
             .build();
         let net = PetriNet::builder("test").transition(t).build();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         // Only p1 has token — should not fire
         let mut marking = Marking::new();
@@ -2209,7 +2209,7 @@ mod tests {
 
         // Both p1 and p2 — should fire
         let compiled2 = CompiledNet::compile(&net);
-        let prog2 = PrecompiledNet::from_compiled(&compiled2);
+        let prog2 = PrecompiledNet::from_compiled(compiled2);
         let mut marking2 = Marking::new();
         marking2.add(&p1, Token::at(1, 0));
         marking2.add(&p2, Token::at(2, 0));
@@ -2236,7 +2236,7 @@ mod tests {
             .build();
         let net = PetriNet::builder("test").transition(t).build();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         let mut marking = Marking::new();
         marking.add(&p_in, Token::at(42, 0));
@@ -2266,7 +2266,7 @@ mod tests {
             .build();
         let net = PetriNet::builder("test").transition(t).build();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         let mut marking = Marking::new();
         marking.add(&p_in, Token::at(5, 0));
@@ -2372,7 +2372,7 @@ mod tests {
             .build();
 
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         let mut marking = Marking::new();
         marking.add(&input, Token::at(1, 0));
@@ -2410,7 +2410,7 @@ mod tests {
 
             let net = PetriNet::builder("chain5").transitions(transitions).build();
             let compiled = CompiledNet::compile(&net);
-            let prog = PrecompiledNet::from_compiled(&compiled);
+            let prog = PrecompiledNet::from_compiled(compiled);
 
             let mut marking = Marking::new();
             marking.add(&places[0], Token::at(1, 0));
@@ -2436,7 +2436,7 @@ mod tests {
 
             let net = PetriNet::builder("async_test").transition(t).build();
             let compiled = CompiledNet::compile(&net);
-            let prog = PrecompiledNet::from_compiled(&compiled);
+            let prog = PrecompiledNet::from_compiled(compiled);
 
             let mut marking = Marking::new();
             marking.add(&p1, Token::at(42, 0));
@@ -2463,7 +2463,7 @@ mod tests {
 
             let net = PetriNet::builder("test").transition(t1).build();
             let compiled = CompiledNet::compile(&net);
-            let prog = PrecompiledNet::from_compiled(&compiled);
+            let prog = PrecompiledNet::from_compiled(compiled);
 
             let marking = Marking::new();
             let mut executor = PrecompiledNetExecutor::<NoopEventStore>::builder(&prog, marking)
@@ -2500,7 +2500,7 @@ mod tests {
 
             let net = PetriNet::builder("test").transition(t1).build();
             let compiled = CompiledNet::compile(&net);
-            let prog = PrecompiledNet::from_compiled(&compiled);
+            let prog = PrecompiledNet::from_compiled(compiled);
 
             let marking = Marking::new();
             let mut executor = PrecompiledNetExecutor::<NoopEventStore>::builder(&prog, marking)
@@ -2536,7 +2536,7 @@ mod tests {
 
             let net = PetriNet::builder("test").transition(t1).build();
             let compiled = CompiledNet::compile(&net);
-            let prog = PrecompiledNet::from_compiled(&compiled);
+            let prog = PrecompiledNet::from_compiled(compiled);
 
             let marking = Marking::new();
             let mut executor = PrecompiledNetExecutor::<NoopEventStore>::builder(&prog, marking)
@@ -2575,7 +2575,7 @@ mod tests {
 
             let net = PetriNet::builder("test").transition(t1).build();
             let compiled = CompiledNet::compile(&net);
-            let prog = PrecompiledNet::from_compiled(&compiled);
+            let prog = PrecompiledNet::from_compiled(compiled);
 
             let marking = Marking::new();
             let mut executor = PrecompiledNetExecutor::<NoopEventStore>::builder(&prog, marking)
@@ -2609,7 +2609,7 @@ mod tests {
 
             let net = PetriNet::builder("test").transition(t1).build();
             let compiled = CompiledNet::compile(&net);
-            let prog = PrecompiledNet::from_compiled(&compiled);
+            let prog = PrecompiledNet::from_compiled(compiled);
 
             let marking = Marking::new();
             let mut executor = PrecompiledNetExecutor::<NoopEventStore>::builder(&prog, marking)

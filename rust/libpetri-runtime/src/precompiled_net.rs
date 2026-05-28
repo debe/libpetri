@@ -35,9 +35,13 @@ pub enum SparseMask {
 ///
 /// Compiles the net topology into flat arrays and operation sequences that eliminate
 /// HashMap lookups and enum pattern matching from the hot path.
+///
+/// Owns its `CompiledNet` via `Arc`. This makes the precompiled program a `'static`-safe
+/// value that can be cached across runs (notably by [`super::owned_precompiled::OwnedPrecompiledNet`]
+/// and the Python bindings), without needing self-referential storage.
 #[derive(Debug)]
-pub struct PrecompiledNet<'c> {
-    compiled: &'c CompiledNet,
+pub struct PrecompiledNet {
+    compiled: Arc<CompiledNet>,
 
     /// Consume/reset opcodes per transition.
     pub(crate) consume_ops: Vec<Vec<u32>>,
@@ -82,9 +86,17 @@ pub struct PrecompiledNet<'c> {
     pub(crate) output_place_name_sets: Vec<HashSet<Arc<str>>>,
 }
 
-impl<'c> PrecompiledNet<'c> {
-    /// Compiles using an existing CompiledNet to reuse its masks and indices.
-    pub fn from_compiled(compiled: &'c CompiledNet) -> Self {
+impl PrecompiledNet {
+    /// Builds a precompiled program from an owned [`CompiledNet`], moving it
+    /// into a fresh `Arc` without cloning. Use [`PrecompiledNet::from_arc`]
+    /// when the caller already holds the compiled net in an `Arc`.
+    pub fn from_compiled(compiled: CompiledNet) -> Self {
+        Self::from_arc(Arc::new(compiled))
+    }
+
+    /// Compiles using a shared `Arc<CompiledNet>`. Zero-clone path used by
+    /// [`super::owned_precompiled::OwnedPrecompiledNet`].
+    pub fn from_arc(compiled: Arc<CompiledNet>) -> Self {
         let tc = compiled.transition_count;
         let wc = compiled.word_count;
 
@@ -106,9 +118,9 @@ impl<'c> PrecompiledNet<'c> {
 
         for tid in 0..tc {
             let t = compiled.transition(tid);
-            consume_ops.push(compile_consume_ops(t, compiled));
-            read_ops.push(compile_read_ops(t, compiled));
-            input_place_mask_words.push(compile_input_mask(t, compiled, wc));
+            consume_ops.push(compile_consume_ops(t, &compiled));
+            read_ops.push(compile_read_ops(t, &compiled));
+            input_place_mask_words.push(compile_input_mask(t, &compiled, wc));
 
             input_place_count.push(t.input_specs().len() + t.reads().len());
 
@@ -210,8 +222,14 @@ impl<'c> PrecompiledNet<'c> {
     // ==================== Accessors ====================
 
     /// Returns the underlying CompiledNet.
-    pub fn compiled(&self) -> &'c CompiledNet {
-        self.compiled
+    pub fn compiled(&self) -> &CompiledNet {
+        &self.compiled
+    }
+
+    /// Returns a clone of the shared `Arc<CompiledNet>` for callers that need
+    /// to share the compiled net independently of this `PrecompiledNet`.
+    pub fn compiled_arc(&self) -> Arc<CompiledNet> {
+        Arc::clone(&self.compiled)
     }
 
     /// Returns the underlying PetriNet.
@@ -404,7 +422,7 @@ mod tests {
     fn compile_basic() {
         let net = simple_chain_net();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         assert_eq!(prog.place_count(), 3);
         assert_eq!(prog.transition_count(), 2);
@@ -417,7 +435,7 @@ mod tests {
     fn sparse_enablement() {
         let net = simple_chain_net();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         let mut snapshot = vec![0u64; prog.word_count()];
 
@@ -442,7 +460,7 @@ mod tests {
     fn consume_ops_compiled() {
         let net = simple_chain_net();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         // t1: CONSUME_ONE pid(p1)
         assert_eq!(prog.consume_ops[0].len(), 2);
@@ -469,7 +487,7 @@ mod tests {
             .transitions([t_high, t_low])
             .build();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         assert_eq!(prog.distinct_priority_count, 2);
         assert!(!prog.all_same_priority);
@@ -491,7 +509,7 @@ mod tests {
 
         let net = PetriNet::builder("test").transition(t).build();
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
 
         let mut snapshot = vec![0u64; prog.word_count()];
         let p1_id = prog.place_id("p1").unwrap();

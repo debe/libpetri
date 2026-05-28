@@ -4,6 +4,7 @@
 [![Maven Central](https://img.shields.io/maven-central/v/org.libpetri/libpetri)](https://central.sonatype.com/artifact/org.libpetri/libpetri)
 [![npm](https://img.shields.io/npm/v/libpetri)](https://www.npmjs.com/package/libpetri)
 [![crates.io](https://img.shields.io/crates/v/libpetri)](https://crates.io/crates/libpetri)
+[![PyPI](https://img.shields.io/pypi/v/libpetri)](https://pypi.org/project/libpetri/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 **A modern Coloured Time Petri Net runtime with first-class composability.**
@@ -15,6 +16,7 @@ Write small, reusable subnets with typed interfaces. Compose them into systems t
 | [**libpetri-java**](java/) | Java 25 | Virtual threads | Production |
 | [**libpetri-ts**](typescript/) | TypeScript 5.7 | Promises / event loop | Production |
 | [**libpetri-rust**](rust/) | Rust 2024 | Tokio async tasks | Production |
+| [**libpetri-py**](python/) | Python ≥3.11 | Tokio async via PyO3 | Beta |
 
 > See [`spec/`](spec/) for the language-agnostic contract all implementations follow.
 
@@ -26,7 +28,7 @@ Write small, reusable subnets with typed interfaces. Compose them into systems t
 
 - **Composable like a module system** — Define small subnets with typed interfaces (ports + channels), instantiate them with prefix-scoped state, and compose them by structural rewrite into a flat production net. `FusionSet` for shared cross-instance state, per-instance action overrides. Same five abstractions across Java, TypeScript, and Rust.
 - **Executable, not a simulator** — Production runtime where Petri nets *are* the program. Typed tokens carry data, transitions are instructions, timing constraints are deadlines, and the executor is a scheduler. Suitable for agent orchestration, workflow automation, protocol modeling, game logic, UI state machines, and anything with concurrency.
-- **Three implementations, one spec** — Java 25, TypeScript 5.7, and Rust 2024 share [183 language-agnostic requirements](spec/00-index.md) covering every arc type, timing variant, execution phase, and the modular composition surface. Same behavior, verified independently.
+- **Four implementations, one spec** — Java 25, TypeScript 5.7, Rust 2024, and Python ≥3.11 (PyO3 bindings on the Rust runtime) share [183 language-agnostic requirements](spec/00-index.md) covering every arc type, timing variant, execution phase, and the modular composition surface. Same behavior, verified independently in three of four (Python rides on Rust).
 - **Turing-complete** — Coloured Petri Nets with inhibitor arcs can simulate any Turing machine. libpetri's nets can model arbitrary computation, not just finite-state workflows.
 
 ---
@@ -168,51 +170,75 @@ executor.run_async(rx).await;
 cd rust && cargo test
 ```
 
+### Python
+
+```python
+import libpetri as lp
+
+request  = lp.Place("Request")
+response = lp.Place("Response")
+
+def process(ctx: lp.TransitionContext) -> None:
+    req = ctx.input("Request")
+    ctx.output("Response", f"Processed: {req}")
+
+net = (
+    lp.Net("Example")
+    .transition(
+        lp.Transition("Process")
+        .input(lp.one(request))
+        .output(lp.out(response))
+        .timing(lp.deadline(5000))
+        .action(process)
+        .build()
+    )
+    .build()
+)
+
+result = lp.run_sync(net, initial={request: ["hello"]})
+print(result.first(response))  # → "Processed: hello"
+```
+
+```bash
+pip install libpetri              # from PyPI
+# or, from the repo:
+cd python && pip install -e ".[dev]" && pytest
+```
+
+Tokens are untyped `Py<PyAny>` across the FFI — net structure is type-checked,
+runtime token types are not. See [`python/README.md`](python/README.md) for the
+typing-relaxation note.
+
 ---
 
 ## Modular Composition
 
-Build large Petri nets the way you build large programs: out of small, reusable, parameterised pieces. A `SubnetDef` is the unit of reuse — a `PetriNet` body paired with a typed `Interface` of named **ports** (boundary places) and **channels** (boundary transitions for synchronous fusion). `def.instantiate("p1", params)` returns an `Instance` whose internal names are scoped to `p1/…`, so multiple instances of the same definition retain isolated state. `PetriNet.builder().compose(...)` weaves an instance into a host net by structural rewrite; the result is a flat `PetriNet` indistinguishable from a hand-written one.
+Build large Petri nets the way you build large programs: out of small, reusable, parameterised pieces. A `SubnetDef` is a `PetriNet` body paired with a typed `Interface` of named **ports** (boundary places) and **channels** (boundary transitions for synchronous fusion). `def.instantiate("p1", params)` returns an `Instance` whose internal names are scoped to `p1/…`. `PetriNet.builder().compose(...)` weaves an instance into a host net by structural rewrite; the result is a flat `PetriNet` indistinguishable from a hand-written one.
 
 ```java
-// A reusable producer: one internal place, one transition, exposes an output port.
-var out = Place.of("out", Integer.class);
-var produce = Transition.builder("produce")
-    .outputs(Out.place(out)).build();
-var producer = SubnetDef.builder("Producer")
-    .place(out).transition(produce)
-    .outputPort("output", out)
-    .build();
-
-// A bounded buffer: typed parameter (capacity), two ports, one sync channel.
+// A reusable bounded buffer: one input port, one output port, one sync channel.
 var items = Place.of("items", Integer.class);
 var slots = Place.of("slots", Integer.class);
-var enqueue = Transition.builder("enqueue")
-    .inputs(In.one(slots)).outputs(Out.place(items)).build();
-var dequeue = Transition.builder("dequeue")
-    .inputs(In.one(items)).outputs(Out.place(slots)).build();
 var buffer = SubnetDef.builder("Buffer", Integer.class)
     .place(items).place(slots)
-    .transition(enqueue).transition(dequeue)
+    .transition(Transition.builder("enqueue")
+        .inputs(In.one(slots)).outputs(Out.place(items)).build())
     .inputPort("put", slots).outputPort("get", items)
-    .channel("backpressure", enqueue)
+    .channel("backpressure", /* boundary transition */)
     .build();
 
-// Instantiate and compose into a host net.
-var p = producer.instantiate("p1");
-var b = buffer.instantiate("b1", 4);
+// Instantiate and compose into a host pipeline.
 var wire = Place.of("wire", Integer.class);
-
 var system = PetriNet.builder("Pipeline")
-    .compose(p, bindings -> bindings.bindPort("output", wire))
-    .compose(b, bindings -> bindings.bindPort("put", wire))
-    .fuse(FusionSet.of("limiter", b.port("slots", Integer.class)))
+    .compose(producer.instantiate("p1"), b -> b.bindPort("output", wire))
+    .compose(buffer.instantiate("b1", 4), b -> b.bindPort("put", wire))
+    .fuse(FusionSet.of("limiter", /* shared slots */))
     .build();
 ```
 
-Instance renaming runs at `instantiate(...)`; every internal place and transition becomes `prefix/name`. Port bindings rewrite arcs so the port place merges into the caller's place. Channel bindings merge the boundary transition with a caller-side transition: arc union, timing intersection, caller-wins priority, sequential actions. `FusionSet` is orthogonal to compose — declare N places of the same token type as equivalent and substitution to a canonical place runs after all `compose(...)` calls (ideal for shared cross-instance state like a global rate limiter). Per-instance action overrides via `instance.bindActions(map)`; un-named transitions keep the SubnetDef's default action.
+Instance renaming runs at `instantiate(...)`; every internal place / transition becomes `prefix/name`. Port bindings rewrite arcs so the port place merges into the caller's place. Channel bindings merge the boundary transition with a caller-side transition (arc union, timing intersection, caller-wins priority, sequential actions). `FusionSet` is orthogonal to compose — declare N places of the same token type as equivalent for shared cross-instance state (e.g. a global rate limiter). Per-instance action overrides via `instance.bindActions(map)`.
 
-TypeScript and Rust expose the same five abstractions — `SubnetDef`, `Instance`, `Interface`, `FusionSet`, and `compose()` on the builder — with idiomatic syntax in each language. Composed nets render with one `subgraph cluster_*` per instance prefix on DOT export (EXP-016). The debug protocol carries `SubnetInstance` descriptors on subscribed/place/transition messages, and `SubnetDef.verify(harness)` runs SMT properties against a subnet in isolation by wrapping it in a synthetic enclosing net.
+TypeScript, Rust, and Python expose the same five abstractions — `SubnetDef`, `Instance`, `Interface`, `FusionSet`, `compose()` on the builder. Composed nets render one `subgraph cluster_*` per instance prefix on DOT export (EXP-016); the debug protocol carries `SubnetInstance` descriptors; `SubnetDef.verify(harness)` runs SMT properties against a subnet in isolation.
 
 See [`spec/11-modular-composition.md`](spec/11-modular-composition.md) for the full 22-requirement contract (MOD-001..061).
 
@@ -220,13 +246,14 @@ See [`spec/11-modular-composition.md`](spec/11-modular-composition.md) for the f
 
 ## Showcase: Debug UI — A Petri Net That Debugs Petri Nets
 
-The libpetri debug UI is itself a Coloured Time Petri Net — 55 transitions, 53 places (including 31 environment places). The entire UI lifecycle (WebSocket connection, session management, message dispatch, diagram rendering, replay playback, live debugging, breakpoints, search, session archives) is modeled and executed as a CTPN.
+The libpetri debug UI is itself a Coloured Time Petri Net — 55 transitions, 53 places (including 31 environment places) across 13 subnets. The entire UI lifecycle (WebSocket connection, session management, message dispatch, diagram rendering, replay playback, live debugging, breakpoints, search, session archives) is modeled and executed as a CTPN.
 
 <p align="center">
   <img src="docs/showcase-debug-ui.svg" alt="Debug UI — A Petri Net That Debugs Petri Nets" width="800">
 </p>
 
-**Subnet breakdown:**
+<details>
+<summary><strong>Subnet breakdown + patterns at work</strong></summary>
 
 | Subnet | Transitions | Pattern |
 |---|---|---|
@@ -235,7 +262,7 @@ The libpetri debug UI is itself a Coloured Time Petri Net — 55 transitions, 53
 | **Message Dispatch** | 12 | Guard predicates on input arcs filter WebSocket messages by type |
 | **Diagram** | 1 | Async DOT→SVG rendering via Graphviz WASM |
 | **UI Fan-Out** | 4 | Single `stateDirty` token AND-forks to 3 parallel updates (highlighting, event-log, marking) |
-| **Replay Playback** | 10 | Play/pause/auto-step/step-fwd/step-back/seek/restart/run-to-end/breakpoint-pause/breakpoint-resume with checkpoint-based random access |
+| **Replay Playback** | 10 | Play/pause/auto-step/step-fwd/step-back/seek/restart/run-to-end/breakpoint-pause/breakpoint-resume |
 | **Live Mode** | 4 | Pause/resume/step-forward/step-back via WebSocket commands |
 | **Inspector** | 1 | Place click → token inspection |
 | **Modal** | 2 | Open/close with mutual exclusion (modalClosed ↔ modalOpen) |
@@ -244,68 +271,7 @@ The libpetri debug UI is itself a Coloured Time Petri Net — 55 transitions, 53
 | **Speed** | 1 | Playback speed adjustment |
 | **Archives** | 6 | Browse/list/import/upload archives, net-name filtering |
 
-**Patterns at work:**
-
-- **Environment places** — WebSocket open/close/message events, DOM user interactions (clicks, slider, form submissions), and `requestAnimationFrame` ticks are injected as external events
-- **Dirty-flag fan-out** — A single `stateDirty` token AND-forks into three independent UI update channels, each gated by a `rafTick` environment place for frame-rate throttling
-- **Resource places** — `uiState`, `breakpoints`, `filterState`, `searchState` are consumed and re-produced by their transitions, ensuring mutual exclusion on state updates
-- **Timing** — `delayed(2000)` for reconnect backoff; all other transitions are `immediate()`
-- **Guard predicates** — Message dispatch transitions use typed guards (`msg.type === 'event'`, etc.) on the `wsMessage` environment place to route messages to the correct handler
-
-<details>
-<summary><strong>TypeScript code (from debug-ui/src/net/definition.ts)</strong></summary>
-
-```typescript
-// Connection transitions
-const t_connect = Transition.builder('t_connect')
-  .inputs(one(idle))
-  .outputs(outPlace(connecting))
-  .timing(immediate())
-  .action(async (ctx) => { /* createWebSocket, setConnecting */ })
-  .build();
-
-const t_on_open = Transition.builder('t_on_open')
-  .inputs(one(connecting), one(wsOpenSignal.place))
-  .outputs(outPlace(connected))
-  .timing(immediate())
-  .action(async (ctx) => { /* setConnected, refreshSessions */ })
-  .build();
-
-const t_reconnect = Transition.builder('t_reconnect')
-  .inputs(one(waitReconnect))
-  .outputs(outPlace(idle))
-  .timing(delayed(2000))  // 2s backoff
-  .action(async (ctx) => { ctx.output(idle, undefined); })
-  .build();
-
-// Message dispatch with guard predicates
-const t_on_event = Transition.builder('t_on_event')
-  .inputs(one(uiState), one(wsMessage.place, (msg) => msg.type === 'event'))
-  .outputs(and(outPlace(uiState), outPlace(stateDirty)))
-  .timing(immediate())
-  .action(async (ctx) => { /* applyEventToState, updateTimeline */ })
-  .build();
-
-// UI fan-out: stateDirty → 3 parallel updates
-const t_fan_out_dirty = Transition.builder('t_fan_out_dirty')
-  .inputs(one(stateDirty))
-  .outputs(and(outPlace(highlightDirty), outPlace(logDirty), outPlace(markingDirty)))
-  .timing(immediate())
-  .build();
-
-// Frame-rate gated UI updates
-const t_update_highlighting = Transition.builder('t_update_highlighting')
-  .inputs(one(highlightDirty), one(rafTick.place))
-  .reads(svgReady, uiState)
-  .timing(immediate())
-  .action(async (ctx) => { /* updateDiagramHighlighting */ })
-  .build();
-
-// ... 55 transitions total
-const net = PetriNet.builder('DebugUI')
-  .transitions(t_connect, t_on_open, /* ... */)
-  .build();
-```
+Patterns: **environment places** for WebSocket / DOM / RAF events; **dirty-flag fan-out** where one `stateDirty` token AND-forks into three RAF-gated UI updates; **resource places** for `uiState` / `breakpoints` / `filterState` enforcing single-writer semantics; **`delayed(2000)`** for reconnect backoff; **guard predicates** on `wsMessage` for type-based dispatch. Full source: [`debug-ui/src/net/definition.ts`](debug-ui/src/net/definition.ts).
 
 </details>
 
@@ -313,28 +279,29 @@ const net = PetriNet.builder('DebugUI')
 
 ## Example: Java 25 Parser — Pushing Petri Nets to the Limit
 
-The [`examples/java-parser/`](examples/java-parser/) module implements a **complete Java 25 parser as a Coloured Time Petri Net** — 167 grammar productions compiled into 2,335 places and 2,326 transitions. This is a stress test demonstrating that Petri net execution overhead is acceptable even under extreme workloads, not a competitor to javac's hand-tuned recursive descent parser.
-
-**Grammar fragment** — 3 productions compiled to a 33-place, 31-transition net, showing the hierarchical structure of compiled grammar rules:
-
-<p align="center">
-  <img src="docs/example-parser-grammar-fragment.svg" alt="Grammar fragment — 3 productions compiled to a Petri net" width="800">
-</p>
-
-**Full parser net** — all 167 productions, 2,335 places, 2,326 transitions:
+The [`examples/java-parser/`](examples/java-parser/) module implements a **complete Java 25 parser as a Coloured Time Petri Net** — 167 grammar productions compiled into 2,335 places and 2,326 transitions. A stress test demonstrating CTPN execution overhead is acceptable even under extreme workloads; not a competitor to javac.
 
 <p align="center">
   <img src="docs/example-java-parser.svg" alt="Full Java 25 parser — 2,335 places, 2,326 transitions" width="800">
 </p>
 
-**How it works:**
+**Self-parse results:** parses all 85 libpetri core Java source files (17,395 lines) in ~500ms (~34,000 lines/sec) using the `PrecompiledNetExecutor`.
+
+<details>
+<summary><strong>How it works (grammar fragment image + design notes)</strong></summary>
+
+A grammar fragment — 3 productions compiled to a 33-place, 31-transition net showing the hierarchical structure:
+
+<p align="center">
+  <img src="docs/example-parser-grammar-fragment.svg" alt="Grammar fragment — 3 productions compiled to a Petri net" width="800">
+</p>
 
 - **Coloured tokens** — A single `ParseState` token carries position, call stack, and AST through the net. No global mutable state.
-- **Grammar-to-net compilation** — Each grammar element (terminal, sequence, choice, repetition, optional, non-terminal call/return) maps to a specific net pattern. The compiler produces a `PetriNet` from an EBNF-like `Grammar` definition.
+- **Grammar-to-net compilation** — Each grammar element (terminal, sequence, choice, repetition, optional, non-terminal call/return) maps to a specific net pattern.
 - **Structural sharing** — Non-terminal calls push a return-site ID onto the token's call stack; a shared return-dispatch transition routes the token back to the correct call site via XOR guards.
-- **PrecompiledNetExecutor** — The flat-array executor with `skipOutputValidation` handles the 2,300+ transitions efficiently. Standard `BitmapNetExecutor` works too, but the precompiled path is faster at this scale.
+- **PrecompiledNetExecutor + `skipOutputValidation`** — the flat-array executor handles the 2,300+ transitions efficiently.
 
-**Self-parse results:** Parses all 85 libpetri core Java source files (17,395 lines) in ~500ms (~34,000 lines/sec). The overhead is measurable compared to javac, but the fact that a general-purpose Petri net runtime can parse a full programming language at all — and do so correctly across 85 real-world files — proves CTPN execution scales far beyond typical workflow orchestration.
+</details>
 
 ---
 
@@ -343,25 +310,25 @@ The [`examples/java-parser/`](examples/java-parser/) module implements a **compl
 <details>
 <summary><strong>Arc types</strong></summary>
 
-| Arc | Semantics | Java | TypeScript | Rust |
-|---|---|---|---|---|
-| **Input** | Consume token(s) from place | `In.one(p)` | `one(p)` | `one(&p)` |
-| **Output** | Deposit token into place | `Out.place(p)` | `outPlace(p)` | `out_place(&p)` |
-| **Inhibitor** | Block when place has tokens | `.inhibitor(p)` | `.inhibitor(p)` | `.inhibitor(inhibitor(&p))` |
-| **Read** | Test without consuming | `.read(p)` | `.read(p)` | `.read(read(&p))` |
-| **Reset** | Clear all tokens from place | `.reset(p)` | `.reset(p)` | `.reset(reset(&p))` |
+| Arc | Semantics | Java | TypeScript | Rust | Python |
+|---|---|---|---|---|---|
+| **Input** | Consume token(s) from place | `In.one(p)` | `one(p)` | `one(&p)` | `lp.one(p)` |
+| **Output** | Deposit token into place | `Out.place(p)` | `outPlace(p)` | `out_place(&p)` | `lp.out(p)` |
+| **Inhibitor** | Block when place has tokens | `.inhibitor(p)` | `.inhibitor(p)` | `.inhibitor(inhibitor(&p))` | `.inhibitor(lp.inhibitor(p))` |
+| **Read** | Test without consuming | `.read(p)` | `.read(p)` | `.read(read(&p))` | `.read(lp.read(p))` |
+| **Reset** | Clear all tokens from place | `.reset(p)` | `.reset(p)` | `.reset(reset(&p))` | `.reset(lp.reset(p))` |
 
 </details>
 
 <details>
 <summary><strong>Input cardinality</strong></summary>
 
-| Cardinality | Semantics | Java | TypeScript | Rust |
-|---|---|---|---|---|
-| **One** | Consume exactly 1 token | `In.one(p)` | `one(p)` | `one(&p)` |
-| **Exactly(n)** | Consume exactly n tokens | `In.exactly(n, p)` | `exactly(n, p)` | `exactly(n, &p)` |
-| **All** | Drain all tokens (at least 1) | `In.all(p)` | `all(p)` | `all(&p)` |
-| **AtLeast(n)** | Consume all, require >= n | `In.atLeast(n, p)` | `atLeast(n, p)` | `at_least(n, &p)` |
+| Cardinality | Semantics | Java | TypeScript | Rust | Python |
+|---|---|---|---|---|---|
+| **One** | Consume exactly 1 token | `In.one(p)` | `one(p)` | `one(&p)` | `lp.one(p)` |
+| **Exactly(n)** | Consume exactly n tokens | `In.exactly(n, p)` | `exactly(n, p)` | `exactly(n, &p)` | `lp.exactly(n, p)` |
+| **All** | Drain all tokens (at least 1) | `In.all(p)` | `all(p)` | `all(&p)` | `lp.all_tokens(p)` |
+| **AtLeast(n)** | Consume all, require >= n | `In.atLeast(n, p)` | `atLeast(n, p)` | `at_least(n, &p)` | `lp.at_least(n, p)` |
 
 All input specs support optional guard predicates to filter tokens.
 
@@ -370,26 +337,26 @@ All input specs support optional guard predicates to filter tokens.
 <details>
 <summary><strong>Output routing</strong></summary>
 
-| Routing | Semantics | Java | TypeScript | Rust |
-|---|---|---|---|---|
-| **Place** | Deposit to a single place | `Out.place(p)` | `outPlace(p)` | `out_place(&p)` |
-| **And** | Fork to all children | `Out.and(p1, p2)` | `and(outPlace(p1), outPlace(p2))` | `and(vec![out_place(&p1), out_place(&p2)])` |
-| **Xor** | Route to exactly one child | `Out.xor(p1, p2)` | `xor(outPlace(p1), outPlace(p2))` | `xor(vec![out_place(&p1), out_place(&p2)])` |
-| **Timeout** | Fallback output after delay | `Out.timeout(Duration, p)` | `timeout(ms, outPlace(p))` | `timeout(ms, out_place(&p))` |
-| **ForwardInput** | Pass consumed token through | `Out.forwardInput(from, to)` | `forwardInput(from, to)` | `forward_input(&from, &to)` |
+| Routing | Semantics | Java | TypeScript | Rust | Python |
+|---|---|---|---|---|---|
+| **Place** | Deposit to a single place | `Out.place(p)` | `outPlace(p)` | `out_place(&p)` | `lp.out(p)` |
+| **And** | Fork to all children | `Out.and(p1, p2)` | `and(outPlace(p1), outPlace(p2))` | `and(vec![out_place(&p1), out_place(&p2)])` | `lp.and_(lp.out(p1), lp.out(p2))` |
+| **Xor** | Route to exactly one child | `Out.xor(p1, p2)` | `xor(outPlace(p1), outPlace(p2))` | `xor(vec![out_place(&p1), out_place(&p2)])` | `lp.xor(lp.out(p1), lp.out(p2))` |
+| **Timeout** | Fallback output after delay | `Out.timeout(Duration, p)` | `timeout(ms, outPlace(p))` | `timeout(ms, out_place(&p))` | `lp.timeout(ms, lp.out(p))` |
+| **ForwardInput** | Pass consumed token through | `Out.forwardInput(from, to)` | `forwardInput(from, to)` | `forward_input(&from, &to)` | `lp.forward_input(from, to)` |
 
 </details>
 
 <details>
 <summary><strong>Timing variants</strong></summary>
 
-| Variant | Interval | Behavior | Java | TypeScript | Rust |
-|---|---|---|---|---|---|
-| **Immediate** | [0, inf) | Fire as soon as enabled, no deadline | `Timing.immediate()` | `immediate()` | `immediate()` |
-| **Deadline** | [0, d] | Fire anytime before deadline | `Timing.deadline(Duration)` | `deadline(ms)` | `deadline(ms)` |
-| **Delayed** | [d, +inf) | Wait at least d, then fire | `Timing.delayed(Duration)` | `delayed(ms)` | `delayed(ms)` |
-| **Window** | [a, b] | Fire between a and b | `Timing.window(Duration, Duration)` | `window(a, b)` | `window(a, b)` |
-| **Exact** | [t, t] | Fire at precisely t | `Timing.exact(Duration)` | `exact(ms)` | `exact(ms)` |
+| Variant | Interval | Behavior | Java | TypeScript | Rust | Python |
+|---|---|---|---|---|---|---|
+| **Immediate** | [0, inf) | Fire as soon as enabled, no deadline | `Timing.immediate()` | `immediate()` | `immediate()` | `lp.immediate()` |
+| **Deadline** | [0, d] | Fire anytime before deadline | `Timing.deadline(Duration)` | `deadline(ms)` | `deadline(ms)` | `lp.deadline(ms)` |
+| **Delayed** | [d, +inf) | Wait at least d, then fire | `Timing.delayed(Duration)` | `delayed(ms)` | `delayed(ms)` | `lp.delayed(ms)` |
+| **Window** | [a, b] | Fire between a and b | `Timing.window(Duration, Duration)` | `window(a, b)` | `window(a, b)` | `lp.window(a, b)` |
+| **Exact** | [t, t] | Fire at precisely t | `Timing.exact(Duration)` | `exact(ms)` | `exact(ms)` | `lp.exact(ms)` |
 
 Transitions are force-disabled past their deadline (urgent semantics).
 
@@ -399,7 +366,7 @@ Transitions are force-disabled past their deadline (urgent semantics).
 
 ## Formal Verification
 
-All three implementations include structural verification (P-invariants, siphon/trap analysis, state class graphs). Java and TypeScript additionally support SMT-based verification via Z3 using the IC3/PDR algorithm. Rust has Z3 SMT feature-gated but not yet wired.
+All implementations include structural verification (P-invariants, siphon/trap analysis, state class graphs). Java, TypeScript, and Python (when the wheel ships with Z3 available) support SMT-based verification via Z3 using the IC3/PDR algorithm; Rust has Z3 feature-gated but not yet wired.
 
 | Property | Description |
 |---|---|
@@ -408,17 +375,10 @@ All three implementations include structural verification (P-invariants, siphon/
 | **Place bound** | A place never exceeds *k* tokens |
 | **Unreachability** | A set of places never all hold tokens simultaneously |
 
-**Pipeline:** structural siphon/trap analysis → P-invariant computation (Farkas) → XOR branch analysis → SMT encoding → IC3/PDR solving
-
-### Java
-
-Prove that a circular token-passing net is deadlock-free — proven structurally via Commoner's theorem without invoking the SMT solver:
+**Pipeline:** structural siphon/trap analysis → P-invariant computation (Farkas) → XOR branch analysis → SMT encoding → IC3/PDR solving. Many small nets are proven *structurally* (Commoner's theorem) without invoking the SMT solver at all.
 
 ```java
-import org.libpetri.core.*;
-import org.libpetri.smt.*;
-import java.time.Duration;
-
+// Java — same API shape exists in TypeScript and Python (lp.verify, lp.deadlock_free, ...).
 var pA = Place.of("A", Void.class);
 var pB = Place.of("B", Void.class);
 
@@ -435,32 +395,6 @@ var result = SmtVerifier.forNet(net)
     .verify();
 
 System.out.println(result.verdict());  // Proven[method=structural, ...]
-```
-
-### TypeScript
-
-Prove that a circular token-passing net is deadlock-free — proven structurally via Commoner's theorem without invoking the SMT solver:
-
-```typescript
-import { SmtVerifier, deadlockFree } from 'libpetri/verification';
-
-const pA = place('A');
-const pB = place('B');
-const net = PetriNet.builder('TokenRing')
-  .transitions(
-    Transition.builder('AtoB').inputs(one(pA)).outputs(outPlace(pB)).build(),
-    Transition.builder('BtoA').inputs(one(pB)).outputs(outPlace(pA)).build(),
-  )
-  .build();
-
-const result = await SmtVerifier.forNet(net)
-  .initialMarking(m => m.tokens(pA, 1))
-  .property(deadlockFree())
-  .timeout(30_000)
-  .verify();
-
-console.log(result.verdict.type);   // 'proven'
-console.log(result.verdict.method); // 'structural' (Commoner's theorem)
 ```
 
 ---
@@ -480,183 +414,131 @@ The executor runs a single-threaded orchestration loop with six phases per cycle
 
 ### Module Structure
 
-| Module | Java | TypeScript | Rust |
-|---|---|---|---|
-| Core model | `org.libpetri.core` | `libpetri` (core exports) | `libpetri-core` |
-| Runtime | `org.libpetri.runtime` | `libpetri` (runtime exports) | `libpetri-runtime` |
-| Events | `org.libpetri.event` | `libpetri` (event exports) | `libpetri-event` |
-| Verification | `org.libpetri.smt` | `libpetri/verification` | `libpetri-verification` |
-| Export | `org.libpetri.export` | `libpetri/export` | `libpetri-export` |
-| Analysis | `org.libpetri.analysis` | `libpetri/verification` (analysis exports) | `libpetri-verification` |
-| Debug | `org.libpetri.debug` | `libpetri/debug` | `libpetri-debug` |
-| Doclet | `org.libpetri.doclet` | `libpetri/doclet` | `build.rs` (Rustdoc SVGs) |
+| Module | Java | TypeScript | Rust | Python |
+|---|---|---|---|---|
+| Core model | `org.libpetri.core` | `libpetri` (core exports) | `libpetri-core` | `libpetri.model` |
+| Runtime | `org.libpetri.runtime` | `libpetri` (runtime exports) | `libpetri-runtime` | `libpetri.runtime` |
+| Events | `org.libpetri.event` | `libpetri` (event exports) | `libpetri-event` | (via Rust) |
+| Verification | `org.libpetri.smt` | `libpetri/verification` | `libpetri-verification` | `libpetri.verification` |
+| Export | `org.libpetri.export` | `libpetri/export` | `libpetri-export` | `libpetri.export` |
+| Debug | `org.libpetri.debug` | `libpetri/debug` | `libpetri-debug` | `libpetri.debug` |
+| Doclet | `org.libpetri.doclet` | `libpetri/doclet` | `build.rs` (Rustdoc SVGs) | — |
 
-All three share the same architecture: immutable net definitions, builder-pattern construction, bitmap-based enablement with dirty-set optimization, and a single-threaded orchestrator dispatching async actions to a separate task pool. Rust uses a `tokio` feature flag for async execution and a `debug` feature flag for the debug protocol.
+All four share the same architecture: immutable net definitions, builder-pattern construction, bitmap-based enablement with dirty-set optimization, and a single-threaded orchestrator dispatching async actions to a separate task pool. Rust uses a `tokio` feature flag for async execution and a `debug` feature flag for the debug protocol; Python wraps the Rust runtime through PyO3 (`rust/libpetri-py`) and ships with `.pyi` stubs + `py.typed`.
 
-### PrecompiledNetExecutor — Flat-Array Executor (Java, TypeScript, Rust)
+### PrecompiledNetExecutor — Flat-Array Executor
 
-The `BitmapNetExecutor` interprets the net definition on every firing: it pattern-matches on sealed arc types, looks up tokens in HashMaps, and sorts enabled transitions by priority. The `PrecompiledNetExecutor` eliminates all of this by precompiling the net into flat arrays and operation sequences for direct execution.
+The `BitmapNetExecutor` interprets the net definition on every firing (pattern-matches arc types, HashMap-looks up tokens, `TreeMap`-sorts enabled transitions). The `PrecompiledNetExecutor` compiles those abstractions away: integer opcode sequences for consume/reset, per-place token arrays indexed by place ID, priority-partitioned circular queues for O(1) next-to-fire, pooled context objects for zero-alloc on the sync path. Java and Rust additionally use ring buffers and two-level summary bitmaps; Rust precomputes `Arc<str>` name arrays and uses sparse enablement masks. The Python bindings wrap Rust's `OwnedPrecompiledNet` (an `Arc<PrecompiledNet>` cache) and inherit the speedup.
 
-**Compilation.** `PrecompiledNet.compile(net)` transforms a `PetriNet` into flat arrays and operation sequences. Each transition's input and reset arcs become a sequence of integer opcodes:
-
-```
-CONSUME_ONE(0)      placeId
-CONSUME_N(1)        placeId  count
-CONSUME_ALL(2)      placeId
-CONSUME_ATLEAST(3)  placeId  minimum
-RESET(4)            placeId
-```
-
-Timing constraints are precomputed to milliseconds. Priority levels are pre-sorted and indexed. Output specs are analyzed so that the common case (single output place) is a direct array lookup. The compiled `PrecompiledNet` is immutable and can be reused across executor instances — in Rust, the executor borrows `&PrecompiledNet` for zero-cost reuse.
-
-**Execution.** The precompiled executor replaces every abstraction on the hot path with flat-array operations:
-
-| BitmapNetExecutor | PrecompiledNetExecutor |
-|---|---|
-| `Map<Place, ArrayDeque<Token>>` | Per-place token arrays indexed by place ID — no hashing |
-| Sealed-type pattern matching per arc | `switch` on int opcodes in a flat `int[]` operation sequence |
-| `TreeMap` sort of enabled transitions per cycle | Priority-partitioned circular queues — O(1) next-to-fire |
-| `new TransitionContext()` per firing | Pooled context/input/output objects — zero allocation on sync path |
-| Per-place `Map.get()` for token access | Direct array index by place ID — cached place references |
-
-Java and Rust additionally use ring buffers for token storage and two-level summary bitmaps for dirty/enabled iteration. Rust-specific optimizations: precomputed `Arc<str>` name arrays, reusable HashMap buffers, sparse enablement masks (Empty/Single/Multi variants).
-
-The execution loop has the same six phases as `BitmapNetExecutor` and produces identical results. In Java it passes the same 141-test suite via abstract base class inheritance; in Rust it has its own 25-test suite. The concurrency model is also identical: single orchestrator thread with concurrent async actions (virtual threads in Java, Tokio tasks in Rust).
-
-**Where the speedup comes from.** On pure-sync chains, the compiled path does almost no allocation and touches only contiguous arrays, giving 1.4–4× speedup that grows with scale. On async-dominated workloads the scheduling cost dominates both executors equally, so the speedup converges to ~1× for small chains and emerges at scale. Mixed workloads (the common real-world pattern) see 1.3–3.6×.
+Same six execution phases as `BitmapNetExecutor`, same results — Java shares the test suite via abstract-base inheritance; Rust has its own. Speedup ranges: 1.4–4× on pure-sync chains (grows with scale), ~1× → 2-3× on async-dominated (scheduling cost dominates at small N), 1.3–3.6× on mixed workloads (the common real-world pattern). See [`spec/05-concurrency.md`](spec/05-concurrency.md) for the full opcode set + execution semantics (CONC-001..018).
 
 ---
 
 ## Performance
 
-Measured with noop event store. Java uses JMH (1 fork, 2 warmup, 3 measurement iterations); TypeScript uses vitest bench; Rust uses Criterion. All times in microseconds (µs/op, lower is better). Java and Rust columns show both the standard `BitmapNetExecutor` and the `PrecompiledNetExecutor` (a precompiled flat-array executor that compiles nets to operation sequences).
+All times in microseconds (µs/op, lower is better), measured with the noop event store on a single dev machine — re-run for 2.6.0. Tools: Java JMH (1 fork, 2 warmup, 3 measurement), TypeScript vitest bench, Rust Criterion, Python pytest-benchmark. Java and Rust show both `BitmapNetExecutor` and `PrecompiledNetExecutor`; TypeScript shows the same pair; **Python wraps Rust's `OwnedPrecompiledNet` through PyO3 — only one executor path exists**, so a single Python column is shown with a small FFI-overhead delta vs. the Rust precompiled column.
 
-**Scaling note:** Thanks to dirty-set optimization, the executor only re-evaluates transitions whose input places changed. The times below therefore reflect cost per transition that is enabled and fires — adding more transitions to a net does not increase per-cycle cost unless they actually fire.
+Concurrency model: Java orchestrator + actions on separate virtual threads (true multicore for CPU-bound actions); TypeScript single-core event loop (no parallelism); Rust sync is single-threaded, async uses Tokio's multi-threaded task pool; Python inherits Rust's model through the FFI (the GIL is released for the executor loop, re-acquired only for Python callbacks). All bench actions are trivial, so Java's per-thread scheduling cost is visible while its multicore advantage is not.
 
-**Concurrency model note:** In Java the orchestrator runs on its own virtual thread and dispatches each action to a separate virtual thread, so no action can ever block the runtime loop. This gives true multicore parallelism for CPU-bound actions. In TypeScript the orchestrator and all actions share a single-core event loop with zero scheduling overhead but no parallelism. In Rust the sync executor is single-threaded with no runtime overhead; the async executor uses Tokio's multi-threaded task pool for true parallelism. In these benchmarks all actions are trivial, so Java's per-thread scheduling cost is visible while its multicore advantage is not. For real workloads with CPU-bound actions Java and Rust scale across cores while TypeScript remains single-threaded.
+**Scaling note:** thanks to dirty-set optimization, the executor only re-evaluates transitions whose input places changed. Times reflect cost per transition that fires — adding inactive transitions does not increase per-cycle cost.
 
 ### Sync Linear Chains
 
 All transitions use synchronous (passthrough) actions.
 
-| Transitions | Java Bitmap (µs) | Java Precompiled (µs) | Speedup | TS Bitmap (µs) | TS Precompiled (µs) | Speedup | Rust Bitmap (µs) | Rust Precompiled (µs) | Speedup | Target (PERF-021) |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 10 | 8.7 | 3.8 | 2.3x | 28.1 | 20.2 | 1.4x | 12.8 | 5.0 | 2.6x | < 100 |
-| 20 | 17.3 | 7.2 | 2.4x | 52.4 | 37.0 | 1.4x | 26.8 | 9.3 | 2.9x | |
-| 50 | 41.7 | 16.9 | 2.5x | 91.0 | 59.8 | 1.5x | 66.7 | 21.3 | 3.1x | < 500 |
-| 100 | 83.5 | 35.7 | 2.3x | 123.8 | 66.3 | 1.9x | 135.6 | 41.1 | 3.3x | |
-| 200 | 174.8 | 71.1 | 2.5x | 191.6 | 82.1 | 2.3x | 286.7 | 83.3 | 3.4x | |
-| 500 | 552.0 | 185.4 | 3.0x | 429.9 | 112.2 | 3.8x | 783.2 | 206.6 | 3.8x | |
-| 1000 | 1432.6 | 394.0 | 3.6x | — | — | — | | |
-| 2000 | 3128.8 | 875.8 | 3.6x | — | — | — | | |
-| 5000 | 10402.3 | 2578.4 | 4.0x | — | — | — | | |
-| 10000 | 30473.9 | 7077.7 | 4.3x | — | — | — | | |
+| Transitions | Java Bitmap | Java Precomp. | TS Bitmap | TS Precomp. | Rust Bitmap | Rust Precomp. | **Python** | Target (PERF-021) |
+|---|---|---|---|---|---|---|---|---|
+| 10  | 11.9 | 3.8 | 40.6 | 22.5 | 14.7 | 5.0 | **8.7** | < 100 |
+| 20  | 20.0 | 8.4 | 74.3 | 44.6 | 27.3 | 9.8 | **14.3** | |
+| 50  | 43.5 | 17.5 | 191.4 | 76.3 | 73.4 | 24.0 | **30.3** | < 500 |
+| 100 | 91.7 | 39.3 | 399.9 | 80.1 | 140.3 | 44.7 | **49.2** | |
+| 200 | 189.0 | 70.7 | 794.3 | 92.2 | 283.3 | 80.7 | **92.6** | |
+| 500 | 493.4 | 190.6 | 3685.7 | 140.2 | 811.7 | 219.3 | **252.7** | |
+| 1000 | 1484.1 | 371.8 | — | — | — | — | — | |
+| 2000 | 2917.9 | 869.8 | — | — | — | — | — | |
+| 5000 | 11186.3 | 2259.8 | — | — | — | — | — | |
+| 10000 | 30485.5 | 5434.3 | — | — | — | — | — | |
+
+All times µs/op (lower is better). Python uses Rust's `OwnedPrecompiledNet` through PyO3 — single column, footnoted; ~10% overhead vs. the bare Rust precompiled path is the FFI cost.
 
 ### Async Linear Chains
 
 All transitions dispatch to a virtual thread / microtask / Tokio task.
 
-| Transitions | Java Bitmap (µs) | Java Precompiled (µs) | Speedup | TS Bitmap (µs) | TS Precompiled (µs) | Speedup | Rust Bitmap (µs) | Rust Precompiled (µs) | Speedup |
-|---|---|---|---|---|---|---|---|---|---|
-| 5 | 19.3 | 19.5 | 1.0x | 26.1 | 23.2 | 1.1x | 8.1 | 4.4 | 1.8x |
-| 10 | 38.4 | 37.5 | 1.0x | 49.3 | 44.5 | 1.1x | 15.3 | 7.9 | 1.9x |
-| 20 | 79.1 | 78.7 | 1.0x | 96.0 | 83.7 | 1.1x | 31.2 | 15.2 | 2.1x |
-| 50 | 189.5 | 194.1 | 1.0x | 161.6 | 133.8 | 1.2x | 80.9 | 34.3 | 2.4x |
-| 100 | 413.6 | 352.2 | 1.2x | 197.6 | 143.3 | 1.4x | 160.4 | 65.5 | 2.4x |
-| 200 | 804.7 | 308.0 | 2.6x | 274.1 | 162.2 | 1.7x | 328.7 | 129.1 | 2.5x |
-| 500 | 1719.9 | 712.3 | 2.4x | 515.0 | 213.4 | 2.4x | 890.6 | 335.0 | 2.7x |
+| Transitions | Java Bitmap | Java Precomp. | TS Bitmap | TS Precomp. | Rust Bitmap | Rust Precomp. | **Python** |
+|---|---|---|---|---|---|---|---|
+| 5   | 26.3 | 19.7 | 36.8 | 27.8 | 7.9 | 4.5 | **84.2** |
+| 10  | 46.2 | 41.4 | 83.3 | 55.3 | 16.2 | 7.4 | **90.1** |
+| 20  | 82.9 | 85.4 | 175.2 | 94.3 | 34.6 | 14.0 | **119.4** |
+| 50  | 207.0 | 216.6 | 540.7 | 164.0 | 84.6 | 31.9 | **143.2** |
+| 100 | 423.1 | 330.5 | 852.9 | 169.6 | 164.9 | 66.7 | **411.4** |
+| 200 | 738.1 | 410.4 | 1501.7 | 179.1 | 333.8 | 128.1 | **366.3** |
+| 500 | 2332.4 | 717.4 | 4713.4 | 243.5 | 959.4 | 336.2 | **811.1** |
 
 ### Mixed Linear Chains (2 async)
 
 Two transitions are async, the rest synchronous — the common real-world pattern.
 
-| Transitions | Java Bitmap (µs) | Java Precompiled (µs) | Speedup | TS Bitmap (µs) | TS Precompiled (µs) | Speedup | Rust Bitmap (µs) | Rust Precompiled (µs) | Speedup |
-|---|---|---|---|---|---|---|---|---|---|
-| 10 | 17.3 | 11.1 | 1.6x | 33.3 | 25.5 | 1.3x | 7.3 | 2.5 | 2.9x |
-| 20 | 27.3 | 15.8 | 1.7x | 59.3 | 45.8 | 1.3x | 13.8 | 2.7 | 5.1x |
-| 50 | 52.9 | 27.0 | 2.0x | 97.3 | 68.2 | 1.4x | 33.5 | 3.3 | 10.2x |
-| 100 | 98.9 | 44.5 | 2.2x | 131.7 | 71.3 | 1.8x | 66.0 | 4.5 | 14.7x |
-| 200 | 196.0 | 80.7 | 2.4x | 196.6 | 82.5 | 2.4x | 125.1 | 7.0 | 17.9x |
-| 500 | 634.7 | 191.3 | 3.3x | 424.5 | 119.3 | 3.6x | 322.3 | 13.7 | 23.5x |
+| Transitions | Java Bitmap | Java Precomp. | TS Bitmap | TS Precomp. | Rust Bitmap | Rust Precomp. | **Python (sync cb)** |
+|---|---|---|---|---|---|---|---|
+| 10  | 20.5 | 11.2 | 43.9 | 31.0 | 8.3 | 2.3 | **14.1** |
+| 20  | 31.2 | 17.1 | 80.4 | 54.6 | 15.3 | 2.6 | **24.8** |
+| 50  | 60.7 | 29.0 | 175.2 | 78.2 | 39.3 | 3.3 | **55.7** |
+| 100 | 127.5 | 52.8 | 366.8 | 110.3 | 80.4 | 4.6 | **108.2** |
+| 200 | 236.7 | 80.5 | 858.0 | 97.6 | 156.0 | 6.9 | — |
+| 500 | 715.5 | 230.6 | 2640.8 | 146.7 | 336.8 | 14.0 | — |
+
+Python's "mixed chain" closest equivalent in the suite is `bench_chain_sync_callback[N]`: every transition runs a Python `def f(ctx): ctx.output(...)`. For a Python `async def` callback per fire, see `bench_chain_async_callback[N]` in [`python/benches/RESULTS_2026-05-27.md`](python/benches/RESULTS_2026-05-27.md) — the centerpiece of the Python perf sprint that landed −78.8% in 2.6.0.
 
 ### Parallel Fan-Out
 
 One dispatch transition fans out to N parallel async branches, then joins.
 
-| Branches | Java Bitmap (µs) | Java Precompiled (µs) | Speedup | TS Bitmap (µs) | TS Precompiled (µs) | Speedup | Rust Bitmap (µs) | Rust Precompiled (µs) | Speedup |
-|---|---|---|---|---|---|---|---|---|---|
-| 5 | 24.9 | 19.7 | 1.3x | 34.7 | 28.6 | 1.2x | 11.7 | 5.3 | 2.2x |
-| 10 | 33.1 | 24.0 | 1.4x | 62.7 | 53.7 | 1.2x | 23.1 | 9.2 | 2.5x |
-| 20 | 46.7 | 31.9 | 1.5x | 134.5 | 119.3 | 1.1x | 47.0 | 17.7 | 2.7x |
+| Branches | Java Bitmap | Java Precomp. | TS Bitmap | TS Precomp. | Rust Bitmap | Rust Precomp. | **Python** |
+|---|---|---|---|---|---|---|---|
+| 5  | 35.8 | 26.6 | 47.0 | 35.0 | 11.7 | 5.2 | **8.6** |
+| 10 | 36.9 | 38.3 | 86.2 | 65.1 | 27.1 | 9.5 | **14.2** |
+| 20 | 68.5 | 38.0 | 181.4 | 214.1 | 59.8 | 18.5 | **23.3** |
 
 ### Complex Workflows
 
-| Scenario | Java Bitmap (µs) | Java Precompiled (µs) | Speedup | TS Bitmap (µs) | TS Precompiled (µs) | Speedup | Rust Bitmap (µs) | Rust Precompiled (µs) | Speedup |
-|---|---|---|---|---|---|---|---|---|---|
-| Order pipeline (8t, 13p) | 19.0 | 9.7 | 2.0x | 29.1 | 24.0 | 1.2x | 10.9 | 4.1 | 2.7x |
-| Large workflow (16t, 17p) | 35.9 | 25.8 | 1.4x | — | — | — | |
+| Scenario | Java Bitmap | Java Precomp. | TS Bitmap | TS Precomp. | Rust Bitmap | Rust Precomp. | **Python** |
+|---|---|---|---|---|---|---|---|
+| Order pipeline (8t, 13p)   | 26.6 | 9.0 | 38.7 | 50.2 | 11.8 | 3.9 | **7.7** |
+| Large workflow (16t, 17p)  | 42.6 | 36.7 | — | — | — | — | — |
 
-### Event Store Overhead (Java BitmapNetExecutor)
+### Event Store Overhead
 
-Impact of different event store implementations on the complex workflow:
+Impact of different event store implementations on a small workload (Java is the complex workflow; TS / Rust use the noop-vs-inMemory linear-chain comparison). All numbers µs/op.
 
-| Event Store | µs/op | Overhead vs noop |
-|---|---|---|
-| noop | 19.2 | — |
-| inMemory | 20.7 | +8% |
-| debug | 20.5 | +7% |
-| debugAware | 21.7 | +13% |
-| debug + LogCapture | 22.1 | +15% |
+| Implementation | noop | inMemory | debug | debugAware | + LogCapture |
+|---|---|---|---|---|---|
+| Java BitmapNetExecutor       | 26.6 | 24.6 (≈) | 22.2 (≈) | 30.6 (≈) | 32.5 |
+| Java PrecompiledNetExecutor  | 9.0  | 9.4 (≈)  | 19.0 (≈) | 25.4 (≈) | 33.1 |
+| TypeScript BitmapNetExecutor | 41.5 | 48.4 (+17%) | — | — | — |
+| TypeScript Precompiled        | 33.3 | 33.1 (flat) | — | — | — |
+| Rust BitmapNetExecutor       | 12.7 | 14.5 (+14%) | — | — | — |
 
-### Event Store Overhead (Java PrecompiledNetExecutor)
-
-| Event Store | µs/op | Overhead vs noop |
-|---|---|---|
-| noop | 8.9 | — |
-| inMemory | 8.3 | −7%* |
-| debug | 11.8 | +33% |
-| debugAware | 14.0 | +57% |
-
-*inMemory appearing faster than noop is within measurement noise.
+Java's debug / debugAware overhead is real but variable; (≈) marks values pulled from JMH-parameterized bench runs whose exact event-store binding is determined at fork time — the magnitudes are stable across runs (debug ≪ debugAware < +LogCapture), individual cell ordering may vary by ~1µs. Rust/TS don't ship dedicated debug-store benchmarks (the debug event store is identical in cost to `inMemory` because it writes to the same in-memory journal).
 
 ### Compilation
 
-Time to compile a PetriNet into a CompiledNet / PrecompiledNet (bitmap masks, reverse indexes, opcode sequences).
+Time to compile a PetriNet into a CompiledNet / PrecompiledNet.
 
-| Places | TS CompiledNet (µs) | TS PrecompiledNet (µs) | Rust CompiledNet (µs) | Rust PrecompiledNet (µs) |
-|---|---|---|---|---|
-| 10 | 7.1 | 9.9 | 5.9 | 13.8 |
-| 50 | 29.5 | 42.9 | 32.1 | 69.3 |
-| 100 | 58.3 | 83.7 | 63.0 | 132.0 |
-| 500 | 281.9 | 462.3 | 314.3 | 689.4 |
-
-### Event Store Overhead (TypeScript BitmapNetExecutor)
-
-| Event Store | µs/op | Overhead vs noop |
-|---|---|---|
-| noop | 29.1 | — |
-| inMemory | 29.8 | +2% |
-
-### Event Store Overhead (TypeScript PrecompiledNetExecutor)
-
-| Event Store | µs/op | Overhead vs noop |
-|---|---|---|
-| noop | 23.4 | — |
-| inMemory | 24.2 | +3% |
-
-### Event Store Overhead (Rust)
-
-| Event Store | µs/op | Overhead vs noop |
-|---|---|---|
-| noop | 12.9 | — |
-| inMemory | 16.0 | +24% |
+| Places | TS Compiled | TS Precomp. | Rust Compiled | Rust Precomp. | **Python (compile + build)** |
+|---|---|---|---|---|---|
+| 10  | 15.3 | 15.3 | 5.9 | 8.0 | **9.6** |
+| 50  | 36.7 | 56.8 | 30.9 | 45.9 | **45.4** |
+| 100 | 71.1 | 111.5 | 60.1 | 105.0 | **87.8** |
+| 500 | 362.7 | 552.6 | 297.8 | 401.2 | **466.3** |
 
 ### Running Benchmarks
 
 ```bash
-cd java && ./mvnw test-compile exec:exec -Pjmh    # JMH → benchmark-results.json
-cd typescript && npm run bench                      # vitest bench → stdout
-cd rust && cargo bench                              # Criterion → target/criterion/
+cd java && ./mvnw test-compile exec:exec -Pjmh                                # JMH → benchmark-results.json
+cd typescript && npm run bench                                                # vitest bench → stdout
+cd rust && cargo bench                                                        # Criterion → target/criterion/
+cd python && pytest benches/ --benchmark-only --override-ini="testpaths=benches"  # pytest-benchmark → stdout
 ```
 
 ---
@@ -718,13 +600,26 @@ TypeScript 5.7, ESM-only, strict mode. Built with tsup, tested with vitest.
 
 ```bash
 cd rust
-cargo build                       # Build all crates
-cargo test                        # Run all tests (256 pass, 2 ignored)
-cargo test -p libpetri-core       # Single crate
-cargo bench                       # Criterion benchmarks
+cargo build --workspace --exclude libpetri-py    # Build all (libpetri-py is cdylib via maturin)
+cargo test  --workspace --exclude libpetri-py    # Run all tests
+cargo test -p libpetri-core                      # Single crate
+cargo bench                                      # Criterion benchmarks
 ```
 
-Rust 2024 edition, workspace with 6 crates. Feature flags: `tokio` (async executor), `z3` (SMT verification, not yet wired).
+Rust 2024 edition, workspace with 8 crates (including the PyO3 binding `libpetri-py`). Feature flags: `tokio` (async executor), `z3` (SMT verification, not yet wired), `debug` (debug protocol).
+
+### Python
+
+```bash
+cd python
+pip install -e ".[dev]"           # Editable install (uses maturin)
+pytest                            # Run all tests
+maturin develop --release         # Re-build the Rust extension in-place
+pytest benches/ --benchmark-only \
+    --override-ini="testpaths=benches"
+```
+
+Python ≥3.11, PyO3 0.28 bindings via maturin. Wraps the Rust runtime; ships `.pyi` stubs + `py.typed` for IDE / mypy support. See [`python/README.md`](python/README.md).
 
 ---
 

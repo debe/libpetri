@@ -61,5 +61,35 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-      - run: cargo build --all-features
-      - run: cargo test --all-features
+      # libpetri-py is a Python extension cdylib; building it without maturin
+      # picks up the wrong python linker. Build/test the rest of the workspace
+      # here; the dedicated `python` job builds the wheel via maturin.
+      - run: cargo build --workspace --exclude libpetri-py --all-features
+      - run: cargo test --workspace --exclude libpetri-py --all-features
+
+  python:
+    needs: rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Install z3 (for verification tests)
+        run: sudo apt-get update && sudo apt-get install -y z3
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install maturin pytest pytest-asyncio
+      - run: maturin build --release --locked --out dist --compatibility pypi
+      - run: maturin sdist --out dist
+      - run: python -m pip install dist/libpetri-*.whl
+      - run: pytest

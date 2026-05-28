@@ -407,7 +407,7 @@ fn precompiled_single_passthrough(c: &mut Criterion) {
         .build();
     let net = PetriNet::builder("single").transition(t).build();
     let compiled = CompiledNet::compile(&net);
-    let prog = PrecompiledNet::from_compiled(&compiled);
+    let prog = PrecompiledNet::from_compiled(compiled);
 
     c.bench_function("precompiled_single_passthrough", |b| {
         b.iter(|| {
@@ -424,7 +424,7 @@ fn precompiled_sync_linear_chain(c: &mut Criterion) {
     for &n in &[5, 10, 20, 50, 100, 200, 500] {
         let (net, start) = build_linear_chain(n);
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
         c.bench_function(&format!("precompiled_sync_linear_chain/{n}"), |b| {
             b.iter(|| {
                 let mut marking = Marking::new();
@@ -441,7 +441,7 @@ fn precompiled_parallel_fan_out(c: &mut Criterion) {
     for &fan in &[5, 10, 20] {
         let (net, start, _end) = build_fan_out(fan);
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
         c.bench_function(&format!("precompiled_parallel_fan_out/{fan}"), |b| {
             b.iter(|| {
                 let mut marking = Marking::new();
@@ -474,7 +474,7 @@ fn precompiled_compilation(c: &mut Criterion) {
         c.bench_function(&format!("precompiled_compilation/{n}"), |b| {
             b.iter(|| {
                 let compiled = CompiledNet::compile(black_box(&net));
-                let prog = PrecompiledNet::from_compiled(&compiled);
+                let prog = PrecompiledNet::from_compiled(compiled);
                 black_box(&prog);
             })
         });
@@ -484,7 +484,7 @@ fn precompiled_compilation(c: &mut Criterion) {
 fn precompiled_complex_workflow(c: &mut Criterion) {
     let (net, start) = build_complex_workflow();
     let compiled = CompiledNet::compile(&net);
-    let prog = PrecompiledNet::from_compiled(&compiled);
+    let prog = PrecompiledNet::from_compiled(compiled);
     c.bench_function("precompiled_complex_workflow/8t_13p", |b| {
         b.iter(|| {
             let mut marking = Marking::new();
@@ -505,7 +505,7 @@ fn precompiled_async_linear_chain(c: &mut Criterion) {
     for &n in &[5, 10, 20, 50, 100, 200, 500] {
         let (net, start) = build_linear_chain(n);
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
         c.bench_function(&format!("precompiled_async_linear_chain/{n}"), |b| {
             b.iter(|| {
                 rt.block_on(async {
@@ -531,7 +531,7 @@ fn precompiled_mixed_chain(c: &mut Criterion) {
     for &n in &[10, 20, 50, 100, 200, 500] {
         let (net, start) = build_mixed_chain(n, 2);
         let compiled = CompiledNet::compile(&net);
-        let prog = PrecompiledNet::from_compiled(&compiled);
+        let prog = PrecompiledNet::from_compiled(compiled);
         c.bench_function(&format!("precompiled_mixed_chain/{n}"), |b| {
             b.iter(|| {
                 rt.block_on(async {

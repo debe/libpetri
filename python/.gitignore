@@ -1,0 +1,17 @@
+# Maturin / build artifacts
+dist/
+*.so
+*.pyd
+*.dylib
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Editable install artifacts
+*.egg-info/
+.eggs/
+
+# Release script artifacts
+.release-venv/

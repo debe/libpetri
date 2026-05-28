@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.6.0
+
+**Python bindings.** New `libpetri` PyPI package via PyO3 + maturin. Full surface
+parity with Java/TS/Rust (runtime, verification, composition, debug, export),
+ships with `.pyi` stubs + `py.typed` and 45 tests covering the same arc /
+timing / cardinality / output semantics as the Java and Rust suites. Tokens are
+untyped `Py<PyAny>` across the FFI — net structure is type-checked, runtime
+token types are not (intentional cross-language divergence; validate at your
+boundary if needed).
+
+- `OwnedPrecompiledNet`: owned, `'static`-safe entry to the precompiled runtime;
+  borrowed `PrecompiledNetExecutor<'p>` path preserved with no hot-path regression.
+- `TransitionContext::{input_tokens_raw, read_tokens_raw}` accessors for FFI bridges.
+- Built-in `lp.fork` / `lp.passthrough` actions for callback-free pass-throughs.
+- `python` CI job + `scripts/release-python.sh` (mirrors the Rust release flow,
+  including the documented Cargo.lock-resync gotcha).
+- Async-callback perf: manual coroutine driver; `bench_chain_async_callback[100]`
+  3536 µs → 750 µs (−78.8%). Sync chain −12% (LTO, `pyo3_disable_reference_pool`,
+  `Arc<str>` keys). Full numbers in `python/benches/RESULTS_2026-05-27.md`.
+
 ## 2.5.0
 
 **Subnet clustering for direct composition.** `compose(SubnetDef)` now records
