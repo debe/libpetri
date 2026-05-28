@@ -41,6 +41,7 @@
 //!
 //! - [`PrecompiledNetExecutor`](precompiled_executor::PrecompiledNetExecutor) — the executor
 //! - [`PrecompiledNet`](precompiled_net::PrecompiledNet) — borrows `&CompiledNet`, zero-cost reuse
+//! - [`OwnedPrecompiledNet`](owned_precompiled::OwnedPrecompiledNet) — owned helper for FFI and long-lived callers
 //!
 //! ## Compilation Pipeline
 //!
@@ -67,5 +68,6 @@ pub mod executor;
 #[cfg(feature = "tokio")]
 pub mod executor_handle;
 pub mod marking;
+pub mod owned_precompiled;
 pub mod precompiled_executor;
 pub mod precompiled_net;

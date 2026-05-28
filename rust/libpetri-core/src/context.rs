@@ -96,6 +96,17 @@ impl TransitionContext {
         Ok(Arc::clone(&tokens[0].value))
     }
 
+    /// Get all raw (type-erased) consumed input values for a place.
+    pub fn input_tokens_raw(
+        &self,
+        place_name: &str,
+    ) -> Result<Vec<Arc<dyn Any + Send + Sync>>, ActionError> {
+        let tokens = self.inputs.get(place_name).ok_or_else(|| {
+            ActionError::new(format!("Place '{place_name}' not in declared inputs"))
+        })?;
+        Ok(tokens.iter().map(|t| Arc::clone(&t.value)).collect())
+    }
+
     /// Returns the names of all declared input places.
     pub fn input_place_names(&self) -> Vec<Arc<str>> {
         self.inputs.keys().cloned().collect()
@@ -133,6 +144,17 @@ impl TransitionContext {
     /// Returns the names of all declared read places.
     pub fn read_place_names(&self) -> Vec<Arc<str>> {
         self.reads.keys().cloned().collect()
+    }
+
+    /// Get all raw (type-erased) read values for a place.
+    pub fn read_tokens_raw(
+        &self,
+        place_name: &str,
+    ) -> Result<Vec<Arc<dyn Any + Send + Sync>>, ActionError> {
+        let tokens = self.reads.get(place_name).ok_or_else(|| {
+            ActionError::new(format!("Place '{place_name}' not in declared reads"))
+        })?;
+        Ok(tokens.iter().map(|t| Arc::clone(&t.value)).collect())
     }
 
     // ==================== Output Access ====================

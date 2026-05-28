@@ -16,6 +16,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | **libpetri-java** | Java 25 | `java/` | Virtual threads | Production |
 | **libpetri-ts** | TypeScript | `typescript/` | JS event loop + Promises | Production |
 | **libpetri-rs** | Rust 1.85+ | `rust/` | Tokio async | v0.1.0 |
+| **libpetri-py** | Python ≥3.11 | `python/` (binds Rust) | Tokio async via PyO3 | Beta |
 
 ## Spec Philosophy
 

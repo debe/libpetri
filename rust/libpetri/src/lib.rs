@@ -99,6 +99,9 @@ pub use libpetri_export::dot_exporter::dot_export;
 pub use libpetri_runtime::compiled_net::CompiledNet;
 pub use libpetri_runtime::executor::{BitmapNetExecutor, ExecutorOptions};
 pub use libpetri_runtime::marking::Marking;
+pub use libpetri_runtime::owned_precompiled::{
+    OwnedPrecompiledExecutorBuilder, OwnedPrecompiledNet,
+};
 pub use libpetri_runtime::precompiled_executor::{
     PrecompiledExecutorBuilder, PrecompiledNetExecutor,
 };

@@ -1,0 +1,29 @@
+[package]
+name = "libpetri-py"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Python bindings for libpetri"
+publish = false
+
+[lib]
+name = "_libpetri"
+crate-type = ["cdylib"]
+
+[dependencies]
+libpetri = { path = "../libpetri", version = "2.5.0", default-features = false }
+pyo3 = { workspace = true }
+pyo3-async-runtimes = { workspace = true }
+serde_json = "1"
+tokio = { workspace = true, optional = true }
+
+[features]
+default = []
+extension-module = ["pyo3/extension-module"]
+tokio = ["libpetri/tokio", "dep:tokio"]
+z3 = ["libpetri/z3"]
+debug = ["libpetri/debug"]
+full = ["tokio", "z3", "debug"]
