@@ -71,5 +71,6 @@ pub mod executor_core;
 pub mod executor_handle;
 pub mod marking;
 pub mod owned_precompiled;
+pub mod precompiled_backend;
 pub mod precompiled_executor;
 pub mod precompiled_net;

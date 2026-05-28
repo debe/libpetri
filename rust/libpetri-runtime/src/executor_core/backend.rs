@@ -2,23 +2,35 @@
 //! ([`Executor`]) and each executor's choice of token storage,
 //! enablement representation, and dirty tracking.
 //!
-//! Implemented by `BitmapBackend` (reference) and `PrecompiledBackend`
-//! (production hot path). The trait is `pub(crate)` because external
-//! adapters aren't a goal yet — a public version waits for a second real
-//! consumer outside the crate.
+//! Implemented by [`BitmapBackend`] (reference) and
+//! [`PrecompiledBackend`] (production hot path).
 //!
 //! ## Seam granularity
 //!
 //! The seam is at *phase* granularity, not per-primitive: methods like
 //! [`update_enablement`](ExecutorBackend::update_enablement) and
-//! [`consume_for_firing`](ExecutorBackend::consume_for_firing) wrap whole
-//! cycle phases. The loop owns event emission, action execution, and
-//! deadline arithmetic; each backend owns *how* its phase runs.
+//! [`consume_for_firing`](ExecutorBackend::consume_for_firing) wrap
+//! whole cycle phases. The loop owns event emission, action execution,
+//! and deadline arithmetic; each backend owns *how* its phase runs.
+//!
+//! ## Reusable buffers
+//!
+//! Input/read [`HashMap`]s are owned by [`Executor`] and passed as
+//! `&mut` out-parameters to
+//! [`consume_for_firing`](ExecutorBackend::consume_for_firing). The
+//! loop reclaims them from [`TransitionContext`] after the action
+//! runs, so no per-firing allocation happens for the hot path. This
+//! mirrors the optimisation the legacy
+//! [`PrecompiledNetExecutor`](crate::precompiled_executor::PrecompiledNetExecutor)
+//! carried internally.
 //!
 //! [`Executor`]: crate::executor_core::executor::Executor
+//! [`BitmapBackend`]: crate::bitmap_backend::BitmapBackend
+//! [`PrecompiledBackend`]: crate::precompiled_backend::PrecompiledBackend
+//! [`TransitionContext`]: libpetri_core::context::TransitionContext
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use libpetri_core::token::ErasedToken;
@@ -26,30 +38,50 @@ use libpetri_core::token::ErasedToken;
 use crate::compiled_net::CompiledNet;
 use crate::marking::Marking;
 
-/// Tokens consumed and tokens visible to read arcs when a single
-/// transition fires.
+/// Receives per-cycle enablement deltas from
+/// [`ExecutorBackend::update_enablement`].
 ///
-/// The loop hands `inputs` and `reads` into the [`TransitionContext`].
-/// Reset-arc tokens never reach the loop as a struct field — the
-/// backend emits their `TokenRemoved` events via the
-/// `emit_removed` closure passed to
-/// [`consume_for_firing`](ExecutorBackend::consume_for_firing) and
-/// drops the tokens.
-///
-/// [`TransitionContext`]: libpetri_core::context::TransitionContext
-#[derive(Debug, Default)]
-pub struct ConsumedInputs {
-    pub inputs: HashMap<Arc<str>, Vec<ErasedToken>>,
-    pub reads: HashMap<Arc<str>, Vec<ErasedToken>>,
+/// Two monomorphised impls:
+/// - [`NoopChangeTracker`] — for `NoopEventStore` paths where events
+///   are discarded anyway. All methods are empty so the backend's
+///   push calls compile away to nothing, avoiding the per-cycle
+///   `Vec::push` allocation on small benchmarks.
+/// - [`RecordingChangeTracker`] — accumulates tids into Vecs the loop
+///   then walks to emit `TransitionEnabled` and
+///   `TransitionClockRestarted` events.
+pub trait ChangeTracker {
+    fn newly_enabled(&mut self, tid: usize);
+    fn clock_restarted(&mut self, tid: usize);
 }
 
-/// Per-cycle enablement deltas reported by
-/// [`ExecutorBackend::update_enablement`]. The loop walks each list to
-/// emit `TransitionEnabled` and `TransitionClockRestarted` events.
-#[derive(Debug, Default)]
-pub struct EnablementChanges {
-    pub newly_enabled: Vec<usize>,
-    pub clock_restarted: Vec<usize>,
+/// Zero-cost tracker for `NoopEventStore` paths. Both methods are
+/// `#[inline(always)]` no-ops so monomorphisation elides every
+/// `tracker.newly_enabled(tid)` call inside the backend.
+pub struct NoopChangeTracker;
+
+impl ChangeTracker for NoopChangeTracker {
+    #[inline(always)]
+    fn newly_enabled(&mut self, _tid: usize) {}
+    #[inline(always)]
+    fn clock_restarted(&mut self, _tid: usize) {}
+}
+
+/// Recording tracker. Pushes tids into the supplied Vecs; the loop
+/// drains them and emits events.
+pub struct RecordingChangeTracker<'a> {
+    pub newly_enabled: &'a mut Vec<usize>,
+    pub clock_restarted: &'a mut Vec<usize>,
+}
+
+impl ChangeTracker for RecordingChangeTracker<'_> {
+    #[inline]
+    fn newly_enabled(&mut self, tid: usize) {
+        self.newly_enabled.push(tid);
+    }
+    #[inline]
+    fn clock_restarted(&mut self, tid: usize) {
+        self.clock_restarted.push(tid);
+    }
 }
 
 /// Internal seam between the shared loop and per-executor storage.
@@ -78,6 +110,13 @@ pub trait ExecutorBackend {
     /// arcs, timing, priority — everything that doesn't change once the
     /// net is built).
     fn compiled(&self) -> &CompiledNet;
+
+    /// Output place names for `tid`, used to build the
+    /// [`TransitionContext`](libpetri_core::context::TransitionContext)'s
+    /// allowed-output set. Both backends construct or clone a fresh
+    /// `HashSet`; precompiled backends may use a precomputed cache,
+    /// bitmap backends build from the transition's output places.
+    fn output_place_names(&self, tid: usize) -> HashSet<Arc<str>>;
 
     // ============ Lifecycle ============
 
@@ -112,7 +151,10 @@ pub trait ExecutorBackend {
     /// events) and transitions whose enabled-time clock just restarted
     /// because a reset arc drained one of their input places (for
     /// `TransitionClockRestarted` events).
-    fn update_enablement(&mut self, now_ms: f64, changes: &mut EnablementChanges);
+    ///
+    /// Generic over [`ChangeTracker`] so [`NoopChangeTracker`] elides
+    /// the per-cycle push entirely on `NoopEventStore` paths.
+    fn update_enablement<T: ChangeTracker>(&mut self, now_ms: f64, tracker: &mut T);
 
     // ============ Phase 4a — deadline enforcement ============
 
@@ -155,13 +197,22 @@ pub trait ExecutorBackend {
     /// Consume inputs (per arc spec), gather read-arc tokens, drain
     /// reset arcs, update presence bitmaps and mark dirty for the
     /// affected places. The loop emits `TokenRemoved` events from the
-    /// returned bundle in spec-declaration order via `emit_removed`.
+    /// consumed tokens in spec-declaration order via `emit_removed`.
+    ///
+    /// Both `inputs` and `reads` are passed in already-cleared by the
+    /// loop and filled in place by the backend — keeps the hot path
+    /// allocation-free across firings.
     ///
     /// The closure is called for every consumed input/reset token at
     /// the moment it is removed, preserving the per-token event order
     /// the existing executor emits today.
-    fn consume_for_firing<F>(&mut self, tid: usize, emit_removed: F) -> ConsumedInputs
-    where
+    fn consume_for_firing<F>(
+        &mut self,
+        tid: usize,
+        inputs: &mut HashMap<Arc<str>, Vec<ErasedToken>>,
+        reads: &mut HashMap<Arc<str>, Vec<ErasedToken>>,
+        emit_removed: F,
+    ) where
         F: FnMut(&Arc<str>, &ErasedToken);
 
     /// Produce a token at `place`. The backend updates token storage,

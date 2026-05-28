@@ -21,7 +21,7 @@ use libpetri_core::token::ErasedToken;
 
 use crate::bitmap;
 use crate::compiled_net::CompiledNet;
-use crate::executor_core::backend::{ConsumedInputs, EnablementChanges, ExecutorBackend};
+use crate::executor_core::backend::{ChangeTracker, ExecutorBackend};
 use crate::executor_core::deadline::DEADLINE_TOLERANCE_MS;
 use crate::marking::Marking;
 
@@ -216,6 +216,15 @@ impl ExecutorBackend for BitmapBackend {
         &self.compiled
     }
 
+    fn output_place_names(&self, tid: usize) -> HashSet<Arc<str>> {
+        self.compiled
+            .transition(tid)
+            .output_places()
+            .iter()
+            .map(|p| Arc::clone(p.name_arc()))
+            .collect()
+    }
+
     fn initialize(&mut self) {
         for pid in 0..self.compiled.place_count {
             let place = self.compiled.place(pid);
@@ -242,7 +251,7 @@ impl ExecutorBackend for BitmapBackend {
         self.enabled_transition_count
     }
 
-    fn update_enablement(&mut self, now_ms: f64, changes: &mut EnablementChanges) {
+    fn update_enablement<T: ChangeTracker>(&mut self, now_ms: f64, tracker: &mut T) {
         // Snapshot the presence bitmap.
         self.marking_snap_buffer
             .copy_from_slice(&self.marked_places);
@@ -271,14 +280,14 @@ impl ExecutorBackend for BitmapBackend {
                 self.enabled_flags[tid] = true;
                 self.enabled_transition_count += 1;
                 self.enabled_at_ms[tid] = now_ms;
-                changes.newly_enabled.push(tid);
+                tracker.newly_enabled(tid);
             } else if !can_now && was_enabled {
                 self.enabled_flags[tid] = false;
                 self.enabled_transition_count -= 1;
                 self.enabled_at_ms[tid] = f64::NEG_INFINITY;
             } else if can_now && was_enabled && self.has_input_from_reset_place(tid) {
                 self.enabled_at_ms[tid] = now_ms;
-                changes.clock_restarted.push(tid);
+                tracker.clock_restarted(tid);
             }
         }
 
@@ -358,8 +367,13 @@ impl ExecutorBackend for BitmapBackend {
         self.can_enable(tid, &snap)
     }
 
-    fn consume_for_firing<F>(&mut self, tid: usize, mut emit_removed: F) -> ConsumedInputs
-    where
+    fn consume_for_firing<F>(
+        &mut self,
+        tid: usize,
+        inputs: &mut HashMap<Arc<str>, Vec<ErasedToken>>,
+        reads: &mut HashMap<Arc<str>, Vec<ErasedToken>>,
+        mut emit_removed: F,
+    ) where
         F: FnMut(&Arc<str>, &ErasedToken),
     {
         // Clone the per-transition spec data so we can mutate the
@@ -373,7 +387,6 @@ impl ExecutorBackend for BitmapBackend {
             )
         };
 
-        let mut inputs: HashMap<Arc<str>, Vec<ErasedToken>> = HashMap::new();
         for in_spec in &input_specs {
             let place_name = in_spec.place_name();
             let to_consume = match in_spec {
@@ -406,7 +419,6 @@ impl ExecutorBackend for BitmapBackend {
             }
         }
 
-        let mut reads: HashMap<Arc<str>, Vec<ErasedToken>> = HashMap::new();
         for arc in &read_arcs {
             if let Some(queue) = self.marking.queue(arc.place.name())
                 && let Some(token) = queue.front()
@@ -432,8 +444,6 @@ impl ExecutorBackend for BitmapBackend {
         // (for the next ready transition this cycle) sees the live
         // marking after this consumption.
         self.firing_snap_buffer.copy_from_slice(&self.marked_places);
-
-        ConsumedInputs { inputs, reads }
     }
 
     fn produce_token(&mut self, place: &Arc<str>, token: ErasedToken) {

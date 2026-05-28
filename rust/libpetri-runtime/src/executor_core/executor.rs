@@ -1,25 +1,30 @@
 //! The shared 5-phase CTPN execution loop.
 //!
 //! [`Executor<S, E>`] owns the cross-cutting state — event store,
-//! monotonic clock, environment-place flag, async signal channel — and
-//! drives the loop against an [`ExecutorBackend`] that supplies the
-//! storage primitives (enablement, token mutation, dirty tracking).
+//! monotonic clock, environment-place flag, reusable HashMap buffers,
+//! async signal channel — and drives the loop against an
+//! [`ExecutorBackend`] that supplies the storage primitives
+//! (enablement, token mutation, dirty tracking).
 //!
 //! Public type aliases live with each backend:
 //! - [`BitmapNetExecutor<E>`](crate::executor::BitmapNetExecutor)
 //!   `= Executor<BitmapBackend, E>` — reference / verification path.
-//! - `PrecompiledNetExecutor<'a, E>` (added in step 4) — production hot
-//!   path.
+//! - [`PrecompiledNetExecutor<'a, E>`](crate::precompiled_executor::PrecompiledNetExecutor)
+//!   `= Executor<PrecompiledBackend<'a>, E>` — production hot path.
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
 use libpetri_core::context::TransitionContext;
+use libpetri_core::token::ErasedToken;
 use libpetri_event::event_store::EventStore;
 use libpetri_event::net_event::NetEvent;
 
-use crate::executor_core::backend::{ConsumedInputs, EnablementChanges, ExecutorBackend};
+use crate::executor_core::backend::{
+    ExecutorBackend, NoopChangeTracker, RecordingChangeTracker,
+};
 use crate::executor_core::deadline::{elapsed_ms_since, now_millis};
 use crate::executor_core::event_payload::{token_added_event, token_removed_event};
 use crate::marking::Marking;
@@ -44,6 +49,16 @@ pub struct Executor<S: ExecutorBackend, E: EventStore> {
     /// is false. The sync loop uses it to decide whether to terminate
     /// at quiescence (no env places) or wait (env places exist).
     has_environment_places: bool,
+
+    /// Reusable HashMap for `TransitionContext` inputs, kept across
+    /// firings to avoid per-firing allocation. Cleared by the loop
+    /// before each `consume_for_firing` call, then moved into the
+    /// context and reclaimed via `take_inputs()` after the action.
+    reusable_inputs: HashMap<Arc<str>, Vec<ErasedToken>>,
+
+    /// Companion to [`reusable_inputs`](Self::reusable_inputs) for
+    /// read-arc tokens.
+    reusable_reads: HashMap<Arc<str>, Vec<ErasedToken>>,
 }
 
 impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
@@ -56,6 +71,8 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             event_store,
             start_time: Instant::now(),
             has_environment_places,
+            reusable_inputs: HashMap::new(),
+            reusable_reads: HashMap::new(),
         }
     }
 
@@ -93,13 +110,14 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             });
         }
 
-        let mut changes = EnablementChanges::default();
+        let mut newly_enabled: Vec<usize> = Vec::new();
+        let mut clock_restarted: Vec<usize> = Vec::new();
         let mut timed_out: Vec<usize> = Vec::new();
         let mut ready: Vec<usize> = Vec::new();
 
         loop {
             let cycle_now = self.elapsed_ms();
-            self.update_enablement_and_emit(cycle_now, &mut changes);
+            self.update_enablement_and_emit(cycle_now, &mut newly_enabled, &mut clock_restarted);
 
             if self.backend.has_any_deadlines() {
                 timed_out.clear();
@@ -153,47 +171,84 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
     }
 
     /// Drives backend enablement and emits the resulting events.
+    /// When `E::ENABLED` is false, passes
+    /// [`NoopChangeTracker`](crate::executor_core::backend::NoopChangeTracker)
+    /// so the backend's tracking calls compile to no-ops and the
+    /// per-cycle Vec stays unallocated — measurable on the small
+    /// single-passthrough / fan-out micro-benchmarks.
     #[inline]
-    fn update_enablement_and_emit(&mut self, now_ms: f64, changes: &mut EnablementChanges) {
-        changes.newly_enabled.clear();
-        changes.clock_restarted.clear();
-        self.backend.update_enablement(now_ms, changes);
-
+    fn update_enablement_and_emit(
+        &mut self,
+        now_ms: f64,
+        newly_enabled: &mut Vec<usize>,
+        clock_restarted: &mut Vec<usize>,
+    ) {
         if E::ENABLED {
+            newly_enabled.clear();
+            clock_restarted.clear();
+            let mut tracker = RecordingChangeTracker {
+                newly_enabled,
+                clock_restarted,
+            };
+            self.backend.update_enablement(now_ms, &mut tracker);
+
             let ts = now_millis();
-            for &tid in &changes.newly_enabled {
+            for &tid in newly_enabled.iter() {
                 let name = Arc::clone(self.backend.compiled().transition(tid).name_arc());
                 self.event_store.append(NetEvent::TransitionEnabled {
                     transition_name: name,
                     timestamp: ts,
                 });
             }
-            for &tid in &changes.clock_restarted {
+            for &tid in clock_restarted.iter() {
                 let name = Arc::clone(self.backend.compiled().transition(tid).name_arc());
                 self.event_store.append(NetEvent::TransitionClockRestarted {
                     transition_name: name,
                     timestamp: ts,
                 });
             }
+        } else {
+            let mut tracker = NoopChangeTracker;
+            self.backend.update_enablement(now_ms, &mut tracker);
         }
+    }
+
+    /// Drive the backend's consume phase, emitting `TokenRemoved`
+    /// events in spec-declaration order via a closure. Fills the
+    /// reusable input/read buffers in place.
+    #[inline]
+    fn consume_and_emit(&mut self, tid: usize) {
+        self.reusable_inputs.clear();
+        self.reusable_reads.clear();
+        let Self {
+            backend,
+            event_store,
+            reusable_inputs,
+            reusable_reads,
+            ..
+        } = self;
+        backend.consume_for_firing(tid, reusable_inputs, reusable_reads, |place, token| {
+            if E::ENABLED {
+                event_store.append(token_removed_event::<E>(
+                    Arc::clone(place),
+                    now_millis(),
+                    token,
+                ));
+            }
+        });
     }
 
     /// Fire a single transition synchronously: consume inputs, run the
     /// action inline, process outputs, post-fire housekeeping.
     fn fire_transition_sync(&mut self, tid: usize) {
         let (transition_name, action, output_place_names) = {
-            let t = self.backend.compiled().transition(tid);
-            let name = Arc::clone(t.name_arc());
-            let action = Arc::clone(t.action());
-            let outputs = t
-                .output_places()
-                .iter()
-                .map(|p| Arc::clone(p.name_arc()))
-                .collect();
+            let name = Arc::clone(self.backend.compiled().transition(tid).name_arc());
+            let action = Arc::clone(self.backend.compiled().transition(tid).action());
+            let outputs = self.backend.output_place_names(tid);
             (name, action, outputs)
         };
 
-        let consumed = self.consume_and_emit(tid);
+        self.consume_and_emit(tid);
 
         if E::ENABLED {
             self.event_store.append(NetEvent::TransitionStarted {
@@ -202,18 +257,41 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             });
         }
 
+        let inputs = std::mem::take(&mut self.reusable_inputs);
+        let reads = std::mem::take(&mut self.reusable_reads);
         let mut ctx = TransitionContext::new(
             Arc::clone(&transition_name),
-            consumed.inputs,
-            consumed.reads,
+            inputs,
+            reads,
             output_place_names,
             None,
         );
 
         let result = action.run_sync(&mut ctx);
+
+        // Reclaim buffers before processing outputs so the next firing
+        // reuses the HashMap allocations.
+        self.reusable_inputs = ctx.take_inputs();
+        self.reusable_reads = ctx.take_reads();
+
         match result {
             Ok(()) => {
-                self.process_outputs(&mut ctx);
+                let outputs = ctx.take_outputs();
+                for entry in outputs {
+                    let event = if E::ENABLED {
+                        Some(token_added_event::<E>(
+                            Arc::clone(&entry.place_name),
+                            now_millis(),
+                            &entry.token,
+                        ))
+                    } else {
+                        None
+                    };
+                    self.backend.produce_token(&entry.place_name, entry.token);
+                    if let Some(ev) = event {
+                        self.event_store.append(ev);
+                    }
+                }
                 if E::ENABLED {
                     self.event_store.append(NetEvent::TransitionCompleted {
                         transition_name: Arc::clone(&transition_name),
@@ -233,50 +311,6 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         }
 
         self.backend.post_fire(tid);
-    }
-
-    /// Drive the backend's consume phase, emitting `TokenRemoved`
-    /// events in spec-declaration order via the closure.
-    #[inline]
-    fn consume_and_emit(&mut self, tid: usize) -> ConsumedInputs {
-        // Borrow split: capture &mut event_store via a re-borrow that
-        // lives separately from the &mut backend call below.
-        let Self {
-            backend,
-            event_store,
-            ..
-        } = self;
-        backend.consume_for_firing(tid, |place, token| {
-            if E::ENABLED {
-                event_store.append(token_removed_event::<E>(
-                    Arc::clone(place),
-                    now_millis(),
-                    token,
-                ));
-            }
-        })
-    }
-
-    /// Move outputs from `ctx` into the backend's storage, emitting
-    /// `TokenAdded` events in produce-order.
-    #[inline]
-    fn process_outputs(&mut self, ctx: &mut TransitionContext) {
-        let outputs = ctx.take_outputs();
-        for entry in outputs {
-            let event = if E::ENABLED {
-                Some(token_added_event::<E>(
-                    Arc::clone(&entry.place_name),
-                    now_millis(),
-                    &entry.token,
-                ))
-            } else {
-                None
-            };
-            self.backend.produce_token(&entry.place_name, entry.token);
-            if let Some(ev) = event {
-                self.event_store.append(ev);
-            }
-        }
     }
 }
 
@@ -324,7 +358,8 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             });
         }
 
-        let mut changes = EnablementChanges::default();
+        let mut newly_enabled: Vec<usize> = Vec::new();
+        let mut clock_restarted: Vec<usize> = Vec::new();
         let mut timed_out: Vec<usize> = Vec::new();
         let mut ready: Vec<usize> = Vec::new();
 
@@ -342,7 +377,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
 
             // Phase 3: update enablement and emit events.
             let cycle_now = self.elapsed_ms();
-            self.update_enablement_and_emit(cycle_now, &mut changes);
+            self.update_enablement_and_emit(cycle_now, &mut newly_enabled, &mut clock_restarted);
 
             // Phase 4: enforce deadlines.
             if self.backend.has_any_deadlines() {
@@ -538,19 +573,14 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         in_flight_count: &mut usize,
     ) {
         let (transition_name, action, output_place_names) = {
-            let t = self.backend.compiled().transition(tid);
-            let name = Arc::clone(t.name_arc());
-            let action = Arc::clone(t.action());
-            let outputs = t
-                .output_places()
-                .iter()
-                .map(|p| Arc::clone(p.name_arc()))
-                .collect();
+            let name = Arc::clone(self.backend.compiled().transition(tid).name_arc());
+            let action = Arc::clone(self.backend.compiled().transition(tid).action());
+            let outputs = self.backend.output_place_names(tid);
             (name, action, outputs)
         };
         let is_sync = action.is_sync();
 
-        let consumed = self.consume_and_emit(tid);
+        self.consume_and_emit(tid);
 
         if E::ENABLED {
             self.event_store.append(NetEvent::TransitionStarted {
@@ -560,22 +590,42 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         }
 
         // Disable + mark dirty before running the action (sync inline
-        // or async spawn) so that re-evaluation next cycle sees the
+        // or async spawn) so re-evaluation next cycle sees the
         // transition as a candidate again.
         self.backend.post_fire(tid);
+
+        let inputs = std::mem::take(&mut self.reusable_inputs);
+        let reads = std::mem::take(&mut self.reusable_reads);
 
         if is_sync {
             let mut ctx = TransitionContext::new(
                 Arc::clone(&transition_name),
-                consumed.inputs,
-                consumed.reads,
+                inputs,
+                reads,
                 output_place_names,
                 None,
             );
             let result = action.run_sync(&mut ctx);
+            self.reusable_inputs = ctx.take_inputs();
+            self.reusable_reads = ctx.take_reads();
             match result {
                 Ok(()) => {
-                    self.process_outputs(&mut ctx);
+                    let outputs = ctx.take_outputs();
+                    for entry in outputs {
+                        let event = if E::ENABLED {
+                            Some(token_added_event::<E>(
+                                Arc::clone(&entry.place_name),
+                                now_millis(),
+                                &entry.token,
+                            ))
+                        } else {
+                            None
+                        };
+                        self.backend.produce_token(&entry.place_name, entry.token);
+                        if let Some(ev) = event {
+                            self.event_store.append(ev);
+                        }
+                    }
                     if E::ENABLED {
                         self.event_store.append(NetEvent::TransitionCompleted {
                             transition_name: Arc::clone(&transition_name),
@@ -594,13 +644,18 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 }
             }
         } else {
+            // Async spawn: the spawned task owns its own HashMaps; we
+            // don't reclaim the reusable buffers in this path because
+            // the context moves into the task. Fresh allocations next
+            // firing — async hot paths are dominated by tokio overhead,
+            // not HashMap construction.
             *in_flight_count += 1;
             let tx = completion_tx.clone();
             let name = Arc::clone(&transition_name);
             let ctx = TransitionContext::new(
                 Arc::clone(&transition_name),
-                consumed.inputs,
-                consumed.reads,
+                inputs,
+                reads,
                 output_place_names,
                 None,
             );
