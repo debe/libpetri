@@ -17,5 +17,5 @@
 pub(crate) mod backend;
 pub(crate) mod deadline;
 pub(crate) mod event_payload;
-pub(crate) mod executor;
+pub mod executor;
 pub(crate) mod output;

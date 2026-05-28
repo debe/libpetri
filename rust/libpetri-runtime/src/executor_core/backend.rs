@@ -1,11 +1,19 @@
-//! The internal seam between the shared 5-phase loop ([`Executor`]) and
-//! each executor's choice of token storage / enablement representation /
-//! dirty tracking.
+//! The internal seam between the shared 5-phase execution loop
+//! ([`Executor`]) and each executor's choice of token storage,
+//! enablement representation, and dirty tracking.
 //!
 //! Implemented by `BitmapBackend` (reference) and `PrecompiledBackend`
 //! (production hot path). The trait is `pub(crate)` because external
 //! adapters aren't a goal yet — a public version waits for a second real
 //! consumer outside the crate.
+//!
+//! ## Seam granularity
+//!
+//! The seam is at *phase* granularity, not per-primitive: methods like
+//! [`update_enablement`](ExecutorBackend::update_enablement) and
+//! [`consume_for_firing`](ExecutorBackend::consume_for_firing) wrap whole
+//! cycle phases. The loop owns event emission, action execution, and
+//! deadline arithmetic; each backend owns *how* its phase runs.
 //!
 //! [`Executor`]: crate::executor_core::executor::Executor
 
@@ -18,45 +26,52 @@ use libpetri_core::token::ErasedToken;
 use crate::compiled_net::CompiledNet;
 use crate::marking::Marking;
 
-/// The bundle of tokens a backend hands back when a transition fires.
+/// Tokens consumed and tokens visible to read arcs when a single
+/// transition fires.
 ///
-/// All three buckets are keyed by place name (the loop emits
-/// `TokenRemoved` events against these names, builds the
-/// [`TransitionContext`] from them, and uses them to drive output
-/// production).
+/// The loop hands `inputs` and `reads` into the [`TransitionContext`].
+/// Reset-arc tokens never reach the loop as a struct field — the
+/// backend emits their `TokenRemoved` events via the
+/// `emit_removed` closure passed to
+/// [`consume_for_firing`](ExecutorBackend::consume_for_firing) and
+/// drops the tokens.
 ///
 /// [`TransitionContext`]: libpetri_core::context::TransitionContext
 #[derive(Debug, Default)]
-#[allow(dead_code)]
-pub(crate) struct ConsumedInputs {
-    /// Tokens consumed by input arcs (`In::One`, `In::Exactly`,
-    /// `In::AtLeast`, `In::All`). Owned — the backend has removed them
-    /// from its token store.
+pub struct ConsumedInputs {
     pub inputs: HashMap<Arc<str>, Vec<ErasedToken>>,
-
-    /// Tokens visible to read arcs (clones — not removed from the
-    /// backend's store). Keyed by place name.
     pub reads: HashMap<Arc<str>, Vec<ErasedToken>>,
+}
 
-    /// Tokens drained by reset arcs. The backend has removed these and
-    /// noted the reset for clock-restart detection.
-    pub resets: HashMap<Arc<str>, Vec<ErasedToken>>,
+/// Per-cycle enablement deltas reported by
+/// [`ExecutorBackend::update_enablement`]. The loop walks each list to
+/// emit `TransitionEnabled` and `TransitionClockRestarted` events.
+#[derive(Debug, Default)]
+pub struct EnablementChanges {
+    pub newly_enabled: Vec<usize>,
+    pub clock_restarted: Vec<usize>,
 }
 
 /// Internal seam between the shared loop and per-executor storage.
 ///
-/// **Stability:** every backend must yield the same observable behaviour
-/// for the same net + initial marking. Performance characteristics differ
-/// (the precompiled backend is ~3.86× faster on sync chains), but
-/// semantics — firing order under priority + FIFO, deadline enforcement,
-/// reset arc clock-restart, environment-place injection — are pinned by
-/// the loop, not by the backend.
+/// **Visibility:** `pub` because it appears in the bounds of
+/// [`Executor`](crate::executor_core::executor::Executor) — but it
+/// lives under the internal `executor_core` module path. External
+/// implementations are not supported yet; if you implement it, expect
+/// breaking changes on every release.
+///
+/// **Stability:** every backend must yield the same observable
+/// behaviour for the same net + initial marking. Firing order under
+/// priority + FIFO, deadline enforcement, reset-arc clock-restart
+/// semantics, and environment-place injection are pinned by the loop,
+/// not by the backend.
 ///
 /// **Hot path:** monomorphised. The loop is generic over `S:
 /// ExecutorBackend` so each backend's methods inline. No `dyn` dispatch
-/// anywhere.
-#[allow(dead_code)]
-pub(crate) trait ExecutorBackend {
+/// anywhere; the trait is intentionally object-unsafe via the generic
+/// closure parameter on
+/// [`consume_for_firing`](ExecutorBackend::consume_for_firing).
+pub trait ExecutorBackend {
     // ============ Topology ============
 
     /// Borrow the precompiled net topology (place names, transition
@@ -64,71 +79,117 @@ pub(crate) trait ExecutorBackend {
     /// net is built).
     fn compiled(&self) -> &CompiledNet;
 
-    // ============ Enablement (per cycle) ============
+    // ============ Lifecycle ============
 
-    /// Drain the dirty-transition set into `buf`. The buffer is cleared
-    /// before filling. After this call, the backend's internal dirty
-    /// state is empty until [`mark_dirty_after`] or
-    /// [`take_dirty_into`]-callers re-mark transitions.
-    ///
-    /// Each dirty transition ID is yielded at most once per cycle.
-    ///
-    /// [`mark_dirty_after`]: ExecutorBackend::mark_dirty_after
-    /// [`take_dirty_into`]: ExecutorBackend::take_dirty_into
-    fn take_dirty_into(&mut self, buf: &mut Vec<usize>);
-
-    /// True when the transition has all required input/read tokens
-    /// available and no inhibitor blocks it. Does not consult timing —
-    /// the loop layers deadline/window/exact checks on top.
-    fn can_enable(&self, tid: usize) -> bool;
-
-    /// Update the backend's per-transition enabled state. The loop calls
-    /// this after every dirty re-evaluation. `now_ms` is the executor's
-    /// monotonic clock (see `elapsed_ms_since`); it's recorded so the
-    /// backend can answer [`earliest_enabled_at`].
-    ///
-    /// [`earliest_enabled_at`]: ExecutorBackend::earliest_enabled_at
-    fn set_enabled(&mut self, tid: usize, enabled: bool, now_ms: f64);
-
-    /// Pop the next ready transition for the immediate-priority firing
-    /// pass (phase 4a). Returns `None` when there are no more
-    /// immediately-fireable transitions this cycle.
-    fn next_ready_immediate(&mut self) -> Option<usize>;
-
-    /// Pop the next ready transition respecting priority and timing
-    /// (phase 4b). Returns `None` when nothing is firable at `now_ms`.
-    fn next_ready_general(&mut self, now_ms: f64) -> Option<usize>;
-
-    /// Wall-clock (monotonic) milliseconds at which the transition first
-    /// became enabled in the current enabled-streak. Used for FIFO
-    /// tie-breaking inside a priority bucket and for deadline arithmetic.
-    fn earliest_enabled_at(&self, tid: usize) -> f64;
-
-    // ============ Token mutation ============
-
-    /// Consume inputs (per arc spec), gather read-arc tokens, and drain
-    /// reset arcs for transition `tid`. The backend mutates its token
-    /// store; the loop emits `TokenRemoved` events from the returned
-    /// bundle.
-    fn consume_inputs(&mut self, tid: usize) -> ConsumedInputs;
-
-    /// Produce a token at `place`. The backend handles bitmap/dirty
-    /// updates so the next cycle's enablement scan sees the new token.
-    fn produce_token(&mut self, place: &Arc<str>, token: ErasedToken);
-
-    /// Mark every transition that reads from any place fired by `tid`
-    /// (or its reset arcs) as dirty for the next enablement re-eval.
-    fn mark_dirty_after(&mut self, tid: usize);
-
-    // ============ Observation ============
+    /// Sync the presence bitmap from the initial marking and mark every
+    /// transition dirty so the first `update_enablement` re-evaluates
+    /// the entire net. Called once before the loop starts.
+    fn initialize(&mut self);
 
     /// Snapshot the current marking. Bitmap backends return
     /// `Cow::Borrowed(&self.marking)` (zero copy). Precompiled backends
     /// materialise from ring buffers and return `Cow::Owned`.
     fn snapshot_marking(&self) -> Cow<'_, Marking>;
 
-    /// True when no transition is enabled, no completion is pending,
-    /// and (for async) no environment event is in flight. The loop
-    /// uses this to decide between sleeping and terminating.
+    /// True when nothing is enabled. The loop uses this alongside
+    /// `has_environment_places` to decide between sleeping and
+    /// terminating.
     fn is_quiescent(&self) -> bool;
+
+    /// True when the dirty set is non-empty. Used by the sync loop to
+    /// continue iterating if a re-evaluation is pending even with no
+    /// currently-enabled transitions.
+    fn has_dirty_bits(&self) -> bool;
+
+    /// Count of currently-enabled transitions. The loop uses this for
+    /// termination (no enabled + nothing in flight = done).
+    fn enabled_count(&self) -> usize;
+
+    // ============ Phase 3 — enablement ============
+
+    /// Re-evaluate every dirty transition and update the enabled set.
+    /// Reports newly-enabled transitions (for `TransitionEnabled`
+    /// events) and transitions whose enabled-time clock just restarted
+    /// because a reset arc drained one of their input places (for
+    /// `TransitionClockRestarted` events).
+    fn update_enablement(&mut self, now_ms: f64, changes: &mut EnablementChanges);
+
+    // ============ Phase 4a — deadline enforcement ============
+
+    /// Cheap "should I bother scanning?" check. False means the loop
+    /// can skip the deadline-enforcement phase entirely.
+    fn has_any_deadlines(&self) -> bool;
+
+    /// Disable every enabled transition whose `enabled_at_ms +
+    /// latest_ms + tolerance < now_ms`. Pushes timed-out transition IDs
+    /// into `out` so the loop can emit `TransitionTimedOut` events.
+    fn enforce_deadlines(&mut self, now_ms: f64, out: &mut Vec<usize>);
+
+    // ============ Phase 4b — firing decision ============
+
+    /// Cheap precomputed flag: every transition is `Immediate` with
+    /// identical priority, so the loop can skip the priority +
+    /// FIFO-sort general path and fire every enabled transition in
+    /// transition-index order.
+    fn fast_path_available(&self) -> bool;
+
+    /// Fast-path collector: pushes every currently-enabled transition
+    /// ID into `out` in transition-index order. Only valid when
+    /// [`fast_path_available`](ExecutorBackend::fast_path_available)
+    /// returned `true`.
+    fn collect_ready_immediate(&mut self, out: &mut Vec<usize>);
+
+    /// General-path collector: pushes every enabled transition whose
+    /// earliest-time window has opened into `out`, sorted by priority
+    /// (descending) then by enabled-at time (ascending FIFO).
+    fn collect_ready_general(&mut self, now_ms: f64, out: &mut Vec<usize>);
+
+    /// Re-check that a ready transition is still firable given that
+    /// earlier transitions this cycle may have consumed shared inputs.
+    /// Returns false when the transition can no longer fire; the loop
+    /// then calls [`disable`](ExecutorBackend::disable).
+    fn recheck_can_fire(&mut self, tid: usize) -> bool;
+
+    // ============ Phase 4c — fire a single transition ============
+
+    /// Consume inputs (per arc spec), gather read-arc tokens, drain
+    /// reset arcs, update presence bitmaps and mark dirty for the
+    /// affected places. The loop emits `TokenRemoved` events from the
+    /// returned bundle in spec-declaration order via `emit_removed`.
+    ///
+    /// The closure is called for every consumed input/reset token at
+    /// the moment it is removed, preserving the per-token event order
+    /// the existing executor emits today.
+    fn consume_for_firing<F>(&mut self, tid: usize, emit_removed: F) -> ConsumedInputs
+    where
+        F: FnMut(&Arc<str>, &ErasedToken);
+
+    /// Produce a token at `place`. The backend updates token storage,
+    /// presence bitmap, and dirty bits so the next cycle's enablement
+    /// scan sees the new token.
+    fn produce_token(&mut self, place: &Arc<str>, token: ErasedToken);
+
+    /// Post-firing housekeeping: disable the transition that just
+    /// fired, clear its enabled-at timestamp, and mark it dirty for
+    /// re-evaluation next cycle.
+    fn post_fire(&mut self, tid: usize);
+
+    /// Silently disable a transition (no events). Called when
+    /// [`recheck_can_fire`](ExecutorBackend::recheck_can_fire) returns
+    /// false: another transition this cycle stole the inputs.
+    fn disable(&mut self, tid: usize);
+
+    // ============ External event injection (async) ============
+
+    /// Inject an environment-place token from the outside world.
+    /// Updates token storage and dirty bits; the loop emits the
+    /// `TokenAdded` event.
+    fn inject_external_token(&mut self, place: &Arc<str>, token: ErasedToken);
+
+    // ============ Async planning ============
+
+    /// Milliseconds until the next deadline or earliest-firing window.
+    /// Returns `f64::INFINITY` when no timed transition is waiting.
+    /// Used by the async loop to bound its `tokio::time::sleep`.
+    fn millis_until_next_timed_transition(&self, now_ms: f64) -> f64;
 }

@@ -62,10 +62,11 @@
 //! event injection via environment places.
 
 pub mod bitmap;
+pub mod bitmap_backend;
 pub mod compiled_net;
 pub mod environment;
 pub mod executor;
-pub(crate) mod executor_core;
+pub mod executor_core;
 #[cfg(feature = "tokio")]
 pub mod executor_handle;
 pub mod marking;
