@@ -7,8 +7,11 @@ use libpetri_core::token::{ErasedToken, Token};
 
 /// Mutable token state of a Petri net during execution.
 ///
-/// Stores type-erased tokens in FIFO queues keyed by place name.
-#[derive(Debug, Default)]
+/// Stores type-erased tokens in FIFO queues keyed by place name. Cloning
+/// is shallow w.r.t. token payloads — each `ErasedToken` clone is an
+/// `Arc` bump, not a deep copy — so `Cow<'_, Marking>` is the canonical
+/// return type for `marking()` across both executor backends.
+#[derive(Debug, Default, Clone)]
 pub struct Marking {
     tokens: HashMap<Arc<str>, VecDeque<ErasedToken>>,
 }
