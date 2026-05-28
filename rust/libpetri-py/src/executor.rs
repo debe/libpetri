@@ -25,7 +25,7 @@ use crate::value::{marking_from_python, marking_to_python};
 /// `environment_places` keeps the executor alive while external tokens may
 /// still arrive. `skip_output_validation` disables AND/XOR output-spec checks
 /// for trusted callers.
-#[pyclass(module = "_libpetri", name = "ExecutorOptions")]
+#[pyclass(module = "_libpetri", name = "ExecutorOptions", from_py_object)]
 #[derive(Clone, Default)]
 pub struct PyExecutorOptions {
     environment_places: Vec<String>,
@@ -72,7 +72,7 @@ impl PyExecutorOptions {
 ///
 /// Construct from a `Net`, then call `run_sync` (returns a final marking dict)
 /// or `run_async` (returns an `(ExecutorHandle, awaitable)` pair).
-#[pyclass(module = "_libpetri", name = "CompiledNet")]
+#[pyclass(module = "_libpetri", name = "CompiledNet", from_py_object)]
 #[derive(Clone)]
 pub struct PyCompiledNet {
     inner: OwnedPrecompiledNet,

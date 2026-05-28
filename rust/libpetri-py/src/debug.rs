@@ -10,7 +10,7 @@ use pyo3::prelude::*;
 use crate::model::PyPetriNet;
 
 /// Read-only summary of a debug session — id, net name, active flag, event count, tags, end time, duration.
-#[pyclass(module = "_libpetri", name = "SessionSummary")]
+#[pyclass(module = "_libpetri", name = "SessionSummary", from_py_object)]
 #[derive(Clone)]
 pub struct PySessionSummary {
     #[pyo3(get)]

@@ -10,7 +10,7 @@ use pyo3::wrap_pyfunction;
 use crate::model::PyPetriNet;
 
 /// Graph layout direction for DOT rendering.
-#[pyclass(module = "_libpetri", name = "RankDir", eq, eq_int)]
+#[pyclass(module = "_libpetri", name = "RankDir", eq, eq_int, from_py_object)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum PyRankDir {
     TopToBottom,
@@ -31,7 +31,7 @@ impl PyRankDir {
 }
 
 /// DOT rendering options: layout direction, what to label on each node, and which places are environment-typed.
-#[pyclass(module = "_libpetri", name = "DotConfig")]
+#[pyclass(module = "_libpetri", name = "DotConfig", from_py_object)]
 #[derive(Clone)]
 pub struct PyDotConfig {
     #[pyo3(get, set)]
