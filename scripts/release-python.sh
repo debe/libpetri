@@ -100,8 +100,12 @@ cd "$RUST_DIR"
 sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
 sed -i "s/\(path = \"[^\"]*\"\), version = \"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\"/\1, version = \"$VERSION\"/g" Cargo.toml
 
+# Sync Cargo.lock so the maturin `--locked` build below doesn't reject the
+# now-stale lockfile. `cargo update --workspace` only bumps workspace members.
+cargo update --workspace --offline >/dev/null
+
 cd "$PROJECT_ROOT"
-git add rust/Cargo.toml
+git add rust/Cargo.toml rust/Cargo.lock
 git diff --cached --quiet || git commit -m "release: python ${VERSION}"
 
 info "Building Python wheel and sdist"
