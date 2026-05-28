@@ -18,7 +18,7 @@ boundary if needed).
   including the documented Cargo.lock-resync gotcha).
 - Async-callback perf: manual coroutine driver; `bench_chain_async_callback[100]`
   3536 µs → 750 µs (−78.8%). Sync chain −12% (LTO, `pyo3_disable_reference_pool`,
-  `Arc<str>` keys). Full numbers in `python/benches/RESULTS_2026-05-27.md`.
+  `Arc<str>` keys).
 
 ## 2.5.0
 

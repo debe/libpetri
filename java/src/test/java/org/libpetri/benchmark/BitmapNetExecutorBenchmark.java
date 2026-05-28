@@ -197,28 +197,28 @@ public class BitmapNetExecutorBenchmark {
         syncLinearNet10000 = syncLinear10000.net;
         syncStart10000 = syncLinear10000.start;
 
-        // Build mixed linear chains (2 async, rest sync)
-        var mixedLinear10 = buildMixedLinearChain(10, 2);
+        // Build mixed linear chains (~2% sync, rest async)
+        var mixedLinear10 = buildMixedLinearChain(10);
         mixedLinearNet10 = mixedLinear10.net;
         mixedStart10 = mixedLinear10.start;
 
-        var mixedLinear20 = buildMixedLinearChain(20, 2);
+        var mixedLinear20 = buildMixedLinearChain(20);
         mixedLinearNet20 = mixedLinear20.net;
         mixedStart20 = mixedLinear20.start;
 
-        var mixedLinear50 = buildMixedLinearChain(50, 2);
+        var mixedLinear50 = buildMixedLinearChain(50);
         mixedLinearNet50 = mixedLinear50.net;
         mixedStart50 = mixedLinear50.start;
 
-        var mixedLinear100 = buildMixedLinearChain(100, 2);
+        var mixedLinear100 = buildMixedLinearChain(100);
         mixedLinearNet100 = mixedLinear100.net;
         mixedStart100 = mixedLinear100.start;
 
-        var mixedLinear200 = buildMixedLinearChain(200, 2);
+        var mixedLinear200 = buildMixedLinearChain(200);
         mixedLinearNet200 = mixedLinear200.net;
         mixedStart200 = mixedLinear200.start;
 
-        var mixedLinear500 = buildMixedLinearChain(500, 2);
+        var mixedLinear500 = buildMixedLinearChain(500);
         mixedLinearNet500 = mixedLinear500.net;
         mixedStart500 = mixedLinear500.start;
 
@@ -328,11 +328,16 @@ public class BitmapNetExecutorBenchmark {
     }
 
     /**
-     * Builds a mixed linear chain: the first {@code asyncCount} transitions use
-     * {@code supplyAsync} and the rest use {@code completedFuture}. Models a typical FSM
-     * where I/O happens at the entry boundary and the rest is in-memory logic.
+     * Builds a mixed linear chain: ~2% of transitions are synchronous
+     * fast-paths ({@code completedFuture}) and the rest dispatch async work
+     * ({@code supplyAsync}) — the common real-world shape where most work is
+     * I/O / network / LLM and only a small fraction is in-memory decisions.
+     * Formula: {@code syncCount = total / 50} — total=50 → 1 sync,
+     * total=100 → 2 sync, total=500 → 10 sync; chains of total ≤ 20 are
+     * 100% async (the 2% formula rounds to zero).
      */
-    private NetWithStart buildMixedLinearChain(int total, int asyncCount) {
+    private NetWithStart buildMixedLinearChain(int total) {
+        int syncCount = total / 50;
         var start = Place.of("mix_start", BenchToken.class);
         var places = new ArrayList<Place<BenchToken>>();
         places.add(start);
@@ -341,10 +346,10 @@ public class BitmapNetExecutorBenchmark {
             places.add(Place.of("mix_p" + i, BenchToken.class));
         }
 
-        var builder = PetriNet.builder("MixedLinear" + total + "_" + asyncCount + "async");
+        var builder = PetriNet.builder("MixedLinear" + total);
         for (int i = 0; i < total; i++) {
             var to = places.get(i + 1);
-            boolean async = i < asyncCount;
+            boolean async = i >= syncCount;
             builder.transition(
                 Transition.builder("mix_t" + (i + 1))
                     .inputs(In.one(places.get(i)))
@@ -915,32 +920,32 @@ public class BitmapNetExecutorBenchmark {
     // ==================== MIXED LINEAR CHAIN BENCHMARKS ====================
 
     @Benchmark
-    public void mixed_linear_10t_2async(Blackhole bh) {
+    public void mixed_linear_10t(Blackhole bh) {
         runBitmapNet(mixedLinearNet10, mixedStart10, bh);
     }
 
     @Benchmark
-    public void mixed_linear_20t_2async(Blackhole bh) {
+    public void mixed_linear_20t(Blackhole bh) {
         runBitmapNet(mixedLinearNet20, mixedStart20, bh);
     }
 
     @Benchmark
-    public void mixed_linear_50t_2async(Blackhole bh) {
+    public void mixed_linear_50t(Blackhole bh) {
         runBitmapNet(mixedLinearNet50, mixedStart50, bh);
     }
 
     @Benchmark
-    public void mixed_linear_100t_2async(Blackhole bh) {
+    public void mixed_linear_100t(Blackhole bh) {
         runBitmapNet(mixedLinearNet100, mixedStart100, bh);
     }
 
     @Benchmark
-    public void mixed_linear_200t_2async(Blackhole bh) {
+    public void mixed_linear_200t(Blackhole bh) {
         runBitmapNet(mixedLinearNet200, mixedStart200, bh);
     }
 
     @Benchmark
-    public void mixed_linear_500t_2async(Blackhole bh) {
+    public void mixed_linear_500t(Blackhole bh) {
         runBitmapNet(mixedLinearNet500, mixedStart500, bh);
     }
 
@@ -1082,32 +1087,32 @@ public class BitmapNetExecutorBenchmark {
     // ==================== COMPILED VM: MIXED LINEAR CHAIN ====================
 
     @Benchmark
-    public void compiled_mixed_linear_10t_2async(Blackhole bh) {
+    public void compiled_mixed_linear_10t(Blackhole bh) {
         runCompiledNet(mixedLinearNet10, mixedStart10, bh);
     }
 
     @Benchmark
-    public void compiled_mixed_linear_20t_2async(Blackhole bh) {
+    public void compiled_mixed_linear_20t(Blackhole bh) {
         runCompiledNet(mixedLinearNet20, mixedStart20, bh);
     }
 
     @Benchmark
-    public void compiled_mixed_linear_50t_2async(Blackhole bh) {
+    public void compiled_mixed_linear_50t(Blackhole bh) {
         runCompiledNet(mixedLinearNet50, mixedStart50, bh);
     }
 
     @Benchmark
-    public void compiled_mixed_linear_100t_2async(Blackhole bh) {
+    public void compiled_mixed_linear_100t(Blackhole bh) {
         runCompiledNet(mixedLinearNet100, mixedStart100, bh);
     }
 
     @Benchmark
-    public void compiled_mixed_linear_200t_2async(Blackhole bh) {
+    public void compiled_mixed_linear_200t(Blackhole bh) {
         runCompiledNet(mixedLinearNet200, mixedStart200, bh);
     }
 
     @Benchmark
-    public void compiled_mixed_linear_500t_2async(Blackhole bh) {
+    public void compiled_mixed_linear_500t(Blackhole bh) {
         runCompiledNet(mixedLinearNet500, mixedStart500, bh);
     }
 
@@ -1337,7 +1342,7 @@ public class BitmapNetExecutorBenchmark {
     }
 
     private static final Pattern SYNC_PATTERN = Pattern.compile("^(?:compiled_|ref_)?sync_linear_(\\d+)t$");
-    private static final Pattern MIXED_PATTERN = Pattern.compile("^(?:compiled_|ref_)?mixed_linear_(\\d+)t_2async$");
+    private static final Pattern MIXED_PATTERN = Pattern.compile("^(?:compiled_|ref_)?mixed_linear_(\\d+)t$");
     private static final Pattern ASYNC_PATTERN = Pattern.compile("^(?:compiled_|ref_)?linear_(\\d+)t(?:_\\d+p)?$");
 
     private static void printScalingSummary(Collection<RunResult> results) {

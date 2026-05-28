@@ -94,26 +94,30 @@ export function buildAsyncLinearChain(transitions: number): NetWithStart {
 }
 
 /**
- * Mixed linear chain: first `asyncCount` transitions use setTimeout(0),
- * rest use Promise.resolve(). Models I/O at entry boundary + in-memory logic.
+ * Mixed linear chain: ~2% of transitions are synchronous fast-paths
+ * (in-memory decisions, guard checks); the rest are async (I/O, network,
+ * LLM calls). Models the common real-world workload shape.
+ * Formula: `syncCount = floor(total / 50)` — N=50 → 1 sync, N=100 → 2 sync,
+ * N=500 → 10 sync; chains of N ≤ 20 are 100% async (formula rounds to zero).
  */
-export function buildMixedLinearChain(total: number, asyncCount: number): NetWithStart {
+export function buildMixedLinearChain(total: number): NetWithStart {
+  const syncCount = Math.floor(total / 50);
   const start = place<string>('mix_start');
   const places: Place<string>[] = [start];
   for (let i = 1; i <= total; i++) {
     places.push(place<string>(`mix_p${i}`));
   }
 
-  const builder = PetriNet.builder(`MixedLinear${total}_${asyncCount}async`);
+  const builder = PetriNet.builder(`MixedLinear${total}`);
   for (let i = 0; i < total; i++) {
     const to = places[i + 1]!;
-    const isAsync = i < asyncCount;
+    const isSync = i < syncCount;
     builder.transition(
       Transition.builder(`mix_t${i + 1}`)
         .inputs(one(places[i]!))
         .outputs(outPlace(to))
         .action(async (ctx) => {
-          if (isAsync) await yieldAsync();
+          if (!isSync) await yieldAsync();
           ctx.output(to, 'v');
         })
         .build()
