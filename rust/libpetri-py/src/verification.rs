@@ -15,7 +15,7 @@ use crate::model::{PyPetriNet, PySubnetDef};
 use crate::value::erased_from_py;
 
 /// An SMT property to verify against a net. Build via `deadlock_free`, `mutual_exclusion`, `place_bound`, `unreachable`.
-#[pyclass(module = "_libpetri", name = "SmtProperty")]
+#[pyclass(module = "_libpetri", name = "SmtProperty", from_py_object)]
 #[derive(Clone)]
 pub struct PySmtProperty {
     pub(crate) inner: SmtProperty,
@@ -30,7 +30,7 @@ impl PySmtProperty {
 }
 
 /// Outcome of an SMT verification run. Inspect `verdict` (`"proven"` / `"violated"` / `"unknown"`), and if violated, `counterexample_trace` / `counterexample_transitions`.
-#[pyclass(module = "_libpetri", name = "VerificationResult")]
+#[pyclass(module = "_libpetri", name = "VerificationResult", from_py_object)]
 #[derive(Clone)]
 pub struct PyVerificationResult {
     verdict: String,
@@ -85,6 +85,7 @@ impl PyVerificationResult {
         }
     }
 
+    #[cfg(not(feature = "z3"))]
     fn unknown(reason: impl Into<String>) -> Self {
         Self {
             verdict: "unknown".to_string(),
@@ -125,7 +126,7 @@ impl PyVerificationResult {
 }
 
 /// A property paired with the verification outcome for that property.
-#[pyclass(module = "_libpetri", name = "PropertyResult")]
+#[pyclass(module = "_libpetri", name = "PropertyResult", from_py_object)]
 #[derive(Clone)]
 pub struct PyPropertyResult {
     property: PySmtProperty,
@@ -139,7 +140,7 @@ impl PyPropertyResult {
 }
 
 /// Result of verifying a subnet under a harness: the synthetic net used and per-property outcomes.
-#[pyclass(module = "_libpetri", name = "SubnetVerificationResult")]
+#[pyclass(module = "_libpetri", name = "SubnetVerificationResult", from_py_object)]
 #[derive(Clone)]
 pub struct PySubnetVerificationResult {
     synthetic_net: PyPetriNet,

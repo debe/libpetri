@@ -32,7 +32,7 @@ use crate::value::PyTokenValue;
 /// Constructed as `Place("name")`. Identity is by name. Tokens deposited in a
 /// place are arbitrary Python objects — see the module docstring for the
 /// typing relaxation note.
-#[pyclass(module = "_libpetri", name = "Place")]
+#[pyclass(module = "_libpetri", name = "Place", from_py_object)]
 #[derive(Clone)]
 pub struct PyPlace {
     inner: Place<PyTokenValue>,
@@ -66,7 +66,7 @@ impl PyPlace {
 }
 
 /// Opaque input-arc descriptor. Build via `one()`, `exactly()`, `all_tokens()`, `at_least()`.
-#[pyclass(module = "_libpetri", name = "InputSpec")]
+#[pyclass(module = "_libpetri", name = "InputSpec", from_py_object)]
 #[derive(Clone)]
 pub struct PyInputSpec {
     pub(crate) inner: In,
@@ -80,7 +80,7 @@ impl PyInputSpec {
 }
 
 /// Opaque output-spec descriptor. Build via `out_place()`, `and_outputs()`, `xor_outputs()`, `timeout_output()`, `forward_input()`.
-#[pyclass(module = "_libpetri", name = "OutputSpec")]
+#[pyclass(module = "_libpetri", name = "OutputSpec", from_py_object)]
 #[derive(Clone)]
 pub struct PyOutputSpec {
     pub(crate) inner: Out,
@@ -94,28 +94,28 @@ impl PyOutputSpec {
 }
 
 /// Inhibitor arc: a transition with this arc is disabled while the place has any token.
-#[pyclass(module = "_libpetri", name = "InhibitorArc")]
+#[pyclass(module = "_libpetri", name = "InhibitorArc", from_py_object)]
 #[derive(Clone)]
 pub struct PyInhibitorArc {
     pub(crate) inner: Inhibitor,
 }
 
 /// Read arc: a transition tests presence without consuming.
-#[pyclass(module = "_libpetri", name = "ReadArc")]
+#[pyclass(module = "_libpetri", name = "ReadArc", from_py_object)]
 #[derive(Clone)]
 pub struct PyReadArc {
     pub(crate) inner: Read,
 }
 
 /// Reset arc: firing the transition clears all tokens from the place.
-#[pyclass(module = "_libpetri", name = "ResetArc")]
+#[pyclass(module = "_libpetri", name = "ResetArc", from_py_object)]
 #[derive(Clone)]
 pub struct PyResetArc {
     pub(crate) inner: Reset,
 }
 
 /// Timing constraint for a transition. Build via `immediate()`, `deadline()`, `delayed()`, `window()`, `exact()`.
-#[pyclass(module = "_libpetri", name = "Timing")]
+#[pyclass(module = "_libpetri", name = "Timing", from_py_object)]
 #[derive(Clone, Copy)]
 pub struct PyTiming {
     pub(crate) inner: Timing,
@@ -129,7 +129,7 @@ impl PyTiming {
 }
 
 /// A built transition. Construct via `Transition("name")...build()`.
-#[pyclass(module = "_libpetri", name = "Transition")]
+#[pyclass(module = "_libpetri", name = "Transition", from_py_object)]
 #[derive(Clone)]
 pub struct PyTransition {
     inner: Transition,
@@ -158,7 +158,7 @@ impl PyTransition {
 ///
 /// Wraps Rust's `fork()` / `passthrough()` actions so Python users can pick
 /// one without writing a callback.
-#[pyclass(module = "_libpetri", name = "BuiltinAction")]
+#[pyclass(module = "_libpetri", name = "BuiltinAction", from_py_object)]
 #[derive(Clone, Copy)]
 pub enum PyBuiltinAction {
     Passthrough,
@@ -337,7 +337,7 @@ impl PyTransitionBuilder {
 }
 
 /// A built Petri net definition. Build via `NetBuilder(name)...build()` or `Net(name)` shortcut, then `compile()` to run.
-#[pyclass(module = "_libpetri", name = "Net")]
+#[pyclass(module = "_libpetri", name = "Net", from_py_object)]
 #[derive(Clone)]
 pub struct PyPetriNet {
     inner: PetriNet,
@@ -372,7 +372,7 @@ impl PyPetriNet {
 }
 
 /// A subnet port — frozen, read-only view of a subnet's named boundary place.
-#[pyclass(module = "_libpetri", name = "Port", frozen)]
+#[pyclass(module = "_libpetri", name = "Port", frozen, from_py_object)]
 #[derive(Clone)]
 pub struct PyPort {
     #[pyo3(get)]
@@ -399,7 +399,7 @@ impl PyPort {
 }
 
 /// A subnet channel — frozen, read-only view of a subnet's exported transition reference.
-#[pyclass(module = "_libpetri", name = "Channel", frozen)]
+#[pyclass(module = "_libpetri", name = "Channel", frozen, from_py_object)]
 #[derive(Clone)]
 pub struct PyChannel {
     #[pyo3(get)]
@@ -418,7 +418,7 @@ impl PyChannel {
 }
 
 /// Frozen descriptor of an instantiated subnet — names of contained transitions, exposed places, and parent prefix.
-#[pyclass(module = "_libpetri", name = "SubnetInstance", frozen)]
+#[pyclass(module = "_libpetri", name = "SubnetInstance", frozen, from_py_object)]
 #[derive(Clone)]
 pub struct PySubnetInstance {
     #[pyo3(get)]
@@ -450,7 +450,7 @@ impl PySubnetInstance {
 }
 
 /// A live instance of a `SubnetDef`, bound to a prefix. Returned by `SubnetDef.instantiate(prefix)`.
-#[pyclass(module = "_libpetri", name = "Instance")]
+#[pyclass(module = "_libpetri", name = "Instance", from_py_object)]
 #[derive(Clone)]
 pub struct PyInstance {
     inner: Instance<()>,
@@ -472,14 +472,12 @@ impl PyInstance {
 
     /// Looks up the prefixed place name for the given port.
     fn port_place_name(&self, name: &str) -> PyResult<String> {
-        Ok(panic_to_py(|| {
-            self.inner.port::<PyTokenValue>(name).name().to_string()
-        })?)
+        panic_to_py(|| self.inner.port::<PyTokenValue>(name).name().to_string())
     }
 
     /// Looks up the prefixed transition name for the given channel.
     fn channel(&self, name: &str) -> PyResult<String> {
-        Ok(panic_to_py(|| self.inner.channel(name).to_string())?)
+        panic_to_py(|| self.inner.channel(name).to_string())
     }
 
     /// Returns the frozen `SubnetInstance` descriptor.
@@ -489,7 +487,7 @@ impl PyInstance {
 }
 
 /// A reusable subnet definition with named ports and channels. Build via `SubnetDefBuilder(name)`.
-#[pyclass(module = "_libpetri", name = "SubnetDef")]
+#[pyclass(module = "_libpetri", name = "SubnetDef", from_py_object)]
 #[derive(Clone)]
 pub struct PySubnetDef {
     pub(crate) inner: SubnetDef<()>,
