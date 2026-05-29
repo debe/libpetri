@@ -61,6 +61,8 @@
 //! transition actions to be async (`CompletableFuture`-style) with external
 //! event injection via environment places.
 
+#[cfg(test)]
+mod backend_suite_tests;
 pub mod bitmap;
 pub mod bitmap_backend;
 pub mod compiled_net;

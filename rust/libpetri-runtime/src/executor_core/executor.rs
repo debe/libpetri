@@ -145,8 +145,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 self.backend.collect_ready_general(cycle_now, &mut ready);
             }
 
-            for i in 0..ready.len() {
-                let tid = ready[i];
+            for &tid in &ready {
                 if self.backend.recheck_can_fire(tid) {
                     self.fire_transition_sync(tid);
                 } else {
@@ -418,8 +417,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             }
 
             let mut fired_any = false;
-            for i in 0..ready.len() {
-                let tid = ready[i];
+            for &tid in &ready {
                 if self.backend.recheck_can_fire(tid) {
                     self.fire_transition_async(tid, &completion_tx, &mut in_flight_count);
                     fired_any = true;
