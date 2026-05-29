@@ -659,20 +659,63 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 output_place_names,
                 None,
             );
+
+            // Capture the Out::Timeout budget (if any) before moving
+            // ctx into the spawned task. The `child` Out is cloned out
+            // of the transition's static spec so the spawned task can
+            // build its timeout outputs without borrowing back into
+            // self.backend.
+            let timeout_info = libpetri_core::output::find_timeout(
+                self.backend.compiled().transition(tid).output_spec().unwrap_or(&NO_OUTPUT_SPEC),
+            )
+            .map(|(after_ms, child)| (after_ms, child.clone()));
+
             tokio::spawn(async move {
-                let result = action.run_async(ctx).await;
-                let completion = match result {
-                    Ok(mut completed_ctx) => ActionCompletion {
-                        transition_name: Arc::clone(&name),
-                        result: Ok(completed_ctx.take_outputs()),
-                    },
-                    Err(err) => ActionCompletion {
-                        transition_name: Arc::clone(&name),
-                        result: Err(err.message),
-                    },
+                let completion = if let Some((after_ms, timeout_child)) = timeout_info {
+                    tokio::select! {
+                        biased;
+                        result = action.run_async(ctx) => action_completion(&name, result),
+                        _ = tokio::time::sleep(std::time::Duration::from_millis(after_ms)) => {
+                            ActionCompletion {
+                                transition_name: Arc::clone(&name),
+                                result: Ok(crate::executor_core::output::timeout_outputs(&timeout_child)),
+                            }
+                        }
+                    }
+                } else {
+                    action_completion(&name, action.run_async(ctx).await)
                 };
                 let _ = tx.send(completion);
             });
         }
+    }
+}
+
+/// A neutral output spec used only as a placeholder when `output_spec()`
+/// is `None`: `find_timeout` walks the tree and returns `None` for
+/// `Out::Place`, which is what we want for "no timeout".
+#[cfg(feature = "tokio")]
+static NO_OUTPUT_SPEC: std::sync::LazyLock<libpetri_core::output::Out> =
+    std::sync::LazyLock::new(|| {
+        libpetri_core::output::Out::Place(libpetri_core::place::PlaceRef::new(Arc::from(
+            "__no_output__",
+        )))
+    });
+
+#[cfg(feature = "tokio")]
+#[inline]
+fn action_completion(
+    name: &Arc<str>,
+    result: Result<TransitionContext, libpetri_core::action::ActionError>,
+) -> ActionCompletion {
+    match result {
+        Ok(mut completed_ctx) => ActionCompletion {
+            transition_name: Arc::clone(name),
+            result: Ok(completed_ctx.take_outputs()),
+        },
+        Err(err) => ActionCompletion {
+            transition_name: Arc::clone(name),
+            result: Err(err.message),
+        },
     }
 }

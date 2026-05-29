@@ -2119,7 +2119,6 @@ mod async_tests {
     }
 
     #[tokio::test]
-    #[ignore = "Executor does not yet implement per-action timeout (Out::Timeout) in the async path"]
     async fn async_timeout_produces_timeout_token() {
         use libpetri_core::output::{timeout_place, xor};
 
@@ -2156,7 +2155,6 @@ mod async_tests {
     }
 
     #[tokio::test]
-    #[ignore = "Executor does not yet implement per-action timeout (Out::Timeout) in the async path"]
     async fn async_timeout_normal_when_fast() {
         use libpetri_core::output::{timeout_place, xor};
 
