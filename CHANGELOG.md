@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+**Executor backend seam (Rust).** The two Rust executors now share one
+5-phase CTPN loop. `BitmapNetExecutor` and `PrecompiledNetExecutor` are type
+aliases over a single generic `Executor<S, E>` that drives an internal
+`ExecutorBackend` trait (bitmap vs. precompiled storage). Fully monomorphised —
+the precompiled hot path stays within ±2% of the pre-refactor benchmarks (most
+`precompiled_*` cases improved 1–9%); firing order, event semantics, and net
+structure are unchanged.
+
+- **Breaking (Rust)**: `marking()` returns `Cow<'_, Marking>` on both executors
+  (was `&Marking` / owned `Marking`); `run_sync` / `run_async` likewise. Use
+  `.into_owned()` for an owned copy.
+- **`Out::Timeout` in the async path**: an async action that exceeds its budget
+  now produces the timeout branch's outputs (matches Java/TS), closing two
+  previously-ignored tests.
+- Sync executor tests unified behind a `for_each_backend!` suite, so every CTPN
+  semantic runs against both backends from a single source.
+
 ## 2.6.0
 
 **Python bindings.** New `libpetri` PyPI package via PyO3 + maturin. Full surface
