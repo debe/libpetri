@@ -24,8 +24,9 @@ InMemoryEventStore = _ext.InMemoryEventStore
 NetEvent = _ext.NetEvent
 if _ext.HAS_TOKIO:
     EventSubscription = _ext.EventSubscription
+    EventStream = _ext.EventStream
 
 
 __all__ = ["InMemoryEventStore", "NetEvent"]
 if _ext.HAS_TOKIO:
-    __all__.append("EventSubscription")
+    __all__.extend(["EventStream", "EventSubscription"])

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -41,6 +41,22 @@ pub struct Transition {
     input_places: HashSet<PlaceRef>,
     read_places: HashSet<PlaceRef>,
     output_places: HashSet<PlaceRef>,
+    /// Optional mapping from **author-original** place names (as the
+    /// action source code wrote them) to the **post-compose** place
+    /// names that the runtime actually exposes through
+    /// [`crate::context::TransitionContext`].
+    ///
+    /// Populated by [`crate::rewriter::substitute_places`] when a
+    /// `SubnetDef` is composed into a host net: arc rewriting swaps
+    /// every place reference for the host-bound (or prefixed) name, but
+    /// the action's hard-coded `ctx.input("local_name")` calls still
+    /// reach for the **local** name. Bindings (Python, etc.) use this
+    /// map to fall back from a local-name lookup to the corresponding
+    /// host name.
+    ///
+    /// `None` for transitions that have not been substituted (the
+    /// common case — author-built transitions added directly to a net).
+    local_name_map: Option<Arc<HashMap<Arc<str>, Arc<str>>>>,
 }
 
 impl Transition {
@@ -124,6 +140,20 @@ impl Transition {
         &self.output_places
     }
 
+    /// Returns the local-name → post-compose-name map populated by the
+    /// rewriter when this transition was composed into a host net. See
+    /// the `local_name_map` field doc for details.
+    pub fn local_name_map(&self) -> Option<&Arc<HashMap<Arc<str>, Arc<str>>>> {
+        self.local_name_map.as_ref()
+    }
+
+    /// Returns a clone of the local-name map (cheap — `Arc` bump).
+    /// Used by binding-side action contexts that need to keep the map
+    /// alive past the transition's lifetime.
+    pub fn local_name_map_cloned(&self) -> Option<Arc<HashMap<Arc<str>, Arc<str>>>> {
+        self.local_name_map.as_ref().map(Arc::clone)
+    }
+
     /// Creates a new TransitionBuilder.
     pub fn builder(name: impl Into<Arc<str>>) -> TransitionBuilder {
         TransitionBuilder::new(name)
@@ -172,6 +202,7 @@ pub struct TransitionBuilder {
     timing: Timing,
     action: BoxedAction,
     priority: i32,
+    local_name_map: Option<Arc<HashMap<Arc<str>, Arc<str>>>>,
 }
 
 impl TransitionBuilder {
@@ -186,7 +217,16 @@ impl TransitionBuilder {
             timing: immediate(),
             action: passthrough(),
             priority: 0,
+            local_name_map: None,
         }
+    }
+
+    /// Attaches a local-name → composed-name map. Used by the
+    /// rewriter when substituting place references at compose time so
+    /// the action's hard-coded local names still resolve.
+    pub fn local_name_map(mut self, map: Arc<HashMap<Arc<str>, Arc<str>>>) -> Self {
+        self.local_name_map = Some(map);
+        self
     }
 
     /// Add a single input specification.
@@ -312,6 +352,7 @@ impl TransitionBuilder {
             input_places,
             read_places,
             output_places,
+            local_name_map: self.local_name_map,
         }
     }
 }

@@ -33,6 +33,11 @@ pub struct ExternalEvent {
 pub enum ExecutorSignal {
     /// External event injection (existing behavior).
     Event(ExternalEvent),
+    /// Batched external event injection — one signal carries N events.
+    /// Processed atomically: all events deposit before the next signal
+    /// is observed. Lets Python `handle.inject_many(...)` cross the FFI
+    /// once for any number of tokens.
+    EventBatch(Vec<ExternalEvent>),
     /// Graceful drain: reject new events, process queued, terminate at quiescence.
     Drain,
     /// Immediate close: discard queued events, complete in-flight, terminate.

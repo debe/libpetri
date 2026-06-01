@@ -169,7 +169,10 @@ impl PyCompiledNet {
 
         // Capture the running asyncio event loop so Python async callbacks
         // spawned onto tokio worker threads can drive themselves on it.
-        crate::action::install_event_loop_locals(py)?;
+        // The guard is moved into the spawned future so the captured
+        // locals are cleared at run-completion (allowing a subsequent
+        // `run_async` on a different loop to install fresh).
+        let loop_guard = crate::action::install_event_loop_locals(py)?;
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let handle = Py::new(
@@ -177,6 +180,7 @@ impl PyCompiledNet {
             PyExecutorHandle::new(libpetri::ExecutorHandle::new(tx)),
         )?;
         let awaitable = pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let _loop_guard = loop_guard;
             let marking = match shared {
                 None => {
                     owned
@@ -234,6 +238,30 @@ impl PyExecutorHandle {
             .lock()
             .unwrap()
             .inject(place_name, erased_from_py(value)))
+    }
+
+    /// Pushes each item of `values` into an environment place as one
+    /// batched signal. Returns `True` if accepted. Crosses the FFI once
+    /// for any number of tokens — drops the GIL crossing count from
+    /// N to 1 vs. a Python-side loop of `inject()` calls.
+    fn inject_many(
+        &self,
+        place: &Bound<'_, PyAny>,
+        values: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        let place_name = place_name_from_object(place)?;
+        let mut events: Vec<libpetri::runtime::environment::ExternalEvent> = Vec::new();
+        if let Ok(size) = values.len() {
+            events.reserve(size);
+        }
+        for item in values.try_iter()? {
+            let value = item?.unbind();
+            events.push(libpetri::runtime::environment::ExternalEvent {
+                place_name: Arc::clone(&place_name),
+                token: erased_from_py(value),
+            });
+        }
+        Ok(self.inner.lock().unwrap().inject_many(events))
     }
 
     /// Signals the executor to stop waiting for new external events.
