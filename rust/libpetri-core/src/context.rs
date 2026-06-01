@@ -8,6 +8,11 @@ use crate::token::ErasedToken;
 /// Callback for emitting log messages from transition actions.
 pub type LogFn = Arc<dyn Fn(&str, &str) + Send + Sync>;
 
+/// Callback that publishes a batch of output entries mid-action. Wired by
+/// the async executor; see [`TransitionContext::flush`]. Sync executors do
+/// not install one — sync actions complete before they can flush.
+pub type FlushFn = Arc<dyn Fn(Vec<OutputEntry>) + Send + Sync>;
+
 /// An output entry: place name + erased token.
 #[derive(Debug, Clone)]
 pub struct OutputEntry {
@@ -32,6 +37,13 @@ pub struct TransitionContext {
     outputs: Vec<OutputEntry>,
     execution_ctx: HashMap<String, Box<dyn Any + Send + Sync>>,
     log_fn: Option<LogFn>,
+    flush_fn: Option<FlushFn>,
+    /// Optional author-local → composed-name map. Inherited from the
+    /// transition's [`crate::transition::Transition::local_name_map`].
+    /// Bindings use it to fall back from a local-name lookup to the
+    /// host name after composition. `None` when the transition is not
+    /// composed (the common case).
+    local_name_map: Option<Arc<HashMap<Arc<str>, Arc<str>>>>,
 }
 
 impl TransitionContext {
@@ -50,7 +62,66 @@ impl TransitionContext {
             outputs: Vec::new(),
             execution_ctx: HashMap::new(),
             log_fn,
+            flush_fn: None,
+            local_name_map: None,
         }
+    }
+
+    /// Installs a local-name → composed-name map. Wired by the
+    /// executor when firing a composed transition so binding-side
+    /// action contexts can fall back from local lookups to host names.
+    ///
+    /// **Not part of the user-facing API.** This setter exists so the
+    /// runtime crate (a different compilation unit than libpetri-core)
+    /// can populate the map at firing time. Calling it from outside the
+    /// executor bypasses the rewriter and produces incoherent
+    /// lookups — the executor is the only legitimate caller.
+    #[doc(hidden)]
+    pub fn set_local_name_map(&mut self, map: Arc<HashMap<Arc<str>, Arc<str>>>) {
+        self.local_name_map = Some(map);
+    }
+
+    /// Returns a clone of the installed local-name map (cheap — `Arc`
+    /// bump). Bindings call this from
+    /// [`crate::action::TransitionAction`] adapters to thread the map
+    /// into their language-side context.
+    pub fn local_name_map(&self) -> Option<Arc<HashMap<Arc<str>, Arc<str>>>> {
+        self.local_name_map.as_ref().map(Arc::clone)
+    }
+
+    /// Installs a mid-action flush callback. The async executor calls
+    /// this before invoking the action so [`flush`](Self::flush) can
+    /// publish accumulated outputs without waiting for the action to
+    /// return. Sync executors do not install one.
+    pub fn set_flush_fn(&mut self, flush_fn: FlushFn) {
+        self.flush_fn = Some(flush_fn);
+    }
+
+    /// Returns a clone of the installed flush callback, if any. Python
+    /// (or other binding) action contexts copy this so the language-side
+    /// `ctx.flush()` can publish without round-tripping through the Rust
+    /// context.
+    pub fn flush_fn(&self) -> Option<FlushFn> {
+        self.flush_fn.clone()
+    }
+
+    /// Publishes the currently-buffered outputs immediately. Each call
+    /// is its own published event boundary: if the action later fails,
+    /// already-flushed tokens stay in the marking. Returns `Err` when
+    /// no flush callback is installed (e.g. sync execution path).
+    pub fn flush(&mut self) -> Result<(), ActionError> {
+        let cb = self.flush_fn.as_ref().ok_or_else(|| {
+            ActionError::new(
+                "ctx.flush() is only available under async execution \
+                 (run_async / start_async)",
+            )
+        })?;
+        if self.outputs.is_empty() {
+            return Ok(());
+        }
+        let outputs = std::mem::take(&mut self.outputs);
+        cb(outputs);
+        Ok(())
     }
 
     // ==================== Input Access (consumed) ====================

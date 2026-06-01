@@ -1,5 +1,60 @@
 # Changelog
 
+## 2.8.0 (Python) — 2026-06-01
+
+Six additive binding improvements; no API removed.
+
+- **Subnet local-name remap.** `ctx.input("LOCAL")` / `ctx.output("LOCAL", v)`
+  inside a subnet action resolve against author-local names after
+  `compose(...)` rewrites the arcs to host places. Lookups try the
+  literal name first, then fall back through the new
+  `Transition::local_name_map` (populated by the rewriter; chained
+  compose keeps only author-original keys, no intermediate-pass leak).
+- **Async-action helpers.** `lp.action_gather(*coros)` and
+  `lp.action_to_thread(fn, *args, **kw)` schedule on the asyncio loop
+  captured at `run_async` / `start_async`, giving real `asyncio.gather`
+  parallelism from inside an action on a tokio worker thread (three
+  concurrent 300 ms sleeps finish in ~300 ms). `lp.captured_event_loop()`
+  exposes the captured loop; the coroutine driver uses `coro.throw(exc)`
+  for awaited-future errors; `await asyncio.sleep(0)` yields
+  cooperatively to the executor. Concurrent `run_async` on two
+  different asyncio loops in one process is detected and rejected
+  with `RuntimeError` instead of silently routing helpers to the
+  wrong loop.
+- **`ctx.flush()` for mid-action streaming.** Buffered outputs publish
+  immediately through a per-firing flush channel; downstream
+  transitions can fire on the deposited tokens while the upstream
+  action is still running. Already-flushed tokens stay even if the
+  action later raises. Raises `RuntimeError` under sync execution.
+- **Streaming subscribe.** `store.subscribe_stream(...)` yields a single
+  `NetEvent` per `__anext__` (no `PyList[1]` wrapper). Unary delivery
+  ~30 k events/sec; `subscribe(batch_size=256)` reaches ~950 k
+  events/sec. See [`python/docs/perf-subscribe.md`](python/docs/perf-subscribe.md).
+- **Batched env-place injection.** `handle.inject_many(place, iterable)`
+  crosses the FFI once for any number of tokens via a new
+  `ExecutorSignal::EventBatch` variant; the executor processes one
+  batch atomically. ~8–9% end-to-end throughput improvement at
+  N ≥ 1000.
+- **Output-spec validation pinned.** The runtime enforces only the
+  declared-place rule today; cardinality, AND-completeness,
+  XOR-exclusivity, and `skip_output_validation` are documentation-only.
+  See [`python/docs/output-spec.md`](python/docs/output-spec.md) and
+  `python/tests/test_output_validation.py`.
+
+**Known limitations (planned for 2.9.0 / next Rust major).**
+
+- `ctx.flush()` deposits emit `TokenAdded` events identical to those
+  from action completion; subscribers cannot currently distinguish
+  flushed tokens from completion-deposited ones. A dedicated
+  `ActionFlushed` event variant is planned for the next Rust major
+  (adding it now requires `#[non_exhaustive]` on `NetEvent`, itself a
+  breaking change).
+- Cancelling the asyncio task that awaits `run_async` aborts the
+  surrounding future but does not currently throw `CancelledError`
+  into in-flight Python coroutines, so `try/except CancelledError:
+  cleanup()` inside an action will not run. The proper fix (Drop guard
+  that synchronously injects `CancelledError`) lands in 2.9.0.
+
 ## 3.0.0 (Rust) / 2.7.0 (Python) — 2026-06-01
 
 **Executor backend seam (Rust).** The two Rust executors now share one

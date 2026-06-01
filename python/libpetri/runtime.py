@@ -234,6 +234,9 @@ if _ext.HAS_TOKIO:
         def inject(self, place: PlaceLike, value: Any) -> bool:
             return self._inner.inject(_coerce_place_name(place), value)
 
+        def inject_many(self, place: PlaceLike, values: Iterable[Any]) -> bool:
+            return self._inner.inject_many(_coerce_place_name(place), values)
+
         def drain(self) -> bool:
             return self._inner.drain()
 

@@ -82,6 +82,85 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+## Writing async actions
+
+Libpetri drives Python `async def` actions from a tokio worker thread.
+Awaits inside the coroutine resolve against the asyncio loop that was
+running when you called `lp.run_async` / `lp.start_async`, but the worker
+thread itself does not run an asyncio loop. That means **synchronous
+asyncio APIs called inside an action raise `RuntimeError: no running
+event loop`**:
+
+```python
+async def action(ctx):
+    # ❌ all of these raise inside a libpetri action:
+    await asyncio.gather(tool_a(), tool_b())
+    asyncio.create_task(work())
+    loop = asyncio.get_running_loop()
+    await asyncio.wait_for(slow(), timeout=1.0)
+```
+
+Use **structural fan-out** as the primary parallelism pattern — fire N
+transitions in parallel from one FanOut, let the marking be the join:
+
+```python
+# Net structure: FanOut → (tool_a_transition || tool_b_transition) → Join
+# Each tool transition is its own action; the executor schedules them
+# in parallel. No asyncio.gather needed.
+```
+
+For the case where you genuinely need to await N coroutines inside one
+action (e.g. dispatching to LangChain `BaseTool._arun` calls), use
+`lp.action_gather`:
+
+```python
+import libpetri as lp
+
+async def dispatch_tools(ctx):
+    calls = ctx.input("TOOL_CALLS")
+    # action_gather schedules on the captured asyncio loop, where
+    # gather() works. Real parallelism: three 300ms tools finish in
+    # ~300ms, not 900ms.
+    results = await lp.action_gather(*(_arun(c) for c in calls))
+    ctx.output("TOOL_RESULTS", results)
+```
+
+For blocking sync work (file I/O, blocking SDK calls), use
+`lp.action_to_thread`:
+
+```python
+async def write_file(ctx):
+    data = ctx.input("data")
+    await lp.action_to_thread(Path("out.bin").write_bytes, data)
+    ctx.output("done", True)
+```
+
+Exceptions raised by awaited coroutines are thrown back into your action
+via `coro.throw`, so `try`/`except` inside the action works the same as
+inside a regular asyncio task.
+
+### Streaming chunks with `ctx.flush()`
+
+By default, all `ctx.output(...)` calls within one action firing are
+buffered and published together when the action returns. For long-running
+async actions that need to stream tokens (LLM chunks, byte streams), call
+`ctx.flush()` to publish the buffered outputs *now*:
+
+```python
+async def stream_chunks(ctx):
+    async for chunk in llm.astream(request):
+        ctx.output("TOKEN_STREAM", chunk)
+        ctx.flush()
+        await asyncio.sleep(0)  # yield so downstream transitions can run
+```
+
+Each `ctx.flush()` is its own published event boundary — already-flushed
+tokens stay in the marking even if the action later raises. `ctx.flush()`
+raises `RuntimeError` from a sync action (`run_sync`); use async
+execution. The `await asyncio.sleep(0)` after each flush is the
+recommended cooperative yield so the executor's main loop can process the
+flush and let downstream transitions run while you're still streaming.
+
 ## What you get
 
 - **Full runtime** — sync + async execution, environment-place injection, all

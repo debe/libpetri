@@ -258,6 +258,11 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
 
         let inputs = std::mem::take(&mut self.reusable_inputs);
         let reads = std::mem::take(&mut self.reusable_reads);
+        let local_name_map = self
+            .backend
+            .compiled()
+            .transition(tid)
+            .local_name_map_cloned();
         let mut ctx = TransitionContext::new(
             Arc::clone(&transition_name),
             inputs,
@@ -265,6 +270,9 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             output_place_names,
             None,
         );
+        if let Some(map) = local_name_map {
+            ctx.set_local_name_map(map);
+        }
 
         let result = action.run_sync(&mut ctx);
 
@@ -334,6 +342,14 @@ struct ActionCompletion {
     timed_out: Option<u64>,
 }
 
+/// Mid-action flush batch ([V3] `ctx.flush()`): an in-flight async
+/// transition publishes accumulated outputs before completing.
+#[cfg(feature = "tokio")]
+struct ActionFlush {
+    transition_name: Arc<str>,
+    outputs: Vec<OutputEntry>,
+}
+
 #[cfg(feature = "tokio")]
 impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
     /// Run the executor asynchronously with tokio. Supports sync and
@@ -346,6 +362,13 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
     ) -> Cow<'_, Marking> {
         let (completion_tx, mut completion_rx) =
             tokio::sync::mpsc::unbounded_channel::<ActionCompletion>();
+        // Mid-action flush channel ([V3]): in-flight async actions can
+        // publish buffered outputs without waiting for the action to
+        // return. Each flushed batch is processed exactly like the
+        // outputs of a completed transition (TokenAdded events, then
+        // backend.produce_token).
+        let (flush_tx, mut flush_rx) =
+            tokio::sync::mpsc::unbounded_channel::<ActionFlush>();
 
         self.backend.initialize();
 
@@ -372,6 +395,11 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             while let Ok(completion) = completion_rx.try_recv() {
                 in_flight_count -= 1;
                 self.handle_completion(completion);
+            }
+
+            // Phase 1b: process mid-action flushes from in-flight actions.
+            while let Ok(flush) = flush_rx.try_recv() {
+                self.handle_flush(flush);
             }
 
             // Phase 2: drain queued signals (events + lifecycle).
@@ -424,7 +452,12 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             let mut fired_any = false;
             for &tid in &ready {
                 if self.backend.recheck_can_fire(tid) {
-                    self.fire_transition_async(tid, &completion_tx, &mut in_flight_count);
+                    self.fire_transition_async(
+                        tid,
+                        &completion_tx,
+                        &flush_tx,
+                        &mut in_flight_count,
+                    );
                     fired_any = true;
                 } else {
                     self.backend.disable(tid);
@@ -456,6 +489,9 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 Some(completion) = completion_rx.recv() => {
                     in_flight_count -= 1;
                     self.handle_completion(completion);
+                }
+                Some(flush) = flush_rx.recv() => {
+                    self.handle_flush(flush);
                 }
                 result = signal_rx.recv(), if signal_channel_open && !closed => {
                     match result {
@@ -534,6 +570,32 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         }
     }
 
+    /// Handle a mid-action flush batch: deposit each token via the
+    /// backend and emit `TokenAdded` events (same shape as outputs from
+    /// `TransitionCompleted`, just without a completion event).
+    #[inline]
+    fn handle_flush(&mut self, flush: ActionFlush) {
+        // `transition_name` is currently only used for symmetry with
+        // ActionCompletion; future event types (e.g. ActionFlushed)
+        // could surface it. Keep the field for that forward-compat.
+        let _ = &flush.transition_name;
+        for entry in flush.outputs {
+            let event = if E::ENABLED {
+                Some(token_added_event::<E>(
+                    Arc::clone(&entry.place_name),
+                    now_millis(),
+                    &entry.token,
+                ))
+            } else {
+                None
+            };
+            self.backend.produce_token(&entry.place_name, entry.token);
+            if let Some(ev) = event {
+                self.event_store.append(ev);
+            }
+        }
+    }
+
     /// Handle a single executor signal (event injection or lifecycle).
     #[inline]
     fn handle_signal(
@@ -563,6 +625,27 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             ExecutorSignal::Event(_) => {
                 // Draining: discard events arriving after drain signal.
             }
+            ExecutorSignal::EventBatch(events) if !*draining => {
+                for event in events {
+                    let captured = if E::ENABLED {
+                        Some(token_added_event::<E>(
+                            Arc::clone(&event.place_name),
+                            now_millis(),
+                            &event.token,
+                        ))
+                    } else {
+                        None
+                    };
+                    self.backend
+                        .inject_external_token(&event.place_name, event.token);
+                    if let Some(ev) = captured {
+                        self.event_store.append(ev);
+                    }
+                }
+            }
+            ExecutorSignal::EventBatch(_) => {
+                // Draining: discard the entire batch.
+            }
             ExecutorSignal::Drain => {
                 *draining = true;
             }
@@ -590,6 +673,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         &mut self,
         tid: usize,
         completion_tx: &tokio::sync::mpsc::UnboundedSender<ActionCompletion>,
+        flush_tx: &tokio::sync::mpsc::UnboundedSender<ActionFlush>,
         in_flight_count: &mut usize,
     ) {
         let (transition_name, action, output_place_names) = {
@@ -616,6 +700,11 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
 
         let inputs = std::mem::take(&mut self.reusable_inputs);
         let reads = std::mem::take(&mut self.reusable_reads);
+        let local_name_map = self
+            .backend
+            .compiled()
+            .transition(tid)
+            .local_name_map_cloned();
 
         if is_sync {
             let mut ctx = TransitionContext::new(
@@ -625,6 +714,9 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 output_place_names,
                 None,
             );
+            if let Some(ref map) = local_name_map {
+                ctx.set_local_name_map(Arc::clone(map));
+            }
             let result = action.run_sync(&mut ctx);
             self.reusable_inputs = ctx.take_inputs();
             self.reusable_reads = ctx.take_reads();
@@ -701,13 +793,30 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                     None => HashMap::new(),
                 };
 
-            let ctx = TransitionContext::new(
+            let mut ctx = TransitionContext::new(
                 Arc::clone(&transition_name),
                 inputs,
                 reads,
                 output_place_names,
                 None,
             );
+            if let Some(map) = local_name_map {
+                ctx.set_local_name_map(map);
+            }
+
+            // Mid-action flush wiring: each fired async transition gets
+            // a closure capturing its own name + a clone of flush_tx.
+            // The action's `ctx.flush()` invokes it; the executor's
+            // main loop processes the batched outputs out-of-band from
+            // the eventual completion message.
+            let flush_tx_clone = flush_tx.clone();
+            let flush_name = Arc::clone(&transition_name);
+            ctx.set_flush_fn(Arc::new(move |outputs: Vec<OutputEntry>| {
+                let _ = flush_tx_clone.send(ActionFlush {
+                    transition_name: Arc::clone(&flush_name),
+                    outputs,
+                });
+            }));
 
             tokio::spawn(async move {
                 let completion = if let Some((after_ms, timeout_child)) = timeout_info {
@@ -762,5 +871,185 @@ fn action_completion(
             result: Err(err.message),
             timed_out: None,
         },
+    }
+}
+
+// ====================================================================
+//  Tests
+// ====================================================================
+
+/// Regression tests for the V3 [`TransitionContext::flush`] semantics:
+/// tokens published mid-action must be visible to downstream
+/// transitions BEFORE the parent action completes.
+#[cfg(all(test, feature = "tokio"))]
+mod flush_tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use libpetri_core::action::{ActionError, async_action, sync_action};
+    use libpetri_core::input::one;
+    use libpetri_core::output::out_place;
+    use libpetri_core::petri_net::PetriNet;
+    use libpetri_core::place::Place;
+    use libpetri_core::token::Token;
+    use libpetri_core::transition::Transition;
+    use libpetri_event::event_store::NoopEventStore;
+    use tokio::sync::Notify;
+
+    use crate::environment::ExecutorSignal;
+    use crate::marking::Marking;
+    use crate::owned_precompiled::OwnedPrecompiledNet;
+
+    /// V3 contract: a token deposited via `ctx.flush()` is observable
+    /// to downstream transitions while the producer's action is still
+    /// in flight. The test forces a serial dependency between producer
+    /// completion and consumer firing via a [`Notify`]: the producer
+    /// flushes, then parks until the consumer pings the Notify. If
+    /// flush is broken (downstream waits for action completion), the
+    /// producer never wakes and the outer timeout fails the test.
+    #[tokio::test]
+    async fn flushed_token_fires_downstream_before_action_completes() {
+        let start = Place::<i32>::new("start");
+        let mid = Place::<i32>::new("mid");
+        let end = Place::<i32>::new("end");
+
+        // Notify -> consumer-side fires it; producer-side awaits it.
+        // Arc<Notify> is shared by reference across both closures.
+        let consumer_fired = Arc::new(Notify::new());
+        let producer_handle = Arc::clone(&consumer_fired);
+        let consumer_handle = Arc::clone(&consumer_fired);
+
+        let producer = Transition::builder("producer")
+            .input(one(&start))
+            .output(out_place(&mid))
+            .action(async_action(move |mut ctx| {
+                let notify = Arc::clone(&producer_handle);
+                async move {
+                    ctx.output("mid", 42i32)?;
+                    ctx.flush()?;
+                    // Park until the consumer fires. With a working
+                    // flush this resolves promptly; with broken flush
+                    // (downstream blocked on action completion), the
+                    // notify never fires.
+                    tokio::time::timeout(Duration::from_secs(2), notify.notified())
+                        .await
+                        .map_err(|_| {
+                            ActionError::new(
+                                "consumer never fired — flush did not publish to mid",
+                            )
+                        })?;
+                    Ok(ctx)
+                }
+            }))
+            .build();
+
+        let consumer = Transition::builder("consumer")
+            .input(one(&mid))
+            .output(out_place(&end))
+            .action(sync_action(move |ctx| {
+                consumer_handle.notify_one();
+                ctx.output("end", 0i32)?;
+                Ok(())
+            }))
+            .build();
+
+        let net = PetriNet::builder("flush_visibility_net")
+            .transition(producer)
+            .transition(consumer)
+            .build();
+        let owned = OwnedPrecompiledNet::compile(&net);
+
+        let mut initial = Marking::new();
+        initial.add(&start, Token::new(1i32));
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+        let task = tokio::spawn({
+            let owned = owned.clone();
+            async move {
+                owned
+                    .builder::<NoopEventStore>(initial)
+                    .run_async(rx)
+                    .await
+            }
+        });
+        // No env input expected — dropping the sender lets the executor
+        // converge to quiescence and exit naturally.
+        drop(tx);
+
+        let result = tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .expect("executor never completed — flush most likely broken")
+            .expect("executor task panicked");
+
+        assert_eq!(
+            result.count("end"),
+            1,
+            "consumer must have fired exactly once after flush"
+        );
+        assert_eq!(result.count("mid"), 0, "mid must drain to empty");
+        assert_eq!(result.count("start"), 0, "start must drain to empty");
+    }
+
+    /// Companion test: without `flush()`, the consumer cannot fire
+    /// until the producer's action completes. Documents the contrast
+    /// so a future reader sees both flush ON and flush OFF behavior
+    /// in one file. The producer here only publishes outputs at
+    /// completion (the default), so the consumer's notify ping does
+    /// arrive — but only after the producer's action future resolves.
+    #[tokio::test]
+    async fn without_flush_consumer_fires_only_after_producer_completes() {
+        let start = Place::<i32>::new("start");
+        let mid = Place::<i32>::new("mid");
+        let end = Place::<i32>::new("end");
+
+        let producer = Transition::builder("producer")
+            .input(one(&start))
+            .output(out_place(&mid))
+            .action(async_action(move |mut ctx| async move {
+                ctx.output("mid", 1i32)?;
+                // No flush. Yield once so the executor can re-evaluate
+                // — consumer must still NOT have fired here because
+                // mid is empty until our completion.
+                tokio::task::yield_now().await;
+                Ok(ctx)
+            }))
+            .build();
+
+        let consumer = Transition::builder("consumer")
+            .input(one(&mid))
+            .output(out_place(&end))
+            .action(sync_action(|ctx| {
+                ctx.output("end", 0i32)?;
+                Ok(())
+            }))
+            .build();
+
+        let net = PetriNet::builder("no_flush_net")
+            .transition(producer)
+            .transition(consumer)
+            .build();
+        let owned = OwnedPrecompiledNet::compile(&net);
+
+        let mut initial = Marking::new();
+        initial.add(&start, Token::new(1i32));
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+        let task = tokio::spawn({
+            let owned = owned.clone();
+            async move {
+                owned
+                    .builder::<NoopEventStore>(initial)
+                    .run_async(rx)
+                    .await
+            }
+        });
+        drop(tx);
+
+        let result = tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .expect("executor stalled")
+            .unwrap();
+
+        assert_eq!(result.count("end"), 1, "consumer fires after producer completes");
     }
 }

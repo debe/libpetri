@@ -15,12 +15,13 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError, version
 
 from . import _libpetri
+from .asyncio_helpers import action_gather, action_to_thread
 from .debug import DebugProtocolHandler, SessionSummary, require_debug
 from .events import InMemoryEventStore, NetEvent
 from .export import DotConfig, RankDir, dot_export
 
 if _libpetri.HAS_TOKIO:
-    from .events import EventSubscription
+    from .events import EventStream, EventSubscription
 
 if _libpetri.HAS_ARCHIVE:
     from .archive import (
@@ -159,6 +160,8 @@ __all__ = [
     "TransitionContext",
     "VerificationHarness",
     "VerificationResult",
+    "action_gather",
+    "action_to_thread",
     "all_tokens",
     "and_",
     "and_outputs",
@@ -208,4 +211,4 @@ if HAS_ARCHIVE:
     )
 
 if HAS_TOKIO:
-    __all__.append("EventSubscription")
+    __all__.extend(["EventStream", "EventSubscription"])

@@ -436,7 +436,7 @@ Same six execution phases as `BitmapNetExecutor`, same results — Java shares t
 
 ## Performance
 
-All times in microseconds (µs/op, lower is better), measured with the noop event store on a single dev machine — re-run for 2.6.0. Tools: Java JMH (1 fork, 2 warmup, 3 measurement), TypeScript vitest bench, Rust Criterion, Python pytest-benchmark. Java and Rust show both `BitmapNetExecutor` and `PrecompiledNetExecutor`; TypeScript shows the same pair; **Python wraps Rust's `OwnedPrecompiledNet` through PyO3 — only one executor path exists**, so a single Python column is shown with a small FFI-overhead delta vs. the Rust precompiled column.
+All times in microseconds (µs/op, lower is better), measured with the noop event store on a single dev machine. Tools: Java JMH (1 fork, 2 warmup, 3 measurement), TypeScript vitest bench, Rust Criterion, Python pytest-benchmark. Java and Rust show both `BitmapNetExecutor` and `PrecompiledNetExecutor`; TypeScript shows the same pair; **Python wraps Rust's `OwnedPrecompiledNet` through PyO3 — only one executor path exists**, so a single Python column is shown with a small FFI-overhead delta vs. the Rust precompiled column.
 
 Concurrency model: Java orchestrator + actions on separate virtual threads (true multicore for CPU-bound actions); TypeScript single-core event loop (no parallelism); Rust sync is single-threaded, async uses Tokio's multi-threaded task pool; Python inherits Rust's model through the FFI (the GIL is released for the executor loop, re-acquired only for Python callbacks). All bench actions are trivial, so Java's per-thread scheduling cost is visible while its multicore advantage is not.
 

@@ -164,6 +164,15 @@ fn rebuild_with_name(
         .priority(t.priority())
         .action(Arc::clone(t.action()));
 
+    // Build the local-name → composed-name map. Each arc's original
+    // place name maps to the renamed place's name (or the original if
+    // not remapped). Compose any pre-existing local map (from an
+    // earlier substitute pass) so subnet-of-subnet wiring chains
+    // through correctly: local → first-pass → final.
+    if let Some(local_map) = build_local_name_map(t, remap) {
+        builder = builder.local_name_map(Arc::new(local_map));
+    }
+
     if !t.input_specs().is_empty() {
         // Pre-size for V8/JIT-friendly hot-path allocation parity with the
         // Java/TS implementations.
@@ -205,6 +214,107 @@ fn rebuild_with_name(
     }
 
     builder.build()
+}
+
+// ============================================================
+//  Local-name map construction
+// ============================================================
+
+/// Builds the `local_name -> composed_name` map for a transition that is
+/// being rewritten through `remap`. The "local" side is whatever the
+/// transition's arcs currently reference (which is either the
+/// author-original names, for first-pass substitute, or the result of an
+/// earlier substitute, which may have already chained through an
+/// existing `local_name_map`).
+///
+/// Returns `None` if no name actually changes — keeps the field
+/// `None`-valued for the common no-op case and avoids spurious Arc
+/// allocation.
+fn build_local_name_map(
+    t: &Transition,
+    remap: &HashMap<Arc<str>, PlaceRef>,
+) -> Option<HashMap<Arc<str>, Arc<str>>> {
+    if remap.is_empty() && t.local_name_map().is_none() {
+        return None;
+    }
+
+    let mut map: HashMap<Arc<str>, Arc<str>> = HashMap::new();
+
+    // Chained-compose path: the transition was already rewritten in a
+    // prior pass and carries an author-local → intermediate-name map.
+    // Chain through it (local → resolve(intermediate, remap)) and stop.
+    //
+    // We do NOT also walk the arcs here. Their names are the
+    // intermediate-pass names, not author-original — recording them
+    // would leak intermediate names as additional lookup keys
+    // (`intermediate → final`), which the user never typed.
+    // `substitute_places` only rewrites existing arcs; it never adds
+    // new ones, so the author-original set is exactly the prev map's
+    // keys.
+    if let Some(prev) = t.local_name_map() {
+        for (local, prev_name) in prev.as_ref().iter() {
+            let final_name = match remap.get(prev_name) {
+                Some(replaced) => Arc::clone(replaced.name_arc()),
+                None => Arc::clone(prev_name),
+            };
+            if final_name != *local {
+                map.insert(Arc::clone(local), final_name);
+            }
+        }
+        return if map.is_empty() { None } else { Some(map) };
+    }
+
+    // First-substitute path: walk arcs to capture author-original
+    // names. Original place names come straight off each arc; the
+    // post-remap name is computed via the same `resolve` used during
+    // the rewrite.
+    let mut record = |orig: &PlaceRef| {
+        let local = Arc::clone(orig.name_arc());
+        if map.contains_key(&local) {
+            return;
+        }
+        let post = match remap.get(&local) {
+            Some(replaced) => Arc::clone(replaced.name_arc()),
+            None => Arc::clone(&local),
+        };
+        if post != local {
+            map.insert(local, post);
+        }
+    };
+
+    for spec in t.input_specs() {
+        record(spec.place());
+    }
+    for rd in t.reads() {
+        record(&rd.place);
+    }
+    for inh in t.inhibitors() {
+        record(&inh.place);
+    }
+    for rs in t.resets() {
+        record(&rs.place);
+    }
+    if let Some(out) = t.output_spec() {
+        collect_out_places(out, &mut record);
+    }
+
+    if map.is_empty() { None } else { Some(map) }
+}
+
+fn collect_out_places(out: &Out, f: &mut impl FnMut(&PlaceRef)) {
+    match out {
+        Out::Place(p) => f(p),
+        Out::ForwardInput { from, to } => {
+            f(from);
+            f(to);
+        }
+        Out::And(children) | Out::Xor(children) => {
+            for c in children {
+                collect_out_places(c, f);
+            }
+        }
+        Out::Timeout { child, .. } => collect_out_places(child, f),
+    }
 }
 
 // ============================================================
@@ -1341,6 +1451,181 @@ mod tests {
         let merged = merge_transitions(&caller, &instance, Arc::<str>::from("callerName"));
 
         assert_eq!(merged.name(), "callerName");
+    }
+
+    // ============================================================
+    //  build_local_name_map — author-local → composed lookup map
+    //  used by binding-side action contexts for ctx.output("X")
+    //  fallback after the rewriter renames "X" to a composed name.
+    // ============================================================
+
+    #[test]
+    fn build_local_name_map_empty_remap_no_prev_returns_none() {
+        let p = Place::<i32>::new("in");
+        let t = Transition::builder("t").input(one(&p)).build();
+        let remap: HashMap<Arc<str>, PlaceRef> = HashMap::new();
+        let substituted = substitute_places(&t, &remap);
+        assert!(
+            substituted.local_name_map().is_none(),
+            "no-op rewrite must not allocate a local_name_map"
+        );
+    }
+
+    #[test]
+    fn build_local_name_map_first_pass_captures_author_local_names() {
+        let in_p = Place::<i32>::new("in");
+        let out_p = Place::<i32>::new("out");
+        let t = Transition::builder("t")
+            .input(one(&in_p))
+            .output(out_place(&out_p))
+            .build();
+
+        let mut remap = HashMap::new();
+        remap.insert(Arc::<str>::from("in"), PlaceRef::new("host/in"));
+        remap.insert(Arc::<str>::from("out"), PlaceRef::new("host/out"));
+
+        let substituted = substitute_places(&t, &remap);
+        let map = substituted
+            .local_name_map()
+            .expect("rewrite must populate local_name_map");
+        assert_eq!(map.len(), 2);
+        assert_eq!(&**map.get("in").unwrap(), "host/in");
+        assert_eq!(&**map.get("out").unwrap(), "host/out");
+    }
+
+    #[test]
+    fn build_local_name_map_skips_identity_passthroughs() {
+        let stays = Place::<i32>::new("stays");
+        let renamed = Place::<i32>::new("renamed");
+        let t = Transition::builder("t")
+            .input(one(&stays))
+            .input(one(&renamed))
+            .build();
+
+        // Only `renamed` is in remap. `stays` must not appear in the map.
+        let mut remap = HashMap::new();
+        remap.insert(Arc::<str>::from("renamed"), PlaceRef::new("host/renamed"));
+
+        let substituted = substitute_places(&t, &remap);
+        let map = substituted
+            .local_name_map()
+            .expect("renamed entry must populate map");
+        assert_eq!(map.len(), 1, "identity passthrough must not be recorded");
+        assert!(
+            !map.contains_key("stays"),
+            "identity-passthrough name leaked into map: {map:?}"
+        );
+        assert_eq!(&**map.get("renamed").unwrap(), "host/renamed");
+    }
+
+    #[test]
+    fn build_local_name_map_chained_compose_keeps_only_author_local_keys() {
+        // Regression: a second substitute_places pass used to leak the
+        // first-pass composed name (the arc's then-current name) into
+        // the map as an additional key, so a chained compose ended up
+        // with both `author_local → final` AND `intermediate → final`
+        // entries. Only the author-original key may appear.
+        let p = Place::<i32>::new("X");
+        let t = Transition::builder("t").input(one(&p)).build();
+
+        let mut remap1 = HashMap::new();
+        remap1.insert(Arc::<str>::from("X"), PlaceRef::new("inst/X"));
+        let pass1 = substitute_places(&t, &remap1);
+        let pass1_map = pass1.local_name_map().expect("pass-1 map");
+        assert_eq!(pass1_map.len(), 1);
+        assert_eq!(&**pass1_map.get("X").unwrap(), "inst/X");
+
+        let mut remap2 = HashMap::new();
+        remap2.insert(Arc::<str>::from("inst/X"), PlaceRef::new("host/X"));
+        let pass2 = substitute_places(&pass1, &remap2);
+        let pass2_map = pass2.local_name_map().expect("pass-2 map");
+        assert_eq!(
+            pass2_map.len(),
+            1,
+            "chained compose must not leak intermediate names: {pass2_map:?}"
+        );
+        assert_eq!(
+            &**pass2_map.get("X").unwrap(),
+            "host/X",
+            "author-local must chain through to final composed name"
+        );
+        assert!(
+            !pass2_map.contains_key("inst/X"),
+            "intermediate-pass name must not appear as a key: {pass2_map:?}"
+        );
+    }
+
+    #[test]
+    fn build_local_name_map_chained_compose_drops_entry_when_final_equals_local() {
+        // If a prior pass mapped X → host/X and a second remap rewrites
+        // host/X back to X, the chained entry would be X → X (a no-op).
+        // It is dropped so the map stays minimal.
+        let p = Place::<i32>::new("X");
+        let t = Transition::builder("t").input(one(&p)).build();
+
+        let mut remap1 = HashMap::new();
+        remap1.insert(Arc::<str>::from("X"), PlaceRef::new("inst/X"));
+        let pass1 = substitute_places(&t, &remap1);
+
+        let mut remap2 = HashMap::new();
+        remap2.insert(Arc::<str>::from("inst/X"), PlaceRef::new("X"));
+        let pass2 = substitute_places(&pass1, &remap2);
+        assert!(
+            pass2.local_name_map().is_none(),
+            "X → X identity must collapse the map to None"
+        );
+    }
+
+    #[test]
+    fn build_local_name_map_walks_output_tree_and_xor_and_timeout() {
+        let a = Place::<i32>::new("a");
+        let b = Place::<i32>::new("b");
+        let c = Place::<i32>::new("c");
+        let nested = and(vec![
+            xor(vec![out_place(&a), timeout(50, out_place(&b))]),
+            out_place(&c),
+        ]);
+        let t = Transition::builder("t").output(nested).build();
+
+        let mut remap = HashMap::new();
+        remap.insert(Arc::<str>::from("a"), PlaceRef::new("h/a"));
+        remap.insert(Arc::<str>::from("b"), PlaceRef::new("h/b"));
+        remap.insert(Arc::<str>::from("c"), PlaceRef::new("h/c"));
+
+        let substituted = substitute_places(&t, &remap);
+        let map = substituted
+            .local_name_map()
+            .expect("output-tree walk must populate map");
+        assert_eq!(map.len(), 3);
+        assert_eq!(&**map.get("a").unwrap(), "h/a");
+        assert_eq!(&**map.get("b").unwrap(), "h/b");
+        assert_eq!(&**map.get("c").unwrap(), "h/c");
+    }
+
+    #[test]
+    fn build_local_name_map_covers_inhibitor_read_reset_arcs() {
+        let inh = Place::<i32>::new("inh");
+        let rd = Place::<i32>::new("rd");
+        let rs = Place::<i32>::new("rs");
+        let t = Transition::builder("t")
+            .inhibitor(inhibitor(&inh))
+            .read(read(&rd))
+            .reset(reset(&rs))
+            .build();
+
+        let mut remap = HashMap::new();
+        remap.insert(Arc::<str>::from("inh"), PlaceRef::new("h/inh"));
+        remap.insert(Arc::<str>::from("rd"), PlaceRef::new("h/rd"));
+        remap.insert(Arc::<str>::from("rs"), PlaceRef::new("h/rs"));
+
+        let substituted = substitute_places(&t, &remap);
+        let map = substituted
+            .local_name_map()
+            .expect("all arc kinds must contribute");
+        assert_eq!(map.len(), 3);
+        assert_eq!(&**map.get("inh").unwrap(), "h/inh");
+        assert_eq!(&**map.get("rd").unwrap(), "h/rd");
+        assert_eq!(&**map.get("rs").unwrap(), "h/rs");
     }
 
     #[test]

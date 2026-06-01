@@ -63,6 +63,27 @@ impl ExecutorHandle {
             .is_ok()
     }
 
+    /// Injects a batch of external events as one signal.
+    ///
+    /// The executor processes all events from a single `inject_many` call
+    /// atomically — no other signal interleaves between them. Equivalent
+    /// to calling [`inject`](Self::inject) repeatedly, but for Python and
+    /// other binding callers it crosses the FFI exactly once for any
+    /// number of tokens.
+    ///
+    /// Returns `false` if the handle has been drained/closed or the
+    /// channel is disconnected. An empty batch returns `true` without
+    /// sending a signal.
+    pub fn inject_many(&mut self, events: Vec<ExternalEvent>) -> bool {
+        if self.drained {
+            return false;
+        }
+        if events.is_empty() {
+            return true;
+        }
+        self.tx.send(ExecutorSignal::EventBatch(events)).is_ok()
+    }
+
     /// Initiates graceful drain per \[ENV-011\].
     ///
     /// After this call:
@@ -225,6 +246,63 @@ mod tests {
         let mut handle = ExecutorHandle::new(tx);
         handle.drain();
         assert!(handle.snapshot().is_err());
+    }
+
+    #[tokio::test]
+    async fn handle_inject_many_sends_event_batch_signal() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+        let mut handle = ExecutorHandle::new(tx);
+
+        let events = vec![
+            ExternalEvent {
+                place_name: Arc::from("p"),
+                token: ErasedToken::from_typed(&Token::new(1i32)),
+            },
+            ExternalEvent {
+                place_name: Arc::from("p"),
+                token: ErasedToken::from_typed(&Token::new(2i32)),
+            },
+            ExternalEvent {
+                place_name: Arc::from("p"),
+                token: ErasedToken::from_typed(&Token::new(3i32)),
+            },
+        ];
+        assert!(handle.inject_many(events));
+
+        // Single signal carrying all three — not three separate signals.
+        match rx.recv().await {
+            Some(ExecutorSignal::EventBatch(batch)) => assert_eq!(batch.len(), 3),
+            other => panic!("expected single EventBatch(3), got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_inject_many_empty_returns_true_without_signal() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+        let mut handle = ExecutorHandle::new(tx);
+        assert!(
+            handle.inject_many(Vec::new()),
+            "empty batch must succeed as a no-op"
+        );
+        // No signal should have been sent for the empty batch — only
+        // the RAII Drain on drop.
+        drop(handle);
+        match rx.recv().await {
+            Some(ExecutorSignal::Drain) => {}
+            other => panic!("expected only RAII Drain, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_inject_many_after_drain_returns_false() {
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+        let mut handle = ExecutorHandle::new(tx);
+        handle.drain();
+        let events = vec![ExternalEvent {
+            place_name: Arc::from("p"),
+            token: ErasedToken::from_typed(&Token::new(1i32)),
+        }];
+        assert!(!handle.inject_many(events));
     }
 
     #[tokio::test]

@@ -453,6 +453,44 @@ impl PyEventStoreHandle {
             batch_timeout: Duration::from_millis(batch_timeout_ms),
         })
     }
+
+    /// Streaming-mode subscription: yields one `NetEvent` per
+    /// `__anext__`, no per-event list wrapper. Optimised for
+    /// token-by-token consumers (LLM chunk delivery, byte streams) that
+    /// want each event delivered immediately.
+    ///
+    /// Equivalent in semantics to `subscribe(batch_size=1,
+    /// batch_timeout_ms=0)` but skips the `PyList[NetEvent]` allocation
+    /// per yield. Use this for hot-path streaming; use `subscribe(...)`
+    /// for batched / throughput-oriented consumers.
+    #[cfg(feature = "tokio")]
+    #[pyo3(signature = (
+        *,
+        types = None,
+        transitions = None,
+        places = None,
+        channel_capacity = 4096,
+    ))]
+    fn subscribe_stream(
+        &self,
+        types: Option<HashSet<String>>,
+        transitions: Option<HashSet<String>>,
+        places: Option<HashSet<String>>,
+        channel_capacity: usize,
+    ) -> PyResult<PyEventStream> {
+        if channel_capacity == 0 {
+            return Err(PyValueError::new_err("channel_capacity must be >= 1"));
+        }
+        let filter = FilterSpec::from_kwargs(types, transitions, places);
+        let (tx, rx) = tokio::sync::mpsc::channel(channel_capacity);
+        {
+            let mut inner = self.inner.lock().unwrap();
+            inner.subscribers.push(Subscriber { filter, tx });
+        }
+        Ok(PyEventStream {
+            rx: Arc::new(tokio::sync::Mutex::new(Some(rx))),
+        })
+    }
 }
 
 impl PyEventStoreHandle {
@@ -567,6 +605,48 @@ impl PyEventSubscription {
     }
 }
 
+/// Streaming-mode subscription handle: `__anext__` returns a single
+/// `PyNetEvent` (not a list-of-one). Trades batch throughput for the
+/// tightest per-event latency on the unary path.
+#[cfg(feature = "tokio")]
+#[pyclass(module = "_libpetri", name = "EventStream")]
+pub struct PyEventStream {
+    rx: Arc<tokio::sync::Mutex<Option<tokio::sync::mpsc::Receiver<Arc<NetEvent>>>>>,
+}
+
+#[cfg(feature = "tokio")]
+#[pymethods]
+impl PyEventStream {
+    fn __aiter__(slf: Py<Self>) -> Py<Self> {
+        slf
+    }
+
+    fn __anext__<'py>(&self, py: Python<'py>) -> PyResult<Py<PyAny>> {
+        let rx = Arc::clone(&self.rx);
+        let awaitable = pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let mut guard = rx.lock().await;
+            let rx = guard
+                .as_mut()
+                .ok_or_else(|| PyStopAsyncIteration::new_err(""))?;
+            let Some(event) = rx.recv().await else {
+                return Err(PyStopAsyncIteration::new_err(""));
+            };
+            Python::attach(|py| {
+                let wrapper = Py::new(py, PyNetEvent::new(event))?;
+                Ok::<_, PyErr>(wrapper.into_any())
+            })
+        })?;
+        Ok(awaitable.unbind())
+    }
+
+    fn close(&self) -> PyResult<()> {
+        if let Ok(mut guard) = self.rx.try_lock() {
+            let _ = guard.take();
+        }
+        Ok(())
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
@@ -575,7 +655,10 @@ pub fn register(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyNetEvent>()?;
     m.add_class::<PyEventStoreHandle>()?;
     #[cfg(feature = "tokio")]
-    m.add_class::<PyEventSubscription>()?;
+    {
+        m.add_class::<PyEventSubscription>()?;
+        m.add_class::<PyEventStream>()?;
+    }
     Ok(())
 }
 

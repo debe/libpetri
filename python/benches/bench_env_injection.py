@@ -57,3 +57,25 @@ def bench_inject_throughput(benchmark_async, n) -> None:
         await awaitable
 
     benchmark_async(run_once)
+
+
+@pytest.mark.parametrize("n", [100, 1000, 10000])
+def bench_inject_many_throughput(benchmark_async, n) -> None:
+    """Batched injection (`inject_many`): one FFI crossing for N tokens.
+
+    Compare against `bench_inject_throughput[n]` to see the GIL-acquire
+    savings — N → 1 per call. For N=10000, the difference is the cost of
+    ~10k Python→Rust transitions.
+    """
+    net, sensor, _sink = _build_injection_net()
+    compiled = lp.compile(net)
+
+    async def run_once() -> None:
+        handle, awaitable = compiled.start_async(
+            options=lp.ExecutorOptions(environment_places=(sensor,)),
+        )
+        handle.inject_many(sensor, ({"event_id": i} for i in range(n)))
+        handle.drain()
+        await awaitable
+
+    benchmark_async(run_once)

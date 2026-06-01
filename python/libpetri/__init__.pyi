@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 from . import _libpetri
+from .asyncio_helpers import (
+    action_gather as action_gather,
+    action_to_thread as action_to_thread,
+)
 from .debug import (
     DebugProtocolHandler as DebugProtocolHandler,
     SessionSummary as SessionSummary,
