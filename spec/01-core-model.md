@@ -530,3 +530,36 @@ An executor can be initialized with an initial marking that pre-populates places
 2. Execution begins with these tokens available.
 
 **Test derivation:** Create executor with initial marking {P1: [a, b], P2: [c]}; verify tokens present before first firing.
+
+---
+
+#### CORE-073: Marking Snapshot and Restore
+
+**Priority:** SHOULD
+
+A marking can be serialized to a structured snapshot that preserves, for every token, both its
+value and its `created_at` timestamp, and restored as the initial marking of a new execution
+(a "resume").
+
+The preserved `created_at` is **token metadata** carried for fidelity (observability, archival,
+timed-value inspection). It is independent of the firing clock: when a restored marking seeds a
+new executor, every initially-enabled transition's timing clock starts fresh at that executor's
+enablement moment, per [TIME-010] / [TIME-011]. Restoring does **not** resume a partially elapsed
+firing interval — a token's `created_at` never advances or shortcuts any `Delayed`, `Window`,
+`Deadline`, or `Exact` decision.
+
+**Acceptance Criteria:**
+1. Snapshot → restore round-trips each token's value and `created_at` unchanged.
+2. A restored marking pre-populates places exactly like any other initial marking ([CORE-072]).
+3. A `Delayed` / `Window` transition enabled by restored tokens waits its full interval measured
+   from the resuming executor's enablement, regardless of how old the tokens' `created_at` is.
+
+**Depends on:** [CORE-010], [CORE-011], [CORE-072], [TIME-010], [TIME-011]
+**Status:** Proposed
+**Implementation status:** Python (`MarkingView.snapshot()` / `from_snapshot()`, structured
+`{value, created_at}` form) implemented; Rust `Marking` is `Clone` and carries per-token
+`created_at`; Java/TypeScript snapshot surface pending.
+**Test derivation:** Seed an executor from a restored marking whose token `created_at` is in the
+distant past feeding a `Delayed(d)` transition; verify it fires ~`d` after start, not immediately
+(the existing `async_delayed_timing` test already exercises an epoch-`created_at` token through a
+`delayed(100)` transition).

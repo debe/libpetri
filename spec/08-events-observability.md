@@ -343,7 +343,7 @@ An event store with live tailing support for debug UIs. Supports:
 **Implementation notes:**
 - Java: Full implementation with virtual-thread broadcast
 - TypeScript: Full implementation with microtask broadcast
-- Rust: Not implemented
+- Rust: Implemented (`libpetri-debug::DebugEventStore`, crossbeam-channel subscriptions)
 
 **Test derivation:** Subscribe to debug store; append event; verify subscriber receives it.
 
@@ -468,12 +468,78 @@ could return misleading data, and in Rust because a hostile archive could claim 
 The event store or helper functions support:
 - Filter by event type
 - Filter by transition name
+- Filter by place name (for token events)
+- Pagination (offset / limit) over the filtered result
 - Filter for failure events
-- Count events
+- Count events, and an event-type histogram (counters)
 
 **Acceptance Criteria:**
 1. `eventsOfType(TransitionCompleted)` returns only completed events.
 2. `transitionEvents("MyTransition")` returns all events for that transition.
-3. `failures()` returns TransitionFailed, TransitionTimedOut, and ActionTimedOut events.
+3. Place filtering returns only token events for the named place(s); offset/limit page the result.
+4. `failures()` returns TransitionFailed, TransitionTimedOut, and ActionTimedOut events.
+5. `counters()` returns a `{eventType: count}` histogram whose values sum to the total event count.
 
-**Test derivation:** Run net with mixed events; verify each filter returns correct subset.
+**Test derivation:** Run net with mixed events; verify each filter, pagination, and the counters
+histogram return correct subsets / totals.
+
+---
+
+## Live Streaming & Replay
+
+#### EVT-031: EventStore Live Subscriptions
+
+**Priority:** SHOULD
+
+An event store may expose a live subscription that streams events as they are appended — distinct
+from the post-hoc snapshot reads of [EVT-020]. A subscription:
+- delivers only events matching its server-side filters (by type, transition, and place);
+- is forward-only — events appended **before** the subscription was created are not replayed;
+- batches delivery by a caller-chosen `batch_size` and `batch_timeout_ms` (a `batch_size = 1`,
+  `batch_timeout_ms = 0` "unary" mode delivers one event at a time for low latency);
+- is bounded — it uses a finite channel capacity with a documented back-pressure / drop policy;
+- terminates cleanly on explicit close or when the store is dropped.
+
+This differs from [EVT-024] (DebugEventStore live tailing for debug UIs): EVT-031 governs
+subscriptions over the ordinary observability store, with server-side filtering and batching.
+
+**Acceptance Criteria:**
+1. A subscriber receives only events matching its filters, in append order.
+2. Events appended before the subscription are not delivered (forward-only).
+3. Unary mode delivers one event per batch; batched mode delivers up to `batch_size`, flushing
+   early after `batch_timeout_ms`.
+4. Explicit close ends iteration cleanly; a full channel applies the documented policy.
+
+**Depends on:** [EVT-020], [EVT-021]
+**Status:** Proposed
+**Implementation status:** Rust binding + Python (`InMemoryEventStore.subscribe(...)`,
+`async for batch in ...`) implemented; Java/TypeScript pending.
+**Test derivation:** Run an async net feeding environment events; subscribe with a transition
+filter; verify batched forward-only delivery and clean close.
+
+---
+
+#### EVT-032: Marking Replay Cache
+
+**Priority:** SHOULD
+
+A replay cache reconstructs execution state at an arbitrary event index from a recorded event
+stream, for debug-protocol seek / step. `compute_at(events, index)` returns a `ComputedState`
+— the marking (token counts per place), enabled transitions, and in-flight transitions — replayed
+from the nearest periodically-cached snapshot rather than from the start of the stream.
+
+**Acceptance Criteria:**
+1. `compute_at(events, 0)` is the initial/empty state; `compute_at(events, len)` matches the final
+   marking shape.
+2. An index beyond the stream length is clamped to the end (no panic).
+3. Repeated calls reuse cached snapshots and return state structurally equal to a from-scratch
+   replay.
+4. The marking in `ComputedState` carries token counts; replayed tokens need not carry value
+   payloads (events carry type + structured metadata, not live objects).
+
+**Depends on:** [EVT-021], [CONC-025]
+**Status:** Proposed
+**Implementation status:** Rust (`libpetri-debug::MarkingCache`) and Python (`MarkingCache`,
+`ComputedState`) implemented; Java/TypeScript pending.
+**Test derivation:** Record a multi-firing run; `compute_at` at 0, an intermediate index, the end,
+and beyond-end; verify clamping and snapshot reuse.
