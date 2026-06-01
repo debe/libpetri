@@ -28,6 +28,7 @@ default = []
 tokio = ["libpetri-runtime/tokio"]
 z3 = ["libpetri-verification/z3"]
 debug = ["dep:libpetri-debug"]
+archive = ["debug", "libpetri-debug/archive"]
 
 [[example]]
 name = "basic"

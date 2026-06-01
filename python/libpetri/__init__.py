@@ -16,7 +16,20 @@ from importlib.metadata import PackageNotFoundError, version
 
 from . import _libpetri
 from .debug import DebugProtocolHandler, SessionSummary, require_debug
+from .events import InMemoryEventStore, NetEvent
 from .export import DotConfig, RankDir, dot_export
+
+if _libpetri.HAS_TOKIO:
+    from .events import EventSubscription
+
+if _libpetri.HAS_ARCHIVE:
+    from .archive import (
+        ComputedState,
+        MarkingCache,
+        SessionArchive,
+        SessionArchiveReader,
+        SessionArchiveWriter,
+    )
 from .model import (
     BuiltNet,
     BuiltSubnetDef,
@@ -94,6 +107,7 @@ StructureError = _libpetri.StructureError
 HAS_TOKIO = bool(_libpetri.HAS_TOKIO)
 HAS_Z3 = bool(_libpetri.HAS_Z3)
 HAS_DEBUG = bool(_libpetri.HAS_DEBUG)
+HAS_ARCHIVE = bool(_libpetri.HAS_ARCHIVE)
 
 try:
     __version__ = version("libpetri")
@@ -112,9 +126,11 @@ __all__ = [
     "DotConfig",
     "ExecutorHandle",
     "ExecutorOptions",
+    "HAS_ARCHIVE",
     "HAS_DEBUG",
     "HAS_TOKIO",
     "HAS_Z3",
+    "InMemoryEventStore",
     "InputSpec",
     "InhibitorArc",
     "Instance",
@@ -122,6 +138,7 @@ __all__ = [
     "MarkingView",
     "Net",
     "NetBuilder",
+    "NetEvent",
     "OutputSpec",
     "Place",
     "Port",
@@ -178,3 +195,17 @@ __all__ = [
     "BuiltSubnetDef",
     "BuiltTransition",
 ]
+
+if HAS_ARCHIVE:
+    __all__.extend(
+        [
+            "ComputedState",
+            "MarkingCache",
+            "SessionArchive",
+            "SessionArchiveReader",
+            "SessionArchiveWriter",
+        ]
+    )
+
+if HAS_TOKIO:
+    __all__.append("EventSubscription")

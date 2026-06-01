@@ -22,6 +22,15 @@ playwright-report/
 # Rust
 target/
 
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
 # IDE
 .idea/
 *.iml
