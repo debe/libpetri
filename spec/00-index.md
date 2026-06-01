@@ -305,13 +305,20 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | State class graph | Berthomieu-Diaz | ✓ | ✓ | ✓ |
 | Graph export | At least one format | DOT (Graphviz) | DOT (Graphviz) | DOT (Graphviz) |
 | Log capture | Action log → events | SLF4J LogCaptureScope | ctx.log() | Not yet |
-| Debug event store | Live tailing | ✓ | ✓ | — |
+| Debug event store | Live tailing | ✓ | ✓ | ✓ |
 | Action binding | Separated from structure | ✓ (bindActions) | ✓ (bindActions) | NetStructureBuilder |
 | Precompiled flat-array executor | 2–4× speedup via flat arrays | ✓ (PrecompiledNetExecutor) | ✓ (PrecompiledNetExecutor) | Not yet |
 | Inline sync execution | Avoid task dispatch | — | — | ✓ (try_run_inline) |
 | Modular composition | Open-net subnets, instantiation, port composition, fusion | Not yet | Not yet | Not yet |
 
 \* Rust uses 64-bit words matching Java.
+
+**Python** (`libpetri-py`) binds the Rust crate rather than re-implementing the engine, so it
+inherits the Rust column above instead of forming its own, and its session archives are
+wire-compatible with Rust's. A few SHOULD capabilities currently land Rust/Python-first —
+mid-execution snapshot ([ENV-014]), marking snapshot/restore ([CORE-073]), live event
+subscriptions ([EVT-031]), and the marking replay cache ([EVT-032]); their per-language status is
+tracked in those requirements.
 
 ---
 

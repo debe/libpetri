@@ -1,5 +1,53 @@
 # Changelog
 
+## Unreleased
+
+**Executor backend seam (Rust).** The two Rust executors now share one
+6-phase CTPN loop. `BitmapNetExecutor` and `PrecompiledNetExecutor` are type
+aliases over a single generic `Executor<S, E>` that drives an internal
+`ExecutorBackend` trait (bitmap vs. precompiled storage). Fully monomorphised —
+the precompiled hot path stays within ±2% of the pre-refactor benchmarks (most
+`precompiled_*` cases improved 1–9%); firing order, event semantics, and net
+structure are unchanged.
+
+- **Breaking (Rust)**: `marking()` returns `Cow<'_, Marking>` on both executors
+  (was `&Marking` / owned `Marking`); `run_sync` / `run_async` likewise. Use
+  `.into_owned()` for an owned copy.
+- **`Out::Timeout` in the async path**: an async action that exceeds its budget
+  now produces the timeout branch's outputs, emits an `ActionTimedOut` event, and
+  forwards consumed inputs under a `ForwardInput` child — full `IO-013`/`EXEC-022`
+  conformance matching Java/TS, closing two previously-ignored tests.
+- Sync executor tests unified behind a `for_each_backend!` suite, so every CTPN
+  semantic runs against both backends from a single source.
+
+**Python bindings: cross-language parity.** Closes four gaps versus
+Java/TypeScript/Rust — implementations stay on the Rust side per the
+`feedback_pyo3_gil_cold` rule (no per-event Python callbacks; filtered,
+batched GIL crossings via the existing `action.rs` coroutine pattern).
+
+- **Marking snapshot/restore preserves `Token.created_at`.** `MarkingView.snapshot()` /
+  `MarkingView.from_snapshot()` round-trips per-token timestamps; passing a
+  view as `initial=` to `run_sync` / `run_async` resumes a timed net without
+  clock loss. Mid-execution snapshot via `ExecutorHandle.snapshot()` (powered
+  by a new `ExecutorSignal::Snapshot` upstream); `Marking` now derives `Clone`.
+- **EventStore + NetEvent surface (Tier A/B/C, Rust-side).** `InMemoryEventStore`
+  handle attaches via `event_store=` on `run_sync` / `start_async`. Tier A:
+  filtered `store.events(types=..., transitions=..., places=..., limit=..., offset=...)`.
+  Tier B: `async for batch in store.subscribe(...)` — bounded `tokio::mpsc`
+  channel, Rust-evaluable filters, configurable batching with a `batch_size=1,
+  batch_timeout_ms=0` unary mode for low-latency streaming. Tier C: `counters()`,
+  `failures()` Rust aggregates. `NetEvent` is a frozen pyclass with lazy
+  attribute getters.
+- **Session Archive v3 (EVT-025).** `SessionArchiveWriter.write_from_store(...)` /
+  `SessionArchiveReader.read(...)` — gzip-compressed, wire-compatible with the
+  TypeScript / Rust readers. Writer consumes the `EventStore` handle directly;
+  events never round-trip through Python. New `archive` Cargo feature flag and
+  `HAS_ARCHIVE` runtime constant.
+- **MarkingCache.** `MarkingCache(...).compute_at(store, event_index)` returns
+  a `ComputedState` (marking, enabled transitions, in-flight transitions) by
+  replaying from the nearest cached snapshot — backs debug-protocol seek/step
+  from Python. No Python public API removed; the bindings changes are additive.
+
 ## 2.6.0
 
 **Python bindings.** New `libpetri` PyPI package via PyO3 + maturin. Full surface

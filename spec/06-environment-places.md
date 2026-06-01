@@ -183,3 +183,28 @@ Calling `close()` after `drain()` escalates from graceful to immediate shutdown.
 
 **Depends on:** [ENV-010]
 **Test derivation:** Executor with in-flight action; call close(); verify action completes; verify queued events discarded; verify executor terminates.
+
+---
+
+#### ENV-014: Mid-Execution Marking Snapshot
+
+**Priority:** SHOULD
+
+The executor exposes a `snapshot()` operation that returns a point-in-time copy of the current
+marking **without affecting lifecycle** — unlike `drain()` ([ENV-011]) and `close()` ([ENV-013]),
+it neither stops nor pauses execution. The request is serviced within one orchestrator cycle and
+the returned marking is an owned, independent copy. This backs checkpoint-saver patterns (e.g. a
+periodic external persistence of in-flight state) without interrupting the run.
+
+**Acceptance Criteria:**
+1. `snapshot()` may be called at any time while the executor is running.
+2. The executor services the request within one orchestrator cycle and keeps running afterwards.
+3. The returned marking is an owned copy, independent of subsequent executor state.
+4. `snapshot()` is rejected (error / `None`) once the executor has been drained or closed.
+
+**Depends on:** [ENV-010]
+**Status:** Proposed
+**Implementation status:** Rust (`ExecutorSignal::Snapshot` + `ExecutorHandle::snapshot`) and Python
+(`ExecutorHandle.snapshot`) implemented; Java/TypeScript pending.
+**Test derivation:** Start a long-running net; call `snapshot()` mid-execution; verify the returned
+marking reflects current state and the executor continues; call after `close()` and verify rejection.
