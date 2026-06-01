@@ -18,7 +18,7 @@ version = "3.0.0"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
-repository = "https://github.com/libpetri/libpetri"
+repository = "https://github.com/debe/libpetri"
 homepage = "https://libpetri.org"
 
 [workspace.dependencies]
