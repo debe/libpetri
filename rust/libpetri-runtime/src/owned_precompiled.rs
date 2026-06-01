@@ -130,7 +130,7 @@ impl<E: EventStore> OwnedPrecompiledExecutorBuilder<E> {
             builder = builder.event_store(store);
         }
         let mut executor = builder.build();
-        executor.run_sync()
+        executor.run_sync().into_owned()
     }
 
     /// Runs one async execution.
@@ -146,7 +146,7 @@ impl<E: EventStore> OwnedPrecompiledExecutorBuilder<E> {
             builder = builder.event_store(store);
         }
         let mut executor = builder.build();
-        executor.run_async(signal_rx).await
+        executor.run_async(signal_rx).await.into_owned()
     }
 }
 

@@ -12,6 +12,7 @@ use libpetri_core::token::ErasedToken;
 use libpetri_core::token::Token;
 
 use crate::environment::{ExecutorSignal, ExternalEvent};
+use crate::marking::Marking;
 
 /// RAII handle for injecting events and controlling executor lifecycle.
 ///
@@ -96,6 +97,33 @@ impl ExecutorHandle {
     pub fn is_drained(&self) -> bool {
         self.drained
     }
+
+    /// Requests a mid-execution snapshot of the executor's current marking.
+    ///
+    /// Returns a oneshot receiver that resolves to an owned [`Marking`] once
+    /// the executor processes the signal (typically within one orchestrator
+    /// cycle). Returns `Err` if the handle is drained/closed or the channel
+    /// is disconnected — in either case no snapshot will be delivered.
+    ///
+    /// Unlike `drain` / `close`, this does **not** affect lifecycle: the
+    /// executor keeps running. Use this for checkpoint-saver patterns where
+    /// the caller wants a consistent marking for persistence without
+    /// interrupting execution.
+    // `Result<_, ()>` is intentional: the only failure is "snapshot cannot be
+    // requested" (drained/closed or channel gone), which carries no payload.
+    // `Err(())` keeps the `?`/`is_err()` ergonomics the sibling lifecycle
+    // tests rely on, so we opt out of `result_unit_err` here.
+    #[allow(clippy::result_unit_err)]
+    pub fn snapshot(&self) -> Result<tokio::sync::oneshot::Receiver<Marking>, ()> {
+        if self.drained {
+            return Err(());
+        }
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.tx
+            .send(ExecutorSignal::Snapshot(tx))
+            .map_err(|_| ())?;
+        Ok(rx)
+    }
 }
 
 impl Drop for ExecutorHandle {
@@ -174,6 +202,29 @@ mod tests {
         }
         // Channel closed, no more signals
         assert!(rx.recv().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn handle_snapshot_sends_signal_with_reply_channel() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+        let handle = ExecutorHandle::new(tx);
+        let receiver = handle.snapshot().expect("snapshot on live handle");
+        match rx.recv().await {
+            Some(ExecutorSignal::Snapshot(reply)) => {
+                // Mimic the executor side: send back an empty marking.
+                let _ = reply.send(Marking::default());
+            }
+            other => panic!("expected Snapshot signal, got {:?}", other),
+        }
+        receiver.await.expect("snapshot reply delivered");
+    }
+
+    #[tokio::test]
+    async fn handle_snapshot_after_drain_returns_err() {
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+        let mut handle = ExecutorHandle::new(tx);
+        handle.drain();
+        assert!(handle.snapshot().is_err());
     }
 
     #[tokio::test]

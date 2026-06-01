@@ -21,6 +21,10 @@ pub struct ExternalEvent {
 ///   process already-queued events, complete in-flight actions, terminate at quiescence.
 /// - [`Close`](Self::Close) — immediate shutdown per \[ENV-013\]: discard queued events,
 ///   complete in-flight actions, terminate.
+/// - [`Snapshot`](Self::Snapshot) — mid-execution marking snapshot: the executor
+///   materializes its current marking and sends it through the provided
+///   oneshot. Does not affect lifecycle. Used by checkpoint-saver patterns
+///   (e.g. `langgraph-libpetri`'s `PetriCheckpointSaver`).
 ///
 /// Use [`ExecutorHandle`](crate::executor_handle::ExecutorHandle) for RAII-managed
 /// lifecycle with automatic drain on drop.
@@ -33,4 +37,7 @@ pub enum ExecutorSignal {
     Drain,
     /// Immediate close: discard queued events, complete in-flight, terminate.
     Close,
+    /// Mid-execution snapshot request: executor replies with the current
+    /// owned [`Marking`](crate::Marking) on the provided oneshot.
+    Snapshot(tokio::sync::oneshot::Sender<crate::marking::Marking>),
 }
