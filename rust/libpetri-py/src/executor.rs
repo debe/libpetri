@@ -12,13 +12,16 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use libpetri::{NoopEventStore, OwnedPrecompiledNet, PetriNet};
+#[cfg(feature = "tokio")]
+use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict};
 
+use crate::events::PyEventStoreHandle;
 use crate::model::PyPetriNet;
 #[cfg(feature = "tokio")]
 use crate::value::{erased_from_py, place_name_from_object};
-use crate::value::{marking_from_python, marking_to_python};
+use crate::value::{marking_from_python, marking_snapshot_to_python};
 
 /// Run-time options for a single execution.
 ///
@@ -102,15 +105,24 @@ impl PyCompiledNet {
 
     /// Runs the net synchronously to completion.
     ///
-    /// `initial` is a `{place_name_or_Place: iterable_of_token_values}` dict.
-    /// Returns the final marking as a `{place_name: [tokens]}` dict. The GIL
-    /// is released for the duration of the executor loop.
-    #[pyo3(signature = (initial = None, options = None))]
+    /// `initial` is a `{place_name_or_Place: iterable_of_token_values_or_snapshots}`
+    /// dict. Two forms are accepted: legacy `[value, value, ...]` (timestamps
+    /// reassigned to `now()`), or structured `[{"value": v, "created_at": ms},
+    /// ...]` (timestamps preserved — used by `MarkingView.snapshot()` for
+    /// timestamp-faithful restore).
+    ///
+    /// Returns the final marking as a structured-snapshot dict
+    /// `{place_name: [{"value": v, "created_at": ms}, ...]}`. The Python
+    /// `MarkingView` wrapper exposes this via `.snapshot()` and projects to
+    /// the value-only form via `.to_dict()` / iteration. The GIL is released
+    /// for the duration of the executor loop.
+    #[pyo3(signature = (initial = None, options = None, event_store = None))]
     fn run_sync(
         &self,
         py: Python<'_>,
         initial: Option<&Bound<'_, PyAny>>,
         options: Option<&PyExecutorOptions>,
+        event_store: Option<&PyEventStoreHandle>,
     ) -> PyResult<Py<PyDict>> {
         let initial_marking = marking_from_python(py, initial)?;
         let options = options.cloned().unwrap_or_default();
@@ -118,15 +130,21 @@ impl PyCompiledNet {
         let skip_output_validation = options.skip_output_validation;
         let owned = self.inner.clone();
 
-        let marking = py.detach(move || {
-            owned
+        let marking = py.detach(move || match event_store.map(|h| h.shared()) {
+            None => owned
                 .builder::<NoopEventStore>(initial_marking)
                 .environment_places(environment_places)
                 .skip_output_validation(skip_output_validation)
-                .run_sync()
+                .run_sync(),
+            Some(shared) => owned
+                .builder(initial_marking)
+                .event_store(shared)
+                .environment_places(environment_places)
+                .skip_output_validation(skip_output_validation)
+                .run_sync(),
         });
 
-        marking_to_python(py, &marking)
+        marking_snapshot_to_python(py, &marking)
     }
 
     /// Runs the net on tokio, returning an `(ExecutorHandle, awaitable)` pair.
@@ -134,18 +152,20 @@ impl PyCompiledNet {
     /// The handle lets you inject tokens into environment places mid-run; the
     /// awaitable resolves to the final marking when the executor drains.
     #[cfg(feature = "tokio")]
-    #[pyo3(signature = (initial = None, options = None))]
+    #[pyo3(signature = (initial = None, options = None, event_store = None))]
     fn run_async<'py>(
         &self,
         py: Python<'py>,
         initial: Option<&Bound<'py, PyAny>>,
         options: Option<&PyExecutorOptions>,
+        event_store: Option<&PyEventStoreHandle>,
     ) -> PyResult<(Py<PyExecutorHandle>, Py<PyAny>)> {
         let initial_marking = marking_from_python(py, initial)?;
         let options = options.cloned().unwrap_or_default();
         let environment_places = options.environment_place_set();
         let skip_output_validation = options.skip_output_validation;
         let owned = self.inner.clone();
+        let shared = event_store.map(|h| h.shared());
 
         // Capture the running asyncio event loop so Python async callbacks
         // spawned onto tokio worker threads can drive themselves on it.
@@ -157,13 +177,26 @@ impl PyCompiledNet {
             PyExecutorHandle::new(libpetri::ExecutorHandle::new(tx)),
         )?;
         let awaitable = pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let marking = owned
-                .builder::<NoopEventStore>(initial_marking)
-                .environment_places(environment_places)
-                .skip_output_validation(skip_output_validation)
-                .run_async(rx)
-                .await;
-            Python::attach(|py| marking_to_python(py, &marking))
+            let marking = match shared {
+                None => {
+                    owned
+                        .builder::<NoopEventStore>(initial_marking)
+                        .environment_places(environment_places)
+                        .skip_output_validation(skip_output_validation)
+                        .run_async(rx)
+                        .await
+                }
+                Some(shared) => {
+                    owned
+                        .builder(initial_marking)
+                        .event_store(shared)
+                        .environment_places(environment_places)
+                        .skip_output_validation(skip_output_validation)
+                        .run_async(rx)
+                        .await
+                }
+            };
+            Python::attach(|py| marking_snapshot_to_python(py, &marking))
         })?;
 
         Ok((handle, awaitable.unbind()))
@@ -217,6 +250,30 @@ impl PyExecutorHandle {
     #[getter]
     fn drained(&self) -> bool {
         self.inner.lock().unwrap().is_drained()
+    }
+
+    /// Requests a mid-execution marking snapshot. Returns an awaitable that
+    /// resolves to a structured snapshot dict
+    /// (`{place: [{"value": v, "created_at": ms}, ...]}`) — same shape as
+    /// `MarkingView.snapshot()`. Wrap with `MarkingView.from_snapshot(...)`
+    /// for a typed view.
+    ///
+    /// Raises `RuntimeError` if the executor has already drained, closed, or
+    /// disconnected.
+    fn snapshot<'py>(&self, py: Python<'py>) -> PyResult<Py<PyAny>> {
+        let rx = self
+            .inner
+            .lock()
+            .unwrap()
+            .snapshot()
+            .map_err(|_| PyRuntimeError::new_err("executor handle is drained or closed"))?;
+        let awaitable = pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let marking = rx.await.map_err(|_| {
+                PyRuntimeError::new_err("executor dropped before snapshot was delivered")
+            })?;
+            Python::attach(|py| marking_snapshot_to_python(py, &marking))
+        })?;
+        Ok(awaitable.unbind())
     }
 }
 
