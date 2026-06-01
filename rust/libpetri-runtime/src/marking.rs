@@ -7,8 +7,12 @@ use libpetri_core::token::{ErasedToken, Token};
 
 /// Mutable token state of a Petri net during execution.
 ///
-/// Stores type-erased tokens in FIFO queues keyed by place name.
-#[derive(Debug, Default)]
+/// Stores type-erased tokens in FIFO queues keyed by place name. `Clone` is
+/// supported so an executor can hand out an owned snapshot through a oneshot
+/// channel (used by [`ExecutorHandle::snapshot`](crate::ExecutorHandle::snapshot));
+/// each cloned token clones its underlying `Arc<dyn Any + Send + Sync>`, so
+/// shared payloads are not deep-copied.
+#[derive(Debug, Default, Clone)]
 pub struct Marking {
     tokens: HashMap<Arc<str>, VecDeque<ErasedToken>>,
 }

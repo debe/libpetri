@@ -60,6 +60,7 @@ pub struct PrecompiledNet {
     pub(crate) any_deadlines: bool,
 
     /// Priority partitioning.
+    #[allow(dead_code)]
     pub(crate) priorities: Vec<i32>,
     pub(crate) transition_to_priority_index: Vec<usize>,
     #[allow(dead_code)]
@@ -81,6 +82,7 @@ pub struct PrecompiledNet {
     /// Precomputed place name Arcs (indexed by place ID).
     pub(crate) place_name_arcs: Vec<Arc<str>>,
     /// Precomputed transition name Arcs (indexed by transition ID).
+    #[allow(dead_code)]
     pub(crate) transition_name_arcs: Vec<Arc<str>>,
     /// Precomputed output place name sets per transition.
     pub(crate) output_place_name_sets: Vec<HashSet<Arc<str>>>,
