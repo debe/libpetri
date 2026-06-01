@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 3.0.0 (Rust) / 2.7.0 (Python) — 2026-06-01
 
 **Executor backend seam (Rust).** The two Rust executors now share one
 6-phase CTPN loop. `BitmapNetExecutor` and `PrecompiledNetExecutor` are type
