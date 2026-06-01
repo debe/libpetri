@@ -107,8 +107,11 @@ git diff --cached --quiet || git commit -m "release: rust ${VERSION}"
 info "Building and testing Rust crates"
 cd "$RUST_DIR"
 
-cargo build --all-features
-cargo test --all-features
+# libpetri-py is a Python extension cdylib; its test binary can't link
+# libpython outside a Python env, and it is `publish = false`. Build/test the
+# publishable crates here; the wheel is validated by release-python.sh.
+cargo build --workspace --exclude libpetri-py --all-features
+cargo test --workspace --exclude libpetri-py --all-features
 
 RUST_CRATES=(
     libpetri-event

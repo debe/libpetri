@@ -95,17 +95,19 @@ if [[ "$DRY_RUN" == false ]]; then
     fi
 fi
 
-info "Setting Python version to ${VERSION} via Rust workspace metadata"
+info "Setting libpetri-py (Python wheel) version to ${VERSION}"
 cd "$RUST_DIR"
-sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
-sed -i "s/\(path = \"[^\"]*\"\), version = \"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\"/\1, version = \"$VERSION\"/g" Cargo.toml
+# Python is versioned independently of the Rust crates: bump only the
+# libpetri-py package version (maturin reads it via the dynamic version),
+# never the shared workspace version of the published Rust crates.
+sed -i "s/^version = \".*\"/version = \"$VERSION\"/" libpetri-py/Cargo.toml
 
 # Sync Cargo.lock so the maturin `--locked` build below doesn't reject the
-# now-stale lockfile. `cargo update --workspace` only bumps workspace members.
+# now-stale lockfile.
 cargo update --workspace --offline >/dev/null
 
 cd "$PROJECT_ROOT"
-git add rust/Cargo.toml rust/Cargo.lock
+git add rust/libpetri-py/Cargo.toml rust/Cargo.lock
 git diff --cached --quiet || git commit -m "release: python ${VERSION}"
 
 info "Building Python wheel and sdist"
