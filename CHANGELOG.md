@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.6.0 (Java) / 2.6.0 (TypeScript) / 3.1.0 (Rust) / 2.9.0 (Python) — 2026-06-02
 
 Reliable `exact()` timing + configurable deadline tolerance, coordinated across Java, TypeScript, Rust and Python.
 
