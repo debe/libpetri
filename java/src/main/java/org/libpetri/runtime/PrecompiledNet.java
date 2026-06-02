@@ -71,6 +71,12 @@ public final class PrecompiledNet {
     final long[] earliestMillis;  // precomputed to avoid Division on hot path
     final long[] latestMillis;    // precomputed to avoid virtual dispatch on hot path
     final boolean[] hasDeadline;
+    /**
+     * True for transitions with {@link Timing.Exact} timing. Exact transitions fire at the first
+     * opportunity at/after their target time (delayed-style liveness) and are never force-disabled
+     * by deadline enforcement — their upper bound is observed, not enforced. See TIME-006.
+     */
+    final boolean[] isExact;
 
     // Priority
     final int[] priorities;
@@ -200,6 +206,7 @@ public final class PrecompiledNet {
         this.earliestMillis = new long[transitionCount];
         this.latestMillis = new long[transitionCount];
         this.hasDeadline = new boolean[transitionCount];
+        this.isExact = new boolean[transitionCount];
         boolean anyDl = false;
         boolean allImm = true;
 
@@ -214,6 +221,7 @@ public final class PrecompiledNet {
                 ? t.timing().latest().toMillis()
                 : Long.MAX_VALUE;
             hasDeadline[tid] = t.timing().hasDeadline();
+            isExact[tid] = t.timing() instanceof Timing.Exact;
             if (hasDeadline[tid]) anyDl = true;
             if (!(t.timing() instanceof Timing.Immediate) &&
                 !(t.timing() instanceof Timing.Unconstrained)) {

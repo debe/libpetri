@@ -20,6 +20,20 @@ import type { TransitionContext } from '../core/transition-context.js';
 import { OutViolationError } from './out-violation-error.js';
 
 /**
+ * Default deadline-enforcement tolerance, in milliseconds.
+ *
+ * A transition with a hard deadline (`deadline()` / `window()`) is force-disabled only once its
+ * elapsed time exceeds `latest + DEADLINE_TOLERANCE_MS`, absorbing timer-resolution and scheduling
+ * jitter (TIME-013). Shared by both executors and matched by the Java and Rust runtimes so
+ * deadline enforcement behaves identically across languages. Configurable per executor via the
+ * `deadlineToleranceMs` option.
+ *
+ * `exact()` timing is enforced *softly* — an exact transition fires at the first opportunity at/after
+ * its target time and is never force-disabled, so this tolerance does not gate its firing (TIME-006).
+ */
+export const DEADLINE_TOLERANCE_MS = 5;
+
+/**
  * Recursively validates that a transition's output satisfies its declared Out spec.
  *
  * @returns the set of claimed place names, or null if not satisfied

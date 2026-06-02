@@ -33,6 +33,7 @@ use crate::value::{marking_from_python, marking_snapshot_to_python};
 pub struct PyExecutorOptions {
     environment_places: Vec<String>,
     skip_output_validation: bool,
+    deadline_tolerance_ms: Option<f64>,
 }
 
 impl PyExecutorOptions {
@@ -49,13 +50,31 @@ impl PyExecutorOptions {
 impl PyExecutorOptions {
     /// Constructs options; pass `environment_places=[...]` to mark places that
     /// will receive external token injection during async runs.
+    ///
+    /// `deadline_tolerance_ms` is the grace band beyond a hard deadline
+    /// (`deadline()` / `window()`) before a transition is force-disabled (TIME-013); `None` uses
+    /// the library default (5ms). Real-time orchestrators whose runs can stall may widen it. Must
+    /// be non-negative. Does not affect `exact()` transitions, which are enforced softly and never
+    /// force-disabled (TIME-006).
     #[new]
-    #[pyo3(signature = (*, environment_places = None, skip_output_validation = false))]
-    fn new(environment_places: Option<Vec<String>>, skip_output_validation: bool) -> Self {
-        Self {
+    #[pyo3(signature = (*, environment_places = None, skip_output_validation = false, deadline_tolerance_ms = None))]
+    fn new(
+        environment_places: Option<Vec<String>>,
+        skip_output_validation: bool,
+        deadline_tolerance_ms: Option<f64>,
+    ) -> PyResult<Self> {
+        if let Some(ms) = deadline_tolerance_ms {
+            if !(ms >= 0.0) {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "deadline_tolerance_ms must be non-negative: {ms}"
+                )));
+            }
+        }
+        Ok(Self {
             environment_places: environment_places.unwrap_or_default(),
             skip_output_validation,
-        }
+            deadline_tolerance_ms,
+        })
     }
 
     /// Names of places that the executor must keep waiting on (env-driven inputs).
@@ -68,6 +87,12 @@ impl PyExecutorOptions {
     #[getter]
     fn skip_output_validation(&self) -> bool {
         self.skip_output_validation
+    }
+
+    /// Deadline-enforcement tolerance in milliseconds, or `None` for the library default (5ms).
+    #[getter]
+    fn deadline_tolerance_ms(&self) -> Option<f64> {
+        self.deadline_tolerance_ms
     }
 }
 
@@ -128,20 +153,31 @@ impl PyCompiledNet {
         let options = options.cloned().unwrap_or_default();
         let environment_places = options.environment_place_set();
         let skip_output_validation = options.skip_output_validation;
+        let deadline_tolerance_ms = options.deadline_tolerance_ms;
         let owned = self.inner.clone();
 
         let marking = py.detach(move || match event_store.map(|h| h.shared()) {
-            None => owned
-                .builder::<NoopEventStore>(initial_marking)
-                .environment_places(environment_places)
-                .skip_output_validation(skip_output_validation)
-                .run_sync(),
-            Some(shared) => owned
-                .builder(initial_marking)
-                .event_store(shared)
-                .environment_places(environment_places)
-                .skip_output_validation(skip_output_validation)
-                .run_sync(),
+            None => {
+                let mut builder = owned
+                    .builder::<NoopEventStore>(initial_marking)
+                    .environment_places(environment_places)
+                    .skip_output_validation(skip_output_validation);
+                if let Some(ms) = deadline_tolerance_ms {
+                    builder = builder.deadline_tolerance_ms(ms);
+                }
+                builder.run_sync()
+            }
+            Some(shared) => {
+                let mut builder = owned
+                    .builder(initial_marking)
+                    .event_store(shared)
+                    .environment_places(environment_places)
+                    .skip_output_validation(skip_output_validation);
+                if let Some(ms) = deadline_tolerance_ms {
+                    builder = builder.deadline_tolerance_ms(ms);
+                }
+                builder.run_sync()
+            }
         });
 
         marking_snapshot_to_python(py, &marking)
@@ -164,6 +200,7 @@ impl PyCompiledNet {
         let options = options.cloned().unwrap_or_default();
         let environment_places = options.environment_place_set();
         let skip_output_validation = options.skip_output_validation;
+        let deadline_tolerance_ms = options.deadline_tolerance_ms;
         let owned = self.inner.clone();
         let shared = event_store.map(|h| h.shared());
 
@@ -183,21 +220,25 @@ impl PyCompiledNet {
             let _loop_guard = loop_guard;
             let marking = match shared {
                 None => {
-                    owned
+                    let mut builder = owned
                         .builder::<NoopEventStore>(initial_marking)
                         .environment_places(environment_places)
-                        .skip_output_validation(skip_output_validation)
-                        .run_async(rx)
-                        .await
+                        .skip_output_validation(skip_output_validation);
+                    if let Some(ms) = deadline_tolerance_ms {
+                        builder = builder.deadline_tolerance_ms(ms);
+                    }
+                    builder.run_async(rx).await
                 }
                 Some(shared) => {
-                    owned
+                    let mut builder = owned
                         .builder(initial_marking)
                         .event_store(shared)
                         .environment_places(environment_places)
-                        .skip_output_validation(skip_output_validation)
-                        .run_async(rx)
-                        .await
+                        .skip_output_validation(skip_output_validation);
+                    if let Some(ms) = deadline_tolerance_ms {
+                        builder = builder.deadline_tolerance_ms(ms);
+                    }
+                    builder.run_async(rx).await
                 }
             };
             Python::attach(|py| marking_snapshot_to_python(py, &marking))

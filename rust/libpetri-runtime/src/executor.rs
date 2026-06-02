@@ -25,6 +25,11 @@ pub struct ExecutorOptions {
     /// `ExecutorSignal::Event` on the async path). Empty by default;
     /// when empty, the sync loop terminates at quiescence.
     pub environment_places: HashSet<Arc<str>>,
+    /// Grace band (ms) beyond a hard deadline (`deadline()` / `window()`) before a transition is
+    /// force-disabled with a `TransitionTimedOut` event (TIME-013). `None` uses the default
+    /// [`DEADLINE_TOLERANCE_MS`](crate::executor_core::deadline) (5ms); `Some(0.0)` is strict.
+    /// Should be non-negative. Does not affect `exact()` transitions, enforced softly (TIME-006).
+    pub deadline_tolerance_ms: Option<f64>,
 }
 
 /// Bitmap-based executor for Coloured Time Petri Nets.
@@ -45,7 +50,10 @@ impl<E: EventStore> Executor<BitmapBackend, E> {
     /// Compile `net`, load `initial_tokens` into the backend, and wrap
     /// it with a fresh default-constructed event store.
     pub fn new(net: &PetriNet, initial_tokens: Marking, options: ExecutorOptions) -> Self {
-        let backend = BitmapBackend::new(net, initial_tokens);
+        let mut backend = BitmapBackend::new(net, initial_tokens);
+        if let Some(ms) = options.deadline_tolerance_ms {
+            backend.set_deadline_tolerance_ms(ms);
+        }
         let has_environment_places = !options.environment_places.is_empty();
         Executor::from_parts(backend, E::default(), has_environment_places)
     }
@@ -171,6 +179,7 @@ mod async_tests {
             marking,
             ExecutorOptions {
                 environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
+                ..Default::default()
             },
         );
 
@@ -300,6 +309,7 @@ mod async_tests {
             marking,
             ExecutorOptions {
                 environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
+                ..Default::default()
             },
         );
 
@@ -343,6 +353,7 @@ mod async_tests {
             marking,
             ExecutorOptions {
                 environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
+                ..Default::default()
             },
         );
 
@@ -385,6 +396,7 @@ mod async_tests {
             marking,
             ExecutorOptions {
                 environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
+                ..Default::default()
             },
         );
 
@@ -455,6 +467,7 @@ mod async_tests {
             marking,
             ExecutorOptions {
                 environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
+                ..Default::default()
             },
         );
 
@@ -481,6 +494,155 @@ mod async_tests {
         );
     }
 
+    // Regression for the Marvin exact(45s) "sometimes never fires" bug. Mirror of
+    // `async_deadline_enforcement`, but the timed transition uses exact(50). A higher-priority
+    // sync action busy-waits 200ms, blocking the executor thread so it cannot run a cycle until
+    // well past the [50,50] window. With soft enforcement the exact transition must STILL fire
+    // and must NOT be reaped (contrast the window case, which DOES time out).
+    #[tokio::test]
+    async fn async_exact_survives_busy_executor() {
+        use libpetri_core::action::sync_action;
+        use libpetri_core::timing::exact;
+
+        let p_slow = Place::<i32>::new("p_slow");
+        let p_exact = Place::<i32>::new("p_exact");
+        let slow_out = Place::<i32>::new("slow_out");
+        let exact_out = Place::<i32>::new("exact_out");
+
+        let t_slow = Transition::builder("slow")
+            .input(one(&p_slow))
+            .output(out_place(&slow_out))
+            .priority(10)
+            .action(sync_action(|ctx| {
+                let v = ctx.input::<i32>("p_slow")?;
+                let start = std::time::Instant::now();
+                while start.elapsed().as_millis() < 200 {
+                    std::hint::spin_loop();
+                }
+                ctx.output("slow_out", *v)?;
+                Ok(())
+            }))
+            .build();
+
+        let t_exact = Transition::builder("exact")
+            .input(one(&p_exact))
+            .output(out_place(&exact_out))
+            .timing(exact(50))
+            .action(fork())
+            .build();
+
+        let net = PetriNet::builder("test")
+            .transitions([t_slow, t_exact])
+            .build();
+
+        let mut marking = Marking::new();
+        marking.add(&p_slow, Token::at(1, 0));
+        marking.add(&p_exact, Token::at(2, 0));
+
+        let mut executor = BitmapNetExecutor::<InMemoryEventStore>::new(
+            &net,
+            marking,
+            ExecutorOptions {
+                environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
+                ..Default::default()
+            },
+        );
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            drop(tx);
+        });
+        executor.run_async(rx).await;
+
+        assert_eq!(
+            executor.marking().count("exact_out"),
+            1,
+            "exact transition must still fire under soft enforcement"
+        );
+        let events = executor.event_store().events();
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, NetEvent::TransitionTimedOut { .. })),
+            "exact() must never be force-disabled"
+        );
+    }
+
+    // A wide `deadline_tolerance_ms` lets a slightly-late HARD deadline still fire (TIME-013).
+    // Same busy-executor scenario as `async_deadline_enforcement` (which reaps the window under
+    // the default 5ms band), but with a 400ms tolerance the window([50,100]) survives the ~200ms
+    // overrun and fires.
+    #[tokio::test]
+    async fn async_deadline_tolerance_allows_late_fire() {
+        use libpetri_core::action::sync_action;
+        use libpetri_core::timing::window;
+
+        let p_slow = Place::<i32>::new("p_slow");
+        let p_windowed = Place::<i32>::new("p_windowed");
+        let slow_out = Place::<i32>::new("slow_out");
+        let windowed_out = Place::<i32>::new("windowed_out");
+
+        let t_slow = Transition::builder("slow")
+            .input(one(&p_slow))
+            .output(out_place(&slow_out))
+            .priority(10)
+            .action(sync_action(|ctx| {
+                let v = ctx.input::<i32>("p_slow")?;
+                let start = std::time::Instant::now();
+                while start.elapsed().as_millis() < 200 {
+                    std::hint::spin_loop();
+                }
+                ctx.output("slow_out", *v)?;
+                Ok(())
+            }))
+            .build();
+
+        let t_windowed = Transition::builder("windowed")
+            .input(one(&p_windowed))
+            .output(out_place(&windowed_out))
+            .timing(window(50, 100))
+            .action(fork())
+            .build();
+
+        let net = PetriNet::builder("test")
+            .transitions([t_slow, t_windowed])
+            .build();
+
+        let mut marking = Marking::new();
+        marking.add(&p_slow, Token::at(1, 0));
+        marking.add(&p_windowed, Token::at(2, 0));
+
+        let mut executor = BitmapNetExecutor::<InMemoryEventStore>::new(
+            &net,
+            marking,
+            ExecutorOptions {
+                environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
+                deadline_tolerance_ms: Some(400.0),
+            },
+        );
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            drop(tx);
+        });
+        executor.run_async(rx).await;
+
+        assert_eq!(
+            executor.marking().count("windowed_out"),
+            1,
+            "wide tolerance lets the slightly-late window transition fire"
+        );
+        let events = executor.event_store().events();
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, NetEvent::TransitionTimedOut { .. })),
+            "no timeout within the configured tolerance band"
+        );
+    }
+
     #[tokio::test]
     async fn async_multiple_injections() {
         let p1 = Place::<i32>::new("p1");
@@ -500,6 +662,7 @@ mod async_tests {
             marking,
             ExecutorOptions {
                 environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
+                ..Default::default()
             },
         );
 
@@ -790,6 +953,7 @@ mod async_tests {
             marking,
             ExecutorOptions {
                 environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
+                ..Default::default()
             },
         );
 
@@ -896,6 +1060,7 @@ mod async_tests {
             marking,
             ExecutorOptions {
                 environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
+                ..Default::default()
             },
         );
 
@@ -981,6 +1146,7 @@ mod async_tests {
             marking,
             ExecutorOptions {
                 environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
+                ..Default::default()
             },
         );
 
@@ -1024,6 +1190,7 @@ mod async_tests {
             marking,
             ExecutorOptions {
                 environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
+                ..Default::default()
             },
         );
 
@@ -1065,6 +1232,7 @@ mod async_tests {
             marking,
             ExecutorOptions {
                 environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
+                ..Default::default()
             },
         );
 
@@ -1111,6 +1279,7 @@ mod async_tests {
             marking,
             ExecutorOptions {
                 environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
+                ..Default::default()
             },
         );
 
@@ -1149,6 +1318,7 @@ mod async_tests {
             marking,
             ExecutorOptions {
                 environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
+                ..Default::default()
             },
         );
 

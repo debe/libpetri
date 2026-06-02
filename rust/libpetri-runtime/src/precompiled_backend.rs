@@ -69,6 +69,9 @@ pub struct PrecompiledBackend<'a> {
     // ==================== Reset-clock detection ====================
     pending_reset_words: Vec<u64>,
     has_pending_resets: bool,
+
+    /// Grace band (ms) before a hard deadline force-disables (TIME-013).
+    deadline_tolerance_ms: f64,
 }
 
 impl<'a> PrecompiledBackend<'a> {
@@ -150,7 +153,16 @@ impl<'a> PrecompiledBackend<'a> {
             ready_queue_size: vec![0usize; prio_count],
             pending_reset_words: vec![0u64; wc],
             has_pending_resets: false,
+            deadline_tolerance_ms: DEADLINE_TOLERANCE_MS,
         }
+    }
+
+    /// Overrides the deadline-enforcement tolerance (default
+    /// [`DEADLINE_TOLERANCE_MS`]). The grace band beyond a hard deadline
+    /// (`deadline()` / `window()`) before a transition is force-disabled.
+    /// Does not affect `exact()` transitions (TIME-006).
+    pub(crate) fn set_deadline_tolerance_ms(&mut self, ms: f64) {
+        self.deadline_tolerance_ms = ms;
     }
 
     // ==================== Ring buffer ops ====================
@@ -578,11 +590,16 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
                     if !self.program.has_deadline[tid] {
                         continue;
                     }
+                    // exact() is enforced softly — it fires at the first opportunity at/after its
+                    // target and is never force-disabled (TIME-006). Only hard deadlines reaped here.
+                    if self.program.is_exact[tid] {
+                        continue;
+                    }
 
                     let elapsed = now_ms - self.enabled_at_ms[tid];
                     let latest_ms = self.program.latest_ms[tid];
 
-                    if elapsed > latest_ms + DEADLINE_TOLERANCE_MS {
+                    if elapsed > latest_ms + self.deadline_tolerance_ms {
                         self.clear_enabled_bit(tid);
                         self.enabled_transition_count -= 1;
                         self.enabled_at_ms[tid] = f64::NEG_INFINITY;

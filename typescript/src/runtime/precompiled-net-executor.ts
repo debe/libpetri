@@ -39,10 +39,8 @@ import { noopEventStore } from '../event/event-store.js';
 import { WORD_SHIFT, BIT_MASK } from './compiled-net.js';
 import { Marking } from './marking.js';
 import { PrecompiledNet, CONSUME_ONE, CONSUME_N, CONSUME_ALL, CONSUME_ATLEAST, RESET } from './precompiled-net.js';
-import { validateOutSpec, produceTimeoutOutput } from './executor-support.js';
+import { validateOutSpec, produceTimeoutOutput, DEADLINE_TOLERANCE_MS } from './executor-support.js';
 import { OutViolationError } from './out-violation-error.js';
-
-const DEADLINE_TOLERANCE_MS = 5;
 
 // ==================== Types ====================
 
@@ -61,6 +59,13 @@ export interface PrecompiledNetExecutorOptions {
   skipOutputValidation?: boolean;
   /** Reuse a precompiled program (avoids recompilation). */
   program?: PrecompiledNet;
+  /**
+   * Grace band (ms) beyond a hard deadline (`deadline()` / `window()`) before a transition is
+   * force-disabled with a `transition-timed-out` event (TIME-013). Defaults to {@link DEADLINE_TOLERANCE_MS}
+   * (5ms); `0` gives strict enforcement. Must be non-negative. Does not affect `exact()` transitions,
+   * which are enforced softly (TIME-006).
+   */
+  deadlineToleranceMs?: number;
 }
 
 /**
@@ -76,6 +81,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
   private readonly hasEnvironmentPlaces: boolean;
   private readonly executionContextProvider?: (transitionName: string, consumed: Token<any>[]) => Map<string, unknown>;
   private readonly skipOutputValidation: boolean;
+  private readonly deadlineToleranceMs: number;
   private readonly startMs: number;
   private readonly eventStoreEnabled: boolean;
 
@@ -145,6 +151,10 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     this.hasEnvironmentPlaces = this.environmentPlaces.size > 0;
     this.executionContextProvider = options.executionContextProvider;
     this.skipOutputValidation = options.skipOutputValidation ?? false;
+    this.deadlineToleranceMs = options.deadlineToleranceMs ?? DEADLINE_TOLERANCE_MS;
+    if (this.deadlineToleranceMs < 0) {
+      throw new Error(`Deadline tolerance must be non-negative: ${this.deadlineToleranceMs}`);
+    }
     this.startMs = performance.now();
     this.eventStoreEnabled = this.eventStore.isEnabled();
 
@@ -421,11 +431,14 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
 
     for (let tid = 0; tid < tc; tid++) {
       if (!prog.hasDeadline[tid]) continue;
+      // exact() is enforced softly — it fires at the first opportunity at/after its target and is
+      // never force-disabled (TIME-006). Only hard deadlines (deadline()/window()) are reaped here.
+      if (prog.isExact[tid]) continue;
       if (!this.enabledFlags[tid] || this.inFlightFlags[tid]) continue;
 
       const elapsed = nowMs - this.enabledAtMs[tid]!;
       const latestMs = prog.latestMs[tid]!;
-      if (elapsed > latestMs + DEADLINE_TOLERANCE_MS) {
+      if (elapsed > latestMs + this.deadlineToleranceMs) {
         this.enabledFlags[tid] = 0;
         this.enabledTransitionCount--;
         this.enabledAtMs[tid] = -Infinity;

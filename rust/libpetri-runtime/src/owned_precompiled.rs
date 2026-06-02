@@ -74,6 +74,7 @@ impl OwnedPrecompiledNet {
             event_store: None,
             environment_places: HashSet::new(),
             skip_output_validation: false,
+            deadline_tolerance_ms: None,
         }
     }
 
@@ -100,6 +101,7 @@ pub struct OwnedPrecompiledExecutorBuilder<E: EventStore> {
     event_store: Option<E>,
     environment_places: HashSet<Arc<str>>,
     skip_output_validation: bool,
+    deadline_tolerance_ms: Option<f64>,
 }
 
 impl<E: EventStore> OwnedPrecompiledExecutorBuilder<E> {
@@ -121,11 +123,23 @@ impl<E: EventStore> OwnedPrecompiledExecutorBuilder<E> {
         self
     }
 
+    /// Sets the deadline-enforcement tolerance (ms). The grace band beyond a hard deadline
+    /// (`deadline()` / `window()`) before a transition is force-disabled (TIME-013); defaults to
+    /// the library value (5ms). Does not affect `exact()` transitions, enforced softly (TIME-006).
+    pub fn deadline_tolerance_ms(mut self, ms: f64) -> Self {
+        debug_assert!(ms >= 0.0, "deadline tolerance must be non-negative: {ms}");
+        self.deadline_tolerance_ms = Some(ms);
+        self
+    }
+
     /// Runs one synchronous execution.
     pub fn run_sync(self) -> Marking {
         let mut builder = PrecompiledNetExecutor::<E>::builder(&self.program, self.initial_marking)
             .environment_places(self.environment_places)
             .skip_output_validation(self.skip_output_validation);
+        if let Some(ms) = self.deadline_tolerance_ms {
+            builder = builder.deadline_tolerance_ms(ms);
+        }
         if let Some(store) = self.event_store {
             builder = builder.event_store(store);
         }
@@ -142,6 +156,9 @@ impl<E: EventStore> OwnedPrecompiledExecutorBuilder<E> {
         let mut builder = PrecompiledNetExecutor::<E>::builder(&self.program, self.initial_marking)
             .environment_places(self.environment_places)
             .skip_output_validation(self.skip_output_validation);
+        if let Some(ms) = self.deadline_tolerance_ms {
+            builder = builder.deadline_tolerance_ms(ms);
+        }
         if let Some(store) = self.event_store {
             builder = builder.event_store(store);
         }

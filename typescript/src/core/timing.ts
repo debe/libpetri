@@ -76,7 +76,14 @@ export function window(earliestMs: number, latestMs: number): TimingWindow {
   return { type: 'window', earliestMs, latestMs };
 }
 
-/** Exact timing: fires at precisely the specified time. [at, at] */
+/**
+ * Exact timing: targets the specified time (interval `[at, at]`).
+ *
+ * The zero-width interval is precise for verification/simulation. Under wall-clock execution it
+ * is enforced *softly* — the transition fires at the first opportunity at or after `atMs` (like
+ * {@link delayed}) and is never force-disabled for being observed late (TIME-006). Prefer
+ * {@link delayed} for a plain lower bound, or {@link window} for a hard bounded window.
+ */
 export function exact(atMs: number): TimingExact {
   if (atMs < 0) {
     throw new Error(`Exact time must be non-negative: ${atMs}`);

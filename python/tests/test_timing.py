@@ -1,9 +1,10 @@
-"""Timing semantics: delayed, window, deadline, mixed.
+"""Timing semantics: delayed, window, deadline, exact, mixed.
 
-Mirrors Java `BitmapNetExecutorTest::TimedTransitionTests` and the timing
-enforcement paths in Rust `precompiled_executor.rs::enforce_deadlines`. The
-``exact()`` timing primitive is intentionally NOT exercised — it races
-deadline enforcement and produces flaky tests (see feedback memory).
+Mirrors the Java/TS/Rust timing suites and the shared `enforce_deadlines`
+path. ``exact()`` is enforced *softly*: an exact transition fires at the first
+opportunity at or after its target time and is never force-disabled, so it can
+be exercised deterministically (TIME-006). Hard deadlines (`deadline()` /
+`window()`) keep a configurable tolerance band (TIME-013).
 """
 
 from __future__ import annotations
@@ -214,6 +215,66 @@ async def test_multiple_overlapping_timed_transitions_complete_in_priority_order
     assert fired == ["high"], (
         f"higher-priority transition must win the single token; got {fired}"
     )
+
+
+@pytest.mark.asyncio
+async def test_exact_timing_fires_reliably() -> None:
+    # exact() is enforced softly (TIME-006): it waits until its target, then fires at
+    # the first opportunity and is never force-disabled — so this is deterministic, not
+    # flaky. Regression for the Marvin exact(45s) "sometimes never fires" bug.
+    queued = lp.Place("queued")
+    done = lp.Place("done")
+
+    net = (
+        lp.Net("exact")
+        .transition(
+            lp.Transition("at")
+            .input(lp.one(queued))
+            .output(lp.out(done))
+            .timing(lp.exact(40))
+            .action(lp.fork)
+            .build()
+        )
+        .build()
+    )
+
+    start = time.monotonic()
+    result = await lp.run_async(net, initial={queued: [{"id": 1}]})
+    elapsed_ms = (time.monotonic() - start) * 1000.0
+
+    assert result.count(done) == 1, "exact() transition must fire (soft enforcement)"
+    assert elapsed_ms >= 30.0, f"exact must respect its target, got {elapsed_ms:.1f}"
+
+
+@pytest.mark.asyncio
+async def test_deadline_tolerance_option_round_trips_and_runs() -> None:
+    # The configurable deadline tolerance (TIME-013) is accepted, carried to the native
+    # options, and a net runs to completion under a widened band.
+    opts = lp.ExecutorOptions(deadline_tolerance_ms=50.0)
+    assert opts.native().deadline_tolerance_ms == 50.0
+
+    queued = lp.Place("queued")
+    done = lp.Place("done")
+    net = (
+        lp.Net("tolerance")
+        .transition(
+            lp.Transition("go")
+            .input(lp.one(queued))
+            .output(lp.out(done))
+            .timing(lp.deadline(1000))
+            .action(lp.fork)
+            .build()
+        )
+        .build()
+    )
+
+    result = await lp.run_async(net, initial={queued: [{"id": 1}]}, options=opts)
+    assert result.count(done) == 1
+
+
+def test_negative_deadline_tolerance_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        lp.ExecutorOptions(deadline_tolerance_ms=-1.0).native()
 
 
 @pytest.mark.asyncio

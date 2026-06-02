@@ -143,6 +143,11 @@ class MarkingView(Mapping[str, tuple[Any, ...]]):
 class ExecutorOptions:
     environment_places: tuple[PlaceLike, ...] = ()
     skip_output_validation: bool = False
+    #: Grace band (ms) beyond a hard deadline (``deadline()`` / ``window()``) before a
+    #: transition is force-disabled (TIME-013). ``None`` uses the library default (5ms);
+    #: must be non-negative. Does not affect ``exact()`` transitions, which are enforced
+    #: softly and never force-disabled (TIME-006).
+    deadline_tolerance_ms: float | None = None
 
     def native(self) -> _ext.ExecutorOptions:
         return _ext.ExecutorOptions(
@@ -150,6 +155,7 @@ class ExecutorOptions:
                 _coerce_place_name(p) for p in self.environment_places
             ],
             skip_output_validation=self.skip_output_validation,
+            deadline_tolerance_ms=self.deadline_tolerance_ms,
         )
 
 

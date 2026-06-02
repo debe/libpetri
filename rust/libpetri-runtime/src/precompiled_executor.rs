@@ -41,6 +41,7 @@ pub struct PrecompiledExecutorBuilder<'a, E: EventStore> {
     environment_places: HashSet<Arc<str>>,
     #[allow(dead_code)]
     skip_output_validation: bool,
+    deadline_tolerance_ms: Option<f64>,
 }
 
 impl<'a, E: EventStore> PrecompiledExecutorBuilder<'a, E> {
@@ -64,9 +65,24 @@ impl<'a, E: EventStore> PrecompiledExecutorBuilder<'a, E> {
         self
     }
 
+    /// Sets the deadline-enforcement tolerance (ms) — the grace band beyond a hard deadline
+    /// (`deadline()` / `window()`) before a transition is force-disabled with a
+    /// `TransitionTimedOut` event (TIME-013). Defaults to
+    /// [`DEADLINE_TOLERANCE_MS`](crate::executor_core::deadline) (5ms); `0.0` gives strict
+    /// enforcement. Real-time orchestrators whose cycles can stall may widen it. Should be
+    /// non-negative. Does not affect `exact()` transitions, which are enforced softly (TIME-006).
+    pub fn deadline_tolerance_ms(mut self, ms: f64) -> Self {
+        debug_assert!(ms >= 0.0, "deadline tolerance must be non-negative: {ms}");
+        self.deadline_tolerance_ms = Some(ms);
+        self
+    }
+
     /// Builds the executor.
     pub fn build(self) -> PrecompiledNetExecutor<'a, E> {
-        let backend = PrecompiledBackend::new(self.program, self.initial_marking);
+        let mut backend = PrecompiledBackend::new(self.program, self.initial_marking);
+        if let Some(ms) = self.deadline_tolerance_ms {
+            backend.set_deadline_tolerance_ms(ms);
+        }
         let has_environment_places = !self.environment_places.is_empty();
         Executor::from_parts(
             backend,
@@ -88,6 +104,7 @@ impl<'a, E: EventStore> Executor<PrecompiledBackend<'a>, E> {
             event_store: None,
             environment_places: HashSet::new(),
             skip_output_validation: false,
+            deadline_tolerance_ms: None,
         }
     }
 
@@ -395,6 +412,156 @@ mod tests {
 
             assert_eq!(result.count("timeout_out"), 1);
             assert_eq!(result.count("success"), 0);
+        }
+
+        // Regression for the Marvin exact(45s) "sometimes never fires" bug, on the production
+        // (precompiled) backend. A higher-priority sync action busy-waits 200ms, blocking the
+        // executor thread past the exact(50) target; with soft enforcement the exact transition
+        // must STILL fire and must NOT be force-disabled.
+        #[tokio::test]
+        async fn async_exact_survives_busy_executor() {
+            use libpetri_core::action::sync_action;
+            use libpetri_core::timing::exact;
+            use libpetri_event::event_store::InMemoryEventStore;
+            use libpetri_event::net_event::NetEvent;
+
+            let p_slow = Place::<i32>::new("p_slow");
+            let p_exact = Place::<i32>::new("p_exact");
+            let slow_out = Place::<i32>::new("slow_out");
+            let exact_out = Place::<i32>::new("exact_out");
+
+            let t_slow = Transition::builder("slow")
+                .input(one(&p_slow))
+                .output(out_place(&slow_out))
+                .priority(10)
+                .action(sync_action(|ctx| {
+                    let v = ctx.input::<i32>("p_slow")?;
+                    let start = std::time::Instant::now();
+                    while start.elapsed().as_millis() < 200 {
+                        std::hint::spin_loop();
+                    }
+                    ctx.output("slow_out", *v)?;
+                    Ok(())
+                }))
+                .build();
+
+            let t_exact = Transition::builder("exact")
+                .input(one(&p_exact))
+                .output(out_place(&exact_out))
+                .timing(exact(50))
+                .action(fork())
+                .build();
+
+            let net = PetriNet::builder("test")
+                .transitions([t_slow, t_exact])
+                .build();
+            let compiled = CompiledNet::compile(&net);
+            let prog = PrecompiledNet::from_compiled(compiled);
+
+            let mut marking = Marking::new();
+            marking.add(&p_slow, Token::at(1, 0));
+            marking.add(&p_exact, Token::at(2, 0));
+
+            let mut executor = PrecompiledNetExecutor::<InMemoryEventStore>::builder(&prog, marking)
+                .event_store(InMemoryEventStore::new())
+                .environment_places(["p1"].iter().map(|s| Arc::from(*s)).collect())
+                .build();
+
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                drop(tx);
+            });
+            let result = executor.run_async(rx).await;
+
+            assert_eq!(
+                result.count("exact_out"),
+                1,
+                "exact transition must still fire under soft enforcement"
+            );
+            assert!(
+                !executor
+                    .event_store()
+                    .events()
+                    .iter()
+                    .any(|e| matches!(e, NetEvent::TransitionTimedOut { .. })),
+                "exact() must never be force-disabled"
+            );
+        }
+
+        // A wide `deadline_tolerance_ms` on the builder lets a slightly-late HARD deadline still
+        // fire (TIME-013). The window([50,100]) transition is reaped under the default 5ms band
+        // when the executor stalls 200ms, but survives with a 400ms tolerance.
+        #[tokio::test]
+        async fn async_deadline_tolerance_allows_late_fire() {
+            use libpetri_core::action::sync_action;
+            use libpetri_core::timing::window;
+            use libpetri_event::event_store::InMemoryEventStore;
+            use libpetri_event::net_event::NetEvent;
+
+            let p_slow = Place::<i32>::new("p_slow");
+            let p_windowed = Place::<i32>::new("p_windowed");
+            let slow_out = Place::<i32>::new("slow_out");
+            let windowed_out = Place::<i32>::new("windowed_out");
+
+            let t_slow = Transition::builder("slow")
+                .input(one(&p_slow))
+                .output(out_place(&slow_out))
+                .priority(10)
+                .action(sync_action(|ctx| {
+                    let v = ctx.input::<i32>("p_slow")?;
+                    let start = std::time::Instant::now();
+                    while start.elapsed().as_millis() < 200 {
+                        std::hint::spin_loop();
+                    }
+                    ctx.output("slow_out", *v)?;
+                    Ok(())
+                }))
+                .build();
+
+            let t_windowed = Transition::builder("windowed")
+                .input(one(&p_windowed))
+                .output(out_place(&windowed_out))
+                .timing(window(50, 100))
+                .action(fork())
+                .build();
+
+            let net = PetriNet::builder("test")
+                .transitions([t_slow, t_windowed])
+                .build();
+            let compiled = CompiledNet::compile(&net);
+            let prog = PrecompiledNet::from_compiled(compiled);
+
+            let mut marking = Marking::new();
+            marking.add(&p_slow, Token::at(1, 0));
+            marking.add(&p_windowed, Token::at(2, 0));
+
+            let mut executor = PrecompiledNetExecutor::<InMemoryEventStore>::builder(&prog, marking)
+                .event_store(InMemoryEventStore::new())
+                .environment_places(["p1"].iter().map(|s| Arc::from(*s)).collect())
+                .deadline_tolerance_ms(400.0)
+                .build();
+
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                drop(tx);
+            });
+            let result = executor.run_async(rx).await;
+
+            assert_eq!(
+                result.count("windowed_out"),
+                1,
+                "wide tolerance lets the slightly-late window transition fire"
+            );
+            assert!(
+                !executor
+                    .event_store()
+                    .events()
+                    .iter()
+                    .any(|e| matches!(e, NetEvent::TransitionTimedOut { .. })),
+                "no timeout within the configured tolerance band"
+            );
         }
 
         #[tokio::test]

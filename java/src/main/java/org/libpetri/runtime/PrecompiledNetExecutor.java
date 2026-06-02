@@ -136,6 +136,9 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
     @SuppressWarnings({"unchecked", "deprecation"})
     private final boolean skipOutputValidation;
 
+    /** Grace band (ms) before a hard deadline ({@code deadline()}/{@code window()}) force-disables. */
+    private final long deadlineToleranceMillis;
+
     private PrecompiledNetExecutor(
         PrecompiledNet program,
         Map<Place<?>, List<Token<?>>> initialTokens,
@@ -143,7 +146,8 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
         ExecutorService executor,
         Set<EnvironmentPlace<?>> environmentPlaces,
         ExecutionContextProvider executionContextProvider,
-        boolean skipOutputValidation
+        boolean skipOutputValidation,
+        long deadlineToleranceMillis
     ) {
         this.program = program;
         this.eventStore = eventStore;
@@ -152,6 +156,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
         this.hasEnvironmentPlaces = !environmentPlaces.isEmpty();
         this.executionContextProvider = executionContextProvider;
         this.skipOutputValidation = skipOutputValidation;
+        this.deadlineToleranceMillis = deadlineToleranceMillis;
         this.startNanos = System.nanoTime();
 
         this.eventStoreEnabled = eventStore.isEnabled();
@@ -409,6 +414,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
         private Set<EnvironmentPlace<?>> environmentPlaces = Set.of();
         private boolean skipOutputValidation = false;
         private ExecutionContextProvider executionContextProvider = ExecutionContextProvider.NOOP;
+        private long deadlineToleranceMillis = ExecutorSupport.DEADLINE_TOLERANCE_MS;
 
         private Builder(PetriNet net, Map<Place<?>, List<Token<?>>> initialTokens) {
             this.net = Objects.requireNonNull(net);
@@ -457,6 +463,29 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
             return this;
         }
 
+        /**
+         * Sets the deadline-enforcement tolerance — the grace band beyond a hard deadline
+         * ({@code deadline()} / {@code window()}) before the transition is force-disabled with a
+         * {@code TransitionTimedOut} event. Absorbs timer-resolution and scheduling jitter
+         * (TIME-013). Defaults to {@code 5ms}.
+         *
+         * <p>Real-time orchestrators whose cycles can stall (GC pauses, long action callbacks)
+         * may widen this. A value of {@code 0} gives strict, deterministic enforcement.
+         *
+         * <p>Does not affect {@code exact()} transitions, which are enforced softly and never
+         * force-disabled (see TIME-006).
+         *
+         * @param tolerance non-negative grace duration
+         * @return this builder
+         */
+        public Builder deadlineTolerance(Duration tolerance) {
+            if (tolerance == null || tolerance.isNegative()) {
+                throw new IllegalArgumentException("Deadline tolerance must be non-negative: " + tolerance);
+            }
+            this.deadlineToleranceMillis = tolerance.toMillis();
+            return this;
+        }
+
         @SuppressWarnings("deprecation")
         public PrecompiledNetExecutor build() {
             var prog = program != null ? program : PrecompiledNet.compile(net);
@@ -466,7 +495,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
             return new PrecompiledNetExecutor(
                 prog, initialTokens, eventStore, exec,
                 environmentPlaces, executionContextProvider,
-                skipOutputValidation
+                skipOutputValidation, deadlineToleranceMillis
             );
         }
     }
@@ -763,12 +792,17 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
                     word &= word - 1;
 
                     if (!program.hasDeadline[tid]) continue;
+                    // Exact timing is enforced softly: an exact transition fires at the first
+                    // opportunity at/after its target (see fireReadyGeneral's earliest gate) and is
+                    // never force-disabled, so the executor cannot reap it for waking a hair late
+                    // (TIME-006). Only hard deadlines (deadline()/window()) are enforced here.
+                    if (program.isExact[tid]) continue;
 
                     long enabledNanos = enabledAtNanos[tid];
                     long elapsedMillis = (nowNanos - enabledNanos) / 1_000_000;
                     long latestMillis = program.latestMillis[tid];
 
-                    if (elapsedMillis > latestMillis) {
+                    if (elapsedMillis > latestMillis + deadlineToleranceMillis) {
                         clearEnabledBit(tid);
                         enabledTransitionCount--;
                         enabledAtNanos[tid] = Long.MIN_VALUE;

@@ -12,6 +12,22 @@ final class ExecutorSupport {
     private ExecutorSupport() {}
 
     /**
+     * Default deadline-enforcement tolerance, in milliseconds.
+     *
+     * <p>A transition with a hard deadline ({@code deadline()} / {@code window()}) is
+     * force-disabled only once its elapsed time exceeds {@code latest + DEADLINE_TOLERANCE_MS},
+     * absorbing timer-resolution and scheduling jitter (TIME-013). The value is shared across
+     * the Java, TypeScript and Rust executors so deadline enforcement behaves identically.
+     *
+     * <p>{@code exact()} timing is enforced <em>softly</em>: an exact transition fires at the
+     * first opportunity at or after its target time and is never force-disabled, so this
+     * tolerance does not gate its firing — see {@link org.libpetri.core.Timing.Exact}.
+     *
+     * <p>Configurable per executor via {@code Builder.deadlineTolerance(Duration)}.
+     */
+    static final long DEADLINE_TOLERANCE_MS = 5;
+
+    /**
      * Recursively validates that a transition's output satisfies its declared {@link Arc.Out} spec.
      *
      * @param tName transition name for error messages

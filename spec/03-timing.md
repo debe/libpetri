@@ -107,17 +107,27 @@ A maximum duration constant (e.g., ~100 years) represents "no constraint" on the
 
 **Priority:** MUST
 
-`Exact(at)` — the transition fires at exactly the specified time.
+`Exact(at)` — the transition targets the specified time.
 
 - Interval: `[at, at]`
 - `earliest()` = `latest()` = at
 - `hasDeadline()` = true
 
+The interval `[at, at]` is the precise value used for **verification and simulation** (logical
+time). Under **wall-clock execution** a zero-width window cannot be hit exactly — the executor
+observes the clock at discrete cycle points, so it invariably lands at `at + ε`. Exact timing is
+therefore enforced **softly**: the transition fires at the first opportunity at or after `at`
+(delayed-style liveness) and is **never** force-disabled for overrunning `at`. Real-time callers
+that want a plain lower bound SHOULD use `Delayed(at)`; those wanting a hard bounded window SHOULD
+use `Window(at, at + slack)`.
+
 **Acceptance Criteria:**
 1. Cannot fire before `at`.
-2. Must fire at `at` (or be disabled immediately after).
+2. Fires at the first opportunity at or after `at` and is not force-disabled for being observed
+   late (see [TIME-013]); exactness is observable from the firing event, not enforced destructively.
 
-**Test derivation:** Exact(3s); verify fires at exactly 3s.
+**Test derivation:** Exact(50ms) under a busy executor that cannot run a cycle until well past
+50ms; verify it still fires and emits no `TransitionTimedOut`.
 
 ---
 
@@ -169,14 +179,17 @@ If a transition is enabled and a reset arc fires on one of its input places (rem
 
 **Priority:** MUST
 
-When a transition exceeds its latest bound (deadline), the executor disables it and emits a `TransitionTimedOut` event. Implementations MAY apply a small tolerance (e.g., 1ms) for timer resolution jitter.
+When a transition with a **hard deadline** (`Deadline` / `Window`) exceeds its latest bound, the executor disables it and emits a `TransitionTimedOut` event. Implementations MUST apply a deadline tolerance — a grace band beyond `latest` (default 5ms) that absorbs timer-resolution and scheduling jitter — and SHOULD expose it as a configurable per-executor option (e.g. `deadlineTolerance` / `deadline_tolerance_ms`); a value of `0` gives strict enforcement.
+
+`Exact` timing is **not** subject to destructive enforcement: it is enforced softly per [TIME-006] (fires at the first opportunity at/after its target, never force-disabled). Only `Deadline` and `Window` transitions are reaped here.
 
 **Acceptance Criteria:**
-1. Transition with Deadline(5s); not fired within 5s + tolerance → disabled + event emitted.
-2. Tolerance is implementation-defined but documented.
+1. Transition with Deadline(5s); not fired within 5s + tolerance → disabled + `TransitionTimedOut`.
+2. The tolerance is documented and configurable; the default is 5ms across implementations.
+3. An `Exact` transition observed past its target is **not** disabled (see [TIME-006]).
 
 **Depends on:** [EVT-008]
-**Test derivation:** Create transition with tight deadline; delay firing; verify timeout event and disablement.
+**Test derivation:** Create a `Window`/`Deadline` transition; block the executor past `latest + tolerance`; verify timeout event and disablement. Separately, verify an `Exact` transition under the same conditions still fires.
 
 ---
 

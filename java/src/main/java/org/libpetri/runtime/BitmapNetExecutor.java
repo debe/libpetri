@@ -79,6 +79,8 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
     private final List<ReadyTransition> readyBuffer = new ArrayList<>();
     /** Cached flag: true if any transition in the net has a deadline. */
     private final boolean hasAnyDeadlines;
+    /** Grace band (ms) before a hard deadline ({@code deadline()}/{@code window()}) force-disables. */
+    private final long deadlineToleranceMillis;
     /** Cached flag: true if event store accepts events (avoids eager Instant.now() allocation). */
     private final boolean eventStoreEnabled;
     /** Cached flag: true if all transitions have immediate timing (earliest=0, no deadline). */
@@ -141,7 +143,8 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         EventStore eventStore,
         ExecutorService executor,
         Set<EnvironmentPlace<?>> environmentPlaces,
-        ExecutionContextProvider executionContextProvider
+        ExecutionContextProvider executionContextProvider,
+        long deadlineToleranceMillis
     ) {
         this.compiled = compiled;
         this.marking = marking;
@@ -150,6 +153,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         this.environmentPlaces = environmentPlaces;
         this.hasEnvironmentPlaces = !environmentPlaces.isEmpty();
         this.executionContextProvider = executionContextProvider;
+        this.deadlineToleranceMillis = deadlineToleranceMillis;
         this.startNanos = System.nanoTime();
 
         int wordCount = compiled.wordCount();
@@ -275,6 +279,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         private ExecutorService executor = null;
         private Set<EnvironmentPlace<?>> environmentPlaces = Set.of();
         private ExecutionContextProvider executionContextProvider = ExecutionContextProvider.NOOP;
+        private long deadlineToleranceMillis = ExecutorSupport.DEADLINE_TOLERANCE_MS;
 
         private Builder(PetriNet net, Map<Place<?>, List<Token<?>>> initialTokens) {
             this.net = Objects.requireNonNull(net);
@@ -316,6 +321,29 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
             return this;
         }
 
+        /**
+         * Sets the deadline-enforcement tolerance — the grace band beyond a hard deadline
+         * ({@code deadline()} / {@code window()}) before the transition is force-disabled with a
+         * {@code TransitionTimedOut} event. Absorbs timer-resolution and scheduling jitter
+         * (TIME-013). Defaults to {@code 5ms}.
+         *
+         * <p>Real-time orchestrators whose cycles can stall (GC pauses, long action callbacks)
+         * may widen this. A value of {@code 0} gives strict, deterministic enforcement.
+         *
+         * <p>Does not affect {@code exact()} transitions, which are enforced softly and never
+         * force-disabled (see TIME-006).
+         *
+         * @param tolerance non-negative grace duration
+         * @return this builder
+         */
+        public Builder deadlineTolerance(Duration tolerance) {
+            if (tolerance == null || tolerance.isNegative()) {
+                throw new IllegalArgumentException("Deadline tolerance must be non-negative: " + tolerance);
+            }
+            this.deadlineToleranceMillis = tolerance.toMillis();
+            return this;
+        }
+
         public BitmapNetExecutor build() {
             var compiled = compiledNet != null ? compiledNet : CompiledNet.compile(net);
             var marking = Marking.from(initialTokens);
@@ -324,7 +352,8 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
                 : Executors.newVirtualThreadPerTaskExecutor();
             return new BitmapNetExecutor(
                 compiled, marking, eventStore, exec,
-                environmentPlaces, executionContextProvider
+                environmentPlaces, executionContextProvider,
+                deadlineToleranceMillis
             );
         }
     }
@@ -564,12 +593,15 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
 
                 Transition t = compiled.transition(tid);
                 if (!t.timing().hasDeadline()) continue;
+                // Exact timing is enforced softly — it fires at the first opportunity at/after its
+                // target and is never force-disabled (TIME-006). Only hard deadlines reaped here.
+                if (t.timing() instanceof Timing.Exact) continue;
 
                 long enabledNanos = enabledAtNanos[tid];
                 long elapsedMillis = (nowNanos - enabledNanos) / 1_000_000;
                 long latestMillis = t.timing().latest().toMillis();
 
-                if (elapsedMillis > latestMillis) {
+                if (elapsedMillis > latestMillis + deadlineToleranceMillis) {
                     clearEnabledBit(tid);
                     enabledTransitionCount--;
                     enabledAtNanos[tid] = Long.MIN_VALUE;

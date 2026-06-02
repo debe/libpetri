@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+Reliable `exact()` timing + configurable deadline tolerance, coordinated across Java, TypeScript, Rust and Python.
+
+- **`exact()` enforced softly (TIME-006).** A zero-width `exact(at)` window can't be hit exactly under wall-clock execution, so it was being force-disabled whenever the executor observed the clock a hair late (and systematically so since adaptive timer polling). It now fires at the first opportunity at/after `at` — like `delayed(at)` — and is never reaped. Hard `deadline()` / `window()` semantics are unchanged; `exact()` keeps its precise `[at, at]` interval for verification/simulation.
+- **Configurable deadline tolerance (TIME-013).** New per-executor option — `deadlineTolerance(Duration)` (Java), `deadlineToleranceMs` (TS), `deadline_tolerance_ms` (Rust builder / Python `ExecutorOptions`) — widens the grace band before a hard deadline force-disables; default 5ms, `0` for strict. Java had no tolerance band at all before; the 5ms default is now matched across all four implementations.
+- Spec TIME-006 / TIME-013 amended.
+
 ## 2.8.0 (Python) — 2026-06-01
 
 Six additive binding improvements; no API removed.
