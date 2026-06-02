@@ -58,7 +58,12 @@ pub fn window(earliest_ms: u64, latest_ms: u64) -> Timing {
     }
 }
 
-/// Exact timing: fires at precisely the specified time.
+/// Exact timing: targets the specified time (interval `[at, at]`).
+///
+/// The zero-width interval is precise for verification/simulation. Under wall-clock execution it
+/// is enforced *softly* — the transition fires at the first opportunity at or after `at_ms` (like
+/// [`delayed`]) and is never force-disabled for being observed late (TIME-006). Prefer
+/// [`delayed`] for a plain lower bound, or [`window`] for a hard bounded window.
 pub fn exact(at_ms: u64) -> Timing {
     Timing::Exact { at_ms }
 }

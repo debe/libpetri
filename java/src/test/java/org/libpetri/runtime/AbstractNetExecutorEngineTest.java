@@ -4402,6 +4402,44 @@ abstract class AbstractNetExecutorEngineTest {
         }
 
         @Test
+        void exact_isNeverForceDisabled_firesEvenWhenObservedLate() throws Exception {
+            // TIME-006: exact() is enforced *softly*. The transition fires at the first opportunity
+            // at/after its target (delayed-style liveness) and is NEVER reaped by deadline
+            // enforcement — even though enforceDeadlines() runs before the fire phase and the
+            // executor invariably observes the clock a hair past a zero-width [at, at] window.
+            // Regression for the Marvin exact(45s) "sometimes never fires" bug: a single late
+            // executor cycle must not force-disable an exact transition.
+            var input = Place.of("Input", SimpleValue.class);
+            var output = Place.of("Output", SimpleValue.class);
+
+            var eventStore = EventStore.inMemory();
+
+            var t = Transition.builder("ExactSoft")
+                .inputs(one(input))
+                .outputs(place(output))
+                .timing(Timing.exact(Duration.ofMillis(40)))
+                .action(ctx -> {
+                    ctx.output(output, ctx.input(input));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+
+            var net = PetriNet.builder("ExactSoftSemantics").transitions(t).build();
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                input, List.of(Token.of(new SimpleValue("go")))
+            );
+
+            try (var executor = createExecutor(net, initial, eventStore)) {
+                var result = executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
+
+                assertTrue(result.hasTokens(output), "exact() transition must fire (soft enforcement)");
+                var timeouts = eventStore.eventsOfType(NetEvent.TransitionTimedOut.class);
+                assertTrue(timeouts.isEmpty(),
+                    "exact() must never be force-disabled — got " + timeouts.size() + " timeout event(s)");
+            }
+        }
+
+        @Test
         void transitionTimedOut_eventStructure() {
             // EVT-009: Verify TransitionTimedOut record has all required fields
             var event = new NetEvent.TransitionTimedOut(

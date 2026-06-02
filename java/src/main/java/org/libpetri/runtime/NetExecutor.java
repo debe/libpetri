@@ -67,6 +67,8 @@ public final class NetExecutor implements PetriNetExecutor {
     private final EventStore eventStore;
     private final ExecutorService executor;
     private final ExecutionContextProvider executionContextProvider;
+    /** Grace band (ms) before a hard deadline ({@code deadline()}/{@code window()}) force-disables. */
+    private final long deadlineToleranceMillis;
     private final long startNanos;
 
     /** Enabled transitions mapped to their enable time (nanos). */
@@ -130,7 +132,8 @@ public final class NetExecutor implements PetriNetExecutor {
         EventStore eventStore,
         ExecutorService executor,
         Set<EnvironmentPlace<?>> environmentPlaces,
-        ExecutionContextProvider executionContextProvider
+        ExecutionContextProvider executionContextProvider,
+        long deadlineToleranceMillis
     ) {
         this.net = net;
         this.marking = marking;
@@ -139,6 +142,7 @@ public final class NetExecutor implements PetriNetExecutor {
         this.environmentPlaces = environmentPlaces;
         this.hasEnvironmentPlaces = !environmentPlaces.isEmpty();
         this.executionContextProvider = executionContextProvider;
+        this.deadlineToleranceMillis = deadlineToleranceMillis;
         this.startNanos = System.nanoTime();
 
         // Precompute input places per transition for O(1) reset-place lookups
@@ -182,7 +186,8 @@ public final class NetExecutor implements PetriNetExecutor {
             EventStore.inMemory(),
             Executors.newVirtualThreadPerTaskExecutor(),
             Set.of(),
-            ExecutionContextProvider.NOOP
+            ExecutionContextProvider.NOOP,
+            ExecutorSupport.DEADLINE_TOLERANCE_MS
         );
     }
 
@@ -205,7 +210,8 @@ public final class NetExecutor implements PetriNetExecutor {
             eventStore,
             Executors.newVirtualThreadPerTaskExecutor(),
             Set.of(),
-            ExecutionContextProvider.NOOP
+            ExecutionContextProvider.NOOP,
+            ExecutorSupport.DEADLINE_TOLERANCE_MS
         );
     }
 
@@ -230,7 +236,8 @@ public final class NetExecutor implements PetriNetExecutor {
             eventStore,
             executor,
             Set.of(),
-            ExecutionContextProvider.NOOP
+            ExecutionContextProvider.NOOP,
+            ExecutorSupport.DEADLINE_TOLERANCE_MS
         );
     }
 
@@ -255,6 +262,7 @@ public final class NetExecutor implements PetriNetExecutor {
         private ExecutorService executor = null; // null = create virtual thread executor
         private Set<EnvironmentPlace<?>> environmentPlaces = Set.of();
         private ExecutionContextProvider executionContextProvider = ExecutionContextProvider.NOOP;
+        private long deadlineToleranceMillis = ExecutorSupport.DEADLINE_TOLERANCE_MS;
 
         private Builder(PetriNet net, Map<Place<?>, List<Token<?>>> initialTokens) {
             this.net = Objects.requireNonNull(net, "net");
@@ -320,6 +328,29 @@ public final class NetExecutor implements PetriNetExecutor {
         }
 
         /**
+         * Sets the deadline-enforcement tolerance — the grace band beyond a hard deadline
+         * ({@code deadline()} / {@code window()}) before the transition is force-disabled with a
+         * {@code TransitionTimedOut} event. Absorbs timer-resolution and scheduling jitter
+         * (TIME-013). Defaults to {@code 5ms}.
+         *
+         * <p>Real-time orchestrators whose cycles can stall (GC pauses, long action callbacks)
+         * may widen this. A value of {@code 0} gives strict, deterministic enforcement.
+         *
+         * <p>Does not affect {@code exact()} transitions, which are enforced softly and never
+         * force-disabled (see TIME-006).
+         *
+         * @param tolerance non-negative grace duration
+         * @return this builder
+         */
+        public Builder deadlineTolerance(Duration tolerance) {
+            if (tolerance == null || tolerance.isNegative()) {
+                throw new IllegalArgumentException("Deadline tolerance must be non-negative: " + tolerance);
+            }
+            this.deadlineToleranceMillis = tolerance.toMillis();
+            return this;
+        }
+
+        /**
          * Builds the executor.
          *
          * @return configured executor ready to run
@@ -334,7 +365,8 @@ public final class NetExecutor implements PetriNetExecutor {
                 eventStore,
                 exec,
                 environmentPlaces,
-                executionContextProvider
+                executionContextProvider,
+                deadlineToleranceMillis
             );
         }
     }
@@ -712,12 +744,15 @@ public final class NetExecutor implements PetriNetExecutor {
         for (var entry : enabledAt.entrySet()) {
             Transition t = entry.getKey();
             if (!t.timing().hasDeadline()) continue;
+            // Exact timing is enforced softly — it fires at the first opportunity at/after its
+            // target and is never force-disabled (TIME-006). Only hard deadlines reaped here.
+            if (t.timing() instanceof Timing.Exact) continue;
 
             long enabledNanos = entry.getValue();
             long elapsedMillis = (nowNanos - enabledNanos) / 1_000_000;
             long latestMillis = t.timing().latest().toMillis();
 
-            if (elapsedMillis > latestMillis) {
+            if (elapsedMillis > latestMillis + deadlineToleranceMillis) {
                 expired.add(t);
                 emitEvent(new NetEvent.TransitionTimedOut(
                     Instant.now(), t.name(),

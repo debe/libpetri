@@ -42,12 +42,16 @@ pub struct BitmapBackend {
     enabled_at_ms: Vec<f64>,
     enabled_flags: Vec<bool>,
     has_deadline_flags: Vec<bool>,
+    /// True for `exact()` transitions — enforced softly, never force-disabled (TIME-006).
+    is_exact_flags: Vec<bool>,
     enabled_transition_count: usize,
 
     // Precomputed flags.
     all_immediate: bool,
     all_same_priority: bool,
     has_any_deadlines: bool,
+    /// Grace band (ms) before a hard deadline force-disables (TIME-013).
+    deadline_tolerance_ms: f64,
 
     // Clock-restart detection: places drained by reset arcs this cycle
     // and per-transition input-place-name set for fast intersection.
@@ -75,12 +79,16 @@ impl BitmapBackend {
             0
         };
         let mut has_deadline_flags = vec![false; tc];
+        let mut is_exact_flags = vec![false; tc];
 
-        for (tid, flag) in has_deadline_flags.iter_mut().enumerate() {
+        for tid in 0..tc {
             let t = compiled.transition(tid);
             if t.timing().has_deadline() {
-                *flag = true;
+                has_deadline_flags[tid] = true;
                 has_any_deadlines = true;
+            }
+            if matches!(t.timing(), libpetri_core::timing::Timing::Exact { .. }) {
+                is_exact_flags[tid] = true;
             }
             if *t.timing() != libpetri_core::timing::Timing::Immediate {
                 all_immediate = false;
@@ -112,13 +120,23 @@ impl BitmapBackend {
             enabled_at_ms: vec![f64::NEG_INFINITY; tc],
             enabled_flags: vec![false; tc],
             has_deadline_flags,
+            is_exact_flags,
             enabled_transition_count: 0,
             all_immediate,
             all_same_priority,
             has_any_deadlines,
+            deadline_tolerance_ms: DEADLINE_TOLERANCE_MS,
             pending_reset_places: HashSet::new(),
             transition_input_place_names,
         }
+    }
+
+    /// Overrides the deadline-enforcement tolerance (default
+    /// [`DEADLINE_TOLERANCE_MS`]). The grace band beyond a hard deadline
+    /// (`deadline()` / `window()`) before a transition is force-disabled.
+    /// Does not affect `exact()` transitions (TIME-006).
+    pub(crate) fn set_deadline_tolerance_ms(&mut self, ms: f64) {
+        self.deadline_tolerance_ms = ms;
     }
 
     #[inline]
@@ -303,10 +321,15 @@ impl ExecutorBackend for BitmapBackend {
             if !self.has_deadline_flags[tid] || !self.enabled_flags[tid] {
                 continue;
             }
+            // exact() is enforced softly — it fires at the first opportunity at/after its target
+            // and is never force-disabled (TIME-006). Only hard deadlines are reaped here.
+            if self.is_exact_flags[tid] {
+                continue;
+            }
             let t = self.compiled.transition(tid);
             let elapsed = now_ms - self.enabled_at_ms[tid];
             let latest_ms = t.timing().latest() as f64;
-            if elapsed > latest_ms + DEADLINE_TOLERANCE_MS {
+            if elapsed > latest_ms + self.deadline_tolerance_ms {
                 self.enabled_flags[tid] = false;
                 self.enabled_transition_count -= 1;
                 self.enabled_at_ms[tid] = f64::NEG_INFINITY;

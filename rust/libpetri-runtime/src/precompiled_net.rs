@@ -56,6 +56,8 @@ pub struct PrecompiledNet {
     pub(crate) earliest_ms: Vec<f64>,
     pub(crate) latest_ms: Vec<f64>,
     pub(crate) has_deadline: Vec<bool>,
+    /// True for `exact()` transitions — enforced softly, never force-disabled (TIME-006).
+    pub(crate) is_exact: Vec<bool>,
     pub(crate) all_immediate: bool,
     pub(crate) any_deadlines: bool,
 
@@ -140,6 +142,7 @@ impl PrecompiledNet {
         let mut earliest_ms = vec![0.0f64; tc];
         let mut latest_ms = vec![f64::MAX; tc];
         let mut has_deadline = vec![false; tc];
+        let mut is_exact = vec![false; tc];
         let mut any_deadlines = false;
         let mut all_immediate = true;
 
@@ -150,6 +153,9 @@ impl PrecompiledNet {
                 latest_ms[tid] = t.timing().latest() as f64;
                 has_deadline[tid] = true;
                 any_deadlines = true;
+            }
+            if matches!(t.timing(), libpetri_core::timing::Timing::Exact { .. }) {
+                is_exact[tid] = true;
             }
             if *t.timing() != libpetri_core::timing::Timing::Immediate {
                 all_immediate = false;
@@ -205,6 +211,7 @@ impl PrecompiledNet {
             earliest_ms,
             latest_ms,
             has_deadline,
+            is_exact,
             all_immediate,
             any_deadlines,
             priorities,

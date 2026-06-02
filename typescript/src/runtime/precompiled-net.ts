@@ -86,6 +86,12 @@ export class PrecompiledNet {
   readonly earliestMs: Float64Array;
   readonly latestMs: Float64Array;
   readonly hasDeadline: Uint8Array;
+  /**
+   * 1 for `exact()` transitions. Exact transitions fire at the first opportunity at/after their
+   * target time (delayed-style liveness) and are never force-disabled by deadline enforcement —
+   * their upper bound is observed, not enforced. See TIME-006.
+   */
+  readonly isExact: Uint8Array;
 
   // ==================== Priority (CONC-023) ====================
   readonly priorities: Int32Array;
@@ -224,6 +230,7 @@ export class PrecompiledNet {
     this.earliestMs = new Float64Array(tc);
     this.latestMs = new Float64Array(tc);
     this.hasDeadline = new Uint8Array(tc);
+    this.isExact = new Uint8Array(tc);
     let anyDeadlines = false;
     let allImm = true;
 
@@ -235,6 +242,7 @@ export class PrecompiledNet {
         this.hasDeadline[tid] = 1;
         anyDeadlines = true;
       }
+      if (t.timing.type === 'exact') this.isExact[tid] = 1;
       if (t.timing.type !== 'immediate') allImm = false;
     }
     this.anyDeadlines = anyDeadlines;

@@ -35,16 +35,12 @@ import { TransitionContext } from '../core/transition-context.js';
 import { noopEventStore } from '../event/event-store.js';
 import { CompiledNet, WORD_SHIFT, BIT_MASK, setBit, clearBit } from './compiled-net.js';
 import { Marking } from './marking.js';
-import { validateOutSpec, produceTimeoutOutput } from './executor-support.js';
+import { validateOutSpec, produceTimeoutOutput, DEADLINE_TOLERANCE_MS } from './executor-support.js';
 import { OutViolationError } from './out-violation-error.js';
 import { earliest as timingEarliest, latest as timingLatest, hasDeadline as timingHasDeadline } from '../core/timing.js';
 
 /** Tolerance for JS timer jitter (setTimeout resolution ~1-4ms). */
 // Tolerance for deadline enforcement to account for Node.js event loop timer jitter.
-// setTimeout(fn, N) may fire up to ~5ms late on busy systems. Without this tolerance,
-// exact-timed transitions (where earliest == latest) would race the event loop.
-const DEADLINE_TOLERANCE_MS = 5;
-
 interface InFlightTransition {
   promise: Promise<void>;
   context: TransitionContext;
@@ -66,6 +62,13 @@ export interface BitmapNetExecutorOptions {
   environmentPlaces?: Set<EnvironmentPlace<any>>;
   /** Provides execution context data for each transition firing. */
   executionContextProvider?: (transitionName: string, consumed: Token<any>[]) => Map<string, unknown>;
+  /**
+   * Grace band (ms) beyond a hard deadline (`deadline()` / `window()`) before a transition is
+   * force-disabled with a `transition-timed-out` event (TIME-013). Defaults to {@link DEADLINE_TOLERANCE_MS}
+   * (5ms); `0` gives strict enforcement. Must be non-negative. Does not affect `exact()` transitions,
+   * which are enforced softly (TIME-006).
+   */
+  deadlineToleranceMs?: number;
 }
 
 /**
@@ -112,6 +115,10 @@ export class BitmapNetExecutor implements PetriNetExecutor {
   private readonly enabledFlags: Uint8Array;
   /** Precomputed: 1 if transition has a finite deadline, 0 otherwise. */
   private readonly hasDeadlineFlags: Uint8Array;
+  /** Precomputed: 1 for exact() transitions — enforced softly, never force-disabled (TIME-006). */
+  private readonly isExactFlags: Uint8Array;
+  /** Grace band (ms) before a hard deadline force-disables (TIME-013). */
+  private readonly deadlineToleranceMs: number;
   private enabledTransitionCount = 0;
 
   // In-flight tracking
@@ -150,6 +157,10 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     );
     this.hasEnvironmentPlaces = this.environmentPlaces.size > 0;
     this.executionContextProvider = options.executionContextProvider;
+    this.deadlineToleranceMs = options.deadlineToleranceMs ?? DEADLINE_TOLERANCE_MS;
+    if (this.deadlineToleranceMs < 0) {
+      throw new Error(`Deadline tolerance must be non-negative: ${this.deadlineToleranceMs}`);
+    }
     this.startMs = performance.now();
 
     const wordCount = this.compiled.wordCount;
@@ -165,6 +176,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     this.inFlightFlags = new Uint8Array(this.compiled.transitionCount);
     this.enabledFlags = new Uint8Array(this.compiled.transitionCount);
     this.hasDeadlineFlags = new Uint8Array(this.compiled.transitionCount);
+    this.isExactFlags = new Uint8Array(this.compiled.transitionCount);
     let anyDeadlines = false;
     let allImm = true;
     let samePrio = true;
@@ -176,6 +188,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
         this.hasDeadlineFlags[tid] = 1;
         anyDeadlines = true;
       }
+      if (t.timing.type === 'exact') this.isExactFlags[tid] = 1;
       if (t.timing.type !== 'immediate') allImm = false;
       if (t.priority !== firstPriority) samePrio = false;
     }
@@ -410,12 +423,15 @@ export class BitmapNetExecutor implements PetriNetExecutor {
   private enforceDeadlines(nowMs: number): void {
     for (let tid = 0; tid < this.compiled.transitionCount; tid++) {
       if (!this.hasDeadlineFlags[tid]) continue; // O(1) skip for non-deadline transitions
+      // exact() is enforced softly — it fires at the first opportunity at/after its target and is
+      // never force-disabled (TIME-006). Only hard deadlines (deadline()/window()) are reaped here.
+      if (this.isExactFlags[tid]) continue;
       if (!this.enabledFlags[tid] || this.inFlightFlags[tid]) continue;
       const t = this.compiled.transition(tid);
 
       const elapsed = nowMs - this.enabledAtMs[tid]!;
       const latestMs = timingLatest(t.timing);
-      if (elapsed > latestMs + DEADLINE_TOLERANCE_MS) {
+      if (elapsed > latestMs + this.deadlineToleranceMs) {
         this.enabledFlags[tid] = 0;
         this.enabledTransitionCount--;
         this.emitEvent({

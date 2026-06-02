@@ -85,10 +85,13 @@ public sealed interface Timing permits
     }
 
     /**
-     * Exact timing: fires at precisely the specified time.
-     * Equivalent to interval [at, at].
+     * Exact timing: targets the specified time. Equivalent to interval [at, at].
      *
-     * <p>Use this for "fire exactly at X time" scenarios.
+     * <p>The zero-width interval is the precise value used for verification and simulation. Under
+     * wall-clock execution it cannot be hit exactly, so the runtime enforces it <em>softly</em>:
+     * the transition fires at the first opportunity at or after {@code at} (like {@link Delayed})
+     * and is never force-disabled for being observed late. For a plain lower bound prefer
+     * {@link Delayed}; for a hard bounded window prefer {@link Window}. See TIME-006.
      */
     record Exact(Duration at) implements Timing {
         public Exact {
@@ -152,9 +155,13 @@ public sealed interface Timing permits
     }
 
     /**
-     * Creates an exact timing: fires at precisely the specified time.
+     * Creates an exact timing: targets the specified time (interval [at, at]).
      *
-     * @param at the exact firing time
+     * <p>Enforced softly under wall-clock execution — fires at the first opportunity at or after
+     * {@code at} and is never force-disabled (see {@link Exact}). Prefer {@link #delayed} for a
+     * plain lower bound or {@link #window} for a hard bounded window.
+     *
+     * @param at the target firing time
      * @return Exact timing spec
      */
     static Exact exact(Duration at) {

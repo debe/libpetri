@@ -7,7 +7,7 @@ import { place, environmentPlace } from '../../src/core/place.js';
 import type { Place, EnvironmentPlace } from '../../src/core/place.js';
 import { one, exactly, all, atLeast } from '../../src/core/in.js';
 import { outPlace, andPlaces, xor, xorPlaces, timeout, timeoutPlace, forwardInput, and } from '../../src/core/out.js';
-import { immediate, delayed, window, deadline } from '../../src/core/timing.js';
+import { immediate, delayed, window, deadline, exact } from '../../src/core/timing.js';
 import { tokenOf, unitToken } from '../../src/core/token.js';
 import type { Token } from '../../src/core/token.js';
 import type { TransitionAction } from '../../src/core/transition-action.js';
@@ -2050,6 +2050,100 @@ describe('Deadline Enforcement Tests', () => {
 
     // Windowed should NOT have produced output (it timed out)
     expect(marking.hasTokens(output)).toBe(false);
+  });
+
+  it('exact() is never force-disabled even when the executor is busy past its target (TIME-006)', { timeout: 15000 }, async () => {
+    // Regression for the Marvin exact(45s) "sometimes never fires" bug. Same busy-executor
+    // setup as the window-expiry test above, but the timed transition uses exact(100). The
+    // Slow transition busy-waits 250ms — well past 100ms — so the executor cannot run a cycle
+    // until the [100,100] window has long closed. With soft enforcement the exact transition
+    // must STILL fire (delayed-style liveness) and must NOT emit a timeout.
+    const input = place<string>('IN');
+    const slowInput = place<string>('SLOW');
+    const output = place<string>('OUT');
+    const slowOut = place<string>('SLOW_OUT');
+
+    const exactT = Transition.builder('Exact')
+      .inputs(one(input))
+      .outputs(outPlace(output))
+      .timing(exact(100))
+      .action(async (ctx) => { ctx.output(output, ctx.input(input)); })
+      .build();
+
+    const slow = Transition.builder('Slow')
+      .inputs(one(slowInput))
+      .outputs(outPlace(slowOut))
+      .priority(100)
+      .action(async (ctx) => {
+        const end = performance.now() + 250;
+        while (performance.now() < end) { /* busy-wait blocks the event loop */ }
+        ctx.output(slowOut, ctx.input(slowInput));
+      })
+      .build();
+
+    const net = PetriNet.builder('N').transitions(exactT, slow).build();
+    const eventStore = new InMemoryEventStore();
+    const { marking } = await runNet(net, initialTokens(
+      [input, [tokenOf('val')]],
+      [slowInput, [tokenOf('go')]],
+    ), { eventStore });
+
+    const timedOut = eventsOfType(eventStore, 'transition-timed-out');
+    expect(timedOut.length).toBe(0);
+    expect(marking.hasTokens(output)).toBe(true);
+    expect(marking.peekFirst(output)!.value).toBe('val');
+  });
+
+  it('a wide deadlineToleranceMs lets a slightly-late hard deadline still fire (TIME-013)', { timeout: 15000 }, async () => {
+    // The window-expiry test above shows the default 5ms tolerance reaps a window([100,150])
+    // transition when the executor is blocked 200ms. Here the same busy-executor scenario runs
+    // with a generous 400ms tolerance: the band (150+400=550ms) comfortably exceeds the ~250ms
+    // overrun, so the windowed transition survives and fires.
+    const input = place<string>('IN');
+    const slowInput = place<string>('SLOW');
+    const output = place<string>('OUT');
+    const slowOut = place<string>('SLOW_OUT');
+
+    const windowed = Transition.builder('Windowed')
+      .inputs(one(input))
+      .outputs(outPlace(output))
+      .timing(window(50, 150))
+      .action(async (ctx) => { ctx.output(output, ctx.input(input)); })
+      .build();
+
+    const slow = Transition.builder('Slow')
+      .inputs(one(slowInput))
+      .outputs(outPlace(slowOut))
+      .priority(100)
+      .action(async (ctx) => {
+        const end = performance.now() + 250;
+        while (performance.now() < end) { /* busy-wait */ }
+        ctx.output(slowOut, ctx.input(slowInput));
+      })
+      .build();
+
+    const net = PetriNet.builder('N').transitions(windowed, slow).build();
+    const eventStore = new InMemoryEventStore();
+    const executor = new PrecompiledNetExecutor(net, initialTokens(
+      [input, [tokenOf('val')]],
+      [slowInput, [tokenOf('go')]],
+    ), { eventStore, deadlineToleranceMs: 400 });
+    const marking = await executor.run(5000);
+
+    expect(eventsOfType(eventStore, 'transition-timed-out').length).toBe(0);
+    expect(marking.hasTokens(output)).toBe(true);
+    expect(marking.peekFirst(output)!.value).toBe('val');
+  });
+
+  it('rejects a negative deadlineToleranceMs', () => {
+    const input = place<string>('IN');
+    const t = Transition.builder('T')
+      .inputs(one(input))
+      .outputs(outPlace(place<string>('OUT')))
+      .action(async () => {})
+      .build();
+    const net = PetriNet.builder('N').transition(t).build();
+    expect(() => new PrecompiledNetExecutor(net, new Map(), { deadlineToleranceMs: -1 })).toThrow();
   });
 });
 
