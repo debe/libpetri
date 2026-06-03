@@ -26,7 +26,9 @@ The engine supports safety property verification using SMT solvers via the IC3/P
 **Implementation notes:**
 - Java: Full pipeline with Z3 Spacer
 - TypeScript: Full pipeline with z3-solver WASM
-- Rust: Not yet implemented
+- Rust: Full pipeline behind the `z3` feature (CHC emitted as SMT-LIB2, solved by the `z3`
+  binary with `fp.engine=spacer`)
+- Python: exposes the Rust pipeline via the PyO3 binding (wheel built with the `z3` feature)
 
 **Test derivation:** Simple mutual exclusion net; verify Proven verdict for mutual exclusion property.
 
@@ -115,15 +117,32 @@ P-invariants provide structural proofs that do not require state enumeration.
 The verifier supports configurable treatment of environment places during analysis:
 
 - **AlwaysAvailable** — environment places are assumed to always have tokens (unbounded external input)
-- **Bounded(k)** — environment places have at most k tokens
+- **Bounded(k)** — environment places have at most k tokens per firing
 - **Ignore** — environment places are not modeled
+
+In `AlwaysAvailable` and `Bounded(k)` the verifier MUST **model external injection**: a
+transition gated on an environment place becomes reachable (the SMT encoding emits an
+injection rule that produces tokens into each environment place; under `Bounded(k)` injection
+is capped). Equivalently, the environment place is treated as an inexhaustible (or k-capped)
+external source rather than a column that starts empty and can only be consumed. Conservation
+laws (P-invariants) derived from the closed net MUST NOT be applied to injected environment
+places, since injection breaks closed-net conservation.
+
+Because `Ignore` does not model injection, a safety property that holds **only** because
+environment-gated transitions never fire is vacuous. When environment places are registered and
+the mode does not model injection (`Ignore`), the verifier MUST NOT return `Proven` for such a
+property — it reports `Unknown` (with a reason) instead of silently certifying.
 
 **Acceptance Criteria:**
 1. Each mode is selectable via the verifier configuration.
-2. AlwaysAvailable allows broader reachability (more states).
-3. Bounded limits the state space.
+2. `AlwaysAvailable` allows broader reachability (more states): for a net `env IN → T → OUT`,
+   `PlaceBound(OUT, k)` is `Violated` for every finite k (OUT is reachable and unbounded).
+3. `Bounded(k)` limits the state space: a transition requiring more than k tokens from an
+   environment place per firing is never enabled.
+4. `Ignore` with registered environment places never returns `Proven` (reports `Unknown`).
 
-**Test derivation:** Same net with different environment modes; verify different verdicts where applicable.
+**Test derivation:** Same net (`env IN → T → OUT`) with different environment modes; verify
+`AlwaysAvailable` → `Violated`, `Bounded(k)` gates by per-firing multiplicity, `Ignore` → `Unknown`.
 
 ---
 

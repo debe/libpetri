@@ -7,9 +7,9 @@ import {
 import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place, environmentPlace } from '../../src/core/place.js';
-import { one } from '../../src/core/in.js';
+import { one, exactly } from '../../src/core/in.js';
 import { outPlace, xorPlaces } from '../../src/core/out.js';
-import { unbounded } from '../../src/verification/encoding/net-flattener.js';
+import { alwaysAvailable, bounded, ignore } from '../../src/verification/analysis/environment-analysis-mode.js';
 
 // All tests in this file require Z3 WASM which is slow to initialize.
 // Tests are set to a generous timeout.
@@ -251,14 +251,123 @@ describe('SmtVerifier (Z3 integration)', () => {
     const result = await SmtVerifier.forNet(net)
       .initialMarking(m => m.tokens(idle, 1))
       .environmentPlaces(trigger)
-      .environmentMode(unbounded())
+      .environmentMode(alwaysAvailable())
       .property(deadlockFree())
       .timeout(30_000)
       .verify();
 
     expect(result.verdict.type).toBe('violated');
     expect(result.counterexampleTrace.length).toBeGreaterThan(0);
+    // Strengthened: the violation must be the real Rejected-sink path (Dispatch fired
+    // via env injection), NOT the frozen initial state. Pre-fix this passed for the
+    // wrong reason (Trigger=0 forever -> initial {Idle:1} was itself a deadlock).
+    const reachedRejected = result.counterexampleTrace.some(m => m.tokens(rejected) > 0);
+    expect(reachedRejected).toBe(true);
   }, Z3_TIMEOUT);
+
+  // ---------------------------------------------------------------------------
+  // VER-006: Environment Analysis Mode — env injection broadens reachability.
+  // Regression for the soundness bug where SmtVerifier vacuously "proved" safety
+  // bounds on nets with environment places (env columns could only be consumed,
+  // never produced, so the reachable set froze at the initial marking).
+  // Net: env IN -> T -> OUT. Under AlwaysAvailable, IN can be injected without
+  // bound, so OUT grows without bound and placeBound(OUT, k) is violated for all k.
+  // ---------------------------------------------------------------------------
+  describe('VER-006 environment injection soundness', () => {
+    const envSourceNet = () => {
+      const inEnv = environmentPlace('IN');
+      const out = place('OUT');
+      const t = Transition.builder('T')
+        .inputs(one(inEnv.place))
+        .outputs(outPlace(out))
+        .build();
+      const net = PetriNet.builder('env-source').transitions(t).build();
+      return { inEnv, out, net };
+    };
+
+    for (const k of [0, 1, 5]) {
+      it(`alwaysAvailable injects: placeBound(OUT, ${k}) is violated`, async () => {
+        const { inEnv, out, net } = envSourceNet();
+        const result = await SmtVerifier.forNet(net)
+          .environmentPlaces(inEnv)
+          .environmentMode(alwaysAvailable())
+          .property(placeBound(out, k))
+          .timeout(30_000)
+          .verify();
+        expect(result.verdict.type).toBe('violated');
+      }, Z3_TIMEOUT);
+    }
+
+    it('bounded(k) gates env input by per-firing multiplicity (VER-006 AC#3)', async () => {
+      // T2 needs EXACTLY 2 tokens from env IN per firing. bounded(k) limits how
+      // many env tokens a single firing may draw (consistent with the state class
+      // graph): bounded(1) starves T2 (proven OUT stays 0), alwaysAvailable feeds
+      // it without limit (violated). This also exercises the env-aware P-invariant:
+      // the closed-net law IN + 2*OUT = 0 must be discarded so OUT is not pinned.
+      const buildNet = () => {
+        const inEnv = environmentPlace('IN');
+        const out = place('OUT');
+        const t = Transition.builder('T2')
+          .inputs(exactly(2, inEnv.place))
+          .outputs(outPlace(out))
+          .build();
+        const net = PetriNet.builder('env-mult').transitions(t).build();
+        return { inEnv, out, net };
+      };
+
+      const b = buildNet();
+      const bounded1 = await SmtVerifier.forNet(b.net)
+        .environmentPlaces(b.inEnv)
+        .environmentMode(bounded(1))
+        .property(placeBound(b.out, 0))
+        .timeout(30_000)
+        .verify();
+      expect(bounded1.verdict.type).toBe('proven');
+
+      const a = buildNet();
+      const always = await SmtVerifier.forNet(a.net)
+        .environmentPlaces(a.inEnv)
+        .environmentMode(alwaysAvailable())
+        .property(placeBound(a.out, 0))
+        .timeout(30_000)
+        .verify();
+      expect(always.verdict.type).toBe('violated');
+    }, Z3_TIMEOUT);
+
+    it('ignore mode with env places does not silently prove (downgrades to unknown)', async () => {
+      const { inEnv, out, net } = envSourceNet();
+      const result = await SmtVerifier.forNet(net)
+        .environmentPlaces(inEnv)
+        .environmentMode(ignore())
+        .property(placeBound(out, 1))
+        .timeout(30_000)
+        .verify();
+      // Ignore mode does not model injection; a "proven" here would be vacuous.
+      expect(result.verdict.type).toBe('unknown');
+    }, Z3_TIMEOUT);
+
+    it('control: closed net placeBound stays sound (defect is env-specific)', async () => {
+      const a = place('A');
+      const b = place('B');
+      const t1 = Transition.builder('AtoB').inputs(one(a)).outputs(outPlace(b)).build();
+      const t2 = Transition.builder('BtoA').inputs(one(b)).outputs(outPlace(a)).build();
+      const net = PetriNet.builder('closed-cycle').transitions(t1, t2).build();
+
+      const safe = await SmtVerifier.forNet(net)
+        .initialMarking(m => m.tokens(a, 1))
+        .property(placeBound(b, 1))
+        .timeout(30_000)
+        .verify();
+      expect(safe.verdict.type).toBe('proven');
+
+      const unsafe = await SmtVerifier.forNet(net)
+        .initialMarking(m => m.tokens(a, 1))
+        .property(placeBound(b, 0))
+        .timeout(30_000)
+        .verify();
+      expect(unsafe.verdict.type).toBe('violated');
+    }, Z3_TIMEOUT);
+  });
 
   it('initialMarking accepts MarkingState directly', async () => {
     const pA = place('A');

@@ -6,7 +6,8 @@ import { deadlockFree, propertyDescription } from './smt-property.js';
 import type { SmtVerificationResult, SmtStatistics, Verdict } from './smt-verification-result.js';
 import type { PInvariant } from './invariant/p-invariant.js';
 import type { FlatNet } from './encoding/flat-net.js';
-import { flatten, type EnvironmentAnalysisMode, unbounded } from './encoding/net-flattener.js';
+import { flatten } from './encoding/net-flattener.js';
+import { type EnvironmentAnalysisMode, alwaysAvailable } from './analysis/environment-analysis-mode.js';
 import { IncidenceMatrix } from './encoding/incidence-matrix.js';
 import { computePInvariants, isCoveredByInvariants } from './invariant/p-invariant-computer.js';
 import { structuralCheck } from './invariant/structural-check.js';
@@ -41,7 +42,7 @@ export class SmtVerifier {
   private _property: SmtProperty = deadlockFree();
   private readonly _environmentPlaces = new Set<EnvironmentPlace<any>>();
   private readonly _sinkPlaces = new Set<Place<any>>();
-  private _environmentMode: EnvironmentAnalysisMode = unbounded();
+  private _environmentMode: EnvironmentAnalysisMode = alwaysAvailable();
   private _timeoutMs: number = 60_000;
 
   private constructor(private readonly net: PetriNet) {}
@@ -134,11 +135,15 @@ export class SmtVerifier {
     report.push(`  Result: ${structResultStr}\n`);
 
     // If structural check proves deadlock-freedom for DeadlockFree property
-    // (only valid when no sink places — structural check doesn't account for sinks)
+    // (only valid when no sink places — structural check doesn't account for sinks).
+    // Skipped when environment places are registered: the siphon/trap analysis runs
+    // on the closed net and is blind to env injection (VER-006), so its early proof
+    // could be unsound — fall through to the (injection-aware) SMT encoding instead.
     if (
       this._property.type === 'deadlock-free' &&
       this._sinkPlaces.size === 0 &&
-      structResult.type === 'no-potential-deadlock'
+      structResult.type === 'no-potential-deadlock' &&
+      this._environmentPlaces.size === 0
     ) {
       report.push('=== RESULT ===\n');
       report.push('PROVEN (structural): Deadlock-freedom verified by Commoner\'s theorem.');
@@ -187,6 +192,25 @@ export class SmtVerifier {
 
       switch (queryResult.type) {
         case 'proven': {
+          // Guard against silent vacuous proofs (VER-006): in `ignore` mode the
+          // encoding does not model env injection, so env-gated transitions never
+          // fire and ANY safety bound is trivially "proven". Refuse to certify —
+          // downgrade to UNKNOWN with actionable guidance.
+          if (this._environmentPlaces.size > 0 && this._environmentMode.type === 'ignore') {
+            const reason =
+              'environment places present but not modeled (mode=ignore); a proof would be ' +
+              'vacuous — use alwaysAvailable() or bounded(k) to model external injection';
+            report.push(`  Status: UNSAT, but vacuous under ignore mode\n`);
+            report.push('=== RESULT ===\n');
+            report.push(`UNKNOWN: ${reason}`);
+            return buildResult(
+              { type: 'unknown', reason },
+              report.join('\n'), invariants, [], [], [],
+              performance.now() - start,
+              { places: flatNet.places.length, transitions: flatNet.transitions.length, invariantsFound: invariants.length, structuralResult: structResultStr },
+            );
+          }
+
           report.push('  Status: UNSAT (property holds)\n');
 
           // Decode IC3-synthesized invariants with place name substitution

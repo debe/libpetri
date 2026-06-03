@@ -106,7 +106,10 @@ impl<'a> SmtVerifier<'a> {
             flat.transitions.len()
         ));
 
-        // Environment bounds
+        // Environment bounds (legacy post-cap) and the injection map (VER-006).
+        // env_injection drives the env-injection CHC rule, the incidence-matrix
+        // injector columns, and the relaxed deadlock check. None = unbounded
+        // (AlwaysAvailable), Some(k) = Bounded(k); Ignore models no injection.
         let env_bounds: Vec<(String, usize)> = match &self.env_mode {
             EnvironmentAnalysisMode::Bounded { max_tokens } => self
                 .env_places
@@ -115,6 +118,22 @@ impl<'a> SmtVerifier<'a> {
                 .collect(),
             _ => Vec::new(),
         };
+        let env_injection: Vec<(String, Option<usize>)> = match &self.env_mode {
+            EnvironmentAnalysisMode::AlwaysAvailable => {
+                self.env_places.iter().map(|n| (n.clone(), None)).collect()
+            }
+            EnvironmentAnalysisMode::Bounded { max_tokens } => self
+                .env_places
+                .iter()
+                .map(|n| (n.clone(), Some(*max_tokens)))
+                .collect(),
+            EnvironmentAnalysisMode::Ignore => Vec::new(),
+        };
+        // Resolved injector place indices for the incidence matrix.
+        let env_inject_indices: Vec<usize> = env_injection
+            .iter()
+            .filter_map(|(name, _)| flat.place_index.get(name).copied())
+            .collect();
 
         // Phase 2: Structural pre-check
         report.push_str("=== Phase 2: Structural Analysis ===\n");
@@ -127,9 +146,13 @@ impl<'a> SmtVerifier<'a> {
         report.push_str(&format!("Result: {structural_str}\n\n"));
 
         // If structural analysis proves deadlock-freedom and we're checking that property,
-        // we can return early.
+        // we can return early. Skipped when environment places are registered: the
+        // siphon/trap analysis runs on the closed net and is blind to env injection
+        // (VER-006), so its early proof could be unsound — fall through to the
+        // (injection-aware) SMT encoding instead.
         if matches!(self.property, SmtProperty::DeadlockFree)
             && self.sink_places.is_empty()
+            && self.env_places.is_empty()
             && structural_result == StructuralCheckResult::NoPotentialDeadlock
         {
             let elapsed_ms = start.elapsed().as_millis() as u64;
@@ -156,7 +179,7 @@ impl<'a> SmtVerifier<'a> {
 
         // Phase 3: P-invariants
         report.push_str("=== Phase 3: P-Invariants ===\n");
-        let matrix = IncidenceMatrix::from_flat_net(&flat);
+        let matrix = IncidenceMatrix::from_flat_net(&flat, &env_inject_indices);
         let invariants =
             p_invariant::compute_p_invariants(&matrix, &self.initial_marking, &flat.places);
         report.push_str(&format!("Found {} P-invariant(s)\n", invariants.len()));
@@ -198,13 +221,28 @@ impl<'a> SmtVerifier<'a> {
             &invariants,
             &self.sink_places,
             &env_bounds,
+            &env_injection,
         );
 
         // Run Z3 Spacer
         let z3_result = run_z3_spacer(&encoding.smt2, self.timeout_ms);
 
-        let (verdict, decoded_trace, discovered_invariants) =
+        let (mut verdict, decoded_trace, discovered_invariants) =
             process_z3_result(&z3_result, &flat, &mut report);
+
+        // Guard against silent vacuous proofs (VER-006): in Ignore mode the encoding
+        // does not model env injection, so env-gated transitions never fire and ANY
+        // safety bound is trivially "proven". Refuse to certify — downgrade to Unknown.
+        if matches!(verdict, Verdict::Proven { .. })
+            && !self.env_places.is_empty()
+            && self.env_mode == EnvironmentAnalysisMode::Ignore
+        {
+            let reason = "environment places present but not modeled (mode=Ignore); a proof \
+                would be vacuous — use AlwaysAvailable or Bounded(k) to model external injection"
+                .to_string();
+            report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
+            verdict = Verdict::Unknown { reason };
+        }
 
         let elapsed_ms = start.elapsed().as_millis() as u64;
 
@@ -228,10 +266,18 @@ impl<'a> SmtVerifier<'a> {
     }
 }
 
-/// Result from Z3 Spacer.
+/// Outcome of a Z3 Spacer run, in verdict terms.
+///
+/// Note the HORN/Spacer convention (verified empirically): with the query
+/// `(assert (not Error))`, z3 prints `sat` when the property is PROVEN (an
+/// inductive invariant excluding all violating states exists) and `unsat` when it
+/// is VIOLATED (no such invariant). `run_z3_spacer` performs that translation, so
+/// downstream code works in verdict terms.
 enum Z3Result {
-    Unsat { invariant_formula: Option<String> },
-    Sat { answer: String },
+    /// Property proven (z3 `sat`); the model is the inductive invariant, if printed.
+    Proven { invariant_formula: Option<String> },
+    /// Property violated (z3 `unsat`); `answer` is the raw solver output.
+    Violated { answer: String },
     Unknown { reason: String },
 }
 
@@ -286,12 +332,14 @@ fn run_z3_spacer(smt2: &str, timeout_ms: u64) -> Z3Result {
     let stdout = stdout.trim();
 
     if stdout.starts_with("unsat") {
-        Z3Result::Unsat {
-            invariant_formula: extract_invariant_from_output(stdout),
+        // unsat => no inductive invariant excludes the bad state => VIOLATED.
+        Z3Result::Violated {
+            answer: stdout.to_string(),
         }
     } else if stdout.starts_with("sat") {
-        Z3Result::Sat {
-            answer: stdout.to_string(),
+        // sat => an inductive invariant exists => PROVEN.
+        Z3Result::Proven {
+            invariant_formula: extract_invariant_from_output(stdout),
         }
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -322,8 +370,8 @@ fn process_z3_result(
     report: &mut String,
 ) -> (Verdict, DecodedTrace, Vec<String>) {
     match result {
-        Z3Result::Unsat { invariant_formula } => {
-            report.push_str("Result: UNSAT (property proven)\n");
+        Z3Result::Proven { invariant_formula } => {
+            report.push_str("Result: property proven (Spacer SAT — inductive invariant found)\n");
             let discovered = if let Some(formula) = invariant_formula {
                 report.push_str(&format!("Inductive invariant: {formula}\n"));
                 vec![formula.clone()]
@@ -339,8 +387,8 @@ fn process_z3_result(
                 discovered,
             )
         }
-        Z3Result::Sat { answer } => {
-            report.push_str("Result: SAT (property violated)\n");
+        Z3Result::Violated { answer } => {
+            report.push_str("Result: property violated (Spacer UNSAT — no inductive invariant)\n");
             let decoded = counterexample::decode(answer, flat);
             if !decoded.trace.is_empty() {
                 report.push_str(&format!(
@@ -368,10 +416,20 @@ fn process_z3_result(
 mod tests {
     use super::*;
     use crate::marking_state::MarkingStateBuilder;
-    use libpetri_core::input::one;
+    use libpetri_core::input::{exactly, one};
     use libpetri_core::output::out_place;
     use libpetri_core::place::Place;
     use libpetri_core::transition::Transition;
+
+    /// True if the `z3` binary is on PATH (the verifier shells out to it). Tests
+    /// that exercise Z3 early-return (skip) when it is absent.
+    fn z3_available() -> bool {
+        std::process::Command::new("z3")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
 
     #[test]
     fn verifier_builder_creates_defaults() {
@@ -449,5 +507,110 @@ mod tests {
             .sink_places(vec!["p2".into()]);
 
         assert_eq!(verifier.sink_places, vec!["p2"]);
+    }
+
+    // === VER-006: Environment injection soundness ===
+    // Regression for the bug where the SMT verifier vacuously "proved" safety bounds
+    // on nets with environment places (env columns could only be consumed, never
+    // produced, so the reachable set froze at the initial marking).
+
+    fn env_source_net() -> PetriNet {
+        // env IN -> T -> OUT
+        let in_p = Place::<i32>::new("IN");
+        let out = Place::<i32>::new("OUT");
+        let t = Transition::builder("T")
+            .input(one(&in_p))
+            .output(out_place(&out))
+            .build();
+        PetriNet::builder("env-source").transition(t).build()
+    }
+
+    #[test]
+    fn ver006_env_source_always_available_place_bound_violated() {
+        if !z3_available() {
+            eprintln!("skipping ver006_env_source_*: z3 binary not on PATH");
+            return;
+        }
+        // AlwaysAvailable lets IN be injected without bound, so OUT grows without
+        // bound: place_bound(OUT, k) is violated for every finite k.
+        for k in [0usize, 1, 5] {
+            let result = SmtVerifier::for_net(&env_source_net())
+                .environment_places(vec!["IN".into()])
+                .environment_mode(EnvironmentAnalysisMode::AlwaysAvailable)
+                .property(SmtProperty::place_bound("OUT", k))
+                .timeout(15_000)
+                .verify();
+            assert!(
+                result.is_violated(),
+                "place_bound(OUT, {k}) must be violated under env injection\n{}",
+                result.report
+            );
+        }
+    }
+
+    #[test]
+    fn ver006_bounded_gates_by_multiplicity() {
+        if !z3_available() {
+            eprintln!("skipping ver006_bounded_*: z3 binary not on PATH");
+            return;
+        }
+        // T2 needs EXACTLY 2 tokens from env IN per firing. bounded(1) starves it
+        // (OUT stays 0 -> proven), AlwaysAvailable feeds it (OUT unbounded -> violated).
+        // Also exercises the env-aware P-invariant: the closed-net law IN + 2*OUT = 0
+        // must be discarded so OUT is not vacuously pinned.
+        let build = || {
+            let in_p = Place::<i32>::new("IN");
+            let out = Place::<i32>::new("OUT");
+            let t = Transition::builder("T2")
+                .input(exactly(2, &in_p))
+                .output(out_place(&out))
+                .build();
+            PetriNet::builder("env-mult").transition(t).build()
+        };
+
+        let bounded1 = SmtVerifier::for_net(&build())
+            .environment_places(vec!["IN".into()])
+            .environment_mode(EnvironmentAnalysisMode::Bounded { max_tokens: 1 })
+            .property(SmtProperty::place_bound("OUT", 0))
+            .timeout(15_000)
+            .verify();
+        assert!(
+            bounded1.is_proven(),
+            "bounded(1) starves a 2-token env input -> OUT stays 0\n{}",
+            bounded1.report
+        );
+
+        let always = SmtVerifier::for_net(&build())
+            .environment_places(vec!["IN".into()])
+            .environment_mode(EnvironmentAnalysisMode::AlwaysAvailable)
+            .property(SmtProperty::place_bound("OUT", 0))
+            .timeout(15_000)
+            .verify();
+        assert!(
+            always.is_violated(),
+            "AlwaysAvailable feeds the 2-token env input -> OUT unbounded\n{}",
+            always.report
+        );
+    }
+
+    #[test]
+    fn ver006_ignore_mode_with_env_places_downgrades_to_unknown() {
+        if !z3_available() {
+            eprintln!("skipping ver006_ignore_*: z3 binary not on PATH");
+            return;
+        }
+        // Ignore mode does not model injection; a "proven" here would be vacuous.
+        let result = SmtVerifier::for_net(&env_source_net())
+            .environment_places(vec!["IN".into()])
+            .environment_mode(EnvironmentAnalysisMode::Ignore)
+            .property(SmtProperty::place_bound("OUT", 1))
+            .timeout(15_000)
+            .verify();
+        assert!(
+            matches!(result.verdict, Verdict::Unknown { .. }),
+            "ignore mode with env places must not silently prove, got {:?}\n{}",
+            result.verdict,
+            result.report
+        );
     }
 }

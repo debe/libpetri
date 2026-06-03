@@ -88,6 +88,19 @@ export function encode(
     encodeTransitionRule(ctx, fp, reachable, ft, flatNet, invariants, P);
   }
 
+  // === Rule 2b: Environment-injection rules (VER-006) ===
+  // Per injected env place p: Reachable(M') :- Reachable(M) ∧ [M[p] < bound] ∧
+  //   M'[p] = M[p]+1 ∧ (∀q≠p) M'[q] = M[q]. Unbounded (AlwaysAvailable) omits the
+  //   guard so p can grow without limit. These are NOT flat transitions, so the
+  //   deadlock encoding (which iterates flatNet.transitions) never sees them and
+  //   deadlock-freedom does not become trivially true. P-invariants are NOT
+  //   conjoined here — injection deliberately breaks closed-net conservation.
+  for (const [name, bound] of flatNet.environmentInjection) {
+    const idx = flatNet.placeIndex.get(name);
+    if (idx == null) continue;
+    encodeInjectionRule(ctx, fp, reachable, idx, bound, P);
+  }
+
   // === Rule 3: Error rule (property violation) ===
   encodeErrorRule(ctx, fp, reachable, error, flatNet, property, sinkPlaces, P);
 
@@ -153,24 +166,104 @@ function encodeTransitionRule(
   fp.addRule(qRule, `t_${ft.name}`);
 }
 
-function encodeEnabled(
+/**
+ * Encodes one environment-injection rule (VER-006): the external world adds a
+ * token to environment place `idx`. `bound === null` ⇒ unbounded (AlwaysAvailable);
+ * a number ⇒ guarded so the place never exceeds `bound` (Bounded). All other
+ * columns are copied unchanged. No P-invariant strengthening (injection breaks
+ * conservation by design); non-negativity is implied by `M[idx] ≥ 0 ⇒ M'[idx] ≥ 1`.
+ */
+function encodeInjectionRule(
   ctx: Z3Context,
-  ft: FlatTransition,
-  _flatNet: FlatNet,
-  mVars: Arith[],
+  fp: Z3Fixedpoint,
+  reachable: FuncDecl,
+  idx: number,
+  bound: number | null,
   P: number,
-): Bool {
-  let result: Bool = ctx.Bool.val(true);
+): void {
+  const Int = ctx.Int;
 
-  // Input requirements: M[p] >= pre[p]
-  for (let p = 0; p < P; p++) {
-    if (ft.preVector[p]! > 0) {
-      result = ctx.And(result, mVars[p]!.ge(ft.preVector[p]!));
+  const mVars: Arith[] = [];
+  const mPrimeVars: Arith[] = [];
+  for (let i = 0; i < P; i++) {
+    mVars.push(Int.const(`m${i}`));
+    mPrimeVars.push(Int.const(`mp${i}`));
+  }
+
+  const reachBody = (reachable as any).call(...mVars) as Bool;
+
+  let fire: Bool = ctx.Bool.val(true);
+  for (let i = 0; i < P; i++) {
+    if (i === idx) {
+      fire = ctx.And(fire, mPrimeVars[i]!.eq(mVars[i]!.add(1)));
+    } else {
+      fire = ctx.And(fire, mPrimeVars[i]!.eq(mVars[i]!));
     }
   }
 
-  // Read arcs: M[p] >= 1
+  // Bounded injection: only inject while still below the cap.
+  const guard: Bool = bound === null ? ctx.Bool.val(true) : mVars[idx]!.lt(bound);
+
+  const body = ctx.And(reachBody, guard, fire);
+  const head = (reachable as any).call(...mPrimeVars) as Bool;
+  const qRule = ctx.ForAll([...mVars, ...mPrimeVars], ctx.Implies(body, head));
+
+  fp.addRule(qRule, `env_inject_${idx}`);
+}
+
+/** Maps injected environment-place index -> injection bound (null = unbounded). */
+function injectedEnvIndices(flatNet: FlatNet): Map<number, number | null> {
+  const out = new Map<number, number | null>();
+  for (const [name, bound] of flatNet.environmentInjection) {
+    const idx = flatNet.placeIndex.get(name);
+    if (idx != null) out.set(idx, bound);
+  }
+  return out;
+}
+
+/**
+ * Encodes the enablement predicate for a flat transition.
+ *
+ * When `relaxEnv` is true (used only by the deadlock check), input/read
+ * requirements on injectable environment places are treated as satisfiable by
+ * external injection — `AlwaysAvailable` always satisfies them, `Bounded(k)`
+ * satisfies them iff the required cardinality is ≤ k (a compile-time check on the
+ * arc weight, not on the marking). This mirrors the state class graph's
+ * always-available enablement (VER-006) so a reactive net merely *waiting for
+ * input* is not reported as a deadlock; only a marking that no injection could
+ * ever re-enable counts. Transition firing rules always use the strict form
+ * (`relaxEnv` false) because firing genuinely consumes tokens.
+ */
+function encodeEnabled(
+  ctx: Z3Context,
+  ft: FlatTransition,
+  flatNet: FlatNet,
+  mVars: Arith[],
+  P: number,
+  relaxEnv = false,
+): Bool {
+  let result: Bool = ctx.Bool.val(true);
+  const envInj = relaxEnv ? injectedEnvIndices(flatNet) : undefined;
+
+  // Input requirements: M[p] >= pre[p] (relaxed for injectable env inputs).
+  for (let p = 0; p < P; p++) {
+    const pre = ft.preVector[p]!;
+    if (pre <= 0) continue;
+    if (envInj?.has(p)) {
+      const bound = envInj.get(p)!;
+      if (bound !== null && pre > bound) return ctx.Bool.val(false); // never enableable
+      continue; // satisfiable by injection
+    }
+    result = ctx.And(result, mVars[p]!.ge(pre));
+  }
+
+  // Read arcs: M[p] >= 1 (relaxed for injectable env inputs).
   for (const p of ft.readPlaces) {
+    if (envInj?.has(p)) {
+      const bound = envInj.get(p)!;
+      if (bound !== null && bound < 1) return ctx.Bool.val(false);
+      continue;
+    }
     result = ctx.And(result, mVars[p]!.ge(1));
   }
 
@@ -298,7 +391,11 @@ function encodePropertyViolation(
   }
 }
 
-/** Encodes the deadlock condition: no transition is enabled. */
+/**
+ * Encodes the deadlock condition: no transition is enabled. Environment inputs
+ * are treated as injectable (`relaxEnv`), so a marking that an external injection
+ * could re-enable is NOT a deadlock — only a genuinely stuck marking is (VER-006).
+ */
 function encodeDeadlock(
   ctx: Z3Context,
   flatNet: FlatNet,
@@ -308,7 +405,7 @@ function encodeDeadlock(
   let deadlock: Bool = ctx.Bool.val(true);
 
   for (const ft of flatNet.transitions) {
-    const enabled = encodeEnabled(ctx, ft, flatNet, mVars, P);
+    const enabled = encodeEnabled(ctx, ft, flatNet, mVars, P, /* relaxEnv */ true);
     deadlock = ctx.And(deadlock, ctx.Not(enabled));
   }
 

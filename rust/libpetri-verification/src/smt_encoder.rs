@@ -19,6 +19,11 @@ pub struct SmtEncoding {
 }
 
 /// Encodes a verification problem as CHC in SMT-LIB2 format for Z3 Spacer.
+///
+/// `env_injection` lists environment places the analysis MODELS as externally
+/// injected (VER-006): `(name, None)` is unbounded (AlwaysAvailable), `(name,
+/// Some(k))` caps injection at `k` (Bounded). Each entry emits one injection rule
+/// and relaxes the deadlock check for that place's inputs.
 pub fn encode(
     flat: &FlatNet,
     initial_marking: &MarkingState,
@@ -26,9 +31,16 @@ pub fn encode(
     invariants: &[PInvariant],
     sink_places: &[String],
     env_bounds: &[(String, usize)],
+    env_injection: &[(String, Option<usize>)],
 ) -> SmtEncoding {
     let p = flat.place_count;
     let mut lines = Vec::new();
+
+    // Resolve injectable env places to (index, bound) once.
+    let env_inject: Vec<(usize, Option<usize>)> = env_injection
+        .iter()
+        .filter_map(|(name, bound)| flat.place_index.get(name).map(|&pid| (pid, *bound)))
+        .collect();
 
     lines.push("(set-logic HORN)".to_string());
     lines.push(String::new());
@@ -59,15 +71,29 @@ pub fn encode(
         let rule = encode_transition_rule(flat, ft, &m_vars, &mp_vars, invariants, env_bounds);
         lines.push(rule);
     }
+
+    // Environment-injection rules (VER-006): per injected env place p,
+    //   Reachable(M') :- Reachable(M) [AND m_p < bound] AND m'_p = m_p + 1
+    //     AND (for q != p) m'_q = m_q.
+    // AlwaysAvailable (None) omits the guard. These are NOT flat transitions, so the
+    // deadlock encoding (which iterates flat.transitions) never sees them. No
+    // P-invariant strengthening — injection deliberately breaks conservation.
+    for &(pid, bound) in &env_inject {
+        lines.push(encode_injection_rule(p, pid, bound, &m_vars, &mp_vars));
+    }
     lines.push(String::new());
 
-    // Error rule
-    let error_rule = encode_error_rule(flat, property, &m_vars, sink_places);
+    // Error rule (deadlock check relaxes injectable env inputs).
+    let error_rule = encode_error_rule(flat, property, &m_vars, sink_places, &env_inject);
     lines.push(error_rule);
     lines.push(String::new());
 
-    // Query
-    lines.push("(assert (forall () (not Error)))".to_string());
+    // Query: assert the error state is unreachable. Under HORN/Spacer this is SAT
+    // when an inductive invariant excludes every violating state (property PROVEN)
+    // and UNSAT when no such invariant exists (property VIOLATED). (A bare
+    // `(not Error)` — Error is 0-ary, so no quantifier; `(forall () ...)` is an
+    // invalid empty binder that z3 rejects.)
+    lines.push("(assert (not Error))".to_string());
     lines.push("(check-sat)".to_string());
 
     SmtEncoding {
@@ -192,12 +218,50 @@ fn encode_transition_rule(
     )
 }
 
+/// Encodes one environment-injection rule (VER-006). `bound` of `None` is
+/// unbounded (AlwaysAvailable); `Some(k)` guards injection so the place never
+/// exceeds `k` (Bounded). All columns other than `pid` are copied unchanged.
+fn encode_injection_rule(
+    p: usize,
+    pid: usize,
+    bound: Option<usize>,
+    m_vars: &[String],
+    mp_vars: &[String],
+) -> String {
+    let all_vars: String = m_vars
+        .iter()
+        .chain(mp_vars.iter())
+        .map(|v| format!("({v} Int)"))
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    let mut conditions = Vec::new();
+    conditions.push(format!("(Reachable {})", m_vars.join(" ")));
+    if let Some(k) = bound {
+        conditions.push(format!("(< {} {})", m_vars[pid], k));
+    }
+    for i in 0..p {
+        if i == pid {
+            conditions.push(format!("(= {} (+ {} 1))", mp_vars[i], m_vars[i]));
+        } else {
+            conditions.push(format!("(= {} {})", mp_vars[i], m_vars[i]));
+        }
+    }
+
+    let body = format!("(and {})", conditions.join("\n            "));
+    format!(
+        "(assert (forall ({all_vars})\n  (=> {body}\n      (Reachable {}))))",
+        mp_vars.join(" ")
+    )
+}
+
 /// Encodes the error rule based on the property.
 fn encode_error_rule(
     flat: &FlatNet,
     property: &SmtProperty,
     m_vars: &[String],
     sink_places: &[String],
+    env_inject: &[(usize, Option<usize>)],
 ) -> String {
     let all_vars: String = m_vars
         .iter()
@@ -205,7 +269,7 @@ fn encode_error_rule(
         .collect::<Vec<_>>()
         .join(" ");
 
-    let violation = encode_property_violation(flat, property, m_vars, sink_places);
+    let violation = encode_property_violation(flat, property, m_vars, sink_places, env_inject);
 
     format!(
         "(assert (forall ({all_vars})\n  (=> (and (Reachable {}) {violation})\n      Error)))",
@@ -219,9 +283,10 @@ fn encode_property_violation(
     property: &SmtProperty,
     m_vars: &[String],
     sink_places: &[String],
+    env_inject: &[(usize, Option<usize>)],
 ) -> String {
     match property {
-        SmtProperty::DeadlockFree => encode_deadlock(flat, m_vars, sink_places),
+        SmtProperty::DeadlockFree => encode_deadlock(flat, m_vars, sink_places, env_inject),
         SmtProperty::MutualExclusion { places } => {
             // Violation: all specified places simultaneously have tokens
             let conditions: Vec<String> = places
@@ -259,11 +324,28 @@ fn encode_property_violation(
 
 #[allow(clippy::needless_range_loop)]
 /// Encodes deadlock: all transitions are disabled.
-fn encode_deadlock(flat: &FlatNet, m_vars: &[String], sink_places: &[String]) -> String {
+///
+/// Environment inputs are treated as injectable (VER-006): an input/read on an
+/// injectable env place is satisfiable by external injection, so it is NOT a
+/// reason the transition is disabled — AlwaysAvailable always satisfies it,
+/// Bounded(k) satisfies it iff the required cardinality is ≤ k. This mirrors the
+/// state class graph's always-available enablement so a reactive net merely
+/// waiting for input is not reported as a deadlock; only a genuinely stuck
+/// marking is.
+fn encode_deadlock(
+    flat: &FlatNet,
+    m_vars: &[String],
+    sink_places: &[String],
+    env_inject: &[(usize, Option<usize>)],
+) -> String {
     let sink_indices: Vec<usize> = sink_places
         .iter()
         .filter_map(|name| flat.place_index.get(name).copied())
         .collect();
+    // Injectable env place index -> bound (None = unbounded).
+    let env_bound = |pid: usize| -> Option<Option<usize>> {
+        env_inject.iter().find(|&&(p, _)| p == pid).map(|&(_, b)| b)
+    };
 
     let mut disabled_conditions = Vec::new();
 
@@ -271,9 +353,19 @@ fn encode_deadlock(flat: &FlatNet, m_vars: &[String], sink_places: &[String]) ->
         // A transition is disabled if any pre-condition is not met,
         // or any inhibitor arc is active, or any read arc is not met.
         let mut disable_reasons = Vec::new();
+        // True if env injection can never satisfy a required input -> the
+        // transition is permanently disabled regardless of the marking.
+        let mut permanently_disabled = false;
 
         for i in 0..flat.place_count {
             if ft.pre[i] > 0 {
+                if let Some(bound) = env_bound(i) {
+                    // Injectable: satisfiable unless a finite cap is below the demand.
+                    if matches!(bound, Some(k) if (ft.pre[i] as usize) > k) {
+                        permanently_disabled = true;
+                    }
+                    continue;
+                }
                 disable_reasons.push(format!("(< {} {})", m_vars[i], ft.pre[i]));
             }
         }
@@ -281,11 +373,23 @@ fn encode_deadlock(flat: &FlatNet, m_vars: &[String], sink_places: &[String]) ->
             disable_reasons.push(format!("(> {} 0)", m_vars[inh_pid]));
         }
         for &read_pid in &ft.read_places {
+            if let Some(bound) = env_bound(read_pid) {
+                if matches!(bound, Some(k) if k < 1) {
+                    permanently_disabled = true;
+                }
+                continue;
+            }
             disable_reasons.push(format!("(< {} 1)", m_vars[read_pid]));
         }
 
+        if permanently_disabled {
+            // Always disabled (env cannot supply the demand): contributes "true".
+            disabled_conditions.push("true".to_string());
+            continue;
+        }
+
         if disable_reasons.is_empty() {
-            // Transition is always enabled — deadlock impossible for this transition
+            // Transition is always enabled (possibly via injection) — no deadlock.
             return "false".to_string();
         }
 
@@ -338,7 +442,7 @@ mod tests {
     fn encode_deadlock_free_produces_valid_smt2() {
         let (net, marking) = simple_chain_net();
         let flat = flatten(&net);
-        let encoding = encode(&flat, &marking, &SmtProperty::DeadlockFree, &[], &[], &[]);
+        let encoding = encode(&flat, &marking, &SmtProperty::DeadlockFree, &[], &[], &[], &[]);
 
         assert!(encoding.smt2.contains("(set-logic HORN)"));
         assert!(encoding.smt2.contains("(declare-fun Reachable"));
@@ -351,7 +455,7 @@ mod tests {
     fn encode_contains_init_rule() {
         let (net, marking) = simple_chain_net();
         let flat = flatten(&net);
-        let encoding = encode(&flat, &marking, &SmtProperty::DeadlockFree, &[], &[], &[]);
+        let encoding = encode(&flat, &marking, &SmtProperty::DeadlockFree, &[], &[], &[], &[]);
 
         // Should contain (assert (Reachable ...)) for initial marking
         assert!(encoding.smt2.contains("(assert (Reachable"));
@@ -361,7 +465,7 @@ mod tests {
     fn encode_contains_transition_rules() {
         let (net, marking) = simple_chain_net();
         let flat = flatten(&net);
-        let encoding = encode(&flat, &marking, &SmtProperty::DeadlockFree, &[], &[], &[]);
+        let encoding = encode(&flat, &marking, &SmtProperty::DeadlockFree, &[], &[], &[], &[]);
 
         // Should contain forall with quantified variables
         assert!(encoding.smt2.contains("(forall"));
@@ -380,6 +484,7 @@ mod tests {
             &[],
             &[],
             &[],
+            &[],
         );
 
         // Error rule should check both places have tokens
@@ -394,6 +499,7 @@ mod tests {
             &flat,
             &marking,
             &SmtProperty::place_bound("p2", 5),
+            &[],
             &[],
             &[],
             &[],
@@ -421,6 +527,7 @@ mod tests {
             &[inv],
             &[],
             &[],
+            &[],
         );
 
         // Should contain invariant constraint
@@ -439,6 +546,7 @@ mod tests {
             &[],
             &[],
             &[("p1".into(), 3)],
+            &[],
         );
 
         // Should contain bound constraint on environment place

@@ -63,15 +63,27 @@ public final class NetFlattener {
             placeIndex.put(places.get(i), i);
         }
 
-        // 2. Compute environment bounds
-        var envPlaceSet = environmentPlaces.stream()
-            .map(EnvironmentPlace::place)
-            .collect(Collectors.toSet());
-
+        // 2. Compute environment bounds (legacy post-cap) and the injection map.
+        //    The injection map (VER-006) drives the encoder's env-injection rule and
+        //    the incidence-matrix injector columns; a null value means unbounded
+        //    (AlwaysAvailable), an integer caps injection (Bounded). HashMap is used
+        //    deliberately so null values are permitted (Map.copyOf rejects them).
         var environmentBounds = new HashMap<Place<?>, Integer>();
-        if (environmentMode instanceof EnvironmentAnalysisMode.Bounded bounded) {
-            for (var ep : environmentPlaces) {
-                environmentBounds.put(ep.place(), bounded.maxTokens());
+        var environmentInjection = new HashMap<Place<?>, Integer>();
+        switch (environmentMode) {
+            case EnvironmentAnalysisMode.AlwaysAvailable _ -> {
+                for (var ep : environmentPlaces) {
+                    environmentInjection.put(ep.place(), null);
+                }
+            }
+            case EnvironmentAnalysisMode.Bounded bounded -> {
+                for (var ep : environmentPlaces) {
+                    environmentBounds.put(ep.place(), bounded.maxTokens());
+                    environmentInjection.put(ep.place(), bounded.maxTokens());
+                }
+            }
+            case EnvironmentAnalysisMode.Ignore _ -> {
+                // Not modeled: env places stay ordinary (frozen at their initial count).
             }
         }
 
@@ -155,7 +167,9 @@ public final class NetFlattener {
             List.copyOf(places),
             Map.copyOf(placeIndex),
             List.copyOf(flatTransitions),
-            Map.copyOf(environmentBounds)
+            Map.copyOf(environmentBounds),
+            // unmodifiableMap (not Map.copyOf): preserves null values for AlwaysAvailable.
+            Collections.unmodifiableMap(new HashMap<>(environmentInjection))
         );
     }
 

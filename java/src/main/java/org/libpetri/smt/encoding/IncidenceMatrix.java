@@ -28,6 +28,14 @@ public final class IncidenceMatrix {
     /**
      * Computes the incidence matrix from a FlatNet.
      *
+     * <p>Environment-injected places (VER-006) each contribute one extra
+     * <b>injector column</b> (a virtual transition that produces one token into
+     * that place and consumes nothing). This makes P-invariant computation
+     * env-aware: a valid invariant {@code y} must satisfy {@code y^T·C = 0} for the
+     * injector column too, forcing {@code y[envPlace] = 0} and thereby discarding
+     * closed-net conservation laws (e.g. {@code IN + OUT = const}) that would
+     * otherwise vacuously bound an injectable place.
+     *
      * @param flatNet the flattened net
      * @return the incidence matrix
      */
@@ -35,9 +43,18 @@ public final class IncidenceMatrix {
         int T = flatNet.transitionCount();
         int P = flatNet.placeCount();
 
-        int[][] pre = new int[T][P];
-        int[][] post = new int[T][P];
-        int[][] incidence = new int[T][P];
+        // Resolve injector columns: one per injected env place present in the index.
+        var injectorPlaceIndices = new java.util.ArrayList<Integer>();
+        for (var place : flatNet.environmentInjection().keySet()) {
+            int idx = flatNet.indexOf(place);
+            if (idx >= 0) injectorPlaceIndices.add(idx);
+        }
+        int E = injectorPlaceIndices.size();
+        int rows = T + E;
+
+        int[][] pre = new int[rows][P];
+        int[][] post = new int[rows][P];
+        int[][] incidence = new int[rows][P];
 
         for (int t = 0; t < T; t++) {
             var ft = flatNet.transitions().get(t);
@@ -48,7 +65,14 @@ public final class IncidenceMatrix {
             }
         }
 
-        return new IncidenceMatrix(pre, post, incidence, T, P);
+        // Injector rows: pre = 0, post = e_p, incidence = e_p.
+        for (int e = 0; e < E; e++) {
+            int pid = injectorPlaceIndices.get(e);
+            post[T + e][pid] = 1;
+            incidence[T + e][pid] = 1;
+        }
+
+        return new IncidenceMatrix(pre, post, incidence, rows, P);
     }
 
     /**

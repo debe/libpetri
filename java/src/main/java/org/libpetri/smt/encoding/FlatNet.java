@@ -15,12 +15,20 @@ import java.util.Map;
  * @param placeIndex        reverse lookup: place -> index
  * @param transitions       XOR-expanded flat transitions
  * @param environmentBounds for bounded environment places: place -> max tokens (null = regular)
+ * @param environmentInjection environment places whose tokens the analysis MODELS as
+ *     externally injected (VER-006): place -> injection bound, where a {@code null} value
+ *     means unbounded ({@code AlwaysAvailable}) and an integer caps injection
+ *     ({@code Bounded(k)}). Absent entries (incl. {@code Ignore} mode) are not injected.
+ *     The encoder emits one injection CHC rule per entry and the incidence matrix gains
+ *     one injector column per entry so closed-net P-invariants over these places are
+ *     correctly discarded.
  */
 public record FlatNet(
     List<Place<?>> places,
     Map<Place<?>, Integer> placeIndex,
     List<FlatTransition> transitions,
-    Map<Place<?>, Integer> environmentBounds
+    Map<Place<?>, Integer> environmentBounds,
+    Map<Place<?>, Integer> environmentInjection
 ) {
     /**
      * Number of places in the net.

@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+`SmtVerifier` is now sound on nets with **environment places** (VER-006), fixed across Java, TypeScript, Rust and Python.
+
+- **Environment injection in the SMT encoding.** Previously the CHC encoding never produced tokens into environment places, so env-gated transitions could never fire, the reachable set froze at the initial marking, and safety bounds (e.g. `placeBound`) were vacuously reported `proven`. The encoder now emits an injection rule per environment place — unbounded under `AlwaysAvailable`, capped under `Bounded(k)` — and P-invariant computation is made env-aware (injector columns added to the incidence matrix) so closed-net conservation laws are not misapplied to injectable places.
+- **No silent vacuous proofs.** With environment places registered under `Ignore` (the Java/Rust default), a would-be `proven` is downgraded to `unknown` with guidance to use `AlwaysAvailable`/`Bounded(k)`. The structural siphon/trap deadlock shortcut is skipped when environment places are modeled, and the deadlock check treats injectable env inputs as satisfiable (a reactive net merely waiting for input is no longer reported as deadlocked).
+- **TypeScript:** the SMT verifier's environment mode is unified with the spec's three modes — `alwaysAvailable()` / `bounded(k)` / `ignore()` (replacing the prior `unbounded()` / `bounded()`); the default is `alwaysAvailable()`. **Breaking** for code importing `unbounded` from the verification entrypoint.
+- **Python:** `verify(...)` gains an `environment_mode=` argument with `always_available()` / `bounded(k)` / `ignore()` constructors (previously the mode could not be selected and silently defaulted to `Ignore`).
+- **Rust:** the `z3`-feature SMT pipeline now produces correct verdicts (the SMT-LIB2 query and the sat/unsat→verdict mapping were corrected).
+- Verdicts on env-place nets may legitimately change from `proven` to `violated` or `unknown` — this reflects the soundness fix, not a regression. Spec VER-006 amended.
+
 ## 2.6.0 (Java) / 2.6.0 (TypeScript) / 3.1.0 (Rust) / 2.9.0 (Python) — 2026-06-02
 
 Reliable `exact()` timing + configurable deadline tolerance, coordinated across Java, TypeScript, Rust and Python.

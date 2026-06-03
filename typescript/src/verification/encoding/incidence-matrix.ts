@@ -32,6 +32,13 @@ export class IncidenceMatrix {
 
   /**
    * Computes the incidence matrix from a FlatNet.
+   *
+   * Environment-injected places (VER-006) each contribute one extra **injector
+   * column** (a virtual transition that produces one token into that place and
+   * consumes nothing). This makes P-invariant computation env-aware: a valid
+   * invariant `y` must satisfy `y^T·C = 0` for the injector column too, forcing
+   * `y[envPlace] = 0` and thereby discarding closed-net conservation laws (e.g.
+   * `IN + OUT = const`) that would otherwise vacuously bound an injectable place.
    */
   static from(flatNet: FlatNet): IncidenceMatrix {
     const T = flatNet.transitions.length;
@@ -58,7 +65,23 @@ export class IncidenceMatrix {
       incidence.push(incRow);
     }
 
-    return new IncidenceMatrix(pre, post, incidence, T, P);
+    // Injector columns (one per injected environment place): pre = 0, post = e_p.
+    let injectorCount = 0;
+    for (const name of flatNet.environmentInjection.keys()) {
+      const idx = flatNet.placeIndex.get(name);
+      if (idx == null) continue;
+      const preRow = new Array<number>(P).fill(0);
+      const postRow = new Array<number>(P).fill(0);
+      const incRow = new Array<number>(P).fill(0);
+      postRow[idx] = 1;
+      incRow[idx] = 1;
+      pre.push(preRow);
+      post.push(postRow);
+      incidence.push(incRow);
+      injectorCount++;
+    }
+
+    return new IncidenceMatrix(pre, post, incidence, T + injectorCount, P);
   }
 
   /**
