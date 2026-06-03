@@ -182,9 +182,13 @@ public final class SmtVerifier {
         report.append("  Result: ").append(structResultStr).append("\n\n");
 
         // If structural check proves deadlock-freedom for DeadlockFree property
-        // (only valid when no sink places — structural check doesn't account for sinks)
+        // (only valid when no sink places — structural check doesn't account for sinks).
+        // Skipped when environment places are registered: the siphon/trap analysis runs
+        // on the closed net and is blind to env injection (VER-006), so its early proof
+        // could be unsound — fall through to the (injection-aware) SMT encoding instead.
         if (property instanceof SmtProperty.DeadlockFree
                 && sinkPlaces.isEmpty()
+                && environmentPlaces.isEmpty()
                 && structResult instanceof StructuralCheck.Result.NoPotentialDeadlock) {
             report.append("=== RESULT ===\n\n");
             report.append("PROVEN (structural): Deadlock-freedom verified by Commoner's theorem.\n");
@@ -222,6 +226,28 @@ public final class SmtVerifier {
 
             return switch (queryResult) {
                 case SpacerRunner.QueryResult.Proven(var formula, var levels) -> {
+                    // Guard against silent vacuous proofs (VER-006): in Ignore mode the
+                    // encoding does not model env injection, so env-gated transitions never
+                    // fire and ANY safety bound is trivially "proven". Refuse to certify —
+                    // downgrade to UNKNOWN with actionable guidance.
+                    if (!environmentPlaces.isEmpty()
+                            && environmentMode instanceof EnvironmentAnalysisMode.Ignore) {
+                        String reason = "environment places present but not modeled (mode=ignore); "
+                            + "a proof would be vacuous — use EnvironmentAnalysisMode.alwaysAvailable() "
+                            + "or bounded(k) to model external injection";
+                        report.append("  Status: UNSAT, but vacuous under ignore mode\n\n");
+                        report.append("=== RESULT ===\n\n");
+                        report.append("UNKNOWN: ").append(reason).append("\n");
+                        yield buildResult(
+                            new SmtVerificationResult.Verdict.Unknown(reason),
+                            report.toString(), invariants, List.of(), List.of(), List.of(),
+                            Duration.between(start, Instant.now()),
+                            new SmtVerificationResult.SmtStatistics(
+                                flatNet.placeCount(), flatNet.transitionCount(),
+                                invariants.size(), structResultStr)
+                        );
+                    }
+
                     report.append("  Status: UNSAT (property holds)\n\n");
 
                     // Decode IC3-synthesized invariants with place name substitution

@@ -22,21 +22,12 @@ import type { Out } from '../../core/out.js';
 import type { FlatNet } from './flat-net.js';
 import { flatTransition } from './flat-transition.js';
 import { enumerateBranches, allPlaces as outAllPlaces } from '../../core/out.js';
+import { type EnvironmentAnalysisMode, alwaysAvailable } from '../analysis/environment-analysis-mode.js';
 
-/**
- * How to treat environment places during analysis.
- */
-export type EnvironmentAnalysisMode =
-  | { readonly type: 'unbounded' }
-  | { readonly type: 'bounded'; readonly maxTokens: number };
-
-export function unbounded(): EnvironmentAnalysisMode {
-  return { type: 'unbounded' };
-}
-
-export function bounded(maxTokens: number): EnvironmentAnalysisMode {
-  return { type: 'bounded', maxTokens };
-}
+// The SMT path shares the single 3-mode EnvironmentAnalysisMode with the state
+// class graph (VER-006): AlwaysAvailable / Bounded(k) / Ignore. Re-exported here
+// for the encoding barrel so existing `libpetri/verification` consumers resolve it.
+export { type EnvironmentAnalysisMode, alwaysAvailable, bounded, ignore } from '../analysis/environment-analysis-mode.js';
 
 /**
  * Flattens a PetriNet into a FlatNet suitable for SMT encoding.
@@ -51,7 +42,7 @@ export function bounded(maxTokens: number): EnvironmentAnalysisMode {
 export function flatten(
   net: PetriNet,
   environmentPlaces: Set<EnvironmentPlace<any>> = new Set(),
-  environmentMode: EnvironmentAnalysisMode = unbounded(),
+  environmentMode: EnvironmentAnalysisMode = alwaysAvailable(),
 ): FlatNet {
   // 1. Collect ALL places
   const allPlacesSet = new Map<string, Place<any>>();
@@ -80,12 +71,26 @@ export function flatten(
     placeIndex.set(places[i]!.name, i);
   }
 
-  // 2. Compute environment bounds
+  // 2. Compute environment bounds (legacy post-cap) and the injection map.
+  //    The injection map drives the encoder's env-injection rule and the
+  //    incidence-matrix injector columns; bounds remain a harmless extra cap.
   const environmentBounds = new Map<string, number>();
-  if (environmentMode.type === 'bounded') {
-    for (const ep of environmentPlaces) {
-      environmentBounds.set(ep.place.name, environmentMode.maxTokens);
-    }
+  const environmentInjection = new Map<string, number | null>();
+  switch (environmentMode.type) {
+    case 'always-available':
+      for (const ep of environmentPlaces) {
+        environmentInjection.set(ep.place.name, null);
+      }
+      break;
+    case 'bounded':
+      for (const ep of environmentPlaces) {
+        environmentBounds.set(ep.place.name, environmentMode.maxTokens);
+        environmentInjection.set(ep.place.name, environmentMode.maxTokens);
+      }
+      break;
+    case 'ignore':
+      // Not modeled: env places stay ordinary (frozen at their initial count).
+      break;
   }
 
   // 3. Expand transitions
@@ -170,6 +175,7 @@ export function flatten(
     placeIndex,
     transitions: flatTransitions,
     environmentBounds,
+    environmentInjection,
   };
 }
 

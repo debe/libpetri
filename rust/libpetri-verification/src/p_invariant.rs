@@ -166,7 +166,7 @@ mod tests {
         let net = PetriNet::builder("test").transition(t).build();
 
         let flat = flatten(&net);
-        let matrix = IncidenceMatrix::from_flat_net(&flat);
+        let matrix = IncidenceMatrix::from_flat_net(&flat, &[]);
 
         let initial = crate::marking_state::MarkingStateBuilder::new()
             .tokens("p1", 1)
@@ -194,7 +194,7 @@ mod tests {
         let net = PetriNet::builder("cycle").transitions([t1, t2]).build();
 
         let flat = flatten(&net);
-        let matrix = IncidenceMatrix::from_flat_net(&flat);
+        let matrix = IncidenceMatrix::from_flat_net(&flat, &[]);
 
         let initial = crate::marking_state::MarkingStateBuilder::new()
             .tokens("p1", 3)
@@ -218,7 +218,7 @@ mod tests {
         let net = PetriNet::builder("test").transition(t).build();
 
         let flat = flatten(&net);
-        let matrix = IncidenceMatrix::from_flat_net(&flat);
+        let matrix = IncidenceMatrix::from_flat_net(&flat, &[]);
 
         let initial = crate::marking_state::MarkingStateBuilder::new()
             .tokens("p1", 1)
@@ -235,7 +235,7 @@ mod tests {
         let net = PetriNet::builder("test").transition(t).build();
 
         let flat = flatten(&net);
-        let matrix = IncidenceMatrix::from_flat_net(&flat);
+        let matrix = IncidenceMatrix::from_flat_net(&flat, &[]);
 
         let initial = crate::marking_state::MarkingStateBuilder::new()
             .tokens("p1", 1)

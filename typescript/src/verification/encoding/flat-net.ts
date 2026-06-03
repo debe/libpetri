@@ -15,6 +15,15 @@ export interface FlatNet {
   readonly transitions: readonly FlatTransition[];
   /** For bounded environment places: place name -> max tokens. */
   readonly environmentBounds: ReadonlyMap<string, number>;
+  /**
+   * Environment places whose tokens the analysis MODELS as externally injected
+   * (VER-006). Maps env place name -> injection bound: a number caps injection
+   * (`Bounded(k)`), `null` means unbounded (`AlwaysAvailable`). Absent entries
+   * (incl. `Ignore` mode) are not injected. The encoder emits one injection CHC
+   * rule per entry and the incidence matrix gains one injector column per entry
+   * so closed-net P-invariants over these places are correctly discarded.
+   */
+  readonly environmentInjection: ReadonlyMap<string, number | null>;
 }
 
 export function flatNetPlaceCount(net: FlatNet): number {

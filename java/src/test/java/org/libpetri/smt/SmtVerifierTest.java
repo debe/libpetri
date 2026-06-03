@@ -320,6 +320,96 @@ class SmtVerifierTest {
             "XOR branch to sink should cause deadlock\n" + result.report());
         assertFalse(result.counterexampleTrace().isEmpty(),
             "Counterexample trace should not be empty\n" + result.report());
+        // Strengthened (VER-006): the violation must be the real Rejected-sink path
+        // (Dispatch fired via env injection), NOT the frozen initial state. Pre-fix
+        // this passed for the wrong reason (Trigger=0 forever -> initial {Idle:1} was
+        // itself reported as a deadlock).
+        boolean reachedRejected = result.counterexampleTrace().stream()
+            .anyMatch(m -> m.tokens(rejected) > 0);
+        assertTrue(reachedRejected,
+            "Deadlock must reach the Rejected sink, not freeze at the initial marking\n"
+            + result.report());
+    }
+
+    // === VER-006: Environment injection soundness ===
+    // Regression for the bug where SmtVerifier vacuously "proved" safety bounds on
+    // nets with environment places (env columns could only be consumed, never
+    // produced, so the reachable set froze at the initial marking).
+
+    @Test
+    @EnabledIf("z3Available")
+    void ver006_envSource_alwaysAvailable_placeBoundViolated() {
+        // env IN -> T -> OUT. AlwaysAvailable lets IN be injected without bound, so
+        // OUT grows without bound: placeBound(OUT, k) is violated for every finite k.
+        var in = EnvironmentPlace.of(Place.of("IN", String.class));
+        var out = Place.of("OUT", String.class);
+        var t = Transition.builder("T").inputs(In.one(in.place())).outputs(Out.place(out)).build();
+        var net = PetriNet.builder("env-source").transitions(t).build();
+
+        for (int k : new int[] {0, 1, 5}) {
+            var result = SmtVerifier.forNet(net)
+                .environmentPlaces(in)
+                .environmentMode(EnvironmentAnalysisMode.alwaysAvailable())
+                .property(SmtProperty.placeBound(out, k))
+                .timeout(Duration.ofSeconds(15))
+                .verify();
+            assertTrue(result.isViolated(),
+                "placeBound(OUT, " + k + ") must be violated under env injection\n" + result.report());
+        }
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void ver006_boundedGatesByMultiplicity() {
+        // T2 needs EXACTLY 2 tokens from env IN per firing. bounded(1) starves it
+        // (OUT stays 0 -> proven), alwaysAvailable feeds it (OUT unbounded -> violated).
+        // Also exercises the env-aware P-invariant: the closed-net law IN + 2*OUT = 0
+        // must be discarded so OUT is not vacuously pinned.
+        java.util.function.Supplier<PetriNet> build = () -> {
+            var in = Place.of("IN", String.class);
+            var out = Place.of("OUT", String.class);
+            var t = Transition.builder("T2").inputs(In.exactly(2, in)).outputs(Out.place(out)).build();
+            return PetriNet.builder("env-mult").transitions(t).build();
+        };
+        var in = EnvironmentPlace.of(Place.of("IN", String.class));
+        var out = Place.of("OUT", String.class);
+
+        var bounded1 = SmtVerifier.forNet(build.get())
+            .environmentPlaces(in)
+            .environmentMode(EnvironmentAnalysisMode.bounded(1))
+            .property(SmtProperty.placeBound(out, 0))
+            .timeout(Duration.ofSeconds(15))
+            .verify();
+        assertTrue(bounded1.isProven(),
+            "bounded(1) starves a 2-token env input -> OUT stays 0\n" + bounded1.report());
+
+        var always = SmtVerifier.forNet(build.get())
+            .environmentPlaces(in)
+            .environmentMode(EnvironmentAnalysisMode.alwaysAvailable())
+            .property(SmtProperty.placeBound(out, 0))
+            .timeout(Duration.ofSeconds(15))
+            .verify();
+        assertTrue(always.isViolated(),
+            "alwaysAvailable feeds the 2-token env input -> OUT unbounded\n" + always.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void ver006_ignoreModeWithEnvPlaces_downgradesToUnknown() {
+        // Ignore mode does not model injection; a "proven" here would be vacuous.
+        var in = EnvironmentPlace.of(Place.of("IN", String.class));
+        var out = Place.of("OUT", String.class);
+        var t = Transition.builder("T").inputs(In.one(in.place())).outputs(Out.place(out)).build();
+        var net = PetriNet.builder("env-source").transitions(t).build();
+
+        var result = SmtVerifier.forNet(net)
+            .environmentPlaces(in)
+            .environmentMode(EnvironmentAnalysisMode.ignore())
+            .property(SmtProperty.placeBound(out, 1))
+            .timeout(Duration.ofSeconds(15))
+            .verify();
+        assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(),
+            "ignore mode with env places must not silently prove\n" + result.report());
     }
 
     @Test

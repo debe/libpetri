@@ -12,9 +12,18 @@ pub struct IncidenceMatrix {
 
 impl IncidenceMatrix {
     /// Computes the incidence matrix from a flattened net.
-    pub fn from_flat_net(flat: &FlatNet) -> Self {
+    ///
+    /// Each entry in `env_inject` (resolved place indices of injectable environment
+    /// places, VER-006) contributes one extra **injector column** — a virtual
+    /// transition that produces one token into that place and consumes nothing. This
+    /// makes P-invariant computation env-aware: a valid invariant `y` must satisfy
+    /// `y^T·C = 0` for the injector column too, forcing `y[envPlace] = 0` and thereby
+    /// discarding closed-net conservation laws (e.g. `IN + OUT = const`) that would
+    /// otherwise vacuously bound an injectable place.
+    pub fn from_flat_net(flat: &FlatNet, env_inject: &[usize]) -> Self {
         let place_count = flat.place_count;
-        let transition_count = flat.transitions.len();
+        let base = flat.transitions.len();
+        let transition_count = base + env_inject.len();
 
         let mut pre = vec![vec![0i64; place_count]; transition_count];
         let mut post = vec![vec![0i64; place_count]; transition_count];
@@ -26,6 +35,11 @@ impl IncidenceMatrix {
             for (pid, &count) in ft.post.iter().enumerate() {
                 post[tid][pid] = count;
             }
+        }
+
+        // Injector rows: pre = 0, post = e_p.
+        for (e, &pid) in env_inject.iter().enumerate() {
+            post[base + e][pid] = 1;
         }
 
         let incidence: Vec<Vec<i64>> = (0..transition_count)
@@ -78,7 +92,7 @@ mod tests {
         let net = PetriNet::builder("test").transition(t).build();
 
         let flat = flatten(&net);
-        let matrix = IncidenceMatrix::from_flat_net(&flat);
+        let matrix = IncidenceMatrix::from_flat_net(&flat, &[]);
 
         assert_eq!(matrix.place_count, 2);
         assert_eq!(matrix.transition_count, 1);
@@ -108,7 +122,7 @@ mod tests {
         let net = PetriNet::builder("test").transitions([t1, t2]).build();
 
         let flat = flatten(&net);
-        let matrix = IncidenceMatrix::from_flat_net(&flat);
+        let matrix = IncidenceMatrix::from_flat_net(&flat, &[]);
         let ct = matrix.transposed();
 
         assert_eq!(ct.len(), 3);

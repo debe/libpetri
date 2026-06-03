@@ -106,6 +106,20 @@ public final class SmtEncoder {
             encodeTransitionRule(ctx, fp, reachable, ft, flatNet, invariants, P, markingSorts, markingNames);
         }
 
+        // === Rule 2b: Environment-injection rules (VER-006) ===
+        // Per injected env place p: Reachable(M') :- Reachable(M) AND [M[p] < bound]
+        //   AND M'[p] = M[p]+1 AND (for all q != p) M'[q] = M[q]. AlwaysAvailable
+        //   (null bound) omits the guard so p grows without limit. These are NOT flat
+        //   transitions, so the deadlock encoding (which iterates flatNet.transitions)
+        //   never sees them and deadlock-freedom does not become trivially true.
+        //   P-invariants are NOT conjoined — injection deliberately breaks conservation.
+        for (var entry : flatNet.environmentInjection().entrySet()) {
+            int idx = flatNet.indexOf(entry.getKey());
+            if (idx >= 0) {
+                encodeInjectionRule(ctx, fp, reachable, idx, entry.getValue(), P);
+            }
+        }
+
         // === Rule 3: Error rule (property violation) ===
         encodeErrorRule(ctx, fp, reachable, error, flatNet, property, sinkPlaces, P, markingSorts, markingNames);
 
@@ -185,22 +199,102 @@ public final class SmtEncoder {
         fp.addRule(qRule, ctx.mkSymbol("t_" + ft.name()));
     }
 
+    /**
+     * Encodes one environment-injection rule (VER-006): the external world adds a
+     * token to environment place {@code idx}. A {@code null} bound means unbounded
+     * (AlwaysAvailable); an integer guards injection so the place never exceeds the
+     * bound (Bounded). All other columns are copied unchanged. No P-invariant
+     * strengthening (injection breaks conservation by design); non-negativity holds
+     * because {@code M[idx] >= 0} implies {@code M'[idx] >= 1}.
+     */
+    private static void encodeInjectionRule(
+            Context ctx, Fixedpoint fp,
+            FuncDecl<BoolSort> reachable,
+            int idx, Integer bound, int P
+    ) {
+        Symbol[] allNames = new Symbol[2 * P];
+        Sort[] allSorts = new Sort[2 * P];
+        Expr<IntSort>[] mVars = new Expr[P];
+        Expr<IntSort>[] mPrimeVars = new Expr[P];
+
+        for (int i = 0; i < P; i++) {
+            allNames[i] = ctx.mkSymbol("m" + i);
+            allSorts[i] = ctx.getIntSort();
+            allNames[P + i] = ctx.mkSymbol("m'" + i);
+            allSorts[P + i] = ctx.getIntSort();
+
+            mVars[i] = (Expr<IntSort>) ctx.mkBound(2 * P - 1 - i, ctx.getIntSort());
+            mPrimeVars[i] = (Expr<IntSort>) ctx.mkBound(P - 1 - i, ctx.getIntSort());
+        }
+
+        BoolExpr reachBody = (BoolExpr) reachable.apply(mVars);
+
+        // fire: M'[idx] = M[idx] + 1; all other columns unchanged.
+        BoolExpr fire = ctx.mkTrue();
+        for (int i = 0; i < P; i++) {
+            if (i == idx) {
+                fire = ctx.mkAnd(fire, ctx.mkEq(mPrimeVars[i], ctx.mkAdd(mVars[i], ctx.mkInt(1))));
+            } else {
+                fire = ctx.mkAnd(fire, ctx.mkEq(mPrimeVars[i], mVars[i]));
+            }
+        }
+
+        // Bounded injection: only inject while still below the cap.
+        BoolExpr guard = bound == null ? ctx.mkTrue() : ctx.mkLt(mVars[idx], ctx.mkInt(bound));
+
+        BoolExpr body = ctx.mkAnd(reachBody, guard, fire);
+        BoolExpr head = (BoolExpr) reachable.apply(mPrimeVars);
+        BoolExpr rule = ctx.mkImplies(body, head);
+        Quantifier qRule = ctx.mkForall(allSorts, allNames, rule, 1, null, null, null, null);
+
+        fp.addRule(qRule, ctx.mkSymbol("env_inject_" + idx));
+    }
+
     private static BoolExpr encodeEnabled(
             Context ctx, FlatTransition ft, FlatNet flatNet,
             Expr<IntSort>[] mVars, int P
     ) {
-        BoolExpr result = ctx.mkTrue();
+        return encodeEnabled(ctx, ft, flatNet, mVars, P, false);
+    }
 
-        // Input requirements: M[p] >= pre[p]
+    /**
+     * Encodes the enablement predicate for a flat transition.
+     *
+     * <p>When {@code relaxEnv} is true (used only by the deadlock check),
+     * input/read requirements on injectable environment places are treated as
+     * satisfiable by external injection — AlwaysAvailable always satisfies them,
+     * Bounded(k) satisfies them iff the required cardinality is &le; k (a check on
+     * the arc weight, not the marking). This mirrors the state class graph's
+     * always-available enablement (VER-006) so a reactive net merely waiting for
+     * input is not reported as a deadlock. Transition firing always uses the strict
+     * form because firing genuinely consumes tokens.
+     */
+    private static BoolExpr encodeEnabled(
+            Context ctx, FlatTransition ft, FlatNet flatNet,
+            Expr<IntSort>[] mVars, int P, boolean relaxEnv
+    ) {
+        BoolExpr result = ctx.mkTrue();
+        java.util.Map<Integer, Integer> envInj = relaxEnv ? injectedEnvIndices(flatNet) : null;
+
+        // Input requirements: M[p] >= pre[p] (relaxed for injectable env inputs).
         for (int p = 0; p < P; p++) {
-            if (ft.preVector()[p] > 0) {
-                result = ctx.mkAnd(result,
-                    ctx.mkGe(mVars[p], ctx.mkInt(ft.preVector()[p])));
+            int pre = ft.preVector()[p];
+            if (pre <= 0) continue;
+            if (envInj != null && envInj.containsKey(p)) {
+                Integer bound = envInj.get(p);
+                if (bound != null && pre > bound) return ctx.mkFalse(); // never enableable
+                continue; // satisfiable by injection
             }
+            result = ctx.mkAnd(result, ctx.mkGe(mVars[p], ctx.mkInt(pre)));
         }
 
-        // Read arcs: M[p] >= 1
+        // Read arcs: M[p] >= 1 (relaxed for injectable env inputs).
         for (int p : ft.readPlaces()) {
+            if (envInj != null && envInj.containsKey(p)) {
+                Integer bound = envInj.get(p);
+                if (bound != null && bound < 1) return ctx.mkFalse();
+                continue;
+            }
             result = ctx.mkAnd(result, ctx.mkGe(mVars[p], ctx.mkInt(1)));
         }
 
@@ -215,6 +309,16 @@ public final class SmtEncoder {
         }
 
         return result;
+    }
+
+    /** Maps injected environment-place index -> injection bound (null = unbounded). */
+    private static java.util.Map<Integer, Integer> injectedEnvIndices(FlatNet flatNet) {
+        var out = new java.util.HashMap<Integer, Integer>();
+        for (var entry : flatNet.environmentInjection().entrySet()) {
+            int idx = flatNet.indexOf(entry.getKey());
+            if (idx >= 0) out.put(idx, entry.getValue());
+        }
+        return out;
     }
 
     private static BoolExpr encodeFire(
@@ -337,7 +441,10 @@ public final class SmtEncoder {
     }
 
     /**
-     * Encodes the deadlock condition: no transition is enabled.
+     * Encodes the deadlock condition: no transition is enabled. Environment inputs
+     * are treated as injectable (relaxed enablement), so a marking that an external
+     * injection could re-enable is NOT a deadlock — only a genuinely stuck marking
+     * is (VER-006).
      */
     private static BoolExpr encodeDeadlock(
             Context ctx, FlatNet flatNet,
@@ -346,8 +453,8 @@ public final class SmtEncoder {
         BoolExpr deadlock = ctx.mkTrue();
 
         for (var ft : flatNet.transitions()) {
-            // NOT enabled(M, t)
-            BoolExpr enabled = encodeEnabled(ctx, ft, flatNet, mVars, P);
+            // NOT enabled(M, t), with env inputs treated as injectable.
+            BoolExpr enabled = encodeEnabled(ctx, ft, flatNet, mVars, P, /* relaxEnv */ true);
             deadlock = ctx.mkAnd(deadlock, ctx.mkNot(enabled));
         }
 

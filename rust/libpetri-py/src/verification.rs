@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use libpetri::verification::environment::EnvironmentAnalysisMode;
 use libpetri::verification::harness::{SubnetVerifyExt, VerificationHarness};
 use libpetri::verification::property::SmtProperty;
 use libpetri::verification::result::{Verdict, VerificationResult};
@@ -191,6 +192,49 @@ impl PyVerificationHarness {
     }
 }
 
+/// How environment places are modeled during SMT verification (VER-006). Build via
+/// `always_available`, `bounded`, or `ignore`. `AlwaysAvailable` lets the outside
+/// world inject env tokens without limit (broadest reachability), `Bounded(k)` caps
+/// per-firing env input at `k`, and `Ignore` treats env places as ordinary (no
+/// injection — a `proven` verdict is then downgraded to `unknown` to avoid vacuity).
+#[pyclass(module = "_libpetri", name = "EnvironmentAnalysisMode", from_py_object)]
+#[derive(Clone)]
+pub struct PyEnvironmentAnalysisMode {
+    pub(crate) inner: EnvironmentAnalysisMode,
+}
+
+#[pymethods]
+impl PyEnvironmentAnalysisMode {
+    fn __repr__(&self) -> String {
+        match &self.inner {
+            EnvironmentAnalysisMode::AlwaysAvailable => "EnvironmentAnalysisMode.always_available()".to_string(),
+            EnvironmentAnalysisMode::Bounded { max_tokens } => {
+                format!("EnvironmentAnalysisMode.bounded({max_tokens})")
+            }
+            EnvironmentAnalysisMode::Ignore => "EnvironmentAnalysisMode.ignore()".to_string(),
+        }
+    }
+}
+
+/// Environment mode: the outside world may inject env tokens without bound
+/// (broadest reachability — the recommended mode for reactive nets).
+#[pyfunction(name = "always_available")]
+fn py_always_available() -> PyEnvironmentAnalysisMode {
+    PyEnvironmentAnalysisMode { inner: EnvironmentAnalysisMode::AlwaysAvailable }
+}
+
+/// Environment mode: each firing may draw at most `max_tokens` from an env place.
+#[pyfunction(name = "bounded")]
+fn py_environment_bounded(max_tokens: usize) -> PyEnvironmentAnalysisMode {
+    PyEnvironmentAnalysisMode { inner: EnvironmentAnalysisMode::Bounded { max_tokens } }
+}
+
+/// Environment mode: env places are treated as ordinary (not modeled as injected).
+#[pyfunction(name = "ignore")]
+fn py_environment_ignore() -> PyEnvironmentAnalysisMode {
+    PyEnvironmentAnalysisMode { inner: EnvironmentAnalysisMode::Ignore }
+}
+
 /// Property: the net has no deadlock states beyond declared sinks.
 #[pyfunction(name = "deadlock_free")]
 fn py_deadlock_free() -> PySmtProperty {
@@ -218,12 +262,13 @@ fn py_unreachable(places: Vec<String>) -> PySmtProperty {
 /// Verifies a single property against `net` using SMT (Z3). Without the `z3`
 /// feature, returns `VerificationResult` with verdict `"unknown"`.
 #[pyfunction(name = "verify_net")]
-#[pyo3(signature = (net, property, *, environment_places = None, sink_places = None, timeout_ms = 30_000))]
+#[pyo3(signature = (net, property, *, environment_places = None, environment_mode = None, sink_places = None, timeout_ms = 30_000))]
 fn py_verify_net(
     py: Python<'_>,
     net: &PyPetriNet,
     property: &PySmtProperty,
     environment_places: Option<Vec<String>>,
+    environment_mode: Option<PyEnvironmentAnalysisMode>,
     sink_places: Option<Vec<String>>,
     timeout_ms: u64,
 ) -> PyResult<PyVerificationResult> {
@@ -232,11 +277,17 @@ fn py_verify_net(
         let net = net.net().clone();
         let property = property.inner.clone();
         let environment_places = environment_places.unwrap_or_default();
+        // Default to Ignore (the Rust default); the verifier downgrades a would-be
+        // vacuous "proven" to "unknown" when env places are present under Ignore.
+        let environment_mode = environment_mode
+            .map(|m| m.inner)
+            .unwrap_or(EnvironmentAnalysisMode::Ignore);
         let sink_places = sink_places.unwrap_or_default();
         let result = py.detach(move || {
             libpetri::verification::smt_verifier::SmtVerifier::for_net(&net)
                 .property(property)
                 .environment_places(environment_places)
+                .environment_mode(environment_mode)
                 .sink_places(sink_places)
                 .timeout(timeout_ms)
                 .verify()
@@ -245,7 +296,7 @@ fn py_verify_net(
     }
     #[cfg(not(feature = "z3"))]
     {
-        let _ = (py, net, property, environment_places, sink_places, timeout_ms);
+        let _ = (py, net, property, environment_places, environment_mode, sink_places, timeout_ms);
         Ok(PyVerificationResult::unknown("z3 feature not enabled"))
     }
 }
@@ -311,10 +362,14 @@ fn py_verify_subnet(
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySmtProperty>()?;
+    m.add_class::<PyEnvironmentAnalysisMode>()?;
     m.add_class::<PyVerificationResult>()?;
     m.add_class::<PyPropertyResult>()?;
     m.add_class::<PySubnetVerificationResult>()?;
     m.add_class::<PyVerificationHarness>()?;
+    m.add_function(wrap_pyfunction!(py_always_available, m)?)?;
+    m.add_function(wrap_pyfunction!(py_environment_bounded, m)?)?;
+    m.add_function(wrap_pyfunction!(py_environment_ignore, m)?)?;
     m.add_function(wrap_pyfunction!(py_deadlock_free, m)?)?;
     m.add_function(wrap_pyfunction!(py_mutual_exclusion, m)?)?;
     m.add_function(wrap_pyfunction!(py_place_bound, m)?)?;
