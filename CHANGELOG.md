@@ -1,8 +1,8 @@
 # Changelog
 
-## 2.6.0 (Java) / 2.6.0 (TypeScript) / 3.1.0 (Rust) / 2.9.0 (Python) — 2026-06-03
+## Java 2.6.1 / TypeScript 2.6.0 / Rust 3.1.0 / Python 2.9.0 — 2026-06-03
 
-Two coordinated changes across Java, TypeScript, Rust and Python: a soundness fix for SMT verification of nets with environment places, plus reliable `exact()` timing and configurable deadline tolerance.
+SMT verification is now sound on nets with environment places (VER-006), across all four bindings. TypeScript, Rust and Python additionally ship the `exact()` timing + deadline-tolerance fix here; Java shipped that in 2.6.0, so its 2.6.1 carries only the env-place fix.
 
 **SMT verification — sound on environment places (VER-006)**
 
@@ -13,11 +13,15 @@ Two coordinated changes across Java, TypeScript, Rust and Python: a soundness fi
 - **Rust:** the `z3`-feature SMT pipeline now produces correct verdicts (the SMT-LIB2 query and the sat/unsat→verdict mapping were corrected).
 - Verdicts on env-place nets may legitimately change from `proven` to `violated` or `unknown` — this reflects the soundness fix, not a regression. Spec VER-006 amended.
 
-**Timing — reliable `exact()` + configurable deadline tolerance**
+**Timing — reliable `exact()` + configurable deadline tolerance** (TypeScript, Rust, Python; Java shipped this in 2.6.0)
 
 - **`exact()` enforced softly (TIME-006).** A zero-width `exact(at)` window can't be hit exactly under wall-clock execution, so it was being force-disabled whenever the executor observed the clock a hair late (and systematically so since adaptive timer polling). It now fires at the first opportunity at/after `at` — like `delayed(at)` — and is never reaped. Hard `deadline()` / `window()` semantics are unchanged; `exact()` keeps its precise `[at, at]` interval for verification/simulation.
 - **Configurable deadline tolerance (TIME-013).** New per-executor option — `deadlineTolerance(Duration)` (Java), `deadlineToleranceMs` (TS), `deadline_tolerance_ms` (Rust builder / Python `ExecutorOptions`) — widens the grace band before a hard deadline force-disables; default 5ms, `0` for strict. Java had no tolerance band at all before; the 5ms default is now matched across all four implementations.
 - Spec TIME-006 / TIME-013 amended.
+
+## 2.6.0 (Java) — 2026-06-02
+
+Reliable `exact()` timing + configurable deadline tolerance (Java only — the TypeScript, Rust and Python counterparts ship in the release above). See TIME-006 / TIME-013.
 
 ## 2.8.0 (Python) — 2026-06-01
 
