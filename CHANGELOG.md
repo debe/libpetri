@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Java 2.7.0 / TypeScript 2.7.0 — 2026-06-05
 
 **Action place resolution under composition (MOD-031)**
 
