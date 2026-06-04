@@ -1,11 +1,17 @@
-"""V1: action callbacks resolve author-local place names after compose.
+"""MOD-031: action callbacks resolve author-local place names after compose.
 
-Before 2.8.0, a SubnetDef whose Python action called ``ctx.input("local")``
-broke after composition because the runtime exposed the host-bound place
-name (``ctx.input("host_in")``) instead of the local one the action's
-source code hard-coded. 2.8.0 attaches a local→composed map to each
-substituted transition and falls back through it on lookups, so both the
-*local* and the *host* names work.
+These are the Python conformance tests for **MOD-031** (Action Place
+Resolution under Composition, ``spec/11-modular-composition.md``). The Rust
+core builds the per-transition declared→actual correspondence
+(``Transition::local_name_map``) and the pyo3 action adapter applies it, so a
+SubnetDef whose Python action calls ``ctx.input("local")`` keeps working after
+its arcs are rewritten by instantiation / port binding.
+
+Before 2.8.0, such an action broke after composition because the runtime
+exposed the host-bound place name (``ctx.input("host_in")``) instead of the
+local one the action's source code hard-coded. 2.8.0 attaches the local→composed
+map to each substituted transition and falls back through it on lookups, so both
+the *local* and the *host* names work.
 """
 
 from __future__ import annotations
@@ -204,6 +210,53 @@ def test_internal_subnet_place_resolves_via_prefix() -> None:
     result = lp.run_sync(net, initial={host_in: [{"v": 1}]})
     assert result.count(host_out) == 1
     assert result.first(host_out) == {"v": 1, "stage2": True}
+
+
+def test_compose_xor_branch_selection_by_local_name() -> None:
+    """MOD-031 AC#2: an action selects an ``xor`` output branch by its
+    author-local declared name. After port binding, the token lands on exactly
+    the bound ``a`` place, the unselected branch stays empty, and the
+    exactly-one-production validator passes."""
+
+    in_decl = lp.Place("IN_DECL")
+    a_decl = lp.Place("A_DECL")
+    b_decl = lp.Place("B_DECL")
+
+    def branch(ctx: lp.TransitionContext) -> None:
+        msg = ctx.input("IN_DECL")  # author-local name
+        ctx.output("A_DECL", {**msg, "via": "a"})  # pick the 'a' branch
+
+    subnet = (
+        lp.SubnetDef("Router")
+        .transition(
+            lp.Transition("route")
+            .input(lp.one(in_decl))
+            .output(lp.xor(lp.out(a_decl), lp.out(b_decl)))
+            .action(branch)
+            .build()
+        )
+        .input_port("in", in_decl)
+        .output_port("a", a_decl)
+        .output_port("b", b_decl)
+        .build()
+    )
+
+    host_in = lp.Place("host_in")
+    host_a = lp.Place("host_a")
+    host_b = lp.Place("host_b")
+    net = (
+        lp.NetBuilder("Host")
+        .place(host_in)
+        .place(host_a)
+        .place(host_b)
+        .compose("r", subnet, {"in": host_in, "a": host_a, "b": host_b})
+        .build()
+    )
+
+    result = lp.run_sync(net, initial={host_in: [{"v": 1}]})
+    assert result.count(host_a) == 1
+    assert result.count(host_b) == 0
+    assert result.first(host_a) == {"v": 1, "via": "a"}
 
 
 def test_unknown_place_still_raises_after_compose() -> None:

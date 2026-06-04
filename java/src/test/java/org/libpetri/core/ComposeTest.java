@@ -390,6 +390,238 @@ class ComposeTest {
     }
 
     // ============================================================
+    //  MOD-031: action place resolution under composition
+    //  (actions that hardcode DECLARED place constants)
+    // ============================================================
+
+    @Test
+    void compose_hardcodedAction_underBindPort_fires_MOD031() {
+        // Declared place constants the action closes over (author-time identity).
+        Place<String> reqDecl  = Place.of("reqDecl",  String.class);
+        Place<String> respDecl = Place.of("respDecl", String.class);
+
+        // Action hardcodes the DECLARED places — NOT port-agnostic discovery.
+        TransitionAction call = ctx -> {
+            ctx.output(respDecl, ctx.input(reqDecl) + "!");
+            return CompletableFuture.completedFuture(null);
+        };
+        Transition step = Transition.builder("call")
+            .inputs(Arc.In.one(reqDecl))
+            .outputs(Arc.Out.place(respDecl))
+            .action(call)
+            .build();
+        SubnetDef<Void> def = SubnetDef.builder("Step")
+            .transition(step)
+            .inputPort("in", reqDecl)
+            .outputPort("out", respDecl)
+            .build();
+
+        Place<String> REQ  = Place.of("REQ",  String.class);
+        Place<String> RESP = Place.of("RESP", String.class);
+
+        var net = PetriNet.builder("h")
+            .place(REQ).place(RESP)
+            .compose(def.instantiate("probe"),
+                     b -> b.bindPort("in", REQ).bindPort("out", RESP))
+            .build();
+
+        // MOD-031 AC#5: place-set discovery returns the ACTUAL composed places,
+        // never the declared constants — port-agnostic actions stay valid.
+        Transition composed = findTransition(net, "probe/call");
+        assertTrue(composed.inputPlaces().contains(REQ));
+        assertTrue(composed.outputPlaces().contains(RESP));
+        assertFalse(composed.inputPlaces().contains(reqDecl));
+        assertFalse(composed.outputPlaces().contains(respDecl));
+
+        try (var executor = BitmapNetExecutor.create(net, Map.of(REQ, List.of(Token.of("x"))))) {
+            var marking = executor.run();
+            assertTrue(marking.hasTokens(RESP),
+                "hardcoded-declared-place action must fire and produce on the bound RESP place (MOD-031). Marking: " + marking);
+            assertEquals("x!", marking.peekFirst(RESP).value());
+        }
+    }
+
+    @Test
+    void compose_xorBranchSelection_hardcoded_MOD031() {
+        Place<String> inDecl = Place.of("inDecl", String.class);
+        Place<String> aDecl  = Place.of("aDecl",  String.class);
+        Place<String> bDecl  = Place.of("bDecl",  String.class);
+
+        // XOR action selects the 'a' branch by its DECLARED constant.
+        TransitionAction branch = ctx -> {
+            ctx.output(aDecl, "via-a:" + ctx.input(inDecl));
+            return CompletableFuture.completedFuture(null);
+        };
+        Transition route = Transition.builder("route")
+            .inputs(Arc.In.one(inDecl))
+            .outputs(Arc.Out.xor(aDecl, bDecl))
+            .action(branch)
+            .build();
+        SubnetDef<Void> def = SubnetDef.builder("Router")
+            .transition(route)
+            .inputPort("in", inDecl)
+            .outputPort("a", aDecl)
+            .outputPort("b", bDecl)
+            .build();
+
+        Place<String> REQ = Place.of("REQ", String.class);
+        Place<String> A   = Place.of("A",   String.class);
+        Place<String> B   = Place.of("B",   String.class);
+
+        var net = PetriNet.builder("h")
+            .place(REQ).place(A).place(B)
+            .compose(def.instantiate("r"),
+                     b -> b.bindPort("in", REQ).bindPort("a", A).bindPort("b", B))
+            .build();
+
+        try (var executor = BitmapNetExecutor.create(net, Map.of(REQ, List.of(Token.of("go"))))) {
+            var marking = executor.run();
+            assertEquals(1, marking.tokenCount(A),
+                "MOD-031: ctx.output(aDecl) on Out.xor(a,b) must produce exactly one token on the actual 'A'");
+            assertEquals(0, marking.tokenCount(B),
+                "the unselected XOR branch 'B' must stay empty (validator satisfied)");
+            assertEquals("via-a:go", marking.peekFirst(A).value());
+        }
+    }
+
+    @Test
+    void compose_nestedInstance_resolvesDoublyPrefixed_MOD013_MOD031() {
+        // Inner subnet: action hardcodes declared reqDecl (input) and the
+        // internal xDecl sink (output).
+        Place<String> reqDecl = Place.of("reqDecl", String.class);
+        Place<String> xDecl   = Place.of("xDecl",   String.class);
+
+        TransitionAction emit = ctx -> {
+            ctx.output(xDecl, ctx.input(reqDecl));
+            return CompletableFuture.completedFuture(null);
+        };
+        Transition tEmit = Transition.builder("emit")
+            .inputs(Arc.In.one(reqDecl))
+            .outputs(Arc.Out.place(xDecl))
+            .action(emit)
+            .build();
+        SubnetDef<Void> innerDef = SubnetDef.builder("Inner")
+            .place(xDecl)
+            .transition(tEmit)
+            .inputPort("in", reqDecl)
+            .build();
+
+        // Compose inner (prefix "inner") into a body net, exposing sIn as the bound input.
+        Place<String> sIn = Place.of("sIn", String.class);
+        PetriNet sBody = PetriNet.builder("Sbody")
+            .place(sIn)
+            .compose(innerDef.instantiate("inner"), b -> b.bindPort("in", sIn))
+            .build();
+
+        // Retrofit the composed body as a subnet S, re-exposing sIn as port "sin".
+        SubnetDef<Void> sDef = SubnetDef.fromNet(sBody,
+            Interface.builder().inputPort("sin", sIn).build());
+
+        // Instantiate S as "outer" and compose into the host, binding sin -> hostReq.
+        Place<String> hostReq = Place.of("hostReq", String.class);
+        PetriNet host = PetriNet.builder("host")
+            .place(hostReq)
+            .compose(sDef.instantiate("outer"), b -> b.bindPort("sin", hostReq))
+            .build();
+
+        @SuppressWarnings("unchecked")
+        Place<String> doublyPrefixed = (Place<String>) findPlace(host, "outer/inner/xDecl");
+
+        try (var executor = BitmapNetExecutor.create(host, Map.of(hostReq, List.of(Token.of("deep"))))) {
+            var marking = executor.run();
+            assertTrue(marking.hasTokens(doublyPrefixed),
+                "MOD-013: nested hardcoded action must resolve declared xDecl to 'outer/inner/xDecl'. Marking: " + marking);
+            assertEquals("deep", marking.peekFirst(doublyPrefixed).value());
+        }
+    }
+
+    @Test
+    void handWritten_and_flatNet_haveIdentityAlias_MOD031_MOD025() {
+        Place<String> a = Place.of("a", String.class);
+        Place<String> b = Place.of("b", String.class);
+        Transition t = Transition.builder("t")
+            .inputs(Arc.In.one(a))
+            .outputs(Arc.Out.place(b))
+            .build();
+        assertTrue(t.placeAlias().isEmpty(),
+            "MOD-031: a hand-written transition's correspondence is the identity (empty)");
+
+        var net = PetriNet.builder("flat").transition(t).build();
+        for (var tr : net.transitions()) {
+            assertTrue(tr.placeAlias().isEmpty(),
+                "MOD-031: a non-composed flat-net transition carries an empty (identity) alias");
+        }
+    }
+
+    @Test
+    void compose_structurallyEqualToHandWritten_aliasIsOffStructure_MOD031_MOD023() {
+        // AC#6: a composed net whose action hardcodes DECLARED places is
+        // structurally indistinguishable from the equivalent hand-written flat
+        // net (place index, transition names, arc topology). The declared→actual
+        // correspondence sits on the action/binding side of [MOD-023] — it is
+        // present on the composed transition yet absent from the structure.
+        Place<String> reqDecl  = Place.of("reqDecl",  String.class);
+        Place<String> respDecl = Place.of("respDecl", String.class);
+
+        TransitionAction call = ctx -> {
+            ctx.output(respDecl, ctx.input(reqDecl) + "!");
+            return CompletableFuture.completedFuture(null);
+        };
+        Transition step = Transition.builder("call")
+            .inputs(Arc.In.one(reqDecl))
+            .outputs(Arc.Out.place(respDecl))
+            .action(call)
+            .build();
+        SubnetDef<Void> def = SubnetDef.builder("Step")
+            .transition(step)
+            .inputPort("in", reqDecl)
+            .outputPort("out", respDecl)
+            .build();
+
+        Place<String> REQ  = Place.of("REQ",  String.class);
+        Place<String> RESP = Place.of("RESP", String.class);
+
+        var composed = PetriNet.builder("h")
+            .place(REQ).place(RESP)
+            .compose(def.instantiate("probe"),
+                     b -> b.bindPort("in", REQ).bindPort("out", RESP))
+            .build();
+
+        // The equivalent hand-written flat net: same final place set, same
+        // transition name "probe/call", same REQ → RESP arc topology, no action.
+        var handWritten = PetriNet.builder("h")
+            .place(REQ).place(RESP)
+            .transition(Transition.builder("probe/call")
+                .inputs(Arc.In.one(REQ))
+                .outputs(Arc.Out.place(RESP))
+                .build())
+            .build();
+
+        // Structural equivalence per [MOD-023]: place index, transition names,
+        // and per-transition arc topology match the hand-written net.
+        assertEquals(handWritten.places(), composed.places(),
+            "place set must match the hand-written net");
+        assertEquals(
+            handWritten.transitions().stream().map(Transition::name).collect(java.util.stream.Collectors.toSet()),
+            composed.transitions().stream().map(Transition::name).collect(java.util.stream.Collectors.toSet()),
+            "transition names must match the hand-written net");
+
+        Transition composedT = findTransition(composed,   "probe/call");
+        Transition handT     = findTransition(handWritten, "probe/call");
+        assertEquals(handT.inputPlaces(),  composedT.inputPlaces(),
+            "input arc topology must match the hand-written net");
+        assertEquals(handT.outputPlaces(), composedT.outputPlaces(),
+            "output arc topology must match the hand-written net");
+
+        // ...yet the correspondence is OFF-structure: the composed transition
+        // carries exactly the declared→actual alias, the hand-written one is empty.
+        assertEquals(Map.of(reqDecl, REQ, respDecl, RESP), composedT.placeAlias(),
+            "MOD-031: composed transition carries the declared→actual correspondence");
+        assertTrue(handT.placeAlias().isEmpty(),
+            "MOD-031: the hand-written equivalent carries the identity (empty) correspondence");
+    }
+
+    // ============================================================
     //  Helpers
     // ============================================================
 

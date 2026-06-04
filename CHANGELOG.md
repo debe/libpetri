@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+**Action place resolution under composition (MOD-031)**
+
+- A transition action MAY reference places by their **declared** (pre-instantiation, pre-port-binding) identity. After `instantiate(prefix)` and/or `compose(bindPort(...))`, the action-facing context (`input`/`inputs`/`read`/`output`) resolves a declared place to the actual composed place via a per-transition declared→actual correspondence. Hardcoded-constant actions — including `Out.xor` branch selection — now work unchanged under composition, where previously only port-agnostic (`ctx.inputPlaces()`) actions did. Place-set discovery (`inputPlaces`/`outputPlaces`) still returns the actual composed places.
+- **Java / TypeScript:** new. `Transition` carries the correspondence (Java `placeAlias: Map<Place,Place>`; TS name-keyed), populated by the subnet rewriter — chaining correctly through nested instantiation ([MOD-013]) — and consulted by `TransitionContext`.
+- **Rust / Python:** already shipped the mechanism (`Transition::local_name_map` + pyo3 adapter); MOD-031 formalises it in the spec and adds conformance tests.
+- Spec: new requirement **MOD-031** in `spec/11-modular-composition.md` (Action Binding). Not consulted by enablement, firing, the verifier, the exporter, or events — [MOD-023] structural equivalence is unaffected.
+
 ## Java 2.6.1 / TypeScript 2.6.0 / Rust 3.1.0 / Python 2.9.0 — 2026-06-03
 
 SMT verification is now sound on nets with environment places (VER-006), across all four bindings. TypeScript, Rust and Python additionally ship the `exact()` timing + deadline-tolerance fix here; Java shipped that in 2.6.0, so its 2.6.1 carries only the env-place fix.

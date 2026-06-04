@@ -11,6 +11,9 @@ import { allPlaces } from './out.js';
 /** @internal Symbol key restricting construction to the builder. */
 const TRANSITION_KEY = Symbol('Transition.internal');
 
+/** @internal Shared empty correspondence for the common (identity) case. */
+const EMPTY_PLACE_ALIAS: ReadonlyMap<string, Place<any>> = new Map();
+
 /**
  * A transition in the Time Petri Net that transforms tokens.
  *
@@ -29,6 +32,19 @@ export class Transition {
   readonly action: TransitionAction;
   readonly priority: number;
 
+  /**
+   * Per-transition **declared → actual** place correspondence (per
+   * **MOD-031**), keyed by the author-original declared place **name** →
+   * actual composed place. Empty for a hand-written or directly-composed
+   * ([MOD-025]) transition (identity). Populated by the subnet rewriter after
+   * instantiation ([MOD-010]) / port binding ([MOD-020]) so an action that
+   * hardcodes a declared place constant resolves to the composed place via
+   * {@link import('./transition-context.js').TransitionContext}. Consumed only
+   * by the action-facing context I/O — never by enablement, firing, the
+   * verifier, the exporter, or events (so [MOD-023] is unaffected).
+   */
+  readonly placeAlias: ReadonlyMap<string, Place<any>>;
+
   private readonly _inputPlaces: ReadonlySet<Place<any>>;
   private readonly _readPlaces: ReadonlySet<Place<any>>;
   private readonly _outputPlaces: ReadonlySet<Place<any>>;
@@ -45,6 +61,7 @@ export class Transition {
     timing: Timing,
     action: TransitionAction,
     priority: number,
+    placeAlias: ReadonlyMap<string, Place<any>> = EMPTY_PLACE_ALIAS,
   ) {
     if (key !== TRANSITION_KEY) throw new Error('Use Transition.builder() to create instances');
     this.name = name;
@@ -57,6 +74,7 @@ export class Transition {
     this.actionTimeout = findTimeout(outputSpec);
     this.action = action;
     this.priority = priority;
+    this.placeAlias = placeAlias.size === 0 ? EMPTY_PLACE_ALIAS : placeAlias;
 
     // Precompute place sets
     const inputPlaces = new Set<Place<any>>();
@@ -119,6 +137,7 @@ export class TransitionBuilder {
   private _timing: Timing = immediate();
   private _action: TransitionAction = passthrough();
   private _priority = 0;
+  private _placeAlias: ReadonlyMap<string, Place<any>> = EMPTY_PLACE_ALIAS;
 
   constructor(name: string) {
     this._name = name;
@@ -196,6 +215,17 @@ export class TransitionBuilder {
     return this;
   }
 
+  /**
+   * Sets the per-transition declared→actual place correspondence (per
+   * **MOD-031**). Populated by the subnet rewriter during the compose-time
+   * rewrite; not normally called by hand-written nets, whose correspondence is
+   * the identity (empty map).
+   */
+  placeAlias(alias: ReadonlyMap<string, Place<any>>): this {
+    this._placeAlias = alias;
+    return this;
+  }
+
   build(): Transition {
     // Validate ForwardInput references
     if (this._outputSpec !== null) {
@@ -220,6 +250,7 @@ export class TransitionBuilder {
       this._timing,
       this._action,
       this._priority,
+      this._placeAlias,
     );
   }
 }

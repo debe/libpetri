@@ -656,6 +656,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       t.inputPlaces(), t.readPlaces(), t.outputPlaces(),
       execCtx,
       logFn,
+      t.placeAlias,
     );
 
     // Create action promise with optional timeout

@@ -6,6 +6,9 @@ import { TokenOutput } from './token-output.js';
 /** Callback for emitting log messages from transition actions. */
 export type LogFn = (level: string, message: string, error?: Error) => void;
 
+/** @internal Shared empty correspondence for the common (identity) case. */
+const EMPTY_ALIAS: ReadonlyMap<string, Place<any>> = new Map();
+
 /**
  * Context provided to transition actions.
  *
@@ -29,6 +32,7 @@ export class TransitionContext {
   private readonly _transitionName: string;
   private readonly executionCtx: Map<string, unknown>;
   private readonly _logFn?: LogFn;
+  private readonly placeAlias: ReadonlyMap<string, Place<any>>;
 
   constructor(
     transitionName: string,
@@ -39,6 +43,7 @@ export class TransitionContext {
     outputPlaces: ReadonlySet<Place<any>>,
     executionContext?: Map<string, unknown>,
     logFn?: LogFn,
+    placeAlias?: ReadonlyMap<string, Place<any>>,
   ) {
     this._transitionName = transitionName;
     this.rawInput = rawInput;
@@ -57,17 +62,33 @@ export class TransitionContext {
     this.allowedOutputs = ao;
     this.executionCtx = executionContext ?? new Map();
     this._logFn = logFn;
+    this.placeAlias = placeAlias ?? EMPTY_ALIAS;
+  }
+
+  /**
+   * Resolves a place key through the transition's declared→actual place
+   * correspondence (per **MOD-031**). For a hand-written or directly-composed
+   * transition the correspondence is the identity, so this returns `place`
+   * unchanged; after instancing / port binding it maps a *declared* place
+   * constant the action hardcodes to the *actual* composed place. The result
+   * feeds both the declared-set check and the token-store access (both keyed by
+   * `place.name`), so `inputPlaces()`/`outputPlaces()` discovery is unaffected.
+   */
+  private resolve<T>(place: Place<T>): Place<T> {
+    const actual = this.placeAlias.get(place.name);
+    return actual !== undefined ? (actual as Place<T>) : place;
   }
 
   // ==================== Input Access (consumed) ====================
 
   /** Get single consumed input value. Throws if place not declared or multiple tokens. */
   input<T>(place: Place<T>): T {
-    this.requireInput(place);
-    const values = this.rawInput.values(place);
+    const actual = this.resolve(place);
+    this.requireInput(actual);
+    const values = this.rawInput.values(actual);
     if (values.length !== 1) {
       throw new Error(
-        `Place '${place.name}' consumed ${values.length} tokens, use inputs() for batched access`
+        `Place '${actual.name}' consumed ${values.length} tokens, use inputs() for batched access`
       );
     }
     return values[0]!;
@@ -75,14 +96,16 @@ export class TransitionContext {
 
   /** Get all consumed input values for a place. */
   inputs<T>(place: Place<T>): readonly T[] {
-    this.requireInput(place);
-    return this.rawInput.values(place);
+    const actual = this.resolve(place);
+    this.requireInput(actual);
+    return this.rawInput.values(actual);
   }
 
   /** Get consumed input token with metadata. */
   inputToken<T>(place: Place<T>): Token<T> {
-    this.requireInput(place);
-    return this.rawInput.get(place);
+    const actual = this.resolve(place);
+    this.requireInput(actual);
+    return this.rawInput.get(actual);
   }
 
   /** Returns declared input places (consumed). */
@@ -102,14 +125,16 @@ export class TransitionContext {
 
   /** Get read-only context value. Throws if place not declared as read. */
   read<T>(place: Place<T>): T {
-    this.requireRead(place);
-    return this.rawInput.value(place);
+    const actual = this.resolve(place);
+    this.requireRead(actual);
+    return this.rawInput.value(actual);
   }
 
   /** Get all read-only context values for a place. */
   reads<T>(place: Place<T>): readonly T[] {
-    this.requireRead(place);
-    return this.rawInput.values(place);
+    const actual = this.resolve(place);
+    this.requireRead(actual);
+    return this.rawInput.values(actual);
   }
 
   /** Returns declared read places (context, not consumed). */
@@ -140,9 +165,10 @@ export class TransitionContext {
    * @throws if place not declared as output.
    */
   output<T>(place: Place<T>, ...values: T[]): this {
-    this.requireOutput(place);
+    const actual = this.resolve(place);
+    this.requireOutput(actual);
     for (const value of values) {
-      this._rawOutput.add(place, value);
+      this._rawOutput.add(actual, value);
     }
     return this;
   }
@@ -156,9 +182,10 @@ export class TransitionContext {
    * @throws if place not declared as output.
    */
   outputToken<T>(place: Place<T>, ...tokens: Token<T>[]): this {
-    this.requireOutput(place);
+    const actual = this.resolve(place);
+    this.requireOutput(actual);
     for (const token of tokens) {
-      this._rawOutput.addToken(place, token);
+      this._rawOutput.addToken(actual, token);
     }
     return this;
   }

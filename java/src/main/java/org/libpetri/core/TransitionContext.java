@@ -68,6 +68,7 @@ public final class TransitionContext {
     private Set<Place<?>> allowedInputs;
     private Set<Place<?>> allowedReads;
     private Set<Place<?>> allowedOutputs;
+    private Map<Place<?>, Place<?>> placeAlias;
     private Map<Class<?>, Object> executionContext;
 
     public TransitionContext(Transition transition, TokenInput rawInput, TokenOutput rawOutput) {
@@ -82,7 +83,23 @@ public final class TransitionContext {
         this.allowedInputs = transition.inputPlaces();
         this.allowedReads = transition.readPlaces();
         this.allowedOutputs = transition.outputPlaces();
+        this.placeAlias = transition.placeAlias();
         this.executionContext = Map.copyOf(executionContext);
+    }
+
+    /**
+     * Resolves a place key through the transition's declared&rarr;actual place
+     * correspondence (per <b>MOD-031</b>). For a hand-written or
+     * directly-composed transition the correspondence is the identity, so this
+     * returns {@code place} unchanged; after instancing / port binding it maps a
+     * <i>declared</i> place constant the action hardcodes to the <i>actual</i>
+     * composed place. The result feeds both the declared-set check and the token
+     * store access, so {@code inputPlaces()}/{@code outputPlaces()} discovery is
+     * unaffected.
+     */
+    @SuppressWarnings("unchecked")
+    private <T> Place<T> resolve(Place<T> place) {
+        return (Place<T>) placeAlias.getOrDefault(place, place);
     }
 
     /**
@@ -108,8 +125,9 @@ public final class TransitionContext {
      * @throws IllegalStateException if multiple tokens were consumed (use inputs() instead)
      */
     public <T> T input(Place<T> place) {
-        requireInput(place);
-        return rawInput.value(place);
+        var actual = resolve(place);
+        requireInput(actual);
+        return rawInput.value(actual);
     }
 
     /**
@@ -120,8 +138,9 @@ public final class TransitionContext {
      * @throws IllegalArgumentException if place not declared as input in structure
      */
     public <T> List<T> inputs(Place<T> place) {
-        requireInput(place);
-        return rawInput.values(place);
+        var actual = resolve(place);
+        requireInput(actual);
+        return rawInput.values(actual);
     }
 
     /**
@@ -132,8 +151,9 @@ public final class TransitionContext {
      * @throws IllegalArgumentException if place not declared as input in structure
      */
     public <T> Token<T> inputToken(Place<T> place) {
-        requireInput(place);
-        return rawInput.get(place);
+        var actual = resolve(place);
+        requireInput(actual);
+        return rawInput.get(actual);
     }
 
     /**
@@ -163,8 +183,9 @@ public final class TransitionContext {
      * @throws IllegalArgumentException if place not declared as read in structure
      */
     public <T> T read(Place<T> place) {
-        requireRead(place);
-        return rawInput.value(place);
+        var actual = resolve(place);
+        requireRead(actual);
+        return rawInput.value(actual);
     }
 
     /**
@@ -175,8 +196,9 @@ public final class TransitionContext {
      * @throws IllegalArgumentException if place not declared as read in structure
      */
     public <T> List<T> reads(Place<T> place) {
-        requireRead(place);
-        return rawInput.values(place);
+        var actual = resolve(place);
+        requireRead(actual);
+        return rawInput.values(actual);
     }
 
     /**
@@ -207,8 +229,9 @@ public final class TransitionContext {
      * @throws IllegalArgumentException if place not declared as output in structure
      */
     public <T> TransitionContext output(Place<T> place, T value) {
-        requireOutput(place);
-        rawOutput.add(place, value);
+        var actual = resolve(place);
+        requireOutput(actual);
+        rawOutput.add(actual, value);
         return this;
     }
 
@@ -221,8 +244,9 @@ public final class TransitionContext {
      * @throws IllegalArgumentException if place not declared as output in structure
      */
     public <T> TransitionContext output(Place<T> place, Token<T> token) {
-        requireOutput(place);
-        rawOutput.add(place, token);
+        var actual = resolve(place);
+        requireOutput(actual);
+        rawOutput.add(actual, token);
         return this;
     }
 
@@ -246,9 +270,10 @@ public final class TransitionContext {
      */
     @SafeVarargs
     public final <T> TransitionContext output(Place<T> place, T... values) {
-        requireOutput(place);
+        var actual = resolve(place);
+        requireOutput(actual);
         for (T value : values) {
-            rawOutput.add(place, value);
+            rawOutput.add(actual, value);
         }
         return this;
     }
@@ -273,9 +298,10 @@ public final class TransitionContext {
      * @throws IllegalArgumentException if place not declared as output in structure
      */
     public <T> TransitionContext output(Place<T> place, Iterable<? extends T> values) {
-        requireOutput(place);
+        var actual = resolve(place);
+        requireOutput(actual);
         for (T value : values) {
-            rawOutput.add(place, value);
+            rawOutput.add(actual, value);
         }
         return this;
     }

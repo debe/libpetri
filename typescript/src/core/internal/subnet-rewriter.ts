@@ -50,7 +50,7 @@ import type { ArcInhibitor, ArcRead, ArcReset } from '../arc.js';
 import type { In } from '../in.js';
 import { one, exactly, all, atLeast } from '../in.js';
 import type { Out } from '../out.js';
-import { and, outPlace, forwardInput, timeout } from '../out.js';
+import { and, outPlace, forwardInput, timeout, allPlaces } from '../out.js';
 import { PetriNet } from '../petri-net.js';
 import { Transition } from '../transition.js';
 import type { Timing } from '../timing.js';
@@ -186,6 +186,14 @@ function rebuildWithName(
     .priority(t.priority)
     .action(t.action);
 
+  // Build the declared→actual place correspondence (MOD-031) from the same
+  // `remap` the arcs are rewritten through, chaining any pre-existing alias so
+  // nested instantiation ([MOD-013]) resolves declared → final composed place.
+  const alias = buildPlaceAlias(t, remap);
+  if (alias.size > 0) {
+    builder.placeAlias(alias);
+  }
+
   if (t.inputSpecs.length > 0) {
     // Pre-size for V8 hidden-class stability; for-loop over Stream.map.
     const rewrittenInputs = new Array<In>(t.inputSpecs.length);
@@ -211,6 +219,72 @@ function rebuildWithName(
 
   return builder.build();
 }
+
+// ============================================================
+//  Declared→actual place correspondence (MOD-031)
+// ============================================================
+
+/**
+ * Builds the per-transition **declared → actual** place correspondence (per
+ * **MOD-031**) for a transition being rewritten through `remap`, keyed by the
+ * author-original declared place **name** → actual composed place. Mirrors the
+ * Rust `build_local_name_map` / Java `buildPlaceAlias` algorithm so all three
+ * implementations agree.
+ *
+ * **Chained path** — when `t` already carries a non-empty alias (from an
+ * earlier rewrite pass: nested instantiation [MOD-013], or
+ * instantiate-then-compose), each `declaredName → prev` entry is carried
+ * forward as `declaredName → (remap.get(prev.name) ?? prev)`; identity results
+ * are dropped. The arcs are deliberately **not** walked in this case — their
+ * places are intermediate-pass names, not author-original, so recording them
+ * would leak intermediate keys the user never declared.
+ *
+ * **First-pass path** — when `t` carries no alias, every arc place maps to its
+ * remapped place keyed by the author-original name; identity entries are
+ * skipped. The ForwardInput `from` is captured via the input walk and its `to`
+ * via {@link allPlaces}.
+ */
+function buildPlaceAlias(
+  t: Transition,
+  remap: Map<string, Place<unknown>>,
+): ReadonlyMap<string, Place<unknown>> {
+  const prev = t.placeAlias;
+  if (remap.size === 0 && prev.size === 0) {
+    return EMPTY_ALIAS;
+  }
+
+  const alias = new Map<string, Place<unknown>>();
+
+  if (prev.size > 0) {
+    for (const [declaredName, prevActual] of prev) {
+      const replaced = remap.get(prevActual.name);
+      const finalActual = replaced !== undefined ? replaced : prevActual;
+      if (finalActual.name !== declaredName) {
+        alias.set(declaredName, finalActual);
+      }
+    }
+    return alias;
+  }
+
+  const record = (p: Place<unknown>): void => {
+    if (alias.has(p.name)) return;
+    const replaced = remap.get(p.name);
+    if (replaced !== undefined && replaced.name !== p.name) {
+      alias.set(p.name, replaced);
+    }
+  };
+  for (const spec of t.inputSpecs) record(spec.place as Place<unknown>);
+  for (const rd of t.reads) record(rd.place as Place<unknown>);
+  for (const inh of t.inhibitors) record(inh.place as Place<unknown>);
+  for (const rs of t.resets) record(rs.place as Place<unknown>);
+  if (t.outputSpec !== null) {
+    for (const p of allPlaces(t.outputSpec)) record(p as Place<unknown>);
+  }
+  return alias;
+}
+
+/** @internal Shared empty correspondence for the no-op rewrite case. */
+const EMPTY_ALIAS: ReadonlyMap<string, Place<unknown>> = new Map();
 
 // ============================================================
 //  Arc rewrite helpers (exhaustive switches — no default)
