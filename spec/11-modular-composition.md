@@ -546,6 +546,31 @@ This requirement extends [CORE-042] (action binding separation) into the modular
 
 ---
 
+#### MOD-031: Action Place Resolution under Composition (declared → actual correspondence)
+
+**Priority:** MUST
+
+A transition action MAY reference places by their **declared** identity — the place constants visible when the subnet body was authored, *before* instantiation ([MOD-010]) and *before* port binding ([MOD-020]). Instantiation and port binding rewrite the transition's **arcs** to the renamed / bound places ([MOD-010] clause 5, [MOD-021]) but carry the action through **by reference**, unchanged ([MOD-030]). Without a resolution rule, an action that hardcodes `ctx.input(declared)` / `ctx.output(declared, …)` would consult the *declared* place while the context's allowed-place set is built from the *rewritten* arcs — the two place-spaces diverge and the action fails its declared-place check.
+
+To close that asymmetry, each transition carries a **declared → actual place correspondence** established at compose time. The action-facing context operations — `input`, `inputs`, `read`, and `output` (all overloads) — MUST resolve a key place through this correspondence to the actual composed place **before** the declared-set check and before reading or writing the token store. Place-set *discovery* (`inputPlaces` / `outputPlaces`) MUST continue to return the **actual** composed places, so port-agnostic actions (which discover places from the context) are unaffected; the two action styles coexist.
+
+The correspondence is **1:1**, so it disambiguates branch selection that port-agnostic discovery cannot express cleanly: `ctx.output(declaredA)` on an `Out.xor(a, b)` transition produces exactly the actual `a` child, satisfying the exactly-one-production validator ([EXEC]). A **directly-composed** ([MOD-025]) or hand-written transition's correspondence is the **identity** (an empty correspondence behaves exactly as today). The correspondence MUST remap correctly under **nested** instantiation ([MOD-013]): when an outer `instantiate(prefix)` renames an already-composed transition, the correspondence's **actual** side (its values) remaps through the same place remap applied to the arcs, while its **declared** side (its keys — the author-original places) stays fixed; so a declared place resolves through arbitrary nesting depth (e.g. `outer/inner/x`).
+
+The correspondence belongs to the **action / binding layer**, not the structural net. It MUST NOT be consulted by enablement, firing, the verifier, the exporter, or the event subsystem. In particular it is not part of the structural-equivalence set enumerated by [MOD-023] AC#1 (place index, transition count, arc topology, bitmap masks, timing arrays) — it sits alongside [MOD-030]'s by-reference actions on the action side of that line. An implementation MAY realise the correspondence idiomatically: implementations whose actions invoke the context directly (e.g. an in-language `TransitionContext`) apply it inside the context API; a binding-hosted implementation MAY apply it in its binding adapter and expose the correspondence to native actions. Both satisfy this requirement. The correspondence is purely structural (no runtime state) and is fixed for the lifetime of the composed net. This requirement is orthogonal to [MOD-030]: `bindActions` still swaps the action object; the correspondence is attached at the structural rewrite, independent of which action is bound.
+
+**Acceptance Criteria:**
+1. A subnet whose transition action does `ctx.input(declaredIn)` / `ctx.output(declaredOut, …)`, instanced and composed with `bindPort("in", req).bindPort("out", resp)`, fires and produces on the actual `resp` place with no "place not in declared inputs/outputs" error.
+2. A transition with `Out.xor(aDecl, bDecl)` whose action selects `aDecl` produces exactly one token on the actual `a` place after instancing + port binding, and the exactly-one-production validator passes.
+3. Under nested instantiation ([MOD-013]) — compose `T` into `S` (prefix `inner`), then instantiate `S` as `outer` — a hardcoded `T`-action's declared place resolves to `outer/inner/x` and the action fires.
+4. A directly-composed ([MOD-025]) or hand-written transition carries the identity correspondence; its actions behave exactly as before this requirement (no observable change).
+5. Place-set discovery is unchanged: `inputPlaces` / `outputPlaces` return the actual composed places; port-agnostic actions written against discovery continue to work.
+6. Structural equivalence per [MOD-023] is preserved: a composed net and the equivalent hand-written flat net match on place index, transition count, arc topology, bitmap masks, and timing arrays — the correspondence is not part of that set.
+
+**Depends on:** [MOD-010], [MOD-013], [MOD-020], [MOD-023], [MOD-025], [MOD-030], [CORE-042]
+**Test derivation:** Build a one-transition subnet whose action hardcodes its declared input/output places; instantiate with a prefix, compose binding both ports to caller places, run; assert it produces on the caller's output place with no declared-place error. Repeat with the instance nested inside an outer instance and assert resolution to the doubly-prefixed place. Assert a hand-written net with the same shape is byte-identical in its compiled structure.
+
+---
+
 ## Export and Debug
 
 #### MOD-040: Export Grouping (subgraph cluster_* per instance prefix)

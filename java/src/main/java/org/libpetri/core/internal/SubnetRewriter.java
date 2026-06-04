@@ -178,6 +178,16 @@ public final class SubnetRewriter {
             .priority(t.priority())
             .action(t.action());
 
+        // Build the declared→actual place correspondence (MOD-031) BEFORE the
+        // arcs, from the same `remap` the arcs are rewritten through, so an
+        // action hardcoding a declared place constant resolves to the composed
+        // place at run time. Chains through any pre-existing alias so nested
+        // instantiation ([MOD-013]) resolves declared → final composed place.
+        var alias = buildPlaceAlias(t, remap);
+        if (!alias.isEmpty()) {
+            builder.placeAlias(alias);
+        }
+
         if (!t.inputSpecs().isEmpty()) {
             var inputs = new Arc.In[t.inputSpecs().size()];
             for (int i = 0; i < t.inputSpecs().size(); i++) {
@@ -195,6 +205,78 @@ public final class SubnetRewriter {
         for (var rs  : t.resets())     builder.resetArc(rewriteReset(rs, remap));
 
         return builder.build();
+    }
+
+    // ============================================================
+    //  Declared→actual place correspondence (MOD-031)
+    // ============================================================
+
+    /**
+     * Builds the per-transition <b>declared&rarr;actual</b> place correspondence
+     * (per <b>MOD-031</b>) for a transition being rewritten through
+     * {@code remap}. Mirrors the Rust {@code build_local_name_map} algorithm so
+     * all three implementations agree.
+     *
+     * <p><b>Chained path</b> — when {@code t} already carries a non-empty alias
+     * (from an earlier rewrite pass: nested instantiation [MOD-013], or
+     * instantiate-then-compose), each {@code declared → prev} entry is carried
+     * forward as {@code declared → remap.getOrDefault(prev, prev)}; identity
+     * results are dropped. The arcs are deliberately <b>not</b> walked in this
+     * case — their places are intermediate-pass names, not author-original, so
+     * recording them would leak intermediate keys the user never declared (see
+     * the Rust regression {@code build_local_name_map_chained_compose_*}).
+     *
+     * <p><b>First-pass path</b> — when {@code t} carries no alias, every arc
+     * place {@code p} maps to {@code remap.getOrDefault(p, p)} keyed by the
+     * author-original declared place; identity entries are skipped. The
+     * ForwardInput {@code from} place is captured via the input walk and its
+     * {@code to} via {@code outputSpec().allPlaces()}.
+     *
+     * @return a fresh map (possibly empty for an identity / no-op rewrite)
+     */
+    private static Map<Place<?>, Place<?>> buildPlaceAlias(
+        Transition t,
+        Map<Place<?>, Place<?>> remap
+    ) {
+        var prev = t.placeAlias();
+        if (remap.isEmpty() && prev.isEmpty()) {
+            return Map.of();
+        }
+
+        var alias = new HashMap<Place<?>, Place<?>>();
+
+        if (!prev.isEmpty()) {
+            for (var e : prev.entrySet()) {
+                var declared = e.getKey();
+                var finalActual = remap.getOrDefault(e.getValue(), e.getValue());
+                if (!finalActual.equals(declared)) {
+                    alias.put(declared, finalActual);
+                }
+            }
+            return alias;
+        }
+
+        for (var in  : t.inputSpecs())  recordAlias(in.place(),  remap, alias);
+        for (var rd  : t.reads())       recordAlias(rd.place(),  remap, alias);
+        for (var inh : t.inhibitors())  recordAlias(inh.place(), remap, alias);
+        for (var rs  : t.resets())      recordAlias(rs.place(),  remap, alias);
+        if (t.outputSpec() != null) {
+            for (var p : t.outputSpec().allPlaces()) recordAlias(p, remap, alias);
+        }
+        return alias;
+    }
+
+    /** Records {@code declared → remap(declared)} into {@code alias}, skipping identity and duplicates. */
+    private static void recordAlias(
+        Place<?> declared,
+        Map<Place<?>, Place<?>> remap,
+        Map<Place<?>, Place<?>> alias
+    ) {
+        if (alias.containsKey(declared)) return;
+        var actual = remap.getOrDefault(declared, declared);
+        if (!actual.equals(declared)) {
+            alias.put(declared, actual);
+        }
     }
 
     // ============================================================

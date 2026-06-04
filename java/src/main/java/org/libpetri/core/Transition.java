@@ -3,6 +3,7 @@ package org.libpetri.core;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -69,6 +70,7 @@ public final class Transition {
     private final Set<Place<?>> inputPlaceSet;
     private final Set<Place<?>> readPlaceSet;
     private final Set<Place<?>> outputPlaceSet;
+    private final Map<Place<?>, Place<?>> placeAlias;
 
     private Transition(
         String name,
@@ -79,7 +81,8 @@ public final class Transition {
         List<Arc.Reset<?>> resets,
         Timing timing,
         TransitionAction action,
-        int priority
+        int priority,
+        Map<Place<?>, Place<?>> placeAlias
     ) {
         this.name = name;
         this.inputSpecs = List.copyOf(inputSpecs);
@@ -91,6 +94,7 @@ public final class Transition {
         this.actionTimeout = findTimeout(outputSpec);
         this.action = action;
         this.priority = priority;
+        this.placeAlias = (placeAlias == null || placeAlias.isEmpty()) ? Map.of() : Map.copyOf(placeAlias);
 
         // Cache place sets — avoids stream+collect on every TransitionContext creation
         var ips = new HashSet<Place<?>>(inputSpecs.size());
@@ -191,6 +195,23 @@ public final class Transition {
         return outputPlaceSet;
     }
 
+    /**
+     * Returns the per-transition <b>declared&rarr;actual</b> place correspondence
+     * established at compose time (per <b>MOD-031</b>).
+     *
+     * <p>Empty for a hand-written or directly-composed ([MOD-025]) transition
+     * (identity correspondence). After instantiation ([MOD-010]) and/or port
+     * binding ([MOD-020]) the rewriter populates it so an action that hardcodes
+     * a <i>declared</i> place constant resolves to the <i>actual</i> composed
+     * place via {@link TransitionContext}. Consumed only by the action-facing
+     * context I/O — never by enablement, firing, the verifier, the exporter, or
+     * events (so [MOD-023] structural equivalence is unaffected). Keyed by the
+     * author-original declared place; value is the final composed place.
+     */
+    public Map<Place<?>, Place<?>> placeAlias() {
+        return placeAlias;
+    }
+
     // Uses Object.equals/hashCode (identity-based) - no override needed
 
     @Override
@@ -212,6 +233,7 @@ public final class Transition {
         private Timing timing = Timing.immediate();
         private TransitionAction action = TransitionAction.passthrough();
         private int priority = 0;
+        private Map<Place<?>, Place<?>> placeAlias = Map.of();
 
         private Builder(String name) {
             this.name = name;
@@ -326,8 +348,22 @@ public final class Transition {
             return this;
         }
 
+        /**
+         * Sets the per-transition declared&rarr;actual place correspondence
+         * (per <b>MOD-031</b>). Populated by {@code SubnetRewriter} during the
+         * compose-time rewrite; not normally called by hand-written nets, whose
+         * correspondence is the identity (empty map).
+         *
+         * @param alias declared place &rarr; actual composed place
+         * @return this builder
+         */
+        public Builder placeAlias(Map<Place<?>, Place<?>> alias) {
+            this.placeAlias = alias;
+            return this;
+        }
+
         public Transition build() {
-            var transition = new Transition(name, inputSpecs, outputSpec, inhibitors, reads, resets, timing, action, priority);
+            var transition = new Transition(name, inputSpecs, outputSpec, inhibitors, reads, resets, timing, action, priority, placeAlias);
 
             // Validate ForwardInput references valid input places and type compatibility
             if (outputSpec != null) {
