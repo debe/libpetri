@@ -2,7 +2,7 @@
 name = "libpetri-py"
 # Decoupled from the Rust workspace version: the Python wheel releases on its
 # own track (PyPI), independent of the crates.io Rust crate versions.
-version = "2.9.0"
+version = "2.10.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
