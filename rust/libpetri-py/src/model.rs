@@ -198,6 +198,43 @@ enum PyAction {
     Builtin(PyBuiltinAction),
 }
 
+/// Resolves a Python action value — a sync callable, an async coroutine
+/// function, or a [`PyBuiltinAction`] — into the builder's internal
+/// [`PyAction`] form. Shared by the transition builder's `.action(...)` and by
+/// [`PyInstance::bind_actions`].
+fn resolve_py_action(py: Python<'_>, action: Py<PyAny>) -> PyResult<PyAction> {
+    let bound = action.bind(py);
+    if let Ok(builtin) = bound.extract::<PyBuiltinAction>() {
+        Ok(PyAction::Builtin(builtin))
+    } else if bound.is_callable() {
+        Ok(PyAction::Callback(action))
+    } else {
+        Err(PyTypeError::new_err(
+            "action must be a callable or a libpetri builtin action (fork, passthrough)",
+        ))
+    }
+}
+
+/// Converts a resolved [`PyAction`] into a core [`BoxedAction`]. Async coroutine
+/// functions are detected via `inspect.iscoroutinefunction` and driven on the
+/// executor thread through the pyo3 action adapter.
+fn py_action_to_boxed(py: Python<'_>, action: &PyAction) -> PyResult<BoxedAction> {
+    Ok(match action {
+        PyAction::Callback(callback) => {
+            let inspect = py.import("inspect")?;
+            let is_async: bool = inspect
+                .call_method1("iscoroutinefunction", (callback.clone_ref(py),))?
+                .extract()?;
+            if is_async {
+                boxed_async_action(callback.clone_ref(py))
+            } else {
+                boxed_sync_action(callback.clone_ref(py))
+            }
+        }
+        PyAction::Builtin(builtin) => builtin.to_rust(),
+    })
+}
+
 #[pymethods]
 impl PyTransitionBuilder {
     /// Starts a transition builder with the given name.
@@ -273,16 +310,7 @@ impl PyTransitionBuilder {
     /// Sets the transition's action. Accepts a sync callable, an async
     /// coroutine function, or a builtin action (`fork`, `passthrough`).
     fn action(slf: Py<Self>, py: Python<'_>, action: Py<PyAny>) -> PyResult<Py<Self>> {
-        let bound = action.bind(py);
-        let resolved = if let Ok(builtin) = bound.extract::<PyBuiltinAction>() {
-            PyAction::Builtin(builtin)
-        } else if bound.is_callable() {
-            PyAction::Callback(action)
-        } else {
-            return Err(PyTypeError::new_err(
-                "action must be a callable or a libpetri builtin action (fork, passthrough)",
-            ));
-        };
+        let resolved = resolve_py_action(py, action)?;
         {
             let mut this = slf.borrow_mut(py);
             this.action = Some(resolved);
@@ -302,18 +330,7 @@ impl PyTransitionBuilder {
     /// Builds the transition. Raises if any required arc references an undeclared place.
     fn build(&self, py: Python<'_>) -> PyResult<PyTransition> {
         let action = match &self.action {
-            Some(PyAction::Callback(callback)) => {
-                let inspect = py.import("inspect")?;
-                let is_async: bool = inspect
-                    .call_method1("iscoroutinefunction", (callback.clone_ref(py),))?
-                    .extract()?;
-                if is_async {
-                    boxed_async_action(callback.clone_ref(py))
-                } else {
-                    boxed_sync_action(callback.clone_ref(py))
-                }
-            }
-            Some(PyAction::Builtin(builtin)) => builtin.to_rust(),
+            Some(a) => py_action_to_boxed(py, a)?,
             None => passthrough(),
         };
 
@@ -484,6 +501,30 @@ impl PyInstance {
     fn descriptor(&self) -> PySubnetInstance {
         PySubnetInstance::from_rust(&self.inner.descriptor())
     }
+
+    /// Binds per-transition actions onto this instance (MOD-030), keyed by the
+    /// transition's ORIGINAL (pre-prefix) name. Values may be sync callables,
+    /// async coroutine functions, or builtin actions (`fork`, `passthrough`).
+    ///
+    /// Returns a new `Instance`; the receiver is unchanged. The instantiate-time
+    /// declared→actual place correspondence (MOD-031) is preserved across the
+    /// rebind, so an action that references author-local place names
+    /// (`ctx.input("local")`) keeps resolving after composition. Original names
+    /// not present in this instance are silently ignored.
+    fn bind_actions(
+        &self,
+        py: Python<'_>,
+        actions: HashMap<String, Py<PyAny>>,
+    ) -> PyResult<PyInstance> {
+        let mut bindings: HashMap<Arc<str>, BoxedAction> = HashMap::with_capacity(actions.len());
+        for (name, value) in actions {
+            let resolved = resolve_py_action(py, value)?;
+            bindings.insert(Arc::<str>::from(name.as_str()), py_action_to_boxed(py, &resolved)?);
+        }
+        Ok(PyInstance {
+            inner: self.inner.bind_actions(bindings),
+        })
+    }
 }
 
 /// A reusable subnet definition with named ports and channels. Build via `SubnetDefBuilder(name)`.
@@ -537,6 +578,24 @@ impl PySubnetDef {
     }
 }
 
+/// Parses a `dict[str, Place]` port-binding mapping into the core's
+/// `port_name -> PlaceRef` form. Shared by `compose` and `compose_instance`.
+fn parse_port_bindings(
+    port_bindings: &Bound<'_, PyAny>,
+) -> PyResult<HashMap<Arc<str>, libpetri::PlaceRef>> {
+    let dict = port_bindings
+        .cast::<PyDict>()
+        .map_err(|_| PyTypeError::new_err("port_bindings must be a dict[str, Place]"))?;
+
+    let mut bindings: HashMap<Arc<str>, libpetri::PlaceRef> = HashMap::new();
+    for (port_name_obj, place_obj) in dict.iter() {
+        let port_name: String = port_name_obj.extract()?;
+        let place: PyRef<'_, PyPlace> = place_obj.extract()?;
+        bindings.insert(Arc::<str>::from(port_name), place.place().as_ref());
+    }
+    Ok(bindings)
+}
+
 /// Fluent builder for a `Net`. Add places, transitions, or composed subnets, then `.build()`.
 #[pyclass(module = "_libpetri", name = "NetBuilder")]
 pub struct PyPetriNetBuilder {
@@ -584,16 +643,7 @@ impl PyPetriNetBuilder {
         subnet: &PySubnetDef,
         port_bindings: &Bound<'_, PyAny>,
     ) -> PyResult<Py<Self>> {
-        let dict = port_bindings
-            .cast::<PyDict>()
-            .map_err(|_| PyTypeError::new_err("port_bindings must be a dict[str, Place]"))?;
-
-        let mut bindings: HashMap<Arc<str>, libpetri::PlaceRef> = HashMap::new();
-        for (port_name_obj, place_obj) in dict.iter() {
-            let port_name: String = port_name_obj.extract()?;
-            let place: PyRef<'_, PyPlace> = place_obj.extract()?;
-            bindings.insert(Arc::<str>::from(port_name), place.place().as_ref());
-        }
+        let bindings = parse_port_bindings(port_bindings)?;
 
         let prefix_arc = Arc::<str>::from(instance_name);
         let subnet_inner = subnet.inner.clone();
@@ -605,6 +655,43 @@ impl PyPetriNetBuilder {
                     .places(this.places.clone())
                     .transitions(this.transitions.clone())
                     .compose(&instance, bindings)
+                    .build()
+            })?
+        };
+
+        {
+            let mut this = slf.borrow_mut(py);
+            this.places = composed.places().to_vec();
+            this.transitions = composed.transitions().to_vec();
+        }
+        Ok(slf)
+    }
+
+    /// Composes a pre-built `Instance` into this net, gluing the instance's
+    /// ports to the host's places via `port_bindings`. The instance already
+    /// carries its prefix, so no name is passed here.
+    ///
+    /// Use this when you need per-instance action binding before composition —
+    /// `subnet.instantiate(prefix).bind_actions({...})` returns an `Instance`
+    /// whose actions resolve their author-local places after the merge (MOD-030
+    /// / MOD-031). For the common no-binding case, `compose(name, subnet,
+    /// bindings)` is the one-step shortcut.
+    fn compose_instance(
+        slf: Py<Self>,
+        py: Python<'_>,
+        instance: &PyInstance,
+        port_bindings: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<Self>> {
+        let bindings = parse_port_bindings(port_bindings)?;
+
+        let instance_inner = instance.inner.clone();
+        let composed = {
+            let this = slf.borrow(py);
+            panic_to_py(|| {
+                PetriNet::builder(this.name.clone())
+                    .places(this.places.clone())
+                    .transitions(this.transitions.clone())
+                    .compose(&instance_inner, bindings)
                     .build()
             })?
         };

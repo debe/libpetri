@@ -442,6 +442,56 @@ class ComposeTest {
     }
 
     @Test
+    void compose_hardcodedAction_boundViaInstanceBindActions_fires_MOD031() {
+        // MOD-031 ∩ CORE-042: the action is NOT baked into the def. It is bound
+        // AFTER instantiate via Instance.bindActions (the stateless-structure +
+        // late-binding idiom). The instantiate-time declared→actual correspondence
+        // must survive the action swap, or the hardcoded declared place throws.
+        Place<String> reqDecl  = Place.of("reqDecl",  String.class);
+        Place<String> respDecl = Place.of("respDecl", String.class);
+
+        TransitionAction call = ctx -> {
+            ctx.output(respDecl, ctx.input(reqDecl) + "!");
+            return CompletableFuture.completedFuture(null);
+        };
+
+        // Structure-only def — action bound later, not at definition time.
+        SubnetDef<Void> def = SubnetDef.builder("Step")
+            .transition(Transition.builder("call")
+                .inputs(Arc.In.one(reqDecl))
+                .outputs(Arc.Out.place(respDecl))
+                .build())
+            .inputPort("in", reqDecl)
+            .outputPort("out", respDecl)
+            .build();
+
+        Place<String> REQ  = Place.of("REQ",  String.class);
+        Place<String> RESP = Place.of("RESP", String.class);
+
+        var net = PetriNet.builder("h")
+            .place(REQ).place(RESP)
+            .compose(def.instantiate("probe").bindActions(Map.of("call", call)),
+                     b -> b.bindPort("in", REQ).bindPort("out", RESP))
+            .build();
+
+        // The bound transition still reports the ACTUAL composed places — the
+        // alias is preserved without leaking declared places into the structure.
+        Transition composed = findTransition(net, "probe/call");
+        assertTrue(composed.inputPlaces().contains(REQ));
+        assertTrue(composed.outputPlaces().contains(RESP));
+        assertFalse(composed.inputPlaces().contains(reqDecl));
+        assertFalse(composed.outputPlaces().contains(respDecl));
+
+        try (var executor = BitmapNetExecutor.create(net, Map.of(REQ, List.of(Token.of("x"))))) {
+            var marking = executor.run();
+            assertTrue(marking.hasTokens(RESP),
+                "hardcoded-declared-place action bound via Instance.bindActions must fire under composition "
+                    + "(MOD-031 ∩ CORE-042). Marking: " + marking);
+            assertEquals("x!", marking.peekFirst(RESP).value());
+        }
+    }
+
+    @Test
     void compose_xorBranchSelection_hardcoded_MOD031() {
         Place<String> inDecl = Place.of("inDecl", String.class);
         Place<String> aDecl  = Place.of("aDecl",  String.class);

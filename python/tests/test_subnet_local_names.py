@@ -301,3 +301,105 @@ def test_unknown_place_still_raises_after_compose() -> None:
     )
     lp.run_sync(net, initial={host_in: [{"v": 1}]})
     assert "never_declared" in captured["err"]
+
+
+def test_bind_actions_after_instantiate_preserves_local_names() -> None:
+    """MOD-031 ∩ CORE-042: a *structure-only* subnet whose action is bound
+    AFTER instantiate (via ``Instance.bind_actions``) keeps resolving its
+    author-local place names after composition.
+
+    The instantiate-time declared→actual correspondence must survive the action
+    swap — before the fix, ``bind_actions`` dropped it and ``ctx.input("LOCAL_IN")``
+    failed once the arcs were rewritten to the host places."""
+
+    local_in = lp.Place("LOCAL_IN")
+    local_out = lp.Place("LOCAL_OUT")
+
+    def transform(ctx: lp.TransitionContext) -> None:
+        msg = ctx.input("LOCAL_IN")  # author-local name, not the host name
+        ctx.output("LOCAL_OUT", {**msg, "tag": "processed"})
+
+    # Structure-only def — no action baked into the transition (CORE-042).
+    subnet = (
+        lp.SubnetDef("Transformer")
+        .transition(
+            lp.Transition("transform")
+            .input(lp.one(local_in))
+            .output(lp.out(local_out))
+            .build()
+        )
+        .input_port("inbox", local_in)
+        .output_port("outbox", local_out)
+        .build()
+    )
+
+    host_in = lp.Place("host_in")
+    host_out = lp.Place("host_out")
+
+    # Bind the action AFTER instantiate, then compose the bound instance.
+    instance = subnet.instantiate("inst1").bind_actions({"transform": transform})
+    net = (
+        lp.NetBuilder("Host")
+        .place(host_in)
+        .place(host_out)
+        .compose_instance(instance, {"inbox": host_in, "outbox": host_out})
+        .build()
+    )
+
+    result = lp.run_sync(net, initial={host_in: [{"v": 1}]})
+    assert result.count(host_out) == 1
+    assert result.first(host_out) == {"v": 1, "tag": "processed"}
+
+
+def test_bind_actions_is_non_mutating() -> None:
+    """``bind_actions`` returns a derived instance; the receiver is unchanged
+    and remains independently composable (MOD-030 AC#8)."""
+
+    local_in = lp.Place("LOCAL_IN")
+    local_out = lp.Place("LOCAL_OUT")
+
+    def tag_a(ctx: lp.TransitionContext) -> None:
+        ctx.output("LOCAL_OUT", {**ctx.input("LOCAL_IN"), "by": "a"})
+
+    def tag_b(ctx: lp.TransitionContext) -> None:
+        ctx.output("LOCAL_OUT", {**ctx.input("LOCAL_IN"), "by": "b"})
+
+    subnet = (
+        lp.SubnetDef("Tagger")
+        .transition(
+            lp.Transition("tag")
+            .input(lp.one(local_in))
+            .output(lp.out(local_out))
+            .build()
+        )
+        .input_port("inbox", local_in)
+        .output_port("outbox", local_out)
+        .build()
+    )
+
+    base = subnet.instantiate("inst")
+    bound_a = base.bind_actions({"tag": tag_a})
+    bound_b = base.bind_actions({"tag": tag_b})
+
+    a_in, a_out = lp.Place("a_in"), lp.Place("a_out")
+    b_in, b_out = lp.Place("b_in"), lp.Place("b_out")
+
+    net_a = (
+        lp.NetBuilder("A")
+        .place(a_in)
+        .place(a_out)
+        .compose_instance(bound_a, {"inbox": a_in, "outbox": a_out})
+        .build()
+    )
+    net_b = (
+        lp.NetBuilder("B")
+        .place(b_in)
+        .place(b_out)
+        .compose_instance(bound_b, {"inbox": b_in, "outbox": b_out})
+        .build()
+    )
+
+    res_a = lp.run_sync(net_a, initial={a_in: [{"v": 1}]})
+    res_b = lp.run_sync(net_b, initial={b_in: [{"v": 1}]})
+    assert res_a.first(a_out) == {"v": 1, "by": "a"}
+    assert res_b.first(b_out) == {"v": 1, "by": "b"}

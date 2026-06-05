@@ -1,5 +1,14 @@
 # Changelog
 
+## Java 2.7.1 / TypeScript 2.7.1 / Rust 3.1.1 / Python 2.10.0
+
+**`bindActions` preserves the MOD-031 place correspondence (MOD-031 ∩ CORE-042)**
+
+- Binding a transition's action *after* `instantiate` — the structure-only subnet + late-binding idiom (`instantiate(prefix).bindActions({…})`, then `compose(bindPort(…))`) — now keeps the declared→actual place correspondence established at instantiation. A hardcoded-constant action bound this way resolves its declared places and fires under composition, matching the baked-into-the-def path. The action-swap rebuild previously dropped the correspondence.
+- **Java / TypeScript / Rust:** the action-rebind seam (`rebuildWithAction` / `rebuild_with_action`) now carries the correspondence (`placeAlias` / `local_name_map`) forward. No-op for hand-written / directly-composed transitions.
+- **Python:** new `Instance.bind_actions(mapping)` (MOD-030) plus `NetBuilder.compose_instance(instance, bindings)` to compose a pre-bound instance — actions bound after `instantiate` resolve their author-local place names after the merge.
+- Spec: **MOD-031** strengthened with an explicit binding-preservation requirement and acceptance criterion (`spec/11-modular-composition.md`).
+
 ## Java 2.7.0 / TypeScript 2.7.0 — 2026-06-05
 
 **Action place resolution under composition (MOD-031)**
