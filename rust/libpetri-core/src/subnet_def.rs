@@ -712,6 +712,57 @@ mod tests {
     }
 
     #[test]
+    fn bind_actions_preserves_local_name_map_mod031() {
+        // MOD-031 ∩ CORE-042: instantiation populates the per-transition
+        // declared→actual correspondence (`local_name_map`). Binding an action
+        // AFTER instantiate must NOT drop it, or a hardcoded author-local place
+        // reference can no longer resolve under composition (the binding-side
+        // action context reads the map off the transition).
+        let req = Place::<String>::new("reqDecl");
+        let resp = Place::<String>::new("respDecl");
+        let t = Transition::builder("call")
+            .input(one(&req))
+            .output(out_place(&resp))
+            .build();
+        let def: SubnetDef<()> = SubnetDef::builder("Step")
+            .transition(t)
+            .input_port("in", &req)
+            .output_port("out", &resp)
+            .build();
+
+        let inst = def.instantiate("probe", ());
+
+        // Sanity: instantiate established the correspondence.
+        let before = &inst.renamed_body().transitions()[0];
+        let map_before = before
+            .local_name_map()
+            .expect("instantiate must populate local_name_map");
+        assert_eq!(
+            map_before.get("reqDecl").map(|s| s.as_ref()),
+            Some("probe/reqDecl")
+        );
+
+        // Bind an action AFTER instantiate — this drives rebuild_with_action.
+        let mut bindings = std::collections::HashMap::new();
+        bindings.insert(Arc::<str>::from("call"), crate::action::passthrough());
+        let bound = inst.bind_actions(bindings);
+
+        // The correspondence must survive the action swap (the bug dropped it).
+        let after = &bound.renamed_body().transitions()[0];
+        let map_after = after
+            .local_name_map()
+            .expect("bind_actions must preserve local_name_map (MOD-031 ∩ CORE-042)");
+        assert_eq!(
+            map_after.get("reqDecl").map(|s| s.as_ref()),
+            Some("probe/reqDecl")
+        );
+        assert_eq!(
+            map_after.get("respDecl").map(|s| s.as_ref()),
+            Some("probe/respDecl")
+        );
+    }
+
+    #[test]
     fn instantiate_params_accessible() {
         let p = Place::<i32>::new("p");
         let t = Transition::builder("t").input(one(&p)).build();

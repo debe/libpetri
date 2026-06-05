@@ -742,6 +742,13 @@ function rebuildWithAction(t: Transition, action: TransitionAction): Transition 
     .priority(t.priority)
     .action(action);
 
+  // MOD-031: carry the declared→actual place correspondence forward so an action
+  // bound after instantiate/compose ([CORE-042]) still resolves its hardcoded
+  // declared places. Empty for hand-written / directly-composed transitions.
+  if (t.placeAlias.size > 0) {
+    builder.placeAlias(t.placeAlias);
+  }
+
   if (t.inputSpecs.length > 0) {
     builder.inputs(...t.inputSpecs);
   }

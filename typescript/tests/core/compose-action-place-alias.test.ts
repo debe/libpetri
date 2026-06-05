@@ -70,6 +70,53 @@ describe('MOD-031 — action place resolution under composition', () => {
     expect(marking.peekFirst(RESP)?.value).toBe('x!');
   });
 
+  it('hardcoded-declared-place action bound via Instance.bindActions fires (MOD-031 ∩ CORE-042)', async () => {
+    // The action is NOT baked into the def. It is bound AFTER instantiate via
+    // Instance.bindActions (the stateless-structure + late-binding idiom). The
+    // instantiate-time declared→actual correspondence must survive the action
+    // swap, or the hardcoded declared place throws.
+    const reqDecl = place<string>('reqDecl');
+    const respDecl = place<string>('respDecl');
+
+    const call: TransitionAction = async (ctx) => {
+      ctx.output(respDecl, ctx.input(reqDecl) + '!');
+    };
+
+    // Structure-only def — action bound later, not at definition time.
+    const def = SubnetDef.builder('Step')
+      .transition(Transition.builder('call').inputs(one(reqDecl)).outputs(outPlace(respDecl)).build())
+      .inputPort('in', reqDecl)
+      .outputPort('out', respDecl)
+      .build();
+
+    const REQ = place<string>('REQ');
+    const RESP = place<string>('RESP');
+
+    const net = PetriNet.builder('h')
+      .place(REQ)
+      .place(RESP)
+      .compose(def.instantiate('probe').bindActions({ call }), (b) =>
+        b.bindPort('in', REQ).bindPort('out', RESP),
+      )
+      .build();
+
+    // The bound transition still reports the ACTUAL composed places — the alias
+    // is preserved without leaking declared places into the structure.
+    const composed = [...net.transitions].find((t) => t.name === 'probe/call')!;
+    const inNames = new Set([...composed.inputPlaces()].map((p) => p.name));
+    const outNames = new Set([...composed.outputPlaces()].map((p) => p.name));
+    expect(inNames.has('REQ')).toBe(true);
+    expect(outNames.has('RESP')).toBe(true);
+    expect(inNames.has('reqDecl')).toBe(false);
+    expect(outNames.has('respDecl')).toBe(false);
+
+    const executor = new BitmapNetExecutor(net, seed(REQ, 'x'));
+    const marking = await executor.run(2000);
+
+    expect(marking.hasTokens(RESP)).toBe(true);
+    expect(marking.peekFirst(RESP)?.value).toBe('x!');
+  });
+
   it('XOR branch selection by declared constant (AC#2)', async () => {
     const inDecl = place<string>('inDecl');
     const aDecl = place<string>('aDecl');

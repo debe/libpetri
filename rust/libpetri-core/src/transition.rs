@@ -372,6 +372,13 @@ pub(crate) fn rebuild_with_action(t: &Transition, action: BoxedAction) -> Transi
         builder = builder.output(out.clone());
     }
 
+    // MOD-031: carry the declared→actual place correspondence forward so an action
+    // bound after instantiate/compose ([CORE-042]) still resolves its hardcoded
+    // author-local places. `None` for hand-written / directly-composed transitions.
+    if let Some(map) = t.local_name_map_cloned() {
+        builder = builder.local_name_map(map);
+    }
+
     builder.build()
 }
 

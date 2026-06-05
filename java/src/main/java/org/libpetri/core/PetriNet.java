@@ -153,7 +153,12 @@ public final class PetriNet {
         var builder = Transition.builder(t.name())
             .timing(t.timing())
             .priority(t.priority())
-            .action(action);
+            .action(action)
+            // MOD-031: carry the declared→actual place correspondence forward so an
+            // action bound after instantiate/compose ([CORE-042]) still resolves its
+            // hardcoded declared places. Empty for hand-written / directly-composed
+            // transitions, so this is a no-op there.
+            .placeAlias(t.placeAlias());
 
         if (!t.inputSpecs().isEmpty()) {
             builder.inputs(t.inputSpecs().toArray(new Arc.In[0]));
