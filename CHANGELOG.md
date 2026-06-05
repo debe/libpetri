@@ -1,6 +1,6 @@
 # Changelog
 
-## Java 2.7.1 / TypeScript 2.7.1 / Rust 3.1.1 / Python 2.10.0
+## Java 2.7.1 / TypeScript 2.7.1 / Rust 3.1.1 / Python 2.10.0 — 2026-06-05
 
 **`bindActions` preserves the MOD-031 place correspondence (MOD-031 ∩ CORE-042)**
 
