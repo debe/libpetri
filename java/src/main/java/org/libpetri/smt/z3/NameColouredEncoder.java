@@ -246,8 +246,15 @@ public final class NameColouredEncoder {
             classes.add(klass);
         }
 
-        // 3. Budget discipline: consumed only by mints, produced only by joins, so
-        //    live colours <= initial budget = k (the soundness bound for k colours).
+        // 3. Budget discipline: consumed only by mints, produced only by joins, AND
+        //    conserved — a join may not refund MORE budget than the cheapest mint
+        //    consumes, else repeated mint->join cycles inflate the pool above k, the
+        //    real net can hold > k simultaneously-live names, and the k-colour
+        //    encoding would UNDER-approximate and report a false `Proven`. With this
+        //    bound live colours <= initial budget = k. Fail-closed (return null ->
+        //    sound over-approximation) otherwise.
+        Integer minMintCost = null;
+        int maxJoinRefund = 0;
         for (int ti = 0; ti < classes.size(); ti++) {
             Klass cls = classes.get(ti);
             var ft = flat.transitions().get(ti);
@@ -259,6 +266,22 @@ public final class NameColouredEncoder {
                     return null;
                 }
             }
+            if (cls instanceof Mint) {
+                int cost = 0;
+                for (int b : budgetIdx) {
+                    cost += ft.preVector()[b];
+                }
+                minMintCost = (minMintCost == null) ? cost : Math.min(minMintCost, cost);
+            } else if (cls instanceof Join) {
+                int refund = 0;
+                for (int b : budgetIdx) {
+                    refund += ft.postVector()[b];
+                }
+                maxJoinRefund = Math.max(maxJoinRefund, refund);
+            }
+        }
+        if (minMintCost == null || maxJoinRefund > minMintCost) {
+            return null;
         }
 
         return new ColouredPlan(coloured, isColoured, k, classes);

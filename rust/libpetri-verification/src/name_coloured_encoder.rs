@@ -27,8 +27,9 @@
 //! - each coloured place is *produced only by* minting forks (count 1, no
 //!   coloured input, costs ≥1 budget token) and *consumed only by* matched joins
 //!   (count 1, produces no coloured token);
-//! - budget places are consumed only by mints and produced only by joins (so
-//!   live colours ≤ initial budget = `k`);
+//! - budget places are consumed only by mints and produced only by joins, and a
+//!   join refunds no more budget than the cheapest mint consumes — so the budget
+//!   is conserved and live colours ≤ initial budget = `k`;
 //! - coloured places start empty; no inhibitor/read/reset/consume-all arc touches
 //!   a coloured place; no XOR output anywhere.
 //!
@@ -189,8 +190,17 @@ pub fn build_plan(
         classes.push(class);
     }
 
-    // 3. Budget discipline: consumed only by mints, produced only by joins, so
-    //    live colours ≤ initial budget = k (the soundness bound for `k` colours).
+    // 3. Budget discipline: consumed only by mints, produced only by joins, AND
+    //    conserved — a join may not refund MORE budget than the cheapest mint
+    //    consumes. Otherwise repeated mint→join cycles inflate the pool above the
+    //    initial `k`, the real net can hold > k simultaneously-live names, and the
+    //    k-colour encoding (only `k` colour slots, gated by the per-place freshness
+    //    guard) would UNDER-approximate and report a false `Proven`. With this
+    //    bound the potential Φ = budget + live_names·min_mint_cost is non-increasing
+    //    from k, so live_names ≤ k holds — the soundness bound for `k` colours.
+    //    Fail-closed (return None → sound over-approximation) when it cannot hold.
+    let mut min_mint_cost: Option<i64> = None;
+    let mut max_join_refund: i64 = 0;
     for (cls, ft) in classes.iter().zip(&flat.transitions) {
         for &b in &budget_idx {
             if ft.pre[b] > 0 && !matches!(cls, Class::Mint { .. }) {
@@ -200,6 +210,21 @@ pub fn build_plan(
                 return None;
             }
         }
+        match cls {
+            Class::Mint { .. } => {
+                let cost: i64 = budget_idx.iter().map(|&b| ft.pre[b]).sum();
+                min_mint_cost = Some(min_mint_cost.map_or(cost, |m| m.min(cost)));
+            }
+            Class::Join { .. } => {
+                let refund: i64 = budget_idx.iter().map(|&b| ft.post[b]).sum();
+                max_join_refund = max_join_refund.max(refund);
+            }
+            Class::Untouched => {}
+        }
+    }
+    match min_mint_cost {
+        Some(mc) if max_join_refund <= mc => {}
+        _ => return None,
     }
 
     Some(ColouredPlan {
@@ -540,5 +565,78 @@ fn encode_violation(
         }
         // Quiescence properties are never routed here.
         SmtProperty::DeadlockFree | SmtProperty::JoinedOrDeadLettered { .. } => "false".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::marking_state::MarkingStateBuilder;
+    use crate::net_flattener;
+    use libpetri_core::input::one;
+    use libpetri_core::match_spec::MatchSpec;
+    use libpetri_core::name::NameId;
+    use libpetri_core::output::{and, out_place};
+    use libpetri_core::petri_net::PetriNet;
+    use libpetri_core::place::Place;
+    use libpetri_core::transition::Transition;
+
+    /// A budget-bounded mint→join net (same-mint scatter-gather): one mint
+    /// consumes 1 budget and stamps the fresh colour into both correlated inputs;
+    /// the join refunds 1 budget (conserving) or 2 (inflating, into a 2nd budget
+    /// place). A MatchSpec must correlate ≥2 input places, hence two branches.
+    fn mint_join_net(inflating: bool) -> PetriNet {
+        let budget1 = Place::<()>::new("budget1");
+        let budget2 = Place::<()>::new("budget2");
+        let a = Place::<String>::new("a");
+        let b = Place::<String>::new("b");
+
+        let mint = Transition::builder("mint")
+            .input(one(&budget1))
+            .output(and(vec![out_place(&a), out_place(&b)]))
+            .build();
+        let join_out = if inflating {
+            // Refund 2 budget for a 1-budget mint — the pool inflates above k.
+            and(vec![out_place(&budget1), out_place(&budget2)])
+        } else {
+            out_place(&budget1)
+        };
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |s: &String| NameId::new(s.clone()))
+                    .key(&b, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(join_out)
+            .build();
+        PetriNet::builder("mint_join")
+            .transitions([mint, join])
+            .build()
+    }
+
+    fn plan_for(net: &PetriNet) -> Option<ColouredPlan> {
+        let flat = net_flattener::flatten(net);
+        let initial = MarkingStateBuilder::new().tokens("budget1", 1).build();
+        let budget: HashSet<String> =
+            ["budget1".to_string(), "budget2".to_string()].into_iter().collect();
+        build_plan(net, &flat, &initial, &budget)
+    }
+
+    #[test]
+    fn budget_conserving_join_takes_exact_path() {
+        // Refund (1) == mint cost (1): live names ≤ k, so the fragment is
+        // accepted and the exact name-coloured encoding is used.
+        assert!(plan_for(&mint_join_net(false)).is_some());
+    }
+
+    #[test]
+    fn budget_inflating_join_falls_back_to_over_approx() {
+        // nu-1: a join refunding 2 budget for a 1-budget mint inflates the pool
+        // above k — the k-colour encoder would UNDER-approximate and report a
+        // false `Proven`. build_plan must reject it (None → sound over-approx).
+        assert!(plan_for(&mint_join_net(true)).is_none());
     }
 }
