@@ -231,24 +231,45 @@ correlation.
 
 The untimed encoder over-approximates guards ([VER-004]). For ν-nets this is
 relaxed under a carve-out: a matched transition's **name equality** is encoded
-**exactly** as equality over an uninterpreted **name sort** (EUF), while token
-counts stay in linear integer arithmetic. The name dimension is the projection
-declared at the match ([NU-001]) — the analyzer treats it as name-symmetric.
+**exactly** rather than name-blind, so a counterexample that silently equates two
+*different* names (criterion **#1** below) is ruled out. The name dimension is the
+projection declared at the match ([NU-001]) — the analyzer treats it as
+name-symmetric.
+
+The exactness goal MAY be realized by either of two routes:
+
+- **Route A — bounded name-colouring** (the budget made literal). Because a
+  bounded `Budget` ([NU-040]) caps the live correlation groups at `k`, names are
+  modeled as a finite set of `k` **colours**: each coloured place becomes `k`
+  per-colour counts, a mint introduces a *globally fresh* colour, and a join
+  consumes the **same** colour from every correlated input. Within the budget
+  this is sound *and complete* (exact), and stays in linear arithmetic. It
+  applies to the **mint → matched-join fragment**: coloured places (the matched
+  inputs) are produced only by minting forks and consumed only by matched joins,
+  each mint costs a budget token, budget returns only on a join, and coloured
+  places carry no inhibitor/read/reset arc. A net outside this fragment falls
+  back to the sound over-approximation (criterion #1 then holds only where the
+  exact route was taken).
+- **Route B — name-sort / SCG name-partition.** Equality over an uninterpreted
+  **name sort** (EUF), or a state-class-graph quotient partitioned by name
+  relations, generalises the exactness beyond the bounded fragment (including
+  name × time interaction). Future work.
 
 For nets that mint unbounded fresh names without a bounding budget ([NU-040]),
-the verifier MUST return `Unknown` rather than an unsound verdict (mirroring the
-`Ignore`-mode discipline of [VER-006]).
+the verifier MUST return `Unknown` rather than an unsound verdict (criterion
+**#2** below, mirroring the `Ignore`-mode discipline of [VER-006]).
 
 **Acceptance Criteria:**
-1. A property whose counterexample requires two *different* names to be equal is
-   not reported (the EUF encoding rules it out), unlike the over-approximated
+1. (**NU-050 #1**) A property whose counterexample requires two *different* names
+   to be equal is not reported on the exact path, unlike the over-approximated
    guard case.
-2. An unbounded-fresh-name net without a budget place yields `Unknown`, not
-   `Proven`/`Violated`.
+2. (**NU-050 #2**) An unbounded-fresh-name net without a budget place yields
+   `Unknown`, not `Proven`/`Violated`.
 
 **Depends on:** [VER-004], [NU-020], [NU-040]
 **Test derivation:** Encode a join whose spurious untimed counterexample equates
-two distinct correlation ids; verify the EUF carve-out eliminates it.
+two distinct correlation ids; verify the exact carve-out (Route A bounded
+name-colouring) eliminates it, while a same-name join still reaches its merge.
 
 ---
 
@@ -270,11 +291,17 @@ two distinct correlation ids; verify the EUF carve-out eliminates it.
   which place gates minting via a **budget-place declaration**
   (`budget_place(s)` / `budgetPlaces(...)`); this is what asserts the bounded
   fragment.
-- The sound baseline (without the [NU-050] EUF refinement) returns `Unknown`
-  for the cases its name-blind over-approximation cannot decide soundly: a ν-net
-  with no declared budget place (unbounded fresh names) for any property, and
-  any **quiescence-based** property (deadlock-freedom, joined-or-dead-lettered)
-  on a ν-net — whose violation turns on the *absence* of an enabled join, which
-  over-firing distorts. Reachability-safety bounds on a budget-declared ν-net
-  return a sound `Proven` (the real net fires strictly fewer joins) with a
-  `Violated` flagged as possibly spurious pending the [NU-050] carve-out.
+- The sound baseline returns `Unknown` for the cases its name-blind
+  over-approximation cannot decide soundly: a ν-net with no declared budget place
+  (unbounded fresh names) for any property, and any **quiescence-based** property
+  (deadlock-freedom, joined-or-dead-lettered) on a ν-net — whose violation turns
+  on the *absence* of an enabled join, which over-firing distorts.
+- The [NU-050] exact carve-out (**Route A — bounded name-colouring**) is
+  implemented for the **mint → matched-join fragment** of a budget-declared
+  ν-net: there, reachability-safety properties are decided *exactly* (sound and
+  complete within the budget `k`) — no spurious different-name counterexample —
+  so neither `Proven` nor `Violated` carries the over-approximation caveat. A
+  budget-declared ν-net **outside** that fragment falls back to the sound
+  over-approximation: a reachability-safety `Proven` is sound (the real net fires
+  strictly fewer joins) and a `Violated` is flagged as possibly spurious pending
+  the fuller [NU-050] analysis.

@@ -445,8 +445,10 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
     expect(result.verdict.type).toBe('proven');
   }, Z3_TIMEOUT);
 
-  it('proves BranchPlaceBound(pending, k) and carries the over-approx caveat', async () => {
-    // NU-040 #2 (bound half): at most k live groups.
+  it('proves BranchPlaceBound(pending, k) exactly via name-colouring', async () => {
+    // NU-040 #2 (bound half): at most k live groups. The scatter-gather is in the
+    // name-coloured fragment, so the bound is decided exactly (NU-050 #1), not via
+    // the name-blind over-approximation.
     const { net, source, budget, pending } = nuScatterGatherNet();
     const result = await SmtVerifier.forNet(net)
       .initialMarking(m => { m.tokens(source, 3); m.tokens(budget, 2); })
@@ -455,7 +457,7 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
       .timeout(30_000)
       .verify();
     expect(result.verdict.type).toBe('proven');
-    expect(result.report).toContain('over-approximated');
+    expect(result.report).toContain('name-coloured');
   }, Z3_TIMEOUT);
 
   it('returns unknown for an undeclared-budget ν-net (NU-050 #2)', async () => {
@@ -520,6 +522,75 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
     const result = await SmtVerifier.forNet(net)
       .initialMarking(m => m.tokens(start, 1))
       .property(joinedOrDeadLettered(pending))
+      .timeout(30_000)
+      .verify();
+    expect(result.verdict.type).toBe('violated');
+  }, Z3_TIMEOUT);
+
+  // === NU-050 #1: name-coloured exact ν-verification (Stage 6b, Route A) ===
+  // The flat encoder over-approximates ν-join name equality (name-blind). The
+  // bounded name-coloured encoding (k = budget) decides it exactly: a join fires
+  // only on same-coloured tokens, so a counterexample requiring two distinct names
+  // to be equal is eliminated.
+
+  // Two INDEPENDENT mints feed one join: `forkA` mints a name into branchA,
+  // `forkB` a DIFFERENT name into branchB. Their names can never be equal, so the
+  // join can never correlate them and `merged` is unreachable. The name-blind
+  // over-approximation would (wrongly) fire the join — the spurious "two distinct
+  // names are equal" counterexample NU-050 #1 kills.
+  function nuDistinctMintsNet() {
+    const sourceA = place('sourceA');
+    const sourceB = place('sourceB');
+    const budget = place('budget');
+    const a = place<string>('branchA');
+    const b = place<string>('branchB');
+    const merged = place<string>('merged');
+
+    const forkA = Transition.builder('forkA')
+      .inputs(one(sourceA), one(budget))
+      .outputs(outPlace(a))
+      .build();
+    const forkB = Transition.builder('forkB')
+      .inputs(one(sourceB), one(budget))
+      .outputs(outPlace(b))
+      .build();
+    const join = Transition.builder('join')
+      .inputs(one(a), one(b))
+      .match(matchSpec(
+        matchKey(a, (s: string) => nameId(s)),
+        matchKey(b, (s: string) => nameId(s)),
+      ))
+      .outputs(outPlace(merged))
+      .build();
+
+    const net = PetriNet.builder('nuDistinctMints').transitions(forkA, forkB, join).build();
+    return { net, sourceA, sourceB, budget, merged };
+  }
+
+  it('proves Unreachable(merged) for distinct mints via name-colouring (NU-050 #1)', async () => {
+    // Distinct globally-fresh colours can never match -> merged unreachable -> proven.
+    // The name-blind over-approximation would report this violated (spurious).
+    const { net, sourceA, sourceB, budget, merged } = nuDistinctMintsNet();
+    const result = await SmtVerifier.forNet(net)
+      .initialMarking(m => { m.tokens(sourceA, 1); m.tokens(sourceB, 1); m.tokens(budget, 2); })
+      .property(unreachable(new Set([merged])))
+      .budgetPlaces(budget)
+      .timeout(30_000)
+      .verify();
+    expect(result.verdict.type).toBe('proven');
+    expect(result.report).toContain('name-coloured');
+  }, Z3_TIMEOUT);
+
+  it('finds Unreachable(merged) violated for same-mint siblings (non-vacuity)', async () => {
+    // Companion: the SAME-mint scatter-gather stamps both branches with one name,
+    // so the join CAN fire and `merged` IS reachable. The colouring tracks real
+    // reachability — Unreachable(merged) is violated.
+    const { net, source, budget } = nuScatterGatherNet();
+    const merged = place<string>('merged');
+    const result = await SmtVerifier.forNet(net)
+      .initialMarking(m => { m.tokens(source, 3); m.tokens(budget, 2); })
+      .property(unreachable(new Set([merged])))
+      .budgetPlaces(budget)
       .timeout(30_000)
       .verify();
     expect(result.verdict.type).toBe('violated');

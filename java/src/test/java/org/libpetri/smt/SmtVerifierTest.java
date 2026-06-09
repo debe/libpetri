@@ -506,7 +506,7 @@ class SmtVerifierTest {
 
     @Test
     @EnabledIf("z3Available")
-    void nuPendingBound_provenWithCaveat() {
+    void nuPendingBound_provenExact() {
         // NU-040 #2 (bound half): at most k live groups — Pending is bounded by k.
         var result = SmtVerifier.forNet(nuScatterGatherNet())
             .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); })
@@ -516,8 +516,10 @@ class SmtVerifierTest {
             .verify();
         assertTrue(result.isProven(),
             "BranchPlaceBound(pending, 2) must be proven for the bounded scatter-gather\n" + result.report());
-        assertTrue(result.report().contains("over-approximated"),
-            "a bounded ν-net result must carry the over-approximation caveat\n" + result.report());
+        // The scatter-gather is in the name-coloured fragment, so the bound is
+        // decided exactly (NU-050 #1), not via the name-blind over-approximation.
+        assertTrue(result.report().contains("name-coloured"),
+            "a bounded ν-net in the supported fragment uses the exact name-coloured encoding\n" + result.report());
     }
 
     @Test
@@ -610,5 +612,85 @@ class SmtVerifierTest {
             .verify();
         assertTrue(result.isViolated(),
             "a stranded pending token at quiescence -> Violated\n" + result.report());
+    }
+
+    // === NU-050 #1: name-coloured exact ν-verification (Stage 6b, Route A) ===
+    // The flat encoder over-approximates ν-join name equality (name-blind). The
+    // bounded name-coloured encoding (k = budget) decides it exactly: a join fires
+    // only on same-coloured tokens, so a counterexample requiring two distinct
+    // names to be equal is eliminated.
+
+    /**
+     * Two INDEPENDENT mints feed one join: {@code forkA} mints a name into
+     * {@code branchA}, {@code forkB} mints a <em>different</em> name into
+     * {@code branchB}. Their names can never be equal, so the join can never
+     * correlate them and {@code merged} is unreachable. The name-blind
+     * over-approximation would (wrongly) fire the join — exactly the spurious "two
+     * distinct names are equal" counterexample NU-050 #1 kills.
+     */
+    private static PetriNet nuDistinctMintsNet() {
+        var sourceA = Place.of("sourceA", Integer.class);
+        var sourceB = Place.of("sourceB", Integer.class);
+        var budget = Place.of("budget", Integer.class);
+        var a = Place.of("branchA", String.class);
+        var b = Place.of("branchB", String.class);
+        var merged = Place.of("merged", String.class);
+
+        var forkA = Transition.builder("forkA")
+            .inputs(Arc.In.one(sourceA), Arc.In.one(budget))
+            .outputs(Arc.Out.place(a))
+            .build();
+        var forkB = Transition.builder("forkB")
+            .inputs(Arc.In.one(sourceB), Arc.In.one(budget))
+            .outputs(Arc.Out.place(b))
+            .build();
+        var join = Transition.builder("join")
+            .inputs(Arc.In.one(a), Arc.In.one(b))
+            .match(MatchSpec.builder()
+                .key(a, (String s) -> NameId.of(s))
+                .key(b, (String s) -> NameId.of(s))
+                .build())
+            .outputs(Arc.Out.place(merged))
+            .build();
+
+        return PetriNet.builder("nuDistinctMints").transitions(forkA, forkB, join).build();
+    }
+
+    private static final Place<Integer> NU_SOURCE_A = Place.of("sourceA", Integer.class);
+    private static final Place<Integer> NU_SOURCE_B = Place.of("sourceB", Integer.class);
+    private static final Place<String> NU_MERGED = Place.of("merged", String.class);
+
+    @Test
+    @EnabledIf("z3Available")
+    void nuDistinctMints_mergedUnreachable_provenExact() {
+        // NU-050 #1: distinct-mint names can never join -> `merged` unreachable.
+        // The name-blind over-approximation would report this Violated (spurious);
+        // the name-coloured encoding proves it.
+        var result = SmtVerifier.forNet(nuDistinctMintsNet())
+            .initialMarking(m -> { m.tokens(NU_SOURCE_A, 1); m.tokens(NU_SOURCE_B, 1); m.tokens(NU_BUDGET, 2); })
+            .property(SmtProperty.unreachable(Set.of(NU_MERGED)))
+            .budgetPlaces(NU_BUDGET)
+            .timeout(Duration.ofSeconds(15))
+            .verify();
+        assertTrue(result.isProven(),
+            "distinct-mint names can never correlate -> merged unreachable -> Proven\n" + result.report());
+        assertTrue(result.report().contains("name-coloured"),
+            "must use the exact name-coloured encoding\n" + result.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void nuSameMint_mergedReachable_violated() {
+        // Companion (non-vacuity): the SAME-mint scatter-gather stamps both branches
+        // with one name, so the join CAN fire and `merged` IS reachable. The
+        // colouring tracks real reachability — Unreachable(merged) is Violated.
+        var result = SmtVerifier.forNet(nuScatterGatherNet())
+            .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); })
+            .property(SmtProperty.unreachable(Set.of(NU_MERGED)))
+            .budgetPlaces(NU_BUDGET)
+            .timeout(Duration.ofSeconds(15))
+            .verify();
+        assertTrue(result.isViolated(),
+            "same-mint siblings can join -> merged reachable -> Violated\n" + result.report());
     }
 }
