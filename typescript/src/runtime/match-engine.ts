@@ -75,10 +75,22 @@ export function selectMatchName(
   return bestName;
 }
 
-/** Builds a `name → {count, minCreatedAt}` index over the given tokens. */
-export function buildNameIndex(tokens: readonly Token<any>[], key: KeyFn): Map<NameId, NameStat> {
+/**
+ * Builds a `name → {count, minCreatedAt}` index over the given tokens. When a
+ * `guard` (the correlated input's unary filter) is given, tokens failing it are
+ * excluded BEFORE indexing — the filter applies first and name correlation runs
+ * only over the survivors, so a token failing the filter is never selected even
+ * if its name matches (NU-021). Matches the Rust/Java ports, which guard-filter
+ * before building the name index.
+ */
+export function buildNameIndex(
+  tokens: readonly Token<any>[],
+  key: KeyFn,
+  guard?: (value: any) => boolean,
+): Map<NameId, NameStat> {
   const index = new Map<NameId, NameStat>();
   for (const token of tokens) {
+    if (guard && !guard(token.value)) continue;
     const name = key(token.value);
     if (name === undefined || name === null) continue;
     const ts = token.createdAt;
@@ -122,8 +134,18 @@ export function findBinding(
   const perPlace: Map<NameId, NameStat>[] = [];
   const requireds: number[] = [];
   for (const k of ms.keys) {
-    perPlace.push(buildNameIndex(getTokens(k.place), k.key));
+    // NU-021: apply the input's guard before indexing names, so a token failing
+    // the filter is excluded from both the count and the name-presence/tie-break.
+    perPlace.push(buildNameIndex(getTokens(k.place), k.key, guardFor(t, k.place.name)));
     requireds.push(requiredFor(t, k.place.name));
   }
   return selectMatchName(perPlace, requireds);
+}
+
+/** The unary guard on `t`'s input arc for `placeName`, if any (NU-021). */
+function guardFor(t: Transition, placeName: string): ((value: any) => boolean) | undefined {
+  for (const inSpec of t.inputSpecs) {
+    if (inSpec.place.name === placeName) return inSpec.guard;
+  }
+  return undefined;
 }
