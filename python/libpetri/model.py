@@ -8,6 +8,7 @@ from . import _libpetri as _ext
 
 Place = _ext.Place
 InputSpec = _ext.InputSpec
+MatchSpec = _ext.MatchSpec
 OutputSpec = _ext.OutputSpec
 InhibitorArc = _ext.InhibitorArc
 ReadArc = _ext.ReadArc
@@ -77,6 +78,7 @@ one = _ext.one
 exactly = _ext.exactly
 all_tokens = _ext.all_tokens
 at_least = _ext.at_least
+match_spec = _ext.match_spec
 out_place = _ext.out_place
 out = out_place
 forward_input = _ext.forward_input
@@ -121,6 +123,8 @@ __all__ = [
     "InputSpec",
     "Instance",
     "InhibitorArc",
+    "MatchSpec",
+    "match_spec",
     "Net",
     "NetBuilder",
     "OutputSpec",

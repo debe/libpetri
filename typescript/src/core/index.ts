@@ -19,6 +19,12 @@ export { inputArc, outputArc, inhibitorArc, readArc, resetArc, arcPlace, hasGuar
 export type { In, InOne, InExactly, InAll, InAtLeast } from './in.js';
 export { one, exactly, all, atLeast, requiredCount, consumptionCount } from './in.js';
 
+export type { NameId } from './name.js';
+export { nameId } from './name.js';
+
+export type { MatchSpec, MatchKey, KeyFn } from './match-spec.js';
+export { matchSpec, matchKey, keyForPlace, matchCorrelates } from './match-spec.js';
+
 export type { Out, OutAnd, OutXor, OutPlace, OutTimeout, OutForwardInput } from './out.js';
 export { and, andPlaces, xor, xorPlaces, outPlace, timeout, timeoutPlace, forwardInput, allPlaces, enumerateBranches } from './out.js';
 

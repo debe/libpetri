@@ -34,7 +34,10 @@ import { TokenOutput } from '../core/token-output.js';
 import { TransitionContext } from '../core/transition-context.js';
 import { noopEventStore } from '../event/event-store.js';
 import { CompiledNet, WORD_SHIFT, BIT_MASK, setBit, clearBit } from './compiled-net.js';
-import { Marking } from './marking.js';
+import { Marking, type GuardSpec } from './marking.js';
+import { findBinding } from './match-engine.js';
+import { keyForPlace } from '../core/match-spec.js';
+import { nameId } from '../core/name.js';
 import { validateOutSpec, produceTimeoutOutput, DEADLINE_TOLERANCE_MS } from './executor-support.js';
 import { OutViolationError } from './out-violation-error.js';
 import { earliest as timingEarliest, latest as timingLatest, hasDeadline as timingHasDeadline } from '../core/timing.js';
@@ -92,6 +95,8 @@ export interface BitmapNetExecutorOptions {
 export class BitmapNetExecutor implements PetriNetExecutor {
   private readonly compiled: CompiledNet;
   private readonly marking: Marking;
+  /** Monotonic source for ν-name minting (ctx.freshName(), NU-010). */
+  private freshNameCounter = 0;
   private readonly eventStore: EventStore;
   private readonly environmentPlaces: Set<string>;
   private readonly hasEnvironmentPlaces: boolean;
@@ -473,6 +478,16 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       }
     }
 
+    // ν-net join: a correlation name must satisfy every matched input (NU-020).
+    // Gated on the precomputed `hasMatch` flag so non-ν transitions skip the
+    // Transition fetch on this path, mirroring the guard check and Rust.
+    if (this.compiled.hasMatch(tid)) {
+      const tMatch = this.compiled.transition(tid);
+      if (findBinding(tMatch, p => this.marking.peekTokens(p)) === null) {
+        return false;
+      }
+    }
+
     return true;
   }
 
@@ -572,26 +587,40 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     // Note: for guarded 'all'/'at-least' inputs, countMatching() is called here AND in
     // canEnable() — a known O(2n) tradeoff. Token queues are typically ≤10 items, so
     // the simplicity of re-scanning outweighs caching complexity.
+    // ν-net join: resolve the correlation name once; correlated inputs consume
+    // the name-matched tokens (guard first, then name equality — NU-021).
+    const ms = t.matchSpec;
+    const chosen = ms ? findBinding(t, p => this.marking.peekTokens(p)) : null;
+
     for (const inSpec of t.inputSpecs) {
+      const keyFn = ms ? keyForPlace(ms, inSpec.place.name) : undefined;
+      // Combined predicate when correlated and/or guarded; otherwise reuse inSpec.
+      let spec: GuardSpec;
+      if (keyFn && chosen !== null) {
+        const baseGuard = inSpec.guard;
+        spec = {
+          place: inSpec.place,
+          guard: (v: any) => (baseGuard ? baseGuard(v) : true) && keyFn(v) === chosen,
+        };
+      } else {
+        spec = inSpec;
+      }
+
       let toConsume: number;
       switch (inSpec.type) {
         case 'one': toConsume = 1; break;
         case 'exactly': toConsume = inSpec.count; break;
         case 'all':
-          toConsume = inSpec.guard
-            ? this.marking.countMatching(inSpec)
-            : this.marking.tokenCount(inSpec.place);
-          break;
         case 'at-least':
-          toConsume = inSpec.guard
-            ? this.marking.countMatching(inSpec)
+          toConsume = spec.guard
+            ? this.marking.countMatching(spec)
             : this.marking.tokenCount(inSpec.place);
           break;
       }
 
       for (let i = 0; i < toConsume; i++) {
-        const token = inSpec.guard
-          ? this.marking.removeFirstMatching(inSpec)
+        const token = spec.guard
+          ? this.marking.removeFirstMatching(spec)
           : this.marking.removeFirst(inSpec.place);
         if (token === null) break;
         consumed.push(token);
@@ -658,6 +687,8 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       logFn,
       t.placeAlias,
     );
+    const freshNameBase = t.name;
+    context.setFreshNameSupplier(() => nameId(`${freshNameBase}#${this.freshNameCounter++}`));
 
     // Create action promise with optional timeout
     let actionPromise = t.action(context);

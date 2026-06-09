@@ -7,6 +7,36 @@ import { place } from '../../src/core/place.js';
 import { one, exactly, all, atLeast } from '../../src/core/in.js';
 import { outPlace, andPlaces, xorPlaces, and, xor, timeout, forwardInput } from '../../src/core/out.js';
 import { delayed, window } from '../../src/core/timing.js';
+import { matchSpec, matchKey } from '../../src/core/match-spec.js';
+import { nameId } from '../../src/core/name.js';
+
+describe('ν-match edge decoration (EXP-018)', () => {
+  it('colors correlated input edges teal and labels them ⟨n⟩; leaves others untouched', () => {
+    const a = place<{ cid: string }>('branchA');
+    const b = place<{ cid: string }>('branchB');
+    const plain = place<number>('plain');
+    const out = place<string>('merged');
+    const t = Transition.builder('join')
+      .inputs(one(a), one(b), one(plain))
+      .match(matchSpec(
+        matchKey(a, (m) => nameId(m.cid)),
+        matchKey(b, (m) => nameId(m.cid)),
+      ))
+      .outputs(outPlace(out))
+      .build();
+    const net = PetriNet.builder('nu').transition(t).build();
+    const graph = mapToGraph(net);
+
+    const ea = graph.edges.find(e => e.from === 'p_branchA' && e.to === 't_join')!;
+    expect(ea.color).toBe('#0d9488');
+    expect(ea.label).toBe('⟨n⟩');
+    const eb = graph.edges.find(e => e.from === 'p_branchB' && e.to === 't_join')!;
+    expect(eb.color).toBe('#0d9488');
+    const ep = graph.edges.find(e => e.from === 'p_plain' && e.to === 't_join')!;
+    expect(ep.color).toBe('#333333');
+    expect(ep.label).toBeUndefined();
+  });
+});
 
 describe('sanitize', () => {
   it('keeps alphanumeric and underscores', () => {

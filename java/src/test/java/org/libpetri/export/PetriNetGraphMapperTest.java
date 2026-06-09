@@ -481,4 +481,35 @@ class PetriNetGraphMapperTest {
         var graph = PetriNetGraphMapper.map(simpleNet(), ExportConfig.DEFAULT);
         assertEquals("true", graph.graphAttrs().get("compound"));
     }
+
+    // EXP-018: ν-net correlated input edges are teal and labeled ⟨n⟩.
+    @Test
+    void nuMatchInputEdges_decorated() {
+        var a = Place.of("branchA", String.class);
+        var b = Place.of("branchB", String.class);
+        var plain = Place.of("plain", Integer.class);
+        var merged = Place.of("merged", String.class);
+        var t = Transition.builder("join")
+            .inputs(In.one(a), In.one(b), In.one(plain))
+            .match(MatchSpec.builder()
+                .key(a, (String s) -> NameId.of(s))
+                .key(b, (String s) -> NameId.of(s))
+                .build())
+            .outputs(Out.place(merged))
+            .build();
+        var net = PetriNet.builder("nu").transition(t).build();
+        var graph = PetriNetGraphMapper.map(net, ExportConfig.DEFAULT);
+
+        var ea = graph.edges().stream()
+            .filter(e -> e.from().equals("p_branchA") && e.to().equals("t_join"))
+            .findFirst().orElseThrow();
+        assertEquals("#0d9488", ea.color());
+        assertEquals("⟨n⟩", ea.label());
+
+        var ep = graph.edges().stream()
+            .filter(e -> e.from().equals("p_plain") && e.to().equals("t_join"))
+            .findFirst().orElseThrow();
+        assertEquals("#333333", ep.color());
+        assertNull(ep.label());
+    }
 }

@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::action::{BoxedAction, passthrough};
 use crate::arc::{Inhibitor, Read, Reset};
 use crate::input::In;
+use crate::match_spec::MatchSpec;
 use crate::output::{Out, all_places, find_forward_inputs, find_timeout};
 use crate::place::PlaceRef;
 use crate::timing::{Timing, immediate};
@@ -34,6 +35,9 @@ pub struct Transition {
     inhibitors: Vec<Inhibitor>,
     reads: Vec<Read>,
     resets: Vec<Reset>,
+    /// Optional ν-net join correlation: a subset of `input_specs` that must be
+    /// correlated by name equality on firing. `None` for ordinary transitions.
+    match_spec: Option<MatchSpec>,
     timing: Timing,
     action_timeout: Option<u64>,
     action: BoxedAction,
@@ -98,6 +102,11 @@ impl Transition {
     /// Returns the reset arcs.
     pub fn resets(&self) -> &[Reset] {
         &self.resets
+    }
+
+    /// Returns the ν-net join correlation spec, if any (spec NU-020).
+    pub fn match_spec(&self) -> Option<&MatchSpec> {
+        self.match_spec.as_ref()
     }
 
     /// Returns the timing specification.
@@ -199,6 +208,7 @@ pub struct TransitionBuilder {
     inhibitors: Vec<Inhibitor>,
     reads: Vec<Read>,
     resets: Vec<Reset>,
+    match_spec: Option<MatchSpec>,
     timing: Timing,
     action: BoxedAction,
     priority: i32,
@@ -214,6 +224,7 @@ impl TransitionBuilder {
             inhibitors: Vec::new(),
             reads: Vec::new(),
             resets: Vec::new(),
+            match_spec: None,
             timing: immediate(),
             action: passthrough(),
             priority: 0,
@@ -283,6 +294,14 @@ impl TransitionBuilder {
         self
     }
 
+    /// Sets the ν-net join correlation spec: the named input places must be
+    /// correlated by name equality on firing (spec NU-020). Every place
+    /// referenced by the spec must also be declared as an input.
+    pub fn match_spec(mut self, spec: MatchSpec) -> Self {
+        self.match_spec = Some(spec);
+        self
+    }
+
     /// Set timing specification.
     pub fn timing(mut self, timing: Timing) -> Self {
         self.timing = timing;
@@ -320,6 +339,20 @@ impl TransitionBuilder {
             }
         }
 
+        // Validate MatchSpec correlates only declared input places (NU-020).
+        if let Some(ref ms) = self.match_spec {
+            let input_place_names: HashSet<_> =
+                self.input_specs.iter().map(|s| s.place_name()).collect();
+            for key in ms.keys() {
+                assert!(
+                    input_place_names.contains(key.place_name()),
+                    "Transition '{}': MatchSpec correlates non-input place '{}'",
+                    self.name,
+                    key.place_name()
+                );
+            }
+        }
+
         let action_timeout = self
             .output_spec
             .as_ref()
@@ -345,6 +378,7 @@ impl TransitionBuilder {
             inhibitors: self.inhibitors,
             reads: self.reads,
             resets: self.resets,
+            match_spec: self.match_spec,
             timing: self.timing,
             action_timeout,
             action: self.action,
@@ -370,6 +404,10 @@ pub(crate) fn rebuild_with_action(t: &Transition, action: BoxedAction) -> Transi
 
     if let Some(ref out) = t.output_spec {
         builder = builder.output(out.clone());
+    }
+
+    if let Some(ref ms) = t.match_spec {
+        builder = builder.match_spec(ms.clone());
     }
 
     // MOD-031: carry the declared→actual place correspondence forward so an action

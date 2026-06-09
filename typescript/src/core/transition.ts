@@ -1,6 +1,7 @@
 import type { Place } from './place.js';
 import type { ArcInhibitor, ArcRead, ArcReset } from './arc.js';
 import type { In } from './in.js';
+import type { MatchSpec } from './match-spec.js';
 import type { Out, OutTimeout } from './out.js';
 import type { Timing } from './timing.js';
 import type { TransitionAction } from './transition-action.js';
@@ -33,6 +34,12 @@ export class Transition {
   readonly priority: number;
 
   /**
+   * ν-net join correlation: a subset of `inputSpecs` that must be correlated by
+   * name equality on firing (spec NU-020). `null` for ordinary transitions.
+   */
+  readonly matchSpec: MatchSpec | null;
+
+  /**
    * Per-transition **declared → actual** place correspondence (per
    * **MOD-031**), keyed by the author-original declared place **name** →
    * actual composed place. Empty for a hand-written or directly-composed
@@ -62,6 +69,7 @@ export class Transition {
     action: TransitionAction,
     priority: number,
     placeAlias: ReadonlyMap<string, Place<any>> = EMPTY_PLACE_ALIAS,
+    matchSpec: MatchSpec | null = null,
   ) {
     if (key !== TRANSITION_KEY) throw new Error('Use Transition.builder() to create instances');
     this.name = name;
@@ -75,6 +83,7 @@ export class Transition {
     this.action = action;
     this.priority = priority;
     this.placeAlias = placeAlias.size === 0 ? EMPTY_PLACE_ALIAS : placeAlias;
+    this.matchSpec = matchSpec;
 
     // Precompute place sets
     const inputPlaces = new Set<Place<any>>();
@@ -138,6 +147,7 @@ export class TransitionBuilder {
   private _action: TransitionAction = passthrough();
   private _priority = 0;
   private _placeAlias: ReadonlyMap<string, Place<any>> = EMPTY_PLACE_ALIAS;
+  private _matchSpec: MatchSpec | null = null;
 
   constructor(name: string) {
     this._name = name;
@@ -216,6 +226,16 @@ export class TransitionBuilder {
   }
 
   /**
+   * Sets the ν-net join correlation spec: the named input places must be
+   * correlated by name equality on firing (spec NU-020). Every place referenced
+   * by the spec must also be declared as an input.
+   */
+  match(spec: MatchSpec): this {
+    this._matchSpec = spec;
+    return this;
+  }
+
+  /**
    * Sets the per-transition declared→actual place correspondence (per
    * **MOD-031**). Populated by the subnet rewriter during the compose-time
    * rewrite; not normally called by hand-written nets, whose correspondence is
@@ -239,6 +259,18 @@ export class TransitionBuilder {
       }
     }
 
+    // Validate MatchSpec correlates only declared input places (NU-020).
+    if (this._matchSpec !== null) {
+      const inputPlaceNames = new Set(this._inputSpecs.map(s => s.place.name));
+      for (const k of this._matchSpec.keys) {
+        if (!inputPlaceNames.has(k.place.name)) {
+          throw new Error(
+            `Transition '${this._name}': MatchSpec correlates non-input place '${k.place.name}'`
+          );
+        }
+      }
+    }
+
     return new Transition(
       TRANSITION_KEY,
       this._name,
@@ -251,6 +283,7 @@ export class TransitionBuilder {
       this._action,
       this._priority,
       this._placeAlias,
+      this._matchSpec,
     );
   }
 }

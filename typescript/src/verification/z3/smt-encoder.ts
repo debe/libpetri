@@ -378,6 +378,26 @@ function encodePropertyViolation(
       return mVars[idx]!.gt(property.bound);
     }
 
+    case 'branch-place-bound': {
+      // ν-net budget lever (NU-040): a count bound, encoded identically to
+      // place-bound. Sound under the matched-transition over-approximation —
+      // the real net fires fewer joins, so it cannot exceed a bound the
+      // over-approximation respects.
+      const idx = flatNetIndexOf(flatNet, property.place);
+      if (idx < 0) throw new Error(`BranchPlaceBound references unknown place: ${property.place.name}`);
+      return mVars[idx]!.gt(property.bound);
+    }
+
+    case 'joined-or-dead-lettered': {
+      // NU-040: a quiescent (deadlocked) marking that still holds a `pending`
+      // token is a stranded correlation group. Reuse the deadlock predicate and
+      // conjoin pending non-emptiness.
+      const idx = flatNetIndexOf(flatNet, property.pending);
+      if (idx < 0) return ctx.Bool.val(false); // unknown pending place: no violation
+      const deadlock = encodeDeadlock(ctx, flatNet, mVars, P);
+      return ctx.And(deadlock, mVars[idx]!.ge(1));
+    }
+
     case 'unreachable': {
       let allMarked: Bool = ctx.Bool.val(true);
       for (const place of property.places) {

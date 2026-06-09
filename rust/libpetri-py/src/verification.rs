@@ -259,17 +259,35 @@ fn py_unreachable(places: Vec<String>) -> PySmtProperty {
     PySmtProperty { inner: SmtProperty::unreachable(places) }
 }
 
+/// Property: a ν-net budget / fork-branch place never holds more than `bound`
+/// tokens — the bounded-budget decidability lever (NU-040). Encodes like
+/// `place_bound`, but declaring it (with a budget place via `verify_net`) keeps
+/// a ν-net in the decidable bounded fragment.
+#[pyfunction(name = "branch_place_bound")]
+fn py_branch_place_bound(place: String, bound: usize) -> PySmtProperty {
+    PySmtProperty { inner: SmtProperty::branch_place_bound(place, bound) }
+}
+
+/// Property: every forked name is joined or dead-lettered — no reachable
+/// quiescent (deadlocked) state still holds a token in `pending` (NU-040).
+#[pyfunction(name = "joined_or_dead_lettered")]
+fn py_joined_or_dead_lettered(pending: String) -> PySmtProperty {
+    PySmtProperty { inner: SmtProperty::joined_or_dead_lettered(pending) }
+}
+
 /// Verifies a single property against `net` using SMT (Z3). Without the `z3`
 /// feature, returns `VerificationResult` with verdict `"unknown"`.
 #[pyfunction(name = "verify_net")]
-#[pyo3(signature = (net, property, *, environment_places = None, environment_mode = None, sink_places = None, timeout_ms = 30_000))]
+#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 30_000))]
 fn py_verify_net(
     py: Python<'_>,
     net: &PyPetriNet,
     property: &PySmtProperty,
+    initial_marking: Option<HashMap<String, usize>>,
     environment_places: Option<Vec<String>>,
     environment_mode: Option<PyEnvironmentAnalysisMode>,
     sink_places: Option<Vec<String>>,
+    budget_places: Option<Vec<String>>,
     timeout_ms: u64,
 ) -> PyResult<PyVerificationResult> {
     #[cfg(feature = "z3")]
@@ -283,12 +301,24 @@ fn py_verify_net(
             .map(|m| m.inner)
             .unwrap_or(EnvironmentAnalysisMode::Ignore);
         let sink_places = sink_places.unwrap_or_default();
+        // ν-net budget places (NU-040): declaring them places a name-minting net
+        // in the decidable bounded fragment; without them a ν-net yields
+        // "unknown" (NU-050).
+        let budget_places = budget_places.unwrap_or_default();
+        // Initial marking as a {place_name: count} map (empty if omitted).
+        let mut mb = libpetri::verification::marking_state::MarkingStateBuilder::new();
+        for (name, count) in initial_marking.unwrap_or_default() {
+            mb = mb.tokens(name, count);
+        }
+        let marking = mb.build();
         let result = py.detach(move || {
             libpetri::verification::smt_verifier::SmtVerifier::for_net(&net)
+                .initial_marking(marking)
                 .property(property)
                 .environment_places(environment_places)
                 .environment_mode(environment_mode)
                 .sink_places(sink_places)
+                .budget_places(budget_places)
                 .timeout(timeout_ms)
                 .verify()
         });
@@ -296,7 +326,7 @@ fn py_verify_net(
     }
     #[cfg(not(feature = "z3"))]
     {
-        let _ = (py, net, property, environment_places, environment_mode, sink_places, timeout_ms);
+        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms);
         Ok(PyVerificationResult::unknown("z3 feature not enabled"))
     }
 }
@@ -374,6 +404,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_mutual_exclusion, m)?)?;
     m.add_function(wrap_pyfunction!(py_place_bound, m)?)?;
     m.add_function(wrap_pyfunction!(py_unreachable, m)?)?;
+    m.add_function(wrap_pyfunction!(py_branch_place_bound, m)?)?;
+    m.add_function(wrap_pyfunction!(py_joined_or_dead_lettered, m)?)?;
     m.add_function(wrap_pyfunction!(py_verify_net, m)?)?;
     m.add_function(wrap_pyfunction!(py_verify_subnet, m)?)?;
     Ok(())

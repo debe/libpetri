@@ -119,6 +119,15 @@ pub const INPUT_EDGE: EdgeVisual = EdgeVisual {
     arrowhead: "normal",
 };
 
+/// ν-net correlated input edge (a join input named by a `MatchSpec`, NU-020 /
+/// EXP-018). Teal to distinguish it from a plain input; carries a `⟨n⟩` label.
+pub const MATCH_INPUT_EDGE: EdgeVisual = EdgeVisual {
+    color: "#0d9488",
+    style: "solid",
+    penwidth: None,
+    arrowhead: "normal",
+};
+
 pub const OUTPUT_EDGE: EdgeVisual = EdgeVisual {
     color: "#333333",
     style: "solid",

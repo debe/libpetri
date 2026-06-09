@@ -26,6 +26,8 @@ use libpetri_core::action::{
 };
 use libpetri_core::arc::{inhibitor, read, reset};
 use libpetri_core::input::{all, at_least, exactly, one, one_guarded};
+use libpetri_core::match_spec::MatchSpec;
+use libpetri_core::name::NameId;
 use libpetri_core::output::{and, out_place, xor};
 use libpetri_core::petri_net::PetriNet;
 use libpetri_core::place::Place;
@@ -1244,6 +1246,244 @@ fn noop_event_store_has_no_events() {
     assert!(precompiled.event_store().is_empty());
 }
 
+// ========================= ν-net fork/join (NU) =========================
+
+/// A correlated payload: an opaque correlation id plus (unused here) data.
+#[derive(Clone)]
+struct NuMsg {
+    cid: String,
+}
+
+/// NU-020: a join with a `MatchSpec` correlates by name equality, NOT by FIFO.
+/// Branch arrival order is reversed so a FIFO join would pair X with Y; the
+/// name match must instead pair X-X and Y-Y.
+fn nu_join_matches_by_name_not_fifo<R: BackendRunner>() {
+    let a = Place::<NuMsg>::new("branchA");
+    let b = Place::<NuMsg>::new("branchB");
+    let merged = Place::<String>::new("merged");
+
+    let join = Transition::builder("join")
+        .input(one(&a))
+        .input(one(&b))
+        .match_spec(
+            MatchSpec::builder()
+                .key(&a, |m: &NuMsg| NameId::new(m.cid.clone()))
+                .key(&b, |m: &NuMsg| NameId::new(m.cid.clone()))
+                .build(),
+        )
+        .output(out_place(&merged))
+        .action(sync_action(|ctx| {
+            let ma = ctx.input::<NuMsg>("branchA")?;
+            let mb = ctx.input::<NuMsg>("branchB")?;
+            ctx.output("merged", format!("{}+{}", ma.cid, mb.cid))?;
+            Ok(())
+        }))
+        .build();
+
+    let net = PetriNet::builder("nu_join").transition(join).build();
+
+    let mut marking = Marking::new();
+    marking.add(&a, Token::at(NuMsg { cid: "X".into() }, 0));
+    marking.add(&a, Token::at(NuMsg { cid: "Y".into() }, 1));
+    marking.add(&b, Token::at(NuMsg { cid: "Y".into() }, 0));
+    marking.add(&b, Token::at(NuMsg { cid: "X".into() }, 1));
+
+    let result = R::run(&net, marking);
+    assert!(result.quiescent);
+
+    let mut merged_vals: Vec<String> = result
+        .marking
+        .queue("merged")
+        .map(|q| {
+            q.iter()
+                .map(|t| t.downcast::<String>().unwrap().value().clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    merged_vals.sort();
+    assert_eq!(merged_vals, vec!["X+X".to_string(), "Y+Y".to_string()]);
+    for v in &merged_vals {
+        let (l, r) = v.split_once('+').unwrap();
+        assert_eq!(l, r, "join correlated mismatched ids: {v}");
+    }
+}
+
+/// NU-020: with no name present in both inputs, the join is never enabled —
+/// the tokens stay put and nothing is produced.
+fn nu_join_blocks_without_matching_name<R: BackendRunner>() {
+    let a = Place::<NuMsg>::new("branchA");
+    let b = Place::<NuMsg>::new("branchB");
+    let merged = Place::<String>::new("merged");
+
+    let join = Transition::builder("join")
+        .input(one(&a))
+        .input(one(&b))
+        .match_spec(
+            MatchSpec::builder()
+                .key(&a, |m: &NuMsg| NameId::new(m.cid.clone()))
+                .key(&b, |m: &NuMsg| NameId::new(m.cid.clone()))
+                .build(),
+        )
+        .output(out_place(&merged))
+        .action(sync_action(|ctx| {
+            let ma = ctx.input::<NuMsg>("branchA")?;
+            let mb = ctx.input::<NuMsg>("branchB")?;
+            ctx.output("merged", format!("{}+{}", ma.cid, mb.cid))?;
+            Ok(())
+        }))
+        .build();
+
+    let net = PetriNet::builder("nu_join_block").transition(join).build();
+
+    let mut marking = Marking::new();
+    marking.add(&a, Token::at(NuMsg { cid: "X".into() }, 0));
+    marking.add(&b, Token::at(NuMsg { cid: "Y".into() }, 0));
+
+    let result = R::run(&net, marking);
+    assert!(result.quiescent);
+    assert_eq!(result.marking.count("merged"), 0);
+    assert_eq!(result.marking.count("branchA"), 1);
+    assert_eq!(result.marking.count("branchB"), 1);
+}
+
+/// NU-010 + NU-020 end to end: a fork mints a fresh correlation id per firing
+/// (`ctx.fresh_name()`) and stamps both siblings; a downstream join re-merges
+/// exactly the siblings that share an id. Three requests in → three correctly
+/// correlated merges out, each with a distinct id.
+fn nu_fork_mints_unique_ids_then_join_merges<R: BackendRunner>() {
+    let source = Place::<()>::new("source");
+    let a = Place::<NuMsg>::new("branchA");
+    let b = Place::<NuMsg>::new("branchB");
+    let merged = Place::<String>::new("merged");
+
+    let fork = Transition::builder("fork")
+        .input(one(&source))
+        .output(and(vec![out_place(&a), out_place(&b)]))
+        .action(sync_action(|ctx| {
+            let id = ctx.fresh_name();
+            ctx.output("branchA", NuMsg { cid: id.as_str().to_string() })?;
+            ctx.output("branchB", NuMsg { cid: id.as_str().to_string() })?;
+            Ok(())
+        }))
+        .build();
+
+    let join = Transition::builder("join")
+        .input(one(&a))
+        .input(one(&b))
+        .match_spec(
+            MatchSpec::builder()
+                .key(&a, |m: &NuMsg| NameId::new(m.cid.clone()))
+                .key(&b, |m: &NuMsg| NameId::new(m.cid.clone()))
+                .build(),
+        )
+        .output(out_place(&merged))
+        .action(sync_action(|ctx| {
+            let ma = ctx.input::<NuMsg>("branchA")?;
+            let mb = ctx.input::<NuMsg>("branchB")?;
+            if ma.cid != mb.cid {
+                return Err(ActionError::new(format!(
+                    "join saw mismatched ids: {} vs {}",
+                    ma.cid, mb.cid
+                )));
+            }
+            ctx.output("merged", ma.cid.clone())?;
+            Ok(())
+        }))
+        .build();
+
+    let net = PetriNet::builder("nu_scatter_gather")
+        .transitions([fork, join])
+        .build();
+
+    let mut marking = Marking::new();
+    for i in 0..3u64 {
+        marking.add(&source, Token::at((), i));
+    }
+
+    let result = R::run(&net, marking);
+    assert!(result.quiescent);
+
+    let merged_vals: Vec<String> = result
+        .marking
+        .queue("merged")
+        .map(|q| {
+            q.iter()
+                .map(|t| t.downcast::<String>().unwrap().value().clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    assert_eq!(merged_vals.len(), 3, "all three forked requests should merge");
+    let distinct: std::collections::HashSet<&String> = merged_vals.iter().collect();
+    assert_eq!(
+        distinct.len(),
+        3,
+        "fresh_name must mint a unique id per fork firing, got {merged_vals:?}"
+    );
+}
+
+/// NU-040: a bounded `Budget` place caps how many fork groups can be live at
+/// once (the decidability lever), while the budget token returned by each join
+/// lets all work still complete — serialized at `k = 1`.
+fn nu_budget_bounds_concurrency<R: BackendRunner>() {
+    let source = Place::<()>::new("source");
+    let budget = Place::<()>::new("budget");
+    let a = Place::<NuMsg>::new("branchA");
+    let b = Place::<NuMsg>::new("branchB");
+    let merged = Place::<String>::new("merged");
+
+    let fork = Transition::builder("fork")
+        .input(one(&source))
+        .input(one(&budget)) // minting a name costs one budget token
+        .output(and(vec![out_place(&a), out_place(&b)]))
+        .action(sync_action(|ctx| {
+            let id = ctx.fresh_name();
+            ctx.output("branchA", NuMsg { cid: id.as_str().to_string() })?;
+            ctx.output("branchB", NuMsg { cid: id.as_str().to_string() })?;
+            Ok(())
+        }))
+        .build();
+
+    let join = Transition::builder("join")
+        .input(one(&a))
+        .input(one(&b))
+        .match_spec(
+            MatchSpec::builder()
+                .key(&a, |m: &NuMsg| NameId::new(m.cid.clone()))
+                .key(&b, |m: &NuMsg| NameId::new(m.cid.clone()))
+                .build(),
+        )
+        .output(and(vec![out_place(&merged), out_place(&budget)])) // return the budget
+        .action(sync_action(|ctx| {
+            let ma = ctx.input::<NuMsg>("branchA")?;
+            let mb = ctx.input::<NuMsg>("branchB")?;
+            if ma.cid != mb.cid {
+                return Err(ActionError::new("join saw mismatched ids"));
+            }
+            ctx.output("merged", ma.cid.clone())?;
+            ctx.output("budget", ())?;
+            Ok(())
+        }))
+        .build();
+
+    let net = PetriNet::builder("nu_budget")
+        .transitions([fork, join])
+        .build();
+
+    let mut marking = Marking::new();
+    for i in 0..3u64 {
+        marking.add(&source, Token::at((), i));
+    }
+    marking.add(&budget, Token::at((), 0)); // k = 1: at most one live group
+
+    let result = R::run(&net, marking);
+    assert!(result.quiescent);
+
+    let count = |p: &str| result.marking.queue(p).map(|q| q.len()).unwrap_or(0);
+    assert_eq!(count("merged"), 3, "all three requests complete despite k=1 budget");
+    assert_eq!(count("budget"), 1, "the budget token is returned");
+    assert_eq!(count("source"), 0);
+}
+
 /// Generates one `#[test]` per backend for each generic test fn above,
 /// so every semantic runs against both `BitmapNetExecutor` and
 /// `PrecompiledNetExecutor`.
@@ -1303,4 +1543,8 @@ for_each_backend!(
     quiescent_when_no_enabled_transitions,
     event_store_records_lifecycle,
     event_store_transition_enabled_disabled,
+    nu_join_matches_by_name_not_fifo,
+    nu_join_blocks_without_matching_name,
+    nu_fork_mints_unique_ids_then_join_merges,
+    nu_budget_bounds_concurrency,
 );

@@ -3,12 +3,15 @@ import { SmtVerifier } from '../../src/verification/smt-verifier.js';
 import { MarkingState } from '../../src/verification/marking-state.js';
 import {
   deadlockFree, mutualExclusion, placeBound, unreachable,
+  branchPlaceBound, joinedOrDeadLettered,
 } from '../../src/verification/smt-property.js';
 import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place, environmentPlace } from '../../src/core/place.js';
 import { one, exactly } from '../../src/core/in.js';
-import { outPlace, xorPlaces } from '../../src/core/out.js';
+import { outPlace, xorPlaces, andPlaces } from '../../src/core/out.js';
+import { matchSpec, matchKey } from '../../src/core/match-spec.js';
+import { nameId } from '../../src/core/name.js';
 import { alwaysAvailable, bounded, ignore } from '../../src/verification/analysis/environment-analysis-mode.js';
 
 // All tests in this file require Z3 WASM which is slow to initialize.
@@ -390,5 +393,135 @@ describe('SmtVerifier (Z3 integration)', () => {
       .verify();
 
     expect(result.verdict.type).toBe('proven');
+  }, Z3_TIMEOUT);
+});
+
+// === NU-040 / NU-050: ν-net verification (sound carve-out, Stage 6a) ===
+// The untimed encoder over-approximates ν-join name equality. That is sound for
+// reachability-safety bounds (a `proven` holds for the real net) — so the
+// bounded-budget decidability lever is checkable today — but not for quiescence
+// properties, and not for unbounded fresh names.
+describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
+  // Structural scatter-gather: `fork` consumes a `budget` token and stamps a
+  // `pending` token plus both branches; `join` correlates the branches by name,
+  // consumes `pending`, and returns the `budget` token. The conservation laws
+  // budget+pending=k and branchA=branchB=pending hold regardless of names, so
+  // the over-approximation can prove the bounds.
+  function nuScatterGatherNet() {
+    const source = place('source');
+    const budget = place('budget');
+    const pending = place('pending');
+    const a = place<string>('branchA');
+    const b = place<string>('branchB');
+    const merged = place<string>('merged');
+
+    const fork = Transition.builder('fork')
+      .inputs(one(source), one(budget))
+      .outputs(andPlaces(a, b, pending))
+      .build();
+
+    const join = Transition.builder('join')
+      .inputs(one(a), one(b), one(pending))
+      .match(matchSpec(
+        matchKey(a, (s: string) => nameId(s)),
+        matchKey(b, (s: string) => nameId(s)),
+      ))
+      .outputs(andPlaces(merged, budget))
+      .build();
+
+    const net = PetriNet.builder('nuScatterGatherVerify').transitions(fork, join).build();
+    return { net, source, budget, pending };
+  }
+
+  it('proves BranchPlaceBound(budget, k) with a declared budget', async () => {
+    // NU-040 #1: the live correlation pool is bounded by conservation.
+    const { net, source, budget } = nuScatterGatherNet();
+    const result = await SmtVerifier.forNet(net)
+      .initialMarking(m => { m.tokens(source, 3); m.tokens(budget, 2); })
+      .property(branchPlaceBound(budget, 2))
+      .budgetPlaces(budget)
+      .timeout(30_000)
+      .verify();
+    expect(result.verdict.type).toBe('proven');
+  }, Z3_TIMEOUT);
+
+  it('proves BranchPlaceBound(pending, k) and carries the over-approx caveat', async () => {
+    // NU-040 #2 (bound half): at most k live groups.
+    const { net, source, budget, pending } = nuScatterGatherNet();
+    const result = await SmtVerifier.forNet(net)
+      .initialMarking(m => { m.tokens(source, 3); m.tokens(budget, 2); })
+      .property(branchPlaceBound(pending, 2))
+      .budgetPlaces(budget)
+      .timeout(30_000)
+      .verify();
+    expect(result.verdict.type).toBe('proven');
+    expect(result.report).toContain('over-approximated');
+  }, Z3_TIMEOUT);
+
+  it('returns unknown for an undeclared-budget ν-net (NU-050 #2)', async () => {
+    // Treated as unbounded — unknown rather than a precision-limited verdict,
+    // even for a bound the over-approximation could prove.
+    const { net, source, budget } = nuScatterGatherNet();
+    const result = await SmtVerifier.forNet(net)
+      .initialMarking(m => { m.tokens(source, 3); m.tokens(budget, 2); })
+      .property(branchPlaceBound(budget, 2))
+      .timeout(30_000)
+      .verify();
+    expect(result.verdict.type).toBe('unknown');
+    const reason = (result.verdict as { type: 'unknown'; reason: string }).reason;
+    expect(reason).toContain('budget');
+    expect(reason).toContain('unbounded');
+  }, Z3_TIMEOUT);
+
+  it('returns unknown for JoinedOrDeadLettered on a ν-net (quiescence deferred)', async () => {
+    const { net, source, budget, pending } = nuScatterGatherNet();
+    const result = await SmtVerifier.forNet(net)
+      .initialMarking(m => { m.tokens(source, 3); m.tokens(budget, 2); })
+      .property(joinedOrDeadLettered(pending))
+      .budgetPlaces(budget)
+      .timeout(30_000)
+      .verify();
+    expect(result.verdict.type).toBe('unknown');
+  }, Z3_TIMEOUT);
+
+  it('returns unknown for DeadlockFree on a ν-net (quiescence deferred)', async () => {
+    const { net, source, budget } = nuScatterGatherNet();
+    const result = await SmtVerifier.forNet(net)
+      .initialMarking(m => { m.tokens(source, 3); m.tokens(budget, 2); })
+      .property(deadlockFree())
+      .budgetPlaces(budget)
+      .timeout(30_000)
+      .verify();
+    expect(result.verdict.type).toBe('unknown');
+  }, Z3_TIMEOUT);
+
+  it('proves JoinedOrDeadLettered on a non-ν net where pending always drains', async () => {
+    const start = place('start');
+    const pending = place('pending');
+    const done = place('done');
+    const produce = Transition.builder('gen').inputs(one(start)).outputs(outPlace(pending)).build();
+    const fin = Transition.builder('fin').inputs(one(pending)).outputs(outPlace(done)).build();
+    const net = PetriNet.builder('pendingDrains').transitions(produce, fin).build();
+
+    const result = await SmtVerifier.forNet(net)
+      .initialMarking(m => m.tokens(start, 1))
+      .property(joinedOrDeadLettered(pending))
+      .timeout(30_000)
+      .verify();
+    expect(result.verdict.type).toBe('proven');
+  }, Z3_TIMEOUT);
+
+  it('finds JoinedOrDeadLettered violated on a non-ν net with a stranded pending', async () => {
+    const start = place('start');
+    const pending = place('pending');
+    const leak = Transition.builder('leak').inputs(one(start)).outputs(outPlace(pending)).build();
+    const net = PetriNet.builder('pendingStrands').transitions(leak).build();
+
+    const result = await SmtVerifier.forNet(net)
+      .initialMarking(m => m.tokens(start, 1))
+      .property(joinedOrDeadLettered(pending))
+      .timeout(30_000)
+      .verify();
+    expect(result.verdict.type).toBe('violated');
   }, Z3_TIMEOUT);
 });

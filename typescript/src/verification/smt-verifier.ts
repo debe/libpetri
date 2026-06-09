@@ -42,6 +42,7 @@ export class SmtVerifier {
   private _property: SmtProperty = deadlockFree();
   private readonly _environmentPlaces = new Set<EnvironmentPlace<any>>();
   private readonly _sinkPlaces = new Set<Place<any>>();
+  private readonly _budgetPlaces = new Set<string>();
   private _environmentMode: EnvironmentAnalysisMode = alwaysAvailable();
   private _timeoutMs: number = 60_000;
 
@@ -88,6 +89,19 @@ export class SmtVerifier {
     return this;
   }
 
+  /**
+   * Declares ν-net budget places (NU-040): places whose token count bounds the
+   * live correlation pool (they gate fresh-name minting). Declaring at least one
+   * places the net in the decidable bounded fragment, so reachability-safety
+   * properties over its ν-joins are verified (the matched transitions are
+   * over-approximated). Without any budget place, a net that mints fresh names
+   * is treated as unbounded and the verifier returns `unknown` (NU-050).
+   */
+  budgetPlaces(...places: Place<any>[]): this {
+    for (const p of places) this._budgetPlaces.add(p.name);
+    return this;
+  }
+
   timeout(ms: number): this {
     this._timeoutMs = ms;
     return this;
@@ -106,6 +120,15 @@ export class SmtVerifier {
       : `${propertyDescription(this._property)} (sinks: ${[...this._sinkPlaces].map(p => p.name).join(', ')})`;
     report.push(`Property: ${propDesc}`);
     report.push(`Timeout: ${(this._timeoutMs / 1000).toFixed(0)}s\n`);
+
+    // ν-net awareness (NU-040, NU-050). A transition with a match spec joins by
+    // name equality; the untimed encoder over-approximates that (name equality
+    // assumed satisfiable). Sound for reachability-safety bounds (proven holds —
+    // the real net fires strictly fewer joins) but NOT for quiescence-based
+    // properties, which name-blind firing distorts. `applyNuGuard` turns those
+    // cases into unknown.
+    const hasMatch = [...this.net.transitions].some(t => t.matchSpec !== null);
+    const nuBounded = this._budgetPlaces.size > 0;
 
     // Phase 1: Flatten
     report.push('Phase 1: Flattening net...');
@@ -141,6 +164,7 @@ export class SmtVerifier {
     // could be unsound — fall through to the (injection-aware) SMT encoding instead.
     if (
       this._property.type === 'deadlock-free' &&
+      !hasMatch &&
       this._sinkPlaces.size === 0 &&
       structResult.type === 'no-potential-deadlock' &&
       this._environmentPlaces.size === 0
@@ -242,7 +266,7 @@ export class SmtVerifier {
           report.push('  NOTE: Verification ignores timing constraints and JS guards.');
           report.push('  An untimed proof is STRONGER than a timed one (timing only restricts behavior).');
 
-          return buildResult(
+          return this.applyNuGuard(buildResult(
             {
               type: 'proven',
               method: 'IC3/PDR',
@@ -253,7 +277,7 @@ export class SmtVerifier {
             report.join('\n'), invariants, discoveredInvariants, [], [],
             performance.now() - start,
             { places: flatNet.places.length, transitions: flatNet.transitions.length, invariantsFound: invariants.length, structuralResult: structResultStr },
-          );
+          ), hasMatch, nuBounded);
         }
 
         case 'violated': {
@@ -276,12 +300,12 @@ export class SmtVerifier {
           report.push('  It may be spurious if timing constraints prevent this sequence.');
           report.push('  JS guards are also ignored in this analysis.');
 
-          return buildResult(
+          return this.applyNuGuard(buildResult(
             { type: 'violated' },
             report.join('\n'), invariants, [], decoded.trace as MarkingState[], decoded.transitions as string[],
             performance.now() - start,
             { places: flatNet.places.length, transitions: flatNet.transitions.length, invariantsFound: invariants.length, structuralResult: structResultStr },
-          );
+          ), hasMatch, nuBounded);
         }
 
         case 'unknown': {
@@ -313,6 +337,83 @@ export class SmtVerifier {
       runner.dispose();
     }
   }
+
+  /**
+   * ν-net soundness guard (NU-040, NU-050). Applied only when the net contains
+   * match (ν-join) transitions, and only to a proven/violated verdict (an
+   * existing unknown is left as-is).
+   *
+   * - Quiescence-based properties (deadlock / joined-or-dead-lettered): the
+   *   name-blind over-approximation over-fires joins, so it sees fewer quiescent
+   *   states and may miss a real stranded marking — downgraded to unknown
+   *   (exact quiescence reasoning is deferred to the SCG name-partition quotient).
+   * - Reachability-safety with unbounded fresh names (no budget declared):
+   *   reachability over unbounded fresh names is undecidable — unknown.
+   * - Bounded reachability-safety: `proven` is sound; a `violated` may be
+   *   spurious — the verdict is kept and the over-approximation caveat is
+   *   appended to the report.
+   */
+  private applyNuGuard(
+    result: SmtVerificationResult,
+    hasMatch: boolean,
+    nuBounded: boolean,
+  ): SmtVerificationResult {
+    if (!hasMatch || result.verdict.type === 'unknown') return result;
+    if (!isReachabilitySafety(this._property)) {
+      return downgradeToUnknown(
+        result,
+        'ν-matching transitions present and the property depends on quiescence ' +
+          '(deadlock / joined-or-dead-lettered); the name-blind over-approximation cannot ' +
+          'decide it soundly — deferred to the exact ν-analysis (NU-050)',
+      );
+    }
+    if (!nuBounded) {
+      return downgradeToUnknown(
+        result,
+        'ν-matching transitions present with unbounded fresh names (no budget place declared ' +
+          'via budgetPlaces(...)); reachability over unbounded fresh names is undecidable ' +
+          '(NU-040) — declare the budget place(s) that gate minting to verify within the ' +
+          'bounded fragment',
+      );
+    }
+    // Bounded reachability-safety: keep the (sound) verdict, append the caveat.
+    const note =
+      "\nNote: matched (ν-join) transitions are over-approximated (name equality assumed " +
+      "satisfiable). 'proven' is sound; a 'violated' counterexample may be spurious pending " +
+      'the exact ν-analysis (NU-050).\n';
+    return { ...result, report: result.report + note };
+  }
+}
+
+/**
+ * Whether a property is a reachability-safety property — one whose violation is
+ * a reachable bad marking. For these the matched-transition over-approximation
+ * is sound for `proven`. Quiescence-based properties (deadlock,
+ * joined-or-dead-lettered) are not: their violation involves the absence of
+ * enabled transitions, which the name-blind over-approximation distorts (NU-050).
+ */
+function isReachabilitySafety(property: SmtProperty): boolean {
+  switch (property.type) {
+    case 'place-bound':
+    case 'branch-place-bound':
+    case 'mutual-exclusion':
+    case 'unreachable':
+      return true;
+    case 'deadlock-free':
+    case 'joined-or-dead-lettered':
+      return false;
+  }
+}
+
+function downgradeToUnknown(result: SmtVerificationResult, reason: string): SmtVerificationResult {
+  return {
+    ...result,
+    verdict: { type: 'unknown', reason },
+    report: result.report + `\nDowngraded to UNKNOWN: ${reason}\n`,
+    discoveredInvariants: [],
+    counterexampleTrace: [],
+    counterexampleTransitions: [],
+  };
 }
 
 /**

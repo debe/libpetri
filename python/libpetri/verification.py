@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 from . import _libpetri as _ext
@@ -76,30 +76,62 @@ def unreachable(places: Iterable[PlaceLike]) -> SmtProperty:
     return _ext.unreachable([_coerce_place_name(p) for p in places])
 
 
+def branch_place_bound(place: PlaceLike, bound: int) -> SmtProperty:
+    """ν-net budget / fork-branch place bound (NU-040): ``place`` never exceeds
+    ``bound`` tokens. Encodes like :func:`place_bound`, but pairing it with a
+    ``budget_places`` declaration in :func:`verify` keeps a name-minting net in
+    the decidable bounded fragment."""
+    return _ext.branch_place_bound(_coerce_place_name(place), bound)
+
+
+def joined_or_dead_lettered(pending: PlaceLike) -> SmtProperty:
+    """ν-net liveness (NU-040): every forked name is joined or dead-lettered —
+    no reachable quiescent (deadlocked) state still holds a token in
+    ``pending``."""
+    return _ext.joined_or_dead_lettered(_coerce_place_name(pending))
+
+
 def verify(
     net: BuiltNet,
     property: SmtProperty,
     *,
+    initial_marking: Mapping[PlaceLike, int] | None = None,
     environment_places: Iterable[PlaceLike] | None = None,
     environment_mode: EnvironmentAnalysisMode | None = None,
     sink_places: Iterable[PlaceLike] | None = None,
+    budget_places: Iterable[PlaceLike] | None = None,
     timeout_ms: int = 30_000,
 ) -> VerificationResult:
     """Verify ``property`` against ``net`` via SMT (Z3).
+
+    ``initial_marking`` maps places to their starting token counts (empty by
+    default). Reactive nets instead leave it empty and model arriving tokens via
+    ``environment_places`` + ``environment_mode``.
 
     ``environment_mode`` (VER-006) controls how registered ``environment_places``
     are modeled: :func:`always_available` (unbounded injection), :func:`bounded`,
     or :func:`ignore` (default). With env places present but no mode (i.e. Ignore),
     a would-be vacuous ``proven`` is downgraded to ``unknown``.
+
+    ``budget_places`` (NU-040) declares the places whose token count bounds the
+    live correlation pool of a ν-net (they gate fresh-name minting). Declaring at
+    least one places a name-minting net in the decidable bounded fragment;
+    without it a ν-net yields ``unknown`` (NU-050). Quiescence-based properties
+    (deadlock-freedom, joined-or-dead-lettered) on a ν-net also yield ``unknown``,
+    deferred to the exact ν-analysis.
     """
     return _ext.verify_net(
         _coerce_net(net),
         property,
+        initial_marking={
+            _coerce_place_name(p): n for p, n in (initial_marking or {}).items()
+        },
         environment_places=[
             _coerce_place_name(p) for p in (environment_places or ())
         ],
         environment_mode=environment_mode,
         sink_places=[_coerce_place_name(p) for p in (sink_places or ())],
+        budget_places=[_coerce_place_name(p) for p in (budget_places or ())],
         timeout_ms=timeout_ms,
     )
 
@@ -123,8 +155,10 @@ __all__ = [
     "VerificationResult",
     "always_available",
     "bounded",
+    "branch_place_bound",
     "deadlock_free",
     "ignore",
+    "joined_or_dead_lettered",
     "mutual_exclusion",
     "place_bound",
     "unreachable",

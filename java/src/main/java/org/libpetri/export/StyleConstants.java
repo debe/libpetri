@@ -44,6 +44,8 @@ public final class StyleConstants {
     // ======================== Edge Styles ========================
 
     public static final EdgeVisual INPUT_EDGE     = new EdgeVisual("#333333", EdgeLineStyle.SOLID,  ArrowHead.NORMAL);
+    /** ν-net correlated input edge (a join input named by a MatchSpec, NU-020 / EXP-018). */
+    public static final EdgeVisual MATCH_INPUT_EDGE = new EdgeVisual("#0d9488", EdgeLineStyle.SOLID,  ArrowHead.NORMAL);
     public static final EdgeVisual OUTPUT_EDGE    = new EdgeVisual("#333333", EdgeLineStyle.SOLID,  ArrowHead.NORMAL);
     public static final EdgeVisual INHIBITOR_EDGE = new EdgeVisual("#dc3545", EdgeLineStyle.SOLID,  ArrowHead.ODOT);
     public static final EdgeVisual READ_EDGE      = new EdgeVisual("#6c757d", EdgeLineStyle.DASHED,  ArrowHead.NORMAL);

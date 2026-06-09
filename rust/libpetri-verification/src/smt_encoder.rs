@@ -300,7 +300,12 @@ fn encode_property_violation(
                 format!("(and {})", conditions.join(" "))
             }
         }
-        SmtProperty::PlaceBound { place, bound } => {
+        // BranchPlaceBound is the ν-net budget lever (NU-040): a count bound,
+        // encoded identically to PlaceBound. Sound under the matched-transition
+        // over-approximation — the real net fires fewer joins, so it cannot
+        // exceed a bound the over-approximation respects.
+        SmtProperty::PlaceBound { place, bound }
+        | SmtProperty::BranchPlaceBound { place, bound } => {
             if let Some(&pid) = flat.place_index.get(place) {
                 format!("(> {} {})", m_vars[pid], bound)
             } else {
@@ -317,6 +322,17 @@ fn encode_property_violation(
                 "false".to_string()
             } else {
                 format!("(and {})", conditions.join(" "))
+            }
+        }
+        // JoinedOrDeadLettered (NU-040): a quiescent (deadlocked) state that
+        // still holds a `pending` token is a stranded correlation group. Reuse
+        // the deadlock predicate and conjoin pending non-emptiness.
+        SmtProperty::JoinedOrDeadLettered { pending } => {
+            let deadlock = encode_deadlock(flat, m_vars, sink_places, env_inject);
+            match flat.place_index.get(pending) {
+                Some(&pid) => format!("(and {deadlock} (>= {} 1))", m_vars[pid]),
+                // Unknown pending place name: no state can violate.
+                None => "false".to_string(),
             }
         }
     }

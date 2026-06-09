@@ -42,6 +42,30 @@ public sealed interface SmtProperty {
      */
     record Unreachable(Set<Place<?>> places) implements SmtProperty {}
 
+    /**
+     * Branch / budget place bound: a &nu;-net budget or fork-branch place never
+     * exceeds {@code bound} tokens — the bounded-budget decidability lever
+     * (NU-040).
+     *
+     * <p>Encodes identically to {@link PlaceBound} (a linear-integer count
+     * bound), but names the &nu;-net intent: the live correlation pool is
+     * bounded, keeping the well-structured transition system finite. The
+     * matched-transition over-approximation is sound for this safety bound —
+     * a {@code Proven} verdict holds for the real net, which fires strictly
+     * fewer joins than the over-approximation.
+     */
+    record BranchPlaceBound(Place<?> place, int bound) implements SmtProperty {}
+
+    /**
+     * Joined-or-dead-lettered: every forked name is eventually joined or
+     * dead-lettered, so no reachable <em>quiescent</em> (deadlocked) marking
+     * still holds a token in {@code pending} (NU-040).
+     *
+     * <p>Violated when a reachable marking is both quiescent and has
+     * {@code pending >= 1} — a stranded correlation group.
+     */
+    record JoinedOrDeadLettered(Place<?> pending) implements SmtProperty {}
+
     // Factory methods
 
     static DeadlockFree deadlockFree() {
@@ -58,5 +82,13 @@ public sealed interface SmtProperty {
 
     static Unreachable unreachable(Set<Place<?>> places) {
         return new Unreachable(Set.copyOf(places));
+    }
+
+    static BranchPlaceBound branchPlaceBound(Place<?> place, int bound) {
+        return new BranchPlaceBound(place, bound);
+    }
+
+    static JoinedOrDeadLettered joinedOrDeadLettered(Place<?> pending) {
+        return new JoinedOrDeadLettered(pending);
     }
 }

@@ -204,6 +204,12 @@ public final class SubnetRewriter {
         for (var rd  : t.reads())      builder.readArc(rewriteRead(rd, remap));
         for (var rs  : t.resets())     builder.resetArc(rewriteReset(rs, remap));
 
+        // Carry the ν-net join correlation forward, following place renames so a
+        // composed join still correlates the right (renamed) inputs (NU-020/-030).
+        if (t.matchSpec() != null) {
+            builder.match(t.matchSpec().remap(p -> remap.getOrDefault(p, p)));
+        }
+
         return builder.build();
     }
 

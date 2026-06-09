@@ -89,3 +89,6 @@ export function nodeStyle(category: NodeCategory): NodeVisual {
 export function edgeStyle(arcType: EdgeCategory): EdgeVisual {
   return EDGE_STYLES[arcType];
 }
+
+/** ν-net correlated input edge (a join input named by a MatchSpec, NU-020 / EXP-018). */
+export const MATCH_INPUT_EDGE: EdgeVisual = { color: '#0d9488', style: 'solid', arrowhead: 'normal' };

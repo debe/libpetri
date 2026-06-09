@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TypeAlias
+from typing import Any, Callable, TypeAlias
 
 from . import _libpetri as _ext
 
 Place: TypeAlias = _ext.Place
 InputSpec: TypeAlias = _ext.InputSpec
+MatchSpec: TypeAlias = _ext.MatchSpec
 OutputSpec: TypeAlias = _ext.OutputSpec
 InhibitorArc: TypeAlias = _ext.InhibitorArc
 ReadArc: TypeAlias = _ext.ReadArc
@@ -38,6 +39,7 @@ def SubnetDef(name: str) -> SubnetDefBuilder: ...
 
 # Re-exports of factory functions from the extension
 def one(p: Place) -> InputSpec: ...
+def match_spec(keys: list[tuple[Place, Callable[[Any], str]]]) -> MatchSpec: ...
 def exactly(count: int, p: Place) -> InputSpec: ...
 def all_tokens(p: Place) -> InputSpec: ...
 def at_least(min: int, p: Place) -> InputSpec: ...

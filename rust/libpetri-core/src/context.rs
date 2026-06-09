@@ -1,12 +1,24 @@
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::action::ActionError;
+use crate::name::NameId;
 use crate::token::ErasedToken;
 
 /// Callback for emitting log messages from transition actions.
 pub type LogFn = Arc<dyn Fn(&str, &str) + Send + Sync>;
+
+/// Mints a fresh ν-name. Installed by the executor so minted names are
+/// monotonic and instance-prefixed per firing (spec NU-010, NU-030).
+pub type FreshNameFn = Arc<dyn Fn() -> NameId + Send + Sync>;
+
+/// Process-global fallback counter used by [`TransitionContext::fresh_name`]
+/// when no executor-installed minter is present (e.g. a context constructed
+/// directly in a unit test). Guarantees uniqueness; the executor installs a
+/// deterministic per-run minter for replay-stable names.
+static GLOBAL_FRESH_NAME_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Callback that publishes a batch of output entries mid-action. Wired by
 /// the async executor; see [`TransitionContext::flush`]. Sync executors do
@@ -38,6 +50,9 @@ pub struct TransitionContext {
     execution_ctx: HashMap<String, Box<dyn Any + Send + Sync>>,
     log_fn: Option<LogFn>,
     flush_fn: Option<FlushFn>,
+    /// Optional ν-name minter installed by the executor. When absent,
+    /// [`fresh_name`](Self::fresh_name) falls back to a process-global counter.
+    fresh_name_fn: Option<FreshNameFn>,
     /// Optional author-local → composed-name map. Inherited from the
     /// transition's [`crate::transition::Transition::local_name_map`].
     /// Bindings use it to fall back from a local-name lookup to the
@@ -63,6 +78,7 @@ impl TransitionContext {
             execution_ctx: HashMap::new(),
             log_fn,
             flush_fn: None,
+            fresh_name_fn: None,
             local_name_map: None,
         }
     }
@@ -103,6 +119,40 @@ impl TransitionContext {
     /// context.
     pub fn flush_fn(&self) -> Option<FlushFn> {
         self.flush_fn.clone()
+    }
+
+    /// Installs the ν-name minter. Wired by the executor at firing time so
+    /// that names minted by [`fresh_name`](Self::fresh_name) are monotonic
+    /// across the run and instance-prefixed (spec NU-010, NU-030).
+    pub fn set_fresh_name_fn(&mut self, fresh_name_fn: FreshNameFn) {
+        self.fresh_name_fn = Some(fresh_name_fn);
+    }
+
+    /// Returns a clone of the installed ν-name minter, if any. Bindings copy
+    /// this so a language-side `ctx.fresh_name()` mints through the same
+    /// monotonic source as the Rust context.
+    pub fn fresh_name_fn(&self) -> Option<FreshNameFn> {
+        self.fresh_name_fn.clone()
+    }
+
+    /// Mints a fresh ν-name (the ν-binder primitive — spec NU-010).
+    ///
+    /// An action calls this on the fork side to create a correlation id, then
+    /// writes it into the sibling output payloads (e.g. `ctx.output(place,
+    /// Msg { cid: id.as_str().into(), .. })`). A later join correlates those
+    /// siblings via a [`MatchSpec`](crate::match_spec::MatchSpec).
+    ///
+    /// Uses the executor-installed minter when present; otherwise falls back
+    /// to a process-global counter prefixed by the transition name (still
+    /// unique, but not replay-stable across processes).
+    pub fn fresh_name(&self) -> NameId {
+        match &self.fresh_name_fn {
+            Some(f) => f(),
+            None => {
+                let n = GLOBAL_FRESH_NAME_COUNTER.fetch_add(1, Ordering::Relaxed);
+                NameId::new(format!("{}#{}", self.transition_name, n))
+            }
+        }
     }
 
     /// Publishes the currently-buffered outputs immediately. Each call

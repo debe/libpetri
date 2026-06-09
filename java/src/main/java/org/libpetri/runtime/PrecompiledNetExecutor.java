@@ -5,6 +5,9 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
+import java.util.function.Predicate;
 
 import org.libpetri.core.*;
 import org.libpetri.debug.LogCaptureScope;
@@ -61,6 +64,9 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
     private int[] ringHead;
     private int[] ringTail;
     private int[] ringCapacity;
+
+    /** Monotonic source for ν-name minting ({@link TransitionContext#freshName()}, NU-010). */
+    private final AtomicLong freshNameCounter = new AtomicLong();
 
     // ==================== Marking (synced from ring buffers on demand) ====================
 
@@ -219,8 +225,14 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
         this.contextPool = new TransitionContext[program.transitionCount];
         for (int tid = 0; tid < program.transitionCount; tid++) {
             Transition t = program.transitionsById[tid];
-            contextPool[tid] = new TransitionContext(
+            var ctx = new TransitionContext(
                 t, new TokenInput(program.inputPlaceCount[tid]), new TokenOutput());
+            // Install the ν-name minter once per pooled context (NU-010, NU-030):
+            // monotonic across the run, instance-prefixed via the transition name.
+            final String freshNameBase = t.name();
+            ctx.setFreshNameSupplier(() ->
+                new NameId(freshNameBase + "#" + freshNameCounter.getAndIncrement()));
+            contextPool[tid] = ctx;
         }
 
         // In-flight tracking
@@ -280,6 +292,151 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
         tokenCounts[pid] = 0;
         ringHead[pid] = 0;
         ringTail[pid] = 0;
+    }
+
+    /**
+     * Removes the first (oldest) ring token at {@code pid} satisfying
+     * {@code pred}, compacting the ring (preserves FIFO order). Mirrors the
+     * Rust {@code ring_remove_matching}. Returns {@code null} on no match.
+     */
+    private Token<?> ringRemoveMatching(int pid, Predicate<Token<?>> pred) {
+        int count = tokenCounts[pid];
+        if (count == 0) return null;
+        int offset = placeOffset[pid];
+        int head = ringHead[pid];
+        int cap = ringCapacity[pid];
+        for (int i = 0; i < count; i++) {
+            int idx = offset + (head + i) % cap;
+            Token<?> token = (Token<?>) tokenPool[idx];
+            if (token != null && pred.test(token)) {
+                for (int j = i; j < count - 1; j++) {
+                    tokenPool[offset + (head + j) % cap] = tokenPool[offset + (head + j + 1) % cap];
+                }
+                tokenPool[offset + (head + count - 1) % cap] = null;
+                tokenCounts[pid]--;
+                ringTail[pid] = (ringTail[pid] == 0) ? cap - 1 : ringTail[pid] - 1;
+                return token;
+            }
+        }
+        return null;
+    }
+
+    /** Counts ring tokens at {@code pid} satisfying {@code pred}. */
+    private int countMatchingInRing(int pid, Predicate<Token<?>> pred) {
+        int count = tokenCounts[pid];
+        int offset = placeOffset[pid];
+        int head = ringHead[pid];
+        int cap = ringCapacity[pid];
+        int matched = 0;
+        for (int i = 0; i < count; i++) {
+            Token<?> token = (Token<?>) tokenPool[offset + (head + i) % cap];
+            if (token != null && pred.test(token)) matched++;
+        }
+        return matched;
+    }
+
+    // ==================== ν-net join (NU-020) ====================
+
+    /**
+     * Finds the correlation name satisfying this transition's {@link MatchSpec},
+     * or {@code null} if the join is not currently enabled (spec NU-020). Builds
+     * a per-correlated-input name index over the ring buffers and defers
+     * selection + tie-break to the shared {@link MatchEngine}.
+     */
+    private NameId findMatchBinding(int tid) {
+        Transition t = program.transitionsById[tid];
+        MatchSpec ms = t.matchSpec();
+        if (ms == null) return null;
+        var perPlace = new ArrayList<Map<NameId, MatchEngine.NameStat>>(ms.keys().size());
+        int[] requireds = new int[ms.keys().size()];
+        int k = 0;
+        for (var key : ms.keys()) {
+            int pid = program.placeIndex.get(key.place());
+            var index = new HashMap<NameId, MatchEngine.NameStat>();
+            int count = tokenCounts[pid];
+            int offset = placeOffset[pid];
+            int head = ringHead[pid];
+            int cap = ringCapacity[pid];
+            for (int i = 0; i < count; i++) {
+                Token<?> token = (Token<?>) tokenPool[offset + (head + i) % cap];
+                NameId name = key.extract(token.value());
+                if (name == null) continue;
+                long ts = token.createdAt().toEpochMilli();
+                var prev = index.get(name);
+                index.put(name, prev == null
+                    ? new MatchEngine.NameStat(1, ts)
+                    : new MatchEngine.NameStat(prev.count() + 1, Math.min(prev.minCreatedAt(), ts)));
+            }
+            perPlace.add(index);
+            requireds[k++] = MatchEngine.requiredFor(t, key.place());
+        }
+        return MatchEngine.selectMatchName(perPlace, requireds);
+    }
+
+    /**
+     * Consumes the name-matched tokens for a ν-net join (NU-020): correlated
+     * inputs take tokens whose projected name equals the chosen binding; other
+     * inputs consume FIFO. Reset arcs are honoured as on the opcode path.
+     */
+    @SuppressWarnings("unchecked")
+    private void consumeMatched(int tid, Transition t, TokenInput inputs, List<Token<?>> consumed) {
+        MatchSpec ms = t.matchSpec();
+        NameId chosen = findMatchBinding(tid);
+
+        for (var in : t.inputSpecs()) {
+            Place<Object> place = (Place<Object>) in.place();
+            int pid = program.placeIndex.get(in.place());
+            Function<Object, NameId> keyFn = ms.keyFor(in.place());
+
+            if (keyFn != null && chosen != null) {
+                Predicate<Token<?>> pred = tok -> {
+                    try {
+                        return chosen.equals(keyFn.apply(tok.value()));
+                    } catch (ClassCastException e) {
+                        return false;
+                    }
+                };
+                int toConsume = switch (in) {
+                    case Arc.In.One _ -> 1;
+                    case Arc.In.Exactly e -> e.count();
+                    default -> countMatchingInRing(pid, pred);
+                };
+                for (int i = 0; i < toConsume; i++) {
+                    Token<?> token = ringRemoveMatching(pid, pred);
+                    if (token == null) break;
+                    if (consumed != null) consumed.add(token);
+                    inputs.add(place, (Token<Object>) token);
+                    if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
+                        Instant.now(), in.place().name(), token));
+                }
+            } else {
+                int toConsume = switch (in) {
+                    case Arc.In.One _ -> 1;
+                    case Arc.In.Exactly e -> e.count();
+                    default -> tokenCounts[pid];
+                };
+                for (int i = 0; i < toConsume; i++) {
+                    Token<?> token = ringRemoveFirst(pid);
+                    if (consumed != null) consumed.add(token);
+                    inputs.add(place, (Token<Object>) token);
+                    if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
+                        Instant.now(), in.place().name(), token));
+                }
+            }
+        }
+
+        for (var rs : t.resets()) {
+            int pid = program.placeIndex.get(rs.place());
+            int count = tokenCounts[pid];
+            for (int i = 0; i < count; i++) {
+                Token<?> token = ringRemoveFirst(pid);
+                if (consumed != null) consumed.add(token);
+                if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
+                    Instant.now(), rs.place().name(), token));
+            }
+            pendingResetWords[pid >>> WORD_SHIFT] |= 1L << (pid & BIT_MASK);
+            hasPendingResets = true;
+        }
     }
 
     private void growRing(int pid) {
@@ -753,6 +910,13 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
                 if (tokenCounts[pid] < required) return false;
             }
         }
+
+        // ν-net join: a correlation name must satisfy every matched input (NU-020).
+        // Gated on the precomputed flat flag so non-ν transitions skip the array
+        // index + getter on this hot path (zero-cost gating, mirroring hasDeadline).
+        if (program.hasMatch[tid] && findMatchBinding(tid) == null) {
+            return false;
+        }
         return true;
     }
 
@@ -921,7 +1085,11 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
 
         List<Token<?>> consumed = trackConsumed ? new ArrayList<>() : null;
 
-        // Execute consume operations
+        // Execute consume operations. ν-net joins (NU-020) bypass the opcode
+        // fast path and consume the name-matched tokens via consumeMatched.
+        if (t.matchSpec() != null) {
+            consumeMatched(tid, t, inputs, consumed);
+        } else {
         int[] prog = program.consumeOps[tid];
         int pc = 0;
         while (pc < prog.length) {
@@ -987,6 +1155,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor {
                 default -> throw new IllegalStateException("Unknown opcode: " + opcode);
             }
         }
+        } // end non-match opcode consume
 
         // Execute read program
         int[] readProg = program.readOps[tid];

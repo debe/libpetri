@@ -217,6 +217,17 @@ function rebuildWithName(
     builder.reset(rewriteReset(t.resets[i]!, remap).place);
   }
 
+  // Carry the ν-net join correlation forward, following place renames so a
+  // composed join still correlates the right (renamed) inputs (NU-020/-030).
+  if (t.matchSpec !== null) {
+    builder.match({
+      keys: t.matchSpec.keys.map(k => ({
+        place: remap.get(k.place.name) ?? k.place,
+        key: k.key,
+      })),
+    });
+  }
+
   return builder.build();
 }
 

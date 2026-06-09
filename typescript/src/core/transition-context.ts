@@ -2,12 +2,21 @@ import type { Place } from './place.js';
 import type { Token } from './token.js';
 import type { TokenInput } from './token-input.js';
 import { TokenOutput } from './token-output.js';
+import { type NameId, nameId } from './name.js';
 
 /** Callback for emitting log messages from transition actions. */
 export type LogFn = (level: string, message: string, error?: Error) => void;
 
 /** @internal Shared empty correspondence for the common (identity) case. */
 const EMPTY_ALIAS: ReadonlyMap<string, Place<any>> = new Map();
+
+/**
+ * @internal Process-global fallback counter for {@link TransitionContext.freshName}
+ * when no executor-installed minter is present (e.g. a context built directly in
+ * a unit test). Guarantees uniqueness; the executor installs a deterministic
+ * per-run minter for replay-stable names.
+ */
+let GLOBAL_FRESH_NAME_COUNTER = 0;
 
 /**
  * Context provided to transition actions.
@@ -33,6 +42,7 @@ export class TransitionContext {
   private readonly executionCtx: Map<string, unknown>;
   private readonly _logFn?: LogFn;
   private readonly placeAlias: ReadonlyMap<string, Place<any>>;
+  private _freshNameSupplier?: () => NameId;
 
   constructor(
     transitionName: string,
@@ -201,6 +211,31 @@ export class TransitionContext {
         `Place '${place.name}' not in declared outputs: [${[...this.allowedOutputs].join(', ')}]`
       );
     }
+  }
+
+  // ==================== ν-name minting (NU-010) ====================
+
+  /**
+   * @internal Installs the ν-name minter. Wired by the executor at firing time
+   * so names minted by {@link freshName} are monotonic across the run and
+   * instance-prefixed (spec NU-010, NU-030).
+   */
+  setFreshNameSupplier(supplier: () => NameId): void {
+    this._freshNameSupplier = supplier;
+  }
+
+  /**
+   * Mints a fresh ν-name (the ν-binder primitive — spec NU-010).
+   *
+   * An action calls this on the fork side to create a correlation id, then
+   * writes it into the sibling output payloads; a later join correlates those
+   * siblings via a {@link import('./match-spec.js').MatchSpec}. Uses the
+   * executor-installed minter when present; otherwise falls back to a
+   * process-global counter prefixed by the transition name.
+   */
+  freshName(): NameId {
+    if (this._freshNameSupplier) return this._freshNameSupplier();
+    return nameId(`${this._transitionName}#${GLOBAL_FRESH_NAME_COUNTER++}`);
   }
 
   // ==================== Structure Info ====================

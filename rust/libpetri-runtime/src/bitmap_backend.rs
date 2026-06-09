@@ -16,6 +16,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use libpetri_core::input::In;
+use libpetri_core::name::NameId;
 use libpetri_core::petri_net::PetriNet;
 use libpetri_core::token::ErasedToken;
 
@@ -24,6 +25,7 @@ use crate::compiled_net::CompiledNet;
 use crate::executor_core::backend::{ChangeTracker, ExecutorBackend};
 use crate::executor_core::deadline::DEADLINE_TOLERANCE_MS;
 use crate::marking::Marking;
+use crate::match_engine::{NameIndex, select_match_name};
 
 /// Bitmap-based backend: the reference execution storage. See module
 /// docs.
@@ -193,7 +195,57 @@ impl BitmapBackend {
             }
         }
 
+        // ν-net join: a correlation name must satisfy every matched input (NU-020).
+        if self.compiled.has_match(tid) && self.find_match_binding(tid).is_none() {
+            return false;
+        }
+
         true
+    }
+
+    /// Finds the correlation name satisfying this transition's `MatchSpec`, or
+    /// `None` if the join is not currently enabled (spec NU-020). Builds a
+    /// per-correlated-input name index over the FIFO `Marking` queues
+    /// (guard-filtered) and defers the selection + tie-break to the shared
+    /// [`select_match_name`]. Mirrors the precompiled backend exactly.
+    fn find_match_binding(&self, tid: usize) -> Option<NameId> {
+        let t = self.compiled.transition(tid);
+        let ms = t.match_spec()?;
+        let mut per_place: Vec<NameIndex> = Vec::with_capacity(ms.keys().len());
+        let mut requireds: Vec<usize> = Vec::with_capacity(ms.keys().len());
+
+        for mk in ms.keys() {
+            let spec = t
+                .input_specs()
+                .iter()
+                .find(|s| s.place_name() == mk.place_name());
+            let required = match spec {
+                Some(In::Exactly { count, .. }) => *count,
+                Some(In::AtLeast { minimum, .. }) => *minimum,
+                _ => 1,
+            };
+            let guard = spec.and_then(|s| s.guard());
+
+            let mut index: NameIndex = std::collections::HashMap::new();
+            if let Some(queue) = self.marking.queue(mk.place_name()) {
+                for token in queue {
+                    if let Some(g) = guard
+                        && !g(token.value.as_ref())
+                    {
+                        continue;
+                    }
+                    if let Some(name) = mk.extract(token.value.as_ref()) {
+                        let entry = index.entry(name).or_insert((0usize, u64::MAX));
+                        entry.0 += 1;
+                        entry.1 = entry.1.min(token.created_at);
+                    }
+                }
+            }
+            per_place.push(index);
+            requireds.push(required);
+        }
+
+        select_match_name(&per_place, &requireds)
     }
 
     fn has_input_from_reset_place(&self, tid: usize) -> bool {
@@ -410,34 +462,72 @@ impl ExecutorBackend for BitmapBackend {
             )
         };
 
+        // ν-net join: resolve the correlation name once, then consume the
+        // matched tokens (NU-020). For correlated inputs the chosen name plus
+        // any unary guard form a combined predicate (guard first, then name
+        // equality — NU-021); other inputs consume FIFO as usual.
+        let chosen: Option<NameId> = if self.compiled.has_match(tid) {
+            self.find_match_binding(tid)
+        } else {
+            None
+        };
+        let match_spec = self.compiled.transition(tid).match_spec().cloned();
+
         for in_spec in &input_specs {
             let place_name = in_spec.place_name();
-            let to_consume = match in_spec {
-                In::One { .. } => 1,
-                In::Exactly { count, .. } => *count,
-                In::All { guard, .. } | In::AtLeast { guard, .. } => {
-                    if guard.is_some() {
-                        self.marking
-                            .count_matching(place_name, &**guard.as_ref().unwrap())
-                    } else {
-                        self.marking.count(place_name)
+            let place_name_arc = Arc::clone(in_spec.place().name_arc());
+            let key = match_spec
+                .as_ref()
+                .and_then(|m| m.key_for(place_name))
+                .cloned();
+            let guard = in_spec.guard().cloned();
+
+            if key.is_some() || guard.is_some() {
+                let chosen_name = chosen.clone();
+                let pred = move |v: &dyn std::any::Any| -> bool {
+                    if let Some(g) = &guard
+                        && !g(v)
+                    {
+                        return false;
+                    }
+                    match &key {
+                        Some(k) => matches!(
+                            (k(v), &chosen_name),
+                            (Some(n), Some(c)) if n == *c
+                        ),
+                        None => true,
+                    }
+                };
+                let to_consume = match in_spec {
+                    In::One { .. } => 1,
+                    In::Exactly { count, .. } => *count,
+                    In::All { .. } | In::AtLeast { .. } => {
+                        self.marking.count_matching(place_name, &pred)
+                    }
+                };
+                for _ in 0..to_consume {
+                    if let Some(token) = self.marking.remove_matching(place_name, &pred) {
+                        emit_removed(&place_name_arc, &token);
+                        inputs
+                            .entry(Arc::clone(&place_name_arc))
+                            .or_default()
+                            .push(token);
                     }
                 }
-            };
-
-            let place_name_arc = Arc::clone(in_spec.place().name_arc());
-            for _ in 0..to_consume {
-                let token = if let Some(guard) = in_spec.guard() {
-                    self.marking.remove_matching(place_name, &**guard)
-                } else {
-                    self.marking.remove_first(place_name)
+            } else {
+                let to_consume = match in_spec {
+                    In::One { .. } => 1,
+                    In::Exactly { count, .. } => *count,
+                    In::All { .. } | In::AtLeast { .. } => self.marking.count(place_name),
                 };
-                if let Some(token) = token {
-                    emit_removed(&place_name_arc, &token);
-                    inputs
-                        .entry(Arc::clone(&place_name_arc))
-                        .or_default()
-                        .push(token);
+                for _ in 0..to_consume {
+                    if let Some(token) = self.marking.remove_first(place_name) {
+                        emit_removed(&place_name_arc, &token);
+                        inputs
+                            .entry(Arc::clone(&place_name_arc))
+                            .or_default()
+                            .push(token);
+                    }
                 }
             }
         }

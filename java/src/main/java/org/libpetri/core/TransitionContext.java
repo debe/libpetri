@@ -3,6 +3,8 @@ package org.libpetri.core;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 
 /**
  * Context provided to transition actions.
@@ -62,6 +64,14 @@ public final class TransitionContext {
         return CURRENT;
     }
 
+    /**
+     * Process-global fallback counter for {@link #freshName()} when no
+     * executor-installed minter is present (e.g. a context built directly in a
+     * unit test). Guarantees uniqueness; the executor installs a deterministic
+     * per-run minter for replay-stable names.
+     */
+    private static final AtomicLong GLOBAL_FRESH_NAME_COUNTER = new AtomicLong();
+
     private Transition transition;
     private TokenInput rawInput;
     private TokenOutput rawOutput;
@@ -70,6 +80,7 @@ public final class TransitionContext {
     private Set<Place<?>> allowedOutputs;
     private Map<Place<?>, Place<?>> placeAlias;
     private Map<Class<?>, Object> executionContext;
+    private Supplier<NameId> freshNameSupplier;
 
     public TransitionContext(Transition transition, TokenInput rawInput, TokenOutput rawOutput) {
         this(transition, rawInput, rawOutput, Map.of());
@@ -321,6 +332,39 @@ public final class TransitionContext {
                 allowedOutputs.stream().map(Place::name).toList()
             );
         }
+    }
+
+    // ==================== ν-name minting (NU-010) ====================
+
+    /**
+     * Installs the ν-name minter. Wired by the executor at firing time so names
+     * minted by {@link #freshName()} are monotonic across the run and
+     * instance-prefixed (spec NU-010, NU-030).
+     *
+     * <p><b>Internal API</b> — the executor is the only legitimate caller.
+     *
+     * @param supplier the minter
+     */
+    public void setFreshNameSupplier(Supplier<NameId> supplier) {
+        this.freshNameSupplier = supplier;
+    }
+
+    /**
+     * Mints a fresh ν-name (the ν-binder primitive — spec NU-010).
+     *
+     * <p>An action calls this on the fork side to create a correlation id, then
+     * writes it into the sibling output payloads; a later join correlates those
+     * siblings via a {@link MatchSpec}. Uses the executor-installed minter when
+     * present; otherwise falls back to a process-global counter prefixed by the
+     * transition name (still unique, but not replay-stable across processes).
+     *
+     * @return a fresh correlation name
+     */
+    public NameId freshName() {
+        if (freshNameSupplier != null) {
+            return freshNameSupplier.get();
+        }
+        return new NameId(transition.name() + "#" + GLOBAL_FRESH_NAME_COUNTER.getAndIncrement());
     }
 
     // ==================== Structure Info ====================

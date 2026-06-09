@@ -5,11 +5,14 @@
 //! transition builder. Composition is supported through [`PyPetriNetBuilder::compose`]
 //! and the subnet builder family.
 
+use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use libpetri::core::instance::Instance;
 use libpetri::core::interface::PortDirection;
+use libpetri::core::match_spec::{KeyFn, MatchKey, MatchSpec};
+use libpetri::core::name::NameId;
 use libpetri::core::subnet_def::SubnetDef;
 use libpetri::core::subnet_instance::SubnetInstance;
 use libpetri::{
@@ -91,6 +94,37 @@ impl PyOutputSpec {
     fn __repr__(&self) -> String {
         format!("{:?}", self.inner)
     }
+}
+
+/// Opaque ν-net join correlation spec. Build via `match_spec([(place, key), ...])`.
+#[pyclass(module = "_libpetri", name = "MatchSpec", from_py_object)]
+#[derive(Clone)]
+pub struct PyMatchSpec {
+    pub(crate) inner: MatchSpec,
+}
+
+#[pymethods]
+impl PyMatchSpec {
+    fn __repr__(&self) -> String {
+        let places: Vec<&str> = self.inner.keys().iter().map(|k| k.place_name()).collect();
+        format!("MatchSpec(places={places:?})")
+    }
+}
+
+/// Wraps a Python `value -> str` projection into an erased [`KeyFn`]. The
+/// projection runs under the GIL on each candidate token's Python value; a
+/// non-string result or a raised exception yields no name (the token never
+/// correlates), mirroring the type-mismatch behaviour of the typed builders.
+fn make_py_key_fn(callback: Py<PyAny>) -> KeyFn {
+    Arc::new(move |v: &dyn Any| -> Option<NameId> {
+        let wrapped = v.downcast_ref::<PyTokenValue>()?;
+        Python::attach(|py| {
+            let value = wrapped.clone_ref(py);
+            let result = callback.bind(py).call1((value,)).ok()?;
+            let name: String = result.extract().ok()?;
+            Some(NameId::new(name))
+        })
+    })
 }
 
 /// Inhibitor arc: a transition with this arc is disabled while the place has any token.
@@ -188,6 +222,7 @@ pub struct PyTransitionBuilder {
     inhibitors: Vec<Inhibitor>,
     reads: Vec<Read>,
     resets: Vec<Reset>,
+    match_spec: Option<MatchSpec>,
     timing: Timing,
     action: Option<PyAction>,
     priority: i32,
@@ -247,6 +282,7 @@ impl PyTransitionBuilder {
             inhibitors: Vec::new(),
             reads: Vec::new(),
             resets: Vec::new(),
+            match_spec: None,
             timing: immediate(),
             action: None,
             priority: 0,
@@ -298,6 +334,16 @@ impl PyTransitionBuilder {
         Ok(slf)
     }
 
+    /// Sets the ν-net join correlation spec (built via `match_spec(...)`). Every
+    /// correlated place must also be declared as an input (spec NU-020).
+    fn match_spec(slf: Py<Self>, py: Python<'_>, spec: &PyMatchSpec) -> PyResult<Py<Self>> {
+        {
+            let mut this = slf.borrow_mut(py);
+            this.match_spec = Some(spec.inner.clone());
+        }
+        Ok(slf)
+    }
+
     /// Sets the timing constraint (default: `immediate()`).
     fn timing(slf: Py<Self>, py: Python<'_>, t: &PyTiming) -> PyResult<Py<Self>> {
         {
@@ -345,6 +391,10 @@ impl PyTransitionBuilder {
 
         if let Some(output) = &self.output {
             builder = builder.output(output.clone());
+        }
+
+        if let Some(match_spec) = &self.match_spec {
+            builder = builder.match_spec(match_spec.clone());
         }
 
         Ok(PyTransition {
@@ -848,6 +898,29 @@ fn py_one(p: &PyPlace) -> PyInputSpec {
     }
 }
 
+/// ν-net join correlation (spec NU-020): given `[(place, key), ...]` pairs, the
+/// transition is enabled only when a single name (produced by each `key(value)`
+/// projection) is present across all correlated inputs; firing consumes exactly
+/// those name-matched tokens. Attach via `Transition(...).match_spec(...)`.
+#[pyfunction(name = "match_spec")]
+fn py_match_spec(keys: Vec<(PyPlace, Py<PyAny>)>) -> PyResult<PyMatchSpec> {
+    if keys.len() < 2 {
+        return Err(PyValueError::new_err(format!(
+            "match_spec must correlate at least 2 input places, got {}",
+            keys.len()
+        )));
+    }
+    let match_keys: Vec<MatchKey> = keys
+        .into_iter()
+        .map(|(place, callback)| {
+            MatchKey::from_erased(place.place().as_ref(), make_py_key_fn(callback))
+        })
+        .collect();
+    Ok(PyMatchSpec {
+        inner: MatchSpec::from_keys(match_keys),
+    })
+}
+
 /// Input arc: consume exactly `count` tokens from `p`.
 #[pyfunction(name = "exactly")]
 fn py_exactly(count: usize, p: &PyPlace) -> PyInputSpec {
@@ -997,6 +1070,7 @@ fn py_exact(at_ms: u64) -> PyTiming {
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPlace>()?;
     m.add_class::<PyInputSpec>()?;
+    m.add_class::<PyMatchSpec>()?;
     m.add_class::<PyOutputSpec>()?;
     m.add_class::<PyInhibitorArc>()?;
     m.add_class::<PyReadArc>()?;
@@ -1015,6 +1089,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyBuiltinAction>()?;
 
     m.add_function(wrap_pyfunction!(py_one, m)?)?;
+    m.add_function(wrap_pyfunction!(py_match_spec, m)?)?;
     m.add_function(wrap_pyfunction!(py_exactly, m)?)?;
     m.add_function(wrap_pyfunction!(py_all_tokens, m)?)?;
     m.add_function(wrap_pyfunction!(py_at_least, m)?)?;

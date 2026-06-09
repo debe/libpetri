@@ -19,8 +19,9 @@ import type { Transition } from '../core/transition.js';
 import type { Out } from '../core/out.js';
 import { earliest, latest, hasDeadline } from '../core/timing.js';
 import type { Graph, GraphNode, GraphEdge, RankDir } from './graph.js';
-import { nodeStyle, edgeStyle, FONT, GRAPH } from './styles.js';
+import { nodeStyle, edgeStyle, MATCH_INPUT_EDGE, FONT, GRAPH } from './styles.js';
 import type { NodeCategory } from './styles.js';
+import { matchCorrelates } from '../core/match-spec.js';
 import { partition } from './cluster-builder.js';
 import { instancePrefixOf } from './subnet-prefixes.js';
 
@@ -147,19 +148,22 @@ export function mapToGraph(net: PetriNet, config: DotConfig = DEFAULT_DOT_CONFIG
     // Input arcs from inputSpecs
     for (const spec of t.inputSpecs) {
       const pid = 'p_' + sanitize(spec.place.name);
-      const inputStyle = edgeStyle('input');
-      let label: string | undefined;
+      // ν-net correlated inputs (NU-020 / EXP-018) get a teal edge + ⟨n⟩ label.
+      const correlated = t.matchSpec !== null && matchCorrelates(t.matchSpec, spec.place.name);
+      const inputStyle = correlated ? MATCH_INPUT_EDGE : edgeStyle('input');
+      let card: string | undefined;
       switch (spec.type) {
         case 'exactly':
-          label = `×${spec.count}`;
+          card = `×${spec.count}`;
           break;
         case 'all':
-          label = '*';
+          card = '*';
           break;
         case 'at-least':
-          label = `≥${spec.minimum}`;
+          card = `≥${spec.minimum}`;
           break;
       }
+      const label = !correlated ? card : (card === undefined ? '⟨n⟩' : `⟨n⟩ ${card}`);
       edges.push({
         from: pid,
         to: tid,
