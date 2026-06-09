@@ -1346,6 +1346,63 @@ fn nu_join_blocks_without_matching_name<R: BackendRunner>() {
     assert_eq!(result.marking.count("branchB"), 1);
 }
 
+/// NU-021: the input guard composes with name correlation — the filter applies
+/// first, so a token failing the guard is never selected even if its name is
+/// present in every input by count. `branchA` rejects `"bad"`: `"bad"` is present
+/// in both inputs but cannot join (guard-failing), while the same marking's
+/// `"good"` pair does. Pins the cross-language firing contract the TypeScript
+/// port was diverging from (nu-2).
+fn nu_join_guard_excludes_failing_name<R: BackendRunner>() {
+    let a = Place::<NuMsg>::new("branchA");
+    let b = Place::<NuMsg>::new("branchB");
+    let merged = Place::<String>::new("merged");
+
+    let join = Transition::builder("join")
+        .input(one_guarded(&a, |m: &NuMsg| m.cid != "bad"))
+        .input(one(&b))
+        .match_spec(
+            MatchSpec::builder()
+                .key(&a, |m: &NuMsg| NameId::new(m.cid.clone()))
+                .key(&b, |m: &NuMsg| NameId::new(m.cid.clone()))
+                .build(),
+        )
+        .output(out_place(&merged))
+        .action(sync_action(|ctx| {
+            let ma = ctx.input::<NuMsg>("branchA")?;
+            let mb = ctx.input::<NuMsg>("branchB")?;
+            ctx.output("merged", format!("{}+{}", ma.cid, mb.cid))?;
+            Ok(())
+        }))
+        .build();
+
+    let net = PetriNet::builder("nu_join_guard").transition(join).build();
+
+    let mut marking = Marking::new();
+    // "bad" is present in both inputs by count, but branchA's guard rejects it.
+    marking.add(&a, Token::at(NuMsg { cid: "bad".into() }, 0));
+    marking.add(&a, Token::at(NuMsg { cid: "good".into() }, 1));
+    marking.add(&b, Token::at(NuMsg { cid: "bad".into() }, 0));
+    marking.add(&b, Token::at(NuMsg { cid: "good".into() }, 1));
+
+    let result = R::run(&net, marking);
+    assert!(result.quiescent);
+    // Only the guard-passing "good" pair joins; "bad" can never correlate.
+    assert_eq!(
+        result.marking.count("merged"),
+        1,
+        "only the guard-passing name should join"
+    );
+    let merged_val = result
+        .marking
+        .queue("merged")
+        .and_then(|q| q.iter().next().map(|t| t.downcast::<String>().unwrap().value().clone()))
+        .unwrap_or_default();
+    assert_eq!(merged_val, "good+good");
+    // The guard-failing "bad" tokens are left untouched in both inputs.
+    assert_eq!(result.marking.count("branchA"), 1);
+    assert_eq!(result.marking.count("branchB"), 1);
+}
+
 /// NU-010 + NU-020 end to end: a fork mints a fresh correlation id per firing
 /// (`ctx.fresh_name()`) and stamps both siblings; a downstream join re-merges
 /// exactly the siblings that share an id. Three requests in → three correctly
@@ -1545,6 +1602,7 @@ for_each_backend!(
     event_store_transition_enabled_disabled,
     nu_join_matches_by_name_not_fifo,
     nu_join_blocks_without_matching_name,
+    nu_join_guard_excludes_failing_name,
     nu_fork_mints_unique_ids_then_join_merges,
     nu_budget_bounds_concurrency,
 );
