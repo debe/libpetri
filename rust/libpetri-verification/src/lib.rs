@@ -53,6 +53,8 @@ pub mod environment;
 pub mod harness;
 pub mod incidence_matrix;
 pub mod marking_state;
+#[cfg(feature = "z3")]
+pub mod name_coloured_encoder;
 pub mod net_flattener;
 pub mod p_invariant;
 pub mod property;

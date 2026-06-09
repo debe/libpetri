@@ -12,6 +12,7 @@ import org.libpetri.smt.invariant.PInvariant;
 import org.libpetri.smt.invariant.PInvariantComputer;
 import org.libpetri.smt.invariant.StructuralCheck;
 import org.libpetri.smt.z3.CounterexampleDecoder;
+import org.libpetri.smt.z3.NameColouredEncoder;
 import org.libpetri.smt.z3.SmtEncoder;
 import org.libpetri.smt.z3.SpacerRunner;
 
@@ -245,11 +246,32 @@ public final class SmtVerifier {
         // Phase 4: SMT encode + query via Spacer
         report.append("Phase 4: IC3/PDR verification via Z3 Spacer...\n");
 
+        // ν-net exact refinement (NU-050 #1, Route A). For a budget-bounded ν-net in
+        // the supported mint→matched-join fragment, encode names as a finite colour
+        // set (k = the declared budget) with exact same-colour join matching, instead
+        // of the name-blind over-approximation — this rules out spurious
+        // counterexamples that would equate two distinct names. Only
+        // reachability-safety properties are routed here; everything else (and any net
+        // outside the fragment) keeps the flat encoding.
+        NameColouredEncoder.ColouredPlan colouredPlan =
+            (hasMatch && nuBounded && isReachabilitySafety(property))
+                ? NameColouredEncoder.buildPlan(net, flatNet, initialMarking, budgetPlaces)
+                : null;
+
         try (var runner = new SpacerRunner(timeout)) {
             var ctx = runner.context();
             var fp = runner.fixedpoint();
 
-            var encoding = SmtEncoder.encode(ctx, fp, flatNet, initialMarking, property, invariants, sinkPlaces);
+            SmtEncoder.EncodingResult encoding;
+            if (colouredPlan != null) {
+                report.append("  ν-encoding: name-coloured (exact within budget k=")
+                    .append(colouredPlan.k()).append("; ")
+                    .append(colouredPlan.colouredCount()).append(" coloured place(s))\n");
+                encoding = NameColouredEncoder.encode(
+                    ctx, fp, colouredPlan, flatNet, initialMarking, property, invariants);
+            } else {
+                encoding = SmtEncoder.encode(ctx, fp, flatNet, initialMarking, property, invariants, sinkPlaces);
+            }
             var queryResult = runner.query(encoding.errorExpr(), encoding.reachableDecl());
 
             var smtResult = switch (queryResult) {
@@ -366,7 +388,7 @@ public final class SmtVerifier {
                     );
                 }
             };
-            return applyNuGuard(smtResult, hasMatch, nuBounded);
+            return applyNuGuard(smtResult, hasMatch, nuBounded, colouredPlan != null);
         } catch (com.microsoft.z3.Z3Exception e) {
             report.append("  ERROR: ").append(e.getMessage()).append("\n\n");
             report.append("=== RESULT ===\n\n");
@@ -449,13 +471,18 @@ public final class SmtVerifier {
      *       name-partition quotient).</li>
      *   <li>Reachability-safety with unbounded fresh names (no budget declared):
      *       reachability over unbounded fresh names is undecidable — Unknown.</li>
-     *   <li>Bounded reachability-safety: {@code Proven} is sound; a
-     *       {@code Violated} may be spurious — the verdict is kept and the
-     *       over-approximation caveat is appended to the report.</li>
+     *   <li>Bounded reachability-safety in the name-coloured fragment
+     *       ({@code exact}): name equality is encoded exactly via bounded
+     *       name-colouring, so the verdict is sound <em>and</em> complete within
+     *       the budget — no spurious different-name counterexample. The verdict is
+     *       kept and the exact-path note is appended.</li>
+     *   <li>Bounded reachability-safety outside that fragment: {@code Proven} is
+     *       sound; a {@code Violated} may be spurious — the verdict is kept and the
+     *       over-approximation caveat is appended.</li>
      * </ul>
      */
     private SmtVerificationResult applyNuGuard(
-            SmtVerificationResult result, boolean hasMatch, boolean nuBounded
+            SmtVerificationResult result, boolean hasMatch, boolean nuBounded, boolean exact
     ) {
         if (!hasMatch || result.verdict() instanceof SmtVerificationResult.Verdict.Unknown) {
             return result;
@@ -473,10 +500,17 @@ public final class SmtVerifier {
                 + "undecidable (NU-040) — declare the budget place(s) that gate minting to "
                 + "verify within the bounded fragment");
         }
-        // Bounded reachability-safety: keep the (sound) verdict, append the caveat.
-        String note = "\nNote: matched (ν-join) transitions are over-approximated (name equality "
-            + "assumed satisfiable). 'Proven' is sound; a 'Violated' counterexample may be "
-            + "spurious pending the exact ν-analysis (NU-050).\n";
+        // Bounded reachability-safety. The exact path (NU-050 #1, Route A) encodes
+        // name equality exactly via bounded name-colouring, so both Proven and
+        // Violated are trustworthy; outside the fragment the matched transitions are
+        // over-approximated, so a Violated may be spurious.
+        String note = exact
+            ? "\nNote: ν-join name equality is encoded exactly via bounded name-colouring "
+                + "(k = budget); the verdict is sound and complete within the budget bound — no "
+                + "spurious different-name counterexample (NU-050 #1).\n"
+            : "\nNote: matched (ν-join) transitions are over-approximated (name equality "
+                + "assumed satisfiable). 'Proven' is sound; a 'Violated' counterexample may be "
+                + "spurious pending the exact ν-analysis (NU-050).\n";
         return new SmtVerificationResult(
             result.verdict(), result.report() + note, result.invariants(),
             result.discoveredInvariants(), result.counterexampleTrace(),

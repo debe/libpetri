@@ -7,6 +7,7 @@ use crate::counterexample::{self, DecodedTrace};
 use crate::environment::EnvironmentAnalysisMode;
 use crate::incidence_matrix::IncidenceMatrix;
 use crate::marking_state::{MarkingState, MarkingStateBuilder};
+use crate::name_coloured_encoder;
 use crate::net_flattener::{self, FlatNet};
 use crate::p_invariant;
 use crate::property::SmtProperty;
@@ -249,15 +250,48 @@ impl<'a> SmtVerifier<'a> {
         report.push_str("=== Phase 4: SMT Verification ===\n");
         report.push_str(&format!("Property: {}\n", self.property.description()));
 
-        let encoding = smt_encoder::encode(
-            &flat,
-            &self.initial_marking,
-            &self.property,
-            &invariants,
-            &self.sink_places,
-            &env_bounds,
-            &env_injection,
-        );
+        // ν-net exact refinement (NU-050 #1, Route A). For a budget-bounded ν-net
+        // in the supported mint→matched-join fragment, encode names as a finite
+        // colour set (k = the declared budget) with exact same-colour join
+        // matching, instead of the name-blind over-approximation — this rules out
+        // spurious counterexamples that would equate two distinct names. Only
+        // reachability-safety properties are routed here; everything else (and
+        // any net outside the fragment) keeps the flat encoding.
+        let coloured_plan = if has_match && nu_bounded && is_reachability_safety(&self.property) {
+            name_coloured_encoder::build_plan(
+                self.net,
+                &flat,
+                &self.initial_marking,
+                &self.budget_places,
+            )
+        } else {
+            None
+        };
+
+        let encoding = if let Some(plan) = &coloured_plan {
+            report.push_str(&format!(
+                "ν-encoding: name-coloured (exact within budget k={}; {} coloured place(s))\n",
+                plan.k,
+                plan.coloured.len()
+            ));
+            name_coloured_encoder::encode_coloured(
+                plan,
+                &flat,
+                &self.initial_marking,
+                &self.property,
+                &invariants,
+            )
+        } else {
+            smt_encoder::encode(
+                &flat,
+                &self.initial_marking,
+                &self.property,
+                &invariants,
+                &self.sink_places,
+                &env_bounds,
+                &env_injection,
+            )
+        };
 
         // Run Z3 Spacer
         let z3_result = run_z3_spacer(&encoding.smt2, self.timeout_ms);
@@ -307,10 +341,21 @@ impl<'a> SmtVerifier<'a> {
                     .to_string();
                 report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
                 verdict = Verdict::Unknown { reason };
+            } else if coloured_plan.is_some() {
+                // Exact path (NU-050 #1, Route A): name equality is encoded
+                // exactly via bounded name-colouring, so the verdict is sound AND
+                // complete within the budget bound — no spurious different-name
+                // counterexample. Both `Proven` and `Violated` are trustworthy.
+                report.push_str(
+                    "Note: ν-join name equality is encoded exactly via bounded name-colouring \
+                     (k = budget); the verdict is sound and complete within the budget bound — \
+                     no spurious different-name counterexample (NU-050 #1).\n",
+                );
             } else {
-                // Bounded reachability-safety: `Proven` is sound. A `Violated`
-                // counterexample may be spurious (it could require joining two
-                // distinct names), which the exact ν-analysis would rule out.
+                // Bounded reachability-safety, but outside the name-coloured
+                // fragment: `Proven` is sound. A `Violated` counterexample may be
+                // spurious (it could require joining two distinct names), which
+                // the exact ν-analysis would rule out.
                 report.push_str(
                     "Note: matched (ν-join) transitions are over-approximated (name equality \
                      assumed satisfiable). 'Proven' is sound; a 'Violated' counterexample may \
@@ -806,9 +851,11 @@ mod tests {
             "BranchPlaceBound(pending, 2) must be proven for the bounded scatter-gather\n{}",
             result.report
         );
+        // The scatter-gather is in the name-coloured fragment, so the bound is
+        // decided exactly (NU-050 #1), not via the name-blind over-approximation.
         assert!(
-            result.report.contains("over-approximated"),
-            "a bounded ν-net result must carry the over-approximation caveat\n{}",
+            result.report.contains("name-coloured"),
+            "a bounded ν-net in the supported fragment uses the exact name-coloured encoding\n{}",
             result.report
         );
     }
@@ -949,6 +996,112 @@ mod tests {
         assert!(
             result.is_violated(),
             "a stranded pending token at quiescence -> Violated\n{}",
+            result.report
+        );
+    }
+
+    // === NU-050 #1: name-coloured exact ν-verification (Stage 6b, Route A) ===
+    // The flat encoder over-approximates ν-join name equality (name-blind). The
+    // bounded name-coloured encoding (k = budget) decides it exactly: a join
+    // fires only on same-coloured tokens, so a counterexample requiring two
+    // distinct names to be equal is eliminated. These tests pin that on Z3.
+
+    /// Two INDEPENDENT mints feed one join: `forkA` mints a name into `branchA`,
+    /// `forkB` mints a *different* name into `branchB`. Their names can never be
+    /// equal, so the join can never correlate them and `merged` is unreachable.
+    /// The name-blind over-approximation would (wrongly) fire the join — exactly
+    /// the spurious "two distinct names are equal" counterexample NU-050 #1 kills.
+    fn nu_distinct_mints_net() -> PetriNet {
+        use libpetri_core::match_spec::MatchSpec;
+        use libpetri_core::name::NameId;
+
+        let source_a = Place::<()>::new("sourceA");
+        let source_b = Place::<()>::new("sourceB");
+        let budget = Place::<()>::new("budget");
+        let a = Place::<String>::new("branchA");
+        let b = Place::<String>::new("branchB");
+        let merged = Place::<String>::new("merged");
+
+        let fork_a = Transition::builder("forkA")
+            .input(one(&source_a))
+            .input(one(&budget))
+            .output(out_place(&a))
+            .build();
+        let fork_b = Transition::builder("forkB")
+            .input(one(&source_b))
+            .input(one(&budget))
+            .output(out_place(&b))
+            .build();
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |s: &String| NameId::new(s.clone()))
+                    .key(&b, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(out_place(&merged))
+            .build();
+
+        PetriNet::builder("nu_distinct_mints")
+            .transitions([fork_a, fork_b, join])
+            .build()
+    }
+
+    #[test]
+    fn nu_distinct_mints_never_join_merged_unreachable() {
+        if !z3_available() {
+            eprintln!("skipping nu_distinct_mints_*: z3 binary not on PATH");
+            return;
+        }
+        // NU-050 #1: distinct-mint names can never join -> `merged` unreachable.
+        // The name-blind over-approximation would report this Violated (spurious);
+        // the name-coloured encoding proves it.
+        let net = nu_distinct_mints_net();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(
+                MarkingStateBuilder::new()
+                    .tokens("sourceA", 1)
+                    .tokens("sourceB", 1)
+                    .tokens("budget", 2)
+                    .build(),
+            )
+            .property(SmtProperty::unreachable(vec!["merged".into()]))
+            .budget_place("budget")
+            .timeout(15_000)
+            .verify();
+        assert!(
+            result.is_proven(),
+            "distinct-mint names can never correlate -> merged unreachable -> Proven\n{}",
+            result.report
+        );
+        assert!(
+            result.report.contains("name-coloured"),
+            "must use the exact name-coloured encoding\n{}",
+            result.report
+        );
+    }
+
+    #[test]
+    fn nu_same_mint_can_join_merged_reachable() {
+        if !z3_available() {
+            eprintln!("skipping nu_same_mint_*: z3 binary not on PATH");
+            return;
+        }
+        // Companion (non-vacuity): the SAME-mint scatter-gather stamps both
+        // branches with one name, so the join CAN fire and `merged` IS reachable.
+        // The colouring tracks real reachability — Unreachable(merged) is Violated.
+        let net = nu_scatter_gather_net();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(nu_initial_marking(2))
+            .property(SmtProperty::unreachable(vec!["merged".into()]))
+            .budget_place("budget")
+            .timeout(15_000)
+            .verify();
+        assert!(
+            result.is_violated(),
+            "same-mint siblings can join -> merged reachable -> Violated\n{}",
             result.report
         );
     }

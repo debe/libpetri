@@ -69,8 +69,10 @@ def test_branch_budget_bound_proven_with_declared_budget():
     assert result.verdict == "proven", result.report
 
 
-def test_pending_bound_proven_with_caveat():
-    # NU-040 #2 (bound half): at most k live groups.
+def test_pending_bound_proven_exact():
+    # NU-040 #2 (bound half): at most k live groups. The scatter-gather is in the
+    # name-coloured fragment (Stage 6b / NU-050 #1), so the bound is decided
+    # exactly rather than via the name-blind over-approximation.
     net, source, budget, pending = _nu_scatter_gather_net()
     result = lp.verify(
         net,
@@ -80,7 +82,7 @@ def test_pending_bound_proven_with_caveat():
         timeout_ms=15_000,
     )
     assert result.verdict == "proven", result.report
-    assert "over-approximated" in result.report
+    assert "name-coloured" in result.report
 
 
 def test_unbounded_without_declared_budget_is_unknown():
