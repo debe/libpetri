@@ -68,7 +68,7 @@ public final class StateClassGraph {
      * <p>This design maps XOR semantics to standard CPN conflict, keeping the
      * Berthomieu-Diaz algorithm unchanged while supporting formal XOR analysis.
      */
-    private record VirtualTransition(
+    record VirtualTransition(
         Transition transition,      // The original transition
         int branchIndex,            // Which XOR branch (0 for non-XOR)
         Set<Place<?>> outputPlaces  // The specific outputs for this branch
@@ -185,24 +185,7 @@ public final class StateClassGraph {
             envPlaces.add(ep.place());
         }
 
-        // Compute initially enabled transitions
-        var enabledTransitions = findEnabledTransitions(net, initialMarking, envPlaces, environmentMode);
-
-        // Create initial firing domain
-        var clockNames = enabledTransitions.stream().map(Transition::name).toList();
-        var lowerBounds = new double[enabledTransitions.size()];
-        var upperBounds = new double[enabledTransitions.size()];
-
-        for (int i = 0; i < enabledTransitions.size(); i++) {
-            var timing = enabledTransitions.get(i).timing();
-            lowerBounds[i] = timing.earliest().toMillis() / 1000.0;
-            upperBounds[i] = timing.latest().toMillis() / 1000.0;
-        }
-
-        var initialDBM = DBM.create(clockNames, lowerBounds, upperBounds);
-        // Let time pass so transitions can fire
-        initialDBM = initialDBM.letTimePass();
-        var initialClass = new StateClass(initialMarking, initialDBM, enabledTransitions);
+        var initialClass = initialStateClass(net, initialMarking, envPlaces, environmentMode);
 
         // BFS exploration
         var stateClasses = new LinkedHashSet<StateClass>();
@@ -254,6 +237,30 @@ public final class StateClassGraph {
     }
 
     /**
+     * Builds the initial state class (enabled set + firing-domain DBM after
+     * letting time pass). Shared by the plain SCG and the name-aware ν-partition
+     * SCG ({@link NameStateClassGraph}).
+     */
+    static StateClass initialStateClass(
+            PetriNet net,
+            MarkingState initialMarking,
+            Set<Place<?>> environmentPlaces,
+            EnvironmentAnalysisMode environmentMode
+    ) {
+        var enabledTransitions = findEnabledTransitions(net, initialMarking, environmentPlaces, environmentMode);
+        var clockNames = enabledTransitions.stream().map(Transition::name).toList();
+        var lowerBounds = new double[enabledTransitions.size()];
+        var upperBounds = new double[enabledTransitions.size()];
+        for (int i = 0; i < enabledTransitions.size(); i++) {
+            var timing = enabledTransitions.get(i).timing();
+            lowerBounds[i] = timing.earliest().toMillis() / 1000.0;
+            upperBounds[i] = timing.latest().toMillis() / 1000.0;
+        }
+        var initialDBM = DBM.create(clockNames, lowerBounds, upperBounds).letTimePass();
+        return new StateClass(initialMarking, initialDBM, enabledTransitions);
+    }
+
+    /**
      * Expands a transition into virtual transitions (one per XOR branch).
      * For non-XOR transitions, returns a single-element list.
      *
@@ -261,7 +268,7 @@ public final class StateClassGraph {
      * with the Berthomieu-Diaz algorithm: each XOR branch becomes a separate
      * virtual transition in structural conflict with other branches.
      */
-    private static List<VirtualTransition> expandTransition(Transition t) {
+    static List<VirtualTransition> expandTransition(Transition t) {
         List<Set<Place<?>>> branches;
 
         if (t.outputSpec() != null) {
@@ -285,7 +292,7 @@ public final class StateClassGraph {
      * with the extension that the output places come from the virtual transition
      * (which may be a specific XOR branch).
      */
-    private static StateClass computeSuccessor(
+    static StateClass computeSuccessor(
             PetriNet net,
             StateClass current,
             VirtualTransition fired,
@@ -368,7 +375,7 @@ public final class StateClassGraph {
     /**
      * Finds all structurally enabled transitions for a marking with environment place support.
      */
-    private static List<Transition> findEnabledTransitions(
+    static List<Transition> findEnabledTransitions(
             PetriNet net,
             MarkingState marking,
             Set<Place<?>> environmentPlaces,

@@ -171,7 +171,7 @@ The engine may support state class graph construction using the Berthomieu-Diaz 
 **Implementation notes:**
 - Java: Full implementation
 - TypeScript: Full implementation
-- Rust: Not implemented
+- Rust: Full implementation (`libpetri-verification` `state_class_graph`)
 
 **Test derivation:** Small timed net; construct state class graph; verify reachable classes match expected.
 
@@ -191,9 +191,55 @@ Timing constraints within a state class are represented as a Difference Bound Ma
 **Implementation notes:**
 - Java: Full implementation
 - TypeScript: Full implementation
-- Rust: Not implemented
+- Rust: Full implementation (`libpetri-verification` `dbm`)
 
 **Test derivation:** Create DBM for 3 timed transitions; fire one; verify successor zone constraints.
+
+---
+
+#### VER-012: Name-Aware State Class Graph (ν-Partition Quotient)
+
+**Priority:** MAY
+
+The state class graph ([VER-010]) MAY be made **ν-aware** to decide [NU-020] join
+correlation *exactly* — the [NU-050] **Route B** carve-out. Each correlation
+token carries an abstract, interchangeable name-symbol; a matched (ν-join)
+transition is enabled only when one symbol is shared by every correlated input
+(not merely when the token counts allow); a minting fork introduces a
+globally-fresh symbol; and the graph is quotiented under name-permutation
+symmetry (its dedup key abstracts the symbol identities). The timed firing domain
+([VER-011]) is carried unchanged alongside the name partition, so the analysis is
+exact over **name × time**, and quiescence ([NU-050]) is decided over the
+name-aware terminal classes.
+
+**Acceptance Criteria:**
+1. A ν-join fires in the graph only on a name shared by all correlated inputs; a
+   marking reachable only by equating two distinct names is *not* reachable
+   (NU-050 #1), with no budget place required.
+2. Two markings differing only by a permutation of name-symbols are the same
+   state class (the quotient is finite when the live-name pool is structurally
+   bounded).
+3. When the graph closes within the class bound the verdict is exact (sound and
+   complete) for reachability-safety and quiescence; otherwise it truncates and
+   the verdict is `Unknown` (NU-050 #2 — undecidability surfaces as truncation).
+
+**Implementation notes:**
+- Rust: Full implementation (`libpetri-verification` `name_state_class_graph` /
+  `nu_scg_verifier`); the canonical name-partition key format is shared verbatim.
+- Java: Full implementation (`org.libpetri.analysis.NameStateClassGraph` /
+  `org.libpetri.smt.NuScgVerifier`).
+- TypeScript: Full implementation (`verification/analysis/name-state-class-graph`
+  / `verification/nu-scg-verifier`).
+- Python: inherits the Rust analysis through `verify`.
+- Solver-free (no Z3); the verifier prefers Route A's bounded name-colouring for
+  budget-declared untimed reachability-safety and uses this route for quiescence,
+  budget-less, and timed ν-nets.
+
+**Depends on:** [VER-010], [VER-011], [NU-020], [NU-050]
+
+**Test derivation:** Two independent mints feeding one join with no budget place;
+verify the join output is unreachable (NU-050 #1); a same-mint variant reaches it;
+an ever-minting net truncates to `Unknown`.
 
 ---
 

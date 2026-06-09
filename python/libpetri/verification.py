@@ -101,6 +101,7 @@ def verify(
     sink_places: Iterable[PlaceLike] | None = None,
     budget_places: Iterable[PlaceLike] | None = None,
     timeout_ms: int = 30_000,
+    nu_max_classes: int | None = None,
 ) -> VerificationResult:
     """Verify ``property`` against ``net`` via SMT (Z3).
 
@@ -114,11 +115,15 @@ def verify(
     a would-be vacuous ``proven`` is downgraded to ``unknown``.
 
     ``budget_places`` (NU-040) declares the places whose token count bounds the
-    live correlation pool of a ν-net (they gate fresh-name minting). Declaring at
-    least one places a name-minting net in the decidable bounded fragment;
-    without it a ν-net yields ``unknown`` (NU-050). Quiescence-based properties
-    (deadlock-freedom, joined-or-dead-lettered) on a ν-net also yield ``unknown``,
-    deferred to the exact ν-analysis.
+    live correlation pool of a ν-net (they gate fresh-name minting). For a
+    budget-bounded ν-net under a reachability-safety bound, name equality is
+    decided exactly via bounded name-colouring (NU-050 #1, Route A). For
+    quiescence properties (deadlock-freedom, joined-or-dead-lettered), unbudgeted
+    ν-nets, and timed ν-nets, ν-join correlation is decided exactly via the
+    name-aware state-class-graph name-partition quotient (NU-050, Route B) — which
+    also discovers structural boundedness without a declared budget. When the live
+    correlation pool is not structurally bounded the name-aware graph is truncated
+    at ``nu_max_classes`` (default 100 000) and the verdict is ``unknown``.
     """
     return _ext.verify_net(
         _coerce_net(net),
@@ -133,6 +138,7 @@ def verify(
         sink_places=[_coerce_place_name(p) for p in (sink_places or ())],
         budget_places=[_coerce_place_name(p) for p in (budget_places or ())],
         timeout_ms=timeout_ms,
+        nu_max_classes=nu_max_classes,
     )
 
 

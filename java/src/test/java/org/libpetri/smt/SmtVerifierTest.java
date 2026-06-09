@@ -523,52 +523,46 @@ class SmtVerifierTest {
     }
 
     @Test
-    @EnabledIf("z3Available")
-    void nuUnbounded_withoutDeclaredBudget_isUnknown() {
-        // NU-050 #2: a ν-net that mints fresh names without a declared budget is
-        // treated as unbounded — Unknown rather than a precision-limited verdict,
-        // even for a bound the over-approximation could prove.
+    void nuStructurallyBounded_withoutDeclaredBudget_decidedByRouteB() {
+        // NU-050 Route B: without a DECLARED budget place the SMT/Route-A path
+        // returns Unknown, but the name-aware SCG name-partition quotient discovers
+        // the structural bound (the budget token caps live groups) and proves the
+        // bound exactly — the beyond-bounded win. Pure SCG, so no Z3 binary needed.
         var result = SmtVerifier.forNet(nuScatterGatherNet())
             .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); })
             .property(SmtProperty.branchPlaceBound(NU_BUDGET, 2))
-            .timeout(Duration.ofSeconds(15))
             .verify();
-        assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(),
-            "an undeclared-budget ν-net must be Unknown\n" + result.report());
-        var reason = ((SmtVerificationResult.Verdict.Unknown) result.verdict()).reason();
-        assertTrue(reason.contains("budget") && reason.contains("unbounded"),
-            "Unknown reason should explain the missing budget declaration: " + reason);
+        assertTrue(result.isProven(),
+            "Route B decides a structurally-bounded ν-net without a declared budget\n" + result.report());
+        assertTrue(result.report().contains("Route B"), "expected the Route B note\n" + result.report());
     }
 
     @Test
-    @EnabledIf("z3Available")
-    void nuJoinedOrDeadLettered_unknownOnNuNet() {
-        // JoinedOrDeadLettered is quiescence-based: the name-blind
-        // over-approximation cannot decide it soundly on a ν-net. Even with the
-        // budget declared, the verdict is Unknown (deferred to NU-050 #1).
+    void nuJoinedOrDeadLettered_provenByRouteB() {
+        // NU-050 Route B: quiescence on a ν-net is decided exactly by the name-aware
+        // SCG. Same-mint siblings always join, so no quiescent state strands
+        // `pending` -> Proven (the SMT path returned Unknown here). No Z3.
         var result = SmtVerifier.forNet(nuScatterGatherNet())
             .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); })
             .property(SmtProperty.joinedOrDeadLettered(NU_PENDING))
-            .budgetPlaces(NU_BUDGET)
-            .timeout(Duration.ofSeconds(15))
             .verify();
-        assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(),
-            "JoinedOrDeadLettered on a ν-net must be Unknown (quiescence deferred)\n" + result.report());
+        assertTrue(result.isProven(),
+            "every same-mint group joins -> no stranded pending -> Proven\n" + result.report());
+        assertTrue(result.report().contains("Route B"), "expected the Route B note\n" + result.report());
     }
 
     @Test
-    @EnabledIf("z3Available")
-    void nuDeadlockFree_unknownOnNuNet() {
-        // DeadlockFree is also quiescence-based — and the structural shortcut is
-        // gated off for ν-nets — so it ends as Unknown, not a name-blind proof.
+    void nuDeadlockFree_violatedByRouteB() {
+        // NU-050 Route B: DeadlockFree is now exact. The net quiesces when `source`
+        // is exhausted (budget returned, no group in flight) — a genuine deadlock
+        // with no declared sinks -> Violated (was Unknown). No Z3.
         var result = SmtVerifier.forNet(nuScatterGatherNet())
             .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); })
             .property(SmtProperty.deadlockFree())
-            .budgetPlaces(NU_BUDGET)
-            .timeout(Duration.ofSeconds(15))
             .verify();
-        assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(),
-            "DeadlockFree on a ν-net must be Unknown (quiescence deferred)\n" + result.report());
+        assertTrue(result.isViolated(),
+            "the net quiesces when source is exhausted -> DeadlockFree violated\n" + result.report());
+        assertTrue(result.report().contains("Route B"), "expected the Route B note\n" + result.report());
     }
 
     @Test
@@ -692,5 +686,75 @@ class SmtVerifierTest {
             .verify();
         assertTrue(result.isViolated(),
             "same-mint siblings can join -> merged reachable -> Violated\n" + result.report());
+    }
+
+    // === NU-050 Route B: exact name-aware SCG name-partition quotient ===
+
+    /**
+     * Two independent mints feed one join, with NO budget place: {@code forkA}
+     * mints into {@code branchA}, {@code forkB} a different name into
+     * {@code branchB}. Their names can never be equal, so {@code merged} is
+     * unreachable — the beyond-bounded win Route A cannot do (no declared budget).
+     */
+    private static PetriNet nuDistinctMintsNoBudgetNet() {
+        var sourceA = Place.of("sourceA", Integer.class);
+        var sourceB = Place.of("sourceB", Integer.class);
+        var a = Place.of("branchA", String.class);
+        var b = Place.of("branchB", String.class);
+        var merged = Place.of("merged", String.class);
+        var forkA = Transition.builder("forkA").inputs(Arc.In.one(sourceA)).outputs(Arc.Out.place(a)).build();
+        var forkB = Transition.builder("forkB").inputs(Arc.In.one(sourceB)).outputs(Arc.Out.place(b)).build();
+        var join = Transition.builder("join")
+            .inputs(Arc.In.one(a), Arc.In.one(b))
+            .match(MatchSpec.builder().key(a, (String s) -> NameId.of(s)).key(b, (String s) -> NameId.of(s)).build())
+            .outputs(Arc.Out.place(merged))
+            .build();
+        return PetriNet.builder("nuDistinctMintsNoBudget").transitions(forkA, forkB, join).build();
+    }
+
+    @Test
+    void nuDistinctMints_noBudget_mergedUnreachable_provenByRouteB() {
+        var result = SmtVerifier.forNet(nuDistinctMintsNoBudgetNet())
+            .initialMarking(m -> { m.tokens(NU_SOURCE_A, 1); m.tokens(NU_SOURCE_B, 1); })
+            .property(SmtProperty.unreachable(Set.of(NU_MERGED)))
+            .verify();
+        assertTrue(result.isProven(),
+            "distinct-mint names can never correlate -> merged unreachable (no budget needed)\n" + result.report());
+        assertTrue(result.report().contains("name-partition quotient"), result.report());
+        assertTrue(result.report().contains("Route B"), result.report());
+    }
+
+    /**
+     * A self-refilling fork mints a fresh name every firing with no join able to
+     * consume it ({@code branchB} is never produced) — the name-aware graph grows
+     * without bound, so it truncates and the verdict is Unknown (NU-050 #2
+     * generalised).
+     */
+    private static PetriNet nuUnboundedMintNet() {
+        var source = Place.of("source", Integer.class);
+        var a = Place.of("branchA", String.class);
+        var b = Place.of("branchB", String.class);
+        var merged = Place.of("merged", String.class);
+        var fork = Transition.builder("fork")
+            .inputs(Arc.In.one(source)).outputs(Arc.Out.and(source, a)).build();
+        var join = Transition.builder("join")
+            .inputs(Arc.In.one(a), Arc.In.one(b))
+            .match(MatchSpec.builder().key(a, (String s) -> NameId.of(s)).key(b, (String s) -> NameId.of(s)).build())
+            .outputs(Arc.Out.place(merged))
+            .build();
+        return PetriNet.builder("nuUnboundedMint").transitions(fork, join).build();
+    }
+
+    @Test
+    void nuUnboundedMint_truncatesToUnknown() {
+        var result = SmtVerifier.forNet(nuUnboundedMintNet())
+            .initialMarking(m -> m.tokens(NU_SOURCE, 1))
+            .property(SmtProperty.unreachable(Set.of(NU_MERGED)))
+            .nuMaxClasses(40)
+            .verify();
+        assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(),
+            "an unbounded ν-mint must truncate to Unknown\n" + result.report());
+        var reason = ((SmtVerificationResult.Verdict.Unknown) result.verdict()).reason();
+        assertTrue(reason.contains("truncated"), "Unknown reason should mention truncation: " + reason);
     }
 }

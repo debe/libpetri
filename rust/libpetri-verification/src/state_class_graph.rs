@@ -61,34 +61,7 @@ impl StateClassGraph {
         env_mode: &EnvironmentAnalysisMode,
     ) -> Self {
         let env_set: HashSet<&str> = env_places.iter().copied().collect();
-        let enabled = find_enabled_transitions(net, initial_marking, &env_set, env_mode);
-        let clock_names: Vec<String> = enabled.clone();
-        let lower_bounds: Vec<f64> = enabled
-            .iter()
-            .map(|name| {
-                let t = net
-                    .transitions()
-                    .iter()
-                    .find(|t| t.name() == name.as_str())
-                    .unwrap();
-                t.timing().earliest() as f64 / 1000.0
-            })
-            .collect();
-        let upper_bounds: Vec<f64> = enabled
-            .iter()
-            .map(|name| {
-                let t = net
-                    .transitions()
-                    .iter()
-                    .find(|t| t.name() == name.as_str())
-                    .unwrap();
-                t.timing().latest() as f64 / 1000.0
-            })
-            .collect();
-
-        let initial_dbm = Dbm::create(clock_names, &lower_bounds, &upper_bounds);
-        let initial_dbm = initial_dbm.let_time_pass();
-        let initial_class = StateClass::new(initial_marking.clone(), initial_dbm, enabled);
+        let initial_class = initial_state_class(net, initial_marking, &env_set, env_mode);
 
         let mut graph = StateClassGraph::new();
         let initial_key = initial_class.canonical_key();
@@ -251,7 +224,42 @@ impl Default for StateClassGraph {
 
 // ==================== Internal Functions ====================
 
-fn find_enabled_transitions(
+/// Builds the initial state class (enabled set + firing-domain DBM after letting
+/// time pass) for a net and marking. Shared by the plain SCG and the name-aware
+/// ν-partition SCG ([`crate::name_state_class_graph`]).
+pub(crate) fn initial_state_class(
+    net: &PetriNet,
+    initial_marking: &MarkingState,
+    env_set: &HashSet<&str>,
+    env_mode: &EnvironmentAnalysisMode,
+) -> StateClass {
+    let enabled = find_enabled_transitions(net, initial_marking, env_set, env_mode);
+    let clock_names: Vec<String> = enabled.clone();
+    let lower_bounds: Vec<f64> = enabled.iter().map(|name| timing_earliest(net, name)).collect();
+    let upper_bounds: Vec<f64> = enabled.iter().map(|name| timing_latest(net, name)).collect();
+    let initial_dbm = Dbm::create(clock_names, &lower_bounds, &upper_bounds).let_time_pass();
+    StateClass::new(initial_marking.clone(), initial_dbm, enabled)
+}
+
+/// Earliest firing time (seconds) of the named transition.
+pub(crate) fn timing_earliest(net: &PetriNet, name: &str) -> f64 {
+    net.transitions()
+        .iter()
+        .find(|t| t.name() == name)
+        .map(|t| t.timing().earliest() as f64 / 1000.0)
+        .unwrap_or(0.0)
+}
+
+/// Latest firing time (seconds) of the named transition.
+pub(crate) fn timing_latest(net: &PetriNet, name: &str) -> f64 {
+    net.transitions()
+        .iter()
+        .find(|t| t.name() == name)
+        .map(|t| t.timing().latest() as f64 / 1000.0)
+        .unwrap_or(f64::INFINITY)
+}
+
+pub(crate) fn find_enabled_transitions(
     net: &PetriNet,
     marking: &MarkingState,
     env_places: &HashSet<&str>,
@@ -266,7 +274,7 @@ fn find_enabled_transitions(
     enabled
 }
 
-fn is_enabled(
+pub(crate) fn is_enabled(
     transition: &libpetri_core::transition::Transition,
     marking: &MarkingState,
     env_places: &HashSet<&str>,
@@ -314,7 +322,7 @@ fn is_enabled(
     true
 }
 
-fn expand_transition(
+pub(crate) fn expand_transition(
     transition: &libpetri_core::transition::Transition,
 ) -> Vec<(usize, HashSet<String>)> {
     if let Some(out_spec) = transition.output_spec() {
@@ -341,7 +349,7 @@ fn expand_transition(
     }
 }
 
-fn compute_successor(
+pub(crate) fn compute_successor(
     net: &PetriNet,
     current: &StateClass,
     fired_clock: usize,

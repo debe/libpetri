@@ -17,7 +17,7 @@ export interface BranchEdge {
   readonly target: StateClass;
 }
 
-interface VirtualTransition {
+export interface VirtualTransition {
   readonly transition: Transition;
   readonly branchIndex: number;
   readonly outputPlaces: ReadonlySet<Place<any>>;
@@ -84,14 +84,7 @@ export class StateClassGraph {
       }
     }
 
-    const enabledTransitions = findEnabledTransitions(net, initialMarking, envPlaces, envMode);
-    const clockNames = enabledTransitions.map(t => t.name);
-    const lowerBounds = enabledTransitions.map(t => earliest(t.timing) / 1000);
-    const upperBounds = enabledTransitions.map(t => latest(t.timing) / 1000);
-
-    let initialDBM = DBM.create(clockNames, lowerBounds, upperBounds);
-    initialDBM = initialDBM.letTimePass();
-    const initialClass = new StateClass(initialMarking, initialDBM, enabledTransitions);
+    const initialClass = initialStateClass(net, initialMarking, envPlaces, envMode);
 
     // BFS exploration
     const stateClasses: StateClass[] = [initialClass];
@@ -225,7 +218,27 @@ function classKey(sc: StateClass): string {
   return `${sc.marking.toString()}|${sc.firingDomain.toString()}`;
 }
 
-function expandTransition(t: Transition): VirtualTransition[] {
+/**
+ * Builds the initial state class (enabled set + firing-domain DBM after letting
+ * time pass). Shared by the plain SCG and the name-aware ν-partition SCG
+ * (NU-050, Route B).
+ */
+export function initialStateClass(
+  net: PetriNet,
+  initialMarking: MarkingState,
+  envPlaces: Set<Place<any>>,
+  envMode: EnvironmentAnalysisMode,
+): StateClass {
+  const enabledTransitions = findEnabledTransitions(net, initialMarking, envPlaces, envMode);
+  const clockNames = enabledTransitions.map(t => t.name);
+  const lowerBounds = enabledTransitions.map(t => earliest(t.timing) / 1000);
+  const upperBounds = enabledTransitions.map(t => latest(t.timing) / 1000);
+  let initialDBM = DBM.create(clockNames, lowerBounds, upperBounds);
+  initialDBM = initialDBM.letTimePass();
+  return new StateClass(initialMarking, initialDBM, enabledTransitions);
+}
+
+export function expandTransition(t: Transition): VirtualTransition[] {
   let branches: ReadonlyArray<ReadonlySet<Place<any>>>;
 
   if (t.outputSpec !== null) {
@@ -241,7 +254,7 @@ function expandTransition(t: Transition): VirtualTransition[] {
   }));
 }
 
-function computeSuccessor(
+export function computeSuccessor(
   net: PetriNet,
   current: StateClass,
   fired: VirtualTransition,

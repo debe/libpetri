@@ -9,6 +9,7 @@ use crate::incidence_matrix::IncidenceMatrix;
 use crate::marking_state::{MarkingState, MarkingStateBuilder};
 use crate::name_coloured_encoder;
 use crate::net_flattener::{self, FlatNet};
+use crate::nu_scg_verifier;
 use crate::p_invariant;
 use crate::property::SmtProperty;
 use crate::result::{Verdict, VerificationResult, VerificationStatistics};
@@ -36,6 +37,11 @@ pub struct SmtVerifier<'a> {
     /// mints fresh names is treated as unbounded and yields `Unknown` ([NU-050]).
     budget_places: HashSet<String>,
     timeout_ms: u64,
+    /// Class-count cap for the ν-aware state-class-graph name-partition analysis
+    /// ([NU-050], Route B). When the symbolic name-aware graph would exceed this,
+    /// the analysis truncates and the verdict is `Unknown` (the live correlation
+    /// pool is not structurally bounded). Default 100_000.
+    nu_max_classes: usize,
 }
 
 impl<'a> SmtVerifier<'a> {
@@ -50,6 +56,7 @@ impl<'a> SmtVerifier<'a> {
             sink_places: Vec::new(),
             budget_places: HashSet::new(),
             timeout_ms: 30_000,
+            nu_max_classes: 100_000,
         }
     }
 
@@ -107,6 +114,13 @@ impl<'a> SmtVerifier<'a> {
         self
     }
 
+    /// Sets the class-count cap for the ν-aware state-class-graph analysis
+    /// ([NU-050], Route B). See [`SmtVerifier`]'s `nu_max_classes` field.
+    pub fn nu_max_classes(mut self, max: usize) -> Self {
+        self.nu_max_classes = max;
+        self
+    }
+
     /// Runs the verification pipeline.
     ///
     /// Returns a result with verdict, report, and diagnostics.
@@ -130,6 +144,60 @@ impl<'a> SmtVerifier<'a> {
         // distorts. The end-of-pipeline guard turns those cases into `Unknown`.
         let has_match = self.net.transitions().iter().any(|t| t.match_spec().is_some());
         let nu_bounded = !self.budget_places.is_empty();
+
+        // ν-net Route B ([NU-050]): the name-aware state-class-graph name-partition
+        // quotient decides ν-join correlation EXACTLY — including name×time and
+        // quiescence — without a budget. It "fills the gaps" the SMT / Route A path
+        // cannot answer exactly: quiescence properties on a ν-net, and unbudgeted
+        // reachability-safety. Budgeted, untimed reachability-safety in Route A's
+        // fragment stays on Route A below (this trigger is false there). If the net
+        // is outside the supported fragment, `verify_via_name_scg` returns None and
+        // we fall through to the existing pipeline (which applies the sound Unknown
+        // downgrade for these cases).
+        if has_match && (!is_reachability_safety(&self.property) || !nu_bounded) {
+            let env_refs: Vec<&str> = self.env_places.iter().map(|s| s.as_str()).collect();
+            if let Some(outcome) = nu_scg_verifier::verify_via_name_scg(
+                self.net,
+                &self.initial_marking,
+                &self.property,
+                &self.sink_places,
+                &env_refs,
+                &self.env_mode,
+                self.nu_max_classes,
+            ) {
+                let elapsed_ms = start.elapsed().as_millis() as u64;
+                report.push_str("=== ν-net Route B: name-aware state-class graph (NU-050) ===\n");
+                report.push_str(&format!("Property: {}\n", self.property.description()));
+                report.push_str(&format!(
+                    "Name-partition state classes: {}\n",
+                    outcome.class_count
+                ));
+                report.push_str(&outcome.note);
+                if !outcome.transitions.is_empty() {
+                    report.push_str(&format!(
+                        "Counterexample trace: {} states, {} transitions\n",
+                        outcome.trace.len(),
+                        outcome.transitions.len()
+                    ));
+                }
+                report.push_str(&format!("\nElapsed: {elapsed_ms}ms\n"));
+                return VerificationResult {
+                    verdict: outcome.verdict,
+                    report,
+                    invariants: Vec::new(),
+                    discovered_invariants: Vec::new(),
+                    counterexample_trace: outcome.trace,
+                    counterexample_transitions: outcome.transitions,
+                    elapsed_ms,
+                    statistics: VerificationStatistics {
+                        places: self.net.places().len(),
+                        transitions: self.net.transitions().len(),
+                        invariants_found: 0,
+                        structural_result: "n/a (ν name-partition SCG)".into(),
+                    },
+                };
+            }
+        }
 
         // Phase 1: Flatten
         report.push_str("=== Phase 1: Net Flattening ===\n");
@@ -861,76 +929,68 @@ mod tests {
     }
 
     #[test]
-    fn nu_unbounded_without_declared_budget_is_unknown() {
-        if !z3_available() {
-            eprintln!("skipping nu_unbounded_*: z3 binary not on PATH");
-            return;
-        }
-        // NU-050 #2: a ν-net that mints fresh names without a declared budget is
-        // treated as unbounded — the verifier returns Unknown rather than a
-        // (precision-limited) verdict, even for a bound the over-approximation
-        // could prove. Declaring the budget place is what asserts the bounded
-        // fragment.
+    fn nu_structurally_bounded_without_declared_budget_decided_by_route_b() {
+        // NU-050 Route B: without a DECLARED budget place, Route A returns Unknown.
+        // Route B's name-partition quotient discovers the structural bound (the
+        // budget token caps live groups) and proves BranchPlaceBound(budget, 2)
+        // exactly — the beyond-bounded win. Pure SCG, so no Z3 binary is needed.
         let net = nu_scatter_gather_net();
         let result = SmtVerifier::for_net(&net)
             .initial_marking(nu_initial_marking(2))
             .property(SmtProperty::branch_place_bound("budget", 2))
-            .timeout(15_000)
-            .verify();
-        match &result.verdict {
-            Verdict::Unknown { reason } => assert!(
-                reason.contains("budget") && reason.contains("unbounded"),
-                "Unknown reason should explain the missing budget declaration: {reason}"
-            ),
-            other => panic!("expected Unknown for an undeclared-budget ν-net, got {other:?}\n{}", result.report),
-        }
-    }
-
-    #[test]
-    fn nu_joined_or_dead_lettered_unknown_on_nu_net() {
-        if !z3_available() {
-            eprintln!("skipping nu_joined_or_dead_lettered_*: z3 binary not on PATH");
-            return;
-        }
-        // JoinedOrDeadLettered is quiescence-based: the name-blind
-        // over-approximation over-fires joins, so it cannot decide it soundly on
-        // a ν-net. Even with the budget declared, the verdict is Unknown
-        // (deferred to the exact ν-analysis, NU-050 #1).
-        let net = nu_scatter_gather_net();
-        let result = SmtVerifier::for_net(&net)
-            .initial_marking(nu_initial_marking(2))
-            .property(SmtProperty::joined_or_dead_lettered("pending"))
-            .budget_place("budget")
-            .timeout(15_000)
             .verify();
         assert!(
-            matches!(result.verdict, Verdict::Unknown { .. }),
-            "JoinedOrDeadLettered on a ν-net must be Unknown (quiescence deferred), got {:?}\n{}",
-            result.verdict,
+            result.is_proven(),
+            "Route B decides a structurally-bounded ν-net without a declared budget\n{}",
+            result.report
+        );
+        assert!(
+            result.report.contains("Route B"),
+            "expected the Route B note\n{}",
             result.report
         );
     }
 
     #[test]
-    fn nu_deadlock_free_unknown_on_nu_net() {
-        if !z3_available() {
-            eprintln!("skipping nu_deadlock_free_*: z3 binary not on PATH");
-            return;
-        }
-        // DeadlockFree is also quiescence-based — and the structural shortcut is
-        // gated off for ν-nets — so it must end as Unknown, not a name-blind
-        // (possibly unsound) proof.
+    fn nu_joined_or_dead_lettered_proven_by_route_b() {
+        // NU-050 Route B: quiescence on a ν-net is now decided exactly by the
+        // name-aware SCG (the SMT path deferred it to Unknown). Same-mint siblings
+        // always join, so no quiescent state strands `pending` → PROVEN. No Z3.
+        let net = nu_scatter_gather_net();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(nu_initial_marking(2))
+            .property(SmtProperty::joined_or_dead_lettered("pending"))
+            .verify();
+        assert!(
+            result.is_proven(),
+            "every same-mint group joins → no stranded pending → Proven\n{}",
+            result.report
+        );
+        assert!(
+            result.report.contains("Route B"),
+            "expected the Route B note\n{}",
+            result.report
+        );
+    }
+
+    #[test]
+    fn nu_deadlock_free_violated_by_route_b() {
+        // NU-050 Route B: DeadlockFree is now exact. The scatter-gather quiesces
+        // when `source` is exhausted (budget returned, no group in flight) — a
+        // genuine deadlock with no declared sinks → VIOLATED (was Unknown). No Z3.
         let net = nu_scatter_gather_net();
         let result = SmtVerifier::for_net(&net)
             .initial_marking(nu_initial_marking(2))
             .property(SmtProperty::DeadlockFree)
-            .budget_place("budget")
-            .timeout(15_000)
             .verify();
         assert!(
-            matches!(result.verdict, Verdict::Unknown { .. }),
-            "DeadlockFree on a ν-net must be Unknown (quiescence deferred), got {:?}\n{}",
-            result.verdict,
+            result.is_violated(),
+            "the net quiesces when source is exhausted → DeadlockFree violated\n{}",
+            result.report
+        );
+        assert!(
+            result.report.contains("Route B"),
+            "expected the Route B note\n{}",
             result.report
         );
     }

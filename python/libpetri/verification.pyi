@@ -44,6 +44,7 @@ def verify(
     sink_places: Iterable[PlaceLike] | None = ...,
     budget_places: Iterable[PlaceLike] | None = ...,
     timeout_ms: int = ...,
+    nu_max_classes: int | None = ...,
 ) -> VerificationResult: ...
 def verify_subnet(
     subnet: BuiltSubnetDef,

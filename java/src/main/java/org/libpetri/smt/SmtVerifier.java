@@ -77,6 +77,7 @@ public final class SmtVerifier {
     private final Set<String> budgetPlaces = new HashSet<>();
     private EnvironmentAnalysisMode environmentMode = EnvironmentAnalysisMode.ignore();
     private Duration timeout = Duration.ofSeconds(60);
+    private int nuMaxClasses = 100_000;
 
     private SmtVerifier(PetriNet net) {
         this.net = Objects.requireNonNull(net);
@@ -168,6 +169,17 @@ public final class SmtVerifier {
     }
 
     /**
+     * Sets the class-count cap for the &nu;-aware state-class-graph analysis
+     * (NU-050, Route B). When the symbolic name-aware graph would exceed this, the
+     * analysis truncates and the verdict is {@code Unknown} (the live correlation
+     * pool is not structurally bounded). Default 100_000.
+     */
+    public SmtVerifier nuMaxClasses(int max) {
+        this.nuMaxClasses = max;
+        return this;
+    }
+
+    /**
      * Runs the verification pipeline.
      *
      * @return the verification result
@@ -188,6 +200,35 @@ public final class SmtVerifier {
         // firing distorts. The applyNuGuard step turns those cases into Unknown.
         boolean hasMatch = net.transitions().stream().anyMatch(t -> t.matchSpec() != null);
         boolean nuBounded = !budgetPlaces.isEmpty();
+
+        // ν-net Route B (NU-050): the name-aware state-class-graph name-partition
+        // quotient decides ν-join correlation EXACTLY — including name×time and
+        // quiescence — without a budget. It "fills the gaps" the SMT / Route A path
+        // cannot answer exactly: quiescence properties on a ν-net, and unbudgeted
+        // reachability-safety. Budgeted, untimed reachability-safety in Route A's
+        // fragment stays on Route A below (this trigger is false there). If the net
+        // is outside the supported fragment, NuScgVerifier returns null and we fall
+        // through to the existing pipeline (which applies the sound Unknown
+        // downgrade for these cases).
+        if (hasMatch && (!isReachabilitySafety(property) || !nuBounded)) {
+            var outcome = NuScgVerifier.verify(
+                net, initialMarking, property, sinkPlaces, environmentPlaces, environmentMode, nuMaxClasses);
+            if (outcome != null) {
+                report.append("=== ν-net Route B: name-aware state-class graph (NU-050) ===\n");
+                report.append("  Name-partition state classes: ").append(outcome.classCount()).append("\n");
+                report.append(outcome.note());
+                if (!outcome.transitions().isEmpty()) {
+                    report.append("  Counterexample trace: ").append(outcome.trace().size())
+                          .append(" states, ").append(outcome.transitions().size()).append(" transitions\n");
+                }
+                return buildResult(
+                    outcome.verdict(), report.toString(), List.of(), List.of(),
+                    outcome.trace(), outcome.transitions(),
+                    Duration.between(start, Instant.now()),
+                    new SmtVerificationResult.SmtStatistics(
+                        net.places().size(), net.transitions().size(), 0, "n/a (ν name-partition SCG)"));
+            }
+        }
 
         // Phase 1: Flatten
         report.append("Phase 1: Flattening net...\n");

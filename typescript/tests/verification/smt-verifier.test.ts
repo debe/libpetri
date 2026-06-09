@@ -460,42 +460,45 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
     expect(result.report).toContain('name-coloured');
   }, Z3_TIMEOUT);
 
-  it('returns unknown for an undeclared-budget ν-net (NU-050 #2)', async () => {
-    // Treated as unbounded — unknown rather than a precision-limited verdict,
-    // even for a bound the over-approximation could prove.
+  it('decides a structurally-bounded ν-net without a declared budget via Route B', async () => {
+    // NU-050 Route B: without a DECLARED budget the SMT/Route-A path returns
+    // unknown, but the name-aware SCG name-partition quotient discovers the
+    // structural bound (the budget token caps live groups) and proves the bound
+    // exactly — the beyond-bounded win. Pure SCG (no Z3 needed).
     const { net, source, budget } = nuScatterGatherNet();
     const result = await SmtVerifier.forNet(net)
       .initialMarking(m => { m.tokens(source, 3); m.tokens(budget, 2); })
       .property(branchPlaceBound(budget, 2))
-      .timeout(30_000)
       .verify();
-    expect(result.verdict.type).toBe('unknown');
-    const reason = (result.verdict as { type: 'unknown'; reason: string }).reason;
-    expect(reason).toContain('budget');
-    expect(reason).toContain('unbounded');
-  }, Z3_TIMEOUT);
+    expect(result.verdict.type).toBe('proven');
+    expect(result.report).toContain('Route B');
+  });
 
-  it('returns unknown for JoinedOrDeadLettered on a ν-net (quiescence deferred)', async () => {
+  it('proves JoinedOrDeadLettered on a ν-net via Route B', async () => {
+    // NU-050 Route B: quiescence on a ν-net is decided exactly by the name-aware
+    // SCG. Same-mint siblings always join, so no quiescent state strands pending
+    // -> proven (the SMT path returned unknown here).
     const { net, source, budget, pending } = nuScatterGatherNet();
     const result = await SmtVerifier.forNet(net)
       .initialMarking(m => { m.tokens(source, 3); m.tokens(budget, 2); })
       .property(joinedOrDeadLettered(pending))
-      .budgetPlaces(budget)
-      .timeout(30_000)
       .verify();
-    expect(result.verdict.type).toBe('unknown');
-  }, Z3_TIMEOUT);
+    expect(result.verdict.type).toBe('proven');
+    expect(result.report).toContain('Route B');
+  });
 
-  it('returns unknown for DeadlockFree on a ν-net (quiescence deferred)', async () => {
+  it('finds DeadlockFree violated on a ν-net via Route B', async () => {
+    // NU-050 Route B: DeadlockFree is now exact. The net quiesces when `source` is
+    // exhausted (budget returned, no group in flight) — a genuine deadlock with no
+    // declared sinks -> violated (was unknown).
     const { net, source, budget } = nuScatterGatherNet();
     const result = await SmtVerifier.forNet(net)
       .initialMarking(m => { m.tokens(source, 3); m.tokens(budget, 2); })
       .property(deadlockFree())
-      .budgetPlaces(budget)
-      .timeout(30_000)
       .verify();
-    expect(result.verdict.type).toBe('unknown');
-  }, Z3_TIMEOUT);
+    expect(result.verdict.type).toBe('violated');
+    expect(result.report).toContain('Route B');
+  });
 
   it('proves JoinedOrDeadLettered on a non-ν net where pending always drains', async () => {
     const start = place('start');
@@ -595,4 +598,59 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
       .verify();
     expect(result.verdict.type).toBe('violated');
   }, Z3_TIMEOUT);
+
+  // === NU-050 Route B: exact name-aware SCG name-partition quotient ===
+
+  it('proves Unreachable(merged) for distinct mints with NO budget via Route B', async () => {
+    // The beyond-bounded win Route A cannot do: two independent mints into branchA
+    // and branchB get distinct names that can never correlate, so `merged` is
+    // unreachable — with no declared budget. Pure SCG (no Z3 needed).
+    const sourceA = place('sourceA');
+    const sourceB = place('sourceB');
+    const a = place<string>('branchA');
+    const b = place<string>('branchB');
+    const merged = place<string>('merged');
+    const forkA = Transition.builder('forkA').inputs(one(sourceA)).outputs(outPlace(a)).build();
+    const forkB = Transition.builder('forkB').inputs(one(sourceB)).outputs(outPlace(b)).build();
+    const join = Transition.builder('join')
+      .inputs(one(a), one(b))
+      .match(matchSpec(matchKey(a, (s: string) => nameId(s)), matchKey(b, (s: string) => nameId(s))))
+      .outputs(outPlace(merged))
+      .build();
+    const net = PetriNet.builder('nuDistinctMintsNoBudget').transitions(forkA, forkB, join).build();
+
+    const result = await SmtVerifier.forNet(net)
+      .initialMarking(m => { m.tokens(sourceA, 1); m.tokens(sourceB, 1); })
+      .property(unreachable(new Set([merged])))
+      .verify();
+    expect(result.verdict.type).toBe('proven');
+    expect(result.report).toContain('name-partition quotient');
+    expect(result.report).toContain('Route B');
+  });
+
+  it('truncates an unbounded ν-mint to unknown', async () => {
+    // A self-refilling fork mints a fresh name every firing with no join able to
+    // consume it (branchB is never produced) -> the name-aware graph grows without
+    // bound -> truncation -> unknown (NU-050 #2 generalised).
+    const source = place('source');
+    const a = place<string>('branchA');
+    const b = place<string>('branchB');
+    const merged = place<string>('merged');
+    const fork = Transition.builder('fork').inputs(one(source)).outputs(andPlaces(source, a)).build();
+    const join = Transition.builder('join')
+      .inputs(one(a), one(b))
+      .match(matchSpec(matchKey(a, (s: string) => nameId(s)), matchKey(b, (s: string) => nameId(s))))
+      .outputs(outPlace(merged))
+      .build();
+    const net = PetriNet.builder('nuUnboundedMint').transitions(fork, join).build();
+
+    const result = await SmtVerifier.forNet(net)
+      .initialMarking(m => m.tokens(source, 1))
+      .property(unreachable(new Set([merged])))
+      .nuMaxClasses(40)
+      .verify();
+    expect(result.verdict.type).toBe('unknown');
+    const reason = (result.verdict as { type: 'unknown'; reason: string }).reason;
+    expect(reason).toContain('truncated');
+  });
 });
