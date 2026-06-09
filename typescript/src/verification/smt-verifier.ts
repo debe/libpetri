@@ -14,6 +14,7 @@ import { structuralCheck } from './invariant/structural-check.js';
 import { createSpacerRunner } from './z3/spacer-runner.js';
 import { encode } from './z3/smt-encoder.js';
 import { buildColouredPlan, encodeColoured, type ColouredPlan } from './z3/name-coloured-encoder.js';
+import { verifyViaNameScg } from './nu-scg-verifier.js';
 import { decode } from './z3/counterexample-decoder.js';
 
 /**
@@ -46,6 +47,7 @@ export class SmtVerifier {
   private readonly _budgetPlaces = new Set<string>();
   private _environmentMode: EnvironmentAnalysisMode = alwaysAvailable();
   private _timeoutMs: number = 60_000;
+  private _nuMaxClasses: number = 100_000;
 
   private constructor(private readonly net: PetriNet) {}
 
@@ -109,6 +111,17 @@ export class SmtVerifier {
   }
 
   /**
+   * Sets the class-count cap for the ν-aware state-class-graph analysis (NU-050,
+   * Route B). When the symbolic name-aware graph would exceed this, the analysis
+   * truncates and the verdict is `unknown` (the live correlation pool is not
+   * structurally bounded). Default 100_000.
+   */
+  nuMaxClasses(max: number): this {
+    this._nuMaxClasses = max;
+    return this;
+  }
+
+  /**
    * Runs the verification pipeline.
    */
   async verify(): Promise<SmtVerificationResult> {
@@ -130,6 +143,39 @@ export class SmtVerifier {
     // cases into unknown.
     const hasMatch = [...this.net.transitions].some(t => t.matchSpec !== null);
     const nuBounded = this._budgetPlaces.size > 0;
+
+    // ν-net Route B (NU-050): the name-aware state-class-graph name-partition
+    // quotient decides ν-join correlation EXACTLY — including name×time and
+    // quiescence — without a budget. It "fills the gaps" the SMT / Route A path
+    // cannot answer exactly: quiescence properties on a ν-net, and unbudgeted
+    // reachability-safety. Budgeted, untimed reachability-safety in Route A's
+    // fragment stays on Route A below (this trigger is false there). If the net is
+    // outside the supported fragment, verifyViaNameScg returns null and we fall
+    // through to the existing pipeline (which applies the sound unknown downgrade).
+    if (hasMatch && (!isReachabilitySafety(this._property) || !nuBounded)) {
+      const outcome = verifyViaNameScg(
+        this.net, this._initialMarking, this._property, this._sinkPlaces,
+        this._environmentPlaces, this._environmentMode, this._nuMaxClasses,
+      );
+      if (outcome !== null) {
+        report.push('=== ν-net Route B: name-aware state-class graph (NU-050) ===');
+        report.push(`  Name-partition state classes: ${outcome.classCount}`);
+        report.push(outcome.note);
+        if (outcome.transitions.length > 0) {
+          report.push(`  Counterexample trace: ${outcome.trace.length} states, ${outcome.transitions.length} transitions`);
+        }
+        return buildResult(
+          outcome.verdict, report.join('\n'), [], [], outcome.trace, outcome.transitions,
+          performance.now() - start,
+          {
+            places: [...this.net.places].length,
+            transitions: [...this.net.transitions].length,
+            invariantsFound: 0,
+            structuralResult: 'n/a (ν name-partition SCG)',
+          },
+        );
+      }
+    }
 
     // Phase 1: Flatten
     report.push('Phase 1: Flattening net...');

@@ -97,6 +97,12 @@ implementation MUST choose by this exact rule, so all languages fire identically
    correlated inputs) is **earliest**;
 2. ties broken by **name order** ([NU-001]).
 
+> The name-order tie-break is byte-identical across implementations for **BMP**
+> names (which covers every executor-minted name, `"{transition}#{n}"`). For
+> supplementary-plane code points in a user-supplied key, Rust's code-point order
+> can differ from the Java/TypeScript UTF-16 code-unit order; [NU-001] requires
+> only per-implementation consistency, which holds.
+
 **Acceptance Criteria:**
 1. A join correlates by name, not arrival order: with branch A = [X@t0, Y@t1] and
    branch B = [Y@t0, X@t1], the join produces the X-X and Y-Y pairings, never X-Y.
@@ -246,18 +252,33 @@ The exactness goal MAY be realized by either of two routes:
   this is sound *and complete* (exact), and stays in linear arithmetic. It
   applies to the **mint → matched-join fragment**: coloured places (the matched
   inputs) are produced only by minting forks and consumed only by matched joins,
-  each mint costs a budget token, budget returns only on a join, and coloured
-  places carry no inhibitor/read/reset arc. A net outside this fragment falls
-  back to the sound over-approximation (criterion #1 then holds only where the
-  exact route was taken).
-- **Route B — name-sort / SCG name-partition.** Equality over an uninterpreted
-  **name sort** (EUF), or a state-class-graph quotient partitioned by name
-  relations, generalises the exactness beyond the bounded fragment (including
-  name × time interaction). Future work.
+  each mint costs a budget token, **budget is conserved across a mint→join pair**
+  (a join refunds no more budget than the cheapest mint consumes, so the live
+  colours stay ≤ the initial budget `k`), and coloured places carry no
+  inhibitor/read/reset arc. A net outside this fragment — including one whose join
+  refunds more budget than its mint consumes — falls back to the sound
+  over-approximation (criterion #1 then holds only where the exact route was taken).
+- **Route B — SCG name-partition** (implemented). A **state-class-graph quotient
+  partitioned by name relations**: each correlation token carries an abstract,
+  interchangeable name-*symbol*, a matched join fires only on a name shared by
+  every correlated input, and the graph is quotiented under name-permutation
+  symmetry (the canonical key abstracts the symbol identities, which is what keeps
+  it finite without a budget). This generalises the exactness **beyond the bounded
+  fragment** — to budget-less but structurally name-bounded nets, to **name × time**
+  (the DBM firing zone rides alongside the name partition), and to **quiescence**
+  (deadlock / joined-or-dead-lettered, decided over the name-aware terminal
+  classes). It is sound, and exact (sound *and* complete) whenever the symbolic
+  graph closes within the class bound; an unbounded live-name pool surfaces as
+  graph truncation → `Unknown` (never an unsound verdict). The alternative
+  realization — equality over an uninterpreted **name sort** (EUF) in the CHC
+  encoder — is not taken (the SMT path is untimed, and Spacer over an
+  uninterpreted sort is poorly supported).
 
-For nets that mint unbounded fresh names without a bounding budget ([NU-040]),
-the verifier MUST return `Unknown` rather than an unsound verdict (criterion
-**#2** below, mirroring the `Ignore`-mode discipline of [VER-006]).
+When the live correlation-name pool is **not bounded** — no budget ([NU-040]) and
+no structural bound the name-partition quotient (Route B) can discover — the
+verifier MUST return `Unknown` rather than an unsound verdict (criterion **#2**
+below, mirroring the `Ignore`-mode discipline of [VER-006]); under Route B this
+appears as state-class-graph truncation.
 
 **Acceptance Criteria:**
 1. (**NU-050 #1**) A property whose counterexample requires two *different* names
@@ -291,11 +312,14 @@ name-colouring) eliminates it, while a same-name join still reaches its merge.
   which place gates minting via a **budget-place declaration**
   (`budget_place(s)` / `budgetPlaces(...)`); this is what asserts the bounded
   fragment.
-- The sound baseline returns `Unknown` for the cases its name-blind
-  over-approximation cannot decide soundly: a ν-net with no declared budget place
-  (unbounded fresh names) for any property, and any **quiescence-based** property
-  (deadlock-freedom, joined-or-dead-lettered) on a ν-net — whose violation turns
-  on the *absence* of an enabled join, which over-firing distorts.
+- The sound **over-approximation baseline** (the name-blind CHC encoding) cannot
+  decide two cases soundly: a ν-net with no declared budget (unbounded fresh
+  names), and any **quiescence-based** property (deadlock-freedom,
+  joined-or-dead-lettered) on a ν-net — whose violation turns on the *absence* of
+  an enabled join, which over-firing distorts. The verifier routes exactly those
+  cases (and timed ν-nets) to the **Route B** name-aware state-class graph; only
+  when Route B also cannot bound the live-name pool (graph truncation) does the
+  verdict remain `Unknown`.
 - The [NU-050] exact carve-out (**Route A — bounded name-colouring**) is
   implemented for the **mint → matched-join fragment** of a budget-declared
   ν-net: there, reachability-safety properties are decided *exactly* (sound and
@@ -305,3 +329,14 @@ name-colouring) eliminates it, while a same-name join still reaches its merge.
   over-approximation: a reachability-safety `Proven` is sound (the real net fires
   strictly fewer joins) and a `Violated` is flagged as possibly spurious pending
   the fuller [NU-050] analysis.
+- The [NU-050] **Route B** exact analysis (the **SCG name-partition quotient**) is
+  implemented in all four bindings (Rust is the source of truth; Python inherits
+  it through `verify`; Java and TypeScript port it byte-faithfully, sharing the
+  canonical name-partition key format). It decides reachability-safety **and**
+  quiescence over the mint → matched-join fragment **without requiring a declared
+  budget** (finiteness comes from the name-permutation symmetry quotient), and
+  composes with the timed firing domain (name × time). It is solver-free (it does
+  not invoke Z3). The verifier keeps Route A's bounded name-colouring as the
+  primary path for budget-declared, untimed reachability-safety (Z3 IC3 scales
+  there) and uses Route B for the cases the SMT path cannot decide exactly —
+  quiescence, budget-less ν-nets, and timed ν-nets.

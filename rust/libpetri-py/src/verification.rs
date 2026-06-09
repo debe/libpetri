@@ -278,7 +278,7 @@ fn py_joined_or_dead_lettered(pending: String) -> PySmtProperty {
 /// Verifies a single property against `net` using SMT (Z3). Without the `z3`
 /// feature, returns `VerificationResult` with verdict `"unknown"`.
 #[pyfunction(name = "verify_net")]
-#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 30_000))]
+#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 30_000, nu_max_classes = None))]
 fn py_verify_net(
     py: Python<'_>,
     net: &PyPetriNet,
@@ -289,6 +289,7 @@ fn py_verify_net(
     sink_places: Option<Vec<String>>,
     budget_places: Option<Vec<String>>,
     timeout_ms: u64,
+    nu_max_classes: Option<usize>,
 ) -> PyResult<PyVerificationResult> {
     #[cfg(feature = "z3")]
     {
@@ -312,21 +313,25 @@ fn py_verify_net(
         }
         let marking = mb.build();
         let result = py.detach(move || {
-            libpetri::verification::smt_verifier::SmtVerifier::for_net(&net)
+            let mut verifier = libpetri::verification::smt_verifier::SmtVerifier::for_net(&net)
                 .initial_marking(marking)
                 .property(property)
                 .environment_places(environment_places)
                 .environment_mode(environment_mode)
                 .sink_places(sink_places)
                 .budget_places(budget_places)
-                .timeout(timeout_ms)
-                .verify()
+                .timeout(timeout_ms);
+            // ν name-aware SCG class cap (NU-050, Route B); None keeps the Rust default.
+            if let Some(n) = nu_max_classes {
+                verifier = verifier.nu_max_classes(n);
+            }
+            verifier.verify()
         });
         Ok(PyVerificationResult::from_rust(result))
     }
     #[cfg(not(feature = "z3"))]
     {
-        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms);
+        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes);
         Ok(PyVerificationResult::unknown("z3 feature not enabled"))
     }
 }

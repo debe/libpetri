@@ -37,13 +37,13 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | [04-execution-model.md](04-execution-model.md) | EXEC | Orchestrator loop, scheduling, token consumption, failure, quiescence | 15 |
 | [05-concurrency.md](05-concurrency.md) | CONC | Single-threaded orchestrator, bitmap executor, precompiled flat-array executor, async actions, wake-up | 18 |
 | [06-environment-places.md](06-environment-places.md) | ENV | External event injection, implicit long-running behavior, executor lifecycle | 11 |
-| [07-verification.md](07-verification.md) | VER | SMT/IC3, state class graph, structural analysis | 10 |
+| [07-verification.md](07-verification.md) | VER | SMT/IC3, state class graph, structural analysis | 11 |
 | [08-events-observability.md](08-events-observability.md) | EVT | Event types, event store, log capture | 23 |
 | [09-export.md](09-export.md) | EXP | Graph export, formal interchange | 17 |
 | [10-performance.md](10-performance.md) | PERF | Scaling, benchmarks, memory efficiency, flat-array executor performance | 14 |
 | [11-modular-composition.md](11-modular-composition.md) | MOD | Open-net subnet definition, instantiation, port composition, channel fusion, action binding per instance, place fusion | 26 |
 | [12-nu-nets.md](12-nu-nets.md) | NU | Token name identity, fresh-name minting (ν-binder/fork), join by name equality, bounded-budget decidability ledger | 8 |
-| **Total** | | | **201** |
+| **Total** | | | **202** |
 
 > **IO-006** (Input Guard Predicate) was removed (see [IO-006]); it is retained as a
 > struck-through tombstone for traceability and is **excluded** from the active count.
@@ -300,6 +300,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | VER-006 | Environment Analysis Mode | SHOULD | — |
 | VER-010 | State Class Graph Analysis | MAY | — |
 | VER-011 | DBM Zone Representation | MAY | — |
+| VER-012 | Name-Aware State Class Graph (ν-Partition Quotient) | MAY | VER-010, 011, NU-020, NU-050 |
 | VER-020 | Siphon and Trap Analysis | MAY | — |
 | VER-021 | XOR Branch Analysis | SHOULD | IO-012, 016 |
 
@@ -311,7 +312,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 |----------|-------|-------------|
 | MUST     | 139   | Core contract; all implementations must conform |
 | SHOULD   | 53    | Recommended; implementations should include unless technically infeasible |
-| MAY      | 9     | Optional; implementations may include |
+| MAY      | 10    | Optional; implementations may include |
 
 ---
 
@@ -379,6 +380,7 @@ This matrix maps spec requirements to test classes/files in each implementation.
 | ENV-014 | — | — | `executor_handle::tests`; Python `test_marking_snapshot.py` (Rust/Python-first) |
 | VER-001–006 | `SmtVerifierTest` | `smt-verifier.test.ts` | `structural_check::tests`, `p_invariant::tests` |
 | VER-010–011 | `StateClassGraphTest` | `analysis/*.test.ts` | `state_class_graph::tests` |
+| VER-012 | `SmtVerifierTest` (Route B) | `smt-verifier.test.ts` (Route B) | `nu_scg_verifier::tests` |
 | EVT-001–014 | `NetEventTest` | `net-event.test.ts` | `net_event::tests` |
 | EVT-020–024 | `EventStoreTest` | `event-store.test.ts` | `event_store::tests` |
 | EVT-025 | `SessionArchiveWriterConsistencyTest`, `SessionArchiveV3Test` | `session-archive-writer-consistency.test.ts`, `session-archive-v3.test.ts` | `session_archive_reader::tests` |

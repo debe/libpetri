@@ -1,0 +1,516 @@
+//! ν-net exact verification via the name-aware state-class-graph name-partition
+//! quotient ([NU-050], Route B).
+//!
+//! Builds the [`NameStateClassGraph`] (the symmetry-reduced, name-aware SCG) and
+//! decides the requested [`SmtProperty`] directly over its reachable classes — no
+//! Z3. Because the graph carries the DBM zone, the verdict is exact over *time*
+//! too (name×time); because joins are name-aware, *quiescence* is exact. The
+//! analysis is **sound**, and **complete (exact)** when the symbolic graph closes
+//! within `max_classes`; otherwise it reports `Unknown` (ν-PN reachability is
+//! undecidable — undecidability surfaces as truncation, never an unsound verdict;
+//! this generalises [NU-050] #2).
+//!
+//! This route is invoked by [`crate::smt_verifier`] to *fill the gaps* the
+//! SMT / Route A path cannot answer exactly: quiescence properties on a ν-net and
+//! unbudgeted reachability-safety. It returns `None` when the net is not in the
+//! supported mint→matched-join fragment, and the caller falls back.
+
+use std::collections::{HashSet, VecDeque};
+
+use libpetri_core::petri_net::PetriNet;
+
+use crate::environment::EnvironmentAnalysisMode;
+use crate::marking_state::MarkingState;
+use crate::name_fragment;
+use crate::name_state_class_graph::NameStateClassGraph;
+use crate::property::SmtProperty;
+use crate::result::Verdict;
+
+/// Outcome of the name-aware ν-partition analysis.
+pub struct NuScgOutcome {
+    pub verdict: Verdict,
+    pub trace: Vec<MarkingState>,
+    pub transitions: Vec<String>,
+    /// Report note (empty for the truncation `Unknown`, whose reason is on the
+    /// verdict).
+    pub note: String,
+    pub class_count: usize,
+}
+
+const NOTE_EXACT: &str = "Note: ν-join correlation decided exactly via the state-class-graph \
+name-partition quotient — the symbolic graph closed, so the verdict is sound AND complete \
+(no spurious different-name counterexample; quiescence is name-aware), beyond the \
+bounded-budget fragment (NU-050, Route B).\n";
+
+/// Tries to decide `property` exactly via the name-aware SCG. Returns `None` when
+/// `net` is not in the supported fragment (the caller falls back to the SMT /
+/// Route A path).
+pub fn verify_via_name_scg(
+    net: &PetriNet,
+    initial: &MarkingState,
+    property: &SmtProperty,
+    sink_places: &[String],
+    env_places: &[&str],
+    env_mode: &EnvironmentAnalysisMode,
+    max_classes: usize,
+) -> Option<NuScgOutcome> {
+    let fragment = name_fragment::classify(net)?;
+    // We model no initial colour assignment, so coloured places must start empty.
+    for p in &fragment.coloured_order {
+        if initial.count(p) != 0 {
+            return None;
+        }
+    }
+
+    let scg = NameStateClassGraph::build(net, initial, &fragment, max_classes, env_places, env_mode);
+
+    if !scg.is_complete() {
+        return Some(NuScgOutcome {
+            verdict: Verdict::Unknown {
+                reason: format!(
+                    "ν name-aware state-class graph truncated at {max_classes} classes — the \
+                     live correlation pool is not structurally bounded; reachability over \
+                     unbounded fresh names is undecidable (NU-050, Route B). Declare a budget \
+                     place to bound the live pool, or raise nu_max_classes."
+                ),
+            },
+            trace: Vec::new(),
+            transitions: Vec::new(),
+            note: String::new(),
+            class_count: scg.class_count(),
+        });
+    }
+
+    let (verdict, violating) = decide(&scg, property, sink_places);
+    let (trace, transitions) = match violating {
+        Some(idx) => counterexample_path(&scg, idx),
+        None => (Vec::new(), Vec::new()),
+    };
+    Some(NuScgOutcome {
+        verdict,
+        trace,
+        transitions,
+        note: NOTE_EXACT.to_string(),
+        class_count: scg.class_count(),
+    })
+}
+
+/// Decides the property over the (complete) name-aware SCG. Returns the verdict
+/// and, for a violation, the index of a witnessing class.
+fn decide(
+    scg: &NameStateClassGraph,
+    property: &SmtProperty,
+    sink_places: &[String],
+) -> (Verdict, Option<usize>) {
+    let proven = || Verdict::Proven {
+        method: "ν name-partition SCG (NU-050, Route B)".into(),
+        inductive_invariant: None,
+    };
+
+    match property {
+        SmtProperty::PlaceBound { place, bound }
+        | SmtProperty::BranchPlaceBound { place, bound } => {
+            for (i, c) in scg.classes.iter().enumerate() {
+                if c.base.marking.count(place) > *bound {
+                    return (Verdict::Violated, Some(i));
+                }
+            }
+            (proven(), None)
+        }
+        SmtProperty::Unreachable { places } => {
+            for (i, c) in scg.classes.iter().enumerate() {
+                if places.iter().all(|p| c.base.marking.count(p) >= 1) {
+                    return (Verdict::Violated, Some(i));
+                }
+            }
+            (proven(), None)
+        }
+        SmtProperty::MutualExclusion { places } => {
+            for (i, c) in scg.classes.iter().enumerate() {
+                let marked = places.iter().filter(|p| c.base.marking.count(p) >= 1).count();
+                if marked >= 2 {
+                    return (Verdict::Violated, Some(i));
+                }
+            }
+            (proven(), None)
+        }
+        SmtProperty::DeadlockFree => {
+            let sinks: HashSet<&str> = sink_places.iter().map(|s| s.as_str()).collect();
+            for i in 0..scg.class_count() {
+                // A quiescent (no successor) class is a deadlock, unless every
+                // marked place is a declared sink (an intended final state).
+                if scg.successors(i).is_empty() {
+                    let marking = &scg.classes[i].base.marking;
+                    let all_in_sinks = marking.places().all(|(p, _)| sinks.contains(p));
+                    if !all_in_sinks {
+                        return (Verdict::Violated, Some(i));
+                    }
+                }
+            }
+            (proven(), None)
+        }
+        SmtProperty::JoinedOrDeadLettered { pending } => {
+            for i in 0..scg.class_count() {
+                // A quiescent class still holding a pending token is a stranded
+                // correlation group (name-aware: the join is genuinely disabled).
+                if scg.successors(i).is_empty() && scg.classes[i].base.marking.count(pending) >= 1 {
+                    return (Verdict::Violated, Some(i));
+                }
+            }
+            (proven(), None)
+        }
+    }
+}
+
+/// Shortest firing sequence from the initial class (0) to `target` for the
+/// counterexample trace. BFS over the recorded edges.
+fn counterexample_path(scg: &NameStateClassGraph, target: usize) -> (Vec<MarkingState>, Vec<String>) {
+    let n = scg.class_count();
+    let mut parent: Vec<Option<usize>> = vec![None; n];
+    let mut via: Vec<String> = vec![String::new(); n];
+    let mut visited = vec![false; n];
+    visited[0] = true;
+    let mut queue = VecDeque::new();
+    queue.push_back(0usize);
+    while let Some(u) = queue.pop_front() {
+        if u == target {
+            break;
+        }
+        for e in &scg.edges {
+            if e.from == u && !visited[e.to] {
+                visited[e.to] = true;
+                parent[e.to] = Some(u);
+                via[e.to] = e.transition_name.clone();
+                queue.push_back(e.to);
+            }
+        }
+    }
+    if target != 0 && parent[target].is_none() {
+        return (Vec::new(), Vec::new());
+    }
+    let mut chain = vec![target];
+    let mut cur = target;
+    while let Some(p) = parent[cur] {
+        chain.push(p);
+        cur = p;
+    }
+    chain.reverse();
+    let markings = chain
+        .iter()
+        .map(|&i| scg.classes[i].base.marking.clone())
+        .collect();
+    let transitions = chain.iter().skip(1).map(|&i| via[i].clone()).collect();
+    (markings, transitions)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::marking_state::MarkingStateBuilder;
+    use libpetri_core::input::one;
+    use libpetri_core::match_spec::MatchSpec;
+    use libpetri_core::name::NameId;
+    use libpetri_core::output::{and, out_place};
+    use libpetri_core::petri_net::PetriNet;
+    use libpetri_core::place::Place;
+    use libpetri_core::transition::Transition;
+
+    const MAX: usize = 10_000;
+
+    fn verify(net: &PetriNet, initial: &MarkingState, property: SmtProperty) -> NuScgOutcome {
+        verify_via_name_scg(
+            net,
+            initial,
+            &property,
+            &[],
+            &[],
+            &EnvironmentAnalysisMode::Ignore,
+            MAX,
+        )
+        .expect("net should be in the ν name-fragment")
+    }
+
+    /// Two independent mints feed one join: their fresh names can never be equal,
+    /// so `merged` is unreachable — WITH NO BUDGET PLACE (the beyond-bounded win
+    /// Route A cannot do; it would return Unknown without a declared budget).
+    fn distinct_mints_no_budget() -> PetriNet {
+        let source_a = Place::<()>::new("sourceA");
+        let source_b = Place::<()>::new("sourceB");
+        let a = Place::<String>::new("branchA");
+        let b = Place::<String>::new("branchB");
+        let merged = Place::<String>::new("merged");
+
+        let fork_a = Transition::builder("forkA")
+            .input(one(&source_a))
+            .output(out_place(&a))
+            .build();
+        let fork_b = Transition::builder("forkB")
+            .input(one(&source_b))
+            .output(out_place(&b))
+            .build();
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |s: &String| NameId::new(s.clone()))
+                    .key(&b, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(out_place(&merged))
+            .build();
+
+        PetriNet::builder("distinct_mints_no_budget")
+            .transitions([fork_a, fork_b, join])
+            .build()
+    }
+
+    /// One mint stamps both branches with the same name, so the join can fire.
+    fn same_mint() -> PetriNet {
+        let source = Place::<()>::new("source");
+        let a = Place::<String>::new("branchA");
+        let b = Place::<String>::new("branchB");
+        let merged = Place::<String>::new("merged");
+
+        let fork = Transition::builder("fork")
+            .input(one(&source))
+            .output(and(vec![out_place(&a), out_place(&b)]))
+            .build();
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |s: &String| NameId::new(s.clone()))
+                    .key(&b, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(out_place(&merged))
+            .build();
+
+        PetriNet::builder("same_mint")
+            .transitions([fork, join])
+            .build()
+    }
+
+    #[test]
+    fn distinct_mints_merged_unreachable_proven_no_budget() {
+        let net = distinct_mints_no_budget();
+        let initial = MarkingStateBuilder::new()
+            .tokens("sourceA", 1)
+            .tokens("sourceB", 1)
+            .build();
+        let out = verify(&net, &initial, SmtProperty::unreachable(vec!["merged".into()]));
+        assert!(
+            out.verdict.is_proven(),
+            "distinct-mint names can never correlate → merged unreachable (no budget needed): {:?}",
+            out.verdict
+        );
+        assert!(out.note.contains("name-partition quotient"));
+        assert!(out.note.contains("Route B"));
+    }
+
+    #[test]
+    fn same_mint_merged_reachable_violated_with_trace() {
+        let net = same_mint();
+        let initial = MarkingStateBuilder::new().tokens("source", 1).build();
+        let out = verify(&net, &initial, SmtProperty::unreachable(vec!["merged".into()]));
+        assert!(out.verdict.is_violated(), "same-mint siblings join → merged reachable");
+        assert!(
+            out.transitions.iter().any(|t| t == "join"),
+            "counterexample trace should fire the join: {:?}",
+            out.transitions
+        );
+    }
+
+    #[test]
+    fn joined_or_dead_lettered_violated_when_distinct_strands_pending() {
+        // forkA mints into branchA AND pending; forkB mints into branchB. Their
+        // names differ, so the join is name-disabled and `pending` is stranded at
+        // quiescence → JoinedOrDeadLettered VIOLATED (the SMT path returns Unknown).
+        let source_a = Place::<()>::new("sourceA");
+        let source_b = Place::<()>::new("sourceB");
+        let a = Place::<String>::new("branchA");
+        let b = Place::<String>::new("branchB");
+        let pending = Place::<()>::new("pending");
+        let merged = Place::<String>::new("merged");
+
+        let fork_a = Transition::builder("forkA")
+            .input(one(&source_a))
+            .output(and(vec![out_place(&a), out_place(&pending)]))
+            .build();
+        let fork_b = Transition::builder("forkB")
+            .input(one(&source_b))
+            .output(out_place(&b))
+            .build();
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .input(one(&pending))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |s: &String| NameId::new(s.clone()))
+                    .key(&b, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(out_place(&merged))
+            .build();
+        let net = PetriNet::builder("strand")
+            .transitions([fork_a, fork_b, join])
+            .build();
+
+        let initial = MarkingStateBuilder::new()
+            .tokens("sourceA", 1)
+            .tokens("sourceB", 1)
+            .build();
+        let out = verify(&net, &initial, SmtProperty::joined_or_dead_lettered("pending"));
+        assert!(
+            out.verdict.is_violated(),
+            "distinct-name siblings cannot join → pending stranded at quiescence: {:?}",
+            out.verdict
+        );
+    }
+
+    #[test]
+    fn joined_or_dead_lettered_proven_when_same_mint_always_joins() {
+        // Same-mint scatter-gather: every group's pending is joinable, so no
+        // quiescent state holds a pending token → PROVEN.
+        let source = Place::<()>::new("source");
+        let a = Place::<String>::new("branchA");
+        let b = Place::<String>::new("branchB");
+        let pending = Place::<()>::new("pending");
+        let merged = Place::<String>::new("merged");
+
+        let fork = Transition::builder("fork")
+            .input(one(&source))
+            .output(and(vec![out_place(&a), out_place(&b), out_place(&pending)]))
+            .build();
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .input(one(&pending))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |s: &String| NameId::new(s.clone()))
+                    .key(&b, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(out_place(&merged))
+            .build();
+        let net = PetriNet::builder("joinable")
+            .transitions([fork, join])
+            .build();
+
+        let initial = MarkingStateBuilder::new().tokens("source", 2).build();
+        let out = verify(&net, &initial, SmtProperty::joined_or_dead_lettered("pending"));
+        assert!(out.verdict.is_proven(), "every group joins → no stranded pending: {:?}", out.verdict);
+    }
+
+    #[test]
+    fn name_times_time_same_mint_join_reachable_under_delay() {
+        // A timed same-mint join: the name layer must compose with the reused DBM
+        // step. With a delay the join still fires → merged reachable.
+        use libpetri_core::timing;
+
+        let source = Place::<()>::new("source");
+        let a = Place::<String>::new("branchA");
+        let b = Place::<String>::new("branchB");
+        let merged = Place::<String>::new("merged");
+
+        let fork = Transition::builder("fork")
+            .input(one(&source))
+            .output(and(vec![out_place(&a), out_place(&b)]))
+            .timing(timing::delayed(100))
+            .build();
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |s: &String| NameId::new(s.clone()))
+                    .key(&b, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(out_place(&merged))
+            .timing(timing::window(50, 200))
+            .build();
+        let net = PetriNet::builder("timed_same_mint")
+            .transitions([fork, join])
+            .build();
+
+        let initial = MarkingStateBuilder::new().tokens("source", 1).build();
+        let out = verify(&net, &initial, SmtProperty::unreachable(vec!["merged".into()]));
+        assert!(out.verdict.is_violated(), "timed same-mint join still reaches merged: {:?}", out.verdict);
+    }
+
+    #[test]
+    fn unbounded_mint_truncates_to_unknown() {
+        // A self-refilling fork mints a fresh name every firing with no join able
+        // to consume it (branchB is never produced) → the symbolic graph grows
+        // without bound → truncation → Unknown (NU-050 #2 generalised).
+        let source = Place::<()>::new("source");
+        let a = Place::<String>::new("branchA");
+        let b = Place::<String>::new("branchB");
+        let merged = Place::<String>::new("merged");
+
+        let fork = Transition::builder("fork")
+            .input(one(&source))
+            .output(and(vec![out_place(&source), out_place(&a)]))
+            .build();
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |s: &String| NameId::new(s.clone()))
+                    .key(&b, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(out_place(&merged))
+            .build();
+        let net = PetriNet::builder("unbounded_mint")
+            .transitions([fork, join])
+            .build();
+
+        let initial = MarkingStateBuilder::new().tokens("source", 1).build();
+        let out = verify_via_name_scg(
+            &net,
+            &initial,
+            &SmtProperty::unreachable(vec!["merged".into()]),
+            &[],
+            &[],
+            &EnvironmentAnalysisMode::Ignore,
+            40,
+        )
+        .expect("in fragment");
+        match &out.verdict {
+            Verdict::Unknown { reason } => {
+                assert!(reason.contains("truncated"), "reason: {reason}");
+            }
+            other => panic!("expected Unknown on truncation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn non_nu_net_is_not_in_fragment() {
+        // No match transition → not a ν-net → None (caller falls back).
+        let p1 = Place::<i32>::new("p1");
+        let p2 = Place::<i32>::new("p2");
+        let t = Transition::builder("t")
+            .input(one(&p1))
+            .output(out_place(&p2))
+            .build();
+        let net = PetriNet::builder("plain").transition(t).build();
+        let initial = MarkingStateBuilder::new().tokens("p1", 1).build();
+        assert!(verify_via_name_scg(
+            &net,
+            &initial,
+            &SmtProperty::unreachable(vec!["p2".into()]),
+            &[],
+            &[],
+            &EnvironmentAnalysisMode::Ignore,
+            MAX,
+        )
+        .is_none());
+    }
+}

@@ -1,13 +1,15 @@
-"""NU-040 / NU-050: ν-net SMT verification (sound carve-out, Stage 6a).
+"""NU-040 / NU-050: ν-net verification through the Python binding.
 
-The untimed encoder over-approximates ν-join name equality. That is sound for
-reachability-safety bounds (a ``proven`` holds for the real net) — so the
-bounded-budget decidability lever is checkable today — but not for quiescence
-properties, and not for unbounded fresh names. The carve-out logic lives in the
-Rust verifier; here we exercise it through the Python binding.
+Covers the bounded name-coloured SMT carve-out (NU-050 #1, Route A) and the exact
+name-aware state-class-graph name-partition quotient (NU-050, Route B): the latter
+decides ν-join correlation exactly beyond the bounded fragment — budget-less
+structurally-bounded nets, name×time, and quiescence — returning ``unknown`` only
+when the live correlation pool is not structurally bounded (graph truncation). The
+analysis logic lives in the Rust verifier; here we exercise it through Python.
 
-Gated on ``lp.HAS_Z3`` — the SMT path requires the wheel built with the ``z3``
-feature.
+Gated on ``lp.HAS_Z3`` — the binding's ``verify_net`` is built behind the ``z3``
+feature (Route B itself is solver-free, but the Python entry point is gated with
+the rest of the SMT surface).
 """
 
 import libpetri as lp
@@ -85,45 +87,47 @@ def test_pending_bound_proven_exact():
     assert "name-coloured" in result.report
 
 
-def test_unbounded_without_declared_budget_is_unknown():
-    # NU-050 #2: an undeclared-budget ν-net is treated as unbounded -> unknown,
-    # even for a bound the over-approximation could prove.
+def test_structurally_bounded_without_declared_budget_decided_by_route_b():
+    # NU-050 Route B: without a DECLARED budget the SMT/Route-A path returns
+    # unknown, but the name-aware SCG name-partition quotient discovers the
+    # structural bound (the budget token caps live groups) and proves the bound
+    # exactly — the beyond-bounded win.
     net, source, budget, _pending = _nu_scatter_gather_net()
     result = lp.verify(
         net,
         lp.branch_place_bound(budget, 2),
         initial_marking={source: 3, budget: 2},
-        timeout_ms=15_000,
     )
-    assert result.verdict == "unknown", result.report
-    assert "budget" in result.reason and "unbounded" in result.reason
+    assert result.verdict == "proven", result.report
+    assert "Route B" in result.report
 
 
-def test_joined_or_dead_lettered_unknown_on_nu_net():
-    # Quiescence-based on a ν-net -> unknown (deferred to the exact ν-analysis).
+def test_joined_or_dead_lettered_proven_by_route_b():
+    # NU-050 Route B: quiescence on a ν-net is decided exactly by the name-aware
+    # SCG. Same-mint siblings always join, so no quiescent state strands `pending`
+    # -> proven (the SMT path returned unknown here).
     net, source, budget, pending = _nu_scatter_gather_net()
     result = lp.verify(
         net,
         lp.joined_or_dead_lettered(pending),
         initial_marking={source: 3, budget: 2},
-        budget_places=[budget],
-        timeout_ms=15_000,
     )
-    assert result.verdict == "unknown", result.report
+    assert result.verdict == "proven", result.report
+    assert "Route B" in result.report
 
 
-def test_deadlock_free_unknown_on_nu_net():
-    # DeadlockFree is also quiescence-based, and the structural shortcut is gated
-    # off for ν-nets -> unknown.
+def test_deadlock_free_violated_by_route_b():
+    # NU-050 Route B: DeadlockFree is now exact. The net quiesces when `source` is
+    # exhausted (budget returned, no group in flight) — a genuine deadlock with no
+    # declared sinks -> violated (was unknown).
     net, source, budget, _pending = _nu_scatter_gather_net()
     result = lp.verify(
         net,
         lp.deadlock_free(),
         initial_marking={source: 3, budget: 2},
-        budget_places=[budget],
-        timeout_ms=15_000,
     )
-    assert result.verdict == "unknown", result.report
+    assert result.verdict == "violated", result.report
+    assert "Route B" in result.report
 
 
 def test_joined_or_dead_lettered_proven_on_non_nu_net():
@@ -164,3 +168,90 @@ def test_joined_or_dead_lettered_violated_on_non_nu_net():
         timeout_ms=15_000,
     )
     assert result.verdict == "violated", result.report
+
+
+# === NU-050 Route B: exact name-aware SCG name-partition quotient ===
+
+
+def _nu_distinct_mints_net():
+    """Two independent mints feed one join: ``forkA`` mints into ``branchA``,
+    ``forkB`` a *different* name into ``branchB``. Their names can never be equal,
+    so the join can never correlate them and ``merged`` is unreachable — with NO
+    budget place (the beyond-bounded win Route A cannot do)."""
+    source_a = lp.Place("sourceA")
+    source_b = lp.Place("sourceB")
+    a = lp.Place("branchA")
+    b = lp.Place("branchB")
+    merged = lp.Place("merged")
+    fork_a = lp.Transition("forkA").input(lp.one(source_a)).output(lp.out(a)).action(lp.fork).build()
+    fork_b = lp.Transition("forkB").input(lp.one(source_b)).output(lp.out(b)).action(lp.fork).build()
+    join = (
+        lp.Transition("join")
+        .input(lp.one(a))
+        .input(lp.one(b))
+        .match_spec(lp.match_spec([(a, lambda m: m), (b, lambda m: m)]))
+        .output(lp.out(merged))
+        .action(lp.fork)
+        .build()
+    )
+    net = lp.Net("nu_distinct_mints").transition(fork_a).transition(fork_b).transition(join).build()
+    return net, source_a, source_b
+
+
+def test_distinct_mints_merged_unreachable_proven_no_budget():
+    net, source_a, source_b = _nu_distinct_mints_net()
+    result = lp.verify(
+        net,
+        lp.unreachable(["merged"]),
+        initial_marking={source_a: 1, source_b: 1},
+    )
+    assert result.verdict == "proven", result.report
+    assert "name-partition quotient" in result.report
+    assert "Route B" in result.report
+
+
+def test_same_mint_merged_reachable_violated():
+    # The same-mint scatter-gather stamps both branches with one name, so the join
+    # CAN fire and `merged` IS reachable -> Unreachable(merged) violated.
+    net, source, _budget, _pending = _nu_scatter_gather_net()
+    result = lp.verify(
+        net,
+        lp.unreachable(["merged"]),
+        initial_marking={source: 3, "budget": 2},
+    )
+    assert result.verdict == "violated", result.report
+
+
+def test_unbounded_mint_truncates_to_unknown():
+    # A self-refilling fork mints a fresh name every firing with no join able to
+    # consume it -> the name-aware graph grows without bound -> truncation ->
+    # unknown (NU-050 #2 generalised). nu_max_classes bounds the search.
+    source = lp.Place("source")
+    a = lp.Place("branchA")
+    b = lp.Place("branchB")
+    merged = lp.Place("merged")
+    fork = (
+        lp.Transition("fork")
+        .input(lp.one(source))
+        .output(lp.and_(source, a))
+        .action(lp.fork)
+        .build()
+    )
+    join = (
+        lp.Transition("join")
+        .input(lp.one(a))
+        .input(lp.one(b))
+        .match_spec(lp.match_spec([(a, lambda m: m), (b, lambda m: m)]))
+        .output(lp.out(merged))
+        .action(lp.fork)
+        .build()
+    )
+    net = lp.Net("nu_unbounded_mint").transition(fork).transition(join).build()
+    result = lp.verify(
+        net,
+        lp.unreachable(["merged"]),
+        initial_marking={source: 1},
+        nu_max_classes=40,
+    )
+    assert result.verdict == "unknown", result.report
+    assert "truncated" in result.reason

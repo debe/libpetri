@@ -55,7 +55,12 @@ pub mod incidence_matrix;
 pub mod marking_state;
 #[cfg(feature = "z3")]
 pub mod name_coloured_encoder;
+pub mod name_fragment;
+pub mod name_marking;
+pub mod name_state_class;
+pub mod name_state_class_graph;
 pub mod net_flattener;
+pub mod nu_scg_verifier;
 pub mod p_invariant;
 pub mod property;
 pub mod result;

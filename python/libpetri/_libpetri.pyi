@@ -430,6 +430,7 @@ def verify_net(
     sink_places: list[str] | None = ...,
     budget_places: list[str] | None = ...,
     timeout_ms: int = ...,
+    nu_max_classes: int | None = ...,
 ) -> VerificationResult: ...
 def verify_subnet(
     subnet: SubnetDef, harness: VerificationHarness
