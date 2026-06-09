@@ -156,8 +156,14 @@ export function buildColouredPlan(
     }
   }
 
-  // 3. Budget discipline: consumed only by mints, produced only by joins, so live
-  //    colours ≤ initial budget = k (the soundness bound for k colours).
+  // 3. Budget discipline: consumed only by mints, produced only by joins, AND
+  //    conserved — a join may not refund MORE budget than the cheapest mint
+  //    consumes, else repeated mint→join cycles inflate the pool above k, the real
+  //    net can hold > k simultaneously-live names, and the k-colour encoding would
+  //    UNDER-approximate and report a false `Proven`. With this bound live colours
+  //    ≤ initial budget = k. Fail-closed (return null → sound over-approx) otherwise.
+  let minMintCost: number | null = null;
+  let maxJoinRefund = 0;
   for (let ti = 0; ti < classes.length; ti++) {
     const cls = classes[ti]!;
     const ft = flat.transitions[ti]!;
@@ -165,7 +171,17 @@ export function buildColouredPlan(
       if (ft.preVector[b]! > 0 && cls.kind !== 'mint') return null;
       if (ft.postVector[b]! > 0 && cls.kind !== 'join') return null;
     }
+    if (cls.kind === 'mint') {
+      let cost = 0;
+      for (const b of budgetIdx) cost += ft.preVector[b]!;
+      minMintCost = minMintCost === null ? cost : Math.min(minMintCost, cost);
+    } else if (cls.kind === 'join') {
+      let refund = 0;
+      for (const b of budgetIdx) refund += ft.postVector[b]!;
+      maxJoinRefund = Math.max(maxJoinRefund, refund);
+    }
   }
+  if (minMintCost === null || maxJoinRefund > minMintCost) return null;
 
   return { coloured, isColoured, k, classes };
 }
