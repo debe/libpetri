@@ -1,6 +1,6 @@
 # Changelog
 
-## Java 2.8.0 / TypeScript 2.8.0 / Rust 3.2.0 / Python 2.11.0
+## Java 2.8.0 / TypeScript 2.8.0 / Rust 3.2.0 / Python 2.11.0 — 2026-06-09
 
 **ν-nets — correlated fork / join by identity (NU-001..060)**
 
