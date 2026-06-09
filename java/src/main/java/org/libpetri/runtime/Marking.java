@@ -113,6 +113,35 @@ public final class Marking {
     }
 
     /**
+     * Removes and returns the first (oldest) token in a place satisfying
+     * {@code predicate}, preserving the FIFO order of the rest.
+     *
+     * <p>Returns {@code null} if no token matches. Used by ν-net joins to
+     * consume the name-matched token rather than the oldest (NU-020).
+     *
+     * @param <T>       token value type
+     * @param place     source place
+     * @param predicate token test
+     * @return the first matching token, or {@code null}
+     */
+    @SuppressWarnings("unchecked")
+    public <T> Token<T> removeFirstMatching(Place<T> place, java.util.function.Predicate<Token<?>> predicate) {
+        var queue = tokens.get(place);
+        if (queue == null || queue.isEmpty()) {
+            return null;
+        }
+        var it = queue.iterator();
+        while (it.hasNext()) {
+            var token = it.next();
+            if (predicate.test(token)) {
+                it.remove();
+                return (Token<T>) token;
+            }
+        }
+        return null;
+    }
+
+    /**
      * Removes and returns all tokens from a place.
      *
      * <p>Used for reset arcs that clear all tokens from a place.

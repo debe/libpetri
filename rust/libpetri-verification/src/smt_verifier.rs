@@ -29,6 +29,11 @@ pub struct SmtVerifier<'a> {
     env_places: HashSet<String>,
     env_mode: EnvironmentAnalysisMode,
     sink_places: Vec<String>,
+    /// ν-net budget places ([NU-040]): places whose token count bounds the live
+    /// correlation pool (they gate fresh-name minting). Declaring at least one
+    /// places the net in the decidable bounded fragment; without it a net that
+    /// mints fresh names is treated as unbounded and yields `Unknown` ([NU-050]).
+    budget_places: HashSet<String>,
     timeout_ms: u64,
 }
 
@@ -42,6 +47,7 @@ impl<'a> SmtVerifier<'a> {
             env_places: HashSet::new(),
             env_mode: EnvironmentAnalysisMode::Ignore,
             sink_places: Vec::new(),
+            budget_places: HashSet::new(),
             timeout_ms: 30_000,
         }
     }
@@ -76,6 +82,24 @@ impl<'a> SmtVerifier<'a> {
         self
     }
 
+    /// Declares a ν-net budget place ([NU-040]): a place whose token count bounds
+    /// the live correlation pool (it gates fresh-name minting). Declaring at
+    /// least one budget place asserts the net lives in the decidable bounded
+    /// fragment, so reachability-safety properties over its ν-joins are verified
+    /// (over-approximating name equality). Without any budget place, a net that
+    /// mints fresh names is treated as unbounded and the verifier returns
+    /// `Unknown` ([NU-050]).
+    pub fn budget_place(mut self, place: impl Into<String>) -> Self {
+        self.budget_places.insert(place.into());
+        self
+    }
+
+    /// Declares multiple ν-net budget places. See [`SmtVerifier::budget_place`].
+    pub fn budget_places(mut self, places: impl IntoIterator<Item = String>) -> Self {
+        self.budget_places.extend(places);
+        self
+    }
+
     /// Sets the Z3 timeout in milliseconds.
     pub fn timeout(mut self, ms: u64) -> Self {
         self.timeout_ms = ms;
@@ -95,6 +119,16 @@ impl<'a> SmtVerifier<'a> {
     pub fn verify(self) -> VerificationResult {
         let start = Instant::now();
         let mut report = String::new();
+
+        // ν-net awareness ([NU-040], [NU-050]). A transition with a match spec
+        // joins by name equality; the untimed encoder over-approximates that
+        // (name equality assumed satisfiable). The over-approximation is sound
+        // for reachability-safety bounds (`Proven` holds — the real net fires
+        // strictly fewer joins) but NOT for quiescence-based properties
+        // (deadlock / joined-or-dead-lettered), which the name-blind firing
+        // distorts. The end-of-pipeline guard turns those cases into `Unknown`.
+        let has_match = self.net.transitions().iter().any(|t| t.match_spec().is_some());
+        let nu_bounded = !self.budget_places.is_empty();
 
         // Phase 1: Flatten
         report.push_str("=== Phase 1: Net Flattening ===\n");
@@ -151,6 +185,7 @@ impl<'a> SmtVerifier<'a> {
         // (VER-006), so its early proof could be unsound — fall through to the
         // (injection-aware) SMT encoding instead.
         if matches!(self.property, SmtProperty::DeadlockFree)
+            && !has_match
             && self.sink_places.is_empty()
             && self.env_places.is_empty()
             && structural_result == StructuralCheckResult::NoPotentialDeadlock
@@ -244,6 +279,46 @@ impl<'a> SmtVerifier<'a> {
             verdict = Verdict::Unknown { reason };
         }
 
+        // ν-net soundness guard ([NU-040], [NU-050]). Applied only when the net
+        // contains match (ν-join) transitions, and only to a Proven/Violated
+        // verdict (an existing Unknown is left as-is).
+        if has_match && !matches!(verdict, Verdict::Unknown { .. }) {
+            if !is_reachability_safety(&self.property) {
+                // Quiescence-based properties: the name-blind over-approximation
+                // over-fires joins, so it sees fewer quiescent states and may
+                // miss a real stranded marking. Refuse to certify — exact
+                // quiescence reasoning over names is deferred to the SCG
+                // name-partition quotient (NU-050 #1).
+                let reason = "ν-matching transitions present and the property depends on \
+                    quiescence (deadlock / joined-or-dead-lettered); the name-blind \
+                    over-approximation cannot decide it soundly — deferred to the exact \
+                    ν-analysis (NU-050)"
+                    .to_string();
+                report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
+                verdict = Verdict::Unknown { reason };
+            } else if !nu_bounded {
+                // Unbounded fresh names: outside the decidable bounded fragment.
+                // Reachability/liveness over unbounded fresh names is undecidable
+                // (ν-PN reachability); a budget place restores a finite WSTS.
+                let reason = "ν-matching transitions present with unbounded fresh names (no \
+                    budget place declared via .budget_place(...)); reachability over unbounded \
+                    fresh names is undecidable (NU-040) — declare the budget place(s) that gate \
+                    minting to verify within the bounded fragment"
+                    .to_string();
+                report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
+                verdict = Verdict::Unknown { reason };
+            } else {
+                // Bounded reachability-safety: `Proven` is sound. A `Violated`
+                // counterexample may be spurious (it could require joining two
+                // distinct names), which the exact ν-analysis would rule out.
+                report.push_str(
+                    "Note: matched (ν-join) transitions are over-approximated (name equality \
+                     assumed satisfiable). 'Proven' is sound; a 'Violated' counterexample may \
+                     be spurious pending the exact ν-analysis (NU-050).\n",
+                );
+            }
+        }
+
         let elapsed_ms = start.elapsed().as_millis() as u64;
 
         report.push_str(&format!("\nElapsed: {}ms\n", elapsed_ms));
@@ -263,6 +338,23 @@ impl<'a> SmtVerifier<'a> {
                 structural_result: structural_str.into(),
             },
         }
+    }
+}
+
+/// Whether a property is a *reachability-safety* property — one whose violation
+/// is a reachable bad marking (a "∃ reachable state" check). For these the
+/// matched-transition over-approximation is sound for `Proven` (the real net
+/// reaches a subset of states). Quiescence-based properties (deadlock,
+/// joined-or-dead-lettered) are NOT reachability-safety: their violation
+/// involves the *absence* of enabled transitions, which the name-blind
+/// over-approximation distorts unsafely ([NU-050]).
+fn is_reachability_safety(property: &SmtProperty) -> bool {
+    match property {
+        SmtProperty::PlaceBound { .. }
+        | SmtProperty::BranchPlaceBound { .. }
+        | SmtProperty::MutualExclusion { .. }
+        | SmtProperty::Unreachable { .. } => true,
+        SmtProperty::DeadlockFree | SmtProperty::JoinedOrDeadLettered { .. } => false,
     }
 }
 
@@ -610,6 +702,253 @@ mod tests {
             matches!(result.verdict, Verdict::Unknown { .. }),
             "ignore mode with env places must not silently prove, got {:?}\n{}",
             result.verdict,
+            result.report
+        );
+    }
+
+    // === NU-040 / NU-050: ν-net verification (sound carve-out, Stage 6a) ===
+    // The untimed encoder over-approximates ν-join name equality. That is sound
+    // for reachability-safety bounds (a Proven holds for the real net) — so the
+    // bounded-budget decidability lever is checkable today — but not for
+    // quiescence properties, and not for unbounded fresh names. These tests pin
+    // the resulting verdict discipline on the real Z3 path.
+
+    /// Structural scatter-gather: `fork` consumes a `budget` token and stamps a
+    /// `pending` token plus both branches; `join` correlates the branches by
+    /// name, consumes `pending`, and returns the `budget` token. The structural
+    /// conservation laws `budget + pending = k` and `branchA = branchB = pending`
+    /// hold regardless of names, so the over-approximation can prove the bounds.
+    fn nu_scatter_gather_net() -> PetriNet {
+        use libpetri_core::match_spec::MatchSpec;
+        use libpetri_core::name::NameId;
+        use libpetri_core::output::and;
+
+        let source = Place::<()>::new("source");
+        let budget = Place::<()>::new("budget");
+        let pending = Place::<()>::new("pending");
+        let a = Place::<String>::new("branchA");
+        let b = Place::<String>::new("branchB");
+        let merged = Place::<String>::new("merged");
+
+        let fork = Transition::builder("fork")
+            .input(one(&source))
+            .input(one(&budget)) // minting a name costs one budget token
+            .output(and(vec![
+                out_place(&a),
+                out_place(&b),
+                out_place(&pending), // mark a live correlation group
+            ]))
+            .build();
+
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .input(one(&pending))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |s: &String| NameId::new(s.clone()))
+                    .key(&b, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(and(vec![out_place(&merged), out_place(&budget)])) // return budget
+            .build();
+
+        PetriNet::builder("nu_scatter_gather_verify")
+            .transitions([fork, join])
+            .build()
+    }
+
+    fn nu_initial_marking(k: usize) -> MarkingState {
+        MarkingStateBuilder::new()
+            .tokens("source", 3)
+            .tokens("budget", k)
+            .build()
+    }
+
+    #[test]
+    fn nu_branch_budget_bound_proven_with_declared_budget() {
+        if !z3_available() {
+            eprintln!("skipping nu_branch_budget_bound_*: z3 binary not on PATH");
+            return;
+        }
+        // NU-040 #1: with the budget declared, the live correlation pool is
+        // bounded — BranchPlaceBound(budget, k) is proven by conservation.
+        let net = nu_scatter_gather_net();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(nu_initial_marking(2))
+            .property(SmtProperty::branch_place_bound("budget", 2))
+            .budget_place("budget")
+            .timeout(15_000)
+            .verify();
+        assert!(
+            result.is_proven(),
+            "BranchPlaceBound(budget, 2) must be proven for the bounded scatter-gather\n{}",
+            result.report
+        );
+    }
+
+    #[test]
+    fn nu_pending_bound_proven_with_declared_budget() {
+        if !z3_available() {
+            eprintln!("skipping nu_pending_bound_*: z3 binary not on PATH");
+            return;
+        }
+        // NU-040 #2 (bound half): at most k live groups — Pending is bounded by k.
+        let net = nu_scatter_gather_net();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(nu_initial_marking(2))
+            .property(SmtProperty::branch_place_bound("pending", 2))
+            .budget_place("budget")
+            .timeout(15_000)
+            .verify();
+        assert!(
+            result.is_proven(),
+            "BranchPlaceBound(pending, 2) must be proven for the bounded scatter-gather\n{}",
+            result.report
+        );
+        assert!(
+            result.report.contains("over-approximated"),
+            "a bounded ν-net result must carry the over-approximation caveat\n{}",
+            result.report
+        );
+    }
+
+    #[test]
+    fn nu_unbounded_without_declared_budget_is_unknown() {
+        if !z3_available() {
+            eprintln!("skipping nu_unbounded_*: z3 binary not on PATH");
+            return;
+        }
+        // NU-050 #2: a ν-net that mints fresh names without a declared budget is
+        // treated as unbounded — the verifier returns Unknown rather than a
+        // (precision-limited) verdict, even for a bound the over-approximation
+        // could prove. Declaring the budget place is what asserts the bounded
+        // fragment.
+        let net = nu_scatter_gather_net();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(nu_initial_marking(2))
+            .property(SmtProperty::branch_place_bound("budget", 2))
+            .timeout(15_000)
+            .verify();
+        match &result.verdict {
+            Verdict::Unknown { reason } => assert!(
+                reason.contains("budget") && reason.contains("unbounded"),
+                "Unknown reason should explain the missing budget declaration: {reason}"
+            ),
+            other => panic!("expected Unknown for an undeclared-budget ν-net, got {other:?}\n{}", result.report),
+        }
+    }
+
+    #[test]
+    fn nu_joined_or_dead_lettered_unknown_on_nu_net() {
+        if !z3_available() {
+            eprintln!("skipping nu_joined_or_dead_lettered_*: z3 binary not on PATH");
+            return;
+        }
+        // JoinedOrDeadLettered is quiescence-based: the name-blind
+        // over-approximation over-fires joins, so it cannot decide it soundly on
+        // a ν-net. Even with the budget declared, the verdict is Unknown
+        // (deferred to the exact ν-analysis, NU-050 #1).
+        let net = nu_scatter_gather_net();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(nu_initial_marking(2))
+            .property(SmtProperty::joined_or_dead_lettered("pending"))
+            .budget_place("budget")
+            .timeout(15_000)
+            .verify();
+        assert!(
+            matches!(result.verdict, Verdict::Unknown { .. }),
+            "JoinedOrDeadLettered on a ν-net must be Unknown (quiescence deferred), got {:?}\n{}",
+            result.verdict,
+            result.report
+        );
+    }
+
+    #[test]
+    fn nu_deadlock_free_unknown_on_nu_net() {
+        if !z3_available() {
+            eprintln!("skipping nu_deadlock_free_*: z3 binary not on PATH");
+            return;
+        }
+        // DeadlockFree is also quiescence-based — and the structural shortcut is
+        // gated off for ν-nets — so it must end as Unknown, not a name-blind
+        // (possibly unsound) proof.
+        let net = nu_scatter_gather_net();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(nu_initial_marking(2))
+            .property(SmtProperty::DeadlockFree)
+            .budget_place("budget")
+            .timeout(15_000)
+            .verify();
+        assert!(
+            matches!(result.verdict, Verdict::Unknown { .. }),
+            "DeadlockFree on a ν-net must be Unknown (quiescence deferred), got {:?}\n{}",
+            result.verdict,
+            result.report
+        );
+    }
+
+    #[test]
+    fn joined_or_dead_lettered_proven_on_non_nu_net() {
+        if !z3_available() {
+            eprintln!("skipping joined_or_dead_lettered_proven_*: z3 binary not on PATH");
+            return;
+        }
+        // On a net WITHOUT ν-matching the encoding is exact for quiescence, so
+        // the property is soundly decided. Here `pending` always drains before
+        // quiescence -> Proven.
+        let start = Place::<()>::new("start");
+        let pending = Place::<()>::new("pending");
+        let done = Place::<()>::new("done");
+        let produce = Transition::builder("gen")
+            .input(one(&start))
+            .output(out_place(&pending))
+            .build();
+        let fin = Transition::builder("fin")
+            .input(one(&pending))
+            .output(out_place(&done))
+            .build();
+        let net = PetriNet::builder("pending_drains")
+            .transitions([produce, fin])
+            .build();
+
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(MarkingStateBuilder::new().tokens("start", 1).build())
+            .property(SmtProperty::joined_or_dead_lettered("pending"))
+            .timeout(15_000)
+            .verify();
+        assert!(
+            result.is_proven(),
+            "every group joins/dead-letters before quiescence -> Proven\n{}",
+            result.report
+        );
+    }
+
+    #[test]
+    fn joined_or_dead_lettered_violated_on_non_nu_net() {
+        if !z3_available() {
+            eprintln!("skipping joined_or_dead_lettered_violated_*: z3 binary not on PATH");
+            return;
+        }
+        // A stranded `pending` token: `leak` produces into `pending` but nothing
+        // consumes it, so the quiescent marking still holds a pending token ->
+        // Violated.
+        let start = Place::<()>::new("start");
+        let pending = Place::<()>::new("pending");
+        let leak = Transition::builder("leak")
+            .input(one(&start))
+            .output(out_place(&pending))
+            .build();
+        let net = PetriNet::builder("pending_strands").transition(leak).build();
+
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(MarkingStateBuilder::new().tokens("start", 1).build())
+            .property(SmtProperty::joined_or_dead_lettered("pending"))
+            .timeout(15_000)
+            .verify();
+        assert!(
+            result.is_violated(),
+            "a stranded pending token at quiescence -> Violated\n{}",
             result.report
         );
     }

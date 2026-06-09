@@ -445,4 +445,170 @@ class SmtVerifierTest {
         assertFalse(result.isViolated(),
             "B with reset arc should never exceed initial value\n" + result.report());
     }
+
+    // === NU-040 / NU-050: ν-net verification (sound carve-out, Stage 6a) ===
+    // The untimed encoder over-approximates ν-join name equality. That is sound
+    // for reachability-safety bounds (a Proven holds for the real net) — so the
+    // bounded-budget decidability lever is checkable today — but not for
+    // quiescence properties, and not for unbounded fresh names.
+
+    /**
+     * Structural scatter-gather: {@code fork} consumes a {@code budget} token and
+     * stamps a {@code pending} token plus both branches; {@code join} correlates
+     * the branches by name, consumes {@code pending}, and returns the
+     * {@code budget} token. The conservation laws {@code budget + pending = k}
+     * and {@code branchA = branchB = pending} hold regardless of names, so the
+     * over-approximation can prove the bounds.
+     */
+    private static PetriNet nuScatterGatherNet() {
+        var source = Place.of("source", Integer.class);
+        var budget = Place.of("budget", Integer.class);
+        var pending = Place.of("pending", Integer.class);
+        var a = Place.of("branchA", String.class);
+        var b = Place.of("branchB", String.class);
+        var merged = Place.of("merged", String.class);
+
+        var fork = Transition.builder("fork")
+            .inputs(Arc.In.one(source), Arc.In.one(budget))
+            .outputs(Arc.Out.and(a, b, pending))
+            .build();
+
+        var join = Transition.builder("join")
+            .inputs(Arc.In.one(a), Arc.In.one(b), Arc.In.one(pending))
+            .match(MatchSpec.builder()
+                .key(a, (String s) -> NameId.of(s))
+                .key(b, (String s) -> NameId.of(s))
+                .build())
+            .outputs(Arc.Out.and(merged, budget))
+            .build();
+
+        return PetriNet.builder("nuScatterGatherVerify").transitions(fork, join).build();
+    }
+
+    private static final Place<Integer> NU_BUDGET = Place.of("budget", Integer.class);
+    private static final Place<Integer> NU_PENDING = Place.of("pending", Integer.class);
+    private static final Place<Integer> NU_SOURCE = Place.of("source", Integer.class);
+
+    @Test
+    @EnabledIf("z3Available")
+    void nuBranchBudgetBound_provenWithDeclaredBudget() {
+        // NU-040 #1: with the budget declared, the live correlation pool is
+        // bounded — BranchPlaceBound(budget, k) is proven by conservation.
+        var result = SmtVerifier.forNet(nuScatterGatherNet())
+            .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); })
+            .property(SmtProperty.branchPlaceBound(NU_BUDGET, 2))
+            .budgetPlaces(NU_BUDGET)
+            .timeout(Duration.ofSeconds(15))
+            .verify();
+        assertTrue(result.isProven(),
+            "BranchPlaceBound(budget, 2) must be proven for the bounded scatter-gather\n" + result.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void nuPendingBound_provenWithCaveat() {
+        // NU-040 #2 (bound half): at most k live groups — Pending is bounded by k.
+        var result = SmtVerifier.forNet(nuScatterGatherNet())
+            .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); })
+            .property(SmtProperty.branchPlaceBound(NU_PENDING, 2))
+            .budgetPlaces(NU_BUDGET)
+            .timeout(Duration.ofSeconds(15))
+            .verify();
+        assertTrue(result.isProven(),
+            "BranchPlaceBound(pending, 2) must be proven for the bounded scatter-gather\n" + result.report());
+        assertTrue(result.report().contains("over-approximated"),
+            "a bounded ν-net result must carry the over-approximation caveat\n" + result.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void nuUnbounded_withoutDeclaredBudget_isUnknown() {
+        // NU-050 #2: a ν-net that mints fresh names without a declared budget is
+        // treated as unbounded — Unknown rather than a precision-limited verdict,
+        // even for a bound the over-approximation could prove.
+        var result = SmtVerifier.forNet(nuScatterGatherNet())
+            .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); })
+            .property(SmtProperty.branchPlaceBound(NU_BUDGET, 2))
+            .timeout(Duration.ofSeconds(15))
+            .verify();
+        assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(),
+            "an undeclared-budget ν-net must be Unknown\n" + result.report());
+        var reason = ((SmtVerificationResult.Verdict.Unknown) result.verdict()).reason();
+        assertTrue(reason.contains("budget") && reason.contains("unbounded"),
+            "Unknown reason should explain the missing budget declaration: " + reason);
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void nuJoinedOrDeadLettered_unknownOnNuNet() {
+        // JoinedOrDeadLettered is quiescence-based: the name-blind
+        // over-approximation cannot decide it soundly on a ν-net. Even with the
+        // budget declared, the verdict is Unknown (deferred to NU-050 #1).
+        var result = SmtVerifier.forNet(nuScatterGatherNet())
+            .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); })
+            .property(SmtProperty.joinedOrDeadLettered(NU_PENDING))
+            .budgetPlaces(NU_BUDGET)
+            .timeout(Duration.ofSeconds(15))
+            .verify();
+        assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(),
+            "JoinedOrDeadLettered on a ν-net must be Unknown (quiescence deferred)\n" + result.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void nuDeadlockFree_unknownOnNuNet() {
+        // DeadlockFree is also quiescence-based — and the structural shortcut is
+        // gated off for ν-nets — so it ends as Unknown, not a name-blind proof.
+        var result = SmtVerifier.forNet(nuScatterGatherNet())
+            .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); })
+            .property(SmtProperty.deadlockFree())
+            .budgetPlaces(NU_BUDGET)
+            .timeout(Duration.ofSeconds(15))
+            .verify();
+        assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(),
+            "DeadlockFree on a ν-net must be Unknown (quiescence deferred)\n" + result.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void joinedOrDeadLettered_provenOnNonNuNet() {
+        // On a net WITHOUT ν-matching the encoding is exact for quiescence.
+        // `pending` always drains before quiescence -> Proven.
+        var start = Place.of("start", Integer.class);
+        var pending = Place.of("pending", Integer.class);
+        var done = Place.of("done", Integer.class);
+        var produce = Transition.builder("gen")
+            .inputs(Arc.In.one(start)).outputs(Arc.Out.place(pending)).build();
+        var fin = Transition.builder("fin")
+            .inputs(Arc.In.one(pending)).outputs(Arc.Out.place(done)).build();
+        var net = PetriNet.builder("pendingDrains").transitions(produce, fin).build();
+
+        var result = SmtVerifier.forNet(net)
+            .initialMarking(m -> m.tokens(start, 1))
+            .property(SmtProperty.joinedOrDeadLettered(pending))
+            .timeout(Duration.ofSeconds(15))
+            .verify();
+        assertTrue(result.isProven(),
+            "every group joins/dead-letters before quiescence -> Proven\n" + result.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void joinedOrDeadLettered_violatedOnNonNuNet() {
+        // A stranded `pending` token: `leak` produces into `pending` but nothing
+        // consumes it -> the quiescent marking still holds pending -> Violated.
+        var start = Place.of("start", Integer.class);
+        var pending = Place.of("pending", Integer.class);
+        var leak = Transition.builder("leak")
+            .inputs(Arc.In.one(start)).outputs(Arc.Out.place(pending)).build();
+        var net = PetriNet.builder("pendingStrands").transitions(leak).build();
+
+        var result = SmtVerifier.forNet(net)
+            .initialMarking(m -> m.tokens(start, 1))
+            .property(SmtProperty.joinedOrDeadLettered(pending))
+            .timeout(Duration.ofSeconds(15))
+            .verify();
+        assertTrue(result.isViolated(),
+            "a stranded pending token at quiescence -> Violated\n" + result.report());
+    }
 }

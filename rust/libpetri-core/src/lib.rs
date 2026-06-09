@@ -74,6 +74,8 @@ pub mod fusion;
 pub mod input;
 pub mod instance;
 pub mod interface;
+pub mod match_spec;
+pub mod name;
 pub mod output;
 pub mod petri_net;
 pub mod place;

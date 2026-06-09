@@ -5,6 +5,9 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
+import java.util.function.Predicate;
 
 import org.libpetri.core.*;
 import org.libpetri.debug.LogCaptureScope;
@@ -70,6 +73,9 @@ public final class NetExecutor implements PetriNetExecutor {
     /** Grace band (ms) before a hard deadline ({@code deadline()}/{@code window()}) force-disables. */
     private final long deadlineToleranceMillis;
     private final long startNanos;
+
+    /** Monotonic source for ν-name minting ({@link TransitionContext#freshName()}, NU-010). */
+    private final AtomicLong freshNameCounter = new AtomicLong();
 
     /** Enabled transitions mapped to their enable time (nanos). */
     private final Map<Transition, Long> enabledAt = new HashMap<>();
@@ -844,6 +850,11 @@ public final class NetExecutor implements PetriNetExecutor {
             }
         }
 
+        // ν-net join: a correlation name must satisfy every matched input (NU-020).
+        if (t.matchSpec() != null && MatchEngine.findBinding(marking, t) == null) {
+            return false;
+        }
+
         return true;
     }
 
@@ -906,26 +917,53 @@ public final class NetExecutor implements PetriNetExecutor {
         var inputs = new TokenInput();
         List<Token<?>> consumed = new ArrayList<>();
 
+        // ν-net join: resolve the correlation name once, then consume the
+        // matched tokens for correlated inputs; others consume FIFO (NU-020).
+        MatchSpec ms = t.matchSpec();
+        NameId chosen = ms != null ? MatchEngine.findBinding(marking, t) : null;
+
         // Consume tokens based on input specs with cardinality
         for (var in : t.inputSpecs()) {
-            int toConsume = switch (in) {
-                case Arc.In.One _ -> 1;
-                case Arc.In.Exactly e -> e.count();
-                case Arc.In.All _ -> marking.tokenCount(in.place());
-                case Arc.In.AtLeast _ -> marking.tokenCount(in.place());
-            };
+            Place<Object> place = (Place<Object>) in.place();
+            Function<Object, NameId> keyFn = ms != null ? ms.keyFor(in.place()) : null;
 
-            for (int i = 0; i < toConsume; i++) {
-                Token<?> token = marking.removeFirst((Place<Object>) in.place());
-                consumed.add(token);
-                inputs.add((Place<Object>) in.place(), (Token<Object>) token);
-                emitEvent(
-                    new NetEvent.TokenRemoved(
-                        Instant.now(),
-                        in.place().name(),
-                        token
-                    )
-                );
+            if (keyFn != null && chosen != null) {
+                Predicate<Token<?>> pred = tok -> {
+                    try {
+                        return chosen.equals(keyFn.apply(tok.value()));
+                    } catch (ClassCastException e) {
+                        return false;
+                    }
+                };
+                int toConsume = switch (in) {
+                    case Arc.In.One _ -> 1;
+                    case Arc.In.Exactly e -> e.count();
+                    default -> {
+                        int c = 0;
+                        for (Token<?> tk : marking.peekTokens(place)) if (pred.test(tk)) c++;
+                        yield c;
+                    }
+                };
+                for (int i = 0; i < toConsume; i++) {
+                    Token<?> token = marking.removeFirstMatching(place, pred);
+                    if (token == null) break;
+                    consumed.add(token);
+                    inputs.add(place, (Token<Object>) token);
+                    emitEvent(new NetEvent.TokenRemoved(Instant.now(), in.place().name(), token));
+                }
+            } else {
+                int toConsume = switch (in) {
+                    case Arc.In.One _ -> 1;
+                    case Arc.In.Exactly e -> e.count();
+                    case Arc.In.All _ -> marking.tokenCount(place);
+                    case Arc.In.AtLeast _ -> marking.tokenCount(place);
+                };
+                for (int i = 0; i < toConsume; i++) {
+                    Token<?> token = marking.removeFirst(place);
+                    consumed.add(token);
+                    inputs.add(place, (Token<Object>) token);
+                    emitEvent(new NetEvent.TokenRemoved(Instant.now(), in.place().name(), token));
+                }
             }
         }
 
@@ -965,6 +1003,9 @@ public final class NetExecutor implements PetriNetExecutor {
 
         // Create TransitionContext with filtered I/O based on structure
         var context = new TransitionContext(t, inputs, new TokenOutput(), execContext);
+        final String freshNameBase = t.name();
+        context.setFreshNameSupplier(() ->
+            new NameId(freshNameBase + "#" + freshNameCounter.getAndIncrement()));
 
         CompletableFuture<Void> transitionFuture = eventStore.isEnabled()
             ? LogCaptureScope.call(t.name(), eventStore::append,

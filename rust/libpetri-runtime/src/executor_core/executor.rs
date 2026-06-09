@@ -15,9 +15,11 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
-use libpetri_core::context::TransitionContext;
+use libpetri_core::context::{FreshNameFn, TransitionContext};
+use libpetri_core::name::NameId;
 use libpetri_core::token::ErasedToken;
 use libpetri_event::event_store::EventStore;
 use libpetri_event::net_event::NetEvent;
@@ -59,6 +61,21 @@ pub struct Executor<S: ExecutorBackend, E: EventStore> {
     /// Companion to [`reusable_inputs`](Self::reusable_inputs) for
     /// read-arc tokens.
     reusable_reads: HashMap<Arc<str>, Vec<ErasedToken>>,
+
+    /// Monotonic source for ν-name minting ([`TransitionContext::fresh_name`],
+    /// spec NU-010). One counter per executor run makes minted names
+    /// deterministic for a given firing order (replay-stable); combining it
+    /// with the firing transition's (instance-prefixed) name keeps names
+    /// per-instance unique (NU-030).
+    fresh_name_counter: Arc<AtomicU64>,
+
+    /// Per-transition ν-name minter cache, indexed by `tid` (grown lazily).
+    /// Each minter is built once and reused across firings, so installing it
+    /// on a firing context is an `Arc::clone` (refcount bump) rather than a
+    /// per-fire heap allocation — preserving the zero-cost discipline for
+    /// non-ν transitions. Every transition gets a minter (forks mint but carry
+    /// no match spec, so gating on `has_match` would wrongly starve them).
+    fresh_name_fns: Vec<Option<FreshNameFn>>,
 }
 
 impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
@@ -73,7 +90,32 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             has_environment_places,
             reusable_inputs: HashMap::new(),
             reusable_reads: HashMap::new(),
+            fresh_name_counter: Arc::new(AtomicU64::new(0)),
+            fresh_name_fns: Vec::new(),
         }
+    }
+
+    /// Returns the ν-name minter for transition `tid` (spec NU-010, NU-030),
+    /// building it once and caching it. Minted names are `"{transition_name}#{n}"`
+    /// with `n` drawn from the per-run monotonic counter, so they are unique
+    /// across firings and per-instance (the transition name is instance-prefixed
+    /// after compose). The minter is built lazily on first firing and reused
+    /// thereafter, so installing it on a context (the caller's
+    /// `ctx.set_fresh_name_fn`) is an `Arc::clone` — no per-fire heap allocation.
+    fn fresh_name_fn(&mut self, tid: usize, transition_name: &Arc<str>) -> FreshNameFn {
+        if tid >= self.fresh_name_fns.len() {
+            self.fresh_name_fns.resize(tid + 1, None);
+        }
+        if self.fresh_name_fns[tid].is_none() {
+            let counter = Arc::clone(&self.fresh_name_counter);
+            let name = Arc::clone(transition_name);
+            let minter: FreshNameFn = Arc::new(move || {
+                let n = counter.fetch_add(1, Ordering::Relaxed);
+                NameId::new(format!("{name}#{n}"))
+            });
+            self.fresh_name_fns[tid] = Some(minter);
+        }
+        Arc::clone(self.fresh_name_fns[tid].as_ref().unwrap())
     }
 
     /// Borrow the event store.
@@ -273,6 +315,8 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         if let Some(map) = local_name_map {
             ctx.set_local_name_map(map);
         }
+        let fresh_name_fn = self.fresh_name_fn(tid, &transition_name);
+        ctx.set_fresh_name_fn(fresh_name_fn);
 
         let result = action.run_sync(&mut ctx);
 
@@ -717,6 +761,8 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             if let Some(ref map) = local_name_map {
                 ctx.set_local_name_map(Arc::clone(map));
             }
+            let fresh_name_fn = self.fresh_name_fn(tid, &transition_name);
+            ctx.set_fresh_name_fn(fresh_name_fn);
             let result = action.run_sync(&mut ctx);
             self.reusable_inputs = ctx.take_inputs();
             self.reusable_reads = ctx.take_reads();
@@ -803,6 +849,8 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             if let Some(map) = local_name_map {
                 ctx.set_local_name_map(map);
             }
+            let fresh_name_fn = self.fresh_name_fn(tid, &transition_name);
+            ctx.set_fresh_name_fn(fresh_name_fn);
 
             // Mid-action flush wiring: each fired async transition gets
             // a closure capturing its own name + a clone of flush_tx.

@@ -73,6 +73,7 @@ public final class SmtVerifier {
     private SmtProperty property = SmtProperty.deadlockFree();
     private final Set<EnvironmentPlace<?>> environmentPlaces = new HashSet<>();
     private final Set<Place<?>> sinkPlaces = new HashSet<>();
+    private final Set<String> budgetPlaces = new HashSet<>();
     private EnvironmentAnalysisMode environmentMode = EnvironmentAnalysisMode.ignore();
     private Duration timeout = Duration.ofSeconds(60);
 
@@ -141,6 +142,23 @@ public final class SmtVerifier {
     }
 
     /**
+     * Declares &nu;-net budget places (NU-040): places whose token count bounds
+     * the live correlation pool (they gate fresh-name minting). Declaring at
+     * least one places the net in the decidable bounded fragment, so
+     * reachability-safety properties over its &nu;-joins are verified (the
+     * matched transitions are over-approximated). Without any budget place, a
+     * net that mints fresh names is treated as unbounded and the verifier
+     * returns {@code Unknown} (NU-050).
+     */
+    @SafeVarargs
+    public final SmtVerifier budgetPlaces(Place<?>... places) {
+        for (var p : places) {
+            this.budgetPlaces.add(p.name());
+        }
+        return this;
+    }
+
+    /**
      * Sets the solver timeout.
      */
     public SmtVerifier timeout(Duration timeout) {
@@ -160,6 +178,15 @@ public final class SmtVerifier {
         report.append("Net: ").append(net.name()).append("\n");
         report.append("Property: ").append(propertyDescription()).append("\n");
         report.append("Timeout: ").append(timeout.toSeconds()).append("s\n\n");
+
+        // ν-net awareness (NU-040, NU-050). A transition with a match spec joins
+        // by name equality; the untimed encoder over-approximates that (name
+        // equality assumed satisfiable). The over-approximation is sound for
+        // reachability-safety bounds (Proven holds — the real net fires strictly
+        // fewer joins) but NOT for quiescence-based properties, which name-blind
+        // firing distorts. The applyNuGuard step turns those cases into Unknown.
+        boolean hasMatch = net.transitions().stream().anyMatch(t -> t.matchSpec() != null);
+        boolean nuBounded = !budgetPlaces.isEmpty();
 
         // Phase 1: Flatten
         report.append("Phase 1: Flattening net...\n");
@@ -187,6 +214,7 @@ public final class SmtVerifier {
         // on the closed net and is blind to env injection (VER-006), so its early proof
         // could be unsound — fall through to the (injection-aware) SMT encoding instead.
         if (property instanceof SmtProperty.DeadlockFree
+                && !hasMatch
                 && sinkPlaces.isEmpty()
                 && environmentPlaces.isEmpty()
                 && structResult instanceof StructuralCheck.Result.NoPotentialDeadlock) {
@@ -224,7 +252,7 @@ public final class SmtVerifier {
             var encoding = SmtEncoder.encode(ctx, fp, flatNet, initialMarking, property, invariants, sinkPlaces);
             var queryResult = runner.query(encoding.errorExpr(), encoding.reachableDecl());
 
-            return switch (queryResult) {
+            var smtResult = switch (queryResult) {
                 case SpacerRunner.QueryResult.Proven(var formula, var levels) -> {
                     // Guard against silent vacuous proofs (VER-006): in Ignore mode the
                     // encoding does not model env injection, so env-gated transitions never
@@ -338,6 +366,7 @@ public final class SmtVerifier {
                     );
                 }
             };
+            return applyNuGuard(smtResult, hasMatch, nuBounded);
         } catch (com.microsoft.z3.Z3Exception e) {
             report.append("  ERROR: ").append(e.getMessage()).append("\n\n");
             report.append("=== RESULT ===\n\n");
@@ -366,6 +395,10 @@ public final class SmtVerifier {
                 "Place " + pb.place().name() + " bounded by " + pb.bound();
             case SmtProperty.Unreachable ur ->
                 "Unreachability of marking with tokens in " + ur.places();
+            case SmtProperty.BranchPlaceBound bpb ->
+                "Branch place bound (ν-budget): " + bpb.place().name() + " <= " + bpb.bound();
+            case SmtProperty.JoinedOrDeadLettered jdl ->
+                "Joined-or-dead-lettered: " + jdl.pending().name() + " = 0 at quiescence";
         };
     }
 
@@ -401,5 +434,80 @@ public final class SmtVerifier {
             Duration elapsed, SmtVerificationResult.SmtStatistics stats
     ) {
         return new SmtVerificationResult(verdict, report, invariants, discoveredInvariants, trace, transitions, elapsed, stats);
+    }
+
+    /**
+     * ν-net soundness guard (NU-040, NU-050). Applied only when the net contains
+     * match (ν-join) transitions, and only to a Proven/Violated verdict (an
+     * existing Unknown is left as-is).
+     *
+     * <ul>
+     *   <li>Quiescence-based properties (deadlock / joined-or-dead-lettered):
+     *       the name-blind over-approximation over-fires joins, so it sees fewer
+     *       quiescent states and may miss a real stranded marking — downgraded
+     *       to Unknown (exact quiescence reasoning is deferred to the SCG
+     *       name-partition quotient).</li>
+     *   <li>Reachability-safety with unbounded fresh names (no budget declared):
+     *       reachability over unbounded fresh names is undecidable — Unknown.</li>
+     *   <li>Bounded reachability-safety: {@code Proven} is sound; a
+     *       {@code Violated} may be spurious — the verdict is kept and the
+     *       over-approximation caveat is appended to the report.</li>
+     * </ul>
+     */
+    private SmtVerificationResult applyNuGuard(
+            SmtVerificationResult result, boolean hasMatch, boolean nuBounded
+    ) {
+        if (!hasMatch || result.verdict() instanceof SmtVerificationResult.Verdict.Unknown) {
+            return result;
+        }
+        if (!isReachabilitySafety(property)) {
+            return downgradeToUnknown(result,
+                "ν-matching transitions present and the property depends on quiescence "
+                + "(deadlock / joined-or-dead-lettered); the name-blind over-approximation "
+                + "cannot decide it soundly — deferred to the exact ν-analysis (NU-050)");
+        }
+        if (!nuBounded) {
+            return downgradeToUnknown(result,
+                "ν-matching transitions present with unbounded fresh names (no budget place "
+                + "declared via budgetPlaces(...)); reachability over unbounded fresh names is "
+                + "undecidable (NU-040) — declare the budget place(s) that gate minting to "
+                + "verify within the bounded fragment");
+        }
+        // Bounded reachability-safety: keep the (sound) verdict, append the caveat.
+        String note = "\nNote: matched (ν-join) transitions are over-approximated (name equality "
+            + "assumed satisfiable). 'Proven' is sound; a 'Violated' counterexample may be "
+            + "spurious pending the exact ν-analysis (NU-050).\n";
+        return new SmtVerificationResult(
+            result.verdict(), result.report() + note, result.invariants(),
+            result.discoveredInvariants(), result.counterexampleTrace(),
+            result.counterexampleTransitions(), result.elapsed(), result.statistics());
+    }
+
+    private static SmtVerificationResult downgradeToUnknown(
+            SmtVerificationResult result, String reason
+    ) {
+        String report = result.report() + "\nDowngraded to UNKNOWN: " + reason + "\n";
+        return new SmtVerificationResult(
+            new SmtVerificationResult.Verdict.Unknown(reason), report, result.invariants(),
+            List.of(), List.of(), List.of(), result.elapsed(), result.statistics());
+    }
+
+    /**
+     * Whether a property is a <em>reachability-safety</em> property — one whose
+     * violation is a reachable bad marking. For these the matched-transition
+     * over-approximation is sound for {@code Proven}. Quiescence-based
+     * properties (deadlock, joined-or-dead-lettered) are not: their violation
+     * involves the absence of enabled transitions, which the name-blind
+     * over-approximation distorts unsafely (NU-050).
+     */
+    private static boolean isReachabilitySafety(SmtProperty property) {
+        return switch (property) {
+            case SmtProperty.PlaceBound _ -> true;
+            case SmtProperty.BranchPlaceBound _ -> true;
+            case SmtProperty.MutualExclusion _ -> true;
+            case SmtProperty.Unreachable _ -> true;
+            case SmtProperty.DeadlockFree _ -> false;
+            case SmtProperty.JoinedOrDeadLettered _ -> false;
+        };
     }
 }

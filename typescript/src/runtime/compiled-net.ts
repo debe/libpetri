@@ -59,6 +59,10 @@ export class CompiledNet {
   // Cardinality and guard flags
   private readonly _cardinalityChecks: (CardinalityCheck | null)[];
   private readonly _hasGuards: boolean[];
+  // ν-net join flag: the transition carries a MatchSpec (NU-020). Precomputed
+  // so the hot enablement loop can skip the match check on non-ν transitions
+  // (zero-cost gating), mirroring `_hasGuards`.
+  private readonly _hasMatch: boolean[];
 
   private constructor(net: PetriNet) {
     this.net = net;
@@ -100,6 +104,7 @@ export class CompiledNet {
     this._consumptionPlaceIds = new Array(this.transitionCount);
     this._cardinalityChecks = new Array(this.transitionCount).fill(null);
     this._hasGuards = new Array(this.transitionCount).fill(false);
+    this._hasMatch = new Array(this.transitionCount).fill(false);
 
     const placeToTransitionsList: number[][] = new Array(this.placeCount);
     for (let i = 0; i < this.placeCount; i++) {
@@ -108,6 +113,7 @@ export class CompiledNet {
 
     for (let tid = 0; tid < this.transitionCount; tid++) {
       const t = this._transitionsById[tid]!;
+      this._hasMatch[tid] = t.matchSpec !== null;
       const needs = new Uint32Array(this.wordCount);
       const inhibitors = new Uint32Array(this.wordCount);
 
@@ -210,6 +216,10 @@ export class CompiledNet {
 
   hasGuards(tid: number): boolean {
     return this._hasGuards[tid]!;
+  }
+
+  hasMatch(tid: number): boolean {
+    return this._hasMatch[tid]!;
   }
 
   // ==================== Enablement Check ====================

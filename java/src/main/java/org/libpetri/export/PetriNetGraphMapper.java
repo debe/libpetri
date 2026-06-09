@@ -6,7 +6,6 @@ import org.libpetri.core.Transition;
 import org.libpetri.export.graph.*;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -137,13 +136,19 @@ public final class PetriNetGraphMapper {
             // Input arcs from inputSpecs
             for (var in : t.inputSpecs()) {
                 String pid = "p_" + DotExporter.sanitize(in.place().name());
-                EdgeVisual inputStyle = StyleConstants.edgeStyle(ArcType.INPUT);
-                String label = switch (in) {
+                // ν-net correlated inputs (NU-020 / EXP-018) get a teal edge + ⟨n⟩ label.
+                boolean correlated = t.matchSpec() != null && t.matchSpec().correlates(in.place());
+                EdgeVisual inputStyle = correlated
+                    ? StyleConstants.MATCH_INPUT_EDGE
+                    : StyleConstants.edgeStyle(ArcType.INPUT);
+                String card = switch (in) {
                     case Arc.In.One _ -> null;
                     case Arc.In.Exactly e -> "×" + e.count();
                     case Arc.In.All _ -> "*";
                     case Arc.In.AtLeast a -> "≥" + a.minimum();
                 };
+                String label = !correlated ? card
+                    : (card == null ? "⟨n⟩" : "⟨n⟩ " + card);
                 edges.add(new GraphEdge(
                     pid, tid, label,
                     inputStyle.color(), inputStyle.style(), inputStyle.arrowhead(),

@@ -75,6 +75,7 @@ pub mod executor_core;
 #[cfg(feature = "tokio")]
 pub mod executor_handle;
 pub mod marking;
+pub(crate) mod match_engine;
 pub mod owned_precompiled;
 pub mod precompiled_backend;
 pub mod precompiled_executor;

@@ -41,6 +41,9 @@ import { Marking } from './marking.js';
 import { PrecompiledNet, CONSUME_ONE, CONSUME_N, CONSUME_ALL, CONSUME_ATLEAST, RESET } from './precompiled-net.js';
 import { validateOutSpec, produceTimeoutOutput, DEADLINE_TOLERANCE_MS } from './executor-support.js';
 import { OutViolationError } from './out-violation-error.js';
+import { findBinding } from './match-engine.js';
+import { keyForPlace } from '../core/match-spec.js';
+import { nameId, type NameId } from '../core/name.js';
 
 // ==================== Types ====================
 
@@ -88,6 +91,17 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
   // ==================== Token Storage ====================
   /** Per-place token arrays, indexed by pid. */
   private readonly tokenQueues: Token<any>[][];
+  /** Monotonic source for ν-name minting (ctx.freshName(), NU-010). */
+  private freshNameCounter = 0;
+  /**
+   * Per-transition ν-name minter cache, indexed by tid (built lazily). Each
+   * supplier is created once and reused across firings, so installing it on a
+   * per-fire context is a field assignment rather than a per-fire closure
+   * allocation — keeping the fire path lean for non-ν transitions. Every
+   * transition gets one (forks mint but carry no MatchSpec, so gating on
+   * `hasMatch` would wrongly starve them).
+   */
+  private readonly freshNameSuppliers: (() => NameId)[] = [];
 
   // ==================== Marking Bitmap ====================
   private readonly markingBitmap: Uint32Array;
@@ -481,6 +495,17 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       }
     }
 
+    // ν-net join: a correlation name must satisfy every matched input (NU-020).
+    // Gated on the precomputed `hasMatch` flag so non-ν transitions never fetch
+    // the Transition object on this hot path (zero-cost gating, mirroring the
+    // guard check above and Rust's `has_match(tid)`).
+    if (prog.hasMatch[tid]) {
+      const tMatch = prog.compiled.transition(tid);
+      if (findBinding(tMatch, p => this.tokenQueues[prog.compiled.placeId(p)]!) === null) {
+        return false;
+      }
+    }
+
     return true;
   }
 
@@ -587,7 +612,10 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     const inputs = new TokenInput();
 
     // ==================== Opcode Dispatch ====================
-    if (prog.hasGuards[tid]) {
+    if (t.matchSpec) {
+      // ν-net join (NU-020): bypass the opcode fast path, consume name-matched tokens.
+      this.fireTransitionMatched(tid, t, inputs, consumed);
+    } else if (prog.hasGuards[tid]) {
       this.fireTransitionGuarded(tid, t, inputs, consumed);
     } else {
       const ops = prog.consumeOps[tid]!;
@@ -723,6 +751,13 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       logFn,
       t.placeAlias,
     );
+    let freshNameSupplier = this.freshNameSuppliers[tid];
+    if (freshNameSupplier === undefined) {
+      const base = t.name;
+      freshNameSupplier = () => nameId(`${base}#${this.freshNameCounter++}`);
+      this.freshNameSuppliers[tid] = freshNameSupplier;
+    }
+    context.setFreshNameSupplier(freshNameSupplier);
 
     // Create action promise with optional timeout
     let actionPromise = t.action(context);
@@ -781,6 +816,70 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     this.enabledFlags[tid] = 0;
     this.enabledTransitionCount--;
     this.enabledAtMs[tid] = -Infinity;
+  }
+
+  /**
+   * Consumes the name-matched tokens for a ν-net join (NU-020): correlated
+   * inputs take tokens whose projected name equals the chosen binding (guard
+   * first, then name equality — NU-021); other inputs consume FIFO. Reset arcs
+   * are honoured as on the opcode path. Mirrors {@link fireTransitionGuarded}.
+   */
+  private fireTransitionMatched(_tid: number, t: Transition, inputs: TokenInput, consumed: Token<any>[]): void {
+    const prog = this.program;
+    const ms = t.matchSpec!;
+    const chosen = findBinding(t, p => this.tokenQueues[prog.compiled.placeId(p)]!);
+
+    for (const inSpec of t.inputSpecs) {
+      const pid = prog.compiled.placeId(inSpec.place);
+      const keyFn = keyForPlace(ms, inSpec.place.name);
+      const baseGuard = inSpec.guard;
+      const pred: ((value: any) => boolean) | undefined =
+        (keyFn && chosen !== null)
+          ? (v: any) => (baseGuard ? baseGuard(v) : true) && keyFn(v) === chosen
+          : baseGuard;
+
+      let toConsume: number;
+      switch (inSpec.type) {
+        case 'one': toConsume = 1; break;
+        case 'exactly': toConsume = inSpec.count; break;
+        case 'all':
+        case 'at-least':
+          toConsume = pred ? this.countMatching(pid, pred) : this.tokenQueues[pid]!.length;
+          break;
+      }
+
+      for (let i = 0; i < toConsume; i++) {
+        const token = pred
+          ? this.removeFirstMatching(pid, pred)
+          : this.tokenQueues[pid]!.shift() ?? null;
+        if (token === null) break;
+        consumed.push(token);
+        inputs.add(inSpec.place, token);
+        this.emitEvent({
+          type: 'token-removed',
+          timestamp: Date.now(),
+          placeName: inSpec.place.name,
+          token,
+        });
+      }
+    }
+
+    // Reset arcs
+    for (const arc of t.resets) {
+      const pid = prog.compiled.placeId(arc.place);
+      const tokens = this.tokenQueues[pid]!.splice(0);
+      this.pendingResetWords[pid >>> WORD_SHIFT]! |= (1 << (pid & BIT_MASK));
+      this.hasPendingResets = true;
+      for (const token of tokens) {
+        consumed.push(token);
+        this.emitEvent({
+          type: 'token-removed',
+          timestamp: Date.now(),
+          placeName: arc.place.name,
+          token,
+        });
+      }
+    }
   }
 
   private fireTransitionGuarded(_tid: number, t: Transition, inputs: TokenInput, consumed: Token<any>[]): void {

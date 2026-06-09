@@ -13,6 +13,7 @@
   },
   "edge": {
     "input":        { "color": "#333333", "style": "solid",  "arrowhead": "normal" },
+    "match-input":  { "color": "#0d9488", "style": "solid",  "arrowhead": "normal" },
     "output":       { "color": "#333333", "style": "solid",  "arrowhead": "normal" },
     "inhibitor":    { "color": "#dc3545", "style": "solid",  "arrowhead": "odot" },
     "read":         { "color": "#6c757d", "style": "dashed", "arrowhead": "normal" },

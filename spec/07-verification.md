@@ -84,9 +84,18 @@ SMT verification operates on untimed Petri net semantics (marking projection, in
 
 Guard predicates are over-approximated (assumed to always pass), which is also sound for safety properties.
 
+**ν-net carve-out.** The over-approximation is relaxed for the one *decidable*
+predicate. A matched transition's name equality ([NU-020]) MAY be encoded
+**exactly** as equality over an uninterpreted name sort (EUF) while token counts
+stay in linear integer arithmetic — see [NU-050]. This removes spurious
+counterexamples that would require two distinct correlation names to be equal,
+without sacrificing soundness, and is the one place the untimed encoder reasons
+about token *identity* rather than only token *counts*.
+
 **Acceptance Criteria:**
 1. Verification ignores timing constraints.
-2. Verification over-approximates guards.
+2. Verification over-approximates guards (except the [NU-020] name-equality
+   carve-out of [NU-050], when implemented).
 3. A Proven verdict on the untimed net implies the property holds for all timed executions.
 
 **Test derivation:** Net with timing constraints; verify property on untimed model; verify same property holds in timed execution.

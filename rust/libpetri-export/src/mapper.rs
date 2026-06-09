@@ -217,14 +217,23 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
         // Input edges
         for in_spec in t.input_specs() {
             let from_id = format!("p_{}", sanitize(in_spec.place_name()));
+            // ν-net correlated inputs (NU-020 / EXP-018) get a teal edge + ⟨n⟩ label.
+            let correlated = t
+                .match_spec()
+                .is_some_and(|ms| ms.correlates(in_spec.place_name()));
+            let edge_style = if correlated {
+                &styles::MATCH_INPUT_EDGE
+            } else {
+                &styles::INPUT_EDGE
+            };
             edges.push(GraphEdge {
                 from: from_id,
                 to: t_id.clone(),
-                label: input_label(in_spec),
-                color: Some(styles::INPUT_EDGE.color.to_string()),
+                label: match_aware_input_label(in_spec, correlated),
+                color: Some(edge_style.color.to_string()),
                 style: Some(EdgeLineStyle::Solid),
                 arrowhead: Some(ArrowHead::Normal),
-                penwidth: styles::INPUT_EDGE.penwidth,
+                penwidth: edge_style.penwidth,
                 arc_type: Some("input".into()),
                 attrs: Vec::new(),
             });
@@ -427,6 +436,19 @@ fn input_label(spec: &In) -> Option<String> {
         In::All { .. } => Some("*".to_string()),
         In::AtLeast { minimum, .. } => Some(format!("\u{2265}{minimum}")),
     }
+}
+
+/// Input-edge label, prefixed with the bound-name variable `\u{27e8}n\u{27e9}`
+/// (`⟨n⟩`) when the input is ν-net correlated (NU-020 / EXP-018).
+fn match_aware_input_label(spec: &In, correlated: bool) -> Option<String> {
+    let card = input_label(spec);
+    if !correlated {
+        return card;
+    }
+    Some(match card {
+        Some(c) => format!("\u{27e8}n\u{27e9} {c}"),
+        None => "\u{27e8}n\u{27e9}".to_string(),
+    })
 }
 
 /// Mutable per-transition state threaded through the recursive Out-tree walk.
@@ -1048,6 +1070,54 @@ mod tests {
             first, second,
             "DOT output must be byte-identical across repeated exports"
         );
+    }
+
+    /// EXP-018: ν-net correlated input edges are teal and labeled `⟨n⟩`.
+    #[test]
+    fn nu_match_input_edges_decorated() {
+        use libpetri_core::match_spec::MatchSpec;
+        use libpetri_core::name::NameId;
+
+        #[derive(Clone)]
+        struct Msg {
+            cid: String,
+        }
+
+        let a = Place::<Msg>::new("branchA");
+        let b = Place::<Msg>::new("branchB");
+        let plain = Place::<i32>::new("plain");
+        let out = Place::<String>::new("merged");
+        let t = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .input(one(&plain))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |m: &Msg| NameId::new(m.cid.clone()))
+                    .key(&b, |m: &Msg| NameId::new(m.cid.clone()))
+                    .build(),
+            )
+            .output(out_place(&out))
+            .build();
+        let net = PetriNet::builder("nu").transition(t).build();
+        let graph = map_to_graph(&net, &DotConfig::default());
+
+        let edge = |from: &str| {
+            graph
+                .edges
+                .iter()
+                .find(|e| e.from == from && e.to == "t_join")
+                .unwrap()
+        };
+        let ea = edge("p_branchA");
+        assert_eq!(ea.color.as_deref(), Some("#0d9488"));
+        assert_eq!(ea.label.as_deref(), Some("\u{27e8}n\u{27e9}"));
+        let eb = edge("p_branchB");
+        assert_eq!(eb.color.as_deref(), Some("#0d9488"));
+        // Non-correlated input is unchanged.
+        let ep = edge("p_plain");
+        assert_eq!(ep.color.as_deref(), Some("#333333"));
+        assert_eq!(ep.label, None);
     }
 
     #[test]

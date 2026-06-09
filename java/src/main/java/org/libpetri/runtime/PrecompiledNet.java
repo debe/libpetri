@@ -77,6 +77,12 @@ public final class PrecompiledNet {
      * by deadline enforcement — their upper bound is observed, not enforced. See TIME-006.
      */
     final boolean[] isExact;
+    /**
+     * True for transitions carrying a {@link org.libpetri.core.MatchSpec} (ν-net joins, NU-020).
+     * Precomputed as a flat flag so the hot enablement check skips the match-binding probe on
+     * non-ν transitions (zero-cost gating), mirroring {@link #hasDeadline}.
+     */
+    final boolean[] hasMatch;
 
     // Priority
     final int[] priorities;
@@ -207,6 +213,7 @@ public final class PrecompiledNet {
         this.latestMillis = new long[transitionCount];
         this.hasDeadline = new boolean[transitionCount];
         this.isExact = new boolean[transitionCount];
+        this.hasMatch = new boolean[transitionCount];
         boolean anyDl = false;
         boolean allImm = true;
 
@@ -222,6 +229,7 @@ public final class PrecompiledNet {
                 : Long.MAX_VALUE;
             hasDeadline[tid] = t.timing().hasDeadline();
             isExact[tid] = t.timing() instanceof Timing.Exact;
+            hasMatch[tid] = t.matchSpec() != null;
             if (hasDeadline[tid]) anyDl = true;
             if (!(t.timing() instanceof Timing.Immediate) &&
                 !(t.timing() instanceof Timing.Unconstrained)) {

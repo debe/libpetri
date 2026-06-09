@@ -42,7 +42,8 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | [09-export.md](09-export.md) | EXP | Graph export, formal interchange | 15 |
 | [10-performance.md](10-performance.md) | PERF | Scaling, benchmarks, memory efficiency, flat-array executor performance | 14 |
 | [11-modular-composition.md](11-modular-composition.md) | MOD | Open-net subnet definition, instantiation, port composition, channel fusion, action binding per instance, place fusion | 23 |
-| **Total** | | | **184** |
+| [12-nu-nets.md](12-nu-nets.md) | NU | Token name identity, fresh-name minting (ν-binder/fork), join by name equality, bounded-budget decidability ledger | 8 |
+| **Total** | | | **192** |
 
 ---
 
@@ -182,6 +183,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | EXP-014 | Junction ID Format and Layout Stability | MUST | — |
 | EXP-015 | Doc Generator Parity | MUST | EXP-011, EXP-012, EXP-013 |
 | EXP-016 | Subnet Instance Cluster Subgraphs | SHOULD | EXP-001, EXP-014, MOD-010, MOD-040 |
+| EXP-018 | ν-Match Edge Decoration | SHOULD | EXP-006, NU-020 |
 
 ### IO — Input/Output Specifications
 | ID | Title | Priority | Depends On |
@@ -229,6 +231,18 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | MOD-051 | SubnetDef.verify(harness) for local property verification | SHOULD | MOD-001, VER-001, ENV-001 |
 | MOD-060 | Fusion Set Declaration (orthogonal to composition) | MUST | CORE-003, MOD-020 |
 | MOD-061 | Fusion Resolution at build() | MUST | MOD-023, MOD-060, CORE-040 |
+
+### NU — ν-nets (correlated fork/join)
+| ID | Title | Priority | Depends On |
+|----|-------|----------|------------|
+| NU-001 | Name Identity | MUST | CORE-010 |
+| NU-010 | Fresh-Name Minting | MUST | CORE-050, IO-011 |
+| NU-020 | Match Specification | MUST | IO-001, IO-005, CORE-022, CORE-013 |
+| NU-021 | Guard / Match Composition | MUST | NU-020 |
+| NU-030 | Freshness Scoping under Composition | MUST | MOD-010, MOD-012, MOD-020 |
+| NU-040 | Bounded Budget and Decidability | SHOULD | VER-002, EXEC-040, NU-010, NU-020 |
+| NU-050 | Exact Verification of Matched Transitions | MAY | VER-004, NU-020, NU-040 |
+| NU-060 | Match-Arc Composition | SHOULD | MOD-021, NU-020 |
 
 ### PERF — Performance
 | ID | Title | Priority | Depends On |
@@ -283,9 +297,9 @@ This specification defines the **observable contract** of the Coloured Time Petr
 
 | Priority | Count | Description |
 |----------|-------|-------------|
-| MUST     | 132   | Core contract; all implementations must conform |
-| SHOULD   | 44    | Recommended; implementations should include unless technically infeasible |
-| MAY      | 8     | Optional; implementations may include |
+| MUST     | 137   | Core contract; all implementations must conform |
+| SHOULD   | 46    | Recommended; implementations should include unless technically infeasible |
+| MAY      | 9     | Optional; implementations may include |
 
 ---
 
@@ -310,6 +324,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Precompiled flat-array executor | 2–4× speedup via flat arrays | ✓ (PrecompiledNetExecutor) | ✓ (PrecompiledNetExecutor) | Not yet |
 | Inline sync execution | Avoid task dispatch | — | — | ✓ (try_run_inline) |
 | Modular composition | Open-net subnets, instantiation, port composition, fusion | Not yet | Not yet | Not yet |
+| ν-net correlated fork/join | Fresh-name minting + join by name equality | ✓ | ✓ | ✓ |
 
 \* Rust uses 64-bit words matching Java.
 
@@ -381,6 +396,7 @@ This matrix maps spec requirements to test classes/files in each implementation.
 | MOD-051 | `SubnetVerifyTest#verify_missingInputGenerator_throws`, `verify_outputPortOnly_doesNotRequireGenerator`, `verify_syntheticNetBindsAllPorts`, `verify_inputGenerator_isInvokedAtConstruction`, `verify_leakyBucket_isKBounded` | `subnet-verify.test.ts > verify_missingInputGenerator_throws — names the missing port`, `> verify_outputPortOnly_doesNotRequireGenerator`, `> verify_syntheticNetBindsAllPorts`, `> verify_inputGenerator_isInvokedAtConstruction`, `> verify_leakyBucket_isKBounded` | `harness::tests::verify_missing_input_generator_panics`, `verify_output_port_only_does_not_require_generator`, `verify_synthetic_net_binds_all_ports`, `verify_input_generator_invoked_at_construction`, `verify_returns_result_with_all_properties` |
 | MOD-060 | `FusionSetTest#fusionSet_firstMemberIsCanonical`, `fusionSet_typeHomogeneity_enforced`, `fusionSet_emptySet_throws`, `fusionSet_of_factoryConvenience` | `fusion-set.test.ts > firstMemberIsCanonical`, `> emptySet_throws`, `> singleMember_isValid`, `> of_factoryConvenience` | `fusion::tests::fusion_set_first_member_is_canonical`, `fusion_set_empty_panics`, `fusion_set_single_member_is_valid`, `fusion_set_of_factory` |
 | MOD-061 | `FusionTest#fuse_substitutesNonCanonicalInArcs`, `fuse_chained_threeBucketsShareLimiter`, `fuse_runsAfterCompose`, `fuse_andCompose_orthogonality` | `fusion.test.ts > fuse_substitutesNonCanonicalInArcs`, `> fuse_chained_threeBucketsShareLimiter`, `> fuse_runsAfterCompose`, `> fuse_andCompose_orthogonality` | `fusion::fuse_substitutes_non_canonical_in_arcs`, `fuse_chained_three_buckets_share_limiter`, `fuse_runs_after_compose`, `fuse_and_compose_orthogonality` |
+| NU-001–060 | `AbstractNetExecutorEngineTest#nuJoin_matchesByName_notFifo`, `nuJoin_blocksWithoutMatchingName`, `nuFork_mintsUniqueIds_thenJoinMerges` (all 3 executors) | `nu-net.test.ts > join matches by name, not FIFO` (+ siblings, both executors) | `backend_suite_tests::nu_join_matches_by_name_not_fifo`, `nu_join_blocks_without_matching_name`, `nu_fork_mints_unique_ids_then_join_merges` (both backends); Python `test_nu_net.py` |
 
 ---
 

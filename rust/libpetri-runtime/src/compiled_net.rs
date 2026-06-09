@@ -46,6 +46,8 @@ pub struct CompiledNet {
     // Cardinality and guard flags
     cardinality_checks: Vec<Option<CardinalityCheck>>,
     has_guards: Vec<bool>,
+    // ν-net join correlation flag per transition (spec NU-020).
+    has_match: Vec<bool>,
 }
 
 impl CompiledNet {
@@ -80,6 +82,7 @@ impl CompiledNet {
         let mut consumption_place_ids = Vec::with_capacity(transition_count);
         let mut cardinality_checks: Vec<Option<CardinalityCheck>> = vec![None; transition_count];
         let mut has_guards = vec![false; transition_count];
+        let mut has_match = vec![false; transition_count];
 
         let mut place_to_transitions_tmp: Vec<HashSet<usize>> = vec![HashSet::new(); place_count];
 
@@ -90,6 +93,8 @@ impl CompiledNet {
 
             let mask_base = tid * word_count;
             let mut needs_cardinality = false;
+
+            has_match[tid] = t.match_spec().is_some();
 
             // Input specs
             for in_spec in t.input_specs() {
@@ -176,6 +181,7 @@ impl CompiledNet {
             consumption_place_ids,
             cardinality_checks,
             has_guards,
+            has_match,
         }
     }
 
@@ -227,6 +233,12 @@ impl CompiledNet {
     /// Returns whether a transition has guard predicates.
     pub fn has_guards(&self, tid: usize) -> bool {
         self.has_guards[tid]
+    }
+
+    /// Returns whether a transition has a ν-net join correlation spec
+    /// ([`MatchSpec`](libpetri_core::match_spec::MatchSpec), spec NU-020).
+    pub fn has_match(&self, tid: usize) -> bool {
+        self.has_match[tid]
     }
 
     /// Returns the needs mask slice for a transition.

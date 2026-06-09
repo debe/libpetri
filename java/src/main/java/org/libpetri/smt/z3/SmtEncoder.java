@@ -425,6 +425,28 @@ public final class SmtEncoder {
                 // Violation: place exceeds bound
                 yield ctx.mkGt(mVars[idx], ctx.mkInt(pb.bound()));
             }
+            case SmtProperty.BranchPlaceBound bpb -> {
+                // ν-net budget lever (NU-040): a count bound, encoded identically
+                // to PlaceBound. Sound under the matched-transition
+                // over-approximation — the real net fires fewer joins, so it
+                // cannot exceed a bound the over-approximation respects.
+                int idx = flatNet.indexOf(bpb.place());
+                if (idx < 0) throw new IllegalArgumentException(
+                    "BranchPlaceBound property references unknown place: " + bpb.place().name());
+                yield ctx.mkGt(mVars[idx], ctx.mkInt(bpb.bound()));
+            }
+            case SmtProperty.JoinedOrDeadLettered jdl -> {
+                // NU-040: a quiescent (deadlocked) marking that still holds a
+                // `pending` token is a stranded correlation group. Reuse the
+                // deadlock predicate and conjoin pending non-emptiness.
+                int idx = flatNet.indexOf(jdl.pending());
+                if (idx < 0) {
+                    // Unknown pending place: no state can violate.
+                    yield ctx.mkFalse();
+                }
+                BoolExpr deadlock = encodeDeadlock(ctx, flatNet, mVars, P);
+                yield ctx.mkAnd(deadlock, ctx.mkGe(mVars[idx], ctx.mkInt(1)));
+            }
             case SmtProperty.Unreachable ur -> {
                 // Violation: all specified places have tokens (marking is reachable)
                 BoolExpr allMarked = ctx.mkTrue();

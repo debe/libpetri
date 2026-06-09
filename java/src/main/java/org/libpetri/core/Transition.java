@@ -63,6 +63,7 @@ public final class Transition {
     private final List<Arc.Inhibitor<?>> inhibitors;
     private final List<Arc.Read<?>> reads;
     private final List<Arc.Reset<?>> resets;
+    private final MatchSpec matchSpec;
     private final Timing timing;
     private final Arc.Out.Timeout actionTimeout;
     private final TransitionAction action;
@@ -79,6 +80,7 @@ public final class Transition {
         List<Arc.Inhibitor<?>> inhibitors,
         List<Arc.Read<?>> reads,
         List<Arc.Reset<?>> resets,
+        MatchSpec matchSpec,
         Timing timing,
         TransitionAction action,
         int priority,
@@ -90,6 +92,7 @@ public final class Transition {
         this.inhibitors = List.copyOf(inhibitors);
         this.reads = List.copyOf(reads);
         this.resets = List.copyOf(resets);
+        this.matchSpec = matchSpec;
         this.timing = timing;
         this.actionTimeout = findTimeout(outputSpec);
         this.action = action;
@@ -150,6 +153,12 @@ public final class Transition {
     public List<Arc.Inhibitor<?>> inhibitors() { return inhibitors; }
     public List<Arc.Read<?>> reads() { return reads; }
     public List<Arc.Reset<?>> resets() { return resets; }
+
+    /**
+     * Returns the ν-net join correlation spec, or {@code null} for an ordinary
+     * transition (spec NU-020).
+     */
+    public MatchSpec matchSpec() { return matchSpec; }
 
     /**
      * Returns the timing specification for when this transition can/must fire.
@@ -230,6 +239,7 @@ public final class Transition {
         private final ArrayList<Arc.Inhibitor<?>> inhibitors = new ArrayList<>();
         private final ArrayList<Arc.Read<?>> reads = new ArrayList<>();
         private final ArrayList<Arc.Reset<?>> resets = new ArrayList<>();
+        private MatchSpec matchSpec = null;
         private Timing timing = Timing.immediate();
         private TransitionAction action = TransitionAction.passthrough();
         private int priority = 0;
@@ -338,6 +348,19 @@ public final class Transition {
             return this;
         }
 
+        /**
+         * Sets the ν-net join correlation spec: the named input places must be
+         * correlated by name equality on firing (spec NU-020). Every place
+         * referenced by the spec must also be declared as an input.
+         *
+         * @param matchSpec the correlation spec
+         * @return this builder
+         */
+        public Builder match(MatchSpec matchSpec) {
+            this.matchSpec = matchSpec;
+            return this;
+        }
+
         public Builder action(TransitionAction action) {
             this.action = action;
             return this;
@@ -363,7 +386,19 @@ public final class Transition {
         }
 
         public Transition build() {
-            var transition = new Transition(name, inputSpecs, outputSpec, inhibitors, reads, resets, timing, action, priority, placeAlias);
+            var transition = new Transition(name, inputSpecs, outputSpec, inhibitors, reads, resets, matchSpec, timing, action, priority, placeAlias);
+
+            // Validate MatchSpec correlates only declared input places (NU-020).
+            if (matchSpec != null) {
+                var inputPlaces = transition.inputPlaces();
+                for (var key : matchSpec.keys()) {
+                    if (!inputPlaces.contains(key.place())) {
+                        throw new IllegalArgumentException(
+                            "Transition '%s': MatchSpec correlates non-input place '%s'"
+                                .formatted(name, key.place().name()));
+                    }
+                }
+            }
 
             // Validate ForwardInput references valid input places and type compatibility
             if (outputSpec != null) {

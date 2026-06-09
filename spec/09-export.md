@@ -350,3 +350,37 @@ This requirement does NOT change [EXP-016] cluster membership, the visible edge 
 
 **Depends on:** [EXP-016], [EXP-014]
 **Test derivation:** Build a composed net with two instances and an orphan transition between them; export DOT in each language; assert one `style="invis"` edge with matching `ltail`/`lhead`. Add bidirectional and multi-orphan variants. Verify `compound="true"` on a flat net.
+
+---
+
+#### EXP-018: ν-Match Edge Decoration
+
+**Priority:** SHOULD
+
+When a transition declares a ν-net join correlation ([NU-020]), each **input
+edge** to a correlated place is decorated to mark it as a name-matched input:
+
+- **Color** `#0d9488` (teal — the `match-input` edge style in
+  `spec/petri-net-styles.json`), distinguishing it from a plain input edge.
+- **Label** prefixed with the bound-name variable `⟨n⟩` (U+27E8 `n` U+27E9). When
+  the input also carries a cardinality label ([EXP-006]), the two are joined with
+  a single space: `⟨n⟩ ×2`, `⟨n⟩ *`, `⟨n⟩ ≥3`. A correlated `One` input shows
+  `⟨n⟩` alone.
+
+Non-correlated inputs of the same transition are unaffected. The decoration is a
+mapper concern: it is emitted into the DOT by every exporter, so the canonical
+viewer and all three doc generators render it identically with no viewer change.
+
+**Acceptance Criteria:**
+1. An input edge to a correlated place has color `#0d9488` and a label beginning
+   with `⟨n⟩`.
+2. A non-correlated input edge on the same transition keeps the default color and
+   no `⟨n⟩` prefix.
+3. The label combines with cardinality as `⟨n⟩ ×n` / `⟨n⟩ *` / `⟨n⟩ ≥m`.
+4. The emitted DOT for a ν-net is byte-identical across the Java, TypeScript, and
+   Rust exporters.
+
+**Depends on:** [EXP-006], [NU-020]
+**Test derivation:** Build a join with `match` correlating two `one` inputs;
+export; verify both correlated edges are teal and labeled `⟨n⟩`, and a third
+non-correlated input is unchanged.

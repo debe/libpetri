@@ -1,5 +1,18 @@
 # Changelog
 
+## Java 2.8.0 / TypeScript 2.8.0 / Rust 3.2.0 / Python 2.11.0
+
+**ν-nets — correlated fork / join by identity (NU-001..060)**
+
+A transition can mint an opaque correlation **name** (`ctx.freshName()` / `ctx.fresh_name()`) on a fork and **join by name equality**, re-merging exactly the sibling tokens of one forked unit of work — no correlation smuggled through mutable external state. Identity is a *projection of the token payload* (a `MatchSpec` declares a `value → NameId` key), so `Token`, the event log, and the v3 session-archive formats are unchanged — purely additive across all four bindings and both executors (bitmap + precompiled).
+
+- **Model:** new `NameId` (opaque, equality-only) and `MatchSpec` (name correlation over a subset of a transition's input places). A transition with no match spec keeps the existing fast path, gated on a per-transition flag. The firing tie-break (`selectMatchName` / `select_match_name`) is byte-identical across languages.
+- **Decidability ledger (NU-040):** a typed `Budget` place bounds live correlation groups — "≤ k live groups" is a structural `PlaceBound(Budget, k)` checkable with the existing LIA encoder. Safety/coverability is decidable; unbounded fresh names make reachability/liveness undecidable, stated honestly in-spec.
+- **Verification (NU-050, sound baseline):** the SMT verifier is ν-aware. New `BranchPlaceBound` / `JoinedOrDeadLettered` properties; a budget-place declaration (`budgetPlaces(...)` / `budget_places=`) asserts the bounded fragment. Matched transitions are over-approximated (name-blind) — sound for `Proven` on reachability-safety bounds, so quiescence properties on a ν-net and any ν-net without a declared budget return `Unknown` (mirroring VER-006). The exact EUF/SCG name analysis is staged.
+- **Visualization (EXP-018):** correlated input edges render teal with a `⟨n⟩` name label alongside the cardinality label; identical across the three doc generators and debug-ui.
+- **Python:** `verify(...)` gains an `initial_marking=` argument (the binding previously had no way to seed initial tokens).
+- Spec: new `spec/12-nu-nets.md` (NU-001..060) plus index, I/O, verification, and export edits.
+
 ## Java 2.7.1 / TypeScript 2.7.1 / Rust 3.1.1 / Python 2.10.0 — 2026-06-05
 
 **`bindActions` preserves the MOD-031 place correspondence (MOD-031 ∩ CORE-042)**

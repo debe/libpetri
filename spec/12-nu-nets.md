@@ -1,0 +1,280 @@
+# 12 — ν-nets: Correlated Fork / Join by Identity
+
+This document specifies **ν-net** capability: tokens carrying an opaque
+correlation **name**, transitions that **mint** fresh names (the ν-binder), and
+transitions that **join** by **name equality** across their inputs. Together
+these express *fork a unit of work into parallel branches, then re-merge exactly
+the siblings that belong together* — without smuggling correlation through
+mutable external state (which would reintroduce the TOCTOU hazards CTPN exists to
+avoid).
+
+The design adds back the single **decidable** predicate — equality of opaque
+names — as a *structural* cross-input constraint (like cardinality), NOT a
+general guard. Arbitrary value predicates were removed in [IO-006]; ν-matching
+does not reintroduce them (see the note under [IO-006]).
+
+---
+
+## Name Identity
+
+#### NU-001: Name Identity
+
+**Priority:** MUST
+
+A **name** (`NameId`) is an opaque correlation identity. The only operation
+defined on names is **equality**. A total order over names exists solely for the
+deterministic match tie-break ([NU-020]) and carries no domain meaning.
+
+Identity is a **projection of the token payload**, not a field on the token: a
+[NU-020] match (or the analyzer) declares a `value → NameId` key. The token model
+([CORE-010]) is unchanged — no name field is added — so event ([EVT-011],
+[EVT-012]) and archive formats are unaffected.
+
+**Acceptance Criteria:**
+1. Two names constructed from the same underlying value are equal; from
+   different values, unequal.
+2. Names admit a stable total order consistent across a single implementation.
+3. Adding ν-matching to a net does not change the token type or the on-the-wire
+   shape of token-bearing events.
+
+**Test derivation:** Construct `NameId("a")` twice; verify equal. Verify
+`NameId("a") < NameId("b")`. Verify a net with no match spec emits identical
+token events with and without the ν-net APIs linked.
+
+---
+
+## ν-binder (Fork)
+
+#### NU-010: Fresh-Name Minting
+
+**Priority:** MUST
+
+A transition action MAY mint a fresh name via the action context
+(`ctx.freshName()` / `ctx.fresh_name()`). The action writes the minted name into
+the payloads it produces, so the sibling tokens of a fork (an [IO-011] AND
+output) share one correlation name.
+
+Minted names MUST be unique across all firings of a single execution and SHOULD
+be deterministic for a fixed firing order (replay stability). The executor
+installs the minter; absent an executor-installed minter, a fallback still
+guarantees uniqueness.
+
+**Acceptance Criteria:**
+1. Two `freshName()` calls — within one firing or across firings — return
+   unequal names.
+2. A fork that stamps both AND-branches with one minted name produces sibling
+   tokens that a [NU-020] join later correlates.
+3. For a fixed firing order, the sequence of minted names is reproducible.
+
+**Depends on:** [CORE-050], [IO-011]
+**Test derivation:** A `fork` transition mints a name per firing and stamps both
+output branches; with three source tokens, verify three distinct names reach the
+downstream join and each pair merges (see `nu_fork_mints_unique_ids_then_join_merges`).
+
+---
+
+## Join by Name Equality
+
+#### NU-020: Match Specification
+
+**Priority:** MUST
+
+A transition MAY declare a **match specification**: a subset of its **input**
+places, each with a `value → NameId` key projection. Every place named by the
+match MUST also be a declared input. The match adds a correlation requirement on
+top of the existing input cardinalities ([IO-001]–[IO-004]):
+
+- **Enablement** = the usual cardinality/bitmap/inhibitor checks ([CORE-022])
+  **and** there exists a single name `n` present in *every* correlated input
+  with at least that input's required count of key-projecting-to-`n` tokens.
+- **Firing** consumes, for the chosen `n`, the matched tokens from each
+  correlated input (FIFO within a name); non-correlated inputs consume FIFO as
+  usual ([EXEC-010]).
+
+**Determinism (tie-break).** When more than one name satisfies the join, the
+implementation MUST choose by this exact rule, so all languages fire identically:
+1. the name whose **oldest matched token** (minimum `createdAt` across the
+   correlated inputs) is **earliest**;
+2. ties broken by **name order** ([NU-001]).
+
+**Acceptance Criteria:**
+1. A join correlates by name, not arrival order: with branch A = [X@t0, Y@t1] and
+   branch B = [Y@t0, X@t1], the join produces the X-X and Y-Y pairings, never X-Y.
+2. With no name present in all correlated inputs, the join is not enabled; its
+   input tokens remain.
+3. A correlated `Exactly(k)` / `AtLeast(m)` input requires k / m tokens **of the
+   matched name**; `All` consumes all tokens of the matched name.
+4. The tie-break selects the earliest-oldest name, then the lexicographically
+   least name, identically across implementations.
+
+**Depends on:** [IO-001], [IO-005], [CORE-022], [CORE-013]
+**Test derivation:** `nu_join_matches_by_name_not_fifo` (reversed arrival),
+`nu_join_blocks_without_matching_name`, mirrored across every executor in every
+language.
+
+---
+
+#### NU-021: Guard / Match Composition
+
+**Priority:** MUST
+
+Where an implementation also supports a unary input filter on a correlated input,
+the filter applies **first** and the name correlation runs over the survivors. A
+token must pass the filter *and* project to the chosen name to be consumed.
+
+**Acceptance Criteria:**
+1. A correlated input with both a unary filter and a key consumes only tokens
+   that pass the filter and carry the chosen name.
+2. The order is fixed (filter, then match) and observable: a token failing the
+   filter is never consumed even if its name matches.
+
+**Depends on:** [NU-020]
+**Test derivation:** A correlated input filtered to even values, joined by name;
+verify an odd token of the matched name is left behind.
+
+---
+
+## Composition
+
+#### NU-030: Freshness Scoping under Composition
+
+**Priority:** MUST
+
+ν-name freshness is **per instance**, as a structural consequence of name
+prefixing ([MOD-012]): the executor mints names qualified by the firing
+transition's (post-compose, instance-prefixed) name, so two instances of the same
+subnet draw from disjoint name pools with no extra runtime state. A match
+specification carried through composition MUST have its correlated places
+remapped by the same place rewrite the arcs follow ([MOD-020]), so a composed
+join still correlates the renamed inputs.
+
+**Acceptance Criteria:**
+1. Two instances of a forking subnet never mint colliding names.
+2. After composition, a join's match correlates the renamed (host-bound) places,
+   not the author-original ones.
+
+**Depends on:** [MOD-010], [MOD-012], [MOD-020]
+**Test derivation:** Instantiate a fork+join subnet twice; verify each instance's
+joins merge only their own siblings.
+
+---
+
+#### NU-060: Match-Arc Composition
+
+**Priority:** SHOULD
+
+A correlated input behaves, under channel composition ([MOD-021]), as the input
+arc it layers on: its arc dedup/conflict rules are unchanged. When two merged
+sides both carry a match on the same place, the implementation MUST either fuse
+to a single coherent correlation or reject the merge naming the conflict; it MUST
+NOT silently drop a match.
+
+**Acceptance Criteria:**
+1. Composing a transition that carries a match preserves the match on the flat
+   net (it is not dropped).
+2. A merge that would combine two incompatible matches on one place is rejected
+   with a diagnostic, or fused deterministically.
+
+**Depends on:** [MOD-021], [NU-020]
+**Test derivation:** Channel-merge a matched transition with a passthrough side;
+verify the composed transition still correlates.
+
+---
+
+## Decidability — the bounded-budget ledger
+
+#### NU-040: Bounded Budget and Decidability
+
+**Priority:** SHOULD
+
+Be explicit about the cliff. **Safety / coverability** for the ν-fragment is
+**decidable**: the marking-with-names state space is a well-structured transition
+system. Full **reachability / liveness** with *unbounded* fresh names and
+*unbounded* recirculation is **undecidable** in general (ν-PN reachability is).
+
+A **bounded budget** is the decidability lever, not merely operational hygiene.
+Model it structurally: a typed `Budget` place pre-seeded with `k` tokens whose
+single token a fork consumes when it mints a name and a join (or a dead-letter
+transition) returns. Then:
+
+- "at most `k` live correlation groups" is the structural invariant
+  `PlaceBound(Budget, k)` ([VER-002]) — checkable with the existing untimed
+  encoder, no name reasoning required;
+- a `Pending` place (one token per live group, emptied only by join or
+  dead-letter) plus `PlaceBound(Pending, k)` and quiescence ([EXEC-040]) to
+  `Pending = 0` expresses **"every forked name is eventually
+  joined-or-dead-lettered."**
+
+With the budget bounded and branch places `PlaceBound`-checked, fresh names are
+drawn from a finite live pool, the WSTS stays finite, and these properties become
+provable. This is the [reask/retry-budget-as-typed-place] discipline applied to
+correlation.
+
+**Acceptance Criteria:**
+1. A fork gated on a `Budget` input cannot mint more than `k` concurrently-live
+   names; `PlaceBound(Budget, k)` holds.
+2. A net whose every forked name is joined or dead-lettered reaches `Pending = 0`
+   at quiescence; `PlaceBound(Pending, k)` holds.
+3. The spec states plainly that without a bounded budget, reachability/liveness
+   over unbounded fresh names is undecidable and the verifier returns `Unknown`
+   for that case ([NU-050]).
+
+**Depends on:** [VER-002], [EXEC-040], [NU-010], [NU-020]
+**Test derivation:** Build a scatter-gather net with a `Budget(k)` place; verify
+`PlaceBound(Budget, k)` and `PlaceBound(Pending, k)` with the untimed encoder.
+
+---
+
+#### NU-050: Exact Verification of Matched Transitions
+
+**Priority:** MAY
+
+The untimed encoder over-approximates guards ([VER-004]). For ν-nets this is
+relaxed under a carve-out: a matched transition's **name equality** is encoded
+**exactly** as equality over an uninterpreted **name sort** (EUF), while token
+counts stay in linear integer arithmetic. The name dimension is the projection
+declared at the match ([NU-001]) — the analyzer treats it as name-symmetric.
+
+For nets that mint unbounded fresh names without a bounding budget ([NU-040]),
+the verifier MUST return `Unknown` rather than an unsound verdict (mirroring the
+`Ignore`-mode discipline of [VER-006]).
+
+**Acceptance Criteria:**
+1. A property whose counterexample requires two *different* names to be equal is
+   not reported (the EUF encoding rules it out), unlike the over-approximated
+   guard case.
+2. An unbounded-fresh-name net without a budget place yields `Unknown`, not
+   `Proven`/`Violated`.
+
+**Depends on:** [VER-004], [NU-020], [NU-040]
+**Test derivation:** Encode a join whose spurious untimed counterexample equates
+two distinct correlation ids; verify the EUF carve-out eliminates it.
+
+---
+
+## Implementation Notes
+
+- The selection + tie-break ([NU-020]) is a single algorithm shared by both
+  executor backends in each language and ported verbatim across languages
+  (Rust `match_engine::select_match_name`, Java/TS `MatchEngine.selectMatchName`),
+  so firing order is byte-identical.
+- A transition with no match spec pays nothing: enablement and consumption take
+  the existing fast path; the match path is gated on a per-transition flag.
+- Python (`libpetri-py`) inherits the Rust runtime; the key projection is a
+  Python callable evaluated under the GIL per candidate token, and `ctx.fresh_name()`
+  delegates to the executor-installed minter.
+- The bounded-budget lever ([NU-040]) is verified through two dedicated safety
+  properties — `BranchPlaceBound(place, k)` (a budget/branch count bound) and
+  `JoinedOrDeadLettered(pending)` (no reachable quiescent marking holds a
+  `pending` token) — alongside the existing `PlaceBound`. The verifier is told
+  which place gates minting via a **budget-place declaration**
+  (`budget_place(s)` / `budgetPlaces(...)`); this is what asserts the bounded
+  fragment.
+- The sound baseline (without the [NU-050] EUF refinement) returns `Unknown`
+  for the cases its name-blind over-approximation cannot decide soundly: a ν-net
+  with no declared budget place (unbounded fresh names) for any property, and
+  any **quiescence-based** property (deadlock-freedom, joined-or-dead-lettered)
+  on a ν-net — whose violation turns on the *absence* of an enabled join, which
+  over-firing distorts. Reachability-safety bounds on a budget-declared ν-net
+  return a sound `Proven` (the real net fires strictly fewer joins) with a
+  `Violated` flagged as possibly spurious pending the [NU-050] carve-out.

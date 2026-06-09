@@ -14,7 +14,7 @@ use std::sync::Mutex;
 
 use libpetri::BoxedAction;
 use libpetri::core::action::{ActionError, TransitionAction};
-use libpetri::core::context::{FlushFn, OutputEntry, TransitionContext};
+use libpetri::core::context::{FlushFn, FreshNameFn, OutputEntry, TransitionContext};
 use libpetri::core::token::ErasedToken;
 #[cfg(feature = "tokio")]
 use pyo3::exceptions::PyStopIteration;
@@ -142,6 +142,13 @@ fn captured_event_loop(_py: Python<'_>) -> PyResult<Py<PyAny>> {
 /// / `reads(place)` for read-arc tokens, and `output(place, value)` /
 /// `output_many(place, values)` to emit tokens onto declared output places.
 /// The transition's declared output places are the only ones writable.
+/// Process-global fallback counter for [`PyActionContext::fresh_name`] when no
+/// executor-installed minter is present. Guarantees uniqueness; under the
+/// executor the installed minter is always used (deterministic per run).
+static GLOBAL_PY_FRESH_NAME_COUNTER: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+use std::sync::atomic::Ordering as AtomicOrdering;
+
 #[pyclass(module = "_libpetri", name = "TransitionContext")]
 pub struct PyActionContext {
     transition_name: Arc<str>,
@@ -152,6 +159,10 @@ pub struct PyActionContext {
     /// Mid-action flush callback set by the async executor. `None` for
     /// sync execution paths; `ctx.flush()` raises in that case.
     flush_fn: Option<FlushFn>,
+    /// ν-name minter installed by the executor (NU-010). Captured from the
+    /// Rust context so `ctx.fresh_name()` mints through the same monotonic
+    /// source.
+    fresh_name_fn: Option<FreshNameFn>,
     /// Author-local → composed-name map inherited from the
     /// transition's `local_name_map`. Lookups try the literal name
     /// first, then fall back through this map. `None` when the
@@ -165,6 +176,20 @@ impl PyActionContext {
     #[getter]
     fn transition_name(&self) -> String {
         self.transition_name.as_ref().to_owned()
+    }
+
+    /// Mints a fresh ν-name (the ν-binder primitive — spec NU-010), returned as
+    /// a `str`. An action calls this on the fork side to create a correlation
+    /// id, then writes it into the sibling output payloads; a later join
+    /// correlates those siblings via a `match_spec`.
+    fn fresh_name(&self) -> String {
+        match &self.fresh_name_fn {
+            Some(f) => f().as_str().to_owned(),
+            None => {
+                let n = GLOBAL_PY_FRESH_NAME_COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
+                format!("{}#{}", self.transition_name, n)
+            }
+        }
     }
 
     /// Returns the single consumed token from `place_name`. Raises if the
@@ -349,6 +374,7 @@ impl PyActionContext {
             allowed_outputs: ctx.output_place_names().into_iter().collect(),
             outputs: Vec::new(),
             flush_fn: ctx.flush_fn(),
+            fresh_name_fn: ctx.fresh_name_fn(),
             local_name_map: ctx.local_name_map(),
         })
     }

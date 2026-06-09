@@ -57,6 +57,7 @@ abstract class AbstractNetExecutorEngineTest {
     record TypeA(String id) {}
     record TypeB(String id) {}
     record TypeC(String id) {}
+    record NuMsg(String cid) {}
 
     // For conditional branching test
 
@@ -4783,6 +4784,204 @@ abstract class AbstractNetExecutorEngineTest {
                 "New keys in original map should not appear in snapshot");
             assertEquals(1, event.marking().get("Place1").size(),
                 "Modifications to original lists should not affect snapshot");
+        }
+    }
+
+    // ==================== ν-net fork/join (NU) ====================
+
+    /**
+     * NU-020: a join with a {@link MatchSpec} correlates by name equality, NOT
+     * by FIFO. Branch arrival order is reversed so a FIFO join would pair X with
+     * Y; the name match must instead pair X-X and Y-Y.
+     */
+    @Test
+    void nuJoin_matchesByName_notFifo() throws Exception {
+        var a = Place.of("branchA", NuMsg.class);
+        var b = Place.of("branchB", NuMsg.class);
+        var merged = Place.of("merged", String.class);
+
+        var join = Transition.builder("join")
+            .inputs(one(a), one(b))
+            .match(MatchSpec.builder()
+                .key(a, (NuMsg m) -> NameId.of(m.cid()))
+                .key(b, (NuMsg m) -> NameId.of(m.cid()))
+                .build())
+            .outputs(place(merged))
+            .action(ctx -> {
+                ctx.output(merged, ctx.input(a).cid() + "+" + ctx.input(b).cid());
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+
+        var net = PetriNet.builder("nuJoin").transitions(join).build();
+        var initial = Map.<Place<?>, List<Token<?>>>of(
+            a, List.of(new Token<>(new NuMsg("X"), Instant.ofEpochMilli(0)),
+                       new Token<>(new NuMsg("Y"), Instant.ofEpochMilli(1))),
+            b, List.of(new Token<>(new NuMsg("Y"), Instant.ofEpochMilli(0)),
+                       new Token<>(new NuMsg("X"), Instant.ofEpochMilli(1)))
+        );
+
+        try (var executor = createExecutor(net, initial)) {
+            var result = executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
+            var vals = new java.util.ArrayList<String>();
+            for (var tk : result.peekTokens(merged)) vals.add(tk.value());
+            java.util.Collections.sort(vals);
+            assertEquals(List.of("X+X", "Y+Y"), vals);
+            for (var v : vals) {
+                var parts = v.split("\\+");
+                assertEquals(parts[0], parts[1], "join correlated mismatched ids: " + v);
+            }
+        }
+    }
+
+    /**
+     * NU-020: with no name present in both inputs, the join is never enabled —
+     * the tokens stay put and nothing is produced.
+     */
+    @Test
+    void nuJoin_blocksWithoutMatchingName() throws Exception {
+        var a = Place.of("branchA", NuMsg.class);
+        var b = Place.of("branchB", NuMsg.class);
+        var merged = Place.of("merged", String.class);
+
+        var join = Transition.builder("join")
+            .inputs(one(a), one(b))
+            .match(MatchSpec.builder()
+                .key(a, (NuMsg m) -> NameId.of(m.cid()))
+                .key(b, (NuMsg m) -> NameId.of(m.cid()))
+                .build())
+            .outputs(place(merged))
+            .action(ctx -> {
+                ctx.output(merged, ctx.input(a).cid() + "+" + ctx.input(b).cid());
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+
+        var net = PetriNet.builder("nuJoinBlock").transitions(join).build();
+        var initial = Map.<Place<?>, List<Token<?>>>of(
+            a, List.of(Token.of(new NuMsg("X"))),
+            b, List.of(Token.of(new NuMsg("Y")))
+        );
+
+        try (var executor = createExecutor(net, initial)) {
+            var result = executor.run(Duration.ofMillis(300)).toCompletableFuture().join();
+            assertFalse(result.hasTokens(merged));
+            assertTrue(result.hasTokens(a));
+            assertTrue(result.hasTokens(b));
+        }
+    }
+
+    /**
+     * NU-010 + NU-020 end to end: a fork mints a fresh correlation id per firing
+     * ({@code ctx.freshName()}) and stamps both siblings; a downstream join
+     * re-merges exactly the siblings that share an id. Three requests in → three
+     * correctly correlated merges out, each with a distinct id.
+     */
+    @Test
+    void nuFork_mintsUniqueIds_thenJoinMerges() throws Exception {
+        var source = Place.of("source", Void.class);
+        var a = Place.of("branchA", NuMsg.class);
+        var b = Place.of("branchB", NuMsg.class);
+        var merged = Place.of("merged", String.class);
+
+        var fork = Transition.builder("fork")
+            .inputs(one(source))
+            .outputs(and(a, b))
+            .action(ctx -> {
+                var id = ctx.freshName();
+                ctx.output(a, new NuMsg(id.value()));
+                ctx.output(b, new NuMsg(id.value()));
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+
+        var join = Transition.builder("join")
+            .inputs(one(a), one(b))
+            .match(MatchSpec.builder()
+                .key(a, (NuMsg m) -> NameId.of(m.cid()))
+                .key(b, (NuMsg m) -> NameId.of(m.cid()))
+                .build())
+            .outputs(place(merged))
+            .action(ctx -> {
+                var ma = ctx.input(a);
+                var mb = ctx.input(b);
+                if (!ma.cid().equals(mb.cid())) {
+                    throw new IllegalStateException("join saw mismatched ids: " + ma.cid() + " vs " + mb.cid());
+                }
+                ctx.output(merged, ma.cid());
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+
+        var net = PetriNet.builder("nuScatterGather").transitions(fork, join).build();
+        var initial = Map.<Place<?>, List<Token<?>>>of(
+            source, List.of(Token.unit(), Token.unit(), Token.unit())
+        );
+
+        try (var executor = createExecutor(net, initial)) {
+            var result = executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
+            var vals = new java.util.ArrayList<String>();
+            for (var tk : result.peekTokens(merged)) vals.add(tk.value());
+            assertEquals(3, vals.size(), "all three forked requests should merge");
+            assertEquals(3, new java.util.HashSet<>(vals).size(),
+                "fresh_name must mint a unique id per fork firing: " + vals);
+        }
+    }
+
+    /**
+     * NU-040: a bounded {@code budget} place caps how many fork groups can be
+     * live at once (the decidability lever); the budget token returned by each
+     * join lets all work still complete — serialized at {@code k = 1}.
+     */
+    @Test
+    void nuBudget_boundsConcurrency() throws Exception {
+        var source = Place.of("source", Integer.class);
+        var budget = Place.of("budget", Integer.class);
+        var a = Place.of("branchA", NuMsg.class);
+        var b = Place.of("branchB", NuMsg.class);
+        var merged = Place.of("merged", String.class);
+
+        var fork = Transition.builder("fork")
+            .inputs(one(source), one(budget))
+            .outputs(and(a, b))
+            .action(ctx -> {
+                var id = ctx.freshName();
+                ctx.output(a, new NuMsg(id.value()));
+                ctx.output(b, new NuMsg(id.value()));
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+
+        var join = Transition.builder("join")
+            .inputs(one(a), one(b))
+            .match(MatchSpec.builder()
+                .key(a, (NuMsg m) -> NameId.of(m.cid()))
+                .key(b, (NuMsg m) -> NameId.of(m.cid()))
+                .build())
+            .outputs(and(merged, budget))
+            .action(ctx -> {
+                var ma = ctx.input(a);
+                var mb = ctx.input(b);
+                if (!ma.cid().equals(mb.cid())) {
+                    throw new IllegalStateException("join saw mismatched ids");
+                }
+                ctx.output(merged, ma.cid());
+                ctx.output(budget, 0);
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+
+        var net = PetriNet.builder("nuBudget").transitions(fork, join).build();
+        var initial = Map.<Place<?>, List<Token<?>>>of(
+            source, List.of(Token.of(0), Token.of(0), Token.of(0)),
+            budget, List.of(Token.of(0))
+        );
+
+        try (var executor = createExecutor(net, initial)) {
+            var result = executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
+            assertEquals(3, result.tokenCount(merged), "all three complete despite k=1 budget");
+            assertEquals(1, result.tokenCount(budget), "the budget token is returned");
+            assertEquals(0, result.tokenCount(source));
         }
     }
 
