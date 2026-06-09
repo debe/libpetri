@@ -31,19 +31,23 @@ This specification defines the **observable contract** of the Coloured Time Petr
 
 | File | Prefix | Scope | Req Count |
 |------|--------|-------|-----------|
-| [01-core-model.md](01-core-model.md) | CORE | Places, tokens, transitions, arcs, net construction, actions, context, marking | 33 |
-| [02-input-output-specs.md](02-input-output-specs.md) | IO | Input cardinality, composite output routing, validation | 15 |
+| [01-core-model.md](01-core-model.md) | CORE | Places, tokens, transitions, arcs, net construction, actions, context, marking | 34 |
+| [02-input-output-specs.md](02-input-output-specs.md) | IO | Input cardinality, composite output routing, validation | 14 |
 | [03-timing.md](03-timing.md) | TIME | Firing intervals, clock semantics, deadline enforcement | 11 |
 | [04-execution-model.md](04-execution-model.md) | EXEC | Orchestrator loop, scheduling, token consumption, failure, quiescence | 15 |
 | [05-concurrency.md](05-concurrency.md) | CONC | Single-threaded orchestrator, bitmap executor, precompiled flat-array executor, async actions, wake-up | 18 |
-| [06-environment-places.md](06-environment-places.md) | ENV | External event injection, implicit long-running behavior, executor lifecycle | 10 |
+| [06-environment-places.md](06-environment-places.md) | ENV | External event injection, implicit long-running behavior, executor lifecycle | 11 |
 | [07-verification.md](07-verification.md) | VER | SMT/IC3, state class graph, structural analysis | 10 |
-| [08-events-observability.md](08-events-observability.md) | EVT | Event types, event store, log capture | 20 |
-| [09-export.md](09-export.md) | EXP | Graph export, formal interchange | 15 |
+| [08-events-observability.md](08-events-observability.md) | EVT | Event types, event store, log capture | 23 |
+| [09-export.md](09-export.md) | EXP | Graph export, formal interchange | 17 |
 | [10-performance.md](10-performance.md) | PERF | Scaling, benchmarks, memory efficiency, flat-array executor performance | 14 |
-| [11-modular-composition.md](11-modular-composition.md) | MOD | Open-net subnet definition, instantiation, port composition, channel fusion, action binding per instance, place fusion | 23 |
+| [11-modular-composition.md](11-modular-composition.md) | MOD | Open-net subnet definition, instantiation, port composition, channel fusion, action binding per instance, place fusion | 26 |
 | [12-nu-nets.md](12-nu-nets.md) | NU | Token name identity, fresh-name minting (ν-binder/fork), join by name equality, bounded-budget decidability ledger | 8 |
-| **Total** | | | **192** |
+| **Total** | | | **201** |
+
+> **IO-006** (Input Guard Predicate) was removed (see [IO-006]); it is retained as a
+> struck-through tombstone for traceability and is **excluded** from the active count.
+> Counts above are active requirements only.
 
 ---
 
@@ -107,6 +111,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | CORE-070 | Marking State | MUST | — |
 | CORE-071 | Marking Thread Safety | MUST | — |
 | CORE-072 | Initial Marking | MUST | — |
+| CORE-073 | Marking Snapshot and Restore | SHOULD | CORE-010, CORE-011, CORE-072, TIME-010, TIME-011 |
 
 ### ENV — Environment Places
 | ID | Title | Priority | Depends On |
@@ -121,6 +126,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | ENV-011 | Graceful Drain | MUST | ENV-010 |
 | ENV-012 | Event-Driven Workflow Pattern | SHOULD | ENV-001, 002, 010 |
 | ENV-013 | Immediate Close | MUST | ENV-010 |
+| ENV-014 | Mid-Execution Marking Snapshot | SHOULD | ENV-010 |
 
 ### EVT — Events & Observability
 | ID | Title | Priority | Depends On |
@@ -144,7 +150,10 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | EVT-022 | NoopEventStore | MUST | — |
 | EVT-023 | LoggingEventStore | SHOULD | — |
 | EVT-024 | DebugEventStore | SHOULD | — |
+| EVT-025 | Session Archive Format | SHOULD | — |
 | EVT-030 | Event Filtering | SHOULD | — |
+| EVT-031 | EventStore Live Subscriptions | SHOULD | EVT-020, EVT-021 |
+| EVT-032 | Marking Replay Cache | SHOULD | EVT-021, CONC-025 |
 
 ### EXEC — Execution Model
 | ID | Title | Priority | Depends On |
@@ -183,6 +192,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | EXP-014 | Junction ID Format and Layout Stability | MUST | — |
 | EXP-015 | Doc Generator Parity | MUST | EXP-011, EXP-012, EXP-013 |
 | EXP-016 | Subnet Instance Cluster Subgraphs | SHOULD | EXP-001, EXP-014, MOD-010, MOD-040 |
+| EXP-017 | Compound Cluster Layout Hints | SHOULD | EXP-016, EXP-014 |
 | EXP-018 | ν-Match Edge Decoration | SHOULD | EXP-006, NU-020 |
 
 ### IO — Input/Output Specifications
@@ -193,7 +203,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | IO-003 | Input All | MUST | CORE-030 |
 | IO-004 | Input AtLeast | MUST | CORE-030 |
 | IO-005 | Input AND-Join Semantics | MUST | — |
-| IO-006 | Input Guard Predicate | SHOULD | — |
+| ~~IO-006~~ | ~~Input Guard Predicate~~ (Removed) | — | — |
 | IO-007 | requiredCount and consumptionCount Contract | MUST | — |
 | IO-010 | Output Place (Leaf) | MUST | — |
 | IO-011 | Output And | MUST | — |
@@ -224,7 +234,9 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | MOD-023 | Composition Produces Flat Net | MUST | MOD-020, MOD-021, CONC-007, EXEC-001 |
 | MOD-024 | Identity-Default Port Inference (auto-compose) | SHOULD | MOD-003, MOD-005, MOD-010, MOD-020, MOD-023 |
 | MOD-025 | Direct Composition (compose a subnet without instantiation) | MUST | MOD-001, MOD-020, MOD-023, CORE-040 |
+| MOD-026 | Subnet-Membership Metadata for Direct Composition | SHOULD | MOD-025, MOD-023, MOD-001 |
 | MOD-030 | Action Binding Per Instance (share-by-default, override via bindActions) | MUST | CORE-042, MOD-010 |
+| MOD-031 | Action Place Resolution under Composition (declared → actual correspondence) | MUST | MOD-010, MOD-013, MOD-020, MOD-023, MOD-025, MOD-030, CORE-042 |
 | MOD-040 | Export Grouping (subgraph cluster_* per instance prefix) | SHOULD | MOD-010, EXP-001, EXP-014 |
 | MOD-041 | Debug Protocol Subnet Instances | SHOULD | MOD-010, MOD-013 |
 | MOD-050 | Verification Pass-Through on Composed Flat Net | MUST | MOD-023, VER-001 |
@@ -297,8 +309,8 @@ This specification defines the **observable contract** of the Coloured Time Petr
 
 | Priority | Count | Description |
 |----------|-------|-------------|
-| MUST     | 137   | Core contract; all implementations must conform |
-| SHOULD   | 46    | Recommended; implementations should include unless technically infeasible |
+| MUST     | 139   | Core contract; all implementations must conform |
+| SHOULD   | 53    | Recommended; implementations should include unless technically infeasible |
 | MAY      | 9     | Optional; implementations may include |
 
 ---
@@ -351,6 +363,7 @@ This matrix maps spec requirements to test classes/files in each implementation.
 | CORE-050–054 | `TransitionActionTest` | `transition-action.test.ts` | `context::tests` |
 | CORE-060–064 | `TransitionContextTest` | `transition-context.test.ts` | `context::tests` |
 | CORE-070–072 | `MarkingTest` | `marking.test.ts` | `marking::tests` |
+| CORE-073 | — | — | `executor_handle::tests`; Python `test_marking_snapshot.py` (Rust/Python-first) |
 | IO-001–007 | `InTest` | `in.test.ts` | `input::tests` |
 | IO-010–017 | `OutTest` | `out.test.ts` | `output::tests` |
 | TIME-001–006 | `TimingTest` | `timing.test.ts` | `timing::tests` |
@@ -363,11 +376,16 @@ This matrix maps spec requirements to test classes/files in each implementation.
 | CONC-004–008 | `BitmapNetExecutorTest` | `compiled-net.test.ts` | `compiled_net::tests`, `bitmap::tests` |
 | ENV-001–006 | `EnvironmentPlaceTest` | `environment.test.ts` | `injector::tests` |
 | ENV-010–013 | `EnvironmentPlaceTest` | `environment.test.ts` | `environment::tests` |
+| ENV-014 | — | — | `executor_handle::tests`; Python `test_marking_snapshot.py` (Rust/Python-first) |
 | VER-001–006 | `SmtVerifierTest` | `smt-verifier.test.ts` | `structural_check::tests`, `p_invariant::tests` |
 | VER-010–011 | `StateClassGraphTest` | `analysis/*.test.ts` | `state_class_graph::tests` |
 | EVT-001–014 | `NetEventTest` | `net-event.test.ts` | `net_event::tests` |
 | EVT-020–024 | `EventStoreTest` | `event-store.test.ts` | `event_store::tests` |
+| EVT-025 | `SessionArchiveWriterConsistencyTest`, `SessionArchiveV3Test` | `session-archive-writer-consistency.test.ts`, `session-archive-v3.test.ts` | `session_archive_reader::tests` |
+| EVT-031 | — | — | Python `test_subscribe_stream.py` (Rust/Python-first) |
+| EVT-032 | `MarkingCacheTest` | `marking-cache.test.ts` | `marking_cache::tests` |
 | EXP-001–008 | `DotExporterTest` | `dot-exporter.test.ts` | `dot_renderer::tests`, `mapper::tests` |
+| EXP-017 | `ClusterBuilderTest`, `DotRendererTest` | `cluster-builder.test.ts` | `cluster_builder::tests` |
 | CONC-020–026 | `PrecompiledNetExecutorEngineTest` | `precompiled-net-executor.test.ts` | — |
 | PERF-001–004 | `BitmapNetExecutorBenchmark` | — | — |
 | PERF-020–022 | — | — | — |
@@ -389,7 +407,9 @@ This matrix maps spec requirements to test classes/files in each implementation.
 | MOD-023 | `ComposeTest#compose_producerBufferConsumer_endToEnd` | `compose.test.ts > compose_producerBufferConsumer_endToEnd: tokens flow producer -> buffer -> consumer` | `compose_e2e::compose_producer_buffer_consumer_end_to_end` |
 | MOD-024 | `AutoComposeTest#autoCompose_structurallyEqualToExplicitBindPort` (+ 7 sibling cases: explicit-interface match, host-no-pre-declare via arcs, no-interface body inference, channel rejection, multi-subnet e2e, inout port, empty body) | `auto-compose.test.ts > autoCompose_structurallyEqualToExplicitBindPort` (+ 7 sibling cases) | `auto_compose::auto_compose_structurally_equal_to_explicit_bind_port` (+ 7 sibling cases) |
 | MOD-025 | `ComposeDirectTest#composeDirect_mergesBodyPlacesByName` (+ 12 sibling scenarios, `SCG-1/2` reachability + order-independence) | `compose-direct.test.ts > composeDirect_mergesBodyPlacesByName` (+ sibling scenarios) | `compose_direct_e2e::compose_direct_merges_body_places_by_name` (+ siblings; validation panics covered by `compose_direct_subnet_with_channel_panics` / `compose_direct_transition_name_collision_panics`) |
+| MOD-026 | `ComposeDirectMembershipTest` | `compose-direct-membership.test.ts` | `petri_net::tests::direct_compose_records_membership_per_subnet` (+ siblings) |
 | MOD-030 | `InstanceTest#instantiate_actionsSharedByReference`, `bindActions_overridesOnlyForThisInstance`, `bindActions_partialOverride_leavesUnnamedTransitionsAlone` | `instantiate.test.ts > two instances of the same def share each transition's action by reference`, `> rebinds the action on the named transition (MOD-030)`, `> does not mutate the original instance (MOD-030: per-instance scope)` | `subnet_def::tests::instantiate_actions_shared_by_reference`, `bind_actions_overrides_only_for_this_instance`, `instance::tests::bind_actions_replaces_action_for_named_transition` |
+| MOD-031 | `ComposeTest` (action place resolution) | `compose-action-place-alias.test.ts` | `mod031_place_resolution` |
 | MOD-040 | `SubnetDotExportTest#dotExport_singleInstance_oneCluster`, `dotExport_twoInstances_twoSiblingClusters`, `dotExport_nestedInstance_nestedClusters`, `dotExport_clusterIdsAreSanitized` | `subnet-dot-export.test.ts > dotExport_singleInstance_oneCluster`, `> dotExport_twoInstances_twoSiblingClusters`, `> dotExport_nestedInstance_nestedClusters`, `> dotExport_clusterIdsAreSanitized` | `cluster_builder::tests::single_prefix_groups_nodes_and_intra_edges`, `nested_prefixes_build_tree`, `subnet_diagrams::composed_with_clusters_emits_cluster_for_each_prefix` |
 | MOD-041 | `DebugProtocolSubnetTest#subscribed_composedNet_populatedSubnetInstances`, `subscribed_nestedInstance_parentPrefixSet`, `placeInfo_instancePrefix_populated`, `transitionInfo_instancePrefix_populated`, `netEventConverter_emitsInstancePrefixForPrefixedEvents` | `subnet-protocol.test.ts > subscribed_composedNet_populatedSubnetInstances`, `> subscribed_nestedInstance_parentPrefixSet`, `> placeInfo_instancePrefix_populated`, `> transitionInfo_instancePrefix_populated`, `> netEventConverter_emitsInstancePrefixForPrefixedEvents` | `debug_session_registry::tests::subscribed_composed_net_populated_subnet_instances`, `subscribed_nested_instance_parent_prefix_set`, `place_info_instance_prefix_populated_for_prefixed_names`, `transition_info_instance_prefix_populated_for_prefixed_names` |
 | MOD-050 | `SubnetVerifyTest#verify_returnsResultWithAllProperties`, `verify_leakyBucket_isKBounded` (verifier sees composed flat net with no special API) | `subnet-verify.test.ts > verify_returnsResultWithAllProperties — one entry per harness property`, `> verify_leakyBucket_isKBounded` | `subnet_verify::verify_leaky_bucket_is_k_bounded`, `subnet_verify::verify_synthetic_net_binds_all_ports` |
