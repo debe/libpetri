@@ -4,7 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-libpetri is a multi-language **Coloured Time Petri Net** (CTPN) engine with formal verification. Two production implementations exist (Java 25 and TypeScript), both conforming to a shared specification of 145 requirements in `spec/`.
+libpetri is a multi-language **Coloured Time Petri Net** (CTPN) engine with formal verification. Four implementations conform to one language-agnostic specification (`spec/`, **203 active requirements across 13 files** — `spec/00-index.md` is the canonical count):
+
+| Implementation | Language | Runtime | Status |
+|---|---|---|---|
+| `java/` | Java 25 | Virtual threads | Production |
+| `typescript/` | TypeScript 5.7 | Promises / event loop | Production |
+| `rust/` | Rust 2024 | Tokio async tasks | Production |
+| `python/` | Python ≥3.11 | Tokio async via PyO3 | Beta |
+
+Java, TypeScript, and Rust are verified independently against the spec; **Python is PyO3 bindings on the Rust runtime** (it rides on Rust, not a separate implementation).
 
 ## Build & Test Commands
 
@@ -36,9 +45,36 @@ npm test -- core               # Run tests matching "core"
 
 TypeScript 5.7, ESM-only, strict mode. Built with tsup (multi-entry: `index`, `export`, `verification`, `debug`, `doclet`), tested with vitest. JaCoCo code coverage auto-generated in Java (`target/site/jacoco/`).
 
+### Rust (`rust/`)
+
+```bash
+cd rust
+cargo build --workspace --exclude libpetri-py --all-features   # build (libpetri-py needs Python-extension linkage)
+cargo test  --workspace --exclude libpetri-py --all-features   # THE real CI gate
+cargo test -p libpetri-runtime                                  # single crate
+cargo test -p libpetri-runtime precompiled                      # filter tests by name
+cargo bench                                                     # Criterion benchmarks
+```
+
+Rust 2024 edition, rustc ≥1.88. Cargo workspace of 10 crates (`libpetri-core`, `-event`, `-runtime`, `-export`, `-verification`, `-debug`, `-docgen`, `libpetri` umbrella, `libpetri-py`, `benches`). **NOT fmt/clippy-gated** — match the existing hand-style; CI runs neither. Verification shells out to the **`z3` binary** via SMT-LIB2 text (the `z3` cargo feature is an empty compile-gate, *not* the z3/z3-sys crate).
+
+### Python (`python/`)
+
+```bash
+cd python
+pip install -e '.[dev]'        # maturin, pytest, pytest-asyncio, pytest-benchmark
+maturin develop                # build the Rust extension (libpetri._libpetri) into the venv
+maturin develop --release      # optimized (LTO) build — slower compile
+pytest                         # run tests (asyncio_mode=auto)
+pytest tests/test_executor.py  # single file
+pytest -k precompiled          # filter by name
+```
+
+Python ≥3.11. The wheel is built by maturin from `rust/libpetri-py` (PyO3); version is decoupled from the Rust workspace version. Actions run on Tokio threads with **no running asyncio loop** — use async-first entry points (`start_async`/`ainvoke`/`astream`); `asyncio.gather`/`create_task` raise at construction. Subscriptions are batched/filtered Rust-side (no per-event Python callbacks).
+
 ## Architecture
 
-Both implementations share the same architecture, mirrored across languages.
+All four implementations share the same architecture, mirrored across languages (Python via the Rust runtime).
 
 ### Core Model (`src/core/`)
 
@@ -51,10 +87,11 @@ Both implementations share the same architecture, mirrored across languages.
 
 ### Runtime (`src/runtime/`)
 
-- **BitmapNetExecutor** — The primary executor. Single-threaded orchestrator with concurrent async actions.
+- **BitmapNetExecutor** — The **reference executor**: clear, canonical firing semantics. Single-threaded orchestrator with concurrent async actions.
   - Bitmap-based enablement: O(W) checks where W = ceil(places/wordsize)
   - Dirty-set optimization: only re-evaluates transitions whose input places changed
   - Priority scheduling, then FIFO by enablement time
+- **PrecompiledNetExecutor** — The **production executor** (1.5–4× faster on sync chains). Flat-array/opcode representation, ring-buffer token storage, priority-partitioned ready queues. Must stay behaviorally identical to the Bitmap reference. In Rust it borrows `&PrecompiledNet`; `OwnedPrecompiledNet` caches the program. In Java the analogue is `PrecompiledNet` + `PrecompiledNetExecutor` (renamed from NetProgram/CompiledNetExecutor — not a VM).
 - **CompiledNet** — Precomputed bitmap masks and reverse indexes (place → affected transitions)
 - **Marking** — Current token distribution across places
 
@@ -72,7 +109,9 @@ Both implementations share the same architecture, mirrored across languages.
 
 ### Verification (`src/verification/` in TS, `src/smt/` in Java)
 
-Z3-based SMT verification using IC3/PDR. Supports: deadlock freedom, mutual exclusion, place bounds, unreachability. Uses Farkas method for P-invariants and structural siphon/trap pre-checks.
+Z3-based SMT verification using IC3/PDR. Supports: deadlock freedom, mutual exclusion, place bounds, unreachability. Uses Farkas method for P-invariants and structural siphon/trap pre-checks. State-class graph (Berthomieu-Diaz) for timed reachability.
+
+**Z3 transport differs per language**: Java uses `com.microsoft.z3` JNI (in-process), TypeScript uses `z3-solver` WASM (in-process), Rust shells out to the **`z3` binary** via SMT-LIB2 text. Implications: verification is sound but incomplete for the Turing-complete fragment (inhibitor arcs) — proofs target the decidable safety properties above on bounded nets.
 
 ### Export (`src/export/`)
 
@@ -143,7 +182,7 @@ contents change, and they're identical across the three destinations.
 
 ## Specification
 
-`spec/` contains 10 spec files with requirement prefixes: CORE, IO, TIME, EXEC, CONC, ENV, VER, EVT, EXP, PERF. Requirements use MUST/SHOULD/MAY priority and have testable acceptance criteria. Cross-references use `[PREFIX-NNN]` format.
+`spec/` contains 13 spec files (`00-index.md` … `12-nu-nets.md`), **203 active requirements**. Prefixes: CORE, IO, TIME, EXEC, CONC, ENV, VER, EVT, EXP, PERF, plus **MOD** (modular composition, `11-`) and **NU** (ν-nets / correlated fork-join by ID, `12-`). Requirements use MUST/SHOULD/MAY priority with testable acceptance criteria; cross-references use `[PREFIX-NNN]`. `spec/00-index.md` is the canonical registry — it tracks active vs removed/tombstoned IDs (e.g. IO-006), so trust the index count over any prose figure elsewhere.
 
 ## Release
 
