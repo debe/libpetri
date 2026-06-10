@@ -182,6 +182,10 @@ All five arc types (input, output, **read**, **inhibitor**, **reset**), all five
 modes (immediate, window, deadline, delayed, exact), environment places, priority
 scheduling, AND-fork, dump semantics, and coloured tokens.
 
+Plus **ν-nets** — a fork mints a fresh opaque name (`ctx.fresh_name()`) and a join
+correlates sibling tokens by name equality via `MatchSpec`, with a bounded `Budget`
+place as the decidability lever and an incremental O(N log N) join matcher.
+
 ## Modular Composition
 
 Build large nets by reusing open-net fragments. A `SubnetDef` pairs a

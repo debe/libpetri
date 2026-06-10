@@ -41,7 +41,7 @@ import { Marking } from './marking.js';
 import { PrecompiledNet, CONSUME_ONE, CONSUME_N, CONSUME_ALL, CONSUME_ATLEAST, RESET } from './precompiled-net.js';
 import { validateOutSpec, produceTimeoutOutput, DEADLINE_TOLERANCE_MS } from './executor-support.js';
 import { OutViolationError } from './out-violation-error.js';
-import { findBinding } from './match-engine.js';
+import { findBinding, IncrementalMatcher } from './match-engine.js';
 import { keyForPlace } from '../core/match-spec.js';
 import { nameId, type NameId } from '../core/name.js';
 
@@ -102,6 +102,18 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
    * `hasMatch` would wrongly starve them).
    */
   private readonly freshNameSuppliers: (() => NameId)[] = [];
+
+  // ==================== ν-net incremental match caches (NU-020) ====================
+  /**
+   * Per matched transition: an {@link IncrementalMatcher} kept in lockstep with
+   * the token queues when the transition is fast-path eligible (every correlated
+   * input is `one`/`exactly`, consumed by no other transition, and never reset),
+   * else `null` → fall back to the O(n) rebuild {@link findBinding}. This turns a
+   * draining matched join from O(n²) into O(n log n).
+   */
+  private matchCaches: (IncrementalMatcher | null)[] = [];
+  /** Per place (by pid): the `[tid, keyIndex]` of every fast-path correlated input it feeds. */
+  private placeMatchTargets: Array<Array<[number, number]>> = [];
 
   // ==================== Marking Bitmap ====================
   private readonly markingBitmap: Uint32Array;
@@ -218,6 +230,92 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     // ==================== Snapshot Buffers ====================
     this.markingSnapBuffer = new Uint32Array(wc);
     this.firingSnapBuffer = new Uint32Array(wc);
+
+    this.initMatchCaches();
+  }
+
+  /**
+   * Builds the ν-net incremental match caches (NU-020). A matched join is
+   * fast-path eligible only when every correlated input is `one`/`exactly`, is
+   * consumed by no other transition, and is never reset — so tokens enter a
+   * correlated input only via produce/inject (mirrored by `add`) and leave only
+   * via this join's matched consume (mirrored by `consume`), and the cache can
+   * never desync. Mirrors the Rust backends.
+   */
+  private initMatchCaches(): void {
+    const prog = this.program;
+    const tc = prog.transitionCount;
+    const pc = prog.placeCount;
+    this.matchCaches = new Array(tc).fill(null);
+    this.placeMatchTargets = Array.from({ length: pc }, () => []);
+
+    let anyMatch = false;
+    for (let tid = 0; tid < tc; tid++) {
+      if (prog.hasMatch[tid]) { anyMatch = true; break; }
+    }
+    if (!anyMatch) return;
+
+    // Which transitions consume (input) or reset each place.
+    const inputConsumers: number[][] = Array.from({ length: pc }, () => []);
+    const resetTarget: boolean[] = new Array(pc).fill(false);
+    for (let tid = 0; tid < tc; tid++) {
+      const t = prog.compiled.transition(tid);
+      for (const spec of t.inputSpecs) inputConsumers[prog.compiled.placeId(spec.place)]!.push(tid);
+      for (const arc of t.resets) resetTarget[prog.compiled.placeId(arc.place)] = true;
+    }
+
+    for (let tid = 0; tid < tc; tid++) {
+      if (!prog.hasMatch[tid]) continue;
+      const t = prog.compiled.transition(tid);
+      const ms = t.matchSpec;
+      if (!ms) continue;
+
+      const requireds: number[] = [];
+      let eligible = true;
+      for (const mk of ms.keys) {
+        const pid = prog.compiled.placeId(mk.place);
+        const spec = t.inputSpecs.find(s => s.place.name === mk.place.name);
+        let required: number;
+        if (spec?.type === 'one') required = 1;
+        else if (spec?.type === 'exactly') required = spec.count;
+        else { eligible = false; break; } // at-least/all: variable consume → fall back
+        const cons = inputConsumers[pid]!;
+        if (resetTarget[pid] || cons.length !== 1 || cons[0] !== tid) { eligible = false; break; }
+        requireds.push(required);
+      }
+      if (!eligible) continue;
+
+      const matcher = new IncrementalMatcher(requireds);
+      for (let keyIdx = 0; keyIdx < ms.keys.length; keyIdx++) {
+        const mk = ms.keys[keyIdx]!;
+        const pid = prog.compiled.placeId(mk.place);
+        const guard = t.inputSpecs.find(s => s.place.name === mk.place.name)?.guard;
+        for (const token of this.tokenQueues[pid]!) {
+          if (guard && !guard(token.value)) continue;
+          const name = mk.key(token.value);
+          if (name !== undefined && name !== null) matcher.add(keyIdx, name, token.createdAt);
+        }
+        this.placeMatchTargets[pid]!.push([tid, keyIdx]);
+      }
+      this.matchCaches[tid] = matcher;
+    }
+  }
+
+  /** Mirror a token added to correlated input `pid` into every fast-path matcher. */
+  private cacheAddToken(pid: number, token: Token<any>): void {
+    const targets = this.placeMatchTargets[pid];
+    if (targets === undefined || targets.length === 0) return;
+    const prog = this.program;
+    for (const [tid, keyIdx] of targets) {
+      const cache = this.matchCaches[tid];
+      if (cache == null) continue;
+      const t = prog.compiled.transition(tid);
+      const mk = t.matchSpec!.keys[keyIdx]!;
+      const guard = t.inputSpecs.find(s => s.place.name === mk.place.name)?.guard;
+      if (guard && !guard(token.value)) continue;
+      const name = mk.key(token.value);
+      if (name !== undefined && name !== null) cache.add(keyIdx, name, token.createdAt);
+    }
   }
 
   // ======================== Bitmap Helpers ========================
@@ -485,8 +583,15 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     // Guard check
     if (prog.hasGuards[tid]) {
       const t = prog.compiled.transition(tid);
+      const cache = this.matchCaches[tid];
+      const ms = t.matchSpec;
       for (const spec of t.inputSpecs) {
         if (!spec.guard) continue;
+        // For a fast-path matched join, the ν-net check below proves the
+        // correlated inputs already hold guard-passing matchable tokens, so the
+        // O(n) `countMatching` here is redundant for them — skipping it keeps a
+        // guarded draining join linear. Non-correlated guarded inputs still need it.
+        if (cache != null && ms && keyForPlace(ms, spec.place.name) !== undefined) continue;
         const required = spec.type === 'one' ? 1
           : spec.type === 'exactly' ? spec.count
           : spec.type === 'at-least' ? spec.minimum
@@ -500,8 +605,11 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     // the Transition object on this hot path (zero-cost gating, mirroring the
     // guard check above and Rust's `has_match(tid)`).
     if (prog.hasMatch[tid]) {
-      const tMatch = prog.compiled.transition(tid);
-      if (findBinding(tMatch, p => this.tokenQueues[prog.compiled.placeId(p)]!) === null) {
+      const cache = this.matchCaches[tid];
+      const noBinding = cache != null
+        ? cache.best() === null
+        : findBinding(prog.compiled.transition(tid), p => this.tokenQueues[prog.compiled.placeId(p)]!) === null;
+      if (noBinding) {
         return false;
       }
     }
@@ -522,7 +630,10 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     const q = this.tokenQueues[pid]!;
     for (let i = 0; i < q.length; i++) {
       if (guard(q[i]!.value)) {
-        return q.splice(i, 1)[0]!;
+        // Head removal (the common ν-net case — the matched token is the oldest,
+        // hence at the front when timestamps are distinct) uses the V8-optimized
+        // shift() rather than an O(n) splice, keeping a draining join linear.
+        return i === 0 ? q.shift()! : q.splice(i, 1)[0]!;
       }
     }
     return null;
@@ -824,10 +935,17 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
    * first, then name equality — NU-021); other inputs consume FIFO. Reset arcs
    * are honoured as on the opcode path. Mirrors {@link fireTransitionGuarded}.
    */
-  private fireTransitionMatched(_tid: number, t: Transition, inputs: TokenInput, consumed: Token<any>[]): void {
+  private fireTransitionMatched(tid: number, t: Transition, inputs: TokenInput, consumed: Token<any>[]): void {
     const prog = this.program;
     const ms = t.matchSpec!;
-    const chosen = findBinding(t, p => this.tokenQueues[prog.compiled.placeId(p)]!);
+    const cache = this.matchCaches[tid];
+    const chosen = cache != null
+      ? cache.best()
+      : findBinding(t, p => this.tokenQueues[prog.compiled.placeId(p)]!);
+    // Mirror the matched consume into the fast-path matcher (the only path by
+    // which tokens leave this join's correlated inputs) before the token queues
+    // change, keeping it in lockstep.
+    if (cache != null && chosen !== null) cache.consume(chosen);
 
     for (const inSpec of t.inputSpecs) {
       const pid = prog.compiled.placeId(inSpec.place);
@@ -1014,6 +1132,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
         const produced: Token<any>[] = [];
         for (const entry of outputs.entries()) {
           const pid = prog.compiled.placeId(entry.place);
+          this.cacheAddToken(pid, entry.token);
           this.tokenQueues[pid]!.push(entry.token);
           produced.push(entry.token);
           this.setMarkingBit(pid);
@@ -1062,6 +1181,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       const event = this.externalQueue[i]!;
       try {
         const pid = prog.compiled.placeId(event.place);
+        this.cacheAddToken(pid, event.token);
         this.tokenQueues[pid]!.push(event.token);
         this.setMarkingBit(pid);
         this.markDirty(pid);

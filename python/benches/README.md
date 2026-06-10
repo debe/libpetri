@@ -105,6 +105,24 @@ Parametrized over N injections ∈ {100, 1000, 10000}. Divide total time by N
 for the per-event cost (the path real production users hit on every sensor
 event / inbound webhook / message-queue arrival).
 
+### `bench_nu_net.py`
+Measures the ν-net correlated-join firing-check cost — the work a join with a
+`MatchSpec` does to select the matching name on each enablement check. All
+actions are `lp.fork` (no per-transition Python callback), so the numbers
+isolate the Rust matcher rather than the GIL.
+
+Parametrized scenarios:
+- `test_nu_join_drain[depth]` (depth ∈ {10, 50, 100, 200, 500}) — drain a k=2
+  correlated join over a pool of `depth` distinct names.
+- `test_plain_join_drain[depth]` — structurally identical join with **no**
+  `MatchSpec`; the delta against `nu_join_drain` is the pure ν tax.
+- `test_nu_join_drain_arity[arity]` (arity ∈ {4, 8}) — wider joins at fixed depth.
+- `test_nu_scatter_gather[groups]` and `test_nu_scatter_gather_budgeted[groups]`
+  (groups ∈ {10, 50, 100}) — end-to-end fork → join; the budgeted variant caps
+  live correlation groups with a `Budget` place (NU-040).
+
+Mirrors the Rust ν benches in `rust/benches/benches/executor.rs`.
+
 ## Comparing to Rust
 
 Run the matching Rust bench:
@@ -131,9 +149,10 @@ Stacked together, you get the cost breakdown:
 
 ## Fixtures
 
-`conftest.py` exposes three fixtures used by the bench files:
+`conftest.py` exposes the fixtures used by the bench files:
 
 - `linear_chain_net` — `_build(n) -> (net, start_place, end_place)`.
 - `fan_out_net` — `_build(fan) -> (net, source_place, sink_place)`.
 - `complex_workflow_net` — already-built 8-transition / 13-place workflow with XOR, inhibitors, priorities, and read arcs (mirrors Rust `build_complex_workflow`).
+- `nu_join_drain_net` / `plain_join_drain_net` / `nu_scatter_gather_net` — ν-net join builders (with and without `MatchSpec`, plus the budgeted scatter/gather) for `bench_nu_net.py`.
 - `benchmark_async` — helper that drives a coroutine factory on a dedicated event loop (pytest-benchmark only times sync callables natively).

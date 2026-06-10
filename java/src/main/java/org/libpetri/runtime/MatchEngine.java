@@ -1,9 +1,12 @@
 package org.libpetri.runtime;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.PriorityQueue;
 
 import org.libpetri.core.Arc;
 import org.libpetri.core.MatchSpec;
@@ -145,5 +148,161 @@ final class MatchEngine {
             }
         }
         return bestName;
+    }
+
+    /**
+     * FIFO queue of timestamps with O(1)-amortised min-query (two-stack method).
+     * Mirrors the executors' FIFO-within-name removal ({@code popFront} drops the
+     * earliest-inserted token, like {@code ringRemoveMatching} / {@code
+     * removeFirstMatching}) while answering "oldest remaining timestamp". A plain
+     * min-heap would diverge from FIFO order when timestamps are not insertion-ordered.
+     */
+    static final class MinQueue {
+        private long[] inVal = new long[4];
+        private long[] inMin = new long[4];
+        private int inSize = 0;
+        private long[] outVal = new long[4];
+        private long[] outMin = new long[4];
+        private int outSize = 0;
+
+        int size() {
+            return inSize + outSize;
+        }
+
+        boolean isEmpty() {
+            return inSize == 0 && outSize == 0;
+        }
+
+        void pushBack(long v) {
+            if (inSize == inVal.length) {
+                inVal = Arrays.copyOf(inVal, inVal.length * 2);
+                inMin = Arrays.copyOf(inMin, inMin.length * 2);
+            }
+            inVal[inSize] = v;
+            inMin[inSize] = inSize == 0 ? v : Math.min(inMin[inSize - 1], v);
+            inSize++;
+        }
+
+        void popFront() {
+            if (outSize == 0) {
+                while (inSize > 0) {
+                    long v = inVal[--inSize];
+                    if (outSize == outVal.length) {
+                        outVal = Arrays.copyOf(outVal, outVal.length * 2);
+                        outMin = Arrays.copyOf(outMin, outMin.length * 2);
+                    }
+                    outVal[outSize] = v;
+                    outMin[outSize] = outSize == 0 ? v : Math.min(outMin[outSize - 1], v);
+                    outSize++;
+                }
+            }
+            if (outSize > 0) {
+                outSize--;
+            }
+        }
+
+        long min() {
+            long a = inSize > 0 ? inMin[inSize - 1] : Long.MAX_VALUE;
+            long b = outSize > 0 ? outMin[outSize - 1] : Long.MAX_VALUE;
+            return Math.min(a, b);
+        }
+    }
+
+    /**
+     * Incremental equivalent of {@link #selectMatchName} for the common case
+     * where every correlated input is One/Exactly(n) (fixed consume count).
+     *
+     * <p>{@code selectMatchName} rebuilds a full name index over every token on
+     * each call, so draining N ready correlation groups costs O(N²). This
+     * maintains, per correlated input, a {@link MinQueue} of timestamps per name
+     * plus a lazy-deletion min-heap of ready names keyed by the same
+     * {@code (oldest_ts, name)} order, so {@code add}/{@code consume} are
+     * O(log n) and {@link #best()} is an O(1) read. For any add/consume sequence
+     * {@code best()} returns exactly what {@code selectMatchName} would —
+     * verified by {@code MatchEngineIncrementalTest}. Callers with an AtLeast/All
+     * correlated input must fall back to {@code selectMatchName}.
+     */
+    static final class IncrementalMatcher {
+        private record ReadyEntry(long ts, NameId name) {}
+
+        private final int[] requireds;
+        private final List<Map<NameId, MinQueue>> ts;
+        private final PriorityQueue<ReadyEntry> heap = new PriorityQueue<>(
+            Comparator.comparingLong(ReadyEntry::ts).thenComparing(ReadyEntry::name));
+        private final Map<NameId, Long> ready = new HashMap<>();
+
+        IncrementalMatcher(int[] requireds) {
+            this.requireds = requireds;
+            this.ts = new ArrayList<>(requireds.length);
+            for (int i = 0; i < requireds.length; i++) {
+                ts.add(new HashMap<>());
+            }
+        }
+
+        /** Add one token carrying {@code name} at {@code createdAt} to input {@code i}. */
+        void add(int i, NameId name, long createdAt) {
+            ts.get(i).computeIfAbsent(name, n -> new MinQueue()).pushBack(createdAt);
+            refresh(name);
+            cleanTop();
+        }
+
+        /** Remove the {@code required} earliest-inserted tokens of {@code name} from every input (NU-020). */
+        void consume(NameId name) {
+            for (int i = 0; i < requireds.length; i++) {
+                MinQueue q = ts.get(i).get(name);
+                if (q != null) {
+                    for (int r = 0; r < requireds[i]; r++) {
+                        q.popFront();
+                    }
+                    if (q.isEmpty()) {
+                        ts.get(i).remove(name);
+                    }
+                }
+            }
+            refresh(name);
+            cleanTop();
+        }
+
+        /** The name {@code selectMatchName} would pick, or {@code null}. O(1) read. */
+        NameId best() {
+            ReadyEntry top = heap.peek();
+            return top == null ? null : top.name();
+        }
+
+        private Long repTs(NameId name) {
+            long rep = Long.MAX_VALUE;
+            for (int i = 0; i < requireds.length; i++) {
+                MinQueue q = ts.get(i).get(name);
+                if (q == null || q.size() < requireds[i]) {
+                    return null;
+                }
+                rep = Math.min(rep, q.min());
+            }
+            return rep;
+        }
+
+        private void refresh(NameId name) {
+            Long rep = repTs(name);
+            if (rep != null) {
+                if (!rep.equals(ready.get(name))) {
+                    ready.put(name, rep);
+                    heap.offer(new ReadyEntry(rep, name));
+                }
+            } else {
+                ready.remove(name);
+            }
+        }
+
+        private void cleanTop() {
+            ReadyEntry top;
+            while ((top = heap.peek()) != null) {
+                Long cur = ready.get(top.name());
+                if (cur == null || cur != top.ts()) {
+                    heap.poll();
+                } else {
+                    break;
+                }
+            }
+        }
     }
 }

@@ -58,6 +58,16 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
 
     private final CompiledNet compiled;
     private final Marking marking;
+
+    // ν-net incremental match caches (NU-020): per matched transition, an
+    // IncrementalMatcher kept in lockstep with the FIFO marking when the
+    // transition is fast-path eligible (every correlated input is One/Exactly,
+    // consumed by no other transition, never reset), else null → fall back to
+    // the O(n) rebuild MatchEngine.findBinding. Turns a draining matched join
+    // from O(n²) into O(n log n). (Java's ArrayDeque marking already removes the
+    // head in O(1), so only the selection rebuild needed fixing here.)
+    private MatchEngine.IncrementalMatcher[] matchCaches;
+    private java.util.List<int[]>[] placeMatchTargets;
     private final EventStore eventStore;
     private final ExecutorService executor;
     private final ExecutionContextProvider executionContextProvider;
@@ -199,6 +209,106 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         this.allSamePriority = samePrio;
 
         this.transitionInputPlaces = precomputeInputPlaces(compiled.net());
+
+        initMatchCaches();
+    }
+
+    /**
+     * Builds the ν-net incremental match caches (NU-020). A matched join is
+     * fast-path eligible only when every correlated input is One/Exactly, is
+     * consumed by no other transition, and is never reset — so the cache can
+     * never desync from the marking. Mirrors {@code PrecompiledNetExecutor}.
+     */
+    @SuppressWarnings("unchecked")
+    private void initMatchCaches() {
+        int tc = compiled.transitionCount();
+        int pc = compiled.placeCount();
+        matchCaches = new MatchEngine.IncrementalMatcher[tc];
+        placeMatchTargets = new java.util.List[pc];
+        for (int pid = 0; pid < pc; pid++) {
+            placeMatchTargets[pid] = new ArrayList<>();
+        }
+
+        boolean anyMatch = false;
+        for (int tid = 0; tid < tc; tid++) {
+            if (compiled.transition(tid).matchSpec() != null) { anyMatch = true; break; }
+        }
+        if (!anyMatch) return;
+
+        List<Integer>[] inputConsumers = new java.util.List[pc];
+        boolean[] resetTarget = new boolean[pc];
+        for (int pid = 0; pid < pc; pid++) {
+            inputConsumers[pid] = new ArrayList<>();
+        }
+        for (int tid = 0; tid < tc; tid++) {
+            Transition t = compiled.transition(tid);
+            for (var in : t.inputSpecs()) {
+                inputConsumers[compiled.placeId(in.place())].add(tid);
+            }
+            for (var rs : t.resets()) {
+                resetTarget[compiled.placeId(rs.place())] = true;
+            }
+        }
+
+        for (int tid = 0; tid < tc; tid++) {
+            Transition t = compiled.transition(tid);
+            MatchSpec ms = t.matchSpec();
+            if (ms == null) continue;
+
+            int[] requireds = new int[ms.keys().size()];
+            boolean eligible = true;
+            int ki = 0;
+            for (var key : ms.keys()) {
+                int pid = compiled.placeId(key.place());
+                int required = -1;
+                for (var in : t.inputSpecs()) {
+                    if (in.place().equals(key.place())) {
+                        if (in instanceof Arc.In.One) required = 1;
+                        else if (in instanceof Arc.In.Exactly e) required = e.count();
+                        break;
+                    }
+                }
+                if (required < 0) { eligible = false; break; } // AtLeast/All → fall back
+                List<Integer> cons = inputConsumers[pid];
+                if (resetTarget[pid] || cons.size() != 1 || cons.get(0) != tid) { eligible = false; break; }
+                requireds[ki++] = required;
+            }
+            if (!eligible) continue;
+
+            var matcher = new MatchEngine.IncrementalMatcher(requireds);
+            int keyIdx = 0;
+            for (var key : ms.keys()) {
+                int pid = compiled.placeId(key.place());
+                for (Token<?> token : marking.peekTokens((Place<Object>) key.place())) {
+                    NameId name = key.extract(token.value());
+                    if (name != null) {
+                        matcher.add(keyIdx, name, token.createdAt().toEpochMilli());
+                    }
+                }
+                placeMatchTargets[pid].add(new int[] {tid, keyIdx});
+                keyIdx++;
+            }
+            matchCaches[tid] = matcher;
+        }
+    }
+
+    /** Mirror a token added to correlated input {@code place} into every fast-path matcher. */
+    private void cacheAddToken(Place<?> place, Token<?> token) {
+        int pid = compiled.placeId(place);
+        if (pid < 0) return;
+        List<int[]> targets = placeMatchTargets[pid];
+        if (targets.isEmpty()) return;
+        for (int[] tgt : targets) {
+            int tid = tgt[0];
+            int keyIdx = tgt[1];
+            MatchEngine.IncrementalMatcher cache = matchCaches[tid];
+            if (cache == null) continue;
+            var key = compiled.transition(tid).matchSpec().keys().get(keyIdx);
+            NameId name = key.extract(token.value());
+            if (name != null) {
+                cache.add(keyIdx, name, token.createdAt().toEpochMilli());
+            }
+        }
     }
 
     private static Map<Transition, Set<Place<?>>> precomputeInputPlaces(PetriNet net) {
@@ -575,9 +685,16 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         }
 
         // 3. ν-net join: a correlation name must satisfy every matched input (NU-020).
-        if (compiled.transition(tid).matchSpec() != null
-                && MatchEngine.findBinding(marking, compiled.transition(tid)) == null) {
-            return false;
+        // Fast-path transitions read the maintained matcher (O(1)); the rest
+        // rebuild the index (O(n)).
+        if (compiled.transition(tid).matchSpec() != null) {
+            MatchEngine.IncrementalMatcher cache = matchCaches[tid];
+            boolean noBinding = cache != null
+                ? cache.best() == null
+                : MatchEngine.findBinding(marking, compiled.transition(tid)) == null;
+            if (noBinding) {
+                return false;
+            }
         }
 
         return true;
@@ -718,7 +835,14 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         // ν-net join: resolve the correlation name once, then consume the
         // matched tokens for correlated inputs; others consume FIFO (NU-020).
         MatchSpec ms = t.matchSpec();
-        NameId chosen = ms != null ? MatchEngine.findBinding(marking, t) : null;
+        MatchEngine.IncrementalMatcher cache = ms != null ? matchCaches[tid] : null;
+        NameId chosen = ms == null ? null
+            : (cache != null ? cache.best() : MatchEngine.findBinding(marking, t));
+        // Mirror the matched consume into the fast-path matcher (the only path by
+        // which tokens leave this join's correlated inputs) before the marking changes.
+        if (cache != null && chosen != null) {
+            cache.consume(chosen);
+        }
 
         // Consume tokens based on input specs with cardinality
         for (var in : t.inputSpecs()) {
@@ -857,6 +981,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
             List<Token<?>> produced = eventStoreEnabled ? new ArrayList<>() : null;
             for (var entry : outputs.entries()) {
                 var token = entry.token();
+                cacheAddToken(entry.place(), token);
                 marking.addToken((Place<Object>) entry.place(), (Token<Object>) token);
                 if (eventStoreEnabled) {
                     produced.add(token);
@@ -929,6 +1054,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
                 List<Token<?>> produced = new ArrayList<>();
                 for (var entry : outputs.entries()) {
                     var token = entry.token();
+                    cacheAddToken(entry.place(), token);
                     marking.addToken((Place<Object>) entry.place(), (Token<Object>) token);
                     produced.add(token);
                     if (eventStoreEnabled) emitEvent(new NetEvent.TokenAdded(
@@ -977,6 +1103,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         ExternalEvent<?> event;
         while ((event = externalEventQueue.poll()) != null) {
             try {
+                cacheAddToken(event.place(), event.token());
                 marking.addToken(
                     (Place<Object>) event.place(),
                     (Token<Object>) event.token());

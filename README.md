@@ -28,7 +28,8 @@ Write small, reusable subnets with typed interfaces. Compose them into systems t
 
 - **Composable like a module system** — Define small subnets with typed interfaces (ports + channels), instantiate them with prefix-scoped state, and compose them by structural rewrite into a flat production net. `FusionSet` for shared cross-instance state, per-instance action overrides. Same five abstractions across Java, TypeScript, and Rust.
 - **Executable, not a simulator** — Production runtime where Petri nets *are* the program. Typed tokens carry data, transitions are instructions, timing constraints are deadlines, and the executor is a scheduler. Suitable for agent orchestration, workflow automation, protocol modeling, game logic, UI state machines, and anything with concurrency.
-- **Four implementations, one spec** — Java 25, TypeScript 5.7, Rust 2024, and Python ≥3.11 (PyO3 bindings on the Rust runtime) share [183 language-agnostic requirements](spec/00-index.md) covering every arc type, timing variant, execution phase, and the modular composition surface. Same behavior, verified independently in three of four (Python rides on Rust).
+- **Four implementations, one spec** — Java 25, TypeScript 5.7, Rust 2024, and Python ≥3.11 (PyO3 bindings on the Rust runtime) share [203 language-agnostic requirements](spec/00-index.md) covering every arc type, timing variant, execution phase, and the modular composition surface. Same behavior, verified independently in three of four (Python rides on Rust).
+- **Correlated by identity** — A fork mints a fresh opaque name (`freshName` / `fresh_name`) into the token payload, and a join re-merges exactly the sibling tokens of one unit of work by name equality (ν-nets, via `MatchSpec`). The match is part of the firing rule, not a check-then-act lookup in external state, and a bounded `Budget` place keeps the correlated fragment decidable.
 - **Turing-complete** — Coloured Petri Nets with inhibitor arcs can simulate any Turing machine. libpetri's nets can model arbitrary computation, not just finite-state workflows.
 
 ---
@@ -41,6 +42,7 @@ Write small, reusable subnets with typed interfaces. Compose them into systems t
 | **Arc types** | Input, Output, Inhibitor, Read (non-consuming), Reset (clear all) |
 | **Input cardinality** | `one`, `exactly(n)`, `all` (drain), `atLeast(n)` — with optional guard predicates |
 | **Output routing** | `place` (single), `and` (fork), `xor` (choice), `timeout`, `forwardInput` |
+| **ν-nets (correlated identity)** | Fresh-name minting (`freshName` / `fresh_name`), join-by-name correlation via `MatchSpec`, bounded-budget decidability lever, incremental O(N log N) join matcher |
 | **Timing** | Immediate, Deadline, Delayed, Window, Exact — with urgent deadline enforcement |
 | **Executor** | Bitmap-based O(W) enablement, dirty-set optimization, priority + FIFO scheduling. Precompiled flat-array executor with 1.5–4× speedup (Java, TypeScript, Rust). |
 | **Concurrency** | Single-threaded orchestrator, concurrent async actions (virtual threads / promises / Tokio tasks) |
@@ -48,7 +50,7 @@ Write small, reusable subnets with typed interfaces. Compose them into systems t
 | **Events** | 13 event types, pluggable stores (in-memory, noop, logging, debug) |
 | **Formal verification** | SMT/IC3 via Z3 — deadlock freedom, mutual exclusion, place bounds, unreachability |
 | **Structural analysis** | P-invariants (Farkas), siphon/trap pre-checks, XOR branch analysis |
-| **State class graph** | Berthomieu-Diaz algorithm for timed reachability (Java, TypeScript, Rust) |
+| **State class graph** | Berthomieu-Diaz algorithm for timed reachability, plus a name-aware (ν-partition) quotient for correlated nets (Java, TypeScript, Rust) |
 | **Export** | DOT/Graphviz |
 
 ---
@@ -442,6 +444,8 @@ Concurrency model: Java orchestrator + actions on separate virtual threads (true
 
 **Scaling note:** thanks to dirty-set optimization, the executor only re-evaluates transitions whose input places changed. Times reflect cost per transition that fires — adding inactive transitions does not increase per-cycle cost.
 
+**ν-join firing check:** a correlated join (`MatchSpec`) selects the matching name on each enablement check. An incremental matcher (NU-022) keeps draining a deep correlation pool at O(N log N) rather than O(N²), and its choice is byte-identical to the reference selector. Dedicated firing-check benchmarks — depth and arity sweeps, scatter/gather, budgeted variants, and a no-match baseline that isolates the ν tax — ship in all four languages (`bench_nu_net.py`, Rust Criterion, TypeScript vitest, Java JMH).
+
 ### Sync Linear Chains
 
 All transitions use synchronous (passthrough) actions.
@@ -545,22 +549,23 @@ cd python && pytest benches/ --benchmark-only --override-ini="testpaths=benches"
 
 ## Specification
 
-The [`spec/`](spec/) directory defines the complete engine contract — **183 requirements** across 11 files.
+The [`spec/`](spec/) directory defines the complete engine contract — **203 requirements** across 12 files.
 
 | File | Prefix | Scope | Count |
 |---|---|---|---|
-| [01-core-model.md](spec/01-core-model.md) | CORE | Places, tokens, transitions, arcs, net construction | 33 |
-| [02-input-output-specs.md](spec/02-input-output-specs.md) | IO | Input cardinality, output routing, validation | 15 |
+| [01-core-model.md](spec/01-core-model.md) | CORE | Places, tokens, transitions, arcs, net construction | 34 |
+| [02-input-output-specs.md](spec/02-input-output-specs.md) | IO | Input cardinality, output routing, validation | 14 |
 | [03-timing.md](spec/03-timing.md) | TIME | Firing intervals, clock semantics, deadlines | 11 |
 | [04-execution-model.md](spec/04-execution-model.md) | EXEC | Orchestrator loop, scheduling, quiescence | 15 |
 | [05-concurrency.md](spec/05-concurrency.md) | CONC | Bitmap executor, precompiled flat-array executor, async actions, wake-up | 18 |
-| [06-environment-places.md](spec/06-environment-places.md) | ENV | External event injection, implicit long-running behavior, executor lifecycle | 10 |
-| [07-verification.md](spec/07-verification.md) | VER | SMT/IC3, state class graph, structural analysis | 10 |
-| [08-events-observability.md](spec/08-events-observability.md) | EVT | Event types, event store, log capture | 20 |
-| [09-export.md](spec/09-export.md) | EXP | Graph export, formal interchange, junction nodes, subnet clusters | 15 |
+| [06-environment-places.md](spec/06-environment-places.md) | ENV | External event injection, implicit long-running behavior, executor lifecycle | 11 |
+| [07-verification.md](spec/07-verification.md) | VER | SMT/IC3, state class graph, structural analysis | 11 |
+| [08-events-observability.md](spec/08-events-observability.md) | EVT | Event types, event store, log capture | 23 |
+| [09-export.md](spec/09-export.md) | EXP | Graph export, formal interchange, junction nodes, subnet clusters | 17 |
 | [10-performance.md](spec/10-performance.md) | PERF | Scaling, benchmarks, memory efficiency, flat-array executor performance | 14 |
-| [11-modular-composition.md](spec/11-modular-composition.md) | MOD | Subnet definitions, instances, port/channel composition, place fusion, action binding | 22 |
-| **Total** | | | **183** |
+| [11-modular-composition.md](spec/11-modular-composition.md) | MOD | Subnet definitions, instances, port/channel composition, place fusion, action binding | 26 |
+| [12-nu-nets.md](spec/12-nu-nets.md) | NU | Token name identity, fresh-name minting, join by name equality, bounded-budget decidability | 9 |
+| **Total** | | | **203** |
 
 See [spec/00-index.md](spec/00-index.md) for the full cross-reference index, priority breakdown, and coverage matrix.
 

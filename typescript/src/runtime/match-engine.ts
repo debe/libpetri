@@ -149,3 +149,193 @@ function guardFor(t: Transition, placeName: string): ((value: any) => boolean) |
   }
   return undefined;
 }
+
+// ==================== Incremental matcher (NU-020 performance) ====================
+//
+// `selectMatchName` rebuilds a full name index over every token on each call, so
+// draining N ready correlation groups costs O(N²). `IncrementalMatcher` maintains
+// the per-input name index (a FIFO min-queue of timestamps per name) plus a
+// lazy-deletion min-heap of ready names ordered by the same `(oldest_ts, name)`
+// key, so `add`/`consume` are O(log n) and `best()` is an O(1) read. Used only
+// for `one`/`exactly` correlated inputs that are consumed by no other transition
+// (so the cache can't desync); otherwise the executor falls back to
+// `selectMatchName`. Ported byte-identically from the Rust `IncrementalMatcher`.
+
+/**
+ * FIFO queue of timestamps with O(1)-amortized min-query (two-stack method).
+ * Mirrors the executor's FIFO-within-name removal (`popFront` drops the
+ * earliest-inserted token) while answering "oldest remaining timestamp". A plain
+ * min-heap would diverge from FIFO order when timestamps are not insertion-ordered.
+ */
+class MinQueue {
+  private readonly inStack: number[] = [];
+  private readonly inMin: number[] = [];
+  private readonly outStack: number[] = [];
+  private readonly outMin: number[] = [];
+
+  get size(): number {
+    return this.inStack.length + this.outStack.length;
+  }
+
+  pushBack(v: number): void {
+    this.inStack.push(v);
+    const top = this.inMin.length;
+    this.inMin.push(top ? Math.min(this.inMin[top - 1]!, v) : v);
+  }
+
+  popFront(): void {
+    if (this.outStack.length === 0) {
+      while (this.inStack.length) {
+        const v = this.inStack.pop()!;
+        this.inMin.pop();
+        this.outStack.push(v);
+        const top = this.outMin.length;
+        this.outMin.push(top ? Math.min(this.outMin[top - 1]!, v) : v);
+      }
+    }
+    this.outStack.pop();
+    this.outMin.pop();
+  }
+
+  min(): number {
+    const a = this.inMin.length ? this.inMin[this.inMin.length - 1]! : Infinity;
+    const b = this.outMin.length ? this.outMin[this.outMin.length - 1]! : Infinity;
+    return a < b ? a : b;
+  }
+}
+
+interface ReadyEntry {
+  ts: number;
+  name: NameId;
+}
+
+/** Binary min-heap of ready names keyed by `(ts, name)` — the `select_match_name` order. */
+class ReadyHeap {
+  private readonly a: ReadyEntry[] = [];
+
+  get size(): number {
+    return this.a.length;
+  }
+
+  peek(): ReadyEntry | undefined {
+    return this.a[0];
+  }
+
+  private less(x: ReadyEntry, y: ReadyEntry): boolean {
+    return x.ts < y.ts || (x.ts === y.ts && x.name < y.name);
+  }
+
+  push(e: ReadyEntry): void {
+    const a = this.a;
+    a.push(e);
+    let i = a.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (this.less(a[i]!, a[p]!)) {
+        const tmp = a[i]!;
+        a[i] = a[p]!;
+        a[p] = tmp;
+        i = p;
+      } else break;
+    }
+  }
+
+  pop(): void {
+    const a = this.a;
+    const last = a.pop()!;
+    if (a.length === 0) return;
+    a[0] = last;
+    let i = 0;
+    const n = a.length;
+    for (;;) {
+      const l = 2 * i + 1;
+      const r = 2 * i + 2;
+      let m = i;
+      if (l < n && this.less(a[l]!, a[m]!)) m = l;
+      if (r < n && this.less(a[r]!, a[m]!)) m = r;
+      if (m === i) break;
+      const tmp = a[i]!;
+      a[i] = a[m]!;
+      a[m] = tmp;
+      i = m;
+    }
+  }
+}
+
+/**
+ * Incremental equivalent of {@link selectMatchName} for `one`/`exactly`
+ * correlated inputs (fixed consume count). For any sequence of `add`/`consume`,
+ * {@link best} returns exactly the name `selectMatchName` would for the
+ * equivalent marking — verified by `incremental-matcher.test.ts`.
+ */
+export class IncrementalMatcher {
+  private readonly ts: Array<Map<NameId, MinQueue>>;
+  private readonly heap = new ReadyHeap();
+  private readonly ready = new Map<NameId, number>();
+
+  constructor(private readonly requireds: readonly number[]) {
+    this.ts = requireds.map(() => new Map<NameId, MinQueue>());
+  }
+
+  /** Add one (already guard-passing) token carrying `name` at `createdAt` to input `i`. */
+  add(i: number, name: NameId, createdAt: number): void {
+    let q = this.ts[i]!.get(name);
+    if (!q) {
+      q = new MinQueue();
+      this.ts[i]!.set(name, q);
+    }
+    q.pushBack(createdAt);
+    this.refresh(name);
+    this.cleanTop();
+  }
+
+  /** Remove the `required` earliest-inserted tokens of `name` from every input (NU-020). */
+  consume(name: NameId): void {
+    for (let i = 0; i < this.requireds.length; i++) {
+      const q = this.ts[i]!.get(name);
+      if (q) {
+        for (let r = 0; r < this.requireds[i]!; r++) q.popFront();
+        if (q.size === 0) this.ts[i]!.delete(name);
+      }
+    }
+    this.refresh(name);
+    this.cleanTop();
+  }
+
+  /** The name `selectMatchName` would pick, or `null`. O(1) read. */
+  best(): NameId | null {
+    const top = this.heap.peek();
+    return top ? top.name : null;
+  }
+
+  private repTs(name: NameId): number | null {
+    let rep = Infinity;
+    for (let i = 0; i < this.requireds.length; i++) {
+      const q = this.ts[i]!.get(name);
+      if (!q || q.size < this.requireds[i]!) return null;
+      const m = q.min();
+      if (m < rep) rep = m;
+    }
+    return rep;
+  }
+
+  private refresh(name: NameId): void {
+    const rep = this.repTs(name);
+    if (rep !== null) {
+      if (this.ready.get(name) !== rep) {
+        this.ready.set(name, rep);
+        this.heap.push({ ts: rep, name });
+      }
+    } else {
+      this.ready.delete(name);
+    }
+  }
+
+  private cleanTop(): void {
+    for (;;) {
+      const top = this.heap.peek();
+      if (top && this.ready.get(top.name) !== top.ts) this.heap.pop();
+      else break;
+    }
+  }
+}

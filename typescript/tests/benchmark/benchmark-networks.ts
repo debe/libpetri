@@ -11,6 +11,9 @@ import type { Place } from '../../src/core/place.js';
 import { one, exactly } from '../../src/core/in.js';
 import { outPlace, andPlaces, xor } from '../../src/core/out.js';
 import type { Token } from '../../src/core/token.js';
+import { tokenOf, tokenAt } from '../../src/core/token.js';
+import { matchSpec, matchKey } from '../../src/core/match-spec.js';
+import { nameId } from '../../src/core/name.js';
 import { fork } from '../../src/core/transition-action.js';
 
 // ==================== Helpers ====================
@@ -302,4 +305,130 @@ export function buildCompilationTransitions(n: number): { places: Place<string>[
     );
   }
   return { places, transitions };
+}
+
+// ==================== ν-net Builders (spec NU-020/021/040) ====================
+//
+// A transition carrying a MatchSpec is enabled only when a single correlation
+// name is present in every correlated input (`findBinding` → `selectMatchName`).
+// Unlike the cardinality check, that re-builds a `name → {count, oldest}` index
+// over EVERY token in each correlated input on each enablement re-evaluation —
+// so draining a deep pool re-indexes the shrinking pool every fire (≈ O(k·depth²)).
+// These builders feed benchmarks that quantify that firing-check cost. The
+// `hasMatch[tid]` gate means non-ν transitions pay nothing.
+
+export interface NuMsg {
+  cid: string;
+}
+
+/** A net plus a factory that builds a FRESH pre-seeded marking per invocation. */
+export interface NetWithSeed {
+  net: PetriNet;
+  seed: () => Map<Place<any>, Token<any>[]>;
+}
+
+/** Seeds each correlated input with `depth` distinct, mutually-correlating cids. */
+function seedDrain(inputs: Place<NuMsg>[], depth: number): () => Map<Place<any>, Token<any>[]> {
+  return () => {
+    const m = new Map<Place<any>, Token<any>[]>();
+    for (const p of inputs) {
+      const toks: Token<NuMsg>[] = [];
+      for (let j = 0; j < depth; j++) toks.push(tokenAt({ cid: `c${j}` }, j));
+      m.set(p, toks);
+    }
+    return m;
+  };
+}
+
+/**
+ * ν-net join over `branches` correlated inputs, each pre-seeded with `depth`
+ * distinct-cid tokens, drained to a sink. The join fires once per correlation
+ * name, re-running the name-index build over the shrinking pool each fire.
+ * `guarded` adds a unary input filter (NU-021) so the per-token guard-eval cost
+ * is included.
+ */
+export function buildNuJoinDrain(branches: number, depth: number, guarded = false): NetWithSeed {
+  const inputs: Place<NuMsg>[] = [];
+  for (let i = 0; i < branches; i++) inputs.push(place<NuMsg>(`branch${i}`));
+  const merged = place<string>('merged');
+
+  const join = Transition.builder('join')
+    .inputs(...inputs.map((p) => (guarded ? one(p, (m: NuMsg) => m.cid !== 'skip') : one(p))))
+    .match(matchSpec(...inputs.map((p) => matchKey(p, (m: NuMsg) => nameId(m.cid)))))
+    .outputs(outPlace(merged))
+    .action(async (ctx) => {
+      ctx.output(merged, 'm');
+    })
+    .build();
+
+  const net = PetriNet.builder('NuJoinDrain').transition(join).build();
+  return { net, seed: seedDrain(inputs, depth) };
+}
+
+/**
+ * Structurally identical to `buildNuJoinDrain(2, depth)` but the join has NO
+ * MatchSpec — a plain FIFO 2-way join. Same firing count and token movement,
+ * zero name indexing: the gap to `buildNuJoinDrain` is the pure ν firing-check tax.
+ */
+export function buildPlainJoinDrain(depth: number): NetWithSeed {
+  const a = place<NuMsg>('branch0');
+  const b = place<NuMsg>('branch1');
+  const merged = place<string>('merged');
+
+  const join = Transition.builder('join')
+    .inputs(one(a), one(b))
+    .outputs(outPlace(merged))
+    .action(async (ctx) => {
+      ctx.output(merged, 'm');
+    })
+    .build();
+
+  const net = PetriNet.builder('PlainJoinDrain').transition(join).build();
+  return { net, seed: seedDrain([a, b], depth) };
+}
+
+/**
+ * Realistic end-to-end ν-net: `fork` mints a fresh correlation id (NU-010) and
+ * stamps two siblings; the `.match()` join re-merges them (NU-020). When
+ * `budgeted`, a `budget` place (k=1) caps live fork groups (NU-040): the fork
+ * consumes a budget token and the join returns it, keeping the branch pools
+ * shallow and the match check cheap.
+ */
+export function buildNuScatterGather(groups: number, budgeted = false): NetWithSeed {
+  const source = place<number>('source');
+  const budget = place<number>('budget');
+  const a = place<NuMsg>('branchA');
+  const b = place<NuMsg>('branchB');
+  const merged = place<string>('merged');
+
+  const fork = Transition.builder('fork')
+    .inputs(...(budgeted ? [one(source), one(budget)] : [one(source)]))
+    .outputs(andPlaces(a, b))
+    .action(async (ctx) => {
+      const id = ctx.freshName();
+      ctx.output(a, { cid: id });
+      ctx.output(b, { cid: id });
+    })
+    .build();
+
+  const join = Transition.builder('join')
+    .inputs(one(a), one(b))
+    .match(matchSpec(matchKey(a, (m: NuMsg) => nameId(m.cid)), matchKey(b, (m: NuMsg) => nameId(m.cid))))
+    .outputs(budgeted ? andPlaces(merged, budget) : outPlace(merged))
+    .action(async (ctx) => {
+      ctx.output(merged, ctx.input(a).cid);
+      if (budgeted) ctx.output(budget, 0);
+    })
+    .build();
+
+  const net = PetriNet.builder('NuScatterGather').transitions(fork, join).build();
+  const seed = () => {
+    const m = new Map<Place<any>, Token<any>[]>();
+    const src: Token<number>[] = [];
+    for (let j = 0; j < groups; j++) src.push(tokenOf(0));
+    m.set(source, src);
+    if (budgeted) m.set(budget, [tokenOf(0)]);
+    return m;
+  };
+  return { net, seed };
 }

@@ -91,7 +91,11 @@ export class Marking {
     for (let i = 0; i < queue.length; i++) {
       const token = queue[i]!;
       if (spec.guard(token.value)) {
-        queue.splice(i, 1);
+        // Head removal (the common ν-net case — the matched token is the oldest,
+        // hence at the front with distinct timestamps) uses the V8-optimized
+        // shift() rather than an O(n) splice, keeping a draining join linear.
+        if (i === 0) queue.shift();
+        else queue.splice(i, 1);
         return token;
       }
     }

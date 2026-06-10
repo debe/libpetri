@@ -25,7 +25,7 @@ use crate::compiled_net::CompiledNet;
 use crate::executor_core::backend::{ChangeTracker, ExecutorBackend};
 use crate::executor_core::deadline::DEADLINE_TOLERANCE_MS;
 use crate::marking::Marking;
-use crate::match_engine::{NameIndex, select_match_name};
+use crate::match_engine::{IncrementalMatcher, NameIndex, select_match_name};
 
 /// Bitmap-based backend: the reference execution storage. See module
 /// docs.
@@ -59,6 +59,13 @@ pub struct BitmapBackend {
     // and per-transition input-place-name set for fast intersection.
     pending_reset_places: HashSet<Arc<str>>,
     transition_input_place_names: Vec<HashSet<Arc<str>>>,
+
+    // ν-net incremental match caches (NU-020) — see the precompiled backend for
+    // the rationale. `match_caches[tid]` is `Some` only for fast-path-eligible
+    // matched joins; `place_match_targets[pid]` lists the fast-path correlated
+    // inputs fed by each place so adds can be mirrored.
+    match_caches: Vec<Option<IncrementalMatcher>>,
+    place_match_targets: Vec<Vec<(usize, usize)>>,
 }
 
 impl BitmapBackend {
@@ -111,7 +118,8 @@ impl BitmapBackend {
             transition_input_place_names.push(names);
         }
 
-        Self {
+        let pc = compiled.place_count;
+        let mut this = Self {
             compiled,
             marking: initial_marking,
             marked_places: vec![0u64; word_count],
@@ -130,7 +138,133 @@ impl BitmapBackend {
             deadline_tolerance_ms: DEADLINE_TOLERANCE_MS,
             pending_reset_places: HashSet::new(),
             transition_input_place_names,
+            match_caches: Vec::new(),
+            place_match_targets: vec![Vec::new(); pc],
+        };
+        this.init_match_caches();
+        this
+    }
+
+    /// Builds the ν-net incremental match caches (NU-020). Mirrors the
+    /// precompiled backend: a matched join is fast-path eligible only when every
+    /// correlated input is `One`/`Exactly`, is consumed by no other transition,
+    /// and is never reset — guaranteeing the cache can never desync from the
+    /// FIFO `Marking`. Ineligible matched joins keep the O(n) rebuild path.
+    fn init_match_caches(&mut self) {
+        let tc = self.compiled.transition_count;
+        let pc = self.compiled.place_count;
+        self.match_caches = (0..tc).map(|_| None).collect();
+        if !(0..tc).any(|tid| self.compiled.has_match(tid)) {
+            return;
         }
+
+        let mut input_consumers: Vec<Vec<usize>> = vec![Vec::new(); pc];
+        let mut reset_target: Vec<bool> = vec![false; pc];
+        for tid in 0..tc {
+            let t = self.compiled.transition(tid);
+            for spec in t.input_specs() {
+                if let Some(pid) = self.compiled.place_id(spec.place_name()) {
+                    input_consumers[pid].push(tid);
+                }
+            }
+            for arc in t.resets() {
+                if let Some(pid) = self.compiled.place_id(arc.place.name()) {
+                    reset_target[pid] = true;
+                }
+            }
+        }
+
+        for tid in 0..tc {
+            if !self.compiled.has_match(tid) {
+                continue;
+            }
+            let t = self.compiled.transition(tid);
+            let Some(ms) = t.match_spec() else { continue };
+
+            let mut requireds = Vec::with_capacity(ms.keys().len());
+            let mut eligible = true;
+            for mk in ms.keys() {
+                let Some(pid) = self.compiled.place_id(mk.place_name()) else {
+                    eligible = false;
+                    break;
+                };
+                let required = match t
+                    .input_specs()
+                    .iter()
+                    .find(|s| s.place_name() == mk.place_name())
+                {
+                    Some(In::One { .. }) => 1,
+                    Some(In::Exactly { count, .. }) => *count,
+                    _ => {
+                        eligible = false;
+                        break;
+                    }
+                };
+                if reset_target[pid] || input_consumers[pid] != [tid] {
+                    eligible = false;
+                    break;
+                }
+                requireds.push(required);
+            }
+            if !eligible {
+                continue;
+            }
+
+            let mut matcher = IncrementalMatcher::new(requireds);
+            for (key_idx, mk) in ms.keys().iter().enumerate() {
+                let pid = self.compiled.place_id(mk.place_name()).unwrap();
+                let guard = t
+                    .input_specs()
+                    .iter()
+                    .find(|s| s.place_name() == mk.place_name())
+                    .and_then(|s| s.guard())
+                    .cloned();
+                if let Some(queue) = self.marking.queue(mk.place_name()) {
+                    for token in queue {
+                        if let Some(g) = &guard
+                            && !g(token.value.as_ref())
+                        {
+                            continue;
+                        }
+                        if let Some(name) = mk.extract(token.value.as_ref()) {
+                            matcher.add(key_idx, name, token.created_at);
+                        }
+                    }
+                }
+                self.place_match_targets[pid].push((tid, key_idx));
+            }
+            self.match_caches[tid] = Some(matcher);
+        }
+    }
+
+    /// Mirror a token added to correlated input `pid` into every fast-path
+    /// matcher that consumes it (guard-filtered, projected to its name).
+    fn cache_add_token(&mut self, pid: usize, value: &dyn std::any::Any, created_at: u64) {
+        if self.place_match_targets[pid].is_empty() {
+            return;
+        }
+        let targets = std::mem::take(&mut self.place_match_targets[pid]);
+        for &(tid, key_idx) in &targets {
+            let t = self.compiled.transition(tid);
+            let ms = t.match_spec().expect("fast-path tid has a match spec");
+            let mk = &ms.keys()[key_idx];
+            let guard = t
+                .input_specs()
+                .iter()
+                .find(|s| s.place_name() == mk.place_name())
+                .and_then(|s| s.guard());
+            if let Some(g) = guard
+                && !g(value)
+            {
+                continue;
+            }
+            if let Some(name) = mk.extract(value)
+                && let Some(cache) = self.match_caches[tid].as_mut()
+            {
+                cache.add(key_idx, name, created_at);
+            }
+        }
+        self.place_match_targets[pid] = targets;
     }
 
     /// Overrides the deadline-enforcement tolerance (default
@@ -196,8 +330,14 @@ impl BitmapBackend {
         }
 
         // ν-net join: a correlation name must satisfy every matched input (NU-020).
-        if self.compiled.has_match(tid) && self.find_match_binding(tid).is_none() {
-            return false;
+        if self.compiled.has_match(tid) {
+            let no_binding = match &self.match_caches[tid] {
+                Some(cache) => cache.best().is_none(),
+                None => self.find_match_binding(tid).is_none(),
+            };
+            if no_binding {
+                return false;
+            }
         }
 
         true
@@ -467,7 +607,10 @@ impl ExecutorBackend for BitmapBackend {
         // any unary guard form a combined predicate (guard first, then name
         // equality — NU-021); other inputs consume FIFO as usual.
         let chosen: Option<NameId> = if self.compiled.has_match(tid) {
-            self.find_match_binding(tid)
+            match &self.match_caches[tid] {
+                Some(cache) => cache.best().cloned(),
+                None => self.find_match_binding(tid),
+            }
         } else {
             None
         };
@@ -532,6 +675,14 @@ impl ExecutorBackend for BitmapBackend {
             }
         }
 
+        // Mirror the matched consume into the fast-path matcher — the only path
+        // by which tokens leave this join's correlated inputs (NU-020).
+        if let Some(name) = &chosen
+            && let Some(cache) = self.match_caches[tid].as_mut()
+        {
+            cache.consume(name);
+        }
+
         for arc in &read_arcs {
             if let Some(queue) = self.marking.queue(arc.place.name())
                 && let Some(token) = queue.front()
@@ -560,10 +711,13 @@ impl ExecutorBackend for BitmapBackend {
     }
 
     fn produce_token(&mut self, place: &Arc<str>, token: ErasedToken) {
-        self.marking.add_erased(place, token);
         if let Some(pid) = self.compiled.place_id(place) {
+            self.cache_add_token(pid, token.value.as_ref(), token.created_at);
+            self.marking.add_erased(place, token);
             bitmap::set_bit(&mut self.marked_places, pid);
             self.mark_place_dirty(pid);
+        } else {
+            self.marking.add_erased(place, token);
         }
     }
 
@@ -585,10 +739,13 @@ impl ExecutorBackend for BitmapBackend {
     }
 
     fn inject_external_token(&mut self, place: &Arc<str>, token: ErasedToken) {
-        self.marking.add_erased(place, token);
         if let Some(pid) = self.compiled.place_id(place) {
+            self.cache_add_token(pid, token.value.as_ref(), token.created_at);
+            self.marking.add_erased(place, token);
             bitmap::set_bit(&mut self.marked_places, pid);
             self.mark_place_dirty(pid);
+        } else {
+            self.marking.add_erased(place, token);
         }
     }
 

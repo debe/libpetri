@@ -165,6 +165,95 @@ def _build_complex_workflow() -> tuple[lp.BuiltNet, lp.Place, lp.Place]:
     return net, input_p, response
 
 
+# ---------------------------------------------------------------------------
+# ν-net builders (spec NU-020/040) — mirror the Rust `nu_*` / `owned_nu_*`
+# benches and the TS/Java ν-net suites. A `match_spec` join re-builds a name
+# index over every token in each correlated input on each enablement check, so
+# draining a deep pool re-indexes the shrinking pool every fire (≈ O(k·depth²)).
+# `_build_plain_join_drain` is the identical-topology baseline with no match.
+# (NU-021 input-arc guards aren't exposed by the Python `one()`, so that cost is
+# covered by the byte-identical match engine in the Rust/TS suites.)
+# ---------------------------------------------------------------------------
+
+
+def _build_nu_join_drain(branches: int) -> tuple[lp.BuiltNet, list[lp.Place], lp.Place]:
+    """k-way ν-net join correlating all inputs by ``cid``, drained to a sink."""
+    inputs = [lp.Place(f"branch{i}") for i in range(branches)]
+    merged = lp.Place("merged")
+
+    def join_action(ctx: lp.TransitionContext) -> None:
+        ctx.output("merged", "m")
+
+    builder = lp.Transition("join")
+    for p in inputs:
+        builder = builder.input(lp.one(p))
+    join = (
+        builder.match_spec(lp.match_spec([(p, lambda m: m["cid"]) for p in inputs]))
+        .output(lp.out(merged))
+        .action(join_action)
+        .build()
+    )
+    net = lp.Net("nu_join_drain").transition(join).build()
+    return net, inputs, merged
+
+
+def _build_plain_join_drain() -> tuple[lp.BuiltNet, list[lp.Place], lp.Place]:
+    """Structurally identical k=2 join with NO match_spec — the baseline."""
+    a = lp.Place("branch0")
+    b = lp.Place("branch1")
+    merged = lp.Place("merged")
+
+    def join_action(ctx: lp.TransitionContext) -> None:
+        ctx.output("merged", "m")
+
+    join = (
+        lp.Transition("join")
+        .input(lp.one(a))
+        .input(lp.one(b))
+        .output(lp.out(merged))
+        .action(join_action)
+        .build()
+    )
+    net = lp.Net("plain_join_drain").transition(join).build()
+    return net, [a, b], merged
+
+
+def _build_nu_scatter_gather(budgeted: bool) -> tuple[lp.BuiltNet, lp.Place, lp.Place | None]:
+    """fork(fresh_name)/join end-to-end; ``budgeted`` caps live groups (NU-040)."""
+    source = lp.Place("source")
+    budget = lp.Place("budget")
+    a = lp.Place("branchA")
+    b = lp.Place("branchB")
+    merged = lp.Place("merged")
+
+    def fork_action(ctx: lp.TransitionContext) -> None:
+        cid = ctx.fresh_name()
+        ctx.output("branchA", {"cid": cid})
+        ctx.output("branchB", {"cid": cid})
+
+    def join_action(ctx: lp.TransitionContext) -> None:
+        ctx.output("merged", ctx.input("branchA")["cid"])
+        if budgeted:
+            ctx.output("budget", 0)
+
+    fork_builder = lp.Transition("fork").input(lp.one(source))
+    if budgeted:
+        fork_builder = fork_builder.input(lp.one(budget))
+    fork = fork_builder.output(lp.and_(a, b)).action(fork_action).build()
+
+    join = (
+        lp.Transition("join")
+        .input(lp.one(a))
+        .input(lp.one(b))
+        .match_spec(lp.match_spec([(a, lambda m: m["cid"]), (b, lambda m: m["cid"])]))
+        .output(lp.and_(merged, budget) if budgeted else lp.out(merged))
+        .action(join_action)
+        .build()
+    )
+    net = lp.Net("nu_scatter_gather").transition(fork).transition(join).build()
+    return net, source, (budget if budgeted else None)
+
+
 @pytest.fixture
 def linear_chain_net() -> Callable[[int], tuple[lp.BuiltNet, lp.Place, lp.Place]]:
     return _build_linear_chain
@@ -178,6 +267,21 @@ def fan_out_net() -> Callable[[int], tuple[lp.BuiltNet, lp.Place, lp.Place]]:
 @pytest.fixture
 def complex_workflow_net() -> tuple[lp.BuiltNet, lp.Place, lp.Place]:
     return _build_complex_workflow()
+
+
+@pytest.fixture
+def nu_join_drain_net() -> Callable[[int], tuple[lp.BuiltNet, list[lp.Place], lp.Place]]:
+    return _build_nu_join_drain
+
+
+@pytest.fixture
+def plain_join_drain_net() -> Callable[[], tuple[lp.BuiltNet, list[lp.Place], lp.Place]]:
+    return _build_plain_join_drain
+
+
+@pytest.fixture
+def nu_scatter_gather_net() -> Callable[[bool], tuple[lp.BuiltNet, lp.Place, lp.Place | None]]:
+    return _build_nu_scatter_gather
 
 
 @pytest.fixture

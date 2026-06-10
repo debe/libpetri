@@ -168,6 +168,10 @@ flush and let downstream transitions run while you're still streaming.
   modes, priority + FIFO scheduling.
 - **Composition** — `SubnetDef` with typed ports + channels, `compose(...)`
   via structural rewrite, port bindings, instance prefixes.
+- **ν-nets (correlated identity)** — mint a fresh opaque name with
+  `ctx.fresh_name()` on a fork and join sibling tokens by name equality via
+  `lp.match_spec([...])`; a bounded `Budget` place keeps the correlated
+  fragment decidable.
 - **Formal verification** — SMT/IC3 properties (deadlock-free, mutual
   exclusion, place bound, unreachable) through Z3 when the wheel ships with
   the `z3` system library available.
@@ -190,7 +194,7 @@ dataclasses, `isinstance`) and only put validated values into markings.
 ## Links
 
 - [Source / specification / sibling implementations](https://github.com/libpetri/libpetri)
-- [Spec (183 requirements, 11 files)](https://github.com/libpetri/libpetri/tree/main/spec)
+- [Spec (203 requirements, 12 files)](https://github.com/libpetri/libpetri/tree/main/spec)
 - [CHANGELOG](https://github.com/libpetri/libpetri/blob/main/CHANGELOG.md)
 - [Benchmarks](https://github.com/libpetri/libpetri/tree/main/python/benches)
 
