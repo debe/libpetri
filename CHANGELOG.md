@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Java 2.9.0 / TypeScript 2.9.0 / Rust 3.3.0 / Python 2.12.0 — 2026-06-10
 
 **Incremental ν-join matcher: O(N²) → O(N log N) drain (NU-022)**
 
