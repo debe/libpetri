@@ -468,53 +468,101 @@ abstract class AbstractNetExecutorEnvironmentTest {
             EnvironmentPlace<StringValue> envInput = EnvironmentPlace.of(envPlace);
             Place<StringValue> output = Place.of("OUTPUT", StringValue.class);
 
-            AtomicBoolean actionStarted = new AtomicBoolean(false);
-
-            // Transition that blocks long enough to queue a second inject while in-flight
+            // The transition completes immediately on the action thread. Determinism
+            // comes from the event-store barrier below, NOT from timing.
             Transition slow = Transition.builder("slow")
                 .inputs(Arc.In.one(envPlace))
                 .outputs(Arc.Out.and(output))
                 .timing(Timing.deadline(Duration.ofMillis(10_000)))
-                .action(ctx -> CompletableFuture.runAsync(() -> {
-                    actionStarted.set(true);
-                    try { Thread.sleep(500); } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
-                    ctx.output(output, new StringValue("done"));
-                }, testExecutor))
+                .action(ctx -> CompletableFuture.runAsync(
+                    () -> ctx.output(output, new StringValue("done")), testExecutor))
                 .build();
 
             PetriNet net = PetriNet.builder("DrainTest").transitions(slow).build();
+
+            // Synchronization barrier. The orchestrator thread synchronously emits
+            // NetEvent.TransitionCompleted from processCompletedTransitions(), one
+            // loop iteration BEFORE processExternalEvents(). Blocking append() there
+            // pins the orchestrator at a known point, so we can queue a pending inject
+            // and call close() while it is parked — removing the inject().wakeUp() vs
+            // close() race that made this test flaky.
+            CountDownLatch reachedBarrier = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+            EventStore gate = new EventStore() {
+                @Override public void append(NetEvent event) {
+                    if (event instanceof NetEvent.TransitionCompleted tc
+                            && tc.transitionName().equals("slow")) {
+                        reachedBarrier.countDown();
+                        try {
+                            release.await(10, TimeUnit.SECONDS);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                }
+                @Override public List<NetEvent> events() { return List.of(); }
+            };
+
+            try (PetriNetExecutor executor = createWithEnvPlacesAndStore(
+                    net, Map.of(envPlace, List.of()), gate, Set.of(envInput))) {
+                ExecutorService orchestrator = Executors.newSingleThreadExecutor();
+                Future<Marking> runFuture = orchestrator.submit((Callable<Marking>) executor::run);
+
+                // Inject the first token. The slow transition fires and completes; the
+                // orchestrator parks at the barrier while emitting TransitionCompleted.
+                executor.inject(envInput, Token.of(new StringValue("first")));
+                assertTrue(reachedBarrier.await(10, TimeUnit.SECONDS),
+                    "Orchestrator should reach the TransitionCompleted barrier");
+
+                // Orchestrator is now provably blocked before processExternalEvents().
+                // Queue a pending inject (its wakeUp() cannot be consumed yet) ...
+                CompletableFuture<Boolean> pendingInject = executor.inject(
+                    envInput, Token.of(new StringValue("pending")));
+                // ... and close while the orchestrator is still parked at the barrier.
+                executor.close();
+
+                // Release it: at the top of the next processExternalEvents() it now
+                // observes closed==true, leaves "pending" queued, and the post-loop
+                // drainPendingExternalEvents() discards it per ENV-013.
+                release.countDown();
+
+                runFuture.get(10, TimeUnit.SECONDS);
+                orchestrator.shutdownNow();
+
+                Boolean result = pendingInject.get(5, TimeUnit.SECONDS);
+                assertFalse(result, "Pending inject should be discarded on close()");
+            }
+        }
+
+        @Test
+        void injectAfterClose_returnsFalse() throws Exception {
+            Place<StringValue> envPlace = Place.of("ENV_INPUT", StringValue.class);
+            EnvironmentPlace<StringValue> envInput = EnvironmentPlace.of(envPlace);
+            Place<StringValue> output = Place.of("OUTPUT", StringValue.class);
+
+            Transition passthrough = Transition.builder("passthrough")
+                .inputs(Arc.In.one(envPlace))
+                .outputs(Arc.Out.and(output))
+                .timing(Timing.deadline(Duration.ofMillis(10_000)))
+                .action(ctx -> CompletableFuture.completedFuture(null))
+                .build();
+
+            PetriNet net = PetriNet.builder("InjectAfterCloseTest").transitions(passthrough).build();
 
             try (PetriNetExecutor executor = createWithEnvPlaces(net, Map.of(envPlace, List.of()), Set.of(envInput))) {
                 ExecutorService orchestrator = Executors.newSingleThreadExecutor();
                 Future<Marking> runFuture = orchestrator.submit((Callable<Marking>) executor::run);
 
-                Thread.sleep(50L);
-
-                // Inject a token to start the slow transition
-                executor.inject(envInput, Token.of(new StringValue("first")));
-
-                // Wait for action to start
-                long deadline = System.currentTimeMillis() + 1_000;
-                while (!actionStarted.get() && System.currentTimeMillis() < deadline) {
-                    Thread.sleep(10L);
-                }
-
-                // Now inject another token while the first is still in-flight
-                CompletableFuture<Boolean> pendingInject = executor.inject(
-                    envInput, Token.of(new StringValue("pending")));
-
-                // Close immediately - should drain pending events
                 executor.close();
-
-                // The runFuture should complete
-                runFuture.get(3, TimeUnit.SECONDS);
+                runFuture.get(10, TimeUnit.SECONDS);
                 orchestrator.shutdownNow();
 
-                // After close, pending inject should be discarded per ENV-013
-                Boolean result = pendingInject.get(1, TimeUnit.SECONDS);
-                assertFalse(result, "Pending inject should be discarded on close()");
+                // ENV-013: an inject submitted at/after close() is rejected outright,
+                // never queued — deterministically resolves false.
+                CompletableFuture<Boolean> rejected = executor.inject(
+                    envInput, Token.of(new StringValue("late")));
+                assertFalse(rejected.get(5, TimeUnit.SECONDS),
+                    "Inject after close() must return false");
             }
         }
 
