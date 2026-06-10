@@ -11,6 +11,7 @@ import org.libpetri.runtime.BitmapNetExecutor;
 import org.libpetri.runtime.NetExecutor;
 import org.libpetri.runtime.PrecompiledNetExecutor;
 
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -40,6 +41,9 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
 public class BitmapNetExecutorBenchmark {
 
     record BenchToken(String value) {}
+
+    /** ν-net correlation message: a single opaque correlation id (spec NU-001). */
+    record NuMsg(String cid) {}
 
     // Workflow token types
     record GuardResult(boolean safe) {}
@@ -1326,6 +1330,309 @@ public class BitmapNetExecutorBenchmark {
         ) {
             bh.consume(executor.run());
         }
+    }
+
+    // ==================== ν-net Firing-Check Benchmarks (spec NU-020/040) ====================
+    //
+    // A transition carrying a MatchSpec is enabled only when a single correlation
+    // name is present in every correlated input (findMatchBinding → selectMatchName).
+    // Unlike the cardinality check, that re-builds a name → {count, oldest} index
+    // over EVERY token in each correlated input on each enablement re-evaluation —
+    // so draining a deep pool re-indexes the shrinking pool every fire (≈ O(k·depth²)).
+    // The PrecompiledNetExecutor also re-computes the binding on consume, so the
+    // compiled benches reflect the real production cost. The hasMatch gate means
+    // non-ν transitions pay nothing, so the benchmarks above are unaffected.
+    //
+    // NU-021 (input-arc guards) has no scenario here: the Java In factory exposes
+    // no guard predicate. That guard-eval cost is covered by the byte-identical
+    // match engine in the Rust/TS suites (nu_join_drain_guarded).
+
+    record NuDrainNet(PetriNet net, List<Place<NuMsg>> inputs) {}
+
+    record NuScatterNet(PetriNet net, Place<Integer> source, Place<Integer> budget) {}
+
+    /** k-way ν-net join correlating all inputs by cid, drained to a String sink. */
+    private static NuDrainNet buildNuJoinDrain(int branches) {
+        var inputs = new ArrayList<Place<NuMsg>>();
+        for (int i = 0; i < branches; i++) {
+            inputs.add(Place.of("branch" + i, NuMsg.class));
+        }
+        var merged = Place.of("merged", String.class);
+
+        var inSpecs = new In[branches];
+        for (int i = 0; i < branches; i++) {
+            inSpecs[i] = In.one(inputs.get(i));
+        }
+        var msb = MatchSpec.builder();
+        for (var p : inputs) {
+            msb = msb.key(p, (NuMsg m) -> NameId.of(m.cid()));
+        }
+        var join = Transition.builder("join")
+            .inputs(inSpecs)
+            .match(msb.build())
+            .outputs(Out.place(merged))
+            .action(ctx -> {
+                ctx.output(merged, "m");
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+
+        var net = PetriNet.builder("NuJoinDrain").transition(join).build();
+        return new NuDrainNet(net, inputs);
+    }
+
+    /** Structurally identical k=2 join with NO MatchSpec — the plain-join baseline. */
+    private static NuDrainNet buildPlainJoinDrain() {
+        var a = Place.of("branch0", NuMsg.class);
+        var b = Place.of("branch1", NuMsg.class);
+        var merged = Place.of("merged", String.class);
+        var join = Transition.builder("join")
+            .inputs(In.one(a), In.one(b))
+            .outputs(Out.place(merged))
+            .action(ctx -> {
+                ctx.output(merged, "m");
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+        var net = PetriNet.builder("PlainJoinDrain").transition(join).build();
+        return new NuDrainNet(net, List.of(a, b));
+    }
+
+    /**
+     * Realistic fork(freshName)/join end-to-end. When {@code budgeted}, a budget
+     * place (k=1) caps live fork groups (NU-040): the fork consumes a budget token
+     * and the join returns it, keeping the branch pools shallow.
+     */
+    private static NuScatterNet buildNuScatterGather(boolean budgeted) {
+        var source = Place.of("source", Integer.class);
+        var budget = Place.of("budget", Integer.class);
+        var a = Place.of("branchA", NuMsg.class);
+        var b = Place.of("branchB", NuMsg.class);
+        var merged = Place.of("merged", String.class);
+
+        var forkInputs = budgeted
+            ? new In[] {In.one(source), In.one(budget)}
+            : new In[] {In.one(source)};
+        var fork = Transition.builder("fork")
+            .inputs(forkInputs)
+            .outputs(Out.and(a, b))
+            .action(ctx -> {
+                var id = ctx.freshName();
+                ctx.output(a, new NuMsg(id.value()));
+                ctx.output(b, new NuMsg(id.value()));
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+
+        Out joinOut = budgeted ? Out.and(merged, budget) : Out.place(merged);
+        var join = Transition.builder("join")
+            .inputs(In.one(a), In.one(b))
+            .match(MatchSpec.builder()
+                .key(a, (NuMsg m) -> NameId.of(m.cid()))
+                .key(b, (NuMsg m) -> NameId.of(m.cid()))
+                .build())
+            .outputs(joinOut)
+            .action(ctx -> {
+                ctx.output(merged, ctx.input(a).cid());
+                if (budgeted) {
+                    ctx.output(budget, 0);
+                }
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+
+        var net = PetriNet.builder("NuScatterGather").transitions(fork, join).build();
+        return new NuScatterNet(net, source, budgeted ? budget : null);
+    }
+
+    /** Fresh marking: each correlated input seeded with {@code depth} distinct cids. */
+    private static Map<Place<?>, List<Token<?>>> seedDrain(List<Place<NuMsg>> inputs, int depth) {
+        var map = new HashMap<Place<?>, List<Token<?>>>();
+        for (var p : inputs) {
+            var toks = new ArrayList<Token<?>>(depth);
+            for (int j = 0; j < depth; j++) {
+                toks.add(new Token<>(new NuMsg("c" + j), Instant.ofEpochMilli(j)));
+            }
+            map.put(p, toks);
+        }
+        return map;
+    }
+
+    private static Map<Place<?>, List<Token<?>>> seedScatter(Place<Integer> source, Place<Integer> budget, int groups) {
+        var map = new HashMap<Place<?>, List<Token<?>>>();
+        var src = new ArrayList<Token<?>>(groups);
+        for (int j = 0; j < groups; j++) {
+            src.add(Token.of(0));
+        }
+        map.put(source, src);
+        if (budget != null) {
+            map.put(budget, List.of(Token.of(0)));
+        }
+        return map;
+    }
+
+    @State(Scope.Benchmark)
+    public static class NuDrainState {
+        @Param({"10", "50", "100", "200", "500"})
+        public int depth;
+        PetriNet net;
+        List<Place<NuMsg>> inputs;
+        org.libpetri.runtime.PrecompiledNet program;
+
+        @Setup(Level.Trial)
+        public void setup() {
+            var b = buildNuJoinDrain(2);
+            net = b.net();
+            inputs = b.inputs();
+            program = org.libpetri.runtime.PrecompiledNet.compile(net);
+        }
+    }
+
+    @State(Scope.Benchmark)
+    public static class PlainDrainState {
+        @Param({"10", "50", "100", "200", "500"})
+        public int depth;
+        PetriNet net;
+        List<Place<NuMsg>> inputs;
+        org.libpetri.runtime.PrecompiledNet program;
+
+        @Setup(Level.Trial)
+        public void setup() {
+            var b = buildPlainJoinDrain();
+            net = b.net();
+            inputs = b.inputs();
+            program = org.libpetri.runtime.PrecompiledNet.compile(net);
+        }
+    }
+
+    @State(Scope.Benchmark)
+    public static class NuArityState {
+        @Param({"4", "8"})
+        public int arity;
+        PetriNet net;
+        List<Place<NuMsg>> inputs;
+        org.libpetri.runtime.PrecompiledNet program;
+
+        @Setup(Level.Trial)
+        public void setup() {
+            var b = buildNuJoinDrain(arity);
+            net = b.net();
+            inputs = b.inputs();
+            program = org.libpetri.runtime.PrecompiledNet.compile(net);
+        }
+    }
+
+    @State(Scope.Benchmark)
+    public static class NuScatterState {
+        @Param({"10", "50", "100"})
+        public int groups;
+        PetriNet net;
+        Place<Integer> source;
+        org.libpetri.runtime.PrecompiledNet program;
+
+        @Setup(Level.Trial)
+        public void setup() {
+            var b = buildNuScatterGather(false);
+            net = b.net();
+            source = b.source();
+            program = org.libpetri.runtime.PrecompiledNet.compile(net);
+        }
+    }
+
+    @State(Scope.Benchmark)
+    public static class NuBudgetState {
+        @Param({"10", "50", "100"})
+        public int groups;
+        PetriNet net;
+        Place<Integer> source;
+        Place<Integer> budget;
+        org.libpetri.runtime.PrecompiledNet program;
+
+        @Setup(Level.Trial)
+        public void setup() {
+            var b = buildNuScatterGather(true);
+            net = b.net();
+            source = b.source();
+            budget = b.budget();
+            program = org.libpetri.runtime.PrecompiledNet.compile(net);
+        }
+    }
+
+    private void runNuBitmap(PetriNet net, Map<Place<?>, List<Token<?>>> input, Blackhole bh) {
+        try (var exec = BitmapNetExecutor.create(net, input, EventStore.noop(), virtualExecutor)) {
+            bh.consume(exec.run());
+        }
+    }
+
+    private void runNuCompiled(
+        PetriNet net,
+        org.libpetri.runtime.PrecompiledNet prog,
+        Map<Place<?>, List<Token<?>>> input,
+        Blackhole bh
+    ) {
+        try (
+            var exec = PrecompiledNetExecutor.builder(net, input)
+                .program(prog)
+                .eventStore(EventStore.noop())
+                .executor(virtualExecutor)
+                .build()
+        ) {
+            bh.consume(exec.run());
+        }
+    }
+
+    // -------- ν join drain: the primary cost curve (depth) + arity axis --------
+
+    @Benchmark
+    public void nu_join_drain_bitmap(NuDrainState s, Blackhole bh) {
+        runNuBitmap(s.net, seedDrain(s.inputs, s.depth), bh);
+    }
+
+    @Benchmark
+    public void nu_join_drain_compiled(NuDrainState s, Blackhole bh) {
+        runNuCompiled(s.net, s.program, seedDrain(s.inputs, s.depth), bh);
+    }
+
+    @Benchmark
+    public void plain_join_drain_bitmap(PlainDrainState s, Blackhole bh) {
+        runNuBitmap(s.net, seedDrain(s.inputs, s.depth), bh);
+    }
+
+    @Benchmark
+    public void plain_join_drain_compiled(PlainDrainState s, Blackhole bh) {
+        runNuCompiled(s.net, s.program, seedDrain(s.inputs, s.depth), bh);
+    }
+
+    @Benchmark
+    public void nu_join_drain_arity_bitmap(NuArityState s, Blackhole bh) {
+        runNuBitmap(s.net, seedDrain(s.inputs, 100), bh);
+    }
+
+    @Benchmark
+    public void nu_join_drain_arity_compiled(NuArityState s, Blackhole bh) {
+        runNuCompiled(s.net, s.program, seedDrain(s.inputs, 100), bh);
+    }
+
+    // -------- ν scatter/gather: realistic end-to-end, with/without budget --------
+
+    @Benchmark
+    public void nu_scatter_gather_bitmap(NuScatterState s, Blackhole bh) {
+        runNuBitmap(s.net, seedScatter(s.source, null, s.groups), bh);
+    }
+
+    @Benchmark
+    public void nu_scatter_gather_compiled(NuScatterState s, Blackhole bh) {
+        runNuCompiled(s.net, s.program, seedScatter(s.source, null, s.groups), bh);
+    }
+
+    @Benchmark
+    public void nu_scatter_gather_budgeted_bitmap(NuBudgetState s, Blackhole bh) {
+        runNuBitmap(s.net, seedScatter(s.source, s.budget, s.groups), bh);
+    }
+
+    @Benchmark
+    public void nu_scatter_gather_budgeted_compiled(NuBudgetState s, Blackhole bh) {
+        runNuCompiled(s.net, s.program, seedScatter(s.source, s.budget, s.groups), bh);
     }
 
     // ==================== MAIN ====================

@@ -1,5 +1,8 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
+use libpetri::core::input::one_guarded;
+use libpetri::core::match_spec::MatchSpec;
+use libpetri::core::name::NameId;
 use libpetri::runtime::environment::ExecutorSignal;
 use libpetri::runtime::precompiled_executor::PrecompiledNetExecutor;
 use libpetri::runtime::precompiled_net::PrecompiledNet;
@@ -552,6 +555,378 @@ fn precompiled_mixed_chain(c: &mut Criterion) {
     }
 }
 
+// ==================== ν-net Benchmarks (spec NU-020/021/040) ====================
+//
+// A transition carrying a `MatchSpec` is enabled only when a single correlation
+// name is present in every correlated input (`find_match_binding` →
+// `select_match_name`). Unlike the cardinality check, that re-builds a
+// `name → {count, oldest}` index over *every* token in each correlated input on
+// each enablement re-evaluation — so draining a deep pool re-indexes the
+// shrinking pool every fire (≈ O(k·depth²)). These benches quantify that cost
+// and contrast it with a structurally identical plain (non-`match`) join. The
+// `has_match(tid)` gate means non-ν transitions pay nothing, so the other
+// benchmarks above are unaffected.
+
+#[derive(Clone)]
+struct NuMsg {
+    cid: String,
+}
+
+/// ν-net join over `branches` correlated inputs, drained to `merged`. The caller
+/// pre-seeds each branch place with `depth` distinct-cid tokens (see
+/// `seed_drain_marking`); the join fires once per correlation name, re-running
+/// the name-index build over the shrinking pool each fire. `guarded` adds a
+/// unary input filter (NU-021) so the per-token guard-eval cost is included.
+fn build_nu_join_drain(branches: usize, guarded: bool) -> (PetriNet, Vec<Place<NuMsg>>) {
+    let inputs: Vec<Place<NuMsg>> = (0..branches)
+        .map(|i| Place::new(format!("branch{i}")))
+        .collect();
+    let merged = Place::<String>::new("merged");
+
+    let mut join = Transition::builder("join");
+    for p in &inputs {
+        join = if guarded {
+            join.input(one_guarded(p, |m: &NuMsg| m.cid != "skip"))
+        } else {
+            join.input(one(p))
+        };
+    }
+    let mut ms = MatchSpec::builder();
+    for p in &inputs {
+        ms = ms.key(p, |m: &NuMsg| NameId::new(m.cid.clone()));
+    }
+    let join = join
+        .match_spec(ms.build())
+        .output(out_place(&merged))
+        .action(sync_action(|ctx| {
+            ctx.output("merged", String::from("m"))?;
+            Ok(())
+        }))
+        .build();
+
+    let net = PetriNet::builder("nu_join_drain").transition(join).build();
+    (net, inputs)
+}
+
+/// Structurally identical to `build_nu_join_drain(2, false)` but the join has NO
+/// `MatchSpec` — a plain FIFO 2-way join. Same firing count and token movement,
+/// zero name indexing: the gap to `nu_join_drain` is the pure ν firing-check tax.
+fn build_plain_join_drain() -> (PetriNet, Vec<Place<NuMsg>>) {
+    let a = Place::<NuMsg>::new("branch0");
+    let b = Place::<NuMsg>::new("branch1");
+    let merged = Place::<String>::new("merged");
+    let join = Transition::builder("join")
+        .input(one(&a))
+        .input(one(&b))
+        .output(out_place(&merged))
+        .action(sync_action(|ctx| {
+            ctx.output("merged", String::from("m"))?;
+            Ok(())
+        }))
+        .build();
+    let net = PetriNet::builder("plain_join_drain").transition(join).build();
+    (net, vec![a, b])
+}
+
+/// Seeds each correlated input with `depth` distinct, mutually-correlating cids
+/// (`c0..c{depth-1}`) at increasing timestamps, so every name joins across all
+/// inputs and the join drains in exactly `depth` fires.
+fn seed_drain_marking(inputs: &[Place<NuMsg>], depth: usize) -> Marking {
+    let mut marking = Marking::new();
+    for p in inputs {
+        for j in 0..depth {
+            marking.add(p, Token::at(NuMsg { cid: format!("c{j}") }, j as u64));
+        }
+    }
+    marking
+}
+
+/// Realistic end-to-end ν-net: `fork` mints a fresh correlation id (NU-010) and
+/// stamps two siblings; the `.match()` join re-merges them (NU-020). Unbudgeted,
+/// so forks may outrun joins and the branch pools grow.
+fn build_nu_scatter_gather() -> (PetriNet, Place<i32>) {
+    let source = Place::<i32>::new("source");
+    let a = Place::<NuMsg>::new("branchA");
+    let b = Place::<NuMsg>::new("branchB");
+    let merged = Place::<String>::new("merged");
+
+    let fork_t = Transition::builder("fork")
+        .input(one(&source))
+        .output(and(vec![out_place(&a), out_place(&b)]))
+        .action(sync_action(|ctx| {
+            let cid = ctx.fresh_name().as_str().to_string();
+            ctx.output("branchA", NuMsg { cid: cid.clone() })?;
+            ctx.output("branchB", NuMsg { cid })?;
+            Ok(())
+        }))
+        .build();
+
+    let join_t = Transition::builder("join")
+        .input(one(&a))
+        .input(one(&b))
+        .match_spec(
+            MatchSpec::builder()
+                .key(&a, |m: &NuMsg| NameId::new(m.cid.clone()))
+                .key(&b, |m: &NuMsg| NameId::new(m.cid.clone()))
+                .build(),
+        )
+        .output(out_place(&merged))
+        .action(sync_action(|ctx| {
+            let m = ctx.input::<NuMsg>("branchA")?;
+            ctx.output("merged", m.cid.clone())?;
+            Ok(())
+        }))
+        .build();
+
+    let net = PetriNet::builder("nu_scatter_gather")
+        .transition(fork_t)
+        .transition(join_t)
+        .build();
+    (net, source)
+}
+
+/// `build_nu_scatter_gather` plus a `budget` place (k=1): the fork consumes a
+/// budget token and the join returns it (NU-040), capping live fork groups at 1.
+/// Pools never exceed 1, so the match check stays cheap — contrasting with the
+/// unbudgeted variant shows the budget place is also a performance lever.
+fn build_nu_scatter_gather_budgeted() -> (PetriNet, Place<i32>, Place<i32>) {
+    let source = Place::<i32>::new("source");
+    let budget = Place::<i32>::new("budget");
+    let a = Place::<NuMsg>::new("branchA");
+    let b = Place::<NuMsg>::new("branchB");
+    let merged = Place::<String>::new("merged");
+
+    let fork_t = Transition::builder("fork")
+        .input(one(&source))
+        .input(one(&budget))
+        .output(and(vec![out_place(&a), out_place(&b)]))
+        .action(sync_action(|ctx| {
+            let cid = ctx.fresh_name().as_str().to_string();
+            ctx.output("branchA", NuMsg { cid: cid.clone() })?;
+            ctx.output("branchB", NuMsg { cid })?;
+            Ok(())
+        }))
+        .build();
+
+    let join_t = Transition::builder("join")
+        .input(one(&a))
+        .input(one(&b))
+        .match_spec(
+            MatchSpec::builder()
+                .key(&a, |m: &NuMsg| NameId::new(m.cid.clone()))
+                .key(&b, |m: &NuMsg| NameId::new(m.cid.clone()))
+                .build(),
+        )
+        .output(and(vec![out_place(&merged), out_place(&budget)]))
+        .action(sync_action(|ctx| {
+            let m = ctx.input::<NuMsg>("branchA")?;
+            ctx.output("merged", m.cid.clone())?;
+            ctx.output("budget", 0_i32)?;
+            Ok(())
+        }))
+        .build();
+
+    let net = PetriNet::builder("nu_scatter_gather_budgeted")
+        .transition(fork_t)
+        .transition(join_t)
+        .build();
+    (net, source, budget)
+}
+
+// -------- BitmapNetExecutor ν-net benches --------
+
+fn nu_join_drain(c: &mut Criterion) {
+    // Depth sweep at k=2 — the primary cost curve.
+    for &depth in &[10, 50, 100, 200, 500] {
+        let (net, inputs) = build_nu_join_drain(2, false);
+        c.bench_function(&format!("nu_join_drain/2/{depth}"), |b| {
+            b.iter(|| {
+                let marking = seed_drain_marking(&inputs, depth);
+                let mut executor =
+                    BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
+                executor.run_sync();
+                black_box(executor.marking().count("merged"));
+            })
+        });
+    }
+    // Arity sweep at depth=100 (k=2 already covered by the depth sweep).
+    for &k in &[4, 8] {
+        let (net, inputs) = build_nu_join_drain(k, false);
+        c.bench_function(&format!("nu_join_drain/{k}/100"), |b| {
+            b.iter(|| {
+                let marking = seed_drain_marking(&inputs, 100);
+                let mut executor =
+                    BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
+                executor.run_sync();
+                black_box(executor.marking().count("merged"));
+            })
+        });
+    }
+}
+
+fn plain_join_drain(c: &mut Criterion) {
+    for &depth in &[10, 50, 100, 200, 500] {
+        let (net, inputs) = build_plain_join_drain();
+        c.bench_function(&format!("plain_join_drain/2/{depth}"), |b| {
+            b.iter(|| {
+                let marking = seed_drain_marking(&inputs, depth);
+                let mut executor =
+                    BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
+                executor.run_sync();
+                black_box(executor.marking().count("merged"));
+            })
+        });
+    }
+}
+
+fn nu_join_drain_guarded(c: &mut Criterion) {
+    for &depth in &[10, 50, 100, 200, 500] {
+        let (net, inputs) = build_nu_join_drain(2, true);
+        c.bench_function(&format!("nu_join_drain_guarded/2/{depth}"), |b| {
+            b.iter(|| {
+                let marking = seed_drain_marking(&inputs, depth);
+                let mut executor =
+                    BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
+                executor.run_sync();
+                black_box(executor.marking().count("merged"));
+            })
+        });
+    }
+}
+
+fn nu_scatter_gather(c: &mut Criterion) {
+    for &groups in &[10, 50, 100] {
+        let (net, source) = build_nu_scatter_gather();
+        c.bench_function(&format!("nu_scatter_gather/{groups}"), |b| {
+            b.iter(|| {
+                let mut marking = Marking::new();
+                for _ in 0..groups {
+                    marking.add(&source, Token::at(0, 0));
+                }
+                let mut executor =
+                    BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
+                executor.run_sync();
+                black_box(executor.marking().count("merged"));
+            })
+        });
+    }
+}
+
+fn nu_scatter_gather_budgeted(c: &mut Criterion) {
+    for &groups in &[10, 50, 100] {
+        let (net, source, budget) = build_nu_scatter_gather_budgeted();
+        c.bench_function(&format!("nu_scatter_gather_budgeted/{groups}"), |b| {
+            b.iter(|| {
+                let mut marking = Marking::new();
+                for _ in 0..groups {
+                    marking.add(&source, Token::at(0, 0));
+                }
+                marking.add(&budget, Token::at(0, 0));
+                let mut executor =
+                    BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
+                executor.run_sync();
+                black_box(executor.marking().count("merged"));
+            })
+        });
+    }
+}
+
+// -------- PrecompiledNetExecutor ν-net benches (the production hot path) --------
+
+fn precompiled_nu_join_drain(c: &mut Criterion) {
+    for &depth in &[10, 50, 100, 200, 500] {
+        let (net, inputs) = build_nu_join_drain(2, false);
+        let prog = PrecompiledNet::from_compiled(CompiledNet::compile(&net));
+        c.bench_function(&format!("precompiled_nu_join_drain/2/{depth}"), |b| {
+            b.iter(|| {
+                let marking = seed_drain_marking(&inputs, depth);
+                let mut executor = PrecompiledNetExecutor::<NoopEventStore>::new(&prog, marking);
+                let result = executor.run_sync();
+                black_box(result.count("merged"));
+            })
+        });
+    }
+    for &k in &[4, 8] {
+        let (net, inputs) = build_nu_join_drain(k, false);
+        let prog = PrecompiledNet::from_compiled(CompiledNet::compile(&net));
+        c.bench_function(&format!("precompiled_nu_join_drain/{k}/100"), |b| {
+            b.iter(|| {
+                let marking = seed_drain_marking(&inputs, 100);
+                let mut executor = PrecompiledNetExecutor::<NoopEventStore>::new(&prog, marking);
+                let result = executor.run_sync();
+                black_box(result.count("merged"));
+            })
+        });
+    }
+}
+
+fn precompiled_plain_join_drain(c: &mut Criterion) {
+    for &depth in &[10, 50, 100, 200, 500] {
+        let (net, inputs) = build_plain_join_drain();
+        let prog = PrecompiledNet::from_compiled(CompiledNet::compile(&net));
+        c.bench_function(&format!("precompiled_plain_join_drain/2/{depth}"), |b| {
+            b.iter(|| {
+                let marking = seed_drain_marking(&inputs, depth);
+                let mut executor = PrecompiledNetExecutor::<NoopEventStore>::new(&prog, marking);
+                let result = executor.run_sync();
+                black_box(result.count("merged"));
+            })
+        });
+    }
+}
+
+fn precompiled_nu_join_drain_guarded(c: &mut Criterion) {
+    for &depth in &[10, 50, 100, 200, 500] {
+        let (net, inputs) = build_nu_join_drain(2, true);
+        let prog = PrecompiledNet::from_compiled(CompiledNet::compile(&net));
+        c.bench_function(&format!("precompiled_nu_join_drain_guarded/2/{depth}"), |b| {
+            b.iter(|| {
+                let marking = seed_drain_marking(&inputs, depth);
+                let mut executor = PrecompiledNetExecutor::<NoopEventStore>::new(&prog, marking);
+                let result = executor.run_sync();
+                black_box(result.count("merged"));
+            })
+        });
+    }
+}
+
+fn precompiled_nu_scatter_gather(c: &mut Criterion) {
+    for &groups in &[10, 50, 100] {
+        let (net, source) = build_nu_scatter_gather();
+        let prog = PrecompiledNet::from_compiled(CompiledNet::compile(&net));
+        c.bench_function(&format!("precompiled_nu_scatter_gather/{groups}"), |b| {
+            b.iter(|| {
+                let mut marking = Marking::new();
+                for _ in 0..groups {
+                    marking.add(&source, Token::at(0, 0));
+                }
+                let mut executor = PrecompiledNetExecutor::<NoopEventStore>::new(&prog, marking);
+                let result = executor.run_sync();
+                black_box(result.count("merged"));
+            })
+        });
+    }
+}
+
+fn precompiled_nu_scatter_gather_budgeted(c: &mut Criterion) {
+    for &groups in &[10, 50, 100] {
+        let (net, source, budget) = build_nu_scatter_gather_budgeted();
+        let prog = PrecompiledNet::from_compiled(CompiledNet::compile(&net));
+        c.bench_function(&format!("precompiled_nu_scatter_gather_budgeted/{groups}"), |b| {
+            b.iter(|| {
+                let mut marking = Marking::new();
+                for _ in 0..groups {
+                    marking.add(&source, Token::at(0, 0));
+                }
+                marking.add(&budget, Token::at(0, 0));
+                let mut executor = PrecompiledNetExecutor::<NoopEventStore>::new(&prog, marking);
+                let result = executor.run_sync();
+                black_box(result.count("merged"));
+            })
+        });
+    }
+}
+
 criterion_group!(
     benches,
     single_passthrough,
@@ -570,5 +945,15 @@ criterion_group!(
     precompiled_complex_workflow,
     precompiled_async_linear_chain,
     precompiled_mixed_chain,
+    nu_join_drain,
+    plain_join_drain,
+    nu_join_drain_guarded,
+    nu_scatter_gather,
+    nu_scatter_gather_budgeted,
+    precompiled_nu_join_drain,
+    precompiled_plain_join_drain,
+    precompiled_nu_join_drain_guarded,
+    precompiled_nu_scatter_gather,
+    precompiled_nu_scatter_gather_budgeted,
 );
 criterion_main!(benches);

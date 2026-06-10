@@ -138,6 +138,32 @@ token must pass the filter *and* project to the chosen name to be consumed.
 **Test derivation:** A correlated input filtered to even values, joined by name;
 verify an odd token of the matched name is left behind.
 
+#### NU-022: Deterministic Match Selection
+
+**Priority:** MUST
+
+When more than one correlation name is simultaneously eligible at a matched
+transition, the implementation MUST select the name with the smallest
+`(oldest correlated-token timestamp, then NameId)` ordering: oldest first, ties
+broken by name. The selection is a pure function of the current marking and MUST
+be **identical across all conforming implementations**: the firing tie-break
+(`selectMatchName` / `select_match_name`) is byte-identical, and any incremental
+acceleration of it MUST return byte-identical results to the reference function.
+
+**Acceptance Criteria:**
+1. Given the same eligible *(name → correlated-token timestamps)* state, every
+   implementation selects the same `NameId`.
+2. An incremental matcher returns the same `NameId` as the reference
+   `selectMatchName` for any sequence of add/consume operations.
+3. `NameId` ordering is byte-identical for ASCII/BMP names (all executor-minted
+   names are ASCII); supplementary-plane code points MAY order differently per
+   [NU-001] (UTF-8 byte order vs UTF-16 code-unit order).
+
+**Depends on:** [NU-020], [NU-001]
+**Test derivation:** A randomised differential test (`MatchEngineIncrementalTest`,
+`incremental_matches_select_byte_for_byte`, `incremental-matcher.test.ts`) asserts
+the incremental `best()` equals `selectMatchName` over non-monotonic timestamps.
+
 ---
 
 ## Composition
@@ -194,9 +220,10 @@ verify the composed transition still correlates.
 **Priority:** SHOULD
 
 Be explicit about the cliff. **Safety / coverability** for the ν-fragment is
-**decidable**: the marking-with-names state space is a well-structured transition
+**decidable** [RV-08]: the marking-with-names state space is a well-structured transition
 system. Full **reachability / liveness** with *unbounded* fresh names and
-*unbounded* recirculation is **undecidable** in general (ν-PN reachability is).
+*unbounded* recirculation is **undecidable** in general (ν-PN reachability is
+undecidable [RV-11]).
 
 A **bounded budget** is the decidability lever, not merely operational hygiene.
 Model it structurally: a typed `Budget` place pre-seeded with `k` tokens whose
@@ -340,3 +367,19 @@ name-colouring) eliminates it, while a same-name join still reaches its merge.
   primary path for budget-declared, untimed reachability-safety (Z3 IC3 scales
   there) and uses Route B for the cases the SMT path cannot decide exactly —
   quiescence, budget-less ν-nets, and timed ν-nets.
+
+---
+
+## References
+
+ν-nets implement the **ν-Petri net** (ν-PN) model — place/transition nets
+extended with *pure name creation* (the ν-binder) and name management — and
+inherit its decidability frontier: coverability is decidable while reachability
+is undecidable. [NU-040] and [NU-050] navigate that frontier with the
+bounded-budget lever and the name-aware state-class graph.
+
+- **[RV-08]** F. Rosa-Velardo and D. de Frutos-Escrig. *Name Creation vs.
+  Replication in Petri Net Systems.* Fundamenta Informaticae 88(3):329–356, 2008.
+- **[RV-11]** F. Rosa-Velardo and D. de Frutos-Escrig. *Decidability and
+  Complexity of Petri Nets with Unordered Data.* Theoretical Computer Science
+  412(34):4439–4451, 2011. doi:10.1016/j.tcs.2011.05.007

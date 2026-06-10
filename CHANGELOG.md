@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+**Incremental ν-join matcher: O(N²) → O(N log N) drain (NU-022)**
+
+The correlated-join matcher no longer rebuilds a full name index over every token on each enablement check. For One/Exactly correlated inputs an `IncrementalMatcher` maintains, per input, a `MinQueue` (two-stack amortized-O(1)-min FIFO) of timestamps-per-name plus a lazy-deletion `(oldest_ts, name)` min-heap, so `add`/`consume` are O(log n) and `best()` is an O(1) read. Draining N ready correlation groups drops from O(N²) to O(N log N). Purely additive and semantics-preserving across all four bindings and both executors (bitmap + precompiled); AtLeast/All correlated inputs keep the reference `selectMatchName` path.
+
+- **Determinism is now normative ([NU-022]):** the `(oldest-ts, then NameId)` tie-break is byte-identical across implementations, and the incremental `best()` returns byte-identical results to `selectMatchName`, verified by per-language 400-seed differential tests (`MatchEngineIncrementalTest`, `incremental_matches_select_byte_for_byte`, `incremental-matcher.test.ts`).
+- **Benchmarks:** firing-check benchmarks (depth 10–500, arity 2–8, guarded, scatter-gather, budgeted, plus a plain-join baseline) added in Java (JMH), Rust (criterion), TypeScript (vitest), and Python (pytest-benchmark).
+- Spec: new **NU-022** (Deterministic Match Selection) in `spec/12-nu-nets.md`, registered in the index.
+
 ## Java 2.8.0 / TypeScript 2.8.0 / Rust 3.2.0 / Python 2.11.0 — 2026-06-09
 
 **ν-nets — correlated fork / join by identity (NU-001..060)**

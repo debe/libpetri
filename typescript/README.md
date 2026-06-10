@@ -68,6 +68,10 @@ Supported properties:
 
 Also computes **P-invariants** (Farkas variant) and supports IC3/PDR-style incremental verification.
 
+### ν-nets (`src/runtime/`)
+
+Correlated fork/join by identity. A `MatchSpec` declares a `value → NameId` key projection over a transition's input places; a fork mints a fresh opaque name via `ctx.freshName()` into the token payload, and a join consumes only the sibling tokens that project to the same name. The deterministic `(oldest-timestamp, then name)` tie-break is byte-identical across implementations (NU-022), and an incremental matcher keeps correlated-join drain at O(N log N). A bounded `Budget` place is the decidability lever for verification.
+
 ## Quick Start
 
 ```typescript

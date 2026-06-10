@@ -25,7 +25,7 @@ use crate::compiled_net::CompiledNet;
 use crate::executor_core::backend::{ChangeTracker, ExecutorBackend};
 use crate::executor_core::deadline::DEADLINE_TOLERANCE_MS;
 use crate::marking::Marking;
-use crate::match_engine::{NameIndex, select_match_name};
+use crate::match_engine::{IncrementalMatcher, NameIndex, select_match_name};
 use crate::precompiled_net::{
     CONSUME_ALL, CONSUME_ATLEAST, CONSUME_N, CONSUME_ONE, PrecompiledNet, RESET,
 };
@@ -71,6 +71,16 @@ pub struct PrecompiledBackend<'a> {
     // ==================== Reset-clock detection ====================
     pending_reset_words: Vec<u64>,
     has_pending_resets: bool,
+
+    // ==================== ν-net incremental match caches (NU-020) ====================
+    /// Per matched transition: an [`IncrementalMatcher`] when the transition is
+    /// fast-path eligible (every correlated input is `One`/`Exactly` and is
+    /// consumed only by this transition and never reset), else `None` →
+    /// fall back to the O(n) rebuild [`find_match_binding`](Self::find_match_binding).
+    match_caches: Vec<Option<IncrementalMatcher>>,
+    /// Per place: the `(tid, key_index)` of every fast-path matched correlated
+    /// input fed by this place, so token adds can be mirrored into the caches.
+    place_match_targets: Vec<Vec<(usize, usize)>>,
 
     /// Grace band (ms) before a hard deadline force-disables (TIME-013).
     deadline_tolerance_ms: f64,
@@ -131,7 +141,7 @@ impl<'a> PrecompiledBackend<'a> {
         let queue_cap = tc.max(4);
         let ready_queues = vec![vec![0usize; queue_cap]; prio_count];
 
-        Self {
+        let mut this = Self {
             program,
             token_pool,
             place_offset,
@@ -155,8 +165,149 @@ impl<'a> PrecompiledBackend<'a> {
             ready_queue_size: vec![0usize; prio_count],
             pending_reset_words: vec![0u64; wc],
             has_pending_resets: false,
+            match_caches: Vec::new(),
+            place_match_targets: vec![Vec::new(); pc],
             deadline_tolerance_ms: DEADLINE_TOLERANCE_MS,
+        };
+        this.init_match_caches();
+        this
+    }
+
+    /// Builds the ν-net incremental match caches (NU-020). A matched transition
+    /// is *fast-path eligible* — gets an [`IncrementalMatcher`] kept in lockstep
+    /// with the rings — only when every correlated input is `One`/`Exactly`
+    /// (fixed consume count), is consumed by no other transition, and is never a
+    /// reset target. Those conditions guarantee tokens enter a correlated input
+    /// only via produce/inject (mirrored by `add`) and leave only via this join's
+    /// matched consume (mirrored by `consume`), so the cache can never desync.
+    /// Ineligible matched transitions keep the O(n) rebuild path.
+    fn init_match_caches(&mut self) {
+        let tc = self.program.transition_count();
+        let pc = self.program.place_count();
+        self.match_caches = (0..tc).map(|_| None).collect();
+        if !(0..tc).any(|tid| self.program.compiled().has_match(tid)) {
+            return; // no ν-net transitions — leave everything on the fast opcode path
         }
+
+        // Which transitions *consume* (input or reset) each place.
+        let mut input_consumers: Vec<Vec<usize>> = vec![Vec::new(); pc];
+        let mut reset_target: Vec<bool> = vec![false; pc];
+        for tid in 0..tc {
+            let t = self.program.transition(tid);
+            for spec in t.input_specs() {
+                if let Some(pid) = self.program.place_id(spec.place_name()) {
+                    input_consumers[pid].push(tid);
+                }
+            }
+            for arc in t.resets() {
+                if let Some(pid) = self.program.place_id(arc.place.name()) {
+                    reset_target[pid] = true;
+                }
+            }
+        }
+
+        for tid in 0..tc {
+            if !self.program.compiled().has_match(tid) {
+                continue;
+            }
+            let t = self.program.transition(tid);
+            let Some(ms) = t.match_spec() else { continue };
+
+            // Eligibility + per-key required counts (key order == ms.keys() order,
+            // matching find_match_binding / the matcher's input indexing).
+            let mut requireds = Vec::with_capacity(ms.keys().len());
+            let mut eligible = true;
+            for mk in ms.keys() {
+                let Some(pid) = self.program.place_id(mk.place_name()) else {
+                    eligible = false;
+                    break;
+                };
+                let spec = t
+                    .input_specs()
+                    .iter()
+                    .find(|s| s.place_name() == mk.place_name());
+                let required = match spec {
+                    Some(In::One { .. }) => 1,
+                    Some(In::Exactly { count, .. }) => *count,
+                    // AtLeast/All consume a variable count — not modellable by the
+                    // fixed-consume matcher; fall back.
+                    _ => {
+                        eligible = false;
+                        break;
+                    }
+                };
+                if reset_target[pid] || input_consumers[pid] != [tid] {
+                    eligible = false;
+                    break;
+                }
+                requireds.push(required);
+            }
+            if !eligible {
+                continue;
+            }
+
+            // Build the matcher and seed it from the initial ring contents
+            // (guard-filtered), in the same key order.
+            let mut matcher = IncrementalMatcher::new(requireds);
+            for (key_idx, mk) in ms.keys().iter().enumerate() {
+                let pid = self.program.place_id(mk.place_name()).unwrap();
+                let spec = t
+                    .input_specs()
+                    .iter()
+                    .find(|s| s.place_name() == mk.place_name());
+                let guard = spec.and_then(|s| s.guard()).cloned();
+                let count = self.token_counts[pid];
+                let offset = self.place_offset[pid];
+                let head = self.ring_head[pid];
+                let cap = self.ring_capacity[pid];
+                for i in 0..count {
+                    let slot = offset + (head + i) % cap;
+                    if let Some(token) = &self.token_pool[slot] {
+                        if let Some(g) = &guard
+                            && !g(token.value.as_ref())
+                        {
+                            continue;
+                        }
+                        if let Some(name) = mk.extract(token.value.as_ref()) {
+                            matcher.add(key_idx, name, token.created_at);
+                        }
+                    }
+                }
+                self.place_match_targets[pid].push((tid, key_idx));
+            }
+            self.match_caches[tid] = Some(matcher);
+        }
+    }
+
+    /// Mirror a token added to correlated input `pid` into every fast-path
+    /// matcher that consumes it (guard-filtered, projected to its name).
+    fn cache_add_token(&mut self, pid: usize, value: &dyn std::any::Any, created_at: u64) {
+        if self.place_match_targets[pid].is_empty() {
+            return;
+        }
+        let prog = self.program; // Copy the shared reference; no borrow of self.
+        let targets = std::mem::take(&mut self.place_match_targets[pid]);
+        for &(tid, key_idx) in &targets {
+            let t = prog.transition(tid);
+            let ms = t.match_spec().expect("fast-path tid has a match spec");
+            let mk = &ms.keys()[key_idx];
+            let guard = t
+                .input_specs()
+                .iter()
+                .find(|s| s.place_name() == mk.place_name())
+                .and_then(|s| s.guard());
+            if let Some(g) = guard
+                && !g(value)
+            {
+                continue;
+            }
+            if let Some(name) = mk.extract(value)
+                && let Some(cache) = self.match_caches[tid].as_mut()
+            {
+                cache.add(key_idx, name, created_at);
+            }
+        }
+        self.place_match_targets[pid] = targets;
     }
 
     /// Overrides the deadline-enforcement tolerance (default
@@ -228,17 +379,35 @@ impl<'a> PrecompiledBackend<'a> {
                 && guard(token.value.as_ref())
             {
                 let token = self.token_pool[idx].take().unwrap();
-                for j in i..count - 1 {
-                    let from = offset + (head + j + 1) % cap;
-                    let to = offset + (head + j) % cap;
-                    self.token_pool[to] = self.token_pool[from].take();
+                // Close the gap from whichever end is nearer, so removing the
+                // ring head (the common ν-net case — the matched token is the
+                // oldest, hence at the front) is O(1) instead of shifting the
+                // whole ring. Removal is then O(min(i, count-1-i)), which keeps
+                // a draining matched join linear rather than quadratic.
+                if i <= count - 1 - i {
+                    // Nearer the head: slide the `i` preceding tokens forward,
+                    // then advance head (tail unchanged). i == 0 ⇒ no moves.
+                    for j in (0..i).rev() {
+                        let from = offset + (head + j) % cap;
+                        let to = offset + (head + j + 1) % cap;
+                        self.token_pool[to] = self.token_pool[from].take();
+                    }
+                    self.ring_head[pid] = (head + 1) % cap;
+                } else {
+                    // Nearer the tail: slide the trailing tokens back, then
+                    // retract tail (head unchanged).
+                    for j in i..count - 1 {
+                        let from = offset + (head + j + 1) % cap;
+                        let to = offset + (head + j) % cap;
+                        self.token_pool[to] = self.token_pool[from].take();
+                    }
+                    self.ring_tail[pid] = if self.ring_tail[pid] == 0 {
+                        cap - 1
+                    } else {
+                        self.ring_tail[pid] - 1
+                    };
                 }
                 self.token_counts[pid] -= 1;
-                self.ring_tail[pid] = if self.ring_tail[pid] == 0 {
-                    cap - 1
-                } else {
-                    self.ring_tail[pid] - 1
-                };
                 return Some(token);
             }
         }
@@ -419,8 +588,16 @@ impl<'a> PrecompiledBackend<'a> {
         }
 
         // ν-net join: a correlation name must satisfy every matched input (NU-020).
-        if self.program.compiled().has_match(tid) && self.find_match_binding(tid).is_none() {
-            return false;
+        // Fast-path transitions read the maintained matcher (O(1)); the rest
+        // rebuild the index (O(n)).
+        if self.program.compiled().has_match(tid) {
+            let no_binding = match &self.match_caches[tid] {
+                Some(cache) => cache.best().is_none(),
+                None => self.find_match_binding(tid).is_none(),
+            };
+            if no_binding {
+                return false;
+            }
         }
 
         true
@@ -475,6 +652,13 @@ impl<'a> PrecompiledBackend<'a> {
         }
 
         select_match_name(&per_place, &requireds)
+    }
+
+    /// Number of matched transitions that got a fast-path incremental matcher
+    /// (the rest fall back to [`find_match_binding`](Self::find_match_binding)).
+    /// Diagnostic for tests.
+    pub(crate) fn fast_path_match_count(&self) -> usize {
+        self.match_caches.iter().filter(|c| c.is_some()).count()
     }
 
     fn has_input_from_reset_place(&self, tid: usize) -> bool {
@@ -749,7 +933,10 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
             // guard form a combined per-token predicate (guard first, then name
             // equality — NU-021); other inputs consume FIFO as usual.
             let chosen: Option<NameId> = if has_match {
-                self.find_match_binding(tid)
+                match &self.match_caches[tid] {
+                    Some(cache) => cache.best().cloned(),
+                    None => self.find_match_binding(tid),
+                }
             } else {
                 None
             };
@@ -813,6 +1000,15 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
                             .push(token);
                     }
                 }
+            }
+
+            // Mirror the matched consume into the fast-path matcher — the only
+            // path by which tokens leave this join's correlated inputs — so it
+            // stays in lockstep with the rings (NU-020).
+            if let Some(name) = &chosen
+                && let Some(cache) = self.match_caches[tid].as_mut()
+            {
+                cache.consume(name);
             }
 
             for arc in &reset_arcs {
@@ -901,6 +1097,7 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
 
     fn produce_token(&mut self, place: &Arc<str>, token: ErasedToken) {
         if let Some(pid) = self.program.place_id(place) {
+            self.cache_add_token(pid, token.value.as_ref(), token.created_at);
             self.ring_add_last(pid, token);
             self.set_marking_bit(pid);
             self.mark_place_dirty(pid);
@@ -926,6 +1123,7 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
 
     fn inject_external_token(&mut self, place: &Arc<str>, token: ErasedToken) {
         if let Some(pid) = self.program.place_id(place) {
+            self.cache_add_token(pid, token.value.as_ref(), token.created_at);
             self.ring_add_last(pid, token);
             self.set_marking_bit(pid);
             self.mark_place_dirty(pid);
@@ -1001,4 +1199,135 @@ fn grow_ring_static(
     ring_head[pid] = 0;
     ring_tail[pid] = count;
     ring_capacity[pid] = new_cap;
+}
+
+#[cfg(test)]
+mod fast_path_tests {
+    use super::*;
+    use libpetri_core::action::sync_action;
+    use libpetri_core::input::one;
+    use libpetri_core::match_spec::MatchSpec;
+    use libpetri_core::name::NameId;
+    use libpetri_core::output::out_place;
+    use libpetri_core::petri_net::PetriNet;
+    use libpetri_core::place::Place;
+    use libpetri_core::transition::Transition;
+    use libpetri_core::token::Token;
+    use libpetri_event::event_store::NoopEventStore;
+
+    #[derive(Clone)]
+    struct Msg {
+        cid: String,
+    }
+
+    fn drain_net() -> (PetriNet, Place<Msg>, Place<Msg>) {
+        let a = Place::<Msg>::new("branch0");
+        let b = Place::<Msg>::new("branch1");
+        let merged = Place::<String>::new("merged");
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |m: &Msg| NameId::new(m.cid.clone()))
+                    .key(&b, |m: &Msg| NameId::new(m.cid.clone()))
+                    .build(),
+            )
+            .output(out_place(&merged))
+            .action(sync_action(|ctx| {
+                ctx.output("merged", String::from("m"))?;
+                Ok(())
+            }))
+            .build();
+        let net = PetriNet::builder("drain").transition(join).build();
+        (net, a, b)
+    }
+
+    #[test]
+    #[ignore = "timing diagnostic; run with --ignored --nocapture"]
+    fn drain_timing_is_subquadratic() {
+        use crate::precompiled_executor::PrecompiledNetExecutor;
+        use std::time::Instant;
+        let (net, a, b) = drain_net();
+        let compiled = CompiledNet::compile(&net);
+        let prog = PrecompiledNet::from_compiled(compiled);
+        let seed = |depth: usize| {
+            let mut m = Marking::new();
+            for j in 0..depth {
+                m.add(&a, Token::at(Msg { cid: format!("c{j}") }, j as u64));
+                m.add(&b, Token::at(Msg { cid: format!("c{j}") }, j as u64));
+            }
+            m
+        };
+        for &depth in &[100usize, 400, 1600, 6400] {
+            for _ in 0..3 {
+                PrecompiledNetExecutor::<NoopEventStore>::new(&prog, seed(depth)).run_sync();
+            }
+            let runs = 5;
+            let t = Instant::now();
+            for _ in 0..runs {
+                let mut exec = PrecompiledNetExecutor::<NoopEventStore>::new(&prog, seed(depth));
+                let r = exec.run_sync();
+                assert_eq!(r.count("merged"), depth);
+            }
+            let per_us = t.elapsed().as_secs_f64() / runs as f64 * 1e6;
+            eprintln!("[RUST precompiled] depth {depth:>5}: {per_us:>10.1} us  {:>6.2} us/n", per_us / depth as f64);
+        }
+
+        // Same drain on the bitmap backend (FIFO Marking) for comparison.
+        use crate::executor::{BitmapNetExecutor, ExecutorOptions};
+        for &depth in &[100usize, 400, 1600, 6400] {
+            for _ in 0..3 {
+                BitmapNetExecutor::<NoopEventStore>::new(&net, seed(depth), ExecutorOptions::default())
+                    .run_sync();
+            }
+            let runs = 5;
+            let t = Instant::now();
+            for _ in 0..runs {
+                let mut exec = BitmapNetExecutor::<NoopEventStore>::new(
+                    &net,
+                    seed(depth),
+                    ExecutorOptions::default(),
+                );
+                exec.run_sync();
+                assert_eq!(exec.marking().count("merged"), depth);
+            }
+            let per_us = t.elapsed().as_secs_f64() / runs as f64 * 1e6;
+            eprintln!("[RUST bitmap]      depth {depth:>5}: {per_us:>10.1} us  {:>6.2} us/n", per_us / depth as f64);
+        }
+    }
+
+    #[test]
+    fn drain_join_is_fast_path_eligible() {
+        let a = Place::<Msg>::new("branch0");
+        let b = Place::<Msg>::new("branch1");
+        let merged = Place::<String>::new("merged");
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |m: &Msg| NameId::new(m.cid.clone()))
+                    .key(&b, |m: &Msg| NameId::new(m.cid.clone()))
+                    .build(),
+            )
+            .output(out_place(&merged))
+            .action(sync_action(|ctx| {
+                ctx.output("merged", String::from("m"))?;
+                Ok(())
+            }))
+            .build();
+        let net = PetriNet::builder("drain").transition(join).build();
+        let prog = PrecompiledNet::from_compiled(CompiledNet::compile(&net));
+
+        let mut marking = Marking::new();
+        marking.add(&a, Token::at(Msg { cid: "c0".into() }, 0));
+        marking.add(&b, Token::at(Msg { cid: "c0".into() }, 0));
+        let backend = PrecompiledBackend::new(&prog, marking);
+        assert_eq!(
+            backend.fast_path_match_count(),
+            1,
+            "the canonical 2-way drain join must be fast-path eligible"
+        );
+    }
 }

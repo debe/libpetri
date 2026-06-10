@@ -42,8 +42,8 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | [09-export.md](09-export.md) | EXP | Graph export, formal interchange | 17 |
 | [10-performance.md](10-performance.md) | PERF | Scaling, benchmarks, memory efficiency, flat-array executor performance | 14 |
 | [11-modular-composition.md](11-modular-composition.md) | MOD | Open-net subnet definition, instantiation, port composition, channel fusion, action binding per instance, place fusion | 26 |
-| [12-nu-nets.md](12-nu-nets.md) | NU | Token name identity, fresh-name minting (ν-binder/fork), join by name equality, bounded-budget decidability ledger | 8 |
-| **Total** | | | **202** |
+| [12-nu-nets.md](12-nu-nets.md) | NU | Token name identity, fresh-name minting (ν-binder/fork), join by name equality, bounded-budget decidability ledger | 9 |
+| **Total** | | | **203** |
 
 > **IO-006** (Input Guard Predicate) was removed (see [IO-006]); it is retained as a
 > struck-through tombstone for traceability and is **excluded** from the active count.
@@ -251,6 +251,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | NU-010 | Fresh-Name Minting | MUST | CORE-050, IO-011 |
 | NU-020 | Match Specification | MUST | IO-001, IO-005, CORE-022, CORE-013 |
 | NU-021 | Guard / Match Composition | MUST | NU-020 |
+| NU-022 | Deterministic Match Selection | MUST | NU-020, NU-001 |
 | NU-030 | Freshness Scoping under Composition | MUST | MOD-010, MOD-012, MOD-020 |
 | NU-040 | Bounded Budget and Decidability | SHOULD | VER-002, EXEC-040, NU-010, NU-020 |
 | NU-050 | Exact Verification of Matched Transitions | MAY | VER-004, NU-020, NU-040 |
@@ -310,7 +311,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 
 | Priority | Count | Description |
 |----------|-------|-------------|
-| MUST     | 139   | Core contract; all implementations must conform |
+| MUST     | 140   | Core contract; all implementations must conform |
 | SHOULD   | 53    | Recommended; implementations should include unless technically infeasible |
 | MAY      | 10    | Optional; implementations may include |
 

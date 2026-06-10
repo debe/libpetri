@@ -19,7 +19,11 @@ import {
   buildParallelFanOut,
   buildComplexWorkflow,
   buildCompilationTransitions,
+  buildNuJoinDrain,
+  buildPlainJoinDrain,
+  buildNuScatterGather,
 } from './benchmark-networks.js';
+import type { NetWithSeed } from './benchmark-networks.js';
 
 // ==================== Helpers ====================
 
@@ -30,6 +34,15 @@ async function runNet(
 ): Promise<void> {
   const executor = new PrecompiledNetExecutor(net, initialTokens([start, [tokenOf('start')]]), { program });
   await executor.run(5000);
+}
+
+/** Compiles `nws.net` once; the returned runner seeds a fresh marking each call. */
+function nuRunner(nws: NetWithSeed): () => Promise<void> {
+  const program = PrecompiledNet.compile(nws.net);
+  return async () => {
+    const executor = new PrecompiledNetExecutor(nws.net, nws.seed(), { program });
+    await executor.run(5000);
+  };
 }
 
 // ==================== Pre-built Networks & Programs ====================
@@ -168,4 +181,40 @@ describe('compilation', () => {
       PrecompiledNet.compile(net);
     });
   }
+});
+
+// ==================== ν-net Firing-Check Benchmarks (NU-020/021/040) ====================
+// Programs are pre-compiled once; each run seeds a fresh marking. The precompiled
+// path re-computes the match binding again on consume, so this is the real
+// production cost of the ν firing check.
+
+const nuDrainDepth = [10, 50, 100, 200, 500].map((d) => ({ d, run: nuRunner(buildNuJoinDrain(2, d)) }));
+const nuDrainArity = [4, 8].map((k) => ({ k, run: nuRunner(buildNuJoinDrain(k, 100)) }));
+const plainDrainDepth = [10, 50, 100, 200, 500].map((d) => ({ d, run: nuRunner(buildPlainJoinDrain(d)) }));
+const nuDrainGuarded = [10, 50, 100, 200, 500].map((d) => ({ d, run: nuRunner(buildNuJoinDrain(2, d, true)) }));
+const nuScatter = [10, 50, 100].map((g) => ({ g, run: nuRunner(buildNuScatterGather(g)) }));
+const nuScatterBudgeted = [10, 50, 100].map((g) => ({ g, run: nuRunner(buildNuScatterGather(g, true)) }));
+
+describe('ν-net join drain (k=2, by pool depth)', () => {
+  for (const { d, run } of nuDrainDepth) bench(`depth ${d}`, run);
+});
+
+describe('plain join drain (k=2, baseline, no match)', () => {
+  for (const { d, run } of plainDrainDepth) bench(`depth ${d}`, run);
+});
+
+describe('ν-net join drain (depth=100, by arity)', () => {
+  for (const { k, run } of nuDrainArity) bench(`arity ${k}`, run);
+});
+
+describe('ν-net join drain guarded (k=2, by pool depth)', () => {
+  for (const { d, run } of nuDrainGuarded) bench(`depth ${d}`, run);
+});
+
+describe('ν-net scatter/gather (by group count)', () => {
+  for (const { g, run } of nuScatter) bench(`${g} groups`, run);
+});
+
+describe('ν-net scatter/gather budgeted (by group count)', () => {
+  for (const { g, run } of nuScatterBudgeted) bench(`${g} groups`, run);
 });

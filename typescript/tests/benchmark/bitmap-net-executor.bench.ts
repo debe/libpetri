@@ -22,12 +22,22 @@ import {
   buildParallelFanOut,
   buildComplexWorkflow,
   buildCompilationTransitions,
+  buildNuJoinDrain,
+  buildPlainJoinDrain,
+  buildNuScatterGather,
 } from './benchmark-networks.js';
+import type { NetWithSeed } from './benchmark-networks.js';
 
 // ==================== Helpers ====================
 
 async function runNet(net: PetriNet, start: import('../../src/core/place.js').Place<string>): Promise<void> {
   const executor = new BitmapNetExecutor(net, initialTokens([start, [tokenOf('start')]]));
+  await executor.run(5000);
+}
+
+/** Runs a ν-net scenario with a fresh pre-seeded marking each invocation. */
+async function runNu(nws: NetWithSeed): Promise<void> {
+  const executor = new BitmapNetExecutor(nws.net, nws.seed());
   await executor.run(5000);
 }
 
@@ -138,4 +148,43 @@ describe('compilation', () => {
       const _executor = new BitmapNetExecutor(net, new Map());
     });
   }
+});
+
+// ==================== ν-net Firing-Check Benchmarks (NU-020/021/040) ====================
+
+const nuDrainDepth = [10, 50, 100, 200, 500].map((d) => ({ d, nws: buildNuJoinDrain(2, d) }));
+const nuDrainArity = [4, 8].map((k) => ({ k, nws: buildNuJoinDrain(k, 100) }));
+const plainDrainDepth = [10, 50, 100, 200, 500].map((d) => ({ d, nws: buildPlainJoinDrain(d) }));
+const nuDrainGuarded = [10, 50, 100, 200, 500].map((d) => ({ d, nws: buildNuJoinDrain(2, d, true) }));
+const nuScatter = [10, 50, 100].map((g) => ({ g, nws: buildNuScatterGather(g) }));
+const nuScatterBudgeted = [10, 50, 100].map((g) => ({ g, nws: buildNuScatterGather(g, true) }));
+
+// Primary cost curve: re-indexing a draining pool is ~quadratic in pool depth.
+describe('ν-net join drain (k=2, by pool depth)', () => {
+  for (const { d, nws } of nuDrainDepth) bench(`depth ${d}`, () => runNu(nws));
+});
+
+// Baseline: identical topology/marking with NO match — the delta is the ν tax.
+describe('plain join drain (k=2, baseline, no match)', () => {
+  for (const { d, nws } of plainDrainDepth) bench(`depth ${d}`, () => runNu(nws));
+});
+
+// Arity axis: cost is ~linear in the number of correlated inputs (depth=100).
+describe('ν-net join drain (depth=100, by arity)', () => {
+  for (const { k, nws } of nuDrainArity) bench(`arity ${k}`, () => runNu(nws));
+});
+
+// NU-021 guard: per-token guard eval added to the index-building loop.
+describe('ν-net join drain guarded (k=2, by pool depth)', () => {
+  for (const { d, nws } of nuDrainGuarded) bench(`depth ${d}`, () => runNu(nws));
+});
+
+// Realistic fork(freshName)/join end-to-end.
+describe('ν-net scatter/gather (by group count)', () => {
+  for (const { g, nws } of nuScatter) bench(`${g} groups`, () => runNu(nws));
+});
+
+// NU-040 budget bounds live groups → shallow pools → cheap match check.
+describe('ν-net scatter/gather budgeted (by group count)', () => {
+  for (const { g, nws } of nuScatterBudgeted) bench(`${g} groups`, () => runNu(nws));
 });
