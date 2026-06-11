@@ -898,10 +898,15 @@ describe('Timing Tests', { timeout: 15_000 }, () => {
       })
       .build();
     const net = PetriNet.builder('N').transition(t).build();
-    const { marking } = await runNet(net, initialTokens([input, [tokenOf('go')]]));
+    // Run to natural quiescence (no executor self-timeout): the delayed(50)
+    // transition fires when its timer wakes, then the net quiesces. The shared
+    // runNet helper's run(5000) budget would race that wall-clock timer and flake
+    // under CI worker contention; vitest's per-test timeout is the hang guard.
+    const executor = new BitmapNetExecutor(net, initialTokens([input, [tokenOf('go')]]));
+    const marking = await executor.run();
 
     expect(marking.hasTokens(output)).toBe(true);
-    expect(fireTimeMs - startMs).toBeGreaterThanOrEqual(30); // Allow tolerance for CI jitter
+    expect(fireTimeMs - startMs).toBeGreaterThanOrEqual(30); // delayed(50), lenient for CI jitter
   });
 
   // exact timing test removed — exact(N) is inherently flaky in sync/async
