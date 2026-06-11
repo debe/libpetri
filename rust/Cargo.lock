@@ -513,7 +513,7 @@ dependencies = [
 
 [[package]]
 name = "libpetri-py"
-version = "2.12.0"
+version = "2.13.0"
 dependencies = [
  "libpetri",
  "pyo3",
