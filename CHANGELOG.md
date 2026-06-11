@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Java 2.10.0 / TypeScript 2.10.0 / Rust 3.4.0 / Python 2.13.0 — 2026-06-11
 
 **Amortised O(1) ν-join addition (monotonic FIFO fast-path)**
 
