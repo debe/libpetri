@@ -75,4 +75,63 @@ describe('IncrementalMatcher', () => {
       }
     }
   });
+
+  // Monotonic fast path: ready names arriving in non-decreasing (rep_ts, name)
+  // order (canonical fork/join / time-ordered seed) keep the matcher on the O(1)
+  // FIFO path (never heaps) while still matching selectMatchName.
+  it('stays on the FIFO fast path for monotonic (rep_ts, name) sequences', () => {
+    const requireds = [1, 1];
+    const m = new IncrementalMatcher(requireds);
+    const truth: Array<Array<[NameId, number]>> = [[], []];
+    for (let i = 0; i < 60; i++) {
+      const name = nameId(`g${String(i).padStart(3, '0')}`); // zero-padded: lexical == numeric
+      m.add(0, name, i);
+      m.add(1, name, i);
+      truth[0]!.push([name, i]);
+      truth[1]!.push([name, i]);
+      expect(m.isHeaped(), 'monotonic seed must stay on the FIFO fast path').toBe(false);
+    }
+    for (;;) {
+      const pick = referenceSelect(truth, requireds);
+      if (pick === null) break;
+      expect(m.best()).toBe(pick);
+      expect(m.isHeaped(), 'monotonic drain must stay on the FIFO fast path').toBe(false);
+      m.consume(pick);
+      for (let i = 0; i < 2; i++) {
+        let removed = 0;
+        truth[i] = truth[i]!.filter(([n]) => {
+          if (removed < 1 && n === pick) {
+            removed++;
+            return false;
+          }
+          return true;
+        });
+      }
+      expect(m.best()).toBe(referenceSelect(truth, requireds));
+    }
+    expect(m.best()).toBeNull();
+  });
+
+  // An out-of-order ready push (a later group with an earlier rep_ts) migrates the
+  // matcher to the heap; best() stays correct, and the fast path is re-entered
+  // once the structure fully drains.
+  it('falls back to the heap on an inversion, then re-enters the fast path', () => {
+    const m = new IncrementalMatcher([1, 1]);
+    const a = nameId('a');
+    const b = nameId('b');
+    m.add(0, a, 5);
+    m.add(1, a, 5);
+    expect(m.isHeaped()).toBe(false);
+    expect(m.best()).toBe(a);
+    // b ready at rep 2 < a's rep 5 -> inversion -> heap-backed, b is the pick
+    m.add(0, b, 2);
+    m.add(1, b, 2);
+    expect(m.isHeaped()).toBe(true);
+    expect(m.best()).toBe(b);
+    m.consume(b);
+    expect(m.best()).toBe(a);
+    m.consume(a);
+    expect(m.best()).toBeNull();
+    expect(m.isHeaped(), 'fully drained matcher re-enters the FIFO fast path').toBe(false);
+  });
 });

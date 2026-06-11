@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+**Amortised O(1) ν-join addition (monotonic FIFO fast-path)**
+
+The `IncrementalMatcher` (ν-join correlation, both executors and all four bindings) now keeps ready names in a FIFO deque while they arrive in non-decreasing `(oldest-ts, name)` order, which is the canonical fork/join case and any time-ordered seed, making `add`/`consume` amortised **O(1)** (previously O(log n) on the heap insert). It migrates to the lazy-deletion min-heap on the first out-of-order push and re-enters the fast path once fully drained, so `best()` stays byte-identical to `selectMatchName` (NU-022) on arbitrary inputs. Semantics unchanged; Python inherits via the Rust runtime.
+
 ## Java 2.9.0 / TypeScript 2.9.0 / Rust 3.3.0 / Python 2.12.0 — 2026-06-10
 
 **Incremental ν-join matcher: O(N²) → O(N log N) drain (NU-022)**

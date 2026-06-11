@@ -1,6 +1,9 @@
 package org.libpetri.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -92,5 +95,73 @@ class MatchEngineIncrementalTest {
                     "best() diverged after op (seed=" + seed + ")");
             }
         }
+    }
+
+    /**
+     * Monotonic fast path: ready names arriving in non-decreasing (rep_ts, name)
+     * order (canonical fork/join / time-ordered seed) keep the matcher on the O(1)
+     * FIFO path (never heaps) while still matching {@code selectMatchName}.
+     */
+    @Test
+    void monotonicStaysOnFifoFastPath() {
+        int[] requireds = {1, 1};
+        var m = new MatchEngine.IncrementalMatcher(requireds);
+        List<List<TruthTok>> truth = new ArrayList<>();
+        truth.add(new ArrayList<>());
+        truth.add(new ArrayList<>());
+        for (int i = 0; i < 60; i++) {
+            NameId name = NameId.of(String.format("g%03d", i)); // zero-padded: lexical == numeric
+            m.add(0, name, i);
+            m.add(1, name, i);
+            truth.get(0).add(new TruthTok(name, i));
+            truth.get(1).add(new TruthTok(name, i));
+            assertFalse(m.isHeaped(), "monotonic seed must stay on the FIFO fast path");
+        }
+        NameId pick;
+        while ((pick = referenceSelect(truth, requireds)) != null) {
+            assertEquals(pick, m.best());
+            assertFalse(m.isHeaped(), "monotonic drain must stay on the FIFO fast path");
+            m.consume(pick);
+            final NameId p = pick;
+            for (int i = 0; i < 2; i++) {
+                int[] removed = {0};
+                truth.get(i).removeIf(tk -> {
+                    if (removed[0] < 1 && tk.name().equals(p)) {
+                        removed[0]++;
+                        return true;
+                    }
+                    return false;
+                });
+            }
+            assertEquals(referenceSelect(truth, requireds), m.best());
+        }
+        assertNull(m.best());
+    }
+
+    /**
+     * An out-of-order ready push (a later group with an earlier rep_ts) migrates
+     * the matcher to the heap; best() stays correct, and the fast path is
+     * re-entered once the structure fully drains.
+     */
+    @Test
+    void inversionFallsBackThenReEntersFastPath() {
+        int[] requireds = {1, 1};
+        var m = new MatchEngine.IncrementalMatcher(requireds);
+        NameId a = NameId.of("a");
+        NameId b = NameId.of("b");
+        m.add(0, a, 5);
+        m.add(1, a, 5);
+        assertFalse(m.isHeaped());
+        assertEquals(a, m.best());
+        // b ready at rep 2 < a's rep 5 -> inversion -> heap-backed, b is the pick
+        m.add(0, b, 2);
+        m.add(1, b, 2);
+        assertTrue(m.isHeaped());
+        assertEquals(b, m.best());
+        m.consume(b);
+        assertEquals(a, m.best());
+        m.consume(a);
+        assertNull(m.best());
+        assertFalse(m.isHeaped(), "fully drained matcher re-enters the FIFO fast path");
     }
 }

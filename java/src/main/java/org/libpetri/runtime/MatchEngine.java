@@ -1,5 +1,6 @@
 package org.libpetri.runtime;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -215,20 +216,38 @@ final class MatchEngine {
      * <p>{@code selectMatchName} rebuilds a full name index over every token on
      * each call, so draining N ready correlation groups costs O(N²). This
      * maintains, per correlated input, a {@link MinQueue} of timestamps per name
-     * plus a lazy-deletion min-heap of ready names keyed by the same
-     * {@code (oldest_ts, name)} order, so {@code add}/{@code consume} are
-     * O(log n) and {@link #best()} is an O(1) read. For any add/consume sequence
-     * {@code best()} returns exactly what {@code selectMatchName} would —
-     * verified by {@code MatchEngineIncrementalTest}. Callers with an AtLeast/All
-     * correlated input must fall back to {@code selectMatchName}.
+     * plus a ready-name structure keyed by the same {@code (oldest_ts, name)}
+     * order; {@link #best()} is an O(1) read.
+     *
+     * <p>While ready names are pushed in non-decreasing {@code (rep_ts, name)}
+     * order — the canonical fork/join (siblings carry the fork's monotonic
+     * timestamp) or any time-ordered seed — a plain FIFO deque is a valid min-PQ,
+     * so {@code add}/{@code consume} are <b>amortised O(1)</b>. The first
+     * out-of-order push migrates the deque into a lazy-deletion min-heap
+     * ({@code heaped}), thereafter O(log n) — the proven fallback (O(1) add + O(1)
+     * best for arbitrary timestamps would beat the sort bound). Either mode,
+     * {@code best()} returns exactly what {@code selectMatchName} would — verified
+     * by {@code MatchEngineIncrementalTest}. The fast path is re-entered whenever
+     * the structure fully empties. Callers with an AtLeast/All correlated input
+     * must fall back to {@code selectMatchName}.
      */
     static final class IncrementalMatcher {
         private record ReadyEntry(long ts, NameId name) {}
 
+        /** {@code (oldest_ts, name)} order — the {@code selectMatchName} tie-break. */
+        private static final Comparator<ReadyEntry> CMP =
+            Comparator.comparingLong(ReadyEntry::ts).thenComparing(ReadyEntry::name);
+
         private final int[] requireds;
         private final List<Map<NameId, MinQueue>> ts;
-        private final PriorityQueue<ReadyEntry> heap = new PriorityQueue<>(
-            Comparator.comparingLong(ReadyEntry::ts).thenComparing(ReadyEntry::name));
+        /** Monotonic fast path: ascending {@code (rep_ts, name)} deque; front
+         * (after {@link #cleanTop()}) is the min. Active while {@code !heaped}. */
+        private final ArrayDeque<ReadyEntry> fifo = new ArrayDeque<>();
+        /** Largest entry appended to {@link #fifo} in the current monotonic run. */
+        private ReadyEntry maxPushed = null;
+        /** Once an out-of-order push migrates {@link #fifo} into {@link #heap}. */
+        private boolean heaped = false;
+        private final PriorityQueue<ReadyEntry> heap = new PriorityQueue<>(CMP);
         private final Map<NameId, Long> ready = new HashMap<>();
 
         IncrementalMatcher(int[] requireds) {
@@ -265,8 +284,31 @@ final class MatchEngine {
 
         /** The name {@code selectMatchName} would pick, or {@code null}. O(1) read. */
         NameId best() {
-            ReadyEntry top = heap.peek();
+            ReadyEntry top = heaped ? heap.peek() : fifo.peekFirst();
             return top == null ? null : top.name();
+        }
+
+        /**
+         * Route a ready name's {@code (rep, name)} to the active structure: append
+         * to the FIFO in O(1) while pushes stay non-decreasing; on the first
+         * inversion, migrate the FIFO into the heap and stay heap-backed.
+         */
+        private void pushReady(long rep, NameId name) {
+            ReadyEntry entry = new ReadyEntry(rep, name);
+            if (heaped) {
+                heap.offer(entry);
+                return;
+            }
+            if (maxPushed == null || CMP.compare(entry, maxPushed) >= 0) {
+                maxPushed = entry;
+                fifo.addLast(entry);
+            } else {
+                heaped = true;
+                while (!fifo.isEmpty()) {
+                    heap.offer(fifo.pollFirst());
+                }
+                heap.offer(entry);
+            }
         }
 
         private Long repTs(NameId name) {
@@ -286,7 +328,7 @@ final class MatchEngine {
             if (rep != null) {
                 if (!rep.equals(ready.get(name))) {
                     ready.put(name, rep);
-                    heap.offer(new ReadyEntry(rep, name));
+                    pushReady(rep, name);
                 }
             } else {
                 ready.remove(name);
@@ -295,14 +337,37 @@ final class MatchEngine {
 
         private void cleanTop() {
             ReadyEntry top;
-            while ((top = heap.peek()) != null) {
-                Long cur = ready.get(top.name());
-                if (cur == null || cur != top.ts()) {
-                    heap.poll();
-                } else {
-                    break;
+            if (heaped) {
+                while ((top = heap.peek()) != null) {
+                    Long cur = ready.get(top.name());
+                    if (cur == null || cur != top.ts()) {
+                        heap.poll();
+                    } else {
+                        break;
+                    }
+                }
+                if (heap.isEmpty()) {
+                    heaped = false;
+                    maxPushed = null;
+                }
+            } else {
+                while ((top = fifo.peekFirst()) != null) {
+                    Long cur = ready.get(top.name());
+                    if (cur == null || cur != top.ts()) {
+                        fifo.pollFirst();
+                    } else {
+                        break;
+                    }
+                }
+                if (fifo.isEmpty()) {
+                    maxPushed = null;
                 }
             }
+        }
+
+        /** Test-only: has the matcher fallen back from the FIFO fast path to the heap? */
+        boolean isHeaped() {
+            return heaped;
         }
     }
 }
