@@ -264,12 +264,29 @@ class ReadyHeap {
 
 /**
  * Incremental equivalent of {@link selectMatchName} for `one`/`exactly`
- * correlated inputs (fixed consume count). For any sequence of `add`/`consume`,
- * {@link best} returns exactly the name `selectMatchName` would for the
- * equivalent marking — verified by `incremental-matcher.test.ts`.
+ * correlated inputs (fixed consume count). {@link best} is an O(1) read and, for
+ * any sequence of `add`/`consume`, returns exactly the name `selectMatchName`
+ * would — verified by `incremental-matcher.test.ts`.
+ *
+ * While ready names are pushed in non-decreasing `(rep_ts, name)` order — the
+ * canonical fork/join (siblings carry the fork's monotonic timestamp) or any
+ * time-ordered seed — a plain FIFO (index-based deque, never `shift()`) is a
+ * valid min-PQ, so `add`/`consume` are amortized O(1). The first out-of-order
+ * push migrates the deque into the lazy-deletion {@link ReadyHeap} (`heaped`),
+ * thereafter O(log n) — the proven fallback. The fast path is re-entered whenever
+ * the structure fully empties.
  */
 export class IncrementalMatcher {
   private readonly ts: Array<Map<NameId, MinQueue>>;
+  /** Monotonic fast path: ascending `(rep_ts, name)`; `fifo[fifoHead]` (after
+   * `cleanTop`) is the min. Active while `!heaped`. Advance `fifoHead` instead of
+   * `shift()` (O(1)); reset when the head catches the length. */
+  private readonly fifo: ReadyEntry[] = [];
+  private fifoHead = 0;
+  /** Largest entry appended to `fifo` in the current monotonic run. */
+  private maxPushed: ReadyEntry | null = null;
+  /** Once an out-of-order push migrates `fifo` into `heap`. */
+  private heaped = false;
   private readonly heap = new ReadyHeap();
   private readonly ready = new Map<NameId, number>();
 
@@ -304,8 +321,36 @@ export class IncrementalMatcher {
 
   /** The name `selectMatchName` would pick, or `null`. O(1) read. */
   best(): NameId | null {
-    const top = this.heap.peek();
-    return top ? top.name : null;
+    if (this.heaped) {
+      const top = this.heap.peek();
+      return top ? top.name : null;
+    }
+    return this.fifoHead < this.fifo.length ? this.fifo[this.fifoHead]!.name : null;
+  }
+
+  /**
+   * Route a ready name's `(rep, name)` to the active structure: append to the
+   * FIFO in O(1) while pushes stay non-decreasing; on the first inversion,
+   * migrate the FIFO into the heap and stay heap-backed.
+   */
+  private pushReady(rep: number, name: NameId): void {
+    const entry: ReadyEntry = { ts: rep, name };
+    if (this.heaped) {
+      this.heap.push(entry);
+      return;
+    }
+    const max = this.maxPushed;
+    const monotonic = max === null || rep > max.ts || (rep === max.ts && name >= max.name);
+    if (monotonic) {
+      this.maxPushed = entry;
+      this.fifo.push(entry);
+    } else {
+      this.heaped = true;
+      for (let i = this.fifoHead; i < this.fifo.length; i++) this.heap.push(this.fifo[i]!);
+      this.fifo.length = 0;
+      this.fifoHead = 0;
+      this.heap.push(entry);
+    }
   }
 
   private repTs(name: NameId): number | null {
@@ -324,7 +369,7 @@ export class IncrementalMatcher {
     if (rep !== null) {
       if (this.ready.get(name) !== rep) {
         this.ready.set(name, rep);
-        this.heap.push({ ts: rep, name });
+        this.pushReady(rep, name);
       }
     } else {
       this.ready.delete(name);
@@ -332,10 +377,33 @@ export class IncrementalMatcher {
   }
 
   private cleanTop(): void {
-    for (;;) {
-      const top = this.heap.peek();
-      if (top && this.ready.get(top.name) !== top.ts) this.heap.pop();
-      else break;
+    if (this.heaped) {
+      for (;;) {
+        const top = this.heap.peek();
+        if (top && this.ready.get(top.name) !== top.ts) this.heap.pop();
+        else break;
+      }
+      if (this.heap.size === 0) {
+        this.heaped = false;
+        this.maxPushed = null;
+      }
+    } else {
+      while (this.fifoHead < this.fifo.length) {
+        const top = this.fifo[this.fifoHead]!;
+        if (this.ready.get(top.name) !== top.ts) this.fifoHead++;
+        else break;
+      }
+      if (this.fifoHead >= this.fifo.length) {
+        // fully drained: reset the backing array + start a fresh monotonic run
+        this.fifo.length = 0;
+        this.fifoHead = 0;
+        this.maxPushed = null;
+      }
     }
+  }
+
+  /** Test-only: has the matcher fallen back from the FIFO fast path to the heap? */
+  isHeaped(): boolean {
+    return this.heaped;
   }
 }

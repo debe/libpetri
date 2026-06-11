@@ -10,7 +10,7 @@
 //! language ports mirror verbatim).
 
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::{BinaryHeap, HashMap, VecDeque};
 
 use libpetri_core::name::NameId;
 
@@ -125,10 +125,22 @@ impl MinQueue {
 /// `select_match_name` re-builds a full `name -> {count, oldest}` index over
 /// every token on each call, so draining N ready correlation groups costs
 /// O(N²). This maintains, per correlated input, a [`MinQueue`] of token
-/// timestamps per name (FIFO-within-name removal, NU-020) plus a lazy-deletion
-/// min-heap of ready names keyed by the same `(oldest_token, name)` order. Each
-/// `add`/`consume` is O(log n) and [`best`](Self::best) is an O(1) read, so a
-/// drain is O(N log N).
+/// timestamps per name (FIFO-within-name removal, NU-020) plus a ready-name
+/// structure keyed by the same `(oldest_token, name)` order. [`best`](Self::best)
+/// is an O(1) read.
+///
+/// The ready structure has two modes. While ready names are pushed in
+/// non-decreasing `(rep_ts, name)` order — the canonical fork/join case
+/// (siblings carry the fork's monotonic timestamp) and any time-ordered seed — a
+/// plain FIFO deque is a valid min-PQ, so `add`/`consume` are **amortised O(1)**.
+/// The moment a push arrives out of order (cross-branch arrival skew, equal-ts
+/// ties out of name order, a multi-token name re-advancing) we migrate the deque
+/// into a lazy-deletion **min-heap** (`heaped`) and thereafter pay O(log n) per
+/// push — exactly the proven behaviour. Whichever mode, `best()` returns the same
+/// name `select_match_name` would: O(1) `add` + O(1) `best` for arbitrary
+/// timestamps is impossible (it would beat the sort bound), so the heap is kept
+/// as the correctness floor. The structure re-enters the FIFO fast path whenever
+/// it fully empties.
 ///
 /// **Contract:** for any sequence of adds/consumes, `best()` returns exactly the
 /// name `select_match_name` would for the equivalent marking — verified
@@ -141,7 +153,15 @@ pub(crate) struct IncrementalMatcher {
     requireds: Vec<usize>,
     /// per input: name -> FIFO min-queue of its (guard-passing) token timestamps.
     ts: Vec<HashMap<NameId, MinQueue>>,
-    /// candidate ready names by `(rep_ts, name)`; may hold stale entries.
+    /// monotonic fast path: ascending `(rep_ts, name)` deque; front (after
+    /// `clean_top`) is the min. Active while `!heaped`. May hold stale entries.
+    fifo: VecDeque<(u64, NameId)>,
+    /// largest `(rep_ts, name)` appended to `fifo` in the current monotonic run.
+    max_pushed: Option<(u64, NameId)>,
+    /// once an out-of-order push migrates `fifo` into `heap`, stay heap-backed
+    /// until the structure fully empties (then re-enter the fast path).
+    heaped: bool,
+    /// fallback: candidate ready names by `(rep_ts, name)`; may hold stale entries.
     heap: BinaryHeap<Reverse<(u64, NameId)>>,
     /// name -> its current `rep_ts` while ready (the staleness oracle).
     ready: HashMap<NameId, u64>,
@@ -153,6 +173,9 @@ impl IncrementalMatcher {
         IncrementalMatcher {
             requireds,
             ts: (0..k).map(|_| HashMap::new()).collect(),
+            fifo: VecDeque::new(),
+            max_pushed: None,
+            heaped: false,
             heap: BinaryHeap::new(),
             ready: HashMap::new(),
         }
@@ -187,7 +210,32 @@ impl IncrementalMatcher {
     /// The name `select_match_name` would pick, or `None`. O(1) read; relies on
     /// `clean_top` having run after the last mutation (it always does).
     pub(crate) fn best(&self) -> Option<&NameId> {
-        self.heap.peek().map(|r| &r.0.1)
+        if self.heaped {
+            self.heap.peek().map(|r| &r.0.1)
+        } else {
+            self.fifo.front().map(|(_, name)| name)
+        }
+    }
+
+    /// Route a ready name's `(rep, name)` to the active structure. Appends to the
+    /// FIFO in O(1) while pushes stay non-decreasing; on the first inversion,
+    /// migrates the FIFO into the heap and stays heap-backed (O(log n)).
+    fn push_ready(&mut self, rep: u64, name: NameId) {
+        if self.heaped {
+            self.heap.push(Reverse((rep, name)));
+            return;
+        }
+        let monotonic = self.max_pushed.as_ref().is_none_or(|max| (rep, &name) >= (max.0, &max.1));
+        if monotonic {
+            self.max_pushed = Some((rep, name.clone()));
+            self.fifo.push_back((rep, name));
+        } else {
+            self.heaped = true;
+            for e in self.fifo.drain(..) {
+                self.heap.push(Reverse(e));
+            }
+            self.heap.push(Reverse((rep, name)));
+        }
     }
 
     /// `rep_ts(name)` = the oldest remaining token of `name` across the inputs,
@@ -210,7 +258,7 @@ impl IncrementalMatcher {
             Some(rep) => {
                 if self.ready.get(&name) != Some(&rep) {
                     self.ready.insert(name.clone(), rep);
-                    self.heap.push(Reverse((rep, name)));
+                    self.push_ready(rep, name);
                 }
             }
             None => {
@@ -219,19 +267,39 @@ impl IncrementalMatcher {
         }
     }
 
-    /// Pop stale entries so `heap.peek()` is a valid ready name (or empty).
+    /// Drop stale entries so the active structure's front/top is a valid ready
+    /// name (or empty). Re-enters the FIFO fast path once fully drained.
     fn clean_top(&mut self) {
-        loop {
-            let stale = match self.heap.peek() {
-                Some(Reverse((rep, name))) => self.ready.get(name) != Some(rep),
-                None => false,
-            };
-            if stale {
-                self.heap.pop();
-            } else {
-                break;
+        if self.heaped {
+            while let Some(Reverse((rep, name))) = self.heap.peek() {
+                if self.ready.get(name) != Some(rep) {
+                    self.heap.pop();
+                } else {
+                    break;
+                }
+            }
+            if self.heap.is_empty() {
+                self.heaped = false;
+                self.max_pushed = None;
+            }
+        } else {
+            while let Some((rep, name)) = self.fifo.front() {
+                if self.ready.get(name) != Some(rep) {
+                    self.fifo.pop_front();
+                } else {
+                    break;
+                }
+            }
+            if self.fifo.is_empty() {
+                self.max_pushed = None;
             }
         }
+    }
+
+    /// Test-only: has the matcher fallen back from the FIFO fast path to the heap?
+    #[cfg(test)]
+    pub(crate) fn is_heaped(&self) -> bool {
+        self.heaped
     }
 }
 
@@ -372,6 +440,86 @@ mod tests {
                     "best() diverged after op (seed={seed})"
                 );
             }
+        }
+    }
+
+    /// Monotonic fast path: when ready names arrive in non-decreasing
+    /// `(rep_ts, name)` order (the canonical fork/join / time-ordered seed), the
+    /// matcher stays on the O(1) FIFO path (never heaps) and still returns exactly
+    /// what `select_match_name` would.
+    #[test]
+    fn monotonic_stays_on_fifo_fast_path() {
+        let names: Vec<NameId> = (0..60).map(|i| NameId::new(format!("g{i:03}"))).collect();
+        let mut m = IncrementalMatcher::new(vec![1, 1]);
+        let mut truth: Vec<Vec<(NameId, u64)>> = vec![Vec::new(); 2];
+        // seed: ascending ts, both inputs, in name order
+        for (i, name) in names.iter().enumerate() {
+            let ts = i as u64;
+            m.add(0, name.clone(), ts);
+            m.add(1, name.clone(), ts);
+            truth[0].push((name.clone(), ts));
+            truth[1].push((name.clone(), ts));
+            assert!(!m.is_heaped(), "monotonic seed must stay on the FIFO fast path");
+        }
+        // drain in (rep_ts, name) order — still monotonic, still O(1)
+        while let Some(pick) = reference_select(&truth, &[1, 1]) {
+            assert_eq!(m.best(), Some(&pick));
+            assert!(!m.is_heaped(), "monotonic drain must stay on the FIFO fast path");
+            m.consume(&pick);
+            for col in truth.iter_mut() {
+                if let Some(pos) = col.iter().position(|(n, _)| *n == pick) {
+                    col.remove(pos);
+                }
+            }
+            assert_eq!(m.best().cloned(), reference_select(&truth, &[1, 1]));
+        }
+        assert_eq!(m.best(), None);
+    }
+
+    /// An out-of-order ready push (a later group with an earlier `rep_ts`) migrates
+    /// the matcher to the heap; `best()` stays correct across the transition, and
+    /// the fast path is re-entered once the structure fully drains.
+    #[test]
+    fn inversion_falls_back_then_re_enters_fast_path() {
+        let mut m = IncrementalMatcher::new(vec![1, 1]);
+        let a = NameId::new("a");
+        let b = NameId::new("b");
+        m.add(0, a.clone(), 5);
+        m.add(1, a.clone(), 5);
+        assert!(!m.is_heaped());
+        assert_eq!(m.best(), Some(&a));
+        // b ready at rep 2 < a's rep 5 → inversion → heap-backed, b is the pick
+        m.add(0, b.clone(), 2);
+        m.add(1, b.clone(), 2);
+        assert!(m.is_heaped());
+        assert_eq!(m.best(), Some(&b));
+        m.consume(&b);
+        assert_eq!(m.best(), Some(&a));
+        m.consume(&a);
+        assert_eq!(m.best(), None);
+        assert!(!m.is_heaped(), "fully drained matcher re-enters the FIFO fast path");
+    }
+
+    /// Diagnostic (ignored): a monotonic seed keeps the add path on the FIFO fast
+    /// path (no heap), so seeding cost is ~flat ns/add (amortised O(1)) instead of
+    /// the heap's O(log n). The assertion is deterministic (mode, not timing); the
+    /// ns/add is printed. Run with
+    /// `cargo test -p libpetri-runtime add_throughput -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn add_throughput_flat_on_monotonic_seed() {
+        use std::time::Instant;
+        for &depth in &[100usize, 800, 6400] {
+            let mut m = IncrementalMatcher::new(vec![1, 1]);
+            let t = Instant::now();
+            for i in 0..depth {
+                let name = NameId::new(format!("g{i:06}")); // zero-padded: lexical == numeric
+                m.add(0, name.clone(), i as u64);
+                m.add(1, name, i as u64);
+            }
+            let per_add = t.elapsed().as_nanos() as f64 / (2 * depth) as f64;
+            assert!(!m.is_heaped(), "monotonic seed must stay on the FIFO fast path (depth={depth})");
+            println!("depth={depth:5}  {per_add:6.1} ns/add");
         }
     }
 }
