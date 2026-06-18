@@ -14,7 +14,7 @@ Write small, reusable subnets with typed interfaces. Compose them into systems t
 | Implementation | Language | Runtime | Status |
 |---|---|---|---|
 | [**libpetri-java**](java/) | Java 25 | Virtual threads | Production |
-| [**libpetri-ts**](typescript/) | TypeScript 5.7 | Promises / event loop | Production |
+| [**libpetri-ts**](typescript/) | TypeScript 6.0 | Promises / event loop | Production |
 | [**libpetri-rust**](rust/) | Rust 2024 | Tokio async tasks | Production |
 | [**libpetri-py**](python/) | Python ≥3.11 | Tokio async via PyO3 | Beta |
 
@@ -28,7 +28,7 @@ Write small, reusable subnets with typed interfaces. Compose them into systems t
 
 - **Composable like a module system** — Define small subnets with typed interfaces (ports + channels), instantiate them with prefix-scoped state, and compose them by structural rewrite into a flat production net. `FusionSet` for shared cross-instance state, per-instance action overrides. Same five abstractions across Java, TypeScript, and Rust.
 - **Executable, not a simulator** — Production runtime where Petri nets *are* the program. Typed tokens carry data, transitions are instructions, timing constraints are deadlines, and the executor is a scheduler. Suitable for agent orchestration, workflow automation, protocol modeling, game logic, UI state machines, and anything with concurrency.
-- **Four implementations, one spec** — Java 25, TypeScript 5.7, Rust 2024, and Python ≥3.11 (PyO3 bindings on the Rust runtime) share [203 language-agnostic requirements](spec/00-index.md) covering every arc type, timing variant, execution phase, and the modular composition surface. Same behavior, verified independently in three of four (Python rides on Rust).
+- **Four implementations, one spec** — Java 25, TypeScript 6.0, Rust 2024, and Python ≥3.11 (PyO3 bindings on the Rust runtime) share [203 language-agnostic requirements](spec/00-index.md) covering every arc type, timing variant, execution phase, and the modular composition surface. Same behavior, verified independently in three of four (Python rides on Rust).
 - **Correlated by identity** — A fork mints a fresh opaque name (`freshName` / `fresh_name`) into the token payload, and a join re-merges exactly the sibling tokens of one unit of work by name equality (ν-nets, via `MatchSpec`). The match is part of the firing rule, not a check-then-act lookup in external state, and a bounded `Budget` place keeps the correlated fragment decidable.
 - **Turing-complete** — Coloured Petri Nets with inhibitor arcs can simulate any Turing machine. libpetri's nets can model arbitrary computation, not just finite-state workflows.
 
@@ -599,7 +599,7 @@ npm run test:watch       # Watch mode
 npm test -- core         # Run tests matching "core"
 ```
 
-TypeScript 5.7, ESM-only, strict mode. Built with tsup, tested with vitest.
+TypeScript 6.0, ESM-only, strict mode. Built with tsup, tested with vitest.
 
 ### Rust
 
