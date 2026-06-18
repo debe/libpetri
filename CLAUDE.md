@@ -9,7 +9,7 @@ libpetri is a multi-language **Coloured Time Petri Net** (CTPN) engine with form
 | Implementation | Language | Runtime | Status |
 |---|---|---|---|
 | `java/` | Java 25 | Virtual threads | Production |
-| `typescript/` | TypeScript 5.7 | Promises / event loop | Production |
+| `typescript/` | TypeScript 6.0 | Promises / event loop | Production |
 | `rust/` | Rust 2024 | Tokio async tasks | Production |
 | `python/` | Python ≥3.11 | Tokio async via PyO3 | Beta |
 
@@ -43,7 +43,7 @@ npm run test:watch             # Watch mode
 npm test -- core               # Run tests matching "core"
 ```
 
-TypeScript 5.7, ESM-only, strict mode. Built with tsup (multi-entry: `index`, `export`, `verification`, `debug`, `doclet`), tested with vitest. JaCoCo code coverage auto-generated in Java (`target/site/jacoco/`).
+TypeScript 6.0, ESM-only, strict mode. Built with tsup (multi-entry: `index`, `export`, `verification`, `debug`, `doclet`), tested with vitest. JaCoCo code coverage auto-generated in Java (`target/site/jacoco/`).
 
 ### Rust (`rust/`)
 
