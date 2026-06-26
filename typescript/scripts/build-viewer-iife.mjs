@@ -21,7 +21,9 @@ const tsRoot = join(here, '..');
 const outDir = join(tsRoot, 'dist', 'viewer');
 mkdirSync(outDir, { recursive: true });
 
-const banner = `/*! libpetri viewer (IIFE) — generated, do not edit; source: typescript/src/viewer/ */`;
+// Banner is pure ASCII on purpose (see the template-literal note below): the
+// whole bundle must survive being inlined into a Markdown doc comment.
+const banner = `/*! libpetri viewer (IIFE). Generated, do not edit. Source: typescript/src/viewer/ */`;
 
 const entryShim = join(outDir, '.iife-entry.js');
 writeFileSync(
@@ -41,10 +43,24 @@ await build({
   loader: { '.wasm': 'binary' },
   banner: { js: banner },
   minify: true,
+  // @viz-js/viz embeds the Graphviz WASM as a template-literal string whose
+  // bytes include raw newlines (0x0A). The doc generators inline this bundle as
+  // a `<script>` inside a Markdown doc comment, and rustdoc's Markdown renderer
+  // collapses runs of raw newlines — silently dropping WASM bytes and producing
+  // a "signature index out of range" CompileError in every browser. Lowering
+  // template literals to regular strings makes esbuild escape every 0x0A as
+  // `\n`, so no raw newline ever lands *inside* a string literal.
+  supported: { 'template-literal': false },
+  // `lineLimit` then re-introduces newlines, but only at safe inter-token
+  // points (never inside a string). This keeps lines short so rustdoc's
+  // Markdown parser doesn't scan multi-megabyte lines for HTML tags (which is
+  // pathologically slow); these inter-token newlines are insignificant
+  // whitespace, so Markdown collapsing them can't corrupt the bundle.
+  lineLimit: 400,
   sourcemap: false,
   legalComments: 'none',
-  // The viewer module imports @viz-js/viz and panzoom — both must be inlined
-  // so the IIFE works offline. No `external:` config; everything in.
+  // The viewer module imports @viz-js/viz and panzoom; both must be inlined so
+  // the IIFE works offline. No `external:` config; everything in.
   logLevel: 'info',
 });
 

@@ -6,10 +6,10 @@
  * @viz-js/viz, whose Emscripten Graphviz module is embedded as a JS string and
  * decoded at runtime. A corrupt / truncated bake produces a structurally
  * invalid WASM (e.g. "signature index out of range") that fails to instantiate
- * in every browser — but only at first render, so it slips through unit tests
+ * in every browser, but only at first render, so it slips through unit tests
  * that mock @viz-js/viz. This script is the build-time gate that catches it.
  *
- * Two independent checks, both browser-free (Node ships WebAssembly):
+ * Three independent checks, all browser-free (Node ships WebAssembly):
  *
  *   1. Functional  — import @viz-js/viz, instantiate it, render a tiny graph.
  *                    Proves the *pinned* viz version actually works end to end.
@@ -17,6 +17,11 @@
  *                    to WebAssembly.instantiate, and assert WebAssembly.validate
  *                    on them. Proves the bundling/minify step didn't corrupt the
  *                    embedded module.
+ *   3. Markdown    — the doc generators inline this bundle into a Markdown doc
+ *                    comment; rustdoc's renderer can collapse runs of raw
+ *                    newlines. Re-run the structural check on a newline-collapsed
+ *                    copy and assert the WASM still validates, so no raw newline
+ *                    can ever leak into a string literal again.
  *
  * Exit non-zero on any failure so `npm run build:viewer` (and thus
  * scripts/build-viewer.sh) aborts before a bad bundle is distributed.
@@ -27,10 +32,20 @@ import { dirname, join } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const iifePath = join(here, '..', 'dist', 'viewer', 'viewer.iife.js');
+const realWA = globalThis.WebAssembly;
 
 function fail(msg) {
   console.error(`\n[check-viewer-wasm] FAIL: ${msg}\n`);
   process.exit(1);
+}
+
+function hexWindow(bytes, center, span = 24) {
+  center = Math.min(center, Math.max(0, bytes.length - 1));
+  const lo = Math.max(0, center - span);
+  const hi = Math.min(bytes.length, center + span);
+  let out = '';
+  for (let i = lo; i < hi; i++) out += bytes[i].toString(16).padStart(2, '0') + ' ';
+  return `bytes [${lo}, ${hi}): ${out.trim()}`;
 }
 
 // ---- Check 1: functional render via the pinned @viz-js/viz ----------------
@@ -44,25 +59,10 @@ async function functionalCheck() {
   console.log('[check-viewer-wasm] @viz-js/viz instantiated + rendered OK');
 }
 
-// ---- Check 2: validate the WASM embedded in the built IIFE -----------------
-function hexWindow(bytes, center, span = 24) {
-  center = Math.min(center, Math.max(0, bytes.length - 1));
-  const lo = Math.max(0, center - span);
-  const hi = Math.min(bytes.length, center + span);
-  let out = '';
-  for (let i = lo; i < hi; i++) out += bytes[i].toString(16).padStart(2, '0') + ' ';
-  return `bytes [${lo}, ${hi}): ${out.trim()}`;
-}
-
-async function structuralCheck() {
-  let code;
-  try {
-    code = readFileSync(iifePath, 'utf8');
-  } catch {
-    fail(`built artifact not found: ${iifePath} (run the IIFE build first)`);
-  }
-
-  const realWA = globalThis.WebAssembly;
+// Load `code` (the built IIFE, or a transformed copy) under a tolerant DOM
+// shim, capture the exact bytes it hands to WebAssembly.instantiate, and return
+// them. Browser-free: a WebAssembly Proxy grabs the bytes then short-circuits.
+async function captureWasm(code) {
   let captured = null;
   const grab = (arg) => {
     let buf = arg;
@@ -70,10 +70,8 @@ async function structuralCheck() {
     if (buf instanceof ArrayBuffer) captured ??= new Uint8Array(buf.slice(0));
     else if (arg instanceof Uint8Array) captured ??= new Uint8Array(arg);
   };
-
-  // A maximally tolerant DOM/window shim: any property access returns another
-  // node (callable or indexable) so the viewer's top-level + mount() reach the
-  // point where viz instantiates the WASM, without a real browser.
+  // Any property access returns another node (callable + indexable) so the
+  // viewer's top-level + mount() reach the WASM instantiation point.
   const node = () =>
     new Proxy(function () {}, {
       get(_t, p) {
@@ -83,36 +81,20 @@ async function structuralCheck() {
         if (p === 'nodeType') return 1;
         return node();
       },
-      set() {
-        return true;
-      },
-      apply() {
-        return node();
-      },
-      construct() {
-        return node();
-      },
+      set() { return true; },
+      apply() { return node(); },
+      construct() { return node(); },
     });
-
   const setG = (k, v) => {
-    try {
-      globalThis[k] = v;
-    } catch {
-      Object.defineProperty(globalThis, k, { value: v, configurable: true, writable: true });
-    }
+    try { globalThis[k] = v; }
+    catch { Object.defineProperty(globalThis, k, { value: v, configurable: true, writable: true }); }
   };
-
   setG('WebAssembly', new Proxy(realWA, {
     get(t, p) {
       if (p === 'instantiate' || p === 'compile' || p === 'validate')
-        return (a) => {
-          grab(a);
-          throw new Error('__CAPTURED__'); // short-circuit; we only need the bytes
-        };
+        return (a) => { grab(a); throw new Error('__CAPTURED__'); };
       if (p === 'instantiateStreaming' || p === 'compileStreaming')
-        return async () => {
-          throw new Error('__streaming_not_used__');
-        };
+        return async () => { throw new Error('__streaming_not_used__'); };
       return Reflect.get(t, p);
     },
   }));
@@ -123,9 +105,7 @@ async function structuralCheck() {
   setG('location', { href: 'file:///check' });
   setG('getComputedStyle', () => node());
   setG('requestAnimationFrame', () => 0);
-  setG('fetch', async () => {
-    throw new Error('no fetch in check');
-  });
+  setG('fetch', async () => { throw new Error('no fetch in check'); });
   setG('LibpetriViewer', undefined);
 
   // viz's Emscripten runtime logs "Aborted(...)" to console.error when our
@@ -133,45 +113,59 @@ async function structuralCheck() {
   const realError = console.error;
   console.error = () => {};
   try {
-    try {
-      (0, eval)(code);
-    } catch {
-      // top-level DOM pokes may throw under the shim; that's fine.
-    }
+    try { (0, eval)(code); } catch { /* top-level DOM pokes may throw; fine */ }
     const V = globalThis.LibpetriViewer;
     const trigger = V && (V.renderDotToSvg || V.mount || V.getViz);
     if (typeof trigger === 'function') {
-      try {
-        await trigger('digraph G { a -> b }', node(), { chrome: true });
-      } catch {
-        /* instantiate hook throws __CAPTURED__; expected */
-      }
+      try { await trigger('digraph G { a -> b }', node(), { chrome: true }); }
+      catch { /* instantiate hook throws __CAPTURED__; expected */ }
     }
   } finally {
     console.error = realError;
   }
-  const V = globalThis.LibpetriViewer;
-
   setG('WebAssembly', realWA); // restore before validating
+  return { captured, exports: globalThis.LibpetriViewer };
+}
 
-  if (!captured) {
-    const exports = V ? Object.keys(V).slice(0, 10).join(', ') : '(none)';
-    fail(
-      `could not capture the embedded WASM from the bundle ` +
-        `(LibpetriViewer exports: ${exports}). Did the viewer API change?`,
-    );
+// ---- Check 2: validate the WASM embedded in the built IIFE -----------------
+async function structuralCheck() {
+  let code;
+  try {
+    code = readFileSync(iifePath, 'utf8');
+  } catch {
+    fail(`built artifact not found: ${iifePath} (run the IIFE build first)`);
   }
-
+  const { captured, exports } = await captureWasm(code);
+  if (!captured) {
+    const names = exports ? Object.keys(exports).slice(0, 10).join(', ') : '(none)';
+    fail(`could not capture the embedded WASM (LibpetriViewer exports: ${names}). Viewer API changed?`);
+  }
   if (!realWA.validate(captured)) {
     console.error(`[check-viewer-wasm] embedded WASM is ${captured.length} bytes`);
     console.error(`[check-viewer-wasm] ${hexWindow(captured, 3360)}`);
     fail('WebAssembly.validate() rejected the embedded module (corrupt bake)');
   }
-  console.log(
-    `[check-viewer-wasm] embedded WASM validates OK (${captured.length} bytes)`,
-  );
+  console.log(`[check-viewer-wasm] embedded WASM validates OK (${captured.length} bytes)`);
+  return code;
+}
+
+// ---- Check 3: survive Markdown newline-collapse ----------------------------
+async function markdownResilienceCheck(code) {
+  const collapsed = code
+    .replace(/[ \t]+\n/g, '\n') // trim trailing whitespace per line
+    .replace(/\n{2,}/g, '\n');  // collapse blank-line runs (the rustdoc failure)
+  const { captured } = await captureWasm(collapsed);
+  if (!captured || !realWA.validate(captured)) {
+    fail(
+      'embedded WASM does not survive Markdown newline-collapse — a raw newline ' +
+        'leaked into a string literal. Check the esbuild template-literal lowering ' +
+        '/ lineLimit settings in build-viewer-iife.mjs.',
+    );
+  }
+  console.log('[check-viewer-wasm] WASM survives Markdown newline-collapse OK');
 }
 
 await functionalCheck();
-await structuralCheck();
+const code = await structuralCheck();
+await markdownResilienceCheck(code);
 console.log('[check-viewer-wasm] PASS');
