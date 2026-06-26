@@ -1,5 +1,15 @@
 # Changelog
 
+## Java 2.10.2 / TypeScript 2.10.2 / Rust 3.4.2 — 2026-06-26
+
+**Fix: bundled viewer WASM rendered blank in rustdoc-embedded diagrams**
+
+The doc generators inline `petrinet-diagrams.js` as a `<script>` inside a Markdown doc comment. @viz-js/viz embeds the Graphviz WASM as a string whose bytes include raw newlines; when the doc comment isn't a clean leading HTML block (e.g. it has preceding `///` prose), rustdoc's Markdown renderer collapsed those newlines, dropping WASM bytes and producing `CompileError: signature index out of range` in every browser.
+
+- The viewer bundle is now built with esbuild template-literal lowering + `lineLimit`, so no raw newline lands inside a string literal and lines stay short (rustdoc no longer scans multi-megabyte lines). The bundle is pure ASCII and survives Markdown inlining unchanged.
+- `check-viewer-wasm.mjs` gains a Markdown-resilience gate: it re-validates the embedded WASM after a newline-collapse pass, so a regression that reintroduces raw newlines fails the build.
+- Verified by regenerating the downstream consumer's rustdoc page with the rebuilt asset: the diagram renders in Chrome 145 with no errors.
+
 ## Java 2.10.1 / TypeScript 2.10.1 / Rust 3.4.1 — 2026-06-26
 
 **Doc-generator viewer bundle: WASM validation + anti-drift CI gate**
