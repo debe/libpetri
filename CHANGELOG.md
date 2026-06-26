@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+**Doc-generator viewer bundle: WASM validation + anti-drift CI gate**
+
+The baked Graphviz-WASM in the shared `petrinet-diagrams.js` (Java taglet, Rust `libpetri-docgen`, TS doclet) is now validated before it can ship — closing the gap where a corrupt bake renders blank docs but passes all unit tests (which mock `@viz-js/viz`).
+
+- **Build gate:** `npm run build:viewer` now runs `check-viewer-wasm.mjs`, which `WebAssembly.validate`s the WASM embedded in the built IIFE and renders a graph through `@viz-js/viz`. `scripts/build-viewer.sh` inherits it, so a bad bundle can't reach the resource dirs.
+- **CI:** new `viewer` job builds the bundle, runs a headless-Chromium render smoke test (`smoke:viewer`, asserts an `<svg>` appears), and fails on viewer-asset drift (`git diff --exit-code`) — the committed assets must be the reproducible output of the locked toolchain.
+- **Pinned + rebuilt:** `@viz-js/viz` (`3.28.0`) and `esbuild` (`0.27.3`) are exact-pinned so the bundle is reproducible; dependabot bumps are now gated by the checks above. The three resource bundles are rebuilt on the pinned toolchain, resolving prior 3.27/3.28 drift. No viewer behaviour change.
+
 ## Java 2.10.0 / TypeScript 2.10.0 / Rust 3.4.0 / Python 2.13.0 — 2026-06-11
 
 **Amortised O(1) ν-join addition (monotonic FIFO fast-path)**

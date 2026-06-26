@@ -93,3 +93,36 @@ jobs:
       - run: maturin sdist --out dist
       - run: python -m pip install dist/libpetri-*.whl
       - run: pytest
+
+  # Guards the doc-generator viewer bundle (petrinet-diagrams.js): the baked
+  # Graphviz-WASM must instantiate + render, and the committed assets must be
+  # the reproducible output of the locked toolchain (no silent dep drift).
+  viewer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: typescript
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      # Builds the viewer IIFE, validates the embedded WASM (check-viewer-wasm),
+      # and distributes the byte-identical bundle to all three resource dirs.
+      - run: bash ../scripts/build-viewer.sh
+      # Headless render in a real WASM engine: asserts an <svg> actually appears.
+      - run: npm run smoke:viewer
+      # Anti-drift: the just-rebuilt assets must match what is committed. Fails
+      # if a @viz-js/viz / esbuild bump was merged without rebuilding the bundle.
+      - name: No viewer-asset drift (committed == rebuilt from locked deps)
+        run: |
+          git -C .. diff --exit-code -- \
+            java/src/main/resources/javadoc/petrinet-diagrams.js \
+            java/src/main/resources/javadoc/petrinet-diagrams.css \
+            rust/libpetri-docgen/resources/petrinet-diagrams.js \
+            rust/libpetri-docgen/resources/petrinet-diagrams.css \
+            typescript/src/doclet/resources/petrinet-diagrams.js \
+            typescript/src/doclet/resources/petrinet-diagrams.css
