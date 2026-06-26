@@ -55,11 +55,14 @@ fi
 info()  { echo "==> $*"; }
 error() { echo "Error: $*" >&2; exit 1; }
 
-# Extract the CHANGELOG.md section for the given version (between `## <v>` and
-# the next `## `). Prints empty string if the version has no section.
+# Extract the CHANGELOG.md section for the given version. Matches a `## ` header
+# that contains the version as a space-delimited token, so it works with the
+# coordinated multi-language headers (e.g. `## Java 2.10.1 / Rust 3.4.1 — …`)
+# as well as a bare `## 2.10.1`. Prints empty string if no section matches.
 changelog_section() {
     awk -v v="$1" '
-        $0 == "## " v { p = 1; next }
+        BEGIN { gsub(/\./, "\\.", v); re = " " v " " }
+        /^## / && $0 ~ re { p = 1; next }
         p && /^## / { exit }
         p
     ' "$PROJECT_ROOT/CHANGELOG.md"
