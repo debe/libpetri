@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Java 2.10.1 / TypeScript 2.10.1 / Rust 3.4.1 — 2026-06-26
 
 **Doc-generator viewer bundle: WASM validation + anti-drift CI gate**
 
