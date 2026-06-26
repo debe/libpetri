@@ -67,7 +67,7 @@
     "regenerate-sample": "tsx scripts/regenerate-sample.ts"
   },
   "devDependencies": {
-    "@types/node": "^25.8.0",
+    "@types/node": "^26.0.1",
     "@viz-js/viz": "3.28.0",
     "elkjs": "^0.11.1",
     "esbuild": "0.27.3",
