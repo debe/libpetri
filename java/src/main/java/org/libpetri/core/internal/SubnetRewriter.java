@@ -1,6 +1,7 @@
 package org.libpetri.core.internal;
 
 import org.libpetri.core.Arc;
+import org.libpetri.core.MatchSpec;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
 import org.libpetri.core.Timing;
@@ -424,6 +425,13 @@ public final class SubnetRewriter {
      *       Sequential composition: caller-side action runs first, then the
      *       instance-side action. The runtime sees one transition firing,
      *       per [CORE-021] / [EXEC-001].</li>
+     *   <li><b>ν-net match</b> — see {@link #mergeMatchSpecs(MatchSpec, MatchSpec, String)}.
+     *       The surviving one-sided match is carried forward as-is (both sides
+     *       already reference final host places); two matches are rejected. A
+     *       merge MUST NOT silently drop a match per [NU-060].</li>
+     *   <li><b>Declared&rarr;actual alias</b> — the MOD-031 place correspondence
+     *       is unioned across both sides so each composed action resolves its
+     *       declared place constants ([MOD-030] / [MOD-031]).</li>
      * </ul>
      *
      * <h3>Output-spec union design note</h3>
@@ -453,10 +461,15 @@ public final class SubnetRewriter {
             throw new IllegalArgumentException("mergedName must be non-blank");
         }
 
-        // Resolve timing first so a conflict short-circuits before any building.
+        // Resolve timing / match / alias first so any conflict short-circuits
+        // before building. The ν-net match and MOD-031 alias are carried as-is:
+        // both sides already reference final host places at merge time (upstream
+        // substitutePlaces remapped them, match included), so no further remap.
         Timing mergedTiming = mergeTimings(caller.timing(), instance.timing(), mergedName);
         int mergedPriority  = pickPriority(caller.priority(), instance.priority());
         TransitionAction mergedAction = composeActions(caller.action(), instance.action());
+        MatchSpec mergedMatch = mergeMatchSpecs(caller.matchSpec(), instance.matchSpec(), mergedName);
+        Map<Place<?>, Place<?>> mergedAlias = mergePlaceAlias(caller.placeAlias(), instance.placeAlias(), mergedName);
 
         var builder = Transition.builder(mergedName)
             .timing(mergedTiming)
@@ -489,7 +502,72 @@ public final class SubnetRewriter {
             builder.resetArc(arc);
         }
 
+        // Apply the ν-net match (NU-060) and the MOD-031 declared→actual place
+        // map (both resolved above, before any building, so a conflict on either
+        // short-circuits with no wasted arc-union work).
+        if (mergedMatch != null) {
+            builder.match(mergedMatch);
+        }
+        if (!mergedAlias.isEmpty()) {
+            builder.placeAlias(mergedAlias);
+        }
+
         return builder.build();
+    }
+
+    /**
+     * Carries the ν-net join correlation ({@link MatchSpec}) through a channel
+     * merge per <b>NU-060</b>. One-sided → that side's match survives;
+     * both-null → none; both non-null → the merge is rejected, because two
+     * independent name-correlations cannot be silently fused into one
+     * transition and NU-060 forbids dropping a match. The surviving match is
+     * returned as-is: both transitions already reference final host places at
+     * merge time, so no place remap is applied here (unlike
+     * {@link #rebuildWithName}).
+     *
+     * @param caller      caller-side match (may be null)
+     * @param instance    instance-side match (may be null)
+     * @param channelName channel / merged-transition name for diagnostics
+     * @return the surviving match, or {@code null} when neither side carries one
+     * @throws IllegalArgumentException when both sides carry a match (NU-060)
+     */
+    private static MatchSpec mergeMatchSpecs(MatchSpec caller, MatchSpec instance, String channelName) {
+        if (caller == null) return instance;
+        if (instance == null) return caller;
+        throw new IllegalArgumentException(
+            "Channel composition '" + channelName + "': both the caller-side and "
+                + "instance-side transition carry a ν-net match — refusing to fuse two "
+                + "independent correlations into one transition (NU-060). Resolve "
+                + "explicitly by keeping the match on a single side.");
+    }
+
+    /**
+     * Unions the two sides' MOD-031 declared&rarr;actual place correspondences
+     * for a channel merge. Both actions run within the single merged firing, so
+     * each side's declared-place resolution must survive. Disjoint keys union;
+     * an entry present on both sides with the same actual collapses; a genuine
+     * conflict (same declared place bound to two different actual places) is
+     * rejected naming the declared place.
+     */
+    private static Map<Place<?>, Place<?>> mergePlaceAlias(
+        Map<Place<?>, Place<?>> caller,
+        Map<Place<?>, Place<?>> instance,
+        String channelName
+    ) {
+        if (caller.isEmpty()) return instance;
+        if (instance.isEmpty()) return caller;
+        var merged = new HashMap<Place<?>, Place<?>>(caller);
+        for (var e : instance.entrySet()) {
+            var existing = merged.putIfAbsent(e.getKey(), e.getValue());
+            if (existing != null && !existing.equals(e.getValue())) {
+                throw new IllegalArgumentException(
+                    "Channel composition '" + channelName + "': conflicting declared→actual "
+                        + "place alias for declared place '" + e.getKey().name() + "' — caller-side "
+                        + "maps to '" + existing.name() + "', instance-side to '" + e.getValue().name()
+                        + "' (MOD-031). Resolve explicitly.");
+            }
+        }
+        return merged;
     }
 
     /**
