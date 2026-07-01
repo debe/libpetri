@@ -53,6 +53,7 @@ import type { Out } from '../out.js';
 import { and, outPlace, forwardInput, timeout, allPlaces } from '../out.js';
 import { PetriNet } from '../petri-net.js';
 import { Transition } from '../transition.js';
+import type { MatchSpec } from '../match-spec.js';
 import type { Timing } from '../timing.js';
 import type { TransitionAction } from '../transition-action.js';
 import { passthrough } from '../transition-action.js';
@@ -448,10 +449,15 @@ export function mergeTransitions(
     throw new Error('mergeTransitions: mergedName must be a non-empty string');
   }
 
-  // Resolve timing first so a conflict short-circuits before any building.
+  // Resolve timing / match / alias first so any conflict short-circuits before
+  // building. The ν-net match and MOD-031 alias are carried as-is: both sides
+  // already reference final host places at merge time (upstream substitutePlaces
+  // remapped them, match included), so no further remap here.
   const mergedTiming = mergeTimings(caller.timing, instance.timing, mergedName);
   const mergedPriority = pickPriority(caller.priority, instance.priority);
   const mergedAction = composeActions(caller.action, instance.action);
+  const mergedMatch = mergeMatchSpecs(caller.matchSpec, instance.matchSpec, mergedName);
+  const mergedAlias = mergePlaceAlias(caller.placeAlias, instance.placeAlias, mergedName);
 
   const builder = Transition.builder(mergedName)
     .timing(mergedTiming)
@@ -491,7 +497,70 @@ export function mergeTransitions(
     builder.reset(rs.place);
   }
 
+  // Apply the ν-net match (NU-060) and the MOD-031 declared→actual place map
+  // (both resolved above, before any building, so a conflict on either
+  // short-circuits with no wasted arc-union work).
+  if (mergedMatch !== null) {
+    builder.match(mergedMatch);
+  }
+  if (mergedAlias.size > 0) {
+    builder.placeAlias(mergedAlias);
+  }
+
   return builder.build();
+}
+
+/**
+ * Carries the ν-net join correlation ({@link MatchSpec}) through a channel merge
+ * per **NU-060**. One-sided → that side's match survives; both-null → none; both
+ * non-null → the merge is rejected, because two independent name correlations
+ * cannot be silently fused into one transition and NU-060 forbids dropping a
+ * match. The surviving match is returned as-is: both transitions already
+ * reference final host places at merge time, so no place remap is applied here
+ * (unlike {@link rebuildWithName}).
+ */
+function mergeMatchSpecs(
+  caller: MatchSpec | null,
+  instance: MatchSpec | null,
+  channelName: string,
+): MatchSpec | null {
+  if (caller === null) return instance;
+  if (instance === null) return caller;
+  throw new Error(
+    `Channel composition '${channelName}': both the caller-side and instance-side ` +
+      `transition carry a ν-net match — refusing to fuse two independent correlations ` +
+      `into one transition (NU-060). Resolve explicitly by keeping the match on a single side.`,
+  );
+}
+
+/**
+ * Unions the two sides' MOD-031 declared→actual place correspondences for a
+ * channel merge. Both actions run within the single merged firing, so each
+ * side's declared-place resolution must survive. Disjoint keys union; an entry
+ * present on both sides with the same actual collapses; a genuine conflict (same
+ * declared place bound to two different actual places, compared by place name)
+ * is rejected naming the declared place.
+ */
+function mergePlaceAlias(
+  caller: ReadonlyMap<string, Place<any>>,
+  instance: ReadonlyMap<string, Place<any>>,
+  channelName: string,
+): ReadonlyMap<string, Place<any>> {
+  if (caller.size === 0) return instance;
+  if (instance.size === 0) return caller;
+  const merged = new Map<string, Place<any>>(caller);
+  for (const [declared, actual] of instance) {
+    const existing = merged.get(declared);
+    if (existing !== undefined && existing.name !== actual.name) {
+      throw new Error(
+        `Channel composition '${channelName}': conflicting declared→actual place alias ` +
+          `for declared place '${declared}' — caller-side maps to '${existing.name}', ` +
+          `instance-side to '${actual.name}' (MOD-031). Resolve explicitly.`,
+      );
+    }
+    merged.set(declared, actual);
+  }
+  return merged;
 }
 
 /**

@@ -11,8 +11,10 @@ import { passthrough } from '../../src/core/transition-action.js';
 import { TransitionContext } from '../../src/core/transition-context.js';
 import { TokenInput } from '../../src/core/token-input.js';
 import { TokenOutput } from '../../src/core/token-output.js';
-import { tokenOf } from '../../src/core/token.js';
+import { tokenOf, tokenAt } from '../../src/core/token.js';
 import type { Token } from '../../src/core/token.js';
+import { nameId } from '../../src/core/name.js';
+import { matchSpec, matchKey } from '../../src/core/match-spec.js';
 import {
   composeActions,
   mergeTransitions,
@@ -353,5 +355,110 @@ describe('SubnetRewriter.mergeTransitions — channel composition (MOD-021)', ()
     // attemptCount sink.
     expect(finalMarking.hasTokens(hostResult)).toBe(true);
     expect(finalMarking.hasTokens(attemptCountPlace as Place<string>)).toBe(true);
+  });
+});
+
+describe('SubnetRewriter.mergeTransitions — ν-net match + declared→actual alias (NU-060 / MOD-031)', () => {
+  const cidKey = (a: Place<string>, b: Place<string>) =>
+    matchSpec(matchKey(a, (s: string) => nameId(s)), matchKey(b, (s: string) => nameId(s)));
+
+  it('channelMerge_carriesOneSidedMatchSpec: caller-side ν-net match survives the merge', () => {
+    const a = place<string>('branchA');
+    const b = place<string>('branchB');
+    const caller = Transition.builder('join').inputs(one(a), one(b)).match(cidKey(a, b)).build();
+    const instance = Transition.builder('instanceSide').build();
+
+    const merged = mergeTransitions(caller, instance, 'join');
+
+    expect(merged.matchSpec).not.toBeNull();
+    expect(merged.matchSpec!.keys.map((k) => k.place.name).sort()).toEqual(['branchA', 'branchB']);
+  });
+
+  it('channelMerge_carriesInstanceSideMatchSpec: instance-side ν-net match survives the merge', () => {
+    const a = place<string>('branchA');
+    const b = place<string>('branchB');
+    const caller = Transition.builder('join').build();
+    const instance = Transition.builder('instanceSide').inputs(one(a), one(b)).match(cidKey(a, b)).build();
+
+    const merged = mergeTransitions(caller, instance, 'join');
+
+    expect(merged.matchSpec).not.toBeNull();
+    expect(merged.matchSpec!.keys.map((k) => k.place.name).sort()).toEqual(['branchA', 'branchB']);
+  });
+
+  it('channelMerge_bothSidesCarryMatch_throws: NU-060 rejects fusing two correlations', () => {
+    const a = place<string>('branchA');
+    const b = place<string>('branchB');
+    const c = place<string>('branchC');
+    const d = place<string>('branchD');
+    const caller = Transition.builder('join').inputs(one(a), one(b)).match(cidKey(a, b)).build();
+    const instance = Transition.builder('instanceSide').inputs(one(c), one(d)).match(cidKey(c, d)).build();
+
+    expect(() => mergeTransitions(caller, instance, 'attempt')).toThrow('NU-060');
+    expect(() => mergeTransitions(caller, instance, 'attempt')).toThrow('attempt');
+  });
+
+  it('channelMerge_carriesPlaceAliasFromBothSides: MOD-031 declared→actual alias unioned', () => {
+    const actualA = place<string>('host/actualA');
+    const actualB = place<string>('host/actualB');
+    const caller = Transition.builder('merged')
+      .placeAlias(new Map<string, Place<any>>([['declaredA', actualA]]))
+      .build();
+    const instance = Transition.builder('instanceSide')
+      .placeAlias(new Map<string, Place<any>>([['declaredB', actualB]]))
+      .build();
+
+    const merged = mergeTransitions(caller, instance, 'merged');
+
+    expect(merged.placeAlias.get('declaredA')?.name).toBe('host/actualA');
+    expect(merged.placeAlias.get('declaredB')?.name).toBe('host/actualB');
+  });
+
+  it('channelMerge_conflictingPlaceAlias_throws: MOD-031 same-declared different-actual rejected', () => {
+    // Same declared local name bound to two different actual places across the
+    // two fused sides — an ambiguous MOD-031 correspondence, rejected.
+    const actualA = place<string>('host/a');
+    const actualB = place<string>('host/b');
+    const caller = Transition.builder('merged')
+      .placeAlias(new Map<string, Place<any>>([['declaredX', actualA]]))
+      .build();
+    const instance = Transition.builder('instanceSide')
+      .placeAlias(new Map<string, Place<any>>([['declaredX', actualB]]))
+      .build();
+
+    expect(() => mergeTransitions(caller, instance, 'attempt')).toThrow('MOD-031');
+    expect(() => mergeTransitions(caller, instance, 'attempt')).toThrow('attempt');
+  });
+
+  it('channelMerge_mergedMatchJoin_correlatesByName_notFifo: behavioral regression', async () => {
+    // The reported production symptom: a matched join fused through the merge
+    // path must still pair tokens by name — not by FIFO arrival order.
+    const a = place<string>('branchA');
+    const b = place<string>('branchB');
+    const out = place<string>('merged');
+
+    const caller = Transition.builder('join')
+      .inputs(one(a), one(b))
+      .match(cidKey(a, b))
+      .outputs(outPlace(out))
+      .action(async (ctx) => {
+        ctx.output(out, `${ctx.input(a)}+${ctx.input(b)}`);
+      })
+      .build();
+    const instance = Transition.builder('instanceSide').build();
+
+    const merged = mergeTransitions(caller, instance, 'join');
+    const net = PetriNet.builder('mergedNuJoin').transition(merged).build();
+
+    // Interleaved timestamps: FIFO would cross-pair (X+Y / Y+X); a live match
+    // yields the correlated X+X / Y+Y.
+    const tokens = new Map<Place<any>, Token<any>[]>([
+      [a, [tokenAt('X', 0), tokenAt('Y', 1)]],
+      [b, [tokenAt('Y', 0), tokenAt('X', 1)]],
+    ]);
+
+    const marking = await new BitmapNetExecutor(net, tokens).run(2000);
+    const vals = [...marking.peekTokens(out)].map((t) => t.value as string).sort();
+    expect(vals).toEqual(['X+X', 'Y+Y']);
   });
 });

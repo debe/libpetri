@@ -41,6 +41,7 @@ use crate::action::{ActionError, BoxedAction, TransitionAction, is_passthrough};
 use crate::arc::{Inhibitor, Read, Reset};
 use crate::context::TransitionContext;
 use crate::input::In;
+use crate::match_spec::{MatchKey, MatchSpec};
 use crate::output::Out;
 use crate::petri_net::PetriNet;
 use crate::place::PlaceRef;
@@ -211,6 +212,17 @@ fn rebuild_with_name(
             rewritten.push(rewrite_reset(rs, remap));
         }
         builder = builder.resets(rewritten);
+    }
+
+    // Carry the ν-net join correlation forward, following place renames so a
+    // composed join still correlates the renamed inputs (NU-030 MUST / NU-020).
+    if let Some(ms) = t.match_spec() {
+        let keys: Vec<MatchKey> = ms
+            .keys()
+            .iter()
+            .map(|k| MatchKey::from_erased(resolve(k.place(), remap), Arc::clone(k.key())))
+            .collect();
+        builder = builder.match_spec(MatchSpec::from_keys(keys));
     }
 
     builder.build()
@@ -512,10 +524,15 @@ pub(crate) fn merge_transitions(
         "merge_transitions: merged_name must be non-empty"
     );
 
-    // Resolve timing first so a conflict short-circuits before any building.
+    // Resolve timing / match / alias first so any conflict short-circuits
+    // before building — and so `merged_name` is still borrowable before the
+    // builder takes ownership of it below.
     let merged_timing = merge_timings(caller.timing(), instance.timing(), &merged_name);
     let merged_priority = pick_priority(caller.priority(), instance.priority());
     let merged_action = compose_actions(caller.action(), instance.action());
+    let merged_match = merge_match_specs(caller.match_spec(), instance.match_spec(), &merged_name);
+    let merged_local =
+        merge_local_name_maps(caller.local_name_map(), instance.local_name_map(), &merged_name);
 
     let mut builder = Transition::builder(merged_name)
         .timing(merged_timing)
@@ -552,7 +569,81 @@ pub(crate) fn merge_transitions(
         builder = builder.resets(unioned_resets);
     }
 
+    // Carry the ν-net join correlation forward (NU-060: a merge MUST NOT
+    // silently drop a match). Both sides already reference final host places at
+    // merge time (upstream substitute_places remapped them, match included), so
+    // the surviving match is cloned as-is — no further remap.
+    if let Some(ms) = merged_match {
+        builder = builder.match_spec(ms);
+    }
+
+    // Carry the MOD-031 declared→actual (local-name) map forward: the merged
+    // action runs both sides' actions sequentially and each resolves its
+    // declared place constants through this map (MOD-030 / MOD-031).
+    if let Some(map) = merged_local {
+        builder = builder.local_name_map(map);
+    }
+
     builder.build()
+}
+
+/// Carries the ν-net join correlation ([`MatchSpec`]) through a channel merge
+/// per **NU-060**. One-sided → that side's match survives; both-`None` → `None`;
+/// both `Some` → the merge is rejected with a panic, because two independent
+/// name correlations cannot be silently fused into one transition and NU-060
+/// forbids dropping a match. The surviving match is cloned as-is: both
+/// transitions already reference final host places at merge time, so no place
+/// remap is applied here (unlike [`rebuild_with_name`]).
+fn merge_match_specs(
+    caller: Option<&MatchSpec>,
+    instance: Option<&MatchSpec>,
+    channel_name: &str,
+) -> Option<MatchSpec> {
+    match (caller, instance) {
+        (None, None) => None,
+        (Some(ms), None) | (None, Some(ms)) => Some(ms.clone()),
+        (Some(_), Some(_)) => panic!(
+            "Channel composition '{}': both the caller-side and instance-side \
+             transition carry a ν-net match — refusing to fuse two independent \
+             correlations into one transition (NU-060). Resolve explicitly by \
+             keeping the match on a single side.",
+            channel_name
+        ),
+    }
+}
+
+/// Unions the two sides' MOD-031 declared→actual (local-name) maps for a channel
+/// merge. Both actions run within the single merged firing, so each side's
+/// declared-place resolution must survive. Disjoint keys union; an entry present
+/// on both sides with the same actual collapses; a genuine conflict (same
+/// declared name bound to two different actual names) is rejected with a panic
+/// naming the declared place.
+fn merge_local_name_maps(
+    caller: Option<&Arc<HashMap<Arc<str>, Arc<str>>>>,
+    instance: Option<&Arc<HashMap<Arc<str>, Arc<str>>>>,
+    channel_name: &str,
+) -> Option<Arc<HashMap<Arc<str>, Arc<str>>>> {
+    match (caller, instance) {
+        (None, None) => None,
+        (Some(m), None) | (None, Some(m)) => Some(Arc::clone(m)),
+        (Some(c), Some(i)) => {
+            let mut merged: HashMap<Arc<str>, Arc<str>> = (**c).clone();
+            for (declared, actual) in i.iter() {
+                if let Some(existing) = merged.get(declared) {
+                    if existing != actual {
+                        panic!(
+                            "Channel composition '{}': conflicting declared→actual place \
+                             alias for declared place '{}' — caller-side maps to '{}', \
+                             instance-side to '{}' (MOD-031). Resolve explicitly.",
+                            channel_name, declared, existing, actual
+                        );
+                    }
+                }
+                merged.insert(Arc::clone(declared), Arc::clone(actual));
+            }
+            Some(Arc::new(merged))
+        }
+    }
 }
 
 /// Merges two timings per **MOD-021**:
@@ -757,6 +848,7 @@ mod tests {
     use super::*;
     use crate::arc::{inhibitor, read, reset};
     use crate::input::{all, at_least, exactly, one, one_guarded};
+    use crate::name::NameId;
     use crate::output::{and, forward_input, out_place, timeout, xor};
     use crate::place::Place;
     use crate::timing::{deadline, delayed, immediate};
@@ -1451,6 +1543,174 @@ mod tests {
         let merged = merge_transitions(&caller, &instance, Arc::<str>::from("callerName"));
 
         assert_eq!(merged.name(), "callerName");
+    }
+
+    // ============================================================
+    //  ν-net match + local-name-map carry (NU-030 / NU-060 / MOD-031)
+    // ============================================================
+
+    fn cid_match(a: &Place<String>, b: &Place<String>) -> MatchSpec {
+        MatchSpec::builder()
+            .key(a, |s: &String| NameId::new(s.clone()))
+            .key(b, |s: &String| NameId::new(s.clone()))
+            .build()
+    }
+
+    /// NU-030 (MUST): a match carried through the rename/substitute path must
+    /// have its correlated places remapped by the same rewrite the arcs follow.
+    /// This is the broader Rust/Python bug — port-composition and instantiation
+    /// both go through `substitute_places` → `rebuild_with_name`.
+    #[test]
+    fn substitute_places_carries_and_remaps_match_spec() {
+        let a = Place::<String>::new("a");
+        let b = Place::<String>::new("b");
+        let t = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(cid_match(&a, &b))
+            .build();
+
+        let mut remap = HashMap::new();
+        remap.insert(Arc::<str>::from("a"), PlaceRef::new("host/a"));
+        remap.insert(Arc::<str>::from("b"), PlaceRef::new("host/b"));
+
+        let rewritten = substitute_places(&t, &remap);
+        let ms = rewritten
+            .match_spec()
+            .expect("NU-030: substitute must carry the match_spec, not drop it");
+        assert!(ms.correlates("host/a"), "match place must be remapped to host/a");
+        assert!(ms.correlates("host/b"), "match place must be remapped to host/b");
+        assert!(!ms.correlates("a"), "original (unremapped) place must be gone");
+    }
+
+    /// NU-060 criterion #1: a one-sided (caller) match survives the channel merge.
+    #[test]
+    fn channel_merge_carries_caller_match_spec() {
+        let a = Place::<String>::new("a");
+        let b = Place::<String>::new("b");
+        let caller = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(cid_match(&a, &b))
+            .build();
+        let instance = Transition::builder("instanceSide").build();
+
+        let merged = merge_transitions(&caller, &instance, Arc::<str>::from("join"));
+
+        let ms = merged
+            .match_spec()
+            .expect("NU-060: caller-side match must survive the merge");
+        assert!(ms.correlates("a"));
+        assert!(ms.correlates("b"));
+    }
+
+    /// NU-060 criterion #1: a one-sided (instance) match also survives.
+    #[test]
+    fn channel_merge_carries_instance_match_spec() {
+        let a = Place::<String>::new("a");
+        let b = Place::<String>::new("b");
+        let caller = Transition::builder("join").build();
+        let instance = Transition::builder("instanceSide")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(cid_match(&a, &b))
+            .build();
+
+        let merged = merge_transitions(&caller, &instance, Arc::<str>::from("join"));
+
+        let ms = merged
+            .match_spec()
+            .expect("NU-060: instance-side match must survive the merge");
+        assert!(ms.correlates("a"));
+        assert!(ms.correlates("b"));
+    }
+
+    /// NU-060: two independent correlations cannot be silently fused — the merge
+    /// is rejected with a panic naming the channel.
+    #[test]
+    fn channel_merge_both_sides_carry_match_panics() {
+        let a = Place::<String>::new("a");
+        let b = Place::<String>::new("b");
+        let c = Place::<String>::new("c");
+        let d = Place::<String>::new("d");
+        let caller = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(cid_match(&a, &b))
+            .build();
+        let instance = Transition::builder("instanceSide")
+            .input(one(&c))
+            .input(one(&d))
+            .match_spec(cid_match(&c, &d))
+            .build();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            merge_transitions(&caller, &instance, Arc::<str>::from("attempt"))
+        }));
+        let err = result.expect_err("merge must panic when both sides carry a match");
+        let msg: String = err
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| err.downcast_ref::<&'static str>().map(|s| s.to_string()))
+            .unwrap_or_default();
+        assert!(msg.contains("attempt"), "must name the channel: {msg}");
+        assert!(msg.contains("NU-060"), "must cite NU-060: {msg}");
+    }
+
+    /// MOD-031: the declared→actual (local-name) map is unioned across sides so
+    /// each composed action resolves its declared place constants.
+    #[test]
+    fn channel_merge_unions_local_name_map() {
+        let caller = Transition::builder("merged")
+            .local_name_map(Arc::new(HashMap::from([(
+                Arc::<str>::from("declaredA"),
+                Arc::<str>::from("host/actualA"),
+            )])))
+            .build();
+        let instance = Transition::builder("instanceSide")
+            .local_name_map(Arc::new(HashMap::from([(
+                Arc::<str>::from("declaredB"),
+                Arc::<str>::from("host/actualB"),
+            )])))
+            .build();
+
+        let merged = merge_transitions(&caller, &instance, Arc::<str>::from("merged"));
+
+        let map = merged
+            .local_name_map()
+            .expect("MOD-031: local_name_map must survive the merge");
+        assert_eq!(map.get("declaredA").map(|s| &**s), Some("host/actualA"));
+        assert_eq!(map.get("declaredB").map(|s| &**s), Some("host/actualB"));
+    }
+
+    /// MOD-031: the same declared name bound to two different actual names
+    /// across the fused sides is an ambiguous correspondence, rejected.
+    #[test]
+    fn channel_merge_conflicting_local_name_map_panics() {
+        let caller = Transition::builder("merged")
+            .local_name_map(Arc::new(HashMap::from([(
+                Arc::<str>::from("declaredX"),
+                Arc::<str>::from("host/a"),
+            )])))
+            .build();
+        let instance = Transition::builder("instanceSide")
+            .local_name_map(Arc::new(HashMap::from([(
+                Arc::<str>::from("declaredX"),
+                Arc::<str>::from("host/b"),
+            )])))
+            .build();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            merge_transitions(&caller, &instance, Arc::<str>::from("attempt"))
+        }));
+        let err = result.expect_err("merge must panic on conflicting local_name_map");
+        let msg: String = err
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| err.downcast_ref::<&'static str>().map(|s| s.to_string()))
+            .unwrap_or_default();
+        assert!(msg.contains("attempt"), "must name the channel: {msg}");
+        assert!(msg.contains("MOD-031"), "must cite MOD-031: {msg}");
     }
 
     // ============================================================

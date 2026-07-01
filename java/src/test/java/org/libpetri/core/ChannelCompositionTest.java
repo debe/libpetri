@@ -6,6 +6,7 @@ import org.libpetri.fixtures.SubnetFixtures;
 import org.libpetri.runtime.BitmapNetExecutor;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -337,6 +338,175 @@ class ChannelCompositionTest {
         var ctx = new TransitionContext(merged, new TokenInput(), new TokenOutput());
         // Should complete without throwing.
         merged.action().execute(ctx).toCompletableFuture().get();
+    }
+
+    // ============================================================
+    //  ν-net match + declared→actual alias carry (NU-060 / MOD-031)
+    // ============================================================
+
+    @Test
+    void channelMerge_carriesOneSidedMatchSpec() {
+        Place<String> a = Place.of("branchA", String.class);
+        Place<String> b = Place.of("branchB", String.class);
+
+        Transition caller = Transition.builder("join")
+            .inputs(Arc.In.one(a), Arc.In.one(b))
+            .match(MatchSpec.builder()
+                .key(a, (String s) -> NameId.of(s))
+                .key(b, (String s) -> NameId.of(s))
+                .build())
+            .build();
+        Transition instance = Transition.builder("instanceSide").build();
+
+        var merged = SubnetRewriter.mergeTransitions(caller, instance, "join");
+
+        assertNotNull(merged.matchSpec(),
+            "NU-060: the merge must not silently drop the caller-side ν-net match");
+        assertTrue(merged.matchSpec().correlates(a), "match still correlates branchA");
+        assertTrue(merged.matchSpec().correlates(b), "match still correlates branchB");
+    }
+
+    @Test
+    void channelMerge_carriesInstanceSideMatchSpec() {
+        Place<String> a = Place.of("branchA", String.class);
+        Place<String> b = Place.of("branchB", String.class);
+
+        Transition caller = Transition.builder("join").build();
+        Transition instance = Transition.builder("instanceSide")
+            .inputs(Arc.In.one(a), Arc.In.one(b))
+            .match(MatchSpec.builder()
+                .key(a, (String s) -> NameId.of(s))
+                .key(b, (String s) -> NameId.of(s))
+                .build())
+            .build();
+
+        var merged = SubnetRewriter.mergeTransitions(caller, instance, "join");
+
+        assertNotNull(merged.matchSpec(),
+            "NU-060: a match on the instance side must also survive the merge");
+        assertTrue(merged.matchSpec().correlates(a));
+        assertTrue(merged.matchSpec().correlates(b));
+    }
+
+    @Test
+    void channelMerge_bothSidesCarryMatch_throws() {
+        Place<String> a = Place.of("branchA", String.class);
+        Place<String> b = Place.of("branchB", String.class);
+        Place<String> c = Place.of("branchC", String.class);
+        Place<String> d = Place.of("branchD", String.class);
+
+        Transition caller = Transition.builder("join")
+            .inputs(Arc.In.one(a), Arc.In.one(b))
+            .match(MatchSpec.builder()
+                .key(a, (String s) -> NameId.of(s))
+                .key(b, (String s) -> NameId.of(s))
+                .build())
+            .build();
+        Transition instance = Transition.builder("instanceSide")
+            .inputs(Arc.In.one(c), Arc.In.one(d))
+            .match(MatchSpec.builder()
+                .key(c, (String s) -> NameId.of(s))
+                .key(d, (String s) -> NameId.of(s))
+                .build())
+            .build();
+
+        // NU-060: two independent correlations cannot be silently fused — reject.
+        var ex = assertThrows(IllegalArgumentException.class, () ->
+            SubnetRewriter.mergeTransitions(caller, instance, "attempt"));
+        assertTrue(ex.getMessage().contains("attempt"),
+            "exception must name the channel. Got: " + ex.getMessage());
+        assertTrue(ex.getMessage().contains("NU-060"),
+            "exception should cite NU-060. Got: " + ex.getMessage());
+    }
+
+    @Test
+    void channelMerge_carriesPlaceAliasFromBothSides() {
+        Place<String> declaredA = Place.of("declaredA", String.class);
+        Place<String> actualA   = Place.of("host/actualA", String.class);
+        Place<String> declaredB = Place.of("declaredB", String.class);
+        Place<String> actualB   = Place.of("host/actualB", String.class);
+
+        Transition caller = Transition.builder("merged")
+            .placeAlias(Map.of(declaredA, actualA))
+            .build();
+        Transition instance = Transition.builder("instanceSide")
+            .placeAlias(Map.of(declaredB, actualB))
+            .build();
+
+        var merged = SubnetRewriter.mergeTransitions(caller, instance, "merged");
+
+        assertEquals(actualA, merged.placeAlias().get(declaredA),
+            "MOD-031: caller-side declared→actual alias survives the merge");
+        assertEquals(actualB, merged.placeAlias().get(declaredB),
+            "MOD-031: instance-side declared→actual alias survives the merge");
+    }
+
+    @Test
+    void channelMerge_conflictingPlaceAlias_throws() {
+        Place<String> declared = Place.of("declaredX", String.class);
+        Place<String> actualA  = Place.of("host/a", String.class);
+        Place<String> actualB  = Place.of("host/b", String.class);
+
+        // Same declared place bound to two different actual places across the
+        // two fused sides — an ambiguous MOD-031 correspondence, rejected.
+        Transition caller = Transition.builder("merged")
+            .placeAlias(Map.of(declared, actualA))
+            .build();
+        Transition instance = Transition.builder("instanceSide")
+            .placeAlias(Map.of(declared, actualB))
+            .build();
+
+        var ex = assertThrows(IllegalArgumentException.class, () ->
+            SubnetRewriter.mergeTransitions(caller, instance, "attempt"));
+        assertTrue(ex.getMessage().contains("attempt"),
+            "exception must name the channel. Got: " + ex.getMessage());
+        assertTrue(ex.getMessage().contains("MOD-031"),
+            "exception should cite MOD-031. Got: " + ex.getMessage());
+    }
+
+    @Test
+    void channelMerge_mergedMatchJoin_correlatesByName_notFifo() {
+        // Behavioral regression for the reported production symptom: a matched
+        // join fused through the channel-merge path must still pair tokens by
+        // name — not by FIFO arrival order (which would serve a stale answer).
+        Place<String> a = Place.of("branchA", String.class);
+        Place<String> b = Place.of("branchB", String.class);
+        Place<String> out = Place.of("merged", String.class);
+
+        Transition caller = Transition.builder("join")
+            .inputs(Arc.In.one(a), Arc.In.one(b))
+            .match(MatchSpec.builder()
+                .key(a, (String s) -> NameId.of(s))
+                .key(b, (String s) -> NameId.of(s))
+                .build())
+            .outputs(Arc.Out.place(out))
+            .action(ctx -> {
+                ctx.output(out, ctx.input(a) + "+" + ctx.input(b));
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+        Transition instance = Transition.builder("instanceSide").build();
+
+        var merged = SubnetRewriter.mergeTransitions(caller, instance, "join");
+        var net = PetriNet.builder("mergedNuJoin").transitions(merged).build();
+
+        // Interleaved timestamps: FIFO would cross-pair (X+Y / Y+X); a live
+        // match yields the correlated X+X / Y+Y.
+        var initial = Map.<Place<?>, List<Token<?>>>of(
+            a, List.of(new Token<>("X", Instant.ofEpochMilli(0)),
+                       new Token<>("Y", Instant.ofEpochMilli(1))),
+            b, List.of(new Token<>("Y", Instant.ofEpochMilli(0)),
+                       new Token<>("X", Instant.ofEpochMilli(1)))
+        );
+
+        try (var executor = BitmapNetExecutor.create(net, initial)) {
+            var marking = executor.run();
+            var vals = new ArrayList<String>();
+            for (var tk : marking.peekTokens(out)) vals.add(tk.value());
+            java.util.Collections.sort(vals);
+            assertEquals(List.of("X+X", "Y+Y"), vals,
+                "merged join must correlate by name (regression: dropped match FIFO-pairs to X+Y/Y+X)");
+        }
     }
 
     // ============================================================

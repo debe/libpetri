@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+**Fix: ν-net join match dropped during modular composition (NU-030 / NU-060)**
+
+Composition could silently drop a ν-net join's correlation (`matchSpec` / `match_spec`), reverting a correlated join-by-id to a plain FIFO AND join. At runtime that pairs tokens by arrival order instead of by name, so an overlapping fork/join could serve a stale cross-group result.
+
+- **Rust / Python:** the rename/substitute rebuild (`rebuild_with_name`) never carried `match_spec`, so any ν-net join inside a port-composed or instantiated subnet lost its match (a violation of the NU-030 MUST). The match now follows the same place rewrite the arcs do. Python inherits the fix through the Rust runtime.
+- **Java / TypeScript / Rust:** the channel-merge path (`mergeTransitions` / `merge_transitions`) dropped the match on fusion. It now carries a surviving one-sided match forward, and rejects a merge where both sides carry a match rather than silently dropping one (NU-060). The MOD-031 declared-to-actual place map is carried through the merge too, so a merged transition's composed action still resolves its declared place constants.
+- Regression tests added across Java, TypeScript, Rust, and Python, including a behavioral test that a composed matched join pairs by name, not FIFO.
+
 ## Java 2.10.2 / TypeScript 2.10.2 / Rust 3.4.2 — 2026-06-26
 
 **Fix: bundled viewer WASM rendered blank in rustdoc-embedded diagrams**
