@@ -42,7 +42,7 @@
         <guava.version>33.6.0-jre</guava.version>
         <jackson.version>2.22.0</jackson.version>
         <javasmt-z3.version>4.16.0</javasmt-z3.version>
-        <junit.version>6.1.0</junit.version>
+        <junit.version>6.1.1</junit.version>
         <lz4.version>1.11.0</lz4.version>
         <jmh.version>1.37</jmh.version>
 
