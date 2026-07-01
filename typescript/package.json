@@ -70,7 +70,7 @@
     "@types/node": "^25.8.0",
     "@viz-js/viz": "3.28.0",
     "elkjs": "^0.11.1",
-    "esbuild": "0.27.3",
+    "esbuild": "0.28.1",
     "fast-check": "^4.8.0",
     "happy-dom": "^20.9.0",
     "panzoom": "^9.4.4",
