@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Java 2.10.3 / TypeScript 2.10.3 / Rust 3.4.3 / Python 2.13.1 — 2026-07-01
 
 **Fix: ν-net join match dropped during modular composition (NU-030 / NU-060)**
 
