@@ -1,13 +1,13 @@
 # Changelog
 
-## Java 2.10.4 — 2026-07-02
+## Java 2.10.4 / TypeScript 2.10.4 / Rust 3.4.4 / Python 2.13.2 — 2026-07-02
 
 **Fix: ν-net join match dropped by `bindActions` (NU-030)**
 
-Follow-up to 2.10.3, which fixed the composition drop sites (`mergeTransitions`, `rebuild_with_name`) but missed a third: `PetriNet.bindActions` rebuilds every transition (`rebuildWithAction`) to attach its action and never carried `matchSpec` forward. A net composed with an intact ν-net join therefore lost its correlation the moment actions were bound, reverting a correlated join-by-id to a plain FIFO AND join at runtime — pairing tokens by arrival order across overlapping fork/join generations (a stale cross-group result).
+Follow-up to 2.10.3, which fixed the composition drop sites (`mergeTransitions`, `rebuild_with_name`) but missed a third: binding actions rebuilds every transition (`rebuildWithAction` / `rebuild_with_action`) to attach its action, and the Java and TypeScript path never carried `matchSpec` forward. A net composed with an intact ν-net join lost its correlation the moment actions were bound, reverting a correlated join-by-id to a plain FIFO AND join at runtime (pairing tokens by arrival order across overlapping fork/join generations, a stale cross-group result). A bind renames no places, so the match is carried as-is, unlike the compose/rename rebuild.
 
-- **Java:** `rebuildWithAction` now carries the transition's `matchSpec` as-is (bindActions does not rename places, so no remap is applied — unlike `rebuildWithName`).
-- Regression tests added: `bindActions_preservesMatchSpec` (structural) and `bindActions_matchedJoin_correlatesByName_notFifo` (behavioral — a bound matched join pairs by name, not FIFO).
+- **Java / TypeScript:** the action-bind rebuild now carries the transition's `matchSpec`. Rust already carried it, so this locks the behaviour in with tests; Python inherits through the Rust runtime.
+- Regression tests added across all four languages: a structural check that a bound transition keeps its match, and a behavioral check that a bound matched join pairs by name, not FIFO (both executor backends where applicable).
 
 ## Java 2.10.3 / TypeScript 2.10.3 / Rust 3.4.3 / Python 2.13.1 — 2026-07-01
 

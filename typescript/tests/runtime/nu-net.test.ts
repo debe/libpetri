@@ -67,6 +67,45 @@ for (const backend of backends) {
       }
     });
 
+    // NU-030 regression: binding the action via bindActions must NOT drop the
+    // join's matchSpec. rebuildWithAction rebuilds the transition to attach the
+    // action; before the fix it dropped the match, reverting the correlated join
+    // to a plain FIFO AND join (pairing X+Y / Y+X, not the correlated X+X / Y+Y).
+    it('bound matched join still correlates by name, not FIFO', async () => {
+      const a = place<NuMsg>('branchA');
+      const b = place<NuMsg>('branchB');
+      const merged = place<string>('merged');
+
+      // Built with a match but no action; the action is attached via bindActions.
+      const join = Transition.builder('join')
+        .inputs(one(a), one(b))
+        .match(correlateOnCid(a, b))
+        .outputs(outPlace(merged))
+        .build();
+
+      const net = PetriNet.builder('nuBoundJoin')
+        .transition(join)
+        .build()
+        .bindActions({
+          join: async (ctx) => {
+            ctx.output(merged, `${ctx.input(a).cid}+${ctx.input(b).cid}`);
+          },
+        });
+
+      const tokens = new Map<Place<any>, Token<any>[]>([
+        [a, [tokenAt({ cid: 'X' }, 0), tokenAt({ cid: 'Y' }, 1)]],
+        [b, [tokenAt({ cid: 'Y' }, 0), tokenAt({ cid: 'X' }, 1)]],
+      ]);
+
+      const marking = await backend.make(net, tokens).run(2000);
+      const vals = [...marking.peekTokens(merged)].map(t => t.value as string).sort();
+      expect(vals).toEqual(['X+X', 'Y+Y']);
+      for (const v of vals) {
+        const [l, r] = v.split('+');
+        expect(l).toBe(r);
+      }
+    });
+
     // NU-020: no name in both inputs → join never enabled; tokens stay put.
     it('join blocks without a matching name', async () => {
       const a = place<NuMsg>('branchA');

@@ -1138,6 +1138,59 @@ mod tests {
     }
 
     #[test]
+    fn bind_actions_preserves_match_spec() {
+        // NU-030 regression: bind_actions rebuilds each transition to attach its
+        // action (rebuild_with_action). It must carry a ν-net join's match_spec
+        // forward — dropping it silently reverts a correlated join-by-id to a
+        // plain FIFO AND join at runtime.
+        use crate::match_spec::MatchSpec;
+        use crate::name::NameId;
+
+        #[derive(Clone)]
+        struct Msg {
+            cid: String,
+        }
+
+        let a = Place::<Msg>::new("branchA");
+        let b = Place::<Msg>::new("branchB");
+        let merged = Place::<String>::new("merged");
+
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |m: &Msg| NameId::new(m.cid.clone()))
+                    .key(&b, |m: &Msg| NameId::new(m.cid.clone()))
+                    .build(),
+            )
+            .output(out_place(&merged))
+            .action(crate::action::passthrough())
+            .build();
+
+        let net = PetriNet::builder("match_bind").transition(join).build();
+        assert!(
+            net.transitions().first().unwrap().match_spec().is_some(),
+            "precondition: structure carries the match_spec"
+        );
+
+        let mut bindings = std::collections::HashMap::new();
+        bindings.insert("join".to_string(), crate::action::passthrough());
+        let bound = net.bind_actions(&bindings);
+
+        let bound_join = bound.transitions().first().unwrap();
+        assert!(
+            bound_join.match_spec().is_some(),
+            "bind_actions must preserve the ν-net match_spec (regression: rebuild_with_action dropped it)"
+        );
+        assert_eq!(
+            bound_join.match_spec().unwrap().keys().len(),
+            2,
+            "both correlated keys must survive"
+        );
+    }
+
+    #[test]
     fn direct_compose_subnet_name_with_slash_is_sanitised() {
         // A subnet name containing '/' must be sanitised so it never triggers
         // spurious nested-cluster splitting in the exporter.
