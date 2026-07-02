@@ -171,6 +171,15 @@ public final class PetriNet {
         t.reads().forEach(builder::readArc);
         t.resets().forEach(builder::resetArc);
 
+        // NU-030: carry the ν-net join correlation forward. bindActions only
+        // attaches an action — it does not rename places — so the matchSpec's
+        // input-place references are still valid and it is carried as-is (no
+        // remap, unlike rebuildWithName). Dropping it here would silently revert
+        // a correlated join-by-id to a plain FIFO AND join at runtime.
+        if (t.matchSpec() != null) {
+            builder.match(t.matchSpec());
+        }
+
         return builder.build();
     }
 

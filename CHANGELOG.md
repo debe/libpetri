@@ -1,5 +1,14 @@
 # Changelog
 
+## Java 2.10.4 — 2026-07-02
+
+**Fix: ν-net join match dropped by `bindActions` (NU-030)**
+
+Follow-up to 2.10.3, which fixed the composition drop sites (`mergeTransitions`, `rebuild_with_name`) but missed a third: `PetriNet.bindActions` rebuilds every transition (`rebuildWithAction`) to attach its action and never carried `matchSpec` forward. A net composed with an intact ν-net join therefore lost its correlation the moment actions were bound, reverting a correlated join-by-id to a plain FIFO AND join at runtime — pairing tokens by arrival order across overlapping fork/join generations (a stale cross-group result).
+
+- **Java:** `rebuildWithAction` now carries the transition's `matchSpec` as-is (bindActions does not rename places, so no remap is applied — unlike `rebuildWithName`).
+- Regression tests added: `bindActions_preservesMatchSpec` (structural) and `bindActions_matchedJoin_correlatesByName_notFifo` (behavioral — a bound matched join pairs by name, not FIFO).
+
 ## Java 2.10.3 / TypeScript 2.10.3 / Rust 3.4.3 / Python 2.13.1 — 2026-07-01
 
 **Fix: ν-net join match dropped during modular composition (NU-030 / NU-060)**
