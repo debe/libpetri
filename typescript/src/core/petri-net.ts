@@ -766,5 +766,14 @@ function rebuildWithAction(t: Transition, action: TransitionAction): Transition 
     builder.reset(r.place);
   }
 
+  // NU-030: carry the ν-net join correlation forward. bindActions only attaches
+  // an action — it does not rename places — so the matchSpec's input-place
+  // references are still valid and it is carried as-is (no remap, unlike the
+  // compose/rename rebuildWithName). Dropping it here would silently revert a
+  // correlated join-by-id to a plain FIFO AND join at runtime.
+  if (t.matchSpec !== null) {
+    builder.match(t.matchSpec);
+  }
+
   return builder.build();
 }

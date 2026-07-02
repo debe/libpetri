@@ -4,6 +4,8 @@ import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
 import { one } from '../../src/core/in.js';
 import { outPlace, andPlaces } from '../../src/core/out.js';
+import { matchSpec, matchKey } from '../../src/core/match-spec.js';
+import { nameId } from '../../src/core/name.js';
 import type { TransitionAction } from '../../src/core/transition-action.js';
 
 describe('PetriNet', () => {
@@ -140,6 +142,38 @@ describe('PetriNet', () => {
     expect(boundT.priority).toBe(5);
     expect(boundT.inputSpecs).toHaveLength(1);
     expect(boundT.outputSpec).not.toBeNull();
+  });
+
+  it('bindActions preserves matchSpec', () => {
+    // NU-030 regression: bindActions rebuilds each transition to attach its
+    // action (rebuildWithAction). It must carry a ν-net join's matchSpec
+    // forward — dropping it silently reverts a correlated join-by-id to a
+    // plain FIFO AND join at runtime.
+    interface Msg { cid: string; }
+    const a = place<Msg>('branchA');
+    const b = place<Msg>('branchB');
+    const merged = place<string>('merged');
+
+    const join = Transition.builder('join')
+      .inputs(one(a), one(b))
+      .match(matchSpec(
+        matchKey(a, (m: Msg) => nameId(m.cid)),
+        matchKey(b, (m: Msg) => nameId(m.cid)),
+      ))
+      .outputs(outPlace(merged))
+      .build();
+
+    const net = PetriNet.builder('matchBind').transition(join).build();
+    expect([...net.transitions][0]!.matchSpec).not.toBeNull(); // precondition
+
+    const action: TransitionAction = async () => {};
+    const bound = net.bindActions({ join: action });
+    const boundJoin = [...bound.transitions][0]!;
+
+    expect(boundJoin.matchSpec,
+      'bindActions must preserve the ν-net matchSpec (regression: rebuildWithAction dropped it)')
+      .not.toBeNull();
+    expect(boundJoin.matchSpec!.keys).toHaveLength(2);
   });
 
   it('bindActionsWithResolver binds via resolver function', () => {

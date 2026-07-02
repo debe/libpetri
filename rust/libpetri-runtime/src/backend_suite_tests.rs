@@ -1308,6 +1308,71 @@ fn nu_join_matches_by_name_not_fifo<R: BackendRunner>() {
     }
 }
 
+/// NU-030 regression: binding a join's action via `bind_actions` must NOT drop
+/// its `match_spec`. `rebuild_with_action` rebuilds the transition to attach the
+/// action; if it dropped the match the correlated join would revert to a plain
+/// FIFO AND join — pairing X+Y / Y+X across generations instead of the
+/// correlated X+X / Y+Y. Verified on both executor backends.
+fn nu_bound_join_matches_by_name_not_fifo<R: BackendRunner>() {
+    let a = Place::<NuMsg>::new("branchA");
+    let b = Place::<NuMsg>::new("branchB");
+    let merged = Place::<String>::new("merged");
+
+    // Built with a match but only a placeholder action; the real merging action
+    // is attached via `bind_actions`, exercising `rebuild_with_action`.
+    let join = Transition::builder("join")
+        .input(one(&a))
+        .input(one(&b))
+        .match_spec(
+            MatchSpec::builder()
+                .key(&a, |m: &NuMsg| NameId::new(m.cid.clone()))
+                .key(&b, |m: &NuMsg| NameId::new(m.cid.clone()))
+                .build(),
+        )
+        .output(out_place(&merged))
+        .action(passthrough())
+        .build();
+
+    let net = PetriNet::builder("nu_bound_join").transition(join).build();
+
+    let mut bindings = std::collections::HashMap::new();
+    bindings.insert(
+        "join".to_string(),
+        sync_action(|ctx| {
+            let ma = ctx.input::<NuMsg>("branchA")?;
+            let mb = ctx.input::<NuMsg>("branchB")?;
+            ctx.output("merged", format!("{}+{}", ma.cid, mb.cid))?;
+            Ok(())
+        }),
+    );
+    let net = net.bind_actions(&bindings);
+
+    let mut marking = Marking::new();
+    marking.add(&a, Token::at(NuMsg { cid: "X".into() }, 0));
+    marking.add(&a, Token::at(NuMsg { cid: "Y".into() }, 1));
+    marking.add(&b, Token::at(NuMsg { cid: "Y".into() }, 0));
+    marking.add(&b, Token::at(NuMsg { cid: "X".into() }, 1));
+
+    let result = R::run(&net, marking);
+    assert!(result.quiescent);
+
+    let mut merged_vals: Vec<String> = result
+        .marking
+        .queue("merged")
+        .map(|q| {
+            q.iter()
+                .map(|t| t.downcast::<String>().unwrap().value().clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    merged_vals.sort();
+    assert_eq!(merged_vals, vec!["X+X".to_string(), "Y+Y".to_string()]);
+    for v in &merged_vals {
+        let (l, r) = v.split_once('+').unwrap();
+        assert_eq!(l, r, "bound join correlated mismatched ids: {v}");
+    }
+}
+
 /// NU-020: with no name present in both inputs, the join is never enabled —
 /// the tokens stay put and nothing is produced.
 fn nu_join_blocks_without_matching_name<R: BackendRunner>() {
@@ -1601,6 +1666,7 @@ for_each_backend!(
     event_store_records_lifecycle,
     event_store_transition_enabled_disabled,
     nu_join_matches_by_name_not_fifo,
+    nu_bound_join_matches_by_name_not_fifo,
     nu_join_blocks_without_matching_name,
     nu_join_guard_excludes_failing_name,
     nu_fork_mints_unique_ids_then_join_merges,
