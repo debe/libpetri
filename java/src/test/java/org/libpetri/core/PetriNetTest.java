@@ -1,7 +1,11 @@
 package org.libpetri.core;
 
 import org.junit.jupiter.api.Test;
+import org.libpetri.runtime.BitmapNetExecutor;
 
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
@@ -226,5 +230,86 @@ class PetriNetTest {
             "bindActions should preserve inputSpecs");
         assertNotNull(boundTransition.outputSpec(),
             "bindActions should preserve outputSpec");
+    }
+
+    @Test
+    void bindActions_preservesMatchSpec() {
+        // NU-030 regression: bindActions rebuilds each transition to attach its
+        // action (rebuildWithAction). It must carry a ν-net join's matchSpec
+        // forward — dropping it silently reverts a correlated join-by-id to a
+        // plain FIFO AND join at runtime.
+        Place<String> a = Place.of("branchA", String.class);
+        Place<String> b = Place.of("branchB", String.class);
+        Place<String> out = Place.of("merged", String.class);
+
+        var join = Transition.builder("join")
+            .inputs(Arc.In.one(a), Arc.In.one(b))
+            .match(MatchSpec.builder()
+                .key(a, (String s) -> NameId.of(s))
+                .key(b, (String s) -> NameId.of(s))
+                .build())
+            .outputs(Arc.Out.place(out))
+            .build();
+
+        var net = PetriNet.builder("matchBind").transitions(join).build();
+        assertNotNull(net.transitions().iterator().next().matchSpec(),
+            "precondition: structure carries the matchSpec");
+
+        var bound = net.bindActions(Map.of("join", ctx -> {
+            ctx.output(out, ctx.input(a) + "+" + ctx.input(b));
+            return CompletableFuture.completedFuture(null);
+        }));
+
+        var boundJoin = bound.transitions().iterator().next();
+        assertNotNull(boundJoin.matchSpec(),
+            "bindActions must preserve the ν-net matchSpec (regression: rebuildWithAction dropped it)");
+        assertTrue(boundJoin.matchSpec().correlates(a), "match still correlates branchA");
+        assertTrue(boundJoin.matchSpec().correlates(b), "match still correlates branchB");
+    }
+
+    @Test
+    void bindActions_matchedJoin_correlatesByName_notFifo() {
+        // Behavioral regression for the reported production symptom (marvin text
+        // guard join): a matched join whose action is attached via bindActions
+        // must still pair tokens by name — not by FIFO arrival order (which
+        // would serve a stale cross-group result).
+        Place<String> a = Place.of("branchA", String.class);
+        Place<String> b = Place.of("branchB", String.class);
+        Place<String> out = Place.of("merged", String.class);
+
+        var join = Transition.builder("join")
+            .inputs(Arc.In.one(a), Arc.In.one(b))
+            .match(MatchSpec.builder()
+                .key(a, (String s) -> NameId.of(s))
+                .key(b, (String s) -> NameId.of(s))
+                .build())
+            .outputs(Arc.Out.place(out))
+            .build();
+
+        var net = PetriNet.builder("matchBindRun")
+            .transitions(join)
+            .build()
+            .bindActions(Map.of("join", ctx -> {
+                ctx.output(out, ctx.input(a) + "+" + ctx.input(b));
+                return CompletableFuture.completedFuture(null);
+            }));
+
+        // Interleaved timestamps: FIFO would cross-pair (X+Y / Y+X); a live
+        // match yields the correlated X+X / Y+Y.
+        var initial = Map.<Place<?>, List<Token<?>>>of(
+            a, List.of(new Token<>("X", Instant.ofEpochMilli(0)),
+                       new Token<>("Y", Instant.ofEpochMilli(1))),
+            b, List.of(new Token<>("Y", Instant.ofEpochMilli(0)),
+                       new Token<>("X", Instant.ofEpochMilli(1)))
+        );
+
+        try (var executor = BitmapNetExecutor.create(net, initial)) {
+            var marking = executor.run();
+            var vals = new ArrayList<String>();
+            for (var tk : marking.peekTokens(out)) vals.add(tk.value());
+            java.util.Collections.sort(vals);
+            assertEquals(List.of("X+X", "Y+Y"), vals,
+                "bound matched join must correlate by name (regression: bindActions dropped match FIFO-pairs to X+Y/Y+X)");
+        }
     }
 }
