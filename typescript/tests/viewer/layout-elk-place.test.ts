@@ -80,7 +80,7 @@ describe('elkLayout', () => {
 });
 
 describe('writeBack', () => {
-  it('emits a DOT with pos="x,y!" per node, bb= per cluster, and edge endpoints only', async () => {
+  it('emits a DOT with pos="x,y!" per node, bb= per cluster, and orthogonal edge routes', async () => {
     const graph = replicateShared(foldOrphans(parseLibpetriDot(DOT), 0.7), { max: Infinity });
     const layout = await elkLayout(graph);
     const dot = writeBack(graph, layout);
@@ -92,9 +92,9 @@ describe('writeBack', () => {
     expect(dot).toMatch(/pos="[\d.]+,[\d.]+!"/);
     // Arc-type attributes round-tripped — odot only on inhibitor edges
     expect(dot).toMatch(/arrowhead="normal"/);
-    // We must NOT emit pos= on edges — Graphviz `nop` routes them itself,
-    // which is what gives proper arrowhead clipping at visual node bounds.
-    expect(dot).not.toMatch(/pos="e,/);
+    // Edges carry an ELK-routed `pos="e,…"` spline for Graphviz nop2 to draw
+    // (we route ourselves instead of using Graphviz's wasm-crashing ortho).
+    expect(dot).toMatch(/pos="e,[\d.]+,[\d.]+ /);
   });
 
   it('preserves node visual attrs through the round-trip', async () => {
@@ -116,7 +116,9 @@ describe('writeBack', () => {
 
     const viz = await vizInstance();
     const svg = viz.renderSVGElement(dot, {
-      engine: 'nop',
+      // Production renders with nop2 (render.ts); test with the same engine so
+      // the pinned node AND edge positions are exercised, not Graphviz routing.
+      engine: 'nop2',
       yInvert: true,
     });
     expect(svg.tagName).toBe('svg');

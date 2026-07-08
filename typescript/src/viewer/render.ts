@@ -6,8 +6,8 @@
  *   renderDotToSvg(dot)                — plain Graphviz `dot` engine.
  *   renderDotToSvgWithElkLayout(dot)   — C0 pipeline: parse → fold →
  *                                        replicate → ELK → writeBack →
- *                                        Graphviz `neato` with `nop=1`
- *                                        (pin mode). Cached by DOT hash.
+ *                                        Graphviz `nop2` (pinned nodes AND
+ *                                        edge routes). Cached by DOT hash.
  *
  * The ELK path is the default for {@link mount}; the plain-Graphviz path
  * remains as a fallback for callers that want stock layout (or for
@@ -113,7 +113,11 @@ export async function renderDotToSvgWithElkLayout(
   }
   const viz = await getViz();
   return viz.renderSVGElement(pinnedDot, {
-    engine: 'nop',
+    // nop2 draws the pinned node positions AND our ELK-computed orthogonal
+    // edge routes verbatim. See writeBack/edgePosSpline: we route edges
+    // ourselves rather than let Graphviz's ortho router run, which crashes
+    // the wasm on large nets.
+    engine: 'nop2',
     yInvert: true,
   });
 }

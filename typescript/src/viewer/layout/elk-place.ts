@@ -3,12 +3,14 @@
  *
  * Stage 2 of the C0 pipeline. Takes the {@link GraphModel} produced by
  * {@link parseLibpetriDot} → {@link foldOrphans} → {@link replicateShared},
- * runs ELKjs to compute absolute `(x, y)` per node and bounding boxes per
- * cluster, then emits a fresh DOT string with positions pinned via
- * `pos="x,y!"` and `bb="…"`. Downstream callers render the result through
- * `@viz-js/viz` with `engine: 'neato'` + `graphAttributes: { nop: '1' }` —
- * Graphviz uses the pinned positions verbatim and routes edges around the
- * pinned cluster boundaries.
+ * runs ELKjs to compute absolute `(x, y)` per node, bounding boxes per
+ * cluster, and orthogonal `(x, y)` routes per edge, then emits a fresh DOT
+ * string with node positions pinned via `pos="x,y!"`, cluster boxes via
+ * `bb="…"`, and each edge's route as a `pos="e,…"` spline. Downstream callers
+ * render the result through `@viz-js/viz` with `engine: 'nop2'` — Graphviz
+ * draws the pinned node positions AND edge routes verbatim, doing no layout or
+ * routing of its own (see {@link writeBack} / {@link edgePosSpline} for why we
+ * route edges ourselves rather than let Graphviz's ortho router run).
  *
  * `elkLayout` takes (graph, cfg?); `writeBack` takes (graph, layout).
  * Neither touches the original DOT text — the model after replication has
@@ -93,11 +95,31 @@ export interface EdgePath {
 export interface LayoutResult {
   readonly nodePositions: ReadonlyMap<string, NodePosition>;
   readonly clusterBoxes: ReadonlyMap<string, ClusterBox>;
-  /** Keyed on `${src}->${dst}` — ELK-computed edge routes for `nop=2`. */
+  /** Keyed on `${src}->${dst}` — ELK-computed edge routes for Graphviz `nop2`. */
   readonly edgePaths: ReadonlyMap<string, EdgePath>;
   readonly totalWidth: number;
   readonly totalHeight: number;
 }
+
+// Shared edge-routing options for the layered layouts. Spacing gives parallel
+// edges their own channels (ELK's ~10pt default lets dense fan-in/out at
+// junctions and shared places collapse into one thick line) and keeps edges
+// off the nodes/labels they pass. `mergeEdges` bundles arcs that share an
+// endpoint into a common orthogonal trunk that branches at each end — so e.g.
+// a transition's many reset arcs read as one labelled bus with a tidy branch
+// up to each place, instead of a stack of nested right-angle brackets.
+// Trade-off (accepted, EXP-004): arcs sharing an endpoint run collinearly along
+// the shared trunk, so over that stretch their strokes over-paint — only the
+// endpoints (arrowheads/labels) stay per-type distinct. Kept intentionally for
+// legibility on dense fan-in/out; any added ELK layout cost is paid once per
+// unique net and amortized by the pinned-DOT cache in render.ts.
+const LAYERED_EDGE_OPTS: Record<string, string> = {
+  'elk.spacing.edgeEdge': '18',
+  'elk.spacing.edgeNode': '18',
+  'elk.layered.spacing.edgeEdgeBetweenLayers': '16',
+  'elk.layered.spacing.edgeNodeBetweenLayers': '16',
+  'elk.layered.mergeEdges': 'true',
+};
 
 const CLUSTER_OPTIONS: Record<string, string> = {
   'elk.padding': `[top=${FONT_CLUSTER + 16},left=16,bottom=16,right=16]`,
@@ -106,6 +128,7 @@ const CLUSTER_OPTIONS: Record<string, string> = {
   'elk.spacing.nodeNode': String(CLUSTER_SPACING),
   'elk.layered.spacing.nodeNodeBetweenLayers': String(CLUSTER_SPACING + 6),
   'elk.edgeRouting': 'ORTHOGONAL',
+  ...LAYERED_EDGE_OPTS,
 };
 
 const ROOT_OPTIONS: Record<string, string> = {
@@ -139,6 +162,7 @@ const FLAT_OPTIONS: Record<string, string> = {
   'elk.spacing.nodeNode': '45',
   'elk.layered.spacing.nodeNodeBetweenLayers': '60',
   'elk.edgeRouting': 'ORTHOGONAL',
+  ...LAYERED_EDGE_OPTS,
 };
 
 /**
@@ -162,6 +186,7 @@ const FLOW_SUB_OPTIONS: Record<string, string> = {
   'elk.spacing.nodeNode': String(CLUSTER_SPACING),
   'elk.layered.spacing.nodeNodeBetweenLayers': String(CLUSTER_SPACING + 6),
   'elk.edgeRouting': 'ORTHOGONAL',
+  ...LAYERED_EDGE_OPTS,
 };
 const LEAF_SUB_OPTIONS: Record<string, string> = {
   'elk.algorithm': 'org.eclipse.elk.rectpacking',
@@ -471,10 +496,10 @@ export async function elkLayout(
     id: 'root',
     layoutOptions: ROOT_OPTIONS,
     children: elkChildren,
-    // Cross-cluster edges only ever fed `edgePaths` (an unused nop2
-    // affordance); `rectpacking` ignores them for placement. Drop them when
-    // any cluster is a childless prebuilt box — the edges reference member
-    // nodes ELK can no longer resolve in the hierarchy.
+    // Cross-cluster edges feed `edgePaths` (the routes nop2 draws), but
+    // `rectpacking` never routes them, so they fall back to the L-corner in
+    // `edgePosSpline`. Drop them when any cluster is a childless prebuilt box —
+    // the edges reference member nodes ELK can no longer resolve in the hierarchy.
     edges: prebuilt.size > 0 ? [] : cross,
   };
   const layout: ElkNode = await elk.layout(rootGraph);
@@ -558,10 +583,234 @@ function quote(value: string): string {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
+// ======================== Orthogonal edge routing ========================
+//
+// We render the pinned graph with Graphviz engine `nop2`, which draws edges
+// from the `pos=` spline we supply verbatim (no routing). We supply ELK's own
+// orthogonal route for each edge. This deliberately avoids Graphviz's `ortho`
+// spline router, which is unusable here: its maze/trapezoid allocator (see
+// `mkMaze`, `trapezoid.c`) requests a large block that the @viz-js/viz wasm
+// heap denies past ~220 node obstacles, and Graphviz does not check the failed
+// allocation, so the next write traps the wasm ("memory access out of
+// bounds"). Native Graphviz has the heap headroom and never trips it, but the
+// wasm build does — so on the big Marvin nets `splines=ortho` hard-crashes.
+// Drawing ELK's routes ourselves sidesteps that router entirely and cannot
+// crash, on a net of any size.
+
+/** Length of the drawn arrowhead, in points (Graphviz default ≈ 10). */
+const ARROW_LEN = 10;
+
+/**
+ * Inches → drawn *half*-extent in points (72 dpi ÷ 2). Libpetri's `width`/
+ * `height` attrs are inches; a node's drawn radius / box half-side is
+ * `inches * HALF_PT_PER_IN`.
+ */
+const HALF_PT_PER_IN = 36;
+
+interface Pt {
+  readonly x: number;
+  readonly y: number;
+}
+
+/** Visual node center — Graphviz draws the shape centered on the pinned pos. */
+function drawnCenter(pos: NodePosition): Pt {
+  return { x: pos.x + pos.width / 2, y: pos.y + pos.height / 2 };
+}
+
+interface Extent {
+  readonly shape: 'circle' | 'diamond' | 'box';
+  readonly rx: number;
+  readonly ry: number;
+}
+
+/**
+ * Half-extents of a node's *drawn* shape (not ELK's layout-reserved box).
+ * The drawn shape comes from libpetri's own `width`/`height` attrs
+ * (inches → points): circles/diamonds are fixed-size, while a transition box
+ * grows to its label, so its half-width is estimated from the label length.
+ */
+function visualExtent(node: ParsedNode): Extent {
+  const wIn = parseFloat(node.attrs.width ?? '');
+  const hIn = parseFloat(node.attrs.height ?? '');
+  const shape = node.attrs.shape ?? '';
+  // Fallbacks are the libpetri StyleConstants defaults in drawn half-points:
+  // place/end 0.35in, junction 0.3in, transition box 0.8×0.4in.
+  if (shape === 'circle' || shape === 'doublecircle') {
+    const r =
+      (Number.isFinite(wIn) ? wIn * HALF_PT_PER_IN : 0.35 * HALF_PT_PER_IN) +
+      (shape === 'doublecircle' ? 4 : 0); // +4pt for the outer end-place ring
+    return { shape: 'circle', rx: r, ry: r };
+  }
+  if (shape === 'diamond') {
+    // Junctions are squares-on-point; approachEndpoint clips to the diamond's
+    // bounding box, so an arrowhead entering near a tip can float a few points
+    // off the slanted face — cosmetic on 0.3in junctions.
+    return {
+      shape: 'diamond',
+      rx: Number.isFinite(wIn) ? wIn * HALF_PT_PER_IN : 0.3 * HALF_PT_PER_IN,
+      ry: Number.isFinite(hIn) ? hIn * HALF_PT_PER_IN : 0.3 * HALF_PT_PER_IN,
+    };
+  }
+  // Box (transition): height is reliable; width grows to the label, so estimate
+  // from the label length (~6pt/char + 16pt pad) and floor by the attr width.
+  const label = (node.attrs.label ?? '').replace(/\\n/g, ' ');
+  const estHalfW = (label.length * 6 + 16) / 2;
+  return {
+    shape: 'box',
+    rx: Math.max(Number.isFinite(wIn) ? wIn * HALF_PT_PER_IN : 0.8 * HALF_PT_PER_IN, estHalfW),
+    ry: Number.isFinite(hIn) ? hIn * HALF_PT_PER_IN : 0.4 * HALF_PT_PER_IN,
+  };
+}
+
+interface Approach {
+  /** Point ON the visual node boundary where the edge meets the shape. */
+  readonly entry: Pt;
+  /** Optional pre-entry corner that keeps the connector a right angle. */
+  readonly jog?: Pt;
+}
+
+/**
+ * Where an edge should meet a node's *visual* boundary, given ELK's route
+ * point on the node's layout box (`boxEnd`, larger than the drawn shape) and
+ * the adjacent route point (`neighbor`). Keeps the approach axis-aligned.
+ *
+ * When the approach would land within the shape's span it clips straight onto
+ * the boundary (preserving ELK's fan-out across a wide box). When it would
+ * MISS the shape — e.g. fan-in to a place whose label-padded box is far wider
+ * than its little circle, so ELK enters at an x beyond the circle radius — it
+ * funnels to the near-side centre of the shape and returns a `jog` so the
+ * connector turns at a right angle instead of leaving the arrowhead floating
+ * beside the node.
+ */
+function approachEndpoint(center: Pt, ext: Extent, boxEnd: Pt, neighbor: Pt): Approach {
+  const vertical = Math.abs(neighbor.x - boxEnd.x) <= Math.abs(neighbor.y - boxEnd.y);
+  if (vertical) {
+    const sgn = neighbor.y < center.y ? -1 : 1; // meet the top (−) or bottom (+)
+    const off = Math.abs(boxEnd.x - center.x);
+    const reach = ext.shape === 'circle' ? ext.rx - 1 : ext.rx;
+    if (off < reach) {
+      const dy = ext.shape === 'circle' ? Math.sqrt(ext.rx * ext.rx - off * off) : ext.ry;
+      return { entry: { x: boxEnd.x, y: center.y + sgn * dy } };
+    }
+    return { entry: { x: center.x, y: center.y + sgn * ext.ry }, jog: { x: center.x, y: neighbor.y } };
+  }
+  const sgn = neighbor.x < center.x ? -1 : 1; // meet the left (−) or right (+)
+  const off = Math.abs(boxEnd.y - center.y);
+  const reach = ext.shape === 'circle' ? ext.rx - 1 : ext.ry;
+  if (off < reach) {
+    const dx = ext.shape === 'circle' ? Math.sqrt(ext.rx * ext.rx - off * off) : ext.rx;
+    return { entry: { x: center.x + sgn * dx, y: boxEnd.y } };
+  }
+  return { entry: { x: center.x + sgn * ext.rx, y: center.y }, jog: { x: neighbor.x, y: center.y } };
+}
+
+/** Format a point as Graphviz `x,y` with 2-decimal precision. */
+const fmtPt = (p: Pt): string => `${p.x.toFixed(2)},${p.y.toFixed(2)}`;
+const lerp = (a: Pt, b: Pt, t: number): Pt => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+
+/**
+ * Build a Graphviz edge `pos` spline that draws ELK's orthogonal route as
+ * straight segments, clipped to the visual node boundaries so arrowheads land
+ * on the shape edge. Format: `e,<tip> <start> <c1> <c2> <anchor> …` where the
+ * control-point triples are collinear (so each cubic renders as a line).
+ *
+ * Cross-cluster and leaf-packed edges have no ELK route (rectpacking and
+ * prebuilt boxes don't route them), so they fall back to a straight L-corner
+ * between node centers — which may cross intervening nodes. That is the
+ * accepted price of right-angle edges at any net size.
+ *
+ * Returns null when either endpoint has no laid-out position.
+ */
+function edgePosSpline(
+  graph: GraphModel,
+  layout: LayoutResult,
+  src: string,
+  dst: string,
+): string | null {
+  const srcPos = layout.nodePositions.get(src);
+  const dstPos = layout.nodePositions.get(dst);
+  const srcNode = graph.nodes.get(src);
+  const dstNode = graph.nodes.get(dst);
+  if (!srcPos || !dstPos || !srcNode || !dstNode) return null;
+
+  const sc = drawnCenter(srcPos);
+  const tc = drawnCenter(dstPos);
+  const route = layout.edgePaths.get(`${src}->${dst}`);
+  // Full orthogonal polyline. ELK's own route when available (its right-angle
+  // bends AND its box-border anchor points); otherwise an L-corner between the
+  // drawn centers (vertical-then-horizontal) so the edge still turns square.
+  let raw: Pt[];
+  if (route) {
+    raw = [route.start, ...route.bends, route.end];
+  } else if (sc.x === tc.x || sc.y === tc.y) {
+    raw = [sc, tc];
+  } else {
+    raw = [sc, { x: sc.x, y: tc.y }, tc];
+  }
+  if (raw.length < 2) return null;
+
+  const extS = visualExtent(srcNode);
+  const extT = visualExtent(dstNode);
+  // Land both ends on the visual shape boundary (with a right-angle jog when
+  // ELK's approach would otherwise miss a small shape — see approachEndpoint).
+  const startA = approachEndpoint(sc, extS, raw[0]!, raw[1]!);
+  const endA = approachEndpoint(tc, extT, raw[raw.length - 1]!, raw[raw.length - 2]!);
+
+  // Drawn polyline: source boundary → (jog) → ELK bends → (jog) → target
+  // boundary, dropping any zero-length steps so segments stay clean.
+  const poly: Pt[] = [];
+  const push = (p: Pt): void => {
+    const last = poly[poly.length - 1];
+    if (!last || last.x !== p.x || last.y !== p.y) poly.push(p);
+  };
+  push(startA.entry);
+  if (startA.jog) push(startA.jog);
+  for (const p of raw.slice(1, -1)) push(p);
+  if (endA.jog) push(endA.jog);
+  push(endA.entry);
+  if (poly.length < 2) return null;
+
+  // Safety net: force every segment axis-aligned. A few ELK routes come back
+  // as a single diagonal 2-point segment; insert a corner where needed,
+  // oriented so the segment entering the target keeps its approach axis.
+  const ortho: Pt[] = [poly[0]!];
+  for (let i = 1; i < poly.length; i++) {
+    const a = ortho[ortho.length - 1]!;
+    const b = poly[i]!;
+    if (Math.abs(b.x - a.x) > 1 && Math.abs(b.y - a.y) > 1) {
+      ortho.push(i === poly.length - 1 ? { x: b.x, y: a.y } : { x: a.x, y: b.y });
+    }
+    ortho.push(b);
+  }
+
+  const tip = ortho[ortho.length - 1]!;
+  const prev = ortho[ortho.length - 2]!;
+  // Pull the drawn line back from the tip by one arrowhead length, along the
+  // (axis-aligned) approach, so Graphviz draws the arrow in that gap.
+  const ax = prev.x - tip.x;
+  const ay = prev.y - tip.y;
+  const al = Math.hypot(ax, ay) || 1;
+  // Clamp the pull-back to the final segment so the arrow base never overshoots
+  // past `prev` and doubles the drawn line back on itself. Short final stubs
+  // (< ARROW_LEN) are realistic here — a mergeEdges branch stub or the corner an
+  // approachEndpoint jog lands next to the last ELK bend can both be tiny.
+  const pull = Math.min(ARROW_LEN, al);
+  const arrowBase: Pt = { x: tip.x + (ax / al) * pull, y: tip.y + (ay / al) * pull };
+
+  const anchors: Pt[] = [...ortho.slice(0, -1), arrowBase];
+  let spline = fmtPt(anchors[0]!);
+  for (let i = 1; i < anchors.length; i++) {
+    const a = anchors[i - 1]!;
+    const b = anchors[i]!;
+    spline += ` ${fmtPt(lerp(a, b, 1 / 3))} ${fmtPt(lerp(a, b, 2 / 3))} ${fmtPt(b)}`;
+  }
+  return `e,${fmtPt(tip)} ${spline}`;
+}
+
 /**
  * Render a node's attribute list — preserving the parsed attrs (including
  * libpetri's `width`/`height`, which are the *visual* shape dimensions)
- * and adding the ELK-computed `pos` so Graphviz `nop` can pin it.
+ * and adding the ELK-computed `pos` so Graphviz `nop2` can pin it.
  *
  * The `pos="x,y!"` form (with trailing `!`) is the neato pin-mode marker.
  * Do NOT emit ELK's layout-reserved width/height to Graphviz — those are
@@ -573,9 +822,8 @@ function quote(value: string): string {
 function nodeAttrLine(node: ParsedNode, pos: NodePosition): string {
   const attrs: string[] = [];
   // Center the pinned position on the node's bbox (ELK gives the top-left).
-  const cx = pos.x + pos.width / 2;
-  const cy = pos.y + pos.height / 2;
-  attrs.push(`pos=${quote(`${cx.toFixed(2)},${cy.toFixed(2)}!`)}`);
+  const c = drawnCenter(pos);
+  attrs.push(`pos=${quote(`${c.x.toFixed(2)},${c.y.toFixed(2)}!`)}`);
   for (const [k, v] of Object.entries(node.attrs)) {
     if (k === 'pos') continue;
     attrs.push(`${k}=${quote(v)}`);
@@ -583,35 +831,42 @@ function nodeAttrLine(node: ParsedNode, pos: NodePosition): string {
   return `${node.id} [${attrs.join(', ')}];`;
 }
 
-function edgeAttrLine(src: string, dst: string, rawAttrs: string): string {
-  // Splice libpetri's original attrs verbatim so style/penwidth/label/color
-  // match `DotExporter` 1:1. We do NOT emit `pos=` for edges — under engine
-  // `nop` Graphviz routes edges itself around the pinned node positions,
-  // which gives proper boundary clipping (arrowheads land at the visual
-  // node edge) and avoids needing a custom polyline-to-spline converter.
-  // The only "custom" arrowhead is `arrowhead="odot"` for inhibitor edges,
-  // which libpetri's exporter already writes into rawAttrs.
-  const body = rawAttrs.trim();
+function edgeAttrLine(
+  graph: GraphModel,
+  layout: LayoutResult,
+  src: string,
+  dst: string,
+  rawAttrs: string,
+): string {
+  // Splice libpetri's original attrs verbatim so style/penwidth/label/color/
+  // arrowhead match `DotExporter` 1:1, then add ELK's orthogonal route as a
+  // `pos=` spline for Graphviz `nop2` to draw. See `edgePosSpline` for why we
+  // route ourselves rather than use Graphviz's (wasm-crashing) ortho router.
+  const pos = edgePosSpline(graph, layout, src, dst);
+  const parts = [rawAttrs.trim(), pos ? `pos="${pos}"` : ''].filter(Boolean);
+  const body = parts.join(', ');
   return `${src} -> ${dst}` + (body ? ` [${body}];` : ';');
 }
 
 /**
- * Emit a Graphviz DOT string with positions pinned. Render the result with
- * `@viz-js/viz` using:
+ * Emit a Graphviz DOT string with node positions AND edge routes pinned.
+ * Render the result with `@viz-js/viz` using:
  *
  * ```ts
  * viz.renderSVGElement(dot, {
- *   engine: 'nop',
+ *   engine: 'nop2',
  *   yInvert: true,
  * });
  * ```
  *
- * `engine: 'nop'` (a.k.a. `nop1`) honours the pinned `pos=` on every node
- * and routes edges around them. We use this rather than `nop2` because
- * `nop2` would force us to provide a spline for every edge ourselves (no
- * routing) — and Graphviz's own routing produces correctly-clipped
- * arrowheads at the visual node boundary, which our ELK polylines did not
- * (ELK uses the layout-reserved bbox, our visual circle is much smaller).
+ * `engine: 'nop2'` honours the pinned `pos=` on every node AND the `pos=`
+ * spline on every edge, drawing both verbatim with no layout or routing. We
+ * supply ELK's own orthogonal edge routes (clipped to the visual node
+ * boundary for correct arrowheads — see {@link edgePosSpline}). This replaces
+ * the former `nop`/`nop1` mode, where Graphviz routed edges itself: that gave
+ * curved (not right-angle) edges, and switching it to `splines=ortho` crashed
+ * the wasm on large nets (Graphviz's ortho maze allocator overruns the wasm
+ * heap). Routing ourselves gives right angles on a net of any size, no crash.
  *
  * `yInvert: true` matches ELK's Y-down convention to Graphviz's Y-up.
  */
@@ -660,11 +915,10 @@ export function writeBack(graph: GraphModel, layout: LayoutResult): string {
     lines.push('    ' + nodeAttrLine(node, pos));
   }
 
-  // Edges — emit just the source -> dest pair plus libpetri's original
-  // styling attrs. Graphviz `nop` routes the line itself and clips arrow
-  // heads to the visual node boundary.
+  // Edges — libpetri's original styling attrs plus ELK's orthogonal route as
+  // a `pos=` spline, drawn verbatim by Graphviz `nop2`.
   for (const edge of graph.edges) {
-    lines.push('    ' + edgeAttrLine(edge.src, edge.dst, edge.rawAttrs));
+    lines.push('    ' + edgeAttrLine(graph, layout, edge.src, edge.dst, edge.rawAttrs));
   }
 
   lines.push('}');

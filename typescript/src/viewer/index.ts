@@ -151,7 +151,8 @@ export interface MountOptions {
   readonly chrome?: boolean;
   /**
    * Layout strategy. `'elk'` (default) runs the C0 pipeline — parse → fold
-   * → replicate → ELK → Graphviz `neato` pin mode — and tags replica
+   * → replicate → ELK → Graphviz `nop2` (pinned node positions AND edge
+   * routes) — and tags replica
    * nodes for the click-all-copies + ⇄ overlay. `'graphviz'` runs the
    * plain Graphviz `dot` engine and skips replica tagging. The result is
    * cached on the DOT hash; re-mounts on identical DOT skip the pipeline.
