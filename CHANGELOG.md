@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+**Viewer: orthogonal (right-angle) edge routing**
+
+The canonical Petri-net viewer now draws its own orthogonal edge routes rather than letting Graphviz route them. It renders the pinned graph with engine `nop2` and supplies each edge's ELK route as a `pos=` spline clipped to the visual node boundary, so edges turn at right angles on a net of any size. This replaces the prior `nop1` mode (curved edges): Graphviz's own `splines=ortho` router is avoided because its maze allocator overruns the @viz-js/viz wasm heap and hard-crashes on large nets.
+
+- Arcs sharing an endpoint bundle into a common trunk (`elk.layered.mergeEdges`) so dense fan-in/out reads as one labelled bus. Accepted trade-off (EXP-004): collinear arcs over-paint along the shared trunk, while arrowheads and labels keep each arc type distinct at the endpoints.
+- The shared `petrinet-diagrams.js` bundle (Java taglet, Rust `libpetri-docgen`, TS doclet) is rebuilt from the pinned toolchain; no mapper-DOT or spec change.
+
 ## Java 2.10.4 / TypeScript 2.10.4 / Rust 3.4.4 / Python 2.13.2 — 2026-07-02
 
 **Fix: ν-net join match dropped by `bindActions` (NU-030)**
