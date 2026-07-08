@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Java 2.10.5 / TypeScript 2.10.5 / Rust 3.4.5 — 2026-07-08
 
 **Viewer: orthogonal (right-angle) edge routing**
 
