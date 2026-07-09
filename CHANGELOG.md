@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+**Feature: opt-in EXTENDED ν-net fragment (drain/relay + fork-threaded co-mint) (NU-051)**
+
+The Route B name-partition quotient ([NU-050] / [VER-012]) gains an opt-in EXTENDED mode that decides two further ν-net shapes exactly, without weakening its soundness. BASE stays the default and reproduces the shipped mint → matched-join behaviour. Rust is the source of truth; Java and TypeScript port it byte-faithfully and Python inherits it through the Rust runtime.
+
+- **Coloured consumer (drain/relay):** a non-match transition may consume a coloured place, relaying the correlation name into its coloured outputs or draining it (dead-letter). It is admitted only when it consumes a single coloured input at count exactly one, and the role carries just the input place name.
+- **Carrier places:** authors may declare intermediate places that thread a fork-minted name to a ν-join input (`carrierPlaces` / `carrier_place(s)`); the mint co-mints one fresh name into them. An unknown carrier name fails loudly (builder rejection or `Unknown` with a reason) instead of silently producing a spurious deadlock.
+- **Sound by construction:** the relay emits exactly one symbol per coloured output, matching the base marking's one-token-per-output rule, so the name layer never over-counts or equates two distinct names into a false PROVEN. The consumer is admitted only at count exactly one, so no base-enabled firing is dropped.
+- **Reset/read/inhibitor-on-coloured tightening now applied in BASE too:** a net with a reset, read, or inhibitor arc on a coloured place is rejected to the sound over-approximation in both modes, closing a pre-existing name-layer drift.
+- When EXTENDED is requested but the net falls outside the fragment, the verifier surfaces a short "EXTENDED declined" note rather than falling back silently.
+
 ## Java 2.10.5 / TypeScript 2.10.5 / Rust 3.4.5 — 2026-07-08
 
 **Viewer: orthogonal (right-angle) edge routing**

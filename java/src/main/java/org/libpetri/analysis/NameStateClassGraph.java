@@ -137,7 +137,10 @@ public final class NameStateClassGraph {
      * through; {@code Mint} stamps one globally-fresh symbol into the coloured
      * outputs of this branch (one symbol into several = same-mint siblings);
      * {@code Join} yields one successor per enabling symbol (none =&gt; the join is
-     * name-disabled).
+     * name-disabled); {@code Consume} (EXTENDED) yields one successor per resident
+     * symbol of its single coloured input, removing that symbol and re-emitting it
+     * into the fired branch's coloured outputs, so a branch with no coloured output
+     * drains the symbol and a branch with one relays it.
      */
     private static List<NameMarking> nameSuccessors(
             NameFragment.Role role,
@@ -149,12 +152,7 @@ public final class NameStateClassGraph {
         return switch (role) {
             case NameFragment.Role.Ordinary _ -> List.of(names.copy());
             case NameFragment.Role.Mint _ -> {
-                var colouredOut = new ArrayList<String>();
-                for (var p : outputPlaces) {
-                    if (fragment.isColoured(p.name())) {
-                        colouredOut.add(p.name());
-                    }
-                }
+                var colouredOut = colouredOutputs(outputPlaces, fragment);
                 var nm = names.copy();
                 if (!colouredOut.isEmpty()) {
                     int fresh = nextSym[0]++;
@@ -175,7 +173,40 @@ public final class NameStateClassGraph {
                 }
                 yield result;
             }
+            case NameFragment.Role.Consume c -> {
+                var inputPlace = c.colouredInput(); // classify restricts Consume to one coloured input at count 1
+                var colouredOut = colouredOutputs(outputPlaces, fragment);
+                // The consumed count is fixed at 1, so EVERY resident symbol (each
+                // present at count >= 1) enables a firing — none is dropped, so no
+                // base-enabled firing vanishes (Blocker 2). Each coloured output
+                // receives EXACTLY ONE symbol, matching the base marking's single
+                // token per output place (Blocker 1).
+                var result = new ArrayList<NameMarking>();
+                for (int s : names.symbolsIn(inputPlace)) {
+                    var nm = names.copy();
+                    nm.remove(inputPlace, s, 1);
+                    for (var outP : colouredOut) {
+                        nm.add(outP, s, 1); // relay: thread the same symbol; drain adds to none
+                    }
+                    result.add(nm);
+                }
+                yield result;
+            }
         };
+    }
+
+    /**
+     * The coloured output places of the fired branch (used by {@code Mint} to stamp
+     * a fresh symbol and by {@code Consume} to relay the consumed symbol).
+     */
+    private static List<String> colouredOutputs(Set<Place<?>> outputPlaces, NameFragment fragment) {
+        var result = new ArrayList<String>();
+        for (var p : outputPlaces) {
+            if (fragment.isColoured(p.name())) {
+                result.add(p.name());
+            }
+        }
+        return result;
     }
 
     /**

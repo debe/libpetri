@@ -1,6 +1,7 @@
 package org.libpetri.smt;
 
 import org.libpetri.analysis.EnvironmentAnalysisMode;
+import org.libpetri.analysis.FragmentMode;
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.core.EnvironmentPlace;
 import org.libpetri.core.PetriNet;
@@ -78,6 +79,8 @@ public final class SmtVerifier {
     private EnvironmentAnalysisMode environmentMode = EnvironmentAnalysisMode.ignore();
     private Duration timeout = Duration.ofSeconds(60);
     private int nuMaxClasses = 100_000;
+    private FragmentMode fragmentMode = FragmentMode.BASE;
+    private final Set<String> carrierPlaces = new HashSet<>();
 
     private SmtVerifier(PetriNet net) {
         this.net = Objects.requireNonNull(net);
@@ -180,6 +183,50 @@ public final class SmtVerifier {
     }
 
     /**
+     * Selects the &nu;-name-correlation fragment for the Route-B analyzer (NU-050).
+     * {@link FragmentMode#BASE} (default) is the shipped mint&rarr;matched-join
+     * fragment; {@link FragmentMode#EXTENDED} additionally admits name-blind
+     * coloured-consumers (drain / relay) and the {@link #carrierPlaces} that thread
+     * a minted name from a fork to the join inputs, so fork-threaded &nu;-nets with
+     * dead-letter drains become decidable. Opt-in; BASE preserves prior behavior.
+     */
+    public SmtVerifier fragmentMode(FragmentMode mode) {
+        this.fragmentMode = Objects.requireNonNull(mode);
+        return this;
+    }
+
+    /**
+     * Declares carrier places (EXTENDED fragment only): intermediate places that
+     * carry a name minted at a fork onward to a &nu;-join input. They join the
+     * coloured (name-partitioned) set so a single fresh name is threaded through
+     * them (rather than each producer minting an independent colour). Ignored under
+     * {@link FragmentMode#BASE}.
+     *
+     * <p>Each declared place must belong to {@code net}: a mistyped carrier name
+     * would silently make two fork branches mint independent names, so the join
+     * never becomes name-enabled and the verifier could report a confident false
+     * deadlock. This method therefore throws {@link IllegalArgumentException} naming
+     * the offending place rather than proceeding.
+     *
+     * @throws IllegalArgumentException if a declared place is not in {@code net}
+     */
+    @SafeVarargs
+    public final SmtVerifier carrierPlaces(Place<?>... places) {
+        var netPlaceNames = new HashSet<String>();
+        for (var np : net.places()) {
+            netPlaceNames.add(np.name());
+        }
+        for (var p : places) {
+            if (!netPlaceNames.contains(p.name())) {
+                throw new IllegalArgumentException(
+                    "declared carrier place '" + p.name() + "' is not in the net");
+            }
+            this.carrierPlaces.add(p.name());
+        }
+        return this;
+    }
+
+    /**
      * Runs the verification pipeline.
      *
      * @return the verification result
@@ -212,7 +259,8 @@ public final class SmtVerifier {
         // downgrade for these cases).
         if (hasMatch && (!isReachabilitySafety(property) || !nuBounded)) {
             var outcome = NuScgVerifier.verify(
-                net, initialMarking, property, sinkPlaces, environmentPlaces, environmentMode, nuMaxClasses);
+                net, initialMarking, property, sinkPlaces, environmentPlaces, environmentMode, nuMaxClasses,
+                fragmentMode, carrierPlaces);
             if (outcome != null) {
                 report.append("=== ν-net Route B: name-aware state-class graph (NU-050) ===\n");
                 report.append("  Name-partition state classes: ").append(outcome.classCount()).append("\n");
@@ -227,6 +275,15 @@ public final class SmtVerifier {
                     Duration.between(start, Instant.now()),
                     new SmtVerificationResult.SmtStatistics(
                         net.places().size(), net.transitions().size(), 0, "n/a (ν name-partition SCG)"));
+            }
+            // EXTENDED was requested but the net falls outside the coloured-consumer
+            // fragment (classify returned null). Surface a short note instead of a
+            // silent fall-back, then continue on the sound over-approximation path.
+            if (fragmentMode == FragmentMode.EXTENDED) {
+                report.append("ν-net Route B (EXTENDED) declined: net outside coloured-consumer "
+                    + "fragment (a coloured place consumed count != 1 or by multiple inputs, carries "
+                    + "reset/read/inhibitor arc, or a join re-mints a coloured place); verified via "
+                    + "sound over-approximation instead.\n\n");
             }
         }
 

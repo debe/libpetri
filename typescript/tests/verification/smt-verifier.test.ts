@@ -8,6 +8,8 @@ import {
 import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place, environmentPlace } from '../../src/core/place.js';
+import type { Place } from '../../src/core/place.js';
+import { classify } from '../../src/verification/analysis/name-fragment.js';
 import { one, exactly } from '../../src/core/in.js';
 import { outPlace, xorPlaces, andPlaces } from '../../src/core/out.js';
 import { matchSpec, matchKey } from '../../src/core/match-spec.js';
@@ -652,5 +654,159 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
     expect(result.verdict.type).toBe('unknown');
     const reason = (result.verdict as { type: 'unknown'; reason: string }).reason;
     expect(reason).toContain('truncated');
+  });
+
+  // === NU-051: opt-in EXTENDED coloured-consumer fragment (drain/relay) ===
+
+  // `mint (fork) → 2 relays → matched-join`, plus a `violation-drain` that
+  // consumes a coloured (match-key) place directly. `relayCount`/`drainCount` set
+  // the relay/drain input cardinality (1 for the in-fragment shape, ≥2 to trip
+  // the count-1 guard). The drain consuming `branchA` (a match key) is what makes
+  // BASE reject the net.
+  function comintRelayDrainNet(relayCount: number, drainCount: number) {
+    const source = place('source');
+    const preA = place<string>('preA');
+    const preB = place<string>('preB');
+    const a = place<string>('branchA');
+    const b = place<string>('branchB');
+    const merged = place<string>('merged');
+    const dl = place('deadletter');
+
+    const relayIn = (p: Place<string>, c: number) => (c === 1 ? one(p) : exactly(c, p));
+
+    const fork = Transition.builder('fork').inputs(one(source)).outputs(andPlaces(preA, preB)).build();
+    const relayA = Transition.builder('relayA').inputs(relayIn(preA, relayCount)).outputs(outPlace(a)).build();
+    const relayB = Transition.builder('relayB').inputs(relayIn(preB, relayCount)).outputs(outPlace(b)).build();
+    const join = Transition.builder('join')
+      .inputs(one(a), one(b))
+      .match(matchSpec(matchKey(a, (s: string) => nameId(s)), matchKey(b, (s: string) => nameId(s))))
+      .outputs(outPlace(merged))
+      .build();
+    const drain = Transition.builder('drain')
+      .inputs(drainCount === 1 ? one(a) : exactly(drainCount, a))
+      .outputs(outPlace(dl))
+      .build();
+
+    return PetriNet.builder('comintRelayDrain').transitions(fork, relayA, relayB, join, drain).build();
+  }
+
+  it('(a) classify: EXTENDED admits the drain/relay fixture; BASE rejects it', () => {
+    const net = comintRelayDrainNet(1, 1);
+    const carriers = new Set(['preA', 'preB']);
+    expect(classify(net, 'extended', carriers)).not.toBeNull();
+    expect(classify(net, 'base', carriers)).toBeNull();
+  });
+
+  it('(b) classify: EXTENDED rejects a coloured relay consuming exactly(2) (Blocker 1)', () => {
+    // A relay consuming In.exactly(2) would re-emit 2 name-symbols into a coloured
+    // output while the base marking adds only 1 → the name layer over-counts.
+    const net = comintRelayDrainNet(2, 1);
+    expect(classify(net, 'extended', new Set(['preA', 'preB']))).toBeNull();
+  });
+
+  it('(c) classify: EXTENDED rejects a name-blind drain consuming exactly(2) (Blocker 2)', () => {
+    // A drain consuming In.exactly(2) (count != 1) must fall back rather than drop
+    // a base-enabled firing.
+    const net = comintRelayDrainNet(1, 2);
+    expect(classify(net, 'extended', new Set(['preA', 'preB']))).toBeNull();
+  });
+
+  // A reset/read/inhibitor arc on a coloured place makes classify return null in
+  // BOTH modes: the arc would be misclassified ordinary and the name layer would
+  // drift from the base marking (a soundness guard).
+  function colouredGuardNet(arc: 'reset' | 'read' | 'inhibitor') {
+    const a = place<string>('branchA');
+    const b = place<string>('branchB');
+    const scratch = place('scratch');
+    const merged = place<string>('merged');
+    const join = Transition.builder('join')
+      .inputs(one(a), one(b))
+      .match(matchSpec(matchKey(a, (s: string) => nameId(s)), matchKey(b, (s: string) => nameId(s))))
+      .outputs(outPlace(merged))
+      .build();
+    let cb = Transition.builder('guarding').inputs(one(scratch));
+    if (arc === 'reset') cb = cb.reset(a);
+    else if (arc === 'read') cb = cb.read(a);
+    else cb = cb.inhibitor(a);
+    return PetriNet.builder('colouredGuard').transitions(join, cb.build()).build();
+  }
+
+  for (const arc of ['reset', 'read', 'inhibitor'] as const) {
+    it(`(e) classify: a ${arc} arc on a coloured place rejects the net in BOTH modes`, () => {
+      const net = colouredGuardNet(arc);
+      expect(classify(net, 'base', new Set<string>())).toBeNull();
+      expect(classify(net, 'extended', new Set<string>())).toBeNull();
+    });
+  }
+
+  // End-to-end EXTENDED fixture: `fork` co-mints one fresh name into `branchA`,
+  // `branchB`, and the declared carrier `stray`; `join` correlates the branches
+  // into `merged` (a sink), leaving `stray`; an optional `drain` dead-letters the
+  // leftover `stray` into `deadletter` (a sink). Without the drain, `stray` is
+  // stranded at quiescence — a genuine stall.
+  function comintCarrierDrainNet(withDrain: boolean) {
+    const source = place('source');
+    const a = place<string>('branchA');
+    const b = place<string>('branchB');
+    const stray = place<string>('stray');
+    const merged = place<string>('merged');
+    const dl = place('deadletter');
+
+    const fork = Transition.builder('fork').inputs(one(source)).outputs(andPlaces(a, b, stray)).build();
+    const join = Transition.builder('join')
+      .inputs(one(a), one(b))
+      .match(matchSpec(matchKey(a, (s: string) => nameId(s)), matchKey(b, (s: string) => nameId(s))))
+      .outputs(outPlace(merged))
+      .build();
+    const transitions = [fork, join];
+    if (withDrain) {
+      transitions.push(Transition.builder('drain').inputs(one(stray)).outputs(outPlace(dl)).build());
+    }
+    const net = PetriNet.builder('comintCarrierDrain').transitions(...transitions).build();
+    return { net, source, merged, dl, stray };
+  }
+
+  it('(d) EXTENDED proves DeadlockFree with the drain via Route B (NU-051)', async () => {
+    const { net, source, merged, dl, stray } = comintCarrierDrainNet(true);
+    const result = await SmtVerifier.forNet(net)
+      .initialMarking(m => m.tokens(source, 1))
+      .property(deadlockFree())
+      .sinkPlaces(merged, dl)
+      .fragmentMode('extended')
+      .carrierPlaces(stray)
+      .verify();
+    expect(result.verdict.type).toBe('proven');
+    expect(result.report).toContain('Route B');
+  });
+
+  it('(d) EXTENDED finds DeadlockFree violated without the drain via Route B (NU-051)', async () => {
+    const { net, source, merged, dl, stray } = comintCarrierDrainNet(false);
+    const result = await SmtVerifier.forNet(net)
+      .initialMarking(m => m.tokens(source, 1))
+      .property(deadlockFree())
+      .sinkPlaces(merged, dl)
+      .fragmentMode('extended')
+      .carrierPlaces(stray)
+      .verify();
+    expect(result.verdict.type).toBe('violated');
+    expect(result.report).toContain('Route B');
+  });
+
+  it('(g) EXTENDED proves JoinedOrDeadLettered(stray) with the drain via Route B (NU-051)', async () => {
+    const { net, source, merged, dl, stray } = comintCarrierDrainNet(true);
+    const result = await SmtVerifier.forNet(net)
+      .initialMarking(m => m.tokens(source, 1))
+      .property(joinedOrDeadLettered(stray))
+      .sinkPlaces(merged, dl)
+      .fragmentMode('extended')
+      .carrierPlaces(stray)
+      .verify();
+    expect(result.verdict.type).toBe('proven');
+    expect(result.report).toContain('Route B');
+  });
+
+  it('(f) carrierPlaces throws on a place not in the net (NU-051)', () => {
+    const { net } = comintCarrierDrainNet(true);
+    expect(() => SmtVerifier.forNet(net).carrierPlaces(place('nonExistent'))).toThrow(/nonExistent/);
   });
 });

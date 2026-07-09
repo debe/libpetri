@@ -321,6 +321,99 @@ name-colouring) eliminates it, while a same-name join still reaches its merge.
 
 ---
 
+#### NU-051: EXTENDED Coloured-Consumer Fragment
+
+**Priority:** MAY
+
+The [NU-050] Route B name-partition quotient decides the **mint → matched-join**
+fragment exactly. An opt-in **EXTENDED** fragment mode widens that exact path to
+two further shapes without weakening its soundness: a **coloured consumer**
+(drain/relay) that removes a correlation name without a match, and **carrier
+places** that thread a fork-minted name through intermediate places to a ν-join
+input. The mode is a two-value knob — **BASE** (default) reproduces the shipped
+mint → matched-join fragment exactly; **EXTENDED** is selected on the verifier
+builder (`fragmentMode` / `fragment_mode`). Both are decided solely by the
+solver-free Route B quotient; neither changes the canonical name-partition key
+format ([VER-012]), so cross-language byte compatibility is preserved.
+
+- **Coloured consumer (drain/relay).** Under EXTENDED, a transition with **no**
+  match spec MAY consume a coloured place. The analyzer admits it only as a
+  drain/relay role and only when it consumes **exactly one** coloured input at
+  count **exactly one** ([IO-001] `One` or [IO-002] `Exactly(1)`). It **relays**
+  the consumed name-symbol into each coloured output of the fired branch
+  (threading the same name), or **drains** it (dead-letters the name) on a branch
+  that produces no coloured output; a single `Xor` transition ([IO-012]) MAY relay
+  on one branch and drain on another. Because the consumed count is fixed at one,
+  the role is identified by the input place name alone — no count, no input list.
+  A consumer that consumes more than one coloured place, or consumes at any count
+  other than one (`Exactly(n≥2)`, `AtLeast`, `All`), is **rejected** to the sound
+  over-approximation: the base marking adds exactly one token per output place, so
+  re-emitting a higher input cardinality into the name layer would over-count and
+  could let a join fire by equating two distinct names (a false `Proven`).
+
+- **Relay/drain action precondition.** The coloured-consumer role is a modeling
+  contract on the action, and MUST be documented as such. The action MUST thread
+  the consumed correlation name into its coloured outputs (relay), or into **none**
+  of them (drain); it MUST NOT mint a *fresh* name into a coloured output while
+  consuming a coloured token. A consume-and-remint transition is **out of
+  contract** for EXTENDED — the name layer would thread the consumed name where the
+  runtime mints afresh — and such a net is not made exact by this mode.
+
+- **Carrier places (fork-threaded co-mint).** Under EXTENDED, an author MAY declare
+  intermediate **carrier** places (`carrierPlaces` / `carrier_place(s)`) that carry
+  a fresh name from the minting fork ([NU-010]) onward to a ν-join input. The
+  analyzer unions the declared carriers into the coloured set **before** role
+  assignment, so the existing mint co-mints one fresh name into all of them. A
+  declared carrier name absent from the net's places MUST NOT be silently ignored:
+  the implementation MUST fail loudly (reject at the builder, or surface `Unknown`
+  with a reason naming the offending place), because a mistyped carrier would let
+  two fork branches mint independent names and produce a confident, spurious
+  deadlock verdict. Under BASE, declared carriers are ignored (a documented no-op).
+
+- **Reset/read/inhibitor-on-coloured exclusion (BOTH modes).** In **both** BASE and
+  EXTENDED, the analyzer rejects a net in which **any** coloured place carries a
+  reset ([CORE-034]), read ([CORE-032]), or inhibitor ([CORE-031]) arc on any
+  transition. Such an arc would be misclassified `Ordinary`, letting the base step
+  zero or gate the coloured place while the name layer keeps the symbol, drifting
+  the name layer from the base count marking. This is a deliberate soundness
+  tightening applied to BASE too (rejection just falls back to the sound
+  over-approximation); it never turns a `Proven`/`Violated` into an unsound verdict.
+
+- **Diagnosability.** When EXTENDED is requested but the net falls outside this
+  fragment, the verifier MUST surface a short note (an "EXTENDED declined" line)
+  rather than silently falling back, so an author can tell the exact path was not
+  taken.
+
+**Acceptance Criteria:**
+1. (MUST) Under EXTENDED, a drain/relay fixture (a non-match transition consuming
+   one coloured place at count one) classifies into the coloured-consumer role;
+   under BASE the same net is rejected to the over-approximation.
+2. (MUST) A coloured consumer that consumes at count `Exactly(n≥2)` (or `AtLeast` /
+   `All`), or consumes more than one coloured input, is rejected under EXTENDED — no
+   false `Proven` from an over-counted name layer, no dropped base-enabled firing.
+3. (MUST) In both BASE and EXTENDED, a net with a reset, read, or inhibitor arc on a
+   coloured place is rejected (returns no fragment).
+4. (MUST) A declared carrier place not present in the net fails loudly (builder
+   rejection or `Unknown` with a reason naming the place); it is never silently
+   ignored.
+5. (SHOULD) With carriers declared, an end-to-end quiescence property (deadlock-free
+   / joined-or-dead-lettered) is decided exactly via Route B — it PROVES on a
+   fork-threaded co-mint plus drain fixture and reports VIOLATED when the drain is
+   removed, and the verdict is attributable to Route B (the report names the
+   name-partition quotient), not the name-blind SMT path.
+6. (MAY) A single `Xor` coloured consumer relays the name on one branch and drains
+   it on another through the same transition.
+
+**Depends on:** [NU-050], [VER-012], [NU-020]
+**Test derivation:** `classify` accepts a drain/relay fixture under EXTENDED and
+rejects it under BASE; an `Exactly(2)` coloured consumer is rejected (blocker-1 /
+blocker-2 regression); a reset-on-coloured net is rejected in both modes; an unknown
+carrier name fails loudly; an end-to-end `deadlockFree` / `JoinedOrDeadLettered`
+query on a fork-threaded co-mint plus drain fixture PROVES via Route B and turns
+VIOLATED when the drain is removed.
+
+---
+
 ## Implementation Notes
 
 - The selection + tie-break ([NU-020]) is a single algorithm shared by both

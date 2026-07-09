@@ -13,7 +13,7 @@ import type { Place } from '../core/place.js';
 import type { EnvironmentPlace } from '../core/place.js';
 import type { MarkingState } from './marking-state.js';
 import type { EnvironmentAnalysisMode } from './analysis/environment-analysis-mode.js';
-import { classify } from './analysis/name-fragment.js';
+import { classify, type FragmentMode } from './analysis/name-fragment.js';
 import { NameStateClassGraph } from './analysis/name-state-class-graph.js';
 import type { SmtProperty } from './smt-property.js';
 import type { Verdict } from './smt-verification-result.js';
@@ -40,8 +40,10 @@ export function verifyViaNameScg(
   environmentPlaces: Set<EnvironmentPlace<any>>,
   environmentMode: EnvironmentAnalysisMode,
   maxClasses: number,
+  fragmentMode: FragmentMode,
+  carrierPlaces: ReadonlySet<string>,
 ): NuScgOutcome | null {
-  const fragment = classify(net);
+  const fragment = classify(net, fragmentMode, carrierPlaces);
   if (fragment === null) return null;
   // We model no initial colour assignment, so coloured places must start empty.
   for (const p of initial.placesWithTokens()) {

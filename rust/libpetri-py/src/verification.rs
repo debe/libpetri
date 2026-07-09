@@ -8,6 +8,8 @@ use libpetri::verification::harness::{SubnetVerifyExt, VerificationHarness};
 use libpetri::verification::property::SmtProperty;
 use libpetri::verification::result::{Verdict, VerificationResult};
 use pyo3::exceptions::PyTypeError;
+#[cfg(feature = "z3")]
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::wrap_pyfunction;
 
@@ -275,10 +277,40 @@ fn py_joined_or_dead_lettered(pending: String) -> PySmtProperty {
     PySmtProperty { inner: SmtProperty::joined_or_dead_lettered(pending) }
 }
 
+/// Parses the `fragment_mode` keyword argument (NU-051). Accepts a string
+/// `"base"`/`"extended"` (case-insensitive) or an int `0`/`1`.
+#[cfg(feature = "z3")]
+fn parse_fragment_mode(
+    obj: &Bound<'_, PyAny>,
+) -> PyResult<libpetri::verification::name_fragment::FragmentMode> {
+    use libpetri::verification::name_fragment::FragmentMode;
+    if let Ok(s) = obj.extract::<String>() {
+        match s.to_ascii_lowercase().as_str() {
+            "base" => Ok(FragmentMode::Base),
+            "extended" => Ok(FragmentMode::Extended),
+            other => Err(PyValueError::new_err(format!(
+                "fragment_mode must be \"base\" or \"extended\" (or 0/1), got {other:?}"
+            ))),
+        }
+    } else if let Ok(n) = obj.extract::<i64>() {
+        match n {
+            0 => Ok(FragmentMode::Base),
+            1 => Ok(FragmentMode::Extended),
+            other => Err(PyValueError::new_err(format!(
+                "fragment_mode int must be 0 (base) or 1 (extended), got {other}"
+            ))),
+        }
+    } else {
+        Err(PyTypeError::new_err(
+            "fragment_mode must be a str (\"base\"/\"extended\") or an int (0/1)",
+        ))
+    }
+}
+
 /// Verifies a single property against `net` using SMT (Z3). Without the `z3`
 /// feature, returns `VerificationResult` with verdict `"unknown"`.
 #[pyfunction(name = "verify_net")]
-#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 30_000, nu_max_classes = None))]
+#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 30_000, nu_max_classes = None, fragment_mode = None, carrier_places = None))]
 fn py_verify_net(
     py: Python<'_>,
     net: &PyPetriNet,
@@ -290,12 +322,27 @@ fn py_verify_net(
     budget_places: Option<Vec<String>>,
     timeout_ms: u64,
     nu_max_classes: Option<usize>,
+    fragment_mode: Option<Bound<'_, PyAny>>,
+    carrier_places: Option<Vec<String>>,
 ) -> PyResult<PyVerificationResult> {
     #[cfg(feature = "z3")]
     {
+        use libpetri::verification::name_fragment::FragmentMode;
         let net = net.net().clone();
         let property = property.inner.clone();
         let environment_places = environment_places.unwrap_or_default();
+        // ν-net fragment mode (NU-051): "base" (default) reproduces the shipped
+        // mint → matched-join behaviour; "extended" also admits the drain/relay
+        // coloured-consumer role and the declared carrier places. Accept a string
+        // ("base"/"extended", case-insensitive) or an int (0/1).
+        let fragment_mode = match &fragment_mode {
+            Some(obj) => parse_fragment_mode(obj)?,
+            None => FragmentMode::Base,
+        };
+        // EXTENDED-only carrier places (NU-051): ignored under Base; an unknown
+        // name surfaces as an Unknown verdict from verify(), never a silent
+        // fall-back.
+        let carrier_places = carrier_places.unwrap_or_default();
         // Default to Ignore (the Rust default); the verifier downgrades a would-be
         // vacuous "proven" to "unknown" when env places are present under Ignore.
         let environment_mode = environment_mode
@@ -320,6 +367,8 @@ fn py_verify_net(
                 .environment_mode(environment_mode)
                 .sink_places(sink_places)
                 .budget_places(budget_places)
+                .fragment_mode(fragment_mode)
+                .carrier_places(carrier_places)
                 .timeout(timeout_ms);
             // ν name-aware SCG class cap (NU-050, Route B); None keeps the Rust default.
             if let Some(n) = nu_max_classes {
@@ -331,7 +380,7 @@ fn py_verify_net(
     }
     #[cfg(not(feature = "z3"))]
     {
-        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes);
+        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes, fragment_mode, carrier_places);
         Ok(PyVerificationResult::unknown("z3 feature not enabled"))
     }
 }

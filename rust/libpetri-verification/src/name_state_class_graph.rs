@@ -158,10 +158,25 @@ impl NameStateClassGraph {
     }
 }
 
+/// The coloured output places of the fired branch (used by `Mint` to stamp a
+/// fresh symbol and by `Consume` to relay the consumed symbol).
+fn coloured_outputs<'a>(
+    output_places: &'a HashSet<String>,
+    fragment: &NameFragment,
+) -> Vec<&'a String> {
+    output_places
+        .iter()
+        .filter(|p| fragment.is_coloured(p))
+        .collect()
+}
+
 /// Name-layer successors of one transition firing. `Ordinary` passes the layer
 /// through; `Mint` stamps one globally-fresh symbol into the coloured outputs of
 /// this branch (one symbol into several = same-mint siblings); `Join` yields one
-/// successor per enabling symbol (none ⇒ the join is name-disabled).
+/// successor per enabling symbol (none ⇒ the join is name-disabled); `Consume`
+/// (EXTENDED, [NU-051]) yields one successor per resident symbol of the single
+/// coloured input, threading that symbol into every coloured output (relay) or
+/// dropping it (drain).
 fn name_successors(
     role: &Role,
     names: &NameMarking,
@@ -172,10 +187,7 @@ fn name_successors(
     match role {
         Role::Ordinary => vec![names.clone()],
         Role::Mint => {
-            let coloured_out: Vec<&String> = output_places
-                .iter()
-                .filter(|p| fragment.is_coloured(p))
-                .collect();
+            let coloured_out = coloured_outputs(output_places, fragment);
             let mut nm = names.clone();
             if !coloured_out.is_empty() {
                 let fresh = *next_sym;
@@ -196,6 +208,26 @@ fn name_successors(
                 nm
             })
             .collect(),
+        Role::Consume { input_place } => {
+            let coloured_out = coloured_outputs(output_places, fragment);
+            // The consumed count is fixed at 1, so EVERY resident symbol (each
+            // present at count ≥ 1) enables a firing — none is dropped, so no
+            // base-enabled firing vanishes (Blocker 2). Each coloured output
+            // receives EXACTLY ONE symbol, matching the base marking's single
+            // token per output place (Blocker 1).
+            names
+                .symbols_in(input_place)
+                .into_iter()
+                .map(|s| {
+                    let mut nm = names.clone();
+                    nm.remove(input_place, s, 1);
+                    for p in &coloured_out {
+                        nm.add(p, s, 1);
+                    }
+                    nm
+                })
+                .collect()
+        }
     }
 }
 
