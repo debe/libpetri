@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Java 2.11.0 / TypeScript 2.11.0 / Rust 3.5.0 / Python 2.14.0 — 2026-07-09
 
 **Feature: opt-in EXTENDED ν-net fragment (drain/relay + fork-threaded co-mint) (NU-051)**
 
