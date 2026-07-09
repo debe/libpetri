@@ -32,6 +32,23 @@ public final class NameFragment {
         record Mint() implements Role {}
         /** Correlated inputs (place name &rarr; required per-firing count), sorted by name. */
         record Join(List<Map.Entry<String, Integer>> colouredIn) implements Role {}
+        /**
+         * A non-match transition that consumes exactly one coloured place at count
+         * exactly one (EXTENDED fragment only, NU-051). The name-successor step
+         * removes one resident symbol from {@code colouredInput} and re-emits it into
+         * the fired branch's coloured outputs: a branch with no coloured output
+         * <i>drains</i> the symbol (dead-letter), a branch with a coloured output
+         * <i>relays</i> it (threads a carrier name to a join input). Because the
+         * consumed count is fixed at one, the role carries only the input place name
+         * (no count, no list).
+         *
+         * <p><b>Documented precondition</b> (NU-051): the action MUST thread the
+         * consumed symbol (relay) or drop it (drain); it MUST NOT mint a fresh name
+         * into a coloured output while consuming a coloured token. Such a
+         * consume-and-remint transition is out of contract (the name layer would
+         * thread the consumed symbol where the runtime mints a fresh one).
+         */
+        record Consume(String colouredInput) implements Role {}
     }
 
     final List<String> colouredOrder;
@@ -57,6 +74,28 @@ public final class NameFragment {
      * falls outside the supported mint&rarr;matched-join fragment.
      */
     public static NameFragment classify(PetriNet net) {
+        return classify(net, FragmentMode.BASE, Set.of());
+    }
+
+    /**
+     * Classifies {@code net} under {@code mode}. Returns {@code null} when the net
+     * is not a &nu;-net (no match transition) or falls outside the admitted fragment
+     * (the caller falls back to the SMT / Route A path).
+     *
+     * <p>Under {@link FragmentMode#BASE} the {@code carrierPlaces} are ignored and a
+     * non-match transition consuming a coloured place takes the net out of fragment.
+     * Under {@link FragmentMode#EXTENDED} the declared {@code carrierPlaces} are
+     * unioned into the coloured set before role assignment (so a name minted at a
+     * fork is threaded through them) and a non-match transition consuming exactly one
+     * coloured place at count exactly one is admitted as a {@link Role.Consume}
+     * (drain / relay), NU-051.
+     *
+     * <p>Both modes reject a net where any coloured place carries a reset, read, or
+     * inhibitor arc: those arcs would be silently misclassified {@code Ordinary} and
+     * the name layer would drift from the base marking (a soundness guard; rejection
+     * just falls back to the sound over-approximation).
+     */
+    public static NameFragment classify(PetriNet net, FragmentMode mode, Set<String> carrierPlaces) {
         var coloured = new TreeSet<String>();
         boolean anyMatch = false;
         for (var t : net.transitions()) {
@@ -69,6 +108,26 @@ public final class NameFragment {
         }
         if (!anyMatch || coloured.isEmpty()) {
             return null;
+        }
+        if (mode == FragmentMode.EXTENDED) {
+            // Declared carrier places thread a minted name from the fork to the join
+            // inputs, so they are part of the coloured (name-partitioned) set.
+            coloured.addAll(carrierPlaces);
+        }
+
+        // Soundness guard (BOTH modes): no coloured place may carry a reset, read, or
+        // inhibitor arc on any transition. Such an arc would be silently misclassified
+        // Ordinary and the name layer would drift from the base marking (e.g. a reset
+        // zeroes the place while the name layer keeps its symbol, breaking the
+        // count == name-total invariant). Checked after the coloured set is finalized
+        // (a carrier could carry such an arc). Rejection just falls back to the sound
+        // over-approximation.
+        for (var t : net.transitions()) {
+            if (t.resets().stream().anyMatch(r -> coloured.contains(r.place().name()))
+                    || t.reads().stream().anyMatch(r -> coloured.contains(r.place().name()))
+                    || t.inhibitors().stream().anyMatch(i -> coloured.contains(i.place().name()))) {
+                return null;
+            }
         }
 
         var roles = new HashMap<String, Role>();
@@ -106,15 +165,41 @@ public final class NameFragment {
                 }
                 colouredIn.sort(Map.Entry.comparingByKey());
                 role = new Role.Join(colouredIn);
-            } else if (producesColoured) {
-                if (consumesColoured) {
+            } else if (consumesColoured) {
+                // A non-match transition consuming a coloured place. BASE: out of
+                // fragment (the consumed name would be ambiguous). EXTENDED: a drain
+                // (no coloured output) or relay (re-emits the same symbol into its
+                // coloured outputs), admitted ONLY when it consumes exactly ONE
+                // coloured place at count EXACTLY ONE (In.One or In.Exactly{count:1}).
+                // More than one coloured input, or any higher / All / AtLeast count,
+                // would over-count the name layer relative to the base marking (which
+                // adds exactly one token per output place) — reject to the sound
+                // over-approximation.
+                if (mode != FragmentMode.EXTENDED) {
                     return null;
                 }
+                var colouredInputs = new ArrayList<Arc.In>();
+                for (var in : t.inputSpecs()) {
+                    if (coloured.contains(in.place().name())) {
+                        colouredInputs.add(in);
+                    }
+                }
+                if (colouredInputs.size() != 1) {
+                    return null; // multi-coloured-input consumer — out of the supported fragment
+                }
+                var only = colouredInputs.get(0);
+                boolean countOne = switch (only) {
+                    case Arc.In.One _ -> true;
+                    case Arc.In.Exactly e -> e.count() == 1;
+                    default -> false;
+                };
+                if (!countOne) {
+                    return null; // count != 1 — over-approx fallback (Blocker 1 & 2)
+                }
+                role = new Role.Consume(only.place().name());
+            } else if (producesColoured) {
                 role = new Role.Mint();
             } else {
-                if (consumesColoured) {
-                    return null;
-                }
                 role = new Role.Ordinary();
             }
             roles.put(t.name(), role);

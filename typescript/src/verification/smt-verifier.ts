@@ -15,6 +15,7 @@ import { createSpacerRunner } from './z3/spacer-runner.js';
 import { encode } from './z3/smt-encoder.js';
 import { buildColouredPlan, encodeColoured, type ColouredPlan } from './z3/name-coloured-encoder.js';
 import { verifyViaNameScg } from './nu-scg-verifier.js';
+import type { FragmentMode } from './analysis/name-fragment.js';
 import { decode } from './z3/counterexample-decoder.js';
 
 /**
@@ -48,6 +49,8 @@ export class SmtVerifier {
   private _environmentMode: EnvironmentAnalysisMode = alwaysAvailable();
   private _timeoutMs: number = 60_000;
   private _nuMaxClasses: number = 100_000;
+  private _fragmentMode: FragmentMode = 'base';
+  private readonly _carrierPlaces = new Set<string>();
 
   private constructor(private readonly net: PetriNet) {}
 
@@ -122,6 +125,40 @@ export class SmtVerifier {
   }
 
   /**
+   * Selects the ν-net coloured-place fragment for Route B (NU-051). `base`
+   * (default) admits the shipped mint → matched-join fragment only; `extended`
+   * additionally admits the opt-in coloured-consumer (drain/relay) role and the
+   * declared {@link carrierPlaces}. When `extended` is requested but the net
+   * falls outside the coloured-consumer fragment, Route B declines and a short
+   * note is appended to the report before falling back to the sound
+   * over-approximation.
+   */
+  fragmentMode(mode: FragmentMode): this {
+    this._fragmentMode = mode;
+    return this;
+  }
+
+  /**
+   * Declares ν-net *carrier* places (NU-051, EXTENDED only): intermediate places
+   * that carry a fresh name from the minting fork onward to a ν-join input. Under
+   * {@link fragmentMode} `extended` they are unioned into the coloured set so the
+   * existing mint co-mints one fresh name into all of them; under `base` they are
+   * ignored. Accumulating. Throws if a declared place is not in the net — a
+   * mistyped carrier name would let two fork branches mint independent names, so
+   * the join never becomes name-enabled and the verifier would otherwise report a
+   * confident false deadlock; it must surface, never silently proceed.
+   */
+  carrierPlaces(...places: Place<any>[]): this {
+    for (const p of places) {
+      if (![...this.net.places].some(np => np.name === p.name)) {
+        throw new Error(`declared carrier place '${p.name}' not in the net`);
+      }
+      this._carrierPlaces.add(p.name);
+    }
+    return this;
+  }
+
+  /**
    * Runs the verification pipeline.
    */
   async verify(): Promise<SmtVerificationResult> {
@@ -156,6 +193,7 @@ export class SmtVerifier {
       const outcome = verifyViaNameScg(
         this.net, this._initialMarking, this._property, this._sinkPlaces,
         this._environmentPlaces, this._environmentMode, this._nuMaxClasses,
+        this._fragmentMode, this._carrierPlaces,
       );
       if (outcome !== null) {
         report.push('=== ν-net Route B: name-aware state-class graph (NU-050) ===');
@@ -173,6 +211,18 @@ export class SmtVerifier {
             invariantsFound: 0,
             structuralResult: 'n/a (ν name-partition SCG)',
           },
+        );
+      }
+      // EXTENDED was requested but the net is outside the coloured-consumer
+      // fragment (classify declined). Surface a short note instead of a silent
+      // cliff, then verify via the sound over-approximation below (NU-051, §5
+      // diagnosability).
+      if (this._fragmentMode === 'extended') {
+        report.push(
+          'ν-net Route B (EXTENDED) declined: net outside coloured-consumer fragment ' +
+          '(a coloured place consumed count != 1 or by multiple inputs, carries a ' +
+          'reset/read/inhibitor arc, or a join re-mints a coloured place); verified via ' +
+          'sound over-approximation instead.',
         );
       }
     }

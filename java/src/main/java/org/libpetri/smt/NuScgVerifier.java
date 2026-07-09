@@ -1,6 +1,7 @@
 package org.libpetri.smt;
 
 import org.libpetri.analysis.EnvironmentAnalysisMode;
+import org.libpetri.analysis.FragmentMode;
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.analysis.NameFragment;
 import org.libpetri.analysis.NameStateClassGraph;
@@ -52,9 +53,11 @@ final class NuScgVerifier {
             Set<Place<?>> sinkPlaces,
             Set<EnvironmentPlace<?>> environmentPlaces,
             EnvironmentAnalysisMode environmentMode,
-            int maxClasses
+            int maxClasses,
+            FragmentMode fragmentMode,
+            Set<String> carrierPlaces
     ) {
-        var fragment = NameFragment.classify(net);
+        var fragment = NameFragment.classify(net, fragmentMode, carrierPlaces);
         if (fragment == null) {
             return null;
         }

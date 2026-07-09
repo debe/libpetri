@@ -102,6 +102,8 @@ def verify(
     budget_places: Iterable[PlaceLike] | None = None,
     timeout_ms: int = 30_000,
     nu_max_classes: int | None = None,
+    fragment_mode: str | int | None = None,
+    carrier_places: Iterable[PlaceLike] | None = None,
 ) -> VerificationResult:
     """Verify ``property`` against ``net`` via SMT (Z3).
 
@@ -124,6 +126,22 @@ def verify(
     also discovers structural boundedness without a declared budget. When the live
     correlation pool is not structurally bounded the name-aware graph is truncated
     at ``nu_max_classes`` (default 100 000) and the verdict is ``unknown``.
+
+    ``fragment_mode`` (NU-051) selects which coloured-place fragment the
+    ν-aware state-class graph admits. ``"base"`` (the default, also selectable
+    as ``0``) reproduces the shipped mint to matched-join behaviour.
+    ``"extended"`` (or ``1``) additionally admits the opt-in drain/relay
+    coloured-consumer role and the declared ``carrier_places``. When EXTENDED is
+    requested but the net falls outside the coloured-consumer fragment, the
+    verifier appends a short "Route B (EXTENDED) declined" note to
+    ``result.report`` and verifies via the sound over-approximation instead.
+
+    ``carrier_places`` (NU-051) declares intermediate places that carry a fresh
+    name from the minting fork onward to a ν-join input, so the fork co-mints
+    one name into each of them. Effective only under ``fragment_mode="extended"``
+    and ignored under ``"base"``. A declared carrier name that is not a place in
+    ``net`` surfaces as an ``unknown`` verdict whose ``reason`` names the
+    offending place, never a silent fall-back.
     """
     return _ext.verify_net(
         _coerce_net(net),
@@ -139,6 +157,8 @@ def verify(
         budget_places=[_coerce_place_name(p) for p in (budget_places or ())],
         timeout_ms=timeout_ms,
         nu_max_classes=nu_max_classes,
+        fragment_mode=fragment_mode,
+        carrier_places=[_coerce_place_name(p) for p in (carrier_places or ())],
     )
 
 

@@ -121,10 +121,21 @@ export class NameStateClassGraph {
 }
 
 /**
+ * The coloured output place names of the fired branch (used by Mint to stamp a
+ * fresh symbol, and by Consume to relay the consumed symbol).
+ */
+function colouredOutputs(outputPlaces: ReadonlySet<Place<any>>, fragment: NameFragment): string[] {
+  return [...outputPlaces].filter(p => fragment.isColoured(p.name)).map(p => p.name);
+}
+
+/**
  * Name-layer successors of one firing. Ordinary passes the layer through; Mint
  * stamps one globally-fresh symbol into the coloured outputs of this branch (one
  * symbol into several = same-mint siblings); Join yields one successor per
- * enabling symbol (none ⇒ the join is name-disabled).
+ * enabling symbol (none ⇒ the join is name-disabled); Consume (EXTENDED, NU-051)
+ * yields one successor per resident symbol of the single coloured input (count 1,
+ * so NONE is dropped), threading that symbol into every coloured output (relay)
+ * or dropping it (drain, no coloured output).
  */
 function nameSuccessors(
   role: Role,
@@ -137,7 +148,7 @@ function nameSuccessors(
     case 'ordinary':
       return [names.copy()];
     case 'mint': {
-      const colouredOut = [...outputPlaces].filter(p => fragment.isColoured(p.name)).map(p => p.name);
+      const colouredOut = colouredOutputs(outputPlaces, fragment);
       const nm = names.copy();
       if (colouredOut.length > 0) {
         const fresh = sym.next++;
@@ -150,6 +161,20 @@ function nameSuccessors(
       for (const s of enablingSymbols(names, role.colouredIn)) {
         const nm = names.copy();
         for (const [p, req] of role.colouredIn) nm.remove(p, s, req);
+        result.push(nm);
+      }
+      return result;
+    }
+    case 'consume': {
+      // Count is fixed at one, so every resident symbol satisfies the required
+      // count — NO base-enabled firing is dropped. Emit EXACTLY ONE symbol per
+      // coloured output (relay), keeping the name-layer total == base count.
+      const colouredOut = colouredOutputs(outputPlaces, fragment);
+      const result: NameMarking[] = [];
+      for (const s of names.symbolsIn(role.colouredInput)) {
+        const nm = names.copy();
+        nm.remove(role.colouredInput, s, 1);
+        for (const p of colouredOut) nm.add(p, s, 1);
         result.push(nm);
       }
       return result;

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::time::Instant;
 
 use libpetri_core::petri_net::PetriNet;
@@ -8,6 +8,7 @@ use crate::environment::EnvironmentAnalysisMode;
 use crate::incidence_matrix::IncidenceMatrix;
 use crate::marking_state::{MarkingState, MarkingStateBuilder};
 use crate::name_coloured_encoder;
+use crate::name_fragment::FragmentMode;
 use crate::net_flattener::{self, FlatNet};
 use crate::nu_scg_verifier;
 use crate::p_invariant;
@@ -42,6 +43,16 @@ pub struct SmtVerifier<'a> {
     /// the analysis truncates and the verdict is `Unknown` (the live correlation
     /// pool is not structurally bounded). Default 100_000.
     nu_max_classes: usize,
+    /// Which coloured-place fragment the ν-aware SCG admits ([NU-051]). `Base`
+    /// (default) reproduces the shipped mint → matched-join behaviour; `Extended`
+    /// additionally admits the drain/relay coloured-consumer role and the
+    /// declared `carrier_places`.
+    fragment_mode: FragmentMode,
+    /// EXTENDED-only carrier places ([NU-051]): intermediate places that carry a
+    /// fresh name from the minting fork onward to a ν-join input. Ignored under
+    /// `FragmentMode::Base`. An unknown name (not in the net) surfaces as
+    /// `Unknown` from [`SmtVerifier::verify`], never a silent fall-back.
+    carrier_places: HashSet<String>,
 }
 
 impl<'a> SmtVerifier<'a> {
@@ -57,6 +68,8 @@ impl<'a> SmtVerifier<'a> {
             budget_places: HashSet::new(),
             timeout_ms: 30_000,
             nu_max_classes: 100_000,
+            fragment_mode: FragmentMode::Base,
+            carrier_places: HashSet::new(),
         }
     }
 
@@ -121,6 +134,35 @@ impl<'a> SmtVerifier<'a> {
         self
     }
 
+    /// Selects the coloured-place fragment for the ν-aware SCG ([NU-051]).
+    /// [`FragmentMode::Base`] (default) admits only mint → matched-join;
+    /// [`FragmentMode::Extended`] additionally admits the drain/relay
+    /// coloured-consumer role and the declared [`SmtVerifier::carrier_place`]s.
+    /// If EXTENDED is requested but the net falls outside the coloured-consumer
+    /// fragment, [`SmtVerifier::verify`] appends a short "Route B (EXTENDED)
+    /// declined" note and verifies via the sound over-approximation instead.
+    pub fn fragment_mode(mut self, mode: FragmentMode) -> Self {
+        self.fragment_mode = mode;
+        self
+    }
+
+    /// Declares a ν-net carrier place ([NU-051]): an intermediate place that
+    /// carries a fresh name from the minting fork onward to a ν-join input, so
+    /// the fork co-mints one name into it. Effective only under
+    /// [`FragmentMode::Extended`]; ignored under `Base`. A name not present in the
+    /// net surfaces as an `Unknown` verdict from [`SmtVerifier::verify`] (Rust's
+    /// fluent builder is infallible), never a silent fall-back.
+    pub fn carrier_place(mut self, place: impl Into<String>) -> Self {
+        self.carrier_places.insert(place.into());
+        self
+    }
+
+    /// Declares multiple ν-net carrier places. See [`SmtVerifier::carrier_place`].
+    pub fn carrier_places(mut self, places: impl IntoIterator<Item = String>) -> Self {
+        self.carrier_places.extend(places);
+        self
+    }
+
     /// Runs the verification pipeline.
     ///
     /// Returns a result with verdict, report, and diagnostics.
@@ -156,7 +198,8 @@ impl<'a> SmtVerifier<'a> {
         // downgrade for these cases).
         if has_match && (!is_reachability_safety(&self.property) || !nu_bounded) {
             let env_refs: Vec<&str> = self.env_places.iter().map(|s| s.as_str()).collect();
-            if let Some(outcome) = nu_scg_verifier::verify_via_name_scg(
+            let carrier_set: BTreeSet<String> = self.carrier_places.iter().cloned().collect();
+            let scg_outcome = nu_scg_verifier::verify_via_name_scg(
                 self.net,
                 &self.initial_marking,
                 &self.property,
@@ -164,7 +207,10 @@ impl<'a> SmtVerifier<'a> {
                 &env_refs,
                 &self.env_mode,
                 self.nu_max_classes,
-            ) {
+                self.fragment_mode,
+                &carrier_set,
+            );
+            if let Some(outcome) = scg_outcome {
                 let elapsed_ms = start.elapsed().as_millis() as u64;
                 report.push_str("=== ν-net Route B: name-aware state-class graph (NU-050) ===\n");
                 report.push_str(&format!("Property: {}\n", self.property.description()));
@@ -196,6 +242,18 @@ impl<'a> SmtVerifier<'a> {
                         structural_result: "n/a (ν name-partition SCG)".into(),
                     },
                 };
+            }
+            // EXTENDED was requested but the net is outside the coloured-consumer
+            // fragment (classify declined). Surface a short note instead of a
+            // silent cliff, then verify via the sound over-approximation below
+            // ([NU-051], §5 diagnosability).
+            if self.fragment_mode == FragmentMode::Extended {
+                report.push_str(
+                    "ν-net Route B (EXTENDED) declined: net outside coloured-consumer fragment \
+                     (a coloured place consumed count != 1 or by multiple inputs, carries a \
+                     reset/read/inhibitor arc, or a join re-mints a coloured place); verified via \
+                     sound over-approximation instead.\n",
+                );
             }
         }
 
@@ -1164,5 +1222,123 @@ mod tests {
             "same-mint siblings can join -> merged reachable -> Violated\n{}",
             result.report
         );
+    }
+
+    // === NU-051: EXTENDED coloured-consumer fragment (drain/relay + carrier co-mint) ===
+    // The name-aware SCG decides DeadlockFree exactly, so these route through
+    // Route B without ever touching the z3 binary.
+
+    /// A `fork` co-mints one fresh name into `branchA`, `branchB`, and the
+    /// declared carrier `stray`; the `join` correlates the branches into `merged`
+    /// (a sink), leaving `stray`; the optional `drain` dead-letters the leftover
+    /// `stray` into `deadletter` (a sink). Without the drain, `stray` is stranded
+    /// at quiescence — a genuine stall.
+    fn comint_carrier_drain_net(with_drain: bool) -> PetriNet {
+        use libpetri_core::match_spec::MatchSpec;
+        use libpetri_core::name::NameId;
+        use libpetri_core::output::and;
+
+        let source = Place::<()>::new("source");
+        let a = Place::<String>::new("branchA");
+        let b = Place::<String>::new("branchB");
+        let stray = Place::<String>::new("stray");
+        let merged = Place::<String>::new("merged");
+        let dl = Place::<()>::new("deadletter");
+
+        let fork = Transition::builder("fork")
+            .input(one(&source))
+            .output(and(vec![out_place(&a), out_place(&b), out_place(&stray)]))
+            .build();
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |s: &String| NameId::new(s.clone()))
+                    .key(&b, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(out_place(&merged))
+            .build();
+
+        let mut builder = PetriNet::builder("comint_carrier_drain").transitions([fork, join]);
+        if with_drain {
+            let drain = Transition::builder("drain")
+                .input(one(&stray))
+                .output(out_place(&dl))
+                .build();
+            builder = builder.transition(drain);
+        }
+        builder.build()
+    }
+
+    #[test]
+    fn extended_deadlock_free_proven_with_drain_via_route_b() {
+        // With the drain, the only quiescent marking is {merged, deadletter}, both
+        // declared sinks → no stall → PROVEN. Decided by Route B EXTENDED (no z3).
+        let net = comint_carrier_drain_net(true);
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(MarkingStateBuilder::new().tokens("source", 1).build())
+            .property(SmtProperty::DeadlockFree)
+            .sink_places(vec!["merged".into(), "deadletter".into()])
+            .fragment_mode(FragmentMode::Extended)
+            .carrier_place("stray")
+            .verify();
+        assert!(
+            result.is_proven(),
+            "the drain dead-letters the leftover carrier token → no stall → Proven\n{}",
+            result.report
+        );
+        assert!(
+            result.report.contains("Route B"),
+            "the verdict must come from Route B (name-partition quotient), not the SMT path\n{}",
+            result.report
+        );
+    }
+
+    #[test]
+    fn extended_deadlock_free_violated_without_drain_via_route_b() {
+        // Remove the drain: after the join, `stray` is stranded at quiescence
+        // ({merged, stray}, and `stray` is not a sink) → a genuine stall → VIOLATED.
+        let net = comint_carrier_drain_net(false);
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(MarkingStateBuilder::new().tokens("source", 1).build())
+            .property(SmtProperty::DeadlockFree)
+            .sink_places(vec!["merged".into(), "deadletter".into()])
+            .fragment_mode(FragmentMode::Extended)
+            .carrier_place("stray")
+            .verify();
+        assert!(
+            result.is_violated(),
+            "without the drain the carrier token strands at quiescence → Violated\n{}",
+            result.report
+        );
+        assert!(
+            result.report.contains("Route B"),
+            "the verdict must come from Route B\n{}",
+            result.report
+        );
+    }
+
+    #[test]
+    fn extended_unknown_on_unknown_carrier_place() {
+        // A mistyped carrier name must surface as Unknown naming the place — never
+        // a silent fall-back to a confident (possibly false) verdict.
+        let net = comint_carrier_drain_net(true);
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(MarkingStateBuilder::new().tokens("source", 1).build())
+            .property(SmtProperty::DeadlockFree)
+            .sink_places(vec!["merged".into(), "deadletter".into()])
+            .fragment_mode(FragmentMode::Extended)
+            .carrier_place("nonExistent")
+            .verify();
+        match &result.verdict {
+            Verdict::Unknown { reason } => assert!(
+                reason.contains("nonExistent"),
+                "reason must name the offending carrier: {reason}\n{}",
+                result.report
+            ),
+            other => panic!("expected Unknown on unknown carrier, got {other:?}\n{}", result.report),
+        }
     }
 }

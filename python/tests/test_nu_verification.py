@@ -255,3 +255,101 @@ def test_unbounded_mint_truncates_to_unknown():
     )
     assert result.verdict == "unknown", result.report
     assert "truncated" in result.reason
+
+
+# === NU-051: EXTENDED coloured-consumer fragment (drain/relay + carrier co-mint) ===
+# The name-aware SCG decides DeadlockFree exactly, so these route through Route B
+# without ever touching the z3 binary. They are still gated on HAS_Z3 (the module
+# marker) because the verify_net entry point is built behind the z3 feature.
+
+
+def _comint_carrier_drain_net(with_drain):
+    """A ``fork`` co-mints one fresh name into ``branchA``, ``branchB``, and the
+    declared carrier ``stray``; the ``join`` correlates the branches into
+    ``merged`` (a sink), leaving ``stray``; the optional ``drain`` dead-letters
+    the leftover ``stray`` into ``deadletter`` (a sink). Without the drain,
+    ``stray`` is stranded at quiescence, a genuine stall."""
+    source = lp.Place("source")
+    a = lp.Place("branchA")
+    b = lp.Place("branchB")
+    stray = lp.Place("stray")
+    merged = lp.Place("merged")
+    dl = lp.Place("deadletter")
+
+    fork_t = (
+        lp.Transition("fork")
+        .input(lp.one(source))
+        .output(lp.and_(a, b, stray))
+        .action(lp.fork)
+        .build()
+    )
+    join_t = (
+        lp.Transition("join")
+        .input(lp.one(a))
+        .input(lp.one(b))
+        .match_spec(lp.match_spec([(a, lambda s: s), (b, lambda s: s)]))
+        .output(lp.out(merged))
+        .action(lp.fork)
+        .build()
+    )
+    net = lp.Net("comint_carrier_drain").transition(fork_t).transition(join_t)
+    if with_drain:
+        drain_t = (
+            lp.Transition("drain")
+            .input(lp.one(stray))
+            .output(lp.out(dl))
+            .action(lp.fork)
+            .build()
+        )
+        net = net.transition(drain_t)
+    return net.build()
+
+
+def test_extended_deadlock_free_proven_with_drain_via_route_b():
+    # With the drain, the only quiescent marking is {merged, deadletter}, both
+    # declared sinks -> no stall -> proven. Decided by Route B EXTENDED.
+    net = _comint_carrier_drain_net(with_drain=True)
+    result = lp.verify(
+        net,
+        lp.deadlock_free(),
+        initial_marking={"source": 1},
+        sink_places=["merged", "deadletter"],
+        fragment_mode="extended",
+        carrier_places=["stray"],
+    )
+    assert result.verdict == "proven", result.report
+    # The verdict must come from Route B (name-partition quotient), not a
+    # silently name-blind SMT fall-back.
+    assert "Route B" in result.report, result.report
+
+
+def test_extended_deadlock_free_violated_without_drain_via_route_b():
+    # Remove the drain: after the join, `stray` is stranded at quiescence
+    # ({merged, stray}, and `stray` is not a sink) -> a genuine stall -> violated.
+    net = _comint_carrier_drain_net(with_drain=False)
+    result = lp.verify(
+        net,
+        lp.deadlock_free(),
+        initial_marking={"source": 1},
+        sink_places=["merged", "deadletter"],
+        fragment_mode="extended",
+        carrier_places=["stray"],
+    )
+    assert result.verdict == "violated", result.report
+    assert "Route B" in result.report, result.report
+
+
+def test_extended_unknown_on_unknown_carrier_place():
+    # A mistyped carrier name must surface as unknown naming the place, never a
+    # silent fall-back to a confident (possibly false) verdict.
+    net = _comint_carrier_drain_net(with_drain=True)
+    result = lp.verify(
+        net,
+        lp.deadlock_free(),
+        initial_marking={"source": 1},
+        sink_places=["merged", "deadletter"],
+        fragment_mode="extended",
+        carrier_places=["nonExistent"],
+    )
+    assert result.verdict == "unknown", result.report
+    assert "nonExistent" in (result.reason or ""), result.report

@@ -42,8 +42,8 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | [09-export.md](09-export.md) | EXP | Graph export, formal interchange | 17 |
 | [10-performance.md](10-performance.md) | PERF | Scaling, benchmarks, memory efficiency, flat-array executor performance | 14 |
 | [11-modular-composition.md](11-modular-composition.md) | MOD | Open-net subnet definition, instantiation, port composition, channel fusion, action binding per instance, place fusion | 26 |
-| [12-nu-nets.md](12-nu-nets.md) | NU | Token name identity, fresh-name minting (ν-binder/fork), join by name equality, bounded-budget decidability ledger | 9 |
-| **Total** | | | **203** |
+| [12-nu-nets.md](12-nu-nets.md) | NU | Token name identity, fresh-name minting (ν-binder/fork), join by name equality, bounded-budget decidability ledger | 10 |
+| **Total** | | | **204** |
 
 > **IO-006** (Input Guard Predicate) was removed (see [IO-006]); it is retained as a
 > struck-through tombstone for traceability and is **excluded** from the active count.
@@ -255,6 +255,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | NU-030 | Freshness Scoping under Composition | MUST | MOD-010, MOD-012, MOD-020 |
 | NU-040 | Bounded Budget and Decidability | SHOULD | VER-002, EXEC-040, NU-010, NU-020 |
 | NU-050 | Exact Verification of Matched Transitions | MAY | VER-004, NU-020, NU-040 |
+| NU-051 | EXTENDED Coloured-Consumer Fragment | MAY | NU-050, VER-012, NU-020 |
 | NU-060 | Match-Arc Composition | SHOULD | MOD-021, NU-020 |
 
 ### PERF — Performance
@@ -313,7 +314,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 |----------|-------|-------------|
 | MUST     | 140   | Core contract; all implementations must conform |
 | SHOULD   | 53    | Recommended; implementations should include unless technically infeasible |
-| MAY      | 10    | Optional; implementations may include |
+| MAY      | 11    | Optional; implementations may include |
 
 ---
 

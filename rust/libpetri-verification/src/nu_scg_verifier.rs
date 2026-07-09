@@ -15,13 +15,13 @@
 //! unbudgeted reachability-safety. It returns `None` when the net is not in the
 //! supported mint→matched-join fragment, and the caller falls back.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeSet, HashSet, VecDeque};
 
 use libpetri_core::petri_net::PetriNet;
 
 use crate::environment::EnvironmentAnalysisMode;
 use crate::marking_state::MarkingState;
-use crate::name_fragment;
+use crate::name_fragment::{self, FragmentMode};
 use crate::name_state_class_graph::NameStateClassGraph;
 use crate::property::SmtProperty;
 use crate::result::Verdict;
@@ -45,6 +45,7 @@ bounded-budget fragment (NU-050, Route B).\n";
 /// Tries to decide `property` exactly via the name-aware SCG. Returns `None` when
 /// `net` is not in the supported fragment (the caller falls back to the SMT /
 /// Route A path).
+#[allow(clippy::too_many_arguments)]
 pub fn verify_via_name_scg(
     net: &PetriNet,
     initial: &MarkingState,
@@ -53,8 +54,31 @@ pub fn verify_via_name_scg(
     env_places: &[&str],
     env_mode: &EnvironmentAnalysisMode,
     max_classes: usize,
+    fragment_mode: FragmentMode,
+    carrier_places: &BTreeSet<String>,
 ) -> Option<NuScgOutcome> {
-    let fragment = name_fragment::classify(net)?;
+    // Carrier validation (EXTENDED, [NU-051]): a mistyped carrier name would make
+    // two fork branches mint INDEPENDENT names, so the join never becomes
+    // name-enabled and the verifier would report a confident false deadlock. Fail
+    // loudly as `Unknown` naming the offending place — never silently proceed.
+    if fragment_mode == FragmentMode::Extended {
+        let known: HashSet<&str> = net.places().iter().map(|p| p.name()).collect();
+        for c in carrier_places {
+            if !known.contains(c.as_str()) {
+                return Some(NuScgOutcome {
+                    verdict: Verdict::Unknown {
+                        reason: format!("declared carrier place '{c}' not in the net"),
+                    },
+                    trace: Vec::new(),
+                    transitions: Vec::new(),
+                    note: String::new(),
+                    class_count: 0,
+                });
+            }
+        }
+    }
+
+    let fragment = name_fragment::classify(net, fragment_mode, carrier_places)?;
     // We model no initial colour assignment, so coloured places must start empty.
     for p in &fragment.coloured_order {
         if initial.count(p) != 0 {
@@ -226,6 +250,8 @@ mod tests {
             &[],
             &EnvironmentAnalysisMode::Ignore,
             MAX,
+            FragmentMode::Base,
+            &BTreeSet::new(),
         )
         .expect("net should be in the ν name-fragment")
     }
@@ -481,6 +507,8 @@ mod tests {
             &[],
             &EnvironmentAnalysisMode::Ignore,
             40,
+            FragmentMode::Base,
+            &BTreeSet::new(),
         )
         .expect("in fragment");
         match &out.verdict {
@@ -510,7 +538,97 @@ mod tests {
             &[],
             &EnvironmentAnalysisMode::Ignore,
             MAX,
+            FragmentMode::Base,
+            &BTreeSet::new(),
         )
         .is_none());
+    }
+
+    // === EXTENDED coloured-consumer fragment ([NU-051]) ===
+
+    /// A fork co-mints one fresh name into `branchA`, `branchB`, and the declared
+    /// carrier `stray`; the join consumes `branchA`/`branchB` (leaving `stray`);
+    /// a `drain` (when present) dead-letters the leftover `stray`. Without the
+    /// drain, `stray` is stranded at quiescence.
+    fn comint_carrier_drain_net(with_drain: bool) -> PetriNet {
+        let source = Place::<()>::new("source");
+        let a = Place::<String>::new("branchA");
+        let b = Place::<String>::new("branchB");
+        let stray = Place::<String>::new("stray");
+        let merged = Place::<String>::new("merged");
+        let dl = Place::<()>::new("deadletter");
+
+        let fork = Transition::builder("fork")
+            .input(one(&source))
+            .output(and(vec![out_place(&a), out_place(&b), out_place(&stray)]))
+            .build();
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |s: &String| NameId::new(s.clone()))
+                    .key(&b, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(out_place(&merged))
+            .build();
+
+        let mut builder = PetriNet::builder("comint_carrier_drain").transitions([fork, join]);
+        if with_drain {
+            let drain = Transition::builder("drain")
+                .input(one(&stray))
+                .output(out_place(&dl))
+                .build();
+            builder = builder.transition(drain);
+        }
+        builder.build()
+    }
+
+    /// EXTENDED admits the carrier-co-mint + drain net (`stray` is a declared
+    /// carrier); the drain relays/dead-letters it via [`Role::Consume`].
+    #[test]
+    fn extended_carrier_comint_drain_in_fragment() {
+        let net = comint_carrier_drain_net(true);
+        let carriers: BTreeSet<String> = ["stray".to_string()].into_iter().collect();
+        let out = verify_via_name_scg(
+            &net,
+            &MarkingStateBuilder::new().tokens("source", 2).build(),
+            &SmtProperty::unreachable(vec!["merged".into()]),
+            &[],
+            &[],
+            &EnvironmentAnalysisMode::Ignore,
+            MAX,
+            FragmentMode::Extended,
+            &carriers,
+        );
+        assert!(out.is_some(), "EXTENDED must admit the carrier-co-mint + drain net");
+    }
+
+    /// (f) An unknown carrier name surfaces as `Unknown` naming the offending
+    /// place — never a silent fall-back, never a false verdict.
+    #[test]
+    fn unknown_carrier_place_is_unknown_with_reason() {
+        let net = comint_carrier_drain_net(true);
+        let carriers: BTreeSet<String> = ["typoStray".to_string()].into_iter().collect();
+        let out = verify_via_name_scg(
+            &net,
+            &MarkingStateBuilder::new().tokens("source", 1).build(),
+            &SmtProperty::DeadlockFree,
+            &[],
+            &[],
+            &EnvironmentAnalysisMode::Ignore,
+            MAX,
+            FragmentMode::Extended,
+            &carriers,
+        )
+        .expect("carrier validation must surface an outcome, not fall back");
+        match &out.verdict {
+            Verdict::Unknown { reason } => assert!(
+                reason.contains("typoStray"),
+                "reason must name the offending carrier: {reason}"
+            ),
+            other => panic!("expected Unknown for an unknown carrier, got {other:?}"),
+        }
     }
 }
