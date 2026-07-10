@@ -3,6 +3,7 @@ package org.libpetri.smt;
 import org.libpetri.analysis.EnvironmentAnalysisMode;
 import org.libpetri.analysis.FragmentMode;
 import org.libpetri.analysis.MarkingState;
+import org.libpetri.analysis.PrioritySemantics;
 import org.libpetri.core.EnvironmentPlace;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
@@ -81,6 +82,7 @@ public final class SmtVerifier {
     private int nuMaxClasses = 100_000;
     private FragmentMode fragmentMode = FragmentMode.BASE;
     private final Set<String> carrierPlaces = new HashSet<>();
+    private PrioritySemantics prioritySemantics = PrioritySemantics.NONE;
 
     private SmtVerifier(PetriNet net) {
         this.net = Objects.requireNonNull(net);
@@ -227,6 +229,21 @@ public final class SmtVerifier {
     }
 
     /**
+     * Selects how the Route-B name-aware analyzer treats transition priority
+     * (NU-052). Defaults to {@link PrioritySemantics#NONE} (priority-blind, the
+     * shipped sound over-approximation). {@link PrioritySemantics#CONFLICT} models
+     * the executor's conflict-only priority resolution, pruning a lower-priority
+     * transition when a ready, conflicting, strictly-higher-priority one is enabled
+     * — which removes the spurious stalls a timed dead-letter-drain idiom otherwise
+     * produces against the priority-blind default. Only affects the ν-net Route B
+     * path (a net with a match transition).
+     */
+    public SmtVerifier prioritySemantics(PrioritySemantics semantics) {
+        this.prioritySemantics = Objects.requireNonNull(semantics);
+        return this;
+    }
+
+    /**
      * Runs the verification pipeline.
      *
      * @return the verification result
@@ -260,7 +277,7 @@ public final class SmtVerifier {
         if (hasMatch && (!isReachabilitySafety(property) || !nuBounded)) {
             var outcome = NuScgVerifier.verify(
                 net, initialMarking, property, sinkPlaces, environmentPlaces, environmentMode, nuMaxClasses,
-                fragmentMode, carrierPlaces);
+                fragmentMode, carrierPlaces, prioritySemantics);
             if (outcome != null) {
                 report.append("=== ν-net Route B: name-aware state-class graph (NU-050) ===\n");
                 report.append("  Name-partition state classes: ").append(outcome.classCount()).append("\n");

@@ -5,6 +5,7 @@ import org.libpetri.analysis.FragmentMode;
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.analysis.NameFragment;
 import org.libpetri.analysis.NameStateClassGraph;
+import org.libpetri.analysis.PrioritySemantics;
 import org.libpetri.core.EnvironmentPlace;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
@@ -55,7 +56,8 @@ final class NuScgVerifier {
             EnvironmentAnalysisMode environmentMode,
             int maxClasses,
             FragmentMode fragmentMode,
-            Set<String> carrierPlaces
+            Set<String> carrierPlaces,
+            PrioritySemantics prioritySemantics
     ) {
         var fragment = NameFragment.classify(net, fragmentMode, carrierPlaces);
         if (fragment == null) {
@@ -68,7 +70,8 @@ final class NuScgVerifier {
             }
         }
 
-        var scg = NameStateClassGraph.build(net, initial, fragment, maxClasses, environmentPlaces, environmentMode);
+        var scg = NameStateClassGraph.build(
+                net, initial, fragment, maxClasses, environmentPlaces, environmentMode, prioritySemantics);
 
         if (!scg.isComplete()) {
             String reason =
