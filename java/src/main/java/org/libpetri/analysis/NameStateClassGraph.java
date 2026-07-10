@@ -3,6 +3,7 @@ package org.libpetri.analysis;
 import org.libpetri.core.EnvironmentPlace;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
+import org.libpetri.core.Transition;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -68,7 +69,8 @@ public final class NameStateClassGraph {
             NameFragment fragment,
             int maxClasses,
             Set<EnvironmentPlace<?>> environmentPlaces,
-            EnvironmentAnalysisMode environmentMode
+            EnvironmentAnalysisMode environmentMode,
+            PrioritySemantics prioritySemantics
     ) {
         var envPlaces = new HashSet<Place<?>>();
         for (var ep : environmentPlaces) {
@@ -96,7 +98,14 @@ public final class NameStateClassGraph {
             int curIdx = queue.poll();
             var current = graph.classes.get(curIdx);
 
-            for (var transition : current.base.enabledTransitions()) {
+            var enabled = current.base.enabledTransitions();
+            for (var transition : enabled) {
+                if (prioritySemantics == PrioritySemantics.CONFLICT
+                        && priorityDominated(transition, enabled)) {
+                    // A ready, conflicting, strictly-higher-priority transition would win this
+                    // token at the executor, so this firing is not runtime-reachable (NU-052).
+                    continue;
+                }
                 var role = fragment.role(transition.name());
                 for (var vt : StateClassGraph.expandTransition(transition)) {
                     var baseSucc = StateClassGraph.computeSuccessor(net, current.base, vt, envPlaces, environmentMode);
@@ -130,6 +139,42 @@ public final class NameStateClassGraph {
     private void addEdge(int from, int to, String name) {
         edges.add(new Edge(from, to, name));
         successors.get(from).add(to);
+    }
+
+    /**
+     * True if a firing of {@code l} is pre-empted by conflict-only priority: some other enabled
+     * transition {@code h} has strictly higher priority, shares a consumed input place with
+     * {@code l}, and becomes ready no later than {@code l}. The executor fires ready transitions in
+     * descending priority order within a pass, so {@code h} takes the contested token and {@code l}
+     * cannot fire — the pruned firing is not runtime-reachable. See {@link PrioritySemantics#CONFLICT}.
+     */
+    private static boolean priorityDominated(Transition l, List<Transition> enabled) {
+        for (var h : enabled) {
+            if (h == l) {
+                continue;
+            }
+            if (h.priority() > l.priority()
+                    && h.timing().earliest().compareTo(l.timing().earliest()) <= 0
+                    && sharesConsumedInput(h, l)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * True if {@code a} and {@code b} both consume from a common input place — a structural conflict.
+     * Read and inhibitor arcs are excluded ({@link Transition#inputPlaces()} is consumed inputs only),
+     * since they do not remove a token another transition competes for.
+     */
+    private static boolean sharesConsumedInput(Transition a, Transition b) {
+        var bIns = b.inputPlaces();
+        for (var p : a.inputPlaces()) {
+            if (bIns.contains(p)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
