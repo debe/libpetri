@@ -101,7 +101,7 @@ public final class NameStateClassGraph {
             var enabled = current.base.enabledTransitions();
             for (var transition : enabled) {
                 if (prioritySemantics == PrioritySemantics.CONFLICT
-                        && priorityDominated(transition, enabled)) {
+                        && priorityDominated(transition, enabled, current.names, fragment)) {
                     // A ready, conflicting, strictly-higher-priority transition would win this
                     // token at the executor, so this firing is not runtime-reachable (NU-052).
                     continue;
@@ -144,22 +144,44 @@ public final class NameStateClassGraph {
     /**
      * True if a firing of {@code l} is pre-empted by conflict-only priority: some other enabled
      * transition {@code h} has strictly higher priority, shares a consumed input place with
-     * {@code l}, and becomes ready no later than {@code l}. The executor fires ready transitions in
-     * descending priority order within a pass, so {@code h} takes the contested token and {@code l}
-     * cannot fire — the pruned firing is not runtime-reachable. See {@link PrioritySemantics#CONFLICT}.
+     * {@code l}, becomes ready no later than {@code l}, and actually fires in this class (produces a
+     * name-successor). The executor fires ready transitions in descending priority order within a
+     * pass, so {@code h} takes the contested token and {@code l} cannot fire — the pruned firing is
+     * not runtime-reachable. See {@link PrioritySemantics#CONFLICT}.
+     *
+     * <p>The {@code willFire} guard is essential on a &nu;-net: a match (join) transition can be
+     * base-enabled yet <b>name-disabled</b> (its inputs carry no shared name). Such a join never
+     * consumes the contested token, so it must not pre-empt a conflicting drain — otherwise a
+     * genuine straggler would strand.
      */
-    private static boolean priorityDominated(Transition l, List<Transition> enabled) {
+    private static boolean priorityDominated(
+            Transition l, List<Transition> enabled, NameMarking names, NameFragment fragment) {
         for (var h : enabled) {
             if (h == l) {
                 continue;
             }
             if (h.priority() > l.priority()
                     && h.timing().earliest().compareTo(l.timing().earliest()) <= 0
+                    && willFire(h, names, fragment)
                     && sharesConsumedInput(h, l)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * True if base-enabled {@code h} actually produces a name-successor from this class — i.e. a
+     * join finds a shared enabling name and a consumer finds a resident symbol. {@code Ordinary}
+     * and {@code Mint} always fire. Only a name-disabled join (or an empty-input consumer) does not,
+     * and such a transition must not pre-empt a conflicting firing.
+     */
+    private static boolean willFire(Transition h, NameMarking names, NameFragment fragment) {
+        return switch (fragment.role(h.name())) {
+            case NameFragment.Role.Join j -> !enablingSymbols(names, j.colouredIn()).isEmpty();
+            case NameFragment.Role.Consume c -> !names.symbolsIn(c.colouredInput()).isEmpty();
+            default -> true;
+        };
     }
 
     /**
