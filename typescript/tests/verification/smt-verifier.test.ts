@@ -462,6 +462,23 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
     expect(result.report).toContain('name-coloured');
   }, Z3_TIMEOUT);
 
+  it('reports unknown (not a vacuous proven) for a property naming an unresolved place', async () => {
+    // A property naming a place absent from the net must NOT silently certify. The
+    // name-coloured (Route A) encoder emits no encoding for a typo'd place, so the
+    // verifier reports unknown instead of a vacuous proven (an unresolved place would
+    // otherwise make the Error rule unsatisfiable → trivially "proven"). Contrast the
+    // exact BranchPlaceBound(pending, k) proof above.
+    const { net, source, budget } = nuScatterGatherNet();
+    const typo = place('pnding'); // typo of 'pending'
+    const result = await SmtVerifier.forNet(net)
+      .initialMarking(m => { m.tokens(source, 3); m.tokens(budget, 2); })
+      .property(branchPlaceBound(typo, 2))
+      .budgetPlaces(budget)
+      .timeout(30_000)
+      .verify();
+    expect(result.verdict.type).toBe('unknown');
+  }, Z3_TIMEOUT);
+
   it('decides a structurally-bounded ν-net without a declared budget via Route B', async () => {
     // NU-050 Route B: without a DECLARED budget the SMT/Route-A path returns
     // unknown, but the name-aware SCG name-partition quotient discovers the
@@ -809,4 +826,101 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
     const { net } = comintCarrierDrainNet(true);
     expect(() => SmtVerifier.forNet(net).carrierPlaces(place('nonExistent'))).toThrow(/nonExistent/);
   });
+
+  // === NU-053: Route A coloured quiescence (EXTENDED + deadlock encoding) ===
+
+  // A single-turn co-mint→join net: `fork` consumes `source` + `budget` and
+  // co-mints one fresh name into join inputs `a` and `b`; `join` correlates them
+  // into `merged` and refunds `budget`. The only quiescent marking holds just the
+  // sinks {merged, budget}, so it is deadlock-free.
+  function nu053NoStallNet() {
+    const source = place('source');
+    const budget = place('budget');
+    const a = place<string>('a');
+    const b = place<string>('b');
+    const merged = place<string>('merged');
+
+    const fork = Transition.builder('fork').inputs(one(source), one(budget)).outputs(andPlaces(a, b)).build();
+    const join = Transition.builder('join')
+      .inputs(one(a), one(b))
+      .match(matchSpec(matchKey(a, (s: string) => nameId(s)), matchKey(b, (s: string) => nameId(s))))
+      .outputs(andPlaces(merged, budget))
+      .build();
+    const net = PetriNet.builder('nu053NoStall').transitions(fork, join).build();
+    return { net, source, budget, merged };
+  }
+
+  // The no-stall net plus an EXTENDED drain that steals `a` into a dead-letter,
+  // stranding `b`: an unprioritised schedule can reach a quiescent marking where
+  // the non-sink `b` still holds a token, so it is NOT deadlock-free.
+  function nu053StealNet() {
+    const source = place('source');
+    const budget = place('budget');
+    const a = place<string>('a');
+    const b = place<string>('b');
+    const merged = place<string>('merged');
+    const deadletter = place<string>('deadletter');
+
+    const fork = Transition.builder('fork').inputs(one(source), one(budget)).outputs(andPlaces(a, b)).build();
+    const join = Transition.builder('join')
+      .inputs(one(a), one(b))
+      .match(matchSpec(matchKey(a, (s: string) => nameId(s)), matchKey(b, (s: string) => nameId(s))))
+      .outputs(andPlaces(merged, budget))
+      .build();
+    const drain = Transition.builder('drain').inputs(one(a)).outputs(outPlace(deadletter)).build();
+    const net = PetriNet.builder('nu053Steal').transitions(fork, join, drain).build();
+    return { net, source, budget, merged, deadletter };
+  }
+
+  it('(NU-053) Route A proves DeadlockFree when Route B truncates', async () => {
+    // nuMaxClasses = 1 forces Route B to truncate, so the bounded quiescence proof
+    // defers to the Route A coloured IC3/PDR encoder (NU-053).
+    const { net, source, budget, merged } = nu053NoStallNet();
+    const result = await SmtVerifier.forNet(net)
+      .initialMarking(m => { m.tokens(source, 1); m.tokens(budget, 1); })
+      .property(deadlockFree())
+      .sinkPlaces(merged, budget)
+      .budgetPlaces(budget)
+      .nuMaxClasses(1)
+      .timeout(30_000)
+      .verify();
+    expect(result.report).toContain('Route A');
+    expect(result.verdict.type).toBe('proven');
+  }, Z3_TIMEOUT);
+
+  it('(NU-053) Route A detects the drain-steal stranding as a deadlock', async () => {
+    // The EXTENDED drain can steal `a` and strand `b` under an unprioritised
+    // schedule — a genuine reachable deadlock the coloured encoding must catch.
+    const { net, source, budget, merged, deadletter } = nu053StealNet();
+    const result = await SmtVerifier.forNet(net)
+      .initialMarking(m => { m.tokens(source, 1); m.tokens(budget, 1); })
+      .property(deadlockFree())
+      .sinkPlaces(merged, budget, deadletter)
+      .budgetPlaces(budget)
+      .fragmentMode('extended')
+      .nuMaxClasses(1)
+      .timeout(30_000)
+      .verify();
+    expect(result.verdict.type).toBe('violated');
+  }, Z3_TIMEOUT);
+
+  it('(NU-053) Route A agrees with Route B on the no-stall net', async () => {
+    // Differential: Route B (exact SCG, default class bound) and Route A (forced via
+    // a tiny class bound) must agree that the net is deadlock-free.
+    const build = (maxClasses: number) => {
+      const { net, source, budget, merged } = nu053NoStallNet();
+      return SmtVerifier.forNet(net)
+        .initialMarking(m => { m.tokens(source, 1); m.tokens(budget, 1); })
+        .property(deadlockFree())
+        .sinkPlaces(merged, budget)
+        .budgetPlaces(budget)
+        .nuMaxClasses(maxClasses)
+        .timeout(30_000)
+        .verify();
+    };
+    const routeB = await build(100_000);
+    const routeA = await build(1);
+    expect(routeB.verdict.type).toBe('proven');
+    expect(routeA.verdict.type).toBe('proven');
+  }, Z3_TIMEOUT);
 });

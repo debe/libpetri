@@ -66,6 +66,14 @@ jobs:
       # here; the dedicated `python` job builds the wheel via maturin.
       - run: cargo build --workspace --exclude libpetri-py --all-features
       - run: cargo test --workspace --exclude libpetri-py --all-features
+      # Compile-check the PyO3 binding too. The steps above exclude libpetri-py
+      # (it needs maturin's python-extension linkage to *build*), so a binding-only
+      # compile error would otherwise slip through to `maturin develop` / the python
+      # job. `cargo check` type-checks without the final cdylib link, so no python
+      # linker is needed; `extension-module` matches how maturin compiles it. Gated
+      # to stable so the 1.88 MSRV matrix entry is unaffected by PyO3's own MSRV.
+      - if: matrix.rust == 'stable'
+        run: cargo check -p libpetri-py --features extension-module
 
   python:
     needs: rust

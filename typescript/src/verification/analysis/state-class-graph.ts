@@ -233,9 +233,12 @@ export function initialStateClass(
   const clockNames = enabledTransitions.map(t => t.name);
   const lowerBounds = enabledTransitions.map(t => earliest(t.timing) / 1000);
   const upperBounds = enabledTransitions.map(t => latest(t.timing) / 1000);
-  let initialDBM = DBM.create(clockNames, lowerBounds, upperBounds);
-  initialDBM = initialDBM.letTimePass();
-  return new StateClass(initialMarking, initialDBM, enabledTransitions);
+  const baseDBM = DBM.create(clockNames, lowerBounds, upperBounds);
+  // Class-relative earliest-ready time of each enabled clock, captured BEFORE
+  // letTimePass() zeroes the DBM lower bounds (NU-052 residual-earliest).
+  const readyEarliest = enabledTransitions.map((_, k) => baseDBM.getLowerBound(k));
+  const initialDBM = baseDBM.letTimePass();
+  return new StateClass(initialMarking, initialDBM, enabledTransitions, readyEarliest);
 }
 
 export function expandTransition(t: Transition): VirtualTransition[] {
@@ -292,7 +295,7 @@ export function computeSuccessor(
   const newLowerBounds = newlyEnabled.map(t => earliest(t.timing) / 1000);
   const newUpperBounds = newlyEnabled.map(t => latest(t.timing) / 1000);
 
-  let newDBM = current.firingDomain.fireTransition(
+  const firedDBM = current.firingDomain.fireTransition(
     firedIdx,
     newClockNames,
     newLowerBounds,
@@ -300,10 +303,15 @@ export function computeSuccessor(
     persistentIndices,
   );
 
-  newDBM = newDBM.letTimePass();
-
+  // allEnabled order matches firedDBM's clock order (persistent-then-newly-enabled).
+  // Capture the class-relative earliest-ready time of each clock BEFORE
+  // letTimePass() zeroes the DBM lower bounds (NU-052 residual-earliest).
   const allEnabled = [...persistent, ...newlyEnabled];
-  return new StateClass(newMarking, newDBM, allEnabled);
+  const readyEarliest = allEnabled.map((_, k) => firedDBM.getLowerBound(k));
+
+  const newDBM = firedDBM.letTimePass();
+
+  return new StateClass(newMarking, newDBM, allEnabled, readyEarliest);
 }
 
 function findEnabledTransitions(

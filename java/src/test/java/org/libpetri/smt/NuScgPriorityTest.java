@@ -4,10 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
+import org.libpetri.analysis.EnvironmentAnalysisMode;
 import org.libpetri.analysis.FragmentMode;
 import org.libpetri.analysis.MarkingState;
+import org.libpetri.analysis.NameFragment;
+import org.libpetri.analysis.NameStateClassGraph;
 import org.libpetri.analysis.PrioritySemantics;
 import org.libpetri.core.Arc;
 import org.libpetri.core.MatchSpec;
@@ -121,6 +125,113 @@ class NuScgPriorityTest {
         assertTrue(r.isViolated(),
             "CONFLICT must still find a GENUINE stall: an orphan COL_A with no join and no drain "
             + "strands.\n" + r.report());
+    }
+
+    // ===== NU-052 Part A: DBM residual-earliest prune + multiplicity guard =====
+
+    /**
+     * A DELAYED higher-priority join (delayed 100) and a DELAYED lower-priority drain (delayed 200)
+     * conflicting on {@code COL_A}. The old {@code earliest()==0} guard could not prune a non-immediate
+     * H; the residual-earliest predicate can. Built directly against {@link NameStateClassGraph} so we
+     * observe the prune as reachability of {@code DEADLETTER}.
+     */
+    private static PetriNet delayedFixture() {
+        var mint = Transition.builder("MINT")
+            .inputs(Arc.In.one(SEED))
+            .outputs(Arc.Out.and(COL_A, COL_B))
+            .build();
+        var join = Transition.builder("JOIN")                 // delayed 100, default priority
+            .inputs(Arc.In.one(COL_A), Arc.In.one(COL_B))
+            .timing(Timing.delayed(Duration.ofMillis(100)))
+            .match(MatchSpec.builder()
+                .key(COL_A, (String s) -> NameId.of(s))
+                .key(COL_B, (String s) -> NameId.of(s))
+                .build())
+            .outputs(Arc.Out.place(OUT))
+            .build();
+        var drain = Transition.builder("DRAIN_A")             // delayed 200, lower priority
+            .inputs(Arc.In.one(COL_A))
+            .timing(Timing.delayed(Duration.ofMillis(200)))
+            .priority(-10)
+            .outputs(Arc.Out.place(DEADLETTER))
+            .build();
+        return PetriNet.builder("delayedPriorityFixture").transitions(mint, join, drain).build();
+    }
+
+    private static boolean reachesDeadletter(PetriNet net, MarkingState initial, PrioritySemantics ps) {
+        var fragment = NameFragment.classify(net, FragmentMode.EXTENDED, Set.of());
+        var graph = NameStateClassGraph.build(
+            net, initial, fragment, 10_000, Set.of(), EnvironmentAnalysisMode.ignore(), ps);
+        for (int i = 0; i < graph.classCount(); i++) {
+            if (graph.markingOf(i).tokens(DEADLETTER) > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Test
+    void delayedConflictPrunesLowerPriority() {
+        var net = delayedFixture();
+        var initial = MarkingState.builder().tokens(SEED, 1).build();
+        assertTrue(reachesDeadletter(net, initial, PrioritySemantics.NONE),
+            "NONE must explore the drain and reach DEADLETTER");
+        assertFalse(reachesDeadletter(net, initial, PrioritySemantics.CONFLICT),
+            "CONFLICT must prune the DELAYED lower-priority drain (residual-earliest): the delayed "
+            + "join becomes ready first and takes COL_A");
+    }
+
+    @Test
+    void multiplicityTwoTokensDoesNotPrune() {
+        // SEED=2 lets MINT co-mint two distinct names, so COL_A can hold 2 tokens. With both demands
+        // (join + drain, 1 each) satisfiable at once, the drain does NOT compete and must not be
+        // pruned — DEADLETTER stays reachable even under CONFLICT.
+        var net = delayedFixture();
+        var initial = MarkingState.builder().tokens(SEED, 2).build();
+        assertTrue(reachesDeadletter(net, initial, PrioritySemantics.CONFLICT),
+            "CONFLICT must NOT prune when the shared COL_A holds enough tokens (2) for both the join "
+            + "and the drain (multiplicity)");
+    }
+
+    @Test
+    void readArcOnSharedPlaceIsNotAConsumptionConflict() {
+        // NU-052 criterion 4: a READ arc on the shared place is not a consumption conflict, so
+        // CONFLICT must NOT prune the lower-priority consumer. H (priority 10) merely READS SH;
+        // DRAIN (priority -10) CONSUMES SH into DEADLETTER. Because sharesConsumedInput counts only
+        // consumed inputs, H does not rob DRAIN of SH → DEADLETTER stays reachable even under
+        // CONFLICT. (If H consumed SH this would be a genuine conflict and CONFLICT would prune it.)
+        // A never-fired ν-JOIN (its coloured inputs start empty) makes the net a ν-net so it
+        // classifies into a NameFragment; the SH conflict itself is plain/uncoloured (coloured
+        // places may not carry read arcs — classify's soundness guard).
+        var sh = Place.of("SH", String.class);
+        var tokH = Place.of("TOK_H", String.class);
+        var join = Transition.builder("JOIN")
+            .inputs(Arc.In.one(COL_A), Arc.In.one(COL_B))
+            .match(MatchSpec.builder()
+                .key(COL_A, (String s) -> NameId.of(s))
+                .key(COL_B, (String s) -> NameId.of(s))
+                .build())
+            .outputs(Arc.Out.place(OUT))
+            .build();
+        var h = Transition.builder("H")             // higher priority, only READS SH
+            .inputs(Arc.In.one(tokH))
+            .reads(sh)
+            .priority(10)
+            .outputs(Arc.Out.place(OUT))
+            .build();
+        var drain = Transition.builder("DRAIN")     // lower priority, CONSUMES SH
+            .inputs(Arc.In.one(sh))
+            .priority(-10)
+            .outputs(Arc.Out.place(DEADLETTER))
+            .build();
+        var net = PetriNet.builder("readArcFixture").transitions(join, h, drain).build();
+        var initial = MarkingState.builder().tokens(tokH, 1).tokens(sh, 1).build();
+
+        assertTrue(reachesDeadletter(net, initial, PrioritySemantics.NONE),
+            "NONE must explore the drain and reach DEADLETTER");
+        assertTrue(reachesDeadletter(net, initial, PrioritySemantics.CONFLICT),
+            "CONFLICT must NOT prune when H only READS the shared place (no consumption conflict) "
+            + "— DEADLETTER stays reachable");
     }
 
     @Test

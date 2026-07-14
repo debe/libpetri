@@ -23,6 +23,7 @@ use crate::environment::EnvironmentAnalysisMode;
 use crate::marking_state::MarkingState;
 use crate::name_fragment::{self, FragmentMode};
 use crate::name_state_class_graph::NameStateClassGraph;
+use crate::priority_semantics::PrioritySemantics;
 use crate::property::SmtProperty;
 use crate::result::Verdict;
 
@@ -56,6 +57,7 @@ pub fn verify_via_name_scg(
     max_classes: usize,
     fragment_mode: FragmentMode,
     carrier_places: &BTreeSet<String>,
+    priority_semantics: PrioritySemantics,
 ) -> Option<NuScgOutcome> {
     // Carrier validation (EXTENDED, [NU-051]): a mistyped carrier name would make
     // two fork branches mint INDEPENDENT names, so the join never becomes
@@ -86,7 +88,15 @@ pub fn verify_via_name_scg(
         }
     }
 
-    let scg = NameStateClassGraph::build(net, initial, &fragment, max_classes, env_places, env_mode);
+    let scg = NameStateClassGraph::build(
+        net,
+        initial,
+        &fragment,
+        max_classes,
+        env_places,
+        env_mode,
+        priority_semantics,
+    );
 
     if !scg.is_complete() {
         return Some(NuScgOutcome {
@@ -252,6 +262,7 @@ mod tests {
             MAX,
             FragmentMode::Base,
             &BTreeSet::new(),
+            PrioritySemantics::None,
         )
         .expect("net should be in the ν name-fragment")
     }
@@ -509,6 +520,7 @@ mod tests {
             40,
             FragmentMode::Base,
             &BTreeSet::new(),
+            PrioritySemantics::None,
         )
         .expect("in fragment");
         match &out.verdict {
@@ -540,6 +552,7 @@ mod tests {
             MAX,
             FragmentMode::Base,
             &BTreeSet::new(),
+            PrioritySemantics::None,
         )
         .is_none());
     }
@@ -601,6 +614,7 @@ mod tests {
             MAX,
             FragmentMode::Extended,
             &carriers,
+            PrioritySemantics::None,
         );
         assert!(out.is_some(), "EXTENDED must admit the carrier-co-mint + drain net");
     }
@@ -621,6 +635,7 @@ mod tests {
             MAX,
             FragmentMode::Extended,
             &carriers,
+            PrioritySemantics::None,
         )
         .expect("carrier validation must surface an outcome, not fall back");
         match &out.verdict {
@@ -630,5 +645,123 @@ mod tests {
             ),
             other => panic!("expected Unknown for an unknown carrier, got {other:?}"),
         }
+    }
+
+    // === NU-052: conflict-only priority ([PrioritySemantics::Conflict]) ===
+
+    /// The Marvin guard-join vs. timed dead-letter-drain conflict, minimal.
+    /// `MINT` co-mints one fresh name into `COL_A` (and `COL_B` when `co_mint_both`);
+    /// an immediate, default-priority ν-`JOIN` matches them into `OUT`; a delayed,
+    /// lower-priority `DRAIN_A` dead-letters `COL_A` into `DEADLETTER`. `DRAIN_A` and
+    /// `JOIN` conflict on `COL_A`.
+    fn priority_fixture(co_mint_both: bool, with_drain: bool) -> PetriNet {
+        use libpetri_core::timing;
+
+        let seed = Place::<()>::new("SEED");
+        let a = Place::<String>::new("COL_A");
+        let b = Place::<String>::new("COL_B");
+        let out = Place::<String>::new("OUT");
+        let dl = Place::<String>::new("DEADLETTER");
+
+        let mint = Transition::builder("MINT")
+            .input(one(&seed))
+            .output(if co_mint_both {
+                and(vec![out_place(&a), out_place(&b)])
+            } else {
+                out_place(&a)
+            })
+            .build();
+        let join = Transition::builder("JOIN") // immediate, priority 0
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |s: &String| NameId::new(s.clone()))
+                    .key(&b, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(out_place(&out))
+            .build();
+
+        let mut builder = PetriNet::builder("priorityFixture").transitions([mint, join]);
+        if with_drain {
+            let drain = Transition::builder("DRAIN_A") // delayed, lower priority, conflicts on COL_A
+                .input(one(&a))
+                .timing(timing::delayed(5_000))
+                .priority(-10)
+                .output(out_place(&dl))
+                .build();
+            builder = builder.transition(drain);
+        }
+        builder.build()
+    }
+
+    /// Runs Route B on the priority fixture as EXTENDED `DeadlockFree`, with `OUT`
+    /// and `DEADLETTER` as sinks.
+    fn verify_priority(net: &PetriNet, ps: PrioritySemantics) -> NuScgOutcome {
+        let sinks = vec!["OUT".to_string(), "DEADLETTER".to_string()];
+        verify_via_name_scg(
+            net,
+            &MarkingStateBuilder::new().tokens("SEED", 1).build(),
+            &SmtProperty::DeadlockFree,
+            &sinks,
+            &[],
+            &EnvironmentAnalysisMode::Ignore,
+            MAX,
+            FragmentMode::Extended,
+            &BTreeSet::new(),
+            ps,
+        )
+        .expect("EXTENDED must admit the priority fixture")
+    }
+
+    #[test]
+    fn priority_blind_none_reports_spurious_stall() {
+        // NONE (default, priority/timing-blind): the graph explores DRAIN_A stealing
+        // the matched COL_A and stranding COL_B — a spurious stall.
+        let out = verify_priority(&priority_fixture(true, true), PrioritySemantics::None);
+        assert!(
+            out.verdict.is_violated(),
+            "priority-blind NONE must report the spurious stall: {:?}",
+            out.verdict
+        );
+    }
+
+    #[test]
+    fn conflict_priority_proves_no_stall() {
+        // CONFLICT: the immediate, higher-priority join pre-empts the delayed drain,
+        // so COL_A is never stolen from a live join.
+        let out = verify_priority(&priority_fixture(true, true), PrioritySemantics::Conflict);
+        assert!(
+            out.verdict.is_proven(),
+            "CONFLICT must prove no-stall: {:?}",
+            out.verdict
+        );
+    }
+
+    #[test]
+    fn conflict_priority_still_finds_genuine_stall() {
+        // A real orphan (COL_A with no matching COL_B) and no drain: the join can
+        // never fire and COL_A strands. CONFLICT must NOT hide this — the join is
+        // not enabled, so nothing is pruned.
+        let out = verify_priority(&priority_fixture(false, false), PrioritySemantics::Conflict);
+        assert!(
+            out.verdict.is_violated(),
+            "CONFLICT must still find the genuine stall: {:?}",
+            out.verdict
+        );
+    }
+
+    #[test]
+    fn conflict_priority_lets_drain_clear_a_real_orphan() {
+        // A real orphan WITH the drain: CONFLICT does not prune the drain (the join
+        // is not enabled), so the orphan is dead-lettered and the net is
+        // deadlock-free.
+        let out = verify_priority(&priority_fixture(false, true), PrioritySemantics::Conflict);
+        assert!(
+            out.verdict.is_proven(),
+            "CONFLICT must let the drain clear a genuine orphan: {:?}",
+            out.verdict
+        );
     }
 }

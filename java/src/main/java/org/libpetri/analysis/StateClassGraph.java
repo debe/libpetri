@@ -256,8 +256,15 @@ public final class StateClassGraph {
             lowerBounds[i] = timing.earliest().toMillis() / 1000.0;
             upperBounds[i] = timing.latest().toMillis() / 1000.0;
         }
-        var initialDBM = DBM.create(clockNames, lowerBounds, upperBounds).letTimePass();
-        return new StateClass(initialMarking, initialDBM, enabledTransitions);
+        var baseDBM = DBM.create(clockNames, lowerBounds, upperBounds);
+        // Class-relative earliest-ready time of each enabled clock, captured BEFORE
+        // letTimePass() zeroes the DBM lower bounds (NU-052 residual-earliest).
+        var readyEarliest = new double[enabledTransitions.size()];
+        for (int i = 0; i < enabledTransitions.size(); i++) {
+            readyEarliest[i] = baseDBM.getLowerBound(i);
+        }
+        var initialDBM = baseDBM.letTimePass();
+        return new StateClass(initialMarking, initialDBM, enabledTransitions, readyEarliest);
     }
 
     /**
@@ -346,7 +353,7 @@ public final class StateClassGraph {
         }
 
         int[] persistentArray = persistentIndices.stream().mapToInt(Integer::intValue).toArray();
-        var newDBM = current.firingDomain().fireTransition(
+        var firedDBM = current.firingDomain().fireTransition(
                 firedIdx,
                 newClockNames,
                 newLowerBounds,
@@ -354,15 +361,23 @@ public final class StateClassGraph {
                 persistentArray
         );
 
-        // Let time pass to reach canonical form where transitions can fire
-        newDBM = newDBM.letTimePass();
-
-        // 4. Build new enabled list (persistent + newly enabled)
+        // 4. Build new enabled list (persistent + newly enabled). Its order matches
+        // firedDBM's clock order (persistent-then-newly-enabled).
         var allEnabled = new ArrayList<Transition>();
         allEnabled.addAll(persistent);
         allEnabled.addAll(newlyEnabled);
 
-        return new StateClass(newMarking, newDBM, allEnabled);
+        // Capture the class-relative earliest-ready time of each clock BEFORE
+        // letTimePass() zeroes the DBM lower bounds (NU-052 residual-earliest).
+        var readyEarliest = new double[allEnabled.size()];
+        for (int i = 0; i < allEnabled.size(); i++) {
+            readyEarliest[i] = firedDBM.getLowerBound(i);
+        }
+
+        // Let time pass to reach canonical form where transitions can fire
+        var newDBM = firedDBM.letTimePass();
+
+        return new StateClass(newMarking, newDBM, allEnabled, readyEarliest);
     }
 
     /**

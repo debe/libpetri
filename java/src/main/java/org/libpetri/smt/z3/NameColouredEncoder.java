@@ -1,8 +1,10 @@
 package org.libpetri.smt.z3;
 
 import com.microsoft.z3.*;
+import org.libpetri.analysis.FragmentMode;
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.core.PetriNet;
+import org.libpetri.core.Place;
 import org.libpetri.smt.SmtProperty;
 import org.libpetri.smt.encoding.FlatNet;
 import org.libpetri.smt.encoding.FlatTransition;
@@ -19,54 +21,63 @@ import java.util.Set;
  * Bounded <b>name-coloured</b> CHC encoding for &nu;-net join correlation
  * (NU-050 #1, Route A — the EUF-style carve-out).
  *
- * <p>The flat {@link SmtEncoder} is a pure <em>counting</em> abstraction: a place
- * is one integer, and a matched (&nu;-join) transition is encoded name-blind — it
- * fires whenever the input <em>counts</em> allow, regardless of whether the
- * consumed tokens actually share a correlation name. That over-approximation is
- * sound for {@code Proven} on reachability-safety bounds but can report a
- * <b>spurious</b> {@code Violated} whose counterexample silently equates two
- * <em>distinct</em> names.
+ * <p>The flat {@link SmtEncoder} is a pure <em>counting</em> abstraction: a place is
+ * one integer, and a matched (&nu;-join) transition is encoded name-blind — it fires
+ * whenever the input <em>counts</em> allow, regardless of whether the consumed tokens
+ * actually share a correlation name. That over-approximation is sound for
+ * {@code Proven} on reachability-safety bounds but can report a <b>spurious</b>
+ * {@code Violated} whose counterexample silently equates two <em>distinct</em> names.
  *
- * <p>This encoder removes that imprecision for the bounded fragment. The
- * decidability lever (NU-040) is the budget: with a {@code Budget} place
- * pre-seeded with {@code k} tokens gating every mint, at most {@code k}
- * correlation names are live at once. So names are modelled as a <b>finite set of
- * {@code k} colours</b>. Each coloured place becomes {@code k} per-colour integer
- * counts; a mint introduces a <em>globally fresh</em> colour (one currently empty
- * everywhere); a matched join consumes the <b>same colour</b> from every
- * correlated input. Within the budget bound the encoding is <em>exact</em> — sound
- * and complete — so no different-name counterexample survives.
+ * <p>This encoder removes that imprecision for the bounded fragment. The decidability
+ * lever (NU-040) is a bounded live-name count: a budget place gates minting, and a
+ * non-negative <b>P-semiflow</b> weighting every coloured place bounds the
+ * simultaneously-live names to a finite {@code k} ({@code Σ_{coloured} M <= y·M0}; see
+ * {@link #buildPlan} / {@link #colourSlotBound}). So names are modelled as a
+ * <b>finite set of {@code k} colours</b>. Each coloured place becomes {@code k}
+ * per-colour integer counts; a mint introduces a <em>globally-fresh</em> colour; a
+ * matched join consumes the <b>same colour</b> from every correlated input. Within the
+ * budget bound the encoding is <em>exact</em>.
  *
- * <h3>Supported fragment (tracer bullet)</h3>
- *
- * <p>{@link #buildPlan} returns {@code null} (and the verifier falls back to the
- * sound over-approximation) unless the net is in the simple
- * <b>mint &rarr; matched-join</b> shape:
+ * <p><b>Supported fragment.</b> {@link #buildPlan} returns {@code null} (and the
+ * verifier falls back to the sound over-approximation) unless the net is in the
+ * budget-bounded coloured fragment:
  * <ul>
- *   <li>coloured places = the correlated inputs of every matched transition;</li>
+ *   <li>coloured places = the correlated inputs of every matched transition, plus (in
+ *       EXTENDED mode, NU-051) the declared carrier places;</li>
  *   <li>each coloured place is <em>produced only by</em> minting forks (count 1, no
- *       coloured input, costs &ge;1 budget token) and <em>consumed only by</em>
- *       matched joins (count 1, produces no coloured token);</li>
- *   <li>budget places are consumed only by mints and produced only by joins (so
- *       live colours &le; initial budget = {@code k});</li>
- *   <li>coloured places start empty; no inhibitor/read/reset/consume-all arc
- *       touches a coloured place; no XOR output anywhere.</li>
+ *       coloured input, costs &ge;1 budget token) or EXTENDED relays, and
+ *       <em>consumed only by</em> matched joins or EXTENDED coloured consumers — a relay
+ *       threads one colour on, a drain drops it, each consuming exactly one coloured
+ *       input at count 1;</li>
+ *   <li>the coloured place set is structurally token-bounded: some non-negative
+ *       P-semiflow weights every coloured place, so the simultaneously-live colour count
+ *       is bounded by that semiflow's initial value {@code k}
+ *       ({@code Σ_{coloured} M <= y·M0}). A net with no covering non-negative semiflow
+ *       (an unbounded colour leak) falls back;</li>
+ *   <li>coloured places start empty; no inhibitor/read/reset/consume-all arc touches a
+ *       coloured place.</li>
  * </ul>
  *
- * <p>Quiescence properties are never routed here (they are not reachability-safety
- * and the budget-bounded colouring does not yet model the absence of an enabled
- * join across colours — that is the SCG name-partition route, future work).
+ * <p>XOR output branches are supported (NU-053, Part 3): each branch is a separate flat
+ * row classified by its own incidence, with {@code matchSpec} read from its source.
  *
- * <p>This mirrors the Rust reference {@code name_coloured_encoder.rs} exactly; the
- * only difference is that this encoder builds Z3 {@link BoolExpr} objects via the
- * native Java bindings rather than emitting SMT-LIB2 text.
+ * <p><b>Properties.</b> Reachability-safety properties compare aggregate coloured place
+ * counts. Quiescence properties ({@code DeadlockFree}, {@code JoinedOrDeadLettered})
+ * use a colour-aware deadlock predicate (NU-053, Part 2): every transition is disabled
+ * for every colour (a mint has no globally-fresh colour, a join no shared colour, a
+ * consumer no resident colour) and the marking is not a sink state — mirroring the flat
+ * {@link SmtEncoder} deadlock with the same env-injection relaxation.
+ *
+ * <p>This mirrors the Rust reference {@code name_coloured_encoder.rs} exactly; the only
+ * difference is that this encoder builds Z3 {@link BoolExpr} objects via the native Java
+ * bindings rather than emitting SMT-LIB2 text.
  */
 public final class NameColouredEncoder {
 
     private NameColouredEncoder() {}
 
     /** How a transition relates to the coloured (correlation-carrying) places. */
-    private sealed interface Klass permits Mint, Join, Untouched {}
+    private sealed interface Klass permits Mint, Join, Consume, Untouched {}
 
     /** Minting fork: produces a freshly-coloured token into each listed place. */
     private record Mint(int[] colouredOut) implements Klass {}
@@ -74,23 +85,30 @@ public final class NameColouredEncoder {
     /** Matched join: consumes one same-coloured token from each listed place. */
     private record Join(int[] colouredIn) implements Klass {}
 
+    /**
+     * EXTENDED coloured consumer (NU-051): a non-match transition that consumes one
+     * same-coloured token from {@code inputCol} (count 1) and threads it into each
+     * {@code colouredOut} (relay) or into none (drain — {@code colouredOut} empty).
+     */
+    private record Consume(int inputCol, int[] colouredOut) implements Klass {}
+
     /** Touches no coloured place — a pure counting transition. */
     private record Untouched() implements Klass {}
 
     /**
-     * A validated plan for the name-coloured encoding of a budget-bounded
-     * &nu;-net. Opaque to the verifier except for {@link #k()} and
-     * {@link #colouredCount()} (used only for the report line); the encoder reads
-     * the remaining fields directly (same enclosing class).
+     * A validated plan for the name-coloured encoding of a budget-bounded &nu;-net.
+     * Opaque to the verifier except for {@link #k()} and {@link #colouredCount()} (used
+     * only for a report line); the encoder reads the remaining fields directly (same
+     * enclosing class).
      */
     public static final class ColouredPlan {
         /** Flat indices of the coloured places (sorted ascending). */
         final int[] coloured;
         /** Per flat place: whether it is coloured. */
         final boolean[] isColoured;
-        /** Colour bound — the number of simultaneously-live names (= initial budget). */
+        /** Colour bound — the number of simultaneously-live names (the colour-slot bound). */
         final int k;
-        /** Classification per flat transition (1:1 — the fragment forbids XOR). */
+        /** Classification, one entry per flat transition (XOR branches included). */
         final List<Klass> classes;
 
         private ColouredPlan(int[] coloured, boolean[] isColoured, int k, List<Klass> classes) {
@@ -100,7 +118,7 @@ public final class NameColouredEncoder {
             this.classes = classes;
         }
 
-        /** The colour bound (= total initial budget tokens). */
+        /** The colour bound (the colour-slot bound from the covering P-semiflow). */
         public int k() {
             return k;
         }
@@ -112,36 +130,41 @@ public final class NameColouredEncoder {
     }
 
     /**
-     * Detects whether {@code net} is in the supported budget-bounded
-     * mint&rarr;matched-join fragment and, if so, returns the plan for
-     * {@link #encode}. Returns {@code null} otherwise — the verifier then uses the
-     * sound over-approximation.
+     * Detects whether {@code net} is in the supported budget-bounded coloured fragment
+     * (mint&rarr;matched-join, plus the EXTENDED coloured consumers and carrier places of
+     * NU-051, with XOR-expanded output branches) and, if so, returns the plan for
+     * {@link #encode}. Returns {@code null} otherwise — the verifier then uses the sound
+     * over-approximation.
      *
-     * @param net              the source net (for match specs and XOR detection)
-     * @param flat             the flattened net
-     * @param initial          the initial marking
-     * @param budgetPlaceNames the declared budget-place names (NU-040)
+     * @param net              source net (for match specs)
+     * @param flat             flattened net (each flat row carries its source transition)
+     * @param initial          initial marking
+     * @param budgetPlaceNames declared budget-place names (NU-040)
+     * @param fragmentMode     BASE (mint&rarr;matched-join only) or EXTENDED (NU-051)
+     * @param carrierPlaces    EXTENDED carrier-place names (ignored under BASE)
+     * @param invariants       the net's non-negative P-semiflows (used to bound the
+     *                         colour-slot count {@code k} via {@link #colourSlotBound})
      */
     public static ColouredPlan buildPlan(
-            PetriNet net, FlatNet flat, MarkingState initial, Set<String> budgetPlaceNames) {
+            PetriNet net, FlatNet flat, MarkingState initial,
+            Set<String> budgetPlaceNames, FragmentMode fragmentMode, Set<String> carrierPlaces,
+            List<PInvariant> invariants) {
         int p = flat.placeCount();
 
-        // No XOR: every original transition maps 1:1 to a flat row, in order.
-        if (flat.transitionCount() != net.transitions().size()) {
-            return null;
-        }
+        // Each flat row already carries its source transition (an XOR transition expands
+        // to one flat row per output branch), so we read `matchSpec` from the source while
+        // classifying by the flat row's own incidence — no 1:1 net↔flat assumption.
 
-        // Place name -> flat index (Java FlatNet.placeIndex is keyed by Place, not
-        // name; resolve matched + budget places by name to match the Rust contract).
+        // Place name -> flat index (Java FlatNet.placeIndex is keyed by Place, not name;
+        // resolve matched + budget + carrier places by name to match the Rust contract).
         Map<String, Integer> nameIdx = new HashMap<>();
         for (int i = 0; i < p; i++) {
             nameIdx.put(flat.places().get(i).name(), i);
         }
 
-        // 1. Coloured places = union of every matched transition's correlated
-        //    inputs. Read the match spec off each flat row's source transition
-        //    (net.transitions() is an unordered Set; the flat list is the ordered
-        //    1:1 mapping guaranteed by the no-XOR check above).
+        // 1. Coloured places = every matched transition's correlated inputs, plus (in
+        //    EXTENDED mode) the declared carrier places that thread a fork-minted name
+        //    through intermediate places to a ν-join input (NU-051).
         boolean[] isColoured = new boolean[p];
         for (var ft : flat.transitions()) {
             var ms = ft.source().matchSpec();
@@ -151,6 +174,14 @@ public final class NameColouredEncoder {
                     if (pid == null) {
                         return null;
                     }
+                    isColoured[pid] = true;
+                }
+            }
+        }
+        if (fragmentMode == FragmentMode.EXTENDED) {
+            for (String c : carrierPlaces) {
+                Integer pid = nameIdx.get(c);
+                if (pid != null) {
                     isColoured[pid] = true;
                 }
             }
@@ -168,23 +199,29 @@ public final class NameColouredEncoder {
             }
         }
 
-        // Colour bound k = total initial budget tokens (the live-name ceiling).
+        // Colour-slot bound k: a colour is live iff some coloured place holds it, so
+        // #live colours ≤ Σ_{coloured} M(p) ≤ y·M0 for any non-negative P-semiflow y
+        // weighting every coloured place ≥ 1. k is the tightest such y·M0 (each
+        // PInvariant.constant is y·M0); any k ≥ #live is sound — a larger k only costs O(k)
+        // columns, never under-approximates, since a mint may take any free slot behind the
+        // freshness guard. If no covering non-negative semiflow exists the coloured set is
+        // not structurally token-bounded (a genuine unbounded colour leak), so fall back to
+        // the sound over-approximation. This replaces the old budget-count k and both
+        // structural discipline checks (atomic-rejoin + budget-Φ) below.
+        Integer kBound = colourSlotBound(coloured, invariants);
+        if (kBound == null) {
+            return null;
+        }
+        int k = kBound;
+
+        // Budget places gate minting: a mint must consume ≥1 budget token — that is what
+        // makes it a fresh-name fork rather than an arbitrary coloured producer.
         Set<Integer> budgetIdx = new HashSet<>();
         for (String n : budgetPlaceNames) {
             Integer i = nameIdx.get(n);
             if (i != null) {
                 budgetIdx.add(i);
             }
-        }
-        if (budgetIdx.isEmpty()) {
-            return null;
-        }
-        int k = 0;
-        for (int b : budgetIdx) {
-            k += initial.tokens(flat.places().get(b));
-        }
-        if (k == 0) {
-            return null;
         }
 
         // No inhibitor/read/reset/consume-all arc may touch a coloured place.
@@ -197,7 +234,7 @@ public final class NameColouredEncoder {
             }
         }
 
-        // 2. Classify each transition from its flat incidence.
+        // 2. Classify each flat row from its own incidence (matchSpec from its source).
         List<Klass> classes = new ArrayList<>(flat.transitionCount());
         for (int ti = 0; ti < flat.transitionCount(); ti++) {
             var ft = flat.transitions().get(ti);
@@ -218,11 +255,27 @@ public final class NameColouredEncoder {
                     }
                 }
                 klass = new Join(colouredIn);
-            } else if (colouredOut.length != 0) {
-                // Minting fork: produces coloured (count 1), consumes none, costs budget.
-                if (colouredIn.length != 0) {
+            } else if (colouredIn.length != 0) {
+                // EXTENDED coloured consumer (relay/drain, NU-051): a non-match transition
+                // consuming a coloured place. Admitted only in EXTENDED mode, and only when
+                // it consumes EXACTLY ONE coloured input at count EXACTLY ONE (higher counts
+                // would over-count the name layer against the base marking's single token per
+                // place). It relays the name into its coloured outputs (each at count 1) or
+                // drains it (no coloured output).
+                if (fragmentMode != FragmentMode.EXTENDED) {
                     return null;
                 }
+                if (colouredIn.length != 1 || ft.preVector()[colouredIn[0]] != 1) {
+                    return null;
+                }
+                for (int o : colouredOut) {
+                    if (ft.postVector()[o] != 1) {
+                        return null;
+                    }
+                }
+                klass = new Consume(colouredIn[0], colouredOut);
+            } else if (colouredOut.length != 0) {
+                // Minting fork: produces coloured (count 1), consumes none, costs budget.
                 for (int o : colouredOut) {
                     if (ft.postVector()[o] != 1) {
                         return null;
@@ -238,58 +291,95 @@ public final class NameColouredEncoder {
                 klass = new Mint(colouredOut);
             } else {
                 // Touches no coloured place at all.
-                if (colouredIn.length != 0) {
-                    return null;
-                }
                 klass = new Untouched();
             }
             classes.add(klass);
         }
 
-        // 3. Budget discipline: consumed only by mints, produced only by joins, AND
-        //    conserved — a join may not refund MORE budget than the cheapest mint
-        //    consumes, else repeated mint->join cycles inflate the pool above k, the
-        //    real net can hold > k simultaneously-live names, and the k-colour
-        //    encoding would UNDER-approximate and report a false `Proven`. With this
-        //    bound live colours <= initial budget = k. Fail-closed (return null ->
-        //    sound over-approximation) otherwise.
-        Integer minMintCost = null;
-        int maxJoinRefund = 0;
-        for (int ti = 0; ti < classes.size(); ti++) {
-            Klass cls = classes.get(ti);
-            var ft = flat.transitions().get(ti);
-            for (int b : budgetIdx) {
-                if (ft.preVector()[b] > 0 && !(cls instanceof Mint)) {
-                    return null;
-                }
-                if (ft.postVector()[b] > 0 && !(cls instanceof Join)) {
-                    return null;
-                }
-            }
-            if (cls instanceof Mint) {
-                int cost = 0;
-                for (int b : budgetIdx) {
-                    cost += ft.preVector()[b];
-                }
-                minMintCost = (minMintCost == null) ? cost : Math.min(minMintCost, cost);
-            } else if (cls instanceof Join) {
-                int refund = 0;
-                for (int b : budgetIdx) {
-                    refund += ft.postVector()[b];
-                }
-                maxJoinRefund = Math.max(maxJoinRefund, refund);
-            }
-        }
-        if (minMintCost == null || maxJoinRefund > minMintCost) {
-            return null;
-        }
-
         return new ColouredPlan(coloured, isColoured, k, classes);
     }
 
-    // === Column layout over the coloured state vector ===
-    // Uncoloured place -> one var; coloured place -> k per-colour vars.
+    /**
+     * Sound colour-slot bound {@code k}: a colour is live iff some coloured place holds
+     * it, so {@code #live colours <= Σ_{coloured} M(p) <= y·M0} for any non-negative
+     * P-semiflow {@code y} ({@code y·C = 0}, {@code y >= 0}) that weights every coloured
+     * place {@code >= 1}. Returns the tightest such {@code y·M0} (each
+     * {@link PInvariant#constant()} is {@code y·M0}), or {@code null} when no covering
+     * non-negative semiflow exists — the coloured set is then not structurally
+     * token-bounded (a genuine unbounded colour leak) and the caller must fall back.
+     */
+    private static Integer colourSlotBound(int[] coloured, List<PInvariant> invariants) {
+        // Tightest bound: a single non-negative P-semiflow weighting every coloured place.
+        Integer single = null;
+        for (PInvariant inv : invariants) {
+            if (!isSemiflow(inv) || inv.constant() < 1) {
+                continue;
+            }
+            boolean coversAll = true;
+            for (int pid : coloured) {
+                if (weightAt(inv, pid) < 1) {
+                    coversAll = false;
+                    break;
+                }
+            }
+            if (coversAll) {
+                single = (single == null) ? inv.constant() : Math.min(single, inv.constant());
+            }
+        }
+        if (single != null) {
+            return single;
+        }
 
+        // Otherwise sum the non-negative semiflows that touch a coloured place — the sum
+        // is itself a valid non-negative P-semiflow. If together they weight every coloured
+        // place, Σ y·M0 is a sound (looser) bound; if some coloured place stays at weight 0
+        // across all of them, no non-negative semiflow covers it, so the coloured set is
+        // not structurally token-bounded → null (sound over-approximation).
+        long sumConst = 0;
+        boolean[] covered = new boolean[coloured.length];
+        for (PInvariant inv : invariants) {
+            if (!isSemiflow(inv)) {
+                continue;
+            }
+            boolean touches = false;
+            for (int i = 0; i < coloured.length; i++) {
+                if (weightAt(inv, coloured[i]) >= 1) {
+                    covered[i] = true;
+                    touches = true;
+                }
+            }
+            if (touches) {
+                sumConst += inv.constant();
+            }
+        }
+        boolean allCovered = true;
+        for (boolean c : covered) {
+            if (!c) {
+                allCovered = false;
+                break;
+            }
+        }
+        return (allCovered && sumConst >= 1) ? (int) sumConst : null;
+    }
+
+    /** Weight of place {@code pid} in {@code inv} (0 if out of range). */
+    private static int weightAt(PInvariant inv, int pid) {
+        int[] w = inv.weights();
+        return (pid >= 0 && pid < w.length) ? w[pid] : 0;
+    }
+
+    /** Whether every weight is non-negative — i.e. a genuine non-negative P-semiflow. */
+    private static boolean isSemiflow(PInvariant inv) {
+        for (int x : inv.weights()) {
+            if (x < 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Column layout: uncoloured place -> one var; coloured place -> k per-colour vars. */
+    @SuppressWarnings("unused")
     private static final class Layout {
         /** Column index of each uncoloured place ({@code -1} if coloured). */
         final int[] colUnc;
@@ -330,9 +420,9 @@ public final class NameColouredEncoder {
             this.nxt = new Expr[nCols];
             this.allSorts = new Sort[2 * nCols];
             this.allNames = new Symbol[2 * nCols];
-            // forall(c0..c_{nCols-1}, cp0..cp_{nCols-1}): de Bruijn — cp_{nCols-1}
-            // is innermost (index 0). cur[col] = mkBound(2*nCols-1-col),
-            // nxt[col] = mkBound(nCols-1-col). Generalises SmtEncoder's P -> nCols.
+            // forall(c0..c_{nCols-1}, cp0..cp_{nCols-1}): de Bruijn — cp_{nCols-1} is
+            // innermost (index 0). cur[col] = mkBound(2*nCols-1-col), nxt[col] =
+            // mkBound(nCols-1-col). Mirrors SmtEncoder's transition-rule indexing.
             for (int col = 0; col < nCols; col++) {
                 allNames[col] = ctx.mkSymbol("c" + col);
                 allSorts[col] = intSort;
@@ -344,21 +434,25 @@ public final class NameColouredEncoder {
         }
     }
 
-    /** Contributes the enablement guards and the changed-column updates of a rule. */
+    /** Contributes a rule's enablement guards and changed-column updates. */
     @FunctionalInterface
     private interface Fill {
         void apply(List<BoolExpr> enab, Map<Integer, Expr<IntSort>> upd);
     }
 
     /**
-     * Encodes the supported &nu;-net as bounded name-coloured CHC for Z3 Spacer.
-     * Reuses {@link SmtEncoder.EncodingResult}; with the query {@code (not Error)},
-     * {@code sat} &rArr; PROVEN, {@code unsat} &rArr; VIOLATED (the Spacer
-     * convention shared with {@link SmtEncoder}).
+     * Encodes the supported &nu;-net as bounded name-coloured CHC for Z3 Spacer. Reuses
+     * {@link SmtEncoder.EncodingResult}; with the query {@code (not Error)}, {@code sat}
+     * &rArr; PROVEN, {@code unsat} &rArr; VIOLATED (the Spacer convention shared with
+     * {@link SmtEncoder}).
+     *
+     * @param sinkPlaces terminal places (a quiescent marking holding only sinks is not a
+     *                   deadlock) — used by the colour-aware deadlock predicate
      */
     public static SmtEncoder.EncodingResult encode(
             Context ctx, Fixedpoint fp, ColouredPlan plan, FlatNet flat,
-            MarkingState initial, SmtProperty property, List<PInvariant> invariants) {
+            MarkingState initial, SmtProperty property, List<PInvariant> invariants,
+            Set<Place<?>> sinkPlaces) {
         int p = flat.placeCount();
         int k = plan.k;
         Layout lay = new Layout(plan, p, ctx);
@@ -393,8 +487,7 @@ public final class NameColouredEncoder {
             FlatTransition ft = flat.transitions().get(ti);
             switch (cls) {
                 case Untouched _ -> addRule(ctx, fp, reachable, lay, plan, invariants,
-                    ft.name() + "_u",
-                    (enab, upd) -> uncolouredIncidence(ctx, lay, plan, ft, enab, upd));
+                        ft.name(), (enab, upd) -> uncolouredIncidence(ctx, lay, plan, ft, enab, upd));
                 case Mint m -> {
                     for (int c = 0; c < k; c++) {
                         final int cc = c;
@@ -427,20 +520,40 @@ public final class NameColouredEncoder {
                             });
                     }
                 }
+                case Consume co -> {
+                    // One rule per colour: consume colour cc from the single coloured input
+                    // and thread it into each coloured output (relay), or into none (drain).
+                    for (int c = 0; c < k; c++) {
+                        final int cc = c;
+                        addRule(ctx, fp, reachable, lay, plan, invariants,
+                            ft.name() + "_consume_" + cc, (enab, upd) -> {
+                                uncolouredIncidence(ctx, lay, plan, ft, enab, upd);
+                                int icol = lay.colCol[co.inputCol()][cc];
+                                enab.add(ctx.mkGe(lay.cur[icol], ctx.mkInt(1)));
+                                upd.put(icol, ctx.mkSub(lay.cur[icol], ctx.mkInt(1)));
+                                for (int o : co.colouredOut()) {
+                                    int ocol = lay.colCol[o][cc];
+                                    upd.put(ocol, ctx.mkAdd(lay.cur[ocol], ctx.mkInt(1)));
+                                }
+                            });
+                    }
+                }
             }
         }
 
-        // Error rule.
-        addErrorRule(ctx, fp, reachable, error, lay, plan, flat, property);
+        // Error rule. `false` ⇒ the property names an unresolved place; refuse to
+        // build a vacuously-provable encoding and let the verifier report Unknown.
+        if (!addErrorRule(ctx, fp, reachable, error, lay, plan, flat, property, sinkPlaces)) {
+            return null;
+        }
 
         return new SmtEncoder.EncodingResult((BoolExpr) error.apply(), reachable);
     }
 
     /**
-     * Builds one transition CHC rule. {@code fill} contributes the enablement
-     * guards and the changed-column updates; every other column is copied
-     * unchanged, changed columns get a non-negativity guard, and the (lifted)
-     * P-invariants constrain the successor.
+     * Builds one transition CHC rule. {@code fill} contributes the enablement guards and
+     * the changed-column updates; every other column is copied unchanged, changed columns
+     * get a non-negativity guard, and the (lifted) P-invariants constrain the successor.
      */
     private static void addRule(
             Context ctx, Fixedpoint fp, FuncDecl<BoolSort> reachable, Layout lay,
@@ -453,8 +566,8 @@ public final class NameColouredEncoder {
         conditions.add((BoolExpr) reachable.apply(lay.cur));
         conditions.addAll(enab);
 
-        // A changed column gets its update + a non-negativity guard; every other
-        // column is copied unchanged.
+        // A changed column gets its update + non-negativity guard; every other column is
+        // copied unchanged.
         for (int col = 0; col < lay.nCols; col++) {
             Expr<IntSort> expr = upd.get(col);
             if (expr != null) {
@@ -480,11 +593,11 @@ public final class NameColouredEncoder {
     }
 
     /**
-     * Pushes the enablement guards and column updates contributed by a
-     * transition's <b>uncoloured</b> incidence (consume/produce on non-coloured
-     * places). Coloured columns are handled by the caller (mint produces, join
-     * consumes). Mirrors the Rust reference — no blanket current-marking
-     * non-negativity guard (the Reachable invariant carries that).
+     * Pushes the enablement guards and column updates contributed by a transition's
+     * <b>uncoloured</b> incidence (consume/produce on non-coloured places). Coloured
+     * columns are handled by the caller (mint produces, join/consumer consume). Mirrors
+     * the Rust reference — no blanket current-marking non-negativity guard (the Reachable
+     * invariant carries that).
      */
     private static void uncolouredIncidence(
             Context ctx, Layout lay, ColouredPlan plan, FlatTransition ft,
@@ -521,28 +634,35 @@ public final class NameColouredEncoder {
 
     /**
      * Lifts a flat P-invariant to the coloured layout: a coloured place's variable
-     * becomes the sum of its colours (= its aggregate count), so the (true) flat
-     * invariant constrains the coloured successor without excluding any reachable
-     * state.
+     * becomes the sum of its colours (= its aggregate count). Returns {@code null} when
+     * the invariant support is empty.
      */
+    @SuppressWarnings("unchecked")
     private static BoolExpr liftedInvariant(
             Context ctx, PInvariant inv, ColouredPlan plan, Layout lay, Expr<IntSort>[] vars) {
         if (inv.support().isEmpty()) {
             return null;
         }
         ArithExpr<IntSort> sum = ctx.mkInt(0);
+        boolean any = false;
         for (int i : inv.support()) {
             ArithExpr<IntSort> agg = aggregate(ctx, i, plan, lay, vars);
             int w = inv.weights()[i];
-            sum = ctx.mkAdd(sum, w == 1 ? agg : ctx.mkMul(ctx.mkInt(w), agg));
+            ArithExpr<IntSort> term = (w == 1) ? agg : ctx.mkMul(ctx.mkInt(w), agg);
+            sum = ctx.mkAdd(sum, term);
+            any = true;
+        }
+        if (!any) {
+            return null;
         }
         return ctx.mkEq(sum, ctx.mkInt(inv.constant()));
     }
 
     /**
-     * Aggregate token-count expression for a place over the given var-set: the
-     * single uncoloured var, or the sum of its colours.
+     * Aggregate token-count expression for a place over the given var-set: the single
+     * uncoloured var, or the sum of its colours.
      */
+    @SuppressWarnings("unchecked")
     private static ArithExpr<IntSort> aggregate(
             Context ctx, int place, ColouredPlan plan, Layout lay, Expr<IntSort>[] vars) {
         if (plan.isColoured[place]) {
@@ -557,10 +677,16 @@ public final class NameColouredEncoder {
     }
 
     /** Encodes the error rule: a reachable marking that violates the property. */
+    /**
+     * Adds the error CHC rule, or returns {@code false} when the property names a
+     * place that does not resolve in the net ({@link #encodeViolation} returned
+     * {@code null}). In that case no rule is added and the caller reports Unknown
+     * rather than certify a vacuous PROVEN.
+     */
     @SuppressWarnings("unchecked")
-    private static void addErrorRule(
+    private static boolean addErrorRule(
             Context ctx, Fixedpoint fp, FuncDecl<BoolSort> reachable, FuncDecl<BoolSort> error,
-            Layout lay, ColouredPlan plan, FlatNet flat, SmtProperty property) {
+            Layout lay, ColouredPlan plan, FlatNet flat, SmtProperty property, Set<Place<?>> sinkPlaces) {
         int nCols = lay.nCols;
         IntSort intSort = ctx.getIntSort();
         Symbol[] names = new Symbol[nCols];
@@ -572,22 +698,34 @@ public final class NameColouredEncoder {
             cur[col] = (Expr<IntSort>) ctx.mkBound(nCols - 1 - col, intSort);
         }
 
+        Map<Integer, Integer> envInj = injectedEnvIndices(flat);
         BoolExpr reachBody = (BoolExpr) reachable.apply(cur);
-        BoolExpr violation = encodeViolation(ctx, plan, lay, flat, property, cur);
+        BoolExpr violation = encodeViolation(ctx, plan, lay, flat, property, sinkPlaces, envInj, cur);
+        if (violation == null) {
+            return false; // unresolved property place → signal Unknown
+        }
         BoolExpr body = ctx.mkAnd(reachBody, violation);
         BoolExpr rule = ctx.mkImplies(body, (BoolExpr) error.apply());
         Quantifier qRule = ctx.mkForall(sorts, names, rule, 1, null, null, null, null);
         fp.addRule(qRule, ctx.mkSymbol("error"));
+        return true;
     }
 
     /**
      * Encodes the property-violation condition over the coloured current marking.
-     * Only reachability-safety properties are routed here (the verifier guarantees
-     * it); quiescence properties yield {@code false} (no violating state).
+     * Reachability-safety properties compare aggregate place counts; quiescence
+     * properties (NU-053) use the colour-aware deadlock predicate.
+     *
+     * <p>Returns {@code null} when the property names a place that does not resolve
+     * in the net (e.g. a typo'd bound/pending place). A {@code false} violation term
+     * there would make the Error rule unsatisfiable and yield a <b>vacuous</b>
+     * PROVEN, silently certifying a mis-named place; {@code null} propagates up so
+     * the verifier reports Unknown instead.
      */
     private static BoolExpr encodeViolation(
             Context ctx, ColouredPlan plan, Layout lay, FlatNet flat,
-            SmtProperty property, Expr<IntSort>[] cur) {
+            SmtProperty property, Set<Place<?>> sinkPlaces, Map<Integer, Integer> envInj,
+            Expr<IntSort>[] cur) {
         return switch (property) {
             case SmtProperty.PlaceBound pb -> boundViolation(ctx, plan, lay, flat, pb.place().name(), pb.bound(), cur);
             case SmtProperty.BranchPlaceBound bpb -> boundViolation(ctx, plan, lay, flat, bpb.place().name(), bpb.bound(), cur);
@@ -611,8 +749,18 @@ public final class NameColouredEncoder {
                 }
                 yield conds.isEmpty() ? ctx.mkFalse() : ctx.mkAnd(conds.toArray(new BoolExpr[0]));
             }
-            // Quiescence properties are never routed here.
-            case SmtProperty.DeadlockFree _, SmtProperty.JoinedOrDeadLettered _ -> ctx.mkFalse();
+            case SmtProperty.DeadlockFree _ ->
+                encodeColouredDeadlock(ctx, plan, lay, flat, sinkPlaces, envInj, cur);
+            case SmtProperty.JoinedOrDeadLettered jdl -> {
+                Integer pid = flatIndex(flat, jdl.pending().name());
+                if (pid == null) {
+                    // Unresolved pending place: a false violation term would make the
+                    // Error rule unsatisfiable → a vacuous PROVEN. Signal Unknown instead.
+                    yield null;
+                }
+                BoolExpr deadlock = encodeColouredDeadlock(ctx, plan, lay, flat, sinkPlaces, envInj, cur);
+                yield ctx.mkAnd(deadlock, ctx.mkGe(aggregate(ctx, pid, plan, lay, cur), ctx.mkInt(1)));
+            }
         };
     }
 
@@ -621,12 +769,175 @@ public final class NameColouredEncoder {
             String placeName, int bound, Expr<IntSort>[] cur) {
         Integer pid = flatIndex(flat, placeName);
         if (pid == null) {
-            return ctx.mkFalse();
+            // Unresolved bound place: a false violation term would vacuously PROVE the
+            // bound. Return null so the verifier reports Unknown instead of certifying.
+            return null;
         }
         return ctx.mkGt(aggregate(ctx, pid, plan, lay, cur), ctx.mkInt(bound));
     }
 
+    /**
+     * Colour-aware deadlock predicate (NU-053): every transition is disabled (no colour
+     * enables it) and the marking is not a sink state. Mirrors {@link SmtEncoder}'s flat
+     * {@code encodeDeadlock} with the same env-injection relaxation (VER-006), lifted to
+     * the coloured layout.
+     */
+    private static BoolExpr encodeColouredDeadlock(
+            Context ctx, ColouredPlan plan, Layout lay, FlatNet flat,
+            Set<Place<?>> sinkPlaces, Map<Integer, Integer> envInj, Expr<IntSort>[] cur) {
+        List<BoolExpr> disabledConditions = new ArrayList<>();
+        for (int ti = 0; ti < plan.classes.size(); ti++) {
+            Klass cls = plan.classes.get(ti);
+            FlatTransition ft = flat.transitions().get(ti);
+            List<BoolExpr> reasons = new ArrayList<>();
+            boolean permanentlyDisabled = uncolouredDisable(ctx, ft, lay, plan, envInj, cur, reasons);
+            if (permanentlyDisabled) {
+                // The transition can never fire — it is always "disabled".
+                disabledConditions.add(ctx.mkTrue());
+                continue;
+            }
+            BoolExpr term = colouredDisabledTerm(ctx, cls, plan, lay, cur);
+            if (term != null) {
+                reasons.add(term);
+            }
+            if (reasons.isEmpty()) {
+                // Always enabled (possibly via injection) — no marking is a deadlock.
+                return ctx.mkFalse();
+            }
+            disabledConditions.add(reasons.size() == 1
+                ? reasons.get(0)
+                : ctx.mkOr(reasons.toArray(new BoolExpr[0])));
+        }
+
+        // Not a sink state: some non-sink place still holds a token (aggregate count).
+        Set<Integer> sinkIndices = new HashSet<>();
+        for (var sink : sinkPlaces) {
+            int idx = flat.indexOf(sink);
+            if (idx >= 0) {
+                sinkIndices.add(idx);
+            }
+        }
+        if (!sinkIndices.isEmpty()) {
+            List<BoolExpr> nonSink = new ArrayList<>();
+            for (int pid = 0; pid < flat.placeCount(); pid++) {
+                if (!sinkIndices.contains(pid)) {
+                    nonSink.add(ctx.mkGe(aggregate(ctx, pid, plan, lay, cur), ctx.mkInt(1)));
+                }
+            }
+            if (!nonSink.isEmpty()) {
+                disabledConditions.add(ctx.mkOr(nonSink.toArray(new BoolExpr[0])));
+            }
+        }
+
+        if (disabledConditions.isEmpty()) {
+            return ctx.mkTrue();
+        }
+        return ctx.mkAnd(disabledConditions.toArray(new BoolExpr[0]));
+    }
+
+    /**
+     * The uncoloured disable reasons for a flat row: marking-dependent clauses (any one
+     * true ⇒ the transition's uncoloured part is unmet), collected into {@code reasons};
+     * returns {@code true} when the transition is permanently disabled (an env cap below
+     * the demand means it can never fire). Coloured places are excluded — their
+     * enablement is the per-class colour term. Mirrors {@link SmtEncoder}'s flat deadlock
+     * with the same env relaxation.
+     */
+    private static boolean uncolouredDisable(
+            Context ctx, FlatTransition ft, Layout lay, ColouredPlan plan,
+            Map<Integer, Integer> envInj, Expr<IntSort>[] cur, List<BoolExpr> reasons) {
+        boolean permanentlyDisabled = false;
+        int p = ft.preVector().length;
+        for (int i = 0; i < p; i++) {
+            if (plan.isColoured[i] || ft.preVector()[i] == 0) {
+                continue;
+            }
+            if (envInj.containsKey(i)) {
+                Integer bound = envInj.get(i);
+                if (bound != null && ft.preVector()[i] > bound) {
+                    permanentlyDisabled = true;
+                }
+                continue;
+            }
+            reasons.add(ctx.mkLt(cur[lay.colUnc[i]], ctx.mkInt(ft.preVector()[i])));
+        }
+        for (int inh : ft.inhibitorPlaces()) {
+            reasons.add(ctx.mkGt(cur[lay.colUnc[inh]], ctx.mkInt(0)));
+        }
+        for (int rd : ft.readPlaces()) {
+            if (envInj.containsKey(rd)) {
+                Integer bound = envInj.get(rd);
+                if (bound != null && bound < 1) {
+                    permanentlyDisabled = true;
+                }
+                continue;
+            }
+            reasons.add(ctx.mkLt(cur[lay.colUnc[rd]], ctx.mkInt(1)));
+        }
+        return permanentlyDisabled;
+    }
+
+    /**
+     * The colour-specific "disabled for every colour" term for a class ({@code null} if
+     * the class imposes no coloured enablement constraint). Combined by the caller with
+     * the uncoloured disable reasons: the transition is disabled if EITHER holds.
+     */
+    private static BoolExpr colouredDisabledTerm(
+            Context ctx, Klass cls, ColouredPlan plan, Layout lay, Expr<IntSort>[] cur) {
+        int k = plan.k;
+        return switch (cls) {
+            case Untouched _ -> null;
+            case Mint _ -> {
+                // No globally-fresh colour: for every colour c, some coloured place holds c.
+                BoolExpr[] perColour = new BoolExpr[k];
+                for (int c = 0; c < k; c++) {
+                    BoolExpr[] present = new BoolExpr[plan.coloured.length];
+                    for (int qi = 0; qi < plan.coloured.length; qi++) {
+                        int q = plan.coloured[qi];
+                        present[qi] = ctx.mkGe(cur[lay.colCol[q][c]], ctx.mkInt(1));
+                    }
+                    perColour[c] = ctx.mkOr(present);
+                }
+                yield ctx.mkAnd(perColour);
+            }
+            case Join j -> {
+                // No colour is shared by all correlated inputs: for every colour c, some
+                // input lacks c.
+                BoolExpr[] perColour = new BoolExpr[k];
+                for (int c = 0; c < k; c++) {
+                    BoolExpr[] missing = new BoolExpr[j.colouredIn().length];
+                    for (int ii = 0; ii < j.colouredIn().length; ii++) {
+                        int inCol = j.colouredIn()[ii];
+                        missing[ii] = ctx.mkEq(cur[lay.colCol[inCol][c]], ctx.mkInt(0));
+                    }
+                    perColour[c] = ctx.mkOr(missing);
+                }
+                yield ctx.mkAnd(perColour);
+            }
+            case Consume co -> {
+                // No colour present at the single coloured input.
+                BoolExpr[] perColour = new BoolExpr[k];
+                for (int c = 0; c < k; c++) {
+                    perColour[c] = ctx.mkEq(cur[lay.colCol[co.inputCol()][c]], ctx.mkInt(0));
+                }
+                yield ctx.mkAnd(perColour);
+            }
+        };
+    }
+
     // === small helpers ===
+
+    /** Maps injected environment-place index -> injection bound ({@code null} = unbounded). */
+    private static Map<Integer, Integer> injectedEnvIndices(FlatNet flat) {
+        Map<Integer, Integer> out = new HashMap<>();
+        for (var entry : flat.environmentInjection().entrySet()) {
+            int idx = flat.indexOf(entry.getKey());
+            if (idx >= 0) {
+                out.put(idx, entry.getValue());
+            }
+        }
+        return out;
+    }
 
     private static Integer flatIndex(FlatNet flat, String name) {
         for (int i = 0; i < flat.placeCount(); i++) {
@@ -654,25 +965,26 @@ public final class NameColouredEncoder {
         return out;
     }
 
-    private static int[] colouredWithPositive(int[] coloured, int[] vec) {
+    /** The subset of {@code coloured} indices whose vector entry is positive. */
+    private static int[] colouredWithPositive(int[] coloured, int[] vector) {
         int n = 0;
         for (int pid : coloured) {
-            if (vec[pid] > 0) {
+            if (vector[pid] > 0) {
                 n++;
             }
         }
         int[] out = new int[n];
         int j = 0;
         for (int pid : coloured) {
-            if (vec[pid] > 0) {
+            if (vector[pid] > 0) {
                 out[j++] = pid;
             }
         }
         return out;
     }
 
-    private static boolean anyColoured(int[] indices, boolean[] isColoured) {
-        for (int i : indices) {
+    private static boolean anyColoured(int[] placeIndices, boolean[] isColoured) {
+        for (int i : placeIndices) {
             if (isColoured[i]) {
                 return true;
             }

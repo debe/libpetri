@@ -47,6 +47,7 @@ def verify(
     nu_max_classes: int | None = ...,
     fragment_mode: str | int | None = ...,
     carrier_places: Iterable[PlaceLike] | None = ...,
+    priority_semantics: str | int | None = ...,
 ) -> VerificationResult: ...
 def verify_subnet(
     subnet: BuiltSubnetDef,

@@ -1,5 +1,16 @@
 # Changelog
 
+## Java 2.12.0 / TypeScript 2.12.0 / Rust 3.6.0 / Python 2.15.0 — 2026-07-14
+
+**Feature: scalable exact ν-net deadlock-freedom (NU-052 + NU-053), with full-precision soundness**
+
+Two opt-in additions to ν-net verification, plus the soundness hardening that makes them exact. Rust is the source of truth; Java and TypeScript port it byte-faithfully and Python inherits it through the Rust runtime. Defaults are unchanged.
+
+- **NU-052 — conflict-only priority for the name state-class graph (Route B).** An opt-in `PrioritySemantics{NONE,CONFLICT}` prunes the interleavings the eager, priority-ordered executor never produces, so Route B stops reporting spurious drain-steal stalls. `NONE` stays the default and reproduces prior behaviour byte-for-byte. Pruning is DBM-precise: it fires only when the higher-priority transition is ready no later than the lower in the class's zone (`readyEarliest[H] <= readyEarliest[L]`), and only under real token competition on a shared consumed input.
+- **NU-053 — EXTENDED-coloured quiescence in the Route A SMT/IC3 encoder.** `DeadlockFree` / `JoinedOrDeadLettered` are decided by a colour-aware deadlock predicate over the EXTENDED fragment (coloured relays/drains and carrier places), with XOR output branches classified independently. The verifier defers to Route A when Route B truncates, and does not downgrade an exact coloured verdict.
+- **Structural colour bound (soundness).** The colour-slot count is now a non-negative P-semiflow bound (`Σ coloured M ≤ y·M0`) rather than the raw initial budget, so a fork whose colour outlives its refunded budget can no longer under-approximate into a false `Proven`. A net with no covering semiflow (a genuinely unbounded colour leak) falls back to the sound over-approximation.
+- **Fixes:** an unresolved property place now reports `Unknown` instead of a vacuous `Proven`; the conflict-priority guard no longer prunes a name-disabled join or a non-competing shared place.
+
 ## Java 2.11.0 / TypeScript 2.11.0 / Rust 3.5.0 / Python 2.14.0 — 2026-07-09
 
 **Feature: opt-in EXTENDED ν-net fragment (drain/relay + fork-threaded co-mint) (NU-051)**

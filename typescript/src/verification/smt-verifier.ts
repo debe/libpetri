@@ -9,13 +9,14 @@ import type { FlatNet } from './encoding/flat-net.js';
 import { flatten } from './encoding/net-flattener.js';
 import { type EnvironmentAnalysisMode, alwaysAvailable } from './analysis/environment-analysis-mode.js';
 import { IncidenceMatrix } from './encoding/incidence-matrix.js';
-import { computePInvariants, isCoveredByInvariants } from './invariant/p-invariant-computer.js';
+import { computePInvariants, computePSemiflows, isCoveredByInvariants } from './invariant/p-invariant-computer.js';
 import { structuralCheck } from './invariant/structural-check.js';
 import { createSpacerRunner } from './z3/spacer-runner.js';
 import { encode } from './z3/smt-encoder.js';
 import { buildColouredPlan, encodeColoured, type ColouredPlan } from './z3/name-coloured-encoder.js';
 import { verifyViaNameScg } from './nu-scg-verifier.js';
 import type { FragmentMode } from './analysis/name-fragment.js';
+import type { PrioritySemantics } from './analysis/priority-semantics.js';
 import { decode } from './z3/counterexample-decoder.js';
 
 /**
@@ -51,6 +52,7 @@ export class SmtVerifier {
   private _nuMaxClasses: number = 100_000;
   private _fragmentMode: FragmentMode = 'base';
   private readonly _carrierPlaces = new Set<string>();
+  private _prioritySemantics: PrioritySemantics = 'none';
 
   private constructor(private readonly net: PetriNet) {}
 
@@ -159,6 +161,19 @@ export class SmtVerifier {
   }
 
   /**
+   * Selects how the Route-B name-aware analyzer treats transition priority
+   * (NU-052). Defaults to `'none'` (the priority-blind over-approximation).
+   * `'conflict'` models the executor's conflict-only priority resolution, so a
+   * lower-priority transition pre-empted by a conflicting, no-later-ready,
+   * strictly-higher-priority one is not explored — removing spurious
+   * dead-letter-drain stalls the eager, priority-ordered executor never produces.
+   */
+  prioritySemantics(semantics: PrioritySemantics): this {
+    this._prioritySemantics = semantics;
+    return this;
+  }
+
+  /**
    * Runs the verification pipeline.
    */
   async verify(): Promise<SmtVerificationResult> {
@@ -193,9 +208,17 @@ export class SmtVerifier {
       const outcome = verifyViaNameScg(
         this.net, this._initialMarking, this._property, this._sinkPlaces,
         this._environmentPlaces, this._environmentMode, this._nuMaxClasses,
-        this._fragmentMode, this._carrierPlaces,
+        this._fragmentMode, this._carrierPlaces, this._prioritySemantics,
       );
-      if (outcome !== null) {
+      // Route B truncating to unknown on a bounded quiescence ν-net is not the
+      // final word: defer to the scalable Route A coloured IC3/PDR encoder
+      // (NU-053) below instead of returning unknown here.
+      const deferToRouteA =
+        outcome !== null &&
+        outcome.verdict.type === 'unknown' &&
+        !isReachabilitySafety(this._property) &&
+        nuBounded;
+      if (outcome !== null && !deferToRouteA) {
         report.push('=== ν-net Route B: name-aware state-class graph (NU-050) ===');
         report.push(`  Name-partition state classes: ${outcome.classCount}`);
         report.push(outcome.note);
@@ -212,12 +235,17 @@ export class SmtVerifier {
             structuralResult: 'n/a (ν name-partition SCG)',
           },
         );
+      } else if (deferToRouteA) {
+        report.push(
+          'ν-net Route B inconclusive (name-partition truncated); deferring to ' +
+          'Route A coloured IC3/PDR (NU-053).',
+        );
       }
       // EXTENDED was requested but the net is outside the coloured-consumer
       // fragment (classify declined). Surface a short note instead of a silent
       // cliff, then verify via the sound over-approximation below (NU-051, §5
       // diagnosability).
-      if (this._fragmentMode === 'extended') {
+      if (this._fragmentMode === 'extended' && !deferToRouteA) {
         report.push(
           'ν-net Route B (EXTENDED) declined: net outside coloured-consumer fragment ' +
           '(a coloured place consumed count != 1 or by multiple inputs, carries a ' +
@@ -281,6 +309,10 @@ export class SmtVerifier {
     report.push('Phase 3: Computing P-invariants...');
     const matrix = IncidenceMatrix.from(flatNet);
     const invariants = computePInvariants(matrix, flatNet, this._initialMarking);
+    // P-semiflows (non-negative conservation laws) bound the simultaneously-live
+    // colour count that sets the name-coloured encoder's slot count `k` (see
+    // buildColouredPlan / colourSlotBound).
+    const semiflows = computePSemiflows(matrix, flatNet, this._initialMarking);
     report.push(`  Found: ${invariants.length} P-invariant(s)`);
     const structurallyBounded = isCoveredByInvariants(invariants, flatNet.places.length);
     report.push(`  Structurally bounded: ${structurallyBounded ? 'YES' : 'NO'}`);
@@ -293,14 +325,17 @@ export class SmtVerifier {
     report.push('Phase 4: IC3/PDR verification via Z3 Spacer...');
 
     // ν-net exact refinement (NU-050 #1, Route A). For a budget-bounded ν-net in
-    // the supported mint→matched-join fragment, encode names as a finite colour set
-    // (k = the declared budget) with exact same-colour join matching, instead of the
-    // name-blind over-approximation — this rules out spurious counterexamples that
-    // would equate two distinct names. Only reachability-safety properties are routed
-    // here; everything else (and any net outside the fragment) keeps the flat encoding.
+    // the supported fragment, encode names as a finite colour set (k = the declared
+    // budget) with exact same-colour join matching, instead of the name-blind
+    // over-approximation — this rules out spurious counterexamples that would equate
+    // two distinct names. Reachability-safety AND quiescence (NU-053) properties are
+    // both routed here; a net outside the fragment keeps the flat encoding.
     const colouredPlan: ColouredPlan | null =
-      hasMatch && nuBounded && isReachabilitySafety(this._property)
-        ? buildColouredPlan(this.net, flatNet, this._initialMarking, this._budgetPlaces)
+      hasMatch && nuBounded
+        ? buildColouredPlan(
+            this.net, flatNet, this._initialMarking, this._budgetPlaces,
+            this._fragmentMode, this._carrierPlaces, semiflows,
+          )
         : null;
 
     let runner;
@@ -325,7 +360,25 @@ export class SmtVerifier {
           `  ν-encoding: name-coloured (exact within budget k=${colouredPlan.k}; ` +
             `${colouredPlan.coloured.length} coloured place(s))`,
         );
-        encoding = encodeColoured(runner.ctx, runner.fp, colouredPlan, flatNet, this._initialMarking, this._property, invariants);
+        encoding = encodeColoured(runner.ctx, runner.fp, colouredPlan, flatNet, this._initialMarking, this._property, invariants, this._sinkPlaces);
+        if (encoding == null) {
+          // The property names a place that does not resolve in the net (e.g. a
+          // typo'd bound/pending place). Emitting the encoding anyway would certify
+          // a vacuous PROVEN; refuse and report Unknown so a mis-named place never
+          // silently certifies.
+          const reason =
+            'property names a place that does not resolve in the net; refusing to certify ' +
+            '(the encoding would be vacuously proven)';
+          report.push('  Status: UNKNOWN (unresolved property place)\n');
+          report.push('=== RESULT ===\n');
+          report.push(`UNKNOWN: ${reason}`);
+          return buildResult(
+            { type: 'unknown', reason },
+            report.join('\n'), invariants, [], [], [],
+            performance.now() - start,
+            { places: flatNet.places.length, transitions: flatNet.transitions.length, invariantsFound: invariants.length, structuralResult: structResultStr },
+          );
+        }
       } else {
         encoding = encode(runner.ctx, runner.fp, flatNet, this._initialMarking, this._property, invariants, this._sinkPlaces);
       }
@@ -481,6 +534,19 @@ export class SmtVerifier {
     exact: boolean,
   ): SmtVerificationResult {
     if (!hasMatch || result.verdict.type === 'unknown') return result;
+    // Exact path FIRST (NU-050 #1 / NU-053, Route A): name equality is encoded
+    // exactly via bounded name-colouring, so the verdict is sound AND complete
+    // within the budget bound — no spurious different-name counterexample. This
+    // holds for reachability-safety AND quiescence (deadlock / joined-or-dead-
+    // lettered), so an exact coloured plan keeps its verdict for quiescence too;
+    // the colour-aware deadlock encoding does not over-fire joins.
+    if (exact) {
+      const note =
+        '\nNote: ν-join name equality is encoded exactly via bounded name-colouring ' +
+        '(k = budget); the verdict is sound and complete within the budget bound — no spurious ' +
+        'different-name counterexample (NU-050 #1 / NU-053).\n';
+      return { ...result, report: result.report + note };
+    }
     if (!isReachabilitySafety(this._property)) {
       return downgradeToUnknown(
         result,
@@ -498,17 +564,12 @@ export class SmtVerifier {
           'bounded fragment',
       );
     }
-    // Bounded reachability-safety. The exact path (NU-050 #1, Route A) encodes name
-    // equality exactly via bounded name-colouring, so both proven and violated are
-    // trustworthy; outside the fragment the matched transitions are
-    // over-approximated, so a violated may be spurious.
-    const note = exact
-      ? '\nNote: ν-join name equality is encoded exactly via bounded name-colouring ' +
-        '(k = budget); the verdict is sound and complete within the budget bound — no spurious ' +
-        'different-name counterexample (NU-050 #1).\n'
-      : "\nNote: matched (ν-join) transitions are over-approximated (name equality assumed " +
-        "satisfiable). 'proven' is sound; a 'violated' counterexample may be spurious pending " +
-        'the exact ν-analysis (NU-050).\n';
+    // Bounded reachability-safety outside the name-coloured fragment: the matched
+    // transitions are over-approximated, so a violated may be spurious.
+    const note =
+      "\nNote: matched (ν-join) transitions are over-approximated (name equality assumed " +
+      "satisfiable). 'proven' is sound; a 'violated' counterexample may be spurious pending " +
+      'the exact ν-analysis (NU-050).\n';
     return { ...result, report: result.report + note };
   }
 }

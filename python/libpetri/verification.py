@@ -104,6 +104,7 @@ def verify(
     nu_max_classes: int | None = None,
     fragment_mode: str | int | None = None,
     carrier_places: Iterable[PlaceLike] | None = None,
+    priority_semantics: str | int | None = None,
 ) -> VerificationResult:
     """Verify ``property`` against ``net`` via SMT (Z3).
 
@@ -142,6 +143,17 @@ def verify(
     and ignored under ``"base"``. A declared carrier name that is not a place in
     ``net`` surfaces as an ``unknown`` verdict whose ``reason`` names the
     offending place, never a silent fall-back.
+
+    ``priority_semantics`` (NU-052) selects how the ν-aware Route B analyzer
+    treats transition priority. ``"none"`` (the default, also selectable as
+    ``0``) is the priority- and timing-blind over-approximation: it expands every
+    base-enabled transition, so a delayed, lower-priority drain competing for a
+    coloured token with an immediate, higher-priority ν-join is reported as a
+    spurious stall. ``"conflict"`` (or ``1``) models the executor's conflict-only
+    priority resolution: a lower-priority transition is not expanded when a ready,
+    conflicting (shares a consumed input place), strictly-higher-priority
+    transition can pre-empt it — pruning exactly those interleavings the eager,
+    priority-ordered executor never produces, without hiding a genuine stall.
     """
     return _ext.verify_net(
         _coerce_net(net),
@@ -159,6 +171,7 @@ def verify(
         nu_max_classes=nu_max_classes,
         fragment_mode=fragment_mode,
         carrier_places=[_coerce_place_name(p) for p in (carrier_places or ())],
+        priority_semantics=priority_semantics,
     )
 
 

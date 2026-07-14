@@ -177,6 +177,152 @@ export function computePInvariants(
 }
 
 /**
+ * A P-semiflow generator row during Colom–Silva elimination: the running
+ * transition signature `y·C` plus the non-negative place weight `y` that produced
+ * it. A row survives an elimination step only when the current column of `y·C` is
+ * zero, so after every transition is eliminated the surviving rows have `y·C = 0`.
+ */
+interface SemiflowRow {
+  readonly sig: number[];
+  readonly weight: number[];
+}
+
+/**
+ * Computes minimal **P-semiflows** — non-negative place weightings `y` with
+ * `y·C = 0` — via the Colom–Silva / Farkas method. Unlike {@link computePInvariants}
+ * (a signed null-space basis), every returned `PInvariant.weights` is non-negative:
+ * a genuine P-semiflow, with `constant = y·M0`. A non-negative conservation law
+ * soundly **bounds** the token sum over its support: `Σ_{support} M(p) ≤ y·M0`. Used
+ * to bound the number of simultaneously-live colours in the name-coloured encoder
+ * (see `colourSlotBound`).
+ *
+ * Mirrors the Rust reference `compute_p_semiflows`.
+ */
+export function computePSemiflows(
+  matrix: IncidenceMatrix,
+  flatNet: FlatNet,
+  initialMarking: MarkingState,
+): PInvariant[] {
+  const np = matrix.numPlaces();
+  const nt = matrix.numTransitions();
+  if (np === 0) return [];
+
+  const incidence = matrix.incidence(); // [t][p]
+
+  // One generator row per place: signature = the place's column of C (over
+  // transitions), weight = e_p. Eliminate one transition column at a time using only
+  // non-negative combinations, so accumulated weights stay non-negative.
+  let rows: SemiflowRow[] = [];
+  for (let p = 0; p < np; p++) {
+    const sig = new Array<number>(nt);
+    for (let t = 0; t < nt; t++) sig[t] = incidence[t]![p]!;
+    const weight = new Array<number>(np).fill(0);
+    weight[p] = 1;
+    rows.push({ sig, weight });
+  }
+
+  for (let t = 0; t < nt; t++) {
+    const next: SemiflowRow[] = rows.filter((r) => r.sig[t] === 0);
+    const pos = rows.filter((r) => r.sig[t]! > 0);
+    const neg = rows.filter((r) => r.sig[t]! < 0);
+    for (const rp of pos) {
+      for (const rn of neg) {
+        const cp = -rn.sig[t]!; // > 0
+        const cn = rp.sig[t]!; // > 0
+        // Checked combination: `number` is f64 and loses integer precision above 2^53,
+        // so DROP this generator if any coefficient leaves the safe-integer range rather
+        // than keep an imprecise (invalid) row. colourSlotBound then falls back to the
+        // sound over-approximation — never an under-approximation.
+        const sig = combineRow(cp, rp.sig, cn, rn.sig);
+        const weight = combineRow(cp, rp.weight, cn, rn.weight);
+        if (sig === null || weight === null) continue;
+        reduceGcd(sig, weight);
+        next.push({ sig, weight });
+      }
+    }
+    rows = keepSupportMinimal(next);
+    if (rows.length > 8192) rows.length = 8192; // safety backstop against blow-up
+  }
+
+  const semiflows: PInvariant[] = [];
+  for (const { weight } of rows) {
+    if (!weight.some((x) => x !== 0)) continue;
+    const support = new Set<number>();
+    let constant = 0;
+    for (let p = 0; p < np; p++) {
+      if (weight[p] !== 0) {
+        support.add(p);
+        constant += weight[p]! * initialMarking.tokens(flatNet.places[p]!);
+      }
+    }
+    // Drop a semiflow whose `Σ weight·M0` left the safe-integer range — fewer covering
+    // semiflows just means colourSlotBound falls back soundly.
+    if (!Number.isSafeInteger(constant)) continue;
+    semiflows.push(pInvariant(weight, constant, support));
+  }
+  return semiflows;
+}
+
+/**
+ * Divides a generator row's signature and weight by the GCD of all their absolute
+ * values (keeps the P-semiflow minimal and the integers small). Mutates in place.
+ */
+/**
+ * `cp*a + cn*b` componentwise, or null if any result leaves the safe-integer range
+ * (`number` is f64 and loses integer precision above 2^53) — the caller then drops the
+ * generator and the colour bound falls back soundly rather than using imprecise values.
+ */
+function combineRow(
+  cp: number,
+  a: readonly number[],
+  cn: number,
+  b: readonly number[],
+): number[] | null {
+  const out = new Array<number>(a.length);
+  for (let i = 0; i < a.length; i++) {
+    const v = cp * a[i]! + cn * b[i]!;
+    if (!Number.isSafeInteger(v)) return null;
+    out[i] = v;
+  }
+  return out;
+}
+
+function reduceGcd(sig: number[], weight: number[]): void {
+  let g = 0;
+  for (const v of sig) g = gcd(g, Math.abs(v));
+  for (const v of weight) g = gcd(g, Math.abs(v));
+  if (g > 1) {
+    for (let i = 0; i < sig.length; i++) sig[i] = sig[i]! / g;
+    for (let i = 0; i < weight.length; i++) weight[i] = weight[i]! / g;
+  }
+}
+
+/**
+ * Drops any row whose weight-support is a strict superset of another's — a
+ * non-minimal combination only inflates the set (and can cause combinatorial
+ * blow-up). Mirrors the Rust reference `keep_support_minimal`.
+ */
+function keepSupportMinimal(rows: SemiflowRow[]): SemiflowRow[] {
+  const supports: number[][] = rows.map((r) => {
+    const s: number[] = [];
+    for (let i = 0; i < r.weight.length; i++) if (r.weight[i] !== 0) s.push(i);
+    return s;
+  });
+  const keep = new Array<boolean>(rows.length).fill(true);
+  for (let i = 0; i < rows.length; i++) {
+    if (!keep[i]) continue;
+    for (let j = 0; j < rows.length; j++) {
+      if (i === j || !keep[j]) continue;
+      if (supports[j]!.length < supports[i]!.length && supports[j]!.every((p) => supports[i]!.includes(p))) {
+        keep[i] = false;
+        break;
+      }
+    }
+  }
+  return rows.filter((_, i) => keep[i]);
+}
+
+/**
  * Checks if every place is covered by at least one P-invariant.
  * If true, the net is structurally bounded.
  */

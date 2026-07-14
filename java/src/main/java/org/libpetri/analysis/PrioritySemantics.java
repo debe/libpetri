@@ -20,10 +20,17 @@ package org.libpetri.analysis;
  * class
  * <ul>
  *   <li>has strictly higher priority ({@code H.priority() > L.priority()}),</li>
- *   <li>shares at least one <b>consumed</b> input place with {@code L} (a
- *       structural conflict — read and inhibitor arcs do not count), and</li>
- *   <li>becomes ready no later than {@code L}
- *       ({@code H.timing().earliest() <= L.timing().earliest()}).</li>
+ *   <li>shares at least one <b>consumed</b> input place with {@code L} under
+ *       <b>real competition</b> — the shared place cannot satisfy both demands at
+ *       once ({@code count(p) < demand_H(p) + demand_L(p)}); read and inhibitor
+ *       arcs do not count, and</li>
+ *   <li>becomes ready no later than {@code L} by the <b>DBM residual-earliest</b>
+ *       predicate ({@code readyEarliest[H] <= readyEarliest[L] + EPS}), comparing
+ *       the class-relative earliest-ready times captured on the base state class
+ *       (the DBM lower bounds, before {@code letTimePass}) rather than the static
+ *       {@code H.timing().earliest() <= L.timing().earliest()} — which is unsound
+ *       on the zone off-diagonal where enabling epochs differ; this predicate
+ *       subsumes the immediate-H case ({@code readyEarliest[H] == 0}).</li>
  * </ul>
  *
  * <p><b>Soundness.</b> The pruning is sound with respect to libpetri's eager,

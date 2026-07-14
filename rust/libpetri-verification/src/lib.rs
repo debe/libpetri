@@ -62,6 +62,7 @@ pub mod name_state_class_graph;
 pub mod net_flattener;
 pub mod nu_scg_verifier;
 pub mod p_invariant;
+pub mod priority_semantics;
 pub mod property;
 pub mod result;
 pub mod scc;

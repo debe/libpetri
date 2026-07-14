@@ -7,6 +7,7 @@ import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 import org.libpetri.analysis.EnvironmentAnalysisMode;
+import org.libpetri.analysis.FragmentMode;
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.core.Arc;
 import org.libpetri.core.MatchSpec;
@@ -14,13 +15,17 @@ import org.libpetri.core.NameId;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
 import org.libpetri.core.Transition;
+import org.libpetri.smt.encoding.IncidenceMatrix;
 import org.libpetri.smt.encoding.NetFlattener;
+import org.libpetri.smt.invariant.PInvariantComputer;
 
 /**
  * Z3-free conformance for the name-coloured fragment gate
- * ({@link NameColouredEncoder#buildPlan}). Pins nu-1: a budget-inflating ν-net (a
- * join refunding more budget than a mint consumes) must fall back to the sound
- * over-approximation rather than take the exact, caveat-dropped name-coloured path.
+ * ({@link NameColouredEncoder#buildPlan}). Pins the P-semiflow colour-slot bound (a
+ * genuine unbounded colour leak must fall back to the sound over-approximation) plus the
+ * NU-053 fragment extensions: the EXTENDED coloured-consumer roles (drain / carrier
+ * relay), the relay-must-not-refund rule, and XOR-expanded output branches no longer
+ * blocking the plan.
  */
 class NameColouredEncoderTest {
 
@@ -51,26 +56,202 @@ class NameColouredEncoderTest {
         return PetriNet.builder("mintJoin").transitions(mint, join).build();
     }
 
-    private static NameColouredEncoder.ColouredPlan planFor(PetriNet net) {
+    /**
+     * A mint→join net plus an EXTENDED coloured drain: a non-match transition that
+     * consumes one correlated input {@code a} (count 1) into a plain sink. Rejected under
+     * BASE (a non-match consumer of a coloured place), admitted under EXTENDED.
+     */
+    private static PetriNet mintJoinDrainNet() {
+        var budget1 = Place.of("budget1", Integer.class);
+        var a = Place.of("a", String.class);
+        var b = Place.of("b", String.class);
+        var sink = Place.of("sink", String.class);
+
+        var mint = Transition.builder("mint")
+            .inputs(Arc.In.one(budget1))
+            .outputs(Arc.Out.and(a, b))
+            .build();
+        var join = Transition.builder("join")
+            .inputs(Arc.In.one(a), Arc.In.one(b))
+            .match(MatchSpec.builder()
+                .key(a, (String s) -> NameId.of(s))
+                .key(b, (String s) -> NameId.of(s))
+                .build())
+            .outputs(Arc.Out.place(budget1))
+            .build();
+        var drain = Transition.builder("drain")
+            .inputs(Arc.In.one(a))
+            .outputs(Arc.Out.place(sink))
+            .build();
+        return PetriNet.builder("mintJoinDrain").transitions(mint, join, drain).build();
+    }
+
+    /**
+     * A mint→join net with an EXTENDED carrier relay: the fork co-mints into the carrier
+     * place {@code carrier} and the join input {@code b}; a relay threads {@code carrier}'s
+     * name into the other join input {@code a}; the join correlates {@code a} and {@code b}.
+     * {@code carrier} is coloured only when declared as a carrier place under EXTENDED. When
+     * {@code relayRefunds}, the relay also refunds budget — which must be rejected, since a
+     * relay keeps the colour live.
+     */
+    private static PetriNet mintRelayJoinNet(boolean relayRefunds) {
+        var budget1 = Place.of("budget1", Integer.class);
+        var carrier = Place.of("carrier", String.class);
+        var a = Place.of("a", String.class);
+        var b = Place.of("b", String.class);
+
+        var mint = Transition.builder("mint")
+            .inputs(Arc.In.one(budget1))
+            .outputs(Arc.Out.and(carrier, b))
+            .build();
+        Arc.Out relayOut = relayRefunds ? Arc.Out.and(a, budget1) : Arc.Out.place(a);
+        var relay = Transition.builder("relay")
+            .inputs(Arc.In.one(carrier))
+            .outputs(relayOut)
+            .build();
+        var join = Transition.builder("join")
+            .inputs(Arc.In.one(a), Arc.In.one(b))
+            .match(MatchSpec.builder()
+                .key(a, (String s) -> NameId.of(s))
+                .key(b, (String s) -> NameId.of(s))
+                .build())
+            .outputs(Arc.Out.place(budget1))
+            .build();
+        return PetriNet.builder("mintRelayJoin").transitions(mint, relay, join).build();
+    }
+
+    /**
+     * A mint→join net plus a plain XOR transition (uncoloured), which expands to two flat
+     * rows — exercising NU-053 Part 3 (no 1:1 net↔flat assumption).
+     */
+    private static PetriNet mintJoinXorNet() {
+        var budget1 = Place.of("budget1", Integer.class);
+        var a = Place.of("a", String.class);
+        var b = Place.of("b", String.class);
+        var src = Place.of("src", Integer.class);
+        var x = Place.of("x", Integer.class);
+        var y = Place.of("y", Integer.class);
+
+        var mint = Transition.builder("mint")
+            .inputs(Arc.In.one(budget1))
+            .outputs(Arc.Out.and(a, b))
+            .build();
+        var join = Transition.builder("join")
+            .inputs(Arc.In.one(a), Arc.In.one(b))
+            .match(MatchSpec.builder()
+                .key(a, (String s) -> NameId.of(s))
+                .key(b, (String s) -> NameId.of(s))
+                .build())
+            .outputs(Arc.Out.place(budget1))
+            .build();
+        var branch = Transition.builder("branch")
+            .inputs(Arc.In.one(src))
+            .outputs(Arc.Out.xor(x, y))
+            .build();
+        return PetriNet.builder("mintJoinXor").transitions(mint, join, branch).build();
+    }
+
+    /**
+     * A leaky fork ([NU-053] S2): the mint co-mints its colour into the join inputs
+     * {@code a}, {@code b} AND a declared carrier {@code c}, but the join only re-collects
+     * {@code a}, {@code b} and nothing ever consumes {@code c}. The colour outlives the
+     * budget the join refunds, so the real net can hold more than k live colours while the
+     * k-colour encoding gets stuck at the freshness guard — an under-approximation that
+     * could report a false PROVEN.
+     */
+    private static PetriNet mintLeakyCarrierNet() {
+        var budget1 = Place.of("budget1", Integer.class);
+        var a = Place.of("a", String.class);
+        var b = Place.of("b", String.class);
+        var c = Place.of("c", String.class);
+
+        var mint = Transition.builder("mint")
+            .inputs(Arc.In.one(budget1))
+            .outputs(Arc.Out.and(a, b, c))
+            .build();
+        var join = Transition.builder("join")
+            .inputs(Arc.In.one(a), Arc.In.one(b))
+            .match(MatchSpec.builder()
+                .key(a, (String s) -> NameId.of(s))
+                .key(b, (String s) -> NameId.of(s))
+                .build())
+            .outputs(Arc.Out.place(budget1))
+            .build();
+        return PetriNet.builder("mintLeakyCarrier").transitions(mint, join).build();
+    }
+
+    private static NameColouredEncoder.ColouredPlan planFor(
+            PetriNet net, FragmentMode mode, String... carriers) {
         var flat = NetFlattener.flatten(net, Set.of(), EnvironmentAnalysisMode.ignore());
         var initial = MarkingState.builder()
             .tokens(Place.of("budget1", Integer.class), 1)
             .build();
-        return NameColouredEncoder.buildPlan(net, flat, initial, Set.of("budget1", "budget2"));
+        var matrix = IncidenceMatrix.from(flat);
+        var semiflows = PInvariantComputer.computePSemiflows(matrix, flat, initial);
+        return NameColouredEncoder.buildPlan(
+            net, flat, initial, Set.of("budget1", "budget2"), mode, Set.of(carriers), semiflows);
     }
 
     @Test
     void budgetConservingJoinTakesExactPath() {
         // Refund (1) == mint cost (1): live names ≤ k, so the exact name-coloured
         // encoding is used.
-        assertNotNull(planFor(mintJoinNet(false)));
+        assertNotNull(planFor(mintJoinNet(false), FragmentMode.BASE));
     }
 
     @Test
-    void budgetInflatingJoinFallsBackToOverApprox() {
-        // nu-1: a join refunding 2 budget for a 1-budget mint inflates the pool
-        // above k — the k-colour encoder would UNDER-approximate and report a false
-        // `Proven`. buildPlan must reject it (null → sound over-approximation).
-        assertNull(planFor(mintJoinNet(true)));
+    void budgetRefundToNonmintingPlaceStaysBounded() {
+        // [NU-053] A join that refunds an extra token to a NON-minting place keeps the
+        // minting budget conserved, so at most one colour is live — the net is
+        // colour-bounded and the P-semiflow bound admits it. (The old budget-Φ heuristic
+        // wrongly rejected any refund exceeding the mint cost; genuine colour leaks — where
+        // a co-minted place accumulates distinct colours — are covered by
+        // extendedLeakyCarrierFanoutRejected, which still falls back.)
+        assertNotNull(planFor(mintJoinNet(true), FragmentMode.BASE));
+    }
+
+    @Test
+    void extendedDrainRejectedUnderBaseAdmittedUnderExtended() {
+        // A non-match consumer of a coloured place is out-of-fragment under BASE and
+        // admitted as a drain under EXTENDED.
+        var net = mintJoinDrainNet();
+        assertNull(planFor(net, FragmentMode.BASE));
+        assertNotNull(planFor(net, FragmentMode.EXTENDED));
+    }
+
+    @Test
+    void extendedCarrierRelayAdmittedOnlyUnderExtended() {
+        // The carrier place is coloured only when declared under EXTENDED; then the relay
+        // threading its name to the join input is an admitted Consume.
+        var net = mintRelayJoinNet(false);
+        assertNull(planFor(net, FragmentMode.BASE));
+        assertNotNull(planFor(net, FragmentMode.EXTENDED, "carrier"));
+    }
+
+    @Test
+    void extendedRelayRefundingBudgetRejected() {
+        // A relay keeps the colour live; if it also refunded budget the freed token could
+        // mint a (k+1)-th live colour. buildPlan must reject it.
+        var net = mintRelayJoinNet(true);
+        assertNull(planFor(net, FragmentMode.EXTENDED, "carrier"));
+    }
+
+    @Test
+    void extendedLeakyCarrierFanoutRejected() {
+        // [NU-053] S2: the mint fans its colour into a, b AND carrier c, but the refunding
+        // join only re-collects a, b — c is never consumed, so the colour outlives its
+        // refunded budget and the real net can hold more than k live colours. buildPlan
+        // must reject this (null → sound over-approximation) rather than certify an exact
+        // plan the quiescence gate would trust for a false Proven. Contrast the admitted
+        // carrier-relay case, where the fork's carrier branch is relayed back into a join
+        // input (atomic re-collection).
+        assertNull(planFor(mintLeakyCarrierNet(), FragmentMode.EXTENDED, "c"));
+    }
+
+    @Test
+    void xorTransitionNoLongerBlocksThePlan() {
+        // A plain XOR transition expands to two flat rows; NU-053 Part 3 drops the old 1:1
+        // net↔flat rejection so the mint→join fragment is still recognised.
+        assertNotNull(planFor(mintJoinXorNet(), FragmentMode.BASE));
     }
 }

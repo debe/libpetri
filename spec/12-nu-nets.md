@@ -414,6 +414,159 @@ VIOLATED when the drain is removed.
 
 ---
 
+#### NU-052: Conflict-Only Priority for the Route B Name-SCG
+
+**Priority:** MAY
+
+The [VER-012] name-aware state-class graph (Route B) is otherwise priority- and
+timing-blind: it expands every base-enabled transition, a sound over-approximation
+of the executor's schedule. On the timed dead-letter-drain idiom — an immediate,
+higher-priority matched consumer (a ν-join) competing for a coloured token with a
+delayed, lower-priority orphan drain — that blindness reports a **spurious stall**:
+the graph explores the drain stealing a live, about-to-be-matched token and
+stranding its co-mint sibling, an interleaving the eager, priority-ordered executor
+never produces.
+
+An implementation MAY offer an opt-in **conflict-only priority** mode
+(`prioritySemantics` / `priority_semantics`) that prunes exactly those unreachable
+firings. Under `CONFLICT`, a base-enabled transition `L` is not expanded from a
+class when another enabled transition `H` in the same class
+
+- has strictly higher priority (`H.priority() > L.priority()`),
+- shares at least one **consumed** input place with `L` **under real competition** —
+  some shared consumed place `p` whose token count in the class marking cannot
+  satisfy both demands at once (`count(p) < demand_H(p) + demand_L(p)`, where each
+  demand is the tokens that transition consumes from `p` on one firing). Read and
+  inhibitor arcs do not count, and a place holding **enough tokens for both** (e.g.
+  two independent coloured tokens) is *not* a conflict — pruning `L` there would be
+  unsound,
+- becomes **ready no later than `L`** by the class-relative *residual earliest*: the
+  DBM lower bound of each enabled clock captured **before** time is let to pass
+  (`readyEarliest`, parallel to the enabled set). `H` pre-empts `L` only when
+  `readyEarliest[H] <= readyEarliest[L]` (within a float epsilon). This is the exact
+  DBM-relative test — a static `H.earliest() <= L.earliest()` does **not** suffice,
+  because the class-relative enabling epochs can leave `H`'s clock behind `L`'s — and
+  it **subsumes** the immediate-`H` case (`readyEarliest[H] == 0 <= readyEarliest[L]`)
+  while additionally pruning sound non-zero-earliest conflicts (e.g. a delayed `H`
+  that still becomes ready before a later-delayed `L`). And
+- **actually fires** in this class — a name-disabled join, whose inputs carry no
+  shared name, produces no name-successor and MUST NOT pre-empt a conflicting drain.
+
+The default mode, `NONE`, MUST reproduce the prior Route B behaviour byte-for-byte.
+
+**Soundness.** The pruning removes only interleavings in which a lower-priority
+transition fires ahead of a ready, conflicting, strictly-higher-priority one —
+behaviour libpetri's eager, priority-ordered executor never produces. `L` is not
+lost: in any class reachable after `H` fires, `L` is re-examined and expands once
+the conflict is gone. Two side-conditions keep the mode sound and precise: the
+*residual-earliest* comparison (`readyEarliest[H] <= readyEarliest[L]`) prunes iff
+`H` is genuinely ready no later than `L` in the class DBM, and the *multiplicity*
+precondition prunes only when the shared consumed place cannot satisfy both demands
+at once — a place holding a token for each transition is no conflict. The
+name-disabled-join side-condition (`willFire`) rounds this out on ν-nets: a join
+that cannot consume the contested token must not suppress a genuine straggler.
+
+**Acceptance criteria (MAY):**
+1. `NONE` is the default and the only mode an implementation MUST provide; when
+   `CONFLICT` is offered, `NONE` MUST leave every existing Route B verdict unchanged.
+2. The fork-threaded co-mint plus immediate ν-join plus delayed lower-priority drain
+   fixture is `Violated` under `NONE` (the spurious stall) and `Proven` deadlock-free
+   under `CONFLICT` (the join always wins the contested token).
+3. `CONFLICT` MUST NOT over-prune: a genuine orphan — a coloured token with no
+   matching sibling, so the join is name-disabled — still reports `Violated` when no
+   drain clears it and `Proven` when a drain does.
+4. Only consumed-input conflicts prune; a read or inhibitor arc on the shared place
+   creates no conflict.
+5. The residual-earliest rule prunes non-immediate conflicts: a **delayed** ν-join
+   (e.g. `delayed(100)`) still pre-empts a **later-delayed** lower-priority drain
+   (e.g. `delayed(200)`) they conflict on, so `DEADLETTER` is unreachable under
+   `CONFLICT` though reachable under `NONE`.
+6. The multiplicity precondition prevents over-pruning: when the shared consumed
+   place holds enough tokens for both transitions (e.g. two independent coloured
+   tokens), `CONFLICT` MUST NOT prune the lower-priority transition.
+
+**Depends on:** [VER-012], [NU-050], [NU-020]
+**Test derivation:** the minimal guard-join vs. timed dead-letter-drain fixture is
+`Violated` under `NONE` and `Proven` under `CONFLICT`; a genuine orphan is `Violated`
+under `CONFLICT` without a drain and `Proven` with one; every verdict is attributed
+to Route B.
+
+---
+
+#### NU-053: EXTENDED-Coloured Quiescence in the Route A SMT Encoder
+
+**Priority:** MAY
+
+[NU-050] Route A encodes a bounded ν-net as `k` colours and decides
+reachability-safety exactly over the **mint → matched-join** fragment. The
+solver-free Route B ([VER-012]) additionally decides quiescence and the EXTENDED
+coloured-consumer fragment ([NU-051]), but its name-partition graph can blow up on
+nets with heavy independent-branch parallelism (no partial-order reduction),
+truncating to `Unknown`. An implementation MAY extend Route A's CHC/IC3 encoder so
+that it, too, decides quiescence over the EXTENDED fragment — the IC3/PDR engine
+does not enumerate interleavings, so it scales where Route B truncates.
+
+Under this extension the coloured encoder:
+
+- admits the EXTENDED fragment ([NU-051]): coloured consumers (relay/drain) and
+  declared carrier places, each consuming exactly one coloured input at count one;
+- encodes **quiescence** (`DeadlockFree`, `JoinedOrDeadLettered`) as a colour-aware
+  deadlock predicate — every transition is disabled for every colour (a mint has no
+  globally-fresh colour, a join no shared colour, a consumer no resident colour) and
+  the marking is not a sink state — with the same environment-injection relaxation
+  ([VER-006]) as the name-blind encoder;
+- classifies each XOR output branch independently by its own incidence (no 1:1
+  net↔flat assumption);
+- bounds the simultaneously-live colour count `k` **structurally**, from a
+  non-negative **P-semiflow** rather than a budget-conservation heuristic. A colour
+  is live iff some coloured place holds it, so if a non-negative P-semiflow `y`
+  (`y ≥ 0`, `y·C = 0`) weights **every** coloured place then `Σ_{coloured} M ≤ y·M0`
+  and `k = y·M0` is a sound colour-slot bound. The plan scans the P-invariant basis
+  for such a covering non-negative semiflow (with an LP feasibility search as a
+  no-hatch backstop); when **no** covering non-negative semiflow exists the coloured
+  set is not structurally token-bounded (a genuine unbounded colour leak), so the
+  plan is rejected and the query falls back to the sound over-approximation. This
+  structural bound **supersedes** the earlier budget-conservation wording: a budget
+  place that gates minting is simply one such P-semiflow, and a refund to a
+  non-minting place keeps the minting budget a covering semiflow (still bounded),
+  whereas a leaky co-mint fan-out — a colour co-minted into a place no matched join
+  re-collects — has no covering non-negative semiflow over the coloured set and so
+  falls back rather than certifying a false `Proven`. A relay threads its colour
+  onward and still MUST NOT refund (the freed budget could mint a `(k+1)`-th live
+  colour).
+
+The verifier routes a bounded quiescence query to Route B first; when Route B
+truncates (`Unknown`), it **defers** to this exact, scalable Route A encoding rather
+than returning `Unknown`. A verdict from the exact coloured plan is not downgraded
+(the colour-aware deadlock does not over-fire joins), so both `Proven` and
+`Violated` are trustworthy within the budget bound.
+
+**Acceptance criteria (MAY):**
+1. A budget-bounded EXTENDED ν-net whose only quiescent marking holds sink tokens is
+   `Proven` deadlock-free via the coloured Route A encoding.
+2. Removing the drain (or otherwise making a correlation name strand) turns the same
+   query `Violated`.
+3. Route A and Route B agree on every small fixture both can decide (differential
+   soundness).
+4. A net whose coloured set has **no covering non-negative P-semiflow** — an
+   unbounded colour leak, e.g. an over-refund that inflates the *minting* budget, or
+   a relay that refunds and frees a token for a `(k+1)`-th colour — falls back to the
+   sound over-approximation rather than a false `Proven`. (A refund to a *non-minting*
+   place keeps the minting budget a covering semiflow, so it stays bounded and is
+   admitted — the structural bound is more precise than the old budget-conservation
+   heuristic.)
+5. A leaky co-mint fan-out — a fork co-minting one colour into a place the refunding
+   join never re-collects (e.g. an un-drained carrier) — falls back rather than a
+   false `Proven`: the colour would otherwise outlive its budget and the k-colour
+   encoding would under-approximate.
+
+**Depends on:** [NU-050], [NU-051], [VER-004], [VER-006], [VER-012]
+**Test derivation:** a co-mint→join net is `Proven` deadlock-free via Route A when
+Route B is forced to truncate; an EXTENDED drain-steal net is `Violated`; the two
+routes agree on the no-stall net.
+
+---
+
 ## Implementation Notes
 
 - The selection + tie-break ([NU-020]) is a single algorithm shared by both

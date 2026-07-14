@@ -14,6 +14,7 @@ import type { EnvironmentPlace } from '../core/place.js';
 import type { MarkingState } from './marking-state.js';
 import type { EnvironmentAnalysisMode } from './analysis/environment-analysis-mode.js';
 import { classify, type FragmentMode } from './analysis/name-fragment.js';
+import type { PrioritySemantics } from './analysis/priority-semantics.js';
 import { NameStateClassGraph } from './analysis/name-state-class-graph.js';
 import type { SmtProperty } from './smt-property.js';
 import type { Verdict } from './smt-verification-result.js';
@@ -42,6 +43,7 @@ export function verifyViaNameScg(
   maxClasses: number,
   fragmentMode: FragmentMode,
   carrierPlaces: ReadonlySet<string>,
+  prioritySemantics: PrioritySemantics,
 ): NuScgOutcome | null {
   const fragment = classify(net, fragmentMode, carrierPlaces);
   if (fragment === null) return null;
@@ -50,7 +52,9 @@ export function verifyViaNameScg(
     if (fragment.isColoured(p.name)) return null;
   }
 
-  const scg = NameStateClassGraph.build(net, initial, fragment, maxClasses, environmentPlaces, environmentMode);
+  const scg = NameStateClassGraph.build(
+    net, initial, fragment, maxClasses, environmentPlaces, environmentMode, prioritySemantics,
+  );
 
   if (!scg.isComplete()) {
     return {

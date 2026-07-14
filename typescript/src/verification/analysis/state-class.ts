@@ -12,11 +12,30 @@ export class StateClass {
   readonly marking: MarkingState;
   readonly firingDomain: DBM;
   readonly enabledTransitions: readonly Transition[];
+  /**
+   * Class-relative earliest-ready time (seconds) of each enabled transition,
+   * parallel to `enabledTransitions`. Captured from the firing-domain DBM
+   * (`getLowerBound(k)`) *before* `letTimePass()` zeroes the lower bounds, i.e.
+   * the minimum time from class entry at which clock `k` may fire.
+   *
+   * Purely additive: base timed-reachability (marking + DBM zone, `equals`,
+   * `classKey`) ignores it. Read only by the ν conflict-priority prune (NU-052,
+   * `priorityDominated`), where comparing `readyEarliest[H] <= readyEarliest[L]`
+   * decides whether the strictly higher-priority `H` becomes ready no later than
+   * `L` and so pre-empts it.
+   */
+  readonly readyEarliest: readonly number[];
 
-  constructor(marking: MarkingState, firingDomain: DBM, enabledTransitions: readonly Transition[]) {
+  constructor(
+    marking: MarkingState,
+    firingDomain: DBM,
+    enabledTransitions: readonly Transition[],
+    readyEarliest: readonly number[],
+  ) {
     this.marking = marking;
     this.firingDomain = firingDomain;
     this.enabledTransitions = [...enabledTransitions];
+    this.readyEarliest = [...readyEarliest];
   }
 
   isEmpty(): boolean {

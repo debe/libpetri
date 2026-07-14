@@ -237,8 +237,12 @@ pub(crate) fn initial_state_class(
     let clock_names: Vec<String> = enabled.clone();
     let lower_bounds: Vec<f64> = enabled.iter().map(|name| timing_earliest(net, name)).collect();
     let upper_bounds: Vec<f64> = enabled.iter().map(|name| timing_latest(net, name)).collect();
-    let initial_dbm = Dbm::create(clock_names, &lower_bounds, &upper_bounds).let_time_pass();
-    StateClass::new(initial_marking.clone(), initial_dbm, enabled)
+    let base_dbm = Dbm::create(clock_names, &lower_bounds, &upper_bounds);
+    // Class-relative earliest-ready time of each enabled clock, captured BEFORE
+    // `let_time_pass()` zeroes the DBM lower bounds ([NU-052] residual-earliest).
+    let ready_earliest: Vec<f64> = (0..enabled.len()).map(|k| base_dbm.lower_bound(k)).collect();
+    let initial_dbm = base_dbm.let_time_pass();
+    StateClass::new(initial_marking.clone(), initial_dbm, enabled, ready_earliest)
 }
 
 /// Earliest firing time (seconds) of the named transition.
@@ -415,19 +419,26 @@ pub(crate) fn compute_successor(
         })
         .collect();
 
-    let new_dbm = current.dbm.fire_transition(
+    let fired_dbm = current.dbm.fire_transition(
         fired_clock,
         &newly_enabled,
         &new_lower_bounds,
         &new_upper_bounds,
         &persistent_indices,
     );
-    let new_dbm = new_dbm.let_time_pass();
 
+    // Clock order of `fired_dbm` is persistent-then-newly-enabled, matching
+    // `all_enabled`. Capture the class-relative earliest-ready time BEFORE
+    // `let_time_pass()` zeroes the lower bounds ([NU-052] residual-earliest).
     let mut all_enabled = persistent;
     all_enabled.extend(newly_enabled);
+    let ready_earliest: Vec<f64> = (0..all_enabled.len())
+        .map(|k| fired_dbm.lower_bound(k))
+        .collect();
 
-    StateClass::new(new_marking, new_dbm, all_enabled)
+    let new_dbm = fired_dbm.let_time_pass();
+
+    StateClass::new(new_marking, new_dbm, all_enabled, ready_earliest)
 }
 
 fn fire_transition_marking(
