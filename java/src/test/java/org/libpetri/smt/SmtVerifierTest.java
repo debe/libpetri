@@ -1,6 +1,7 @@
 package org.libpetri.smt;
 
 import org.libpetri.analysis.EnvironmentAnalysisMode;
+import org.libpetri.analysis.FragmentMode;
 import org.libpetri.core.*;
 import org.libpetri.core.Arc.In;
 import org.libpetri.core.Arc.Out;
@@ -523,6 +524,25 @@ class SmtVerifierTest {
     }
 
     @Test
+    @EnabledIf("z3Available")
+    void unresolvedPropertyPlace_reportsUnknownNotVacuousProven() {
+        // A property naming a place absent from the net must NOT silently certify. The
+        // name-coloured (Route A) encoder emits no encoding for a typo'd place, so the
+        // verifier reports Unknown instead of a vacuous PROVEN (an unresolved place would
+        // otherwise make the Error rule unsatisfiable → trivially "proven"). Contrast
+        // nuPendingBound_provenExact, which proves the real `pending` bound on this net.
+        var typo = Place.of("pnding", Integer.class); // typo of "pending"
+        var result = SmtVerifier.forNet(nuScatterGatherNet())
+            .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); })
+            .property(SmtProperty.branchPlaceBound(typo, 2))
+            .budgetPlaces(NU_BUDGET)
+            .timeout(Duration.ofSeconds(15))
+            .verify();
+        assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(),
+            "a property naming an unresolved place must be Unknown, not a vacuous Proven\n" + result.report());
+    }
+
+    @Test
     void nuStructurallyBounded_withoutDeclaredBudget_decidedByRouteB() {
         // NU-050 Route B: without a DECLARED budget place the SMT/Route-A path
         // returns Unknown, but the name-aware SCG name-partition quotient discovers
@@ -756,5 +776,138 @@ class SmtVerifierTest {
             "an unbounded ν-mint must truncate to Unknown\n" + result.report());
         var reason = ((SmtVerificationResult.Verdict.Unknown) result.verdict()).reason();
         assertTrue(reason.contains("truncated"), "Unknown reason should mention truncation: " + reason);
+    }
+
+    // === NU-053: Route A coloured quiescence (EXTENDED + colour-aware deadlock) ===
+    // When Route B truncates on a bounded quiescence ν-net, the proof defers to the
+    // scalable Route A coloured IC3/PDR encoder. Forced here via nuMaxClasses(1).
+
+    /**
+     * A single-turn co-mint→join net: {@code fork} consumes {@code source} + {@code budget}
+     * and co-mints one fresh name into join inputs {@code a} and {@code b}; {@code join}
+     * correlates them into {@code merged} and refunds {@code budget}. The only quiescent
+     * marking holds just the sinks {merged, budget}, so it is deadlock-free.
+     */
+    private static PetriNet nu053NoStallNet() {
+        var source = Place.of("source", Integer.class);
+        var budget = Place.of("budget", Integer.class);
+        var a = Place.of("a", String.class);
+        var b = Place.of("b", String.class);
+        var merged = Place.of("merged", String.class);
+
+        var fork = Transition.builder("fork")
+            .inputs(In.one(source), In.one(budget))
+            .outputs(Out.and(a, b))
+            .build();
+        var join = Transition.builder("join")
+            .inputs(In.one(a), In.one(b))
+            .match(MatchSpec.builder()
+                .key(a, (String s) -> NameId.of(s))
+                .key(b, (String s) -> NameId.of(s))
+                .build())
+            .outputs(Out.and(merged, budget))
+            .build();
+        return PetriNet.builder("nu053NoStall").transitions(fork, join).build();
+    }
+
+    /**
+     * The no-stall net plus an EXTENDED drain that steals {@code a} into a dead-letter,
+     * stranding {@code b}: an unprioritised schedule can reach a quiescent marking where
+     * the non-sink {@code b} still holds a token, so it is NOT deadlock-free.
+     */
+    private static PetriNet nu053StealNet() {
+        var source = Place.of("source", Integer.class);
+        var budget = Place.of("budget", Integer.class);
+        var a = Place.of("a", String.class);
+        var b = Place.of("b", String.class);
+        var merged = Place.of("merged", String.class);
+        var deadletter = Place.of("deadletter", String.class);
+
+        var fork = Transition.builder("fork")
+            .inputs(In.one(source), In.one(budget))
+            .outputs(Out.and(a, b))
+            .build();
+        var join = Transition.builder("join")
+            .inputs(In.one(a), In.one(b))
+            .match(MatchSpec.builder()
+                .key(a, (String s) -> NameId.of(s))
+                .key(b, (String s) -> NameId.of(s))
+                .build())
+            .outputs(Out.and(merged, budget))
+            .build();
+        var drain = Transition.builder("drain")
+            .inputs(In.one(a))
+            .outputs(Out.place(deadletter))
+            .build();
+        return PetriNet.builder("nu053Steal").transitions(fork, join, drain).build();
+    }
+
+    private static final Place<Integer> NU053_SOURCE = Place.of("source", Integer.class);
+    private static final Place<Integer> NU053_BUDGET = Place.of("budget", Integer.class);
+    private static final Place<String> NU053_MERGED = Place.of("merged", String.class);
+    private static final Place<String> NU053_DEADLETTER = Place.of("deadletter", String.class);
+
+    @Test
+    @EnabledIf("z3Available")
+    void nu053RouteAProvesDeadlockFreeWhenRouteBTruncates() {
+        // nuMaxClasses = 1 forces Route B to truncate, so the bounded quiescence proof
+        // defers to the Route A coloured IC3/PDR encoder (NU-053).
+        var result = SmtVerifier.forNet(nu053NoStallNet())
+            .initialMarking(m -> { m.tokens(NU053_SOURCE, 1); m.tokens(NU053_BUDGET, 1); })
+            .property(SmtProperty.deadlockFree())
+            .sinkPlaces(NU053_MERGED, NU053_BUDGET)
+            .budgetPlaces(NU053_BUDGET)
+            .nuMaxClasses(1)
+            // 60s (not 15s): the sound P-semiflow colour bound makes k larger, so the
+            // coloured encoding is heavier and in-process JNI Z3 (Spacer) is slower here.
+            // Rust's z3 binary and TS's WASM Z3 solve the same net fast — this is JNI-only.
+            .timeout(Duration.ofSeconds(60))
+            .verify();
+        assertTrue(result.report().contains("Route A"),
+            "expected the proof to defer to Route A\n" + result.report());
+        assertTrue(result.isProven(),
+            "Route A must prove the co-mint→join net deadlock-free\n" + result.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void nu053RouteADetectsStrandingDeadlock() {
+        // The EXTENDED drain can steal `a` and strand `b` under an unprioritised schedule
+        // — a genuine reachable deadlock the coloured encoding must catch.
+        var result = SmtVerifier.forNet(nu053StealNet())
+            .initialMarking(m -> { m.tokens(NU053_SOURCE, 1); m.tokens(NU053_BUDGET, 1); })
+            .property(SmtProperty.deadlockFree())
+            .sinkPlaces(NU053_MERGED, NU053_BUDGET, NU053_DEADLETTER)
+            .budgetPlaces(NU053_BUDGET)
+            .fragmentMode(FragmentMode.EXTENDED)
+            .nuMaxClasses(1)
+            .timeout(Duration.ofSeconds(15))
+            .verify();
+        assertTrue(result.isViolated(),
+            "Route A must detect the drain-steal stranding as a deadlock\n" + result.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void nu053RouteAAgreesWithRouteBOnNoStall() {
+        // Differential: Route B (exact SCG, default class bound) and Route A (forced via a
+        // tiny class bound) must agree that the net is deadlock-free.
+        var net = nu053NoStallNet();
+        java.util.function.IntFunction<SmtVerificationResult> build = maxClasses ->
+            SmtVerifier.forNet(net)
+                .initialMarking(m -> { m.tokens(NU053_SOURCE, 1); m.tokens(NU053_BUDGET, 1); })
+                .property(SmtProperty.deadlockFree())
+                .sinkPlaces(NU053_MERGED, NU053_BUDGET)
+                .budgetPlaces(NU053_BUDGET)
+                .nuMaxClasses(maxClasses)
+                // 60s (not 15s): the sound P-semiflow colour bound makes k larger, so the
+                // coloured encoding is heavier and in-process JNI Z3 (Spacer) is slower here.
+                // Rust's z3 binary and TS's WASM Z3 solve the same net fast — this is JNI-only.
+                .timeout(Duration.ofSeconds(60))
+                .verify();
+        var routeB = build.apply(100_000);
+        var routeA = build.apply(1);
+        assertTrue(routeB.isProven(), "Route B must prove no-stall\n" + routeB.report());
+        assertTrue(routeA.isProven(), "Route A must prove no-stall\n" + routeA.report());
     }
 }

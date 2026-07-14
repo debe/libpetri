@@ -26,7 +26,7 @@ describe('StateClass', () => {
   it('construction and basic queries', () => {
     const marking = MarkingState.builder().tokens(pA, 1).build();
     const dbm = DBM.create(['t1'], [0], [Infinity]);
-    const sc = new StateClass(marking, dbm, [t1]);
+    const sc = new StateClass(marking, dbm, [t1], [0]);
 
     expect(sc.isEmpty()).toBe(false);
     expect(sc.enabledTransitions).toHaveLength(1);
@@ -36,7 +36,7 @@ describe('StateClass', () => {
   it('isEmpty when DBM is empty', () => {
     const marking = MarkingState.empty();
     const dbm = DBM.empty([]);
-    const sc = new StateClass(marking, dbm, []);
+    const sc = new StateClass(marking, dbm, [], []);
 
     expect(sc.isEmpty()).toBe(true);
   });
@@ -44,7 +44,7 @@ describe('StateClass', () => {
   it('canFire checks enabled and upper bound', () => {
     const marking = MarkingState.builder().tokens(pA, 1).build();
     const dbm = DBM.create(['t1'], [0], [5]).letTimePass();
-    const sc = new StateClass(marking, dbm, [t1]);
+    const sc = new StateClass(marking, dbm, [t1], [0]);
 
     expect(sc.canFire(t1)).toBe(true);
     expect(sc.canFire(t2)).toBe(false);
@@ -53,7 +53,7 @@ describe('StateClass', () => {
   it('transitionIndex returns correct index', () => {
     const marking = MarkingState.builder().tokens(pA, 1).build();
     const dbm = DBM.create(['t1', 't2'], [0, 1], [5, 10]).letTimePass();
-    const sc = new StateClass(marking, dbm, [t1, t2]);
+    const sc = new StateClass(marking, dbm, [t1, t2], [0, 1]);
 
     expect(sc.transitionIndex(t1)).toBe(0);
     expect(sc.transitionIndex(t2)).toBe(1);
@@ -66,9 +66,9 @@ describe('StateClass', () => {
     const dbm2 = DBM.create(['t1'], [0], [5]);
     const dbm3 = DBM.create(['t1'], [0], [10]);
 
-    const sc1 = new StateClass(m1, dbm1, [t1]);
-    const sc2 = new StateClass(m2, dbm2, [t1]);
-    const sc3 = new StateClass(m1, dbm3, [t1]);
+    const sc1 = new StateClass(m1, dbm1, [t1], [0]);
+    const sc2 = new StateClass(m2, dbm2, [t1], [0]);
+    const sc3 = new StateClass(m1, dbm3, [t1], [0]);
 
     expect(sc1.equals(sc2)).toBe(true);
     expect(sc1.equals(sc3)).toBe(false);

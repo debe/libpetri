@@ -8,47 +8,56 @@
 //! for `Proven` on reachability-safety bounds but can report a **spurious**
 //! `Violated` whose counterexample silently equates two *distinct* names.
 //!
-//! This module removes that imprecision for the bounded fragment. The
-//! decidability lever ([NU-040]) is the budget: with a `Budget` place pre-seeded
-//! with `k` tokens gating every mint, at most `k` correlation names are live at
-//! once. So names are modelled as a **finite set of `k` colours**. Each coloured
+//! This module removes that imprecision for the bounded fragment. The decidability
+//! lever ([NU-040]) is a bounded live-name count: a budget place gates minting, and a
+//! non-negative **P-semiflow** weighting every coloured place bounds the
+//! simultaneously-live names to a finite `k` (`Σ_{coloured} M ≤ y·M0`; see
+//! [`build_plan`] / `colour_slot_bound`). So names are modelled as a **finite set of
+//! `k` colours**. Each coloured
 //! place becomes `k` per-colour integer counts; a mint introduces a *globally
 //! fresh* colour (one currently empty everywhere); a matched join consumes the
 //! **same colour** from every correlated input. Within the budget bound the
 //! encoding is *exact* — sound and complete — so no different-name counterexample
 //! survives.
 //!
-//! ## Supported fragment (tracer bullet)
+//! ## Supported fragment
 //!
 //! [`build_plan`] returns `None` (and the verifier falls back to the sound
-//! over-approximation) unless the net is in the simple **mint → matched-join**
-//! shape:
-//! - coloured places = the correlated inputs of every matched transition;
-//! - each coloured place is *produced only by* minting forks (count 1, no
-//!   coloured input, costs ≥1 budget token) and *consumed only by* matched joins
-//!   (count 1, produces no coloured token);
-//! - budget places are consumed only by mints and produced only by joins, and a
-//!   join refunds no more budget than the cheapest mint consumes — so the budget
-//!   is conserved and live colours ≤ initial budget = `k`;
-//! - coloured places start empty; no inhibitor/read/reset/consume-all arc touches
-//!   a coloured place; no XOR output anywhere.
+//! over-approximation) unless the net is in the budget-bounded coloured fragment:
+//! - coloured places = the correlated inputs of every matched transition, plus (in
+//!   EXTENDED mode, [NU-051]) the declared carrier places;
+//! - each coloured place is *produced only by* minting forks (count 1, no coloured
+//!   input, costs ≥1 budget token) or EXTENDED relays, and *consumed only by*
+//!   matched joins or EXTENDED coloured consumers — a relay threads one colour on, a
+//!   drain drops it, each consuming exactly one coloured input at count 1;
+//! - the coloured place set is structurally token-bounded: some non-negative
+//!   P-semiflow weights every coloured place, so the simultaneously-live colour count
+//!   is bounded by that semiflow's initial value `k` (`Σ_{coloured} M ≤ y·M0`). A net
+//!   with no covering non-negative semiflow (an unbounded colour leak) falls back;
+//! - coloured places start empty; no inhibitor/read/reset/consume-all arc touches a
+//!   coloured place.
 //!
-//! A dead-letter transition is on the exact path only when it is itself a join
-//! that consumes the correlated coloured inputs and returns budget; a name-blind
-//! dead-letter that drains a `pending` place without consuming the coloured
-//! tokens drops the net to the sound over-approximation (it produces budget while
-//! not being a coloured-input join, so the budget discipline above rejects it).
+//! XOR output branches are supported ([NU-053], Part 3): each branch is a separate
+//! flat row classified by its own incidence, with `match_spec` read from its source.
 //!
-//! Quiescence properties are never routed here (they are not reachability-safety
-//! and the budget-bounded colouring does not yet model the absence of an enabled
-//! join across colours — that is the SCG name-partition route).
+//! ## Properties
+//!
+//! Reachability-safety properties compare aggregate coloured place counts.
+//! Quiescence properties (`DeadlockFree`, `JoinedOrDeadLettered`) use a colour-aware
+//! deadlock predicate ([NU-053], Part 2): every transition is disabled for every
+//! colour (a mint has no globally-fresh colour, a join no shared colour, a consumer
+//! no resident colour) and the marking is not a sink state — mirroring the flat
+//! [`crate::smt_encoder`] deadlock with the same env-injection relaxation.
 
 use std::collections::HashSet;
 
+use libpetri_core::output;
 use libpetri_core::petri_net::PetriNet;
+use libpetri_core::transition::Transition;
 
 use crate::marking_state::MarkingState;
-use crate::net_flattener::FlatNet;
+use crate::name_fragment::FragmentMode;
+use crate::net_flattener::{FlatNet, FlatTransition};
 use crate::p_invariant::PInvariant;
 use crate::property::SmtProperty;
 use crate::smt_encoder::SmtEncoding;
@@ -59,6 +68,13 @@ enum Class {
     Mint { coloured_out: Vec<usize> },
     /// Matched join: consumes one same-coloured token from each listed place.
     Join { coloured_in: Vec<usize> },
+    /// EXTENDED coloured consumer ([NU-051]): a non-match transition that consumes
+    /// one same-coloured token from `input_col` (count 1) and threads it into each
+    /// `coloured_out` (relay) or into none (drain — `coloured_out` empty).
+    Consume {
+        input_col: usize,
+        coloured_out: Vec<usize>,
+    },
     /// Touches no coloured place — a pure counting transition.
     Untouched,
 }
@@ -71,32 +87,107 @@ pub struct ColouredPlan {
     is_coloured: Vec<bool>,
     /// Colour bound — the number of simultaneously-live names (= initial budget).
     pub k: usize,
-    /// Classification per flat transition (1:1 — the fragment forbids XOR).
+    /// Classification, one entry per flat transition (XOR branches included).
     classes: Vec<Class>,
 }
 
-/// Detects whether `net` is in the supported budget-bounded mint→matched-join
-/// fragment and, if so, returns the plan for [`encode_coloured`]. Returns `None`
-/// otherwise — the verifier then uses the sound over-approximation.
+/// Detects whether `net` is in the supported budget-bounded coloured fragment
+/// (mint→matched-join, plus the EXTENDED coloured consumers and carrier places of
+/// [NU-051], with XOR-expanded output branches) and, if so, returns the plan for
+/// [`encode_coloured`]. Returns `None` otherwise — the verifier then uses the sound
+/// over-approximation.
+/// Sound colour-slot bound `k`: a colour is live iff some coloured place holds it, so
+/// `#live colours ≤ Σ_{coloured} M(p) ≤ y·M0` for any non-negative P-semiflow `y`
+/// (`y·C = 0`, `y ≥ 0`) that weights every coloured place `≥ 1`. Returns the tightest
+/// such `y·M0` (each `PInvariant.constant` is `y·M0`), or `None` when no covering
+/// non-negative semiflow exists — the coloured set is then not structurally
+/// token-bounded (a genuine unbounded colour leak) and the caller must fall back.
+fn colour_slot_bound(coloured: &[usize], invariants: &[PInvariant]) -> Option<usize> {
+    let w = |inv: &PInvariant, pid: usize| inv.weights.get(pid).copied().unwrap_or(0);
+    let is_semiflow = |inv: &PInvariant| inv.weights.iter().all(|&x| x >= 0);
+
+    // Tightest bound: a single non-negative P-semiflow weighting every coloured place.
+    let single = invariants
+        .iter()
+        .filter(|inv| {
+            is_semiflow(inv) && inv.constant >= 1 && coloured.iter().all(|&pid| w(inv, pid) >= 1)
+        })
+        .map(|inv| inv.constant)
+        .min();
+    if let Some(c) = single {
+        return Some(c as usize);
+    }
+
+    // Otherwise sum the non-negative semiflows that touch a coloured place — the sum
+    // is itself a valid non-negative P-semiflow. If together they weight every coloured
+    // place, `Σ y·M0` is a sound (looser) bound; if some coloured place stays at weight
+    // 0 across all of them, no non-negative semiflow covers it, so the coloured set is
+    // not structurally token-bounded → None (sound over-approximation).
+    let mut sum_const = 0i64;
+    let mut covered = vec![false; coloured.len()];
+    for inv in invariants.iter().filter(|inv| is_semiflow(inv)) {
+        let mut touches = false;
+        for (i, &pid) in coloured.iter().enumerate() {
+            if w(inv, pid) >= 1 {
+                covered[i] = true;
+                touches = true;
+            }
+        }
+        if touches {
+            sum_const += inv.constant;
+        }
+    }
+    if covered.iter().all(|&c| c) && sum_const >= 1 {
+        Some(sum_const as usize)
+    } else {
+        None
+    }
+}
+
 pub fn build_plan(
     net: &PetriNet,
     flat: &FlatNet,
     initial: &MarkingState,
     budget_places: &HashSet<String>,
+    fragment_mode: FragmentMode,
+    carrier_places: &HashSet<String>,
+    invariants: &[PInvariant],
 ) -> Option<ColouredPlan> {
     let p = flat.place_count;
 
-    // No XOR: every original transition maps 1:1 to a flat row, in order.
-    if flat.transitions.len() != net.transitions().len() {
+    // Map each flat row back to its source net transition. An XOR transition expands
+    // to one flat row per output branch (no 1:1 net↔flat assumption), so we read
+    // `match_spec` from the source while classifying by the flat row's own incidence.
+    let mut source: Vec<&Transition> = Vec::with_capacity(flat.transitions.len());
+    for t in net.transitions() {
+        let rows = match t.output_spec() {
+            Some(out) => output::enumerate_branches(out).len().max(1),
+            None => 1,
+        };
+        for _ in 0..rows {
+            source.push(t);
+        }
+    }
+    if source.len() != flat.transitions.len() {
+        // Flattener and branch enumeration disagree — fall back defensively.
         return None;
     }
 
-    // 1. Coloured places = union of every matched transition's correlated inputs.
+    // 1. Coloured places = every matched transition's correlated inputs, plus (in
+    //    EXTENDED mode) the declared carrier places that thread a fork-minted name
+    //    through intermediate places to a ν-join input ([NU-051]).
     let mut is_coloured = vec![false; p];
     for t in net.transitions() {
         if let Some(ms) = t.match_spec() {
             for key in ms.keys() {
                 let &pid = flat.place_index.get(key.place_name())?;
+                is_coloured[pid] = true;
+            }
+        }
+    }
+    if fragment_mode == FragmentMode::Extended {
+        for c in carrier_places {
+            if let Some(&pid) = flat.place_index.get(c) {
                 is_coloured[pid] = true;
             }
         }
@@ -114,21 +205,25 @@ pub fn build_plan(
         }
     }
 
-    // Colour bound k = total initial budget tokens (the live-name ceiling).
+    // Colour-slot bound k: a colour is live iff some coloured place holds it, so
+    // `#live colours ≤ Σ_{coloured} M(p) ≤ y·M0` for any non-negative P-semiflow `y`
+    // weighting every coloured place `≥ 1`. `k` is the tightest such `y·M0` (each
+    // `PInvariant.constant` is `y·M0`); any `k ≥ #live` is sound — a larger k only
+    // costs O(k) columns, never under-approximates, since a mint may take any free
+    // slot behind the freshness guard. If no covering non-negative semiflow exists the
+    // coloured set is not structurally token-bounded (a genuine unbounded colour leak),
+    // so fall back to the sound over-approximation. This replaces the old budget-count
+    // `k` and both structural discipline checks (atomic-rejoin + budget-Φ) below.
+    let Some(k) = colour_slot_bound(&coloured, invariants) else {
+        return None;
+    };
+
+    // Budget places gate minting: a mint must consume ≥1 budget token — that is what
+    // makes it a fresh-name fork rather than an arbitrary coloured producer.
     let budget_idx: HashSet<usize> = budget_places
         .iter()
         .filter_map(|n| flat.place_index.get(n).copied())
         .collect();
-    if budget_idx.is_empty() {
-        return None;
-    }
-    let k: usize = budget_idx
-        .iter()
-        .map(|&b| initial.count(&flat.places[b]))
-        .sum();
-    if k == 0 {
-        return None;
-    }
 
     // No inhibitor/read/reset/consume-all arc may touch a coloured place.
     for ft in &flat.transitions {
@@ -144,9 +239,9 @@ pub fn build_plan(
         }
     }
 
-    // 2. Classify each transition from its flat incidence.
+    // 2. Classify each flat row from its own incidence (match_spec from its source).
     let mut classes = Vec::with_capacity(flat.transitions.len());
-    for (t, ft) in net.transitions().iter().zip(&flat.transitions) {
+    for (&t, ft) in source.iter().zip(&flat.transitions) {
         let coloured_in: Vec<usize> = coloured
             .iter()
             .copied()
@@ -167,11 +262,31 @@ pub fn build_plan(
                 return None;
             }
             Class::Join { coloured_in }
-        } else if !coloured_out.is_empty() {
-            // Minting fork: produces coloured (count 1), consumes none, costs budget.
-            if !coloured_in.is_empty() {
+        } else if !coloured_in.is_empty() {
+            // EXTENDED coloured consumer (relay/drain, [NU-051]): a non-match
+            // transition consuming a coloured place. Admitted only in EXTENDED mode,
+            // and only when it consumes EXACTLY ONE coloured input at count EXACTLY
+            // ONE (higher counts would over-count the name layer against the base
+            // marking's single token per place). It relays the name into its coloured
+            // outputs (each at count 1) or drains it (no coloured output).
+            if fragment_mode != FragmentMode::Extended {
                 return None;
             }
+            if coloured_in.len() != 1 || ft.pre[coloured_in[0]] != 1 {
+                return None;
+            }
+            if coloured_out.iter().any(|&pid| ft.post[pid] != 1) {
+                return None;
+            }
+            Class::Consume {
+                input_col: coloured_in[0],
+                coloured_out,
+            }
+        } else if !coloured_out.is_empty() {
+            // Minting fork: produces coloured (count 1), consumes none, and must consume
+            // ≥1 budget token — that is what makes it a fresh-name fork rather than an
+            // arbitrary coloured producer. (Boundedness is decided by the colour-slot
+            // bound above, not here.)
             if coloured_out.iter().any(|&pid| ft.post[pid] != 1) {
                 return None;
             }
@@ -182,49 +297,9 @@ pub fn build_plan(
             Class::Mint { coloured_out }
         } else {
             // Touches no coloured place at all.
-            if !coloured_in.is_empty() {
-                return None;
-            }
             Class::Untouched
         };
         classes.push(class);
-    }
-
-    // 3. Budget discipline: consumed only by mints, produced only by joins, AND
-    //    conserved — a join may not refund MORE budget than the cheapest mint
-    //    consumes. Otherwise repeated mint→join cycles inflate the pool above the
-    //    initial `k`, the real net can hold > k simultaneously-live names, and the
-    //    k-colour encoding (only `k` colour slots, gated by the per-place freshness
-    //    guard) would UNDER-approximate and report a false `Proven`. With this
-    //    bound the potential Φ = budget + live_names·min_mint_cost is non-increasing
-    //    from k, so live_names ≤ k holds — the soundness bound for `k` colours.
-    //    Fail-closed (return None → sound over-approximation) when it cannot hold.
-    let mut min_mint_cost: Option<i64> = None;
-    let mut max_join_refund: i64 = 0;
-    for (cls, ft) in classes.iter().zip(&flat.transitions) {
-        for &b in &budget_idx {
-            if ft.pre[b] > 0 && !matches!(cls, Class::Mint { .. }) {
-                return None;
-            }
-            if ft.post[b] > 0 && !matches!(cls, Class::Join { .. }) {
-                return None;
-            }
-        }
-        match cls {
-            Class::Mint { .. } => {
-                let cost: i64 = budget_idx.iter().map(|&b| ft.pre[b]).sum();
-                min_mint_cost = Some(min_mint_cost.map_or(cost, |m| m.min(cost)));
-            }
-            Class::Join { .. } => {
-                let refund: i64 = budget_idx.iter().map(|&b| ft.post[b]).sum();
-                max_join_refund = max_join_refund.max(refund);
-            }
-            Class::Untouched => {}
-        }
-    }
-    match min_mint_cost {
-        Some(mc) if max_join_refund <= mc => {}
-        _ => return None,
     }
 
     Some(ColouredPlan {
@@ -297,13 +372,18 @@ impl Layout {
 ///
 /// The HORN/Spacer convention matches [`crate::smt_encoder`]: with the query
 /// `(assert (not Error))`, `sat` ⇒ property PROVEN, `unsat` ⇒ VIOLATED.
+/// Returns `None` when the property names a place that does not resolve in the
+/// net (see [`encode_violation`]); the verifier reports `Unknown` rather than
+/// certify a vacuous `Proven`.
 pub fn encode_coloured(
     plan: &ColouredPlan,
     flat: &FlatNet,
     initial: &MarkingState,
     property: &SmtProperty,
     invariants: &[PInvariant],
-) -> SmtEncoding {
+    sink_places: &[String],
+    env_inject: &[(usize, Option<usize>)],
+) -> Option<SmtEncoding> {
     let p = flat.place_count;
     let k = plan.k;
     let lay = Layout::build(plan, p);
@@ -368,20 +448,41 @@ pub fn encode_coloured(
                     }));
                 }
             }
+            Class::Consume {
+                input_col,
+                coloured_out,
+            } => {
+                // One rule per colour: consume colour c from the single coloured
+                // input and thread it into each coloured output (relay), or into none
+                // (drain).
+                for c in 0..k {
+                    lines.push(encode_rule(plan, &lay, invariants, |enab, upd| {
+                        uncoloured_incidence(&lay, plan, ft, enab, upd);
+                        let icol = lay.col_col[*input_col][c];
+                        enab.push(format!("(>= {} 1)", lay.cur[icol]));
+                        upd.push((icol, format!("(- {} 1)", lay.cur[icol])));
+                        for &o in coloured_out {
+                            let ocol = lay.col_col[o][c];
+                            upd.push((ocol, format!("(+ {} 1)", lay.cur[ocol])));
+                        }
+                    }));
+                }
+            }
         }
     }
     lines.push(String::new());
 
-    // Error rule.
-    lines.push(encode_error(plan, &lay, flat, property));
+    // Error rule. `None` ⇒ the property names an unresolved place; refuse to
+    // build a vacuously-provable encoding and let the verifier report Unknown.
+    lines.push(encode_error(plan, &lay, flat, property, sink_places, env_inject)?);
     lines.push(String::new());
     lines.push("(assert (not Error))".to_string());
     lines.push("(check-sat)".to_string());
 
-    SmtEncoding {
+    Some(SmtEncoding {
         smt2: lines.join("\n"),
         place_count: p,
-    }
+    })
 }
 
 /// Pushes the enablement guards and column updates contributed by a transition's
@@ -513,34 +614,48 @@ fn lifted_invariant(
 }
 
 /// Encodes the error rule: a reachable marking that violates the property.
+///
+/// Returns `None` when the property names an unresolved place (see
+/// [`encode_violation`]) — the caller must then report `Unknown` rather than
+/// build a vacuously-satisfiable encoding.
 fn encode_error(
     plan: &ColouredPlan,
     lay: &Layout,
     flat: &FlatNet,
     property: &SmtProperty,
-) -> String {
+    sink_places: &[String],
+    env_inject: &[(usize, Option<usize>)],
+) -> Option<String> {
     let all_vars: String = lay
         .cur
         .iter()
         .map(|v| format!("({v} Int)"))
         .collect::<Vec<_>>()
         .join(" ");
-    let violation = encode_violation(plan, lay, flat, property);
-    format!(
+    let violation = encode_violation(plan, lay, flat, property, sink_places, env_inject)?;
+    Some(format!(
         "(assert (forall ({all_vars})\n  (=> (and (Reachable {}) {violation})\n      Error)))",
         lay.cur.join(" ")
-    )
+    ))
 }
 
 /// Encodes the property-violation condition over the coloured current marking.
-/// Only reachability-safety properties are routed to this encoder (the verifier
-/// guarantees it); quiescence properties yield `false` (no violating state).
+/// Reachability-safety properties compare aggregate place counts; quiescence
+/// properties ([NU-053]) use the colour-aware deadlock predicate.
+///
+/// Returns `None` when the property names a place that does not resolve in the
+/// net (e.g. a typo'd bound/pending place). Emitting a `false` violation term
+/// there would make the Error rule unsatisfiable and yield a **vacuous**
+/// `Proven` — a mis-named place would silently certify. `None` propagates up so
+/// the verifier reports `Unknown` instead of certifying nothing.
 fn encode_violation(
     plan: &ColouredPlan,
     lay: &Layout,
     flat: &FlatNet,
     property: &SmtProperty,
-) -> String {
+    sink_places: &[String],
+    env_inject: &[(usize, Option<usize>)],
+) -> Option<String> {
     let any_place_present = |names: &[String]| -> String {
         let conds: Vec<String> = names
             .iter()
@@ -557,14 +672,173 @@ fn encode_violation(
     match property {
         SmtProperty::PlaceBound { place, bound }
         | SmtProperty::BranchPlaceBound { place, bound } => match flat.place_index.get(place) {
-            Some(&pid) => format!("(> {} {})", lay.aggregate(pid, plan, &lay.cur), bound),
-            None => "false".to_string(),
+            Some(&pid) => Some(format!("(> {} {})", lay.aggregate(pid, plan, &lay.cur), bound)),
+            None => None,
         },
         SmtProperty::Unreachable { places } | SmtProperty::MutualExclusion { places } => {
-            any_place_present(places)
+            Some(any_place_present(places))
         }
-        // Quiescence properties are never routed here.
-        SmtProperty::DeadlockFree | SmtProperty::JoinedOrDeadLettered { .. } => "false".to_string(),
+        SmtProperty::DeadlockFree => {
+            Some(encode_coloured_deadlock(plan, lay, flat, sink_places, env_inject))
+        }
+        SmtProperty::JoinedOrDeadLettered { pending } => match flat.place_index.get(pending) {
+            Some(&pid) => {
+                let deadlock = encode_coloured_deadlock(plan, lay, flat, sink_places, env_inject);
+                Some(format!(
+                    "(and {deadlock} (>= {} 1))",
+                    lay.aggregate(pid, plan, &lay.cur)
+                ))
+            }
+            None => None,
+        },
+    }
+}
+
+/// Env-injectable bound for a place: `Some(bound)` if the place accepts external
+/// injection (`bound = None` unbounded, `Some(k)` capped at k), else `None`.
+fn env_bound(pid: usize, env_inject: &[(usize, Option<usize>)]) -> Option<Option<usize>> {
+    env_inject.iter().find(|&&(p, _)| p == pid).map(|&(_, b)| b)
+}
+
+/// The uncoloured disable reasons for a flat row: marking-dependent clauses (any one
+/// true ⇒ the transition's uncoloured part is unmet), plus a flag that it is
+/// permanently disabled (an env cap below the demand means it can never fire).
+/// Coloured places are excluded — their enablement is the per-class colour term.
+/// Mirrors [`crate::smt_encoder`]'s flat deadlock with the same env relaxation.
+fn uncoloured_disable(
+    ft: &FlatTransition,
+    lay: &Layout,
+    plan: &ColouredPlan,
+    env_inject: &[(usize, Option<usize>)],
+) -> (Vec<String>, bool) {
+    let mut reasons = Vec::new();
+    let mut permanently_disabled = false;
+    for i in 0..ft.pre.len() {
+        if plan.is_coloured[i] || ft.pre[i] == 0 {
+            continue;
+        }
+        if let Some(bound) = env_bound(i, env_inject) {
+            if matches!(bound, Some(k) if (ft.pre[i] as usize) > k) {
+                permanently_disabled = true;
+            }
+            continue;
+        }
+        reasons.push(format!("(< {} {})", lay.cur[lay.col_unc[i]], ft.pre[i]));
+    }
+    for &inh in &ft.inhibitor_places {
+        reasons.push(format!("(> {} 0)", lay.cur[lay.col_unc[inh]]));
+    }
+    for &rd in &ft.read_places {
+        if let Some(bound) = env_bound(rd, env_inject) {
+            if matches!(bound, Some(k) if k < 1) {
+                permanently_disabled = true;
+            }
+            continue;
+        }
+        reasons.push(format!("(< {} 1)", lay.cur[lay.col_unc[rd]]));
+    }
+    (reasons, permanently_disabled)
+}
+
+/// The colour-specific "disabled for every colour" term for a class (`None` if the
+/// class imposes no coloured enablement constraint). Combined by the caller with the
+/// uncoloured disable reasons: the transition is disabled if EITHER holds.
+fn coloured_disabled_term(cls: &Class, plan: &ColouredPlan, lay: &Layout) -> Option<String> {
+    let k = plan.k;
+    match cls {
+        Class::Untouched => None,
+        Class::Mint { .. } => {
+            // No globally-fresh colour: for every colour c, some coloured place
+            // already holds c.
+            let per_colour: Vec<String> = (0..k)
+                .map(|c| {
+                    let present: Vec<String> = plan
+                        .coloured
+                        .iter()
+                        .map(|&q| format!("(>= {} 1)", lay.cur[lay.col_col[q][c]]))
+                        .collect();
+                    format!("(or {})", present.join(" "))
+                })
+                .collect();
+            Some(format!("(and {})", per_colour.join(" ")))
+        }
+        Class::Join { coloured_in } => {
+            // No colour is shared by all correlated inputs: for every colour c, some
+            // input lacks c.
+            let per_colour: Vec<String> = (0..k)
+                .map(|c| {
+                    let missing: Vec<String> = coloured_in
+                        .iter()
+                        .map(|&i| format!("(= {} 0)", lay.cur[lay.col_col[i][c]]))
+                        .collect();
+                    format!("(or {})", missing.join(" "))
+                })
+                .collect();
+            Some(format!("(and {})", per_colour.join(" ")))
+        }
+        Class::Consume { input_col, .. } => {
+            // No colour present at the single coloured input.
+            let per_colour: Vec<String> = (0..k)
+                .map(|c| format!("(= {} 0)", lay.cur[lay.col_col[*input_col][c]]))
+                .collect();
+            Some(format!("(and {})", per_colour.join(" ")))
+        }
+    }
+}
+
+/// Colour-aware deadlock predicate ([NU-053]): every transition is disabled (no
+/// colour enables it) and the marking is not a sink state. Mirrors
+/// [`crate::smt_encoder`]'s flat `encode_deadlock` with the same env-injection
+/// relaxation (VER-006), lifted to the coloured layout.
+fn encode_coloured_deadlock(
+    plan: &ColouredPlan,
+    lay: &Layout,
+    flat: &FlatNet,
+    sink_places: &[String],
+    env_inject: &[(usize, Option<usize>)],
+) -> String {
+    let mut disabled_conditions = Vec::new();
+    for (ti, cls) in plan.classes.iter().enumerate() {
+        let ft = &flat.transitions[ti];
+        let (mut reasons, permanently_disabled) = uncoloured_disable(ft, lay, plan, env_inject);
+        if permanently_disabled {
+            // The transition can never fire — it is always "disabled".
+            disabled_conditions.push("true".to_string());
+            continue;
+        }
+        if let Some(term) = coloured_disabled_term(cls, plan, lay) {
+            reasons.push(term);
+        }
+        if reasons.is_empty() {
+            // Always enabled (possibly via injection) — no marking is a deadlock.
+            return "false".to_string();
+        }
+        disabled_conditions.push(if reasons.len() == 1 {
+            reasons.pop().unwrap()
+        } else {
+            format!("(or {})", reasons.join(" "))
+        });
+    }
+
+    // Not a sink state: some non-sink place still holds a token (aggregate count).
+    let sink_indices: HashSet<usize> = sink_places
+        .iter()
+        .filter_map(|n| flat.place_index.get(n).copied())
+        .collect();
+    if !sink_indices.is_empty() {
+        let non_sink: Vec<String> = (0..flat.place_count)
+            .filter(|pid| !sink_indices.contains(pid))
+            .map(|pid| format!("(>= {} 1)", lay.aggregate(pid, plan, &lay.cur)))
+            .collect();
+        if !non_sink.is_empty() {
+            disabled_conditions.push(format!("(or {})", non_sink.join(" ")));
+        }
+    }
+
+    if disabled_conditions.is_empty() {
+        "true".to_string()
+    } else {
+        format!("(and {})", disabled_conditions.join(" "))
     }
 }
 
@@ -585,7 +859,7 @@ mod tests {
     /// consumes 1 budget and stamps the fresh colour into both correlated inputs;
     /// the join refunds 1 budget (conserving) or 2 (inflating, into a 2nd budget
     /// place). A MatchSpec must correlate ≥2 input places, hence two branches.
-    fn mint_join_net(inflating: bool) -> PetriNet {
+    fn mint_join_net(extra_refund: bool) -> PetriNet {
         let budget1 = Place::<()>::new("budget1");
         let budget2 = Place::<()>::new("budget2");
         let a = Place::<String>::new("a");
@@ -595,8 +869,11 @@ mod tests {
             .input(one(&budget1))
             .output(and(vec![out_place(&a), out_place(&b)]))
             .build();
-        let join_out = if inflating {
-            // Refund 2 budget for a 1-budget mint — the pool inflates above k.
+        let join_out = if extra_refund {
+            // Refund an EXTRA token to a non-minting place (budget2). The MINTING budget
+            // (budget1) is still conserved, so at most one colour is ever live — the net
+            // is colour-bounded and the P-semiflow bound admits it. (The old budget-Φ
+            // heuristic wrongly rejected any refund exceeding the mint cost.)
             and(vec![out_place(&budget1), out_place(&budget2)])
         } else {
             out_place(&budget1)
@@ -617,26 +894,248 @@ mod tests {
             .build()
     }
 
-    fn plan_for(net: &PetriNet) -> Option<ColouredPlan> {
+    /// A mint→join net plus an EXTENDED coloured drain: a non-match transition that
+    /// consumes one correlated input `a` (count 1) into a plain sink. Rejected under
+    /// BASE (a non-match consumer of a coloured place), admitted under EXTENDED.
+    fn mint_join_drain_net() -> PetriNet {
+        let budget1 = Place::<()>::new("budget1");
+        let a = Place::<String>::new("a");
+        let b = Place::<String>::new("b");
+        let sink = Place::<String>::new("sink");
+
+        let mint = Transition::builder("mint")
+            .input(one(&budget1))
+            .output(and(vec![out_place(&a), out_place(&b)]))
+            .build();
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |s: &String| NameId::new(s.clone()))
+                    .key(&b, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(out_place(&budget1))
+            .build();
+        let drain = Transition::builder("drain")
+            .input(one(&a))
+            .output(out_place(&sink))
+            .build();
+        PetriNet::builder("mint_join_drain")
+            .transitions([mint, join, drain])
+            .build()
+    }
+
+    /// A mint→join net with an EXTENDED carrier relay: the fork co-mints into the
+    /// carrier place `carrier` and the join input `b`; a relay threads `carrier`'s
+    /// name into the other join input `a`; the join correlates `a` and `b`. `carrier`
+    /// is coloured only when declared as a carrier place under EXTENDED. When
+    /// `relay_refunds`, the relay also refunds budget — which must be rejected, since
+    /// a relay keeps the colour live.
+    fn mint_relay_join_net(relay_refunds: bool) -> PetriNet {
+        let budget1 = Place::<()>::new("budget1");
+        let carrier = Place::<String>::new("carrier");
+        let a = Place::<String>::new("a");
+        let b = Place::<String>::new("b");
+
+        let mint = Transition::builder("mint")
+            .input(one(&budget1))
+            .output(and(vec![out_place(&carrier), out_place(&b)]))
+            .build();
+        let relay_out = if relay_refunds {
+            and(vec![out_place(&a), out_place(&budget1)])
+        } else {
+            out_place(&a)
+        };
+        let relay = Transition::builder("relay")
+            .input(one(&carrier))
+            .output(relay_out)
+            .build();
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |s: &String| NameId::new(s.clone()))
+                    .key(&b, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(out_place(&budget1))
+            .build();
+        PetriNet::builder("mint_relay_join")
+            .transitions([mint, relay, join])
+            .build()
+    }
+
+    /// A leaky fork ([NU-053] S2): the mint co-mints its colour into the join
+    /// inputs `a`, `b` AND a declared carrier `c`, but the join only re-collects
+    /// `a`, `b` and nothing ever consumes `c`. The colour outlives the budget the
+    /// join refunds, so the real net can hold more than `k` live colours while the
+    /// k-colour encoding gets stuck at the freshness guard — an under-approximation
+    /// that could report a false `Proven`.
+    fn mint_leaky_carrier_net() -> PetriNet {
+        let budget1 = Place::<()>::new("budget1");
+        let a = Place::<String>::new("a");
+        let b = Place::<String>::new("b");
+        let c = Place::<String>::new("c");
+
+        let mint = Transition::builder("mint")
+            .input(one(&budget1))
+            .output(and(vec![out_place(&a), out_place(&b), out_place(&c)]))
+            .build();
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |s: &String| NameId::new(s.clone()))
+                    .key(&b, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(out_place(&budget1))
+            .build();
+        PetriNet::builder("mint_leaky_carrier")
+            .transitions([mint, join])
+            .build()
+    }
+
+    fn plan_for(net: &PetriNet, mode: FragmentMode, carriers: &[&str]) -> Option<ColouredPlan> {
         let flat = net_flattener::flatten(net);
         let initial = MarkingStateBuilder::new().tokens("budget1", 1).build();
         let budget: HashSet<String> =
             ["budget1".to_string(), "budget2".to_string()].into_iter().collect();
-        build_plan(net, &flat, &initial, &budget)
+        let carrier_set: HashSet<String> = carriers.iter().map(|s| s.to_string()).collect();
+        let matrix = crate::incidence_matrix::IncidenceMatrix::from_flat_net(&flat, &[]);
+        let semiflows = crate::p_invariant::compute_p_semiflows(&matrix, &initial, &flat.places);
+        build_plan(net, &flat, &initial, &budget, mode, &carrier_set, &semiflows)
     }
 
     #[test]
     fn budget_conserving_join_takes_exact_path() {
         // Refund (1) == mint cost (1): live names ≤ k, so the fragment is
         // accepted and the exact name-coloured encoding is used.
-        assert!(plan_for(&mint_join_net(false)).is_some());
+        assert!(plan_for(&mint_join_net(false), FragmentMode::Base, &[]).is_some());
     }
 
     #[test]
-    fn budget_inflating_join_falls_back_to_over_approx() {
-        // nu-1: a join refunding 2 budget for a 1-budget mint inflates the pool
-        // above k — the k-colour encoder would UNDER-approximate and report a
-        // false `Proven`. build_plan must reject it (None → sound over-approx).
-        assert!(plan_for(&mint_join_net(true)).is_none());
+    fn budget_refund_to_nonminting_place_stays_bounded() {
+        // [NU-053] A join that refunds an extra token to a NON-minting place keeps the
+        // minting budget conserved, so at most one colour is live — the net is
+        // colour-bounded and the P-semiflow bound admits it. (The old budget-Φ heuristic
+        // wrongly rejected any refund exceeding the mint cost; genuine colour leaks —
+        // where a co-minted place accumulates distinct colours — are covered by
+        // `extended_leaky_carrier_fanout_rejected`, which still falls back.)
+        assert!(plan_for(&mint_join_net(true), FragmentMode::Base, &[]).is_some());
+    }
+
+    #[test]
+    fn extended_drain_rejected_under_base_admitted_under_extended() {
+        // A non-match consumer of a coloured place is out-of-fragment under BASE and
+        // admitted as a drain under EXTENDED.
+        let net = mint_join_drain_net();
+        assert!(plan_for(&net, FragmentMode::Base, &[]).is_none());
+        assert!(plan_for(&net, FragmentMode::Extended, &[]).is_some());
+    }
+
+    #[test]
+    fn extended_carrier_relay_admitted_only_under_extended() {
+        // The carrier place is coloured only when declared under EXTENDED; then the
+        // relay threading its name to the join input is an admitted Consume.
+        let net = mint_relay_join_net(false);
+        assert!(plan_for(&net, FragmentMode::Base, &[]).is_none());
+        assert!(plan_for(&net, FragmentMode::Extended, &["carrier"]).is_some());
+    }
+
+    #[test]
+    fn extended_relay_refunding_budget_rejected() {
+        // A relay keeps the colour live; if it also refunded budget the freed token
+        // could mint a (k+1)-th live colour. build_plan must reject it.
+        let net = mint_relay_join_net(true);
+        assert!(plan_for(&net, FragmentMode::Extended, &["carrier"]).is_none());
+    }
+
+    #[test]
+    fn extended_leaky_carrier_fanout_rejected() {
+        // [NU-053] S2: the mint fans its colour into a, b AND carrier c, but the
+        // refunding join only re-collects a, b — c is never consumed, so the colour
+        // outlives its refunded budget and the real net can hold more than k live
+        // colours. build_plan must reject this (None → sound over-approximation)
+        // rather than certify an exact plan the quiescence gate would trust for a
+        // false `Proven`. Contrast extended_carrier_relay_admitted: there the fork's
+        // carrier branch is relayed back into a join input (atomic re-collection).
+        let net = mint_leaky_carrier_net();
+        assert!(plan_for(&net, FragmentMode::Extended, &["c"]).is_none());
+    }
+
+    /// A mint→join net plus a plain XOR transition (uncoloured), which expands to two
+    /// flat rows — exercising Part 3 (no 1:1 net↔flat assumption).
+    fn mint_join_xor_net() -> PetriNet {
+        let budget1 = Place::<()>::new("budget1");
+        let a = Place::<String>::new("a");
+        let b = Place::<String>::new("b");
+        let s = Place::<()>::new("s");
+        let x = Place::<()>::new("x");
+        let y = Place::<()>::new("y");
+
+        let mint = Transition::builder("mint")
+            .input(one(&budget1))
+            .output(and(vec![out_place(&a), out_place(&b)]))
+            .build();
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |v: &String| NameId::new(v.clone()))
+                    .key(&b, |v: &String| NameId::new(v.clone()))
+                    .build(),
+            )
+            .output(out_place(&budget1))
+            .build();
+        let branch = Transition::builder("branch")
+            .input(one(&s))
+            .output(libpetri_core::output::xor(vec![out_place(&x), out_place(&y)]))
+            .build();
+        PetriNet::builder("mint_join_xor")
+            .transitions([mint, join, branch])
+            .build()
+    }
+
+    #[test]
+    fn xor_transition_no_longer_blocks_the_coloured_plan() {
+        // A plain XOR transition expands to two flat rows; Part 3 drops the old 1:1
+        // net↔flat rejection so the mint→join fragment is still recognised.
+        let net = mint_join_xor_net();
+        assert!(plan_for(&net, FragmentMode::Base, &[]).is_some());
+    }
+
+    #[test]
+    fn unresolved_property_place_yields_no_encoding() {
+        // Should-fix: a property naming a place absent from the net must NOT
+        // silently certify. `encode_coloured` returns None (→ the verifier reports
+        // Unknown) instead of emitting a `false` violation term (a vacuous Proven).
+        let net = mint_join_net(false);
+        let flat = net_flattener::flatten(&net);
+        let initial = MarkingStateBuilder::new().tokens("budget1", 1).build();
+        let plan = plan_for(&net, FragmentMode::Base, &[]).expect("mint→join is in-fragment");
+
+        // Typo'd pending place → no encoding.
+        let bad = SmtProperty::JoinedOrDeadLettered {
+            pending: "typo_pending".to_string(),
+        };
+        assert!(
+            encode_coloured(&plan, &flat, &initial, &bad, &[], &[], &[]).is_none(),
+            "unresolved pending place must not produce an encoding (would be vacuously Proven)"
+        );
+
+        // A resolvable place still encodes.
+        let good = SmtProperty::JoinedOrDeadLettered {
+            pending: "a".to_string(),
+        };
+        assert!(
+            encode_coloured(&plan, &flat, &initial, &good, &[], &[], &[]).is_some(),
+            "a resolvable pending place must still encode"
+        );
     }
 }

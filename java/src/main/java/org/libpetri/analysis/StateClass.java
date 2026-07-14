@@ -45,6 +45,7 @@ public final class StateClass {
     private final MarkingState marking;
     private final DBM firingDomain;
     private final List<Transition> enabledTransitions;
+    private final double[] readyEarliest;
 
     /**
      * Creates a new state class.
@@ -52,11 +53,17 @@ public final class StateClass {
      * @param marking the marking (token distribution)
      * @param firingDomain the firing domain (timing constraints)
      * @param enabledTransitions transitions enabled in this marking
+     * @param readyEarliest class-relative earliest-ready time (seconds) of each
+     *        enabled transition, parallel to {@code enabledTransitions}, captured
+     *        from the DBM lower bounds <em>before</em> {@code letTimePass()} zeroes
+     *        them (NU-052 residual-earliest)
      */
-    public StateClass(MarkingState marking, DBM firingDomain, List<Transition> enabledTransitions) {
+    public StateClass(MarkingState marking, DBM firingDomain, List<Transition> enabledTransitions,
+                      double[] readyEarliest) {
         this.marking = Objects.requireNonNull(marking);
         this.firingDomain = Objects.requireNonNull(firingDomain);
         this.enabledTransitions = List.copyOf(enabledTransitions);
+        this.readyEarliest = readyEarliest.clone();
     }
 
     /**
@@ -78,6 +85,19 @@ public final class StateClass {
      */
     public List<Transition> enabledTransitions() {
         return enabledTransitions;
+    }
+
+    /**
+     * Returns the class-relative earliest-ready time (seconds) of each enabled
+     * transition, parallel to {@link #enabledTransitions()}.
+     * <p>
+     * Purely additive: base timed-reachability (marking + firing domain,
+     * {@link #equals(Object)}, {@link #hashCode()}) ignores it. Read only by the
+     * &nu; conflict-priority prune (NU-052,
+     * {@code NameStateClassGraph.priorityDominated}).
+     */
+    public double[] readyEarliest() {
+        return readyEarliest;
     }
 
     /**

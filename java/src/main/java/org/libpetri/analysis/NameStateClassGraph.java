@@ -1,5 +1,6 @@
 package org.libpetri.analysis;
 
+import org.libpetri.core.Arc;
 import org.libpetri.core.EnvironmentPlace;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
@@ -99,9 +100,11 @@ public final class NameStateClassGraph {
             var current = graph.classes.get(curIdx);
 
             var enabled = current.base.enabledTransitions();
-            for (var transition : enabled) {
+            for (int idxL = 0; idxL < enabled.size(); idxL++) {
+                var transition = enabled.get(idxL);
                 if (prioritySemantics == PrioritySemantics.CONFLICT
-                        && priorityDominated(transition, enabled, current.names, fragment)) {
+                        && priorityDominated(transition, idxL, enabled, current.base.readyEarliest(),
+                                current.base.marking(), current.names, fragment)) {
                     // A ready, conflicting, strictly-higher-priority transition would win this
                     // token at the executor, so this firing is not runtime-reachable (NU-052).
                     continue;
@@ -141,13 +144,29 @@ public final class NameStateClassGraph {
         successors.get(from).add(to);
     }
 
+    /** Float slack for the class-relative earliest-ready comparison (matches the DBM's own EPSILON). */
+    private static final double READY_EPS = 1e-9;
+
     /**
      * True if a firing of {@code l} is pre-empted by conflict-only priority: some other enabled
      * transition {@code h} has strictly higher priority, shares a consumed input place with
-     * {@code l}, becomes ready no later than {@code l}, and actually fires in this class (produces a
-     * name-successor). The executor fires ready transitions in descending priority order within a
-     * pass, so {@code h} takes the contested token and {@code l} cannot fire — the pruned firing is
-     * not runtime-reachable. See {@link PrioritySemantics#CONFLICT}.
+     * {@code l} <b>under real competition</b>, becomes ready no later than {@code l}, and actually
+     * fires in this class (produces a name-successor). The executor fires ready transitions in
+     * descending priority order within a pass, so {@code h} takes the contested token and {@code l}
+     * cannot fire — the pruned firing is not runtime-reachable. See {@link PrioritySemantics#CONFLICT}.
+     *
+     * <p><b>Readiness (DBM residual-earliest).</b> The name-SCG carries a DBM, so a static
+     * {@code h.earliest() <= l.earliest()} does NOT entail "H ready no later than L": their
+     * class-relative enabling epochs can put H's clock behind L's. We compare the class-relative
+     * earliest-ready times captured on the base class ({@link StateClass#readyEarliest()}, the DBM
+     * lower bounds before {@code letTimePass}): H pre-empts L only when
+     * {@code readyEarliest[H] <= readyEarliest[L] + EPS}. This is fully precise on the zone
+     * off-diagonal and subsumes the previously-shipped {@code earliest()==0} case (an immediate H has
+     * {@code readyEarliest[H] == 0 <= readyEarliest[L]}), so no capability is lost.
+     *
+     * <p><b>Real competition (multiplicity).</b> Sharing a consumed place is not enough: if the place
+     * holds enough tokens for H and L at once they do not compete, and pruning L would be unsound —
+     * see {@link #sharesConsumedInput(Transition, Transition, MarkingState)}.
      *
      * <p>The {@code willFire} guard is essential on a &nu;-net: a match (join) transition can be
      * base-enabled yet <b>name-disabled</b> (its inputs carry no shared name). Such a join never
@@ -155,15 +174,17 @@ public final class NameStateClassGraph {
      * genuine straggler would strand.
      */
     private static boolean priorityDominated(
-            Transition l, List<Transition> enabled, NameMarking names, NameFragment fragment) {
-        for (var h : enabled) {
+            Transition l, int idxL, List<Transition> enabled, double[] readyEarliest,
+            MarkingState marking, NameMarking names, NameFragment fragment) {
+        for (int idxH = 0; idxH < enabled.size(); idxH++) {
+            var h = enabled.get(idxH);
             if (h == l) {
                 continue;
             }
             if (h.priority() > l.priority()
-                    && h.timing().earliest().compareTo(l.timing().earliest()) <= 0
+                    && readyEarliest[idxH] <= readyEarliest[idxL] + READY_EPS
                     && willFire(h, names, fragment)
-                    && sharesConsumedInput(h, l)) {
+                    && sharesConsumedInput(h, l, marking)) {
                 return true;
             }
         }
@@ -180,23 +201,53 @@ public final class NameStateClassGraph {
         return switch (fragment.role(h.name())) {
             case NameFragment.Role.Join j -> !enablingSymbols(names, j.colouredIn()).isEmpty();
             case NameFragment.Role.Consume c -> !names.symbolsIn(c.colouredInput()).isEmpty();
-            default -> true;
+            // Explicit (not `default`) so a future Role variant forces a compile-time
+            // decision here rather than silently defaulting to will-fire=true.
+            case NameFragment.Role.Ordinary _ -> true;
+            case NameFragment.Role.Mint _ -> true;
         };
     }
 
     /**
-     * True if {@code a} and {@code b} both consume from a common input place — a structural conflict.
-     * Read and inhibitor arcs are excluded ({@link Transition#inputPlaces()} is consumed inputs only),
-     * since they do not remove a token another transition competes for.
+     * True if {@code h} and {@code l} genuinely compete for a consumed token — they share a consumed
+     * input place {@code p} whose token count in {@code marking} cannot satisfy both demands at once
+     * ({@code count(p) < demand_h(p) + demand_l(p)}). Read and inhibitor arcs are excluded
+     * ({@link Transition#inputPlaces()} is consumed inputs only), since they do not remove a token
+     * another transition competes for.
+     *
+     * <p>The multiplicity clause is a soundness guard for the NU-052 prune: if the shared place holds
+     * enough tokens for both, {@code h} does NOT rob {@code l}, so pruning {@code l} would drop a
+     * runtime-reachable firing.
      */
-    private static boolean sharesConsumedInput(Transition a, Transition b) {
-        var bIns = b.inputPlaces();
-        for (var p : a.inputPlaces()) {
-            if (bIns.contains(p)) {
+    private static boolean sharesConsumedInput(Transition h, Transition l, MarkingState marking) {
+        var lIns = l.inputPlaces();
+        for (var p : h.inputPlaces()) {
+            if (lIns.contains(p)
+                    && marking.tokens(p) < consumedDemand(h, p) + consumedDemand(l, p)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Tokens {@code t} consumes from {@code place} on one firing (summed across its input specs
+     * referencing that place — normally a single spec). Uses the enablement {@code requiredCount} so
+     * {@code All}/{@code AtLeast} demand their minimum, matching the base SCG's consumption model.
+     */
+    private static int consumedDemand(Transition t, Place<?> place) {
+        int demand = 0;
+        for (var in : t.inputSpecs()) {
+            if (in.place().name().equals(place.name())) {
+                demand += switch (in) {
+                    case Arc.In.One _ -> 1;
+                    case Arc.In.Exactly e -> e.count();
+                    case Arc.In.All _ -> 1;
+                    case Arc.In.AtLeast a -> a.minimum();
+                };
+            }
+        }
+        return demand;
     }
 
     /**

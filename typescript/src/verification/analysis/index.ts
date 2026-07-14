@@ -12,6 +12,7 @@ export type {
   XorBranchInfo,
   XorBranchAnalysis,
 } from './time-petri-net-analyzer.js';
+export type { PrioritySemantics } from './priority-semantics.js';
 export type { EnvironmentAnalysisMode as AnalysisEnvironmentMode } from './environment-analysis-mode.js';
 export {
   alwaysAvailable as analysisAlwaysAvailable,

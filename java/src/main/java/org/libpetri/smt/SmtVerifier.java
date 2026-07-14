@@ -278,7 +278,14 @@ public final class SmtVerifier {
             var outcome = NuScgVerifier.verify(
                 net, initialMarking, property, sinkPlaces, environmentPlaces, environmentMode, nuMaxClasses,
                 fragmentMode, carrierPlaces, prioritySemantics);
-            if (outcome != null) {
+            // Route B truncating to Unknown on a bounded quiescence ν-net is not the final
+            // word: defer to the scalable Route A coloured IC3/PDR encoder (NU-053) below
+            // instead of returning Unknown here.
+            boolean deferToRouteA = outcome != null
+                && outcome.verdict() instanceof SmtVerificationResult.Verdict.Unknown
+                && !isReachabilitySafety(property)
+                && nuBounded;
+            if (outcome != null && !deferToRouteA) {
                 report.append("=== ν-net Route B: name-aware state-class graph (NU-050) ===\n");
                 report.append("  Name-partition state classes: ").append(outcome.classCount()).append("\n");
                 report.append(outcome.note());
@@ -292,11 +299,14 @@ public final class SmtVerifier {
                     Duration.between(start, Instant.now()),
                     new SmtVerificationResult.SmtStatistics(
                         net.places().size(), net.transitions().size(), 0, "n/a (ν name-partition SCG)"));
+            } else if (deferToRouteA) {
+                report.append("ν-net Route B inconclusive (name-partition truncated); deferring to "
+                    + "Route A coloured IC3/PDR (NU-053).\n");
             }
             // EXTENDED was requested but the net falls outside the coloured-consumer
             // fragment (classify returned null). Surface a short note instead of a
             // silent fall-back, then continue on the sound over-approximation path.
-            if (fragmentMode == FragmentMode.EXTENDED) {
+            if (fragmentMode == FragmentMode.EXTENDED && !deferToRouteA) {
                 report.append("ν-net Route B (EXTENDED) declined: net outside coloured-consumer "
                     + "fragment (a coloured place consumed count != 1 or by multiple inputs, carries "
                     + "reset/read/inhibitor arc, or a join re-mints a coloured place); verified via "
@@ -350,6 +360,10 @@ public final class SmtVerifier {
         report.append("Phase 3: Computing P-invariants...\n");
         var matrix = IncidenceMatrix.from(flatNet);
         var invariants = PInvariantComputer.compute(matrix, flatNet, initialMarking);
+        // P-semiflows (non-negative conservation laws) bound the simultaneously-live
+        // colour count that sets the name-coloured encoder's slot count k (see
+        // NameColouredEncoder.buildPlan / colourSlotBound).
+        var semiflows = PInvariantComputer.computePSemiflows(matrix, flatNet, initialMarking);
         report.append("  Found: ").append(invariants.size()).append(" P-invariant(s)\n");
         boolean structurallyBounded = PInvariantComputer.isCoveredByInvariants(invariants, flatNet.placeCount());
         report.append("  Structurally bounded: ").append(structurallyBounded ? "YES" : "NO").append("\n");
@@ -365,12 +379,12 @@ public final class SmtVerifier {
         // the supported mint→matched-join fragment, encode names as a finite colour
         // set (k = the declared budget) with exact same-colour join matching, instead
         // of the name-blind over-approximation — this rules out spurious
-        // counterexamples that would equate two distinct names. Only
-        // reachability-safety properties are routed here; everything else (and any net
-        // outside the fragment) keeps the flat encoding.
+        // counterexamples that would equate two distinct names. Reachability-safety AND
+        // quiescence (NU-053) properties are both routed here; a net outside the
+        // fragment keeps the flat encoding.
         NameColouredEncoder.ColouredPlan colouredPlan =
-            (hasMatch && nuBounded && isReachabilitySafety(property))
-                ? NameColouredEncoder.buildPlan(net, flatNet, initialMarking, budgetPlaces)
+            (hasMatch && nuBounded)
+                ? NameColouredEncoder.buildPlan(net, flatNet, initialMarking, budgetPlaces, fragmentMode, carrierPlaces, semiflows)
                 : null;
 
         try (var runner = new SpacerRunner(timeout)) {
@@ -383,7 +397,25 @@ public final class SmtVerifier {
                     .append(colouredPlan.k()).append("; ")
                     .append(colouredPlan.colouredCount()).append(" coloured place(s))\n");
                 encoding = NameColouredEncoder.encode(
-                    ctx, fp, colouredPlan, flatNet, initialMarking, property, invariants);
+                    ctx, fp, colouredPlan, flatNet, initialMarking, property, invariants, sinkPlaces);
+                if (encoding == null) {
+                    // The property names a place that does not resolve in the net (e.g. a
+                    // typo'd bound/pending place). Emitting the encoding anyway would certify
+                    // a vacuous PROVEN; refuse and report Unknown so a mis-named place never
+                    // silently certifies.
+                    String reason = "property names a place that does not resolve in the net; "
+                        + "refusing to certify (the encoding would be vacuously proven)";
+                    report.append("  Status: UNKNOWN (unresolved property place)\n\n");
+                    report.append("=== RESULT ===\n\n");
+                    report.append("UNKNOWN: ").append(reason).append("\n");
+                    return buildResult(
+                        new SmtVerificationResult.Verdict.Unknown(reason),
+                        report.toString(), invariants, List.of(), List.of(), List.of(),
+                        Duration.between(start, Instant.now()),
+                        new SmtVerificationResult.SmtStatistics(
+                            flatNet.placeCount(), flatNet.transitionCount(),
+                            invariants.size(), structResultStr));
+                }
             } else {
                 encoding = SmtEncoder.encode(ctx, fp, flatNet, initialMarking, property, invariants, sinkPlaces);
             }
@@ -602,6 +634,21 @@ public final class SmtVerifier {
         if (!hasMatch || result.verdict() instanceof SmtVerificationResult.Verdict.Unknown) {
             return result;
         }
+        // Exact path (NU-050 #1 / NU-053, Route A) is checked FIRST: name equality is
+        // encoded exactly via bounded name-colouring, so the verdict is sound AND complete
+        // within the budget bound — no spurious different-name counterexample. This holds
+        // for reachability-safety AND quiescence (deadlock / joined-or-dead-lettered), so
+        // the quiescence downgrade below does NOT apply when an exact coloured plan was
+        // used — the colour-aware deadlock encoding does not over-fire joins.
+        if (exact) {
+            String note = "\nNote: ν-join name equality is encoded exactly via bounded name-colouring "
+                + "(k = budget); the verdict is sound and complete within the budget bound — no "
+                + "spurious different-name counterexample (NU-050 #1 / NU-053).\n";
+            return new SmtVerificationResult(
+                result.verdict(), result.report() + note, result.invariants(),
+                result.discoveredInvariants(), result.counterexampleTrace(),
+                result.counterexampleTransitions(), result.elapsed(), result.statistics());
+        }
         if (!isReachabilitySafety(property)) {
             return downgradeToUnknown(result,
                 "ν-matching transitions present and the property depends on quiescence "
@@ -615,17 +662,11 @@ public final class SmtVerifier {
                 + "undecidable (NU-040) — declare the budget place(s) that gate minting to "
                 + "verify within the bounded fragment");
         }
-        // Bounded reachability-safety. The exact path (NU-050 #1, Route A) encodes
-        // name equality exactly via bounded name-colouring, so both Proven and
-        // Violated are trustworthy; outside the fragment the matched transitions are
-        // over-approximated, so a Violated may be spurious.
-        String note = exact
-            ? "\nNote: ν-join name equality is encoded exactly via bounded name-colouring "
-                + "(k = budget); the verdict is sound and complete within the budget bound — no "
-                + "spurious different-name counterexample (NU-050 #1).\n"
-            : "\nNote: matched (ν-join) transitions are over-approximated (name equality "
-                + "assumed satisfiable). 'Proven' is sound; a 'Violated' counterexample may be "
-                + "spurious pending the exact ν-analysis (NU-050).\n";
+        // Bounded reachability-safety outside the name-coloured fragment: `Proven` is
+        // sound; a `Violated` counterexample may be spurious pending the exact ν-analysis.
+        String note = "\nNote: matched (ν-join) transitions are over-approximated (name equality "
+            + "assumed satisfiable). 'Proven' is sound; a 'Violated' counterexample may be "
+            + "spurious pending the exact ν-analysis (NU-050).\n";
         return new SmtVerificationResult(
             result.verdict(), result.report() + note, result.invariants(),
             result.discoveredInvariants(), result.counterexampleTrace(),

@@ -307,10 +307,40 @@ fn parse_fragment_mode(
     }
 }
 
+/// Parses the `priority_semantics` keyword argument (NU-052). Accepts a string
+/// `"none"`/`"conflict"` (case-insensitive) or an int `0`/`1`.
+#[cfg(feature = "z3")]
+fn parse_priority_semantics(
+    obj: &Bound<'_, PyAny>,
+) -> PyResult<libpetri::verification::priority_semantics::PrioritySemantics> {
+    use libpetri::verification::priority_semantics::PrioritySemantics;
+    if let Ok(s) = obj.extract::<String>() {
+        match s.to_ascii_lowercase().as_str() {
+            "none" => Ok(PrioritySemantics::None),
+            "conflict" => Ok(PrioritySemantics::Conflict),
+            other => Err(PyValueError::new_err(format!(
+                "priority_semantics must be \"none\" or \"conflict\" (or 0/1), got {other:?}"
+            ))),
+        }
+    } else if let Ok(n) = obj.extract::<i64>() {
+        match n {
+            0 => Ok(PrioritySemantics::None),
+            1 => Ok(PrioritySemantics::Conflict),
+            other => Err(PyValueError::new_err(format!(
+                "priority_semantics int must be 0 (none) or 1 (conflict), got {other}"
+            ))),
+        }
+    } else {
+        Err(PyTypeError::new_err(
+            "priority_semantics must be a str (\"none\"/\"conflict\") or an int (0/1)",
+        ))
+    }
+}
+
 /// Verifies a single property against `net` using SMT (Z3). Without the `z3`
 /// feature, returns `VerificationResult` with verdict `"unknown"`.
 #[pyfunction(name = "verify_net")]
-#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 30_000, nu_max_classes = None, fragment_mode = None, carrier_places = None))]
+#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 30_000, nu_max_classes = None, fragment_mode = None, carrier_places = None, priority_semantics = None))]
 fn py_verify_net(
     py: Python<'_>,
     net: &PyPetriNet,
@@ -324,6 +354,7 @@ fn py_verify_net(
     nu_max_classes: Option<usize>,
     fragment_mode: Option<Bound<'_, PyAny>>,
     carrier_places: Option<Vec<String>>,
+    priority_semantics: Option<Bound<'_, PyAny>>,
 ) -> PyResult<PyVerificationResult> {
     #[cfg(feature = "z3")]
     {
@@ -343,6 +374,15 @@ fn py_verify_net(
         // name surfaces as an Unknown verdict from verify(), never a silent
         // fall-back.
         let carrier_places = carrier_places.unwrap_or_default();
+        // ν-aware Route B priority semantics (NU-052): "none" (default) is the
+        // priority-blind over-approximation; "conflict" prunes a lower-priority
+        // transition that a ready, conflicting, strictly-higher-priority one
+        // pre-empts. Accept a string ("none"/"conflict", case-insensitive) or an
+        // int (0/1).
+        let priority_semantics = match &priority_semantics {
+            Some(obj) => parse_priority_semantics(obj)?,
+            None => libpetri::verification::priority_semantics::PrioritySemantics::None,
+        };
         // Default to Ignore (the Rust default); the verifier downgrades a would-be
         // vacuous "proven" to "unknown" when env places are present under Ignore.
         let environment_mode = environment_mode
@@ -369,6 +409,7 @@ fn py_verify_net(
                 .budget_places(budget_places)
                 .fragment_mode(fragment_mode)
                 .carrier_places(carrier_places)
+                .priority_semantics(priority_semantics)
                 .timeout(timeout_ms);
             // ν name-aware SCG class cap (NU-050, Route B); None keeps the Rust default.
             if let Some(n) = nu_max_classes {
@@ -380,7 +421,7 @@ fn py_verify_net(
     }
     #[cfg(not(feature = "z3"))]
     {
-        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes, fragment_mode, carrier_places);
+        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes, fragment_mode, carrier_places, priority_semantics);
         Ok(PyVerificationResult::unknown("z3 feature not enabled"))
     }
 }

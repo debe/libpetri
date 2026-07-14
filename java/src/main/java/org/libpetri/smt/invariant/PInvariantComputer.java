@@ -169,6 +169,210 @@ public final class PInvariantComputer {
     }
 
     /**
+     * Computes the minimal <b>P-semiflows</b> — non-negative place weightings {@code y}
+     * with {@code y^T·C = 0} — via the Colom&ndash;Silva / Farkas method. Unlike
+     * {@link #compute} (a signed null-space basis), every returned
+     * {@link PInvariant#weights()} is non-negative, a genuine P-semiflow, with
+     * {@code constant = y·M0}. A non-negative conservation law soundly <b>bounds</b> the
+     * token sum over its support: {@code sum_{support} M(p) <= y·M0}. Used to bound the
+     * number of simultaneously-live colours in the name-coloured encoder.
+     *
+     * @param matrix         the incidence matrix
+     * @param flatNet        the flat net (for place info)
+     * @param initialMarking the initial marking (for computing constants)
+     * @return list of non-negative P-semiflows
+     */
+    public static List<PInvariant> computePSemiflows(
+            IncidenceMatrix matrix, FlatNet flatNet, MarkingState initialMarking) {
+        int np = matrix.numPlaces();
+        int nt = matrix.numTransitions();
+        if (np == 0) {
+            return List.of();
+        }
+        int[][] incidence = matrix.incidence(); // [t][p]
+
+        // Each generator row = (signature over transitions, non-negative weight over
+        // places). Start with one row per place: signature = that place's column of C,
+        // weight = e_p. Eliminate one transition column at a time using only non-negative
+        // combinations, so the accumulated weights stay non-negative.
+        var rows = new ArrayList<Row>(np);
+        for (int pl = 0; pl < np; pl++) {
+            long[] sig = new long[nt];
+            for (int t = 0; t < nt; t++) {
+                sig[t] = incidence[t][pl];
+            }
+            long[] weight = new long[np];
+            weight[pl] = 1;
+            rows.add(new Row(sig, weight));
+        }
+
+        for (int t = 0; t < nt; t++) {
+            var next = new ArrayList<Row>();
+            var pos = new ArrayList<Row>();
+            var neg = new ArrayList<Row>();
+            for (Row r : rows) {
+                if (r.sig[t] == 0) {
+                    next.add(r);
+                } else if (r.sig[t] > 0) {
+                    pos.add(r);
+                } else {
+                    neg.add(r);
+                }
+            }
+            for (Row rp : pos) {
+                for (Row rn : neg) {
+                    long cp = -rn.sig[t]; // > 0
+                    long cn = rp.sig[t];  // > 0
+                    // Checked combination: on long overflow DROP this generator rather
+                    // than keep a wrapped (invalid) row. Dropping it can at worst lose a
+                    // covering semiflow, so colourSlotBound falls back to the sound
+                    // over-approximation — never an under-approximation.
+                    long[] sig = combineRow(cp, rp.sig, cn, rn.sig);
+                    long[] weight = combineRow(cp, rp.weight, cn, rn.weight);
+                    if (sig == null || weight == null) {
+                        continue;
+                    }
+                    reduceGcd(sig, weight);
+                    next.add(new Row(sig, weight));
+                }
+            }
+            rows = keepSupportMinimal(next);
+            if (rows.size() > 8192) {
+                rows.subList(8192, rows.size()).clear(); // safety backstop against blow-up
+            }
+        }
+
+        var semiflows = new ArrayList<PInvariant>();
+        for (Row r : rows) {
+            boolean anyNonZero = false;
+            for (long x : r.weight) {
+                if (x != 0) {
+                    anyNonZero = true;
+                    break;
+                }
+            }
+            if (!anyNonZero) {
+                continue;
+            }
+            int[] weights = new int[np];
+            var support = new TreeSet<Integer>();
+            long constant = 0;
+            boolean overflow = false;
+            for (int pl = 0; pl < np; pl++) {
+                long wl = r.weight[pl];
+                if (wl > Integer.MAX_VALUE || wl < Integer.MIN_VALUE) {
+                    overflow = true;
+                    break;
+                }
+                weights[pl] = (int) wl;
+                if (wl != 0) {
+                    support.add(pl);
+                    try {
+                        long term = Math.multiplyExact(
+                                wl, (long) initialMarking.tokens(flatNet.places().get(pl)));
+                        constant = Math.addExact(constant, term);
+                    } catch (ArithmeticException e) {
+                        overflow = true;
+                        break;
+                    }
+                }
+            }
+            // Drop a semiflow whose weight or `Σ weight·M0` does not fit int — fewer
+            // covering semiflows just means colourSlotBound falls back soundly.
+            if (overflow || constant > Integer.MAX_VALUE || constant < Integer.MIN_VALUE) {
+                continue;
+            }
+            semiflows.add(new PInvariant(weights, (int) constant, Set.copyOf(support)));
+        }
+        return List.copyOf(semiflows);
+    }
+
+    /** A generator row during Colom&ndash;Silva elimination: transition signature + place weight. */
+    private record Row(long[] sig, long[] weight) {}
+
+    /**
+     * Divides a (signature, weight) pair by the gcd of all its entries to keep the
+     * integers small during elimination.
+     */
+    /**
+     * {@code cp*a + cn*b} componentwise, or {@code null} on long overflow (so the caller
+     * drops the generator and the colour bound falls back soundly rather than using
+     * wrapped values).
+     */
+    private static long[] combineRow(long cp, long[] a, long cn, long[] b) {
+        long[] out = new long[a.length];
+        try {
+            for (int i = 0; i < a.length; i++) {
+                out[i] = Math.addExact(Math.multiplyExact(cp, a[i]), Math.multiplyExact(cn, b[i]));
+            }
+        } catch (ArithmeticException e) {
+            return null;
+        }
+        return out;
+    }
+
+    private static void reduceGcd(long[] sig, long[] weight) {
+        long g = 0;
+        for (long v : sig) {
+            g = gcd(g, Math.abs(v));
+        }
+        for (long v : weight) {
+            g = gcd(g, Math.abs(v));
+        }
+        if (g > 1) {
+            for (int i = 0; i < sig.length; i++) {
+                sig[i] /= g;
+            }
+            for (int i = 0; i < weight.length; i++) {
+                weight[i] /= g;
+            }
+        }
+    }
+
+    /**
+     * Drops any row whose weight-support is a strict superset of another's — a
+     * non-minimal combination that only inflates the set (and can cause combinatorial
+     * blow-up).
+     */
+    private static ArrayList<Row> keepSupportMinimal(ArrayList<Row> rows) {
+        int n = rows.size();
+        var supports = new ArrayList<Set<Integer>>(n);
+        for (Row r : rows) {
+            var s = new HashSet<Integer>();
+            for (int i = 0; i < r.weight.length; i++) {
+                if (r.weight[i] != 0) {
+                    s.add(i);
+                }
+            }
+            supports.add(s);
+        }
+        var keep = new boolean[n];
+        Arrays.fill(keep, true);
+        for (int i = 0; i < n; i++) {
+            if (!keep[i]) {
+                continue;
+            }
+            for (int j = 0; j < n; j++) {
+                if (i == j || !keep[j]) {
+                    continue;
+                }
+                if (supports.get(j).size() < supports.get(i).size()
+                        && supports.get(i).containsAll(supports.get(j))) {
+                    keep[i] = false;
+                    break;
+                }
+            }
+        }
+        var out = new ArrayList<Row>();
+        for (int i = 0; i < n; i++) {
+            if (keep[i]) {
+                out.add(rows.get(i));
+            }
+        }
+        return out;
+    }
+
+    /**
      * Checks if every place is covered by at least one P-invariant.
      * If true, the net is structurally bounded.
      */

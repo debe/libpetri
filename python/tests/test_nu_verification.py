@@ -12,10 +12,21 @@ feature (Route B itself is solver-free, but the Python entry point is gated with
 the rest of the SMT surface).
 """
 
+import shutil
+
 import libpetri as lp
 import pytest
 
 pytestmark = pytest.mark.skipif(not lp.HAS_Z3, reason="z3 feature not enabled")
+
+# ``lp.HAS_Z3`` is the compile feature; the Route A coloured quiescence path
+# (NU-053) shells out to the ``z3`` BINARY, which is separate. Skip the
+# binary-driven nu053_* tests when the binary is absent so they cleanly SKIP (not
+# fail), matching the Rust/Java clean-skip when z3 is not on PATH.
+_HAS_Z3_BINARY = shutil.which("z3") is not None
+_needs_z3_binary = pytest.mark.skipif(
+    not _HAS_Z3_BINARY, reason="z3 binary not on PATH (Route A coloured encoder)"
+)
 
 
 def _nu_scatter_gather_net():
@@ -339,6 +350,24 @@ def test_extended_deadlock_free_violated_without_drain_via_route_b():
     assert "Route B" in result.report, result.report
 
 
+def test_extended_leaky_carrier_never_falsely_proven():
+    # [NU-053] S2 regression: the fork co-mints one colour into branchA, branchB AND the
+    # carrier `stray`, but the join only re-collects branchA, branchB. Without the drain,
+    # `stray` is a genuine stall, so the verifier must never answer `proven`. The
+    # colour-flow gate rejects the leaky coloured plan (a mint fan-out no single join
+    # re-collects), so the query stays sound rather than certifying a false PROVEN.
+    net = _comint_carrier_drain_net(with_drain=False)
+    result = lp.verify(
+        net,
+        lp.deadlock_free(),
+        initial_marking={"source": 1},
+        sink_places=["merged", "deadletter"],
+        fragment_mode="extended",
+        carrier_places=["stray"],
+    )
+    assert result.verdict != "proven", result.report
+
+
 def test_extended_unknown_on_unknown_carrier_place():
     # A mistyped carrier name must surface as unknown naming the place, never a
     # silent fall-back to a confident (possibly false) verdict.
@@ -353,3 +382,282 @@ def test_extended_unknown_on_unknown_carrier_place():
     )
     assert result.verdict == "unknown", result.report
     assert "nonExistent" in (result.reason or ""), result.report
+
+
+# === NU-052: conflict-only priority (priority_semantics="none"/"conflict") ===
+# Mirrors the Rust nu_scg_verifier priority tests. A ν-join and a timed
+# dead-letter-drain conflict on a coloured place; the priority-blind graph
+# (NONE, the default) reports a spurious stall the eager, priority-ordered
+# executor can never produce, while CONFLICT prunes exactly that interleaving.
+
+
+def _nu_priority_conflict_net(co_mint_both=True, with_drain=True):
+    """Marvin guard-join vs. timed dead-letter-drain conflict, minimal.
+
+    ``MINT`` co-mints one fresh name into ``COL_A`` (and ``COL_B`` when
+    ``co_mint_both``); an immediate, default-priority ν-``JOIN`` correlates the
+    branches into ``OUT``; a delayed, lower-priority (-10) ``DRAIN_A``
+    dead-letters ``COL_A`` into ``DEADLETTER``. ``DRAIN_A`` and ``JOIN`` conflict
+    on the consumed ``COL_A``."""
+    seed = lp.Place("SEED")
+    a = lp.Place("COL_A")
+    b = lp.Place("COL_B")
+    out = lp.Place("OUT")
+    dl = lp.Place("DEADLETTER")
+
+    mint = (
+        lp.Transition("MINT")
+        .input(lp.one(seed))
+        .output(lp.and_(a, b) if co_mint_both else lp.out(a))
+        .action(lp.fork)
+        .build()
+    )
+    join = (  # immediate, default priority 0
+        lp.Transition("JOIN")
+        .input(lp.one(a))
+        .input(lp.one(b))
+        .match_spec(lp.match_spec([(a, lambda s: s), (b, lambda s: s)]))
+        .output(lp.out(out))
+        .action(lp.fork)
+        .build()
+    )
+    net = lp.Net("nu_priority_conflict").transition(mint).transition(join)
+    if with_drain:
+        drain = (  # delayed, lower priority, conflicts on COL_A
+            lp.Transition("DRAIN_A")
+            .input(lp.one(a))
+            .timing(lp.delayed(5_000))
+            .priority(-10)
+            .output(lp.out(dl))
+            .action(lp.fork)
+            .build()
+        )
+        net = net.transition(drain)
+    return net.build()
+
+
+def _verify_priority(net, priority_semantics):
+    # EXTENDED DeadlockFree with OUT and DEADLETTER as sinks.
+    return lp.verify(
+        net,
+        lp.deadlock_free(),
+        initial_marking={"SEED": 1},
+        sink_places=["OUT", "DEADLETTER"],
+        fragment_mode="extended",
+        priority_semantics=priority_semantics,
+    )
+
+
+def test_priority_none_default_reports_spurious_stall():
+    # Default priority_semantics (== "none"): the priority/timing-blind graph
+    # explores DRAIN_A stealing the matched COL_A, stranding COL_B -> spurious
+    # stall -> violated.
+    result = lp.verify(
+        _nu_priority_conflict_net(),
+        lp.deadlock_free(),
+        initial_marking={"SEED": 1},
+        sink_places=["OUT", "DEADLETTER"],
+        fragment_mode="extended",
+    )
+    assert result.verdict == "violated", result.report
+    assert "Route B" in result.report, result.report
+
+
+def test_priority_none_explicit_reports_spurious_stall():
+    result = _verify_priority(_nu_priority_conflict_net(), "none")
+    assert result.verdict == "violated", result.report
+    assert "Route B" in result.report, result.report
+
+
+def test_priority_conflict_proves_no_stall():
+    # CONFLICT: the immediate, higher-priority JOIN pre-empts the delayed drain,
+    # so COL_A is never stolen from a live join -> the only quiescent marking is
+    # {OUT}, a declared sink -> proven.
+    result = _verify_priority(_nu_priority_conflict_net(), "conflict")
+    assert result.verdict == "proven", result.report
+    assert "Route B" in result.report, result.report
+
+
+def test_priority_conflict_int_form_proves_no_stall():
+    # The int form (1 == "conflict") threads through identically.
+    result = _verify_priority(_nu_priority_conflict_net(), 1)
+    assert result.verdict == "proven", result.report
+
+
+def test_priority_conflict_still_finds_genuine_stall():
+    # A real orphan: MINT mints only COL_A (no COL_B) and there is no drain, so
+    # JOIN can never fire and COL_A strands. CONFLICT must NOT hide it — JOIN is
+    # name-disabled, so nothing is pruned -> violated.
+    net = _nu_priority_conflict_net(co_mint_both=False, with_drain=False)
+    result = _verify_priority(net, "conflict")
+    assert result.verdict == "violated", result.report
+
+
+def test_priority_conflict_lets_drain_clear_a_real_orphan():
+    # A real orphan that IS drainable: MINT mints only COL_A (no COL_B) and a
+    # lower-priority DRAIN_A exists. JOIN is name-disabled (never gets COL_B's
+    # name), so willFire(JOIN) is false and CONFLICT must NOT prune the drain —
+    # it dead-letters COL_A into the DEADLETTER sink, so the net is deadlock-free.
+    # This pins the over-prune guard from the safe direction (NU-052 case 4);
+    # mirrors Rust conflict_priority_lets_drain_clear_a_real_orphan.
+    net = _nu_priority_conflict_net(co_mint_both=False, with_drain=True)
+    result = _verify_priority(net, "conflict")
+    assert result.verdict == "proven", result.report
+
+
+def test_priority_semantics_rejects_bad_value():
+    with pytest.raises(ValueError):
+        _verify_priority(_nu_priority_conflict_net(), "bogus")
+
+
+# === NU-053: Route A coloured quiescence (EXTENDED + deadlock encoding) ===
+# Mirrors the Rust nu053_* tests in smt_verifier.rs. When the name-aware SCG
+# (Route B) is truncated (nu_max_classes=1), the bounded quiescence proof defers
+# to the Route A coloured IC3/PDR encoder — which decides ν deadlock-freedom
+# scalably. These exercise the real z3 binary (the coloured SMT path).
+
+
+def _nu053_no_stall_net():
+    """Single-turn co-mint→join net. ``fork`` consumes ``source`` + ``budget`` and
+    co-mints one fresh name into join inputs ``a`` and ``b``; ``join`` correlates
+    them by name into ``merged`` and refunds ``budget``. The only quiescent marking
+    holds just the sinks {merged, budget}, so the net is deadlock-free."""
+    source = lp.Place("source")
+    budget = lp.Place("budget")
+    a = lp.Place("a")
+    b = lp.Place("b")
+    merged = lp.Place("merged")
+
+    fork_t = (
+        lp.Transition("fork")
+        .input(lp.one(source))
+        .input(lp.one(budget))
+        .output(lp.and_(a, b))
+        .action(lp.fork)
+        .build()
+    )
+    join_t = (
+        lp.Transition("join")
+        .input(lp.one(a))
+        .input(lp.one(b))
+        .match_spec(lp.match_spec([(a, lambda s: s), (b, lambda s: s)]))
+        .output(lp.and_(merged, budget))
+        .action(lp.fork)
+        .build()
+    )
+    return lp.Net("nu053_no_stall").transition(fork_t).transition(join_t).build()
+
+
+def _nu053_steal_net():
+    """The no-stall net plus an EXTENDED ``drain`` that steals ``a`` into a
+    dead-letter, stranding ``b``. An unprioritised schedule can reach a quiescent
+    marking where the non-sink ``b`` still holds a token, so it is NOT
+    deadlock-free."""
+    source = lp.Place("source")
+    budget = lp.Place("budget")
+    a = lp.Place("a")
+    b = lp.Place("b")
+    merged = lp.Place("merged")
+    dl = lp.Place("deadletter")
+
+    fork_t = (
+        lp.Transition("fork")
+        .input(lp.one(source))
+        .input(lp.one(budget))
+        .output(lp.and_(a, b))
+        .action(lp.fork)
+        .build()
+    )
+    join_t = (
+        lp.Transition("join")
+        .input(lp.one(a))
+        .input(lp.one(b))
+        .match_spec(lp.match_spec([(a, lambda s: s), (b, lambda s: s)]))
+        .output(lp.and_(merged, budget))
+        .action(lp.fork)
+        .build()
+    )
+    drain_t = (
+        lp.Transition("drain")
+        .input(lp.one(a))
+        .output(lp.out(dl))
+        .action(lp.fork)
+        .build()
+    )
+    return (
+        lp.Net("nu053_steal")
+        .transition(fork_t)
+        .transition(join_t)
+        .transition(drain_t)
+        .build()
+    )
+
+
+_NU053_SEED = {"source": 1, "budget": 1}
+
+
+@_needs_z3_binary
+def test_nu053_route_a_proves_deadlock_free_when_route_b_truncates():
+    # nu_max_classes=1 forces Route B to truncate, so the bounded quiescence proof
+    # defers to the Route A coloured IC3/PDR encoder ([NU-053]). The single-turn
+    # co-mint→join net quiesces only at {merged, budget}, both declared sinks ->
+    # proven.
+    result = lp.verify(
+        _nu053_no_stall_net(),
+        lp.deadlock_free(),
+        initial_marking=_NU053_SEED,
+        sink_places=["merged", "budget"],
+        budget_places=["budget"],
+        nu_max_classes=1,
+        timeout_ms=15_000,
+    )
+    assert result.verdict == "proven", result.report
+    # The proof must defer to the Route A coloured encoder, not a name-blind
+    # fall-back: the deferral note names Route A and NU-053, and the coloured
+    # IC3/PDR method drives it.
+    assert "Route A" in result.report, result.report
+    assert "NU-053" in result.report, result.report
+    assert result.method == "IC3/PDR", result.report
+
+
+@_needs_z3_binary
+def test_nu053_route_a_detects_stranding_deadlock():
+    # The EXTENDED drain can steal `a` and strand `b` under an unprioritised
+    # schedule — a genuine reachable deadlock the coloured encoding must catch.
+    result = lp.verify(
+        _nu053_steal_net(),
+        lp.deadlock_free(),
+        initial_marking=_NU053_SEED,
+        sink_places=["merged", "budget", "deadletter"],
+        budget_places=["budget"],
+        fragment_mode="extended",
+        nu_max_classes=1,
+        timeout_ms=15_000,
+    )
+    assert result.verdict == "violated", result.report
+    # Reached via the Route A coloured encoder (Route B truncated at k=1).
+    assert "Route A" in result.report, result.report
+    assert "NU-053" in result.report, result.report
+
+
+@_needs_z3_binary
+def test_nu053_route_a_agrees_with_route_b_on_no_stall():
+    # Differential: Route B (exact SCG, default class bound) and Route A (forced via
+    # a tiny class bound) must agree that the co-mint→join net is deadlock-free.
+    def _run(max_classes):
+        return lp.verify(
+            _nu053_no_stall_net(),
+            lp.deadlock_free(),
+            initial_marking=_NU053_SEED,
+            sink_places=["merged", "budget"],
+            budget_places=["budget"],
+            nu_max_classes=max_classes,
+            timeout_ms=15_000,
+        )
+
+    route_b = _run(100_000)
+    route_a = _run(1)
+    assert route_b.verdict == "proven", route_b.report
+    assert "Route B" in route_b.report, route_b.report
+    assert route_a.verdict == "proven", route_a.report
+    assert "Route A" in route_a.report, route_a.report

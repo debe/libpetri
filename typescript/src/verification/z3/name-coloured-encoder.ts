@@ -12,24 +12,42 @@
  * whose counterexample silently equates two *distinct* names.
  *
  * This encoder removes that imprecision for the bounded fragment. The
- * decidability lever ([NU-040]) is the budget: with a `Budget` place pre-seeded
- * with `k` tokens gating every mint, at most `k` correlation names are live at
- * once. So names are modelled as a **finite set of `k` colours**. Each coloured
+ * decidability lever ([NU-040]) is a bounded live-name count: a budget place gates
+ * minting, and a non-negative **P-semiflow** weighting every coloured place bounds
+ * the simultaneously-live names to a finite `k` (`Σ_{coloured} M ≤ y·M0`; see
+ * {@link buildColouredPlan} / `colourSlotBound`). So names are modelled as a
+ * **finite set of `k` colours**. Each coloured
  * place becomes `k` per-colour integer counts; a mint introduces a *globally
  * fresh* colour (one currently empty everywhere); a matched join consumes the
  * **same colour** from every correlated input. Within the budget bound the
  * encoding is *exact* — sound and complete — so no different-name counterexample
  * survives.
  *
- * **Supported fragment (tracer bullet)**: {@link buildColouredPlan} returns
- * `null` (and the verifier falls back to the sound over-approximation) unless the
- * net is in the simple **mint → matched-join** shape: coloured places = the
- * correlated inputs of every matched transition; each is produced only by minting
- * forks (count 1, no coloured input, costs ≥1 budget token) and consumed only by
- * matched joins (count 1, produces no coloured token); budget consumed only by
- * mints and produced only by joins (so live colours ≤ initial budget = `k`);
- * coloured places start empty; no inhibitor/read/reset/consume-all arc touches a
- * coloured place; no XOR output anywhere.
+ * **Supported fragment**: {@link buildColouredPlan} returns `null` (and the
+ * verifier falls back to the sound over-approximation) unless the net is in the
+ * budget-bounded coloured fragment:
+ * - coloured places = the correlated inputs of every matched transition, plus (in
+ *   EXTENDED mode, [NU-051]) the declared carrier places;
+ * - each coloured place is *produced only by* minting forks (count 1, no coloured
+ *   input, costs ≥1 budget token) or EXTENDED relays, and *consumed only by*
+ *   matched joins or EXTENDED coloured consumers — a relay threads one colour on, a
+ *   drain drops it, each consuming exactly one coloured input at count 1;
+ * - the coloured place set is structurally token-bounded: some non-negative
+ *   P-semiflow weights every coloured place, so the simultaneously-live colour count
+ *   is bounded by that semiflow's initial value `k` (`Σ_{coloured} M ≤ y·M0`). A net
+ *   with no covering non-negative semiflow (an unbounded colour leak) falls back;
+ * - coloured places start empty; no inhibitor/read/reset/consume-all arc touches a
+ *   coloured place.
+ *
+ * XOR output branches are supported ([NU-053], Part 3): each branch is a separate
+ * flat row classified by its own incidence, with `matchSpec` read from its source.
+ *
+ * **Properties**: reachability-safety properties compare aggregate coloured place
+ * counts. Quiescence properties (`deadlock-free`, `joined-or-dead-lettered`) use a
+ * colour-aware deadlock predicate ([NU-053], Part 2): every transition is disabled
+ * for every colour (a mint has no globally-fresh colour, a join no shared colour, a
+ * consumer no resident colour) and the marking is not a sink state — mirroring the
+ * flat {@link module:smt-encoder} deadlock with the same env-injection relaxation.
  *
  * Mirrors the Rust reference `name_coloured_encoder.rs` exactly; the difference
  * is that this builds z3-solver expressions rather than emitting SMT-LIB2 text.
@@ -37,11 +55,13 @@
  */
 import type { Arith, Bool, FuncDecl } from 'z3-solver';
 import type { PetriNet } from '../../core/petri-net.js';
+import type { Place } from '../../core/place.js';
 import type { FlatNet } from '../encoding/flat-net.js';
 import type { FlatTransition } from '../encoding/flat-transition.js';
 import type { MarkingState } from '../marking-state.js';
 import type { SmtProperty } from '../smt-property.js';
 import type { PInvariant } from '../invariant/p-invariant.js';
+import type { FragmentMode } from '../analysis/name-fragment.js';
 import type { EncodingResult } from './smt-encoder.js';
 import { flatNetIndexOf } from '../encoding/flat-net.js';
 
@@ -54,6 +74,12 @@ type Z3Fixedpoint = any;
 type Klass =
   | { readonly kind: 'mint'; readonly colouredOut: readonly number[] }
   | { readonly kind: 'join'; readonly colouredIn: readonly number[] }
+  /**
+   * EXTENDED coloured consumer ([NU-051]): a non-match transition that consumes
+   * one same-coloured token from `inputCol` (count 1) and threads it into each
+   * `colouredOut` (relay) or into none (drain — `colouredOut` empty).
+   */
+  | { readonly kind: 'consume'; readonly inputCol: number; readonly colouredOut: readonly number[] }
   | { readonly kind: 'untouched' };
 
 /** A validated plan for the name-coloured encoding of a budget-bounded ν-net. */
@@ -62,41 +88,101 @@ export interface ColouredPlan {
   readonly coloured: readonly number[];
   /** Per flat place: whether it is coloured. */
   readonly isColoured: readonly boolean[];
-  /** Colour bound — the number of simultaneously-live names (= initial budget). */
+  /** Colour bound — the number of simultaneously-live names (the P-semiflow slot bound). */
   readonly k: number;
-  /** Classification per flat transition (1:1 — the fragment forbids XOR). */
+  /** Classification, one entry per flat transition (XOR branches included). */
   readonly classes: readonly Klass[];
 }
 
 /**
- * Detects whether `net` is in the supported budget-bounded mint→matched-join
- * fragment and, if so, returns the plan for {@link encodeColoured}. Returns
- * `null` otherwise — the verifier then uses the sound over-approximation.
+ * Sound colour-slot bound `k`: a colour is live iff some coloured place holds it, so
+ * `#live colours ≤ Σ_{coloured} M(p) ≤ y·M0` for any non-negative P-semiflow `y`
+ * (`y·C = 0`, `y ≥ 0`) that weights every coloured place `≥ 1`. Returns the tightest
+ * such `y·M0` (each `PInvariant.constant` is `y·M0`), or `null` when no covering
+ * non-negative semiflow exists — the coloured set is then not structurally
+ * token-bounded (a genuine unbounded colour leak) and the caller must fall back.
+ *
+ * Mirrors the Rust reference `colour_slot_bound`.
+ */
+function colourSlotBound(coloured: readonly number[], semiflows: readonly PInvariant[]): number | null {
+  const w = (inv: PInvariant, pid: number): number => inv.weights[pid] ?? 0;
+  const isSemiflow = (inv: PInvariant): boolean => inv.weights.every((x) => x >= 0);
+
+  // Tightest bound: a single non-negative P-semiflow weighting every coloured place.
+  let single: number | null = null;
+  for (const inv of semiflows) {
+    if (isSemiflow(inv) && inv.constant >= 1 && coloured.every((pid) => w(inv, pid) >= 1)) {
+      if (single === null || inv.constant < single) single = inv.constant;
+    }
+  }
+  if (single !== null) return single;
+
+  // Otherwise sum the non-negative semiflows that touch a coloured place — the sum is
+  // itself a valid non-negative P-semiflow. If together they weight every coloured
+  // place, `Σ y·M0` is a sound (looser) bound; if some coloured place stays at weight
+  // 0 across all of them, no non-negative semiflow covers it, so the coloured set is
+  // not structurally token-bounded → null (sound over-approximation).
+  let sumConst = 0;
+  const covered = new Array<boolean>(coloured.length).fill(false);
+  for (const inv of semiflows) {
+    if (!isSemiflow(inv)) continue;
+    let touches = false;
+    for (let i = 0; i < coloured.length; i++) {
+      if (w(inv, coloured[i]!) >= 1) {
+        covered[i] = true;
+        touches = true;
+      }
+    }
+    if (touches) sumConst += inv.constant;
+  }
+  if (covered.every((c) => c) && sumConst >= 1) return sumConst;
+  return null;
+}
+
+/**
+ * Detects whether `net` is in the supported budget-bounded coloured fragment
+ * (mint→matched-join, plus the EXTENDED coloured consumers and carrier places of
+ * [NU-051], with XOR-expanded output branches) and, if so, returns the plan for
+ * {@link encodeColoured}. Returns `null` otherwise — the verifier then uses the
+ * sound over-approximation.
+ *
+ * Each flat row carries a back-reference to its source transition
+ * ({@link FlatTransition.source}); an XOR transition expands to one flat row per
+ * output branch (no 1:1 net↔flat assumption), so we read `matchSpec` from the
+ * source while classifying by the flat row's own incidence.
+ *
+ * `semiflows` are the net's non-negative P-semiflows ({@link computePSemiflows}); a
+ * covering one sets the colour-slot bound `k` (see {@link colourSlotBound}).
  */
 export function buildColouredPlan(
   net: PetriNet,
   flat: FlatNet,
   initial: MarkingState,
   budgetNames: ReadonlySet<string>,
+  fragmentMode: FragmentMode,
+  carrierPlaces: ReadonlySet<string>,
+  semiflows: readonly PInvariant[],
 ): ColouredPlan | null {
   const P = flat.places.length;
 
-  // No XOR: every original transition maps 1:1 to a flat row.
-  if (flat.transitions.length !== [...net.transitions].length) {
-    return null;
-  }
-
-  // 1. Coloured places = union of every matched transition's correlated inputs.
-  //    Read the match spec off each flat row's source transition.
+  // 1. Coloured places = every matched transition's correlated inputs, plus (in
+  //    EXTENDED mode) the declared carrier places that thread a fork-minted name
+  //    through intermediate places to a ν-join input ([NU-051]).
   const isColoured: boolean[] = new Array<boolean>(P).fill(false);
-  for (const ft of flat.transitions) {
-    const ms = ft.source.matchSpec;
+  for (const t of net.transitions) {
+    const ms = t.matchSpec;
     if (ms) {
       for (const key of ms.keys) {
         const pid = flat.placeIndex.get(key.place.name);
         if (pid == null) return null;
         isColoured[pid] = true;
       }
+    }
+  }
+  if (fragmentMode === 'extended') {
+    for (const c of carrierPlaces) {
+      const pid = flat.placeIndex.get(c);
+      if (pid != null) isColoured[pid] = true;
     }
   }
   const coloured: number[] = [];
@@ -108,16 +194,25 @@ export function buildColouredPlan(
     if (initial.tokens(flat.places[pid]!) !== 0) return null;
   }
 
-  // Colour bound k = total initial budget tokens (the live-name ceiling).
+  // Colour-slot bound k: a colour is live iff some coloured place holds it, so
+  // `#live colours ≤ Σ_{coloured} M(p) ≤ y·M0` for any non-negative P-semiflow `y`
+  // weighting every coloured place `≥ 1`. `k` is the tightest such `y·M0`; any
+  // `k ≥ #live` is sound — a larger k only costs O(k) columns, never
+  // under-approximates, since a mint may take any free slot behind the freshness
+  // guard. If no covering non-negative semiflow exists the coloured set is not
+  // structurally token-bounded (a genuine unbounded colour leak), so fall back to the
+  // sound over-approximation. This replaces the old budget-count `k` and both
+  // structural discipline checks (atomic-rejoin + budget-Φ) below.
+  const k = colourSlotBound(coloured, semiflows);
+  if (k === null) return null;
+
+  // Budget places gate minting: a mint must consume ≥1 budget token — that is what
+  // makes it a fresh-name fork rather than an arbitrary coloured producer.
   const budgetIdx = new Set<number>();
   for (const n of budgetNames) {
     const i = flat.placeIndex.get(n);
     if (i != null) budgetIdx.add(i);
   }
-  if (budgetIdx.size === 0) return null;
-  let k = 0;
-  for (const b of budgetIdx) k += initial.tokens(flat.places[b]!);
-  if (k === 0) return null;
 
   // No inhibitor/read/reset/consume-all arc may touch a coloured place.
   for (const ft of flat.transitions) {
@@ -129,7 +224,7 @@ export function buildColouredPlan(
     if (touches) return null;
   }
 
-  // 2. Classify each transition from its flat incidence.
+  // 2. Classify each flat row from its own incidence (matchSpec from its source).
   const classes: Klass[] = [];
   for (const ft of flat.transitions) {
     const colouredIn = coloured.filter((pid) => ft.preVector[pid]! > 0);
@@ -141,9 +236,21 @@ export function buildColouredPlan(
       if (colouredOut.length !== 0 || colouredIn.length === 0) return null;
       if (colouredIn.some((pid) => ft.preVector[pid]! !== 1)) return null;
       classes.push({ kind: 'join', colouredIn });
+    } else if (colouredIn.length !== 0) {
+      // EXTENDED coloured consumer (relay/drain, [NU-051]): a non-match transition
+      // consuming a coloured place. Admitted only in EXTENDED mode, and only when it
+      // consumes EXACTLY ONE coloured input at count EXACTLY ONE (higher counts would
+      // over-count the name layer against the base marking's single token per place).
+      // It relays the name into its coloured outputs (each at count 1) or drains it.
+      if (fragmentMode !== 'extended') return null;
+      if (colouredIn.length !== 1 || ft.preVector[colouredIn[0]!]! !== 1) return null;
+      if (colouredOut.some((o) => ft.postVector[o]! !== 1)) return null;
+      classes.push({ kind: 'consume', inputCol: colouredIn[0]!, colouredOut });
     } else if (colouredOut.length !== 0) {
-      // Minting fork: produces coloured (count 1), consumes none, costs budget.
-      if (colouredIn.length !== 0) return null;
+      // Minting fork: produces coloured (count 1), consumes none, and must consume
+      // ≥1 budget token — that is what makes it a fresh-name fork rather than an
+      // arbitrary coloured producer. (Boundedness is decided by the colour-slot bound
+      // above, not here.)
       if (colouredOut.some((o) => ft.postVector[o]! !== 1)) return null;
       let budgetConsumed = 0;
       for (const b of budgetIdx) budgetConsumed += ft.preVector[b]!;
@@ -151,37 +258,9 @@ export function buildColouredPlan(
       classes.push({ kind: 'mint', colouredOut });
     } else {
       // Touches no coloured place at all.
-      if (colouredIn.length !== 0) return null;
       classes.push({ kind: 'untouched' });
     }
   }
-
-  // 3. Budget discipline: consumed only by mints, produced only by joins, AND
-  //    conserved — a join may not refund MORE budget than the cheapest mint
-  //    consumes, else repeated mint→join cycles inflate the pool above k, the real
-  //    net can hold > k simultaneously-live names, and the k-colour encoding would
-  //    UNDER-approximate and report a false `Proven`. With this bound live colours
-  //    ≤ initial budget = k. Fail-closed (return null → sound over-approx) otherwise.
-  let minMintCost: number | null = null;
-  let maxJoinRefund = 0;
-  for (let ti = 0; ti < classes.length; ti++) {
-    const cls = classes[ti]!;
-    const ft = flat.transitions[ti]!;
-    for (const b of budgetIdx) {
-      if (ft.preVector[b]! > 0 && cls.kind !== 'mint') return null;
-      if (ft.postVector[b]! > 0 && cls.kind !== 'join') return null;
-    }
-    if (cls.kind === 'mint') {
-      let cost = 0;
-      for (const b of budgetIdx) cost += ft.preVector[b]!;
-      minMintCost = minMintCost === null ? cost : Math.min(minMintCost, cost);
-    } else if (cls.kind === 'join') {
-      let refund = 0;
-      for (const b of budgetIdx) refund += ft.postVector[b]!;
-      maxJoinRefund = Math.max(maxJoinRefund, refund);
-    }
-  }
-  if (minMintCost === null || maxJoinRefund > minMintCost) return null;
 
   return { coloured, isColoured, k, classes };
 }
@@ -233,6 +312,10 @@ type Fill = (enab: Bool[], upd: Map<number, Arith>) => void;
  * Encodes the supported ν-net as bounded name-coloured CHC for Z3 Spacer. Reuses
  * {@link EncodingResult}; with the query `(not Error)`, `sat` ⇒ PROVEN, `unsat` ⇒
  * VIOLATED (the Spacer convention shared with the flat encoder).
+ *
+ * Returns `null` when the property names a place that does not resolve in the net
+ * (see {@link encodeViolation}); the verifier reports Unknown rather than certify a
+ * vacuous PROVEN.
  */
 export function encodeColoured(
   ctx: Z3Context,
@@ -242,7 +325,8 @@ export function encodeColoured(
   initial: MarkingState,
   property: SmtProperty,
   invariants: readonly PInvariant[],
-): EncodingResult {
+  sinkPlaces: ReadonlySet<Place<any>> = new Set(),
+): EncodingResult | null {
   const P = flat.places.length;
   const k = plan.k;
   const lay = buildLayout(ctx, plan, P);
@@ -288,7 +372,7 @@ export function encodeColoured(
           }
         });
       }
-    } else {
+    } else if (cls.kind === 'join') {
       const colouredIn = cls.colouredIn;
       for (let c = 0; c < k; c++) {
         const cc = c;
@@ -302,11 +386,33 @@ export function encodeColoured(
           }
         });
       }
+    } else {
+      // EXTENDED coloured consumer: one rule per colour — consume colour cc from
+      // the single coloured input and thread it into each coloured output (relay),
+      // or into none (drain).
+      const inputCol = cls.inputCol;
+      const colouredOut = cls.colouredOut;
+      for (let c = 0; c < k; c++) {
+        const cc = c;
+        addRule(ctx, fp, reachable, lay, plan, invariants, `${ft.name}_consume_${cc}`, (enab, upd) => {
+          uncolouredIncidence(ctx, lay, plan, ft, enab, upd);
+          const icol = lay.colCol[inputCol]![cc]!;
+          enab.push(lay.cur[icol]!.ge(1));
+          upd.set(icol, lay.cur[icol]!.add(-1));
+          for (const o of colouredOut) {
+            const ocol = lay.colCol[o]![cc]!;
+            upd.set(ocol, lay.cur[ocol]!.add(1));
+          }
+        });
+      }
     }
   }
 
-  // Error rule.
-  addErrorRule(ctx, fp, reachable, error, lay, plan, flat, property);
+  // Error rule. `false` ⇒ the property names an unresolved place; refuse to build
+  // a vacuously-provable encoding and let the verifier report Unknown.
+  if (!addErrorRule(ctx, fp, reachable, error, lay, plan, flat, property, sinkPlaces)) {
+    return null;
+  }
 
   return {
     errorExpr: (error as any).call() as Bool,
@@ -423,7 +529,12 @@ function liftedInvariant(
   return sum.eq(inv.constant);
 }
 
-/** Encodes the error rule: a reachable marking that violates the property. */
+/**
+ * Encodes the error rule: a reachable marking that violates the property.
+ * Returns `false` when the property names an unresolved place ({@link encodeViolation}
+ * returned `null`); no rule is added and the caller reports Unknown rather than
+ * certify a vacuous PROVEN.
+ */
 function addErrorRule(
   ctx: Z3Context,
   fp: Z3Fixedpoint,
@@ -433,19 +544,28 @@ function addErrorRule(
   plan: ColouredPlan,
   flat: FlatNet,
   property: SmtProperty,
-): void {
+  sinkPlaces: ReadonlySet<Place<any>>,
+): boolean {
+  const violation = encodeViolation(ctx, plan, lay, flat, property, lay.cur, sinkPlaces);
+  if (violation === null) return false; // unresolved property place → signal Unknown
   const reachBody = (reachable as any).call(...lay.cur) as Bool;
-  const violation = encodeViolation(ctx, plan, lay, flat, property, lay.cur);
   const body = ctx.And(reachBody, violation);
   const head = (error as any).call() as Bool;
   const qRule = ctx.ForAll([...lay.cur], ctx.Implies(body, head));
   fp.addRule(qRule, 'error');
+  return true;
 }
 
 /**
  * Encodes the property-violation condition over the coloured current marking.
- * Only reachability-safety properties are routed here (the verifier guarantees
- * it); quiescence properties yield `false` (no violating state).
+ * Reachability-safety properties compare aggregate place counts; quiescence
+ * properties ([NU-053]) use the colour-aware deadlock predicate.
+ *
+ * Returns `null` when the property names a place that does not resolve in the
+ * net (e.g. a typo'd bound/pending place). A `false` violation term there would
+ * make the Error rule unsatisfiable and yield a **vacuous** PROVEN, silently
+ * certifying a mis-named place; `null` propagates up so the verifier reports
+ * Unknown instead.
  */
 function encodeViolation(
   ctx: Z3Context,
@@ -454,12 +574,13 @@ function encodeViolation(
   flat: FlatNet,
   property: SmtProperty,
   cur: readonly Arith[],
-): Bool {
+  sinkPlaces: ReadonlySet<Place<any>>,
+): Bool | null {
   switch (property.type) {
     case 'place-bound':
     case 'branch-place-bound': {
       const idx = flatNetIndexOf(flat, property.place);
-      if (idx < 0) return ctx.Bool.val(false);
+      if (idx < 0) return null;
       return aggregate(plan, lay, idx, cur).gt(property.bound);
     }
     case 'mutual-exclusion': {
@@ -477,9 +598,171 @@ function encodeViolation(
       if (conds.length === 0) return ctx.Bool.val(false);
       return conds.length === 1 ? conds[0]! : ctx.And(...conds);
     }
-    // Quiescence properties are never routed here.
     case 'deadlock-free':
-    case 'joined-or-dead-lettered':
-      return ctx.Bool.val(false);
+      return encodeColouredDeadlock(ctx, plan, lay, flat, sinkPlaces);
+    case 'joined-or-dead-lettered': {
+      const idx = flatNetIndexOf(flat, property.pending);
+      if (idx < 0) return null;
+      const deadlock = encodeColouredDeadlock(ctx, plan, lay, flat, sinkPlaces);
+      return ctx.And(deadlock, aggregate(plan, lay, idx, cur).ge(1));
+    }
   }
+}
+
+/** Conjunction of `xs` (empty ⇒ `true`), avoiding variadic-spread edge cases. */
+function andAll(ctx: Z3Context, xs: Bool[]): Bool {
+  if (xs.length === 0) return ctx.Bool.val(true);
+  let r = xs[0]!;
+  for (let i = 1; i < xs.length; i++) r = ctx.And(r, xs[i]!);
+  return r;
+}
+
+/** Disjunction of `xs` (empty ⇒ `false`). */
+function orAll(ctx: Z3Context, xs: Bool[]): Bool {
+  if (xs.length === 0) return ctx.Bool.val(false);
+  let r = xs[0]!;
+  for (let i = 1; i < xs.length; i++) r = ctx.Or(r, xs[i]!);
+  return r;
+}
+
+/** Maps injected environment-place index -> injection bound (null = unbounded). */
+function injectedEnvIndices(flat: FlatNet): Map<number, number | null> {
+  const out = new Map<number, number | null>();
+  for (const [name, bound] of flat.environmentInjection) {
+    const idx = flat.placeIndex.get(name);
+    if (idx != null) out.set(idx, bound);
+  }
+  return out;
+}
+
+/**
+ * The uncoloured disable reasons for a flat row: marking-dependent clauses (any one
+ * true ⇒ the transition's uncoloured part is unmet), plus a flag that it is
+ * permanently disabled (an env cap below the demand means it can never fire).
+ * Coloured places are excluded — their enablement is the per-class colour term.
+ * Mirrors the flat {@link module:smt-encoder} deadlock with the same env relaxation.
+ */
+function uncolouredDisable(
+  ft: FlatTransition,
+  lay: Layout,
+  plan: ColouredPlan,
+  envInj: Map<number, number | null>,
+): { reasons: Bool[]; permanentlyDisabled: boolean } {
+  const reasons: Bool[] = [];
+  let permanentlyDisabled = false;
+  const P = ft.preVector.length;
+  for (let i = 0; i < P; i++) {
+    if (plan.isColoured[i] || ft.preVector[i]! === 0) continue;
+    if (envInj.has(i)) {
+      const bound = envInj.get(i)!;
+      if (bound !== null && ft.preVector[i]! > bound) permanentlyDisabled = true;
+      continue;
+    }
+    reasons.push(lay.cur[lay.colUnc[i]!]!.lt(ft.preVector[i]!));
+  }
+  for (const inh of ft.inhibitorPlaces) {
+    reasons.push(lay.cur[lay.colUnc[inh]!]!.gt(0));
+  }
+  for (const rd of ft.readPlaces) {
+    if (envInj.has(rd)) {
+      const bound = envInj.get(rd)!;
+      if (bound !== null && bound < 1) permanentlyDisabled = true;
+      continue;
+    }
+    reasons.push(lay.cur[lay.colUnc[rd]!]!.lt(1));
+  }
+  return { reasons, permanentlyDisabled };
+}
+
+/**
+ * The colour-specific "disabled for every colour" term for a class (`null` if the
+ * class imposes no coloured enablement constraint). Combined by the caller with the
+ * uncoloured disable reasons: the transition is disabled if EITHER holds.
+ */
+function colouredDisabledTerm(ctx: Z3Context, cls: Klass, plan: ColouredPlan, lay: Layout): Bool | null {
+  const k = plan.k;
+  switch (cls.kind) {
+    case 'untouched':
+      return null;
+    case 'mint': {
+      // No globally-fresh colour: for every colour c, some coloured place holds c.
+      const perColour: Bool[] = [];
+      for (let c = 0; c < k; c++) {
+        const present = plan.coloured.map((q) => lay.cur[lay.colCol[q]![c]!]!.ge(1));
+        perColour.push(orAll(ctx, present));
+      }
+      return andAll(ctx, perColour);
+    }
+    case 'join': {
+      // No colour is shared by all correlated inputs: for every colour c, some
+      // input lacks c.
+      const perColour: Bool[] = [];
+      for (let c = 0; c < k; c++) {
+        const missing = cls.colouredIn.map((i) => lay.cur[lay.colCol[i]![c]!]!.eq(0));
+        perColour.push(orAll(ctx, missing));
+      }
+      return andAll(ctx, perColour);
+    }
+    case 'consume': {
+      // No colour present at the single coloured input.
+      const perColour: Bool[] = [];
+      for (let c = 0; c < k; c++) {
+        perColour.push(lay.cur[lay.colCol[cls.inputCol]![c]!]!.eq(0));
+      }
+      return andAll(ctx, perColour);
+    }
+  }
+}
+
+/**
+ * Colour-aware deadlock predicate ([NU-053]): every transition is disabled (no
+ * colour enables it) and the marking is not a sink state. Mirrors the flat
+ * {@link module:smt-encoder}'s `encodeDeadlock` with the same env-injection
+ * relaxation (VER-006), lifted to the coloured layout.
+ */
+function encodeColouredDeadlock(
+  ctx: Z3Context,
+  plan: ColouredPlan,
+  lay: Layout,
+  flat: FlatNet,
+  sinkPlaces: ReadonlySet<Place<any>>,
+): Bool {
+  const envInj = injectedEnvIndices(flat);
+  const disabledConditions: Bool[] = [];
+  for (let ti = 0; ti < plan.classes.length; ti++) {
+    const cls = plan.classes[ti]!;
+    const ft = flat.transitions[ti]!;
+    const { reasons, permanentlyDisabled } = uncolouredDisable(ft, lay, plan, envInj);
+    if (permanentlyDisabled) {
+      // The transition can never fire — it is always "disabled".
+      disabledConditions.push(ctx.Bool.val(true));
+      continue;
+    }
+    const term = colouredDisabledTerm(ctx, cls, plan, lay);
+    if (term !== null) reasons.push(term);
+    if (reasons.length === 0) {
+      // Always enabled (possibly via injection) — no marking is a deadlock.
+      return ctx.Bool.val(false);
+    }
+    disabledConditions.push(reasons.length === 1 ? reasons[0]! : orAll(ctx, reasons));
+  }
+
+  // Not a sink state: some non-sink place still holds a token (aggregate count).
+  const sinkIndices = new Set<number>();
+  for (const sink of sinkPlaces) {
+    const idx = flatNetIndexOf(flat, sink);
+    if (idx >= 0) sinkIndices.add(idx);
+  }
+  if (sinkIndices.size > 0) {
+    const nonSink: Bool[] = [];
+    for (let pid = 0; pid < flat.places.length; pid++) {
+      if (sinkIndices.has(pid)) continue;
+      nonSink.push(aggregate(plan, lay, pid, lay.cur).ge(1));
+    }
+    if (nonSink.length > 0) {
+      disabledConditions.push(orAll(ctx, nonSink));
+    }
+  }
+
+  return andAll(ctx, disabledConditions);
 }

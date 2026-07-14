@@ -42,8 +42,8 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | [09-export.md](09-export.md) | EXP | Graph export, formal interchange | 17 |
 | [10-performance.md](10-performance.md) | PERF | Scaling, benchmarks, memory efficiency, flat-array executor performance | 14 |
 | [11-modular-composition.md](11-modular-composition.md) | MOD | Open-net subnet definition, instantiation, port composition, channel fusion, action binding per instance, place fusion | 26 |
-| [12-nu-nets.md](12-nu-nets.md) | NU | Token name identity, fresh-name minting (ν-binder/fork), join by name equality, bounded-budget decidability ledger | 10 |
-| **Total** | | | **204** |
+| [12-nu-nets.md](12-nu-nets.md) | NU | Token name identity, fresh-name minting (ν-binder/fork), join by name equality, bounded-budget decidability ledger | 12 |
+| **Total** | | | **206** |
 
 > **IO-006** (Input Guard Predicate) was removed (see [IO-006]); it is retained as a
 > struck-through tombstone for traceability and is **excluded** from the active count.
@@ -256,6 +256,8 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | NU-040 | Bounded Budget and Decidability | SHOULD | VER-002, EXEC-040, NU-010, NU-020 |
 | NU-050 | Exact Verification of Matched Transitions | MAY | VER-004, NU-020, NU-040 |
 | NU-051 | EXTENDED Coloured-Consumer Fragment | MAY | NU-050, VER-012, NU-020 |
+| NU-052 | Conflict-Only Priority for Route B | MAY | VER-012, NU-050, NU-020 |
+| NU-053 | EXTENDED-Coloured Quiescence in Route A SMT | MAY | NU-050, NU-051, VER-004, VER-012 |
 | NU-060 | Match-Arc Composition | SHOULD | MOD-021, NU-020 |
 
 ### PERF — Performance
@@ -314,7 +316,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 |----------|-------|-------------|
 | MUST     | 140   | Core contract; all implementations must conform |
 | SHOULD   | 53    | Recommended; implementations should include unless technically infeasible |
-| MAY      | 11    | Optional; implementations may include |
+| MAY      | 13    | Optional; implementations may include |
 
 ---
 
@@ -421,6 +423,8 @@ This matrix maps spec requirements to test classes/files in each implementation.
 | MOD-060 | `FusionSetTest#fusionSet_firstMemberIsCanonical`, `fusionSet_typeHomogeneity_enforced`, `fusionSet_emptySet_throws`, `fusionSet_of_factoryConvenience` | `fusion-set.test.ts > firstMemberIsCanonical`, `> emptySet_throws`, `> singleMember_isValid`, `> of_factoryConvenience` | `fusion::tests::fusion_set_first_member_is_canonical`, `fusion_set_empty_panics`, `fusion_set_single_member_is_valid`, `fusion_set_of_factory` |
 | MOD-061 | `FusionTest#fuse_substitutesNonCanonicalInArcs`, `fuse_chained_threeBucketsShareLimiter`, `fuse_runsAfterCompose`, `fuse_andCompose_orthogonality` | `fusion.test.ts > fuse_substitutesNonCanonicalInArcs`, `> fuse_chained_threeBucketsShareLimiter`, `> fuse_runsAfterCompose`, `> fuse_andCompose_orthogonality` | `fusion::fuse_substitutes_non_canonical_in_arcs`, `fuse_chained_three_buckets_share_limiter`, `fuse_runs_after_compose`, `fuse_and_compose_orthogonality` |
 | NU-001–060 | `AbstractNetExecutorEngineTest#nuJoin_matchesByName_notFifo`, `nuJoin_blocksWithoutMatchingName`, `nuFork_mintsUniqueIds_thenJoinMerges` (all 3 executors) | `nu-net.test.ts > join matches by name, not FIFO` (+ siblings, both executors) | `backend_suite_tests::nu_join_matches_by_name_not_fifo`, `nu_join_blocks_without_matching_name`, `nu_fork_mints_unique_ids_then_join_merges` (both backends); Python `test_nu_net.py` |
+| NU-052 | `NuScgPriorityTest` | `name-scg-priority.test.ts` | `nu_scg_verifier::tests` (priority); Python `test_nu_verification.py` |
+| NU-053 | `SmtVerifierTest` (Route A quiescence) | `smt-verifier.test.ts` (Route A quiescence) | `name_coloured_encoder::tests`, `smt_verifier::tests` (nu053); Python `test_nu_verification.py` |
 
 ---
 

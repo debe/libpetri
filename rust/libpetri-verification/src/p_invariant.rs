@@ -119,6 +119,143 @@ pub fn compute_p_invariants(
     invariants
 }
 
+/// Computes the minimal **P-semiflows** — non-negative place weightings `y` with
+/// `y·C = 0` — via the Colom–Silva / Farkas method. Unlike [`compute_p_invariants`]
+/// (a signed null-space basis), every returned `PInvariant.weights` is non-negative, a
+/// genuine P-semiflow, with `constant = y·M0`. A non-negative conservation law soundly
+/// **bounds** the token sum over its support: `Σ_{support} M(p) ≤ y·M0`. Used to bound
+/// the number of simultaneously-live colours in the name-coloured encoder.
+pub fn compute_p_semiflows(
+    matrix: &IncidenceMatrix,
+    initial_marking: &MarkingState,
+    place_names: &[String],
+) -> Vec<PInvariant> {
+    let np = matrix.place_count;
+    let nt = matrix.transition_count;
+    if np == 0 {
+        return Vec::new();
+    }
+
+    // Each generator row = (signature over transitions, non-negative weight over
+    // places). Start with one row per place: signature = that place's column of C,
+    // weight = e_p. Eliminate one transition column at a time using only non-negative
+    // combinations, so the accumulated weights stay non-negative.
+    let mut rows: Vec<(Vec<i64>, Vec<i64>)> = (0..np)
+        .map(|p| {
+            let sig: Vec<i64> = (0..nt).map(|t| matrix.incidence[t][p]).collect();
+            let mut weight = vec![0i64; np];
+            weight[p] = 1;
+            (sig, weight)
+        })
+        .collect();
+
+    for t in 0..nt {
+        let mut next: Vec<(Vec<i64>, Vec<i64>)> =
+            rows.iter().filter(|r| r.0[t] == 0).cloned().collect();
+        let pos: Vec<&(Vec<i64>, Vec<i64>)> = rows.iter().filter(|r| r.0[t] > 0).collect();
+        let neg: Vec<&(Vec<i64>, Vec<i64>)> = rows.iter().filter(|r| r.0[t] < 0).collect();
+        for rp in &pos {
+            for rn in &neg {
+                let cp = -rn.0[t]; // > 0
+                let cn = rp.0[t]; // > 0
+                // Checked combination: on i64 overflow, DROP this generator rather than
+                // push a wrapped (invalid, non-`y·C=0`) row. Dropping it can at worst
+                // lose a covering semiflow, which makes `colour_slot_bound` fall back to
+                // the sound over-approximation — never an under-approximation.
+                let (Some(mut sig), Some(mut weight)) =
+                    (combine_row(cp, &rp.0, cn, &rn.0), combine_row(cp, &rp.1, cn, &rn.1))
+                else {
+                    continue;
+                };
+                reduce_gcd(&mut sig, &mut weight);
+                next.push((sig, weight));
+            }
+        }
+        rows = keep_support_minimal(next);
+        rows.truncate(8192); // safety backstop against a combinatorial blow-up
+    }
+
+    rows.into_iter()
+        .filter(|(_, w)| w.iter().any(|&x| x != 0))
+        .filter_map(|(_, weights)| {
+            // Checked `constant = Σ weight·M0`; on overflow drop this semiflow (fewer
+            // covering semiflows → sound fallback, never a wrong bound).
+            let mut constant: i64 = 0;
+            for p in 0..np {
+                let term = weights[p].checked_mul(initial_marking.count(&place_names[p]) as i64)?;
+                constant = constant.checked_add(term)?;
+            }
+            let support: Vec<usize> = (0..np).filter(|&p| weights[p] != 0).collect();
+            Some(PInvariant {
+                weights,
+                constant,
+                support,
+            })
+        })
+        .collect()
+}
+
+/// `cp*a + cn*b` componentwise, or `None` on i64 overflow — so the caller drops the
+/// generator and the colour bound falls back soundly rather than using wrapped values.
+fn combine_row(cp: i64, a: &[i64], cn: i64, b: &[i64]) -> Option<Vec<i64>> {
+    a.iter()
+        .zip(b)
+        .map(|(&x, &y)| {
+            let p1 = cp.checked_mul(x)?;
+            let p2 = cn.checked_mul(y)?;
+            p1.checked_add(p2)
+        })
+        .collect()
+}
+
+/// Divides a (signature, weight) pair by the gcd of all its entries to keep the
+/// integers small during elimination.
+fn reduce_gcd(sig: &mut [i64], weight: &mut [i64]) {
+    let mut g = 0u64;
+    for &v in sig.iter().chain(weight.iter()) {
+        g = gcd(g, v.unsigned_abs());
+    }
+    if g > 1 {
+        let g = g as i64;
+        for v in sig.iter_mut() {
+            *v /= g;
+        }
+        for v in weight.iter_mut() {
+            *v /= g;
+        }
+    }
+}
+
+/// Drops any row whose weight-support is a strict superset of another's — a non-minimal
+/// combination that only inflates the set (and can cause combinatorial blow-up).
+fn keep_support_minimal(rows: Vec<(Vec<i64>, Vec<i64>)>) -> Vec<(Vec<i64>, Vec<i64>)> {
+    let supports: Vec<Vec<usize>> = rows
+        .iter()
+        .map(|(_, w)| (0..w.len()).filter(|&i| w[i] != 0).collect())
+        .collect();
+    let mut keep = vec![true; rows.len()];
+    for i in 0..rows.len() {
+        if !keep[i] {
+            continue;
+        }
+        for j in 0..rows.len() {
+            if i == j || !keep[j] {
+                continue;
+            }
+            if supports[j].len() < supports[i].len()
+                && supports[j].iter().all(|p| supports[i].contains(p))
+            {
+                keep[i] = false;
+                break;
+            }
+        }
+    }
+    rows.into_iter()
+        .zip(keep)
+        .filter_map(|(r, k)| if k { Some(r) } else { None })
+        .collect()
+}
+
 /// Checks if all places are covered by at least one P-invariant.
 pub fn is_covered_by_invariants(invariants: &[PInvariant], place_count: usize) -> bool {
     let mut covered = vec![false; place_count];

@@ -12,6 +12,7 @@ use crate::name_fragment::FragmentMode;
 use crate::net_flattener::{self, FlatNet};
 use crate::nu_scg_verifier;
 use crate::p_invariant;
+use crate::priority_semantics::PrioritySemantics;
 use crate::property::SmtProperty;
 use crate::result::{Verdict, VerificationResult, VerificationStatistics};
 use crate::smt_encoder;
@@ -53,6 +54,12 @@ pub struct SmtVerifier<'a> {
     /// `FragmentMode::Base`. An unknown name (not in the net) surfaces as
     /// `Unknown` from [`SmtVerifier::verify`], never a silent fall-back.
     carrier_places: HashSet<String>,
+    /// How the ν-aware Route B analyzer treats transition priority ([NU-052]).
+    /// [`PrioritySemantics::None`] (default) is the priority-blind
+    /// over-approximation; [`PrioritySemantics::Conflict`] prunes a lower-priority
+    /// firing pre-empted by a conflicting, no-later-ready, strictly-higher-priority
+    /// one.
+    priority_semantics: PrioritySemantics,
 }
 
 impl<'a> SmtVerifier<'a> {
@@ -70,6 +77,7 @@ impl<'a> SmtVerifier<'a> {
             nu_max_classes: 100_000,
             fragment_mode: FragmentMode::Base,
             carrier_places: HashSet::new(),
+            priority_semantics: PrioritySemantics::None,
         }
     }
 
@@ -163,6 +171,18 @@ impl<'a> SmtVerifier<'a> {
         self
     }
 
+    /// Selects how the Route-B name-aware analyzer treats transition priority
+    /// ([NU-052]). Defaults to [`PrioritySemantics::None`] (priority-blind
+    /// over-approximation). [`PrioritySemantics::Conflict`] models the executor's
+    /// conflict-only priority resolution, so a lower-priority transition pre-empted
+    /// by a conflicting, no-later-ready, strictly-higher-priority one is not
+    /// explored — removing spurious dead-letter-drain stalls the eager,
+    /// priority-ordered executor never produces.
+    pub fn priority_semantics(mut self, semantics: PrioritySemantics) -> Self {
+        self.priority_semantics = semantics;
+        self
+    }
+
     /// Runs the verification pipeline.
     ///
     /// Returns a result with verdict, report, and diagnostics.
@@ -209,8 +229,17 @@ impl<'a> SmtVerifier<'a> {
                 self.nu_max_classes,
                 self.fragment_mode,
                 &carrier_set,
+                self.priority_semantics,
             );
-            if let Some(outcome) = scg_outcome {
+            // Route B truncating to Unknown on a bounded quiescence ν-net is not the
+            // final word: defer to the scalable Route A coloured IC3/PDR encoder
+            // ([NU-053]) below instead of returning Unknown here.
+            let defer_to_route_a = scg_outcome.as_ref().is_some_and(|o| {
+                matches!(o.verdict, Verdict::Unknown { .. })
+                    && !is_reachability_safety(&self.property)
+                    && nu_bounded
+            });
+            if let Some(outcome) = scg_outcome.filter(|_| !defer_to_route_a) {
                 let elapsed_ms = start.elapsed().as_millis() as u64;
                 report.push_str("=== ν-net Route B: name-aware state-class graph (NU-050) ===\n");
                 report.push_str(&format!("Property: {}\n", self.property.description()));
@@ -242,12 +271,17 @@ impl<'a> SmtVerifier<'a> {
                         structural_result: "n/a (ν name-partition SCG)".into(),
                     },
                 };
+            } else if defer_to_route_a {
+                report.push_str(
+                    "ν-net Route B inconclusive (name-partition truncated); deferring to \
+                     Route A coloured IC3/PDR ([NU-053]).\n",
+                );
             }
             // EXTENDED was requested but the net is outside the coloured-consumer
             // fragment (classify declined). Surface a short note instead of a
             // silent cliff, then verify via the sound over-approximation below
             // ([NU-051], §5 diagnosability).
-            if self.fragment_mode == FragmentMode::Extended {
+            if self.fragment_mode == FragmentMode::Extended && !defer_to_route_a {
                 report.push_str(
                     "ν-net Route B (EXTENDED) declined: net outside coloured-consumer fragment \
                      (a coloured place consumed count != 1 or by multiple inputs, carries a \
@@ -344,6 +378,11 @@ impl<'a> SmtVerifier<'a> {
         let matrix = IncidenceMatrix::from_flat_net(&flat, &env_inject_indices);
         let invariants =
             p_invariant::compute_p_invariants(&matrix, &self.initial_marking, &flat.places);
+        // P-semiflows (non-negative conservation laws) bound the simultaneously-live
+        // colour count that sets the name-coloured encoder's slot count `k`
+        // (see build_plan / colour_slot_bound).
+        let semiflows =
+            p_invariant::compute_p_semiflows(&matrix, &self.initial_marking, &flat.places);
         report.push_str(&format!("Found {} P-invariant(s)\n", invariants.len()));
 
         for (i, inv) in invariants.iter().enumerate() {
@@ -380,15 +419,18 @@ impl<'a> SmtVerifier<'a> {
         // in the supported mint→matched-join fragment, encode names as a finite
         // colour set (k = the declared budget) with exact same-colour join
         // matching, instead of the name-blind over-approximation — this rules out
-        // spurious counterexamples that would equate two distinct names. Only
-        // reachability-safety properties are routed here; everything else (and
-        // any net outside the fragment) keeps the flat encoding.
-        let coloured_plan = if has_match && nu_bounded && is_reachability_safety(&self.property) {
+        // spurious counterexamples that would equate two distinct names.
+        // Reachability-safety AND quiescence ([NU-053]) properties are both routed
+        // here; a net outside the fragment keeps the flat encoding.
+        let coloured_plan = if has_match && nu_bounded {
             name_coloured_encoder::build_plan(
                 self.net,
                 &flat,
                 &self.initial_marking,
                 &self.budget_places,
+                self.fragment_mode,
+                &self.carrier_places,
+                &semiflows,
             )
         } else {
             None
@@ -400,13 +442,47 @@ impl<'a> SmtVerifier<'a> {
                 plan.k,
                 plan.coloured.len()
             ));
-            name_coloured_encoder::encode_coloured(
+            let env_inject_idx: Vec<(usize, Option<usize>)> = env_injection
+                .iter()
+                .filter_map(|(name, b)| flat.place_index.get(name).map(|&pid| (pid, *b)))
+                .collect();
+            match name_coloured_encoder::encode_coloured(
                 plan,
                 &flat,
                 &self.initial_marking,
                 &self.property,
                 &invariants,
-            )
+                &self.sink_places,
+                &env_inject_idx,
+            ) {
+                Some(enc) => enc,
+                None => {
+                    // The property names a place that does not resolve in the net
+                    // (e.g. a typo'd bound/pending place). Emitting the encoding
+                    // anyway would certify a vacuous `Proven`; refuse and report
+                    // Unknown so a mis-named place never silently certifies.
+                    let reason = "property names a place that does not resolve in the net; \
+                        refusing to certify (the encoding would be vacuously Proven)"
+                        .to_string();
+                    report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
+                    let elapsed_ms = start.elapsed().as_millis() as u64;
+                    return VerificationResult {
+                        verdict: Verdict::Unknown { reason },
+                        report,
+                        invariants: invariants.clone(),
+                        discovered_invariants: Vec::new(),
+                        counterexample_trace: Vec::new(),
+                        counterexample_transitions: Vec::new(),
+                        elapsed_ms,
+                        statistics: VerificationStatistics {
+                            places: flat.place_count,
+                            transitions: flat.transitions.len(),
+                            invariants_found: invariants.len(),
+                            structural_result: structural_str.into(),
+                        },
+                    };
+                }
+            }
         } else {
             smt_encoder::encode(
                 &flat,
@@ -443,11 +519,24 @@ impl<'a> SmtVerifier<'a> {
         // contains match (ν-join) transitions, and only to a Proven/Violated
         // verdict (an existing Unknown is left as-is).
         if has_match && !matches!(verdict, Verdict::Unknown { .. }) {
-            if !is_reachability_safety(&self.property) {
-                // Quiescence-based properties: the name-blind over-approximation
-                // over-fires joins, so it sees fewer quiescent states and may
-                // miss a real stranded marking. Refuse to certify — exact
-                // quiescence reasoning over names is deferred to the SCG
+            if coloured_plan.is_some() {
+                // Exact path (NU-050 #1 / NU-053, Route A): name equality is encoded
+                // exactly via bounded name-colouring, so the verdict is sound AND
+                // complete within the budget bound — no spurious different-name
+                // counterexample. This holds for reachability-safety AND quiescence
+                // (deadlock / joined-or-dead-lettered), so the quiescence downgrade
+                // below does NOT apply when an exact coloured plan was used — the
+                // colour-aware deadlock encoding does not over-fire joins.
+                report.push_str(
+                    "Note: ν-join name equality is encoded exactly via bounded name-colouring \
+                     (k = budget); the verdict is sound and complete within the budget bound — \
+                     no spurious different-name counterexample (NU-050 #1 / NU-053).\n",
+                );
+            } else if !is_reachability_safety(&self.property) {
+                // Quiescence-based properties, name-blind (no coloured plan): the
+                // over-approximation over-fires joins, so it sees fewer quiescent
+                // states and may miss a real stranded marking. Refuse to certify —
+                // exact quiescence reasoning over names is deferred to the SCG
                 // name-partition quotient (NU-050 #1).
                 let reason = "ν-matching transitions present and the property depends on \
                     quiescence (deadlock / joined-or-dead-lettered); the name-blind \
@@ -467,16 +556,6 @@ impl<'a> SmtVerifier<'a> {
                     .to_string();
                 report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
                 verdict = Verdict::Unknown { reason };
-            } else if coloured_plan.is_some() {
-                // Exact path (NU-050 #1, Route A): name equality is encoded
-                // exactly via bounded name-colouring, so the verdict is sound AND
-                // complete within the budget bound — no spurious different-name
-                // counterexample. Both `Proven` and `Violated` are trustworthy.
-                report.push_str(
-                    "Note: ν-join name equality is encoded exactly via bounded name-colouring \
-                     (k = budget); the verdict is sound and complete within the budget bound — \
-                     no spurious different-name counterexample (NU-050 #1).\n",
-                );
             } else {
                 // Bounded reachability-safety, but outside the name-coloured
                 // fragment: `Proven` is sound. A `Violated` counterexample may be
@@ -984,6 +1063,174 @@ mod tests {
             "a bounded ν-net in the supported fragment uses the exact name-coloured encoding\n{}",
             result.report
         );
+    }
+
+    // === NU-053: Route A coloured quiescence (EXTENDED + deadlock encoding) ===
+
+    /// A single-turn co-mint→join net: `fork` consumes `source` + `budget` and
+    /// co-mints one fresh name into join inputs `a` and `b`; `join` correlates them
+    /// into `merged` and refunds `budget`. The only quiescent marking holds just the
+    /// sinks {merged, budget}, so it is deadlock-free.
+    fn nu053_no_stall_net() -> PetriNet {
+        use libpetri_core::match_spec::MatchSpec;
+        use libpetri_core::name::NameId;
+        use libpetri_core::output::and;
+
+        let source = Place::<()>::new("source");
+        let budget = Place::<()>::new("budget");
+        let a = Place::<String>::new("a");
+        let b = Place::<String>::new("b");
+        let merged = Place::<String>::new("merged");
+
+        let fork = Transition::builder("fork")
+            .input(one(&source))
+            .input(one(&budget))
+            .output(and(vec![out_place(&a), out_place(&b)]))
+            .build();
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |s: &String| NameId::new(s.clone()))
+                    .key(&b, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(and(vec![out_place(&merged), out_place(&budget)]))
+            .build();
+        PetriNet::builder("nu053_no_stall")
+            .transitions([fork, join])
+            .build()
+    }
+
+    /// The no-stall net plus an EXTENDED drain that steals `a` into a dead-letter,
+    /// stranding `b`: an unprioritised schedule can reach a quiescent marking where
+    /// the non-sink `b` still holds a token, so it is NOT deadlock-free.
+    fn nu053_steal_net() -> PetriNet {
+        use libpetri_core::match_spec::MatchSpec;
+        use libpetri_core::name::NameId;
+        use libpetri_core::output::and;
+
+        let source = Place::<()>::new("source");
+        let budget = Place::<()>::new("budget");
+        let a = Place::<String>::new("a");
+        let b = Place::<String>::new("b");
+        let merged = Place::<String>::new("merged");
+        let deadletter = Place::<String>::new("deadletter");
+
+        let fork = Transition::builder("fork")
+            .input(one(&source))
+            .input(one(&budget))
+            .output(and(vec![out_place(&a), out_place(&b)]))
+            .build();
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |s: &String| NameId::new(s.clone()))
+                    .key(&b, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(and(vec![out_place(&merged), out_place(&budget)]))
+            .build();
+        let drain = Transition::builder("drain")
+            .input(one(&a))
+            .output(out_place(&deadletter))
+            .build();
+        PetriNet::builder("nu053_steal")
+            .transitions([fork, join, drain])
+            .build()
+    }
+
+    fn nu053_seed() -> MarkingState {
+        MarkingStateBuilder::new()
+            .tokens("source", 1)
+            .tokens("budget", 1)
+            .build()
+    }
+
+    #[test]
+    fn nu053_route_a_proves_deadlock_free_when_route_b_truncates() {
+        if !z3_available() {
+            eprintln!("skipping nu053_route_a_proves_*: z3 binary not on PATH");
+            return;
+        }
+        // nu_max_classes = 1 forces Route B to truncate, so the bounded quiescence
+        // proof defers to the Route A coloured IC3/PDR encoder ([NU-053]).
+        let net = nu053_no_stall_net();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(nu053_seed())
+            .property(SmtProperty::DeadlockFree)
+            .sink_places(["merged".to_string(), "budget".to_string()])
+            .budget_place("budget")
+            .nu_max_classes(1)
+            .timeout(15_000)
+            .verify();
+        assert!(
+            result.report.contains("Route A"),
+            "expected the proof to defer to Route A\n{}",
+            result.report
+        );
+        assert!(
+            result.is_proven(),
+            "Route A must prove the co-mint→join net deadlock-free\n{}",
+            result.report
+        );
+    }
+
+    #[test]
+    fn nu053_route_a_detects_stranding_deadlock() {
+        if !z3_available() {
+            eprintln!("skipping nu053_route_a_detects_*: z3 binary not on PATH");
+            return;
+        }
+        // The EXTENDED drain can steal `a` and strand `b` under an unprioritised
+        // schedule — a genuine reachable deadlock the coloured encoding must catch.
+        let net = nu053_steal_net();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(nu053_seed())
+            .property(SmtProperty::DeadlockFree)
+            .sink_places([
+                "merged".to_string(),
+                "budget".to_string(),
+                "deadletter".to_string(),
+            ])
+            .budget_place("budget")
+            .fragment_mode(FragmentMode::Extended)
+            .nu_max_classes(1)
+            .timeout(15_000)
+            .verify();
+        assert!(
+            result.is_violated(),
+            "Route A must detect the drain-steal stranding as a deadlock\n{}",
+            result.report
+        );
+    }
+
+    #[test]
+    fn nu053_route_a_agrees_with_route_b_on_no_stall() {
+        if !z3_available() {
+            eprintln!("skipping nu053_route_a_agrees_*: z3 binary not on PATH");
+            return;
+        }
+        // Differential: Route B (exact SCG, default class bound) and Route A (forced
+        // via a tiny class bound) must agree that the net is deadlock-free.
+        let net = nu053_no_stall_net();
+        let build = |max_classes: usize| {
+            SmtVerifier::for_net(&net)
+                .initial_marking(nu053_seed())
+                .property(SmtProperty::DeadlockFree)
+                .sink_places(["merged".to_string(), "budget".to_string()])
+                .budget_place("budget")
+                .nu_max_classes(max_classes)
+                .timeout(15_000)
+                .verify()
+        };
+        let route_b = build(100_000);
+        let route_a = build(1);
+        assert!(route_b.is_proven(), "Route B must prove no-stall\n{}", route_b.report);
+        assert!(route_a.is_proven(), "Route A must prove no-stall\n{}", route_a.report);
     }
 
     #[test]
