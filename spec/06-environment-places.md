@@ -208,3 +208,61 @@ periodic external persistence of in-flight state) without interrupting the run.
 (`ExecutorHandle.snapshot`) implemented; Java/TypeScript pending.
 **Test derivation:** Start a long-running net; call `snapshot()` mid-execution; verify the returned
 marking reflects current state and the executor continues; call after `close()` and verify rejection.
+
+---
+
+#### ENV-015: Immediate Termination
+
+**Priority:** MAY
+
+An implementation MAY provide an immediate-termination operation (`terminateNow()`) that stops the
+orchestrator loop **without** waiting for in-flight actions, unlike `close()` ([ENV-013]) which lets
+them complete. After it is invoked:
+1. New `inject()` calls are rejected (return error / false), as after [ENV-013].
+2. Queued external events are discarded (completed with false).
+3. The loop stops at the end of its current cycle; it does NOT wait for in-flight actions, and their
+   results are discarded rather than admitted to the marking.
+4. In-flight actions keep running where the runtime cannot cancel them ([IO-013]); their consumed
+   tokens are lost ([EXEC-031]).
+
+It is an explicit escape hatch and MUST NOT be invoked implicitly by `close()`.
+
+**Acceptance Criteria:**
+1. `terminateNow()` stops the loop without awaiting an outstanding in-flight action.
+2. The in-flight action's eventual output is not admitted to the marking.
+3. `inject()` after `terminateNow()` returns error / false, does not hang.
+
+**Depends on:** [ENV-013]
+**Status:** Proposed
+**Implementation status:** Java implemented; Rust/TypeScript/Python pending.
+**Test derivation:** Start a net with a gated in-flight action; call `terminateNow()`; verify the loop
+terminates without releasing the gate and the action's output never reaches the marking.
+
+---
+
+#### ENV-016: Observable Termination
+
+**Priority:** MAY
+
+An implementation MAY provide `awaitTermination(timeout)`, which blocks until the orchestrator loop
+has finished its termination bookkeeping (pending `inject()` futures completed, `ExecutionCompleted`
+emitted), returning whether termination was observed within the timeout. It returns promptly when the
+loop was never started, and it MUST NOT itself be defeated by a failure in that bookkeeping (for
+example a throwing event store).
+
+Independently, run-with-timeout ([EXEC] `run(timeout)`) MAY expose a policy for what happens to the
+loop when the caller's timeout expires: *abandon* (leave the loop running — the historical default,
+rarely desirable) or *close* (stop it per [ENV-013]). The expiry of the caller's timeout MUST NOT
+complete the loop's own result: an abandoned loop can still report its real final marking.
+
+**Acceptance Criteria:**
+1. `awaitTermination` returns false while the loop is still running, true once it has stopped.
+2. `awaitTermination` returns promptly (true) if the loop was never started.
+3. Under a *close* policy the loop is stopped on timeout; under *abandon* it keeps running.
+
+**Depends on:** [ENV-013]
+**Status:** Proposed
+**Implementation status:** Java implemented; Rust/TypeScript/Python pending.
+**Test derivation:** Run a net that will not quiesce with a short timeout under each policy; verify the
+loop is stopped under *close* and still live under *abandon*, and that `awaitTermination` reports the
+transition.

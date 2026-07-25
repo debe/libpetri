@@ -87,7 +87,7 @@
  *
  * // 4. Execute with initial tokens
  * var initial = Map.of(request, List.of(Token.of(new UserRequest("data"))));
- * try (var executor = NetExecutor.create(net, initial)) {
+ * try (var executor = BitmapNetExecutor.builder(net, initial).build()) {
  *     Marking result = executor.run();
  *     ApiResponse resp = result.peekFirst(response).value();
  * }

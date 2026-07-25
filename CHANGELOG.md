@@ -1,5 +1,30 @@
 # Changelog
 
+## Java 2.13.0 — unreleased
+
+**Executor hardening: failure containment, timeout isolation, observable lifecycle, safe cross-thread `marking()`.**
+
+Three defects could kill or corrupt a running net, all reachable without concurrency. Actions are invoked inline on the orchestrator thread (the javadoc, `README.md` and `CLAUDE.md` had claimed a task pool); the fixes and doc corrections apply to `BitmapNetExecutor`, `PrecompiledNetExecutor` and `NetExecutor`. Spec updated: [IO-013], [EXEC-022], [CONC-002], [CORE-071] amended and [ENV-015]/[ENV-016] added; the TypeScript port of the containment and timeout fixes is tracked in `spec/00-index.md` as a follow-up.
+
+Fixes:
+
+- **Failure containment.** An unchecked throw from a firing (a synchronous action throw, a `null` return, a `CancellationException` that `join()` rethrows unwrapped, a throwing `EventStore.append`) now fails just that transition instead of unwinding the loop. Consumed tokens are lost per [EXEC-031], the transition is marked dirty, and both the presence bitmap and the ν fast-path match cache are reconciled so a throw mid-consume cannot leave a phantom token or a desynced correlation matcher (which would otherwise silently wedge a ν join into false quiescence). `Error` (OOM, `StackOverflowError`) is repaired and rethrown to terminate the run rather than being retried. Termination bookkeeping runs in a `finally` and completes even if the final event emit throws, so `awaitTermination` cannot hang.
+- **Timeout isolation.** `Out.Timeout` detaches the action's `TransitionContext` and harvests a fresh collector the action cannot reach, so a late write from an abandoned action can no longer surface in the next firing (previously reachable on the pooled `PrecompiledNetExecutor` context). Timeout transitions get a fresh context per firing; everything else keeps the zero-allocation path. The budget branch is selected by provenance, so a `TimeoutException` the action itself raises is an ordinary failure, not the declared branch. The timer arms a `copy()` of the action's future, never the caller's, and no longer calls `cancel(true)` (which did nothing).
+- **`marking()` cross-thread.** Reading `marking()` from a monitoring thread while the loop ran corrupted the live net (`PrecompiledNetExecutor` cleared and rebuilt the shared marking off-thread). The orchestrator now publishes an owned best-effort snapshot for foreign readers; on its own thread, or once stopped, `marking()` returns the exact live marking as before. `Marking.copy()` is orchestrator-only.
+- **`inject()` / lifecycle.** `inject()` after termination completes `false` rather than hanging; the post-enqueue recovery no longer discards already-queued events under a concurrent `drain()` ([ENV-011]). `close()` shuts down the `ExecutorService` only when the executor created it.
+
+New API (all `PetriNetExecutor` additions are `default`):
+
+- `Builder.uncaughtActionHandler(ActionFailureHandler)` on every executor: an out-of-band sink for action failures, since the default `EventStore.noop()` makes the `TransitionFailed` event (and the token loss) silent. libpetri logs at WARNING only when no store actually recorded the failure; a configured handler is always invoked, and one that throws is swallowed.
+- `run(Duration, RunTimeoutPolicy)` (`ABANDON` keeps the historical behaviour and is the default; `CLOSE` stops the loop), `awaitTermination(Duration)`, and `terminateNow()` (stop without waiting for in-flight actions; an explicit escape hatch from [ENV-013], never invoked by `close()`).
+
+Deprecations:
+
+- `Builder.executor(ExecutorService)` renamed to `orchestratorExecutor(ExecutorService)` on `BitmapNetExecutor`/`PrecompiledNetExecutor` (the old name delegates; `NetExecutor.Builder.executor` keeps its name with corrected docs). It hosts the loop, not action dispatch.
+- `NetExecutor` (superseded by `PrecompiledNetExecutor` and `BitmapNetExecutor`), `TransitionAction.withTimeout` (cannot stop an action; use `Arc.Out.timeout`), and `BitmapNetExecutor.create(net, initial, eventStore, executor)` (use the builder), all `forRemoval` in 3.0. `TransitionContext.scopedValue()` is deprecated (it exposes `ScopedValue` in the signature) but not yet `forRemoval`, pending a libpetri-owned carrier.
+
+Cleanups: removed the write-only `AtomicLongArray markedPlaces` and the per-poll `CompletableFuture.anyOf` (completion already signals via the lock-free queue plus semaphore); corrected three bogus `@SuppressWarnings("deprecation")`; added the first `Out.Timeout` JMH benchmarks.
+
 ## Java 2.12.0 / TypeScript 2.12.0 / Rust 3.6.0 / Python 2.15.0 — 2026-07-14
 
 **Feature: scalable exact ν-net deadlock-freedom (NU-052 + NU-053), with full-precision soundness**

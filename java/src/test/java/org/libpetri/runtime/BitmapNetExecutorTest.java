@@ -1197,4 +1197,63 @@ class BitmapNetExecutorTest {
             }
         }
     }
+
+    @Nested
+    class UncaughtActionHandlerTests {
+
+        private PetriNet oneFailingTransition(Place<SimpleValue> in, Place<SimpleValue> out) {
+            return PetriNet.builder("HandlerNet").transitions(
+                Transition.builder("failing")
+                    .inputs(In.one(in))
+                    .outputs(Out.place(out))
+                    .action(ctx -> CompletableFuture.failedFuture(
+                        new IllegalStateException("action failed")))
+                    .build()
+            ).build();
+        }
+
+        @Test
+        void handlerReceivesFailure_underDefaultNoopEventStore() {
+            var in = Place.of("In", SimpleValue.class);
+            var out = Place.of("Out", SimpleValue.class);
+
+            var seen = new AtomicReference<Throwable>();
+            var seenTransition = new AtomicReference<String>();
+
+            try (var executor = BitmapNetExecutor
+                    .builder(oneFailingTransition(in, out),
+                             Map.of(in, List.of(Token.of(new SimpleValue("x")))))
+                    .uncaughtActionHandler((t, cause) -> {
+                        seenTransition.set(t.name());
+                        seen.set(cause);
+                    })
+                    .build()) {
+                executor.run();
+            }
+
+            // Without a handler this failure is invisible: the default EventStore is noop(),
+            // so the TransitionFailed event goes nowhere and the consumed token is simply gone.
+            assertEquals("failing", seenTransition.get());
+            assertInstanceOf(IllegalStateException.class, seen.get(),
+                "the handler receives the cause unwrapped, not a CompletionException");
+            assertEquals("action failed", seen.get().getMessage());
+        }
+
+        @Test
+        void throwingHandler_doesNotKillTheLoop() {
+            var in = Place.of("In", SimpleValue.class);
+            var out = Place.of("Out", SimpleValue.class);
+
+            try (var executor = BitmapNetExecutor
+                    .builder(oneFailingTransition(in, out),
+                             Map.of(in, List.of(Token.of(new SimpleValue("x")))))
+                    .uncaughtActionHandler((t, cause) -> {
+                        throw new RuntimeException("handler itself is broken");
+                    })
+                    .build()) {
+                var result = executor.run();
+                assertFalse(result.hasTokens(out), "the failing transition produced nothing");
+            }
+        }
+    }
 }

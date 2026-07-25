@@ -34,4 +34,9 @@ class BitmapNetExecutorEngineTest extends AbstractNetExecutorEngineTest {
     protected PetriNetExecutor createExecutorWithEnv(PetriNet net, Map<Place<?>, List<Token<?>>> initial, Set<EnvironmentPlace<?>> envPlaces) {
         return BitmapNetExecutor.builder(net, initial).environmentPlaces(envPlaces).build();
     }
+
+    @Override
+    protected PetriNetExecutor createExecutorWithHandler(PetriNet net, Map<Place<?>, List<Token<?>>> initial, EventStore store, ActionFailureHandler handler) {
+        return BitmapNetExecutor.builder(net, initial).eventStore(store).uncaughtActionHandler(handler).build();
+    }
 }

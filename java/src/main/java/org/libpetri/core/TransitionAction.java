@@ -171,7 +171,14 @@ public interface TransitionAction {
      * @param timeoutValue value to produce on timeout
      * @param <T> type of timeout token
      * @return wrapped action with timeout handling
+     * @deprecated This cannot do what its name implies. {@code orTimeout} returns the same
+     *     future, and {@code CompletableFuture.cancel} ignores {@code mayInterruptIfRunning},
+     *     so the wrapped action is never stopped — it runs to completion and its writes race
+     *     the timeout branch. It also arms a timer on a future the caller owns. Declare the
+     *     timeout structurally with {@link Arc.Out#timeout(java.time.Duration, Arc.Out)}
+     *     instead, which the executor enforces. Scheduled for removal in 3.0.
      */
+    @Deprecated(since = "2.13", forRemoval = true)
     static <T> TransitionAction withTimeout(
             TransitionAction action,
             Duration timeout,

@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-libpetri is a multi-language **Coloured Time Petri Net** (CTPN) engine with formal verification. Four implementations conform to one language-agnostic specification (`spec/`, **206 active requirements across 13 files** — `spec/00-index.md` is the canonical count):
+libpetri is a multi-language **Coloured Time Petri Net** (CTPN) engine with formal verification. Four implementations conform to one language-agnostic specification (`spec/`, **208 active requirements across 13 files** — `spec/00-index.md` is the canonical count):
 
 | Implementation | Language | Runtime | Status |
 |---|---|---|---|
-| `java/` | Java 25 | Virtual threads | Production |
+| `java/` | Java 25 | `CompletionStage` (actions invoked inline; see note) | Production |
 | `typescript/` | TypeScript 6.0 | Promises / event loop | Production |
 | `rust/` | Rust 2024 | Tokio async tasks | Production |
 | `python/` | Python ≥3.11 | Tokio async via PyO3 | Beta |
@@ -94,6 +94,13 @@ All four implementations share the same architecture, mirrored across languages 
 - **PrecompiledNetExecutor** — The **production executor** (1.5–4× faster on sync chains). Flat-array/opcode representation, ring-buffer token storage, priority-partitioned ready queues. Must stay behaviorally identical to the Bitmap reference. In Rust it borrows `&PrecompiledNet`; `OwnedPrecompiledNet` caches the program. In Java the analogue is `PrecompiledNet` + `PrecompiledNetExecutor` (renamed from NetProgram/CompiledNetExecutor — not a VM).
 - **CompiledNet** — Precomputed bitmap masks and reverse indexes (place → affected transitions)
 - **Marking** — Current token distribution across places
+
+**Java action dispatch (easy to get wrong):** `t.action().execute(ctx)` is called **inline on the
+orchestrator thread**. No executor dispatches actions. The `ExecutorService` passed to
+`Builder.executor(...)` hosts exactly one task — the orchestrator loop — and only under
+`run(Duration)`. Concurrency comes from whatever drives the `CompletionStage` the action returns,
+which libpetri does not own; a blocking action blocks the whole net. Consequently
+`CompletableFuture.cancel(true)` on `Out.Timeout` cannot interrupt anything.
 
 ### Execution loop phases (per cycle):
 
@@ -182,7 +189,7 @@ contents change, and they're identical across the three destinations.
 
 ## Specification
 
-`spec/` contains 13 spec files (`00-index.md` … `12-nu-nets.md`), **206 active requirements**. Prefixes: CORE, IO, TIME, EXEC, CONC, ENV, VER, EVT, EXP, PERF, plus **MOD** (modular composition, `11-`) and **NU** (ν-nets / correlated fork-join by ID, `12-`). Requirements use MUST/SHOULD/MAY priority with testable acceptance criteria; cross-references use `[PREFIX-NNN]`. `spec/00-index.md` is the canonical registry — it tracks active vs removed/tombstoned IDs (e.g. IO-006), so trust the index count over any prose figure elsewhere.
+`spec/` contains 13 spec files (`00-index.md` … `12-nu-nets.md`), **208 active requirements**. Prefixes: CORE, IO, TIME, EXEC, CONC, ENV, VER, EVT, EXP, PERF, plus **MOD** (modular composition, `11-`) and **NU** (ν-nets / correlated fork-join by ID, `12-`). Requirements use MUST/SHOULD/MAY priority with testable acceptance criteria; cross-references use `[PREFIX-NNN]`. `spec/00-index.md` is the canonical registry — it tracks active vs removed/tombstoned IDs (e.g. IO-006), so trust the index count over any prose figure elsewhere.
 
 ## Release
 

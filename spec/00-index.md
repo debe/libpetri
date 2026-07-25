@@ -36,14 +36,14 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | [03-timing.md](03-timing.md) | TIME | Firing intervals, clock semantics, deadline enforcement | 11 |
 | [04-execution-model.md](04-execution-model.md) | EXEC | Orchestrator loop, scheduling, token consumption, failure, quiescence | 15 |
 | [05-concurrency.md](05-concurrency.md) | CONC | Single-threaded orchestrator, bitmap executor, precompiled flat-array executor, async actions, wake-up | 18 |
-| [06-environment-places.md](06-environment-places.md) | ENV | External event injection, implicit long-running behavior, executor lifecycle | 11 |
+| [06-environment-places.md](06-environment-places.md) | ENV | External event injection, implicit long-running behavior, executor lifecycle | 13 |
 | [07-verification.md](07-verification.md) | VER | SMT/IC3, state class graph, structural analysis | 11 |
 | [08-events-observability.md](08-events-observability.md) | EVT | Event types, event store, log capture | 23 |
 | [09-export.md](09-export.md) | EXP | Graph export, formal interchange | 17 |
 | [10-performance.md](10-performance.md) | PERF | Scaling, benchmarks, memory efficiency, flat-array executor performance | 14 |
 | [11-modular-composition.md](11-modular-composition.md) | MOD | Open-net subnet definition, instantiation, port composition, channel fusion, action binding per instance, place fusion | 26 |
 | [12-nu-nets.md](12-nu-nets.md) | NU | Token name identity, fresh-name minting (ν-binder/fork), join by name equality, bounded-budget decidability ledger | 12 |
-| **Total** | | | **206** |
+| **Total** | | | **208** |
 
 > **IO-006** (Input Guard Predicate) was removed (see [IO-006]); it is retained as a
 > struck-through tombstone for traceability and is **excluded** from the active count.
@@ -57,7 +57,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | ID | Title | Priority | Depends On |
 |----|-------|----------|------------|
 | CONC-001 | Orchestrator Thread Ownership | MUST | — |
-| CONC-002 | Action Execution on Separate Task Pool | MUST | — |
+| CONC-002 | Non-Blocking Action Dispatch | MUST | — |
 | CONC-003 | Happens-Before Guarantee | MUST | — |
 | CONC-004 | Bitmap-Based Enablement Check | MUST | — |
 | CONC-005 | Dirty Set Optimization | MUST | — |
@@ -127,6 +127,8 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | ENV-012 | Event-Driven Workflow Pattern | SHOULD | ENV-001, 002, 010 |
 | ENV-013 | Immediate Close | MUST | ENV-010 |
 | ENV-014 | Mid-Execution Marking Snapshot | SHOULD | ENV-010 |
+| ENV-015 | Immediate Termination | MAY | ENV-013 |
+| ENV-016 | Observable Termination | MAY | ENV-013 |
 
 ### EVT — Events & Observability
 | ID | Title | Priority | Depends On |
@@ -329,7 +331,11 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Output composition | 5 (And, Xor, Place, Timeout, ForwardInput) | ✓ | ✓ | ✓ |
 | Timing variants | 5 (Immediate, Deadline, Delayed, Window, Exact) | ✓ | ✓ | ✓ |
 | Bitmap word size | — | 64-bit (long) | 32-bit (Uint32Array) | 64-bit (u64) * |
-| Concurrency model | Single-threaded orchestrator | Virtual threads | Promise microtasks | Tokio async tasks |
+| Concurrency model | Single-threaded orchestrator | Actions invoked inline; concurrency from the returned stage (e.g. virtual threads) | Promise microtasks | Tokio async tasks |
+| Timeout abandonment | Firing abandoned; pre-timeout output discarded ([IO-013]) | ✓ (context detach) | Merges pre-timeout output — pending | ✓ (drops ctx) |
+| Sync action-throw containment | Failing action fails only that firing ([EXEC-030]) | ✓ | Pending | ✓ |
+| Inject after natural termination | Rejected, not hung ([ENV-006]) | ✓ (`terminated` flag) | Pending | ✓ |
+| Immediate termination / observable termination | [ENV-015] / [ENV-016] (MAY) | ✓ | Pending | Pending |
 | Token type safety | Typed places + typed tokens | Generics (compile-time) | Phantom type param | Generics (compile-time) |
 | Guard predicates | Filter on input arcs | ✓ (on Arc.Input) | ✓ (on In variants) | Not yet |
 | SMT verification | IC3/PDR via Z3 Spacer | ✓ | ✓ (WASM) | Not yet |
@@ -351,6 +357,18 @@ wire-compatible with Rust's. A few SHOULD capabilities currently land Rust/Pytho
 mid-execution snapshot ([ENV-014]), marking snapshot/restore ([CORE-073]), live event
 subscriptions ([EVT-031]), and the marking replay cache ([EVT-032]); their per-language status is
 tracked in those requirements.
+
+**Executor-hardening divergence (Java-first).** A 2026 hardening pass landed several
+robustness fixes in Java ahead of the other implementations: a synchronous action throw fails
+only that firing rather than killing the loop ([EXEC-030]); `inject()` after natural termination
+is rejected rather than hanging ([ENV-006] "or execution has completed"); output written before an
+`Out.Timeout` budget expires is discarded rather than merged with the timeout branch ([IO-013]
+AC5); and the new lifecycle surface `terminateNow()` / `awaitTermination()` / run-timeout policy
+([ENV-015], [ENV-016]). Rust already matches the timeout-abandonment and failure-containment
+semantics; **TypeScript still has the pre-hardening behaviour** for the first three and lacks the
+lifecycle surface. Porting these to TypeScript (and surfacing the lifecycle additions in
+Rust/Python) is tracked as follow-up; until then the table above is the authoritative per-language
+status.
 
 ---
 
@@ -382,6 +400,7 @@ This matrix maps spec requirements to test classes/files in each implementation.
 | ENV-001–006 | `EnvironmentPlaceTest` | `environment.test.ts` | `injector::tests` |
 | ENV-010–013 | `EnvironmentPlaceTest` | `environment.test.ts` | `environment::tests` |
 | ENV-014 | — | — | `executor_handle::tests`; Python `test_marking_snapshot.py` (Rust/Python-first) |
+| ENV-015–016 | `AbstractNetExecutorEnvironmentTest` (Java-first) | — | — |
 | VER-001–006 | `SmtVerifierTest` | `smt-verifier.test.ts` | `structural_check::tests`, `p_invariant::tests` |
 | VER-010–011 | `StateClassGraphTest` | `analysis/*.test.ts` | `state_class_graph::tests` |
 | VER-012 | `SmtVerifierTest` (Route B) | `smt-verifier.test.ts` (Route B) | `nu_scg_verifier::tests` |
