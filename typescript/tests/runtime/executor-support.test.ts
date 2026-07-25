@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { validateOutSpec, produceTimeoutOutput } from '../../src/runtime/executor-support.js';
+import { validateOutSpec, produceTimeoutOutput, executeAction } from '../../src/runtime/executor-support.js';
 import { outPlace, andPlaces, xorPlaces, timeout, forwardInput, and, xor } from '../../src/core/out.js';
 import { place } from '../../src/core/place.js';
+import { one } from '../../src/core/in.js';
+import { Transition } from '../../src/core/transition.js';
+import type { TransitionAction } from '../../src/core/transition-action.js';
 import { TokenInput } from '../../src/core/token-input.js';
 import { TokenOutput } from '../../src/core/token-output.js';
 import { TransitionContext } from '../../src/core/transition-context.js';
@@ -151,5 +154,61 @@ describe('produceTimeoutOutput', () => {
     );
 
     expect(() => produceTimeoutOutput(ctx, xorPlaces(pA, pB))).toThrow('XOR not allowed');
+  });
+});
+
+describe('executeAction (E1)', () => {
+  function ctxFor(t: Transition): TransitionContext {
+    return new TransitionContext(
+      t.name, new TokenInput(), new TokenOutput(),
+      t.inputPlaces(), t.readPlaces(), t.outputPlaces(),
+    );
+  }
+
+  it('rejects when the action throws synchronously', async () => {
+    const inP = place<string>('IN');
+    const t = Transition.builder('T').inputs(one(inP))
+      .action(() => { throw new Error('sync boom'); }).build();
+    await expect(executeAction(t, ctxFor(t))).rejects.toThrow('sync boom');
+  });
+
+  it('rejects when the action returns a non-thenable', async () => {
+    const inP = place<string>('IN');
+    const t = Transition.builder('T').inputs(one(inP))
+      .action((() => null) as unknown as TransitionAction).build();
+    await expect(executeAction(t, ctxFor(t))).rejects.toThrow('null/non-thenable');
+  });
+
+  it('resolves when the action returns a promise', async () => {
+    const inP = place<string>('IN');
+    const t = Transition.builder('T').inputs(one(inP))
+      .action(async () => {}).build();
+    await expect(executeAction(t, ctxFor(t))).resolves.toBeUndefined();
+  });
+});
+
+describe('TransitionContext detach/harvest (E2)', () => {
+  it('detachForTimeout drops action writes and swaps in a fresh harvest collector', () => {
+    const out = place<string>('OUT');
+    const ctx = new TransitionContext(
+      'T', new TokenInput(), new TokenOutput(),
+      new Set(), new Set(), new Set([out]),
+    );
+
+    ctx.output(out, 'pre'); // lands in the original write target
+    const original = ctx.rawOutput();
+    expect(original.entries()).toHaveLength(1);
+
+    ctx.detachForTimeout();
+    expect(ctx.rawOutput()).not.toBe(original);   // fresh harvest collector
+    expect(ctx.rawOutput().entries()).toHaveLength(0);
+    expect(original.entries()).toHaveLength(1);    // pre-timeout write stranded in old collector
+
+    ctx.output(out, 'post'); // dropped — the write target is detached
+    expect(ctx.rawOutput().entries()).toHaveLength(0);
+
+    ctx.outputToHarvest(out, 'timeout-branch'); // reaches the harvest collector
+    expect(ctx.rawOutput().entries()).toHaveLength(1);
+    expect(ctx.rawOutput().entries()[0]!.token.value).toBe('timeout-branch');
   });
 });

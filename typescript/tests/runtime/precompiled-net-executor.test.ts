@@ -12,7 +12,8 @@ import { tokenOf, unitToken } from '../../src/core/token.js';
 import type { Token } from '../../src/core/token.js';
 import type { TransitionAction } from '../../src/core/transition-action.js';
 import { InMemoryEventStore, noopEventStore, eventsOfType, failures } from '../../src/event/event-store.js';
-import type { TransitionFailed, TransitionTimedOut, MarkingSnapshot } from '../../src/event/net-event.js';
+import type { EventStore } from '../../src/event/event-store.js';
+import type { NetEvent, TransitionFailed, TransitionTimedOut, MarkingSnapshot } from '../../src/event/net-event.js';
 
 // ======================== Test Helpers ========================
 
@@ -1013,6 +1014,131 @@ describe('Output Timeout Tests', () => {
     expect(marking.hasTokens(fallbackA)).toBe(true);
     expect(marking.hasTokens(fallbackB)).toBe(true);
     expect(marking.hasTokens(success)).toBe(false);
+  });
+});
+
+// ======================== FAILURE CONTAINMENT + TIMEOUT MERGE ========================
+
+/** An EventStore whose append() always throws — used to prove emit failures are contained. */
+class ThrowingEventStore implements EventStore {
+  append(): void { throw new Error('event store boom'); }
+  events(): readonly NetEvent[] { return []; }
+  isEnabled(): boolean { return true; }
+  size(): number { return 0; }
+  isEmpty(): boolean { return true; }
+}
+
+describe('Failure Containment (E1) + Timeout Output Merge (E2)', () => {
+  it('E1a: a throwing EventStore.append does not reject run(); the net still produces output', async () => {
+    const input = place<string>('IN');
+    const output = place<string>('OUT');
+    const t = Transition.builder('T')
+      .inputs(one(input))
+      .outputs(outPlace(output))
+      .action(async (ctx) => { ctx.output(output, ctx.input(input)); })
+      .build();
+    const net = PetriNet.builder('N').transition(t).build();
+    const executor = new PrecompiledNetExecutor(net, initialTokens([input, [tokenOf('go')]]), {
+      eventStore: new ThrowingEventStore(),
+    });
+    const marking = await executor.run(5000);
+
+    expect(marking.hasTokens(output)).toBe(true);
+    expect(marking.peekFirst(output)!.value).toBe('go');
+  });
+
+  it('E1b: a synchronously-throwing action fails only that firing; the loop continues', async () => {
+    const a = place<string>('A');
+    const b = place<string>('B');
+    const out = place<string>('OUT');
+    const boom = Transition.builder('BOOM')
+      .inputs(one(a))
+      .outputs(outPlace(out))
+      .action(() => { throw new Error('sync boom'); })
+      .build();
+    const ok = Transition.builder('OK')
+      .inputs(one(b))
+      .outputs(outPlace(out))
+      .action(async (ctx) => { ctx.output(out, 'ok'); })
+      .build();
+    const net = PetriNet.builder('N').transition(boom).transition(ok).build();
+    const eventStore = new InMemoryEventStore();
+    const executor = new PrecompiledNetExecutor(
+      net, initialTokens([a, [tokenOf('x')]], [b, [tokenOf('y')]]), { eventStore });
+    const marking = await executor.run(5000);
+
+    const fails = eventsOfType(eventStore, 'transition-failed');
+    expect(fails.some(f => f.transitionName === 'BOOM')).toBe(true);
+    expect(marking.hasTokens(out)).toBe(true); // OK still fired
+  });
+
+  it('E1c: an action returning a non-thenable is contained; the loop continues', async () => {
+    const a = place<string>('A');
+    const b = place<string>('B');
+    const out = place<string>('OUT');
+    const bad = Transition.builder('BAD')
+      .inputs(one(a))
+      .outputs(outPlace(out))
+      .action((() => null) as unknown as TransitionAction)
+      .build();
+    const ok = Transition.builder('OK')
+      .inputs(one(b))
+      .outputs(outPlace(out))
+      .action(async (ctx) => { ctx.output(out, 'ok'); })
+      .build();
+    const net = PetriNet.builder('N').transition(bad).transition(ok).build();
+    const eventStore = new InMemoryEventStore();
+    const executor = new PrecompiledNetExecutor(
+      net, initialTokens([a, [tokenOf('x')]], [b, [tokenOf('y')]]), { eventStore });
+    const marking = await executor.run(5000);
+
+    const fails = eventsOfType(eventStore, 'transition-failed');
+    expect(fails.some(f => f.transitionName === 'BAD')).toBe(true);
+    expect(marking.hasTokens(out)).toBe(true); // OK still fired
+  });
+
+  it('E2-xor: a pre-timeout write does not merge with the timeout branch', async () => {
+    const input = place<string>('IN');
+    const success = place<string>('SUCCESS');
+    const timedOut = place<string>('TIMED_OUT');
+    const t = Transition.builder('T')
+      .inputs(one(input))
+      .outputs(xor(outPlace(success), timeoutPlace(50, timedOut)))
+      .action(async (ctx) => {
+        ctx.output(success, 'ok'); // written BEFORE the timeout fires
+        await sleep(200);
+      })
+      .build();
+    const net = PetriNet.builder('N').transition(t).build();
+    const eventStore = new InMemoryEventStore();
+    const executor = new PrecompiledNetExecutor(net, initialTokens([input, [tokenOf('go')]]), { eventStore });
+    const marking = await executor.run(5000);
+
+    expect(marking.hasTokens(timedOut)).toBe(true);
+    expect(marking.hasTokens(success)).toBe(false);
+    expect(eventsOfType(eventStore, 'transition-failed')).toHaveLength(0); // no "multiple branches" OutViolationError
+  });
+
+  it('E2-and: a pre-timeout write to a timeout-branch place is not doubled', async () => {
+    const input = place<string>('IN');
+    const fa = place<string>('FA');
+    const fb = place<string>('FB');
+    const t = Transition.builder('T')
+      .inputs(one(input))
+      .outputs(timeout(50, andPlaces(fa, fb)))
+      .action(async (ctx) => {
+        ctx.output(fa, 'pre'); // pre-timeout write to a place the timeout branch also fills
+        await sleep(200);
+      })
+      .build();
+    const net = PetriNet.builder('N').transition(t).build();
+    const eventStore = new InMemoryEventStore();
+    const executor = new PrecompiledNetExecutor(net, initialTokens([input, [tokenOf('go')]]), { eventStore });
+    const marking = await executor.run(5000);
+
+    expect(marking.tokenCount(fa)).toBe(1); // detached: not 2
+    expect(marking.tokenCount(fb)).toBe(1);
+    expect(eventsOfType(eventStore, 'transition-failed')).toHaveLength(0);
   });
 });
 
