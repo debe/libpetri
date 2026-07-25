@@ -236,6 +236,30 @@ public final class Marking {
         return result;
     }
 
+    /**
+     * Returns an independent copy of this marking.
+     *
+     * <p>Tokens are immutable, so the copy shares them; only the per-place queues are new. The
+     * executors use this to publish an owned snapshot that a monitoring thread can then read
+     * without racing the live marking.
+     *
+     * <p><b>Not thread-safe.</b> Call only from the thread that owns this marking (the
+     * orchestrator). It iterates the backing map and queues directly; a concurrent structural
+     * change on another thread can make it throw or spin. Cross-thread observation goes through
+     * the executor's published snapshot, not through calling this on a live marking.
+     *
+     * @return an independent marking that shares only the (immutable) tokens
+     */
+    public Marking copy() {
+        var copied = new HashMap<Place<?>, ArrayDeque<Token<?>>>();
+        for (var entry : tokens.entrySet()) {
+            var queue = entry.getValue();
+            if (queue == null || queue.isEmpty()) continue;
+            copied.put(entry.getKey(), new ArrayDeque<>(queue));
+        }
+        return new Marking(copied);
+    }
+
     // ======================== Debugging ========================
 
     /**

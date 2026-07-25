@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -131,12 +132,17 @@ abstract class AbstractNetExecutorEnvironmentTest {
                 executor.drain();
 
                 // After drain, orchestrator should eventually terminate
+                // marking() read from another thread mid-run returns an independent
+                // snapshot, not the live instance: rebuilding or reading the live marking
+                // concurrently corrupts it rather than observing it. The snapshot must
+                // still agree with the final marking, since nothing fired in between.
                 Marking finalMarking = runFuture.get(2, TimeUnit.SECONDS);
-                assertSame(
-                    marking,
-                    finalMarking,
-                    "Marking instance is shared live state"
+                assertEquals(
+                    marking.tokenCount(processed),
+                    finalMarking.tokenCount(processed),
+                    "the mid-run snapshot must agree with the final marking"
                 );
+                assertFalse(finalMarking.hasTokens(envPlace));
 
                 orchestrator.shutdownNow();
             }
@@ -1082,6 +1088,289 @@ abstract class AbstractNetExecutorEnvironmentTest {
                 hasTokenAddedFromEnv,
                 "EventStore should record TokenAdded event for ENV_INPUT"
             );
+        }
+    }
+
+    @Nested
+    class LifecycleTests {
+
+        private PetriNet envNet(Place<StringValue> envPlace, Place<StringValue> output) {
+            return PetriNet.builder("LifecycleNet").transitions(
+                Transition.builder("passthrough")
+                    .inputs(Arc.In.one(envPlace))
+                    .outputs(Arc.Out.and(output))
+                    .timing(Timing.deadline(Duration.ofMillis(10_000)))
+                    .action(ctx -> {
+                        ctx.output(output, ctx.input(envPlace));
+                        return CompletableFuture.completedFuture(null);
+                    })
+                    .build()
+            ).build();
+        }
+
+        @Test
+        void awaitTermination_returnsImmediatelyWhenNeverStarted() throws Exception {
+            Place<StringValue> envPlace = Place.of("ENV", StringValue.class);
+            Place<StringValue> output = Place.of("OUT", StringValue.class);
+            var envInput = EnvironmentPlace.of(envPlace);
+
+            try (PetriNetExecutor executor = createWithEnvPlaces(
+                    envNet(envPlace, output), Map.of(envPlace, List.of()), Set.of(envInput))) {
+                assertTrue(executor.awaitTermination(Duration.ofMillis(50)),
+                    "an executor that never ran has nothing to wait for");
+            }
+        }
+
+        @Test
+        void awaitTermination_observesTheLoopStopping() throws Exception {
+            Place<StringValue> envPlace = Place.of("ENV", StringValue.class);
+            Place<StringValue> output = Place.of("OUT", StringValue.class);
+            var envInput = EnvironmentPlace.of(envPlace);
+
+            try (PetriNetExecutor executor = createWithEnvPlaces(
+                    envNet(envPlace, output), Map.of(envPlace, List.of()), Set.of(envInput))) {
+                ExecutorService orchestrator = Executors.newSingleThreadExecutor();
+                orchestrator.submit((Callable<Marking>) executor::run);
+
+                assertTrue(executor.inject(envInput, Token.of(new StringValue("x")))
+                    .get(5, TimeUnit.SECONDS));
+
+                // Still running: an env-place net does not terminate at quiescence.
+                assertFalse(executor.awaitTermination(Duration.ofMillis(100)),
+                    "a live env-place executor must not report termination");
+
+                executor.close();
+                assertTrue(executor.awaitTermination(Duration.ofSeconds(5)),
+                    "close() must let the loop finish and awaitTermination observe it");
+                orchestrator.shutdownNow();
+            }
+        }
+
+        @Test
+        void runWithClosePolicy_stopsTheLoop_whereAbandonLeavesItRunning() throws Exception {
+            Place<StringValue> envPlace = Place.of("ENV", StringValue.class);
+            Place<StringValue> output = Place.of("OUT", StringValue.class);
+            var envInput = EnvironmentPlace.of(envPlace);
+
+            try (PetriNetExecutor executor = createWithEnvPlaces(
+                    envNet(envPlace, output), Map.of(envPlace, List.of()), Set.of(envInput))) {
+
+                var timedOut = executor
+                    .run(Duration.ofMillis(150), PetriNetExecutor.RunTimeoutPolicy.CLOSE)
+                    .toCompletableFuture();
+
+                var ex = assertThrows(ExecutionException.class,
+                    () -> timedOut.get(5, TimeUnit.SECONDS),
+                    "the caller's stage fails on timeout");
+                assertInstanceOf(TimeoutException.class, ex.getCause(),
+                    "the failure cause is the run timeout, not a hung get()");
+                assertTrue(executor.awaitTermination(Duration.ofSeconds(5)),
+                    "CLOSE must actually stop the orchestrator, not just fail the stage");
+            }
+        }
+
+        @Test
+        void runWithAbandonPolicy_leavesTheLoopRunning() throws Exception {
+            Place<StringValue> envPlace = Place.of("ENV", StringValue.class);
+            Place<StringValue> output = Place.of("OUT", StringValue.class);
+            var envInput = EnvironmentPlace.of(envPlace);
+
+            try (PetriNetExecutor executor = createWithEnvPlaces(
+                    envNet(envPlace, output), Map.of(envPlace, List.of()), Set.of(envInput))) {
+
+                var stage = executor
+                    .run(Duration.ofMillis(150), PetriNetExecutor.RunTimeoutPolicy.ABANDON)
+                    .toCompletableFuture();
+
+                var ex = assertThrows(ExecutionException.class,
+                    () -> stage.get(5, TimeUnit.SECONDS));
+                assertInstanceOf(TimeoutException.class, ex.getCause());
+
+                // The stage failed, but ABANDON leaves the loop alive: an injected token is still
+                // processed, which it could not be if the orchestrator had stopped.
+                assertTrue(executor.inject(envInput, Token.of(new StringValue("still-alive")))
+                        .get(2, TimeUnit.SECONDS),
+                    "ABANDON must leave the loop running to accept the injection");
+                long deadline = System.currentTimeMillis() + 2_000;
+                while (!executor.marking().hasTokens(output)
+                        && System.currentTimeMillis() < deadline) {
+                    Thread.sleep(10L);
+                }
+                assertTrue(executor.marking().hasTokens(output),
+                    "the abandoned loop must still process the injected token");
+
+                executor.terminateNow();
+                assertTrue(executor.awaitTermination(Duration.ofSeconds(5)));
+            }
+        }
+
+        @Test
+        void terminateNow_stopsWithoutWaitingForInFlightActions() throws Exception {
+            Place<StringValue> envPlace = Place.of("ENV", StringValue.class);
+            Place<StringValue> output = Place.of("OUT", StringValue.class);
+            var envInput = EnvironmentPlace.of(envPlace);
+            var gateHeld = new CountDownLatch(1);       // never released while the loop runs
+            var actionStarted = new CountDownLatch(1);
+
+            Transition consume = Transition.builder("consume")
+                .inputs(Arc.In.one(envPlace))
+                .outputs(Arc.Out.and(output))
+                .action(ctx -> {
+                    actionStarted.countDown();
+                    return CompletableFuture.runAsync(() -> {
+                        try {
+                            gateHeld.await(5, TimeUnit.SECONDS);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            return;
+                        }
+                        ctx.output(output, new StringValue("late"));
+                    });
+                })
+                .build();
+            PetriNet net = PetriNet.builder("TerminateNowNet").transitions(consume).build();
+            Map<Place<?>, List<Token<?>>> initial = Map.of(envPlace, List.of());
+
+            try (PetriNetExecutor executor = createWithEnvPlaces(net, initial, Set.of(envInput))) {
+                ExecutorService orchestrator = Executors.newSingleThreadExecutor();
+                orchestrator.submit((Callable<Marking>) executor::run);
+                Thread.sleep(50L);
+
+                executor.inject(envInput, Token.of(new StringValue("x")));
+                assertTrue(actionStarted.await(2, TimeUnit.SECONDS),
+                    "the action must be in-flight before terminateNow");
+
+                executor.terminateNow();
+                assertTrue(executor.awaitTermination(Duration.ofSeconds(5)),
+                    "terminateNow must stop the loop without waiting for the gated in-flight action");
+                assertFalse(executor.marking().hasTokens(output),
+                    "the abandoned in-flight action's output must not be admitted to the marking");
+
+                gateHeld.countDown(); // let the parked action thread unwind
+                orchestrator.shutdownNow();
+            }
+        }
+
+        @Test
+        void marking_readConcurrentlyWhileFiring_neverThrowsAndStaysConsistent() throws Exception {
+            Place<StringValue> envPlace = Place.of("ENV", StringValue.class);
+            Place<StringValue> backlog = Place.of("BACKLOG", StringValue.class);
+            var envInput = EnvironmentPlace.of(envPlace);
+
+            // Injected tokens pile into a backlog place, driving it well past the default ring
+            // capacity (16) so the Precompiled ring grows and reallocates while foreign threads read.
+            Transition ingest = Transition.builder("ingest")
+                .inputs(Arc.In.one(envPlace))
+                .outputs(Arc.Out.and(backlog))
+                .action(ctx -> {
+                    ctx.output(backlog, ctx.input(envPlace));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+            PetriNet net = PetriNet.builder("ConcurrentReadNet").transitions(ingest).build();
+            Map<Place<?>, List<Token<?>>> initial = Map.of(envPlace, List.of());
+
+            try (PetriNetExecutor executor = createWithEnvPlaces(net, initial, Set.of(envInput))) {
+                ExecutorService orchestrator = Executors.newSingleThreadExecutor();
+                orchestrator.submit((Callable<Marking>) executor::run);
+                Thread.sleep(50L);
+
+                var stop = new AtomicBoolean(false);
+                var readerError = new AtomicReference<Throwable>();
+                int readers = 4;
+                var readerPool = Executors.newFixedThreadPool(readers);
+                for (int r = 0; r < readers; r++) {
+                    readerPool.submit(() -> {
+                        try {
+                            while (!stop.get()) {
+                                Marking m = executor.marking();
+                                // A read must never see a negative or corrupt count.
+                                int count = m.tokenCount(backlog);
+                                if (count < 0) throw new AssertionError("negative token count: " + count);
+                            }
+                        } catch (Throwable t) {
+                            readerError.compareAndSet(null, t);
+                        }
+                    });
+                }
+
+                for (int i = 0; i < 200; i++) {
+                    executor.inject(envInput, Token.of(new StringValue("v" + i)));
+                }
+                Thread.sleep(300L);
+                stop.set(true);
+                readerPool.shutdown();
+                assertTrue(readerPool.awaitTermination(5, TimeUnit.SECONDS));
+
+                assertNull(readerError.get(),
+                    "a concurrent marking() read must never throw or observe corruption");
+
+                executor.terminateNow();
+                assertTrue(executor.awaitTermination(Duration.ofSeconds(5)));
+                orchestrator.shutdownNow();
+            }
+        }
+    }
+
+    /**
+     * A long-running net driven by {@code inject()} must survive a failing action.
+     *
+     * <p>This is the shape production agent nets use: one long-lived executor per session,
+     * fed through environment places. Before the failure boundary existed, one unchecked
+     * throw out of any action killed the orchestrator loop, and every later {@code inject()}
+     * blocked its caller forever on a future nobody would ever complete.
+     */
+    @Nested
+    class FailureBoundaryTests {
+
+        @Test
+        void actionThrowing_doesNotStrandLaterInjections() throws Exception {
+            Place<StringValue> envPlace = Place.of("ENV_INPUT", StringValue.class);
+            EnvironmentPlace<StringValue> envInput = EnvironmentPlace.of(envPlace);
+            Place<StringValue> output = Place.of("OUTPUT", StringValue.class);
+
+            CountDownLatch firstFired = new CountDownLatch(1);
+
+            Transition throwing = Transition.builder("throwing")
+                .inputs(Arc.In.one(envPlace))
+                .outputs(Arc.Out.and(output))
+                .timing(Timing.deadline(Duration.ofMillis(10_000)))
+                .action(ctx -> {
+                    firstFired.countDown();
+                    throw new IllegalStateException("action blew up");
+                })
+                .build();
+
+            PetriNet net = PetriNet.builder("InjectAfterFailureTest")
+                .transitions(throwing)
+                .build();
+
+            try (PetriNetExecutor executor =
+                     createWithEnvPlaces(net, Map.of(envPlace, List.of()), Set.of(envInput))) {
+                ExecutorService orchestrator = Executors.newSingleThreadExecutor();
+                Future<Marking> runFuture = orchestrator.submit((Callable<Marking>) executor::run);
+
+                assertTrue(
+                    executor.inject(envInput, Token.of(new StringValue("first")))
+                        .get(5, TimeUnit.SECONDS),
+                    "first injection is accepted"
+                );
+                assertTrue(firstFired.await(5, TimeUnit.SECONDS),
+                    "the failing action must actually have run");
+
+                // The decisive assertion: the loop survived the throw, so this injection is
+                // still serviced. Without the failure boundary this future is never completed
+                // and get() times out.
+                assertTrue(
+                    executor.inject(envInput, Token.of(new StringValue("second")))
+                        .get(5, TimeUnit.SECONDS),
+                    "an injection after a failed firing must still be serviced"
+                );
+
+                executor.close();
+                runFuture.get(10, TimeUnit.SECONDS);
+                orchestrator.shutdownNow();
+            }
         }
     }
 }

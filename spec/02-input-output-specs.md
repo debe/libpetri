@@ -189,13 +189,17 @@ Every input cardinality variant exposes two functions:
 
 **Priority:** MUST
 
-`Timeout(duration, child)` — if the action does not complete within the specified duration, the action is cancelled and tokens are produced to the child output specification instead.
+`Timeout(duration, child)` — if the action does not complete within the specified duration, the firing is abandoned and tokens are produced to the child output specification instead of the action's own output.
+
+Whether the abandoned action is actually stopped is implementation-defined and MUST NOT be relied upon. An implementation that cannot cancel the work (for example one that does not own the thread an action runs on) leaves it running to completion; its side effects still happen and only its output is excluded. "Cancellation" is therefore a capability, not a guarantee.
 
 **Acceptance Criteria:**
 1. Duration must be positive (> 0).
 2. Action completes within duration → normal output validation.
 3. Action exceeds duration → child output receives default/sentinel tokens.
 4. An ActionTimedOut event is emitted on timeout.
+5. Output the action produced *before* the budget expired is discarded together with the firing: the marking receives the timeout child's tokens and nothing else. In particular a partial write under an `Xor` sibling of the `Timeout` MUST NOT be validated as a second satisfied branch ([EXEC-021], [IO-012]).
+6. A `TimeoutException` the action itself raises is an ordinary action failure ([EXEC-030]), not the declared timeout branch: the branch is taken only when the executor's own budget timer fires.
 
 **Depends on:** [EVT-009]
 **Test derivation:** Action sleeps 500ms; timeout at 100ms; verify timeout branch activated and event emitted.

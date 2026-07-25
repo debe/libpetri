@@ -13,7 +13,7 @@ Write small, reusable subnets with typed interfaces. Compose them into systems t
 
 | Implementation | Language | Runtime | Status |
 |---|---|---|---|
-| [**libpetri-java**](java/) | Java 25 | Virtual threads | Production |
+| [**libpetri-java**](java/) | Java 25 | `CompletionStage` (inline actions) | Production |
 | [**libpetri-ts**](typescript/) | TypeScript 6.0 | Promises / event loop | Production |
 | [**libpetri-rust**](rust/) | Rust 2024 | Tokio async tasks | Production |
 | [**libpetri-py**](python/) | Python ≥3.11 | Tokio async via PyO3 | Beta |
@@ -28,7 +28,7 @@ Write small, reusable subnets with typed interfaces. Compose them into systems t
 
 - **Composable like a module system** — Define small subnets with typed interfaces (ports + channels), instantiate them with prefix-scoped state, and compose them by structural rewrite into a flat production net. `FusionSet` for shared cross-instance state, per-instance action overrides. Same five abstractions across Java, TypeScript, and Rust.
 - **Executable, not a simulator** — Production runtime where Petri nets *are* the program. Typed tokens carry data, transitions are instructions, timing constraints are deadlines, and the executor is a scheduler. Suitable for agent orchestration, workflow automation, protocol modeling, game logic, UI state machines, and anything with concurrency.
-- **Four implementations, one spec** — Java 25, TypeScript 6.0, Rust 2024, and Python ≥3.11 (PyO3 bindings on the Rust runtime) share [203 language-agnostic requirements](spec/00-index.md) covering every arc type, timing variant, execution phase, and the modular composition surface. Same behavior, verified independently in three of four (Python rides on Rust).
+- **Four implementations, one spec** — Java 25, TypeScript 6.0, Rust 2024, and Python ≥3.11 (PyO3 bindings on the Rust runtime) share [208 language-agnostic requirements](spec/00-index.md) covering every arc type, timing variant, execution phase, and the modular composition surface. Same behavior, verified independently in three of four (Python rides on Rust).
 - **Correlated by identity** — A fork mints a fresh opaque name (`freshName` / `fresh_name`) into the token payload, and a join re-merges exactly the sibling tokens of one unit of work by name equality (ν-nets, via `MatchSpec`). The match is part of the firing rule, not a check-then-act lookup in external state, and a bounded `Budget` place keeps the correlated fragment decidable.
 - **Turing-complete** — Coloured Petri Nets with inhibitor arcs can simulate any Turing machine. libpetri's nets can model arbitrary computation, not just finite-state workflows.
 
@@ -45,7 +45,7 @@ Write small, reusable subnets with typed interfaces. Compose them into systems t
 | **ν-nets (correlated identity)** | Fresh-name minting (`freshName` / `fresh_name`), join-by-name correlation via `MatchSpec`, bounded-budget decidability lever, incremental O(N log N) join matcher |
 | **Timing** | Immediate, Deadline, Delayed, Window, Exact — with urgent deadline enforcement |
 | **Executor** | Bitmap-based O(W) enablement, dirty-set optimization, priority + FIFO scheduling. Precompiled flat-array executor with 1.5–4× speedup (Java, TypeScript, Rust). |
-| **Concurrency** | Single-threaded orchestrator, concurrent async actions (virtual threads / promises / Tokio tasks) |
+| **Concurrency** | Single-threaded orchestrator; actions run concurrently via the stage they return (virtual threads / promises / Tokio tasks) |
 | **Environment places** | External event injection for long-running, event-driven workflows |
 | **Events** | 13 event types, pluggable stores (in-memory, noop, logging, debug) |
 | **Formal verification** | SMT/IC3 via Z3 — deadlock freedom, mutual exclusion, place bounds, unreachability |
@@ -86,7 +86,6 @@ var net = PetriNet.builder("Example")
 
 try (var executor = BitmapNetExecutor.builder(net, Map.of(
             request, List.of(Token.of("hello"))))
-        .executor(Executors.newVirtualThreadPerTaskExecutor())
         .build()) {
     Marking result = executor.run();
     System.out.println(result.peekFirst(response).value());
@@ -426,7 +425,7 @@ The executor runs a single-threaded orchestration loop with six phases per cycle
 | Debug | `org.libpetri.debug` | `libpetri/debug` | `libpetri-debug` | `libpetri.debug` |
 | Doclet | `org.libpetri.doclet` | `libpetri/doclet` | `build.rs` (Rustdoc SVGs) | — |
 
-All four share the same architecture: immutable net definitions, builder-pattern construction, bitmap-based enablement with dirty-set optimization, and a single-threaded orchestrator dispatching async actions to a separate task pool. Rust uses a `tokio` feature flag for async execution and a `debug` feature flag for the debug protocol; Python wraps the Rust runtime through PyO3 (`rust/libpetri-py`) and ships with `.pyi` stubs + `py.typed`.
+All four share the same architecture: immutable net definitions, builder-pattern construction, bitmap-based enablement with dirty-set optimization, and a single-threaded orchestrator with concurrent async actions (Java invokes actions inline and lets the returned stage supply the concurrency; TypeScript, Rust and Python dispatch to their runtimes). Rust uses a `tokio` feature flag for async execution and a `debug` feature flag for the debug protocol; Python wraps the Rust runtime through PyO3 (`rust/libpetri-py`) and ships with `.pyi` stubs + `py.typed`.
 
 ### PrecompiledNetExecutor — Flat-Array Executor
 
@@ -440,7 +439,7 @@ Same six execution phases as `BitmapNetExecutor`, same results — Java shares t
 
 All times in microseconds (µs/op, lower is better), measured with the noop event store on a single dev machine. Tools: Java JMH (1 fork, 2 warmup, 3 measurement), TypeScript vitest bench, Rust Criterion, Python pytest-benchmark. Java and Rust show both `BitmapNetExecutor` and `PrecompiledNetExecutor`; TypeScript shows the same pair; **Python wraps Rust's `OwnedPrecompiledNet` through PyO3 — only one executor path exists**, so a single Python column is shown with a small FFI-overhead delta vs. the Rust precompiled column.
 
-Concurrency model: Java orchestrator + actions on separate virtual threads (true multicore for CPU-bound actions); TypeScript single-core event loop (no parallelism); Rust sync is single-threaded, async uses Tokio's multi-threaded task pool; Python inherits Rust's model through the FFI (the GIL is released for the executor loop, re-acquired only for Python callbacks). All bench actions are trivial, so Java's per-thread scheduling cost is visible while its multicore advantage is not.
+Concurrency model: the Java engine invokes actions inline on the orchestrator thread and never dispatches them itself, so the virtual threads in the async rows below come from the benchmark actions' own `supplyAsync` (true multicore for CPU-bound actions, but the action owns that choice); TypeScript single-core event loop (no parallelism); Rust sync is single-threaded, async uses Tokio's multi-threaded task pool; Python inherits Rust's model through the FFI (the GIL is released for the executor loop, re-acquired only for Python callbacks). All bench actions are trivial, so Java's per-thread scheduling cost is visible while its multicore advantage is not.
 
 **Scaling note:** thanks to dirty-set optimization, the executor only re-evaluates transitions whose input places changed. Times reflect cost per transition that fires — adding inactive transitions does not increase per-cycle cost.
 
@@ -467,7 +466,7 @@ All times µs/op (lower is better). Python uses Rust's `OwnedPrecompiledNet` thr
 
 ### Async Linear Chains
 
-All transitions dispatch to a virtual thread / microtask / Tokio task.
+Every transition's action returns a pending stage rather than completing inline — a virtual thread / microtask / Tokio task. In Java and TypeScript that dispatch is the action's own doing, not the engine's.
 
 | Transitions | Java Bitmap | Java Precomp. | TS Bitmap | TS Precomp. | Rust Bitmap | Rust Precomp. | **Python** |
 |---|---|---|---|---|---|---|---|
@@ -549,7 +548,7 @@ cd python && pytest benches/ --benchmark-only --override-ini="testpaths=benches"
 
 ## Specification
 
-The [`spec/`](spec/) directory defines the complete engine contract — **203 requirements** across 12 files.
+The [`spec/`](spec/) directory defines the complete engine contract — **208 requirements** across 12 files.
 
 | File | Prefix | Scope | Count |
 |---|---|---|---|

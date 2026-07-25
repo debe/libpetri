@@ -6,6 +6,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -20,8 +21,7 @@ import org.libpetri.event.NetEvent;
  *
  * <p>Replaces the O(n²) full-scan approach of {@link NetExecutor} with:
  * <ul>
- *   <li><b>CAS-updatable presence bitmap</b> ({@link AtomicLongArray}) — supports
- *       concurrent updates via compare-and-set without locking</li>
+ *   <li><b>Presence bitmap</b> — one bit per place, orchestrator-confined</li>
  *   <li><b>Event-driven dirty set</b> — only transitions affected by a token change
  *       are re-evaluated, using a precomputed reverse index from {@link CompiledNet}</li>
  *   <li><b>BitSet mask checks</b> — enablement verified via bitwise AND/compare
@@ -29,28 +29,35 @@ import org.libpetri.event.NetEvent;
  * </ul>
  *
  * <h2>Concurrency Model</h2>
+ *
+ * <p><b>Transition actions are invoked inline, on the orchestrator thread.</b> The
+ * executor never submits them anywhere: {@code action.execute(ctx)} is called directly
+ * from the firing loop, and an action that blocks blocks the whole net. What runs
+ * concurrently is whatever the action's returned {@link CompletionStage} is driven by —
+ * the action's own thread pool, HTTP client or scheduler, none of which libpetri owns.
+ *
+ * <p>The {@link ExecutorService} configured on this executor hosts exactly one task:
+ * the orchestrator loop itself, and only under {@link #run(Duration)}. It does not
+ * dispatch actions.
+ *
  * <pre>
- *   Virtual Thread (action complete)          Orchestrator Thread
- *   ──────────────────────────────            ──────────────────
- *   1. completionQueue.offer(t)       ──→     processCompletedTransitions()
- *   2. wakeUpSignal.release()         ──→     awaitWork() returns
- *                                             3. CAS-set bits in markedPlaces
- *                                             4. set bits in dirtyBitmap
+ *   Thread completing an action              Orchestrator Thread
+ *   ───────────────────────────              ──────────────────
+ *   1. completionQueue.offer(t)       ──→    processCompletedTransitions()
+ *   2. wakeUpSignal.release()         ──→    awaitWork() returns
+ *                                            3. set bits in markingBitmap
+ *                                            4. set bits in dirtyBitmap
  * </pre>
  *
- * <p>Virtual threads signal completion via the lock-free {@code completionQueue} and
- * wake up the orchestrator. All bitmap mutations (markedPlaces, dirtyBitmap) happen on
- * the orchestrator thread. The CAS operations on markedPlaces future-proof the design
- * for potential direct virtual-thread bitmap updates without requiring architectural changes.
- *
- * <p>Token <em>values</em> still go through {@link Marking}, but since all marking
- * mutations happen on the orchestrator thread, no synchronization is needed.
- * The presence bitmap — which drives the hot-path enablement check — is entirely lock-free.
+ * <p>Completion is handed over through the lock-free {@code completionQueue} plus a
+ * semaphore release, which establishes the happens-before edge the orchestrator relies
+ * on. All marking and bitmap mutation happens on the orchestrator thread, so no
+ * synchronization is needed anywhere else.
  *
  * @see CompiledNet
  * @see NetExecutor
  */
-public final class BitmapNetExecutor implements PetriNetExecutor {
+public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunable {
     /** Number of bits to shift for word index (2^6 = 64 bits per long). */
     static final int WORD_SHIFT = 6;
     /** Mask for bit position within a word (0x3F = 63). */
@@ -76,10 +83,8 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
     /** Monotonic source for ν-name minting ({@link TransitionContext#freshName()}, NU-010). */
     private final AtomicLong freshNameCounter = new AtomicLong();
 
-    // Lock-free bitmap for concurrent marking updates
-    private final AtomicLongArray markedPlaces;
-
-    // Plain shadow bitmap — always in sync with markedPlaces, avoids volatile reads
+    // Place-presence bitmap driving the hot-path enablement check.
+    // Orchestrator-confined, so a plain long[] — no volatile reads, no atomics.
     private final long[] markingBitmap;
 
     // Orchestrator-owned state (single-threaded)
@@ -138,6 +143,9 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
     /** Wake-up signal for instant response to events. */
     private final Semaphore wakeUpSignal = new Semaphore(0);
 
+    /** Completion-wait poll fallback (ms). Only lengthened by tests; see {@link AwaitPollTunable}. */
+    private volatile long awaitPollMillis = 50;
+
     /** Whether this executor has environment places (implies long-running behavior). */
     private final boolean hasEnvironmentPlaces;
 
@@ -147,12 +155,65 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
     /** Tracks if close() was called — immediate shutdown. */
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
+    /** Optional handler for action failures; null selects the default logging policy. */
+    private final ActionFailureHandler uncaughtActionHandler;
+
     private volatile boolean running = false;
 
-    /** Set at the start of executeLoop; used for thread-safety assertions. */
-    private Thread orchestratorThread;
+    /**
+     * Set synchronously by {@code run(...)} before the loop task is submitted, so
+     * {@link #awaitTermination(Duration)} can tell "not started yet" (return early) from
+     * "started, running or finished" (wait on {@link #terminatedFuture}). {@code running}
+     * cannot do this: it is written by the loop task, which may not have been scheduled yet.
+     */
+    private volatile boolean started = false;
 
-    @SuppressWarnings("deprecation") // Executors.newVirtualThreadPerTaskExecutor() marked deprecated-for-removal in JDK 25
+    /**
+     * Requests immediate termination without waiting for in-flight actions. Set by
+     * {@link #terminateNow()} from a foreign thread and read in the loop condition; leaves
+     * {@code running} to be cleared by the loop's own {@code finally}, so {@code running}
+     * stays a truthful "the loop is alive" signal for {@link #marking()}.
+     */
+    private volatile boolean stopRequested = false;
+
+    /**
+     * Set once the execute loop has finished. Distinct from {@code !running}, which is also
+     * true before the loop starts — an inject() before run() is legitimate and must not be
+     * drained, whereas one after termination has nobody left to complete it.
+     */
+    private volatile boolean terminated = false;
+
+    /** Completes when the execute loop finishes, however it finishes. */
+    private final CompletableFuture<Marking> terminatedFuture = new CompletableFuture<>();
+
+    /**
+     * Whether this executor created its own {@link ExecutorService} and may therefore shut it
+     * down. A caller-supplied executor is never shut down — it may host other work.
+     */
+    private final boolean ownsExecutor;
+
+    /**
+     * Owned snapshot published by the orchestrator for foreign-thread {@link #marking()} reads.
+     * Refreshed when {@link #markingRequestSeq} outpaces {@link #markingServedSeq}, so observers
+     * never read the live marking and the copy costs nothing when nobody is watching. Written
+     * only by the orchestrator; {@code volatile} for cross-thread visibility.
+     */
+    private volatile Marking publishedMarking;
+
+    /** Incremented by a foreign-thread {@link #marking()} to request a fresh {@link #publishedMarking}. */
+    private final AtomicLong markingRequestSeq = new AtomicLong();
+
+    /** Highest request sequence the orchestrator has published a snapshot for. */
+    private volatile long markingServedSeq = 0;
+
+    /**
+     * The orchestrator loop's thread, or {@code null} before it starts and after it finishes.
+     * {@code volatile} and published <em>before</em> {@code running = true}, so a foreign
+     * {@link #marking()} that observes the loop as live also observes this reference, and is
+     * routed to the snapshot rather than the live marking.
+     */
+    private volatile Thread orchestratorThread;
+
     private BitmapNetExecutor(
         CompiledNet compiled,
         Marking marking,
@@ -160,12 +221,16 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         ExecutorService executor,
         Set<EnvironmentPlace<?>> environmentPlaces,
         ExecutionContextProvider executionContextProvider,
-        long deadlineToleranceMillis
+        long deadlineToleranceMillis,
+        ActionFailureHandler uncaughtActionHandler,
+        boolean ownsExecutor
     ) {
         this.compiled = compiled;
         this.marking = marking;
         this.eventStore = eventStore;
         this.executor = executor;
+        this.ownsExecutor = ownsExecutor;
+        this.uncaughtActionHandler = uncaughtActionHandler;
         this.environmentPlaces = environmentPlaces;
         this.hasEnvironmentPlaces = !environmentPlaces.isEmpty();
         this.executionContextProvider = executionContextProvider;
@@ -173,7 +238,6 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         this.startNanos = System.nanoTime();
 
         int wordCount = compiled.wordCount();
-        this.markedPlaces = new AtomicLongArray(wordCount);
         this.markingBitmap = new long[wordCount];
 
         this.transitionWords = (compiled.transitionCount() + BIT_MASK) >>> WORD_SHIFT;
@@ -349,12 +413,10 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
 
     private void setMarkingBit(int pid) {
         markingBitmap[pid >>> WORD_SHIFT] |= 1L << (pid & BIT_MASK);
-        casSetBit(markedPlaces, pid);
     }
 
     private void clearMarkingBit(int pid) {
         markingBitmap[pid >>> WORD_SHIFT] &= ~(1L << (pid & BIT_MASK));
-        casClearBit(markedPlaces, pid);
     }
 
     // ======================== Factory Methods ========================
@@ -374,13 +436,23 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         return builder(net, initialTokens).eventStore(eventStore).build();
     }
 
+    /**
+     * @deprecated The {@code executor} argument never dispatched actions; it only hosts the
+     *     orchestrator loop under {@link #run(Duration)}. Use
+     *     {@code builder(net, initial).eventStore(...).orchestratorExecutor(...).build()}.
+     *     Scheduled for removal in 3.0.
+     */
+    @Deprecated(since = "2.13", forRemoval = true)
     public static BitmapNetExecutor create(
         PetriNet net,
         Map<Place<?>, List<Token<?>>> initialTokens,
         EventStore eventStore,
         ExecutorService executor
     ) {
-        return builder(net, initialTokens).eventStore(eventStore).executor(executor).build();
+        return builder(net, initialTokens)
+            .eventStore(eventStore)
+            .orchestratorExecutor(executor)
+            .build();
     }
 
     public static Builder builder(PetriNet net, Map<Place<?>, List<Token<?>>> initialTokens) {
@@ -396,6 +468,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         private Set<EnvironmentPlace<?>> environmentPlaces = Set.of();
         private ExecutionContextProvider executionContextProvider = ExecutionContextProvider.NOOP;
         private long deadlineToleranceMillis = ExecutorSupport.DEADLINE_TOLERANCE_MS;
+        private ActionFailureHandler uncaughtActionHandler = null;
 
         private Builder(PetriNet net, Map<Place<?>, List<Token<?>>> initialTokens) {
             this.net = Objects.requireNonNull(net);
@@ -416,9 +489,29 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
             return this;
         }
 
-        public Builder executor(ExecutorService executor) {
+        /**
+         * Sets the executor that hosts the orchestrator loop under {@link #run(Duration)}.
+         *
+         * <p>This is the loop's own thread, not an action dispatcher: transition actions are
+         * invoked inline on the orchestrator thread and are never submitted here. Supplying
+         * an executor changes nothing about how or where actions run.
+         *
+         * @param executor hosts the single orchestrator-loop task
+         * @return this builder
+         */
+        public Builder orchestratorExecutor(ExecutorService executor) {
             this.executor = Objects.requireNonNull(executor);
             return this;
+        }
+
+        /**
+         * @deprecated Misleading name: this never dispatched actions. Renamed to
+         *     {@link #orchestratorExecutor(ExecutorService)}, which says what it does.
+         *     Scheduled for removal in 3.0.
+         */
+        @Deprecated(since = "2.13", forRemoval = true)
+        public Builder executor(ExecutorService executor) {
+            return orchestratorExecutor(executor);
         }
 
         @SafeVarargs
@@ -460,6 +553,25 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
             return this;
         }
 
+        /**
+         * Sets a handler invoked when a transition action fails.
+         *
+         * <p>A failing action destroys the tokens it consumed. That loss is reported as a
+         * {@code TransitionFailed} event, but the default {@code EventStore.noop()} discards
+         * it, so without a handler the failure is entirely silent.
+         *
+         * <p>With no handler configured, libpetri logs at WARNING when — and only when — no
+         * event store recorded the failure. A configured handler is always invoked, and one
+         * that throws is swallowed rather than allowed to stop the orchestrator.
+         *
+         * @param handler receives the transition and the unwrapped cause
+         * @return this builder
+         */
+        public Builder uncaughtActionHandler(ActionFailureHandler handler) {
+            this.uncaughtActionHandler = Objects.requireNonNull(handler);
+            return this;
+        }
+
         public BitmapNetExecutor build() {
             var compiled = compiledNet != null ? compiledNet : CompiledNet.compile(net);
             var marking = Marking.from(initialTokens);
@@ -469,7 +581,8 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
             return new BitmapNetExecutor(
                 compiled, marking, eventStore, exec,
                 environmentPlaces, executionContextProvider,
-                deadlineToleranceMillis
+                deadlineToleranceMillis, uncaughtActionHandler,
+                executor == null
             );
         }
     }
@@ -477,13 +590,47 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
     // ======================== Execution ========================
 
     public Marking run() {
+        started = true;
         return executeLoop();
     }
 
     public CompletionStage<Marking> run(Duration timeout) {
-        return CompletableFuture.supplyAsync(
-            this::executeLoop, executor
-        ).orTimeout(timeout.toMillis(), TimeUnit.MILLISECONDS);
+        return run(timeout, RunTimeoutPolicy.ABANDON);
+    }
+
+    @Override
+    public CompletionStage<Marking> run(Duration timeout, RunTimeoutPolicy policy) {
+        started = true; // before submit, so awaitTermination cannot mistake this for "never started"
+        CompletableFuture<Marking> loop = CompletableFuture.supplyAsync(this::executeLoop, executor);
+        // copy() so the timer never completes the loop's own future: ABANDON must leave the
+        // orchestrator running and still able to report its real result to terminatedFuture.
+        return loop.copy()
+            .orTimeout(timeout.toMillis(), TimeUnit.MILLISECONDS)
+            .whenCompleteAsync((_, ex) -> {
+                if (ex != null && policy == RunTimeoutPolicy.CLOSE) close();
+            });
+    }
+
+    @Override
+    public boolean awaitTermination(Duration timeout) throws InterruptedException {
+        if (!started) return true; // never started
+        try {
+            terminatedFuture.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+            return true;
+        } catch (TimeoutException e) {
+            return false;
+        } catch (ExecutionException e) {
+            return true; // the loop finished, just not happily
+        }
+    }
+
+    @Override
+    public void terminateNow() {
+        draining.set(true);
+        closed.set(true);
+        stopRequested = true; // loop exits at its next condition check; running stays truthful
+        wakeUp();
+        if (!terminated) drainPendingExternalEvents();
     }
 
     // ======================== Environment Place API ========================
@@ -504,6 +651,16 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         var event = new ExternalEvent<>(place.place(), token, new CompletableFuture<>());
         externalEventQueue.offer(event);
         wakeUp();
+
+        // The flag check above and this offer are not atomic. If the loop closed or terminated
+        // in between, nothing will ever complete this future and the caller blocks on join()
+        // forever. Draining here is idempotent and yields the same `false` the pre-check would
+        // have returned. `draining` is deliberately NOT in this condition: under drain() (ENV-011)
+        // the loop is still alive and processes already-queued events normally, so draining the
+        // queue here would discard events other injectors legitimately enqueued.
+        if (closed.get() || terminated) {
+            drainPendingExternalEvents();
+        }
         return event.resultFuture();
     }
 
@@ -515,11 +672,19 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         wakeUpSignal.release();
     }
 
+    @Override
+    public void awaitPollMillisForTesting(long millis) {
+        this.awaitPollMillis = millis;
+    }
+
     // ======================== Execute Loop ========================
 
     private Marking executeLoop() {
-        running = true;
+        // Publish an initial snapshot and the thread reference BEFORE running=true, so a foreign
+        // marking() that observes the loop as live also observes both (volatile piggyback).
+        publishedMarking = marking.copy();
         orchestratorThread = Thread.currentThread();
+        running = true;
         emitEvent(new NetEvent.ExecutionStarted(
             Instant.now(), compiled.net().name(), executionId()));
 
@@ -529,31 +694,57 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         markAllDirty();
         emitMarkingSnapshot();
 
-        while (running && !Thread.currentThread().isInterrupted()) {
-            processCompletedTransitions();
-            processExternalEvents();
-            updateDirtyTransitions();
-            if (hasAnyDeadlines) enforceDeadlines();
+        // The loop body must never leave pending inject() futures uncompleted, even when it
+        // exits by exception: those callers are blocked on join() and their tokens have
+        // already been consumed. Termination bookkeeping therefore lives in the finally.
+        try {
+            while (running && !stopRequested && !Thread.currentThread().isInterrupted()) {
+                serviceMarkingRequest();
+                processCompletedTransitions();
+                processExternalEvents();
+                updateDirtyTransitions();
+                if (hasAnyDeadlines) enforceDeadlines();
 
-            if (shouldTerminate()) break;
+                if (shouldTerminate()) break;
 
-            fireReadyTransitions();
+                fireReadyTransitions();
 
-            // Sync fast-path firings set dirty bits that need processing
-            // before the orchestrator can sleep — skip awaitWork and re-loop.
-            if (hasDirtyBits()) continue;
+                // Sync fast-path firings set dirty bits that need processing
+                // before the orchestrator can sleep — skip awaitWork and re-loop.
+                if (hasDirtyBits()) continue;
 
-            awaitWork();
+                awaitWork();
+            }
+        } finally {
+            running = false;
+            terminated = true;
+            drainPendingExternalEvents();
+
+            // Emit failures must not prevent the loop from reporting termination: a throwing
+            // EventStore here would otherwise leave terminatedFuture uncompleted and hang
+            // awaitTermination forever.
+            try {
+                emitMarkingSnapshot();
+                emitEvent(new NetEvent.ExecutionCompleted(
+                    Instant.now(), compiled.net().name(), executionId(), elapsedDuration()));
+            } catch (Throwable emitError) {
+                ExecutorSupport.swallowEventStoreFailure("ExecutionCompleted", emitError);
+            } finally {
+                terminatedFuture.complete(marking);
+                orchestratorThread = null; // last: post-termination marking() reads are exact
+            }
         }
 
-        running = false;
-        drainPendingExternalEvents();
-
-        emitMarkingSnapshot();
-        emitEvent(new NetEvent.ExecutionCompleted(
-            Instant.now(), compiled.net().name(), executionId(), elapsedDuration()));
-
         return marking;
+    }
+
+    /** Refreshes the published snapshot when a foreign thread has asked for one (see {@link #marking()}). */
+    private void serviceMarkingRequest() {
+        long req = markingRequestSeq.get();
+        if (req != markingServedSeq) {
+            publishedMarking = marking.copy();
+            markingServedSeq = req;
+        }
     }
 
     /**
@@ -768,7 +959,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
                 word &= word - 1;
 
                 if (canEnable(tid, markingBitmap)) {
-                    fireTransition(tid);
+                    fireTransitionGuarded(tid);
                 } else {
                     clearEnabledBit(tid);
                     enabledTransitionCount--;
@@ -815,12 +1006,54 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         for (var entry : readyBuffer) {
             int tid = entry.tid();
             if (isEnabled(tid) && canEnable(tid, markingBitmap)) {
-                fireTransition(tid);
+                fireTransitionGuarded(tid);
             } else {
                 clearEnabledBit(tid);
                 enabledTransitionCount--;
                 enabledAtNanos[tid] = Long.MIN_VALUE;
             }
+        }
+    }
+
+    /**
+     * Fires a transition, containing any failure to that one firing.
+     *
+     * <p>Without this boundary an unchecked throw from a firing — an action throwing before it
+     * returns its stage, a user {@link org.libpetri.event.EventStore} throwing from
+     * {@code append}, a token-type violation — unwinds out of the orchestrator loop and kills
+     * the executor. The transition is instead failed and marked dirty for re-evaluation, which
+     * is the same treatment an asynchronously-reported failure already gets.
+     *
+     * <p>{@code fireTransition} removes tokens from the marking before it reconciles the
+     * presence bitmap, so a throw <em>inside</em> that window (a hostile EventStore on
+     * {@code TokenRemoved}, a ν {@code keyFn}) would leave bits asserting tokens that are gone.
+     * The recovery re-runs {@link #updateBitmapAfterConsumption} against the real marking so the
+     * re-evaluation cannot fire against a phantom. A fatal {@link Error} is repaired the same way
+     * but rethrown, terminating the run rather than being retried.
+     */
+    private void fireTransitionGuarded(int tid) {
+        try {
+            fireTransition(tid);
+        } catch (Throwable e) {
+            Transition t = compiled.transition(tid);
+            if (isEnabled(tid)) {
+                clearEnabledBit(tid);
+                enabledTransitionCount--;
+                enabledAtNanos[tid] = Long.MIN_VALUE;
+            }
+            if (inFlight.remove(t) != null) clearInFlightBit(tid);
+            updateBitmapAfterConsumption(tid);
+            // fireTransition mirrors the matched consume into the ν fast-path matcher
+            // (cache.consume) BEFORE the tokens physically leave the marking, so a throw in
+            // that window (a hostile EventStore on TokenRemoved, a throwing keyFn) leaves the
+            // matcher believing tokens are gone that remain. Reconciling the presence bitmap is
+            // not enough — the matcher is authoritative for ν enablement. Drop it so the next
+            // canEnable/fire rebuilds the binding from the live marking via findBinding; the
+            // O(1) fast path is forfeited only for this transition, only after a failure.
+            matchCaches[tid] = null;
+            ExecutorSupport.rethrowIfFatal(e);
+            handleTransitionFailure(t, e);
+            markTransitionDirty(tid);
         }
     }
 
@@ -923,27 +1156,15 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
 
         CompletableFuture<Void> transitionFuture = eventStore.isEnabled()
             ? LogCaptureScope.call(t.name(), eventStore::append,
-                  () -> t.action().execute(context).toCompletableFuture())
-            : t.action().execute(context).toCompletableFuture();
+                  () -> ExecutorSupport.executeAction(t, context))
+            : ExecutorSupport.executeAction(t, context);
 
         // Handle Out.Timeout
         if (t.hasActionTimeout()) {
-            var timeoutSpec = t.actionTimeout();
-            long timeoutMillis = timeoutSpec.after().toMillis();
-            var originalFuture = transitionFuture;
-
-            transitionFuture = transitionFuture
-                .orTimeout(timeoutMillis, TimeUnit.MILLISECONDS)
-                .exceptionally(ex -> {
-                    if (ex instanceof TimeoutException || ex.getCause() instanceof TimeoutException) {
-                        originalFuture.cancel(true);
-                        produceTimeoutOutput(context, timeoutSpec.child());
-                        if (eventStoreEnabled) emitEvent(new NetEvent.ActionTimedOut(
-                            Instant.now(), t.name(), timeoutSpec.after()));
-                        return null;
-                    }
-                    throw (ex instanceof RuntimeException re) ? re : new RuntimeException(ex);
-                });
+            transitionFuture = ExecutorSupport.withActionTimeout(
+                t, context, transitionFuture,
+                () -> { if (eventStoreEnabled) emitEvent(new NetEvent.ActionTimedOut(
+                    Instant.now(), t.name(), t.actionTimeout().after())); });
         }
 
         // Clear enabled status (common to both paths)
@@ -978,23 +1199,24 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
             TokenOutput outputs = context.rawOutput();
             validateOutput(t, outputs);
 
-            List<Token<?>> produced = eventStoreEnabled ? new ArrayList<>() : null;
-            for (var entry : outputs.entries()) {
+            // One entry = add token, set its presence bit, mark dirty — kept together so a
+            // throw mid-commit (a hostile EventStore on TokenAdded) cannot leave a token in the
+            // marking with its bit unset. A defensive copy guards against a misbehaving action
+            // still mutating the collector.
+            var entries = List.copyOf(outputs.entries());
+            List<Token<?>> produced = eventStoreEnabled ? new ArrayList<>(entries.size()) : null;
+            for (var entry : entries) {
                 var token = entry.token();
+                int pid = compiled.placeId(entry.place());
                 cacheAddToken(entry.place(), token);
                 marking.addToken((Place<Object>) entry.place(), (Token<Object>) token);
+                setMarkingBit(pid);
+                markDirty(pid);
                 if (eventStoreEnabled) {
                     produced.add(token);
                     emitEvent(new NetEvent.TokenAdded(
                         Instant.now(), entry.place().name(), token));
                 }
-            }
-
-            // Update bitmap for produced places and mark dirty
-            for (var entry : outputs.entries()) {
-                int pid = compiled.placeId(entry.place());
-                setMarkingBit(pid);
-                markDirty(pid);
             }
 
             // Mark the completed transition dirty for re-evaluation
@@ -1004,10 +1226,8 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
                 emitEvent(new NetEvent.TransitionCompleted(
                     Instant.now(), t.name(), produced, Duration.ZERO));
             }
-        } catch (OutViolationException e) {
-            handleTransitionFailure(t, new CompletionException(e));
-            markTransitionDirty(tid);
-        } catch (CompletionException e) {
+        } catch (RuntimeException e) {
+            // See processCompletedTransitions: CancellationException arrives unwrapped.
             handleTransitionFailure(t, e);
             markTransitionDirty(tid);
         }
@@ -1029,10 +1249,6 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         }
     }
 
-    private void produceTimeoutOutput(TransitionContext context, Arc.Out timeoutChild) {
-        ExecutorSupport.produceTimeoutOutput(context, timeoutChild);
-    }
-
     // ======================== Completion Processing ========================
 
     @SuppressWarnings("unchecked")
@@ -1051,21 +1267,21 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
                 TokenOutput outputs = flight.context().rawOutput();
                 validateOutput(t, outputs);
 
-                List<Token<?>> produced = new ArrayList<>();
-                for (var entry : outputs.entries()) {
+                // One entry = add token, set its presence bit, mark dirty — kept together so a
+                // throw mid-commit cannot leave a token in the marking with its bit unset. A
+                // defensive copy guards against a misbehaving action still mutating the collector.
+                var entries = List.copyOf(outputs.entries());
+                List<Token<?>> produced = new ArrayList<>(entries.size());
+                for (var entry : entries) {
                     var token = entry.token();
+                    int pid = compiled.placeId(entry.place());
                     cacheAddToken(entry.place(), token);
                     marking.addToken((Place<Object>) entry.place(), (Token<Object>) token);
+                    setMarkingBit(pid);
+                    markDirty(pid);
                     produced.add(token);
                     if (eventStoreEnabled) emitEvent(new NetEvent.TokenAdded(
                         Instant.now(), entry.place().name(), token));
-                }
-
-                // Update bitmap for produced places and mark dirty
-                for (var entry : outputs.entries()) {
-                    int pid = compiled.placeId(entry.place());
-                    setMarkingBit(pid);
-                    markDirty(pid);
                 }
 
                 // Also mark the completed transition's own ID dirty
@@ -1078,21 +1294,33 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
                         Instant.now(), t.name(), produced, transitionDuration));
                 }
 
-            } catch (OutViolationException e) {
-                handleTransitionFailure(t, new CompletionException(e));
-                markTransitionDirty(tid);
-            } catch (CompletionException e) {
+            } catch (RuntimeException e) {
+                // CompletionException (action failed), OutViolationException (output spec
+                // violated) and CancellationException — which join() rethrows *unwrapped*,
+                // so it matches neither of the other two — all fail just this transition.
                 handleTransitionFailure(t, e);
                 markTransitionDirty(tid);
             }
         }
     }
 
-    private void handleTransitionFailure(Transition t, CompletionException e) {
-        if (eventStoreEnabled) emitEvent(new NetEvent.TransitionFailed(
-            Instant.now(), t.name(),
-            e.getCause().getMessage(),
-            e.getCause().getClass().getName()));
+    private void handleTransitionFailure(Transition t, Throwable e) {
+        Throwable cause = ExecutorSupport.unwrap(e);
+        // Emit is guarded: a throwing EventStore here must not escape the failure handler (this
+        // runs inside fireTransitionGuarded's catch) nor rob the handler of its callback.
+        // `emitted` reflects whether the event was actually appended, so the default policy
+        // logs exactly when no store recorded the failure — not merely when a store exists.
+        boolean emitted = false;
+        if (eventStoreEnabled) {
+            try {
+                emitEvent(new NetEvent.TransitionFailed(
+                    Instant.now(), t.name(), cause.getMessage(), cause.getClass().getName()));
+                emitted = true;
+            } catch (Throwable storeError) {
+                ExecutorSupport.swallowEventStoreFailure("TransitionFailed", storeError);
+            }
+        }
+        ExecutorSupport.reportActionFailure(uncaughtActionHandler, emitted, t, cause);
     }
 
     // ======================== External Events ========================
@@ -1146,30 +1374,30 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         }
         if (!completionQueue.isEmpty() || (!closed.get() && !externalEventQueue.isEmpty())) return;
 
-        if (!inFlight.isEmpty()) {
-            var futures = inFlight.values().stream()
-                .map(InFlightTransition::future)
-                .toArray(CompletableFuture[]::new);
+        if (inFlight.isEmpty()) return;
 
-            CompletableFuture<Object> anyCompletion = CompletableFuture.anyOf(futures);
-
-            while (!anyCompletion.isDone()) {
-                long pollMs = allImmediate ? 50 : Math.max(1, Math.min(50, millisUntilNextTimedTransition()));
-                try {
-                    if (wakeUpSignal.tryAcquire(pollMs, TimeUnit.MILLISECONDS)) {
-                        wakeUpSignal.drainPermits();
-                        return;
-                    }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
+        // A completing action does `completionQueue.offer(t); wakeUp();`, so the semaphore is
+        // the wake-up signal and the queue is the durable record. Composing a
+        // CompletableFuture.anyOf over every in-flight future once per poll cycle — as this
+        // used to — allocated a fresh dependent node on each of those futures every 1-50ms
+        // and then abandoned it, which on a long-running action accumulates for the lifetime
+        // of the call. The loop below observes exactly the same events.
+        while (true) {
+            long pollMs = allImmediate ? awaitPollMillis
+                : Math.max(1, Math.min(awaitPollMillis, millisUntilNextTimedTransition()));
+            try {
+                if (wakeUpSignal.tryAcquire(pollMs, TimeUnit.MILLISECONDS)) {
+                    wakeUpSignal.drainPermits();
                     return;
                 }
-                if (!completionQueue.isEmpty() || (!closed.get() && !externalEventQueue.isEmpty())) return;
-
-                // Timed transition may have become ready (pollMs was bounded by timer)
-                if (!allImmediate && millisUntilNextTimedTransition() <= 0) return;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
             }
-            wakeUpSignal.drainPermits();
+            if (!completionQueue.isEmpty() || (!closed.get() && !externalEventQueue.isEmpty())) return;
+
+            // Timed transition may have become ready (pollMs was bounded by timer)
+            if (!allImmediate && millisUntilNextTimedTransition() <= 0) return;
         }
     }
 
@@ -1230,14 +1458,15 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
 
     // ======================== CAS Bitmap Helpers ========================
     //
+    // Retained utilities, not on any execution path: every bitmap this executor
+    // owns is orchestrator-confined (markingBitmap, enabledBitmap, inFlightBitmap,
+    // dirtyBitmap are all plain long[]). They exist for a future in which a bitmap
+    // becomes shared with the threads that complete actions.
+    //
     // Thread ownership:
-    //   - markedPlaces: mutated only by the orchestrator thread.
-    //     CAS is used (instead of plain volatile writes) to future-proof the
-    //     design — virtual threads could update bitmaps directly without
-    //     requiring architectural changes.
-    //   - dirtyBitmap: plain long[], orchestrator-thread only.
+    //   - all bitmaps: plain long[], orchestrator-thread only.
     //   - completionQueue, externalEventQueue: lock-free queues shared between
-    //     virtual threads and the orchestrator.
+    //     the threads completing actions and the orchestrator.
 
     static void casSetBit(AtomicLongArray arr, int bit) {
         int word = bit >>> WORD_SHIFT;
@@ -1266,14 +1495,6 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
     }
 
     /**
-     * Returns the shadow marking bitmap directly — zero-copy.
-     * Must only be called from the orchestrator thread.
-     */
-    private long[] snapshotMarking() {
-        return markingBitmap;
-    }
-
-    /**
      * Marks all transitions affected by a place change as dirty.
      */
     private void markDirty(int pid) {
@@ -1296,7 +1517,51 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
 
     // ======================== State Inspection ========================
 
-    public Marking marking() { return marking; }
+    /**
+     * Returns the current marking.
+     *
+     * <p>From the orchestrator thread, or once the loop has stopped, this is the executor's own
+     * live {@code Marking} — exact, as before. From another thread while the loop is running it
+     * returns an independent snapshot the orchestrator publishes for it: the live instance is a
+     * {@code HashMap} of {@code ArrayDeque}s the orchestrator mutates on every firing, and
+     * reading it from another thread would throw or spin rather than merely return a stale value.
+     *
+     * <p>The snapshot is best-effort. The caller flags a request and the orchestrator refreshes
+     * the published copy at the next safe point in its loop; while the orchestrator is inside a
+     * long inline action it may not reach that point immediately, so the returned marking can lag.
+     * For a view with defined timing, subscribe to {@code MarkingSnapshot} events, which the
+     * orchestrator emits from its own thread.
+     */
+    @Override
+    public Marking marking() {
+        Thread orchestrator = orchestratorThread;
+        if (orchestrator != null && Thread.currentThread() != orchestrator) {
+            Marking snapshot = awaitPublishedSnapshot();
+            if (orchestratorThread != null) {
+                return snapshot != null ? snapshot : Marking.empty();
+            }
+            // else: the loop finished while we waited — fall through to the exact live marking.
+        }
+        return marking;
+    }
+
+    /**
+     * Requests a fresh published snapshot from the orchestrator and waits, bounded, for it.
+     * Returns the freshest {@link #publishedMarking} it can; the caller checks whether the loop
+     * ended meanwhile (in which case it reads the exact live marking instead).
+     */
+    private Marking awaitPublishedSnapshot() {
+        long seq = markingRequestSeq.incrementAndGet();
+        wakeUp();
+        long deadline = System.nanoTime() + ExecutorSupport.MARKING_SNAPSHOT_WAIT_NANOS;
+        while (markingServedSeq < seq) {
+            if (orchestratorThread == null) return null; // loop finished; caller reads exact
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0) break; // best-effort cap: return the last snapshot
+            LockSupport.parkNanos(Math.min(remaining, 1_000_000L));
+        }
+        return publishedMarking;
+    }
 
     public boolean isQuiescent() {
         return enabledTransitionCount == 0 && inFlight.isEmpty();
@@ -1343,5 +1608,13 @@ public final class BitmapNetExecutor implements PetriNetExecutor {
         draining.set(true);
         closed.set(true);
         wakeUp();
+
+        // No loop is running to reach the drain in executeLoop's finally — either it never
+        // started or it already terminated. Either way these futures are ours to complete.
+        if (!running) drainPendingExternalEvents();
+
+        // Only ever shut down an executor we created. A caller-supplied one may host
+        // other work and is not ours to stop.
+        if (ownsExecutor) executor.shutdown();
     }
 }

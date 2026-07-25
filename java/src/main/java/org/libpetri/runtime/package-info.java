@@ -1,15 +1,18 @@
 /**
  * Runtime execution engine for Coloured Time Petri Nets.
  *
- * <p>This package provides the execution infrastructure for running CTPN models.
- * The central component is {@link org.libpetri.runtime.NetExecutor},
- * which orchestrates token flow, transition firing, and timing behavior.
+ * <p>This package provides the execution infrastructure for running CTPN models,
+ * orchestrating token flow, transition firing, and timing behavior.
  *
  * <h2>Package Contents</h2>
  * <dl>
- *   <dt>{@link org.libpetri.runtime.NetExecutor}</dt>
- *   <dd>Main orchestrator that executes Petri nets. Manages the execution loop,
- *       transition enablement, firing order, and completion detection.</dd>
+ *   <dt>{@link org.libpetri.runtime.PrecompiledNetExecutor}</dt>
+ *   <dd>The production executor. Flat-array/opcode representation, ring-buffer token
+ *       storage, priority-partitioned ready queues.</dd>
+ *
+ *   <dt>{@link org.libpetri.runtime.BitmapNetExecutor}</dt>
+ *   <dd>The reference executor: clear, canonical firing semantics. The precompiled
+ *       executor must stay behaviorally identical to it.</dd>
  *
  *   <dt>{@link org.libpetri.runtime.Marking}</dt>
  *   <dd>Mutable container for the token state (marking) of a net during execution.
@@ -17,12 +20,15 @@
  * </dl>
  *
  * <h2>Execution Model</h2>
- * <p>The executor follows a single-threaded orchestrator pattern:
+ * <p>The executors follow a single-threaded orchestrator pattern:
  * <ol>
- *   <li>The orchestrator thread (caller of {@link org.libpetri.runtime.NetExecutor#run()})
- *       owns all Petri net state</li>
- *   <li>Transition actions execute asynchronously on a configurable {@link java.util.concurrent.ExecutorService}</li>
- *   <li>Actions signal completion via a lock-free queue</li>
+ *   <li>The orchestrator thread (caller of {@code run()}) owns all Petri net state</li>
+ *   <li><b>Transition actions are invoked inline, on that same thread.</b> No executor
+ *       dispatches them; concurrency comes from whatever drives the
+ *       {@link java.util.concurrent.CompletionStage} an action returns. A configured
+ *       {@link java.util.concurrent.ExecutorService} hosts only the orchestrator loop
+ *       under {@code run(Duration)}.</li>
+ *   <li>Whatever thread completes an action signals through a lock-free queue</li>
  *   <li>The orchestrator applies marking changes after action completion</li>
  * </ol>
  *
@@ -63,7 +69,7 @@
  *
  * // Execute
  * var initial = Map.of(start, List.of(Token.of(new Request("data"))));
- * try (var executor = NetExecutor.create(net, initial)) {
+ * try (var executor = BitmapNetExecutor.builder(net, initial).build()) {
  *     Marking result = executor.run();
  *     Response response = result.peekFirst(end).value();
  * }

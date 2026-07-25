@@ -34,4 +34,9 @@ class PrecompiledNetExecutorEngineTest extends AbstractNetExecutorEngineTest {
     protected PetriNetExecutor createExecutorWithEnv(PetriNet net, Map<Place<?>, List<Token<?>>> initial, Set<EnvironmentPlace<?>> envPlaces) {
         return PrecompiledNetExecutor.builder(net, initial).environmentPlaces(envPlaces).build();
     }
+
+    @Override
+    protected PetriNetExecutor createExecutorWithHandler(PetriNet net, Map<Place<?>, List<Token<?>>> initial, EventStore store, ActionFailureHandler handler) {
+        return PrecompiledNetExecutor.builder(net, initial).eventStore(store).uncaughtActionHandler(handler).build();
+    }
 }

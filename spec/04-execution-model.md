@@ -161,12 +161,13 @@ After depositing tokens, the executor validates that the produced tokens satisfy
 
 When a transition's output specification includes a Timeout node, the executor races the action against the timeout duration:
 - Action completes first → normal output validation.
-- Timeout fires first → action is cancelled; timeout child output receives tokens; ActionTimedOut event emitted.
+- Timeout fires first → the firing is abandoned (the action is stopped where the runtime can; see [IO-013]); the timeout child output receives tokens; ActionTimedOut event emitted.
 
 **Acceptance Criteria:**
 1. Action completes in 50ms with 100ms timeout → normal completion.
 2. Action takes 200ms with 100ms timeout → timeout branch activated; ActionTimedOut event.
 3. ForwardInput in timeout child → consumed input value forwarded to output place.
+4. Output the action wrote before the budget expired is discarded, not merged with the timeout branch ([IO-013] AC5).
 
 **Depends on:** [IO-013], [IO-014], [EVT-009]
 **Test derivation:** Slow action with timeout; verify timeout branch tokens and event.

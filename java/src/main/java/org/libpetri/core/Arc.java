@@ -297,8 +297,13 @@ public sealed interface Arc permits Arc.In, Arc.Inhibitor, Arc.Read, Arc.Reset {
         /**
          * Timeout branch - activates if action exceeds duration.
          *
-         * <p>When an action doesn't complete within the specified duration,
-         * the action is cancelled and tokens are produced to the child output(s).
+         * <p>When an action doesn't complete within the specified duration, the firing is
+         * abandoned and tokens are produced to the child output(s).
+         *
+         * <p><b>Abandoned, not cancelled.</b> libpetri does not own the thread an action runs
+         * on, so it cannot stop one: a timed-out action keeps running to completion and its
+         * side effects still happen. What the timeout guarantees is that no <em>further</em>
+         * output from that firing reaches the marking.
          *
          * <p>This is part of the output structure, not a separate concern.
          * The executor interprets Timeout nodes and enforces them.
@@ -407,8 +412,9 @@ public sealed interface Arc permits Arc.In, Arc.Inhibitor, Arc.Read, Arc.Reset {
         /**
          * Creates a timeout output spec with the given duration and child output.
          *
-         * <p>If the action doesn't complete within the specified duration,
-         * the action is cancelled and tokens are produced to the child output(s).
+         * <p>If the action doesn't complete within the specified duration, the firing is
+         * abandoned (not cancelled — the action keeps running) and tokens are produced to
+         * the child output(s).
          *
          * @param after the timeout duration
          * @param child the output spec to use on timeout
@@ -421,8 +427,9 @@ public sealed interface Arc permits Arc.In, Arc.Inhibitor, Arc.Read, Arc.Reset {
         /**
          * Creates a timeout output spec with the given duration and place.
          *
-         * <p>If the action doesn't complete within the specified duration,
-         * the action is cancelled and a token is produced to the specified place.
+         * <p>If the action doesn't complete within the specified duration, the firing is
+         * abandoned (not cancelled — the action keeps running) and a token is produced to
+         * the specified place.
          *
          * @param after the timeout duration
          * @param p the place to produce to on timeout

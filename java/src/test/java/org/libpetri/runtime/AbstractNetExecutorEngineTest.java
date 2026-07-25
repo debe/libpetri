@@ -48,6 +48,10 @@ abstract class AbstractNetExecutorEngineTest {
 
     protected abstract PetriNetExecutor createExecutorWithEnv(PetriNet net, Map<Place<?>, List<Token<?>>> initial, Set<EnvironmentPlace<?>> envPlaces);
 
+    /** Creates an executor with an {@link ActionFailureHandler}, so handler delivery is tested for every executor. */
+    protected abstract PetriNetExecutor createExecutorWithHandler(
+        PetriNet net, Map<Place<?>, List<Token<?>>> initial, EventStore store, ActionFailureHandler handler);
+
     private final ExecutorService testExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
     // ==================== TEST TOKEN TYPES ====================
@@ -4872,6 +4876,88 @@ abstract class AbstractNetExecutorEngineTest {
     }
 
     /**
+     * Failure containment for a ν join. A throwing {@link EventStore} aborts the FIRST matched
+     * consume midway: the fast-path matcher has already popped the correlated pair
+     * ({@code cache.consume}) and place A's token has physically left, but B's token has not, when
+     * the store throws on A's {@code TokenRemoved}. The failure is contained to that firing — but
+     * if the boundary reconciles only the presence bitmap and not the matcher, the matcher keeps
+     * believing that name is consumed, so a later identical binding is never found and the join
+     * wedges (silent false quiescence). This pins that the boundary also drops the stale matcher,
+     * so re-supplying the wronged name still fires the join. Regression for the ν match-cache
+     * desync; the reference (Bitmap) and production (Precompiled) executors both need the fix,
+     * NetExecutor is immune because it always rebinds via {@code findBinding}.
+     */
+    @Test
+    void nuJoin_containedThrowDuringMatchedConsume_doesNotWedgeTheJoin() throws Exception {
+        var a = Place.of("A", NuMsg.class);
+        var b = Place.of("B", NuMsg.class);
+        var merged = Place.of("Merged", String.class);
+        var aEnv = EnvironmentPlace.of(a);
+
+        var join = Transition.builder("join")
+            .inputs(one(a), one(b))
+            .match(MatchSpec.builder()
+                .key(a, (NuMsg m) -> NameId.of(m.cid()))
+                .key(b, (NuMsg m) -> NameId.of(m.cid()))
+                .build())
+            .outputs(place(merged))
+            .action(ctx -> {
+                ctx.output(merged, ctx.input(a).cid() + "+" + ctx.input(b).cid());
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+
+        var net = PetriNet.builder("nuJoinFailure").transitions(join).build();
+        var initial = Map.<Place<?>, List<Token<?>>>of(
+            a, List.of(Token.of(new NuMsg("X"))),
+            b, List.of(Token.of(new NuMsg("X")))
+        );
+
+        // Throws once, on the first token-removed — place A, consumed first — i.e. mid-consume of
+        // the first firing, after the matcher popped the pair and before B's token is removed.
+        var faultFired = new CountDownLatch(1);
+        final class FaultInjectingStore implements EventStore {
+            private final EventStore delegate = EventStore.inMemory();
+            private final AtomicBoolean armed = new AtomicBoolean(true);
+
+            @Override public void append(NetEvent event) {
+                if (event instanceof NetEvent.TokenRemoved r
+                        && "A".equals(r.placeName()) && armed.compareAndSet(true, false)) {
+                    faultFired.countDown();
+                    throw new RuntimeException("injected fault mid-consume");
+                }
+                delegate.append(event);
+            }
+
+            @Override public List<NetEvent> events() { return delegate.events(); }
+        }
+
+        try (var executor = createExecutorWithEnv(net, initial, new FaultInjectingStore(), Set.of(aEnv))) {
+            // Once the contained failure has fired, re-supply the wronged name into A. B still
+            // holds its X (its removal never happened), so a working boundary rebinds X and fires;
+            // a matcher left desynced never sees the binding and the join stays wedged.
+            CompletableFuture.runAsync(() -> {
+                try {
+                    assertTrue(faultFired.await(5, TimeUnit.SECONDS), "the mid-consume fault must fire");
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                executor.inject(aEnv, Token.of(new NuMsg("X")));
+                executor.drain();
+            });
+
+            var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
+
+            var merges = new java.util.ArrayList<String>();
+            for (var tk : result.peekTokens(merged)) merges.add(tk.value());
+            assertEquals(List.of("X+X"), merges,
+                "after a contained mid-consume failure, re-supplying the name must still fire the "
+                    + "join; a desynced ν matcher would leave it permanently wedged");
+        }
+    }
+
+    /**
      * NU-010 + NU-020 end to end: a fork mints a fresh correlation id per firing
      * ({@code ctx.freshName()}) and stamps both siblings; a downstream join
      * re-merges exactly the siblings that share an id. Three requests in → three
@@ -4982,6 +5068,433 @@ abstract class AbstractNetExecutorEngineTest {
             assertEquals(3, result.tokenCount(merged), "all three complete despite k=1 budget");
             assertEquals(1, result.tokenCount(budget), "the budget token is returned");
             assertEquals(0, result.tokenCount(source));
+        }
+    }
+
+    // ==================== SECTION: ORCHESTRATOR FAILURE BOUNDARY ====================
+
+    /**
+     * The orchestrator loop must survive a failing firing.
+     *
+     * <p>Actions run inline on the orchestrator thread, so before the failure boundary existed
+     * an action that threw before returning its stage unwound straight out of the loop: the
+     * remaining transitions never fired, pending {@code inject()} futures were never completed,
+     * and no {@code ExecutionCompleted} was emitted. These cases need no concurrency at all.
+     */
+    @Nested
+    class FailureBoundaryTests {
+
+        /** Builds a two-transition net: {@code bad} fails, {@code good} must still fire. */
+        private PetriNet failingAndHealthyNet(
+            Place<SimpleValue> badIn, Place<SimpleValue> goodIn, Place<SimpleValue> goodOut,
+            TransitionAction badAction
+        ) {
+            var bad = Transition.builder("bad")
+                .inputs(one(badIn))
+                .outputs(place(Place.of("BadOut", SimpleValue.class)))
+                .timing(Timing.deadline(Duration.ofMillis(500)))
+                .action(badAction)
+                .build();
+
+            var good = Transition.builder("good")
+                .inputs(one(goodIn))
+                .outputs(place(goodOut))
+                .timing(Timing.deadline(Duration.ofMillis(500)))
+                .action(ctx -> {
+                    ctx.output(goodOut, ctx.input(goodIn));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+
+            return PetriNet.builder("FailureBoundary").transitions(bad, good).build();
+        }
+
+        private Map<Place<?>, List<Token<?>>> bothMarked(
+            Place<SimpleValue> badIn, Place<SimpleValue> goodIn
+        ) {
+            return Map.of(
+                badIn, List.of(Token.of(new SimpleValue("bad"))),
+                goodIn, List.of(Token.of(new SimpleValue("good")))
+            );
+        }
+
+        @Test
+        void actionThrowingSynchronously_failsOnlyThatTransition() {
+            var badIn = Place.of("BadIn", SimpleValue.class);
+            var goodIn = Place.of("GoodIn", SimpleValue.class);
+            var goodOut = Place.of("GoodOut", SimpleValue.class);
+
+            var eventStore = EventStore.inMemory();
+            var net = failingAndHealthyNet(badIn, goodIn, goodOut, ctx -> {
+                throw new IllegalStateException("boom");
+            });
+
+            try (var executor = createExecutor(net, bothMarked(badIn, goodIn), eventStore)) {
+                var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
+
+                assertTrue(result.hasTokens(goodOut),
+                    "the healthy transition must still fire after its neighbour throws");
+                assertFalse(result.hasTokens(badIn), "the failing firing still consumed its input");
+
+                assertTrue(eventStore.events().stream()
+                        .anyMatch(e -> e instanceof NetEvent.TransitionFailed f
+                            && f.transitionName().equals("bad")),
+                    "the throw must be reported as a transition failure");
+                assertTrue(eventStore.events().stream()
+                        .anyMatch(e -> e instanceof NetEvent.ExecutionCompleted),
+                    "the loop must still reach its normal termination bookkeeping");
+            }
+        }
+
+        @Test
+        void actionReturningNull_failsOnlyThatTransition() {
+            var badIn = Place.of("BadIn", SimpleValue.class);
+            var goodIn = Place.of("GoodIn", SimpleValue.class);
+            var goodOut = Place.of("GoodOut", SimpleValue.class);
+
+            var eventStore = EventStore.inMemory();
+            var net = failingAndHealthyNet(badIn, goodIn, goodOut, ctx -> null);
+
+            try (var executor = createExecutor(net, bothMarked(badIn, goodIn), eventStore)) {
+                var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
+
+                assertTrue(result.hasTokens(goodOut), "a null stage must not stop the loop");
+                assertTrue(eventStore.events().stream()
+                        .anyMatch(e -> e instanceof NetEvent.TransitionFailed f
+                            && f.transitionName().equals("bad")),
+                    "returning null must be reported as a transition failure");
+            }
+        }
+
+        @Test
+        void cancelledActionFuture_failsOnlyThatTransition() {
+            var badIn = Place.of("BadIn", SimpleValue.class);
+            var goodIn = Place.of("GoodIn", SimpleValue.class);
+            var goodOut = Place.of("GoodOut", SimpleValue.class);
+
+            var eventStore = EventStore.inMemory();
+            // A third-party future that is already cancelled. join() rethrows
+            // CancellationException *unwrapped*, so it matches neither CompletionException
+            // nor OutViolationException — it used to unwind the whole loop.
+            var net = failingAndHealthyNet(badIn, goodIn, goodOut, ctx -> {
+                var cancelled = new CompletableFuture<Void>();
+                cancelled.cancel(true);
+                return cancelled;
+            });
+
+            try (var executor = createExecutor(net, bothMarked(badIn, goodIn), eventStore)) {
+                var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
+
+                assertTrue(result.hasTokens(goodOut),
+                    "a cancelled dependency must not take the executor down with it");
+                assertTrue(eventStore.events().stream()
+                        .anyMatch(e -> e instanceof NetEvent.TransitionFailed f
+                            && f.transitionName().equals("bad")),
+                    "cancellation must be reported as a transition failure");
+            }
+        }
+    }
+
+    /**
+     * Deleting the per-cycle {@code CompletableFuture.anyOf} changed how the orchestrator learns
+     * an action finished: it now relies on {@code completionQueue.offer} plus a
+     * {@code wakeUpSignal} release. If that direct handoff regressed, a completion would be
+     * noticed only on the next poll tick. Rather than measure wall-clock latency (which is
+     * inherently flaky), this neutralizes the poll: pushed far past the run's own timeout, the
+     * only thing that can complete the run is the direct semaphore release. A working handoff
+     * finishes in milliseconds; a regressed one parks until the huge poll and the run times out.
+     */
+    @Nested
+    class CompletionWakeupTests {
+
+        @Test
+        void asyncCompletionWakesTheParkedLoopDirectly() {
+            var start = Place.of("Start", SimpleValue.class);
+            var end = Place.of("End", SimpleValue.class);
+
+            var gate = new CompletableFuture<Void>();
+            // Actions are invoked inline on the orchestrator thread, so capturing the current
+            // thread inside the action captures the orchestrator itself — used below to detect
+            // that it has parked, deterministically via thread state rather than a sleep.
+            var orchestrator = new AtomicReference<Thread>();
+            var t = Transition.builder("gated")
+                .inputs(one(start))
+                .outputs(place(end))
+                .action(ctx -> {
+                    orchestrator.set(Thread.currentThread());
+                    return gate.thenRun(() -> ctx.output(end, new SimpleValue("done")));
+                })
+                .build();
+
+            var net = PetriNet.builder("WakeupNet").transitions(t).build();
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                start, List.of(Token.of(new SimpleValue("go")))
+            );
+
+            try (var executor = createExecutor(net, initial)) {
+                // Push the poll fallback far beyond the run timeout: now only the direct
+                // wakeUpSignal release can wake the loop, so a regressed handoff hangs rather
+                // than being rescued by the poll tick. Fails loudly if the seam is ever dropped.
+                var tunable = assertInstanceOf(AwaitPollTunable.class, executor,
+                    "the wake-up test needs the poll seam to be deterministic");
+                tunable.awaitPollMillisForTesting(60_000);
+
+                var run = executor.run(Duration.ofSeconds(2)).toCompletableFuture();
+
+                // Wait — by thread state, not by sleeping — for the orchestrator to park on the
+                // gated action's wakeUpSignal.tryAcquire. For this single-immediate-transition
+                // net that timed-wait is the only one it can reach, so TIMED_WAITING == parked.
+                Thread orch;
+                long spinDeadlineNanos = System.nanoTime() + Duration.ofSeconds(2).toNanos();
+                while ((orch = orchestrator.get()) == null
+                        || orch.getState() != Thread.State.TIMED_WAITING) {
+                    if (System.nanoTime() > spinDeadlineNanos) {
+                        fail("orchestrator never parked on the gated action");
+                    }
+                    Thread.onSpinWait();
+                }
+                assertFalse(run.isDone(), "the net must still be waiting on the gated action");
+
+                gate.complete(null);
+
+                // Completes only via the direct semaphore release; a regressed handoff stays
+                // parked until the 60s poll, so this run times out at 2s and join() throws.
+                var result = run.join();
+                assertTrue(result.hasTokens(end),
+                    "the completion must wake the parked loop directly, not on the poll tick");
+            }
+        }
+    }
+
+    // ==================== SECTION: TIMEOUT SEVERANCE ====================
+
+    /**
+     * A timed-out action must not be able to reach the marking afterwards.
+     *
+     * <p>libpetri cannot stop a timed-out action — it does not own the thread — so the only
+     * available isolation is to sever the context it writes through. These tests pin that the
+     * severance holds even when the same transition re-fires while the abandoned action is
+     * still running, which is the reask/retry topology libpetri recommends.
+     */
+    @Nested
+    class TimeoutSeveranceTests {
+
+        @Test
+        void abandonedActionCannotWriteIntoTheNextFiring() throws Exception {
+            var work = Place.of("Work", SimpleValue.class);
+            var done = Place.of("Done", SimpleValue.class);
+            var retry = Place.of("Retry", SimpleValue.class);
+
+            var firings = new AtomicInteger();
+            var firstCtx = new AtomicReference<TransitionContext>();
+            var releaseZombie = new CountDownLatch(1);
+            var zombieWrote = new CountDownLatch(1);
+
+            // Firing 1 times out and is abandoned while still running. Firing 2 deliberately
+            // does not finish until the abandoned firing has attempted its late write, so the
+            // write races the live firing rather than landing harmlessly after the run.
+            var call = Transition.builder("call")
+                .inputs(one(work))
+                .outputs(xor(place(done), timeout(Duration.ofMillis(50), place(retry))))
+                .action(ctx -> {
+                    if (firings.incrementAndGet() == 1) {
+                        firstCtx.set(ctx);
+                        return CompletableFuture.runAsync(() -> {
+                            try {
+                                releaseZombie.await(5, TimeUnit.SECONDS);
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                return;
+                            }
+                            ctx.output(done, new SimpleValue("stale-turn-1"));
+                            zombieWrote.countDown();
+                        }, testExecutor);
+                    }
+                    releaseZombie.countDown();
+                    try {
+                        assertTrue(zombieWrote.await(5, TimeUnit.SECONDS),
+                            "abandoned action must have attempted its write");
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    ctx.output(done, new SimpleValue("turn-2"));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+
+            var retryFeedback = Transition.builder("retry")
+                .inputs(one(retry))
+                .outputs(place(work))
+                .action(ctx -> {
+                    ctx.output(work, new SimpleValue("again"));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+
+            var net = PetriNet.builder("TimeoutSeverance")
+                .transitions(call, retryFeedback)
+                .build();
+
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                work, List.of(Token.of(new SimpleValue("turn-1")))
+            );
+
+            try (var executor = createExecutor(net, initial)) {
+                var result = executor.run(Duration.ofSeconds(10)).toCompletableFuture().join();
+
+                assertEquals(1, result.tokenCount(done),
+                    "only the live firing's output may reach the marking");
+                assertEquals("turn-2", result.peekFirst(done).value().data(),
+                    "the abandoned firing's stale result must not be emitted as this turn's");
+                assertEquals(2, firings.get(), "the transition must have re-fired once");
+            }
+
+            assertEquals(1, firstCtx.get().discardedWriteCount(),
+                "the abandoned write must be counted as discarded, not merged");
+        }
+
+        @Test
+        void outputWrittenBeforeTimeout_isDiscardedWithTheFiring() throws Exception {
+            var input = Place.of("In", SimpleValue.class);
+            var success = Place.of("Success", SimpleValue.class);
+            var timedOut = Place.of("TimedOut", SimpleValue.class);
+
+            var partial = Transition.builder("partial")
+                .inputs(one(input))
+                .outputs(xor(place(success), timeout(Duration.ofMillis(50), place(timedOut))))
+                // Writes a partial result, then never completes. Merging that partial write
+                // with the timeout branch would satisfy two XOR branches at once.
+                .action(ctx -> {
+                    ctx.output(success, new SimpleValue("partial"));
+                    return new CompletableFuture<Void>();
+                })
+                .build();
+
+            var net = PetriNet.builder("PartialThenTimeout").transitions(partial).build();
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                input, List.of(Token.of(new SimpleValue("x")))
+            );
+
+            try (var executor = createExecutor(net, initial)) {
+                var result = executor.run(Duration.ofSeconds(10)).toCompletableFuture().join();
+
+                assertTrue(result.hasTokens(timedOut), "the timeout branch must be taken");
+                assertFalse(result.hasTokens(success),
+                    "a partial result from a timed-out firing must not also land");
+            }
+        }
+    }
+
+    @Nested
+    class FailureAndErrorHandlingTests {
+
+        @Test
+        void actionsOwnTimeoutException_isFailureNotTheDeclaredTimeoutBranch() {
+            var go = Place.of("Go", SimpleValue.class);
+            var success = Place.of("Success", SimpleValue.class);
+            var timedOut = Place.of("TimedOut", SimpleValue.class);
+            var store = EventStore.inMemory();
+
+            // The declared budget is 30s and never expires; the action fails almost immediately
+            // with its own TimeoutException (an HTTP/gRPC client giving up). That is an ordinary
+            // failure, selected by provenance — not the executor's budget branch.
+            var call = Transition.builder("call")
+                .inputs(one(go))
+                .outputs(xor(place(success), timeout(Duration.ofSeconds(30), place(timedOut))))
+                .action(ctx -> CompletableFuture.failedFuture(
+                    new TimeoutException("downstream client gave up early")))
+                .build();
+            var net = PetriNet.builder("ProvenanceNet").transitions(call).build();
+            Map<Place<?>, List<Token<?>>> initial =
+                Map.of(go, List.of(Token.of(new SimpleValue("x"))));
+
+            try (var executor = createExecutor(net, initial, store)) {
+                var result = executor.run(Duration.ofSeconds(10)).toCompletableFuture().join();
+
+                assertFalse(result.hasTokens(success), "no success branch");
+                assertFalse(result.hasTokens(timedOut),
+                    "the 30s budget never expired: the action's own TimeoutException is a failure, "
+                        + "not the declared timeout branch");
+                assertTrue(store.events().stream().anyMatch(e -> e instanceof NetEvent.TransitionFailed),
+                    "the action failure must surface as TransitionFailed");
+                assertFalse(store.events().stream().anyMatch(e -> e instanceof NetEvent.ActionTimedOut),
+                    "no ActionTimedOut, since the executor's budget timer never fired");
+            }
+        }
+
+        @Test
+        void fatalErrorFromAnAction_terminatesTheRun_ratherThanBeingContained() {
+            var go = Place.of("Go", SimpleValue.class);
+            var out = Place.of("Out", SimpleValue.class);
+
+            var boom = Transition.builder("boom")
+                .inputs(one(go))
+                .outputs(place(out))
+                .action(ctx -> { throw new StackOverflowError("simulated JVM fault"); })
+                .build();
+            var net = PetriNet.builder("ErrorNet").transitions(boom).build();
+            Map<Place<?>, List<Token<?>>> initial =
+                Map.of(go, List.of(Token.of(new SimpleValue("x"))));
+
+            try (var executor = createExecutor(net, initial)) {
+                var stage = executor.run(Duration.ofSeconds(10)).toCompletableFuture();
+                var ex = assertThrows(CompletionException.class, stage::join);
+                assertInstanceOf(StackOverflowError.class, ex.getCause(),
+                    "a fatal Error must propagate out of the run, not be logged and retried");
+            }
+        }
+
+        @Test
+        void actionFailureHandler_isInvokedForEveryExecutor_underNoopStore() {
+            var go = Place.of("Go", SimpleValue.class);
+            var out = Place.of("Out", SimpleValue.class);
+            var seenName = new AtomicReference<String>();
+            var seenCause = new AtomicReference<Throwable>();
+
+            var failing = Transition.builder("failing")
+                .inputs(one(go))
+                .outputs(place(out))
+                .action(ctx -> CompletableFuture.failedFuture(new IllegalStateException("action failed")))
+                .build();
+            var net = PetriNet.builder("HandlerNet").transitions(failing).build();
+            Map<Place<?>, List<Token<?>>> initial =
+                Map.of(go, List.of(Token.of(new SimpleValue("x"))));
+
+            ActionFailureHandler handler = (t, cause) -> {
+                seenName.set(t.name());
+                seenCause.set(cause);
+            };
+            try (var executor = createExecutorWithHandler(net, initial, EventStore.noop(), handler)) {
+                var result = executor.run(Duration.ofSeconds(10)).toCompletableFuture().join();
+
+                assertFalse(result.hasTokens(out), "the failing transition produced nothing");
+                assertEquals("failing", seenName.get(),
+                    "the handler must be invoked with the failing transition (every executor)");
+                assertEquals("action failed", seenCause.get().getMessage(),
+                    "the handler receives the unwrapped cause, not a CompletionException wrapper");
+            }
+        }
+
+        @Test
+        void throwingActionFailureHandler_doesNotKillTheLoop() {
+            var go = Place.of("Go", SimpleValue.class);
+            var out = Place.of("Out", SimpleValue.class);
+
+            var failing = Transition.builder("failing")
+                .inputs(one(go))
+                .outputs(place(out))
+                .action(ctx -> CompletableFuture.failedFuture(new IllegalStateException("boom")))
+                .build();
+            var net = PetriNet.builder("ThrowingHandlerNet").transitions(failing).build();
+            Map<Place<?>, List<Token<?>>> initial =
+                Map.of(go, List.of(Token.of(new SimpleValue("x"))));
+
+            ActionFailureHandler handler = (t, cause) -> { throw new RuntimeException("handler blew up"); };
+            try (var executor = createExecutorWithHandler(net, initial, EventStore.noop(), handler)) {
+                // Completes normally: a throwing handler is swallowed, not allowed to stop the loop.
+                var result = executor.run(Duration.ofSeconds(10)).toCompletableFuture().join();
+                assertFalse(result.hasTokens(out), "the failing transition produced nothing");
+            }
         }
     }
 

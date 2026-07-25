@@ -34,4 +34,10 @@ class NetExecutorEngineTest extends AbstractNetExecutorEngineTest {
     protected PetriNetExecutor createExecutorWithEnv(PetriNet net, Map<Place<?>, List<Token<?>>> initial, Set<EnvironmentPlace<?>> envPlaces) {
         return NetExecutor.builder(net, initial).environmentPlaces(envPlaces).build();
     }
+
+    @Override
+    @SuppressWarnings("deprecation")
+    protected PetriNetExecutor createExecutorWithHandler(PetriNet net, Map<Place<?>, List<Token<?>>> initial, EventStore store, ActionFailureHandler handler) {
+        return NetExecutor.builder(net, initial).eventStore(store).uncaughtActionHandler(handler).build();
+    }
 }

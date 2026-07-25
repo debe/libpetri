@@ -21,18 +21,18 @@ All marking state (token queues, enablement flags, enabled-at timestamps) is own
 
 ---
 
-#### CONC-002: Action Execution on Separate Task Pool
+#### CONC-002: Non-Blocking Action Dispatch
 
 **Priority:** MUST
 
-Transition actions execute asynchronously on a separate task pool (virtual threads, tokio tasks, or promise microtasks). The orchestrator never blocks waiting for an action to complete.
+An action returns a future/promise/task; the orchestrator does not *await* its completion inline before continuing. Concurrency is provided by whatever drives that returned handle — a virtual-thread pool, tokio tasks, or promise microtasks. Where the action *body* is invoked is implementation-defined: an implementation MAY invoke it inline on the orchestrator thread (delegating the dispatch decision to the action, which supplies its own executor for any work it wants to run off-thread), or MAY submit it to a task pool itself. In an inline-invoking implementation an action that blocks before returning its handle blocks the whole net; concurrency there comes from the action returning a handle backed by its own thread/pool.
 
 **Acceptance Criteria:**
-1. Action execution does not block the orchestrator loop.
-2. Multiple actions can execute concurrently.
-3. The orchestrator continues processing other transitions while actions run.
+1. The orchestrator does not await an action's completion inline; it continues once the action returns its handle.
+2. Multiple actions whose handles are backed by concurrent work execute concurrently.
+3. The orchestrator continues processing other transitions while such actions run.
 
-**Test derivation:** Two transitions fire; both actions sleep 100ms; verify total time ~100ms, not ~200ms.
+**Test derivation:** Two transitions fire; both actions return handles backed by a 100ms async sleep; verify total time ~100ms, not ~200ms.
 
 ---
 
@@ -316,7 +316,7 @@ When an action completes synchronously (returns an immediately-resolved future o
 **Acceptance Criteria:**
 1. Passthrough actions execute inline without task dispatch.
 2. Synchronous transform actions execute inline when the action signals inline support.
-3. Async actions are dispatched to the task pool as normal.
+3. The orchestrator never dispatches actions itself; an async action returns a handle backed by its own executor, and the orchestrator continues once the handle is returned ([CONC-002]).
 
 **Test derivation:** Chain of 10 passthrough transitions; measure overhead; verify no task dispatch.
 

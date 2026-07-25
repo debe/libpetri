@@ -11,6 +11,7 @@ import org.libpetri.runtime.BitmapNetExecutor;
 import org.libpetri.runtime.NetExecutor;
 import org.libpetri.runtime.PrecompiledNetExecutor;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -79,6 +80,10 @@ public class BitmapNetExecutorBenchmark {
     private PetriNet syncLinearNet1000, syncLinearNet2000, syncLinearNet5000, syncLinearNet10000;
     private Place<BenchToken> syncStart10, syncStart20, syncStart50, syncStart100, syncStart200, syncStart500;
     private Place<BenchToken> syncStart1000, syncStart2000, syncStart5000, syncStart10000;
+
+    // Out.Timeout chains — the only benchmarks exercising the timeout path.
+    private PetriNet timeoutLinearNet10, timeoutLinearNet50, timeoutLinearNet100;
+    private Place<BenchToken> timeoutStart10, timeoutStart50, timeoutStart100;
 
     // Mixed linear chains (2 async + rest sync)
     private PetriNet mixedLinearNet10, mixedLinearNet20, mixedLinearNet50, mixedLinearNet100, mixedLinearNet200, mixedLinearNet500;
@@ -244,6 +249,19 @@ public class BitmapNetExecutorBenchmark {
         largeNet = large.net;
         largeStart = large.start;
 
+        // Build Out.Timeout chains
+        var timeout10 = buildTimeoutLinearChain(10);
+        timeoutLinearNet10 = timeout10.net;
+        timeoutStart10 = timeout10.start;
+
+        var timeout50 = buildTimeoutLinearChain(50);
+        timeoutLinearNet50 = timeout50.net;
+        timeoutStart50 = timeout50.start;
+
+        var timeout100 = buildTimeoutLinearChain(100);
+        timeoutLinearNet100 = timeout100.net;
+        timeoutStart100 = timeout100.start;
+
         // Build complex workflow
         complexWorkflow = buildComplexWorkflow();
 
@@ -255,6 +273,7 @@ public class BitmapNetExecutorBenchmark {
             mixedLinearNet10, mixedLinearNet20, mixedLinearNet50, mixedLinearNet100, mixedLinearNet200, mixedLinearNet500,
             linearNet5, linearNet10, linearNet20, linearNet50, linearNet100, linearNet200, linearNet500,
             parallelNet5, parallelNet10, parallelNet20,
+            timeoutLinearNet10, timeoutLinearNet50, timeoutLinearNet100,
             largeNet, complexWorkflow.net
         )) {
             compiledPrograms.put(net, org.libpetri.runtime.PrecompiledNet.compile(net));
@@ -323,6 +342,54 @@ public class BitmapNetExecutorBenchmark {
                         Blackhole.consumeCPU(100);
                         ctx.output(to, new BenchToken("v"));
                         return CompletableFuture.completedFuture(null);
+                    })
+                    .build()
+            );
+        }
+
+        return new NetWithStart(builder.build(), start);
+    }
+
+    /**
+     * Builds a linear chain whose every transition carries an {@code Out.Timeout} that never
+     * fires (the budget is far longer than the action).
+     *
+     * <p>This path was entirely unmeasured: none of the other benchmarks declare a timeout, and
+     * a timed transition is deliberately excluded from the sync fast path. The action returns an
+     * <em>incomplete</em> future (via {@code supplyAsync}), so {@code withActionTimeout} genuinely
+     * arms and then cancels a budget timer per firing — a completed future would short-circuit it.
+     * Compare against {@code linear_*} (also async), not the sync chain. Any change to timeout
+     * handling shows up here.
+     */
+    private NetWithStart buildTimeoutLinearChain(int transitions) {
+        var start = Place.of("to_start", BenchToken.class);
+        var places = new ArrayList<Place<BenchToken>>();
+        places.add(start);
+
+        for (int i = 1; i <= transitions; i++) {
+            places.add(Place.of("to_p" + i, BenchToken.class));
+        }
+
+        var timeoutSink = Place.of("to_timeout", BenchToken.class);
+
+        var builder = PetriNet.builder("TimeoutLinear" + transitions);
+        for (int i = 0; i < transitions; i++) {
+            var to = places.get(i + 1);
+            builder.transition(
+                Transition.builder("to_t" + (i + 1))
+                    .inputs(In.one(places.get(i)))
+                    .outputs(Out.xor(
+                        Out.place(to),
+                        Out.timeout(Duration.ofMinutes(5), Out.place(timeoutSink))
+                    ))
+                    .action(ctx -> {
+                        Blackhole.consumeCPU(100);
+                        ctx.output(to, new BenchToken("v"));
+                        // Incomplete future so the budget timer is genuinely armed per firing.
+                        return CompletableFuture.supplyAsync(() -> {
+                            Blackhole.consumeCPU(100);
+                            return null;
+                        }, virtualExecutor);
                     })
                     .build()
             );
@@ -1038,6 +1105,40 @@ public class BitmapNetExecutorBenchmark {
 
     // ==================== COMPILED VM: SYNC LINEAR CHAIN ====================
 
+    // ==================== Out.Timeout chains ====================
+    // A timed transition is excluded from the sync fast path, so these measure the
+    // in-flight bookkeeping + per-firing timer arm that no other benchmark touches.
+
+    @Benchmark
+    public void timeout_linear_10t(Blackhole bh) {
+        runBitmapNet(timeoutLinearNet10, timeoutStart10, bh);
+    }
+
+    @Benchmark
+    public void timeout_linear_50t(Blackhole bh) {
+        runBitmapNet(timeoutLinearNet50, timeoutStart50, bh);
+    }
+
+    @Benchmark
+    public void timeout_linear_100t(Blackhole bh) {
+        runBitmapNet(timeoutLinearNet100, timeoutStart100, bh);
+    }
+
+    @Benchmark
+    public void compiled_timeout_linear_10t(Blackhole bh) {
+        runCompiledNet(timeoutLinearNet10, timeoutStart10, bh);
+    }
+
+    @Benchmark
+    public void compiled_timeout_linear_50t(Blackhole bh) {
+        runCompiledNet(timeoutLinearNet50, timeoutStart50, bh);
+    }
+
+    @Benchmark
+    public void compiled_timeout_linear_100t(Blackhole bh) {
+        runCompiledNet(timeoutLinearNet100, timeoutStart100, bh);
+    }
+
     @Benchmark
     public void compiled_sync_linear_10t(Blackhole bh) {
         runCompiledNet(syncLinearNet10, syncStart10, bh);
@@ -1275,7 +1376,7 @@ public class BitmapNetExecutorBenchmark {
             var exec = PrecompiledNetExecutor.builder(net, input)
                 .program(compiledPrograms.get(net))
                 .eventStore(EventStore.noop())
-                .executor(virtualExecutor)
+                .orchestratorExecutor(virtualExecutor)
                 .build()
         ) {
             bh.consume(exec.run());
@@ -1291,7 +1392,7 @@ public class BitmapNetExecutorBenchmark {
             var executor = PrecompiledNetExecutor.builder(complexWorkflow.net, input)
                 .program(compiledPrograms.get(complexWorkflow.net))
                 .eventStore(store)
-                .executor(exec)
+                .orchestratorExecutor(exec)
                 .build()
         ) {
             bh.consume(executor.run());
@@ -1304,12 +1405,10 @@ public class BitmapNetExecutorBenchmark {
             List.of(Token.of(new BenchToken("start")))
         );
         try (
-            var exec = BitmapNetExecutor.create(
-                net,
-                input,
-                EventStore.noop(),
-                virtualExecutor
-            )
+            var exec = BitmapNetExecutor.builder(net, input)
+                .eventStore(EventStore.noop())
+                .orchestratorExecutor(virtualExecutor)
+                .build()
         ) {
             bh.consume(exec.run());
         }
@@ -1574,7 +1673,7 @@ public class BitmapNetExecutorBenchmark {
             var exec = PrecompiledNetExecutor.builder(net, input)
                 .program(prog)
                 .eventStore(EventStore.noop())
-                .executor(virtualExecutor)
+                .orchestratorExecutor(virtualExecutor)
                 .build()
         ) {
             bh.consume(exec.run());

@@ -59,7 +59,15 @@ public final class TransitionContext {
     /**
      * Returns the ScopedValue carrier for binding during action execution.
      * Used by executors to bind the context before invoking the action.
+     *
+     * @deprecated This puts {@link ScopedValue} — final only since JDK 25 — in the published
+     *     signature, binary-locking the artifact's JDK floor. It is expected to be replaced by
+     *     a libpetri-owned carrier that binds the context without exposing {@code ScopedValue},
+     *     at which point this becomes removable. To <em>read</em> the ambient context from an
+     *     interceptor use {@link #current()}; that does not replace this method, which is what
+     *     <em>establishes</em> the binding, so no {@code forRemoval} is declared yet.
      */
+    @Deprecated(since = "2.13")
     public static ScopedValue<TransitionContext> scopedValue() {
         return CURRENT;
     }
@@ -74,7 +82,19 @@ public final class TransitionContext {
 
     private Transition transition;
     private TokenInput rawInput;
+
+    /**
+     * What the executor harvests. Identical to {@link #writeTarget} until
+     * {@link #detachForTimeout()} replaces it with a fresh collector the action cannot reach.
+     */
     private TokenOutput rawOutput;
+
+    /**
+     * What the action writes to. Never reassigned, so an action already inside
+     * {@code output(...)} cannot be redirected mid-write; severance happens by detaching this
+     * collector, not by swapping it.
+     */
+    private TokenOutput writeTarget;
     private Set<Place<?>> allowedInputs;
     private Set<Place<?>> allowedReads;
     private Set<Place<?>> allowedOutputs;
@@ -91,6 +111,7 @@ public final class TransitionContext {
         this.transition = transition;
         this.rawInput = rawInput;
         this.rawOutput = rawOutput;
+        this.writeTarget = rawOutput;
         this.allowedInputs = transition.inputPlaces();
         this.allowedReads = transition.readPlaces();
         this.allowedOutputs = transition.outputPlaces();
@@ -242,7 +263,7 @@ public final class TransitionContext {
     public <T> TransitionContext output(Place<T> place, T value) {
         var actual = resolve(place);
         requireOutput(actual);
-        rawOutput.add(actual, value);
+        writeTarget.add(actual, value);
         return this;
     }
 
@@ -257,7 +278,7 @@ public final class TransitionContext {
     public <T> TransitionContext output(Place<T> place, Token<T> token) {
         var actual = resolve(place);
         requireOutput(actual);
-        rawOutput.add(actual, token);
+        writeTarget.add(actual, token);
         return this;
     }
 
@@ -284,7 +305,7 @@ public final class TransitionContext {
         var actual = resolve(place);
         requireOutput(actual);
         for (T value : values) {
-            rawOutput.add(actual, value);
+            writeTarget.add(actual, value);
         }
         return this;
     }
@@ -312,8 +333,58 @@ public final class TransitionContext {
         var actual = resolve(place);
         requireOutput(actual);
         for (T value : values) {
-            rawOutput.add(actual, value);
+            writeTarget.add(actual, value);
         }
+        return this;
+    }
+
+    /**
+     * Severs the action's output from the marking, for use when a firing times out.
+     *
+     * <p>After this call the action's {@code output(...)} writes are counted and dropped, and
+     * the executor harvests a fresh collector the action holds no reference to. Anything the
+     * action wrote <em>before</em> the timeout is discarded with it: a partial result merged
+     * with the timeout branch would violate the transition's own output spec.
+     *
+     * <p>This is the only isolation available. libpetri does not own the thread the action
+     * runs on, so it cannot stop the work — only stop the result from landing.
+     *
+     * <p>Must be called by the executor, never by an action.
+     */
+    public void detachForTimeout() {
+        writeTarget.detach();
+        rawOutput = new TokenOutput();
+    }
+
+    /**
+     * Number of action writes rejected since {@link #detachForTimeout()}.
+     *
+     * <p>Non-zero means the timed-out action was still producing output after the executor
+     * gave up on it.
+     */
+    public int discardedWriteCount() {
+        return writeTarget.discardedWriteCount();
+    }
+
+    /**
+     * Produces into the executor's harvest collector rather than the action's write target.
+     *
+     * <p>Identical to {@link #output(Place, Object)} before {@link #detachForTimeout()}; after
+     * it, this is the only route that still reaches the marking. Used by the executor to
+     * deposit the timeout branch.
+     *
+     * <p>Executor machinery — must be called by the executor, never by an action, like
+     * {@link #detachForTimeout()}.
+     *
+     * @param place the output place to write to
+     * @param value the value to produce
+     * @return this context for chaining
+     * @throws IllegalArgumentException if place not declared as output in structure
+     */
+    public <T> TransitionContext outputToHarvest(Place<T> place, T value) {
+        var actual = resolve(place);
+        requireOutput(actual);
+        rawOutput.add(actual, value);
         return this;
     }
 

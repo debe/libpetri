@@ -6,6 +6,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
@@ -18,17 +19,21 @@ import org.libpetri.event.NetEvent;
  *
  * <p>The executor manages the complete lifecycle of a Petri net execution:
  * token flow, transition enablement, firing, and completion detection.
- * It uses virtual threads for scalable async transition execution.
  *
  * <h2>Concurrency Model</h2>
  * <ul>
  *   <li>All Petri net state (marking, enabledAt, inFlight) is owned by the
  *       orchestrator thread (the one calling {@link #run()}).</li>
- *   <li>Transition actions run on the configured {@link ExecutorService} and may
- *       complete on arbitrary threads, but they MUST NOT touch the marking
- *       directly.</li>
- *   <li>Actions signal completion via an internal queue. The orchestrator
- *       then applies marking changes in a thread-safe manner.</li>
+ *   <li><b>Transition actions are invoked inline, on the orchestrator thread.</b>
+ *       The executor never submits them anywhere. An action that blocks blocks the
+ *       whole net; concurrency comes from whatever drives the {@link CompletionStage}
+ *       the action returns, which libpetri does not own.</li>
+ *   <li>The configured {@link ExecutorService} hosts exactly one task — the
+ *       orchestrator loop itself, and only under {@link #run(Duration)}. It does
+ *       <em>not</em> dispatch actions.</li>
+ *   <li>Whatever thread completes an action signals through an internal queue; it
+ *       MUST NOT touch the marking directly. The orchestrator then applies marking
+ *       changes.</li>
  * </ul>
  *
  * <h2>Scheduling Policy</h2>
@@ -63,8 +68,15 @@ import org.libpetri.event.NetEvent;
  * @see PetriNet
  * @see Marking
  * @see EventStore
+ * @deprecated Superseded by {@link PrecompiledNetExecutor} (production) and
+ *     {@link BitmapNetExecutor} (reference), which together cover every use of this class
+ *     with better performance and clearer semantics. Keeping a third executor means every
+ *     runtime change lands three times, and this one has already drifted from the other two.
+ *     Migrate to {@code BitmapNetExecutor} for identical semantics, or
+ *     {@code PrecompiledNetExecutor} for throughput. Scheduled for removal in 3.0.
  */
-public final class NetExecutor implements PetriNetExecutor {
+@Deprecated(since = "2.13", forRemoval = true)
+public final class NetExecutor implements PetriNetExecutor, AwaitPollTunable {
     private final PetriNet net;
     private final Marking marking;
     private final EventStore eventStore;
@@ -121,6 +133,9 @@ public final class NetExecutor implements PetriNetExecutor {
     /** Wake-up signal for instant response to external events. */
     private final Semaphore wakeUpSignal = new Semaphore(0);
 
+    /** Completion-wait poll fallback (ms). Only lengthened by tests; see {@link AwaitPollTunable}. */
+    private volatile long awaitPollMillis = 50;
+
     /** Whether this executor has environment places (implies long-running behavior). */
     private final boolean hasEnvironmentPlaces;
 
@@ -130,7 +145,61 @@ public final class NetExecutor implements PetriNetExecutor {
     /** Tracks if close() was called — immediate shutdown. */
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
+    /** Optional handler for action failures; null selects the default logging policy. */
+    private final ActionFailureHandler uncaughtActionHandler;
+
+    /**
+     * Set once the execute loop has finished. Distinct from {@code !running}, which is also
+     * true before the loop starts — an inject() before run() is legitimate and must not be
+     * drained, whereas one after termination has nobody left to complete it.
+     */
+    private volatile boolean terminated = false;
+
+    /** Completes when the execute loop finishes, however it finishes. */
+    private final CompletableFuture<Marking> terminatedFuture = new CompletableFuture<>();
+
+    /**
+     * Whether this executor created its own {@link ExecutorService} and may therefore shut it
+     * down. A caller-supplied executor is never shut down — it may host other work. Set once via
+     * {@link #ownExecutor()} right after construction; {@code volatile} so a {@code close()} on
+     * another thread observes the {@code true} write rather than the default {@code false}.
+     */
+    private volatile boolean ownsExecutor = false;
+
     private volatile boolean running = false;
+
+    /**
+     * Set synchronously by {@code run(...)} before the loop task is submitted, so
+     * {@link #awaitTermination(Duration)} can tell "not started yet" from "started". See the
+     * other executors for the rationale.
+     */
+    private volatile boolean started = false;
+
+    /**
+     * Requests immediate termination without waiting for in-flight actions ({@link #terminateNow()});
+     * read in the loop condition so {@code running} stays a truthful "loop is alive" signal.
+     */
+    private volatile boolean stopRequested = false;
+
+    /**
+     * Owned snapshot published by the orchestrator for foreign-thread {@link #marking()} reads,
+     * refreshed when {@link #markingRequestSeq} outpaces {@link #markingServedSeq}. Written only
+     * by the orchestrator; {@code volatile} for cross-thread visibility.
+     */
+    private volatile Marking publishedMarking;
+
+    /** Incremented by a foreign-thread {@link #marking()} to request a fresh {@link #publishedMarking}. */
+    private final AtomicLong markingRequestSeq = new AtomicLong();
+
+    /** Highest request sequence the orchestrator has published a snapshot for. */
+    private volatile long markingServedSeq = 0;
+
+    /**
+     * The orchestrator loop's thread, or {@code null} before it starts and after it finishes.
+     * {@code volatile} and published before {@code running = true}; routes a foreign
+     * {@link #marking()} to the published snapshot rather than the live marking.
+     */
+    private volatile Thread orchestratorThread;
 
     private NetExecutor(
         PetriNet net,
@@ -141,6 +210,30 @@ public final class NetExecutor implements PetriNetExecutor {
         ExecutionContextProvider executionContextProvider,
         long deadlineToleranceMillis
     ) {
+        this(net, marking, eventStore, executor, environmentPlaces,
+             executionContextProvider, deadlineToleranceMillis, null);
+    }
+
+    /**
+     * Marks the executor as owning its {@link ExecutorService}, so {@link #close()} may shut
+     * it down. Called only from paths that constructed the executor themselves.
+     */
+    private NetExecutor ownExecutor() {
+        this.ownsExecutor = true;
+        return this;
+    }
+
+    private NetExecutor(
+        PetriNet net,
+        Marking marking,
+        EventStore eventStore,
+        ExecutorService executor,
+        Set<EnvironmentPlace<?>> environmentPlaces,
+        ExecutionContextProvider executionContextProvider,
+        long deadlineToleranceMillis,
+        ActionFailureHandler uncaughtActionHandler
+    ) {
+        this.uncaughtActionHandler = uncaughtActionHandler;
         this.net = net;
         this.marking = marking;
         this.eventStore = eventStore;
@@ -194,7 +287,7 @@ public final class NetExecutor implements PetriNetExecutor {
             Set.of(),
             ExecutionContextProvider.NOOP,
             ExecutorSupport.DEADLINE_TOLERANCE_MS
-        );
+        ).ownExecutor();
     }
 
     /**
@@ -218,7 +311,7 @@ public final class NetExecutor implements PetriNetExecutor {
             Set.of(),
             ExecutionContextProvider.NOOP,
             ExecutorSupport.DEADLINE_TOLERANCE_MS
-        );
+        ).ownExecutor();
     }
 
     /**
@@ -227,7 +320,7 @@ public final class NetExecutor implements PetriNetExecutor {
      * @param net the Petri net to execute
      * @param initialTokens initial marking (place → tokens)
      * @param eventStore event store for execution history
-     * @param executor executor service for transition actions
+     * @param executor executor service hosting the orchestrator loop (not an action dispatcher)
      * @return new executor ready to run
      */
     public static NetExecutor create(
@@ -269,6 +362,7 @@ public final class NetExecutor implements PetriNetExecutor {
         private Set<EnvironmentPlace<?>> environmentPlaces = Set.of();
         private ExecutionContextProvider executionContextProvider = ExecutionContextProvider.NOOP;
         private long deadlineToleranceMillis = ExecutorSupport.DEADLINE_TOLERANCE_MS;
+        private ActionFailureHandler uncaughtActionHandler = null;
 
         private Builder(PetriNet net, Map<Place<?>, List<Token<?>>> initialTokens) {
             this.net = Objects.requireNonNull(net, "net");
@@ -287,9 +381,12 @@ public final class NetExecutor implements PetriNetExecutor {
         }
 
         /**
-         * Sets the executor service for transition actions.
+         * Sets the executor service that hosts the orchestrator loop under {@link #run(Duration)}.
          *
-         * @param executor executor service (default: virtual thread executor)
+         * <p>This is the loop's own thread, not an action dispatcher: transition actions are
+         * invoked inline on the orchestrator thread and are never submitted here.
+         *
+         * @param executor executor service hosting the orchestrator loop (default: a virtual-thread executor)
          * @return this builder
          */
         public Builder executor(ExecutorService executor) {
@@ -357,6 +454,25 @@ public final class NetExecutor implements PetriNetExecutor {
         }
 
         /**
+         * Sets a handler invoked when a transition action fails.
+         *
+         * <p>A failing action destroys the tokens it consumed. That loss is reported as a
+         * {@code TransitionFailed} event, but the default {@code EventStore.noop()} discards
+         * it, so without a handler the failure is entirely silent.
+         *
+         * <p>With no handler configured, libpetri logs at WARNING when — and only when — no
+         * event store recorded the failure. A configured handler is always invoked, and one
+         * that throws is swallowed rather than allowed to stop the orchestrator.
+         *
+         * @param handler receives the transition and the unwrapped cause
+         * @return this builder
+         */
+        public Builder uncaughtActionHandler(ActionFailureHandler handler) {
+            this.uncaughtActionHandler = Objects.requireNonNull(handler);
+            return this;
+        }
+
+        /**
          * Builds the executor.
          *
          * @return configured executor ready to run
@@ -365,15 +481,17 @@ public final class NetExecutor implements PetriNetExecutor {
             ExecutorService exec = executor != null
                 ? executor
                 : Executors.newVirtualThreadPerTaskExecutor();
-            return new NetExecutor(
+            var built = new NetExecutor(
                 net,
                 Marking.from(initialTokens),
                 eventStore,
                 exec,
                 environmentPlaces,
                 executionContextProvider,
-                deadlineToleranceMillis
+                deadlineToleranceMillis,
+                uncaughtActionHandler
             );
+            return executor == null ? built.ownExecutor() : built;
         }
     }
 
@@ -383,7 +501,9 @@ public final class NetExecutor implements PetriNetExecutor {
      * Runs the Petri net to completion synchronously.
      *
      * <p>Executes on the calling thread - the orchestrator is single-threaded.
-     * Only transition actions execute asynchronously on the configured executor.
+     * Transition actions are invoked inline on that thread; any concurrency comes from the
+     * {@link java.util.concurrent.CompletionStage} an action returns, not from the configured
+     * executor, which hosts only this loop.
      *
      * <p>Execution completes when no transitions are enabled and no transitions
      * are in-flight (quiescent state). This may indicate:
@@ -395,6 +515,7 @@ public final class NetExecutor implements PetriNetExecutor {
      * @return final marking after execution
      */
     public Marking run() {
+        started = true;
         return executeLoop();
     }
 
@@ -408,10 +529,42 @@ public final class NetExecutor implements PetriNetExecutor {
      * @return completion stage with final marking
      */
     public CompletionStage<Marking> run(Duration timeout) {
-        return CompletableFuture.supplyAsync(
-            this::executeLoop,
-            executor
-        ).orTimeout(timeout.toMillis(), TimeUnit.MILLISECONDS);
+        return run(timeout, RunTimeoutPolicy.ABANDON);
+    }
+
+    @Override
+    public CompletionStage<Marking> run(Duration timeout, RunTimeoutPolicy policy) {
+        started = true; // before submit, so awaitTermination cannot mistake this for "never started"
+        CompletableFuture<Marking> loop = CompletableFuture.supplyAsync(this::executeLoop, executor);
+        // copy() so the timer never completes the loop's own future: ABANDON must leave the
+        // orchestrator running and still able to report its real result to terminatedFuture.
+        return loop.copy()
+            .orTimeout(timeout.toMillis(), TimeUnit.MILLISECONDS)
+            .whenCompleteAsync((_, ex) -> {
+                if (ex != null && policy == RunTimeoutPolicy.CLOSE) close();
+            });
+    }
+
+    @Override
+    public boolean awaitTermination(Duration timeout) throws InterruptedException {
+        if (!started) return true; // never started
+        try {
+            terminatedFuture.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+            return true;
+        } catch (TimeoutException e) {
+            return false;
+        } catch (ExecutionException e) {
+            return true; // the loop finished, just not happily
+        }
+    }
+
+    @Override
+    public void terminateNow() {
+        draining.set(true);
+        closed.set(true);
+        stopRequested = true; // loop exits at its next condition check; running stays truthful
+        wakeUp();
+        if (!terminated) drainPendingExternalEvents();
     }
 
     // ======================== Environment Place API ========================
@@ -462,6 +615,16 @@ public final class NetExecutor implements PetriNetExecutor {
         // Wake up orchestrator immediately
         wakeUp();
 
+        // The flag check above and this offer are not atomic. If the loop closed or terminated
+        // in between, nothing will ever complete this future and the caller blocks on join()
+        // forever. Draining here is idempotent and yields the same `false` the pre-check would
+        // have returned. `draining` is deliberately NOT in this condition: under drain() (ENV-011)
+        // the loop is still alive and processes already-queued events normally, so draining the
+        // queue here would discard events other injectors legitimately enqueued.
+        if (closed.get() || terminated) {
+            drainPendingExternalEvents();
+        }
+
         return event.resultFuture();
     }
 
@@ -487,7 +650,16 @@ public final class NetExecutor implements PetriNetExecutor {
         wakeUpSignal.release();
     }
 
+    @Override
+    public void awaitPollMillisForTesting(long millis) {
+        this.awaitPollMillis = millis;
+    }
+
     private Marking executeLoop() {
+        // Publish an initial snapshot and the thread reference BEFORE running=true, so a foreign
+        // marking() that observes the loop as live also observes both (volatile piggyback).
+        publishedMarking = marking.copy();
+        orchestratorThread = Thread.currentThread();
         running = true;
         emitEvent(
             new NetEvent.ExecutionStarted(
@@ -498,47 +670,74 @@ public final class NetExecutor implements PetriNetExecutor {
         );
         emitMarkingSnapshot();
 
-        while (running && !Thread.currentThread().isInterrupted()) {
-            // Process completed transitions
-            processCompletedTransitions();
+        // The loop body must never leave pending inject() futures uncompleted, even when it
+        // exits by exception: those callers are blocked on join() and their tokens have
+        // already been consumed. Termination bookkeeping therefore lives in the finally.
+        try {
+            while (running && !stopRequested && !Thread.currentThread().isInterrupted()) {
+                serviceMarkingRequest();
 
-            // Process external events (from inject() calls)
-            processExternalEvents();
+                // Process completed transitions
+                processCompletedTransitions();
 
-            // Update enabled transitions
-            updateEnabledTransitions();
+                // Process external events (from inject() calls)
+                processExternalEvents();
 
-            // Enforce deadlines (disable transitions past their latest bound)
-            enforceDeadlines();
+                // Update enabled transitions
+                updateEnabledTransitions();
 
-            // Check termination conditions
-            if (shouldTerminate()) {
-                break;
+                // Enforce deadlines (disable transitions past their latest bound)
+                enforceDeadlines();
+
+                // Check termination conditions
+                if (shouldTerminate()) {
+                    break;
+                }
+
+                // Fire ready transitions
+                fireReadyTransitions();
+
+                // Wait for work to become available
+                awaitWork();
             }
+        } finally {
+            running = false;
+            terminated = true;
 
-            // Fire ready transitions
-            fireReadyTransitions();
+            // Complete any pending external events with false
+            drainPendingExternalEvents();
 
-            // Wait for work to become available
-            awaitWork();
+            // Emit failures must not prevent the loop from reporting termination: a throwing
+            // EventStore here would otherwise leave terminatedFuture uncompleted and hang
+            // awaitTermination forever.
+            try {
+                emitMarkingSnapshot();
+                emitEvent(
+                    new NetEvent.ExecutionCompleted(
+                        Instant.now(),
+                        net.name(),
+                        executionId(),
+                        elapsedDuration()
+                    )
+                );
+            } catch (Throwable emitError) {
+                ExecutorSupport.swallowEventStoreFailure("ExecutionCompleted", emitError);
+            } finally {
+                terminatedFuture.complete(marking);
+                orchestratorThread = null; // last: post-termination marking() reads are exact
+            }
         }
 
-        running = false;
-
-        // Complete any pending external events with false
-        drainPendingExternalEvents();
-
-        emitMarkingSnapshot();
-        emitEvent(
-            new NetEvent.ExecutionCompleted(
-                Instant.now(),
-                net.name(),
-                executionId(),
-                elapsedDuration()
-            )
-        );
-
         return marking;
+    }
+
+    /** Refreshes the published snapshot when a foreign thread has asked for one (see {@link #marking()}). */
+    private void serviceMarkingRequest() {
+        long req = markingRequestSeq.get();
+        if (req != markingServedSeq) {
+            publishedMarking = marking.copy();
+            markingServedSeq = req;
+        }
     }
 
     /**
@@ -634,7 +833,7 @@ public final class NetExecutor implements PetriNetExecutor {
             // Poll until either a transition completes or an external event arrives
             while (!anyCompletion.isDone()) {
                 // Use the shorter of the default poll interval and time until next timed transition
-                long pollMs = Math.max(1, Math.min(50, millisUntilNextTimedTransition()));
+                long pollMs = Math.max(1, Math.min(awaitPollMillis, millisUntilNextTimedTransition()));
 
                 // Check for external events with short timeout
                 try {
@@ -880,10 +1079,31 @@ public final class NetExecutor implements PetriNetExecutor {
         List<Transition> fireOrder = selectFireOrder(ready);
         for (Transition t : fireOrder) {
             if (enabledAt.containsKey(t) && canEnable(t)) {
-                fireTransition(t);
+                fireTransitionGuarded(t);
             } else {
                 enabledAt.remove(t);
             }
+        }
+    }
+
+    /**
+     * Fires a transition, containing any failure to that one firing.
+     *
+     * <p>Without this boundary an unchecked throw from a firing — an action throwing before it
+     * returns its stage, a user {@link org.libpetri.event.EventStore} throwing from
+     * {@code append}, a token-type violation — unwinds out of the orchestrator loop and kills
+     * the executor. This executor consumes directly from the marking (no separate presence
+     * bitmap), so a mid-consume throw leaves the marking a consistent, smaller multiset; the
+     * transition simply re-evaluates. A fatal {@link Error} is rethrown to terminate the run.
+     */
+    private void fireTransitionGuarded(Transition t) {
+        try {
+            fireTransition(t);
+        } catch (Throwable e) {
+            enabledAt.remove(t);
+            inFlight.remove(t);
+            ExecutorSupport.rethrowIfFatal(e);
+            handleTransitionFailure(t, e);
         }
     }
 
@@ -1009,32 +1229,16 @@ public final class NetExecutor implements PetriNetExecutor {
 
         CompletableFuture<Void> transitionFuture = eventStore.isEnabled()
             ? LogCaptureScope.call(t.name(), eventStore::append,
-                  () -> t.action().execute(context).toCompletableFuture())
-            : t.action().execute(context).toCompletableFuture();
+                  () -> ExecutorSupport.executeAction(t, context))
+            : ExecutorSupport.executeAction(t, context);
 
-        // Handle Out.Timeout: If the transition has a timeout in its output spec,
-        // wrap the action with timeout handling. On timeout, we cancel the action
-        // and produce tokens to the timeout branch.
+        // Handle Out.Timeout: on expiry the context is severed from the marking and the
+        // timeout branch is produced into a collector the action cannot reach.
         if (t.hasActionTimeout()) {
-            var timeoutSpec = t.actionTimeout();
-            long timeoutMillis = timeoutSpec.after().toMillis();
-            var originalFuture = transitionFuture;
-
-            transitionFuture = transitionFuture
-                .orTimeout(timeoutMillis, TimeUnit.MILLISECONDS)
-                .exceptionally(ex -> {
-                    if (ex instanceof TimeoutException || ex.getCause() instanceof TimeoutException) {
-                        // Cancel the original action to prevent it from producing output
-                        originalFuture.cancel(true);
-                        // Produce tokens to timeout branch (synchronized via context)
-                        produceTimeoutOutput(context, timeoutSpec.child());
-                        emitEvent(new NetEvent.ActionTimedOut(
-                            Instant.now(), t.name(), timeoutSpec.after()));
-                        return null;  // Swallow timeout exception, we handled it
-                    }
-                    // Re-throw other exceptions
-                    throw (ex instanceof RuntimeException re) ? re : new RuntimeException(ex);
-                });
+            transitionFuture = ExecutorSupport.withActionTimeout(
+                t, context, transitionFuture,
+                () -> emitEvent(new NetEvent.ActionTimedOut(
+                    Instant.now(), t.name(), t.actionTimeout().after())));
         }
 
         // Signal completion to orchestrator and wake up if waiting
@@ -1045,10 +1249,6 @@ public final class NetExecutor implements PetriNetExecutor {
 
         inFlight.put(t, new InFlightTransition(transitionFuture, context, consumed, System.nanoTime()));
         enabledAt.remove(t);
-    }
-
-    private void produceTimeoutOutput(TransitionContext context, Arc.Out timeoutChild) {
-        ExecutorSupport.produceTimeoutOutput(context, timeoutChild);
     }
 
     /**
@@ -1089,32 +1289,44 @@ public final class NetExecutor implements PetriNetExecutor {
                 emitEvent(new NetEvent.TransitionCompleted(
                     Instant.now(), t.name(), produced, transitionDuration));
 
-            } catch (OutViolationException e) {
-                // Output validation failed - treat as transition failure
-                handleTransitionFailure(t, new CompletionException(e));
-            } catch (CompletionException e) {
+            } catch (RuntimeException e) {
+                // CompletionException (action failed), OutViolationException (output spec
+                // violated) and CancellationException — which join() rethrows *unwrapped*,
+                // so it matches neither of the other two — all fail just this transition.
                 handleTransitionFailure(t, e);
             }
         }
     }
 
     /**
-     * Handle transition action failures.
+     * Reports an action failure: emits {@code TransitionFailed} and invokes the configured
+     * {@code uncaughtActionHandler} (or the default WARNING log when no store recorded it). The
+     * transition's consumed tokens are already gone (EXEC-031, no rollback). For a declarative
+     * timeout use {@link Arc.Out#timeout(Duration, Arc.Out)}, which the executor enforces.
      *
-     * <p>Note: Timeout is no longer handled here as a failure. Use
-     * {@link TransitionAction#withTimeout} to wrap actions with timeout handling.
-     * The wrapper ensures actions always produce output (normal or timeout marker),
-     * preserving proper TPN semantics.
+     * <p>The emit is guarded so a throwing {@code EventStore} cannot escape this handler (it
+     * runs inside {@code fireTransitionGuarded}'s catch); {@code emitted} carries the true
+     * "was it recorded" signal to the reporter.
      */
-    private void handleTransitionFailure(Transition t, CompletionException e) {
-        emitEvent(
-            new NetEvent.TransitionFailed(
-                Instant.now(),
-                t.name(),
-                e.getCause().getMessage(),
-                e.getCause().getClass().getName()
-            )
-        );
+    private void handleTransitionFailure(Transition t, Throwable e) {
+        Throwable cause = ExecutorSupport.unwrap(e);
+        boolean emitted = false;
+        if (eventStore.isEnabled()) {
+            try {
+                emitEvent(
+                    new NetEvent.TransitionFailed(
+                        Instant.now(),
+                        t.name(),
+                        cause.getMessage(),
+                        cause.getClass().getName()
+                    )
+                );
+                emitted = true;
+            } catch (Throwable storeError) {
+                ExecutorSupport.swallowEventStoreFailure("TransitionFailed", storeError);
+            }
+        }
+        ExecutorSupport.reportActionFailure(uncaughtActionHandler, emitted, t, cause);
     }
 
     // ======================== State Inspection ========================
@@ -1122,14 +1334,43 @@ public final class NetExecutor implements PetriNetExecutor {
     /**
      * Returns the current marking (token state) of the net.
      *
-     * <p>The returned marking is the live internal state. During execution,
-     * it may change as transitions fire. For a snapshot, call after execution
-     * completes.
+     * <p>From the orchestrator thread, or once the loop has stopped, this is the live internal
+     * state. From another thread while the loop is running it returns an independent best-effort
+     * snapshot the orchestrator publishes, refreshed at the next safe point in its loop — the
+     * live marking is a {@code HashMap} the orchestrator mutates and must not be read across
+     * threads. For a view with defined timing, subscribe to {@code MarkingSnapshot} events.
      *
      * @return current marking
      */
     public Marking marking() {
+        Thread orchestrator = orchestratorThread;
+        if (orchestrator != null && Thread.currentThread() != orchestrator) {
+            Marking snapshot = awaitPublishedSnapshot();
+            if (orchestratorThread != null) {
+                return snapshot != null ? snapshot : Marking.empty();
+            }
+            // else: the loop finished while we waited — fall through to the exact live marking.
+        }
         return marking;
+    }
+
+    /**
+     * Requests a fresh published snapshot from the orchestrator and waits, bounded, for it.
+     * Returns the freshest {@link #publishedMarking} it can; the caller checks whether the loop
+     * ended meanwhile (in which case it reads the exact live marking instead). This executor's
+     * live path is a plain field read, so a fall-through post-termination read is race-free.
+     */
+    private Marking awaitPublishedSnapshot() {
+        long seq = markingRequestSeq.incrementAndGet();
+        wakeUp();
+        long deadline = System.nanoTime() + ExecutorSupport.MARKING_SNAPSHOT_WAIT_NANOS;
+        while (markingServedSeq < seq) {
+            if (orchestratorThread == null) return null; // loop finished; caller reads exact
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0) break; // best-effort cap: return the last snapshot
+            LockSupport.parkNanos(Math.min(remaining, 1_000_000L));
+        }
+        return publishedMarking;
     }
 
     /**
@@ -1232,5 +1473,13 @@ public final class NetExecutor implements PetriNetExecutor {
         draining.set(true);
         closed.set(true);
         wakeUp();
+
+        // No loop is running to reach the drain in executeLoop's finally — either it never
+        // started or it already terminated. Either way these futures are ours to complete.
+        if (!running) drainPendingExternalEvents();
+
+        // Only ever shut down an executor we created. A caller-supplied one may host
+        // other work and is not ours to stop.
+        if (ownsExecutor) executor.shutdown();
     }
 }
