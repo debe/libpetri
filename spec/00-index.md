@@ -332,9 +332,9 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Timing variants | 5 (Immediate, Deadline, Delayed, Window, Exact) | ✓ | ✓ | ✓ |
 | Bitmap word size | — | 64-bit (long) | 32-bit (Uint32Array) | 64-bit (u64) * |
 | Concurrency model | Single-threaded orchestrator | Actions invoked inline; concurrency from the returned stage (e.g. virtual threads) | Promise microtasks | Tokio async tasks |
-| Timeout abandonment | Firing abandoned; pre-timeout output discarded ([IO-013]) | ✓ (context detach) | Merges pre-timeout output — pending | ✓ (drops ctx) |
-| Sync action-throw containment | Failing action fails only that firing ([EXEC-030]) | ✓ | Pending | ✓ |
-| Inject after natural termination | Rejected, not hung ([ENV-006]) | ✓ (`terminated` flag) | Pending | ✓ |
+| Timeout abandonment | Firing abandoned; pre-timeout output discarded ([IO-013]) | ✓ (context detach) | ✓ (context detach) | ✓ (drops ctx) |
+| Sync action-throw containment | Failing action fails only that firing ([EXEC-030]) | ✓ | ✓ | ✓ |
+| Inject after natural termination | Rejected, not hung ([ENV-006]) | ✓ (`terminated` flag) | ✓ (draining guard) | ✓ |
 | Immediate termination / observable termination | [ENV-015] / [ENV-016] (MAY) | ✓ | Pending | Pending |
 | Token type safety | Typed places + typed tokens | Generics (compile-time) | Phantom type param | Generics (compile-time) |
 | Guard predicates | Filter on input arcs | ✓ (on Arc.Input) | ✓ (on In variants) | Not yet |
@@ -360,15 +360,15 @@ tracked in those requirements.
 
 **Executor-hardening divergence (Java-first).** A 2026 hardening pass landed several
 robustness fixes in Java ahead of the other implementations: a synchronous action throw fails
-only that firing rather than killing the loop ([EXEC-030]); `inject()` after natural termination
-is rejected rather than hanging ([ENV-006] "or execution has completed"); output written before an
-`Out.Timeout` budget expires is discarded rather than merged with the timeout branch ([IO-013]
-AC5); and the new lifecycle surface `terminateNow()` / `awaitTermination()` / run-timeout policy
-([ENV-015], [ENV-016]). Rust already matches the timeout-abandonment and failure-containment
-semantics; **TypeScript still has the pre-hardening behaviour** for the first three and lacks the
-lifecycle surface. Porting these to TypeScript (and surfacing the lifecycle additions in
-Rust/Python) is tracked as follow-up; until then the table above is the authoritative per-language
-status.
+only that firing rather than killing the loop ([EXEC-030]); output written before an `Out.Timeout`
+budget expires is discarded rather than merged with the timeout branch ([IO-013] AC5); `inject()`
+after natural termination is rejected rather than hanging ([ENV-006]); and the new lifecycle
+surface `terminateNow()` / `awaitTermination()` / run-timeout policy ([ENV-015], [ENV-016]).
+TypeScript has since matched the failure-containment ([EXEC-030]) and timeout-abandonment
+([IO-013]) semantics via a context-detach port, and already satisfied inject-after-termination by
+construction — its draining/closed guard makes the hang unreachable. Rust matches the same three.
+The lifecycle surface ([ENV-015]/[ENV-016]) remains Java-only, tracked for a coordinated addition
+to Rust/Python/TypeScript. The table above is the authoritative per-language status.
 
 ---
 

@@ -31,7 +31,17 @@ let GLOBAL_FRESH_NAME_COUNTER = 0;
  */
 export class TransitionContext {
   private readonly rawInput: TokenInput;
-  private readonly _rawOutput: TokenOutput;
+  /**
+   * What the executor harvests. Identical to {@link writeTarget} until
+   * {@link detachForTimeout} replaces it with a fresh collector the action cannot reach.
+   */
+  private _rawOutput: TokenOutput;
+  /**
+   * What the action writes to. Never reassigned, so an action already inside
+   * `output(...)` cannot be redirected mid-write; severance happens by detaching this
+   * collector, not by swapping it.
+   */
+  private readonly writeTarget: TokenOutput;
   private readonly allowedInputs: Set<string>;
   private readonly allowedReads: Set<string>;
   private readonly allowedOutputs: Set<string>;
@@ -58,6 +68,7 @@ export class TransitionContext {
     this._transitionName = transitionName;
     this.rawInput = rawInput;
     this._rawOutput = rawOutput;
+    this.writeTarget = rawOutput;
     this._inputPlaces = inputPlaces;
     this._readPlaces = readPlaces;
     this._outputPlaces = outputPlaces;
@@ -178,7 +189,7 @@ export class TransitionContext {
     const actual = this.resolve(place);
     this.requireOutput(actual);
     for (const value of values) {
-      this._rawOutput.add(actual, value);
+      this.writeTarget.add(actual, value);
     }
     return this;
   }
@@ -195,7 +206,7 @@ export class TransitionContext {
     const actual = this.resolve(place);
     this.requireOutput(actual);
     for (const token of tokens) {
-      this._rawOutput.addToken(actual, token);
+      this.writeTarget.addToken(actual, token);
     }
     return this;
   }
@@ -211,6 +222,40 @@ export class TransitionContext {
         `Place '${place.name}' not in declared outputs: [${[...this.allowedOutputs].join(', ')}]`
       );
     }
+  }
+
+  /**
+   * Severs the action's output from the marking, for use when a firing times out.
+   *
+   * After this call the action's `output(...)` writes are dropped, and the executor
+   * harvests a fresh collector the action holds no reference to. Anything the action
+   * wrote *before* the timeout is discarded with it: a partial result merged with the
+   * timeout branch would violate the transition's own output spec.
+   *
+   * This is the only isolation available — libpetri does not own the promise the action
+   * runs on, so it cannot stop the work, only stop the result from landing.
+   *
+   * @internal Executor machinery — must be called by the executor, never by an action.
+   */
+  detachForTimeout(): void {
+    this.writeTarget.detach();
+    this._rawOutput = new TokenOutput();
+  }
+
+  /**
+   * Produces into the executor's harvest collector rather than the action's write target.
+   *
+   * Identical to {@link output} before {@link detachForTimeout}; after it, this is the
+   * only route that still reaches the marking. Used by the executor to deposit the
+   * timeout branch.
+   *
+   * @internal Executor machinery — must be called by the executor, never by an action.
+   */
+  outputToHarvest<T>(place: Place<T>, value: T): this {
+    const actual = this.resolve(place);
+    this.requireOutput(actual);
+    this._rawOutput.add(actual, value);
+    return this;
   }
 
   // ==================== ν-name minting (NU-010) ====================

@@ -39,7 +39,7 @@ import { noopEventStore } from '../event/event-store.js';
 import { WORD_SHIFT, BIT_MASK } from './compiled-net.js';
 import { Marking } from './marking.js';
 import { PrecompiledNet, CONSUME_ONE, CONSUME_N, CONSUME_ALL, CONSUME_ATLEAST, RESET } from './precompiled-net.js';
-import { validateOutSpec, produceTimeoutOutput, DEADLINE_TOLERANCE_MS } from './executor-support.js';
+import { validateOutSpec, produceTimeoutOutput, executeAction, swallowEventStoreFailure, DEADLINE_TOLERANCE_MS } from './executor-support.js';
 import { OutViolationError } from './out-violation-error.js';
 import { findBinding, IncrementalMatcher } from './match-engine.js';
 import { keyForPlace } from '../core/match-spec.js';
@@ -668,7 +668,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     for (let tid = 0; tid < tc; tid++) {
       if (!this.enabledFlags[tid] || this.inFlightFlags[tid]) continue;
       if (this.canEnable(tid, this.markingBitmap)) {
-        this.fireTransition(tid);
+        this.fireTransitionContained(tid);
       } else {
         this.enabledFlags[tid] = 0;
         this.enabledTransitionCount--;
@@ -706,13 +706,71 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     for (const entry of ready) {
       const { tid } = entry;
       if (this.enabledFlags[tid] && this.canEnable(tid, freshSnap)) {
-        this.fireTransition(tid);
+        this.fireTransitionContained(tid);
         freshSnap.set(this.markingBitmap);
       } else {
         this.enabledFlags[tid] = 0;
         this.enabledTransitionCount--;
         this.enabledAtMs[tid] = -Infinity;
       }
+    }
+  }
+
+  /**
+   * Fires a transition, containing any synchronous throw to that one firing so it fails
+   * only that transition, not the whole run.
+   *
+   * Without this boundary an unchecked throw raised while a transition fires — a hostile
+   * EventStore.append on a token-removed or transition-started emit, or an error thrown while
+   * consuming the matched tokens — unwinds out of the orchestrator loop and kills the executor.
+   * The transition is instead failed and marked dirty for re-evaluation, the same treatment an
+   * asynchronously-reported failure gets. Enablement-phase throws (a guard or key function that
+   * throws inside canEnable, before the firing) run outside this boundary and are not contained
+   * here.
+   *
+   * fireTransition drains tokens from the queues before it reconciles the presence bitmap,
+   * so a throw inside that window would leave bits asserting tokens that are gone; the
+   * recovery re-runs updateBitmapAfterConsumption against the true queue lengths.
+   *
+   * Named to avoid colliding with the pre-existing {@link fireTransitionGuarded}
+   * guard-consume helper. Unlike the Java runtime there is no VirtualMachineError/
+   * LinkageError analogue on the JS side, so every throw is contained here — there is
+   * deliberately no fatal-rethrow escape hatch.
+   */
+  private fireTransitionContained(tid: number): void {
+    try {
+      this.fireTransition(tid);
+    } catch (e) {
+      const t = this.program.compiled.transition(tid);
+      if (this.enabledFlags[tid]) {
+        this.enabledFlags[tid] = 0;
+        this.enabledTransitionCount--;
+        this.enabledAtMs[tid] = -Infinity;
+      }
+      if (this.inFlightFlags[tid]) {
+        this.inFlightPromises[tid] = null;
+        this.inFlightContexts[tid] = null;
+        this.inFlightConsumed[tid] = null;
+        this.inFlightResolves[tid] = null;
+        this.inFlightErrors[tid] = null;
+        this.inFlightFlags[tid] = 0;
+        this.inFlightCount--;
+      }
+      this.updateBitmapAfterConsumption(tid);
+      // Drop the ν fast-path matcher: fireTransition mirrors the matched consume into it
+      // before the tokens leave the queues, so a throw in that window desyncs it. Nulling
+      // it forces the next canEnable/fire to rebuild the binding via findBinding.
+      this.matchCaches[tid] = null;
+      const err = e instanceof Error ? e : new Error(String(e));
+      this.emitEvent({
+        type: 'transition-failed',
+        timestamp: Date.now(),
+        transitionName: t.name,
+        errorMessage: err.message,
+        exceptionType: err.name,
+        stack: err.stack,
+      });
+      this.markTransitionDirty(tid);
     }
   }
 
@@ -870,8 +928,10 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     }
     context.setFreshNameSupplier(freshNameSupplier);
 
-    // Create action promise with optional timeout
-    let actionPromise = t.action(context);
+    // Create action promise with optional timeout. executeAction converts a synchronous
+    // throw or a null/non-thenable return into a rejected promise, so a misbehaving action
+    // flows the contained failure path instead of unwinding the orchestrator loop.
+    let actionPromise = executeAction(t, context);
 
     if (t.hasActionTimeout()) {
       const timeoutSpec = t.actionTimeout;
@@ -884,6 +944,9 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
         ),
       ]).catch((err) => {
         if (err instanceof TimeoutSentinel) {
+          // Sever first, then produce: the abandoned action may still be writing to this
+          // context, and its pre-timeout writes must not merge with the timeout branch.
+          context.detachForTimeout();
           produceTimeoutOutput(context, timeoutSpec.child);
           this.emitEvent({
             type: 'action-timed-out',
@@ -1350,7 +1413,14 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
 
   private emitEvent(event: NetEvent): void {
     if (this.eventStoreEnabled) {
-      this.eventStore.append(event);
+      // A user EventStore.append that throws is observation failing, not control flow:
+      // swallow it so a hostile store cannot unwind the orchestrator loop. One choke
+      // point covers every emit site.
+      try {
+        this.eventStore.append(event);
+      } catch (err) {
+        swallowEventStoreFailure(event.type, err);
+      }
     }
   }
 }

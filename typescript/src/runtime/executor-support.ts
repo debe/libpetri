@@ -16,8 +16,49 @@
  * tokens to the timeout branch's output places, enabling the net to continue.
  */
 import type { Out } from '../core/out.js';
+import type { Transition } from '../core/transition.js';
 import type { TransitionContext } from '../core/transition-context.js';
 import { OutViolationError } from './out-violation-error.js';
+
+/**
+ * Invokes a transition action, converting a synchronous throw or a non-Promise
+ * return into a rejected promise.
+ *
+ * Actions are invoked inline on the orchestrator loop, so an action that throws
+ * before returning its promise (an undeclared-place access, a bad closure) would
+ * otherwise unwind out of the firing loop and take the whole executor with it.
+ * Routing it through a rejected promise makes it flow the same contained path as an
+ * asynchronously-reported failure. A `null`/non-thenable return (a mis-typed action
+ * that forgot `async`) is likewise rejected rather than silently treated as complete.
+ */
+export function executeAction(t: Transition, context: TransitionContext): Promise<void> {
+  try {
+    const stage = t.action(context) as unknown;
+    if (stage == null || typeof (stage as { then?: unknown }).then !== 'function') {
+      return Promise.reject(new Error(
+        `'${t.name}': action returned null/non-thenable instead of a Promise`));
+    }
+    return Promise.resolve(stage as Promise<void>);
+  } catch (err) {
+    return Promise.reject(err);
+  }
+}
+
+/**
+ * Swallows a failure thrown by a user {@link import('../event/event-store.js').EventStore}
+ * from `append`, logging it once.
+ *
+ * An event emission is observation, not control flow: a store that throws must not
+ * unwind the orchestrator loop or escape a failure handler. Each executor wraps its
+ * single `emitEvent` choke point in a try/catch that routes here.
+ *
+ * @param when short description of what was being emitted, for the log message
+ * @param err the throwable the store raised
+ */
+export function swallowEventStoreFailure(when: string, err: unknown): void {
+  console.warn(
+    `libpetri: EventStore.append threw while emitting ${when}; the event is dropped`, err);
+}
 
 /**
  * Default deadline-enforcement tolerance, in milliseconds.
@@ -98,15 +139,19 @@ export function validateOutSpec(
  * - **AND**: recurses into all children (all branches get tokens).
  * - **XOR**: disallowed — timeout cannot choose a branch non-deterministically.
  * - **Timeout**: disallowed — nested timeouts would create ambiguous recovery paths.
+ *
+ * Writes through {@link TransitionContext.outputToHarvest} rather than `output(...)`:
+ * by this point the context has been detached, so the ordinary write target is closed
+ * and only the harvest collector still reaches the marking.
  */
 export function produceTimeoutOutput(context: TransitionContext, timeoutChild: Out): void {
   switch (timeoutChild.type) {
     case 'place':
-      context.output(timeoutChild.place, null);
+      context.outputToHarvest(timeoutChild.place, null);
       break;
     case 'forward-input': {
       const value = context.input(timeoutChild.from);
-      context.output(timeoutChild.to, value);
+      context.outputToHarvest(timeoutChild.to, value);
       break;
     }
     case 'and':

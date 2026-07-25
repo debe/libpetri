@@ -1,5 +1,14 @@
 # Changelog
 
+## TypeScript 2.12.1 — unreleased
+
+**Executor hardening: failure containment + timeout output isolation (ports the Java fixes).**
+
+- **Failure containment.** A synchronous failure during a firing — a throwing `EventStore.append`, an action that throws before returning its promise, or one returning a non-thenable — now fails only that transition (emitting `transition-failed`) instead of unwinding the orchestrator loop and rejecting `run()`. Event emission is swallowed at a single guarded choke point so a throwing store cannot escape.
+- **Timeout output isolation.** `Out.Timeout` now detaches the action's context and produces the timeout branch into a fresh collector, so output the action wrote before the budget expired is discarded rather than merged with the timeout branch (previously a spurious `Xor` "multiple branches" violation, or a doubled token under `And`). Applies to `BitmapNetExecutor` and `PrecompiledNetExecutor`.
+
+Closes the [EXEC-030] / [IO-013] divergence tracked in `spec/00-index.md`; the lifecycle surface ([ENV-015]/[ENV-016]) remains a Java-only follow-up.
+
 ## Java 2.13.0 — unreleased
 
 **Executor hardening: failure containment, timeout isolation, observable lifecycle, safe cross-thread `marking()`.**
