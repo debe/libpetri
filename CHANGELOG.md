@@ -1,6 +1,6 @@
 # Changelog
 
-## TypeScript 2.12.1 — unreleased
+## TypeScript 2.12.1 — 2026-07-26
 
 **Executor hardening: failure containment + timeout output isolation (ports the Java fixes).**
 
@@ -9,7 +9,7 @@
 
 Closes the [EXEC-030] / [IO-013] divergence tracked in `spec/00-index.md`; the lifecycle surface ([ENV-015]/[ENV-016]) remains a Java-only follow-up.
 
-## Java 2.13.0 — unreleased
+## Java 2.13.0 — 2026-07-26
 
 **Executor hardening: failure containment, timeout isolation, observable lifecycle, safe cross-thread `marking()`.**
 
