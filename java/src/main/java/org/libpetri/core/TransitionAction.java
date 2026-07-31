@@ -48,9 +48,48 @@ public interface TransitionAction {
     /**
      * Identity action: produces no outputs.
      * For transitions that only consume tokens without producing any.
+     *
+     * <p>Returns a singleton, so {@link #isPassthrough(TransitionAction)} can recognise it. That
+     * recognition is what lets {@link PetriNet#bindActions(java.util.function.Function)} reject a
+     * transition that declares an output but would fire a no-op — see CORE-043.
      */
     static TransitionAction passthrough() {
-        return ctx -> CompletableFuture.completedFuture(null);
+        return Passthrough.INSTANCE;
+    }
+
+    /**
+     * Whether {@code action} is the built-in {@link #passthrough()} — i.e. provably produces no
+     * output tokens.
+     *
+     * <p>Identity-based, so it recognises only the built-in. A hand-written action that happens to
+     * produce nothing is indistinguishable from one that produces conditionally, and is not
+     * claimed here.
+     *
+     * @param action the action to test; {@code null} is not passthrough
+     */
+    static boolean isPassthrough(TransitionAction action) {
+        return action == Passthrough.INSTANCE;
+    }
+
+    /**
+     * Holder for the {@link #passthrough()} singleton. A named type rather than a lambda so the
+     * instance is stable across calls and identity-comparable.
+     */
+    final class Passthrough implements TransitionAction {
+
+        static final Passthrough INSTANCE = new Passthrough();
+
+        private Passthrough() {}
+
+        @Override
+        public CompletionStage<Void> execute(TransitionContext ctx) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        @Override
+        public String toString() {
+            return "TransitionAction.passthrough()";
+        }
     }
 
     /**

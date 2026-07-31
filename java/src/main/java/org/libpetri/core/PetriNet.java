@@ -124,22 +124,55 @@ public final class PetriNet {
      * and should return the action to use. This allows for flexible binding
      * strategies (e.g., CDI lookup, method references).
      *
+     * <p>Rejects a bound net in which a transition declares an output spec but carries the built-in
+     * {@link TransitionAction#passthrough()} — see {@link #requireOutputProducingAction} (CORE-043).
+     *
      * @param actionResolver function that resolves transition name to action
      * @return new PetriNet with bound actions
+     * @throws IllegalStateException if an output-declaring transition ends up bound to passthrough
      */
     public PetriNet bindActions(Function<String, TransitionAction> actionResolver) {
         var boundTransitions = new LinkedHashSet<Transition>();
         for (var t : transitions) {
             var action = actionResolver.apply(t.name());
-            if (action != null && action != t.action()) {
-                boundTransitions.add(rebuildWithAction(t, action));
-            } else {
-                boundTransitions.add(t);
-            }
+            var bound = (action != null && action != t.action()) ? rebuildWithAction(t, action) : t;
+            requireOutputProducingAction(bound);
+            boundTransitions.add(bound);
         }
         // MOD-026: bindActions rebuilds transitions but preserves their names,
         // so name-keyed membership metadata survives a session bind unchanged.
         return new PetriNet(name, places, boundTransitions, subnetMembership);
+    }
+
+    /**
+     * Rejects a transition that declares an output spec but carries the built-in
+     * {@link TransitionAction#passthrough()} (CORE-043).
+     *
+     * <p>Such a transition can never fire successfully: passthrough produces no tokens, and the
+     * executor's OUT-spec check ({@code Arc.Out.Place} requires its place among the produced set)
+     * rejects the firing with an {@code OutViolationException}. The input tokens are consumed and
+     * the declared output never arrives, so everything downstream is silently dead — the executor
+     * only <em>logs</em> the violation, it does not halt. That failure is invisible to state-class
+     * and SMT analysis too, because both derive token production from the {@code Arc.Out} spec
+     * rather than from the bound action.
+     *
+     * <p>Catching it here turns a silent runtime defect into a startup error. It also closes the
+     * gap left by {@link #bindActions(Map)}, which substitutes passthrough for any transition the
+     * mapping omits: a typo'd or forgotten key on an output-declaring transition now fails loudly
+     * instead of producing a quietly inert net.
+     *
+     * <p>Note this narrows CORE-042 AC4 ("unbound transitions retain the passthrough action"),
+     * which still holds for every transition that declares no output.
+     */
+    private static void requireOutputProducingAction(Transition t) {
+        if (t.outputSpec() != null && TransitionAction.isPassthrough(t.action())) {
+            throw new IllegalStateException(
+                ("Transition '%s' declares an output spec but is bound to passthrough(), which "
+                    + "produces no tokens. Every firing would fail the OUT-spec check and the "
+                    + "declared output would never arrive. Bind an action that produces it — "
+                    + "TransitionAction.fork() moves the input token across — or drop the output "
+                    + "spec if the transition is meant to be a sink.").formatted(t.name()));
+        }
     }
 
     /**

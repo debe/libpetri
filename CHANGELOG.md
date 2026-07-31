@@ -1,5 +1,37 @@
 # Changelog
 
+## Java 2.14.0 — 2026-07-31
+
+**`bindActions()` rejects an output-declaring transition bound to passthrough ([CORE-043], new).**
+
+A transition that declares an `Arc.Out` spec but carries the built-in `passthrough()` can never fire
+successfully: passthrough produces no tokens, the OUT-spec check ([IO-013]) rejects every firing,
+and the input tokens are consumed while the declared output never arrives. Because failures are
+contained per [EXEC-031] rather than halting the run, the only trace is a log line — so the net goes
+quietly dead downstream and stays that way. Formal verification cannot compensate: state-class and
+SMT analysis derive token production from the `Arc.Out` spec, never from the bound action, so a net
+that is provably correct on paper can be inert in production. This was found in the field exactly
+that way, with a full SCG/SMT proof green over a fragment that had never once produced a token.
+
+- `bindActions()` (both overloads) now throws `IllegalStateException`, naming the transition, when a
+  transition with a non-null output spec ends up on passthrough. This covers the explicit binding
+  and the silent substitution `bindActions(Map)` performs for any transition the mapping omits — so
+  a typo'd or forgotten key on an output-declaring transition now fails at startup rather than
+  producing an inert net.
+- `TransitionAction.passthrough()` returns a singleton instead of a fresh lambda, and
+  `TransitionAction.isPassthrough(action)` recognises it. Identity-based, so it claims only the
+  built-in; a hand-written action that happens to produce nothing is not affected.
+- [CORE-042] AC4 is narrowed accordingly: unbound transitions retain passthrough only when they
+  declare no output. A sink is still a sink.
+
+Java-only for now; TypeScript, Rust and Python still accept such a net and fail per firing at
+runtime. Tracked as a divergence in `spec/00-index.md`. The port needs a recognisable passthrough
+singleton in each implementation, which is the only non-trivial part.
+
+Migration: a net that trips this was already broken — the fix is to bind an action that produces the
+declared output (`TransitionAction.fork()` moves the input token across) or to drop the output spec
+if the transition is meant to be a sink.
+
 ## TypeScript 2.12.1 — 2026-07-26
 
 **Executor hardening: failure containment + timeout output isolation (ports the Java fixes).**

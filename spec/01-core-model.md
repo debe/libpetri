@@ -327,9 +327,46 @@ The net's static structure (places, transitions, arcs, timing, priority) MUST be
 1. A net can be created with no actions (all transitions use passthrough).
 2. `bindActions(mapping)` produces a new net with actions bound by transition name.
 3. The original net is not modified.
-4. Unbound transitions retain the passthrough action.
+4. Unbound transitions that declare no output spec retain the passthrough action. An unbound
+   transition that *does* declare an output spec is rejected — see CORE-043.
 
 **Test derivation:** Create a net with 3 transitions; bind actions for 2; verify the third still has passthrough.
+
+---
+
+#### CORE-043: Output-Declaring Transitions Must Produce
+
+**Priority:** MUST
+
+**Status:** Java only. TypeScript, Rust and Python do not yet implement this check.
+
+A transition that declares an output spec MUST NOT end up bound to the built-in passthrough action
+(CORE-051). `bindActions()` MUST reject such a net.
+
+Such a transition can never fire successfully. Passthrough produces no tokens, and the OUT-spec
+check (IO-013) requires every declared branch to be produced, so every firing is rejected. The input
+tokens are consumed and the declared output never arrives, which silently kills everything
+downstream — and because failures are contained per EXEC-031 rather than halting the run, nothing
+surfaces beyond a log line. Verification cannot compensate: state-class and SMT analysis derive
+token production from the `Arc.Out` spec, never from the bound action, so a net that is provably
+correct on paper can be inert in production.
+
+Bind time is the last point at which the two views — declared structure and bound behaviour — are
+both available, so it is where they must be reconciled.
+
+**Acceptance Criteria:**
+1. `bindActions()` throws/errors when a transition with a non-null output spec carries passthrough,
+   whether passthrough was bound explicitly or substituted because the mapping omitted the
+   transition.
+2. The error names the offending transition.
+3. A transition that declares no output spec (a sink) may carry passthrough — CORE-042 AC4 is
+   narrowed, not repealed.
+4. The built-in passthrough is recognisable by identity, so implementations can distinguish it from
+   a user-supplied action that happens to produce nothing.
+
+**Test derivation:** Bind passthrough to a transition declaring `Out.place(P)`; verify rejection.
+Omit that transition from the mapping entirely; verify the same rejection. Bind nothing to a
+transition with no output spec; verify it is accepted and retains passthrough.
 
 ---
 

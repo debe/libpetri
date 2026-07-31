@@ -31,7 +31,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 
 | File | Prefix | Scope | Req Count |
 |------|--------|-------|-----------|
-| [01-core-model.md](01-core-model.md) | CORE | Places, tokens, transitions, arcs, net construction, actions, context, marking | 34 |
+| [01-core-model.md](01-core-model.md) | CORE | Places, tokens, transitions, arcs, net construction, actions, context, marking | 35 |
 | [02-input-output-specs.md](02-input-output-specs.md) | IO | Input cardinality, composite output routing, validation | 14 |
 | [03-timing.md](03-timing.md) | TIME | Firing intervals, clock semantics, deadline enforcement | 11 |
 | [04-execution-model.md](04-execution-model.md) | EXEC | Orchestrator loop, scheduling, token consumption, failure, quiescence | 15 |
@@ -43,7 +43,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | [10-performance.md](10-performance.md) | PERF | Scaling, benchmarks, memory efficiency, flat-array executor performance | 14 |
 | [11-modular-composition.md](11-modular-composition.md) | MOD | Open-net subnet definition, instantiation, port composition, channel fusion, action binding per instance, place fusion | 26 |
 | [12-nu-nets.md](12-nu-nets.md) | NU | Token name identity, fresh-name minting (ν-binder/fork), join by name equality, bounded-budget decidability ledger | 12 |
-| **Total** | | | **208** |
+| **Total** | | | **209** |
 
 > **IO-006** (Input Guard Predicate) was removed (see [IO-006]); it is retained as a
 > struck-through tombstone for traceability and is **excluded** from the active count.
@@ -98,6 +98,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | CORE-040 | Net Builder | MUST | — |
 | CORE-041 | Net Immutability | MUST | — |
 | CORE-042 | Action Binding Separation | MUST | — |
+| CORE-043 | Output-Declaring Transitions Must Produce | MUST | CORE-042, CORE-051, IO-013 |
 | CORE-050 | Transition Action | MUST | — |
 | CORE-051 | Passthrough Action | MUST | — |
 | CORE-052 | Fork Action | SHOULD | — |
@@ -370,6 +371,13 @@ construction — its draining/closed guard makes the hang unreachable. Rust matc
 The lifecycle surface ([ENV-015]/[ENV-016]) remains Java-only, tracked for a coordinated addition
 to Rust/Python/TypeScript. The table above is the authoritative per-language status.
 
+**Bind-time output-conformance divergence (Java-first).** [CORE-043] — rejecting a net in which an
+output-declaring transition carries the passthrough action — is implemented in Java only.
+TypeScript, Rust and Python still accept such a net and fail at runtime instead, once per firing,
+as a contained transition failure that only a configured failure sink or event store will surface.
+Porting it needs the built-in passthrough to be a recognisable singleton in each implementation,
+which is the only non-trivial part. Tracked for a coordinated addition.
+
 ---
 
 ## Coverage Matrix
@@ -383,6 +391,7 @@ This matrix maps spec requirements to test classes/files in each implementation.
 | CORE-020–022 | `TransitionTest` | `transition.test.ts` | `transition::tests` |
 | CORE-030–036 | `ArcTest` | `arc.test.ts` | `arc::tests` |
 | CORE-040–042 | `PetriNetTest` | `petri-net.test.ts` | `net::tests` |
+| CORE-043 | `PetriNetTest#bindActions_rejectsPassthroughOnOutputDeclaringTransition`, `bindActions_rejectsOmittedOutputDeclaringTransition`, `bindActions_allowsPassthroughOnSinkTransition`, `passthrough_isASingleton` | — (not implemented) | — (not implemented) |
 | CORE-050–054 | `TransitionActionTest` | `transition-action.test.ts` | `context::tests` |
 | CORE-060–064 | `TransitionContextTest` | `transition-context.test.ts` | `context::tests` |
 | CORE-070–072 | `MarkingTest` | `marking.test.ts` | `marking::tests` |

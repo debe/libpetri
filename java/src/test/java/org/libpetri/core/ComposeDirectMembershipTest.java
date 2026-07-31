@@ -152,7 +152,13 @@ class ComposeDirectMembershipTest {
             .compose(pipeConsumer())
             .build();
 
-        var bound = net.bindActions(Map.of("emit", TransitionAction.passthrough()));
+        // fork(), not passthrough(): both transitions declare an output (seed -> pipe -> sink), and
+        // CORE-043 rejects an output-declaring transition bound to — or left on — the no-op.
+        // fork() moves the token across, which is what these transitions mean; the rebuild path
+        // under test is unaffected.
+        var bound = net.bindActions(Map.of(
+            "emit", TransitionAction.fork(),
+            "eat", TransitionAction.fork()));
 
         assertEquals(net.subnetMembership(), bound.subnetMembership(),
             "bindActions rebuilds transitions by name — membership must survive");

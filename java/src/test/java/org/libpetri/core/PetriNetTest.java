@@ -202,6 +202,85 @@ class PetriNetTest {
         assertEquals(2, net.places().size());
     }
 
+    // ==================== CORE-043: output-declaring transitions must produce ====================
+
+    /**
+     * A transition that declares an output but ends up bound to {@code passthrough()} can never
+     * fire successfully: passthrough produces nothing, so the executor's OUT-spec check rejects
+     * every firing, the input token is consumed and the declared output never arrives. The
+     * executor only logs that, so the net goes quietly dead downstream — and neither SCG nor SMT
+     * analysis can see it, because both read token production from the {@code Arc.Out} spec rather
+     * than from the bound action. Bind time is the last place it can still be caught.
+     */
+    @Test
+    void bindActions_rejectsPassthroughOnOutputDeclaringTransition() {
+        var in = Place.of("In", Void.class);
+        var out = Place.of("Out", Void.class);
+
+        var net = PetriNet.builder("Test").transitions(
+            Transition.builder("t")
+                .inputs(Arc.In.one(in))
+                .outputs(Arc.Out.place(out))
+                .build()).build();
+
+        var ex = assertThrows(IllegalStateException.class,
+            () -> net.bindActions(Map.of("t", TransitionAction.passthrough())),
+            "binding passthrough to a transition that declares an output must be rejected");
+        assertTrue(ex.getMessage().contains("'t'"), "the message must name the transition: " + ex.getMessage());
+    }
+
+    /**
+     * The same check must fire for a transition the mapping simply forgot. {@code bindActions(Map)}
+     * substitutes passthrough for every unnamed transition, which is how a typo'd or omitted key
+     * silently produces an inert net.
+     */
+    @Test
+    void bindActions_rejectsOmittedOutputDeclaringTransition() {
+        var in = Place.of("In", Void.class);
+        var out = Place.of("Out", Void.class);
+
+        var net = PetriNet.builder("Test").transitions(
+            Transition.builder("typoed")
+                .inputs(Arc.In.one(in))
+                .outputs(Arc.Out.place(out))
+                .build()).build();
+
+        var ex = assertThrows(IllegalStateException.class,
+            () -> net.bindActions(Map.<String, TransitionAction>of()),
+            "an output-declaring transition left unbound must be rejected, not silently no-opped");
+        assertTrue(ex.getMessage().contains("'typoed'"), "the message must name the transition: " + ex.getMessage());
+    }
+
+    /**
+     * CORE-042 AC4 is narrowed, not repealed: a transition that declares no output is a legitimate
+     * sink and must still be allowed to retain passthrough.
+     */
+    @Test
+    void bindActions_allowsPassthroughOnSinkTransition() {
+        var in = Place.of("In", Void.class);
+
+        var net = PetriNet.builder("Test").transitions(
+            Transition.builder("sink")
+                .inputs(Arc.In.one(in))
+                .build()).build();
+
+        var bound = assertDoesNotThrow(() -> net.bindActions(Map.<String, TransitionAction>of()),
+            "a sink transition declares no output and may remain passthrough (CORE-042 AC4)");
+        assertTrue(TransitionAction.isPassthrough(bound.transitions().iterator().next().action()),
+            "the unbound sink must still carry passthrough");
+    }
+
+    /** The singleton is what makes the check possible at all. */
+    @Test
+    void passthrough_isASingleton() {
+        assertSame(TransitionAction.passthrough(), TransitionAction.passthrough(),
+            "passthrough() must return a stable instance so it can be recognised by identity");
+        assertTrue(TransitionAction.isPassthrough(TransitionAction.passthrough()));
+        assertFalse(TransitionAction.isPassthrough(TransitionAction.fork()),
+            "fork() produces output and must not be mistaken for the no-op");
+        assertFalse(TransitionAction.isPassthrough(null), "null is not passthrough");
+    }
+
     @Test
     void bindActions_preservesInputSpecs() {
         var p1 = Place.of("P1", Void.class);
