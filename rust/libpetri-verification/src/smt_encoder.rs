@@ -436,6 +436,7 @@ mod tests {
     use super::*;
     use crate::marking_state::MarkingStateBuilder;
     use crate::net_flattener::flatten;
+    use libpetri_core::action::fork;
     use libpetri_core::input::one;
     use libpetri_core::output::out_place;
     use libpetri_core::petri_net::PetriNet;
@@ -448,6 +449,7 @@ mod tests {
         let t = Transition::builder("t1")
             .input(one(&p1))
             .output(out_place(&p2))
+            .action(fork())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
         let marking = MarkingStateBuilder::new().tokens("p1", 1).build();

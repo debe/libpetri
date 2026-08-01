@@ -5,6 +5,12 @@ import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
 import { one, exactly, all, atLeast } from '../../src/core/in.js';
 import { outPlace, andPlaces, xorPlaces } from '../../src/core/out.js';
+import { fork } from '../../src/core/transition-action.js';
+
+// CORE-043: a transition that declares an output spec must carry an action that
+// produces one, or compilation rejects it. These fixtures exercise the bitmap
+// bookkeeping rather than any behaviour, so fork() — which moves the single input
+// token across — is the minimal action that satisfies the declared structure.
 
 describe('Bitmap Helpers', () => {
   it('setBit and testBit', () => {
@@ -104,7 +110,7 @@ describe('CompiledNet', () => {
   it('compiles a simple net', () => {
     const p1 = place<number>('P1');
     const p2 = place<number>('P2');
-    const t = Transition.builder('T').inputs(one(p1)).outputs(outPlace(p2)).build();
+    const t = Transition.builder('T').inputs(one(p1)).outputs(outPlace(p2)).action(fork()).build();
     const net = PetriNet.builder('N').transition(t).build();
     const compiled = CompiledNet.compile(net);
 
@@ -120,6 +126,7 @@ describe('CompiledNet', () => {
     const t = Transition.builder('T')
       .inputs(one(p1))
       .outputs(andPlaces(p2, p3))
+      .action(fork())
       .build();
     const net = PetriNet.builder('N').transition(t).build();
     const compiled = CompiledNet.compile(net);
@@ -133,7 +140,7 @@ describe('CompiledNet', () => {
   it('throws for unknown place', () => {
     const p1 = place('P1');
     const p2 = place('P2');
-    const t = Transition.builder('T').inputs(one(p1)).outputs(outPlace(p2)).build();
+    const t = Transition.builder('T').inputs(one(p1)).outputs(outPlace(p2)).action(fork()).build();
     const net = PetriNet.builder('N').transition(t).build();
     const compiled = CompiledNet.compile(net);
     expect(() => compiled.placeId(place('UNKNOWN'))).toThrow('Unknown place');
@@ -142,7 +149,7 @@ describe('CompiledNet', () => {
   it('canEnableBitmap with input place marked', () => {
     const p1 = place('P1');
     const p2 = place('P2');
-    const t = Transition.builder('T').inputs(one(p1)).outputs(outPlace(p2)).build();
+    const t = Transition.builder('T').inputs(one(p1)).outputs(outPlace(p2)).action(fork()).build();
     const net = PetriNet.builder('N').transition(t).build();
     const compiled = CompiledNet.compile(net);
 
@@ -162,6 +169,7 @@ describe('CompiledNet', () => {
       .inputs(one(input))
       .outputs(outPlace(output))
       .inhibitor(inhibitor)
+      .action(fork())
       .build();
     const net = PetriNet.builder('N').transition(t).build();
     const compiled = CompiledNet.compile(net);
@@ -183,6 +191,7 @@ describe('CompiledNet', () => {
       .inputs(one(input))
       .outputs(outPlace(output))
       .read(readPlace)
+      .action(fork())
       .build();
     const net = PetriNet.builder('N').transition(t).build();
     const compiled = CompiledNet.compile(net);
@@ -200,8 +209,8 @@ describe('CompiledNet', () => {
     const p1 = place('P1');
     const p2 = place('P2');
     const p3 = place('P3');
-    const t1 = Transition.builder('T1').inputs(one(p1)).outputs(outPlace(p2)).build();
-    const t2 = Transition.builder('T2').inputs(one(p1)).outputs(outPlace(p3)).build();
+    const t1 = Transition.builder('T1').inputs(one(p1)).outputs(outPlace(p2)).action(fork()).build();
+    const t2 = Transition.builder('T2').inputs(one(p1)).outputs(outPlace(p3)).action(fork()).build();
     const net = PetriNet.builder('N').transitions(t1, t2).build();
     const compiled = CompiledNet.compile(net);
 
@@ -216,6 +225,7 @@ describe('CompiledNet', () => {
     const t = Transition.builder('T')
       .inputs(exactly(3, p1))
       .outputs(outPlace(p2))
+      .action(fork())
       .build();
     const net = PetriNet.builder('N').transition(t).build();
     const compiled = CompiledNet.compile(net);
@@ -232,6 +242,7 @@ describe('CompiledNet', () => {
     const t = Transition.builder('T')
       .inputs(one(p1))
       .outputs(outPlace(p2))
+      .action(fork())
       .build();
     const net = PetriNet.builder('N').transition(t).build();
     const compiled = CompiledNet.compile(net);
@@ -248,6 +259,7 @@ describe('CompiledNet', () => {
       .inputs(one(input))
       .outputs(outPlace(output))
       .reset(resetPlace)
+      .action(fork())
       .build();
     const net = PetriNet.builder('N').transition(t).build();
     const compiled = CompiledNet.compile(net);
@@ -262,7 +274,7 @@ describe('CompiledNet', () => {
     // Create 40 places to force 2 Uint32 words
     const places = Array.from({ length: 40 }, (_, i) => place(`P${i}`));
     const transitions = places.slice(0, 39).map((p, i) =>
-      Transition.builder(`T${i}`).inputs(one(p)).outputs(outPlace(places[i + 1]!)).build()
+      Transition.builder(`T${i}`).inputs(one(p)).outputs(outPlace(places[i + 1]!)).action(fork()).build()
     );
     const net = PetriNet.builder('BigNet').transitions(...transitions).build();
     const compiled = CompiledNet.compile(net);

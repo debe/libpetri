@@ -23,6 +23,7 @@ class EnvironmentPlaceAnalysisTest {
         var process = Transition.builder("Process")
             .inputs(In.one(inputEnv.place()))
             .outputs(Out.place(output))
+            .action(TransitionAction.fork())
             .build();
 
         var net = PetriNet.builder("Test").transitions(process).build();
@@ -49,6 +50,7 @@ class EnvironmentPlaceAnalysisTest {
         var process = Transition.builder("Process")
             .inputs(In.one(inputEnv.place()))
             .outputs(Out.place(output))
+            .action(TransitionAction.fork())
             .build();
 
         var net = PetriNet.builder("Test").transitions(process).build();
@@ -75,6 +77,7 @@ class EnvironmentPlaceAnalysisTest {
         var process = Transition.builder("Process")
             .inputs(In.one(inputEnv.place()))
             .outputs(Out.place(output))
+            .action(TransitionAction.fork())
             .build();
 
         var net = PetriNet.builder("Test").transitions(process).build();
@@ -102,6 +105,7 @@ class EnvironmentPlaceAnalysisTest {
         var process = Transition.builder("ProcessTwo")
             .inputs(In.exactly(2, inputEnv.place()))
             .outputs(Out.place(output))
+            .action(TransitionAction.fork())
             .build();
 
         var net = PetriNet.builder("Test").transitions(process).build();
@@ -140,6 +144,7 @@ class EnvironmentPlaceAnalysisTest {
         var process = Transition.builder("Process")
             .inputs(In.one(input))
             .outputs(Out.place(output))
+            .action(TransitionAction.fork())
             .build();
 
         var net = PetriNet.builder("Test").transitions(process).build();
@@ -190,6 +195,7 @@ class EnvironmentPlaceAnalysisTest {
         var process = Transition.builder("Process")
             .inputs(In.one(inputEnv.place()))
             .outputs(Out.place(output))
+            .action(TransitionAction.fork())
             .build();
 
         var net = PetriNet.builder("Test").transitions(process).build();

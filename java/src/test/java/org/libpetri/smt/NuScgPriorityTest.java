@@ -1,5 +1,6 @@
 package org.libpetri.smt;
 
+import org.libpetri.fixtures.StructureOnly;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -84,7 +85,7 @@ class NuScgPriorityTest {
     }
 
     private static SmtVerifier verifier(PetriNet net) {
-        return SmtVerifier.forNet(net)
+        return SmtVerifier.forNet(StructureOnly.bind(net))
             .initialMarking(seedOneTurn())
             .property(SmtProperty.deadlockFree())
             .sinkPlaces(OUT, DEADLETTER)
@@ -161,7 +162,7 @@ class NuScgPriorityTest {
     private static boolean reachesDeadletter(PetriNet net, MarkingState initial, PrioritySemantics ps) {
         var fragment = NameFragment.classify(net, FragmentMode.EXTENDED, Set.of());
         var graph = NameStateClassGraph.build(
-            net, initial, fragment, 10_000, Set.of(), EnvironmentAnalysisMode.ignore(), ps);
+            StructureOnly.bind(net), initial, fragment, 10_000, Set.of(), EnvironmentAnalysisMode.ignore(), ps);
         for (int i = 0; i < graph.classCount(); i++) {
             if (graph.markingOf(i).tokens(DEADLETTER) > 0) {
                 return true;

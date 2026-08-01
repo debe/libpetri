@@ -1,5 +1,29 @@
 # Changelog
 
+## Java 2.14.0 / TypeScript 2.13.0 / Rust 3.7.0 / Python 2.16.0 — unreleased
+
+**A transition that declares an output but can never produce one now fails to compile ([CORE-043], new).**
+
+Originally reported and prototyped by [@mpetris](https://github.com/mpetris) in #55.
+
+The builder's default action is `passthrough()`, which produces nothing, so a transition declaring
+`Arc.Out` that never binds an action consumes its input and produces nothing on every firing — and
+verification never caught it, because the state-class graph and SMT encoding read production from
+the `Arc.Out` spec, not from the bound action. Compiling *or verifying* such a net now fails,
+naming the transition: bind an action that produces the output (`fork()` moves the input token
+across), or drop the spec if the transition is a sink. The check is unconditional, so this is a
+deliberate break for nets that ran under `skipOutputValidation`.
+
+Also in this release:
+
+- `TransitionAction.passthrough()` (Java) returns a singleton, and `isPassthrough(action)` is now
+  public in Java, TypeScript and Rust (Python has no such predicate; the check runs Rust-side).
+- Java's subnet channel merge collapses `passthrough()` instead of wrapping it, matching TypeScript
+  and Rust, so a merged transition that produces nothing stays recognisable.
+- **Fixed:** three Rust benchmarks (`single_passthrough`, `precompiled_single_passthrough`,
+  `owned_single_passthrough`) declared an output while bound to `passthrough()`, so they measured
+  the validation-failure path rather than the minimum-overhead path they name.
+
 ## TypeScript 2.12.1 — 2026-07-26
 
 **Executor hardening: failure containment + timeout output isolation (ports the Java fixes).**

@@ -8,6 +8,7 @@ import { one } from '../../../src/core/in.js';
 import { outPlace, xorPlaces } from '../../../src/core/out.js';
 import { immediate, delayed, window } from '../../../src/core/timing.js';
 import { alwaysAvailable, ignore } from '../../../src/verification/analysis/environment-analysis-mode.js';
+import { produces } from '../../fixtures/producing-actions.js';
 
 describe('StateClassGraph', () => {
   it('builds graph for simple circular net', () => {
@@ -15,9 +16,9 @@ describe('StateClassGraph', () => {
     const pB = place('B');
 
     const t1 = Transition.builder('t1')
-      .inputs(one(pA)).outputs(outPlace(pB)).build();
+      .inputs(one(pA)).outputs(outPlace(pB)).action(produces()).build();
     const t2 = Transition.builder('t2')
-      .inputs(one(pB)).outputs(outPlace(pA)).build();
+      .inputs(one(pB)).outputs(outPlace(pA)).action(produces()).build();
 
     const net = PetriNet.builder('circular')
       .transitions(t1, t2).build();
@@ -40,9 +41,9 @@ describe('StateClassGraph', () => {
     const pB = place('B');
 
     const t1 = Transition.builder('t1')
-      .inputs(one(pA)).outputs(outPlace(pB)).build();
+      .inputs(one(pA)).outputs(outPlace(pB)).action(produces()).build();
     const t2 = Transition.builder('t2')
-      .inputs(one(pB)).outputs(outPlace(pA)).build();
+      .inputs(one(pB)).outputs(outPlace(pA)).action(produces()).build();
 
     const net = PetriNet.builder('circular')
       .transitions(t1, t2).build();
@@ -59,11 +60,11 @@ describe('StateClassGraph', () => {
     const pB = place('B');
 
     const t1 = Transition.builder('t1')
-      .inputs(one(pA)).outputs(outPlace(pB))
+      .inputs(one(pA)).outputs(outPlace(pB)).action(produces())
       .timing(delayed(1000)) // 1 second delay
       .build();
     const t2 = Transition.builder('t2')
-      .inputs(one(pB)).outputs(outPlace(pA))
+      .inputs(one(pB)).outputs(outPlace(pA)).action(produces())
       .timing(window(500, 2000))
       .build();
 
@@ -88,11 +89,11 @@ describe('StateClassGraph', () => {
     const pEnd = place('end');
 
     const tChoice = Transition.builder('choice')
-      .inputs(one(p0)).outputs(xorPlaces(pA, pB)).build();
+      .inputs(one(p0)).outputs(xorPlaces(pA, pB)).action(produces()).build();
     const tA = Transition.builder('fromA')
-      .inputs(one(pA)).outputs(outPlace(pEnd)).build();
+      .inputs(one(pA)).outputs(outPlace(pEnd)).action(produces()).build();
     const tB = Transition.builder('fromB')
-      .inputs(one(pB)).outputs(outPlace(pEnd)).build();
+      .inputs(one(pB)).outputs(outPlace(pEnd)).action(produces()).build();
 
     const net = PetriNet.builder('xor')
       .transitions(tChoice, tA, tB).build();
@@ -114,9 +115,9 @@ describe('StateClassGraph', () => {
     const pB = place('B');
 
     const t1 = Transition.builder('t1')
-      .inputs(one(pA)).outputs(outPlace(pB)).build();
+      .inputs(one(pA)).outputs(outPlace(pB)).action(produces()).build();
     const t2 = Transition.builder('t2')
-      .inputs(one(pB)).outputs(outPlace(pA)).build();
+      .inputs(one(pB)).outputs(outPlace(pA)).action(produces()).build();
 
     const net = PetriNet.builder('circular')
       .transitions(t1, t2).build();
@@ -133,7 +134,7 @@ describe('StateClassGraph', () => {
     const pOut = place('output');
 
     const t1 = Transition.builder('process')
-      .inputs(one(env.place)).outputs(outPlace(pOut)).build();
+      .inputs(one(env.place)).outputs(outPlace(pOut)).action(produces()).build();
 
     const net = PetriNet.builder('env-net')
       .transitions(t1).build();
@@ -156,7 +157,7 @@ describe('StateClassGraph', () => {
     const pB = place('B');
 
     const t1 = Transition.builder('t1')
-      .inputs(one(pA)).outputs(outPlace(pB)).build();
+      .inputs(one(pA)).outputs(outPlace(pB)).action(produces()).build();
 
     const net = PetriNet.builder('deadend')
       .transitions(t1).build();
@@ -177,9 +178,9 @@ describe('StateClassGraph', () => {
     const pB = place('B');
 
     const t1 = Transition.builder('t1')
-      .inputs(one(pA)).outputs(outPlace(pB)).build();
+      .inputs(one(pA)).outputs(outPlace(pB)).action(produces()).build();
     const t2 = Transition.builder('t2')
-      .inputs(one(pB)).outputs(outPlace(pA)).build();
+      .inputs(one(pB)).outputs(outPlace(pA)).action(produces()).build();
 
     const net = PetriNet.builder('circular')
       .transitions(t1, t2).build();
@@ -193,5 +194,31 @@ describe('StateClassGraph', () => {
         expect(scg.predecessors(sc).size).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+// CORE-043: the state-class graph reads token production from the Out spec, so a net whose
+// action produces nothing would be analysed as something it cannot be at run time.
+describe('StateClassGraph — CORE-043', () => {
+  it('rejects an output-declaring transition still on passthrough', () => {
+    const pA = place('A');
+    const pB = place('B');
+    const net = PetriNet.builder('inert')
+      .transition(Transition.builder('t').inputs(one(pA)).outputs(outPlace(pB)).build())
+      .build();
+    const marking = MarkingState.builder().tokens(pA, 1).build();
+
+    expect(() => StateClassGraph.build(net, marking, 100))
+      .toThrow(/Transition 't' declares an output spec/);
+  });
+
+  it('a sink transition may still carry passthrough', () => {
+    const pA = place('A');
+    const net = PetriNet.builder('sink')
+      .transition(Transition.builder('drain').inputs(one(pA)).build())
+      .build();
+    const marking = MarkingState.builder().tokens(pA, 1).build();
+
+    expect(() => StateClassGraph.build(net, marking, 100)).not.toThrow();
   });
 });

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use libpetri_core::input::{In, required_count};
-use libpetri_core::petri_net::PetriNet;
+use libpetri_core::petri_net::{PetriNet, require_output_producing_actions};
 use libpetri_core::place::PlaceRef;
 use libpetri_core::transition::Transition;
 
@@ -52,7 +52,12 @@ pub struct CompiledNet {
 
 impl CompiledNet {
     /// Compiles a PetriNet into an optimized bitmap representation.
+    ///
+    /// # Panics
+    /// Panics per **CORE-043** if a transition declares an output spec but carries `passthrough()`.
     pub fn compile(net: &PetriNet) -> Self {
+        require_output_producing_actions(net);
+
         // Collect all places (sorted for stable ordering)
         let mut place_names: Vec<Arc<str>> = net
             .places()
@@ -273,6 +278,7 @@ impl CompiledNet {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use libpetri_core::action::fork;
     use libpetri_core::input::one;
     use libpetri_core::output::out_place;
     use libpetri_core::place::Place;
@@ -285,10 +291,12 @@ mod tests {
         let t1 = Transition::builder("t1")
             .input(one(&p1))
             .output(out_place(&p2))
+            .action(fork())
             .build();
         let t2 = Transition::builder("t2")
             .input(one(&p2))
             .output(out_place(&p3))
+            .action(fork())
             .build();
 
         PetriNet::builder("chain").transitions([t1, t2]).build()
@@ -349,6 +357,7 @@ mod tests {
             .input(one(&p1))
             .output(out_place(&p2))
             .inhibitor(libpetri_core::arc::inhibitor(&p_inh))
+            .action(fork())
             .build();
 
         let net = PetriNet::builder("test").transition(t).build();
@@ -376,5 +385,175 @@ mod tests {
         let affected = compiled.affected_transitions(p2_id);
         // t2 reads from p2
         assert!(affected.contains(&1) || affected.contains(&0));
+    }
+}
+
+/// CORE-043: an output-declaring transition may not carry `passthrough()`.
+#[cfg(test)]
+mod core_043_tests {
+    use super::*;
+    use libpetri_core::action::{fork, passthrough, sync_action};
+    use libpetri_core::input::one;
+    use libpetri_core::output::{forward_input, out_place, timeout};
+    use libpetri_core::place::Place;
+    use libpetri_core::transition::Transition;
+
+    fn places() -> (Place<i32>, Place<i32>) {
+        (Place::<i32>::new("In"), Place::<i32>::new("Out"))
+    }
+
+    // ------------------------------------------------------------ rejection paths
+
+    #[test]
+    #[should_panic(expected = "Transition 't' declares an output spec but carries passthrough()")]
+    fn compile_rejects_builder_default_passthrough_on_output_declaring_transition() {
+        let (p_in, p_out) = places();
+        let t = Transition::builder("t")
+            .input(one(&p_in))
+            .output(out_place(&p_out))
+            .build();
+        let net = PetriNet::builder("test").transition(t).build();
+
+        CompiledNet::compile(&net);
+    }
+
+    #[test]
+    #[should_panic(expected = "Transition 't' declares an output spec but carries passthrough()")]
+    fn compile_rejects_explicitly_bound_passthrough() {
+        let (p_in, p_out) = places();
+        let t = Transition::builder("t")
+            .input(one(&p_in))
+            .output(out_place(&p_out))
+            .action(fork())
+            .build();
+        let mut bindings = HashMap::new();
+        bindings.insert("t".to_string(), passthrough());
+        let net = PetriNet::builder("test")
+            .transition(t)
+            .build()
+            .bind_actions(&bindings);
+
+        CompiledNet::compile(&net);
+    }
+
+    /// `bind_actions` is total and lazy: an unresolved name keeps the passthrough default.
+    #[test]
+    #[should_panic(
+        expected = "Transition 'typoed' declares an output spec but carries passthrough()"
+    )]
+    fn compile_rejects_transition_omitted_from_binding_map() {
+        let (p_in, p_out) = places();
+        let t = Transition::builder("typoed")
+            .input(one(&p_in))
+            .output(out_place(&p_out))
+            .build();
+        let mut bindings = HashMap::new();
+        bindings.insert("typoedd".to_string(), fork());
+        let net = PetriNet::builder("test")
+            .transition(t)
+            .build()
+            .bind_actions(&bindings);
+
+        CompiledNet::compile(&net);
+    }
+
+    /// A `Timeout` spec is no escape hatch: its child is produced only when the budget
+    /// expires, and passthrough completes immediately.
+    #[test]
+    #[should_panic(expected = "Transition 't' declares an output spec but carries passthrough()")]
+    fn compile_rejects_timeout_only_output_spec() {
+        let (p_in, p_out) = places();
+        let t = Transition::builder("t")
+            .input(one(&p_in))
+            .output(timeout(100, forward_input(&p_in, &p_out)))
+            .build();
+        let net = PetriNet::builder("test").transition(t).build();
+
+        CompiledNet::compile(&net);
+    }
+
+    #[test]
+    #[should_panic(expected = "Transition 't' declares an output spec but carries passthrough()")]
+    fn precompile_rejects_the_same_net() {
+        let (p_in, p_out) = places();
+        let t = Transition::builder("t")
+            .input(one(&p_in))
+            .output(out_place(&p_out))
+            .build();
+        let net = PetriNet::builder("test").transition(t).build();
+
+        crate::precompiled_net::PrecompiledNet::from_compiled(CompiledNet::compile(&net));
+    }
+
+    #[test]
+    #[should_panic(expected = "Transition 't' declares an output spec but carries passthrough()")]
+    fn owned_precompile_rejects_the_same_net() {
+        let (p_in, p_out) = places();
+        let t = Transition::builder("t")
+            .input(one(&p_in))
+            .output(out_place(&p_out))
+            .build();
+        let net = PetriNet::builder("test").transition(t).build();
+
+        crate::owned_precompiled::OwnedPrecompiledNet::compile(&net);
+    }
+
+    // ------------------------------------------------------------ accepted paths
+
+    #[test]
+    fn compile_accepts_passthrough_on_sink_transition() {
+        let (p_in, _) = places();
+        let t = Transition::builder("sink").input(one(&p_in)).build();
+        let net = PetriNet::builder("test").transition(t).build();
+
+        CompiledNet::compile(&net);
+    }
+
+    #[test]
+    fn compile_accepts_fork_on_output_declaring_transition() {
+        let (p_in, p_out) = places();
+        let t = Transition::builder("t")
+            .input(one(&p_in))
+            .output(out_place(&p_out))
+            .action(fork())
+            .build();
+        let net = PetriNet::builder("test").transition(t).build();
+
+        CompiledNet::compile(&net);
+    }
+
+    /// Identity-based: only `passthrough()` is provably inert, so a hand-written no-op is
+    /// left to IO-015 at run time.
+    #[test]
+    fn compile_accepts_hand_written_no_op_action() {
+        let (p_in, p_out) = places();
+        let t = Transition::builder("t")
+            .input(one(&p_in))
+            .output(out_place(&p_out))
+            .action(sync_action(|_| Ok(())))
+            .build();
+        let net = PetriNet::builder("test").transition(t).build();
+
+        CompiledNet::compile(&net);
+    }
+
+    /// MOD-030: staged binding stays lazy and total — a later resolver that declines "t"
+    /// must keep the action bound earlier.
+    #[test]
+    fn staged_binding_leaves_bound_actions_intact() {
+        let (p_in, p_out) = places();
+        let t = Transition::builder("t")
+            .input(one(&p_in))
+            .output(out_place(&p_out))
+            .build();
+        let sink = Transition::builder("sink").input(one(&p_out)).build();
+        let net = PetriNet::builder("test").transitions([t, sink]).build();
+
+        // Stage 1 binds "t"; the resolver returns None for "sink".
+        let staged = net.bind_actions_with_resolver(|name| (name == "t").then(fork));
+        // Stage 2 declines "t" — it must keep the fork() bound in stage 1, not revert.
+        let staged = staged.bind_actions_with_resolver(|_| None);
+
+        CompiledNet::compile(&staged);
     }
 }

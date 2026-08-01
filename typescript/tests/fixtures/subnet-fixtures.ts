@@ -3,6 +3,7 @@ import { Transition } from '../../src/core/transition.js';
 import { SubnetDef } from '../../src/core/subnet-def.js';
 import { one } from '../../src/core/in.js';
 import { outPlace, andPlaces } from '../../src/core/out.js';
+import { produces } from './producing-actions.js';
 
 /**
  * Parameter record for {@link leakyBucket}. Carries a declared `rate`
@@ -59,6 +60,7 @@ export function producer(): SubnetDef<void> {
   const produce = Transition.builder('produce')
     .inputs(one(nextItem))
     .outputs(outPlace(output))
+    .action(produces())
     .build();
 
   return SubnetDef.builder('Producer')
@@ -78,7 +80,8 @@ export function producer(): SubnetDef<void> {
  * time (initial-marking concern is caller-side per the MOD-012 isolation
  * contract).
  *
- * Action-less: tokens just move through the buffer.
+ * Every transition carries {@link produces} so the net satisfies CORE-043; callers
+ * override with their own actions where the payload matters.
  *
  * Interface:
  * - `put` (Input port) — token type `string`.
@@ -97,11 +100,13 @@ export function boundedBuffer(capacity: number): SubnetDef<void> {
   const enqueue = Transition.builder('enqueue')
     .inputs(one(put), one(slots))
     .outputs(outPlace(items))
+    .action(produces())
     .build();
 
   const dequeue = Transition.builder('dequeue')
     .inputs(one(items))
     .outputs(andPlaces(get, slots))
+    .action(produces())
     .build();
 
   return SubnetDef.builder(`BoundedBuffer-${capacity}`)
@@ -128,6 +133,7 @@ export function consumer(): SubnetDef<void> {
   const consume = Transition.builder('consume')
     .inputs(one(input))
     .outputs(outPlace(consumed))
+    .action(produces())
     .build();
 
   return SubnetDef.builder('Consumer')
@@ -176,7 +182,7 @@ export function retryPolicy(): SubnetDef<void> {
  * `slots` places of multiple bucket instances to model a shared rate
  * limiter.
  *
- * Action-less by default — tokens just move through the bucket. The caller
+ * Transitions carry {@link produces} (CORE-043); callers override them. The caller
  * seeds `slots` with `rate` initial tokens at execution time
  * (initial-marking concern is caller-side, matching {@link boundedBuffer}).
  *
@@ -201,14 +207,16 @@ export function leakyBucket(rate: number): SubnetDef<LeakyBucketParams> {
   const acceptT = Transition.builder('accept')
     .inputs(one(request), one(slots))
     .outputs(outPlace(accept))
+    .action(produces())
     .build();
 
   // reject-path: no slot available (inhibitor), still consumes request,
-  // emits reject. Action-less control-flow.
+  // emits reject.
   const rejectT = Transition.builder('reject')
     .inputs(one(request))
     .inhibitor(slots)
     .outputs(outPlace(reject))
+    .action(produces())
     .build();
 
   return SubnetDef.builder<LeakyBucketParams>(`LeakyBucket-${rate}`)

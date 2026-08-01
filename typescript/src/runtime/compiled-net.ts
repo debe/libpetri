@@ -19,6 +19,7 @@ import type { Place } from '../core/place.js';
 import type { Transition } from '../core/transition.js';
 import { requiredCount } from '../core/in.js';
 import { allPlaces } from '../core/out.js';
+import { requireOutputProducingActions } from '../core/internal/output-action-check.js';
 
 /** 32-bit words for JS bitwise ops. */
 export const WORD_SHIFT = 5;
@@ -66,6 +67,9 @@ export class CompiledNet {
 
   private constructor(net: PetriNet) {
     this.net = net;
+
+    // CORE-043: reconcile declared structure against bound behaviour before anything else.
+    requireOutputProducingActions(net);
 
     // Collect all places
     const allPlacesSet = new Map<string, Place<any>>();

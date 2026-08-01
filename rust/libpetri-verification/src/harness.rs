@@ -25,7 +25,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use libpetri_core::interface::PortDirection;
-use libpetri_core::petri_net::PetriNet;
+use libpetri_core::petri_net::{PetriNet, require_output_producing_actions};
 use libpetri_core::place::{Place, PlaceRef};
 use libpetri_core::subnet_def::SubnetDef;
 use libpetri_core::token::{ErasedToken, Token};
@@ -275,6 +275,10 @@ pub fn verify_subnet<P: 'static>(
         .compose(&sut, port_mappings)
         .build();
 
+    // CORE-043: reject here too (not only under the `z3` feature), so a green harness
+    // result always implies a subnet that can actually run.
+    require_output_producing_actions(&synthetic_net);
+
     // Step 4: invoke the SmtVerifier once per property and aggregate
     // results. Iteration order matches the harness's property collection
     // for deterministic per-property reporting.
@@ -366,6 +370,7 @@ struct DummyToken;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use libpetri_core::action::fork;
     use libpetri_core::input::one;
     use libpetri_core::output::out_place;
     use libpetri_core::place::Place;
@@ -388,12 +393,14 @@ mod tests {
             .input(one(&request))
             .input(one(&slots))
             .output(out_place(&accept))
+            .action(fork())
             .build();
 
         let reject_t = Transition::builder("reject")
             .input(one(&request))
             .inhibitor(libpetri_core::arc::inhibitor(&slots))
             .output(out_place(&reject))
+            .action(fork())
             .build();
 
         SubnetDef::<()>::builder(format!("LeakyBucket-{rate}"))
@@ -412,6 +419,7 @@ mod tests {
         let produce = Transition::builder("produce")
             .input(one(&next_item))
             .output(out_place(&output))
+            .action(fork())
             .build();
         SubnetDef::<()>::builder("Producer")
             .place(&next_item)
@@ -426,6 +434,7 @@ mod tests {
         let consume = Transition::builder("consume")
             .input(one(&input))
             .output(out_place(&consumed))
+            .action(fork())
             .build();
         SubnetDef::<()>::builder("Consumer")
             .place(&consumed)

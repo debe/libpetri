@@ -378,6 +378,7 @@ fn consumed_demand(t: &Transition, place: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use libpetri_core::action::fork;
 
     #[test]
     fn enabling_requires_shared_symbol() {
@@ -425,10 +426,12 @@ mod tests {
         let h = Transition::builder("H")
             .input(one(&p))
             .output(out_place(&out_h))
+            .action(fork())
             .build();
         let l = Transition::builder("L")
             .input(one(&p))
             .output(out_place(&out_l))
+            .action(fork())
             .build();
 
         // One shared token: H and L genuinely compete (1 < 1 + 1).
@@ -463,6 +466,7 @@ mod tests {
         let l = Transition::builder("L")
             .input(one(&p))
             .output(out_place(&out_l))
+            .action(fork())
             .build();
 
         // One token present — if H *consumed* P this would be a genuine conflict.
@@ -472,6 +476,7 @@ mod tests {
         let h_read = Transition::builder("H_READ")
             .read(read(&p))
             .output(out_place(&out_h))
+            .action(fork())
             .build();
         assert!(
             !shares_consumed_input(&h_read, &l, &one_tok),
@@ -482,6 +487,7 @@ mod tests {
         let h_inh = Transition::builder("H_INH")
             .inhibitor(inhibitor(&p))
             .output(out_place(&out_h))
+            .action(fork())
             .build();
         assert!(
             !shares_consumed_input(&h_inh, &l, &one_tok),
@@ -492,6 +498,7 @@ mod tests {
         let h_consume = Transition::builder("H_CONS")
             .input(one(&p))
             .output(out_place(&out_h))
+            .action(fork())
             .build();
         assert!(
             shares_consumed_input(&h_consume, &l, &one_tok),
@@ -525,6 +532,7 @@ mod tests {
         let mint = Transition::builder("MINT")
             .input(one(&seed))
             .output(and(vec![out_place(&a), out_place(&b)]))
+            .action(fork())
             .build();
         let join = Transition::builder("JOIN") // delayed 100, default priority
             .input(one(&a))
@@ -537,12 +545,14 @@ mod tests {
                     .build(),
             )
             .output(out_place(&out))
+            .action(fork())
             .build();
         let drain = Transition::builder("DRAIN_A") // delayed 200, lower priority
             .input(one(&a))
             .timing(timing::delayed(200))
             .priority(-10)
             .output(out_place(&dl))
+            .action(fork())
             .build();
         let net = PetriNet::builder("delayedPriorityFixture")
             .transitions([mint, join, drain])

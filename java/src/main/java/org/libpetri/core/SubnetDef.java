@@ -204,6 +204,7 @@ public final class SubnetDef<P> implements Subnet.Open {
      *         {@link SmtVerificationResult}s
      * @throws IllegalArgumentException when an input or in-out port is
      *         missing a harness generator
+     * @throws IllegalStateException when the synthetic net violates [CORE-043]
      */
     public VerificationResult verify(VerificationHarness<P> harness) {
         Objects.requireNonNull(harness, "harness");
@@ -271,6 +272,10 @@ public final class SubnetDef<P> implements Subnet.Open {
         var syntheticNet = PetriNet.builder("verify_" + name)
             .compose(sut, portMappings)
             .build();
+
+        // CORE-043, checked here rather than left to SmtVerifier so an empty property set
+        // cannot skip it.
+        org.libpetri.core.internal.OutputActionCheck.requireOutputProducingActions(syntheticNet);
 
         // Step 4: invoke the SmtVerifier once per property and aggregate
         // results. Iteration order is preserved (LinkedHashSet from the

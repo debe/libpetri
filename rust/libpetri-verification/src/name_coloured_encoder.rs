@@ -847,6 +847,7 @@ mod tests {
     use super::*;
     use crate::marking_state::MarkingStateBuilder;
     use crate::net_flattener;
+    use libpetri_core::action::fork;
     use libpetri_core::input::one;
     use libpetri_core::match_spec::MatchSpec;
     use libpetri_core::name::NameId;
@@ -868,6 +869,7 @@ mod tests {
         let mint = Transition::builder("mint")
             .input(one(&budget1))
             .output(and(vec![out_place(&a), out_place(&b)]))
+            .action(fork())
             .build();
         let join_out = if extra_refund {
             // Refund an EXTRA token to a non-minting place (budget2). The MINTING budget
@@ -888,6 +890,7 @@ mod tests {
                     .build(),
             )
             .output(join_out)
+            .action(fork())
             .build();
         PetriNet::builder("mint_join")
             .transitions([mint, join])
@@ -906,6 +909,7 @@ mod tests {
         let mint = Transition::builder("mint")
             .input(one(&budget1))
             .output(and(vec![out_place(&a), out_place(&b)]))
+            .action(fork())
             .build();
         let join = Transition::builder("join")
             .input(one(&a))
@@ -917,10 +921,12 @@ mod tests {
                     .build(),
             )
             .output(out_place(&budget1))
+            .action(fork())
             .build();
         let drain = Transition::builder("drain")
             .input(one(&a))
             .output(out_place(&sink))
+            .action(fork())
             .build();
         PetriNet::builder("mint_join_drain")
             .transitions([mint, join, drain])
@@ -942,6 +948,7 @@ mod tests {
         let mint = Transition::builder("mint")
             .input(one(&budget1))
             .output(and(vec![out_place(&carrier), out_place(&b)]))
+            .action(fork())
             .build();
         let relay_out = if relay_refunds {
             and(vec![out_place(&a), out_place(&budget1)])
@@ -951,6 +958,7 @@ mod tests {
         let relay = Transition::builder("relay")
             .input(one(&carrier))
             .output(relay_out)
+            .action(fork())
             .build();
         let join = Transition::builder("join")
             .input(one(&a))
@@ -962,6 +970,7 @@ mod tests {
                     .build(),
             )
             .output(out_place(&budget1))
+            .action(fork())
             .build();
         PetriNet::builder("mint_relay_join")
             .transitions([mint, relay, join])
@@ -983,6 +992,7 @@ mod tests {
         let mint = Transition::builder("mint")
             .input(one(&budget1))
             .output(and(vec![out_place(&a), out_place(&b), out_place(&c)]))
+            .action(fork())
             .build();
         let join = Transition::builder("join")
             .input(one(&a))
@@ -994,6 +1004,7 @@ mod tests {
                     .build(),
             )
             .output(out_place(&budget1))
+            .action(fork())
             .build();
         PetriNet::builder("mint_leaky_carrier")
             .transitions([mint, join])
@@ -1081,6 +1092,7 @@ mod tests {
         let mint = Transition::builder("mint")
             .input(one(&budget1))
             .output(and(vec![out_place(&a), out_place(&b)]))
+            .action(fork())
             .build();
         let join = Transition::builder("join")
             .input(one(&a))
@@ -1092,10 +1104,12 @@ mod tests {
                     .build(),
             )
             .output(out_place(&budget1))
+            .action(fork())
             .build();
         let branch = Transition::builder("branch")
             .input(one(&s))
             .output(libpetri_core::output::xor(vec![out_place(&x), out_place(&y)]))
+            .action(fork())
             .build();
         PetriNet::builder("mint_join_xor")
             .transitions([mint, join, branch])

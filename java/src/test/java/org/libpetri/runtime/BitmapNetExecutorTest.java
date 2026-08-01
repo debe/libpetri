@@ -858,10 +858,10 @@ class BitmapNetExecutorTest {
 
             var t1 = Transition.builder("t1")
                 .inputs(In.one(p1)).outputs(Out.place(p2))
-                .action(TransitionAction.passthrough()).build();
+                .action(TransitionAction.fork()).build();
             var t2 = Transition.builder("t2")
                 .inputs(In.one(p2)).outputs(Out.place(p3))
-                .action(TransitionAction.passthrough()).build();
+                .action(TransitionAction.fork()).build();
 
             var net = PetriNet.builder("Test").transitions(t1, t2).build();
             var compiled = CompiledNet.compile(net);
@@ -890,7 +890,7 @@ class BitmapNetExecutorTest {
             var t = Transition.builder("t")
                 .inputs(In.one(input)).outputs(Out.place(output))
                 .read(readP)
-                .action(TransitionAction.passthrough()).build();
+                .action(TransitionAction.fork()).build();
 
             var net = PetriNet.builder("Test").transitions(t).build();
             var compiled = CompiledNet.compile(net);
@@ -911,7 +911,7 @@ class BitmapNetExecutorTest {
             var t = Transition.builder("t")
                 .inputs(In.one(input)).outputs(Out.place(output))
                 .inhibitor(blocker)
-                .action(TransitionAction.passthrough()).build();
+                .action(TransitionAction.fork()).build();
 
             var net = PetriNet.builder("Test").transitions(t).build();
             var compiled = CompiledNet.compile(net);
@@ -930,10 +930,10 @@ class BitmapNetExecutorTest {
 
             var t1 = Transition.builder("t1")
                 .inputs(In.one(shared)).outputs(Out.place(out1))
-                .action(TransitionAction.passthrough()).build();
+                .action(TransitionAction.fork()).build();
             var t2 = Transition.builder("t2")
                 .inputs(In.one(shared)).outputs(Out.place(out2))
-                .action(TransitionAction.passthrough()).build();
+                .action(TransitionAction.fork()).build();
 
             var net = PetriNet.builder("Test").transitions(t1, t2).build();
             var compiled = CompiledNet.compile(net);
@@ -952,7 +952,7 @@ class BitmapNetExecutorTest {
             var t = Transition.builder("t")
                 .inputs(In.one(input)).outputs(Out.place(output))
                 .inhibitor(blocker)
-                .action(TransitionAction.passthrough()).build();
+                .action(TransitionAction.fork()).build();
 
             var net = PetriNet.builder("Test").transitions(t).build();
             var compiled = CompiledNet.compile(net);

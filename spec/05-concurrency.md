@@ -318,7 +318,7 @@ When an action completes synchronously (returns an immediately-resolved future o
 2. Synchronous transform actions execute inline when the action signals inline support.
 3. The orchestrator never dispatches actions itself; an async action returns a handle backed by its own executor, and the orchestrator continues once the handle is returned ([CONC-002]).
 
-**Test derivation:** Chain of 10 passthrough transitions; measure overhead; verify no task dispatch.
+**Test derivation:** Chain of 10 transitions bound to trivial synchronous actions; measure overhead; verify no task dispatch.
 
 ---
 

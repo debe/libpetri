@@ -66,8 +66,12 @@ export class PetriNet {
 
   /**
    * Creates a new PetriNet with actions bound via a resolver function.
+   *
+   * The resolver is called once per transition with its name. Returning `null`
+   * defers that transition — it keeps whatever action it already carries — which
+   * is what makes staged binding (**MOD-024** AC7) work.
    */
-  bindActionsWithResolver(actionResolver: (name: string) => TransitionAction): PetriNet {
+  bindActionsWithResolver(actionResolver: (name: string) => TransitionAction | null): PetriNet {
     const boundTransitions = new Set<Transition>();
     for (const t of this.transitions) {
       const action = actionResolver(t.name);

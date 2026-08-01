@@ -10,6 +10,7 @@ import { DBM } from './dbm.js';
 import { StateClass } from './state-class.js';
 import type { EnvironmentAnalysisMode } from './environment-analysis-mode.js';
 import { ignore } from './environment-analysis-mode.js';
+import { requireOutputProducingActions } from '../../core/internal/output-action-check.js';
 
 /** Edge that tracks which XOR branch was taken. */
 export interface BranchEdge {
@@ -68,7 +69,11 @@ export class StateClassGraph {
     }
   }
 
-  /** Builds the state class graph for a Time Petri Net. */
+  /**
+   * Builds the state class graph for a Time Petri Net.
+   *
+   * @throws Error if the net violates CORE-043 — analysis rejects the same nets execution rejects.
+   */
   static build(
     net: PetriNet,
     initialMarking: MarkingState,
@@ -76,6 +81,8 @@ export class StateClassGraph {
     environmentPlaces?: Set<EnvironmentPlace<any>>,
     environmentMode?: EnvironmentAnalysisMode,
   ): StateClassGraph {
+    requireOutputProducingActions(net);
+
     const envMode = environmentMode ?? ignore();
     const envPlaces = new Set<Place<any>>();
     if (environmentPlaces) {

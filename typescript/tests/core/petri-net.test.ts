@@ -7,6 +7,8 @@ import { outPlace, andPlaces } from '../../src/core/out.js';
 import { matchSpec, matchKey } from '../../src/core/match-spec.js';
 import { nameId } from '../../src/core/name.js';
 import type { TransitionAction } from '../../src/core/transition-action.js';
+import { fork, isPassthrough } from '../../src/core/transition-action.js';
+import { CompiledNet } from '../../src/runtime/compiled-net.js';
 
 describe('PetriNet', () => {
   const p1 = place<string>('P1');
@@ -205,6 +207,69 @@ describe('PetriNet', () => {
     // Structure preserved
     expect(boundT1.inputSpecs).toHaveLength(1);
     expect(boundT2.outputSpec).not.toBeNull();
+  });
+
+  // ============================================================
+  //  CORE-043: output-declaring transitions must produce
+  // ============================================================
+  //
+  // The rejection itself lives at compile time — see
+  // tests/runtime/compiled-net-core043.test.ts. What this block pins down is the other half
+  // of the contract: that CORE-042 and MOD-031 AC7 survive it. Binding stays lazy and
+  // total, so a net may still be built with no actions and bound in stages; only handing
+  // one to an executor demands that the declared structure and the bound behaviour agree.
+
+  it('bindActions leaves an output-declaring transition on passthrough (CORE-042 AC4)', () => {
+    // Binding must NOT reject here, because a bind is not necessarily the last one — see the
+    // staged-binding test below. Rejecting at bind time would make MOD-031 AC7's staged
+    // binding unusable.
+    const t = Transition.builder('T')
+      .inputs(one(p1))
+      .outputs(outPlace(p2))
+      .build();
+    const net = PetriNet.builder('Net').transition(t).build();
+
+    const bound = net.bindActions({});
+
+    expect(isPassthrough([...bound.transitions][0]!.action),
+      'binding is lazy; the reconciliation happens at compile time (CORE-043)').toBe(true);
+  });
+
+  it('bindActionsWithResolver binds each transition in turn across two stages (MOD-031 AC7)', () => {
+    // A resolver that returns null defers a transition to a later bind; the first stage must
+    // not fail merely because the second has not happened yet.
+    const inp = place<string>('In');
+    const mid = place<string>('Mid');
+    const out = place<string>('Out');
+
+    const net = PetriNet.builder('Net').transitions(
+      Transition.builder('first').inputs(one(inp)).outputs(outPlace(mid)).build(),
+      Transition.builder('second').inputs(one(mid)).outputs(outPlace(out)).build(),
+    ).build();
+
+    const staged = net
+      .bindActionsWithResolver((n) => (n === 'first' ? fork() : null))
+      .bindActionsWithResolver((n) => (n === 'second' ? fork() : null));
+
+    for (const t of staged.transitions) {
+      expect(isPassthrough(t.action), `${t.name} must carry its bound action after both stages`)
+        .toBe(false);
+    }
+    expect(() => CompiledNet.compile(staged), 'the fully bound net must compile').not.toThrow();
+  });
+
+  it('bindActions allows passthrough on a sink transition', () => {
+    // A transition that declares no output is a legitimate sink and may retain passthrough —
+    // at bind time and at compile time alike.
+    const net = PetriNet.builder('Net')
+      .transition(Transition.builder('sink').inputs(one(p1)).build())
+      .build();
+
+    const bound = net.bindActions({});
+
+    expect(isPassthrough([...bound.transitions][0]!.action),
+      'the unbound sink must still carry passthrough (CORE-042 AC4)').toBe(true);
+    expect(() => CompiledNet.compile(bound)).not.toThrow();
   });
 
   it('multiple transitions', () => {

@@ -59,6 +59,10 @@ pub fn verify_via_name_scg(
     carrier_places: &BTreeSet<String>,
     priority_semantics: PrioritySemantics,
 ) -> Option<NuScgOutcome> {
+    // CORE-043: this is a public entry that reaches the ν-SCG without going through
+    // `StateClassGraph::build_with_env`, where the check otherwise sits.
+    libpetri_core::petri_net::require_output_producing_actions(net);
+
     // Carrier validation (EXTENDED, [NU-051]): a mistyped carrier name would make
     // two fork branches mint INDEPENDENT names, so the join never becomes
     // name-enabled and the verifier would report a confident false deadlock. Fail
@@ -241,6 +245,7 @@ fn counterexample_path(scg: &NameStateClassGraph, target: usize) -> (Vec<Marking
 mod tests {
     use super::*;
     use crate::marking_state::MarkingStateBuilder;
+    use libpetri_core::action::fork;
     use libpetri_core::input::one;
     use libpetri_core::match_spec::MatchSpec;
     use libpetri_core::name::NameId;
@@ -280,10 +285,12 @@ mod tests {
         let fork_a = Transition::builder("forkA")
             .input(one(&source_a))
             .output(out_place(&a))
+            .action(fork())
             .build();
         let fork_b = Transition::builder("forkB")
             .input(one(&source_b))
             .output(out_place(&b))
+            .action(fork())
             .build();
         let join = Transition::builder("join")
             .input(one(&a))
@@ -295,6 +302,7 @@ mod tests {
                     .build(),
             )
             .output(out_place(&merged))
+            .action(fork())
             .build();
 
         PetriNet::builder("distinct_mints_no_budget")
@@ -309,9 +317,10 @@ mod tests {
         let b = Place::<String>::new("branchB");
         let merged = Place::<String>::new("merged");
 
-        let fork = Transition::builder("fork")
+        let t_fork = Transition::builder("fork")
             .input(one(&source))
             .output(and(vec![out_place(&a), out_place(&b)]))
+            .action(fork())
             .build();
         let join = Transition::builder("join")
             .input(one(&a))
@@ -323,10 +332,11 @@ mod tests {
                     .build(),
             )
             .output(out_place(&merged))
+            .action(fork())
             .build();
 
         PetriNet::builder("same_mint")
-            .transitions([fork, join])
+            .transitions([t_fork, join])
             .build()
     }
 
@@ -375,10 +385,12 @@ mod tests {
         let fork_a = Transition::builder("forkA")
             .input(one(&source_a))
             .output(and(vec![out_place(&a), out_place(&pending)]))
+            .action(fork())
             .build();
         let fork_b = Transition::builder("forkB")
             .input(one(&source_b))
             .output(out_place(&b))
+            .action(fork())
             .build();
         let join = Transition::builder("join")
             .input(one(&a))
@@ -391,6 +403,7 @@ mod tests {
                     .build(),
             )
             .output(out_place(&merged))
+            .action(fork())
             .build();
         let net = PetriNet::builder("strand")
             .transitions([fork_a, fork_b, join])
@@ -418,9 +431,10 @@ mod tests {
         let pending = Place::<()>::new("pending");
         let merged = Place::<String>::new("merged");
 
-        let fork = Transition::builder("fork")
+        let t_fork = Transition::builder("fork")
             .input(one(&source))
             .output(and(vec![out_place(&a), out_place(&b), out_place(&pending)]))
+            .action(fork())
             .build();
         let join = Transition::builder("join")
             .input(one(&a))
@@ -433,9 +447,10 @@ mod tests {
                     .build(),
             )
             .output(out_place(&merged))
+            .action(fork())
             .build();
         let net = PetriNet::builder("joinable")
-            .transitions([fork, join])
+            .transitions([t_fork, join])
             .build();
 
         let initial = MarkingStateBuilder::new().tokens("source", 2).build();
@@ -454,10 +469,11 @@ mod tests {
         let b = Place::<String>::new("branchB");
         let merged = Place::<String>::new("merged");
 
-        let fork = Transition::builder("fork")
+        let t_fork = Transition::builder("fork")
             .input(one(&source))
             .output(and(vec![out_place(&a), out_place(&b)]))
             .timing(timing::delayed(100))
+            .action(fork())
             .build();
         let join = Transition::builder("join")
             .input(one(&a))
@@ -470,9 +486,10 @@ mod tests {
             )
             .output(out_place(&merged))
             .timing(timing::window(50, 200))
+            .action(fork())
             .build();
         let net = PetriNet::builder("timed_same_mint")
-            .transitions([fork, join])
+            .transitions([t_fork, join])
             .build();
 
         let initial = MarkingStateBuilder::new().tokens("source", 1).build();
@@ -490,9 +507,10 @@ mod tests {
         let b = Place::<String>::new("branchB");
         let merged = Place::<String>::new("merged");
 
-        let fork = Transition::builder("fork")
+        let t_fork = Transition::builder("fork")
             .input(one(&source))
             .output(and(vec![out_place(&source), out_place(&a)]))
+            .action(fork())
             .build();
         let join = Transition::builder("join")
             .input(one(&a))
@@ -504,9 +522,10 @@ mod tests {
                     .build(),
             )
             .output(out_place(&merged))
+            .action(fork())
             .build();
         let net = PetriNet::builder("unbounded_mint")
-            .transitions([fork, join])
+            .transitions([t_fork, join])
             .build();
 
         let initial = MarkingStateBuilder::new().tokens("source", 1).build();
@@ -539,6 +558,7 @@ mod tests {
         let t = Transition::builder("t")
             .input(one(&p1))
             .output(out_place(&p2))
+            .action(fork())
             .build();
         let net = PetriNet::builder("plain").transition(t).build();
         let initial = MarkingStateBuilder::new().tokens("p1", 1).build();
@@ -571,9 +591,10 @@ mod tests {
         let merged = Place::<String>::new("merged");
         let dl = Place::<()>::new("deadletter");
 
-        let fork = Transition::builder("fork")
+        let t_fork = Transition::builder("fork")
             .input(one(&source))
             .output(and(vec![out_place(&a), out_place(&b), out_place(&stray)]))
+            .action(fork())
             .build();
         let join = Transition::builder("join")
             .input(one(&a))
@@ -585,13 +606,15 @@ mod tests {
                     .build(),
             )
             .output(out_place(&merged))
+            .action(fork())
             .build();
 
-        let mut builder = PetriNet::builder("comint_carrier_drain").transitions([fork, join]);
+        let mut builder = PetriNet::builder("comint_carrier_drain").transitions([t_fork, join]);
         if with_drain {
             let drain = Transition::builder("drain")
                 .input(one(&stray))
                 .output(out_place(&dl))
+                .action(fork())
                 .build();
             builder = builder.transition(drain);
         }
@@ -670,6 +693,7 @@ mod tests {
             } else {
                 out_place(&a)
             })
+            .action(fork())
             .build();
         let join = Transition::builder("JOIN") // immediate, priority 0
             .input(one(&a))
@@ -681,6 +705,7 @@ mod tests {
                     .build(),
             )
             .output(out_place(&out))
+            .action(fork())
             .build();
 
         let mut builder = PetriNet::builder("priorityFixture").transitions([mint, join]);
@@ -690,6 +715,7 @@ mod tests {
                 .timing(timing::delayed(5_000))
                 .priority(-10)
                 .output(out_place(&dl))
+                .action(fork())
                 .build();
             builder = builder.transition(drain);
         }

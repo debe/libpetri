@@ -202,6 +202,92 @@ class PetriNetTest {
         assertEquals(2, net.places().size());
     }
 
+    // ==================== CORE-043: output-declaring transitions must produce ====================
+    //
+    // The rejection itself lives at compile time — see CompiledNetCore043Test. What this pins down
+    // is the other half of the contract: that CORE-042 and MOD-030 survive it. Binding stays lazy
+    // and total, so a net may still be built with no actions and bound in stages; only handing one
+    // to an executor demands that the declared structure and the bound behaviour agree.
+
+    /**
+     * CORE-042 AC4, unnarrowed. Binding must <em>not</em> reject an output-declaring transition
+     * left on passthrough, because a bind is not necessarily the last one — see the staged-binding
+     * test below. Rejecting here would make MOD-030's partial override unusable.
+     */
+    @Test
+    void bindActions_leavesOutputDeclaringTransitionOnPassthrough() {
+        var in = Place.of("In", Void.class);
+        var out = Place.of("Out", Void.class);
+
+        var net = PetriNet.builder("Test").transitions(
+            Transition.builder("t")
+                .inputs(Arc.In.one(in))
+                .outputs(Arc.Out.place(out))
+                .build()).build();
+
+        var bound = assertDoesNotThrow(() -> net.bindActions(Map.<String, TransitionAction>of()),
+            "binding is lazy; the reconciliation happens at compile time (CORE-043)");
+        assertTrue(TransitionAction.isPassthrough(bound.transitions().iterator().next().action()));
+    }
+
+    /**
+     * MOD-030 regression guard. A resolver that returns {@code null} defers a transition to a later
+     * bind; the first stage must not fail merely because the second has not happened yet.
+     */
+    @Test
+    void bindActions_stagedBindingBindsEachTransitionInTurn() {
+        var in = Place.of("In", Void.class);
+        var mid = Place.of("Mid", Void.class);
+        var out = Place.of("Out", Void.class);
+
+        var net = PetriNet.builder("Test").transitions(
+            Transition.builder("first").inputs(Arc.In.one(in)).outputs(Arc.Out.place(mid)).build(),
+            Transition.builder("second").inputs(Arc.In.one(mid)).outputs(Arc.Out.place(out)).build()
+        ).build();
+
+        var staged = assertDoesNotThrow(() ->
+            net.bindActions(n -> "first".equals(n) ? TransitionAction.fork() : null)
+               .bindActions(n -> "second".equals(n) ? TransitionAction.fork() : null),
+            "a two-stage bind must succeed; neither stage sees a complete net");
+
+        for (var t : staged.transitions()) {
+            assertFalse(TransitionAction.isPassthrough(t.action()),
+                t.name() + " must carry its bound action after both stages");
+        }
+        assertDoesNotThrow(() -> org.libpetri.runtime.CompiledNet.compile(staged),
+            "the fully bound net must compile");
+    }
+
+    /**
+     * A transition that declares no output is a legitimate sink and may retain passthrough,
+     * through binding and compilation alike.
+     */
+    @Test
+    void bindActions_allowsPassthroughOnSinkTransition() {
+        var in = Place.of("In", Void.class);
+
+        var net = PetriNet.builder("Test").transitions(
+            Transition.builder("sink")
+                .inputs(Arc.In.one(in))
+                .build()).build();
+
+        var bound = assertDoesNotThrow(() -> net.bindActions(Map.<String, TransitionAction>of()),
+            "a sink transition declares no output and may remain passthrough (CORE-042 AC4)");
+        assertTrue(TransitionAction.isPassthrough(bound.transitions().iterator().next().action()),
+            "the unbound sink must still carry passthrough");
+    }
+
+    /** The singleton is what makes the check possible at all. */
+    @Test
+    void passthrough_isASingleton() {
+        assertSame(TransitionAction.passthrough(), TransitionAction.passthrough(),
+            "passthrough() must return a stable instance so it can be recognised by identity");
+        assertTrue(TransitionAction.isPassthrough(TransitionAction.passthrough()));
+        assertFalse(TransitionAction.isPassthrough(TransitionAction.fork()),
+            "fork() produces output and must not be mistaken for the no-op");
+        assertFalse(TransitionAction.isPassthrough(null), "null is not passthrough");
+    }
+
     @Test
     void bindActions_preservesInputSpecs() {
         var p1 = Place.of("P1", Void.class);

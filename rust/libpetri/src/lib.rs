@@ -77,7 +77,8 @@ pub use libpetri_verification as verification;
 
 // Re-export commonly used types at the top level
 pub use libpetri_core::action::{
-    ActionError, BoxedAction, async_action, fork, passthrough, produce, sync_action, transform,
+    ActionError, BoxedAction, async_action, fork, is_passthrough, passthrough, produce, sync_action,
+    transform,
 };
 pub use libpetri_core::arc::{Inhibitor, Read, Reset, inhibitor, read, reset};
 pub use libpetri_core::context::TransitionContext;

@@ -22,6 +22,7 @@
 
 use std::sync::Arc;
 
+use libpetri::core::action::fork;
 use libpetri::core::arc::inhibitor;
 use libpetri::core::input::one;
 use libpetri::core::output::out_place;
@@ -50,11 +51,13 @@ fn leaky_bucket(rate: u32) -> SubnetDef<()> {
         .input(one(&request))
         .input(one(&slots))
         .output(out_place(&accept))
+        .action(fork())
         .build();
     let reject_t = Transition::builder("reject")
         .input(one(&request))
         .inhibitor(inhibitor(&slots))
         .output(out_place(&reject))
+        .action(fork())
         .build();
 
     SubnetDef::<()>::builder(format!("LeakyBucket-{rate}"))
@@ -73,6 +76,7 @@ fn producer() -> SubnetDef<()> {
     let produce = Transition::builder("produce")
         .input(one(&next_item))
         .output(out_place(&output))
+        .action(fork())
         .build();
     SubnetDef::<()>::builder("Producer")
         .place(&next_item)
@@ -87,6 +91,7 @@ fn consumer() -> SubnetDef<()> {
     let consume = Transition::builder("consume")
         .input(one(&input))
         .output(out_place(&consumed))
+        .action(fork())
         .build();
     SubnetDef::<()>::builder("Consumer")
         .place(&consumed)

@@ -232,13 +232,19 @@ After an action completes, the executor validates that produced tokens conform t
 
 Validation failure is treated as a transition failure (error event emitted, tokens not restored).
 
+The *built-in* passthrough ([CORE-051]) never reaches this check: a net pairing it with a
+declared output spec is rejected earlier ([CORE-043]). What remains here is the case no
+static check can decide — a hand-written action that produces nothing, or produces only on
+some paths — which is validated per firing.
+
 **Acceptance Criteria:**
 1. Conforming output → success.
 2. Non-conforming output → failure event emitted.
 3. Consumed input tokens are NOT restored on failure.
+4. A transition declaring an output spec but bound to a hand-written action that produces nothing → validation failure on every firing (the built-in passthrough case is [CORE-043]'s, rejected before execution).
 
-**Depends on:** [EVT-007]
-**Test derivation:** Action produces to wrong place; verify failure event.
+**Depends on:** [EVT-007], [CORE-051]
+**Test derivation:** Action produces to wrong place; verify failure event. Bind a hand-written no-op to a transition declaring `Out.place(P)`; verify a failure event rather than a compile error.
 
 ---
 

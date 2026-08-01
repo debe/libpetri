@@ -74,12 +74,12 @@ fn build_fan_out(fan: usize) -> (PetriNet, Place<i32>, Place<i32>) {
     (net, start, end)
 }
 
+// PERF-020 scenario 1 on the owned path: one passthrough transition, the minimum-overhead
+// case. It is a sink — passthrough may not declare an output spec (CORE-043).
 fn owned_single_passthrough(c: &mut Criterion) {
     let p1 = Place::<i32>::new("p1");
-    let p2 = Place::<i32>::new("p2");
     let t = Transition::builder("t1")
         .input(one(&p1))
-        .output(out_place(&p2))
         .action(passthrough())
         .build();
     let net = PetriNet::builder("single").transition(t).build();
@@ -90,7 +90,7 @@ fn owned_single_passthrough(c: &mut Criterion) {
             let mut marking = Marking::new();
             marking.add(&p1, Token::at(42, 0));
             let result = owned.run_sync::<NoopEventStore>(marking);
-            black_box(result.count("p2"));
+            black_box(result.count("p1"));
         })
     });
 }

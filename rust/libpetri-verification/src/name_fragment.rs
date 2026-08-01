@@ -228,6 +228,7 @@ pub(crate) fn classify(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use libpetri_core::action::fork;
     use libpetri_core::arc::reset;
     use libpetri_core::input::{at_least, exactly, one};
     use libpetri_core::match_spec::MatchSpec;
@@ -261,6 +262,7 @@ mod tests {
                     .build(),
             )
             .output(out_place(&merged))
+            .action(fork())
             .build();
         PetriNet::builder("join_net").transition(join).build()
     }
@@ -297,17 +299,20 @@ mod tests {
 
         let relay_in = |p: &Place<String>, c: usize| if c == 1 { one(p) } else { exactly(c, p) };
 
-        let fork = Transition::builder("fork")
+        let t_fork = Transition::builder("fork")
             .input(one(&source))
             .output(libpetri_core::output::and(vec![out_place(&pre_a), out_place(&pre_b)]))
+            .action(fork())
             .build();
         let relay_a = Transition::builder("relayA")
             .input(relay_in(&pre_a, relay_count))
             .output(out_place(&a))
+            .action(fork())
             .build();
         let relay_b = Transition::builder("relayB")
             .input(relay_in(&pre_b, relay_count))
             .output(out_place(&b))
+            .action(fork())
             .build();
         let join = Transition::builder("join")
             .input(one(&a))
@@ -319,14 +324,16 @@ mod tests {
                     .build(),
             )
             .output(out_place(&merged))
+            .action(fork())
             .build();
         let drain = Transition::builder("drain")
             .input(if drain_count == 1 { one(&a) } else { exactly(drain_count, &a) })
             .output(out_place(&dl))
+            .action(fork())
             .build();
 
         PetriNet::builder("comint_relay_drain")
-            .transitions([fork, relay_a, relay_b, join, drain])
+            .transitions([t_fork, relay_a, relay_b, join, drain])
             .build()
     }
 
@@ -404,6 +411,7 @@ mod tests {
                     .build(),
             )
             .output(out_place(&merged))
+            .action(fork())
             .build();
         // An unrelated transition carries a reset arc on the coloured `branchA`.
         let clear = Transition::builder("clear")
