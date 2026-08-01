@@ -25,7 +25,7 @@ use libpetri_core::action::{
     ActionError, fork, passthrough, produce, sync_action, transform,
 };
 use libpetri_core::arc::{inhibitor, read, reset};
-use libpetri_core::input::{all, at_least, exactly, one, one_guarded};
+use libpetri_core::input::{all, at_least, exactly, one};
 use libpetri_core::match_spec::MatchSpec;
 use libpetri_core::name::NameId;
 use libpetri_core::output::{and, out_place, xor};
@@ -464,7 +464,7 @@ fn inhibitor_unblocked_when_token_removed<R: BackendRunner>() {
     assert_eq!(result.marking.count("out"), 1);
 }
 
-// ========================= Cardinality / guards =========================
+// ==================== Cardinality / conditional routing ====================
 
 fn exactly_cardinality_consumes_n<R: BackendRunner>() {
     let p = Place::<i32>::new("p");
@@ -553,70 +553,128 @@ fn at_least_fires_with_enough<R: BackendRunner>() {
     assert_eq!(result.marking.count("p"), 0); // all consumed
 }
 
-fn guarded_input_only_consumes_matching<R: BackendRunner>() {
+// Conditional token selection (IO-006 replacement idiom): input specifications
+// are purely structural, so a data-dependent choice is modelled with a
+// classifier transition whose XOR output routes each token into exactly one
+// downstream place, plus conflicting transitions consuming those places.
+
+fn xor_routing_only_forwards_matching<R: BackendRunner>() {
     let p = Place::<i32>::new("p");
+    let big = Place::<i32>::new("big");
+    let small = Place::<i32>::new("small");
     let p_out = Place::<i32>::new("out");
 
-    let t = Transition::builder("t1")
-        .input(one_guarded(&p, |v| *v > 5))
+    let classify = Transition::builder("classify")
+        .input(one(&p))
+        .output(xor(vec![out_place(&big), out_place(&small)]))
+        .action(sync_action(|ctx| {
+            let v = *ctx.input::<i32>("p")?;
+            if v > 5 {
+                ctx.output("big", v)?;
+            } else {
+                ctx.output("small", v)?;
+            }
+            Ok(())
+        }))
+        .build();
+    let consume = Transition::builder("t1")
+        .input(one(&big))
         .output(out_place(&p_out))
         .action(fork())
         .build();
-    let net = PetriNet::builder("test").transition(t).build();
+    let net = PetriNet::builder("test")
+        .transitions([classify, consume])
+        .build();
 
     let mut marking = Marking::new();
-    marking.add(&p, Token::at(3, 0)); // doesn't match
-    marking.add(&p, Token::at(10, 0)); // matches
+    marking.add(&p, Token::at(3, 0)); // routed to `small`
+    marking.add(&p, Token::at(10, 0)); // routed to `big`
 
     let result = R::run(&net, marking);
-    assert_eq!(result.marking.count("p"), 1); // 3 remains
+    assert_eq!(result.marking.count("small"), 1); // 3 lands in the other branch
+    assert_eq!(result.marking.count("big"), 0);
     assert_eq!(result.marking.count("out"), 1); // 10 forwarded
     assert_eq!(*result.marking.peek(&p_out).unwrap(), 10);
 }
 
-fn guarded_input_blocks_when_no_match<R: BackendRunner>() {
+fn xor_routing_blocks_when_nothing_routed<R: BackendRunner>() {
     let p = Place::<i32>::new("p");
+    let big = Place::<i32>::new("big");
+    let small = Place::<i32>::new("small");
     let p_out = Place::<i32>::new("out");
 
-    let t = Transition::builder("t1")
-        .input(one_guarded(&p, |v| *v > 100))
+    let classify = Transition::builder("classify")
+        .input(one(&p))
+        .output(xor(vec![out_place(&big), out_place(&small)]))
+        .action(sync_action(|ctx| {
+            let v = *ctx.input::<i32>("p")?;
+            if v > 100 {
+                ctx.output("big", v)?;
+            } else {
+                ctx.output("small", v)?;
+            }
+            Ok(())
+        }))
+        .build();
+    let consume = Transition::builder("t1")
+        .input(one(&big))
         .output(out_place(&p_out))
         .action(fork())
         .build();
-    let net = PetriNet::builder("test").transition(t).build();
+    let net = PetriNet::builder("test")
+        .transitions([classify, consume])
+        .build();
 
     let mut marking = Marking::new();
     marking.add(&p, Token::at(3, 0));
     marking.add(&p, Token::at(10, 0));
 
     let result = R::run(&net, marking);
-    assert_eq!(result.marking.count("p"), 2);
+    assert_eq!(result.marking.count("small"), 2);
+    assert_eq!(result.marking.count("big"), 0);
     assert_eq!(result.marking.count("out"), 0);
 }
 
-fn self_loop_with_guard_terminates<R: BackendRunner>() {
-    // Decrement until 0, then move to done.
+fn self_loop_with_xor_routing_terminates<R: BackendRunner>() {
+    // Decrement until 0, then move to done. The "keep going vs. stop" choice
+    // lives in the classifier's XOR output, not in an input predicate.
     let p = Place::<i32>::new("p");
+    let positive = Place::<i32>::new("positive");
+    let zero = Place::<i32>::new("zero");
     let done = Place::<i32>::new("done");
 
+    let classify = Transition::builder("classify")
+        .input(one(&p))
+        .output(xor(vec![out_place(&positive), out_place(&zero)]))
+        .action(sync_action(|ctx| {
+            let v = *ctx.input::<i32>("p")?;
+            if v > 0 {
+                ctx.output("positive", v)?;
+            } else {
+                ctx.output("zero", v)?;
+            }
+            Ok(())
+        }))
+        .build();
+
     let t = Transition::builder("dec")
-        .input(one_guarded(&p, |v: &i32| *v > 0))
+        .input(one(&positive))
         .output(out_place(&p))
         .action(sync_action(|ctx| {
-            let v = ctx.input::<i32>("p")?;
+            let v = ctx.input::<i32>("positive")?;
             ctx.output("p", *v - 1)?;
             Ok(())
         }))
         .build();
 
     let t_done = Transition::builder("finish")
-        .input(one_guarded(&p, |v: &i32| *v == 0))
+        .input(one(&zero))
         .output(out_place(&done))
         .action(fork())
         .build();
 
     let net = PetriNet::builder("countdown")
-        .transitions([t, t_done])
+        .transitions([classify, t, t_done])
         .build();
 
     let mut marking = Marking::new();
@@ -748,6 +806,247 @@ fn and_output_fires_to_all<R: BackendRunner>() {
     assert_eq!(*result.marking.peek(&a).unwrap(), 1);
     assert_eq!(*result.marking.peek(&b).unwrap(), 10);
     assert_eq!(*result.marking.peek(&c).unwrap(), 100);
+}
+
+// ================= [IO-015] Output validation =================
+
+/// Helper: was a `TransitionFailed` for `name` emitted, and does its
+/// message mention the IO-015 violation?
+fn out_violation_failed(events: &[NetEvent], name: &str) -> bool {
+    events.iter().any(|e| match e {
+        NetEvent::TransitionFailed {
+            transition_name,
+            error,
+            ..
+        } => &**transition_name == name && error.contains("IO-015"),
+        _ => false,
+    })
+}
+
+/// \[IO-015\] AC2/AC3: an `Out::Xor` declares "exactly one branch". An
+/// action that writes to *both* branches violates the contract — the
+/// firing fails, no tokens are deposited on either branch, and the
+/// consumed input is NOT restored.
+fn xor_output_both_branches_violates<R: BackendRunner>() {
+    let p = Place::<i32>::new("p");
+    let a = Place::<i32>::new("a");
+    let b = Place::<i32>::new("b");
+
+    let t = Transition::builder("t1")
+        .input(one(&p))
+        .output(xor(vec![out_place(&a), out_place(&b)]))
+        .action(sync_action(|ctx| {
+            let v = ctx.input::<i32>("p")?;
+            ctx.output("a", *v)?;
+            ctx.output("b", *v)?;
+            Ok(())
+        }))
+        .build();
+    let net = PetriNet::builder("test").transition(t).build();
+
+    let mut marking = Marking::new();
+    marking.add(&p, Token::at(1, 0));
+
+    let result = R::run(&net, marking);
+    assert_eq!(result.marking.count("a"), 0, "XOR violation must produce nothing");
+    assert_eq!(result.marking.count("b"), 0, "XOR violation must produce nothing");
+    // AC3: consumed input tokens are not restored.
+    assert_eq!(result.marking.count("p"), 0);
+    assert!(
+        out_violation_failed(&result.events, "t1"),
+        "expected an IO-015 TransitionFailed event, got {:?}",
+        result.events
+    );
+}
+
+/// \[IO-015\] AC2: an `Out::Xor` with *no* branch produced is equally a
+/// violation ("exactly 1 required").
+fn xor_output_no_branch_violates<R: BackendRunner>() {
+    let p = Place::<i32>::new("p");
+    let a = Place::<i32>::new("a");
+    let b = Place::<i32>::new("b");
+
+    let t = Transition::builder("t1")
+        .input(one(&p))
+        .output(xor(vec![out_place(&a), out_place(&b)]))
+        .action(sync_action(|_ctx| Ok(())))
+        .build();
+    let net = PetriNet::builder("test").transition(t).build();
+
+    let mut marking = Marking::new();
+    marking.add(&p, Token::at(1, 0));
+
+    let result = R::run(&net, marking);
+    assert_eq!(result.marking.count("a"), 0);
+    assert_eq!(result.marking.count("b"), 0);
+    assert_eq!(result.marking.count("p"), 0);
+    assert!(out_violation_failed(&result.events, "t1"));
+}
+
+/// \[IO-015\] AC2/AC3: an `Out::And` requires *all* children. Writing to
+/// only one child fails the firing and deposits nothing at all — not
+/// even the child that was written.
+fn and_output_partial_violates<R: BackendRunner>() {
+    let p = Place::<i32>::new("p");
+    let a = Place::<i32>::new("a");
+    let b = Place::<i32>::new("b");
+
+    let t = Transition::builder("t1")
+        .input(one(&p))
+        .output(and(vec![out_place(&a), out_place(&b)]))
+        .action(sync_action(|ctx| {
+            let v = ctx.input::<i32>("p")?;
+            ctx.output("a", *v)?;
+            Ok(())
+        }))
+        .build();
+    let net = PetriNet::builder("test").transition(t).build();
+
+    let mut marking = Marking::new();
+    marking.add(&p, Token::at(1, 0));
+
+    let result = R::run(&net, marking);
+    assert_eq!(
+        result.marking.count("a"),
+        0,
+        "AND violation must not deposit the partially-written branch"
+    );
+    assert_eq!(result.marking.count("b"), 0);
+    assert_eq!(result.marking.count("p"), 0);
+    assert!(out_violation_failed(&result.events, "t1"));
+}
+
+/// \[IO-015\] AC2: a plain `out_place` spec is violated when the action
+/// produces nothing (the single-leaf fast path in the executor).
+fn single_place_output_missing_violates<R: BackendRunner>() {
+    let p_in = Place::<i32>::new("in");
+    let p_out = Place::<i32>::new("out");
+
+    let t = Transition::builder("t1")
+        .input(one(&p_in))
+        .output(out_place(&p_out))
+        .action(sync_action(|_ctx| Ok(())))
+        .build();
+    let net = PetriNet::builder("test").transition(t).build();
+
+    let mut marking = Marking::new();
+    marking.add(&p_in, Token::at(7, 0));
+
+    let result = R::run(&net, marking);
+    assert_eq!(result.marking.count("out"), 0);
+    assert_eq!(result.marking.count("in"), 0);
+    assert!(out_violation_failed(&result.events, "t1"));
+}
+
+/// \[IO-015\] AC1: conforming output still succeeds. Guards against an
+/// over-eager validator rejecting legitimate firings — covers the
+/// single-place, AND, XOR and "extra place also written" shapes plus a
+/// spec-less transition.
+fn conforming_output_still_succeeds<R: BackendRunner>() {
+    let start = Place::<i32>::new("start");
+    let a = Place::<i32>::new("a");
+    let b = Place::<i32>::new("b");
+    let x = Place::<i32>::new("x");
+    let y = Place::<i32>::new("y");
+    let done = Place::<i32>::new("done");
+
+    // AND: writes both children.
+    let t_and = Transition::builder("t_and")
+        .input(one(&start))
+        .output(and(vec![out_place(&a), out_place(&b)]))
+        .action(sync_action(|ctx| {
+            let v = ctx.input::<i32>("start")?;
+            ctx.output("a", *v)?;
+            ctx.output("b", *v)?;
+            Ok(())
+        }))
+        .build();
+
+    // XOR: writes exactly one child.
+    let t_xor = Transition::builder("t_xor")
+        .input(one(&a))
+        .output(xor(vec![out_place(&x), out_place(&y)]))
+        .action(sync_action(|ctx| {
+            let v = ctx.input::<i32>("a")?;
+            ctx.output("x", *v)?;
+            Ok(())
+        }))
+        .build();
+
+    // Single place, declared spec satisfied (the fast path).
+    let t_place = Transition::builder("t_place")
+        .input(one(&x))
+        .output(out_place(&done))
+        .action(fork())
+        .build();
+
+    // No declared output spec at all — validation must be skipped
+    // entirely even though the action produces nothing.
+    let t_nospec = Transition::builder("t_nospec")
+        .input(one(&b))
+        .action(passthrough())
+        .build();
+
+    let net = PetriNet::builder("conforming")
+        .transitions([t_and, t_xor, t_place, t_nospec])
+        .build();
+
+    let mut marking = Marking::new();
+    marking.add(&start, Token::at(3, 0));
+
+    let result = R::run(&net, marking);
+    assert!(
+        !result
+            .events
+            .iter()
+            .any(|e| matches!(e, NetEvent::TransitionFailed { .. })),
+        "conforming net must not emit any TransitionFailed, got {:?}",
+        result.events
+    );
+    assert_eq!(result.marking.count("done"), 1);
+    assert_eq!(result.marking.count("b"), 0, "t_nospec consumed its input");
+    assert_eq!(result.marking.count("y"), 0);
+}
+
+/// \[IO-015\]: a satisfied XOR branch that *also* writes places belonging
+/// to another branch of a nested AND is resolved by the most-specific
+/// (subsuming) match, matching the Java/TypeScript tie-break.
+fn xor_subsuming_branch_is_accepted<R: BackendRunner>() {
+    let p = Place::<i32>::new("p");
+    let a = Place::<i32>::new("a");
+    let b = Place::<i32>::new("b");
+    let c = Place::<i32>::new("c");
+
+    let t = Transition::builder("t1")
+        .input(one(&p))
+        // xor(and(a,b,c), and(a,b)) — writing a,b,c satisfies both, but
+        // and(a,b,c) subsumes and(a,b), so it is the intended branch.
+        .output(xor(vec![
+            and(vec![out_place(&a), out_place(&b), out_place(&c)]),
+            and(vec![out_place(&a), out_place(&b)]),
+        ]))
+        .action(sync_action(|ctx| {
+            let v = ctx.input::<i32>("p")?;
+            ctx.output("a", *v)?;
+            ctx.output("b", *v)?;
+            ctx.output("c", *v)?;
+            Ok(())
+        }))
+        .build();
+    let net = PetriNet::builder("test").transition(t).build();
+
+    let mut marking = Marking::new();
+    marking.add(&p, Token::at(1, 0));
+
+    let result = R::run(&net, marking);
+    assert!(
+        !out_violation_failed(&result.events, "t1"),
+        "subsuming XOR branch must be accepted, got {:?}",
+        result.events
+    );
+    assert_eq!(result.marking.count("a"), 1);
+    assert_eq!(result.marking.count("b"), 1);
+    assert_eq!(result.marking.count("c"), 1);
 }
 
 fn action_error_does_not_crash<R: BackendRunner>() {
@@ -1413,19 +1712,19 @@ fn nu_join_blocks_without_matching_name<R: BackendRunner>() {
     assert_eq!(result.marking.count("branchB"), 1);
 }
 
-/// NU-021: the input guard composes with name correlation — the filter applies
-/// first, so a token failing the guard is never selected even if its name is
-/// present in every input by count. `branchA` rejects `"bad"`: `"bad"` is present
-/// in both inputs but cannot join (guard-failing), while the same marking's
-/// `"good"` pair does. Pins the cross-language firing contract the TypeScript
-/// port was diverging from (nu-2).
-fn nu_join_guard_excludes_failing_name<R: BackendRunner>() {
+/// NU-020/NU-021: name correlation is the *only* per-token filter the
+/// enablement check applies — input specifications are purely structural
+/// (IO-006). A name held by just one side can never join, even when both
+/// inputs hold enough tokens by count; a name shared by every correlated input
+/// joins and consumes exactly its own tokens. Pins the cross-language firing
+/// contract the TypeScript port was diverging from (nu-2).
+fn nu_join_skips_unshared_name_but_joins_shared<R: BackendRunner>() {
     let a = Place::<NuMsg>::new("branchA");
     let b = Place::<NuMsg>::new("branchB");
     let merged = Place::<String>::new("merged");
 
     let join = Transition::builder("join")
-        .input(one_guarded(&a, |m: &NuMsg| m.cid != "bad"))
+        .input(one(&a))
         .input(one(&b))
         .match_spec(
             MatchSpec::builder()
@@ -1442,22 +1741,22 @@ fn nu_join_guard_excludes_failing_name<R: BackendRunner>() {
         }))
         .build();
 
-    let net = PetriNet::builder("nu_join_guard").transition(join).build();
+    let net = PetriNet::builder("nu_join_unshared").transition(join).build();
 
     let mut marking = Marking::new();
-    // "bad" is present in both inputs by count, but branchA's guard rejects it.
-    marking.add(&a, Token::at(NuMsg { cid: "bad".into() }, 0));
+    // Both inputs hold two tokens, but only "good" is present on both sides.
+    marking.add(&a, Token::at(NuMsg { cid: "onlyA".into() }, 0));
     marking.add(&a, Token::at(NuMsg { cid: "good".into() }, 1));
-    marking.add(&b, Token::at(NuMsg { cid: "bad".into() }, 0));
+    marking.add(&b, Token::at(NuMsg { cid: "onlyB".into() }, 0));
     marking.add(&b, Token::at(NuMsg { cid: "good".into() }, 1));
 
     let result = R::run(&net, marking);
     assert!(result.quiescent);
-    // Only the guard-passing "good" pair joins; "bad" can never correlate.
+    // Only the shared "good" pair joins; the unshared names can never correlate.
     assert_eq!(
         result.marking.count("merged"),
         1,
-        "only the guard-passing name should join"
+        "only the shared name should join"
     );
     let merged_val = result
         .marking
@@ -1465,7 +1764,7 @@ fn nu_join_guard_excludes_failing_name<R: BackendRunner>() {
         .and_then(|q| q.iter().next().map(|t| t.downcast::<String>().unwrap().value().clone()))
         .unwrap_or_default();
     assert_eq!(merged_val, "good+good");
-    // The guard-failing "bad" tokens are left untouched in both inputs.
+    // The unshared tokens are left untouched in both inputs.
     assert_eq!(result.marking.count("branchA"), 1);
     assert_eq!(result.marking.count("branchB"), 1);
 }
@@ -1645,14 +1944,20 @@ for_each_backend!(
     all_cardinality_consumes_everything,
     at_least_blocks_insufficient,
     at_least_fires_with_enough,
-    guarded_input_only_consumes_matching,
-    guarded_input_blocks_when_no_match,
-    self_loop_with_guard_terminates,
+    xor_routing_only_forwards_matching,
+    xor_routing_blocks_when_nothing_routed,
+    self_loop_with_xor_routing_terminates,
     transform_action_outputs_to_all_places,
     sync_action_custom_logic,
     produce_action,
     xor_output_fires_one_branch,
     and_output_fires_to_all,
+    xor_output_both_branches_violates,
+    xor_output_no_branch_violates,
+    and_output_partial_violates,
+    single_place_output_missing_violates,
+    conforming_output_still_succeeds,
+    xor_subsuming_branch_is_accepted,
     action_error_does_not_crash,
     multiple_tokens_different_types,
     sync_priority_ordering,
@@ -1670,7 +1975,7 @@ for_each_backend!(
     nu_join_matches_by_name_not_fifo,
     nu_bound_join_matches_by_name_not_fifo,
     nu_join_blocks_without_matching_name,
-    nu_join_guard_excludes_failing_name,
+    nu_join_skips_unshared_name_but_joins_shared,
     nu_fork_mints_unique_ids_then_join_merges,
     nu_budget_bounds_concurrency,
 );

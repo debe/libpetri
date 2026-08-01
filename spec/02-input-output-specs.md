@@ -179,8 +179,9 @@ Every input cardinality variant exposes two functions:
 1. Requires at least 2 children.
 2. After action completes, exactly 1 child must have received tokens.
 3. Zero branches satisfied → validation error.
-4. Two or more branches satisfied → validation error.
+4. Two or more branches satisfied → validation error, unless exactly one of them subsumes all the others, in which case that branch is selected (the subsumption tie-break of [IO-015]).
 
+**Depends on:** [IO-015]
 **Test derivation:** Xor(P1, P2); action produces only to P1 → success. Action produces to both → error. Action produces to neither → error.
 
 ---
@@ -210,14 +211,31 @@ Whether the abandoned action is actually stopped is implementation-defined and M
 
 **Priority:** MUST
 
-`ForwardInput(from, to)` — used within timeout branches. When the action times out, the consumed input token value from the `from` place is forwarded (reproduced) to the `to` place. This enables retry patterns.
+`ForwardInput(from, to)` — used within timeout branches. When the action times out,
+**every** token the firing consumed from the `from` place is forwarded (reproduced) to
+the `to` place: one output token per consumed token, carrying the original value, in
+consumption order. This enables retry patterns without losing tokens.
+
+Forwarding is thus multiplicity-preserving. The count is whatever the input
+specification on `from` actually consumed — `consumptionCount(available)` per [IO-007],
+so `One` forwards 1 token, `Exactly(n)` forwards n, and `All` / `AtLeast(m)` forward the
+whole drained batch. An implementation MUST NOT forward only the first consumed token:
+that silently destroys the remaining N−1 tokens on the retry path, and a firing that
+consumed nothing from `from` (not possible for a declared input, but reachable through a
+mis-declared spec) forwards nothing.
 
 **Acceptance Criteria:**
 1. `from` must be a declared input place of the transition (validated at build time).
-2. On timeout, the original input value is produced to `to`.
+2. On timeout, one token is produced to `to` for each token consumed from `from`,
+   preserving both the original values and their consumption (FIFO) order.
 3. Invalid `from` reference → build error.
+4. `In.All` or `In.Exactly(n)` on `from` with N tokens consumed → exactly N tokens
+   appear in `to`; token count is conserved across the timeout.
 
-**Test derivation:** Transition with input P1 and ForwardInput(P1, P2) in timeout; action times out; verify P2 receives original P1 value.
+**Depends on:** [IO-007], [EXEC-010]
+**Test derivation:** Transition with input P1 and ForwardInput(P1, P2) in timeout; action
+times out; verify P2 receives the original P1 values. Repeat with `all()` and
+`exactly(3)` on P1 over 3 tokens; verify P2 receives all 3 in order.
 
 ---
 
@@ -225,10 +243,22 @@ Whether the abandoned action is actually stopped is implementation-defined and M
 
 **Priority:** MUST
 
-After an action completes, the executor validates that produced tokens conform to the declared output specification:
-- **And**: all children satisfied
-- **Xor**: exactly one child satisfied
-- **Place**: place received tokens
+After an action completes, the executor validates that produced tokens conform to the declared output specification. Validation walks the spec tree over the set of places that received at least one token, and each node yields the set of places its subtree *claims*:
+- **Place** — satisfied iff the place received tokens; claims that place.
+- **ForwardInput** — satisfied iff the `to` place received tokens; claims `to`.
+- **And** — satisfied iff **all** children are satisfied; claims the union of their claims.
+- **Xor** — satisfied iff **exactly one** child is satisfied; claims that child's claims. Zero satisfied children is a violation, and so is more than one — except under the subsumption tie-break below.
+- **Timeout** — delegates to its child.
+
+**Xor subsumption tie-break.** Overlapping branches are legal, so more than one branch
+can be satisfied by a single conforming write. When two or more children are satisfied
+and exactly one of them **subsumes** every other satisfied child — its claimed place set
+is a superset of each of theirs — that most specific branch is selected and validation
+succeeds. For example `Xor(And(A, B, C), And(A, B))` with A, B and C all produced selects
+`And(A, B, C)`; the `And(A, B)` match is an artifact of it being a strict subset, not a
+second distinct branch. If no single satisfied branch subsumes all the others (e.g. two
+disjoint branches both produced), the output is genuinely ambiguous and the firing is a
+violation.
 
 Validation failure is treated as a transition failure (error event emitted, tokens not restored).
 
@@ -241,10 +271,15 @@ some paths — which is validated per firing.
 1. Conforming output → success.
 2. Non-conforming output → failure event emitted.
 3. Consumed input tokens are NOT restored on failure.
-4. A transition declaring an output spec but bound to a hand-written action that produces nothing → validation failure on every firing (the built-in passthrough case is [CORE-043]'s, rejected before execution).
+4. `Xor` with zero satisfied branches → violation; with two disjoint satisfied branches → violation.
+5. `Xor(And(A, B, C), And(A, B))` with A, B, C produced → success (the subsuming branch is selected), not a multiple-branch violation.
+6. A transition declaring an output spec but bound to a hand-written action that produces nothing → validation failure on every firing (the built-in passthrough case is [CORE-043]'s, rejected before execution).
 
-**Depends on:** [EVT-007], [CORE-051]
-**Test derivation:** Action produces to wrong place; verify failure event. Bind a hand-written no-op to a transition declaring `Out.place(P)`; verify a failure event rather than a compile error.
+**Depends on:** [EVT-007], [CORE-051], [CORE-043]
+**Test derivation:** Action produces to wrong place; verify failure event. Nested `Xor`
+of overlapping `And`s where the wider branch is fully written; verify success. Bind a
+hand-written no-op to a transition declaring `Out.place(P)`; verify a failure event
+rather than a compile error.
 
 ---
 

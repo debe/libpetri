@@ -4,7 +4,7 @@ import { MarkingState } from '../../../src/verification/marking-state.js';
 import { Transition } from '../../../src/core/transition.js';
 import { PetriNet } from '../../../src/core/petri-net.js';
 import { place, environmentPlace } from '../../../src/core/place.js';
-import { one } from '../../../src/core/in.js';
+import { one, all, atLeast } from '../../../src/core/in.js';
 import { outPlace, xorPlaces } from '../../../src/core/out.js';
 import { immediate, delayed, window } from '../../../src/core/timing.js';
 import { alwaysAvailable, ignore } from '../../../src/verification/analysis/environment-analysis-mode.js';
@@ -194,6 +194,78 @@ describe('StateClassGraph', () => {
         expect(scg.predecessors(sc).size).toBeGreaterThan(0);
       }
     }
+  });
+
+  // Regression: IO-007 draining semantics. `all` and `at-least` consume EVERY
+  // available token in the executor. The SCG once modelled them as consuming
+  // the minimum, which left phantom residual tokens that kept inhibitor arcs
+  // unsatisfied and suppressed genuinely reachable successors — a false
+  // "unreachable", i.e. an unsound Proven verdict from nu-scg-verifier.
+  describe('draining input semantics (IO-007)', () => {
+    it('all(p) drains p, so an inhibitor on p becomes satisfied', () => {
+      const p = place<number>('p');
+      const g = place<number>('g');
+      const out = place<number>('out');
+      const bad = place<number>('bad');
+
+      // t fires once (g holds the single token) and drains all 3 tokens of p.
+      const t = Transition.builder('t')
+        .inputs(all(p), one(g))
+        .outputs(outPlace(out))
+        .action(produces())
+        .build();
+
+      // u needs p to be EMPTY. Only reachable if t truly drained p.
+      const u = Transition.builder('u')
+        .inputs(one(out))
+        .inhibitor(p)
+        .outputs(outPlace(bad))
+        .action(produces())
+        .build();
+
+      const net = PetriNet.builder('drain-all').transitions(t, u).build();
+      const marking = MarkingState.builder().tokens(p, 3).tokens(g, 1).build();
+      const scg = StateClassGraph.build(net, marking, 100);
+
+      expect(scg.isComplete()).toBe(true);
+
+      // p must be fully drained somewhere in the reachable state space.
+      expect(scg.stateClasses().some(sc => sc.marking.tokens(p) === 0)).toBe(true);
+
+      // p is only ever 3 (before t) or 0 (after t) — never a residue like 2.
+      const pCounts = new Set(scg.stateClasses().map(sc => sc.marking.tokens(p)));
+      expect([...pCounts].sort((a, b) => a - b)).toEqual([0, 3]);
+
+      // The whole point: `bad` IS reachable.
+      expect(scg.stateClasses().some(sc => sc.marking.tokens(bad) > 0)).toBe(true);
+    });
+
+    it('atLeast(2, p) consumes all 5 tokens, leaving no residue', () => {
+      const p = place<number>('p');
+      const out = place<number>('out');
+
+      const t = Transition.builder('t')
+        .inputs(atLeast(2, p))
+        .outputs(outPlace(out))
+        .action(produces())
+        .build();
+
+      const net = PetriNet.builder('drain-at-least').transitions(t).build();
+      const marking = MarkingState.builder().tokens(p, 5).build();
+      const scg = StateClassGraph.build(net, marking, 100);
+
+      expect(scg.isComplete()).toBe(true);
+
+      // p is 5 (initial) or 0 (fully drained) — never 3, which is what
+      // "consume minimum" would have produced.
+      const pCounts = [...new Set(scg.stateClasses().map(sc => sc.marking.tokens(p)))]
+        .sort((a, b) => a - b);
+      expect(pCounts).toEqual([0, 5]);
+
+      // t fires exactly once; it cannot re-enable on a residue.
+      expect(scg.stateClasses().some(sc => sc.marking.tokens(out) === 1)).toBe(true);
+      expect(scg.stateClasses().every(sc => sc.marking.tokens(out) <= 1)).toBe(true);
+    });
   });
 });
 

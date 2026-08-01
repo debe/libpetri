@@ -155,7 +155,6 @@ describe('compilation', () => {
 const nuDrainDepth = [10, 50, 100, 200, 500].map((d) => ({ d, nws: buildNuJoinDrain(2, d) }));
 const nuDrainArity = [4, 8].map((k) => ({ k, nws: buildNuJoinDrain(k, 100) }));
 const plainDrainDepth = [10, 50, 100, 200, 500].map((d) => ({ d, nws: buildPlainJoinDrain(d) }));
-const nuDrainGuarded = [10, 50, 100, 200, 500].map((d) => ({ d, nws: buildNuJoinDrain(2, d, true) }));
 const nuScatter = [10, 50, 100].map((g) => ({ g, nws: buildNuScatterGather(g) }));
 const nuScatterBudgeted = [10, 50, 100].map((g) => ({ g, nws: buildNuScatterGather(g, true) }));
 
@@ -172,11 +171,6 @@ describe('plain join drain (k=2, baseline, no match)', () => {
 // Arity axis: cost is ~linear in the number of correlated inputs (depth=100).
 describe('ν-net join drain (depth=100, by arity)', () => {
   for (const { k, nws } of nuDrainArity) bench(`arity ${k}`, () => runNu(nws));
-});
-
-// NU-021 guard: per-token guard eval added to the index-building loop.
-describe('ν-net join drain guarded (k=2, by pool depth)', () => {
-  for (const { d, nws } of nuDrainGuarded) bench(`depth ${d}`, () => runNu(nws));
 });
 
 // Realistic fork(freshName)/join end-to-end.

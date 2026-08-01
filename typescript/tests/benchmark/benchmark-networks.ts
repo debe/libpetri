@@ -344,16 +344,14 @@ function seedDrain(inputs: Place<NuMsg>[], depth: number): () => Map<Place<any>,
  * ν-net join over `branches` correlated inputs, each pre-seeded with `depth`
  * distinct-cid tokens, drained to a sink. The join fires once per correlation
  * name, re-running the name-index build over the shrinking pool each fire.
- * `guarded` adds a unary input filter (NU-021) so the per-token guard-eval cost
- * is included.
  */
-export function buildNuJoinDrain(branches: number, depth: number, guarded = false): NetWithSeed {
+export function buildNuJoinDrain(branches: number, depth: number): NetWithSeed {
   const inputs: Place<NuMsg>[] = [];
   for (let i = 0; i < branches; i++) inputs.push(place<NuMsg>(`branch${i}`));
   const merged = place<string>('merged');
 
   const join = Transition.builder('join')
-    .inputs(...inputs.map((p) => (guarded ? one(p, (m: NuMsg) => m.cid !== 'skip') : one(p))))
+    .inputs(...inputs.map((p) => one(p)))
     .match(matchSpec(...inputs.map((p) => matchKey(p, (m: NuMsg) => nameId(m.cid)))))
     .outputs(outPlace(merged))
     .action(async (ctx) => {

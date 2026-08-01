@@ -59,6 +59,14 @@ pub struct TransitionContext {
     /// host name after composition. `None` when the transition is not
     /// composed (the common case).
     local_name_map: Option<Arc<HashMap<Arc<str>, Arc<str>>>>,
+    /// Place names already published by [`flush`](Self::flush). `flush`
+    /// *drains* the output buffer, so at completion time
+    /// [`take_outputs`](Self::take_outputs) reports only what was written
+    /// since the last flush. \[IO-015\] output validation unions this set
+    /// with the final outputs so a streaming action is not spuriously
+    /// judged to have violated its `Out` spec. Stays empty (and therefore
+    /// unallocated) for actions that never flush.
+    flushed_places: HashSet<Arc<str>>,
 }
 
 impl TransitionContext {
@@ -80,6 +88,7 @@ impl TransitionContext {
             flush_fn: None,
             fresh_name_fn: None,
             local_name_map: None,
+            flushed_places: HashSet::new(),
         }
     }
 
@@ -170,8 +179,39 @@ impl TransitionContext {
             return Ok(());
         }
         let outputs = std::mem::take(&mut self.outputs);
+        // Record what leaves the buffer: `take_outputs()` at completion
+        // can no longer see it, but [IO-015] validation must still count
+        // it as produced.
+        self.flushed_places
+            .extend(outputs.iter().map(|e| Arc::clone(&e.place_name)));
         cb(outputs);
         Ok(())
+    }
+
+    /// Place names published by earlier [`flush`](Self::flush) calls.
+    /// Empty unless the action streamed output mid-flight. Used by the
+    /// executor for \[IO-015\] output-spec validation.
+    pub fn flushed_places(&self) -> &HashSet<Arc<str>> {
+        &self.flushed_places
+    }
+
+    /// Reclaims the flushed-place set (used by the executor at
+    /// completion, so the common empty case moves rather than clones).
+    pub fn take_flushed_places(&mut self) -> HashSet<Arc<str>> {
+        std::mem::take(&mut self.flushed_places)
+    }
+
+    /// Records places published through a *copy* of this context's
+    /// [`FlushFn`].
+    ///
+    /// Bindings (e.g. `libpetri-py`) obtain the raw callback via
+    /// [`flush_fn`](Self::flush_fn) and invoke it from their own
+    /// language-side context, which bypasses [`flush`](Self::flush) and
+    /// therefore the automatic bookkeeping. Such a binding must report
+    /// the place names back before the action completes, or \[IO-015\]
+    /// validation will not count the streamed tokens.
+    pub fn note_flushed(&mut self, places: impl IntoIterator<Item = Arc<str>>) {
+        self.flushed_places.extend(places);
     }
 
     // ==================== Input Access (consumed) ====================

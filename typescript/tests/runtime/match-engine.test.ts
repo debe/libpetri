@@ -8,19 +8,18 @@ import { nameId } from '../../src/core/name.js';
 import { findBinding } from '../../src/runtime/match-engine.js';
 import type { Token } from '../../src/core/token.js';
 
-// NU-021 (guard + match composition): the input filter applies first and name
-// correlation runs over the survivors — a token failing the filter is never
-// selected even if its name matches. Pins nu-2: TS selection now guard-filters
-// before indexing names, matching the Rust reference.
-describe('match-engine guard+match composition (NU-021)', () => {
+// NU-020/NU-021 (name correlation): a binding exists only when a single name is
+// supplied by *every* correlated input at its required count. Input arcs are
+// purely structural (IO-006) — name equality is the only per-token filter the
+// selection applies.
+describe('match-engine name correlation (NU-020/NU-021)', () => {
   const a = place<string>('branchA');
   const b = place<string>('branchB');
   const merged = place<string>('merged');
 
-  // Join correlates a and b by their string value; input a carries a unary guard
-  // rejecting the value "bad".
+  // Join correlates a and b by their string value.
   const join = Transition.builder('join')
-    .inputs(one(a, (v: string) => v !== 'bad'), one(b))
+    .inputs(one(a), one(b))
     .match(matchSpec(
       matchKey(a, (s: string) => nameId(s)),
       matchKey(b, (s: string) => nameId(s)),
@@ -34,20 +33,23 @@ describe('match-engine guard+match composition (NU-021)', () => {
     return findBinding(join, (p) => tokens[p.name] ?? []);
   }
 
-  it('does not select a name whose guarded-input tokens all fail the guard', () => {
-    // "bad" is present in both inputs by count, but a's only "bad" token fails
-    // a's guard — after guard-first filtering there is no shared name.
-    expect(bindingFor({ branchA: [tok('bad')], branchB: [tok('bad')] })).toBeNull();
+  it('does not select a name supplied by only one input', () => {
+    // Both inputs hold a token, but no name is present on both sides.
+    expect(bindingFor({ branchA: [tok('x')], branchB: [tok('y')] })).toBeNull();
   });
 
-  it('selects a name whose tokens pass the guard', () => {
+  it('selects a name shared by every correlated input', () => {
     expect(bindingFor({ branchA: [tok('good')], branchB: [tok('good')] })).toBe(nameId('good'));
   });
 
-  it('skips a guard-failing name but still selects a passing one', () => {
-    // a holds both "bad" (fails guard) and "good"; b holds "good". The join must
-    // correlate on "good", never "bad".
+  it('skips a non-shared name but still selects a shared one', () => {
+    // a holds both "bad" (only on a's side) and "good"; b holds "good". The join
+    // must correlate on "good", never "bad".
     expect(bindingFor({ branchA: [tok('bad'), tok('good')], branchB: [tok('good')] }))
       .toBe(nameId('good'));
+  });
+
+  it('returns null when a correlated input is empty', () => {
+    expect(bindingFor({ branchA: [tok('good')], branchB: [] })).toBeNull();
   });
 });

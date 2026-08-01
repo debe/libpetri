@@ -1,9 +1,12 @@
 import type { Place } from './place.js';
 
 /**
- * Input specification with cardinality and optional guard predicate.
- * CPN-compliant: cardinality determines how many tokens to consume,
- * guard filters which tokens are eligible.
+ * Input specification with cardinality. Purely structural (IO-006): cardinality
+ * determines how many tokens to consume; there is no per-token predicate.
+ *
+ * Conditional token selection is modeled with multiple conflicting transitions
+ * and XOR-on-input semantics rather than a predicate coupled to the enablement
+ * check.
  *
  * Inputs are always AND-joined (all must be satisfied to enable transition).
  * XOR on inputs is modeled via multiple transitions (conflict).
@@ -13,57 +16,51 @@ export type In = InOne | InExactly | InAll | InAtLeast;
 export interface InOne<T = any> {
   readonly type: 'one';
   readonly place: Place<T>;
-  readonly guard?: (value: T) => boolean;
 }
 
 export interface InExactly<T = any> {
   readonly type: 'exactly';
   readonly place: Place<T>;
   readonly count: number;
-  readonly guard?: (value: T) => boolean;
 }
 
 export interface InAll<T = any> {
   readonly type: 'all';
   readonly place: Place<T>;
-  readonly guard?: (value: T) => boolean;
 }
 
 export interface InAtLeast<T = any> {
   readonly type: 'at-least';
   readonly place: Place<T>;
   readonly minimum: number;
-  readonly guard?: (value: T) => boolean;
 }
 
 // ==================== Factory Functions ====================
 
-/** Consume exactly 1 token (standard CPN semantics). Optional guard filters eligible tokens. */
-export function one<T>(place: Place<T>, guard?: (value: T) => boolean): InOne<T> {
-  return guard !== undefined ? { type: 'one', place, guard } : { type: 'one', place };
+/** Consume exactly 1 token (standard CPN semantics). */
+export function one<T>(place: Place<T>): InOne<T> {
+  return { type: 'one', place };
 }
 
-/** Consume exactly N tokens (batching). Optional guard filters eligible tokens. */
-export function exactly<T>(count: number, place: Place<T>, guard?: (value: T) => boolean): InExactly<T> {
+/** Consume exactly N tokens (batching). */
+export function exactly<T>(count: number, place: Place<T>): InExactly<T> {
   if (count < 1) {
     throw new Error(`count must be >= 1, got: ${count}`);
   }
-  return guard !== undefined ? { type: 'exactly', place, count, guard } : { type: 'exactly', place, count };
+  return { type: 'exactly', place, count };
 }
 
-/** Consume all available tokens (must be 1+). Optional guard filters eligible tokens. */
-export function all<T>(place: Place<T>, guard?: (value: T) => boolean): InAll<T> {
-  return guard !== undefined ? { type: 'all', place, guard } : { type: 'all', place };
+/** Consume all available tokens (must be 1+). */
+export function all<T>(place: Place<T>): InAll<T> {
+  return { type: 'all', place };
 }
 
-/** Wait for N+ tokens, consume all when enabled. Optional guard filters eligible tokens. */
-export function atLeast<T>(minimum: number, place: Place<T>, guard?: (value: T) => boolean): InAtLeast<T> {
+/** Wait for N+ tokens, consume all when enabled. */
+export function atLeast<T>(minimum: number, place: Place<T>): InAtLeast<T> {
   if (minimum < 1) {
     throw new Error(`minimum must be >= 1, got: ${minimum}`);
   }
-  return guard !== undefined
-    ? { type: 'at-least', place, minimum, guard }
-    : { type: 'at-least', place, minimum };
+  return { type: 'at-least', place, minimum };
 }
 
 // ==================== Helper Functions ====================

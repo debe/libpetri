@@ -31,15 +31,14 @@ pub type PrecompiledNetExecutor<'a, E> = Executor<PrecompiledBackend<'a>, E>;
 
 /// Builder for [`PrecompiledNetExecutor`].
 ///
-/// `skip_output_validation` is preserved for API compatibility; output
-/// validation isn't wired through either backend today (no path checks
-/// XOR/AND output spec at runtime), so the flag is currently a no-op.
+/// `skip_output_validation` disables the \[IO-015\] output-spec check for
+/// every firing, matching Java's `Builder.skipOutputValidation` and
+/// TypeScript's `skipOutputValidation` option.
 pub struct PrecompiledExecutorBuilder<'a, E: EventStore> {
     program: &'a PrecompiledNet,
     initial_marking: Marking,
     event_store: Option<E>,
     environment_places: HashSet<Arc<str>>,
-    #[allow(dead_code)]
     skip_output_validation: bool,
     deadline_tolerance_ms: Option<f64>,
 }
@@ -57,9 +56,9 @@ impl<'a, E: EventStore> PrecompiledExecutorBuilder<'a, E> {
         self
     }
 
-    /// Skips output validation for trusted transition actions.
-    /// Currently a no-op — neither backend validates outputs at
-    /// runtime today; preserved for API compatibility.
+    /// Skips the \[IO-015\] output-spec check for trusted transition
+    /// actions: every firing's output is accepted without consulting the
+    /// declared `Out` spec.
     pub fn skip_output_validation(mut self, skip: bool) -> Self {
         self.skip_output_validation = skip;
         self
@@ -84,11 +83,13 @@ impl<'a, E: EventStore> PrecompiledExecutorBuilder<'a, E> {
             backend.set_deadline_tolerance_ms(ms);
         }
         let has_environment_places = !self.environment_places.is_empty();
-        Executor::from_parts(
+        let mut executor = Executor::from_parts(
             backend,
             self.event_store.unwrap_or_default(),
             has_environment_places,
-        )
+        );
+        executor.set_skip_output_validation(self.skip_output_validation);
+        executor
     }
 }
 
@@ -746,5 +747,66 @@ mod tests {
                 "a timed-out action must not also report TransitionCompleted"
             );
         }
+    }
+
+    /// \[IO-015\] escape hatch: `skip_output_validation(true)` must actually
+    /// reach the firing path. The net below writes to *both* branches of an
+    /// `Out::Xor`, which is a violation by default — under the flag it is
+    /// accepted and both tokens land.
+    ///
+    /// Regression: the builder stored the flag but `build()` dropped it, so
+    /// the option was silently inert while Java
+    /// (`PrecompiledNetExecutor.Builder.skipOutputValidation`) and TypeScript
+    /// (`skipOutputValidation`) both honoured it.
+    #[test]
+    fn skip_output_validation_bypasses_io_015() {
+        use libpetri_core::action::sync_action;
+        use libpetri_core::output::xor;
+        use libpetri_core::petri_net::PetriNet;
+        use libpetri_event::event_store::InMemoryEventStore;
+
+        let build_net = || {
+            let p = Place::<i32>::new("p");
+            let a = Place::<i32>::new("a");
+            let b = Place::<i32>::new("b");
+            let t = Transition::builder("t1")
+                .input(one(&p))
+                .output(xor(vec![out_place(&a), out_place(&b)]))
+                .action(sync_action(|ctx| {
+                    let v = *ctx.input::<i32>("p")?;
+                    ctx.output("a", v)?;
+                    ctx.output("b", v)?;
+                    Ok(())
+                }))
+                .build();
+            let net = PetriNet::builder("test").transition(t).build();
+            let mut marking = Marking::new();
+            marking.add(&p, Token::at(1, 0));
+            (PrecompiledNet::from_compiled(CompiledNet::compile(&net)), marking)
+        };
+
+        // Default: the XOR violation is caught, nothing is produced.
+        let (prog, marking) = build_net();
+        let mut strict = PrecompiledNetExecutor::<InMemoryEventStore>::builder(&prog, marking)
+            .build();
+        let result = strict.run_sync().into_owned();
+        assert_eq!(result.count("a"), 0, "default must reject the XOR violation");
+        assert_eq!(result.count("b"), 0, "default must reject the XOR violation");
+
+        // Flag set: the same firing is accepted and both branches receive a token.
+        let (prog, marking) = build_net();
+        let mut lax = PrecompiledNetExecutor::<InMemoryEventStore>::builder(&prog, marking)
+            .skip_output_validation(true)
+            .build();
+        let result = lax.run_sync().into_owned();
+        assert_eq!(result.count("a"), 1, "skip_output_validation must accept it");
+        assert_eq!(result.count("b"), 1, "skip_output_validation must accept it");
+        assert!(
+            !lax.event_store()
+                .events()
+                .iter()
+                .any(|e| matches!(e, libpetri_event::net_event::NetEvent::TransitionFailed { .. })),
+            "skipping validation must not emit an IO-015 failure"
+        );
     }
 }

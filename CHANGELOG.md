@@ -1,5 +1,114 @@
 # Changelog
 
+## Java 2.15.0 / TypeScript 3.0.0 / Rust 4.0.0 / Python 3.0.0 — 2026-08-04
+
+**Verifier soundness: three ways a net could be declared safe when it wasn't. Plus input guards removed, and output specs are now enforced instead of merely declared.**
+
+If you use `lp.verify(...)` / `Verifier` / `verify()` on nets with `all()` or `atLeast()` inputs, re-run your proofs — a `Proven` result from an earlier version may not hold.
+
+### Verification: false `Proven` fixed (Java, TypeScript, Rust, Python)
+
+**The state-class graph consumed one token where the executor drains the place.** `all()` and `atLeast()` inputs take every matching token when they fire, but the state-class graph subtracted a single token from the successor marking. Every state reached *after* such a firing was therefore computed against a marking that still held tokens the executor had already consumed — so a downstream inhibitor arc looked permanently blocked, and states the executor really reaches were reported unreachable.
+
+```java
+// p holds 3 tokens; t drains it
+Transition.builder("t").input(In.all(p)).output(Out.place(q)).build()
+// after firing: executor leaves p empty, the SCG used to leave 2 tokens in p
+// → any transition inhibited by p was pruned from the graph
+```
+
+This affected timed reachability (`StateClassGraph`, `VER-010`) and the ν-partition quotient (`VER-012`) in all three implementations. All three now route the successor computation through the single `consumptionCount` definition of `IO-007`.
+
+### Breaking — input guards removed (TypeScript, Rust, Python)
+
+Input arcs no longer carry a per-token value predicate. `IO-006` removed guards from the specification in February; Java had already dropped them, while TypeScript and Rust kept shipping them — this release finishes that change.
+
+The removed surface:
+
+```rust
+// Rust — gone
+one_guarded(&p, |v: &Msg| v.ready)
+exactly_guarded(2, &p, ...)
+all_guarded(&p, ...)
+at_least_guarded(2, &p, ...)
+```
+
+```ts
+// TypeScript — the optional second/third guard argument is gone
+one(p, (v) => v.ready)
+exactly(2, p, (v) => v.ready)
+all(p, (v) => v.ready)
+atLeast(2, p, (v) => v.ready)
+```
+
+`In::has_guard()` / `In::guard()` and the `GuardFn` type are removed in Rust; the `guard` field is removed from every input-spec variant in both languages, and TypeScript's `GuardSpec` is renamed `PredicateSpec`.
+
+**Why.** A guarded `all()` consumed only the matching tokens, but the SMT encoder never inspected guards and emitted "place emptied" for every consume-all input. The abstract successor was *smaller* than the concrete one — an under-approximation, which is exactly how a place-bound query returns a false `Proven`. Guards were unsound in combination with verification and had no encoder-side fix that preserved them.
+
+**Migrating.** There is no drop-in replacement — this is deliberate ([NU-021]). Filter inside the action and re-emit, or model the distinction structurally:
+
+```ts
+// before
+.input(one(inbox, (m) => m.priority === 'high'))
+
+// after — route at the producer, so the net structure carries the distinction
+.input(one(highPriorityInbox))
+```
+
+On correlated (ν) inputs, name equality remains the per-token filter and is unaffected.
+
+### Breaking — output specs are enforced at runtime (Rust, Python)
+
+`IO-015` validation now runs on every firing. Java and TypeScript already did this; Rust (and therefore Python) treated the output spec as documentation.
+
+```python
+.output(lp.and_(lp.out(a), lp.out(b)))   # declares BOTH
+# action writes only to `a`:
+#   before → accepted, one token lands in a
+#   now    → firing fails, NOTHING is deposited, inputs stay consumed
+```
+
+A violation emits `TransitionFailed` carrying the diagnostic — `[IO-015] 't': output does not satisfy declared spec (expected and('a', 'b'), produced ["a"])`. Under the default no-op event store it is silent, exactly as an action that raises is silent; pass an event store to observe it.
+
+Validation is by *place*, not by token count: `out(P)` still permits an action to emit any number of tokens to `P`.
+
+The most common way to trip this — declaring an output and never binding an action — is already a compile error as of [CORE-043] in the previous release. What this check adds is the case no static analysis can decide: a hand-written action that produces nothing, or produces on only some paths.
+
+To keep the previous behaviour:
+
+```python
+lp.run_sync(net, options=lp.ExecutorOptions(skip_output_validation=True))
+```
+
+which brings us to —
+
+### Fixed — `skip_output_validation` was inert (Rust, Python)
+
+The builder accepted the flag and dropped it, so the documented escape hatch did nothing, in both `PrecompiledExecutorBuilder` and Python's `ExecutorOptions`. Java and TypeScript honoured it throughout. It now works everywhere.
+
+### Fixed — `Out.ForwardInput` forwarded one token (Java, TypeScript)
+
+A batched input paired with `forwardInput` re-emitted a single token instead of one per token consumed, silently destroying the rest. Rust was already correct.
+
+```java
+.input(In.all(p))            // consumes 3 tokens
+.output(Out.forwardInput(p, q))
+// before: q receives 1 token   now: q receives 3, in consumption order
+```
+
+### Fixed — XOR branch ambiguity resolved consistently (TypeScript)
+
+When several `Out.Xor` branches match and one subsumes all the others — `and(a, b, c)` against `and(a, b)` — the most specific branch is selected rather than the firing being rejected. Java already did this and Rust gained it here; TypeScript was the outlier. Genuinely overlapping branches (`and(a, b)` vs `and(b, c)`) remain a violation.
+
+### Added — `lean/`, a machine-checked soundness development
+
+A dependency-free Lean 4 development (`lake build`, no Mathlib) proving **Proposition 1** — `α(R(N)) ⊆ R(N̂)`, that the verifier's untimed abstraction really over-approximates the executor — together with decidable counterexamples showing the side conditions cannot be dropped, and models retrodicting two historical false-`Proven` defects. CI builds it and rejects `sorry`/`admit`.
+
+Every definition names the shipped Rust function it models; if that function changes, the model is wrong until the comment is rechecked.
+
+### Spec
+
+209 → 208 active requirements. `EXEC-011` (Guarded Token Consumption) tombstoned alongside `IO-006`. `NU-021` retitled *Match as the Sole Per-Token Filter*, fixing the composition order should a unary filter ever return. `IO-014`, `IO-015`, `VER-004`, `VER-010` and `VER-012` amended; `CONC-007` / `CONC-008` retargeted.
 ## Java 2.14.0 / TypeScript 2.13.0 / Rust 3.7.0 / Python 2.16.0 — 2026-08-03
 
 **A transition that declares an output but can never produce one now fails to compile ([CORE-043], new).**

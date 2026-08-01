@@ -57,12 +57,11 @@ export class CompiledNet {
   // Consumption place IDs per transition (input + reset places)
   private readonly _consumptionPlaceIds: number[][];
 
-  // Cardinality and guard flags
+  // Cardinality flags
   private readonly _cardinalityChecks: (CardinalityCheck | null)[];
-  private readonly _hasGuards: boolean[];
   // ν-net join flag: the transition carries a MatchSpec (NU-020). Precomputed
   // so the hot enablement loop can skip the match check on non-ν transitions
-  // (zero-cost gating), mirroring `_hasGuards`.
+  // (zero-cost gating).
   private readonly _hasMatch: boolean[];
 
   private constructor(net: PetriNet) {
@@ -107,7 +106,6 @@ export class CompiledNet {
     this._inhibitorMask = new Array(this.transitionCount);
     this._consumptionPlaceIds = new Array(this.transitionCount);
     this._cardinalityChecks = new Array(this.transitionCount).fill(null);
-    this._hasGuards = new Array(this.transitionCount).fill(false);
     this._hasMatch = new Array(this.transitionCount).fill(false);
 
     const placeToTransitionsList: number[][] = new Array(this.placeCount);
@@ -131,9 +129,6 @@ export class CompiledNet {
 
         if (inSpec.type !== 'one') {
           needsCardinality = true;
-        }
-        if (inSpec.guard) {
-          this._hasGuards[tid] = true;
         }
       }
 
@@ -218,10 +213,6 @@ export class CompiledNet {
     return this._cardinalityChecks[tid]!;
   }
 
-  hasGuards(tid: number): boolean {
-    return this._hasGuards[tid]!;
-  }
-
   hasMatch(tid: number): boolean {
     return this._hasMatch[tid]!;
   }
@@ -235,8 +226,9 @@ export class CompiledNet {
    * 2. **Inhibitor check**: verifies no inhibitor places have tokens
    *    via `!intersects(snapshot, inhibitorMask)`.
    *
-   * This is a necessary but not sufficient condition — cardinality and guard checks
-   * are performed separately by the executor for transitions that pass this fast path.
+   * This is a necessary but not sufficient condition — cardinality and ν-net match
+   * checks are performed separately by the executor for transitions that pass this
+   * fast path.
    */
   canEnableBitmap(tid: number, markingSnapshot: Uint32Array): boolean {
     // All needed places present?

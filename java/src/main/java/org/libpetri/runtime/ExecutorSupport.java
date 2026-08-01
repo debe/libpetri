@@ -229,6 +229,10 @@ final class ExecutorSupport {
      * <p>Writes through {@link TransitionContext#outputToHarvest} rather than
      * {@code output(...)}: by this point the context has been detached, so the ordinary write
      * target is closed and only the harvest collector still reaches the marking.
+     *
+     * <p>{@code Out.ForwardInput} re-emits <em>every</em> token consumed from its {@code from}
+     * place, in consumption order — one output token per consumed token — so a batched input
+     * spec ({@code In.All}, {@code In.Exactly(n)}) conserves its tokens on timeout.
      */
     static void produceTimeoutOutput(TransitionContext context, Arc.Out timeoutChild) {
         produceTimeoutOutputRecursive(context, timeoutChild);
@@ -240,8 +244,15 @@ final class ExecutorSupport {
             case Arc.Out.Place p ->
                 context.outputToHarvest((Place<Object>) p.place(), Token.unit().value());
             case Arc.Out.ForwardInput f -> {
-                Object value = context.input(f.from());
-                context.outputToHarvest((Place<Object>) f.to(), value);
+                // Forward *every* token consumed from `from`, not just the first: a batched
+                // input spec (In.All, In.Exactly(n), In.AtLeast(n)) consumes N tokens, and
+                // re-emitting only one would silently destroy N-1 of them on the retry path.
+                // inputs() is the batched accessor and preserves consumption (FIFO) order;
+                // the singular input() returns only the first consumed value.
+                Place<Object> to = (Place<Object>) f.to();
+                for (Object value : context.inputs((Place<Object>) f.from())) {
+                    context.outputToHarvest(to, value);
+                }
             }
             case Arc.Out.And a ->
                 a.children().forEach(c -> produceTimeoutOutputRecursive(context, c));

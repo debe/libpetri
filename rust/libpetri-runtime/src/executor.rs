@@ -888,33 +888,53 @@ mod async_tests {
         assert_eq!(*executor.marking().peek(&left).unwrap(), 42);
     }
 
+    /// Data-dependent loop/exit routing without input predicates (IO-006).
+    /// A classifier transition XOR-routes each counter token into exactly one
+    /// of two places, and two conflicting transitions consume those places.
     #[tokio::test]
-    async fn async_loop_with_guard() {
-        use libpetri_core::input::one_guarded;
+    async fn async_loop_with_conditional_routing() {
+        use libpetri_core::output::xor;
 
         let counter = Place::<i32>::new("counter");
+        let below = Place::<i32>::new("below");
+        let reached = Place::<i32>::new("reached");
         let done = Place::<i32>::new("done");
 
-        // Loop transition: counter -> counter (increment), guarded to fire when < 3
+        // Classifier: counter -> XOR(below, reached) by value.
+        let t_classify = Transition::builder("classify")
+            .input(one(&counter))
+            .output(xor(vec![out_place(&below), out_place(&reached)]))
+            .action(libpetri_core::action::sync_action(|ctx| {
+                let v = *ctx.input::<i32>("counter")?;
+                if v < 3 {
+                    ctx.output("below", v)?;
+                } else {
+                    ctx.output("reached", v)?;
+                }
+                Ok(())
+            }))
+            .build();
+
+        // Loop transition: below -> counter (increment).
         let t_loop = Transition::builder("loop")
-            .input(one_guarded(&counter, |v: &i32| *v < 3))
+            .input(one(&below))
             .output(out_place(&counter))
             .action(libpetri_core::action::sync_action(|ctx| {
-                let v = ctx.input::<i32>("counter")?;
+                let v = ctx.input::<i32>("below")?;
                 ctx.output("counter", *v + 1)?;
                 Ok(())
             }))
             .build();
 
-        // Exit transition: counter -> done, guarded to fire when >= 3
+        // Exit transition: reached -> done.
         let t_exit = Transition::builder("exit")
-            .input(one_guarded(&counter, |v: &i32| *v >= 3))
+            .input(one(&reached))
             .output(out_place(&done))
             .action(fork())
             .build();
 
         let net = PetriNet::builder("loop_net")
-            .transitions([t_loop, t_exit])
+            .transitions([t_classify, t_loop, t_exit])
             .build();
 
         let mut marking = Marking::new();

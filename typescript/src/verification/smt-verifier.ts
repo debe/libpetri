@@ -31,9 +31,10 @@ import { requireOutputProducingActions } from '../core/internal/output-action-ch
  * - Operates on the marking projection (integer vectors) — no timing
  * - An untimed deadlock-freedom proof is stronger than needed
  *   (timing can only restrict behavior)
- * - Guards are ignored — over-approximation is sound for safety properties
- * - If a counterexample is found, it may be spurious in timed/guarded
- *   semantics — the report notes this
+ * - Input specifications are purely structural (IO-006) — there is no per-arc
+ *   predicate for the encoder to be blind to
+ * - If a counterexample is found, it may be spurious in timed semantics —
+ *   the report notes this
  *
  * Verification Pipeline:
  * 1. Flatten — expand XOR, index places, build pre/post vectors
@@ -437,7 +438,7 @@ export class SmtVerifier {
           report.push('=== RESULT ===\n');
           report.push(`PROVEN (IC3/PDR): ${propDesc}`);
           report.push('  Z3 Spacer proved no reachable state violates the property.');
-          report.push('  NOTE: Verification ignores timing constraints and JS guards.');
+          report.push('  NOTE: Verification ignores timing constraints.');
           report.push('  An untimed proof is STRONGER than a timed one (timing only restricts behavior).');
 
           return this.applyNuGuard(buildResult(
@@ -472,7 +473,6 @@ export class SmtVerifier {
           }
           report.push('\n  WARNING: This counterexample is in UNTIMED semantics.');
           report.push('  It may be spurious if timing constraints prevent this sequence.');
-          report.push('  JS guards are also ignored in this analysis.');
 
           return this.applyNuGuard(buildResult(
             { type: 'violated' },

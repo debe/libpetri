@@ -34,7 +34,7 @@ import { TokenOutput } from '../core/token-output.js';
 import { TransitionContext } from '../core/transition-context.js';
 import { noopEventStore } from '../event/event-store.js';
 import { CompiledNet, WORD_SHIFT, BIT_MASK, setBit, clearBit } from './compiled-net.js';
-import { Marking, type GuardSpec } from './marking.js';
+import { Marking, type PredicateSpec } from './marking.js';
 import { findBinding, IncrementalMatcher } from './match-engine.js';
 import { keyForPlace } from '../core/match-spec.js';
 import { nameId } from '../core/name.js';
@@ -275,9 +275,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       for (let keyIdx = 0; keyIdx < ms.keys.length; keyIdx++) {
         const mk = ms.keys[keyIdx]!;
         const pid = compiled.placeId(mk.place);
-        const guard = t.inputSpecs.find(s => s.place.name === mk.place.name)?.guard;
         for (const token of this.marking.peekTokens(mk.place)) {
-          if (guard && !guard(token.value)) continue;
           const name = mk.key(token.value);
           if (name !== undefined && name !== null) matcher.add(keyIdx, name, token.createdAt);
         }
@@ -297,8 +295,6 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       if (cache == null) continue;
       const t = compiled.transition(tid);
       const mk = t.matchSpec!.keys[keyIdx]!;
-      const guard = t.inputSpecs.find(s => s.place.name === mk.place.name)?.guard;
-      if (guard && !guard(token.value)) continue;
       const name = mk.key(token.value);
       if (name !== undefined && name !== null) cache.add(keyIdx, name, token.createdAt);
     }
@@ -558,26 +554,6 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       }
     }
 
-    // Guard check: verify matching tokens exist for each guarded input
-    if (this.compiled.hasGuards(tid)) {
-      const t = this.compiled.transition(tid);
-      const cache = this.matchCaches[tid];
-      const ms = t.matchSpec;
-      for (const spec of t.inputSpecs) {
-        if (!spec.guard) continue;
-        // For a fast-path matched join, the ν-net check below already proves the
-        // correlated inputs hold guard-passing matchable tokens, so the O(n)
-        // countMatching here is redundant for them — skip it to keep a guarded
-        // draining join linear. Non-correlated guarded inputs still scan.
-        if (cache != null && ms && keyForPlace(ms, spec.place.name) !== undefined) continue;
-        const requiredCount = spec.type === 'one' ? 1
-          : spec.type === 'exactly' ? spec.count
-          : spec.type === 'at-least' ? spec.minimum
-          : 1; // 'all' requires at least 1 matching
-        if (this.marking.countMatching(spec) < requiredCount) return false;
-      }
-    }
-
     // ν-net join: a correlation name must satisfy every matched input (NU-020).
     // Fast-path transitions read the maintained matcher (O(1)); the rest rebuild
     // the index (O(n)).
@@ -689,7 +665,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
    * EventStore.append on a token-removed or transition-started emit, or an error thrown while
    * consuming the matched tokens — unwinds out of the orchestrator loop and kills the executor.
    * The transition is instead failed and marked dirty for re-evaluation, the same treatment an
-   * asynchronously-reported failure gets. Enablement-phase throws (a guard or key function that
+   * asynchronously-reported failure gets. Enablement-phase throws (a key function that
    * throws inside canEnable, before the firing) run outside this boundary and are not contained
    * here.
    *
@@ -737,12 +713,9 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     const inputs = new TokenInput();
     const consumed: Token<any>[] = [];
 
-    // Consume tokens based on input specs with cardinality and guard.
-    // Note: for guarded 'all'/'at-least' inputs, countMatching() is called here AND in
-    // canEnable() — a known O(2n) tradeoff. Token queues are typically ≤10 items, so
-    // the simplicity of re-scanning outweighs caching complexity.
+    // Consume tokens based on input specs with cardinality.
     // ν-net join: resolve the correlation name once; correlated inputs consume
-    // the name-matched tokens (guard first, then name equality — NU-021).
+    // the name-matched tokens (name equality — NU-021).
     const ms = t.matchSpec;
     const cache = ms ? this.matchCaches[tid] : null;
     const chosen = ms
@@ -754,13 +727,12 @@ export class BitmapNetExecutor implements PetriNetExecutor {
 
     for (const inSpec of t.inputSpecs) {
       const keyFn = ms ? keyForPlace(ms, inSpec.place.name) : undefined;
-      // Combined predicate when correlated and/or guarded; otherwise reuse inSpec.
-      let spec: GuardSpec;
+      // Name-equality predicate when correlated; otherwise a plain FIFO consume.
+      let spec: PredicateSpec;
       if (keyFn && chosen !== null) {
-        const baseGuard = inSpec.guard;
         spec = {
           place: inSpec.place,
-          guard: (v: any) => (baseGuard ? baseGuard(v) : true) && keyFn(v) === chosen,
+          predicate: (v: any) => keyFn(v) === chosen,
         };
       } else {
         spec = inSpec;
@@ -772,14 +744,14 @@ export class BitmapNetExecutor implements PetriNetExecutor {
         case 'exactly': toConsume = inSpec.count; break;
         case 'all':
         case 'at-least':
-          toConsume = spec.guard
+          toConsume = spec.predicate
             ? this.marking.countMatching(spec)
             : this.marking.tokenCount(inSpec.place);
           break;
       }
 
       for (let i = 0; i < toConsume; i++) {
-        const token = spec.guard
+        const token = spec.predicate
           ? this.marking.removeFirstMatching(spec)
           : this.marking.removeFirst(inSpec.place);
         if (token === null) break;

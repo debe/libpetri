@@ -82,7 +82,7 @@ The verification result includes:
 
 SMT verification operates on untimed Petri net semantics (marking projection, integer token counts). Since timing only restricts behavior (fewer enabled states), a proof on the untimed net is sound for the timed net: if a property holds without timing constraints, it holds with them.
 
-Guard predicates are over-approximated (assumed to always pass), which is also sound for safety properties.
+The encoding is additionally **value-blind**: it carries token counts, not token values. Every value-dependent choice — which XOR branch an action writes to, which token a correlated input picks — is therefore over-approximated as freely available, which is also sound for safety properties. (There is no value-predicate construct left to approximate: guards were removed in [IO-006].)
 
 **ν-net carve-out.** The over-approximation is relaxed for the one *decidable*
 predicate. A matched transition's name equality ([NU-020]) MAY be encoded
@@ -94,8 +94,9 @@ about token *identity* rather than only token *counts*.
 
 **Acceptance Criteria:**
 1. Verification ignores timing constraints.
-2. Verification over-approximates guards (except the [NU-020] name-equality
-   carve-out of [NU-050], when implemented).
+2. Verification is value-blind — value-dependent branch and correlation choices are
+   over-approximated (except the [NU-020] name-equality carve-out of [NU-050], when
+   implemented).
 3. A Proven verdict on the untimed net implies the property holds for all timed executions.
 
 **Test derivation:** Net with timing constraints; verify property on untimed model; verify same property holds in timed execution.
@@ -165,15 +166,24 @@ The engine may support state class graph construction using the Berthomieu-Diaz 
 
 **Acceptance Criteria:**
 1. State class graph enumerates reachable (marking, timing zone) pairs.
-2. Successor computation correctly handles transition firing and clock updates.
+2. Successor computation correctly handles transition firing and clock updates. The
+   number of tokens a firing removes from each input place MUST be the canonical
+   `consumptionCount(available)` of [IO-007] — the same function the executor uses —
+   and not the enablement threshold `requiredCount()`. In particular `All` and
+   `AtLeast(m)` drain the place.
 3. XOR outputs are expanded into virtual transitions for branch analysis.
+
+**Depends on:** [IO-007], [EXEC-010]
 
 **Implementation notes:**
 - Java: Full implementation
 - TypeScript: Full implementation
 - Rust: Full implementation (`libpetri-verification` `state_class_graph`)
 
-**Test derivation:** Small timed net; construct state class graph; verify reachable classes match expected.
+**Test derivation:** Small timed net; construct state class graph; verify reachable
+classes match expected. Regression: a transition with an `all(p)` input followed by a
+transition inhibited on `p` — the inhibited successor MUST be reachable, since `p` is
+drained; an `atLeast(2, p)` input over 5 tokens MUST leave `p` empty.
 
 ---
 
@@ -219,9 +229,24 @@ name-aware terminal classes.
 2. Two markings differing only by a permutation of name-symbols are the same
    state class (the quotient is finite when the live-name pool is structurally
    bounded).
-3. When the graph closes within the class bound the verdict is exact (sound and
-   complete) for reachability-safety and quiescence; otherwise it truncates and
-   the verdict is `Unknown` (NU-050 #2 — undecidability surfaces as truncation).
+3. **Conditional on an executor-faithful consumption model** (see below): when the
+   graph closes within the class bound the verdict is exact (sound and complete) for
+   reachability-safety and quiescence; otherwise it truncates and the verdict is
+   `Unknown` (NU-050 #2 — undecidability surfaces as truncation).
+4. `All` and `AtLeast(m)` inputs drain their place in the graph exactly as they do at
+   run time: after a successor step the source place holds no residue, so an inhibitor
+   arc on that place is satisfied in the successor class.
+
+**Exactness precondition (consumption model).** The exactness of criterion 3 is not
+unconditional — it holds only while the graph's successor relation removes the *same*
+tokens the executor would. The successor step MUST derive each input's token count from
+the canonical `consumptionCount(available)` of [IO-007] (so `All` and `AtLeast(m)`
+consume **all** available tokens, not merely `requiredCount()`), in the [EXEC-010] FIFO
+order. A successor relation that consumes a *minimum* instead leaves phantom residue in
+the source place; that residue keeps inhibitor arcs on the place unsatisfied and
+suppresses successor classes, so a genuinely reachable marking is reported unreachable —
+an **unsound** `Proven`, not a conservative one. Implementations therefore MUST delegate
+to the same cardinality contract the executor uses rather than restating it.
 
 **Implementation notes:**
 - Rust: Full implementation (`libpetri-verification` `name_state_class_graph` /
@@ -235,7 +260,7 @@ name-aware terminal classes.
   budget-declared untimed reachability-safety and uses this route for quiescence,
   budget-less, and timed ν-nets.
 
-**Depends on:** [VER-010], [VER-011], [NU-020], [NU-050]
+**Depends on:** [VER-010], [VER-011], [NU-020], [NU-050], [IO-007]
 
 **Test derivation:** Two independent mints feeding one join with no budget place;
 verify the join output is unreachable (NU-050 #1); a same-mint variant reaches it;

@@ -1,6 +1,5 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
-use libpetri::core::input::one_guarded;
 use libpetri::core::match_spec::MatchSpec;
 use libpetri::core::name::NameId;
 use libpetri::runtime::environment::ExecutorSignal;
@@ -574,9 +573,8 @@ struct NuMsg {
 /// ν-net join over `branches` correlated inputs, drained to `merged`. The caller
 /// pre-seeds each branch place with `depth` distinct-cid tokens (see
 /// `seed_drain_marking`); the join fires once per correlation name, re-running
-/// the name-index build over the shrinking pool each fire. `guarded` adds a
-/// unary input filter (NU-021) so the per-token guard-eval cost is included.
-fn build_nu_join_drain(branches: usize, guarded: bool) -> (PetriNet, Vec<Place<NuMsg>>) {
+/// the name-index build over the shrinking pool each fire.
+fn build_nu_join_drain(branches: usize) -> (PetriNet, Vec<Place<NuMsg>>) {
     let inputs: Vec<Place<NuMsg>> = (0..branches)
         .map(|i| Place::new(format!("branch{i}")))
         .collect();
@@ -584,11 +582,7 @@ fn build_nu_join_drain(branches: usize, guarded: bool) -> (PetriNet, Vec<Place<N
 
     let mut join = Transition::builder("join");
     for p in &inputs {
-        join = if guarded {
-            join.input(one_guarded(p, |m: &NuMsg| m.cid != "skip"))
-        } else {
-            join.input(one(p))
-        };
+        join = join.input(one(p));
     }
     let mut ms = MatchSpec::builder();
     for p in &inputs {
@@ -607,7 +601,7 @@ fn build_nu_join_drain(branches: usize, guarded: bool) -> (PetriNet, Vec<Place<N
     (net, inputs)
 }
 
-/// Structurally identical to `build_nu_join_drain(2, false)` but the join has NO
+/// Structurally identical to `build_nu_join_drain(2)` but the join has NO
 /// `MatchSpec` — a plain FIFO 2-way join. Same firing count and token movement,
 /// zero name indexing: the gap to `nu_join_drain` is the pure ν firing-check tax.
 fn build_plain_join_drain() -> (PetriNet, Vec<Place<NuMsg>>) {
@@ -737,7 +731,7 @@ fn build_nu_scatter_gather_budgeted() -> (PetriNet, Place<i32>, Place<i32>) {
 fn nu_join_drain(c: &mut Criterion) {
     // Depth sweep at k=2 — the primary cost curve.
     for &depth in &[10, 50, 100, 200, 500] {
-        let (net, inputs) = build_nu_join_drain(2, false);
+        let (net, inputs) = build_nu_join_drain(2);
         c.bench_function(&format!("nu_join_drain/2/{depth}"), |b| {
             b.iter(|| {
                 let marking = seed_drain_marking(&inputs, depth);
@@ -750,7 +744,7 @@ fn nu_join_drain(c: &mut Criterion) {
     }
     // Arity sweep at depth=100 (k=2 already covered by the depth sweep).
     for &k in &[4, 8] {
-        let (net, inputs) = build_nu_join_drain(k, false);
+        let (net, inputs) = build_nu_join_drain(k);
         c.bench_function(&format!("nu_join_drain/{k}/100"), |b| {
             b.iter(|| {
                 let marking = seed_drain_marking(&inputs, 100);
@@ -778,20 +772,6 @@ fn plain_join_drain(c: &mut Criterion) {
     }
 }
 
-fn nu_join_drain_guarded(c: &mut Criterion) {
-    for &depth in &[10, 50, 100, 200, 500] {
-        let (net, inputs) = build_nu_join_drain(2, true);
-        c.bench_function(&format!("nu_join_drain_guarded/2/{depth}"), |b| {
-            b.iter(|| {
-                let marking = seed_drain_marking(&inputs, depth);
-                let mut executor =
-                    BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
-                executor.run_sync();
-                black_box(executor.marking().count("merged"));
-            })
-        });
-    }
-}
 
 fn nu_scatter_gather(c: &mut Criterion) {
     for &groups in &[10, 50, 100] {
@@ -834,7 +814,7 @@ fn nu_scatter_gather_budgeted(c: &mut Criterion) {
 
 fn precompiled_nu_join_drain(c: &mut Criterion) {
     for &depth in &[10, 50, 100, 200, 500] {
-        let (net, inputs) = build_nu_join_drain(2, false);
+        let (net, inputs) = build_nu_join_drain(2);
         let prog = PrecompiledNet::from_compiled(CompiledNet::compile(&net));
         c.bench_function(&format!("precompiled_nu_join_drain/2/{depth}"), |b| {
             b.iter(|| {
@@ -846,7 +826,7 @@ fn precompiled_nu_join_drain(c: &mut Criterion) {
         });
     }
     for &k in &[4, 8] {
-        let (net, inputs) = build_nu_join_drain(k, false);
+        let (net, inputs) = build_nu_join_drain(k);
         let prog = PrecompiledNet::from_compiled(CompiledNet::compile(&net));
         c.bench_function(&format!("precompiled_nu_join_drain/{k}/100"), |b| {
             b.iter(|| {
@@ -874,20 +854,6 @@ fn precompiled_plain_join_drain(c: &mut Criterion) {
     }
 }
 
-fn precompiled_nu_join_drain_guarded(c: &mut Criterion) {
-    for &depth in &[10, 50, 100, 200, 500] {
-        let (net, inputs) = build_nu_join_drain(2, true);
-        let prog = PrecompiledNet::from_compiled(CompiledNet::compile(&net));
-        c.bench_function(&format!("precompiled_nu_join_drain_guarded/2/{depth}"), |b| {
-            b.iter(|| {
-                let marking = seed_drain_marking(&inputs, depth);
-                let mut executor = PrecompiledNetExecutor::<NoopEventStore>::new(&prog, marking);
-                let result = executor.run_sync();
-                black_box(result.count("merged"));
-            })
-        });
-    }
-}
 
 fn precompiled_nu_scatter_gather(c: &mut Criterion) {
     for &groups in &[10, 50, 100] {
@@ -946,12 +912,10 @@ criterion_group!(
     precompiled_mixed_chain,
     nu_join_drain,
     plain_join_drain,
-    nu_join_drain_guarded,
     nu_scatter_gather,
     nu_scatter_gather_budgeted,
     precompiled_nu_join_drain,
     precompiled_plain_join_drain,
-    precompiled_nu_join_drain_guarded,
     precompiled_nu_scatter_gather,
     precompiled_nu_scatter_gather_budgeted,
 );

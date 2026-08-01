@@ -23,7 +23,6 @@
 
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
-use libpetri::core::input::one_guarded;
 use libpetri::core::match_spec::MatchSpec;
 use libpetri::core::name::NameId;
 use libpetri::runtime::environment::ExecutorSignal;
@@ -223,7 +222,7 @@ struct NuMsg {
     cid: String,
 }
 
-fn build_nu_join_drain(branches: usize, guarded: bool) -> (PetriNet, Vec<Place<NuMsg>>) {
+fn build_nu_join_drain(branches: usize) -> (PetriNet, Vec<Place<NuMsg>>) {
     let inputs: Vec<Place<NuMsg>> = (0..branches)
         .map(|i| Place::new(format!("branch{i}")))
         .collect();
@@ -231,11 +230,7 @@ fn build_nu_join_drain(branches: usize, guarded: bool) -> (PetriNet, Vec<Place<N
 
     let mut join = Transition::builder("join");
     for p in &inputs {
-        join = if guarded {
-            join.input(one_guarded(p, |m: &NuMsg| m.cid != "skip"))
-        } else {
-            join.input(one(p))
-        };
+        join = join.input(one(p));
     }
     let mut ms = MatchSpec::builder();
     for p in &inputs {
@@ -336,7 +331,7 @@ fn build_nu_scatter_gather(budgeted: bool) -> (PetriNet, Place<i32>, Place<i32>)
 
 fn owned_nu_join_drain(c: &mut Criterion) {
     for &depth in &[10, 50, 100, 200, 500] {
-        let (net, inputs) = build_nu_join_drain(2, false);
+        let (net, inputs) = build_nu_join_drain(2);
         let owned = OwnedPrecompiledNet::compile(&net);
         c.bench_function(&format!("owned_nu_join_drain/2/{depth}"), |b| {
             b.iter(|| {
@@ -347,7 +342,7 @@ fn owned_nu_join_drain(c: &mut Criterion) {
         });
     }
     for &k in &[4, 8] {
-        let (net, inputs) = build_nu_join_drain(k, false);
+        let (net, inputs) = build_nu_join_drain(k);
         let owned = OwnedPrecompiledNet::compile(&net);
         c.bench_function(&format!("owned_nu_join_drain/{k}/100"), |b| {
             b.iter(|| {
@@ -373,19 +368,6 @@ fn owned_plain_join_drain(c: &mut Criterion) {
     }
 }
 
-fn owned_nu_join_drain_guarded(c: &mut Criterion) {
-    for &depth in &[10, 50, 100, 200, 500] {
-        let (net, inputs) = build_nu_join_drain(2, true);
-        let owned = OwnedPrecompiledNet::compile(&net);
-        c.bench_function(&format!("owned_nu_join_drain_guarded/2/{depth}"), |b| {
-            b.iter(|| {
-                let marking = seed_drain_marking(&inputs, depth);
-                let result = owned.run_sync::<NoopEventStore>(marking);
-                black_box(result.count("merged"));
-            })
-        });
-    }
-}
 
 fn owned_nu_scatter_gather(c: &mut Criterion) {
     for &groups in &[10, 50, 100] {
@@ -432,7 +414,6 @@ criterion_group!(
     owned_mixed_chain,
     owned_nu_join_drain,
     owned_plain_join_drain,
-    owned_nu_join_drain_guarded,
     owned_nu_scatter_gather,
     owned_nu_scatter_gather_budgeted,
 );

@@ -59,6 +59,10 @@ jacoco*.html
 # Release bundles
 *-bundle.zip
 
+# Lean 4 build output
+.lake/
+lake-packages/
+
 # Agent / harness metadata
 .claude/
 .pi/

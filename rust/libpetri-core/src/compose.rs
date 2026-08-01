@@ -64,8 +64,7 @@ use crate::transition::Transition;
 pub struct ComposeBindingsBuilder<'a> {
     port_bindings: HashMap<Arc<str>, PlaceRef>,
     /// channel name -> caller-side transition (cloned by reference; cheap
-    /// because [`Transition`] holds its arcs by value but actions and guards
-    /// are `Arc`s).
+    /// because [`Transition`] holds its arcs by value but actions are `Arc`s).
     channel_bindings: HashMap<Arc<str>, Transition>,
     _marker: PhantomData<&'a ()>,
 }

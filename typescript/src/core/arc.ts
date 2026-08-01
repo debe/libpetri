@@ -16,7 +16,6 @@ export type Arc = ArcInput | ArcOutput | ArcInhibitor | ArcRead | ArcReset;
 export interface ArcInput<T = any> {
   readonly type: 'input';
   readonly place: Place<T>;
-  readonly guard?: (value: T) => boolean;
 }
 
 export interface ArcOutput<T = any> {
@@ -42,8 +41,8 @@ export interface ArcReset<T = any> {
 // ==================== Factory Functions ====================
 
 /** Input arc: consumes token from place when transition fires. */
-export function inputArc<T>(place: Place<T>, guard?: (value: T) => boolean): ArcInput<T> {
-  return guard !== undefined ? { type: 'input', place, guard } : { type: 'input', place };
+export function inputArc<T>(place: Place<T>): ArcInput<T> {
+  return { type: 'input', place };
 }
 
 /** Output arc: produces token to place when transition fires. */
@@ -69,15 +68,4 @@ export function resetArc<T>(place: Place<T>): ArcReset<T> {
 /** Returns the place this arc connects to. */
 export function arcPlace(arc: Arc): Place<any> {
   return arc.place;
-}
-
-/** Checks if an input arc has a guard predicate. */
-export function hasGuard(arc: ArcInput): boolean {
-  return arc.guard !== undefined;
-}
-
-/** Checks if a token value matches an input arc's guard. */
-export function matchesGuard<T>(arc: ArcInput<T>, value: T): boolean {
-  if (arc.guard === undefined) return true;
-  return arc.guard(value);
 }

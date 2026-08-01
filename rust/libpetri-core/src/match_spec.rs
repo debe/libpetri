@@ -8,12 +8,12 @@
 //! NU-020).
 //!
 //! This is the single *decidable* predicate — equality of opaque names — and
-//! is deliberately NOT a general guard. Guards filter tokens *within one
-//! place* by an arbitrary boolean (the removed IO-006 / the surviving unary
-//! `In` guard); a `MatchSpec` instead correlates the *name dimension across
-//! places*, which is composition-structural like cardinality. When both are
-//! present the guard filter applies first, then the name correlation runs over
-//! the survivors (NU-021).
+//! is deliberately NOT a general input predicate: it correlates the *name
+//! dimension across places*, which is composition-structural like cardinality,
+//! rather than evaluating an arbitrary boolean per token within one place.
+//! Input specifications themselves remain purely structural (IO-006); name
+//! correlation is the only per-token filter the enablement check ever applies
+//! (NU-021).
 
 use std::any::Any;
 use std::sync::Arc;
@@ -137,7 +137,7 @@ impl MatchSpecBuilder {
     ///
     /// # Panics
     /// Panics when fewer than two inputs are correlated — a match over a single
-    /// place is just a guard and should be expressed as one.
+    /// place correlates nothing.
     pub fn build(self) -> MatchSpec {
         assert!(
             self.keys.len() >= 2,

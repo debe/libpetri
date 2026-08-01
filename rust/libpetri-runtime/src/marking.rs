@@ -62,14 +62,19 @@ impl Marking {
         self.tokens.get_mut(place_name).and_then(|q| q.pop_front())
     }
 
-    /// Removes and returns the first token matching a guard predicate.
+    /// Removes and returns the first token whose value satisfies `predicate`.
+    ///
+    /// Used by the ν-net join path (NU-020/NU-021) to take the tokens whose
+    /// projected correlation name equals the chosen binding. This is *not* an
+    /// input guard (IO-006, removed) — input specifications are purely
+    /// structural; the predicate here is always derived from name correlation.
     pub fn remove_matching(
         &mut self,
         place_name: &str,
-        guard: &dyn Fn(&dyn Any) -> bool,
+        predicate: &dyn Fn(&dyn Any) -> bool,
     ) -> Option<ErasedToken> {
         let queue = self.tokens.get_mut(place_name)?;
-        let pos = queue.iter().position(|t| guard(t.value.as_ref()))?;
+        let pos = queue.iter().position(|t| predicate(t.value.as_ref()))?;
         queue.remove(pos)
     }
 
@@ -80,11 +85,11 @@ impl Marking {
             .map_or_else(Vec::new, |q| q.drain(..).collect())
     }
 
-    /// Removes and returns all tokens matching a guard predicate.
+    /// Removes and returns all tokens whose values satisfy `predicate`.
     pub fn remove_all_matching(
         &mut self,
         place_name: &str,
-        guard: &dyn Fn(&dyn Any) -> bool,
+        predicate: &dyn Fn(&dyn Any) -> bool,
     ) -> Vec<ErasedToken> {
         let queue = match self.tokens.get_mut(place_name) {
             Some(q) => q,
@@ -93,7 +98,7 @@ impl Marking {
         let mut matched = Vec::new();
         let mut remaining = VecDeque::new();
         for token in queue.drain(..) {
-            if guard(token.value.as_ref()) {
+            if predicate(token.value.as_ref()) {
                 matched.push(token);
             } else {
                 remaining.push_back(token);
@@ -103,11 +108,14 @@ impl Marking {
         matched
     }
 
-    /// Counts tokens matching a guard predicate.
-    pub fn count_matching(&self, place_name: &str, guard: &dyn Fn(&dyn Any) -> bool) -> usize {
-        self.tokens
-            .get(place_name)
-            .map_or(0, |q| q.iter().filter(|t| guard(t.value.as_ref())).count())
+    /// Counts tokens whose values satisfy `predicate`.
+    ///
+    /// Used by the ν-net join path to size a correlated `all`/`at-least`
+    /// consume (NU-020).
+    pub fn count_matching(&self, place_name: &str, predicate: &dyn Fn(&dyn Any) -> bool) -> usize {
+        self.tokens.get(place_name).map_or(0, |q| {
+            q.iter().filter(|t| predicate(t.value.as_ref())).count()
+        })
     }
 
     /// Returns the internal token map (for snapshot/event purposes).
@@ -194,8 +202,8 @@ mod tests {
         m.add(&p, Token::new(2));
         m.add(&p, Token::new(3));
 
-        let guard = |v: &dyn Any| v.downcast_ref::<i32>().is_some_and(|n| *n > 1);
-        let t = m.remove_matching("p", &guard).unwrap();
+        let predicate = |v: &dyn Any| v.downcast_ref::<i32>().is_some_and(|n| *n > 1);
+        let t = m.remove_matching("p", &predicate).unwrap();
         let recovered = t.downcast::<i32>().unwrap();
         assert_eq!(*recovered.value(), 2); // first matching
         assert_eq!(m.count("p"), 2);

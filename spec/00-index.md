@@ -34,7 +34,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | [01-core-model.md](01-core-model.md) | CORE | Places, tokens, transitions, arcs, net construction, actions, context, marking | 35 |
 | [02-input-output-specs.md](02-input-output-specs.md) | IO | Input cardinality, composite output routing, validation | 14 |
 | [03-timing.md](03-timing.md) | TIME | Firing intervals, clock semantics, deadline enforcement | 11 |
-| [04-execution-model.md](04-execution-model.md) | EXEC | Orchestrator loop, scheduling, token consumption, failure, quiescence | 15 |
+| [04-execution-model.md](04-execution-model.md) | EXEC | Orchestrator loop, scheduling, token consumption, failure, quiescence | 14 |
 | [05-concurrency.md](05-concurrency.md) | CONC | Single-threaded orchestrator, bitmap executor, precompiled flat-array executor, async actions, wake-up | 18 |
 | [06-environment-places.md](06-environment-places.md) | ENV | External event injection, implicit long-running behavior, executor lifecycle | 13 |
 | [07-verification.md](07-verification.md) | VER | SMT/IC3, state class graph, structural analysis | 11 |
@@ -43,11 +43,12 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | [10-performance.md](10-performance.md) | PERF | Scaling, benchmarks, memory efficiency, flat-array executor performance | 14 |
 | [11-modular-composition.md](11-modular-composition.md) | MOD | Open-net subnet definition, instantiation, port composition, channel fusion, action binding per instance, place fusion | 26 |
 | [12-nu-nets.md](12-nu-nets.md) | NU | Token name identity, fresh-name minting (ν-binder/fork), join by name equality, bounded-budget decidability ledger | 12 |
-| **Total** | | | **209** |
+| **Total** | | | **208** |
 
-> **IO-006** (Input Guard Predicate) was removed (see [IO-006]); it is retained as a
-> struck-through tombstone for traceability and is **excluded** from the active count.
-> Counts above are active requirements only.
+> **IO-006** (Input Guard Predicate) and **EXEC-011** (Guarded Token Consumption) were
+> removed (see [IO-006], [EXEC-011]); both are retained as struck-through tombstones for
+> traceability and are **excluded** from the active count. Counts above are active
+> requirements only.
 
 ---
 
@@ -165,7 +166,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | EXEC-002 | Priority-Based Firing Order | MUST | — |
 | EXEC-003 | Competitive Conflict Resolution | MUST | — |
 | EXEC-010 | FIFO Token Consumption | MUST | CORE-013, IO-007 |
-| EXEC-011 | Guarded Token Consumption | SHOULD | IO-006 |
+| ~~EXEC-011~~ | ~~Guarded Token Consumption~~ (Removed) | — | — |
 | EXEC-012 | Read Arc Peek | MUST | CORE-032 |
 | EXEC-013 | Reset Arc Execution | MUST | CORE-034 |
 | EXEC-020 | Output Token Deposition | MUST | — |
@@ -210,10 +211,10 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | IO-007 | requiredCount and consumptionCount Contract | MUST | — |
 | IO-010 | Output Place (Leaf) | MUST | — |
 | IO-011 | Output And | MUST | — |
-| IO-012 | Output Xor | MUST | — |
+| IO-012 | Output Xor | MUST | IO-015 |
 | IO-013 | Output Timeout | MUST | EVT-009 |
-| IO-014 | Output ForwardInput | MUST | — |
-| IO-015 | Output Validation | MUST | EVT-007 |
+| IO-014 | Output ForwardInput | MUST | IO-007, EXEC-010 |
+| IO-015 | Output Validation | MUST | EVT-007, CORE-051 |
 | IO-016 | Branch Enumeration | SHOULD | — |
 | IO-017 | allPlaces Flattening | MUST | — |
 
@@ -253,7 +254,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | NU-001 | Name Identity | MUST | CORE-010 |
 | NU-010 | Fresh-Name Minting | MUST | CORE-050, IO-011 |
 | NU-020 | Match Specification | MUST | IO-001, IO-005, CORE-022, CORE-013 |
-| NU-021 | Guard / Match Composition | MUST | NU-020 |
+| NU-021 | Match as the Sole Per-Token Filter | MUST | NU-020, IO-006 |
 | NU-022 | Deterministic Match Selection | MUST | NU-020, NU-001 |
 | NU-030 | Freshness Scoping under Composition | MUST | MOD-010, MOD-012, MOD-020 |
 | NU-040 | Bounded Budget and Decidability | SHOULD | VER-002, EXEC-040, NU-010, NU-020 |
@@ -305,9 +306,9 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | VER-004 | Untimed Over-Approximation | SHOULD | — |
 | VER-005 | P-Invariant Computation | SHOULD | — |
 | VER-006 | Environment Analysis Mode | SHOULD | — |
-| VER-010 | State Class Graph Analysis | MAY | — |
+| VER-010 | State Class Graph Analysis | MAY | IO-007, EXEC-010 |
 | VER-011 | DBM Zone Representation | MAY | — |
-| VER-012 | Name-Aware State Class Graph (ν-Partition Quotient) | MAY | VER-010, 011, NU-020, NU-050 |
+| VER-012 | Name-Aware State Class Graph (ν-Partition Quotient) | MAY | VER-010, 011, NU-020, NU-050, IO-007 |
 | VER-020 | Siphon and Trap Analysis | MAY | — |
 | VER-021 | XOR Branch Analysis | SHOULD | IO-012, 016 |
 
@@ -318,9 +319,9 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Priority | Count | Description |
 |----------|-------|-------------|
 | MUST     | 141   | Core contract; all implementations must conform |
-| SHOULD   | 53    | Recommended; implementations should include unless technically infeasible |
+| SHOULD   | 52    | Recommended; implementations should include unless technically infeasible |
 | MAY      | 15    | Optional; implementations may include |
-| **Total** | **209** | Matches the active-requirement total above; the [IO-006] tombstone is excluded |
+| **Total** | **208** | Matches the active-requirement total above; tombstones (IO-006, EXEC-011) excluded |
 
 ---
 
@@ -339,7 +340,8 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Inject after natural termination | Rejected, not hung ([ENV-006]) | ✓ (`terminated` flag) | ✓ (draining guard) | ✓ |
 | Immediate termination / observable termination | [ENV-015] / [ENV-016] (MAY) | ✓ | Pending | Pending |
 | Token type safety | Typed places + typed tokens | Generics (compile-time) | Phantom type param | Generics (compile-time) |
-| Guard predicates | Filter on input arcs | ✓ (on Arc.Input) | ✓ (on In variants) | Not yet |
+| Guard predicates | **Removed** from the model ([IO-006], [EXEC-011]) — no per-token value predicate exists | n/a (never implemented) | n/a (removed) | n/a (removed) |
+| Output spec validation ([IO-015]) | Enforced on every executor backend | ✓ | ✓ | ✓ (both backends; previously unenforced) |
 | SMT verification | IC3/PDR via Z3 Spacer | ✓ | ✓ (WASM) | Not yet |
 | State class graph | Berthomieu-Diaz | ✓ | ✓ | ✓ |
 | Graph export | At least one format | DOT (Graphviz) | DOT (Graphviz) | DOT (Graphviz) |
@@ -378,6 +380,23 @@ is compiled for execution *and* at the verification entry points (state-class gr
 four implementations, so verification cannot green-light a net that will not compile. Binding itself stays lazy and total,
 so [CORE-042] and the staged-binding idiom of [MOD-031] AC7 are unaffected.
 
+**Guard removal (completed).** Guard predicates were struck from the model in [IO-006]
+and their consumption rule in [EXEC-011]. Java never implemented them; Rust and
+TypeScript carried them until they were deleted, so the construct is now absent from all
+four implementations and from the enablement check on every backend. The row above is
+kept rather than dropped so the history stays traceable. Name correlation ([NU-020]) is
+the sole surviving per-token filter ([NU-021]).
+
+**Output-validation alignment.** [IO-015] is a MUST that Rust did not previously enforce
+(its validation routine had no callers), so Rust and Python fired without checking the
+declared output spec. It is now enforced on both Rust backends, matching Java and
+TypeScript, and all three languages share the same Xor **subsumption tie-break**
+([IO-015]). What remains for the runtime check, now that [CORE-043] rejects the
+built-in-passthrough case statically, is the case no static check can decide: a
+hand-written action that produces nothing, or produces only on some paths. Rust and
+Python nets relying on the previously unchecked path need their spec or their action
+corrected.
+
 ---
 
 ## Coverage Matrix
@@ -396,12 +415,14 @@ This matrix maps spec requirements to test classes/files in each implementation.
 | CORE-060–064 | `TransitionContextTest` | `transition-context.test.ts` | `context::tests` |
 | CORE-070–072 | `MarkingTest` | `marking.test.ts` | `marking::tests` |
 | CORE-073 | — | — | `executor_handle::tests`; Python `test_marking_snapshot.py` (Rust/Python-first) |
-| IO-001–007 | `InTest` | `in.test.ts` | `input::tests` |
-| IO-010–017 | `OutTest` | `out.test.ts` | `output::tests` |
+| IO-001–005, IO-007 | `InTest` | `in.test.ts` | `input::tests` |
+| IO-010–013, IO-016–017 | `OutTest` | `out.test.ts` | `output::tests` |
+| IO-014 (ForwardInput multiplicity) | `AbstractNetExecutorEngineTest#outTimeout_forwardInput_all_forwardsEveryConsumedToken`, `#outTimeout_forwardInput_exactly_forwardsEveryConsumedToken` | `executor-support.test.ts > forwards every consumed input value, in consumption order` | `output::tests` (always forwarded all) |
+| IO-015 (incl. Xor subsumption tie-break) | `AbstractNetExecutorEngineTest` (out-violation cases), `BitmapNetExecutorAsyncOutputTest` | `executor-support.test.ts` (`validateOutSpec`) | `backend_suite_tests::xor_output_both_branches_violates`, `xor_output_no_branch_violates`, `and_output_partial_violates`, `single_place_output_missing_violates`, `conforming_output_still_succeeds`, `xor_subsuming_branch_is_accepted` (both backends) |
 | TIME-001–006 | `TimingTest` | `timing.test.ts` | `timing::tests` |
 | TIME-010–014 | `NetExecutorTimingTest` | `executor-timing.test.ts` | — |
 | EXEC-001–003 | `NetExecutorTest` | `bitmap-net-executor.test.ts` | `executor::tests` |
-| EXEC-010–013 | `NetExecutorTest` | `bitmap-net-executor.test.ts` | `executor::tests` |
+| EXEC-010, 012–013 | `NetExecutorTest` | `bitmap-net-executor.test.ts` | `executor::tests` |
 | EXEC-020–022 | `NetExecutorTest` | `executor-support.test.ts` | `executor::tests` |
 | EXEC-030–031 | `NetExecutorFailureTest` | `executor-failure.test.ts` | — |
 | EXEC-040–041 | `NetExecutorTest` | `bitmap-net-executor.test.ts` | `executor::tests` |
@@ -412,6 +433,7 @@ This matrix maps spec requirements to test classes/files in each implementation.
 | ENV-015–016 | `AbstractNetExecutorEnvironmentTest` (Java-first) | — | — |
 | VER-001–006 | `SmtVerifierTest` | `smt-verifier.test.ts` | `structural_check::tests`, `p_invariant::tests` |
 | VER-010–011 | `StateClassGraphTest` | `analysis/*.test.ts` | `state_class_graph::tests` |
+| VER-010 AC2 (executor-faithful consumption, [IO-007]) | `StateClassGraphConsumptionTest#allInputDrainsPlaceSoInhibitedSuccessorIsReachable`, `#atLeastInputDrainsPlaceLeavingNoResidue` | `state-class-graph.test.ts > draining input semantics (IO-007)` (2 cases) | `state_class_graph::tests::all_input_drains_place_so_inhibited_successor_is_reachable`, `at_least_input_drains_place` |
 | VER-012 | `SmtVerifierTest` (Route B) | `smt-verifier.test.ts` (Route B) | `nu_scg_verifier::tests` |
 | EVT-001–014 | `NetEventTest` | `net-event.test.ts` | `net_event::tests` |
 | EVT-020–024 | `EventStoreTest` | `event-store.test.ts` | `event_store::tests` |

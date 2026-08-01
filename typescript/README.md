@@ -21,7 +21,7 @@ Immutable net definitions with typed, colored tokens.
 |------|-------------|
 | `Place<T>` | Typed token container (phantom type for compile-time safety) |
 | `EnvironmentPlace<T>` | External event injection point |
-| `Transition` | Arc specs, timing, priority, guards, action binding |
+| `Transition` | Arc specs, timing, priority, match spec, action binding |
 | `PetriNet` | Immutable net definition; `bindActions()` separates structure from runtime behavior |
 | `Out` | Discriminated union for output specs: `and`, `xor`, `place`, `timeout`, `forward-input` |
 | `In` | Input arc specs with cardinality: `one`, `exactly`, `all`, `at-least` |

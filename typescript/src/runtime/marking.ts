@@ -14,10 +14,17 @@ import type { Token } from '../core/token.js';
 
 const EMPTY_TOKENS: readonly Token<any>[] = Object.freeze([]);
 
-/** Anything that carries a place reference and an optional guard predicate. */
-export interface GuardSpec<T = any> {
+/**
+ * A place reference plus an optional per-token predicate.
+ *
+ * Used by the ν-net join path (NU-020/NU-021) to select the tokens whose
+ * projected correlation name equals the chosen binding. This is *not* an input
+ * guard (IO-006, removed) — input specifications are purely structural; the
+ * predicate here is always derived from name correlation.
+ */
+export interface PredicateSpec<T = any> {
   readonly place: Place<T>;
-  readonly guard?: (value: T) => boolean;
+  readonly predicate?: (value: T) => boolean;
 }
 
 /**
@@ -76,21 +83,21 @@ export class Marking {
   }
 
   /**
-   * Removes and returns the first token whose value satisfies the guard predicate.
+   * Removes and returns the first token whose value satisfies the predicate.
    *
-   * Performs a linear scan of the place's FIFO queue. If no guard is provided,
-   * behaves like `removeFirst()`. If a guard is provided, skips non-matching
+   * Performs a linear scan of the place's FIFO queue. If no predicate is
+   * provided, behaves like `removeFirst()`. Otherwise skips non-matching
    * tokens and splices the first match out of the queue (O(n) worst case).
    */
-  removeFirstMatching(spec: GuardSpec): Token<any> | null {
+  removeFirstMatching(spec: PredicateSpec): Token<any> | null {
     const queue = this.tokens.get(spec.place.name);
     if (!queue || queue.length === 0) return null;
-    if (!spec.guard) {
+    if (!spec.predicate) {
       return queue.shift()!;
     }
     for (let i = 0; i < queue.length; i++) {
       const token = queue[i]!;
-      if (spec.guard(token.value)) {
+      if (spec.predicate(token.value)) {
         // Head removal (the common ν-net case — the matched token is the oldest,
         // hence at the front with distinct timestamps) uses the V8-optimized
         // shift() rather than an O(n) splice, keeping a draining join linear.
@@ -104,28 +111,28 @@ export class Marking {
 
   // ======================== Token Inspection ========================
 
-  /** Check if any token matches a guard predicate. */
-  hasMatchingToken(spec: GuardSpec): boolean {
+  /** Check if any token satisfies the predicate. */
+  hasMatchingToken(spec: PredicateSpec): boolean {
     const queue = this.tokens.get(spec.place.name);
     if (!queue || queue.length === 0) return false;
-    if (!spec.guard) return true;
-    return queue.some(t => spec.guard!(t.value));
+    if (!spec.predicate) return true;
+    return queue.some(t => spec.predicate!(t.value));
   }
 
   /**
-   * Counts tokens in a place whose values satisfy the guard predicate.
+   * Counts tokens in a place whose values satisfy the predicate.
    *
-   * If no guard is provided, returns the total token count (O(1)).
-   * With a guard, performs a linear scan over all tokens (O(n)).
-   * Used by the executor for enablement checks on guarded `all`/`at-least` inputs.
+   * If no predicate is provided, returns the total token count (O(1)).
+   * With a predicate, performs a linear scan over all tokens (O(n)).
+   * Used by the executor to size a ν-net correlated `all`/`at-least` consume.
    */
-  countMatching(spec: GuardSpec): number {
+  countMatching(spec: PredicateSpec): number {
     const queue = this.tokens.get(spec.place.name);
     if (!queue || queue.length === 0) return 0;
-    if (!spec.guard) return queue.length;
+    if (!spec.predicate) return queue.length;
     let count = 0;
     for (const t of queue) {
-      if (spec.guard(t.value)) count++;
+      if (spec.predicate(t.value)) count++;
     }
     return count;
   }

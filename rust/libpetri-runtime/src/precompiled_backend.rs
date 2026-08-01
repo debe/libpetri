@@ -246,31 +246,21 @@ impl<'a> PrecompiledBackend<'a> {
                 continue;
             }
 
-            // Build the matcher and seed it from the initial ring contents
-            // (guard-filtered), in the same key order.
+            // Build the matcher and seed it from the initial ring contents,
+            // in the same key order.
             let mut matcher = IncrementalMatcher::new(requireds);
             for (key_idx, mk) in ms.keys().iter().enumerate() {
                 let pid = self.program.place_id(mk.place_name()).unwrap();
-                let spec = t
-                    .input_specs()
-                    .iter()
-                    .find(|s| s.place_name() == mk.place_name());
-                let guard = spec.and_then(|s| s.guard()).cloned();
                 let count = self.token_counts[pid];
                 let offset = self.place_offset[pid];
                 let head = self.ring_head[pid];
                 let cap = self.ring_capacity[pid];
                 for i in 0..count {
                     let slot = offset + (head + i) % cap;
-                    if let Some(token) = &self.token_pool[slot] {
-                        if let Some(g) = &guard
-                            && !g(token.value.as_ref())
-                        {
-                            continue;
-                        }
-                        if let Some(name) = mk.extract(token.value.as_ref()) {
-                            matcher.add(key_idx, name, token.created_at);
-                        }
+                    if let Some(token) = &self.token_pool[slot]
+                        && let Some(name) = mk.extract(token.value.as_ref())
+                    {
+                        matcher.add(key_idx, name, token.created_at);
                     }
                 }
                 self.place_match_targets[pid].push((tid, key_idx));
@@ -280,7 +270,7 @@ impl<'a> PrecompiledBackend<'a> {
     }
 
     /// Mirror a token added to correlated input `pid` into every fast-path
-    /// matcher that consumes it (guard-filtered, projected to its name).
+    /// matcher that consumes it (projected to its name).
     fn cache_add_token(&mut self, pid: usize, value: &dyn std::any::Any, created_at: u64) {
         if self.place_match_targets[pid].is_empty() {
             return;
@@ -291,16 +281,6 @@ impl<'a> PrecompiledBackend<'a> {
             let t = prog.transition(tid);
             let ms = t.match_spec().expect("fast-path tid has a match spec");
             let mk = &ms.keys()[key_idx];
-            let guard = t
-                .input_specs()
-                .iter()
-                .find(|s| s.place_name() == mk.place_name())
-                .and_then(|s| s.guard());
-            if let Some(g) = guard
-                && !g(value)
-            {
-                continue;
-            }
             if let Some(name) = mk.extract(value)
                 && let Some(cache) = self.match_caches[tid].as_mut()
             {
@@ -358,12 +338,15 @@ impl<'a> PrecompiledBackend<'a> {
         self.token_pool[self.place_offset[pid] + self.ring_head[pid]].as_ref()
     }
 
-    /// Removes the first token matching `guard` from the ring buffer
+    /// Removes the first token satisfying `predicate` from the ring buffer
     /// at `pid`. Compacts the ring on hit.
+    ///
+    /// The predicate is always the ν-net name-equality test (NU-020/NU-021);
+    /// input specifications carry no per-token predicate of their own (IO-006).
     fn ring_remove_matching(
         &mut self,
         pid: usize,
-        guard: &dyn Fn(&dyn std::any::Any) -> bool,
+        predicate: &dyn Fn(&dyn std::any::Any) -> bool,
     ) -> Option<ErasedToken> {
         let count = self.token_counts[pid];
         if count == 0 {
@@ -376,7 +359,7 @@ impl<'a> PrecompiledBackend<'a> {
         for i in 0..count {
             let idx = offset + (head + i) % cap;
             if let Some(token) = &self.token_pool[idx]
-                && guard(token.value.as_ref())
+                && predicate(token.value.as_ref())
             {
                 let token = self.token_pool[idx].take().unwrap();
                 // Close the gap from whichever end is nearer, so removing the
@@ -414,10 +397,12 @@ impl<'a> PrecompiledBackend<'a> {
         None
     }
 
+    /// Counts tokens in the ring at `pid` satisfying `predicate` (the ν-net
+    /// name-equality test — see [`Self::ring_remove_matching`]).
     fn count_matching_in_ring(
         &self,
         pid: usize,
-        guard: &dyn Fn(&dyn std::any::Any) -> bool,
+        predicate: &dyn Fn(&dyn std::any::Any) -> bool,
     ) -> usize {
         let count = self.token_counts[pid];
         if count == 0 {
@@ -430,7 +415,7 @@ impl<'a> PrecompiledBackend<'a> {
         for i in 0..count {
             let idx = offset + (head + i) % cap;
             if let Some(token) = &self.token_pool[idx]
-                && guard(token.value.as_ref())
+                && predicate(token.value.as_ref())
             {
                 matched += 1;
             }
@@ -568,25 +553,6 @@ impl<'a> PrecompiledBackend<'a> {
             }
         }
 
-        if self.program.compiled().has_guards(tid) {
-            let t = self.program.transition(tid);
-            for spec in t.input_specs() {
-                if let Some(guard) = spec.guard() {
-                    let required = match spec {
-                        In::One { .. } => 1,
-                        In::Exactly { count, .. } => *count,
-                        In::AtLeast { minimum, .. } => *minimum,
-                        In::All { .. } => 1,
-                    };
-                    let pid = self.program.place_id(spec.place_name()).unwrap();
-                    let count = self.count_matching_in_ring(pid, &**guard);
-                    if count < required {
-                        return false;
-                    }
-                }
-            }
-        }
-
         // ν-net join: a correlation name must satisfy every matched input (NU-020).
         // Fast-path transitions read the maintained matcher (O(1)); the rest
         // rebuild the index (O(n)).
@@ -605,9 +571,8 @@ impl<'a> PrecompiledBackend<'a> {
 
     /// Finds the correlation name satisfying this transition's `MatchSpec`, or
     /// `None` if the join is not currently enabled (spec NU-020). Builds a
-    /// per-correlated-input name index over the ring buffers (guard-filtered)
-    /// and defers the selection + tie-break to the shared
-    /// [`select_match_name`].
+    /// per-correlated-input name index over the ring buffers and defers the
+    /// selection + tie-break to the shared [`select_match_name`].
     fn find_match_binding(&self, tid: usize) -> Option<NameId> {
         let t = self.program.transition(tid);
         let ms = t.match_spec()?;
@@ -625,8 +590,6 @@ impl<'a> PrecompiledBackend<'a> {
                 Some(In::AtLeast { minimum, .. }) => *minimum,
                 _ => 1,
             };
-            let guard = spec.and_then(|s| s.guard());
-
             let mut index: NameIndex = HashMap::new();
             let count = self.token_counts[pid];
             let offset = self.place_offset[pid];
@@ -634,17 +597,12 @@ impl<'a> PrecompiledBackend<'a> {
             let cap = self.ring_capacity[pid];
             for i in 0..count {
                 let slot = offset + (head + i) % cap;
-                if let Some(token) = &self.token_pool[slot] {
-                    if let Some(g) = guard
-                        && !g(token.value.as_ref())
-                    {
-                        continue;
-                    }
-                    if let Some(name) = mk.extract(token.value.as_ref()) {
-                        let entry = index.entry(name).or_insert((0usize, u64::MAX));
-                        entry.0 += 1;
-                        entry.1 = entry.1.min(token.created_at);
-                    }
+                if let Some(token) = &self.token_pool[slot]
+                    && let Some(name) = mk.extract(token.value.as_ref())
+                {
+                    let entry = index.entry(name).or_insert((0usize, u64::MAX));
+                    entry.0 += 1;
+                    entry.1 = entry.1.min(token.created_at);
                 }
             }
             per_place.push(index);
@@ -924,21 +882,13 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
     ) where
         F: FnMut(&Arc<str>, &ErasedToken),
     {
-        let has_guards = self.program.compiled().has_guards(tid);
-        let has_match = self.program.compiled().has_match(tid);
-
-        if has_guards || has_match {
-            // Spec-based path for guarded and/or ν-net-correlated transitions.
-            // For correlated inputs the chosen name (NU-020) plus any unary
-            // guard form a combined per-token predicate (guard first, then name
-            // equality — NU-021); other inputs consume FIFO as usual.
-            let chosen: Option<NameId> = if has_match {
-                match &self.match_caches[tid] {
-                    Some(cache) => cache.best().cloned(),
-                    None => self.find_match_binding(tid),
-                }
-            } else {
-                None
+        if self.program.compiled().has_match(tid) {
+            // Spec-based path for ν-net-correlated transitions. Correlated
+            // inputs take the tokens whose projected name equals the chosen
+            // binding (NU-020/NU-021); other inputs consume FIFO as usual.
+            let chosen: Option<NameId> = match &self.match_caches[tid] {
+                Some(cache) => cache.best().cloned(),
+                None => self.find_match_binding(tid),
             };
             let match_spec = self.program.transition(tid).match_spec().cloned();
             let input_specs: Vec<In> = self.program.transition(tid).input_specs().to_vec();
@@ -951,23 +901,14 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
                     .as_ref()
                     .and_then(|m| m.key_for(in_spec.place_name()))
                     .cloned();
-                let guard = in_spec.guard().cloned();
 
-                if key.is_some() || guard.is_some() {
+                if let Some(key) = key {
                     let chosen_name = chosen.clone();
                     let pred = move |v: &dyn std::any::Any| -> bool {
-                        if let Some(g) = &guard
-                            && !g(v)
-                        {
-                            return false;
-                        }
-                        match &key {
-                            Some(k) => matches!(
-                                (k(v), &chosen_name),
-                                (Some(n), Some(c)) if n == *c
-                            ),
-                            None => true,
-                        }
+                        matches!(
+                            (key(v), &chosen_name),
+                            (Some(n), Some(c)) if n == *c
+                        )
                     };
                     let to_consume = match in_spec {
                         In::One { .. } => 1,

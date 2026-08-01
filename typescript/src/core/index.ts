@@ -14,7 +14,7 @@ export type { Place, EnvironmentPlace } from './place.js';
 export { place, environmentPlace } from './place.js';
 
 export type { Arc, ArcInput, ArcOutput, ArcInhibitor, ArcRead, ArcReset } from './arc.js';
-export { inputArc, outputArc, inhibitorArc, readArc, resetArc, arcPlace, hasGuard, matchesGuard } from './arc.js';
+export { inputArc, outputArc, inhibitorArc, readArc, resetArc, arcPlace } from './arc.js';
 
 export type { In, InOne, InExactly, InAll, InAtLeast } from './in.js';
 export { one, exactly, all, atLeast, requiredCount, consumptionCount } from './in.js';

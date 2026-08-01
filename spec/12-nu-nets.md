@@ -120,23 +120,31 @@ language.
 
 ---
 
-#### NU-021: Guard / Match Composition
+#### NU-021: Match as the Sole Per-Token Filter
 
 **Priority:** MUST
 
-Where an implementation also supports a unary input filter on a correlated input,
-the filter applies **first** and the name correlation runs over the survivors. A
-token must pass the filter *and* project to the chosen name to be consumed.
+Name correlation ([NU-020]) is the **only** per-token filter the enablement check
+applies. There is no unary value predicate on an input: guards were removed in
+[IO-006] and no implementation carries one, so token selection is determined by
+position ([EXEC-010], [IO-007]) and, on correlated inputs, by name equality —
+nothing else.
+
+Should a future revision reintroduce a unary input filter, the composition order is
+fixed here in advance: the filter applies **first** and the name correlation runs
+over the survivors, so a token must pass the filter *and* project to the chosen name
+to be consumed. Until such a construct exists, this requirement is satisfied by the
+absence of any competing filter.
 
 **Acceptance Criteria:**
-1. A correlated input with both a unary filter and a key consumes only tokens
-   that pass the filter and carry the chosen name.
-2. The order is fixed (filter, then match) and observable: a token failing the
-   filter is never consumed even if its name matches.
+1. No input specification variant exposes a value predicate; the enablement check
+   evaluates no per-token predicate other than name equality on correlated inputs.
+2. A correlated input consumes only tokens carrying the chosen name; a same-place
+   token of a different name is left behind regardless of its value.
 
-**Depends on:** [NU-020]
-**Test derivation:** A correlated input filtered to even values, joined by name;
-verify an odd token of the matched name is left behind.
+**Depends on:** [NU-020], [IO-006]
+**Test derivation:** A ν-join over a place holding tokens of two different names;
+verify only the tokens of the selected name are consumed and the others remain.
 
 #### NU-022: Deterministic Match Selection
 
@@ -262,7 +270,7 @@ correlation.
 
 **Priority:** MAY
 
-The untimed encoder over-approximates guards ([VER-004]). For ν-nets this is
+The untimed encoder is value-blind ([VER-004]). For ν-nets this is
 relaxed under a carve-out: a matched transition's **name equality** is encoded
 **exactly** rather than name-blind, so a counterexample that silently equates two
 *different* names (criterion **#1** below) is ruled out. The name dimension is the
@@ -309,8 +317,8 @@ appears as state-class-graph truncation.
 
 **Acceptance Criteria:**
 1. (**NU-050 #1**) A property whose counterexample requires two *different* names
-   to be equal is not reported on the exact path, unlike the over-approximated
-   guard case.
+   to be equal is not reported on the exact path, unlike the value-blind
+   over-approximation.
 2. (**NU-050 #2**) An unbounded-fresh-name net without a budget place yields
    `Unknown`, not `Proven`/`Violated`.
 
@@ -486,7 +494,7 @@ that cannot consume the contested token must not suppress a genuine straggler.
    tokens), `CONFLICT` MUST NOT prune the lower-priority transition.
 
 **Depends on:** [VER-012], [NU-050], [NU-020]
-**Test derivation:** the minimal guard-join vs. timed dead-letter-drain fixture is
+**Test derivation:** the minimal ν-join vs. timed dead-letter-drain fixture is
 `Violated` under `NONE` and `Proven` under `CONFLICT`; a genuine orphan is `Violated`
 under `CONFLICT` without a drain and `Proven` with one; every verdict is attributed
 to Route B.

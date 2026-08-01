@@ -78,18 +78,18 @@ When a transition fires, it consumes tokens from the oldest-first (FIFO) end of 
 
 ---
 
-#### EXEC-011: Guarded Token Consumption
+#### EXEC-011: ~~Guarded Token Consumption~~ (Removed)
 
-**Priority:** SHOULD
+**Status:** Removed
 
-For inputs with guard predicates, the executor scans the FIFO queue and consumes the first N tokens that pass the guard, where N is determined by the cardinality.
+Guarded consumption was removed together with the guard predicate itself (see
+[IO-006]). With no per-token value predicate in the input specification, token
+selection is purely positional: [EXEC-010] (FIFO order) and [IO-007]
+(`consumptionCount`) fully determine which tokens a firing consumes. The one
+remaining per-token selection rule is the ν-name correlation of [NU-020], which is
+specified there and is structural, not a value predicate.
 
-**Acceptance Criteria:**
-1. Guard `x > 10`; tokens [5, 15, 3, 20]; One → consumes 15.
-2. Guard `x > 10`; tokens [5, 15, 3, 20]; Exactly(2) → consumes 15, 20.
-
-**Depends on:** [IO-006]
-**Test derivation:** Mixed guard-passing and non-passing tokens; verify correct tokens consumed.
+Retained as a tombstone for traceability; excluded from the active requirement count.
 
 ---
 
@@ -147,8 +147,9 @@ After depositing tokens, the executor validates that the produced tokens satisfy
 
 **Acceptance Criteria:**
 1. And: all children received tokens → valid.
-2. Xor: exactly one child received tokens → valid.
+2. Xor: exactly one child received tokens → valid; when several overlapping branches match, the subsumption tie-break of [IO-015] resolves them before a violation is raised.
 3. Violation → failure event emitted.
+4. Validation is applied by every executor backend a language ships, not only the reference one.
 
 **Depends on:** [IO-011], [IO-012], [IO-015]
 **Test derivation:** Xor output with tokens to 2 branches → violation event.
@@ -166,7 +167,7 @@ When a transition's output specification includes a Timeout node, the executor r
 **Acceptance Criteria:**
 1. Action completes in 50ms with 100ms timeout → normal completion.
 2. Action takes 200ms with 100ms timeout → timeout branch activated; ActionTimedOut event.
-3. ForwardInput in timeout child → consumed input value forwarded to output place.
+3. ForwardInput in timeout child → **every** token consumed from the `from` place is forwarded to the `to` place, one output token per consumed token, in consumption order ([IO-014]).
 4. Output the action wrote before the budget expired is discarded, not merged with the timeout branch ([IO-013] AC5).
 
 **Depends on:** [IO-013], [IO-014], [EVT-009]

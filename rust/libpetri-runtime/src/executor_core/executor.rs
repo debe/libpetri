@@ -13,13 +13,14 @@
 //!   `= Executor<PrecompiledBackend<'a>, E>` — production hot path.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
-use libpetri_core::context::{FreshNameFn, TransitionContext};
+use libpetri_core::context::{FreshNameFn, OutputEntry, TransitionContext};
 use libpetri_core::name::NameId;
+use libpetri_core::output::Out;
 use libpetri_core::token::ErasedToken;
 use libpetri_event::event_store::EventStore;
 use libpetri_event::net_event::NetEvent;
@@ -29,6 +30,7 @@ use crate::executor_core::backend::{
 };
 use crate::executor_core::deadline::{elapsed_ms_since, now_millis};
 use crate::executor_core::event_payload::{token_added_event, token_removed_event};
+use crate::executor_core::output::{describe_out_violation, validate_out_spec};
 use crate::marking::Marking;
 
 /// Shared executor over an [`ExecutorBackend`] and an `EventStore`.
@@ -52,6 +54,13 @@ pub struct Executor<S: ExecutorBackend, E: EventStore> {
     /// at quiescence (no env places) or wait (env places exist).
     has_environment_places: bool,
 
+    /// Escape hatch from \[IO-015\]: when true, `output_conforms` accepts
+    /// every firing without inspecting the declared spec. Mirrors Java's
+    /// `PrecompiledNetExecutor.Builder.skipOutputValidation` and
+    /// TypeScript's `skipOutputValidation` option, so a net that relies on
+    /// looser output behaviour has the same opt-out in all three languages.
+    skip_output_validation: bool,
+
     /// Reusable HashMap for `TransitionContext` inputs, kept across
     /// firings to avoid per-firing allocation. Cleared by the loop
     /// before each `consume_for_firing` call, then moved into the
@@ -61,6 +70,13 @@ pub struct Executor<S: ExecutorBackend, E: EventStore> {
     /// Companion to [`reusable_inputs`](Self::reusable_inputs) for
     /// read-arc tokens.
     reusable_reads: HashMap<Arc<str>, Vec<ErasedToken>>,
+
+    /// Scratch set of produced place names for \[IO-015\] output-spec
+    /// validation, pooled across firings like
+    /// [`reusable_inputs`](Self::reusable_inputs). Only touched for
+    /// composite (`and`/`xor`/`timeout`) specs — single-place specs and
+    /// spec-less transitions never build a set at all.
+    reusable_produced: HashSet<Arc<str>>,
 
     /// Monotonic source for ν-name minting ([`TransitionContext::fresh_name`],
     /// spec NU-010). One counter per executor run makes minted names
@@ -88,11 +104,22 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             event_store,
             start_time: Instant::now(),
             has_environment_places,
+            skip_output_validation: false,
             reusable_inputs: HashMap::new(),
             reusable_reads: HashMap::new(),
+            reusable_produced: HashSet::new(),
             fresh_name_counter: Arc::new(AtomicU64::new(0)),
             fresh_name_fns: Vec::new(),
         }
+    }
+
+    /// Disables \[IO-015\] output-spec validation for every firing.
+    ///
+    /// Separate from [`from_parts`](Self::from_parts) so the common path
+    /// keeps its three-argument shape; the builders call this only when
+    /// the caller asked for it.
+    pub fn set_skip_output_validation(&mut self, skip: bool) {
+        self.skip_output_validation = skip;
     }
 
     /// Returns the ν-name minter for transition `tid` (spec NU-010, NU-030),
@@ -279,6 +306,89 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         });
     }
 
+    /// \[IO-015\] Check the tokens a completed action is about to
+    /// produce against the transition's declared [`Out`] spec.
+    ///
+    /// `flushed` carries the place names already published mid-action via
+    /// `ctx.flush()` — those tokens are gone from the completion's output
+    /// list but were still produced, so they count towards the spec.
+    ///
+    /// Cost discipline (this runs on the firing hot path, so it returns a
+    /// bare `bool` — the failure message is rendered separately by the
+    /// cold [`emit_out_violation`](Self::emit_out_violation)):
+    /// - No declared spec → one load and a branch. This is the whole cost
+    ///   for nets that don't use `Out`.
+    /// - A single-place spec (`out_place(...)`, by far the most common
+    ///   shape) → one linear scan of the output slice, which is 1-3
+    ///   entries in practice. No set built, no hashing.
+    /// - Composite specs → fills the pooled
+    ///   [`reusable_produced`](Self::reusable_produced) set (no
+    ///   allocation after the first firing) and walks the spec tree.
+    #[inline]
+    fn output_conforms(
+        &mut self,
+        tid: usize,
+        outputs: &[OutputEntry],
+        flushed: &HashSet<Arc<str>>,
+    ) -> bool {
+        if self.skip_output_validation {
+            return true;
+        }
+        let Self {
+            backend,
+            reusable_produced,
+            ..
+        } = self;
+        let Some(spec) = backend.compiled().transition(tid).output_spec() else {
+            return true;
+        };
+
+        // Fast path: a single-leaf spec needs a membership test, not a set.
+        if let Out::Place(p) | Out::ForwardInput { to: p, .. } = spec {
+            let name = p.name();
+            return outputs.iter().any(|e| &*e.place_name == name) || flushed.contains(name);
+        }
+
+        reusable_produced.clear();
+        reusable_produced.extend(outputs.iter().map(|e| Arc::clone(&e.place_name)));
+        if !flushed.is_empty() {
+            reusable_produced.extend(flushed.iter().map(Arc::clone));
+        }
+        validate_out_spec(spec, reusable_produced)
+    }
+
+    /// Emits the `TransitionFailed` event for an \[IO-015\] violation.
+    /// Cold: re-walks the spec to render a diagnostic naming the
+    /// transition, the declared spec, and what was actually produced.
+    #[cold]
+    #[inline(never)]
+    fn emit_out_violation(
+        &mut self,
+        tid: usize,
+        transition_name: &Arc<str>,
+        outputs: &[OutputEntry],
+        flushed: &HashSet<Arc<str>>,
+    ) {
+        let Self {
+            backend,
+            event_store,
+            reusable_produced,
+            ..
+        } = self;
+        let Some(spec) = backend.compiled().transition(tid).output_spec() else {
+            return;
+        };
+        reusable_produced.clear();
+        reusable_produced.extend(outputs.iter().map(|e| Arc::clone(&e.place_name)));
+        reusable_produced.extend(flushed.iter().map(Arc::clone));
+        let detail = describe_out_violation(spec, reusable_produced);
+        event_store.append(NetEvent::TransitionFailed {
+            transition_name: Arc::clone(transition_name),
+            error: format!("[IO-015] '{transition_name}': {detail}"),
+            timestamp: now_millis(),
+        });
+    }
+
     /// Fire a single transition synchronously: consume inputs, run the
     /// action inline, process outputs, post-fire housekeeping.
     fn fire_transition_sync(&mut self, tid: usize) {
@@ -328,26 +438,38 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         match result {
             Ok(()) => {
                 let outputs = ctx.take_outputs();
-                for entry in outputs {
-                    let event = if E::ENABLED {
-                        Some(token_added_event::<E>(
-                            Arc::clone(&entry.place_name),
-                            now_millis(),
-                            &entry.token,
-                        ))
-                    } else {
-                        None
-                    };
-                    self.backend.produce_token(&entry.place_name, entry.token);
-                    if let Some(ev) = event {
-                        self.event_store.append(ev);
+                // [IO-015]: validate BEFORE producing anything — a
+                // violating firing deposits no tokens and does not
+                // restore the consumed inputs (AC3).
+                if self.output_conforms(tid, &outputs, ctx.flushed_places()) {
+                    for entry in outputs {
+                        let event = if E::ENABLED {
+                            Some(token_added_event::<E>(
+                                Arc::clone(&entry.place_name),
+                                now_millis(),
+                                &entry.token,
+                            ))
+                        } else {
+                            None
+                        };
+                        self.backend.produce_token(&entry.place_name, entry.token);
+                        if let Some(ev) = event {
+                            self.event_store.append(ev);
+                        }
                     }
-                }
-                if E::ENABLED {
-                    self.event_store.append(NetEvent::TransitionCompleted {
-                        transition_name: Arc::clone(&transition_name),
-                        timestamp: now_millis(),
-                    });
+                    if E::ENABLED {
+                        self.event_store.append(NetEvent::TransitionCompleted {
+                            transition_name: Arc::clone(&transition_name),
+                            timestamp: now_millis(),
+                        });
+                    }
+                } else if E::ENABLED {
+                    self.emit_out_violation(
+                        tid,
+                        &transition_name,
+                        &outputs,
+                        ctx.flushed_places(),
+                    );
                 }
             }
             Err(err) => {
@@ -370,15 +492,20 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
 #[cfg(feature = "tokio")]
 use crate::environment::ExecutorSignal;
 
-#[cfg(feature = "tokio")]
-use libpetri_core::context::OutputEntry;
-
 /// Completion message sent by spawned async transition tasks back to
 /// the executor.
 #[cfg(feature = "tokio")]
 struct ActionCompletion {
     transition_name: Arc<str>,
+    /// Index of the transition that fired — needed to look its declared
+    /// [`Out`] spec back up for \[IO-015\] validation.
+    tid: usize,
     result: Result<Vec<OutputEntry>, String>,
+    /// Place names published mid-action via `ctx.flush()`. Union'd with
+    /// the completion outputs for \[IO-015\] validation so streaming
+    /// actions (which drain their buffer on every flush) are not judged
+    /// to have produced nothing. Empty for non-streaming actions.
+    flushed_places: HashSet<Arc<str>>,
     /// `Some(timeout_ms)` when this completion came from an
     /// `Out::Timeout` budget expiring rather than the action finishing
     /// normally. Drives the `ActionTimedOut` event in
@@ -580,6 +707,28 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                         timestamp: now_millis(),
                     });
                 }
+                // [IO-015]: validate before producing. Skipped on the
+                // timeout path — those outputs come from `timeout_outputs`
+                // and satisfy the timeout child by construction, while the
+                // *declared* spec describes the normal-completion shape
+                // (an `and(...)` sibling would fail on every timeout).
+                if completion.timed_out.is_none()
+                    && !self.output_conforms(
+                        completion.tid,
+                        &outputs,
+                        &completion.flushed_places,
+                    )
+                {
+                    if E::ENABLED {
+                        self.emit_out_violation(
+                            completion.tid,
+                            &completion.transition_name,
+                            &outputs,
+                            &completion.flushed_places,
+                        );
+                    }
+                    return;
+                }
                 for entry in outputs {
                     let event = if E::ENABLED {
                         Some(token_added_event::<E>(
@@ -769,26 +918,37 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             match result {
                 Ok(()) => {
                     let outputs = ctx.take_outputs();
-                    for entry in outputs {
-                        let event = if E::ENABLED {
-                            Some(token_added_event::<E>(
-                                Arc::clone(&entry.place_name),
-                                now_millis(),
-                                &entry.token,
-                            ))
-                        } else {
-                            None
-                        };
-                        self.backend.produce_token(&entry.place_name, entry.token);
-                        if let Some(ev) = event {
-                            self.event_store.append(ev);
+                    // [IO-015]: validate before producing (AC3 — inputs
+                    // stay consumed on violation).
+                    if self.output_conforms(tid, &outputs, ctx.flushed_places()) {
+                        for entry in outputs {
+                            let event = if E::ENABLED {
+                                Some(token_added_event::<E>(
+                                    Arc::clone(&entry.place_name),
+                                    now_millis(),
+                                    &entry.token,
+                                ))
+                            } else {
+                                None
+                            };
+                            self.backend.produce_token(&entry.place_name, entry.token);
+                            if let Some(ev) = event {
+                                self.event_store.append(ev);
+                            }
                         }
-                    }
-                    if E::ENABLED {
-                        self.event_store.append(NetEvent::TransitionCompleted {
-                            transition_name: Arc::clone(&transition_name),
-                            timestamp: now_millis(),
-                        });
+                        if E::ENABLED {
+                            self.event_store.append(NetEvent::TransitionCompleted {
+                                transition_name: Arc::clone(&transition_name),
+                                timestamp: now_millis(),
+                            });
+                        }
+                    } else if E::ENABLED {
+                        self.emit_out_violation(
+                            tid,
+                            &transition_name,
+                            &outputs,
+                            ctx.flushed_places(),
+                        );
                     }
                 }
                 Err(err) => {
@@ -870,20 +1030,22 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 let completion = if let Some((after_ms, timeout_child)) = timeout_info {
                     tokio::select! {
                         biased;
-                        result = action.run_async(ctx) => action_completion(&name, result),
+                        result = action.run_async(ctx) => action_completion(&name, tid, result),
                         _ = tokio::time::sleep(std::time::Duration::from_millis(after_ms)) => {
                             ActionCompletion {
                                 transition_name: Arc::clone(&name),
+                                tid,
                                 result: Ok(crate::executor_core::output::timeout_outputs(
                                     &timeout_child,
                                     &forwarded_inputs,
                                 )),
+                                flushed_places: HashSet::new(),
                                 timed_out: Some(after_ms),
                             }
                         }
                     }
                 } else {
-                    action_completion(&name, action.run_async(ctx).await)
+                    action_completion(&name, tid, action.run_async(ctx).await)
                 };
                 let _ = tx.send(completion);
             });
@@ -906,17 +1068,27 @@ static NO_OUTPUT_SPEC: std::sync::LazyLock<libpetri_core::output::Out> =
 #[inline]
 fn action_completion(
     name: &Arc<str>,
+    tid: usize,
     result: Result<TransitionContext, libpetri_core::action::ActionError>,
 ) -> ActionCompletion {
     match result {
-        Ok(mut completed_ctx) => ActionCompletion {
-            transition_name: Arc::clone(name),
-            result: Ok(completed_ctx.take_outputs()),
-            timed_out: None,
-        },
+        Ok(mut completed_ctx) => {
+            // Moved, not cloned — an action that never flushed leaves an
+            // unallocated set here, so this costs nothing.
+            let flushed_places = completed_ctx.take_flushed_places();
+            ActionCompletion {
+                transition_name: Arc::clone(name),
+                tid,
+                result: Ok(completed_ctx.take_outputs()),
+                flushed_places,
+                timed_out: None,
+            }
+        }
         Err(err) => ActionCompletion {
             transition_name: Arc::clone(name),
+            tid,
             result: Err(err.message),
+            flushed_places: HashSet::new(),
             timed_out: None,
         },
     }
@@ -1099,5 +1271,83 @@ mod flush_tests {
             .unwrap();
 
         assert_eq!(result.count("end"), 1, "consumer fires after producer completes");
+    }
+
+    /// \[IO-015\] regression: output validation must count tokens
+    /// published through `ctx.flush()`.
+    ///
+    /// `flush()` *drains* the context's output buffer, so at completion
+    /// `take_outputs()` only reports what was written since the last
+    /// flush. A validator that looks at that slice alone judges every
+    /// streaming action to have skipped its `chunk` branch and fails
+    /// the firing — which would also swallow the `done` token written
+    /// at completion. This is the exact shape of
+    /// `python/tests/test_ctx_flush.py`.
+    #[tokio::test]
+    async fn flushed_outputs_count_towards_output_spec() {
+        use libpetri_core::output::and;
+        use libpetri_event::event_store::{EventStore, InMemoryEventStore};
+        use libpetri_event::net_event::NetEvent;
+
+        use crate::compiled_net::CompiledNet;
+        use crate::precompiled_executor::PrecompiledNetExecutor;
+        use crate::precompiled_net::PrecompiledNet;
+
+        let start = Place::<i32>::new("start");
+        let chunk = Place::<i32>::new("chunk");
+        let done = Place::<i32>::new("done");
+
+        let streamer = Transition::builder("streamer")
+            .input(one(&start))
+            // Both branches must be satisfied — `chunk` only ever
+            // arrives through flush.
+            .output(and(vec![out_place(&chunk), out_place(&done)]))
+            .action(async_action(move |mut ctx| async move {
+                for i in 0..5i32 {
+                    ctx.output("chunk", i)?;
+                    ctx.flush()?;
+                    tokio::task::yield_now().await;
+                }
+                // Only this one entry is left in the buffer at completion.
+                ctx.output("done", 1i32)?;
+                Ok(ctx)
+            }))
+            .build();
+
+        let net = PetriNet::builder("flush_stream_net")
+            .transition(streamer)
+            .build();
+        let prog = PrecompiledNet::from_compiled(CompiledNet::compile(&net));
+
+        let mut initial = Marking::new();
+        initial.add(&start, Token::new(1i32));
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+        drop(tx);
+
+        let mut executor = PrecompiledNetExecutor::<InMemoryEventStore>::builder(&prog, initial)
+            .event_store(InMemoryEventStore::new())
+            .build();
+        let marking = tokio::time::timeout(Duration::from_secs(5), executor.run_async(rx))
+            .await
+            .expect("executor stalled")
+            .into_owned();
+
+        let failures: Vec<&NetEvent> = executor
+            .event_store()
+            .events()
+            .iter()
+            .filter(|e| matches!(e, NetEvent::TransitionFailed { .. }))
+            .collect();
+        assert!(
+            failures.is_empty(),
+            "streaming action must satisfy its Out spec via flushed tokens, got {failures:?}"
+        );
+        assert_eq!(marking.count("chunk"), 5, "all five flushed chunks land");
+        assert_eq!(
+            marking.count("done"),
+            1,
+            "completion-time token must not be dropped by a spurious IO-015 failure"
+        );
     }
 }

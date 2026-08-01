@@ -8,11 +8,11 @@
  * On firing, exactly those name-matched tokens are consumed (spec NU-020).
  *
  * This is the single *decidable* predicate — equality of opaque names — and is
- * deliberately NOT a general guard: it correlates the name dimension *across*
- * places (composition-structural, like cardinality) rather than evaluating an
- * arbitrary boolean per token. When both a unary input `guard` and a match are
- * present the guard filters first, then the name correlation runs over the
- * survivors (NU-021).
+ * deliberately NOT a general input predicate: it correlates the name dimension
+ * *across* places (composition-structural, like cardinality) rather than
+ * evaluating an arbitrary boolean per token. Input specifications themselves
+ * remain purely structural (IO-006); name correlation is the only per-token
+ * filter the enablement check ever applies (NU-021).
  */
 import type { Place } from './place.js';
 import type { NameId } from './name.js';
@@ -53,7 +53,7 @@ export function matchKey<T>(place: Place<T>, key: KeyFn<T>): MatchKey<T> {
  *     ))
  *
  * @throws if fewer than two inputs are correlated (a match over a single place
- *   is just a guard).
+ *   correlates nothing).
  */
 export function matchSpec(...keys: MatchKey[]): MatchSpec {
   if (keys.length < 2) {
