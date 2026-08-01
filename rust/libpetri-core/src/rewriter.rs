@@ -24,8 +24,7 @@
 //! # Performance
 //!
 //! - Actions ([`crate::action::BoxedAction`] = `Arc<dyn TransitionAction>`)
-//!   and guard closures ([`crate::input::GuardFn`] = `Arc<dyn Fn>`) carry
-//!   through by `Arc::clone` — atomic refcount only, no allocation.
+//!   carry through by `Arc::clone` — atomic refcount only, no allocation.
 //! - New `Arc<str>` allocation only for renamed names (one per place + one
 //!   per transition, plus the new net name).
 //! - `Out::And` / `Out::Xor` children are walked with explicit
@@ -334,35 +333,22 @@ fn collect_out_places(out: &Out, f: &mut impl FnMut(&PlaceRef)) {
 // ============================================================
 
 /// Rewrites an [`In`] via the place remap. Exhaustive `match` over the
-/// `One`, `Exactly`, `All`, `AtLeast` variants. Guard `Arc`s are carried
-/// through by `Arc::clone` (refcount-only).
+/// `One`, `Exactly`, `All`, `AtLeast` variants.
 pub(crate) fn rewrite_in(spec: &In, remap: &HashMap<Arc<str>, PlaceRef>) -> In {
     match spec {
-        In::One { place, guard } => In::One {
+        In::One { place } => In::One {
             place: resolve(place, remap),
-            guard: guard.as_ref().map(Arc::clone),
         },
-        In::Exactly {
-            place,
-            count,
-            guard,
-        } => In::Exactly {
+        In::Exactly { place, count } => In::Exactly {
             place: resolve(place, remap),
             count: *count,
-            guard: guard.as_ref().map(Arc::clone),
         },
-        In::All { place, guard } => In::All {
+        In::All { place } => In::All {
             place: resolve(place, remap),
-            guard: guard.as_ref().map(Arc::clone),
         },
-        In::AtLeast {
-            place,
-            minimum,
-            guard,
-        } => In::AtLeast {
+        In::AtLeast { place, minimum } => In::AtLeast {
             place: resolve(place, remap),
             minimum: *minimum,
-            guard: guard.as_ref().map(Arc::clone),
         },
     }
 }
@@ -542,9 +528,7 @@ pub(crate) fn merge_transitions(
     }
 
     // Inputs: union caller-first, then instance, dedup by (kind, place name,
-    // count/minimum where applicable). Guard predicates are reference-compared
-    // by Arc identity — two equal-shaped arcs with different guard closures
-    // are treated as distinct.
+    // count/minimum where applicable) — matching Java's record-equality dedupe.
     let unioned_inputs = union_arcs(caller.input_specs(), instance.input_specs(), key_of_in);
     if !unioned_inputs.is_empty() {
         builder = builder.inputs(unioned_inputs);
@@ -725,9 +709,8 @@ pub(crate) fn merge_outputs(caller: Option<&Out>, instance: Option<&Out>) -> Opt
 ///
 /// Implementation note: a `Vec` + a `HashSet<String>` of seen keys preserves
 /// insertion order while deduping by the supplied key function. The Rust arc
-/// types are not hashable in a way that captures cardinality + guard-closure
-/// identity, so the caller supplies a `keyOf*` function mirroring the TS
-/// approach.
+/// types are not hashable in a way that captures cardinality, so the caller
+/// supplies a `keyOf*` function mirroring the TS approach.
 pub(crate) fn union_arcs<A: Clone>(
     caller: &[A],
     instance: &[A],
@@ -792,42 +775,15 @@ impl TransitionAction for SequentialAction {
 
 // ---------- Structural arc keys (mirror TS keyOf*) ----------
 
-/// Identity-only key for guard closures. Two distinct closure references yield
-/// distinct keys; reusing the same `Arc<dyn Fn>` across arcs collapses them.
-fn guard_key(g: &crate::input::GuardFn) -> String {
-    // Use the Arc's data pointer as identity. Two distinct closure Arcs have
-    // distinct vtable pointers; the same Arc cloned across arcs preserves
-    // pointer identity.
-    let raw = Arc::as_ptr(g) as *const () as usize;
-    format!("{raw:x}")
-}
-
+/// Structural key for an [`In`] arc. Encodes the discriminant + place name +
+/// cardinality (where applicable). Input specifications are purely structural
+/// (IO-006), so this key is total.
 fn key_of_in(arc: &In) -> String {
     match arc {
-        In::One { place, guard } => match guard {
-            None => format!("one|{}", place.name()),
-            Some(g) => format!("one|{}|g:{}", place.name(), guard_key(g)),
-        },
-        In::Exactly {
-            place,
-            count,
-            guard,
-        } => match guard {
-            None => format!("exactly|{}|{}", place.name(), count),
-            Some(g) => format!("exactly|{}|{}|g:{}", place.name(), count, guard_key(g)),
-        },
-        In::All { place, guard } => match guard {
-            None => format!("all|{}", place.name()),
-            Some(g) => format!("all|{}|g:{}", place.name(), guard_key(g)),
-        },
-        In::AtLeast {
-            place,
-            minimum,
-            guard,
-        } => match guard {
-            None => format!("atLeast|{}|{}", place.name(), minimum),
-            Some(g) => format!("atLeast|{}|{}|g:{}", place.name(), minimum, guard_key(g)),
-        },
+        In::One { place } => format!("one|{}", place.name()),
+        In::Exactly { place, count } => format!("exactly|{}|{}", place.name(), count),
+        In::All { place } => format!("all|{}", place.name()),
+        In::AtLeast { place, minimum } => format!("atLeast|{}|{}", place.name(), minimum),
     }
 }
 
@@ -847,7 +803,7 @@ fn key_of_reset(arc: &Reset) -> String {
 mod tests {
     use super::*;
     use crate::arc::{inhibitor, read, reset};
-    use crate::input::{all, at_least, exactly, one, one_guarded};
+    use crate::input::{all, at_least, exactly, one};
     use crate::name::NameId;
     use crate::output::{and, forward_input, out_place, timeout, xor};
     use crate::place::Place;
@@ -1015,23 +971,6 @@ mod tests {
             }
             other => panic!("expected In::AtLeast, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn rewrite_in_carries_guard_by_reference() {
-        let p = Place::<i32>::new("p");
-        let original = one_guarded(&p, |v: &i32| *v > 0);
-        let original_guard = original.guard().unwrap().clone();
-
-        let mut remap = HashMap::new();
-        remap.insert(Arc::<str>::from("p"), PlaceRef::new("r/p"));
-
-        let rewritten = rewrite_in(&original, &remap);
-        let new_guard = rewritten.guard().unwrap();
-        assert!(
-            Arc::ptr_eq(new_guard, &original_guard),
-            "guard Arc must be cloned by reference, not re-allocated"
-        );
     }
 
     // ============================================================

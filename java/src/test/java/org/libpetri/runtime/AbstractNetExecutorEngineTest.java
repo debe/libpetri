@@ -3886,6 +3886,90 @@ abstract class AbstractNetExecutorEngineTest {
             }
         }
 
+        /**
+         * A batched input spec consumes N tokens; the timeout's {@code ForwardInput} must
+         * re-emit all N at {@code to}. Forwarding only the first silently destroys N-1
+         * tokens on precisely the retry path the construct exists to support.
+         */
+        @Test
+        void outTimeout_forwardInput_all_forwardsEveryConsumedToken() throws Exception {
+            var input = Place.of("Input", SimpleValue.class);
+            var success = Place.of("Success", SimpleValue.class);
+            var retry = Place.of("Retry", SimpleValue.class);
+
+            var t = Transition.builder("slow")
+                .inputs(all(input))
+                .outputs(xor(
+                    place(success),
+                    timeout(Duration.ofMillis(50),
+                        forwardInput(input, retry))))
+                .action(ctx -> CompletableFuture.supplyAsync(() -> {
+                    sleep(500);
+                    ctx.output(success, new SimpleValue("late"));
+                    return null;
+                }, testExecutor))
+                .build();
+
+            var net = PetriNet.builder("TimeoutForwardAll").transitions(t).build();
+
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                input, List.of(
+                    Token.of(new SimpleValue("a")),
+                    Token.of(new SimpleValue("b")),
+                    Token.of(new SimpleValue("c")))
+            );
+
+            try (var executor = createExecutor(net, initial)) {
+                var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
+
+                assertEquals(3, result.tokenCount(retry),
+                    "All 3 consumed tokens should be forwarded");
+                assertEquals(List.of("a", "b", "c"),
+                    result.peekTokens(retry).stream().map(tok -> tok.value().data()).toList(),
+                    "Forwarded tokens should keep their values and consumption order");
+                assertFalse(result.hasTokens(success), "Success branch should be empty");
+            }
+        }
+
+        @Test
+        void outTimeout_forwardInput_exactly_forwardsEveryConsumedToken() throws Exception {
+            var input = Place.of("Input", SimpleValue.class);
+            var success = Place.of("Success", SimpleValue.class);
+            var retry = Place.of("Retry", SimpleValue.class);
+
+            var t = Transition.builder("slow")
+                .inputs(exactly(2, input))
+                .outputs(xor(
+                    place(success),
+                    timeout(Duration.ofMillis(50),
+                        forwardInput(input, retry))))
+                .action(ctx -> CompletableFuture.supplyAsync(() -> {
+                    sleep(500);
+                    ctx.output(success, new SimpleValue("late"));
+                    return null;
+                }, testExecutor))
+                .build();
+
+            var net = PetriNet.builder("TimeoutForwardExactly").transitions(t).build();
+
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                input, List.of(
+                    Token.of(new SimpleValue("first")),
+                    Token.of(new SimpleValue("second")))
+            );
+
+            try (var executor = createExecutor(net, initial)) {
+                var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
+
+                assertEquals(2, result.tokenCount(retry),
+                    "Both consumed tokens should be forwarded");
+                assertEquals(List.of("first", "second"),
+                    result.peekTokens(retry).stream().map(tok -> tok.value().data()).toList(),
+                    "Forwarded tokens should keep their values and consumption order");
+                assertFalse(result.hasTokens(success), "Success branch should be empty");
+            }
+        }
+
         @Test
         void outTimeout_andChild_producesToMultiplePlaces() throws Exception {
             var input = Place.of("Input", SimpleValue.class);

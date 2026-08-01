@@ -553,12 +553,7 @@ public final class StateClassGraph {
         for (var in : transition.inputSpecs()) {
             var place = in.place();
 
-            int toConsume = switch (in) {
-                case Arc.In.One _ -> 1;
-                case Arc.In.Exactly e -> e.count();
-                case Arc.In.All _ -> 1;       // Analysis: consume minimum (1 token)
-                case Arc.In.AtLeast a -> a.minimum();
-            };
+            int toConsume = inputConsumeCount(in, marking.tokens(place));
 
             consumeFromPlace(builder, place, toConsume, environmentPlaces, environmentMode);
         }
@@ -585,6 +580,42 @@ public final class StateClassGraph {
         }
 
         return builder.build();
+    }
+
+    /**
+     * Tokens removed from an input place by one firing, given how many are there.
+     *
+     * <p>Delegates to {@link Arc.In#consumptionCount(int)}, the canonical [IO-007]
+     * definition the executor also follows — {@code In.All} and {@code In.AtLeast}
+     * consume <strong>every</strong> available token, not a minimum. See
+     * {@code BitmapNetExecutor.consumeInputs}, which computes
+     * {@code marking.tokenCount(place)} for both variants.
+     *
+     * <p>This used to be an independent copy that returned the <em>minimum</em>
+     * (1 for {@code All}, {@code minimum()} for {@code AtLeast}). That left residual
+     * tokens the real net never holds, which kept inhibitor-gated successors
+     * suppressed and could report a reachable marking as unreachable — a false
+     * {@code Verdict.Proven} on the {@code NuScgVerifier} safety path. Keep this
+     * delegating; a second definition of consumption is exactly what caused that bug.
+     *
+     * <p>Note this is consumption only. Enablement uses {@code requiredCount}
+     * semantics ({@code All} => 1, {@code AtLeast} => minimum), which is correct
+     * and unchanged.
+     *
+     * @param in the input spec being fired
+     * @param available tokens currently in the input place
+     * @return the number of tokens to remove
+     */
+    private static int inputConsumeCount(Arc.In in, int available) {
+        // consumptionCount throws when available < requiredCount. Successors are only
+        // computed for transitions isEnabled accepted, so that normally holds — but an
+        // environment place in AlwaysAvailable/Bounded mode is "enabled" while its
+        // recorded marking is short. Clamp rather than let an analysis pass throw;
+        // consumeFromPlace ignores the count for those modes anyway.
+        if (available < in.requiredCount()) {
+            return available;
+        }
+        return in.consumptionCount(available);
     }
 
     /**

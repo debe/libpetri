@@ -168,6 +168,12 @@ pub struct PyActionContext {
     /// first, then fall back through this map. `None` when the
     /// transition was not composed.
     local_name_map: Option<Arc<HashMap<Arc<str>, Arc<str>>>>,
+    /// Place names published by `flush()`. This context invokes the raw
+    /// `FlushFn` directly, bypassing `TransitionContext::flush`, so the
+    /// names are handed back to the Rust context in `flush_outputs` —
+    /// without that, [IO-015] output validation would not count tokens
+    /// a streaming Python action published mid-action.
+    flushed_places: Vec<Arc<str>>,
 }
 
 #[pymethods]
@@ -281,6 +287,10 @@ impl PyActionContext {
                 },
             })
             .collect();
+        // [IO-015]: remember what left the buffer; `flush_outputs`
+        // replays these into the Rust context at completion.
+        self.flushed_places
+            .extend(entries.iter().map(|e| Arc::clone(&e.place_name)));
         cb(entries);
         Ok(())
     }
@@ -376,11 +386,16 @@ impl PyActionContext {
             flush_fn: ctx.flush_fn(),
             fresh_name_fn: ctx.fresh_name_fn(),
             local_name_map: ctx.local_name_map(),
+            flushed_places: Vec::new(),
         })
     }
 
     fn take_outputs(&mut self) -> Vec<(Arc<str>, Py<PyAny>)> {
         std::mem::take(&mut self.outputs)
+    }
+
+    fn take_flushed_places(&mut self) -> Vec<Arc<str>> {
+        std::mem::take(&mut self.flushed_places)
     }
 }
 
@@ -611,6 +626,12 @@ fn flush_outputs(
     rust_ctx: &mut TransitionContext,
 ) -> PyResult<()> {
     let mut py_ctx_borrow = py_ctx.bind(py).borrow_mut();
+    // [IO-015]: places published through the Python-side `flush()` never
+    // passed through `TransitionContext::flush`, so report them now.
+    let flushed = py_ctx_borrow.take_flushed_places();
+    if !flushed.is_empty() {
+        rust_ctx.note_flushed(flushed);
+    }
     for (place_name, value) in py_ctx_borrow.take_outputs() {
         rust_ctx
             .output_raw(

@@ -43,9 +43,8 @@ pub struct CompiledNet {
     // Consumption place IDs per transition (input + reset places)
     consumption_place_ids: Vec<Vec<usize>>,
 
-    // Cardinality and guard flags
+    // Cardinality flags
     cardinality_checks: Vec<Option<CardinalityCheck>>,
-    has_guards: Vec<bool>,
     // ν-net join correlation flag per transition (spec NU-020).
     has_match: Vec<bool>,
 }
@@ -86,7 +85,6 @@ impl CompiledNet {
         let mut inhibitor_masks = vec![0u64; transition_count * word_count];
         let mut consumption_place_ids = Vec::with_capacity(transition_count);
         let mut cardinality_checks: Vec<Option<CardinalityCheck>> = vec![None; transition_count];
-        let mut has_guards = vec![false; transition_count];
         let mut has_match = vec![false; transition_count];
 
         let mut place_to_transitions_tmp: Vec<HashSet<usize>> = vec![HashSet::new(); place_count];
@@ -111,9 +109,6 @@ impl CompiledNet {
 
                 if !matches!(in_spec, In::One { .. }) {
                     needs_cardinality = true;
-                }
-                if in_spec.has_guard() {
-                    has_guards[tid] = true;
                 }
             }
 
@@ -185,7 +180,6 @@ impl CompiledNet {
             place_to_transitions,
             consumption_place_ids,
             cardinality_checks,
-            has_guards,
             has_match,
         }
     }
@@ -235,11 +229,6 @@ impl CompiledNet {
         self.cardinality_checks[tid].as_ref()
     }
 
-    /// Returns whether a transition has guard predicates.
-    pub fn has_guards(&self, tid: usize) -> bool {
-        self.has_guards[tid]
-    }
-
     /// Returns whether a transition has a ν-net join correlation spec
     /// ([`MatchSpec`](libpetri_core::match_spec::MatchSpec), spec NU-020).
     pub fn has_match(&self, tid: usize) -> bool {
@@ -264,7 +253,7 @@ impl CompiledNet {
     /// 1. Presence check: verifies all required places have tokens
     /// 2. Inhibitor check: verifies no inhibitor places have tokens
     ///
-    /// This is a necessary but not sufficient condition — cardinality and guard checks
+    /// This is a necessary but not sufficient condition — cardinality and ν-match checks
     /// are performed separately by the executor for transitions that pass this fast path.
     pub fn can_enable_bitmap(&self, tid: usize, marking_snapshot: &[u64]) -> bool {
         let needs = self.needs_mask(tid);

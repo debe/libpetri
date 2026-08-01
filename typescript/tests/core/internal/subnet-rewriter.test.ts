@@ -109,14 +109,6 @@ describe('SubnetRewriter', () => {
       expect(rewritten.place.name).toBe('pre/p');
     });
 
-    it('one: preserves guard predicate by reference', () => {
-      const p = place<number>('p');
-      const guard = (v: number) => v > 0;
-      const remap = makeRemap(p as Place<unknown>, 'pre');
-      const rewritten = rewriteIn(one(p, guard), remap) as Extract<In, { type: 'one' }>;
-      expect(rewritten.guard).toBe(guard);
-    });
-
     it('exactly: preserves count and substitutes place', () => {
       const p = place<number>('p');
       const remap = makeRemap(p as Place<unknown>, 'pre');

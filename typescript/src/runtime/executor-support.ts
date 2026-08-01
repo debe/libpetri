@@ -118,9 +118,7 @@ export function validateOutSpec(
         );
       }
       if (satisfied.length > 1) {
-        throw new OutViolationError(
-          `'${tName}': XOR violation - multiple branches produced`
-        );
+        return resolveXorAmbiguity(tName, satisfied);
       }
       return satisfied[0]!;
     }
@@ -131,11 +129,36 @@ export function validateOutSpec(
 }
 
 /**
+ * Two or more XOR branches matched. When exactly one of them subsumes all the
+ * others — as `and(a, b, c)` subsumes `and(a, b)` — it is the intended, most
+ * specific branch and the firing is accepted with that branch's claim.
+ * Anything else is genuinely ambiguous and violates [IO-015].
+ *
+ * Mirrors Java's `ExecutorSupport.validateOutSpec` and Rust's
+ * `resolve_xor_ambiguity`; without it, overlapping XOR branches that the other
+ * two runtimes accept were rejected here.
+ */
+function resolveXorAmbiguity(tName: string, satisfied: Set<string>[]): Set<string> {
+  const subsuming = satisfied.filter((candidate) =>
+    satisfied.every(
+      (other) =>
+        other === candidate || [...other].every((p) => candidate.has(p))
+    )
+  );
+  if (subsuming.length === 1) return subsuming[0]!;
+  throw new OutViolationError(
+    `'${tName}': XOR violation - multiple branches produced`
+  );
+}
+
+/**
  * Produces default tokens to the timeout branch's output places when an action
  * exceeds its timeout. Walks the Out spec tree recursively:
  *
  * - **Place**: produces `null` (the timeout sentinel value).
- * - **ForwardInput**: forwards the consumed input token to the output place.
+ * - **ForwardInput**: forwards *all* tokens consumed from the `from` place to the
+ *   output place, in consumption order — one output token per consumed token, so a
+ *   batched input spec (`all()` / `exactly(n)`) conserves its tokens on timeout.
  * - **AND**: recurses into all children (all branches get tokens).
  * - **XOR**: disallowed — timeout cannot choose a branch non-deterministically.
  * - **Timeout**: disallowed — nested timeouts would create ambiguous recovery paths.
@@ -150,8 +173,14 @@ export function produceTimeoutOutput(context: TransitionContext, timeoutChild: O
       context.outputToHarvest(timeoutChild.place, null);
       break;
     case 'forward-input': {
-      const value = context.input(timeoutChild.from);
-      context.outputToHarvest(timeoutChild.to, value);
+      // Forward *every* token consumed from `from`, not just the first: a batched
+      // input spec (`all()`, `exactly(n)`, `atLeast(n)`) consumes N tokens, and
+      // re-emitting only one would silently destroy N-1 of them on the retry path.
+      // `inputs()` is the batched accessor and preserves consumption (FIFO) order;
+      // the singular `input()` throws outright when the place yielded != 1 token.
+      for (const value of context.inputs(timeoutChild.from)) {
+        context.outputToHarvest(timeoutChild.to, value);
+      }
       break;
     }
     case 'and':

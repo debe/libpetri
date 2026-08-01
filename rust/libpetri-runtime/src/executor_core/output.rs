@@ -11,23 +11,169 @@ use libpetri_core::context::OutputEntry;
 #[cfg(feature = "tokio")]
 use libpetri_core::token::{ErasedToken, Token};
 
-/// Returns true when the actually-produced set of places satisfies the
-/// transition's [`Out`] spec (AND requires all children, XOR requires
-/// at least one, Timeout passes through to its child, ForwardInput
-/// requires the forward target).
-#[allow(dead_code)]
+/// \[IO-015\] Checks that the actually-produced set of places satisfies
+/// the transition's declared [`Out`] spec.
+///
+/// Semantics are the same three-language contract implemented by Java
+/// (`ExecutorSupport.validateOutSpec`) and TypeScript (`validateOutSpec`):
+///
+/// - [`Out::Place`] / [`Out::ForwardInput`] — the named place must have
+///   received at least one token.
+/// - [`Out::And`] — **every** child must be satisfied.
+/// - [`Out::Xor`] — **exactly one** child must be satisfied. Zero
+///   satisfied branches, or two or more, is a violation — except when a
+///   single satisfied branch subsumes all the other satisfied ones (e.g.
+///   `xor(and(a, b, c), and(a, b))`), in which case the most specific
+///   match is selected.
+/// - [`Out::Timeout`] — passes through to its child.
+///
+/// Returns a plain `bool` so the firing hot path stays branch-and-return;
+/// [`describe_out_violation`] renders the reason on the (cold) failure
+/// path.
+///
+/// Allocation-free on the satisfied path: the walk is a pure predicate
+/// over `produced_places`; only XOR ambiguity resolution (a rare,
+/// usually-failing path) builds intermediate sets.
 pub(crate) fn validate_out_spec(out: &Out, produced_places: &HashSet<Arc<str>>) -> bool {
-    match out {
-        Out::Place(p) => produced_places.contains(p.name()),
-        Out::And(children) => children
-            .iter()
-            .all(|c| validate_out_spec(c, produced_places)),
-        Out::Xor(children) => children
-            .iter()
-            .any(|c| validate_out_spec(c, produced_places)),
-        Out::Timeout { child, .. } => validate_out_spec(child, produced_places),
-        Out::ForwardInput { to, .. } => produced_places.contains(to.name()),
+    satisfied(out, produced_places).unwrap_or(false)
+}
+
+/// Explains why `produced_places` failed [`validate_out_spec`]. Cold
+/// path — only called to populate a `TransitionFailed` event, so it may
+/// re-walk the spec and allocate freely.
+#[cold]
+#[inline(never)]
+pub(crate) fn describe_out_violation(out: &Out, produced_places: &HashSet<Arc<str>>) -> String {
+    match satisfied(out, produced_places) {
+        Err(message) => message,
+        _ => format!(
+            "output does not satisfy declared spec (expected {}, produced {:?})",
+            describe(out),
+            sorted_names(produced_places)
+        ),
     }
+}
+
+/// `Ok(true)` = satisfied, `Ok(false)` = not satisfied, `Err` = a
+/// structural XOR violation (which carries its own message rather than
+/// collapsing into "unsatisfied", matching Java/TypeScript).
+fn satisfied(out: &Out, produced: &HashSet<Arc<str>>) -> Result<bool, String> {
+    match out {
+        Out::Place(p) => Ok(produced.contains(p.name())),
+        Out::ForwardInput { to, .. } => Ok(produced.contains(to.name())),
+        Out::And(children) => {
+            for child in children {
+                if !satisfied(child, produced)? {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
+        Out::Xor(children) => {
+            let mut count = 0usize;
+            for child in children {
+                if satisfied(child, produced)? {
+                    count += 1;
+                }
+            }
+            match count {
+                0 => Err(format!(
+                    "XOR violation - no branch produced (exactly 1 required) in {}",
+                    describe(out)
+                )),
+                1 => Ok(true),
+                _ => resolve_xor_ambiguity(children, produced),
+            }
+        }
+        Out::Timeout { child, .. } => satisfied(child, produced),
+    }
+}
+
+/// Two or more XOR branches matched. When exactly one of them subsumes
+/// all the others it is the intended (most specific) branch; otherwise
+/// the output is genuinely ambiguous and the firing is a violation.
+fn resolve_xor_ambiguity(children: &[Out], produced: &HashSet<Arc<str>>) -> Result<bool, String> {
+    let claimed: Vec<HashSet<Arc<str>>> = children
+        .iter()
+        .filter(|c| satisfied(c, produced).unwrap_or(false))
+        .map(|c| {
+            let mut set = HashSet::new();
+            collect_claimed(c, produced, &mut set);
+            set
+        })
+        .collect();
+
+    let subsuming = claimed
+        .iter()
+        .filter(|candidate| {
+            claimed
+                .iter()
+                .all(|other| std::ptr::eq(*candidate, other) || other.is_subset(candidate))
+        })
+        .count();
+
+    if subsuming == 1 {
+        Ok(true)
+    } else {
+        Err("XOR violation - multiple branches produced".to_string())
+    }
+}
+
+/// Collects the place names a satisfied subtree claims.
+fn collect_claimed(out: &Out, produced: &HashSet<Arc<str>>, result: &mut HashSet<Arc<str>>) {
+    match out {
+        Out::Place(p) => {
+            if let Some(name) = produced.get(p.name()) {
+                result.insert(Arc::clone(name));
+            }
+        }
+        Out::ForwardInput { to, .. } => {
+            if let Some(name) = produced.get(to.name()) {
+                result.insert(Arc::clone(name));
+            }
+        }
+        Out::And(children) => {
+            for child in children {
+                collect_claimed(child, produced, result);
+            }
+        }
+        Out::Xor(children) => {
+            for child in children {
+                if satisfied(child, produced).unwrap_or(false) {
+                    collect_claimed(child, produced, result);
+                }
+            }
+        }
+        Out::Timeout { child, .. } => collect_claimed(child, produced, result),
+    }
+}
+
+/// Human-readable rendering of an [`Out`] spec. Error path only.
+fn describe(out: &Out) -> String {
+    match out {
+        Out::Place(p) => format!("'{}'", p.name()),
+        Out::ForwardInput { from, to } => format!("forward('{}' -> '{}')", from.name(), to.name()),
+        Out::And(children) => format!("and({})", describe_all(children)),
+        Out::Xor(children) => format!("xor({})", describe_all(children)),
+        Out::Timeout { after_ms, child } => {
+            format!("timeout({}ms, {})", after_ms, describe(child))
+        }
+    }
+}
+
+fn describe_all(children: &[Out]) -> String {
+    children
+        .iter()
+        .map(describe)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Stable rendering of the produced set. Error path only.
+fn sorted_names(produced: &HashSet<Arc<str>>) -> Vec<&str> {
+    let mut names: Vec<&str> = produced.iter().map(|n| &**n).collect();
+    names.sort_unstable();
+    names
 }
 
 /// Build the list of outputs to produce when an [`Out::Timeout`]

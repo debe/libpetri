@@ -1,6 +1,7 @@
 import type { Place } from '../../core/place.js';
 import type { EnvironmentPlace } from '../../core/place.js';
 import type { In } from '../../core/in.js';
+import { consumptionCount } from '../../core/in.js';
 import type { Transition } from '../../core/transition.js';
 import type { PetriNet } from '../../core/petri-net.js';
 import { earliest, latest } from '../../core/timing.js';
@@ -373,13 +374,31 @@ function inputRequiredCount(spec: In): number {
   }
 }
 
-function inputConsumeCount(spec: In): number {
-  switch (spec.type) {
-    case 'one': return 1;
-    case 'exactly': return spec.count;
-    case 'all': return 1; // Analysis: consume minimum (1 token)
-    case 'at-least': return spec.minimum;
-  }
+/**
+ * Number of tokens this transition removes from `spec.place` when it fires,
+ * given the `available` count currently in that place.
+ *
+ * Delegates to {@link consumptionCount} — the canonical IO-007 helper in
+ * `core/in.ts` that both executors (BitmapNetExecutor and
+ * PrecompiledNetExecutor) use. The analysis MUST NOT keep its own copy: a
+ * divergent local definition here is exactly what produced a verifier
+ * soundness bug (`all` was modelled as consuming 1).
+ *
+ * `all` and `at-least` are **draining** arcs. The executor removes *every*
+ * available token, not merely the minimum needed to enable. Do not
+ * "simplify" this back to a constant. Modelling a minimum leaves residual
+ * tokens the real net never holds; those phantom tokens keep inhibitor arcs
+ * on the drained place unsatisfied, so successor state classes are never
+ * generated and a genuinely reachable marking is reported unreachable. Since
+ * `nu-scg-verifier` derives a `proven` verdict from this graph, that is a
+ * false `Proven` — an unsound result, not merely an imprecise one.
+ *
+ * Note the deliberate asymmetry with {@link inputRequiredCount}
+ * (`all` => 1, `at-least` => minimum): *enablement* tests the minimum,
+ * *consumption* takes everything. Both are correct, for different questions.
+ */
+function inputConsumeCount(spec: In, available: number): number {
+  return consumptionCount(spec, available);
 }
 
 function checkPlaceEnabled(
@@ -409,9 +428,17 @@ function fireTransition(
 ): MarkingState {
   const builder = MarkingState.builder().copyFrom(marking);
 
-  // Consume from inputs
+  // Consume from inputs. `all`/`at-least` drain the place, so the consumed
+  // amount depends on what is actually there — read the current marking.
   for (const spec of transition.inputSpecs) {
-    const toConsume = inputConsumeCount(spec);
+    const available = marking.tokens(spec.place);
+    if (available < inputRequiredCount(spec)) {
+      // Only reachable for environment places under the always-available /
+      // bounded modes, where enablement deliberately ignores the concrete
+      // marking. consumeFromPlace is a no-op for those, so nothing to remove.
+      continue;
+    }
+    const toConsume = inputConsumeCount(spec, available);
     consumeFromPlace(builder, spec.place, toConsume, environmentPlaces, environmentMode);
   }
 

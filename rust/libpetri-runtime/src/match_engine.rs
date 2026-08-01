@@ -16,7 +16,7 @@ use libpetri_core::name::NameId;
 
 /// Per-correlated-input name index: `name -> (count, min_created_at)`.
 ///
-/// `count` is the number of (guard-passing) tokens carrying that name in the
+/// `count` is the number of tokens carrying that name in the
 /// input; `min_created_at` is the oldest such token's timestamp, used for the
 /// tie-break.
 pub(crate) type NameIndex = HashMap<NameId, (usize, u64)>;
@@ -151,7 +151,7 @@ impl MinQueue {
 /// input is `One`/`Exactly`.
 pub(crate) struct IncrementalMatcher {
     requireds: Vec<usize>,
-    /// per input: name -> FIFO min-queue of its (guard-passing) token timestamps.
+    /// per input: name -> FIFO min-queue of its token timestamps.
     ts: Vec<HashMap<NameId, MinQueue>>,
     /// monotonic fast path: ascending `(rep_ts, name)` deque; front (after
     /// `clean_top`) is the min. Active while `!heaped`. May hold stale entries.
@@ -181,7 +181,7 @@ impl IncrementalMatcher {
         }
     }
 
-    /// Add one (already guard-passing) token carrying `name` at `created_at` to
+    /// Add one token carrying `name` at `created_at` to
     /// correlated input `i`.
     pub(crate) fn add(&mut self, i: usize, name: NameId, created_at: u64) {
         self.ts[i].entry(name.clone()).or_default().push_back(created_at);

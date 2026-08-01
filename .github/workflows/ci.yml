@@ -102,6 +102,48 @@ jobs:
       - run: python -m pip install dist/libpetri-*.whl
       - run: pytest
 
+  # Machine-checked soundness of the verifier's untimed abstraction (lean/).
+  # Proof-only: no implementation code depends on this, so the job stands alone.
+  # Dependency-free (no Mathlib), so the build is seconds and needs no release
+  # cache — only elan itself is cached.
+  lean:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: lean
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v4
+        with:
+          path: ~/.elan
+          key: elan-${{ runner.os }}-${{ hashFiles('lean/lean-toolchain') }}
+      - name: Install elan
+        run: |
+          curl -fsSL https://elan.lean-lang.org/elan-init.sh \
+            | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - run: lake build
+      # A `sorry` still builds (with a warning), so the build alone is not a
+      # gate. Both checks below are: grep catches the source text, and
+      # `#print axioms` catches anything that reached a theorem by any route
+      # (sorryAx shows up there even if the text is generated).
+      - name: No sorry / admit in source
+        run: '! grep -rnE "\bsorry\b|\badmit\b" Libpetri Libpetri.lean'
+      - name: Headline theorems depend on no unexpected axioms
+        run: |
+          cat > /tmp/axioms.lean <<'EOF'
+          import Libpetri
+          #print axioms Libpetri.proposition_one
+          #print axioms Libpetri.guard_hypothesis_is_necessary
+          #print axioms Libpetri.unit_output_hypothesis_is_necessary
+          #print axioms Libpetri.willFire_guard_is_necessary
+          #print axioms Libpetri.false_proven_without_injection
+          #print axioms Libpetri.injection_reaches_violation
+          EOF
+          lake env lean /tmp/axioms.lean | tee /tmp/axioms.out
+          ! grep -q "sorryAx" /tmp/axioms.out
+
   # Guards the doc-generator viewer bundle (petrinet-diagrams.js): the baked
   # Graphviz-WASM must instantiate + render, and the committed assets must be
   # the reproducible output of the locked toolchain (no silent dep drift).

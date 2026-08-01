@@ -304,19 +304,18 @@ const EMPTY_ALIAS: ReadonlyMap<string, Place<unknown>> = new Map();
 
 /**
  * Rewrites an {@link In} via the place remap. Exhaustive `switch` over the
- * discriminated union variants `one`, `exactly`, `all`, `at-least`. Guards are
- * carried through by reference.
+ * discriminated union variants `one`, `exactly`, `all`, `at-least`.
  */
 export function rewriteIn(spec: In, remap: Map<string, Place<unknown>>): In {
   switch (spec.type) {
     case 'one':
-      return one(resolve(spec.place, remap), spec.guard);
+      return one(resolve(spec.place, remap));
     case 'exactly':
-      return exactly(spec.count, resolve(spec.place, remap), spec.guard);
+      return exactly(spec.count, resolve(spec.place, remap));
     case 'all':
-      return all(resolve(spec.place, remap), spec.guard);
+      return all(resolve(spec.place, remap));
     case 'at-least':
-      return atLeast(spec.minimum, resolve(spec.place, remap), spec.guard);
+      return atLeast(spec.minimum, resolve(spec.place, remap));
   }
 }
 
@@ -467,10 +466,7 @@ export function mergeTransitions(
   }
 
   // Inputs: union caller-first, then instance, dedup by (kind, place name,
-  // count/minimum where applicable). Guard predicates are reference-compared
-  // — two equal-shaped arcs with different guard closures are treated as
-  // distinct (the safest default, matching Java's record-equality dedupe
-  // when guards are absent and conservatively avoiding silent guard merges).
+  // count/minimum where applicable) — matching Java's record-equality dedupe.
   const unionedInputs = unionArcs<In>(caller.inputSpecs, instance.inputSpecs, keyOfIn);
   if (unionedInputs.length > 0) {
     builder.inputs(...unionedInputs);
@@ -727,28 +723,19 @@ function describeTiming(t: Timing): string {
 
 /**
  * Structural key for an {@link In} arc. Encodes the discriminant + place
- * name + cardinality (where applicable). Guard predicates are NOT folded
- * into the key — two arcs of the same shape with different guard closures
- * are treated as distinct (the safe default).
+ * name + cardinality (where applicable). Input specifications are purely
+ * structural (IO-006), so this key is total.
  */
 function keyOfIn(arc: In): string {
   switch (arc.type) {
     case 'one':
-      return arc.guard === undefined
-        ? `one|${arc.place.name}`
-        : `one|${arc.place.name}|g:${guardKey(arc.guard)}`;
+      return `one|${arc.place.name}`;
     case 'exactly':
-      return arc.guard === undefined
-        ? `exactly|${arc.place.name}|${arc.count}`
-        : `exactly|${arc.place.name}|${arc.count}|g:${guardKey(arc.guard)}`;
+      return `exactly|${arc.place.name}|${arc.count}`;
     case 'all':
-      return arc.guard === undefined
-        ? `all|${arc.place.name}`
-        : `all|${arc.place.name}|g:${guardKey(arc.guard)}`;
+      return `all|${arc.place.name}`;
     case 'at-least':
-      return arc.guard === undefined
-        ? `atLeast|${arc.place.name}|${arc.minimum}`
-        : `atLeast|${arc.place.name}|${arc.minimum}|g:${guardKey(arc.guard)}`;
+      return `atLeast|${arc.place.name}|${arc.minimum}`;
   }
 }
 
@@ -760,23 +747,6 @@ function keyOfRead(arc: ArcRead): string {
 }
 function keyOfReset(arc: ArcReset): string {
   return `reset|${arc.place.name}`;
-}
-
-/**
- * Identity-only key for guard closures. Two distinct closure references
- * yield distinct keys; reusing the same closure across arcs collapses them.
- * We use a WeakMap so guard closures don't hold extra retention, and the
- * counter assigned per closure is stable across calls within one process.
- */
-const GUARD_KEYS = new WeakMap<object, string>();
-let guardKeyCounter = 0;
-function guardKey(g: object): string {
-  let k = GUARD_KEYS.get(g);
-  if (k === undefined) {
-    k = String(++guardKeyCounter);
-    GUARD_KEYS.set(g, k);
-  }
-  return k;
 }
 
 // ============================================================

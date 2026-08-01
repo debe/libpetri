@@ -111,11 +111,10 @@ export class PrecompiledNet {
   readonly placeToTransitions: readonly (readonly number[])[];
   readonly consumptionPlaceIds: readonly (readonly number[])[];
 
-  // ==================== Cardinality & Guards ====================
+  // ==================== Cardinality ====================
   readonly cardinalityChecks: readonly (CardinalityCheck | null)[];
-  readonly hasGuards: readonly boolean[];
   // ν-net join flag (NU-020): gates the match-binding check off the hot
-  // enablement path for non-ν transitions, mirroring `hasGuards`.
+  // enablement path for non-ν transitions.
   readonly hasMatch: readonly boolean[];
 
   // ==================== Global Flags ====================
@@ -219,17 +218,14 @@ export class PrecompiledNet {
     this.placeToTransitions = placeToTransitions;
     this.consumptionPlaceIds = consumptionPlaceIds;
 
-    // ==================== Cardinality & Guards ====================
+    // ==================== Cardinality ====================
     const cardinalityChecks: (CardinalityCheck | null)[] = new Array(tc);
-    const hasGuards: boolean[] = new Array(tc);
     const hasMatch: boolean[] = new Array(tc);
     for (let tid = 0; tid < tc; tid++) {
       cardinalityChecks[tid] = compiled.cardinalityCheck(tid);
-      hasGuards[tid] = compiled.hasGuards(tid);
       hasMatch[tid] = compiled.hasMatch(tid);
     }
     this.cardinalityChecks = cardinalityChecks;
-    this.hasGuards = hasGuards;
     this.hasMatch = hasMatch;
 
     // ==================== Timing ====================

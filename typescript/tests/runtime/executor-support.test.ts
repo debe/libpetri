@@ -78,6 +78,24 @@ describe('validateOutSpec', () => {
     expect(result!.has('D')).toBe(true);
   });
 
+  it('XOR with one branch subsuming the other picks the most specific', () => {
+    // and(A,B,C) strictly contains and(A,B): producing A, B and C satisfies
+    // both branches, but only the wider one is the intended match. Java and
+    // Rust both resolve this; TypeScript used to reject it outright.
+    const spec = xor(andPlaces(pA, pB, pC), andPlaces(pA, pB));
+    const produced = new Set(['A', 'B', 'C']);
+    const result = validateOutSpec('T', spec, produced);
+    expect(result).not.toBeNull();
+    expect([...result!].sort()).toEqual(['A', 'B', 'C']);
+  });
+
+  it('XOR with genuinely overlapping branches still throws', () => {
+    // and(A,B) and and(B,C) both match, neither contains the other.
+    const spec = xor(andPlaces(pA, pB), andPlaces(pB, pC));
+    const produced = new Set(['A', 'B', 'C']);
+    expect(() => validateOutSpec('T', spec, produced)).toThrow('multiple branches');
+  });
+
   it('timeout child validated', () => {
     const tOut = place('TIMEOUT');
     const spec = timeout(100, outPlace(tOut));
@@ -127,6 +145,25 @@ describe('produceTimeoutOutput', () => {
     produceTimeoutOutput(ctx, forwardInput(from, to));
     expect(tokenOutput.entries()).toHaveLength(1);
     expect(tokenOutput.entries()[0]!.token.value).toBe('original');
+  });
+
+  it('forwards every consumed input value, in consumption order', () => {
+    const from = place<string>('FROM');
+    const to = place<string>('TO');
+    const tokenInput = new TokenInput();
+    tokenInput.add(from, tokenOf('a'));
+    tokenInput.add(from, tokenOf('b'));
+    tokenInput.add(from, tokenOf('c'));
+    const tokenOutput = new TokenOutput();
+    const ctx = new TransitionContext(
+      'T', tokenInput, tokenOutput,
+      new Set([from]), new Set(), new Set([to]),
+    );
+
+    produceTimeoutOutput(ctx, forwardInput(from, to));
+    expect(tokenOutput.entries()).toHaveLength(3);
+    expect(tokenOutput.entries().map(e => e.place.name)).toEqual(['TO', 'TO', 'TO']);
+    expect(tokenOutput.entries().map(e => e.token.value)).toEqual(['a', 'b', 'c']);
   });
 
   it('produces to AND children', () => {

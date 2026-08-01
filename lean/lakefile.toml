@@ -1,0 +1,13 @@
+name = "libpetri"
+defaultTargets = ["Libpetri"]
+
+# Deliberately dependency-free — no Mathlib.
+#
+# The plan called for Mathlib (Multiset / Finset / Finsupp), but the abstraction
+# `α` erases colours to token *counts*, so every abstract marking is ℕ-valued and
+# core Lean's `Nat` + `List` + `omega` suffice. Dropping Mathlib keeps `lake build`
+# at a few seconds and removes the toolchain-pinning fragility that would
+# otherwise dominate the CI job.
+
+[[lean_lib]]
+name = "Libpetri"

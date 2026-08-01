@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { Marking } from '../../src/runtime/marking.js';
 import { place } from '../../src/core/place.js';
 import { tokenOf, unitToken } from '../../src/core/token.js';
-import type { ArcInput } from '../../src/core/arc.js';
+import type { PredicateSpec } from '../../src/runtime/marking.js';
 
 describe('Marking', () => {
   const p1 = place<number>('P1');
@@ -66,22 +66,22 @@ describe('Marking', () => {
     expect(m.removeAll(p1)).toEqual([]);
   });
 
-  it('removeFirstMatching without guard removes first', () => {
+  it('removeFirstMatching without predicate removes first', () => {
     const m = Marking.empty();
     m.addToken(p1, tokenOf(1));
     m.addToken(p1, tokenOf(2));
-    const arc: ArcInput = { type: 'input', place: p1 };
-    const removed = m.removeFirstMatching(arc);
+    const spec: PredicateSpec = { place: p1 };
+    const removed = m.removeFirstMatching(spec);
     expect(removed!.value).toBe(1);
   });
 
-  it('removeFirstMatching with guard skips non-matching', () => {
+  it('removeFirstMatching with predicate skips non-matching', () => {
     const m = Marking.empty();
     m.addToken(p1, tokenOf(1));
     m.addToken(p1, tokenOf(10));
     m.addToken(p1, tokenOf(2));
-    const arc: ArcInput = { type: 'input', place: p1, guard: (v: number) => v > 5 };
-    const removed = m.removeFirstMatching(arc);
+    const spec: PredicateSpec = { place: p1, predicate: (v: number) => v > 5 };
+    const removed = m.removeFirstMatching(spec);
     expect(removed!.value).toBe(10);
     expect(m.tokenCount(p1)).toBe(2);
   });
@@ -89,17 +89,17 @@ describe('Marking', () => {
   it('removeFirstMatching returns null when no match', () => {
     const m = Marking.empty();
     m.addToken(p1, tokenOf(1));
-    const arc: ArcInput = { type: 'input', place: p1, guard: (v: number) => v > 100 };
-    expect(m.removeFirstMatching(arc)).toBeNull();
+    const spec: PredicateSpec = { place: p1, predicate: (v: number) => v > 100 };
+    expect(m.removeFirstMatching(spec)).toBeNull();
     expect(m.tokenCount(p1)).toBe(1);
   });
 
-  it('hasMatchingToken checks guard', () => {
+  it('hasMatchingToken checks the predicate', () => {
     const m = Marking.empty();
     m.addToken(p1, tokenOf(1));
     m.addToken(p1, tokenOf(10));
-    expect(m.hasMatchingToken({ place: p1, guard: (v: number) => v > 5 })).toBe(true);
-    expect(m.hasMatchingToken({ place: p1, guard: (v: number) => v > 100 })).toBe(false);
+    expect(m.hasMatchingToken({ place: p1, predicate: (v: number) => v > 5 })).toBe(true);
+    expect(m.hasMatchingToken({ place: p1, predicate: (v: number) => v > 100 })).toBe(false);
     expect(m.hasMatchingToken({ place: p1 })).toBe(true);
   });
 

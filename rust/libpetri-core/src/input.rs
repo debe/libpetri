@@ -1,41 +1,23 @@
-use std::any::Any;
-use std::sync::Arc;
-
 use crate::place::{Place, PlaceRef};
 
-/// Type-erased guard function.
-pub type GuardFn = Arc<dyn Fn(&dyn Any) -> bool + Send + Sync>;
-
-/// Input specification with cardinality and optional guard predicate.
+/// Input specification with cardinality. Purely structural (IO-006): cardinality
+/// determines how many tokens to consume; there is no per-token predicate.
 ///
-/// CPN-compliant: cardinality determines how many tokens to consume,
-/// guard filters which tokens are eligible.
+/// Conditional token selection is modeled with multiple conflicting transitions
+/// and XOR-on-input semantics rather than a predicate coupled to the enablement
+/// check.
 ///
 /// Inputs are always AND-joined (all must be satisfied to enable transition).
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum In {
     /// Consume exactly 1 token (standard CPN semantics).
-    One {
-        place: PlaceRef,
-        guard: Option<GuardFn>,
-    },
+    One { place: PlaceRef },
     /// Consume exactly N tokens (batching).
-    Exactly {
-        place: PlaceRef,
-        count: usize,
-        guard: Option<GuardFn>,
-    },
+    Exactly { place: PlaceRef, count: usize },
     /// Consume all available tokens (must be 1+).
-    All {
-        place: PlaceRef,
-        guard: Option<GuardFn>,
-    },
+    All { place: PlaceRef },
     /// Wait for N+ tokens, consume all when enabled.
-    AtLeast {
-        place: PlaceRef,
-        minimum: usize,
-        guard: Option<GuardFn>,
-    },
+    AtLeast { place: PlaceRef, minimum: usize },
 }
 
 impl In {
@@ -53,63 +35,6 @@ impl In {
     pub fn place_name(&self) -> &str {
         self.place().name()
     }
-
-    /// Returns whether this input spec has a guard.
-    pub fn has_guard(&self) -> bool {
-        match self {
-            In::One { guard, .. }
-            | In::Exactly { guard, .. }
-            | In::All { guard, .. }
-            | In::AtLeast { guard, .. } => guard.is_some(),
-        }
-    }
-
-    /// Returns the guard function, if any.
-    pub fn guard(&self) -> Option<&GuardFn> {
-        match self {
-            In::One { guard, .. }
-            | In::Exactly { guard, .. }
-            | In::All { guard, .. }
-            | In::AtLeast { guard, .. } => guard.as_ref(),
-        }
-    }
-}
-
-impl std::fmt::Debug for In {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            In::One { place, guard } => f
-                .debug_struct("One")
-                .field("place", place)
-                .field("has_guard", &guard.is_some())
-                .finish(),
-            In::Exactly {
-                place,
-                count,
-                guard,
-            } => f
-                .debug_struct("Exactly")
-                .field("place", place)
-                .field("count", count)
-                .field("has_guard", &guard.is_some())
-                .finish(),
-            In::All { place, guard } => f
-                .debug_struct("All")
-                .field("place", place)
-                .field("has_guard", &guard.is_some())
-                .finish(),
-            In::AtLeast {
-                place,
-                minimum,
-                guard,
-            } => f
-                .debug_struct("AtLeast")
-                .field("place", place)
-                .field("minimum", minimum)
-                .field("has_guard", &guard.is_some())
-                .finish(),
-        }
-    }
 }
 
 // ==================== Factory Functions ====================
@@ -118,20 +43,6 @@ impl std::fmt::Debug for In {
 pub fn one<T: 'static>(place: &Place<T>) -> In {
     In::One {
         place: place.as_ref(),
-        guard: None,
-    }
-}
-
-/// Consume exactly 1 token matching the guard.
-pub fn one_guarded<T: Send + Sync + 'static>(
-    place: &Place<T>,
-    guard: impl Fn(&T) -> bool + Send + Sync + 'static,
-) -> In {
-    In::One {
-        place: place.as_ref(),
-        guard: Some(Arc::new(move |v: &dyn Any| {
-            v.downcast_ref::<T>().is_some_and(&guard)
-        })),
     }
 }
 
@@ -144,26 +55,6 @@ pub fn exactly<T: 'static>(count: usize, place: &Place<T>) -> In {
     In::Exactly {
         place: place.as_ref(),
         count,
-        guard: None,
-    }
-}
-
-/// Consume exactly N tokens matching the guard.
-///
-/// # Panics
-/// Panics if `count` is less than 1.
-pub fn exactly_guarded<T: Send + Sync + 'static>(
-    count: usize,
-    place: &Place<T>,
-    guard: impl Fn(&T) -> bool + Send + Sync + 'static,
-) -> In {
-    assert!(count >= 1, "count must be >= 1, got: {count}");
-    In::Exactly {
-        place: place.as_ref(),
-        count,
-        guard: Some(Arc::new(move |v: &dyn Any| {
-            v.downcast_ref::<T>().is_some_and(&guard)
-        })),
     }
 }
 
@@ -171,20 +62,6 @@ pub fn exactly_guarded<T: Send + Sync + 'static>(
 pub fn all<T: 'static>(place: &Place<T>) -> In {
     In::All {
         place: place.as_ref(),
-        guard: None,
-    }
-}
-
-/// Consume all available tokens matching the guard.
-pub fn all_guarded<T: Send + Sync + 'static>(
-    place: &Place<T>,
-    guard: impl Fn(&T) -> bool + Send + Sync + 'static,
-) -> In {
-    In::All {
-        place: place.as_ref(),
-        guard: Some(Arc::new(move |v: &dyn Any| {
-            v.downcast_ref::<T>().is_some_and(&guard)
-        })),
     }
 }
 
@@ -197,26 +74,6 @@ pub fn at_least<T: 'static>(minimum: usize, place: &Place<T>) -> In {
     In::AtLeast {
         place: place.as_ref(),
         minimum,
-        guard: None,
-    }
-}
-
-/// Wait for N+ tokens matching guard, consume all when enabled.
-///
-/// # Panics
-/// Panics if `minimum` is less than 1.
-pub fn at_least_guarded<T: Send + Sync + 'static>(
-    minimum: usize,
-    place: &Place<T>,
-    guard: impl Fn(&T) -> bool + Send + Sync + 'static,
-) -> In {
-    assert!(minimum >= 1, "minimum must be >= 1, got: {minimum}");
-    In::AtLeast {
-        place: place.as_ref(),
-        minimum,
-        guard: Some(Arc::new(move |v: &dyn Any| {
-            v.downcast_ref::<T>().is_some_and(&guard)
-        })),
     }
 }
 
@@ -333,15 +190,5 @@ mod tests {
         let p = Place::<i32>::new("p");
         let spec = exactly(3, &p);
         consumption_count(&spec, 2);
-    }
-
-    #[test]
-    fn guarded_input() {
-        let p = Place::<i32>::new("p");
-        let spec = one_guarded(&p, |v| *v > 5);
-        assert!(spec.has_guard());
-        let guard = spec.guard().unwrap();
-        assert!(guard(&10i32 as &dyn Any));
-        assert!(!guard(&3i32 as &dyn Any));
     }
 }

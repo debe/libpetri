@@ -114,7 +114,7 @@ Precomputed data includes:
 - Per-transition: needs-mask, inhibitor-mask, reset-mask
 - Per-place: list of affected transition IDs (reverse index)
 - Per-transition: cardinality checks (for Exactly/All/AtLeast requiring token count verification beyond presence)
-- Per-transition: guard presence flags
+- Per-transition: match presence flag (whether the transition carries a ν-match specification, [NU-020])
 
 **Acceptance Criteria:**
 1. Places and transitions have stable numeric IDs.
@@ -131,14 +131,14 @@ Precomputed data includes:
 Enablement checking is a multi-phase process:
 1. **Phase 1 — Bitmap presence check**: O(W) bitwise check against needs-mask and inhibitor-mask. Fast reject for most transitions.
 2. **Phase 2 — Cardinality check**: For transitions with Exactly(n)/All/AtLeast(m), verify actual token counts meet thresholds.
-3. **Phase 3 — Guard check**: For transitions with guard predicates, scan tokens for matching values.
+3. **Phase 3 — ν-match check**: For transitions carrying a match specification ([NU-020]), scan the correlated inputs for a name shared by all of them. This is the only per-token phase; there is no value-predicate phase (guards were removed, [IO-006]).
 
 Phases 2 and 3 are only reached if Phase 1 passes, minimizing work for most transitions.
 
 **Acceptance Criteria:**
-1. A transition with only One inputs and no guards is fully checked in Phase 1.
+1. A transition with only One inputs and no match specification is fully checked in Phase 1.
 2. A transition with Exactly(5) input requires Phase 2 to verify token count.
-3. A transition with a guard requires Phase 3 to scan tokens.
+3. A transition with a match specification requires Phase 3 to scan tokens for a shared name.
 
 **Test derivation:** Mix of simple and complex transitions; verify correct enablement with minimal re-evaluation.
 

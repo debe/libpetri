@@ -213,19 +213,8 @@ impl BitmapBackend {
             let mut matcher = IncrementalMatcher::new(requireds);
             for (key_idx, mk) in ms.keys().iter().enumerate() {
                 let pid = self.compiled.place_id(mk.place_name()).unwrap();
-                let guard = t
-                    .input_specs()
-                    .iter()
-                    .find(|s| s.place_name() == mk.place_name())
-                    .and_then(|s| s.guard())
-                    .cloned();
                 if let Some(queue) = self.marking.queue(mk.place_name()) {
                     for token in queue {
-                        if let Some(g) = &guard
-                            && !g(token.value.as_ref())
-                        {
-                            continue;
-                        }
                         if let Some(name) = mk.extract(token.value.as_ref()) {
                             matcher.add(key_idx, name, token.created_at);
                         }
@@ -238,7 +227,7 @@ impl BitmapBackend {
     }
 
     /// Mirror a token added to correlated input `pid` into every fast-path
-    /// matcher that consumes it (guard-filtered, projected to its name).
+    /// matcher that consumes it (projected to its name).
     fn cache_add_token(&mut self, pid: usize, value: &dyn std::any::Any, created_at: u64) {
         if self.place_match_targets[pid].is_empty() {
             return;
@@ -248,16 +237,6 @@ impl BitmapBackend {
             let t = self.compiled.transition(tid);
             let ms = t.match_spec().expect("fast-path tid has a match spec");
             let mk = &ms.keys()[key_idx];
-            let guard = t
-                .input_specs()
-                .iter()
-                .find(|s| s.place_name() == mk.place_name())
-                .and_then(|s| s.guard());
-            if let Some(g) = guard
-                && !g(value)
-            {
-                continue;
-            }
             if let Some(name) = mk.extract(value)
                 && let Some(cache) = self.match_caches[tid].as_mut()
             {
@@ -312,23 +291,6 @@ impl BitmapBackend {
             }
         }
 
-        if self.compiled.has_guards(tid) {
-            let t = self.compiled.transition(tid);
-            for spec in t.input_specs() {
-                if let Some(guard) = spec.guard() {
-                    let required = match spec {
-                        In::One { .. } => 1,
-                        In::Exactly { count, .. } => *count,
-                        In::AtLeast { minimum, .. } => *minimum,
-                        In::All { .. } => 1,
-                    };
-                    if self.marking.count_matching(spec.place_name(), &**guard) < required {
-                        return false;
-                    }
-                }
-            }
-        }
-
         // ν-net join: a correlation name must satisfy every matched input (NU-020).
         if self.compiled.has_match(tid) {
             let no_binding = match &self.match_caches[tid] {
@@ -345,9 +307,9 @@ impl BitmapBackend {
 
     /// Finds the correlation name satisfying this transition's `MatchSpec`, or
     /// `None` if the join is not currently enabled (spec NU-020). Builds a
-    /// per-correlated-input name index over the FIFO `Marking` queues
-    /// (guard-filtered) and defers the selection + tie-break to the shared
-    /// [`select_match_name`]. Mirrors the precompiled backend exactly.
+    /// per-correlated-input name index over the FIFO `Marking` queues and
+    /// defers the selection + tie-break to the shared [`select_match_name`].
+    /// Mirrors the precompiled backend exactly.
     fn find_match_binding(&self, tid: usize) -> Option<NameId> {
         let t = self.compiled.transition(tid);
         let ms = t.match_spec()?;
@@ -364,16 +326,9 @@ impl BitmapBackend {
                 Some(In::AtLeast { minimum, .. }) => *minimum,
                 _ => 1,
             };
-            let guard = spec.and_then(|s| s.guard());
-
             let mut index: NameIndex = std::collections::HashMap::new();
             if let Some(queue) = self.marking.queue(mk.place_name()) {
                 for token in queue {
-                    if let Some(g) = guard
-                        && !g(token.value.as_ref())
-                    {
-                        continue;
-                    }
                     if let Some(name) = mk.extract(token.value.as_ref()) {
                         let entry = index.entry(name).or_insert((0usize, u64::MAX));
                         entry.0 += 1;
@@ -603,9 +558,9 @@ impl ExecutorBackend for BitmapBackend {
         };
 
         // ν-net join: resolve the correlation name once, then consume the
-        // matched tokens (NU-020). For correlated inputs the chosen name plus
-        // any unary guard form a combined predicate (guard first, then name
-        // equality — NU-021); other inputs consume FIFO as usual.
+        // matched tokens (NU-020). Correlated inputs take the tokens whose
+        // projected name equals the chosen binding (NU-021); other inputs
+        // consume FIFO as usual.
         let chosen: Option<NameId> = if self.compiled.has_match(tid) {
             match &self.match_caches[tid] {
                 Some(cache) => cache.best().cloned(),
@@ -623,23 +578,14 @@ impl ExecutorBackend for BitmapBackend {
                 .as_ref()
                 .and_then(|m| m.key_for(place_name))
                 .cloned();
-            let guard = in_spec.guard().cloned();
 
-            if key.is_some() || guard.is_some() {
+            if let Some(key) = key {
                 let chosen_name = chosen.clone();
                 let pred = move |v: &dyn std::any::Any| -> bool {
-                    if let Some(g) = &guard
-                        && !g(v)
-                    {
-                        return false;
-                    }
-                    match &key {
-                        Some(k) => matches!(
-                            (k(v), &chosen_name),
-                            (Some(n), Some(c)) if n == *c
-                        ),
-                        None => true,
-                    }
+                    matches!(
+                        (key(v), &chosen_name),
+                        (Some(n), Some(c)) if n == *c
+                    )
                 };
                 let to_consume = match in_spec {
                     In::One { .. } => 1,

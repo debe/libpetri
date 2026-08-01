@@ -8,7 +8,7 @@
  * @module runtime
  */
 export { Marking } from './marking.js';
-export type { GuardSpec } from './marking.js';
+export type { PredicateSpec } from './marking.js';
 export { CompiledNet, setBit, clearBit, testBit, containsAll, intersects } from './compiled-net.js';
 export type { CardinalityCheck } from './compiled-net.js';
 export { BitmapNetExecutor } from './bitmap-net-executor.js';

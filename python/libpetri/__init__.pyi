@@ -12,6 +12,10 @@ from .debug import (
     SessionSummary as SessionSummary,
     require_debug as require_debug,
 )
+from .events import (
+    InMemoryEventStore as InMemoryEventStore,
+    NetEvent as NetEvent,
+)
 from .export import (
     DotConfig as DotConfig,
     RankDir as RankDir,

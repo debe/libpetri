@@ -472,8 +472,8 @@ fn fire_transition_marking(
             continue;
         }
 
-        let to_consume = input_consume_count(spec);
         let current = marking.count(place_name);
+        let to_consume = input_consume_count(spec, current);
         let remaining = current.saturating_sub(to_consume);
         builder = builder.tokens(place_name, remaining);
     }
@@ -498,20 +498,33 @@ fn fire_transition_marking(
     output_builder.build()
 }
 
-fn input_consume_count(spec: &In) -> usize {
-    match spec {
-        In::One { .. } => 1,
-        In::Exactly { count, .. } => *count,
-        In::All { .. } => 1, // Analysis: consume minimum (1 token)
-        In::AtLeast { minimum, .. } => *minimum,
+/// Tokens removed from an input place by one firing, given how many are there.
+///
+/// Defers to [`input::consumption_count`], the canonical \[IO-007\] definition the
+/// executor also follows — `All`/`AtLeast` consume **every** available token
+/// (`bitmap_backend.rs` `consume_for_firing`).
+///
+/// This used to be an independent copy that returned the *minimum* (1 for `All`,
+/// `minimum` for `AtLeast`). That left residual tokens the real net never holds,
+/// which suppressed inhibitor-gated successors and could report a reachable state
+/// as unreachable — a false `Proven` on the `nu_scg_verifier` safety path. Keep it
+/// delegating; a second definition of consumption is what caused that bug.
+fn input_consume_count(spec: &In, available: usize) -> usize {
+    // `consumption_count` asserts `available >= required_count`. Successors are only
+    // computed for transitions `is_enabled` accepted, so that holds; clamp anyway
+    // rather than let an analysis pass panic.
+    if available < input::required_count(spec) {
+        return available;
     }
+    input::consumption_count(spec, available)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use libpetri_core::action::fork;
-    use libpetri_core::input::one;
+    use libpetri_core::arc::inhibitor;
+    use libpetri_core::input::{all, at_least, one};
     use libpetri_core::output::out_place;
     use libpetri_core::place::Place;
     use libpetri_core::transition::Transition;
@@ -530,6 +543,84 @@ mod tests {
         let net = PetriNet::builder("chain").transition(t).build();
 
         StateClassGraph::build(&net, &MarkingStateBuilder::new().tokens("p1", 1).build(), 1000);
+    }
+
+    /// \[IO-007\] regression: `In::All` must drain its place in the analysis, exactly
+    /// as `consume_for_firing` does at runtime.
+    ///
+    /// The graph previously consumed a *minimum* (1 token for `All`), leaving a
+    /// residue the real net never holds. Here that residue keeps `u`'s inhibitor
+    /// unsatisfied forever, so `bad` — which the executor reaches — was reported
+    /// unreachable. On the `nu_scg_verifier` path that is a false `Proven` for
+    /// `Unreachable`.
+    ///
+    /// `t` can fire only once (`g` holds a single token), so `p` is drained in one
+    /// firing or not at all.
+    #[test]
+    fn all_input_drains_place_so_inhibited_successor_is_reachable() {
+        let p = Place::<i32>::new("p");
+        let g = Place::<i32>::new("g");
+        let out = Place::<i32>::new("out");
+        let bad = Place::<i32>::new("bad");
+
+        let t = Transition::builder("t")
+            .input(all(&p))
+            .input(one(&g))
+            .output(out_place(&out))
+            .action(fork())
+            .build();
+        let u = Transition::builder("u")
+            .input(one(&out))
+            .inhibitor(inhibitor(&p))
+            .output(out_place(&bad))
+            .action(fork())
+            .build();
+        let net = PetriNet::builder("drain").transitions([t, u]).build();
+
+        let initial = MarkingStateBuilder::new()
+            .tokens("p", 3)
+            .tokens("g", 1)
+            .build();
+        let scg = StateClassGraph::build(&net, &initial, 1000);
+        assert!(scg.is_complete());
+
+        assert!(
+            scg.reachable_markings().iter().any(|m| m.count("bad") > 0),
+            "`bad` is reachable in the real net: `t` drains all 3 tokens from `p`, \
+             satisfying `u`'s inhibitor. Consuming a minimum instead leaves p=2 and \
+             blocks `u` forever — a false `Proven` for Unreachable([\"bad\"])."
+        );
+    }
+
+    /// Same contract for `AtLeast`, which also consumes everything once enabled.
+    #[test]
+    fn at_least_input_drains_place() {
+        let p = Place::<i32>::new("p");
+        let out = Place::<i32>::new("out");
+
+        let t = Transition::builder("t")
+            .input(at_least(2, &p))
+            .output(out_place(&out))
+            .action(fork())
+            .build();
+        let net = PetriNet::builder("drain-at-least").transition(t).build();
+
+        let initial = MarkingStateBuilder::new().tokens("p", 5).build();
+        let scg = StateClassGraph::build(&net, &initial, 1000);
+        assert!(scg.is_complete());
+
+        // One firing takes all five; the graph must not model a p=3 residue.
+        assert!(
+            scg.reachable_markings()
+                .iter()
+                .all(|m| m.count("p") == 0 || m.count("p") == 5),
+            "AtLeast(2) consumes every available token, so `p` is only ever 5 or 0; \
+             got {:?}",
+            scg.reachable_markings()
+                .iter()
+                .map(|m| m.count("p"))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]

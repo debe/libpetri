@@ -995,6 +995,50 @@ describe('Output Timeout Tests', () => {
     expect(marking.hasTokens(success)).toBe(false);
   });
 
+  it('timeout forward-input forwards every consumed token (In.all)', async () => {
+    const input = place<string>('IN');
+    const success = place<string>('SUCCESS');
+    const retry = place<string>('RETRY');
+    const t = Transition.builder('T')
+      .inputs(all(input))
+      .outputs(xor(outPlace(success), timeout(50, forwardInput(input, retry))))
+      .action(async (ctx) => {
+        await sleep(200);
+        ctx.output(success, 'ok');
+      })
+      .build();
+    const net = PetriNet.builder('N').transition(t).build();
+    const { marking } = await runNet(net, initialTokens(
+      [input, [tokenOf('a'), tokenOf('b'), tokenOf('c')]]));
+
+    // All 3 consumed tokens must be re-emitted at `to` — forwarding only one
+    // would silently destroy the other 2 on the retry path.
+    expect(marking.tokenCount(retry)).toBe(3);
+    expect(marking.peekTokens(retry).map(tk => tk.value)).toEqual(['a', 'b', 'c']);
+    expect(marking.hasTokens(success)).toBe(false);
+  });
+
+  it('timeout forward-input forwards every consumed token (In.exactly)', async () => {
+    const input = place<string>('IN');
+    const success = place<string>('SUCCESS');
+    const retry = place<string>('RETRY');
+    const t = Transition.builder('T')
+      .inputs(exactly(2, input))
+      .outputs(xor(outPlace(success), timeout(50, forwardInput(input, retry))))
+      .action(async (ctx) => {
+        await sleep(200);
+        ctx.output(success, 'ok');
+      })
+      .build();
+    const net = PetriNet.builder('N').transition(t).build();
+    const { marking } = await runNet(net, initialTokens(
+      [input, [tokenOf('first'), tokenOf('second')]]));
+
+    expect(marking.tokenCount(retry)).toBe(2);
+    expect(marking.peekTokens(retry).map(tk => tk.value)).toEqual(['first', 'second']);
+    expect(marking.hasTokens(success)).toBe(false);
+  });
+
   it('timeout AND child produces to multiple places', async () => {
     const input = place<string>('IN');
     const success = place<string>('SUCCESS');
@@ -1937,176 +1981,263 @@ describe('Reset Arc Timer Restart Tests', () => {
   });
 });
 
-// ======================== GUARDED INPUT ARC TESTS ========================
+// ============ CONDITIONAL TOKEN SELECTION TESTS (IO-006 replacement) ============
+//
+// Input specifications are purely structural — there is no per-arc predicate
+// (IO-006, removed). Data-dependent token selection is modeled instead with a
+// classifier transition whose XOR output routes each token into exactly one
+// downstream place, plus conflicting transitions consuming those places.
 
-describe('Guarded Input Arc Tests', () => {
-  it('guarded one() only consumes matching token', async () => {
+describe('Conditional Token Selection Tests', () => {
+  it('XOR routing delivers only the matching tokens downstream', async () => {
     const input = place<number>('IN');
+    const big = place<number>('BIG');
+    const small = place<number>('SMALL');
     const output = place<number>('OUT');
-    const t = Transition.builder('T')
-      .inputs(one(input, (v: number) => v > 5))
-      .outputs(outPlace(output))
-      .action(async (ctx) => { ctx.output(output, ctx.input(input)); })
+
+    const classify = Transition.builder('Classify')
+      .inputs(one(input))
+      .outputs(xor(outPlace(big), outPlace(small)))
+      .action(async (ctx) => {
+        const v = ctx.input(input);
+        if (v > 5) ctx.output(big, v); else ctx.output(small, v);
+      })
       .build();
-    const net = PetriNet.builder('N').transition(t).build();
+    const consume = Transition.builder('T')
+      .inputs(one(big))
+      .outputs(outPlace(output))
+      .action(async (ctx) => { ctx.output(output, ctx.input(big)); })
+      .build();
+
+    const net = PetriNet.builder('N').transitions(classify, consume).build();
     const { marking } = await runNet(net, initialTokens(
       [input, [tokenOf(1), tokenOf(10), tokenOf(2)]],
     ));
 
-    // Only the first matching token (10) should be consumed
-    expect(marking.hasTokens(output)).toBe(true);
-    expect(marking.peekFirst(output)!.value).toBe(10);
-    // Non-matching tokens remain (plus any remaining after re-firing)
+    // Only the matching token (10) reaches OUT; the rest land in the other branch.
+    expect(marking.peekTokens(output).map(t => t.value)).toEqual([10]);
+    expect(marking.peekTokens(small).map(t => t.value)).toEqual([1, 2]);
   });
 
-  it('guarded one() does not enable when no token matches', async () => {
+  it('downstream transition does not enable when no token is routed to it', async () => {
     const input = place<number>('IN');
+    const big = place<number>('BIG');
+    const small = place<number>('SMALL');
     const output = place<number>('OUT');
-    const t = Transition.builder('T')
-      .inputs(one(input, (v: number) => v > 100))
-      .outputs(outPlace(output))
-      .action(async (ctx) => { ctx.output(output, ctx.input(input)); })
+
+    const classify = Transition.builder('Classify')
+      .inputs(one(input))
+      .outputs(xor(outPlace(big), outPlace(small)))
+      .action(async (ctx) => {
+        const v = ctx.input(input);
+        if (v > 100) ctx.output(big, v); else ctx.output(small, v);
+      })
       .build();
-    const net = PetriNet.builder('N').transition(t).build();
+    const consume = Transition.builder('T')
+      .inputs(one(big))
+      .outputs(outPlace(output))
+      .action(async (ctx) => { ctx.output(output, ctx.input(big)); })
+      .build();
+
+    const net = PetriNet.builder('N').transitions(classify, consume).build();
     const { marking } = await runNet(net, initialTokens(
       [input, [tokenOf(1), tokenOf(2), tokenOf(3)]],
     ));
 
-    // No matching token → transition should not fire
+    // Nothing routed to BIG → downstream never enables.
     expect(marking.hasTokens(output)).toBe(false);
-    expect(marking.tokenCount(input)).toBe(3); // all remain
+    expect(marking.hasTokens(big)).toBe(false);
+    expect(marking.tokenCount(small)).toBe(3);
   });
 
-  it('guarded one() preserves FIFO among matching tokens', async () => {
+  it('XOR routing preserves FIFO order within a branch', async () => {
     const input = place<number>('IN');
+    const evens = place<number>('EVEN');
+    const odds = place<number>('ODD');
     const output = place<number>('OUT');
     const consumed: number[] = [];
-    const t = Transition.builder('T')
-      .inputs(one(input, (v: number) => v % 2 === 0))
-      .outputs(outPlace(output))
+
+    const classify = Transition.builder('Classify')
+      .inputs(one(input))
+      .outputs(xor(outPlace(evens), outPlace(odds)))
       .action(async (ctx) => {
         const v = ctx.input(input);
+        if (v % 2 === 0) ctx.output(evens, v); else ctx.output(odds, v);
+      })
+      .build();
+    const consume = Transition.builder('T')
+      .inputs(one(evens))
+      .outputs(outPlace(output))
+      .action(async (ctx) => {
+        const v = ctx.input(evens);
         consumed.push(v);
         ctx.output(output, v);
       })
       .build();
-    const net = PetriNet.builder('N').transition(t).build();
+
+    const net = PetriNet.builder('N').transitions(classify, consume).build();
     const { marking } = await runNet(net, initialTokens(
       [input, [tokenOf(1), tokenOf(2), tokenOf(3), tokenOf(4), tokenOf(5), tokenOf(6)]],
     ));
 
-    // Should consume even numbers in FIFO order: 2, 4, 6
+    // Even numbers consumed in FIFO order: 2, 4, 6
     expect(consumed).toEqual([2, 4, 6]);
-    // Odd numbers remain
-    expect(marking.tokenCount(input)).toBe(3);
-    expect(marking.peekTokens(input).map(t => t.value)).toEqual([1, 3, 5]);
+    // Odd numbers stay in the other branch, also in FIFO order.
+    expect(marking.peekTokens(odds).map(t => t.value)).toEqual([1, 3, 5]);
   });
 
-  it('guarded exactly(2) consumes only matching tokens', async () => {
+  it('exactly(2) batches from a routed branch', async () => {
     const input = place<number>('IN');
+    const big = place<number>('BIG');
+    const small = place<number>('SMALL');
     const output = place<number>('OUT');
-    const t = Transition.builder('T')
-      .inputs(exactly(2, input, (v: number) => v > 5))
-      .outputs(outPlace(output))
+
+    const classify = Transition.builder('Classify')
+      .inputs(one(input))
+      .outputs(xor(outPlace(big), outPlace(small)))
       .action(async (ctx) => {
-        ctx.output(output, ctx.inputs(input).reduce((a, b) => a + b, 0));
+        const v = ctx.input(input);
+        if (v > 5) ctx.output(big, v); else ctx.output(small, v);
       })
       .build();
-    const net = PetriNet.builder('N').transition(t).build();
+    const consume = Transition.builder('T')
+      .inputs(exactly(2, big))
+      .outputs(outPlace(output))
+      .action(async (ctx) => {
+        ctx.output(output, ctx.inputs(big).reduce((a, b) => a + b, 0));
+      })
+      .build();
+
+    const net = PetriNet.builder('N').transitions(classify, consume).build();
     const { marking } = await runNet(net, initialTokens(
       [input, [tokenOf(1), tokenOf(10), tokenOf(2), tokenOf(20), tokenOf(3)]],
     ));
 
-    // Two matching tokens (10, 20) → fires, consumes them
+    // Two tokens routed to BIG (10, 20) → fires, consumes them.
     expect(marking.hasTokens(output)).toBe(true);
     expect(marking.peekFirst(output)!.value).toBe(30);
-    // Non-matching tokens remain
-    expect(marking.tokenCount(input)).toBe(3);
+    expect(marking.hasTokens(big)).toBe(false);
+    expect(marking.tokenCount(small)).toBe(3);
   });
 
-  it('guarded exactly(3) does not enable with only 2 matching', async () => {
+  it('exactly(3) does not enable with only 2 tokens routed to the branch', async () => {
     const input = place<number>('IN');
+    const big = place<number>('BIG');
+    const small = place<number>('SMALL');
     const output = place<number>('OUT');
-    const t = Transition.builder('T')
-      .inputs(exactly(3, input, (v: number) => v > 5))
-      .outputs(outPlace(output))
+
+    const classify = Transition.builder('Classify')
+      .inputs(one(input))
+      .outputs(xor(outPlace(big), outPlace(small)))
       .action(async (ctx) => {
-        ctx.output(output, ctx.inputs(input).reduce((a, b) => a + b, 0));
+        const v = ctx.input(input);
+        if (v > 5) ctx.output(big, v); else ctx.output(small, v);
       })
       .build();
-    const net = PetriNet.builder('N').transition(t).build();
+    const consume = Transition.builder('T')
+      .inputs(exactly(3, big))
+      .outputs(outPlace(output))
+      .action(async (ctx) => {
+        ctx.output(output, ctx.inputs(big).reduce((a, b) => a + b, 0));
+      })
+      .build();
+
+    const net = PetriNet.builder('N').transitions(classify, consume).build();
     const { marking } = await runNet(net, initialTokens(
       [input, [tokenOf(1), tokenOf(10), tokenOf(2), tokenOf(20), tokenOf(3)]],
     ));
 
-    // Only 2 matching tokens, need 3 → should not fire
+    // Only 2 tokens routed to BIG, need 3 → never fires.
     expect(marking.hasTokens(output)).toBe(false);
-    expect(marking.tokenCount(input)).toBe(5);
+    expect(marking.tokenCount(big)).toBe(2);
+    expect(marking.tokenCount(small)).toBe(3);
   });
 
-  it('guard + inhibitor combined', async () => {
+  it('XOR routing + inhibitor combined', async () => {
     const input = place<number>('IN');
+    const positive = place<number>('POS');
+    const nonPositive = place<number>('NONPOS');
     const output = place<number>('OUT');
     const blocker = place<string>('BLOCKER');
-    const t = Transition.builder('T')
-      .inputs(one(input, (v: number) => v > 0))
+
+    const classify = Transition.builder('Classify')
+      .inputs(one(input))
+      .outputs(xor(outPlace(positive), outPlace(nonPositive)))
+      .action(async (ctx) => {
+        const v = ctx.input(input);
+        if (v > 0) ctx.output(positive, v); else ctx.output(nonPositive, v);
+      })
+      .build();
+    const consume = Transition.builder('T')
+      .inputs(one(positive))
       .outputs(outPlace(output))
       .inhibitor(blocker)
-      .action(async (ctx) => { ctx.output(output, ctx.input(input)); })
+      .action(async (ctx) => { ctx.output(output, ctx.input(positive)); })
       .build();
-    const net = PetriNet.builder('N').transition(t).build();
+    const net = PetriNet.builder('N').transitions(classify, consume).build();
 
-    // Matching token but inhibited
+    // Routed to POS but inhibited
     const { marking: m1 } = await runNet(net, initialTokens(
       [input, [tokenOf(5)]],
       [blocker, [tokenOf('block')]],
     ));
     expect(m1.hasTokens(output)).toBe(false);
+    expect(m1.tokenCount(positive)).toBe(1);
 
-    // Matching token, not inhibited → fires
+    // Routed to POS, not inhibited → fires
     const { marking: m2 } = await runNet(net, initialTokens(
       [input, [tokenOf(5)]],
     ));
     expect(m2.hasTokens(output)).toBe(true);
     expect(m2.peekFirst(output)!.value).toBe(5);
 
-    // Non-matching token, not inhibited → does not fire
+    // Routed to the other branch, not inhibited → does not fire
     const { marking: m3 } = await runNet(net, initialTokens(
       [input, [tokenOf(-1)]],
     ));
     expect(m3.hasTokens(output)).toBe(false);
+    expect(m3.tokenCount(nonPositive)).toBe(1);
   });
 
-  it('guard with priority: guarded transition only fires on matching tokens', async () => {
+  it('conflicting consumers: each token reaches exactly one branch', async () => {
     const input = place<number>('IN');
+    const matchedIn = place<number>('MATCHED_IN');
+    const unmatchedIn = place<number>('UNMATCHED_IN');
     const matchedOut = place<number>('MATCHED');
     const unmatchedOut = place<number>('UNMATCHED');
 
-    const guarded = Transition.builder('Guarded')
-      .inputs(one(input, (v: number) => v > 5))
+    const classify = Transition.builder('Classify')
+      .inputs(one(input))
+      .outputs(xor(outPlace(matchedIn), outPlace(unmatchedIn)))
+      .action(async (ctx) => {
+        const v = ctx.input(input);
+        if (v > 5) ctx.output(matchedIn, v); else ctx.output(unmatchedIn, v);
+      })
+      .build();
+
+    const matched = Transition.builder('Matched')
+      .inputs(one(matchedIn))
       .outputs(outPlace(matchedOut))
       .priority(10)
-      .action(async (ctx) => { ctx.output(matchedOut, ctx.input(input)); })
+      .action(async (ctx) => { ctx.output(matchedOut, ctx.input(matchedIn)); })
       .build();
 
     const fallback = Transition.builder('Fallback')
-      .inputs(one(input))
+      .inputs(one(unmatchedIn))
       .outputs(outPlace(unmatchedOut))
       .priority(1)
-      .action(async (ctx) => { ctx.output(unmatchedOut, ctx.input(input)); })
+      .action(async (ctx) => { ctx.output(unmatchedOut, ctx.input(unmatchedIn)); })
       .build();
 
-    const net = PetriNet.builder('N').transitions(guarded, fallback).build();
+    const net = PetriNet.builder('N').transitions(classify, matched, fallback).build();
     const { marking } = await runNet(net, initialTokens(
       [input, [tokenOf(3), tokenOf(10)]],
     ));
 
-    // Token 10 matches guard → consumed by Guarded
-    expect(marking.hasTokens(matchedOut)).toBe(true);
-    expect(marking.peekFirst(matchedOut)!.value).toBe(10);
-    // Token 3 doesn't match guard → consumed by Fallback
-    expect(marking.hasTokens(unmatchedOut)).toBe(true);
-    expect(marking.peekFirst(unmatchedOut)!.value).toBe(3);
+    // Token 10 routed to the matched branch
+    expect(marking.peekTokens(matchedOut).map(t => t.value)).toEqual([10]);
+    // Token 3 routed to the fallback branch
+    expect(marking.peekTokens(unmatchedOut).map(t => t.value)).toEqual([3]);
   });
 });
 
