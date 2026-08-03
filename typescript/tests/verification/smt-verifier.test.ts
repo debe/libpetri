@@ -926,30 +926,6 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
   }, Z3_TIMEOUT);
 });
 
-// CORE-043: verification rejects the same nets compilation rejects.
-describe('SmtVerifier — CORE-043', () => {
-  it('rejects an output-declaring transition still on passthrough', async () => {
-    const pA = place('A');
-    const pB = place('B');
-    const net = PetriNet.builder('inert')
-      .transition(Transition.builder('t').inputs(one(pA)).outputs(outPlace(pB)).build())
-      .build();
-
-    await expect(SmtVerifier.forNet(net).property(deadlockFree()).verify())
-      .rejects.toThrow(/Transition 't' declares an output spec/);
-  });
-
-  it('accepts the same net once an action is bound', async () => {
-    const pA = place('A');
-    const pB = place('B');
-    const net = PetriNet.builder('live')
-      .transition(Transition.builder('t').inputs(one(pA)).outputs(outPlace(pB)).build())
-      .build();
-
-    await expect(SmtVerifier.forNet(bindProducers(net)).property(deadlockFree())
-      .initialMarking(m => { m.tokens(pA, 1); })
-      .sinkPlaces(pB)
-      .timeout(30_000)
-      .verify()).resolves.toBeDefined();
-  }, Z3_TIMEOUT);
-});
+// CORE-043 verification-rejection tests live in smt-verifier-core043.test.ts —
+// a separate file so their solver run gets its own z3 WASM heap rather than
+// adding to this file's, which already runs close to the 2 GB wasm32 ceiling.
