@@ -321,8 +321,7 @@ boundary if needed).
 - `python` CI job + `scripts/release-python.sh` (mirrors the Rust release flow,
   including the documented Cargo.lock-resync gotcha).
 - Async-callback perf: manual coroutine driver; `bench_chain_async_callback[100]`
-  3536 µs → 750 µs (−78.8%). Sync chain −12% (LTO, `pyo3_disable_reference_pool`,
-  `Arc<str>` keys).
+  3536 µs → 750 µs (−78.8%). Sync chain −12% (LTO, `Arc<str>` keys).
 
 ## 2.5.0
 

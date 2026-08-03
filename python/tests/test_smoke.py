@@ -130,3 +130,31 @@ def test_verify_rejects_output_declaring_passthrough() -> None:
         lp.verify(net, lp.deadlock_free())
 
     assert "'drop'" in str(exc.value)
+
+
+# ------------------------------------------------- consumed-token release (FFI)
+
+
+def test_consumed_tokens_release_without_aborting() -> None:
+    """A sink consumes its tokens and releases them cleanly.
+
+    The executor owns a token once it has consumed it (no rollback, EXEC-031) and
+    releases it from inside ``Python::detach``, so this is the smallest net that
+    exercises a detached decref. pyo3's reference pool queues those and drains them on
+    the next attach; building with ``--cfg=pyo3_disable_reference_pool`` instead turns
+    them into a hard abort, which is why this repo does not set that flag.
+    """
+    queued = lp.Place("queued")
+    net = (
+        lp.Net("sink")
+        .transition(
+            lp.Transition("drop").input(lp.one(queued)).action(lp.passthrough).build()
+        )
+        .build()
+    )
+
+    # Several tokens, so the release loop runs more than once.
+    result = lp.run_sync(net, initial={queued: [{"id": i} for i in range(5)]})
+
+    assert result.count(queued) == 0
+    assert result.to_dict() == {}
