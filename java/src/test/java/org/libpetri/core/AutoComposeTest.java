@@ -1,5 +1,6 @@
 package org.libpetri.core;
 
+import org.libpetri.fixtures.StructureOnly;
 import org.junit.jupiter.api.Test;
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.analysis.TimePetriNetAnalyzer;
@@ -362,7 +363,7 @@ class AutoComposeTest {
             .filter(p -> p.name().equals("p/seed"))
             .findFirst().orElseThrow();
 
-        var result = TimePetriNetAnalyzer.forNet(net)
+        var result = TimePetriNetAnalyzer.forNet(StructureOnly.bind(net))
             .initialMarking(MarkingState.builder().tokens(seedInNet, 1).build())
             .goalPlaces(sinkInNet)
             .maxClasses(100)

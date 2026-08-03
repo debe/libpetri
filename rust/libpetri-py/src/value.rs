@@ -25,6 +25,16 @@ pub struct PyTokenValue {
 
 // Python objects are only touched while holding the GIL. The wrapper is
 // otherwise opaque to the executor and only cloned / moved across threads.
+//
+// The executor owns tokens once it has consumed them (no rollback, EXEC-031) and
+// drops them wherever it happens to be running — inside `Python::detach` for
+// `run_sync`, or on a tokio worker for `run_async`. That is deliberately left to
+// pyo3's reference pool, which queues a detached decref and drains it on the next
+// attach. Do NOT add a `Drop` that calls `Python::attach`: this runs per token, so
+// it would turn every drop into a GIL acquisition on a detached thread — far more
+// expensive than the pool, and on the multi-threaded async path it serialises the
+// executor against every other worker. See the note on
+// `--cfg=pyo3_disable_reference_pool` in CLAUDE.md.
 unsafe impl Send for PyTokenValue {}
 unsafe impl Sync for PyTokenValue {}
 

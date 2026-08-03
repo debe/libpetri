@@ -128,8 +128,9 @@ describe('SubnetDef.instantiate', () => {
 
   it('two instances of the same def share each transition\'s action by reference', () => {
     // Build a def whose transition has a non-passthrough action so we can
-    // test "shared by reference". (passthrough() returns a fresh closure
-    // each call, so we use a captured closure here.)
+    // test "shared by reference". (passthrough() returns a singleton, so it
+    // would compare equal by identity no matter how the rewriter treated it,
+    // proving nothing — hence a distinct captured closure here.)
     const input = place<Item>('input');
     const output = place<Item>('output');
     const sharedAction: TransitionAction = async () => {};

@@ -429,6 +429,7 @@ impl<'a> TimePetriNetAnalyzerBuilder<'a> {
 mod tests {
     use super::*;
     use crate::marking_state::MarkingStateBuilder;
+    use libpetri_core::action::fork;
     use libpetri_core::input::one;
     use libpetri_core::output::{out_place, xor};
     use libpetri_core::place::Place;
@@ -442,10 +443,12 @@ mod tests {
         let t1 = Transition::builder("t1")
             .input(one(&p_a))
             .output(out_place(&p_b))
+            .action(fork())
             .build();
         let t2 = Transition::builder("t2")
             .input(one(&p_b))
             .output(out_place(&p_a))
+            .action(fork())
             .build();
 
         let net = PetriNet::builder("circular").transitions([t1, t2]).build();
@@ -472,6 +475,7 @@ mod tests {
         let t1 = Transition::builder("t1")
             .input(one(&p_a))
             .output(out_place(&p_b))
+            .action(fork())
             .build();
 
         let net = PetriNet::builder("deadend").transition(t1).build();
@@ -496,10 +500,12 @@ mod tests {
         let t1 = Transition::builder("t1")
             .input(one(&p_a))
             .output(out_place(&p_b))
+            .action(fork())
             .build();
         let t2 = Transition::builder("t2")
             .input(one(&p_b))
             .output(out_place(&p_a))
+            .action(fork())
             .build();
 
         let net = PetriNet::builder("circular").transitions([t1, t2]).build();
@@ -523,6 +529,7 @@ mod tests {
         let t1 = Transition::builder("t1")
             .input(one(&p_a))
             .output(out_place(&p_b))
+            .action(fork())
             .build();
 
         let net = PetriNet::builder("deadend").transition(t1).build();
@@ -547,14 +554,17 @@ mod tests {
         let t_choice = Transition::builder("choice")
             .input(one(&p0))
             .output(xor(vec![out_place(&p_a), out_place(&p_b)]))
+            .action(fork())
             .build();
         let t_a = Transition::builder("fromA")
             .input(one(&p_a))
             .output(out_place(&p_end))
+            .action(fork())
             .build();
         let t_b = Transition::builder("fromB")
             .input(one(&p_b))
             .output(out_place(&p_end))
+            .action(fork())
             .build();
 
         let net = PetriNet::builder("xor")
@@ -583,6 +593,7 @@ mod tests {
         let t_choice = Transition::builder("choice")
             .input(one(&p0))
             .output(xor(vec![out_place(&p_a), out_place(&p_b)]))
+            .action(fork())
             .build();
 
         let net = PetriNet::builder("xor").transition(t_choice).build();
@@ -604,6 +615,7 @@ mod tests {
         let t1 = Transition::builder("t1")
             .input(one(&p_a))
             .output(out_place(&p_b))
+            .action(fork())
             .build();
 
         let net = PetriNet::builder("no-xor").transition(t1).build();
@@ -637,10 +649,12 @@ mod tests {
             .input(one(&p_ready))
             .input(one(&p_env))
             .output(out_place(&p_out))
+            .action(fork())
             .build();
         let t2 = Transition::builder("reset")
             .input(one(&p_out))
             .output(out_place(&p_ready))
+            .action(fork())
             .build();
 
         let net = PetriNet::builder("env-net").transitions([t1, t2]).build();
@@ -666,6 +680,7 @@ mod tests {
         let t1 = Transition::builder("process")
             .input(one(&p_env))
             .output(out_place(&p_out))
+            .action(fork())
             .build();
 
         let net = PetriNet::builder("env-net").transition(t1).build();
@@ -693,10 +708,12 @@ mod tests {
             .input(one(&p_ready))
             .input(one(&p_env))
             .output(out_place(&p_out))
+            .action(fork())
             .build();
         let t2 = Transition::builder("reset")
             .input(one(&p_out))
             .output(out_place(&p_ready))
+            .action(fork())
             .build();
 
         let net = PetriNet::builder("env-net").transitions([t1, t2]).build();
@@ -721,10 +738,12 @@ mod tests {
         let t1 = Transition::builder("t1")
             .input(one(&p_a))
             .output(out_place(&p_b))
+            .action(fork())
             .build();
         let t2 = Transition::builder("t2")
             .input(one(&p_b))
             .output(out_place(&p_a))
+            .action(fork())
             .build();
 
         let net = PetriNet::builder("circular").transitions([t1, t2]).build();

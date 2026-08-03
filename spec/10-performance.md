@@ -95,10 +95,10 @@ Synchronous actions (passthrough, simple transforms) that complete immediately S
 
 **Acceptance Criteria:**
 1. Passthrough action executes without spawning a task.
-2. Chain of N passthrough transitions completes with overhead proportional to N, not N × task_spawn_cost.
+2. Chain of N transitions bound to trivial synchronous actions completes with overhead proportional to N, not N × task_spawn_cost.
 
 **Depends on:** [CONC-011]
-**Test derivation:** Chain of 100 passthrough transitions; measure total time; verify sub-millisecond per transition.
+**Test derivation:** Chain of 100 transitions bound to trivial synchronous actions; measure total time; verify sub-millisecond per transition.
 
 ---
 
@@ -229,7 +229,7 @@ The precompiled executor SHOULD use a flat-array memory layout with no hash map 
 
 **Priority:** SHOULD
 
-The precompiled flat-array executor SHOULD achieve 2–4× speedup on synchronous chains compared to the bitmap executor. This target assumes passthrough/sync actions, warm runtime, and noop event store.
+The precompiled flat-array executor SHOULD achieve 2–4× speedup on synchronous chains compared to the bitmap executor. This target assumes trivial synchronous actions, warm runtime, and noop event store.
 
 Benchmark scenarios SHOULD include precompiled executor results alongside bitmap executor results [PERF-020] for direct comparison.
 

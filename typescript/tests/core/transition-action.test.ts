@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { passthrough, transform, transformFrom, fork, produce, transformAsync, withTimeout } from '../../src/core/transition-action.js';
+import { passthrough, isPassthrough, transform, transformFrom, fork, produce, transformAsync, withTimeout } from '../../src/core/transition-action.js';
 import { TransitionContext } from '../../src/core/transition-context.js';
 import { TokenInput } from '../../src/core/token-input.js';
 import { TokenOutput } from '../../src/core/token-output.js';
@@ -35,6 +35,22 @@ describe('TransitionAction built-ins', () => {
     const ctx = makeCtx(new Map(), []);
     await action(ctx);
     expect(ctx.rawOutput().isEmpty()).toBe(true);
+  });
+
+  // The singleton is what makes the CORE-043 compile check — and the MOD-021
+  // both-passthrough collapse in composeActions — possible at all.
+  it('passthrough is a singleton and isPassthrough recognises only it', () => {
+    expect(passthrough(),
+      'passthrough() must return a stable reference so it can be recognised by identity')
+      .toBe(passthrough());
+    expect(isPassthrough(passthrough())).toBe(true);
+    expect(isPassthrough(fork()),
+      'fork() produces output and must not be mistaken for the no-op').toBe(false);
+    expect(isPassthrough(null), 'null is not passthrough').toBe(false);
+    expect(isPassthrough(undefined), 'undefined is not passthrough').toBe(false);
+    // A hand-written no-op is indistinguishable from one that produces
+    // conditionally — the check is identity-based and does not claim it.
+    expect(isPassthrough(async () => {})).toBe(false);
   });
 
   it('transform applies fn to all outputs', async () => {

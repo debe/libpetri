@@ -2620,14 +2620,14 @@ abstract class AbstractNetExecutorEngineTest {
             }
         }
 
+        /** CORE-051: passthrough on a sink consumes its input and completes — it does not fail. */
         @Test
         void passthrough_actionDoesNothing() throws Exception {
             var input = Place.of("Input", SimpleValue.class);
-            var output = Place.of("Output", SimpleValue.class);
 
+            var eventStore = EventStore.inMemory();
             var t = Transition.builder("passthrough")
                 .inputs(Arc.In.one(input))
-                .outputs(Arc.Out.and(output))
                 .timing(Timing.deadline(Duration.ofMillis(100)))
                 .action(TransitionAction.passthrough())
                 .build();
@@ -2638,11 +2638,17 @@ abstract class AbstractNetExecutorEngineTest {
                 input, List.of(Token.of(new SimpleValue("data")))
             );
 
-            try (var executor = createExecutor(net,initial)) {
+            try (var executor = createExecutor(net,initial, eventStore)) {
                 var result = executor.run(Duration.ofSeconds(1)).toCompletableFuture().join();
 
                 assertFalse(result.hasTokens(input), "Input consumed");
-                assertFalse(result.hasTokens(output), "Passthrough produces no output");
+                Thread.sleep(50); // wait some time so that events getting processed
+                assertTrue(eventStore.events().stream()
+                        .anyMatch(e -> e instanceof NetEvent.TransitionCompleted),
+                    "the firing must complete");
+                assertTrue(eventStore.events().stream()
+                        .noneMatch(e -> e instanceof NetEvent.TransitionFailed),
+                    "producing nothing is not a failure when nothing is declared");
             }
         }
 

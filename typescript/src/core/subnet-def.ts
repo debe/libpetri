@@ -18,6 +18,7 @@ import {
   type VerificationResult,
   type TokenSupplier,
 } from '../verification/verification-harness.js';
+import { requireOutputProducingActions } from './internal/output-action-check.js';
 
 // Re-export the real harness types from the verification module for callers
 // that import from `core/subnet-def.js`. The previous task-#10 placeholder
@@ -266,6 +267,10 @@ export class SubnetDef<P = void> {
     const syntheticNet = PetriNetClass.builder('verify_' + this.name)
       .compose(sut as Instance<unknown>, portMappings)
       .build();
+
+    // CORE-043, checked here rather than left to SmtVerifier so an empty property set
+    // cannot skip it.
+    requireOutputProducingActions(syntheticNet);
 
     // Step 4: invoke the SmtVerifier once per property and aggregate
     // results. Iteration order matches the harness's property collection

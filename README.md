@@ -447,7 +447,7 @@ Concurrency model: the Java engine invokes actions inline on the orchestrator th
 
 ### Sync Linear Chains
 
-All transitions use synchronous (passthrough) actions.
+All transitions use trivial synchronous actions (`fork()`, since a chain transition declares an output and so cannot carry `passthrough()` — CORE-043).
 
 | Transitions | Java Bitmap | Java Precomp. | TS Bitmap | TS Precomp. | Rust Bitmap | Rust Precomp. | **Python** | Target (PERF-021) |
 |---|---|---|---|---|---|---|---|---|

@@ -1,2 +1,0 @@
-[build]
-rustflags = ["--cfg=pyo3_disable_reference_pool"]

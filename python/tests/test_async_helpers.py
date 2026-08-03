@@ -225,6 +225,10 @@ def test_start_async_on_different_loop_while_in_flight_raises() -> None:
             lp.Transition("t")
             .input(lp.one(sensor))
             .output(lp.out(out))
+            # fork(), not the builder default: a transition that declares an output
+            # may not be left on passthrough (CORE-043). What is under test here is
+            # the multi-loop rejection, not the action.
+            .action(lp.fork)
             .build()
         )
         .build()

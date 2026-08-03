@@ -11,13 +11,10 @@ export type TransitionAction = (ctx: TransitionContext) => Promise<void>;
 
 /**
  * Identity action: produces no outputs.
+ * For transitions that only consume tokens without producing any.
  *
- * Returns a stable singleton reference (cached on first call). Reference
- * stability is relied on by {@link import('./internal/subnet-rewriter.js')
- * .composeActions} during channel composition (MOD-021) to short-circuit a
- * passthrough-on-both-sides merge to passthrough — saving a microtask hop
- * and matching the Java implementation's behaviour where both transitions'
- * default actions collapse to the builder's own passthrough default.
+ * Returns a stable singleton reference (CORE-051), so {@link isPassthrough}
+ * can recognise it.
  */
 export function passthrough(): TransitionAction {
   return PASSTHROUGH;
@@ -25,6 +22,16 @@ export function passthrough(): TransitionAction {
 
 /** @internal Stable passthrough action — see {@link passthrough}. */
 const PASSTHROUGH: TransitionAction = async () => {};
+
+/**
+ * Whether `action` is the built-in {@link passthrough} — i.e. provably produces
+ * no output tokens. Identity-based, so a hand-written no-op is not claimed.
+ *
+ * @param action the action to test; `null` / `undefined` is not passthrough
+ */
+export function isPassthrough(action: TransitionAction | null | undefined): boolean {
+  return action === PASSTHROUGH;
+}
 
 /**
  * Transform action: applies function to context, copies result to ALL output places.

@@ -13,6 +13,7 @@
 
 use std::collections::HashSet;
 
+use libpetri::core::action::fork;
 use libpetri::core::arc::inhibitor;
 use libpetri::core::input::one;
 use libpetri::core::output::out_place;
@@ -34,6 +35,7 @@ fn producer() -> SubnetDef<()> {
     let produce = Transition::builder("produce")
         .input(one(&next_item))
         .output(out_place(&output))
+        .action(fork())
         .build();
     SubnetDef::<()>::builder("Producer")
         .place(&next_item)
@@ -48,6 +50,7 @@ fn consumer() -> SubnetDef<()> {
     let consume = Transition::builder("consume")
         .input(one(&input))
         .output(out_place(&consumed))
+        .action(fork())
         .build();
     SubnetDef::<()>::builder("Consumer")
         .place(&consumed)
@@ -60,6 +63,7 @@ fn retry_policy() -> SubnetDef<()> {
     let attempt_count = Place::<String>::new("attemptCount");
     let attempt = Transition::builder("attempt")
         .output(out_place(&attempt_count))
+        .action(fork())
         .build();
     SubnetDef::<()>::builder("RetryPolicy")
         .place(&attempt_count)
@@ -78,11 +82,13 @@ fn leaky_bucket(rate: u32) -> SubnetDef<()> {
         .input(one(&request))
         .input(one(&slots))
         .output(out_place(&accept))
+        .action(fork())
         .build();
     let reject_t = Transition::builder("reject")
         .input(one(&request))
         .inhibitor(inhibitor(&slots))
         .output(out_place(&reject))
+        .action(fork())
         .build();
     SubnetDef::<()>::builder(format!("LeakyBucket-{rate}"))
         .place(&slots)
@@ -101,6 +107,7 @@ fn pipe_producer() -> SubnetDef<()> {
     let emit = Transition::builder("emit")
         .input(one(&seed))
         .output(out_place(&pipe))
+        .action(fork())
         .build();
     SubnetDef::<()>::builder("PipeProducer")
         .place(&seed)
@@ -116,6 +123,7 @@ fn pipe_consumer() -> SubnetDef<()> {
     let eat = Transition::builder("eat")
         .input(one(&pipe))
         .output(out_place(&sink))
+        .action(fork())
         .build();
     SubnetDef::<()>::builder("PipeConsumer")
         .place(&pipe)
@@ -216,8 +224,8 @@ fn compose_direct_structurally_equal_to_hand_written_flat_net() {
     let pipe = Place::<String>::new("pipe");
     let sink = Place::<String>::new("sink");
     let hand_written = PetriNet::builder("Net")
-        .transition(Transition::builder("emit").input(one(&seed)).output(out_place(&pipe)).build())
-        .transition(Transition::builder("eat").input(one(&pipe)).output(out_place(&sink)).build())
+        .transition(Transition::builder("emit").input(one(&seed)).output(out_place(&pipe)).action(fork()).build())
+        .transition(Transition::builder("eat").input(one(&pipe)).output(out_place(&sink)).action(fork()).build())
         .build();
 
     assert_eq!(place_names(&composed), place_names(&hand_written));
@@ -293,7 +301,7 @@ fn compose_direct_then_fuse_fusion_runs_at_build() {
     let a = Place::<String>::new("a");
     let b = Place::<String>::new("b");
     let subnet = SubnetDef::<()>::builder("AB")
-        .transition(Transition::builder("move").input(one(&a)).output(out_place(&b)).build())
+        .transition(Transition::builder("move").input(one(&a)).output(out_place(&b)).action(fork()).build())
         .build();
 
     let net = PetriNet::builder("Host")

@@ -9,6 +9,7 @@ import { FusionSet } from '../../src/core/fusion-set.js';
 import { TimePetriNetAnalyzer, type LivenessResult } from '../../src/verification/analysis/time-petri-net-analyzer.js';
 import { MarkingState } from '../../src/verification/marking-state.js';
 import { producer, consumer, retryPolicy, leakyBucket } from '../fixtures/subnet-fixtures.js';
+import { bindProducers } from '../fixtures/producing-actions.js';
 
 /**
  * Tests for `PetriNetBuilder.compose(def)` — direct composition per
@@ -204,7 +205,7 @@ describe('PetriNetBuilder.compose(def) — MOD-025 direct composition', () => {
   function analyzePipeChain(net: PetriNet): LivenessResult {
     const seed = [...net.places].find((p) => p.name === 'seed')!;
     const sink = [...net.places].find((p) => p.name === 'sink')!;
-    return TimePetriNetAnalyzer.forNet(net)
+    return TimePetriNetAnalyzer.forNet(bindProducers(net))
       .initialMarking(MarkingState.builder().tokens(seed, 1).build())
       .goalPlaces(sink)
       .maxClasses(100)

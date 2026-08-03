@@ -327,17 +327,61 @@ class ChannelCompositionTest {
     }
 
     @Test
+    void channelMerge_singlePassthroughAction_returnsOtherSideByReference() throws Exception {
+        var calls = new AtomicInteger();
+        TransitionAction instanceAction = ctx -> {
+            calls.incrementAndGet();
+            return CompletableFuture.completedFuture(null);
+        };
+
+        assertSame(instanceAction,
+            SubnetRewriter.composeActions(TransitionAction.passthrough(), instanceAction),
+            "passthrough on the caller side collapses away (CORE-043 needs the survivor unwrapped)");
+        assertSame(instanceAction,
+            SubnetRewriter.composeActions(instanceAction, TransitionAction.passthrough()),
+            "and on the instance side too");
+
+        var ctx = new TransitionContext(
+            Transition.builder("t").build(), new TokenInput(), new TokenOutput());
+        SubnetRewriter.composeActions(TransitionAction.passthrough(), instanceAction)
+            .execute(ctx).toCompletableFuture().get();
+        assertEquals(1, calls.get(), "the surviving side still runs exactly once");
+    }
+
+    @Test
     void channelMerge_bothPassthroughAction_compositionStillRuns() throws Exception {
-        // Both sides' actions are the default passthrough; the composed
-        // action must still be safely callable end-to-end.
+        // Both sides' actions are the default passthrough; the merge must yield the singleton
+        // itself, not a lambda wrapping it — otherwise CORE-043 stops seeing merged transitions.
         Transition caller = Transition.builder("merged").build();
         Transition instance = Transition.builder("instanceSide").build();
 
         var merged = SubnetRewriter.mergeTransitions(caller, instance, "merged");
+        assertTrue(TransitionAction.isPassthrough(merged.action()),
+            "both-passthrough must collapse to the singleton");
 
         var ctx = new TransitionContext(merged, new TokenInput(), new TokenOutput());
         // Should complete without throwing.
         merged.action().execute(ctx).toCompletableFuture().get();
+    }
+
+    /**
+     * The collapse is load-bearing: a merged transition that gains an output spec from one side
+     * and passthrough from the other must still be rejected at compile time.
+     */
+    @Test
+    void channelMerge_mergedPassthroughWithOutputSpec_isRejectedAtCompileTime() {
+        Place<String> in = Place.of("in", String.class);
+        Place<String> out = Place.of("out", String.class);
+
+        Transition caller = Transition.builder("merged").inputs(Arc.In.one(in)).build();
+        Transition instance = Transition.builder("instanceSide").outputs(Arc.Out.place(out)).build();
+
+        var merged = SubnetRewriter.mergeTransitions(caller, instance, "merged");
+        var net = PetriNet.builder("Merged").transitions(merged).build();
+
+        var ex = assertThrows(IllegalStateException.class,
+            () -> org.libpetri.runtime.CompiledNet.compile(net));
+        assertTrue(ex.getMessage().contains("'merged'"), ex.getMessage());
     }
 
     // ============================================================

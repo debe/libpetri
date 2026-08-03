@@ -1,5 +1,6 @@
 package org.libpetri.smt;
 
+import org.libpetri.fixtures.StructureOnly;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -122,7 +123,7 @@ class FragmentExtensionTest {
     @Test
     @EnabledIf("z3Available")
     void baseDeadlockFreeIsUnknown() {
-        var r = SmtVerifier.forNet(fixture(true))
+        var r = SmtVerifier.forNet(StructureOnly.bind(fixture(true)))
             .initialMarking(seedOneTurn())
             .property(SmtProperty.deadlockFree())
             .sinkPlaces(OUT, DEADLETTER)
@@ -138,7 +139,7 @@ class FragmentExtensionTest {
     // through the solver-free Route B name-partition quotient and never touches Z3.
     @Test
     void extendedProvesNoStall() {
-        var r = SmtVerifier.forNet(fixture(true))
+        var r = SmtVerifier.forNet(StructureOnly.bind(fixture(true)))
             .initialMarking(seedOneTurn())
             .property(SmtProperty.deadlockFree())
             .sinkPlaces(OUT, DEADLETTER)
@@ -156,7 +157,7 @@ class FragmentExtensionTest {
 
     @Test
     void extendedFindsGenuineStallWhenDrainRemoved() {
-        var r = SmtVerifier.forNet(fixture(false)) // no DRAIN_A -> the violation branch strands COL_A
+        var r = SmtVerifier.forNet(StructureOnly.bind(fixture(false))) // no DRAIN_A -> the violation branch strands COL_A
             .initialMarking(seedOneTurn())
             .property(SmtProperty.deadlockFree())
             .sinkPlaces(OUT, DEADLETTER)
@@ -216,7 +217,7 @@ class FragmentExtensionTest {
     void carrierValidationThrowsOnUnknownPlace() {
         var stranger = Place.of("STRANGER", String.class);
         assertThrows(IllegalArgumentException.class,
-            () -> SmtVerifier.forNet(fixture(true)).carrierPlaces(stranger));
+            () -> SmtVerifier.forNet(StructureOnly.bind(fixture(true))).carrierPlaces(stranger));
     }
 
     /** The name-by-name &nu;-join over the two coloured inputs, reused by classify tests. */

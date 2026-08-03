@@ -17,6 +17,7 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict};
 
+use crate::error::panic_to_py;
 use crate::events::PyEventStoreHandle;
 use crate::model::PyPetriNet;
 #[cfg(feature = "tokio")]
@@ -107,10 +108,12 @@ pub struct PyCompiledNet {
 }
 
 impl PyCompiledNet {
-    pub fn from_petri_net(net: &PetriNet) -> Self {
-        Self {
-            inner: OwnedPrecompiledNet::compile(net),
-        }
+    /// Compiles `net`, translating a structural rejection — CORE-043 among them — into
+    /// `StructureError` rather than letting it unwind across the FFI boundary.
+    pub fn from_petri_net(net: &PetriNet) -> PyResult<Self> {
+        Ok(Self {
+            inner: panic_to_py(|| OwnedPrecompiledNet::compile(net))?,
+        })
     }
 }
 
@@ -118,7 +121,7 @@ impl PyCompiledNet {
 impl PyCompiledNet {
     /// Compiles `net` into the precompiled (flat-array) representation.
     #[new]
-    fn new(net: &PyPetriNet) -> Self {
+    fn new(net: &PyPetriNet) -> PyResult<Self> {
         Self::from_petri_net(net.net())
     }
 

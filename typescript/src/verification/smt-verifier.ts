@@ -18,6 +18,7 @@ import { verifyViaNameScg } from './nu-scg-verifier.js';
 import type { FragmentMode } from './analysis/name-fragment.js';
 import type { PrioritySemantics } from './analysis/priority-semantics.js';
 import { decode } from './z3/counterexample-decoder.js';
+import { requireOutputProducingActions } from '../core/internal/output-action-check.js';
 
 /**
  * IC3/PDR-based safety verifier for Petri nets using Z3's Spacer engine.
@@ -175,8 +176,11 @@ export class SmtVerifier {
 
   /**
    * Runs the verification pipeline.
+   *
+   * @throws Error if the net violates CORE-043 — verification rejects the same nets execution rejects.
    */
   async verify(): Promise<SmtVerificationResult> {
+    requireOutputProducingActions(this.net);
     const start = performance.now();
     const report: string[] = [];
     report.push('=== IC3/PDR SAFETY VERIFICATION ===\n');

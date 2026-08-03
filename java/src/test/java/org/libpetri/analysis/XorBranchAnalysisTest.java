@@ -1,5 +1,6 @@
 package org.libpetri.analysis;
 
+import org.libpetri.fixtures.StructureOnly;
 import org.libpetri.core.Transition;
 import org.libpetri.fixtures.PaperNetworks;
 import org.junit.jupiter.api.BeforeAll;
@@ -20,7 +21,7 @@ class XorBranchAnalysisTest {
                 .findFirst()
                 .orElseThrow();
         scg = StateClassGraph.build(
-                net,
+                StructureOnly.bind(net),
                 MarkingState.builder().tokens(pending, 1).build(),
                 10_000
         );

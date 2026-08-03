@@ -72,6 +72,17 @@ pytest -k precompiled          # filter by name
 
 Python ≥3.11. The wheel is built by maturin from `rust/libpetri-py` (PyO3); version is decoupled from the Rust workspace version. Actions run on Tokio threads with **no running asyncio loop** — use async-first entry points (`start_async`/`ainvoke`/`astream`); `asyncio.gather`/`create_task` raise at construction. Subscriptions are batched/filtered Rust-side (no per-event Python callbacks).
 
+**Do not build libpetri-py with `--cfg=pyo3_disable_reference_pool`.** It looks like free
+performance and is not. The executor legitimately releases Python handles from threads that are
+not attached — consumed tokens inside `py.detach` (`run_sync`), and `py_ctx` / `coroutine` /
+`TaskLocals` on tokio workers (`action.rs` `run_async`, `EventLoopGuard::drop`). pyo3's
+reference pool queues those decrefs and drains them on the next attach; the cfg turns each one
+into an immediate `abort()`. It was set in `rust/.cargo/config.toml` until 2026-08, where it
+reached local builds only — never CI, never a released wheel — so it bought nothing and cost 33
+aborting tests on macOS. Making the handles attach-on-drop instead is worse than the pool: that
+runs per token, so it converts each drop into a GIL acquisition on a detached thread, which on
+the multi-threaded async path serialises the executor against every other worker.
+
 ## Architecture
 
 All four implementations share the same architecture, mirrored across languages (Python via the Rust runtime).

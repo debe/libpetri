@@ -406,6 +406,7 @@ fn compile_input_mask(t: &Transition, compiled: &CompiledNet, word_count: usize)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use libpetri_core::action::fork;
     use libpetri_core::input::one;
     use libpetri_core::output::out_place;
     use libpetri_core::place::Place;
@@ -418,10 +419,12 @@ mod tests {
         let t1 = Transition::builder("t1")
             .input(one(&p1))
             .output(out_place(&p2))
+            .action(fork())
             .build();
         let t2 = Transition::builder("t2")
             .input(one(&p2))
             .output(out_place(&p3))
+            .action(fork())
             .build();
 
         PetriNet::builder("chain").transitions([t1, t2]).build()
@@ -484,11 +487,13 @@ mod tests {
         let t_high = Transition::builder("t_high")
             .input(one(&p))
             .output(out_place(&out))
+            .action(fork())
             .priority(10)
             .build();
         let t_low = Transition::builder("t_low")
             .input(one(&p))
             .output(out_place(&out))
+            .action(fork())
             .priority(1)
             .build();
 
@@ -514,6 +519,7 @@ mod tests {
             .input(one(&p1))
             .output(out_place(&p2))
             .inhibitor(libpetri_core::arc::inhibitor(&p_inh))
+            .action(fork())
             .build();
 
         let net = PetriNet::builder("test").transition(t).build();

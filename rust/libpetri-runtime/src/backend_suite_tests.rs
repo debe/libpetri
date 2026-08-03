@@ -99,18 +99,21 @@ fn simple_chain() -> (PetriNet, Place<i32>, Place<i32>, Place<i32>) {
     let p2 = Place::<i32>::new("p2");
     let p3 = Place::<i32>::new("p3");
 
+    // Both transitions are sinks: passthrough produces nothing, so neither may declare an
+    // output spec (CORE-043).
     let t1 = Transition::builder("t1")
         .input(one(&p1))
-        .output(out_place(&p2))
         .action(passthrough())
         .build();
     let t2 = Transition::builder("t2")
         .input(one(&p2))
-        .output(out_place(&p3))
         .action(passthrough())
         .build();
 
-    let net = PetriNet::builder("chain").transitions([t1, t2]).build();
+    let net = PetriNet::builder("chain")
+        .place(p3.as_ref())
+        .transitions([t1, t2])
+        .build();
     (net, p1, p2, p3)
 }
 
@@ -413,7 +416,7 @@ fn sync_inhibitor_blocks<R: BackendRunner>() {
         .input(one(&p1))
         .output(out_place(&p2))
         .inhibitor(inhibitor(&p_inh))
-        .action(passthrough())
+        .action(fork())
         .build();
 
     let net = PetriNet::builder("inhibitor").transition(t).build();
@@ -516,11 +519,10 @@ fn all_cardinality_consumes_everything<R: BackendRunner>() {
 
 fn at_least_blocks_insufficient<R: BackendRunner>() {
     let p = Place::<i32>::new("p");
-    let p_out = Place::<()>::new("out");
 
+    // Sink: the point is the cardinality gate (CORE-043 forbids passthrough + output spec).
     let t = Transition::builder("t1")
         .input(at_least(3, &p))
-        .output(out_place(&p_out))
         .action(passthrough())
         .build();
     let net = PetriNet::builder("test").transition(t).build();
@@ -535,11 +537,9 @@ fn at_least_blocks_insufficient<R: BackendRunner>() {
 
 fn at_least_fires_with_enough<R: BackendRunner>() {
     let p = Place::<i32>::new("p");
-    let p_out = Place::<()>::new("out");
 
     let t = Transition::builder("t1")
         .input(at_least(3, &p))
-        .output(out_place(&p_out))
         .action(passthrough())
         .build();
     let net = PetriNet::builder("test").transition(t).build();
@@ -814,13 +814,13 @@ fn sync_priority_ordering<R: BackendRunner>() {
     let t_high = Transition::builder("t_high")
         .input(one(&p))
         .output(out_place(&out_a))
-        .action(passthrough())
+        .action(fork())
         .priority(10)
         .build();
     let t_low = Transition::builder("t_low")
         .input(one(&p))
         .output(out_place(&out_b))
-        .action(passthrough())
+        .action(fork())
         .priority(1)
         .build();
 
@@ -831,9 +831,11 @@ fn sync_priority_ordering<R: BackendRunner>() {
     let mut marking = Marking::new();
     marking.add(&p, Token::at((), 0));
 
-    // Single token; higher priority consumes it (passthrough → no output).
+    // Single token; the higher-priority transition consumes it and forks it to "a".
     let result = R::run(&net, marking);
     assert_eq!(result.marking.count("p"), 0);
+    assert_eq!(result.marking.count("a"), 1);
+    assert_eq!(result.marking.count("b"), 0);
 }
 
 fn priority_higher_fires_first<R: BackendRunner>() {

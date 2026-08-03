@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use crate::action::BoxedAction;
+use crate::action::{BoxedAction, is_passthrough};
 use crate::compose::ComposeBindingsBuilder;
 use crate::fusion::{FusionSet, FusionSetBuilder};
 use crate::instance::Instance;
@@ -527,6 +527,28 @@ impl PetriNetBuilder {
             };
         }
         build_with_fusion(self, membership)
+    }
+}
+
+/// **CORE-043**: rejects a transition that declares an output spec while carrying the
+/// built-in [`passthrough`](crate::action::passthrough), which produces nothing — every
+/// firing would fail output validation (IO-015) and the declared output never arrives.
+/// Called when a net is compiled for execution or submitted for verification.
+///
+/// # Panics
+/// Panics naming the offending transition.
+pub fn require_output_producing_actions(net: &PetriNet) {
+    for t in net.transitions() {
+        if t.output_spec().is_some() && is_passthrough(t.action()) {
+            panic!(
+                "Transition '{}' declares an output spec but carries passthrough(), which \
+                 produces no tokens. Every firing would fail output validation (IO-015) and \
+                 the declared output would never arrive. Bind an action that produces it — \
+                 fork() moves the input token across — or drop the output spec if the \
+                 transition is meant to be a sink.",
+                t.name()
+            );
+        }
     }
 }
 

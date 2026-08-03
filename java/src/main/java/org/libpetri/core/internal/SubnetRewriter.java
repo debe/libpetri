@@ -623,11 +623,17 @@ public final class SubnetRewriter {
      * {@link TransitionAction#passthrough()} (never {@code null}), so the
      * null branches are defensive — they exist so this helper is robust if
      * upstream surfaces a literal {@code null} action.
+     *
+     * <p>Passthrough is collapsed rather than wrapped: sequencing a no-op is
+     * observationally identical to dropping it, and collapsing keeps the built-in
+     * identity-visible per [CORE-043].
      */
     public static TransitionAction composeActions(TransitionAction caller, TransitionAction instance) {
         if (caller == null && instance == null) return null;
         if (caller == null) return instance;
         if (instance == null) return caller;
+        if (TransitionAction.isPassthrough(caller)) return instance;
+        if (TransitionAction.isPassthrough(instance)) return caller;
         return ctx -> {
             CompletionStage<Void> first = caller.execute(ctx);
             return first.thenCompose(_ -> instance.execute(ctx));

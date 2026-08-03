@@ -32,7 +32,7 @@ export type { Timing, TimingImmediate, TimingDeadline, TimingDelayed, TimingWind
 export { immediate, deadline, delayed, window, exact, earliest, latest, hasDeadline, MAX_DURATION_MS } from './timing.js';
 
 export type { TransitionAction } from './transition-action.js';
-export { passthrough, transform, fork, transformFrom, transformAsync, produce, withTimeout } from './transition-action.js';
+export { passthrough, isPassthrough, transform, fork, transformFrom, transformAsync, produce, withTimeout } from './transition-action.js';
 
 export type { LogFn } from './transition-context.js';
 export { TransitionContext } from './transition-context.js';

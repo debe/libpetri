@@ -428,8 +428,9 @@ impl PyPetriNet {
         self.inner.name().to_string()
     }
 
-    /// Precompiles the net for fast execution.
-    fn compile(&self) -> PyCompiledNet {
+    /// Precompiles the net for fast execution. Raises `StructureError` if a transition
+    /// declares an output spec but carries the built-in `passthrough` (**CORE-043**).
+    fn compile(&self) -> PyResult<PyCompiledNet> {
         PyCompiledNet::from_petri_net(&self.inner)
     }
 

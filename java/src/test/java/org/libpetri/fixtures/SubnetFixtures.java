@@ -5,14 +5,18 @@ import org.libpetri.core.Arc.Out;
 import org.libpetri.core.Place;
 import org.libpetri.core.SubnetDef;
 import org.libpetri.core.Transition;
+import org.libpetri.core.TransitionAction;
+
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Fixture factory for canonical subnet definitions used across the modular
  * composition test suite (MOD-010 through MOD-023).
  *
  * <p>These fixtures are deliberately minimal: each declares one or two
- * interface ports, a small body of internal places and transitions, and
- * action-less control-flow only. Tests pair them via
+ * interface ports and a small body of internal places and transitions.
+ * Transitions that declare an output carry a token-forwarding action, since
+ * [CORE-043] rejects the passthrough default there. Tests pair them via
  * {@link org.libpetri.core.PetriNet.Builder#compose} to verify port-place
  * merging and per-instance state isolation.
  *
@@ -62,6 +66,7 @@ public final class SubnetFixtures {
         Transition produce = Transition.builder("produce")
             .inputs(In.one(nextItem))
             .outputs(Out.place(output))
+            .action(TransitionAction.fork())
             .build();
 
         return SubnetDef.builder("Producer")
@@ -142,6 +147,7 @@ public final class SubnetFixtures {
         Transition consume = Transition.builder("consume")
             .inputs(In.one(input))
             .outputs(Out.place(consumed))
+            .action(TransitionAction.fork())
             .build();
 
         return SubnetDef.builder("Consumer")
@@ -229,14 +235,19 @@ public final class SubnetFixtures {
         Transition acceptT = Transition.builder("accept")
             .inputs(In.one(request), In.one(slots))
             .outputs(Out.place(accept))
+            .action(ctx -> {
+                ctx.output(accept, ctx.input(request));
+                return CompletableFuture.completedFuture(null);
+            })
             .build();
 
         // reject-path: no slot available (inhibitor), still consumes request,
-        // emits reject. Action-less control-flow.
+        // emits reject.
         Transition rejectT = Transition.builder("reject")
             .inputs(In.one(request))
             .inhibitor(slots)
             .outputs(Out.place(reject))
+            .action(TransitionAction.fork())
             .build();
 
         return SubnetDef.builder("LeakyBucket-" + rate)

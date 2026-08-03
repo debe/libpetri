@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashSet};
 use std::time::Instant;
 
-use libpetri_core::petri_net::PetriNet;
+use libpetri_core::petri_net::{PetriNet, require_output_producing_actions};
 
 use crate::counterexample::{self, DecodedTrace};
 use crate::environment::EnvironmentAnalysisMode;
@@ -64,7 +64,12 @@ pub struct SmtVerifier<'a> {
 
 impl<'a> SmtVerifier<'a> {
     /// Creates a verifier for the given net.
+    ///
+    /// # Panics
+    /// Panics per **CORE-043** if a transition declares an output spec but carries
+    /// `passthrough()`, so a proof over this net implies a net that can actually run.
     pub fn for_net(net: &'a PetriNet) -> Self {
+        require_output_producing_actions(net);
         Self {
             net,
             initial_marking: MarkingStateBuilder::new().build(),
@@ -758,6 +763,7 @@ fn process_z3_result(
 mod tests {
     use super::*;
     use crate::marking_state::MarkingStateBuilder;
+    use libpetri_core::action::fork;
     use libpetri_core::input::{exactly, one};
     use libpetri_core::output::out_place;
     use libpetri_core::place::Place;
@@ -773,6 +779,21 @@ mod tests {
             .unwrap_or(false)
     }
 
+    /// CORE-043: verification rejects the same nets compilation rejects.
+    #[test]
+    #[should_panic(expected = "Transition 't1' declares an output spec but carries passthrough()")]
+    fn for_net_rejects_output_declaring_passthrough() {
+        let p1 = Place::<i32>::new("p1");
+        let p2 = Place::<i32>::new("p2");
+        let t = Transition::builder("t1")
+            .input(one(&p1))
+            .output(out_place(&p2))
+            .build();
+        let net = PetriNet::builder("test").transition(t).build();
+
+        SmtVerifier::for_net(&net);
+    }
+
     #[test]
     fn verifier_builder_creates_defaults() {
         let p1 = Place::<i32>::new("p1");
@@ -780,6 +801,7 @@ mod tests {
         let t = Transition::builder("t1")
             .input(one(&p1))
             .output(out_place(&p2))
+            .action(fork())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
 
@@ -798,10 +820,12 @@ mod tests {
         let t1 = Transition::builder("t1")
             .input(one(&p1))
             .output(out_place(&p2))
+            .action(fork())
             .build();
         let t2 = Transition::builder("t2")
             .input(one(&p2))
             .output(out_place(&p1))
+            .action(fork())
             .build();
         let net = PetriNet::builder("cycle").transitions([t1, t2]).build();
 
@@ -821,6 +845,7 @@ mod tests {
         let t = Transition::builder("t1")
             .input(one(&p1))
             .output(out_place(&p2))
+            .action(fork())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
 
@@ -840,6 +865,7 @@ mod tests {
         let t = Transition::builder("t1")
             .input(one(&p1))
             .output(out_place(&p2))
+            .action(fork())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
 
@@ -863,6 +889,7 @@ mod tests {
         let t = Transition::builder("T")
             .input(one(&in_p))
             .output(out_place(&out))
+            .action(fork())
             .build();
         PetriNet::builder("env-source").transition(t).build()
     }
@@ -906,6 +933,7 @@ mod tests {
             let t = Transition::builder("T2")
                 .input(exactly(2, &in_p))
                 .output(out_place(&out))
+                .action(fork())
                 .build();
             PetriNet::builder("env-mult").transition(t).build()
         };
@@ -980,7 +1008,7 @@ mod tests {
         let b = Place::<String>::new("branchB");
         let merged = Place::<String>::new("merged");
 
-        let fork = Transition::builder("fork")
+        let t_fork = Transition::builder("fork")
             .input(one(&source))
             .input(one(&budget)) // minting a name costs one budget token
             .output(and(vec![
@@ -988,6 +1016,7 @@ mod tests {
                 out_place(&b),
                 out_place(&pending), // mark a live correlation group
             ]))
+            .action(fork())
             .build();
 
         let join = Transition::builder("join")
@@ -1001,10 +1030,11 @@ mod tests {
                     .build(),
             )
             .output(and(vec![out_place(&merged), out_place(&budget)])) // return budget
+            .action(fork())
             .build();
 
         PetriNet::builder("nu_scatter_gather_verify")
-            .transitions([fork, join])
+            .transitions([t_fork, join])
             .build()
     }
 
@@ -1082,10 +1112,11 @@ mod tests {
         let b = Place::<String>::new("b");
         let merged = Place::<String>::new("merged");
 
-        let fork = Transition::builder("fork")
+        let t_fork = Transition::builder("fork")
             .input(one(&source))
             .input(one(&budget))
             .output(and(vec![out_place(&a), out_place(&b)]))
+            .action(fork())
             .build();
         let join = Transition::builder("join")
             .input(one(&a))
@@ -1097,9 +1128,10 @@ mod tests {
                     .build(),
             )
             .output(and(vec![out_place(&merged), out_place(&budget)]))
+            .action(fork())
             .build();
         PetriNet::builder("nu053_no_stall")
-            .transitions([fork, join])
+            .transitions([t_fork, join])
             .build()
     }
 
@@ -1118,10 +1150,11 @@ mod tests {
         let merged = Place::<String>::new("merged");
         let deadletter = Place::<String>::new("deadletter");
 
-        let fork = Transition::builder("fork")
+        let t_fork = Transition::builder("fork")
             .input(one(&source))
             .input(one(&budget))
             .output(and(vec![out_place(&a), out_place(&b)]))
+            .action(fork())
             .build();
         let join = Transition::builder("join")
             .input(one(&a))
@@ -1133,13 +1166,15 @@ mod tests {
                     .build(),
             )
             .output(and(vec![out_place(&merged), out_place(&budget)]))
+            .action(fork())
             .build();
         let drain = Transition::builder("drain")
             .input(one(&a))
             .output(out_place(&deadletter))
+            .action(fork())
             .build();
         PetriNet::builder("nu053_steal")
-            .transitions([fork, join, drain])
+            .transitions([t_fork, join, drain])
             .build()
     }
 
@@ -1315,10 +1350,12 @@ mod tests {
         let produce = Transition::builder("gen")
             .input(one(&start))
             .output(out_place(&pending))
+            .action(fork())
             .build();
         let fin = Transition::builder("fin")
             .input(one(&pending))
             .output(out_place(&done))
+            .action(fork())
             .build();
         let net = PetriNet::builder("pending_drains")
             .transitions([produce, fin])
@@ -1350,6 +1387,7 @@ mod tests {
         let leak = Transition::builder("leak")
             .input(one(&start))
             .output(out_place(&pending))
+            .action(fork())
             .build();
         let net = PetriNet::builder("pending_strands").transition(leak).build();
 
@@ -1391,11 +1429,13 @@ mod tests {
             .input(one(&source_a))
             .input(one(&budget))
             .output(out_place(&a))
+            .action(fork())
             .build();
         let fork_b = Transition::builder("forkB")
             .input(one(&source_b))
             .input(one(&budget))
             .output(out_place(&b))
+            .action(fork())
             .build();
         let join = Transition::builder("join")
             .input(one(&a))
@@ -1407,6 +1447,7 @@ mod tests {
                     .build(),
             )
             .output(out_place(&merged))
+            .action(fork())
             .build();
 
         PetriNet::builder("nu_distinct_mints")
@@ -1492,9 +1533,10 @@ mod tests {
         let merged = Place::<String>::new("merged");
         let dl = Place::<()>::new("deadletter");
 
-        let fork = Transition::builder("fork")
+        let t_fork = Transition::builder("fork")
             .input(one(&source))
             .output(and(vec![out_place(&a), out_place(&b), out_place(&stray)]))
+            .action(fork())
             .build();
         let join = Transition::builder("join")
             .input(one(&a))
@@ -1506,13 +1548,15 @@ mod tests {
                     .build(),
             )
             .output(out_place(&merged))
+            .action(fork())
             .build();
 
-        let mut builder = PetriNet::builder("comint_carrier_drain").transitions([fork, join]);
+        let mut builder = PetriNet::builder("comint_carrier_drain").transitions([t_fork, join]);
         if with_drain {
             let drain = Transition::builder("drain")
                 .input(one(&stray))
                 .output(out_place(&dl))
+                .action(fork())
                 .build();
             builder = builder.transition(drain);
         }

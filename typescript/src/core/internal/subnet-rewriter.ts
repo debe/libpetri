@@ -56,7 +56,7 @@ import { Transition } from '../transition.js';
 import type { MatchSpec } from '../match-spec.js';
 import type { Timing } from '../timing.js';
 import type { TransitionAction } from '../transition-action.js';
-import { passthrough } from '../transition-action.js';
+import { isPassthrough } from '../transition-action.js';
 
 // ============================================================
 //  Public entry points
@@ -611,8 +611,9 @@ export function pickPriority(callerPriority: number, _instancePriority: number):
  * - Otherwise returns a fresh sequential composition.
  *
  * Note: the production {@link Transition.builder} defaults action to
- * {@link passthrough}, so the `undefined` branches are defensive — they exist
- * so this helper is robust if upstream surfaces a literal `undefined` action.
+ * {@link import('../transition-action.js').passthrough}, so the `undefined`
+ * branches are defensive — they exist so this helper is robust if upstream
+ * surfaces a literal `undefined` action.
  */
 export function composeActions(
   caller: TransitionAction | undefined,
@@ -722,21 +723,6 @@ function describeTiming(t: Timing): string {
     case 'exact':
       return `Exact(atMs=${t.atMs})`;
   }
-}
-
-/**
- * Reference identity check against the singleton passthrough action.
- *
- * {@link passthrough} returns a stable cached reference, so identity
- * comparison reliably detects "this is the no-op default action". Used by
- * {@link composeActions} to collapse passthrough-on-both-sides to
- * passthrough — saving a microtask hop and matching the Java
- * implementation's behaviour where both transitions' default actions
- * collapse to the builder's own passthrough default.
- */
-const PASSTHROUGH_REF = passthrough();
-function isPassthrough(action: TransitionAction): boolean {
-  return action === PASSTHROUGH_REF;
 }
 
 /**

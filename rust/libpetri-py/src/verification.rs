@@ -13,6 +13,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::wrap_pyfunction;
 
+use crate::error::panic_to_py;
 use crate::model::{PyPetriNet, PySubnetDef};
 #[cfg(feature = "z3")]
 use crate::value::erased_from_py;
@@ -399,7 +400,9 @@ fn py_verify_net(
             mb = mb.tokens(name, count);
         }
         let marking = mb.build();
-        let result = py.detach(move || {
+        // `for_net` panics on a CORE-043 net; a panic must not unwind across the FFI
+        // boundary, least of all out of a detached region.
+        let result = panic_to_py(|| py.detach(move || {
             let mut verifier = libpetri::verification::smt_verifier::SmtVerifier::for_net(&net)
                 .initial_marking(marking)
                 .property(property)
@@ -416,7 +419,7 @@ fn py_verify_net(
                 verifier = verifier.nu_max_classes(n);
             }
             verifier.verify()
-        });
+        }))?;
         Ok(PyVerificationResult::from_rust(result))
     }
     #[cfg(not(feature = "z3"))]
@@ -468,7 +471,8 @@ fn py_verify_subnet(
     }
 
     let subnet = subnet.inner.clone();
-    let result = py.detach(move || subnet.verify(rust_harness));
+    // Same CORE-043 guard as the net path: the harness compiles a synthetic net.
+    let result = panic_to_py(|| py.detach(move || subnet.verify(rust_harness)))?;
 
     let property_results = result
         .per_property

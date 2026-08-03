@@ -1257,6 +1257,12 @@ describe('Async Action Tests', () => {
     expect(durationMs).toBeLessThan(250);
   });
 
+  // CORE-051: passthrough consumes its input and produces nothing. Note the
+  // transition declares NO output spec — that is what makes it a sink, and what
+  // makes this the honest test. Pairing passthrough with a declared output would
+  // be the CORE-043 defect: compilation now rejects it outright, and before that
+  // check existed the firing failed output validation (IO-015) rather than
+  // completing, so the "no output" assertion below passed for the wrong reason.
   it('passthrough action produces no output', async () => {
     const input = place<string>('IN');
     const t = Transition.builder('T')

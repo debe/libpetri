@@ -5,6 +5,7 @@ import org.libpetri.core.EnvironmentPlace;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
 import org.libpetri.core.Transition;
+import org.libpetri.core.internal.OutputActionCheck;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -239,7 +240,12 @@ public final class StateClassGraph {
     /**
      * Builds the initial state class (enabled set + firing-domain DBM after
      * letting time pass). Shared by the plain SCG and the name-aware ν-partition
-     * SCG ({@link NameStateClassGraph}).
+     * SCG ({@link NameStateClassGraph}), and so the single point every graph
+     * construction passes through.
+     *
+     * @throws IllegalStateException per [CORE-043] — token production is read from the
+     *     {@code Arc.Out} spec, never from the bound action, so a net that could not
+     *     produce at run time would otherwise verify green
      */
     static StateClass initialStateClass(
             PetriNet net,
@@ -247,6 +253,7 @@ public final class StateClassGraph {
             Set<Place<?>> environmentPlaces,
             EnvironmentAnalysisMode environmentMode
     ) {
+        OutputActionCheck.requireOutputProducingActions(net);
         var enabledTransitions = findEnabledTransitions(net, initialMarking, environmentPlaces, environmentMode);
         var clockNames = enabledTransitions.stream().map(Transition::name).toList();
         var lowerBounds = new double[enabledTransitions.size()];

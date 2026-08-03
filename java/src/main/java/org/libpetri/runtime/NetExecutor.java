@@ -11,6 +11,7 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 
 import org.libpetri.core.*;
+import org.libpetri.core.internal.OutputActionCheck;
 import org.libpetri.debug.LogCaptureScope;
 import org.libpetri.event.EventStore;
 import org.libpetri.event.NetEvent;
@@ -233,6 +234,10 @@ public final class NetExecutor implements PetriNetExecutor, AwaitPollTunable {
         long deadlineToleranceMillis,
         ActionFailureHandler uncaughtActionHandler
     ) {
+        // CORE-043: this executor walks the PetriNet directly rather than a CompiledNet, so it
+        // needs its own copy of the check the compile path performs.
+        OutputActionCheck.requireOutputProducingActions(net);
+
         this.uncaughtActionHandler = uncaughtActionHandler;
         this.net = net;
         this.marking = marking;
