@@ -75,6 +75,7 @@ impl IncidenceMatrix {
 mod tests {
     use super::*;
     use crate::net_flattener::flatten;
+    use libpetri_core::action::fork;
     use libpetri_core::input::one;
     use libpetri_core::output::out_place;
     use libpetri_core::petri_net::PetriNet;
@@ -88,6 +89,7 @@ mod tests {
         let t = Transition::builder("t1")
             .input(one(&p1))
             .output(out_place(&p2))
+            .action(fork())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
 
@@ -114,10 +116,12 @@ mod tests {
         let t1 = Transition::builder("t1")
             .input(one(&p1))
             .output(out_place(&p2))
+            .action(fork())
             .build();
         let t2 = Transition::builder("t2")
             .input(one(&p2))
             .output(out_place(&p3))
+            .action(fork())
             .build();
         let net = PetriNet::builder("test").transitions([t1, t2]).build();
 

@@ -13,6 +13,7 @@ import { NameStateClassGraph } from '../../src/verification/analysis/name-state-
 import { classify } from '../../src/verification/analysis/name-fragment.js';
 import { MarkingState } from '../../src/verification/marking-state.js';
 import type { PrioritySemantics } from '../../src/verification/analysis/priority-semantics.js';
+import { bindProducers } from '../fixtures/producing-actions.js';
 
 /**
  * Verify-locally-first proof of the `'conflict'` PrioritySemantics (NU-052) on a
@@ -69,7 +70,7 @@ describe('NameStateClassGraph conflict-only priority (NU-052)', () => {
   }
 
   const verifier = (net: PetriNet) =>
-    SmtVerifier.forNet(net)
+    SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => m.tokens(SEED, 1))
       .property(deadlockFree())
       .sinkPlaces(OUT, DEADLETTER)

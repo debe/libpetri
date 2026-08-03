@@ -70,8 +70,9 @@ pub fn passthrough() -> BoxedAction {
 }
 
 /// Returns true when the given action is the singleton passthrough action
-/// returned by [`passthrough`]. Reference identity check via `Arc::ptr_eq`.
-pub(crate) fn is_passthrough(action: &BoxedAction) -> bool {
+/// returned by [`passthrough`]. Reference identity check via `Arc::ptr_eq`, so it
+/// claims only the built-in, never a hand-written action that produces nothing.
+pub fn is_passthrough(action: &BoxedAction) -> bool {
     Arc::ptr_eq(action, &passthrough())
 }
 

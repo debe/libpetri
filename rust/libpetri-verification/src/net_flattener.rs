@@ -139,6 +139,7 @@ pub fn flatten(net: &PetriNet) -> FlatNet {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use libpetri_core::action::fork;
     use libpetri_core::input::one;
     use libpetri_core::output::{out_place, xor};
     use libpetri_core::place::Place;
@@ -151,6 +152,7 @@ mod tests {
         let t = Transition::builder("t1")
             .input(one(&p1))
             .output(out_place(&p2))
+            .action(fork())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
 
@@ -169,6 +171,7 @@ mod tests {
         let t = Transition::builder("t1")
             .input(one(&p))
             .output(xor(vec![out_place(&a), out_place(&b)]))
+            .action(fork())
             .build();
         let net = PetriNet::builder("test").transition(t).build();
 

@@ -24,12 +24,12 @@ fn build_linear_chain(n: usize) -> (PetriNet, Place<i32>) {
     (net, places[0].clone())
 }
 
+// PERF-020 scenario 1: one passthrough transition, the minimum-overhead path. It is a
+// sink — passthrough may not declare an output spec (CORE-043).
 fn single_passthrough(c: &mut Criterion) {
     let p1 = Place::<i32>::new("p1");
-    let p2 = Place::<i32>::new("p2");
     let t = Transition::builder("t1")
         .input(one(&p1))
-        .output(out_place(&p2))
         .action(passthrough())
         .build();
     let net = PetriNet::builder("single").transition(t).build();
@@ -41,7 +41,7 @@ fn single_passthrough(c: &mut Criterion) {
             let mut executor =
                 BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
             executor.run_sync();
-            black_box(executor.marking().count("p2"));
+            black_box(executor.marking().count("p1"));
         })
     });
 }
@@ -404,12 +404,11 @@ fn complex_workflow(c: &mut Criterion) {
 
 // ==================== Precompiled Executor Benchmarks ====================
 
+// PERF-020 scenario 1 on the precompiled path — see `single_passthrough`.
 fn precompiled_single_passthrough(c: &mut Criterion) {
     let p1 = Place::<i32>::new("p1");
-    let p2 = Place::<i32>::new("p2");
     let t = Transition::builder("t1")
         .input(one(&p1))
-        .output(out_place(&p2))
         .action(passthrough())
         .build();
     let net = PetriNet::builder("single").transition(t).build();
@@ -422,7 +421,7 @@ fn precompiled_single_passthrough(c: &mut Criterion) {
             marking.add(&p1, Token::at(42, 0));
             let mut executor = PrecompiledNetExecutor::<NoopEventStore>::new(&prog, marking);
             let result = executor.run_sync();
-            black_box(result.count("p2"));
+            black_box(result.count("p1"));
         })
     });
 }

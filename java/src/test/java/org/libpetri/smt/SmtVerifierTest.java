@@ -1,5 +1,6 @@
 package org.libpetri.smt;
 
+import org.libpetri.fixtures.StructureOnly;
 import org.libpetri.analysis.EnvironmentAnalysisMode;
 import org.libpetri.analysis.FragmentMode;
 import org.libpetri.core.*;
@@ -81,7 +82,7 @@ class SmtVerifierTest {
     void basicTpn_noDeadlockInUntimedSemantics() {
         var net = PaperNetworks.createBasicTpn();
 
-        var result = SmtVerifier.forNet(net)
+        var result = SmtVerifier.forNet(StructureOnly.bind(net))
             .initialMarking(m -> m.tokens(PENDING, 1))
             .property(SmtProperty.deadlockFree())
             .timeout(Duration.ofSeconds(30))
@@ -115,7 +116,7 @@ class SmtVerifierTest {
 
         var net = PetriNet.builder("MutualExclusion").transitions(t1, t2).build();
 
-        var result = SmtVerifier.forNet(net)
+        var result = SmtVerifier.forNet(StructureOnly.bind(net))
             .initialMarking(m -> m.tokens(p1, 1))
             .property(SmtProperty.mutualExclusion(p1, p2))
             .timeout(Duration.ofSeconds(10))
@@ -150,7 +151,7 @@ class SmtVerifierTest {
 
         var net = PetriNet.builder("DeadlockNet").transitions(t1, t2).build();
 
-        var result = SmtVerifier.forNet(net)
+        var result = SmtVerifier.forNet(StructureOnly.bind(net))
             .initialMarking(m -> m.tokens(p1, 1))
             .property(SmtProperty.deadlockFree())
             .timeout(Duration.ofSeconds(10))
@@ -176,7 +177,7 @@ class SmtVerifierTest {
 
         var net = PetriNet.builder("Bounded").transitions(t1, t2).build();
 
-        var result = SmtVerifier.forNet(net)
+        var result = SmtVerifier.forNet(StructureOnly.bind(net))
             .initialMarking(m -> m.tokens(p1, 1))
             .property(SmtProperty.placeBound(p2, 1))
             .timeout(Duration.ofSeconds(10))
@@ -216,7 +217,7 @@ class SmtVerifierTest {
         // tokens requires 2 tokens total, but conservation law says A+B+C=1.
         var net = PetriNet.builder("Unreachable").transitions(t1, t2, t3).build();
 
-        var result = SmtVerifier.forNet(net)
+        var result = SmtVerifier.forNet(StructureOnly.bind(net))
             .initialMarking(m -> m.tokens(pA, 1))
             .property(SmtProperty.unreachable(Set.of(pA, pC)))
             .timeout(Duration.ofSeconds(10))
@@ -233,7 +234,7 @@ class SmtVerifierTest {
         // Use a net complex enough that 1ms timeout is likely insufficient
         var net = PaperNetworks.createExtendedTpn();
 
-        var result = SmtVerifier.forNet(net)
+        var result = SmtVerifier.forNet(StructureOnly.bind(net))
             .initialMarking(m -> m.tokens(PENDING, 1))
             .property(SmtProperty.deadlockFree())
             .timeout(Duration.ofMillis(1))
@@ -264,7 +265,7 @@ class SmtVerifierTest {
 
         var net = PetriNet.builder("DeadlockNet").transitions(t1, t2).build();
 
-        var result = SmtVerifier.forNet(net)
+        var result = SmtVerifier.forNet(StructureOnly.bind(net))
             .initialMarking(m -> m.tokens(p1, 1))
             .property(SmtProperty.deadlockFree())
             .timeout(Duration.ofSeconds(10))
@@ -309,7 +310,7 @@ class SmtVerifierTest {
 
         var net = PetriNet.builder("XorSinkNet").transitions(dispatch, complete).build();
 
-        var result = SmtVerifier.forNet(net)
+        var result = SmtVerifier.forNet(StructureOnly.bind(net))
             .initialMarking(m -> m.tokens(idle, 1))
             .environmentPlaces(trigger)
             .environmentMode(EnvironmentAnalysisMode.alwaysAvailable())
@@ -348,7 +349,7 @@ class SmtVerifierTest {
         var net = PetriNet.builder("env-source").transitions(t).build();
 
         for (int k : new int[] {0, 1, 5}) {
-            var result = SmtVerifier.forNet(net)
+            var result = SmtVerifier.forNet(StructureOnly.bind(net))
                 .environmentPlaces(in)
                 .environmentMode(EnvironmentAnalysisMode.alwaysAvailable())
                 .property(SmtProperty.placeBound(out, k))
@@ -375,7 +376,7 @@ class SmtVerifierTest {
         var in = EnvironmentPlace.of(Place.of("IN", String.class));
         var out = Place.of("OUT", String.class);
 
-        var bounded1 = SmtVerifier.forNet(build.get())
+        var bounded1 = SmtVerifier.forNet(StructureOnly.bind(build.get()))
             .environmentPlaces(in)
             .environmentMode(EnvironmentAnalysisMode.bounded(1))
             .property(SmtProperty.placeBound(out, 0))
@@ -384,7 +385,7 @@ class SmtVerifierTest {
         assertTrue(bounded1.isProven(),
             "bounded(1) starves a 2-token env input -> OUT stays 0\n" + bounded1.report());
 
-        var always = SmtVerifier.forNet(build.get())
+        var always = SmtVerifier.forNet(StructureOnly.bind(build.get()))
             .environmentPlaces(in)
             .environmentMode(EnvironmentAnalysisMode.alwaysAvailable())
             .property(SmtProperty.placeBound(out, 0))
@@ -403,7 +404,7 @@ class SmtVerifierTest {
         var t = Transition.builder("T").inputs(In.one(in.place())).outputs(Out.place(out)).build();
         var net = PetriNet.builder("env-source").transitions(t).build();
 
-        var result = SmtVerifier.forNet(net)
+        var result = SmtVerifier.forNet(StructureOnly.bind(net))
             .environmentPlaces(in)
             .environmentMode(EnvironmentAnalysisMode.ignore())
             .property(SmtProperty.placeBound(out, 1))
@@ -437,7 +438,7 @@ class SmtVerifierTest {
         // With A=1, B=5: T1 fires -> A=0, B=0, C=1 (B is reset)
         // Then T2 fires -> A=1, B=0, C=0
         // B should be bounded by 5 (initial value, never increases)
-        var result = SmtVerifier.forNet(net)
+        var result = SmtVerifier.forNet(StructureOnly.bind(net))
             .initialMarking(m -> { m.tokens(pA, 1); m.tokens(pB, 5); })
             .property(SmtProperty.placeBound(pB, 5))
             .timeout(Duration.ofSeconds(10))
@@ -495,7 +496,7 @@ class SmtVerifierTest {
     void nuBranchBudgetBound_provenWithDeclaredBudget() {
         // NU-040 #1: with the budget declared, the live correlation pool is
         // bounded — BranchPlaceBound(budget, k) is proven by conservation.
-        var result = SmtVerifier.forNet(nuScatterGatherNet())
+        var result = SmtVerifier.forNet(StructureOnly.bind(nuScatterGatherNet()))
             .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); })
             .property(SmtProperty.branchPlaceBound(NU_BUDGET, 2))
             .budgetPlaces(NU_BUDGET)
@@ -509,7 +510,7 @@ class SmtVerifierTest {
     @EnabledIf("z3Available")
     void nuPendingBound_provenExact() {
         // NU-040 #2 (bound half): at most k live groups — Pending is bounded by k.
-        var result = SmtVerifier.forNet(nuScatterGatherNet())
+        var result = SmtVerifier.forNet(StructureOnly.bind(nuScatterGatherNet()))
             .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); })
             .property(SmtProperty.branchPlaceBound(NU_PENDING, 2))
             .budgetPlaces(NU_BUDGET)
@@ -532,7 +533,7 @@ class SmtVerifierTest {
         // otherwise make the Error rule unsatisfiable → trivially "proven"). Contrast
         // nuPendingBound_provenExact, which proves the real `pending` bound on this net.
         var typo = Place.of("pnding", Integer.class); // typo of "pending"
-        var result = SmtVerifier.forNet(nuScatterGatherNet())
+        var result = SmtVerifier.forNet(StructureOnly.bind(nuScatterGatherNet()))
             .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); })
             .property(SmtProperty.branchPlaceBound(typo, 2))
             .budgetPlaces(NU_BUDGET)
@@ -548,7 +549,7 @@ class SmtVerifierTest {
         // returns Unknown, but the name-aware SCG name-partition quotient discovers
         // the structural bound (the budget token caps live groups) and proves the
         // bound exactly — the beyond-bounded win. Pure SCG, so no Z3 binary needed.
-        var result = SmtVerifier.forNet(nuScatterGatherNet())
+        var result = SmtVerifier.forNet(StructureOnly.bind(nuScatterGatherNet()))
             .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); })
             .property(SmtProperty.branchPlaceBound(NU_BUDGET, 2))
             .verify();
@@ -562,7 +563,7 @@ class SmtVerifierTest {
         // NU-050 Route B: quiescence on a ν-net is decided exactly by the name-aware
         // SCG. Same-mint siblings always join, so no quiescent state strands
         // `pending` -> Proven (the SMT path returned Unknown here). No Z3.
-        var result = SmtVerifier.forNet(nuScatterGatherNet())
+        var result = SmtVerifier.forNet(StructureOnly.bind(nuScatterGatherNet()))
             .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); })
             .property(SmtProperty.joinedOrDeadLettered(NU_PENDING))
             .verify();
@@ -576,7 +577,7 @@ class SmtVerifierTest {
         // NU-050 Route B: DeadlockFree is now exact. The net quiesces when `source`
         // is exhausted (budget returned, no group in flight) — a genuine deadlock
         // with no declared sinks -> Violated (was Unknown). No Z3.
-        var result = SmtVerifier.forNet(nuScatterGatherNet())
+        var result = SmtVerifier.forNet(StructureOnly.bind(nuScatterGatherNet()))
             .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); })
             .property(SmtProperty.deadlockFree())
             .verify();
@@ -599,7 +600,7 @@ class SmtVerifierTest {
             .inputs(Arc.In.one(pending)).outputs(Arc.Out.place(done)).build();
         var net = PetriNet.builder("pendingDrains").transitions(produce, fin).build();
 
-        var result = SmtVerifier.forNet(net)
+        var result = SmtVerifier.forNet(StructureOnly.bind(net))
             .initialMarking(m -> m.tokens(start, 1))
             .property(SmtProperty.joinedOrDeadLettered(pending))
             .timeout(Duration.ofSeconds(15))
@@ -619,7 +620,7 @@ class SmtVerifierTest {
             .inputs(Arc.In.one(start)).outputs(Arc.Out.place(pending)).build();
         var net = PetriNet.builder("pendingStrands").transitions(leak).build();
 
-        var result = SmtVerifier.forNet(net)
+        var result = SmtVerifier.forNet(StructureOnly.bind(net))
             .initialMarking(m -> m.tokens(start, 1))
             .property(SmtProperty.joinedOrDeadLettered(pending))
             .timeout(Duration.ofSeconds(15))
@@ -680,7 +681,7 @@ class SmtVerifierTest {
         // NU-050 #1: distinct-mint names can never join -> `merged` unreachable.
         // The name-blind over-approximation would report this Violated (spurious);
         // the name-coloured encoding proves it.
-        var result = SmtVerifier.forNet(nuDistinctMintsNet())
+        var result = SmtVerifier.forNet(StructureOnly.bind(nuDistinctMintsNet()))
             .initialMarking(m -> { m.tokens(NU_SOURCE_A, 1); m.tokens(NU_SOURCE_B, 1); m.tokens(NU_BUDGET, 2); })
             .property(SmtProperty.unreachable(Set.of(NU_MERGED)))
             .budgetPlaces(NU_BUDGET)
@@ -698,7 +699,7 @@ class SmtVerifierTest {
         // Companion (non-vacuity): the SAME-mint scatter-gather stamps both branches
         // with one name, so the join CAN fire and `merged` IS reachable. The
         // colouring tracks real reachability — Unreachable(merged) is Violated.
-        var result = SmtVerifier.forNet(nuScatterGatherNet())
+        var result = SmtVerifier.forNet(StructureOnly.bind(nuScatterGatherNet()))
             .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); })
             .property(SmtProperty.unreachable(Set.of(NU_MERGED)))
             .budgetPlaces(NU_BUDGET)
@@ -734,7 +735,7 @@ class SmtVerifierTest {
 
     @Test
     void nuDistinctMints_noBudget_mergedUnreachable_provenByRouteB() {
-        var result = SmtVerifier.forNet(nuDistinctMintsNoBudgetNet())
+        var result = SmtVerifier.forNet(StructureOnly.bind(nuDistinctMintsNoBudgetNet()))
             .initialMarking(m -> { m.tokens(NU_SOURCE_A, 1); m.tokens(NU_SOURCE_B, 1); })
             .property(SmtProperty.unreachable(Set.of(NU_MERGED)))
             .verify();
@@ -767,7 +768,7 @@ class SmtVerifierTest {
 
     @Test
     void nuUnboundedMint_truncatesToUnknown() {
-        var result = SmtVerifier.forNet(nuUnboundedMintNet())
+        var result = SmtVerifier.forNet(StructureOnly.bind(nuUnboundedMintNet()))
             .initialMarking(m -> m.tokens(NU_SOURCE, 1))
             .property(SmtProperty.unreachable(Set.of(NU_MERGED)))
             .nuMaxClasses(40)
@@ -852,7 +853,7 @@ class SmtVerifierTest {
     void nu053RouteAProvesDeadlockFreeWhenRouteBTruncates() {
         // nuMaxClasses = 1 forces Route B to truncate, so the bounded quiescence proof
         // defers to the Route A coloured IC3/PDR encoder (NU-053).
-        var result = SmtVerifier.forNet(nu053NoStallNet())
+        var result = SmtVerifier.forNet(StructureOnly.bind(nu053NoStallNet()))
             .initialMarking(m -> { m.tokens(NU053_SOURCE, 1); m.tokens(NU053_BUDGET, 1); })
             .property(SmtProperty.deadlockFree())
             .sinkPlaces(NU053_MERGED, NU053_BUDGET)
@@ -874,7 +875,7 @@ class SmtVerifierTest {
     void nu053RouteADetectsStrandingDeadlock() {
         // The EXTENDED drain can steal `a` and strand `b` under an unprioritised schedule
         // — a genuine reachable deadlock the coloured encoding must catch.
-        var result = SmtVerifier.forNet(nu053StealNet())
+        var result = SmtVerifier.forNet(StructureOnly.bind(nu053StealNet()))
             .initialMarking(m -> { m.tokens(NU053_SOURCE, 1); m.tokens(NU053_BUDGET, 1); })
             .property(SmtProperty.deadlockFree())
             .sinkPlaces(NU053_MERGED, NU053_BUDGET, NU053_DEADLETTER)
@@ -894,7 +895,7 @@ class SmtVerifierTest {
         // tiny class bound) must agree that the net is deadlock-free.
         var net = nu053NoStallNet();
         java.util.function.IntFunction<SmtVerificationResult> build = maxClasses ->
-            SmtVerifier.forNet(net)
+            SmtVerifier.forNet(StructureOnly.bind(net))
                 .initialMarking(m -> { m.tokens(NU053_SOURCE, 1); m.tokens(NU053_BUDGET, 1); })
                 .property(SmtProperty.deadlockFree())
                 .sinkPlaces(NU053_MERGED, NU053_BUDGET)

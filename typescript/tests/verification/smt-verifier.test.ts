@@ -15,6 +15,7 @@ import { outPlace, xorPlaces, andPlaces } from '../../src/core/out.js';
 import { matchSpec, matchKey } from '../../src/core/match-spec.js';
 import { nameId } from '../../src/core/name.js';
 import { alwaysAvailable, bounded, ignore } from '../../src/verification/analysis/environment-analysis-mode.js';
+import { bindProducers } from '../fixtures/producing-actions.js';
 
 // All tests in this file require Z3 WASM which is slow to initialize.
 // Tests are set to a generous timeout.
@@ -34,7 +35,7 @@ describe('SmtVerifier (Z3 integration)', () => {
       .build();
     const net = PetriNet.builder('CircularNet').transitions(t1, t2).build();
 
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => m.tokens(pA, 1))
       .property(deadlockFree())
       .timeout(30_000)
@@ -59,7 +60,7 @@ describe('SmtVerifier (Z3 integration)', () => {
       .build();
     const net = PetriNet.builder('MutualExclusion').transitions(t1, t2).build();
 
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => m.tokens(pA, 1))
       .property(mutualExclusion(pA, pB))
       .timeout(30_000)
@@ -89,7 +90,7 @@ describe('SmtVerifier (Z3 integration)', () => {
       .build();
     const net = PetriNet.builder('DeadlockNet').transitions(t1, t2).build();
 
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => m.tokens(pA, 1))
       .property(deadlockFree())
       .timeout(30_000)
@@ -111,7 +112,7 @@ describe('SmtVerifier (Z3 integration)', () => {
       .build();
     const net = PetriNet.builder('Bounded').transitions(t1, t2).build();
 
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => m.tokens(pA, 1))
       .property(placeBound(pB, 1))
       .timeout(30_000)
@@ -142,7 +143,7 @@ describe('SmtVerifier (Z3 integration)', () => {
     // A and C simultaneously having tokens requires A>=1 AND C>=1 => sum >= 2, contradiction
     const net = PetriNet.builder('Unreachable').transitions(t1, t2, t3).build();
 
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => m.tokens(pA, 1))
       .property(unreachable(new Set([pA, pC])))
       .timeout(30_000)
@@ -167,7 +168,7 @@ describe('SmtVerifier (Z3 integration)', () => {
       .build();
     const net = PetriNet.builder('DeadlockNet').transitions(t1, t2).build();
 
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => m.tokens(pA, 1))
       .property(deadlockFree())
       .timeout(30_000)
@@ -191,7 +192,7 @@ describe('SmtVerifier (Z3 integration)', () => {
       .build();
     const net = PetriNet.builder('N').transitions(t1, t2).build();
 
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => m.tokens(pA, 1))
       .property(deadlockFree())
       .timeout(30_000)
@@ -218,7 +219,7 @@ describe('SmtVerifier (Z3 integration)', () => {
       .build();
     const net = PetriNet.builder('N').transitions(t1, t2).build();
 
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => m.tokens(pA, 1))
       .property(deadlockFree())
       .timeout(30_000)
@@ -253,7 +254,7 @@ describe('SmtVerifier (Z3 integration)', () => {
 
     const net = PetriNet.builder('XorSinkNet').transitions(dispatch, complete).build();
 
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => m.tokens(idle, 1))
       .environmentPlaces(trigger)
       .environmentMode(alwaysAvailable())
@@ -293,7 +294,7 @@ describe('SmtVerifier (Z3 integration)', () => {
     for (const k of [0, 1, 5]) {
       it(`alwaysAvailable injects: placeBound(OUT, ${k}) is violated`, async () => {
         const { inEnv, out, net } = envSourceNet();
-        const result = await SmtVerifier.forNet(net)
+        const result = await SmtVerifier.forNet(bindProducers(net))
           .environmentPlaces(inEnv)
           .environmentMode(alwaysAvailable())
           .property(placeBound(out, k))
@@ -321,7 +322,7 @@ describe('SmtVerifier (Z3 integration)', () => {
       };
 
       const b = buildNet();
-      const bounded1 = await SmtVerifier.forNet(b.net)
+      const bounded1 = await SmtVerifier.forNet(bindProducers(b.net))
         .environmentPlaces(b.inEnv)
         .environmentMode(bounded(1))
         .property(placeBound(b.out, 0))
@@ -330,7 +331,7 @@ describe('SmtVerifier (Z3 integration)', () => {
       expect(bounded1.verdict.type).toBe('proven');
 
       const a = buildNet();
-      const always = await SmtVerifier.forNet(a.net)
+      const always = await SmtVerifier.forNet(bindProducers(a.net))
         .environmentPlaces(a.inEnv)
         .environmentMode(alwaysAvailable())
         .property(placeBound(a.out, 0))
@@ -341,7 +342,7 @@ describe('SmtVerifier (Z3 integration)', () => {
 
     it('ignore mode with env places does not silently prove (downgrades to unknown)', async () => {
       const { inEnv, out, net } = envSourceNet();
-      const result = await SmtVerifier.forNet(net)
+      const result = await SmtVerifier.forNet(bindProducers(net))
         .environmentPlaces(inEnv)
         .environmentMode(ignore())
         .property(placeBound(out, 1))
@@ -358,14 +359,14 @@ describe('SmtVerifier (Z3 integration)', () => {
       const t2 = Transition.builder('BtoA').inputs(one(b)).outputs(outPlace(a)).build();
       const net = PetriNet.builder('closed-cycle').transitions(t1, t2).build();
 
-      const safe = await SmtVerifier.forNet(net)
+      const safe = await SmtVerifier.forNet(bindProducers(net))
         .initialMarking(m => m.tokens(a, 1))
         .property(placeBound(b, 1))
         .timeout(30_000)
         .verify();
       expect(safe.verdict.type).toBe('proven');
 
-      const unsafe = await SmtVerifier.forNet(net)
+      const unsafe = await SmtVerifier.forNet(bindProducers(net))
         .initialMarking(m => m.tokens(a, 1))
         .property(placeBound(b, 0))
         .timeout(30_000)
@@ -388,7 +389,7 @@ describe('SmtVerifier (Z3 integration)', () => {
     const net = PetriNet.builder('N').transitions(t1, t2).build();
     const marking = MarkingState.builder().tokens(pA, 1).build();
 
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(marking)
       .property(deadlockFree())
       .timeout(30_000)
@@ -438,7 +439,7 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
   it('proves BranchPlaceBound(budget, k) with a declared budget', async () => {
     // NU-040 #1: the live correlation pool is bounded by conservation.
     const { net, source, budget } = nuScatterGatherNet();
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => { m.tokens(source, 3); m.tokens(budget, 2); })
       .property(branchPlaceBound(budget, 2))
       .budgetPlaces(budget)
@@ -452,7 +453,7 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
     // name-coloured fragment, so the bound is decided exactly (NU-050 #1), not via
     // the name-blind over-approximation.
     const { net, source, budget, pending } = nuScatterGatherNet();
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => { m.tokens(source, 3); m.tokens(budget, 2); })
       .property(branchPlaceBound(pending, 2))
       .budgetPlaces(budget)
@@ -470,7 +471,7 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
     // exact BranchPlaceBound(pending, k) proof above.
     const { net, source, budget } = nuScatterGatherNet();
     const typo = place('pnding'); // typo of 'pending'
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => { m.tokens(source, 3); m.tokens(budget, 2); })
       .property(branchPlaceBound(typo, 2))
       .budgetPlaces(budget)
@@ -485,7 +486,7 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
     // structural bound (the budget token caps live groups) and proves the bound
     // exactly — the beyond-bounded win. Pure SCG (no Z3 needed).
     const { net, source, budget } = nuScatterGatherNet();
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => { m.tokens(source, 3); m.tokens(budget, 2); })
       .property(branchPlaceBound(budget, 2))
       .verify();
@@ -498,7 +499,7 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
     // SCG. Same-mint siblings always join, so no quiescent state strands pending
     // -> proven (the SMT path returned unknown here).
     const { net, source, budget, pending } = nuScatterGatherNet();
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => { m.tokens(source, 3); m.tokens(budget, 2); })
       .property(joinedOrDeadLettered(pending))
       .verify();
@@ -511,7 +512,7 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
     // exhausted (budget returned, no group in flight) — a genuine deadlock with no
     // declared sinks -> violated (was unknown).
     const { net, source, budget } = nuScatterGatherNet();
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => { m.tokens(source, 3); m.tokens(budget, 2); })
       .property(deadlockFree())
       .verify();
@@ -527,7 +528,7 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
     const fin = Transition.builder('fin').inputs(one(pending)).outputs(outPlace(done)).build();
     const net = PetriNet.builder('pendingDrains').transitions(produce, fin).build();
 
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => m.tokens(start, 1))
       .property(joinedOrDeadLettered(pending))
       .timeout(30_000)
@@ -541,7 +542,7 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
     const leak = Transition.builder('leak').inputs(one(start)).outputs(outPlace(pending)).build();
     const net = PetriNet.builder('pendingStrands').transitions(leak).build();
 
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => m.tokens(start, 1))
       .property(joinedOrDeadLettered(pending))
       .timeout(30_000)
@@ -593,7 +594,7 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
     // Distinct globally-fresh colours can never match -> merged unreachable -> proven.
     // The name-blind over-approximation would report this violated (spurious).
     const { net, sourceA, sourceB, budget, merged } = nuDistinctMintsNet();
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => { m.tokens(sourceA, 1); m.tokens(sourceB, 1); m.tokens(budget, 2); })
       .property(unreachable(new Set([merged])))
       .budgetPlaces(budget)
@@ -609,7 +610,7 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
     // reachability — Unreachable(merged) is violated.
     const { net, source, budget } = nuScatterGatherNet();
     const merged = place<string>('merged');
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => { m.tokens(source, 3); m.tokens(budget, 2); })
       .property(unreachable(new Set([merged])))
       .budgetPlaces(budget)
@@ -638,7 +639,7 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
       .build();
     const net = PetriNet.builder('nuDistinctMintsNoBudget').transitions(forkA, forkB, join).build();
 
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => { m.tokens(sourceA, 1); m.tokens(sourceB, 1); })
       .property(unreachable(new Set([merged])))
       .verify();
@@ -663,7 +664,7 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
       .build();
     const net = PetriNet.builder('nuUnboundedMint').transitions(fork, join).build();
 
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => m.tokens(source, 1))
       .property(unreachable(new Set([merged])))
       .nuMaxClasses(40)
@@ -785,7 +786,7 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
 
   it('(d) EXTENDED proves DeadlockFree with the drain via Route B (NU-051)', async () => {
     const { net, source, merged, dl, stray } = comintCarrierDrainNet(true);
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => m.tokens(source, 1))
       .property(deadlockFree())
       .sinkPlaces(merged, dl)
@@ -798,7 +799,7 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
 
   it('(d) EXTENDED finds DeadlockFree violated without the drain via Route B (NU-051)', async () => {
     const { net, source, merged, dl, stray } = comintCarrierDrainNet(false);
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => m.tokens(source, 1))
       .property(deadlockFree())
       .sinkPlaces(merged, dl)
@@ -811,7 +812,7 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
 
   it('(g) EXTENDED proves JoinedOrDeadLettered(stray) with the drain via Route B (NU-051)', async () => {
     const { net, source, merged, dl, stray } = comintCarrierDrainNet(true);
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => m.tokens(source, 1))
       .property(joinedOrDeadLettered(stray))
       .sinkPlaces(merged, dl)
@@ -824,7 +825,7 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
 
   it('(f) carrierPlaces throws on a place not in the net (NU-051)', () => {
     const { net } = comintCarrierDrainNet(true);
-    expect(() => SmtVerifier.forNet(net).carrierPlaces(place('nonExistent'))).toThrow(/nonExistent/);
+    expect(() => SmtVerifier.forNet(bindProducers(net)).carrierPlaces(place('nonExistent'))).toThrow(/nonExistent/);
   });
 
   // === NU-053: Route A coloured quiescence (EXTENDED + deadlock encoding) ===
@@ -876,7 +877,7 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
     // nuMaxClasses = 1 forces Route B to truncate, so the bounded quiescence proof
     // defers to the Route A coloured IC3/PDR encoder (NU-053).
     const { net, source, budget, merged } = nu053NoStallNet();
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => { m.tokens(source, 1); m.tokens(budget, 1); })
       .property(deadlockFree())
       .sinkPlaces(merged, budget)
@@ -892,7 +893,7 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
     // The EXTENDED drain can steal `a` and strand `b` under an unprioritised
     // schedule — a genuine reachable deadlock the coloured encoding must catch.
     const { net, source, budget, merged, deadletter } = nu053StealNet();
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => { m.tokens(source, 1); m.tokens(budget, 1); })
       .property(deadlockFree())
       .sinkPlaces(merged, budget, deadletter)
@@ -909,7 +910,7 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
     // a tiny class bound) must agree that the net is deadlock-free.
     const build = (maxClasses: number) => {
       const { net, source, budget, merged } = nu053NoStallNet();
-      return SmtVerifier.forNet(net)
+      return SmtVerifier.forNet(bindProducers(net))
         .initialMarking(m => { m.tokens(source, 1); m.tokens(budget, 1); })
         .property(deadlockFree())
         .sinkPlaces(merged, budget)
@@ -924,3 +925,7 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
     expect(routeA.verdict.type).toBe('proven');
   }, Z3_TIMEOUT);
 });
+
+// CORE-043 verification-rejection tests live in smt-verifier-core043.test.ts —
+// a separate file so their solver run gets its own z3 WASM heap rather than
+// adding to this file's, which already runs close to the 2 GB wasm32 ceiling.

@@ -109,9 +109,12 @@ public final class PetriNet {
      * }
      * }</pre>
      *
+     * <p>Names absent from the map are bound to {@link TransitionAction#passthrough()}, so a
+     * partial map clobbers previously bound actions. Use {@link #bindActions(Function)} to bind
+     * in stages.
+     *
      * @param actionBindings map from transition name to action
      * @return new PetriNet with bound actions
-     * @throws IllegalArgumentException if a transition name is not found
      */
     public PetriNet bindActions(Map<String, TransitionAction> actionBindings) {
         return bindActions(name -> actionBindings.getOrDefault(name, TransitionAction.passthrough()));

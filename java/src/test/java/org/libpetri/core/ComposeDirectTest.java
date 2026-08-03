@@ -1,5 +1,6 @@
 package org.libpetri.core;
 
+import org.libpetri.fixtures.StructureOnly;
 import org.junit.jupiter.api.Test;
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.analysis.TimePetriNetAnalyzer;
@@ -309,7 +310,7 @@ class ComposeDirectTest {
         var sink = net.places().stream()
             .filter(p -> p.name().equals("sink")).findFirst().orElseThrow();
 
-        var result = TimePetriNetAnalyzer.forNet(net)
+        var result = TimePetriNetAnalyzer.forNet(StructureOnly.bind(net))
             .initialMarking(MarkingState.builder().tokens(seed, 1).build())
             .goalPlaces(sink)
             .maxClasses(100)
@@ -351,7 +352,7 @@ class ComposeDirectTest {
             .filter(p -> p.name().equals("seed")).findFirst().orElseThrow();
         var sink = net.places().stream()
             .filter(p -> p.name().equals("sink")).findFirst().orElseThrow();
-        return TimePetriNetAnalyzer.forNet(net)
+        return TimePetriNetAnalyzer.forNet(StructureOnly.bind(net))
             .initialMarking(MarkingState.builder().tokens(seed, 1).build())
             .goalPlaces(sink)
             .maxClasses(100)

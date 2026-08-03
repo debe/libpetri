@@ -7,6 +7,7 @@ import org.libpetri.analysis.PrioritySemantics;
 import org.libpetri.core.EnvironmentPlace;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
+import org.libpetri.core.internal.OutputActionCheck;
 import org.libpetri.smt.encoding.FlatNet;
 import org.libpetri.smt.encoding.IncidenceMatrix;
 import org.libpetri.smt.encoding.NetFlattener;
@@ -247,8 +248,12 @@ public final class SmtVerifier {
      * Runs the verification pipeline.
      *
      * @return the verification result
+     * @throws IllegalStateException per [CORE-043] — this encoder reads token production from
+     *     the {@code Arc.Out} spec, never from the bound action, so a net that could not produce
+     *     at run time would otherwise verify green
      */
     public SmtVerificationResult verify() {
+        OutputActionCheck.requireOutputProducingActions(net);
         var start = Instant.now();
         var report = new StringBuilder();
         report.append("=== IC3/PDR SAFETY VERIFICATION ===\n\n");

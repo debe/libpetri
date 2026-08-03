@@ -3,6 +3,7 @@ package org.libpetri.runtime;
 import java.util.*;
 
 import org.libpetri.core.*;
+import org.libpetri.core.internal.OutputActionCheck;
 
 /**
  * Integer-indexed, precomputed representation of a {@link PetriNet} for bitmap-based execution.
@@ -84,6 +85,10 @@ public final class CompiledNet {
 
     private CompiledNet(PetriNet net) {
         this.net = net;
+
+        // CORE-043: a transition declaring an output must not carry passthrough(), which produces
+        // nothing — every firing would fail IO-015 validation. Checked before anything else.
+        OutputActionCheck.requireOutputProducingActions(net);
 
         // Collect all places from transitions
         var allPlaces = new LinkedHashSet<Place<?>>();
