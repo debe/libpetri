@@ -1,6 +1,6 @@
 # Changelog
 
-## Java 2.14.0 / TypeScript 2.13.0 / Rust 3.7.0 / Python 2.16.0 — unreleased
+## Java 2.14.0 / TypeScript 2.13.0 / Rust 3.7.0 / Python 2.16.0 — 2026-08-03
 
 **A transition that declares an output but can never produce one now fails to compile ([CORE-043], new).**
 
