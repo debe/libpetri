@@ -587,9 +587,11 @@ public final class StateClassGraph {
      *
      * <p>Delegates to {@link Arc.In#consumptionCount(int)}, the canonical [IO-007]
      * definition the executor also follows — {@code In.All} and {@code In.AtLeast}
-     * consume <strong>every</strong> available token, not a minimum. See
-     * {@code BitmapNetExecutor.consumeInputs}, which computes
-     * {@code marking.tokenCount(place)} for both variants.
+     * consume <strong>every</strong> available token, not a minimum. The executor
+     * does not call this helper — it inlines the same rule in
+     * {@code BitmapNetExecutor.fireTransition}, which computes
+     * {@code marking.tokenCount(place)} for both variants — so the two encodings
+     * must stay in agreement.
      *
      * <p>This used to be an independent copy that returned the <em>minimum</em>
      * (1 for {@code All}, {@code minimum()} for {@code AtLeast}). That left residual
