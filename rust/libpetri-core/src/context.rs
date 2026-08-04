@@ -168,6 +168,13 @@ impl TransitionContext {
     /// is its own published event boundary: if the action later fails,
     /// already-flushed tokens stay in the marking. Returns `Err` when
     /// no flush callback is installed (e.g. sync execution path).
+    ///
+    /// This is also an atomicity boundary for \[IO-015\]. Flushed places
+    /// still count towards satisfying the declared output spec — the
+    /// executor tracks them in [`flushed_places`](Self::flushed_places) —
+    /// but a firing that is *rejected* by validation does not withdraw
+    /// what was already published. An action needing all-or-nothing
+    /// output must not flush.
     pub fn flush(&mut self) -> Result<(), ActionError> {
         let cb = self.flush_fn.as_ref().ok_or_else(|| {
             ActionError::new(

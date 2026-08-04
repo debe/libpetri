@@ -1350,4 +1350,74 @@ mod flush_tests {
             "completion-time token must not be dropped by a spurious IO-015 failure"
         );
     }
+
+    /// \[IO-015\] AC7, second half: `flush()` is an **atomicity boundary**.
+    ///
+    /// The companion test above shows flushed places *satisfy* the spec. This
+    /// one pins the other direction: when the firing is nonetheless rejected,
+    /// already-published tokens are NOT withdrawn. Validation runs before
+    /// anything further is deposited, but it cannot un-publish — which is the
+    /// same guarantee `flush()` gives for an action that fails outright.
+    ///
+    /// An action needing all-or-nothing output must not flush.
+    #[tokio::test]
+    async fn flushed_tokens_survive_an_io_015_violation() {
+        use libpetri_core::output::and;
+        use libpetri_event::event_store::{EventStore, InMemoryEventStore};
+        use libpetri_event::net_event::NetEvent;
+
+        use crate::compiled_net::CompiledNet;
+        use crate::precompiled_executor::PrecompiledNetExecutor;
+        use crate::precompiled_net::PrecompiledNet;
+
+        let start = Place::<i32>::new("start");
+        let chunk = Place::<i32>::new("chunk");
+        let done = Place::<i32>::new("done");
+
+        let half_streamer = Transition::builder("half_streamer")
+            .input(one(&start))
+            // Declares both, but the action only ever produces `chunk`.
+            .output(and(vec![out_place(&chunk), out_place(&done)]))
+            .action(async_action(move |mut ctx| async move {
+                ctx.output("chunk", 7i32)?;
+                ctx.flush()?;
+                tokio::task::yield_now().await;
+                // Returns without ever writing `done` — an And violation.
+                Ok(ctx)
+            }))
+            .build();
+
+        let net = PetriNet::builder("flush_violation_net")
+            .transition(half_streamer)
+            .build();
+        let prog = PrecompiledNet::from_compiled(CompiledNet::compile(&net));
+
+        let mut initial = Marking::new();
+        initial.add(&start, Token::new(1i32));
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+        drop(tx);
+
+        let mut executor = PrecompiledNetExecutor::<InMemoryEventStore>::builder(&prog, initial)
+            .event_store(InMemoryEventStore::new())
+            .build();
+        let marking = tokio::time::timeout(Duration::from_secs(5), executor.run_async(rx))
+            .await
+            .expect("executor stalled")
+            .into_owned();
+
+        let io_015_failed = executor.event_store().events().iter().any(|e| {
+            matches!(e, NetEvent::TransitionFailed { error, .. } if error.contains("IO-015"))
+        });
+        assert!(
+            io_015_failed,
+            "an And spec with only one branch produced must be an IO-015 violation"
+        );
+        assert_eq!(
+            marking.count("chunk"),
+            1,
+            "the flushed token was already published and must survive the violation"
+        );
+        assert_eq!(marking.count("done"), 0, "the unsatisfied branch stays empty");
+    }
 }

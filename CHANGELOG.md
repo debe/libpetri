@@ -74,6 +74,8 @@ Validation is by *place*, not by token count: `out(P)` still permits an action t
 
 The most common way to trip this — declaring an output and never binding an action — is already a compile error as of [CORE-043] in the previous release. What this check adds is the case no static analysis can decide: a hand-written action that produces nothing, or produces on only some paths.
 
+**`ctx.flush()` is an atomicity boundary** (Rust and Python only; Java and TypeScript have no equivalent). Places written by a published batch count towards satisfying the spec — a streaming action that flushes its `chunk` branch and writes `done` at completion satisfies `and(chunk, done)`. But published tokens are *not* withdrawn when validation later rejects the firing: flush one half of an `and` and return without the other, and the violation is reported while the flushed token stays in the marking. This was previously unspecified; [IO-015] now states it (AC7). An action needing all-or-nothing output must not flush.
+
 To keep the previous behaviour:
 
 ```python

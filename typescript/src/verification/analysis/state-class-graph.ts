@@ -378,11 +378,16 @@ function inputRequiredCount(spec: In): number {
  * Number of tokens this transition removes from `spec.place` when it fires,
  * given the `available` count currently in that place.
  *
- * Delegates to {@link consumptionCount} — the canonical IO-007 helper in
- * `core/in.ts` that both executors (BitmapNetExecutor and
- * PrecompiledNetExecutor) use. The analysis MUST NOT keep its own copy: a
- * divergent local definition here is exactly what produced a verifier
- * soundness bug (`all` was modelled as consuming 1).
+ * Delegates to {@link consumptionCount} — the canonical IO-007 definition in
+ * `core/in.ts`. The executors do not call it: `BitmapNetExecutor` fuses the
+ * same rule into its consume loop (`bitmap-net-executor.ts:745`) and
+ * `PrecompiledNetExecutor` compiles it to a CONSUME_ALL / CONSUME_ATLEAST
+ * opcode resolved at run time (`precompiled-net.ts:423`). Three encodings of
+ * one rule, which must stay in agreement.
+ *
+ * The analysis MUST NOT add a fourth: a divergent local definition here is
+ * exactly what produced a verifier soundness bug (`all` was modelled as
+ * consuming 1).
  *
  * `all` and `at-least` are **draining** arcs. The executor removes *every*
  * available token, not merely the minimum needed to enable. Do not

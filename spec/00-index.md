@@ -397,6 +397,12 @@ hand-written action that produces nothing, or produces only on some paths. Rust 
 Python nets relying on the previously unchecked path need their spec or their action
 corrected.
 
+**Mid-action publication (Rust/Python only).** `ctx.flush()` publishes buffered output
+before the action returns; Java and TypeScript expose no equivalent. Flushed places count
+towards satisfying the output spec, and flushed tokens are not withdrawn when validation
+later rejects the firing — so on those two runtimes a violating firing is atomic only
+with respect to output not yet published ([IO-015]).
+
 ---
 
 ## Coverage Matrix

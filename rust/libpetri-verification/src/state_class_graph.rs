@@ -500,9 +500,14 @@ fn fire_transition_marking(
 
 /// Tokens removed from an input place by one firing, given how many are there.
 ///
-/// Defers to [`input::consumption_count`], the canonical \[IO-007\] definition the
-/// executor also follows — `All`/`AtLeast` consume **every** available token
-/// (`bitmap_backend.rs` `consume_for_firing`).
+/// Defers to [`input::consumption_count`], the canonical \[IO-007\] definition:
+/// `All`/`AtLeast` consume **every** available token, not a minimum.
+///
+/// The executors do not call it. `bitmap_backend.rs` fuses the rule into
+/// `consume_for_firing` (where it also has to intersect with ν-matching, so it
+/// counts *matching* tokens rather than all available), and `precompiled_net.rs`
+/// compiles it to a `CONSUME_ALL` / `CONSUME_ATLEAST` opcode resolved at run
+/// time. Three encodings of one rule, which must stay in agreement.
 ///
 /// This used to be an independent copy that returned the *minimum* (1 for `All`,
 /// `minimum` for `AtLeast`). That left residual tokens the real net never holds,
