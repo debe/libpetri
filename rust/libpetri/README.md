@@ -1,272 +1,78 @@
-# libpetri — Coloured Time Petri Net Engine
+# libpetri for Rust
 
-A high-performance [Coloured Time Petri Net](https://en.wikipedia.org/wiki/Petri_net) engine with formal verification support.
+[![crates.io](https://img.shields.io/crates/v/libpetri)](https://crates.io/crates/libpetri)
+[![docs.rs](https://img.shields.io/docsrs/libpetri)](https://docs.rs/libpetri)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](https://github.com/debe/libpetri/blob/main/LICENSE)
 
-## Example: Racing LLM Agent Pipeline
+The umbrella crate for libpetri's Rust 2024 Coloured Time Petri Net engine. It re-exports the model, runtime, events, verification, and DOT export APIs from one package.
 
-An agent orchestration net with coloured tokens (`String` messages + `()` control
-signals), three environment inputs (keystroke activity, submitted messages,
-topic-change triggers), a racing pattern (deep vs quick agent with dump semantics),
-explicit context assembly (optional-dependency pattern), and two-trigger
-background summarization:
+See the [project README](https://github.com/debe/libpetri#why-a-petri-net) for the motivation and a workflow demonstrating every arc type, concurrent actions, and timeout routing. Contributors should use the [Rust workspace guide](https://github.com/debe/libpetri/blob/main/rust/README.md).
+
+## Install
+
+```bash
+cargo add libpetri
+# Add async execution and external events when needed:
+cargo add libpetri --features tokio
+```
+
+Requires Rust 1.88 or newer.
+
+## Quick start
 
 ```rust
 use libpetri::*;
 
-// Coloured places — String messages, () control signals
-let keyboard      = EnvironmentPlace::<()>::new("KeyboardEvent");      // raw keystroke activity
-let user_message  = EnvironmentPlace::<String>::new("UserMessage");    // submitted full message
-let topic_change  = EnvironmentPlace::<()>::new("TopicChange");        // tool-call summarization trigger
-let composing     = Place::<()>::new("Composing");          // user is currently typing
-let pending       = Place::<String>::new("Pending");        // raw message, not yet context-enriched
-let processing    = Place::<()>::new("Processing");         // active request flag
-let context_ready = Place::<String>::new("ContextReady");   // message enriched with context
-let conversation  = Place::<String>::new("Conversation");   // message history (accumulates)
-let summary       = Place::<String>::new("Summary");        // compressed history
-let summarizing   = Place::<()>::new("Summarizing");        // summarization in progress
-let thinking      = Place::<String>::new("Thinking");       // deep result awaiting delivery
-let urgency       = Place::<()>::new("Urgency");            // timeout signal
-let response      = Place::<String>::new("Response");       // delivered response
+let input = Place::<String>::new("input");
+let output = Place::<String>::new("output");
 
-// Typing: keystroke → user is composing; resets urgency (user is engaged)
-let typing = Transition::builder("Typing")
-    .input(one(keyboard.place()))
-    .reset(reset(&urgency))
-    .output(out_place(&composing))
-    .timing(immediate())
-    .priority(20)
+let copy = Transition::builder("copy")
+    .input(one(&input))
+    .output(out_place(&output))
     .action(fork())
     .build();
 
-// Receive: submitted message → AND-fork into Pending + Processing + Conversation
-//   resets Composing (user finished typing)
-let receive = Transition::builder("Receive")
-    .input(one(user_message.place()))
-    .reset(reset(&composing))
-    .output(and(vec![
-        out_place(&pending),
-        out_place(&processing),
-        out_place(&conversation),
-    ]))
-    .timing(immediate())
-    .priority(10)
-    .action(fork())
-    .build();
+let net = PetriNet::builder("example").transition(copy).build();
+let mut marking = Marking::new();
+marking.add(&input, Token::at("hello".to_owned(), 0));
 
-// GatherContext: reads both Conversation + Summary → fires when Summary exists (full context)
-let gather_context = Transition::builder("GatherContext")
-    .input(one(&pending))
-    .read(read(&conversation))
-    .read(read(&summary))
-    .output(out_place(&context_ready))
-    .timing(immediate())
-    .action(fork())
-    .build();
+let mut executor = BitmapNetExecutor::<NoopEventStore>::new(
+    &net, marking, ExecutorOptions::default(),
+);
+executor.run_sync();
 
-// GatherFresh: reads Conversation, inhibited by Summary → fires when Summary absent
-//   Standard Petri net optional-dependency pattern — exactly one fires for any marking
-let gather_fresh = Transition::builder("GatherFresh")
-    .input(one(&pending))
-    .read(read(&conversation))
-    .inhibitor(inhibitor(&summary))
-    .output(out_place(&context_ready))
-    .timing(immediate())
-    .action(fork())
-    .build();
-
-// DeepAgent: thorough analysis — consumes ContextReady, produces Thinking
-let deep_agent = Transition::builder("DeepAgent")
-    .input(one(&context_ready))
-    .output(out_place(&thinking))
-    .timing(window(500, 10000))              // window: fires between 500ms and 10s
-    .action(async_action(|mut ctx| async move {
-        let msg: std::sync::Arc<String> = ctx.input("ContextReady")?;
-        // ... deep analysis
-        ctx.output("Thinking", format!("{msg} [analyzed]"))?;
-        Ok(ctx)
-    }))
-    .build();
-
-// Timeout: fires at exactly 5s — inhibited by Response (already answered) and Composing
-let timeout = Transition::builder("Timeout")
-    .read(read(&processing))
-    .inhibitor(inhibitor(&response))
-    .inhibitor(inhibitor(&composing))
-    .output(out_place(&urgency))
-    .timing(exact(5000))                     // exact: fires at precisely 5s
-    .action(fork())
-    .build();
-
-// QuickAgent: fast fallback — consumes Processing + Urgency, reads Conversation
-let quick_agent = Transition::builder("QuickAgent")
-    .input(one(&processing))
-    .input(one(&urgency))
-    .read(read(&conversation))
-    .output(out_place(&response))
-    .timing(immediate())
-    .action(fork())
-    .build();
-
-// Complete: deep wins the race — consumes Thinking + Processing, inhibited by Response
-let complete = Transition::builder("Complete")
-    .input(one(&thinking))
-    .input(one(&processing))
-    .inhibitor(inhibitor(&response))         // inhibitor: can't fire if quick already answered
-    .reset(reset(&urgency))                  // reset arc: clears any pending urgency
-    .output(out_place(&response))
-    .timing(deadline(3000))                  // deadline: must complete within 3s of enablement
-    .action(fork())
-    .build();
-
-// Dump: deep loses the race — consumes Thinking, reads Response (confirms quick answered)
-//   no output: acts as a sink (discards the late deep result)
-let dump = Transition::builder("Dump")
-    .input(one(&thinking))
-    .read(read(&response))                   // read: verifies quick already answered
-    .timing(immediate())
-    .action(fork())
-    .build();
-
-// AutoSummarize: fires when conversation reaches ≥3 messages (at_least input)
-//   consumes threshold messages + resets remainder; delayed cooldown prevents churn
-let auto_summarize = Transition::builder("AutoSummarize")
-    .input(at_least(3, &conversation))       // at_least: need ≥3 messages
-    .inhibitor(inhibitor(&summarizing))
-    .reset(reset(&conversation))             // reset arc: clear remaining messages
-    .output(out_place(&summarizing))
-    .timing(delayed(2000))                   // delayed: 2s cooldown
-    .action(fork())
-    .build();
-
-// ToolSummarize: external TopicChange trigger; reads Conversation, resets it
-let tool_summarize = Transition::builder("ToolSummarize")
-    .input(one(topic_change.place()))
-    .read(read(&conversation))
-    .inhibitor(inhibitor(&summarizing))
-    .reset(reset(&conversation))
-    .output(out_place(&summarizing))
-    .timing(immediate())
-    .action(fork())
-    .build();
-
-// SummaryDone: summarization completes — replaces old Summary
-let summary_done = Transition::builder("SummaryDone")
-    .input(one(&summarizing))
-    .reset(reset(&summary))                  // reset arc: replace old summary
-    .output(out_place(&summary))
-    .timing(deadline(2000))
-    .action(fork())
-    .build();
-
-let net = PetriNet::builder("AgentPipeline")
-    .transition(typing)
-    .transition(receive)
-    .transition(gather_context)
-    .transition(gather_fresh)
-    .transition(deep_agent)
-    .transition(timeout)
-    .transition(quick_agent)
-    .transition(complete)
-    .transition(dump)
-    .transition(auto_summarize)
-    .transition(tool_summarize)
-    .transition(summary_done)
-    .build();
+assert_eq!(&*executor.marking().peek(&output).unwrap(), "hello");
 ```
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/debe/libpetri/main/rust/libpetri/doc/showcase.svg" alt="Racing LLM Agent Pipeline Petri Net">
-</p>
+## What is included
 
-All five arc types (input, output, **read**, **inhibitor**, **reset**), all five timing
-modes (immediate, window, deadline, delayed, exact), environment places, priority
-scheduling, AND-fork, dump semantics, and coloured tokens.
+- Typed places and tokens; input, output, read, inhibitor, and reset arcs.
+- Immediate, deadline, delayed, window, and exact transition timing.
+- AND, XOR, timeout, and input-forwarding output routes.
+- Open subnet composition, port/channel binding, place fusion, and action overrides.
+- Bitmap reference and precompiled production executors.
+- Environment events, event stores, DOT export, and ν-net identity correlation.
+- Structural analysis, timed state classes, and feature-gated SMT verification.
 
-Plus **ν-nets** — a fork mints a fresh opaque name (`ctx.fresh_name()`) and a join
-correlates sibling tokens by name equality via `MatchSpec`, with a bounded `Budget`
-place as the decidability lever and an incremental O(N log N) join matcher.
+Transition futures may overlap, but one orchestrator owns the marking. This keeps token movement deterministic and makes concurrency visible in the net rather than hidden inside shared mutable state.
 
-## Modular Composition
+## Features
 
-Build large nets by reusing open-net fragments. A `SubnetDef` pairs a
-structurally complete `PetriNet` with a typed `Interface` of **ports** (typed
-places) and **channels** (transitions). Instantiating renames every internal
-element to `prefix/name`; composing into a host substitutes port places and
-merges channel transitions.
-
-```rust
-use libpetri::*;
-use libpetri::core::subnet_def::SubnetDef;
-use libpetri::core::fusion::FusionSet;
-
-let items = Place::<String>::new("items");
-let slots = Place::<String>::new("slots");
-let put = Place::<String>::new("put");
-let get = Place::<String>::new("get");
-
-let buffer = SubnetDef::<()>::builder("Buffer")
-    .place(&items).place(&slots)
-    .transition(enqueue).transition(dequeue)
-    .input_port("put", &put)
-    .output_port("get", &get)
-    .build();
-
-let b1 = buffer.instantiate("b1", ()).bind_actions(b1_actions);
-let b2 = buffer.instantiate("b2", ()).bind_actions(b2_actions);
-
-let producer_to_b1 = Place::<String>::new("p_to_b1");
-let b1_to_b2 = Place::<String>::new("b1_to_b2");
-let b2_to_consumer = Place::<String>::new("b2_to_c");
-
-let slots_b1 = b1.port::<String>("slots");
-let slots_b2 = b2.port::<String>("slots");
-
-let net = PetriNet::builder("Pipeline")
-    .compose_with(&b1, |b| {
-        b.bind_port::<String>("put", &producer_to_b1)
-            .bind_port::<String>("get", &b1_to_b2);
-    })
-    .compose_with(&b2, |b| {
-        b.bind_port::<String>("put", &b1_to_b2)
-            .bind_port::<String>("get", &b2_to_consumer);
-    })
-    .fuse([FusionSet::of("sharedSlots", &slots_b1, &[&slots_b2])])
-    .build();
-```
-
-Composition produces a flat `PetriNet`. Ports merge places by structural
-rewrite; channels (`bind_channel`) merge transitions with arc union, timing
-intersection, and caller-wins identity. `FusionSet` declares N-ary place
-equivalence applied **after** all `compose_with(...)` calls, regardless of
-registration order. Per-instance action overrides are supplied via
-`Instance::bind_actions(HashMap<Arc<str>, BoxedAction>)`. See
-[`spec/11-modular-composition.md`](https://github.com/debe/libpetri/blob/main/spec/11-modular-composition.md).
-
-## Crate Structure
-
-| Crate | Description |
-|-------|-------------|
-| **libpetri-core** | Places, tokens, transitions, timing, arc types, actions |
-| **libpetri-event** | Event store for recording execution events |
-| **libpetri-runtime** | Bitmap-based executor (sync + async via `tokio` feature) |
-| **libpetri-export** | DOT/Graphviz export pipeline |
-| **libpetri-verification** | Formal verification (P-invariants, state class graphs, SMT) |
-| **libpetri-debug** | WebSocket debug protocol for live net inspection |
-| **libpetri-docgen** | Build-script helper for generating Petri net SVGs in rustdoc |
+| Feature | Effect |
+|---|---|
+| `tokio` | Async execution and environment-event APIs |
+| `z3` | SMT verification API; requires the `z3` executable at runtime |
+| `debug` | Debug protocol module |
+| `archive` | Debug module and session archive support |
 
 ## Executors
 
-- **BitmapNetExecutor** — General-purpose, bitmap-based enablement checks
-- **PrecompiledNetExecutor** — High-performance alternative with ring buffers, opcode dispatch, and two-level summary bitmaps (~3.8x faster on large nets)
+Use `BitmapNetExecutor` while developing semantics and `PrecompiledNetExecutor` for hot production paths. Both consume the same immutable `PetriNet` and are kept aligned by differential tests; the Lean development proves agreement for the untimed immediate fragment.
 
-## Feature Flags
+## Links
 
-| Feature | Effect |
-|---------|--------|
-| `tokio` | Enables `run_async()` on both executors |
-| `z3` | Enables SMT-based IC3/PDR model checking |
-| `debug` | Enables the WebSocket debug protocol module |
-
-## License
-
-Apache-2.0
+- [Documentation](https://docs.rs/libpetri)
+- [Specification](https://github.com/debe/libpetri/blob/main/spec/00-index.md)
+- [Lean proofs](https://github.com/debe/libpetri/blob/main/lean/README.md)
+- [Changelog](https://github.com/debe/libpetri/blob/main/CHANGELOG.md)
+- [Apache License 2.0](https://github.com/debe/libpetri/blob/main/LICENSE)
