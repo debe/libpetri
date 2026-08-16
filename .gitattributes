@@ -21,6 +21,11 @@ spec/**            linguist-documentation
 # Theory / research papers
 theory/**          linguist-documentation
 
+# Lean proofs are first-class project source; only Lake's resolved manifest is generated.
+lean/*.lean         linguist-language=Lean linguist-detectable=true
+lean/**/*.lean      linguist-language=Lean linguist-detectable=true
+lean/lake-manifest.json  linguist-generated
+
 # Lock files are generated
 **/package-lock.json  linguist-generated
 
