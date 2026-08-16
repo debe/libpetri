@@ -32,6 +32,10 @@ All four APIs follow the same [language-agnostic specification](spec/00-index.md
 
 This small order workflow shows the difference from an ordinary task queue. The graph declares not only *what code runs*, but also the state that enables it, the state it observes, what it clears, which work may run concurrently, and what happens when work is late.
 
+<p align="center">
+  <img src="docs/readme-order-example.svg" alt="Order workflow Petri net: dispatch consumes an order, reads policy, is inhibited by paused, resets lastError, then forks fraud and stock work concurrently; stock succeeds while the slow fraud action routes its original input to retry after 50 milliseconds" width="960">
+</p>
+
 ```typescript
 import {
   BitmapNetExecutor, PetriNet, Transition, and, forwardInput,
