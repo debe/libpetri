@@ -11,10 +11,13 @@ import org.libpetri.core.TransitionContext;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeSet;
 import java.util.concurrent.CompletionStage;
+import java.util.function.Function;
 
 /**
  * Internal utility encapsulating the structural rewrite primitive used by
@@ -137,7 +140,7 @@ public final class SubnetRewriter {
         String prefix,
         Map<Place<?>, Place<?>> placeRemap
     ) {
-        return rebuildWithName(t, prefix + "/" + t.name(), placeRemap);
+        return rebuildWithName(t, prefix + "/" + t.name(), placeRemap, null);
     }
 
     /**
@@ -160,19 +163,30 @@ public final class SubnetRewriter {
      * @return a fresh {@link Transition} with arc places substituted, same name
      */
     public static Transition substitutePlaces(Transition t, Map<Place<?>, Place<?>> remap) {
-        return rebuildWithName(t, t.name(), remap);
+        return rebuildWithName(t, t.name(), remap, null);
     }
 
     /**
-     * Shared implementation: rebuilds {@code t} with the supplied {@code name}
-     * and arc places rewritten through {@code remap}. Used by both
-     * {@link #rewriteTransition} (which prefixes the name) and
-     * {@link #substitutePlaces} (which keeps the name unchanged).
+     * Shared implementation and the file's <b>only</b> transition-rebuild site, so a new
+     * {@link Transition} property is carried by every rewrite path at once. Rebuilds
+     * {@code t} with the supplied {@code name} and arc places rewritten through
+     * {@code remap}. Used by {@link #rewriteTransition} (which prefixes the name),
+     * {@link #substitutePlaces} (which keeps the name unchanged) and {@link #applyFusion}
+     * (which supplies merged inputs).
+     *
+     * <p>The action timeout rides along with the output spec — {@link Transition} derives it
+     * from the rewritten tree, and {@link #rewriteOut} preserves {@code Out.Timeout} nodes
+     * (IO-013 / EXEC-022).
+     *
+     * @param inputOverride replaces {@code t}'s input arcs when non-null; already
+     *                      place-resolved, so it is used as-is rather than run through
+     *                      {@code remap} a second time
      */
     private static Transition rebuildWithName(
         Transition t,
         String name,
-        Map<Place<?>, Place<?>> remap
+        Map<Place<?>, Place<?>> remap,
+        List<Arc.In> inputOverride
     ) {
         var builder = Transition.builder(name)
             .timing(t.timing())
@@ -189,7 +203,11 @@ public final class SubnetRewriter {
             builder.placeAlias(alias);
         }
 
-        if (!t.inputSpecs().isEmpty()) {
+        if (inputOverride != null) {
+            if (!inputOverride.isEmpty()) {
+                builder.inputs(inputOverride.toArray(new Arc.In[0]));
+            }
+        } else if (!t.inputSpecs().isEmpty()) {
             var inputs = new Arc.In[t.inputSpecs().size()];
             for (int i = 0; i < t.inputSpecs().size(); i++) {
                 inputs[i] = rewriteIn(t.inputSpecs().get(i), remap);
@@ -407,8 +425,10 @@ public final class SubnetRewriter {
      *       is {@code mergedName} (typically {@code caller.name()}), so the
      *       merged transition remains discoverable from caller-side code paths.</li>
      *   <li><b>Arcs</b> — union: caller-side arcs first, then instance-side
-     *       arcs. Duplicates (by {@link Place} record equality on the
-     *       underlying record) are deduped; arc-list order is preserved
+     *       arcs. Same-place input arcs merge additively per [MOD-021] rules
+     *       (a)-(c) via {@link #mergeInputArcs}; conflicting arc kinds on one
+     *       place are rejected per rule (d). Inhibitor/read/reset duplicates
+     *       are deduped by record equality; arc-list order is preserved
      *       caller-first to give the executor a deterministic shape.</li>
      *   <li><b>Output spec</b> — if both sides have an output spec, they are
      *       combined into an {@code Arc.Out.And(caller, instance)} so both
@@ -465,6 +485,7 @@ public final class SubnetRewriter {
         // before building. The ν-net match and MOD-031 alias are carried as-is:
         // both sides already reference final host places at merge time (upstream
         // substitutePlaces remapped them, match included), so no further remap.
+        rejectCrossKindArcConflicts(caller, instance, mergedName);
         Timing mergedTiming = mergeTimings(caller.timing(), instance.timing(), mergedName);
         int mergedPriority  = pickPriority(caller.priority(), instance.priority());
         TransitionAction mergedAction = composeActions(caller.action(), instance.action());
@@ -478,10 +499,15 @@ public final class SubnetRewriter {
             builder.action(mergedAction);
         }
 
-        // Inputs: union (caller first, then instance), dedupe by record equality.
-        var unionedInputs = unionArcs(caller.inputSpecs(), instance.inputSpecs());
-        if (!unionedInputs.isEmpty()) {
-            builder.inputs(unionedInputs.toArray(new Arc.In[0]));
+        // Inputs: caller first, then instance; same-place arcs merge additively
+        // per MOD-021 rules (a)-(c) (One+One → Exactly(2) per AC6).
+        var concatInputs = new ArrayList<Arc.In>(caller.inputSpecs().size() + instance.inputSpecs().size());
+        concatInputs.addAll(caller.inputSpecs());
+        concatInputs.addAll(instance.inputSpecs());
+        var mergedInputs = mergeInputArcs(concatInputs,
+            _ -> "Channel composition '" + mergedName + "'");
+        if (!mergedInputs.isEmpty()) {
+            builder.inputs(mergedInputs.toArray(new Arc.In[0]));
         }
 
         // Outputs: combine. If both sides carry an output spec, produce an
@@ -655,7 +681,8 @@ public final class SubnetRewriter {
     /**
      * Returns the union of two arc lists, caller-first then instance, with
      * duplicates removed by record equality. Order is preserved within each
-     * source list. Used for input, inhibitor, read, and reset arcs.
+     * source list. Used for inhibitor, read, and reset arcs (input arcs merge
+     * additively via {@link #mergeInputArcs} instead).
      *
      * <p>Implementation: {@link LinkedHashSet} preserves first-seen order and
      * dedupes via {@code equals}. Records (e.g., {@code Arc.In.One},
@@ -668,6 +695,105 @@ public final class SubnetRewriter {
         union.addAll(caller);
         union.addAll(instance);
         return new ArrayList<>(union);
+    }
+
+    // ============================================================
+    //  Input-arc merge across composition seams (MOD-021 rules a–d)
+    // ============================================================
+
+    /**
+     * Normalizes an input-arc list per the canonical <b>MOD-021</b> merge table:
+     * arcs on distinct places pass through in order; same-place arcs merge via
+     * {@link #mergeInPair}, or are rejected naming the seam, the place and both arcs.
+     *
+     * <p>Applied at the two seams that can put two input arcs on one place:
+     * fusion resolution ({@link #applyFusion}, per [MOD-061]) and channel
+     * merge ({@link #mergeTransitions}). A duplicate reaching the executor
+     * compiler is a direct-authoring error and rejected there (CORE-030).
+     *
+     * @param inputs the input-arc list to normalize (arc order preserved,
+     *               merged arcs stay at their first-seen position)
+     * @param seam   colliding place → seam description for diagnostics
+     *               (e.g. {@code "Fusion set 'ab'"})
+     * @return the normalized list; {@code inputs} itself (same reference)
+     *         when no place repeats
+     * @throws IllegalArgumentException on an unsummable same-place mix
+     */
+    public static List<Arc.In> mergeInputArcs(List<Arc.In> inputs, Function<Place<?>, String> seam) {
+        if (inputs.size() < 2) return inputs;
+        var byPlace = new LinkedHashMap<Place<?>, Arc.In>(inputs.size());
+        for (var in : inputs) {
+            byPlace.merge(in.place(), in, (a, b) -> mergeInPair(a, b, seam));
+        }
+        if (byPlace.size() == inputs.size()) return inputs;
+        return new ArrayList<>(byPlace.values());
+    }
+
+    /**
+     * Merges two same-place input arcs per the canonical [MOD-021] merge table:
+     * {@code One}/{@code Exactly} weights sum, {@code AtLeast} pairs keep the
+     * stricter minimum, {@code All+All} collapses. Anything else rejects per rule (c).
+     */
+    private static Arc.In mergeInPair(Arc.In a, Arc.In b, Function<Place<?>, String> seam) {
+        var place = a.place();
+        return switch (a) {
+            case Arc.In.One _      when b instanceof Arc.In.One       -> new Arc.In.Exactly(place, 2);
+            case Arc.In.One _      when b instanceof Arc.In.Exactly e -> new Arc.In.Exactly(place, e.count() + 1);
+            case Arc.In.Exactly e  when b instanceof Arc.In.One       -> new Arc.In.Exactly(place, e.count() + 1);
+            case Arc.In.Exactly e1 when b instanceof Arc.In.Exactly e2 -> new Arc.In.Exactly(place, e1.count() + e2.count());
+            case Arc.In.All _      when b instanceof Arc.In.All       -> a;
+            case Arc.In.AtLeast a1 when b instanceof Arc.In.AtLeast a2 ->
+                new Arc.In.AtLeast(place, Math.max(a1.minimum(), a2.minimum()));
+            default -> throw new IllegalArgumentException(
+                seam.apply(place) + ": input arcs " + describeIn(a) + " and " + describeIn(b)
+                    + " collide on place '" + place.name() + "' and have no additive merge "
+                    + "(MOD-021 rule (c)). Use a single arc with exactly(n) / atLeast(n).");
+        };
+    }
+
+    /** User-facing rendering of an input arc's cardinality for diagnostics. */
+    private static String describeIn(Arc.In in) {
+        return switch (in) {
+            case Arc.In.One _     -> "one()";
+            case Arc.In.Exactly e -> "exactly(" + e.count() + ")";
+            case Arc.In.All _     -> "all()";
+            case Arc.In.AtLeast a -> "atLeast(" + a.minimum() + ")";
+        };
+    }
+
+    /**
+     * MOD-021 rule (d): a place carrying different arc kinds on the two sides
+     * of a channel merge (e.g. caller {@code Input → P}, instance
+     * {@code Reset → P}) has no coherent merged semantics and is rejected.
+     * Identical kind sets on both sides pass — those arcs reconcile pairwise
+     * per rules (a)/(b). Output arcs are excluded: an input on one side and an
+     * output on the other is an ordinary self-loop, not a conflict.
+     */
+    private static void rejectCrossKindArcConflicts(Transition caller, Transition instance, String mergedName) {
+        var callerKinds = arcKindsByPlace(caller);
+        if (callerKinds.isEmpty()) return;
+        var instanceKinds = arcKindsByPlace(instance);
+        for (var e : callerKinds.entrySet()) {
+            var other = instanceKinds.get(e.getKey());
+            if (other != null && !e.getValue().equals(other)) {
+                throw new IllegalArgumentException(
+                    "Channel composition '" + mergedName + "': conflicting arc kinds on place '"
+                        + e.getKey().name() + "' — caller-side " + e.getValue()
+                        + " vs instance-side " + other + ". Different arc types on one place "
+                        + "cannot be merged (MOD-021 rule (d)). Resolve explicitly.");
+            }
+        }
+    }
+
+    /** Groups a transition's input/read/inhibitor/reset arcs into place → kind names.
+     *  Sorted sets so the rule-(d) diagnostic renders identically in all three languages. */
+    private static Map<Place<?>, java.util.Set<String>> arcKindsByPlace(Transition t) {
+        var kinds = new HashMap<Place<?>, java.util.Set<String>>();
+        for (var in  : t.inputSpecs()) kinds.computeIfAbsent(in.place(),  _ -> new TreeSet<>()).add("input");
+        for (var rd  : t.reads())      kinds.computeIfAbsent(rd.place(),  _ -> new TreeSet<>()).add("read");
+        for (var inh : t.inhibitors()) kinds.computeIfAbsent(inh.place(), _ -> new TreeSet<>()).add("inhibitor");
+        for (var rs  : t.resets())     kinds.computeIfAbsent(rs.place(),  _ -> new TreeSet<>()).add("reset");
+        return kinds;
     }
 
     // ============================================================
@@ -690,19 +816,47 @@ public final class SubnetRewriter {
      * transitions should instead skip the rewrite entirely when
      * {@code fusionMap.isEmpty()}.
      *
+     * <p>When the substitution lands two input arcs on one canonical place
+     * (a transition consumed from two now-fused places), the collision is
+     * reconciled via {@link #mergeInputArcs} — additive merge per [MOD-021],
+     * so the fused transition consumes both tokens (MOD-061 AC4); unsummable
+     * mixes reject naming the fusion set. Transitions whose input arcs the
+     * {@code fusionMap} does not touch skip the merge pass entirely.
+     *
      * @param transitions the transitions to rewrite (non-null, may be empty)
      * @param fusionMap   non-canonical → canonical place remap (non-null)
+     * @param seamName    canonical place → seam description for collision
+     *                    diagnostics (e.g. {@code "Fusion set 'ab'"})
      * @return a fresh, insertion-ordered set of rewritten transitions
+     * @throws IllegalArgumentException on an unsummable input-arc collision
      */
     public static java.util.Set<Transition> applyFusion(
         java.util.Collection<Transition> transitions,
-        Map<Place<?>, Place<?>> fusionMap
+        Map<Place<?>, Place<?>> fusionMap,
+        Function<Place<?>, String> seamName
     ) {
         var rewritten = new LinkedHashSet<Transition>(transitions.size());
         for (var t : transitions) {
-            rewritten.add(substitutePlaces(t, fusionMap));
+            // Merge before the rebuild, not after: the arcs are substituted here so
+            // rebuildWithName takes them as-is and stays the single rebuild site.
+            List<Arc.In> mergedInputs = null;
+            if (fusionTouchesInputs(t, fusionMap)) {
+                var substituted = new ArrayList<Arc.In>(t.inputSpecs().size());
+                for (var in : t.inputSpecs()) substituted.add(rewriteIn(in, fusionMap));
+                mergedInputs = mergeInputArcs(substituted, seamName);
+            }
+            rewritten.add(rebuildWithName(t, t.name(), fusionMap, mergedInputs));
         }
         return rewritten;
+    }
+
+    /** True when any input arc of {@code t} references a fused (non-canonical) place. */
+    private static boolean fusionTouchesInputs(Transition t, Map<Place<?>, Place<?>> fusionMap) {
+        if (fusionMap.isEmpty()) return false;
+        for (var in : t.inputSpecs()) {
+            if (fusionMap.containsKey(in.place())) return true;
+        }
+        return false;
     }
 
     // ============================================================

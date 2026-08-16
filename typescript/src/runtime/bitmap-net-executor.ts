@@ -118,7 +118,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
   private readonly eventStoreEnabled: boolean;
 
   // Bitmaps (Uint32Array, direct writes)
-  private readonly markedPlaces: Uint32Array;
+  private readonly markingBitmap: Uint32Array;
   private readonly dirtySet: Uint32Array;
   private readonly markingSnapBuffer: Uint32Array;
   private readonly dirtySnapBuffer: Uint32Array;
@@ -153,6 +153,11 @@ export class BitmapNetExecutor implements PetriNetExecutor {
 
   // Pending reset places for clock-restart detection
   private readonly pendingResetPlaces = new Set<string>();
+  /**
+   * Undeclared place names already reported (CORE-072 AC4). Keyed by name — TS
+   * Place identity is name-based — so a hot loop warns once, not per token.
+   */
+  private readonly warnedUnknownPlaces = new Set<string>();
   private readonly transitionInputPlaceNames: Map<Transition, Set<string>>;
 
   private running = false;
@@ -179,7 +184,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     this.startMs = performance.now();
 
     const wordCount = this.compiled.wordCount;
-    this.markedPlaces = new Uint32Array(wordCount);
+    this.markingBitmap = new Uint32Array(wordCount);
     this.markingSnapBuffer = new Uint32Array(wordCount);
     this.firingSnapBuffer = new Uint32Array(wordCount);
     const dirtyWords = (this.compiled.transitionCount + BIT_MASK) >>> WORD_SHIFT;
@@ -218,6 +223,14 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       const names = new Set<string>();
       for (const spec of t.inputSpecs) names.add(spec.place.name);
       this.transitionInputPlaceNames.set(t, names);
+    }
+
+    // CORE-072: the Marking keeps tokens on places the net never declared;
+    // report each such place once, matching the precompiled backend's seam.
+    for (const [place, tokens] of initialTokens) {
+      if (tokens.length > 0 && this.compiled.tryPlaceId(place) === undefined) {
+        this.warnUnknownPlace(place, '');
+      }
     }
 
     this.initMatchCaches();
@@ -326,7 +339,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       executionId: this.executionId(),
     });
 
-    this.initializeMarkedBitmap();
+    this.initializeMarkingBitmap();
     this.markAllDirty();
 
     this.emitEvent({
@@ -404,11 +417,11 @@ export class BitmapNetExecutor implements PetriNetExecutor {
 
   // ======================== Initialize ========================
 
-  private initializeMarkedBitmap(): void {
+  private initializeMarkingBitmap(): void {
     for (let pid = 0; pid < this.compiled.placeCount; pid++) {
       const place = this.compiled.place(pid);
       if (this.marking.hasTokens(place)) {
-        setBit(this.markedPlaces, pid);
+        setBit(this.markingBitmap, pid);
       }
     }
   }
@@ -448,9 +461,9 @@ export class BitmapNetExecutor implements PetriNetExecutor {
 
     // Snapshot the marking bitmap into pre-allocated buffer.
     // We need a consistent snapshot because enablement checks read multiple words,
-    // and concurrent completions/injections could modify markedPlaces mid-scan.
+    // and concurrent completions/injections could modify markingBitmap mid-scan.
     const markingSnap = this.markingSnapBuffer;
-    markingSnap.set(this.markedPlaces);
+    markingSnap.set(this.markingBitmap);
 
     // Snapshot-and-clear the dirty set in one pass. New dirty bits set during
     // re-evaluation (e.g., by cascading enablement) are captured in the next cycle.
@@ -594,7 +607,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
    * Fast path for nets where all transitions are immediate and same priority.
    * Skips timing checks, sorting, and snapshot buffer — just scan and fire.
    *
-   * Uses live `markedPlaces` instead of a snapshot. Safe because
+   * Uses live `markingBitmap` instead of a snapshot. Safe because
    * `updateBitmapAfterConsumption()` synchronously updates the bitmap before the next
    * iteration. For equal-priority immediate transitions, tid scan order satisfies
    * FIFO-by-enablement-time (all enabled in the same cycle).
@@ -602,7 +615,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
   private fireReadyImmediate(): void {
     for (let tid = 0; tid < this.compiled.transitionCount; tid++) {
       if (!this.enabledFlags[tid] || this.inFlightFlags[tid]) continue;
-      if (this.canEnable(tid, this.markedPlaces)) {
+      if (this.canEnable(tid, this.markingBitmap)) {
         this.fireTransitionContained(tid);
       } else {
         this.enabledFlags[tid] = 0;
@@ -642,13 +655,13 @@ export class BitmapNetExecutor implements PetriNetExecutor {
 
     // Take a fresh snapshot for re-checking (reuse pre-allocated buffer)
     const freshSnap = this.firingSnapBuffer;
-    freshSnap.set(this.markedPlaces);
+    freshSnap.set(this.markingBitmap);
     for (const entry of ready) {
       const { tid } = entry;
       if (this.enabledFlags[tid] && this.canEnable(tid, freshSnap)) {
         this.fireTransitionContained(tid);
         // Update snapshot after consuming tokens
-        freshSnap.set(this.markedPlaces);
+        freshSnap.set(this.markingBitmap);
       } else {
         this.enabledFlags[tid] = 0;
         this.enabledTransitionCount--;
@@ -892,7 +905,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     for (const pid of pids) {
       const place = this.compiled.place(pid);
       if (!this.marking.hasTokens(place)) {
-        clearBit(this.markedPlaces, pid);
+        clearBit(this.markingBitmap, pid);
       }
       this.markDirty(pid);
     }
@@ -947,12 +960,17 @@ export class BitmapNetExecutor implements PetriNetExecutor {
         // Single pass: add tokens to marking, update bitmap, and emit events
         const produced: Token<any>[] = [];
         for (const entry of outputs.entries()) {
-          const pid = this.compiled.placeId(entry.place);
-          this.cacheAddToken(pid, entry.token);
+          const pid = this.compiled.tryPlaceId(entry.place);
           this.marking.addToken(entry.place, entry.token);
           produced.push(entry.token);
-          setBit(this.markedPlaces, pid);
-          this.markDirty(pid);
+          if (pid !== undefined) {
+            this.cacheAddToken(pid, entry.token);
+            setBit(this.markingBitmap, pid);
+            this.markDirty(pid);
+          } else {
+            // Unknown place — retained in the Marking (CORE-072 AC3), no bits to update.
+            this.warnUnknownPlace(entry.place, t.name);
+          }
           this.emitEvent({
             type: 'token-added',
             timestamp: Date.now(),
@@ -996,11 +1014,16 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     for (let i = 0; i < len; i++) {
       const event = this.externalQueue[i]!;
       try {
-        const pid = this.compiled.placeId(event.place);
-        this.cacheAddToken(pid, event.token);
+        const pid = this.compiled.tryPlaceId(event.place);
         this.marking.addToken(event.place, event.token);
-        setBit(this.markedPlaces, pid);
-        this.markDirty(pid);
+        if (pid !== undefined) {
+          this.cacheAddToken(pid, event.token);
+          setBit(this.markingBitmap, pid);
+          this.markDirty(pid);
+        } else {
+          // Unknown place — retained in the Marking (CORE-072 AC3), no bits to update.
+          this.warnUnknownPlace(event.place, '');
+        }
 
         this.emitEvent({
           type: 'token-added',
@@ -1166,6 +1189,27 @@ export class BitmapNetExecutor implements PetriNetExecutor {
   }
 
   // ======================== Event Emission ========================
+
+  /**
+   * Reports an undeclared place once (CORE-072 AC4, emitted as the EVT-013
+   * log-message event). `transitionName` is the producer, empty at the
+   * initial-marking and injection seams. Retention never depends on this.
+   */
+  private warnUnknownPlace(place: Place<any>, transitionName: string): void {
+    if (this.warnedUnknownPlaces.has(place.name)) return;
+    this.warnedUnknownPlaces.add(place.name);
+    this.emitEvent({
+      type: 'log-message',
+      timestamp: Date.now(),
+      transitionName,
+      logger: 'libpetri.runtime',
+      level: 'WARN',
+      message: `unknown place '${place.name}': tokens are retained in the marking but inert `
+        + '(the net declares no arc on it)',
+      error: null,
+      errorMessage: null,
+    });
+  }
 
   private emitEvent(event: NetEvent): void {
     if (this.eventStoreEnabled) {

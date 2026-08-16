@@ -287,11 +287,30 @@ When a composition binding maps an interface channel to a caller-side `Transitio
 
 **Arc deduplication rule** (for clause 1): for every pair of arcs from the two sides targeting the same `Place` (by identity per [CORE-002]):
 - (a) **Same arc type with same cardinality/weight**: collapse to a single arc.
-- (b) **Same arc type with additive cardinalities/weights** (two `Input` arcs, two `Output` arcs, or two `Read` arcs whose cardinalities admit summation, e.g. `One` + `One` = `Exactly(2)`, `Exactly(n)` + `Exactly(m)` = `Exactly(n + m)`): the merged arc carries the summed weight.
-- (c) **Same arc type with incompatible cardinalities** (e.g. `One` + `Exactly(2)` where the language does not permit summation, or `One` + `All`, or `Exactly(n)` + `AtLeast(m)`): the merge MUST be rejected at compose time with an error identifying both conflicting arcs by transition side, place, and cardinality.
-- (d) **Different arc types** (e.g. one side declares an `Input` arc on `P` and the other declares a `Reset` arc on `P`, or `Read` + `Inhibitor`, etc.): the merge MUST be rejected at compose time with an error identifying both conflicting arcs by transition side, place, and arc type.
+- (b) **Same arc type with a defined merge**: `Input` arcs on one place are reconciled by the canonical merge table below. `Read`, `Inhibitor` and `Reset` arcs carry no cardinality dimension, so a same-type pair on one place collapses per rule (a). Output is one spec tree per transition rather than a per-place arc: the two sides' trees combine under a single outer `And` (clause 1), and a one-sided spec carries through unchanged.
+- (c) **Same arc type with no defined merge**: an `Input` pairing absent from the table MUST be rejected at compose time with the diagnostic below.
+- (d) **Different arc types** (e.g. one side declares an `Input` arc on `P` and the other declares a `Reset` arc on `P`, or `Read` + `Inhibitor`, etc.): the merge MUST be rejected at compose time with an error identifying both conflicting arcs by transition side, place, and arc type. Same-type arcs from the two sides pair up under rules (a)/(b) before this rule applies, so two sides declaring the *same* set of arc types on a place (e.g. `Input` + `Read` on each side) are not a conflict.
 
-Inhibitor and Reset arcs to the same place from both sides collapse per rule (a) — they have no cardinality dimension to sum.
+**Canonical input-arc merge table.** This is the single normative statement of rule (b); [MOD-061] and [CORE-030] refer here rather than restating it. The table is symmetric.
+
+| Left | Right | Merged |
+|------|-------|--------|
+| `one` | `one` | `exactly(2)` |
+| `one` | `exactly(n)` | `exactly(n + 1)` |
+| `exactly(n)` | `exactly(m)` | `exactly(n + m)` |
+| `all` | `all` | `all` (idempotent collapse, rule (a)) |
+| `atLeast(n)` | `atLeast(m)` | `atLeast(max(n, m))` |
+| anything else | | **rejected** per rule (c) |
+
+`one`/`exactly` sum because each side's demand is an independent fixed draw. `atLeast` is the one non-additive row: both sides take every available token, so the merged arc only has to carry the stricter minimum. `all` has no cardinality dimension, so it collapses.
+
+A rejection MUST name the seam, both cardinalities, and the place, in this shape:
+
+```
+<seam>: input arcs <a> and <b> collide on place '<p>' and have no additive merge (MOD-021 rule (c)). Use a single arc with exactly(n) / atLeast(n).
+```
+
+`<seam>` is `Fusion set '<name>'` ([MOD-061]) or `Channel composition '<name>'`; `<a>` and `<b>` render cardinality only — `one()`, `exactly(3)`, `all()`, `atLeast(2)` — with no place name embedded. Method spelling follows the host language (`at_least(n)` in Rust and Python).
 
 The result is one merged `Transition` in the flat net; firing it consumes/produces tokens per the unioned arc set in a single atomic step per [EXEC-001].
 
@@ -301,9 +320,9 @@ The result is one merged `Transition` in the flat net; firing it consumes/produc
 3. Bind two transitions with overlapping non-`Immediate` timings — e.g., caller `Deadline(100ms)` (`[0, 100]`) and instance `Delayed(50ms)` (`[50, ∞)`) — verify the merged timing is `Window(50, 100)` (the interval `[50, 100]`). Bind `Window(10, 100)` and `Window(50, 200)`; verify the merged timing is `Window(50, 100)`. Bind `Exact(50)` and `Window(0, 100)`; verify the merged timing is `Exact(50)`.
 4. The merged transition's action runs the caller-side action then the instance-side action sequentially within one firing; observable token movement is atomic from the executor's perspective.
 5. After build and run, the executor invokes the merged transition once per fire (not twice).
-6. **Arc deduplication — additive same-type:** bind a caller transition with `Input(One) -> P` to a channel transition with `Input(One) -> P` on the same caller place `P`; verify the merged transition has a single `Input(Exactly(2)) -> P` arc.
+6. **Arc deduplication — merge table:** bind a caller transition with `Input(One) -> P` to a channel transition with `Input(One) -> P` on the same caller place `P`; verify the merged transition has a single `Input(Exactly(2)) -> P` arc. Verify the remaining rows too: `All` + `All` collapses to `All`, and `AtLeast(1)` + `AtLeast(3)` merges to `AtLeast(3)` (not `AtLeast(4)`).
 7. **Arc deduplication — different types are rejected:** bind a caller transition with `Input -> P` to a channel transition with `Reset -> P`; verify the compose call is rejected with a message naming both arcs.
-8. **Arc deduplication — incompatible cardinalities are rejected:** bind a caller transition with `Input(One) -> P` to a channel transition with `Input(All) -> P`; verify the compose call is rejected with a message naming both arc cardinalities.
+8. **Arc deduplication — off-table pairings are rejected:** bind a caller transition with `Input(One) -> P` to a channel transition with `Input(All) -> P`; verify the compose call is rejected with the diagnostic shape above, naming the seam, both cardinalities, and the place.
 9. **Token timestamp on merged production:** when the merged transition fires and produces a token to a place that is itself a port-merge or fusion target, the produced token's timestamp is the timestamp at the production point of the firing per [CORE-013] and [TIME-010]. FIFO order among tokens produced into a merged place by distinct firings of one or more merged transitions is determined by the completion order of those firings, consistent with the happens-before guarantee per [CONC-002] and [CORE-013]. The merged transition emits a single `TokenAdded` event per produced token (cf. EVT-011), not one per side of the merge.
 
 **Depends on:** [MOD-005], [CORE-021], [TIME-001], [CORE-013], [TIME-010], [CONC-002]
@@ -720,7 +739,7 @@ A fusion set has:
 When `build()` is invoked on an enclosing builder containing one or more fusion sets, the builder MUST:
 
 1. For each fusion set, choose a canonical member (implementation-defined; first declared member is the conventional choice).
-2. Run a structural rewrite over every transition in the builder, substituting every non-canonical member with the canonical member in every input, output, inhibitor, read, and reset arc.
+2. Run a structural rewrite over every transition in the builder, substituting every non-canonical member with the canonical member in every input, output, inhibitor, read, and reset arc. Input arcs that collide on the canonical place after substitution are reconciled by the canonical merge table of [MOD-021], with the same rejection cases and the same diagnostic shape (seam = `Fusion set '<name>'`).
 3. Remove non-canonical members from the builder's place set; the canonical member remains.
 4. Produce the resulting flat `PetriNet`.
 
@@ -736,10 +755,10 @@ Initial markings and per-place token state in the resulting flat net are concent
 1. Three instances of a leaky-bucket subnet share a global rate-limiter via a single fusion set over their three internal limiter places. The built net contains one canonical limiter place; arcs that originally referenced any of the three members now reference the canonical.
 2. Tokens added to any of the (now-fused) member places at initial-marking time appear on the canonical place in the executor's marking.
 3. Non-canonical member places do NOT appear in the built net's place set.
-4. Fusion is applied after composition: composing then fusing is observationally equivalent to writing a single hand-written net with the fused topology directly.
+4. Fusion is applied after composition: composing then fusing is observationally equivalent to writing a single hand-written net with the fused topology directly. Input arcs colliding on the canonical place follow the [MOD-021] merge table; off-table pairings are rejected at build with the diagnostic naming the fusion set.
 5. Re-exporting and re-verifying the fused net works without any awareness of fusion in the consumer.
 6. Multiple fusion sets with **disjoint** member sets are commutative: building the same enclosing builder twice, with the implementation's fusion sets applied in opposite orders, MUST produce flat nets that are observationally identical (identical place set, transition set, arc topology, initial marking, executor behavior).
 7. Declaring two fusion sets whose member sets share at least one place SHOULD be rejected at build with a message naming the shared place and both fusion sets.
 
-**Depends on:** [MOD-023], [MOD-060], [CORE-040]
-**Test derivation:** Build three leaky-bucket instances composed into one builder, with their limiter places joined as a fusion set. Build the net; assert (a) only one canonical limiter place exists in the place set, (b) every transition originally referencing any of the three limiter members now references the canonical, (c) executor behavior matches a hand-written equivalent. Declare two disjoint fusion sets; assert order-independence of the built result. Declare two overlapping fusion sets; assert build is rejected.
+**Depends on:** [MOD-021], [MOD-023], [MOD-060], [CORE-040]
+**Test derivation:** Build three leaky-bucket instances composed into one builder, with their limiter places joined as a fusion set. Build the net; assert (a) only one canonical limiter place exists in the place set, (b) every transition originally referencing any of the three limiter members now references the canonical, (c) executor behavior matches a hand-written equivalent. Declare two disjoint fusion sets; assert order-independence of the built result. Declare two overlapping fusion sets; assert build is rejected. Fuse two places each consumed via `one()` by the same transition; verify the built net consumes 2 from the canonical place. Fuse places whose colliding input arcs cannot merge; verify build rejection names the fusion set.

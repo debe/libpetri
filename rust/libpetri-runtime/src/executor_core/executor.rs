@@ -178,6 +178,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 timestamp: now_millis(),
             });
         }
+        self.warn_unknown_places("");
 
         let mut newly_enabled: Vec<usize> = Vec::new();
         let mut clock_restarted: Vec<usize> = Vec::new();
@@ -236,6 +237,39 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         }
 
         self.backend.snapshot_marking()
+    }
+
+    /// Emits the CORE-072 AC4 diagnostic for every place the backend flagged
+    /// as undeclared since the last drain: the tokens stay in the marking but
+    /// nothing can consume them. `transition_name` is empty at the
+    /// initial-marking and injection seams, where no transition is firing.
+    #[inline]
+    fn warn_unknown_places(&mut self, transition_name: &str) {
+        if !E::ENABLED {
+            return;
+        }
+        let places = self.backend.take_unknown_places();
+        if !places.is_empty() {
+            self.emit_unknown_place_warnings(&places, transition_name);
+        }
+    }
+
+    /// Cold half of [`warn_unknown_places`](Self::warn_unknown_places).
+    #[cold]
+    fn emit_unknown_place_warnings(&mut self, places: &[Arc<str>], transition_name: &str) {
+        let name: Arc<str> = Arc::from(transition_name);
+        let timestamp = now_millis();
+        for place in places {
+            self.event_store.append(NetEvent::LogMessage {
+                transition_name: Arc::clone(&name),
+                level: "WARN".to_string(),
+                message: format!(
+                    "unknown place '{place}': tokens are retained in the marking \
+                     but inert (the net declares no arc on it)"
+                ),
+                timestamp,
+            });
+        }
     }
 
     /// Drives backend enablement and emits the resulting events.
@@ -457,6 +491,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                             self.event_store.append(ev);
                         }
                     }
+                    self.warn_unknown_places(&transition_name);
                     if E::ENABLED {
                         self.event_store.append(NetEvent::TransitionCompleted {
                             transition_name: Arc::clone(&transition_name),
@@ -555,6 +590,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 timestamp: now_millis(),
             });
         }
+        self.warn_unknown_places("");
 
         let mut newly_enabled: Vec<usize> = Vec::new();
         let mut clock_restarted: Vec<usize> = Vec::new();
@@ -744,6 +780,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                         self.event_store.append(ev);
                     }
                 }
+                self.warn_unknown_places(&completion.transition_name);
                 if E::ENABLED && completion.timed_out.is_none() {
                     self.event_store.append(NetEvent::TransitionCompleted {
                         transition_name: Arc::clone(&completion.transition_name),
@@ -768,10 +805,6 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
     /// `TransitionCompleted`, just without a completion event).
     #[inline]
     fn handle_flush(&mut self, flush: ActionFlush) {
-        // `transition_name` is currently only used for symmetry with
-        // ActionCompletion; future event types (e.g. ActionFlushed)
-        // could surface it. Keep the field for that forward-compat.
-        let _ = &flush.transition_name;
         for entry in flush.outputs {
             let event = if E::ENABLED {
                 Some(token_added_event::<E>(
@@ -787,6 +820,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 self.event_store.append(ev);
             }
         }
+        self.warn_unknown_places(&flush.transition_name);
     }
 
     /// Handle a single executor signal (event injection or lifecycle).
@@ -814,6 +848,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 if let Some(ev) = captured {
                     self.event_store.append(ev);
                 }
+                self.warn_unknown_places("");
             }
             ExecutorSignal::Event(_) => {
                 // Draining: discard events arriving after drain signal.
@@ -835,6 +870,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                         self.event_store.append(ev);
                     }
                 }
+                self.warn_unknown_places("");
             }
             ExecutorSignal::EventBatch(_) => {
                 // Draining: discard the entire batch.
@@ -936,6 +972,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                                 self.event_store.append(ev);
                             }
                         }
+                        self.warn_unknown_places(&transition_name);
                         if E::ENABLED {
                             self.event_store.append(NetEvent::TransitionCompleted {
                                 transition_name: Arc::clone(&transition_name),

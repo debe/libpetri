@@ -54,6 +54,12 @@ interface ExternalEvent<T = any> {
   reject: (err: Error) => void;
 }
 
+/** Retained tokens for one undeclared place, keyed by name (CORE-072). */
+interface UnknownPlaceTokens {
+  place: Place<any>;
+  tokens: Token<any>[];
+}
+
 export interface PrecompiledNetExecutorOptions {
   eventStore?: EventStore;
   environmentPlaces?: Set<EnvironmentPlace<any>>;
@@ -91,6 +97,14 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
   // ==================== Token Storage ====================
   /** Per-place token arrays, indexed by pid. */
   private readonly tokenQueues: Token<any>[][];
+  /**
+   * Tokens on places the compiled net does not know (CORE-072 AC3). Retained —
+   * never dropped — and merged into the materialized marking, matching the
+   * BitmapNetExecutor reference, whose Marking keeps them naturally. Keyed by
+   * place NAME (TS Place identity is name-based), carrying the Place so
+   * materializing a Marking has one to hand.
+   */
+  private readonly unknownPlaceTokens = new Map<string, UnknownPlaceTokens>();
   /** Monotonic source for ν-name minting (ctx.freshName(), NU-010). */
   private freshNameCounter = 0;
   /**
@@ -197,7 +211,15 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
 
     // Load initial tokens
     for (const [place, tokens] of initialTokens) {
-      const pid = prog.compiled.placeId(place);
+      const pid = prog.compiled.tryPlaceId(place);
+      if (pid === undefined) {
+        // CORE-072: undeclared place — retain the tokens in a side store so
+        // they reappear in the observable marking.
+        for (let i = 0; i < tokens.length; i++) {
+          this.retainUnknownToken(place, tokens[i]!, '');
+        }
+        continue;
+      }
       const q = this.tokenQueues[pid]!;
       for (const token of tokens) {
         q.push(token);
@@ -756,13 +778,17 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     const inputs = new TokenInput();
 
     // ==================== Opcode Dispatch ====================
+    // In-firing order: inputs → read peeks → resets, split at
+    // PrecompiledNet.resetOpsStart (EXEC-013 AC4).
     if (t.matchSpec) {
-      // ν-net join (NU-020): bypass the opcode fast path, consume name-matched tokens.
+      // ν-net join (NU-020): bypass the opcode fast path, consume name-matched
+      // tokens. Read arcs are peeked inside, at the same input/reset boundary.
       this.fireTransitionMatched(tid, t, inputs, consumed);
     } else {
       const ops = prog.consumeOps[tid]!;
+      const resetOpsStart = prog.resetOpsStart[tid]!;
       let pc = 0;
-      while (pc < ops.length) {
+      while (pc < resetOpsStart) {
         const opcode = ops[pc++]!;
         switch (opcode) {
           case CONSUME_ONE: {
@@ -832,34 +858,34 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
             }
             break;
           }
-          case RESET: {
-            const pid = ops[pc++]!;
-            const place = prog.places[pid]!;
-            const tokens = this.tokenQueues[pid]!.splice(0);
-            this.pendingResetWords[pid >>> WORD_SHIFT]! |= (1 << (pid & BIT_MASK));
-            this.hasPendingResets = true;
-            for (const token of tokens) {
-              consumed.push(token);
-              this.emitEvent({
-                type: 'token-removed',
-                timestamp: Date.now(),
-                placeName: place.name,
-                token,
-              });
-            }
-            break;
-          }
+          default:
+            throw new Error(`Unknown opcode: ${opcode}`);
         }
       }
-    }
 
-    // Read arcs
-    const readPids = prog.readOps[tid]!;
-    for (let i = 0; i < readPids.length; i++) {
-      const pid = readPids[i]!;
-      const q = this.tokenQueues[pid]!;
-      if (q.length > 0) {
-        inputs.add(prog.places[pid]!, q[0]!);
+      // Read arcs (peek, don't consume) — before resets drain (EXEC-013)
+      this.peekReadArcs(tid, inputs);
+
+      // RESET opcodes: [resetOpsStart, ops.length)
+      while (pc < ops.length) {
+        const opcode = ops[pc++]!;
+        if (opcode !== RESET) {
+          throw new Error(`Unknown opcode: ${opcode} (expected RESET past resetOpsStart)`);
+        }
+        const pid = ops[pc++]!;
+        const place = prog.places[pid]!;
+        const tokens = this.tokenQueues[pid]!.splice(0);
+        this.pendingResetWords[pid >>> WORD_SHIFT]! |= (1 << (pid & BIT_MASK));
+        this.hasPendingResets = true;
+        for (const token of tokens) {
+          consumed.push(token);
+          this.emitEvent({
+            type: 'token-removed',
+            timestamp: Date.now(),
+            placeName: place.name,
+            token,
+          });
+        }
       }
     }
 
@@ -1016,6 +1042,9 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       }
     }
 
+    // Read arcs (peek, don't consume) — before resets drain (EXEC-013)
+    this.peekReadArcs(tid, inputs);
+
     // Reset arcs
     for (const arc of t.resets) {
       const pid = prog.compiled.placeId(arc.place);
@@ -1030,6 +1059,23 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
           placeName: arc.place.name,
           token,
         });
+      }
+    }
+  }
+
+  /**
+   * Peeks each read-arc place's front token into the context inputs. Called at
+   * the input/reset boundary of a firing (EXEC-013): after input consumption,
+   * before reset draining — so read(p)+reset(p) observes the pre-reset token.
+   */
+  private peekReadArcs(tid: number, inputs: TokenInput): void {
+    const prog = this.program;
+    const readPids = prog.readOps[tid]!;
+    for (let i = 0; i < readPids.length; i++) {
+      const pid = readPids[i]!;
+      const q = this.tokenQueues[pid]!;
+      if (q.length > 0) {
+        inputs.add(prog.places[pid]!, q[0]!);
       }
     }
   }
@@ -1109,12 +1155,8 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
         // Add output tokens to queues
         const produced: Token<any>[] = [];
         for (const entry of outputs.entries()) {
-          const pid = prog.compiled.placeId(entry.place);
-          this.cacheAddToken(pid, entry.token);
-          this.tokenQueues[pid]!.push(entry.token);
+          this.produceToken(entry.place, entry.token, t.name);
           produced.push(entry.token);
-          this.setMarkingBit(pid);
-          this.markDirty(pid);
           this.emitEvent({
             type: 'token-added',
             timestamp: Date.now(),
@@ -1152,17 +1194,12 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
   private processExternalEvents(): void {
     if (this.externalQueue.length === 0) return;
     if (this.closed) return; // ENV-013: leave queued events for drainPendingExternalEvents()
-    const prog = this.program;
     const len = this.externalQueue.length;
 
     for (let i = 0; i < len; i++) {
       const event = this.externalQueue[i]!;
       try {
-        const pid = prog.compiled.placeId(event.place);
-        this.cacheAddToken(pid, event.token);
-        this.tokenQueues[pid]!.push(event.token);
-        this.setMarkingBit(pid);
-        this.markDirty(pid);
+        this.produceToken(event.place, event.token, '');
 
         this.emitEvent({
           type: 'token-added',
@@ -1176,6 +1213,48 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       }
     }
     this.externalQueue.length = 0;
+  }
+
+  /**
+   * Adds a produced or injected token: queue/bitmap/dirty for compiled places,
+   * or the retention side map when the program does not know it (CORE-072 AC3).
+   * `transitionName` is the producer, empty at the injection seam.
+   */
+  private produceToken(place: Place<any>, token: Token<any>, transitionName: string): void {
+    const pid = this.program.compiled.tryPlaceId(place);
+    if (pid === undefined) {
+      this.retainUnknownToken(place, token, transitionName);
+      return;
+    }
+    this.cacheAddToken(pid, token);
+    this.tokenQueues[pid]!.push(token);
+    this.setMarkingBit(pid);
+    this.markDirty(pid);
+  }
+
+  /**
+   * Retains a token on an undeclared place (CORE-072 AC3) and reports the place
+   * once — the first insert is the only one that creates a map entry, so a hot
+   * loop cannot flood (AC4, emitted as the EVT-013 log-message event).
+   */
+  private retainUnknownToken(place: Place<any>, token: Token<any>, transitionName: string): void {
+    const retained = this.unknownPlaceTokens.get(place.name);
+    if (retained !== undefined) {
+      retained.tokens.push(token);
+      return;
+    }
+    this.unknownPlaceTokens.set(place.name, { place, tokens: [token] });
+    this.emitEvent({
+      type: 'log-message',
+      timestamp: Date.now(),
+      transitionName,
+      logger: 'libpetri.runtime',
+      level: 'WARN',
+      message: `unknown place '${place.name}': tokens are retained in the marking but inert `
+        + '(the net declares no arc on it)',
+      error: null,
+      errorMessage: null,
+    });
   }
 
   private drainPendingExternalEvents(): void {
@@ -1282,6 +1361,13 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       const place = prog.places[pid]!;
       for (let i = 0; i < q.length; i++) {
         m.addToken(place, q[i]!);
+      }
+    }
+    // CORE-072: merge retained tokens on undeclared places into the observable
+    // marking (empty map for well-formed inputs — no hot-path cost).
+    for (const { place, tokens } of this.unknownPlaceTokens.values()) {
+      for (const token of tokens) {
+        m.addToken(place, token);
       }
     }
     this.marking = m;

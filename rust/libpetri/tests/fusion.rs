@@ -13,9 +13,9 @@ use libpetri::core::action::{ActionError, BoxedAction, sync_action};
 use libpetri::core::arc::{inhibitor, read};
 use libpetri::core::context::TransitionContext;
 use libpetri::core::fusion::FusionSet;
-use libpetri::core::input::one;
+use libpetri::core::input::{all, one};
 use libpetri::core::instance::Instance;
-use libpetri::core::output::out_place;
+use libpetri::core::output::{and, out_place, timeout_place};
 use libpetri::core::petri_net::PetriNet;
 use libpetri::core::place::Place;
 use libpetri::core::subnet_def::SubnetDef;
@@ -235,6 +235,118 @@ fn fuse_overlapping_fusion_sets_panics() {
     assert!(msg.contains('B'), "must name the offending place: {msg}");
     assert!(msg.contains("set1"), "must name first set: {msg}");
     assert!(msg.contains("set2"), "must name second set: {msg}");
+}
+
+#[test]
+fn fuse_two_consumed_places_compiles_and_consumes_additively() {
+    // MOD-061: a transition consuming one() from each of two fused places
+    // compiles (no CORE-030 duplicate-input rejection) and consumes 2 tokens
+    // from the canonical place per firing.
+    let a = Place::<String>::new("A");
+    let b = Place::<String>::new("B");
+    let sink = Place::<String>::new("sink");
+
+    let t = Transition::builder("pair")
+        .input(one(&a))
+        .input(one(&b))
+        .output(out_place(&sink))
+        .action(forward_action())
+        .build();
+
+    let net = PetriNet::builder("FusedPair")
+        .transition(t)
+        .fuse([FusionSet::of("ab", &a, &[&b])])
+        .build();
+
+    let merged = find_transition(&net, "pair");
+    assert_eq!(merged.input_specs().len(), 1, "inputs must merge additively");
+
+    let mut marking = Marking::new();
+    marking.add(&a, Token::at("x".to_string(), 0));
+    marking.add(&a, Token::at("y".to_string(), 0));
+    marking.add(&a, Token::at("z".to_string(), 0));
+
+    let mut executor =
+        BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
+    let final_marking = executor.run_sync();
+
+    // One firing consumes 2 of the 3 tokens; the leftover cannot re-enable.
+    assert_eq!(final_marking.count("sink"), 1);
+    assert_eq!(final_marking.count("A"), 1);
+}
+
+#[test]
+fn fuse_unsummable_input_mix_rejected_naming_the_set() {
+    let a = Place::<String>::new("A");
+    let b = Place::<String>::new("B");
+
+    let t = Transition::builder("mixed")
+        .input(one(&a))
+        .input(all(&b))
+        .build();
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = PetriNet::builder("Bad")
+            .transition(t)
+            .fuse([FusionSet::of("ab", &a, &[&b])])
+            .build();
+    }));
+    let err = result.expect_err("build must panic on an unsummable fused input mix");
+    let msg: String = err
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| err.downcast_ref::<&'static str>().map(|s| s.to_string()))
+        .unwrap_or_default();
+    assert!(msg.contains("Fusion set 'ab'"), "must name the fusion set: {msg}");
+    assert!(msg.contains("'A'"), "must name the fused place: {msg}");
+    assert!(
+        msg.contains("input arcs one() and all() collide"),
+        "must name both arc cardinalities: {msg}"
+    );
+}
+
+#[test]
+fn compose_and_fusion_preserve_action_timeout() {
+    // IO-013/EXEC-022: the action timeout is re-derived from the output spec on
+    // every transition rebuild, so both rewrite paths — the compose rename and
+    // the fusion input-merge — must carry `Out::Timeout` through untouched.
+    let req = Place::<String>::new("request");
+    let done = Place::<String>::new("done");
+    let late = Place::<String>::new("late");
+    let slots_a = Place::<String>::new("slotsA");
+    let slots_b = Place::<String>::new("slotsB");
+
+    let work = Transition::builder("work")
+        .input(one(&req))
+        .input(one(&slots_a))
+        .input(one(&slots_b))
+        .output(and(vec![out_place(&done), timeout_place(1500, &late)]))
+        .build();
+    assert_eq!(work.action_timeout(), Some(1500));
+
+    let def = SubnetDef::<()>::builder("TimedWorker")
+        .place(&slots_a)
+        .place(&slots_b)
+        .transition(work)
+        .input_port("request", &req)
+        .output_port("done", &done)
+        .build();
+
+    let inst = def.instantiate("w1", ());
+    let host_req = Place::<String>::new("hostRequest");
+    let renamed_a = find_renamed_place(&inst, "w1/slotsA");
+    let renamed_b = find_renamed_place(&inst, "w1/slotsB");
+
+    let net = PetriNet::builder("TimedHost")
+        .compose_with(&inst, |b| {
+            b.bind_port::<String>("request", &host_req);
+        })
+        .fuse([FusionSet::of("slots", &renamed_a, &[&renamed_b])])
+        .build();
+
+    let composed = find_transition(&net, "w1/work");
+    assert_eq!(composed.input_specs().len(), 2, "the two fused slot arcs merged");
+    assert_eq!(composed.action_timeout(), Some(1500));
 }
 
 #[test]

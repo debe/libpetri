@@ -62,18 +62,72 @@ trait BackendRunner {
     fn run(net: &PetriNet, marking: Marking) -> RunResult;
 }
 
+/// Executable twin of the Lean `token_conservation` theorem (FR2): the final
+/// marking must equal the initial marking plus every `TokenAdded` minus every
+/// `TokenRemoved`. `TokenAdded` is emitted by the loop independently of what
+/// the backend does with the token, so a backend that silently drops or
+/// duplicates a token in its storage layer breaks the balance. Runs after
+/// every suite run via [`BackendRunner::run`].
+fn assert_token_conservation(
+    initial: &std::collections::HashMap<Arc<str>, usize>,
+    result: &RunResult,
+) {
+    let mut expected: std::collections::HashMap<Arc<str>, i64> = initial
+        .iter()
+        .map(|(k, &v)| (Arc::clone(k), v as i64))
+        .collect();
+    for event in &result.events {
+        match event {
+            NetEvent::TokenAdded { place_name, .. } => {
+                *expected.entry(Arc::clone(place_name)).or_default() += 1;
+            }
+            NetEvent::TokenRemoved { place_name, .. } => {
+                *expected.entry(Arc::clone(place_name)).or_default() -= 1;
+            }
+            _ => {}
+        }
+    }
+    let actual = result.marking.token_counts();
+    for (place, &count) in &actual {
+        assert_eq!(
+            expected.get(place).copied().unwrap_or(0),
+            count as i64,
+            "token conservation violated: place '{place}' holds {count} token(s) \
+             but initial marking + events account for a different number"
+        );
+    }
+    for (place, &count) in &expected {
+        assert!(
+            count >= 0,
+            "token conservation violated: place '{place}' saw more TokenRemoved \
+             events than tokens it ever held"
+        );
+        if count > 0 {
+            assert_eq!(
+                actual.get(place).copied().unwrap_or(0) as i64,
+                count,
+                "token conservation violated: {count} token(s) unaccounted for at \
+                 place '{place}' (dropped by the backend?)"
+            );
+        }
+    }
+}
+
 struct BitmapRunner;
 
 impl BackendRunner for BitmapRunner {
     fn run(net: &PetriNet, marking: Marking) -> RunResult {
+        let initial_counts = marking.token_counts();
         let mut executor =
             BitmapNetExecutor::<InMemoryEventStore>::new(net, marking, ExecutorOptions::default());
         let final_marking = executor.run_sync().into_owned();
-        RunResult {
+        let result = RunResult {
             marking: final_marking,
             events: executor.event_store().events().to_vec(),
             quiescent: executor.is_quiescent(),
-        }
+        };
+        assert_token_conservation(&initial_counts, &result);
+        result
     }
 }
 
@@ -81,16 +135,19 @@ struct PrecompiledRunner;
 
 impl BackendRunner for PrecompiledRunner {
     fn run(net: &PetriNet, marking: Marking) -> RunResult {
+        let initial_counts = marking.token_counts();
         let prog = PrecompiledNet::from_compiled(CompiledNet::compile(net));
         let mut executor = PrecompiledNetExecutor::<InMemoryEventStore>::builder(&prog, marking)
             .event_store(InMemoryEventStore::new())
             .build();
         let final_marking = executor.run_sync().into_owned();
-        RunResult {
+        let result = RunResult {
             marking: final_marking,
             events: executor.event_store().events().to_vec(),
             quiescent: executor.is_quiescent(),
-        }
+        };
+        assert_token_conservation(&initial_counts, &result);
+        result
     }
 }
 
@@ -1907,6 +1964,301 @@ fn nu_budget_bounds_concurrency<R: BackendRunner>() {
     assert_eq!(count("source"), 0);
 }
 
+// ========================= Backend divergence regressions =========================
+
+/// Read and reset arcs on the SAME place: the read must observe the pre-reset
+/// front token (EXEC-012/EXEC-013). The precompiled backend used to drain the
+/// reset before peeking reads, so `ctx.read()` failed where the bitmap
+/// reference delivered the token.
+fn read_and_reset_same_place<R: BackendRunner>() {
+    let p_in = Place::<()>::new("in");
+    let p_both = Place::<i32>::new("both");
+    let p_out = Place::<i32>::new("out");
+
+    let t = Transition::builder("t1")
+        .input(one(&p_in))
+        .read(read(&p_both))
+        .reset(reset(&p_both))
+        .output(out_place(&p_out))
+        .action(sync_action(|ctx| {
+            let r = ctx.read::<i32>("both")?;
+            ctx.output("out", *r)?;
+            Ok(())
+        }))
+        .build();
+    let net = PetriNet::builder("test").transition(t).build();
+
+    let mut marking = Marking::new();
+    marking.add(&p_in, Token::at((), 0));
+    marking.add(&p_both, Token::at(7, 0));
+    marking.add(&p_both, Token::at(8, 0));
+
+    let result = R::run(&net, marking);
+    assert_eq!(result.marking.count("both"), 0); // reset drained
+    assert_eq!(result.marking.count("out"), 1);
+    assert_eq!(*result.marking.peek(&p_out).unwrap(), 7); // read saw the pre-reset front
+}
+
+/// Two input arcs on one place have no coherent consumption semantics (the
+/// bitmap reference tolerantly under-consumed, the precompiled backend
+/// panicked in `ring_remove_first`) and are rejected at compile time
+/// (CORE-030).
+fn duplicate_input_place_rejected_at_compile<R: BackendRunner>() {
+    let p = Place::<i32>::new("p");
+    let t = Transition::builder("t1")
+        .input(one(&p))
+        .input(one(&p))
+        .action(passthrough())
+        .build();
+    let net = PetriNet::builder("test").transition(t).build();
+    let mut marking = Marking::new();
+    marking.add(&p, Token::at(1, 0));
+
+    let outcome =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| R::run(&net, marking)));
+    let Err(err) = outcome else {
+        panic!("duplicate input places must be rejected at compile time");
+    };
+    let message = err
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| err.downcast_ref::<&str>().map(|s| s.to_string()))
+        .unwrap_or_default();
+    assert!(
+        message.contains("two input arcs"),
+        "expected the duplicate-input-place rejection message, got: {message}"
+    );
+}
+
+/// A place named in the initial marking but never declared to the net: both
+/// backends must retain its tokens. The precompiled backend used to drop them
+/// (its ring pool only stores compiled places) while the bitmap reference kept
+/// its whole `Marking` — a literal lost token.
+fn unknown_place_initial_tokens_retained<R: BackendRunner>() {
+    let (net, p1, _, _) = simple_chain();
+    let ghost = Place::<i32>::new("ghost");
+    let mut marking = Marking::new();
+    marking.add(&p1, Token::at(1, 0));
+    marking.add(&ghost, Token::at(99, 0));
+
+    let result = R::run(&net, marking);
+    assert_eq!(result.marking.count("p1"), 0);
+    assert_eq!(result.marking.count("ghost"), 1);
+    assert_eq!(*result.marking.peek(&ghost).unwrap(), 99);
+}
+
+/// CORE-072 AC4: an undeclared place is flagged once per executor, not once
+/// per token, and rides the existing log-message event (no new event type).
+/// Retention (AC3) is independent — it holds under the no-op store too.
+fn unknown_place_warns_once_per_place<R: BackendRunner>() {
+    let (net, p1, _, _) = simple_chain();
+    let ghost = Place::<i32>::new("ghost");
+    let mut marking = Marking::new();
+    marking.add(&p1, Token::at(1, 0));
+    marking.add(&ghost, Token::at(7, 0));
+    marking.add(&ghost, Token::at(8, 0));
+    marking.add(&ghost, Token::at(9, 0));
+
+    let result = R::run(&net, marking);
+    let warnings: Vec<&NetEvent> = result
+        .events
+        .iter()
+        .filter(|e| matches!(e, NetEvent::LogMessage { .. }))
+        .collect();
+    assert_eq!(warnings.len(), 1, "one diagnostic per place, not per token");
+    let NetEvent::LogMessage { transition_name, level, message, .. } = warnings[0] else {
+        unreachable!()
+    };
+    assert!(transition_name.is_empty(), "no transition fires at the initial-marking seam");
+    assert_eq!(level, "WARN");
+    assert!(message.contains("unknown place 'ghost'"), "unexpected message: {message}");
+    assert_eq!(result.marking.count("ghost"), 3);
+}
+
+/// Deterministic differential tests for the general (timed / multi-priority)
+/// ready path, driving the backends directly with synthetic timestamps —
+/// `collect_ready_general` was never reachable from the wall-clock-free suite
+/// above, which is exactly where the tid-order-vs-enablement-order divergence
+/// (EXEC-002 AC3/AC4 / CONC-023 AC4) hid.
+mod scheduling_order {
+    use super::*;
+    use crate::bitmap_backend::BitmapBackend;
+    use crate::executor_core::backend::{ExecutorBackend, NoopChangeTracker};
+    use crate::precompiled_backend::PrecompiledBackend;
+    use libpetri_core::timing::delayed;
+    use libpetri_core::token::ErasedToken;
+
+    /// Three delayed transitions: t_late (tid 0) and t_early (tid 1) at the
+    /// default priority, t_hi (tid 2) at a higher one. Tokens for t_early and
+    /// t_hi's trigger are staggered so enablement times differ per cycle.
+    fn staggered_net() -> (PetriNet, Marking) {
+        let a = Place::<i32>::new("a");
+        let b = Place::<i32>::new("b");
+        let c = Place::<i32>::new("c");
+
+        let t_late = Transition::builder("t_late") // tid 0, enabled second
+            .input(one(&a))
+            .timing(delayed(10))
+            .action(passthrough())
+            .build();
+        let t_early = Transition::builder("t_early") // tid 1, enabled first
+            .input(one(&b))
+            .timing(delayed(10))
+            .action(passthrough())
+            .build();
+        let t_hi = Transition::builder("t_hi") // tid 2, higher priority
+            .input(one(&c))
+            .timing(delayed(10))
+            .priority(5)
+            .action(passthrough())
+            .build();
+
+        let net = PetriNet::builder("staggered")
+            .transitions([t_late, t_early, t_hi])
+            .build();
+
+        let mut marking = Marking::new();
+        marking.add(&b, Token::at(1, 0)); // t_early enabled from t=0
+        (net, marking)
+    }
+
+    /// Drives one backend: t_early enabled at t=0, then tokens for t_late and
+    /// t_hi arrive so both enable at t=5, then all three are ready at t=20.
+    fn staggered_ready_order<B: ExecutorBackend>(mut backend: B) -> Vec<usize> {
+        let mut tracker = NoopChangeTracker;
+        backend.initialize();
+        backend.update_enablement(0.0, &mut tracker);
+
+        let a: Arc<str> = Arc::from("a");
+        let c: Arc<str> = Arc::from("c");
+        backend.produce_token(&a, ErasedToken::from_typed(&Token::at(1i32, 0)));
+        backend.produce_token(&c, ErasedToken::from_typed(&Token::at(1i32, 0)));
+        backend.update_enablement(5.0, &mut tracker);
+
+        let mut out = Vec::new();
+        backend.collect_ready_general(20.0, &mut out);
+        out
+    }
+
+    /// Priority DESC first (t_hi), then within the shared level enablement
+    /// time ASC (t_early before t_late) even though t_late has the smaller
+    /// tid. The precompiled backend used to order the shared level by tid.
+    #[test]
+    fn ready_order_is_priority_then_enablement_time_on_both_backends() {
+        let (net, marking) = staggered_net();
+
+        let bitmap_order = staggered_ready_order(BitmapBackend::new(&net, marking.clone()));
+        let prog = PrecompiledNet::from_compiled(CompiledNet::compile(&net));
+        let precompiled_order = staggered_ready_order(PrecompiledBackend::new(&prog, marking));
+
+        assert_eq!(bitmap_order, vec![2, 1, 0]);
+        assert_eq!(precompiled_order, bitmap_order);
+    }
+
+    /// Transitions enabled in the SAME cycle share an enablement timestamp, so
+    /// the tie-break is ascending tid — on both backends, unchanged from the
+    /// pre-fix behavior for this case.
+    #[test]
+    fn same_cycle_enablement_ties_break_by_tid_on_both_backends() {
+        let (net, _) = staggered_net();
+        let a = Place::<i32>::new("a");
+        let b = Place::<i32>::new("b");
+        let mut marking = Marking::new();
+        marking.add(&a, Token::at(1, 0));
+        marking.add(&b, Token::at(1, 0));
+
+        fn order<B: ExecutorBackend>(mut backend: B) -> Vec<usize> {
+            let mut tracker = NoopChangeTracker;
+            backend.initialize();
+            backend.update_enablement(0.0, &mut tracker);
+            let mut out = Vec::new();
+            backend.collect_ready_general(20.0, &mut out);
+            out
+        }
+
+        let bitmap_order = order(BitmapBackend::new(&net, marking.clone()));
+        let prog = PrecompiledNet::from_compiled(CompiledNet::compile(&net));
+        let precompiled_order = order(PrecompiledBackend::new(&prog, marking));
+
+        assert_eq!(bitmap_order, vec![0, 1]);
+        assert_eq!(precompiled_order, bitmap_order);
+    }
+
+}
+
+/// Writes into a place the compiled program does not know (CORE-072 AC3),
+/// driven straight against the backends: `TransitionContext` rejects an
+/// output place the transition never declared, so `produce_token` and
+/// `inject_external_token` are the only reachable seams.
+mod unknown_places {
+    use super::*;
+    use crate::bitmap_backend::BitmapBackend;
+    use crate::executor_core::backend::ExecutorBackend;
+    use crate::precompiled_backend::PrecompiledBackend;
+    use libpetri_core::token::ErasedToken;
+
+    fn ghost_token(value: i32) -> ErasedToken {
+        ErasedToken::from_typed(&Token::at(value, 0))
+    }
+
+    /// Retained-token count, then the flagged names after two writes and
+    /// after a third — the second drain must be empty (AC4: once per place).
+    fn produce_unknown(mut backend: impl ExecutorBackend) -> (usize, Vec<Arc<str>>, Vec<Arc<str>>) {
+        let ghost: Arc<str> = Arc::from("ghost");
+        backend.initialize();
+        backend.produce_token(&ghost, ghost_token(1));
+        backend.produce_token(&ghost, ghost_token(2));
+        let first = backend.take_unknown_places();
+        backend.produce_token(&ghost, ghost_token(3));
+        let second = backend.take_unknown_places();
+        (backend.snapshot_marking().count(&ghost), first, second)
+    }
+
+    /// Production into an unknown place must retain the token on both
+    /// backends — the seam the precompiled ring pool cannot store.
+    #[test]
+    fn produce_unknown_place_retained_on_both_backends() {
+        let (net, _, _, _) = simple_chain();
+        let prog = PrecompiledNet::from_compiled(CompiledNet::compile(&net));
+
+        let (bitmap_count, bitmap_first, bitmap_second) =
+            produce_unknown(BitmapBackend::new(&net, Marking::new()));
+        let (precompiled_count, precompiled_first, precompiled_second) =
+            produce_unknown(PrecompiledBackend::new(&prog, Marking::new()));
+
+        assert_eq!(bitmap_count, 3);
+        assert_eq!(precompiled_count, bitmap_count);
+        assert_eq!(bitmap_first.len(), 1);
+        assert_eq!(&*bitmap_first[0], "ghost");
+        assert!(bitmap_second.is_empty(), "a later write must not re-flag the place");
+        assert_eq!(precompiled_first, bitmap_first);
+        assert_eq!(precompiled_second, bitmap_second);
+    }
+
+    /// Injection into a place the compiled program does not know must retain
+    /// the token in the observable marking on both backends (the precompiled
+    /// backend used to drop it silently).
+    #[test]
+    fn inject_unknown_place_retained_on_both_backends() {
+        let (net, _, _, _) = simple_chain();
+        let ghost: Arc<str> = Arc::from("ghost");
+
+        fn inject_and_count(mut backend: impl ExecutorBackend, place: &Arc<str>) -> usize {
+            backend.initialize();
+            backend.inject_external_token(place, ghost_token(9));
+            backend.snapshot_marking().count(place)
+        }
+
+        let bitmap_count = inject_and_count(BitmapBackend::new(&net, Marking::new()), &ghost);
+        let prog = PrecompiledNet::from_compiled(CompiledNet::compile(&net));
+        let precompiled_count =
+            inject_and_count(PrecompiledBackend::new(&prog, Marking::new()), &ghost);
+
+        assert_eq!(bitmap_count, 1);
+        assert_eq!(precompiled_count, 1);
+    }
+}
+
 /// Generates one `#[test]` per backend for each generic test fn above,
 /// so every semantic runs against both `BitmapNetExecutor` and
 /// `PrecompiledNetExecutor`.
@@ -1978,4 +2330,8 @@ for_each_backend!(
     nu_join_skips_unshared_name_but_joins_shared,
     nu_fork_mints_unique_ids_then_join_merges,
     nu_budget_bounds_concurrency,
+    read_and_reset_same_place,
+    duplicate_input_place_rejected_at_compile,
+    unknown_place_initial_tokens_retained,
+    unknown_place_warns_once_per_place,
 );

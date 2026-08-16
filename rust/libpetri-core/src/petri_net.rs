@@ -648,19 +648,23 @@ fn build_with_fusion(
     // so the map is naturally empty for the degenerate case.
     let mut fusion_map: HashMap<Arc<str>, PlaceRef> = HashMap::new();
     let mut non_canonical_names: HashSet<Arc<str>> = HashSet::new();
+    // canonical place name → owning set name, for input-collision diagnostics.
+    let mut set_name_of: HashMap<Arc<str>, Arc<str>> = HashMap::new();
     for set in &fusion_sets {
         let canonical = set.canonical().clone();
+        set_name_of.insert(Arc::clone(canonical.name_arc()), Arc::from(set.name()));
         for nc in set.non_canonical() {
             fusion_map.insert(Arc::clone(nc.name_arc()), canonical.clone());
             non_canonical_names.insert(Arc::clone(nc.name_arc()));
         }
     }
 
-    // Step 3: rewrite every transition's arcs through the fusion map.
+    // Step 3: rewrite every transition's arcs through the fusion map, merging
+    // any resulting same-place input collisions additively (MOD-061/MOD-021).
     // apply_fusion always returns a fresh Vec; if fusion_map is empty (single-
     // member-only sets) the rewrite is structurally a no-op but still rebuilds
     // Transition records — no observable difference.
-    let rewritten_transitions = rewriter::apply_fusion(transitions, &fusion_map);
+    let rewritten_transitions = rewriter::apply_fusion(transitions, &fusion_map, &set_name_of);
 
     // Step 4: re-derive the place set. Strategy: start from the current
     // place list (preserving builder insertion order), drop every
@@ -1234,6 +1238,53 @@ mod tests {
             Some("group_sub"),
             "'/' in a subnet name must be replaced with '_'"
         );
+    }
+
+    #[test]
+    fn fuse_merges_colliding_input_arcs_additively() {
+        // MOD-061/MOD-021: one(a) + one(b) with a~b fused → single exactly(2)
+        // on the canonical place, so the net stays compilable (CORE-030).
+        let a = Place::<i32>::new("a");
+        let b = Place::<i32>::new("b");
+        let sink = Place::<i32>::new("sink");
+
+        let t = Transition::builder("consumeBoth")
+            .input(one(&a))
+            .input(one(&b))
+            .output(out_place(&sink))
+            .build();
+
+        let net = PetriNet::builder("FusedPair")
+            .transition(t)
+            .fuse([FusionSet::of("ab", &a, &[&b])])
+            .build();
+
+        let inputs = net.transitions()[0].input_specs();
+        assert_eq!(inputs.len(), 1);
+        match &inputs[0] {
+            crate::input::In::Exactly { place, count } => {
+                assert_eq!(place.name(), "a");
+                assert_eq!(*count, 2);
+            }
+            other => panic!("expected Exactly(2) on 'a', got {other:?}"),
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Fusion set 'ab'")]
+    fn fuse_rejects_unsummable_input_arc_mix() {
+        let a = Place::<i32>::new("a");
+        let b = Place::<i32>::new("b");
+
+        let t = Transition::builder("mixed")
+            .input(one(&a))
+            .input(crate::input::all(&b))
+            .build();
+
+        let _ = PetriNet::builder("Bad")
+            .transition(t)
+            .fuse([FusionSet::of("ab", &a, &[&b])])
+            .build();
     }
 
     #[test]

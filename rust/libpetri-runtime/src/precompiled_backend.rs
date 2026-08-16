@@ -22,7 +22,7 @@ use libpetri_core::token::ErasedToken;
 
 use crate::bitmap;
 use crate::compiled_net::CompiledNet;
-use crate::executor_core::backend::{ChangeTracker, ExecutorBackend};
+use crate::executor_core::backend::{ChangeTracker, ExecutorBackend, UnknownPlaceLog};
 use crate::executor_core::deadline::DEADLINE_TOLERANCE_MS;
 use crate::marking::Marking;
 use crate::match_engine::{IncrementalMatcher, NameIndex, select_match_name};
@@ -45,6 +45,16 @@ pub struct PrecompiledBackend<'a> {
     ring_head: Vec<usize>,
     ring_tail: Vec<usize>,
     ring_capacity: Vec<usize>,
+
+    /// Tokens in places unknown to the compiled program (CORE-072 AC3). The
+    /// bitmap reference keeps these in its `Marking`, so they are retained here
+    /// and merged into [`materialize_marking`](Self::materialize_marking) rather
+    /// than dropped. Keys are disjoint from the pool's: a name is either
+    /// compiled (ring storage) or not (this map), never both.
+    extra_marking: Marking,
+    /// Diagnostic side of `extra_marking`: one entry per distinct unknown
+    /// place, drained by the loop (CORE-072 AC4).
+    unknown_places: UnknownPlaceLog,
 
     // ==================== Presence bitmap ====================
     marking_bitmap: Vec<u64>,
@@ -91,7 +101,7 @@ impl<'a> PrecompiledBackend<'a> {
     /// The backend is ready for [`Executor`](crate::executor_core::executor::Executor)
     /// to drive; the shared loop calls `initialize` once just before
     /// the first cycle to sync the presence bitmap and dirty set.
-    pub fn new(program: &'a PrecompiledNet, initial_marking: Marking) -> Self {
+    pub fn new(program: &'a PrecompiledNet, mut initial_marking: Marking) -> Self {
         let pc = program.place_count();
         let tc = program.transition_count();
         let wc = program.word_count();
@@ -135,6 +145,19 @@ impl<'a> PrecompiledBackend<'a> {
             }
         }
 
+        // Retain initial tokens whose places the program does not know
+        // (BitmapBackend keeps its whole Marking; dropping them loses tokens).
+        let mut extra_marking = Marking::new();
+        let mut unknown_places = UnknownPlaceLog::default();
+        for name in initial_marking.non_empty_places() {
+            if program.place_id(&name).is_none() {
+                for token in initial_marking.remove_all(&name) {
+                    extra_marking.add_erased(&name, token);
+                }
+                unknown_places.record(&name);
+            }
+        }
+
         let transition_words = bitmap::word_count(tc);
         let summary_words = bitmap::word_count(transition_words);
         let prio_count = program.distinct_priority_count;
@@ -149,6 +172,8 @@ impl<'a> PrecompiledBackend<'a> {
             ring_head,
             ring_tail,
             ring_capacity,
+            extra_marking,
+            unknown_places,
             marking_bitmap: vec![0u64; wc],
             enabled_bitmap: vec![0u64; transition_words],
             dirty_bitmap: vec![0u64; transition_words],
@@ -652,8 +677,22 @@ impl<'a> PrecompiledBackend<'a> {
         }
     }
 
+    /// Clones the front token of each read-arc place into `reads` (EXEC-012).
+    /// Called between input consumption and reset draining so reads observe
+    /// the post-input, pre-reset marking, matching `BitmapBackend`.
+    fn peek_reads(&self, tid: usize, reads: &mut HashMap<Arc<str>, Vec<ErasedToken>>) {
+        let read_ops_len = self.program.read_ops[tid].len();
+        for i in 0..read_ops_len {
+            let rpid = self.program.read_ops[tid][i];
+            if let Some(token) = self.ring_peek_first(rpid).cloned() {
+                let place_name = Arc::clone(&self.program.place_name_arcs[rpid]);
+                reads.entry(place_name).or_default().push(token);
+            }
+        }
+    }
+
     fn materialize_marking(&self) -> Marking {
-        let mut marking = Marking::new();
+        let mut marking = self.extra_marking.clone();
         for pid in 0..self.program.place_count() {
             let count = self.token_counts[pid];
             if count == 0 {
@@ -862,7 +901,16 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
             }
         }
 
+        // Ready order per priority: enablement time ASC, tid ASC tie-break
+        // (EXEC-002 / CONC-023 AC4); distinct (time, tid) keys make `sort_unstable` deterministic.
         for pi in 0..self.program.distinct_priority_count {
+            let size = self.ready_queue_size[pi];
+            if size > 1 {
+                let enabled_at = &self.enabled_at_ms;
+                self.ready_queues[pi][..size].sort_unstable_by(|&a, &b| {
+                    enabled_at[a].total_cmp(&enabled_at[b]).then(a.cmp(&b))
+                });
+            }
             while self.ready_queue_size[pi] > 0 {
                 out.push(self.ready_queue_pop(pi));
             }
@@ -952,6 +1000,8 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
                 cache.consume(name);
             }
 
+            self.peek_reads(tid, reads);
+
             for arc in &reset_arcs {
                 let pid = self.program.place_id(arc.place.name()).unwrap();
                 let count = self.token_counts[pid];
@@ -964,10 +1014,14 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
                 self.has_pending_resets = true;
             }
         } else {
-            // Fast path: opcode-based consumption.
+            // Fast path: opcode-based consumption. Input opcodes occupy
+            // `..reset_ops_start[tid]`, the RESET tail the rest; reads peek at
+            // the boundary so they observe the post-input, pre-reset marking
+            // (EXEC-012/EXEC-013), matching `BitmapBackend`.
             let ops_len = self.program.consume_ops[tid].len();
+            let reset_start = self.program.reset_ops_start[tid];
             let mut pc = 0;
-            while pc < ops_len {
+            while pc < reset_start {
                 let opcode = self.program.consume_ops[tid][pc];
                 pc += 1;
                 match opcode {
@@ -1005,6 +1059,16 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
                             inputs.entry(place_name).or_default().push(token);
                         }
                     }
+                    _ => unreachable!("Unknown input consume opcode: {opcode}"),
+                }
+            }
+
+            self.peek_reads(tid, reads);
+
+            while pc < ops_len {
+                let opcode = self.program.consume_ops[tid][pc];
+                pc += 1;
+                match opcode {
                     RESET => {
                         let pid = self.program.consume_ops[tid][pc] as usize;
                         pc += 1;
@@ -1017,19 +1081,8 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
                             1u64 << (pid & bitmap::WORD_MASK);
                         self.has_pending_resets = true;
                     }
-                    _ => unreachable!("Unknown consume opcode: {opcode}"),
+                    _ => unreachable!("Unknown reset opcode: {opcode}"),
                 }
-            }
-        }
-
-        // Read-arc tokens (no consume).
-        let read_ops_len = self.program.read_ops[tid].len();
-        for i in 0..read_ops_len {
-            let rpid = self.program.read_ops[tid][i];
-            let token_clone = self.ring_peek_first(rpid).cloned();
-            if let Some(token) = token_clone {
-                let place_name = Arc::clone(&self.program.place_name_arcs[rpid]);
-                reads.entry(place_name).or_default().push(token);
             }
         }
 
@@ -1042,6 +1095,9 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
             self.ring_add_last(pid, token);
             self.set_marking_bit(pid);
             self.mark_place_dirty(pid);
+        } else {
+            self.extra_marking.add_erased(place, token);
+            self.unknown_places.record(place);
         }
     }
 
@@ -1068,7 +1124,14 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
             self.ring_add_last(pid, token);
             self.set_marking_bit(pid);
             self.mark_place_dirty(pid);
+        } else {
+            self.extra_marking.add_erased(place, token);
+            self.unknown_places.record(place);
         }
+    }
+
+    fn take_unknown_places(&mut self) -> Vec<Arc<str>> {
+        self.unknown_places.take()
     }
 
     fn millis_until_next_timed_transition(&self, now_ms: f64) -> f64 {

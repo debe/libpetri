@@ -45,6 +45,9 @@ pub struct PrecompiledNet {
 
     /// Consume/reset opcodes per transition.
     pub(crate) consume_ops: Vec<Vec<u32>>,
+    /// Offset in `consume_ops[tid]` where the RESET tail begins: reads are
+    /// peeked at this boundary so they observe the post-input, pre-reset marking (EXEC-013).
+    pub(crate) reset_ops_start: Vec<usize>,
     /// Read-arc place IDs per transition.
     pub(crate) read_ops: Vec<Vec<usize>>,
 
@@ -115,6 +118,7 @@ impl PrecompiledNet {
 
         // Compile consume/read operation sequences
         let mut consume_ops = Vec::with_capacity(tc);
+        let mut reset_ops_start = Vec::with_capacity(tc);
         let mut read_ops = Vec::with_capacity(tc);
         let mut input_place_mask_words = Vec::with_capacity(tc);
         let mut simple_output_place_id = Vec::with_capacity(tc);
@@ -122,7 +126,9 @@ impl PrecompiledNet {
 
         for tid in 0..tc {
             let t = compiled.transition(tid);
-            consume_ops.push(compile_consume_ops(t, &compiled));
+            let (ops, reset_start) = compile_consume_ops(t, &compiled);
+            consume_ops.push(ops);
+            reset_ops_start.push(reset_start);
             read_ops.push(compile_read_ops(t, &compiled));
             input_place_mask_words.push(compile_input_mask(t, &compiled, wc));
 
@@ -205,6 +211,7 @@ impl PrecompiledNet {
         PrecompiledNet {
             compiled,
             consume_ops,
+            reset_ops_start,
             read_ops,
             needs_sparse,
             inhibitor_sparse,
@@ -351,7 +358,7 @@ fn compile_sparse(mask_words: &[u64]) -> SparseMask {
     }
 }
 
-fn compile_consume_ops(t: &Transition, compiled: &CompiledNet) -> Vec<u32> {
+fn compile_consume_ops(t: &Transition, compiled: &CompiledNet) -> (Vec<u32>, usize) {
     let mut ops = Vec::new();
 
     for in_spec in t.input_specs() {
@@ -378,13 +385,14 @@ fn compile_consume_ops(t: &Transition, compiled: &CompiledNet) -> Vec<u32> {
         }
     }
 
+    let reset_start = ops.len();
     for r in t.resets() {
         let pid = compiled.place_id(r.place.name()).unwrap();
         ops.push(RESET);
         ops.push(pid as u32);
     }
 
-    ops
+    (ops, reset_start)
 }
 
 fn compile_read_ops(t: &Transition, compiled: &CompiledNet) -> Vec<usize> {

@@ -88,6 +88,18 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
 
     private final Marking marking;
 
+    /**
+     * Tokens on places the compiled program does not know (CORE-072 AC3). The ring pool only
+     * stores compiled places, so these are retained here and merged into every observable
+     * marking by {@link #syncMarkingFromRingBuffers} rather than dropped — the bitmap
+     * reference retains them by keeping its whole {@code Marking}. Orchestrator-confined and
+     * {@code null} until first needed, so the known-place hot paths never touch it.
+     */
+    private Map<Place<?>, List<Token<?>>> extraTokens;
+
+    /** Unknown places already reported (CORE-072 AC4) — one diagnostic per place, not per token. */
+    private Set<Place<?>> warnedUnknownPlaces;
+
     // ==================== Presence Bitmap ====================
 
     private final long[] markingBitmap;  // orchestrator-only, no CAS needed
@@ -260,11 +272,18 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
             ringCapacity[pid] = INITIAL_RING_CAPACITY;
         }
 
-        // Load initial tokens into ring buffers
+        // Load initial tokens into ring buffers; tokens for places the program does not
+        // know are retained in the side map (CORE-072 AC3), never dropped.
         for (var entry : initialTokens.entrySet()) {
             Place<?> place = entry.getKey();
             Integer pid = program.placeIndex.get(place);
-            if (pid == null) continue;
+            if (pid == null) {
+                for (Token<?> token : entry.getValue()) {
+                    addExtraToken(place, token);
+                    warnUnknownPlace(place, "");
+                }
+                continue;
+            }
             for (Token<?> token : entry.getValue()) {
                 ringAddLast(pid, token);
             }
@@ -589,7 +608,9 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
     /**
      * Consumes the name-matched tokens for a ν-net join (NU-020): correlated
      * inputs take tokens whose projected name equals the chosen binding; other
-     * inputs consume FIFO. Reset arcs are honoured as on the opcode path.
+     * inputs consume FIFO. Reset arcs are NOT drained here — they are compiled
+     * into the RESET opcode tail, which {@link #fireTransition} runs after the
+     * read-arc peeks (EXEC-013 AC4).
      */
     @SuppressWarnings("unchecked")
     private void consumeMatched(int tid, Transition t, TokenInput inputs, List<Token<?>> consumed) {
@@ -644,18 +665,6 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
             }
         }
 
-        for (var rs : t.resets()) {
-            int pid = program.placeIndex.get(rs.place());
-            int count = tokenCounts[pid];
-            for (int i = 0; i < count; i++) {
-                Token<?> token = ringRemoveFirst(pid);
-                if (consumed != null) consumed.add(token);
-                if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
-                    Instant.now(), rs.place().name(), token));
-            }
-            pendingResetWords[pid >>> WORD_SHIFT] |= 1L << (pid & BIT_MASK);
-            hasPendingResets = true;
-        }
     }
 
     private void growRing(int pid) {
@@ -742,6 +751,36 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         readyQueues[pi][tail] = tid;
         readyQueueTail[pi] = (tail + 1) % readyQueues[pi].length;
         readyQueueSize[pi]++;
+    }
+
+    /**
+     * Sorts priority level {@code pi}'s occupied slice {@code [0, size)} in place by
+     * ({@code enabledAtNanos[tid]} ASC, tid ASC).
+     *
+     * <p><b>Invariant: {@code readyQueueHead[pi] == 0}.</b> The slice is contiguous only
+     * before the ring wraps, so this is valid solely right after {@link #fireReadyGeneral}'s
+     * populate scan, which starts from freshly cleared queues.
+     *
+     * <p>Insertion sort, boxing-free: O(k) on the already-tid-ordered common case, O(k²)
+     * worst case, where k is the level's ready count (at most transitionCount).
+     */
+    private void sortReadySliceByEnablement(int pi) {
+        assert readyQueueHead[pi] == 0 : "ready slice must be unwrapped to sort in place";
+        int size = readyQueueSize[pi];
+        if (size <= 1) return;
+        int[] queue = readyQueues[pi];
+        for (int i = 1; i < size; i++) {
+            int tid = queue[i];
+            long key = enabledAtNanos[tid];
+            int j = i - 1;
+            while (j >= 0
+                   && (enabledAtNanos[queue[j]] > key
+                       || (enabledAtNanos[queue[j]] == key && queue[j] > tid))) {
+                queue[j + 1] = queue[j];
+                j--;
+            }
+            queue[j + 1] = tid;
+        }
     }
 
     private int readyQueuePop(int pi) {
@@ -1099,6 +1138,34 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                 marking.addToken(place, (Token<Object>) tokenPool[offset + (head + i) % cap]);
             }
         }
+        // Merge retained tokens for places the program does not know (CORE-072 AC3)
+        if (extraTokens != null) {
+            for (var entry : extraTokens.entrySet()) {
+                Place<Object> place = (Place<Object>) entry.getKey();
+                for (Token<?> token : entry.getValue()) {
+                    marking.addToken(place, (Token<Object>) token);
+                }
+            }
+        }
+    }
+
+    /** Retains a token for a place the compiled program does not know (CORE-072 AC3). */
+    private void addExtraToken(Place<?> place, Token<?> token) {
+        if (extraTokens == null) extraTokens = new LinkedHashMap<>();
+        extraTokens.computeIfAbsent(place, _ -> new ArrayList<>()).add(token);
+    }
+
+    /**
+     * Reports an unknown place once (CORE-072 AC4), as the EVT-013 log-message event.
+     * Retention (AC3) never depends on this: under a disabled store nothing is emitted.
+     */
+    private void warnUnknownPlace(Place<?> place, String transitionName) {
+        if (!eventStoreEnabled) return;
+        if (warnedUnknownPlaces == null) warnedUnknownPlaces = new HashSet<>();
+        if (!warnedUnknownPlaces.add(place)) return;
+        emitEvent(new NetEvent.LogMessage(Instant.now(), transitionName, "libpetri.runtime", "WARN",
+            "unknown place '" + place.name() + "': tokens are retained in the marking but inert "
+                + "(the net declares no arc on it)", null, null));
     }
 
     @Override
@@ -1469,6 +1536,12 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
             }
         }
 
+        // Ready order within a level: enablement time ASC, tid tie-break
+        // (EXEC-002 AC3/AC4, CONC-023 AC4).
+        for (int pi = 0; pi < program.distinctPriorityCount; pi++) {
+            sortReadySliceByEnablement(pi);
+        }
+
         // Fire from highest priority queue first
         for (int pi = 0; pi < program.distinctPriorityCount; pi++) {
             while (readyQueueSize[pi] > 0) {
@@ -1558,79 +1631,17 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
 
         List<Token<?>> consumed = trackConsumed ? new ArrayList<>() : null;
 
-        // Execute consume operations. ν-net joins (NU-020) bypass the opcode
-        // fast path and consume the name-matched tokens via consumeMatched.
+        // In-firing order (EXEC-013 AC4, matching BitmapNetExecutor): inputs → read peeks
+        // → resets, split at resetOpsStart, so read(p) + reset(p) sees the pre-reset token.
+        // ν-net joins (NU-020) bypass the input opcodes but share the RESET tail.
+        int resetStart = program.resetOpsStart[tid];
         if (t.matchSpec() != null) {
             consumeMatched(tid, t, inputs, consumed);
         } else {
-        int[] prog = program.consumeOps[tid];
-        int pc = 0;
-        while (pc < prog.length) {
-            int opcode = prog[pc++];
-            switch (opcode) {
-                case PrecompiledNet.CONSUME_ONE -> {
-                    int pid = prog[pc++];
-                    Token<?> token = ringRemoveFirst(pid);
-                    if (consumed != null) consumed.add(token);
-                    inputs.add((Place<Object>) program.placesById[pid], (Token<Object>) token);
-                    if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
-                        Instant.now(), program.placesById[pid].name(), token));
-                }
-                case PrecompiledNet.CONSUME_N -> {
-                    int pid = prog[pc++];
-                    int count = prog[pc++];
-                    Place<Object> place = (Place<Object>) program.placesById[pid];
-                    for (int i = 0; i < count; i++) {
-                        Token<?> token = ringRemoveFirst(pid);
-                        if (consumed != null) consumed.add(token);
-                        inputs.add(place, (Token<Object>) token);
-                        if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
-                            Instant.now(), place.name(), token));
-                    }
-                }
-                case PrecompiledNet.CONSUME_ALL -> {
-                    int pid = prog[pc++];
-                    int count = tokenCounts[pid];
-                    Place<Object> place = (Place<Object>) program.placesById[pid];
-                    for (int i = 0; i < count; i++) {
-                        Token<?> token = ringRemoveFirst(pid);
-                        if (consumed != null) consumed.add(token);
-                        inputs.add(place, (Token<Object>) token);
-                        if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
-                            Instant.now(), place.name(), token));
-                    }
-                }
-                case PrecompiledNet.CONSUME_ATLEAST -> {
-                    int pid = prog[pc++];
-                    pc++; // skip minimum (already verified during enablement)
-                    int count = tokenCounts[pid];
-                    Place<Object> place = (Place<Object>) program.placesById[pid];
-                    for (int i = 0; i < count; i++) {
-                        Token<?> token = ringRemoveFirst(pid);
-                        if (consumed != null) consumed.add(token);
-                        inputs.add(place, (Token<Object>) token);
-                        if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
-                            Instant.now(), place.name(), token));
-                    }
-                }
-                case PrecompiledNet.RESET -> {
-                    int pid = prog[pc++];
-                    int count = tokenCounts[pid];
-                    for (int i = 0; i < count; i++) {
-                        Token<?> token = ringRemoveFirst(pid);
-                        if (consumed != null) consumed.add(token);
-                        if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
-                            Instant.now(), program.placesById[pid].name(), token));
-                    }
-                    pendingResetWords[pid >>> WORD_SHIFT] |= 1L << (pid & BIT_MASK);
-                    hasPendingResets = true;
-                }
-                default -> throw new IllegalStateException("Unknown opcode: " + opcode);
-            }
+            executeConsumeOps(tid, 0, resetStart, inputs, consumed);
         }
-        } // end non-match opcode consume
 
-        // Execute read program
+        // Execute read program (post-input, pre-reset marking)
         int[] readProg = program.readOps[tid];
         for (int rpid : readProg) {
             Token<?> token = ringPeekFirst(rpid);
@@ -1638,6 +1649,9 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                 inputs.add((Place<Object>) program.placesById[rpid], (Token<Object>) token);
             }
         }
+
+        // Drain reset arcs (empty segment for transitions without resets)
+        executeConsumeOps(tid, resetStart, program.consumeOps[tid].length, inputs, consumed);
 
         // Update bitmap for consumed/reset places
         updateBitmapAfterConsumption(tid);
@@ -1694,6 +1708,70 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         }
     }
 
+    /**
+     * Runs the opcode segment {@code [from, to)} of {@code consumeOps[tid]}: once for the
+     * inputs, once for the RESET tail — see {@link PrecompiledNet#resetOpsStart} (EXEC-013 AC4).
+     */
+    @SuppressWarnings("unchecked")
+    private void executeConsumeOps(int tid, int from, int to,
+                                   TokenInput inputs, List<Token<?>> consumed) {
+        int[] prog = program.consumeOps[tid];
+        int pc = from;
+        while (pc < to) {
+            int opcode = prog[pc++];
+            switch (opcode) {
+                case PrecompiledNet.CONSUME_ONE -> {
+                    int pid = prog[pc++];
+                    Token<?> token = ringRemoveFirst(pid);
+                    if (consumed != null) consumed.add(token);
+                    inputs.add((Place<Object>) program.placesById[pid], (Token<Object>) token);
+                    if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
+                        Instant.now(), program.placesById[pid].name(), token));
+                }
+                case PrecompiledNet.CONSUME_N -> {
+                    int pid = prog[pc++];
+                    int count = prog[pc++];
+                    Place<Object> place = (Place<Object>) program.placesById[pid];
+                    for (int i = 0; i < count; i++) {
+                        Token<?> token = ringRemoveFirst(pid);
+                        if (consumed != null) consumed.add(token);
+                        inputs.add(place, (Token<Object>) token);
+                        if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
+                            Instant.now(), place.name(), token));
+                    }
+                }
+                case PrecompiledNet.CONSUME_ALL, PrecompiledNet.CONSUME_ATLEAST -> {
+                    int pid = prog[pc++];
+                    if (opcode == PrecompiledNet.CONSUME_ATLEAST) {
+                        pc++; // skip minimum (already verified during enablement)
+                    }
+                    int count = tokenCounts[pid];
+                    Place<Object> place = (Place<Object>) program.placesById[pid];
+                    for (int i = 0; i < count; i++) {
+                        Token<?> token = ringRemoveFirst(pid);
+                        if (consumed != null) consumed.add(token);
+                        inputs.add(place, (Token<Object>) token);
+                        if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
+                            Instant.now(), place.name(), token));
+                    }
+                }
+                case PrecompiledNet.RESET -> {
+                    int pid = prog[pc++];
+                    int count = tokenCounts[pid];
+                    for (int i = 0; i < count; i++) {
+                        Token<?> token = ringRemoveFirst(pid);
+                        if (consumed != null) consumed.add(token);
+                        if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
+                            Instant.now(), program.placesById[pid].name(), token));
+                    }
+                    pendingResetWords[pid >>> WORD_SHIFT] |= 1L << (pid & BIT_MASK);
+                    hasPendingResets = true;
+                }
+                default -> throw new IllegalStateException("Unknown opcode: " + opcode);
+            }
+        }
+    }
+
     private void updateBitmapAfterConsumption(int tid) {
         int[] pids = program.consumptionPlaceIds[tid];
         for (int pid : pids) {
@@ -1722,11 +1800,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
             List<Token<?>> produced = eventStoreEnabled ? new ArrayList<>(entries.size()) : null;
             for (var entry : entries) {
                 var token = entry.token();
-                int pid = program.placeId(entry.place());
-                cacheAddToken(pid, token);
-                ringAddLast(pid, token);
-                setMarkingBit(pid);
-                markDirty(pid);
+                produceToken(entry.place(), token, t.name());
                 if (eventStoreEnabled) {
                     produced.add(token);
                     emitEvent(new NetEvent.TokenAdded(
@@ -1785,11 +1859,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                 List<Token<?>> produced = eventStoreEnabled ? new ArrayList<>(entries.size()) : null;
                 for (var entry : entries) {
                     var token = entry.token();
-                    int pid = program.placeId(entry.place());
-                    cacheAddToken(pid, token);
-                    ringAddLast(pid, token);
-                    setMarkingBit(pid);
-                    markDirty(pid);
+                    produceToken(entry.place(), token, t.name());
                     if (produced != null) produced.add(token);
                     if (eventStoreEnabled) emitEvent(new NetEvent.TokenAdded(
                         Instant.now(), entry.place().name(), token));
@@ -1838,11 +1908,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         ExternalEvent<?> event;
         while ((event = externalEventQueue.poll()) != null) {
             try {
-                int pid = program.placeId(event.place());
-                cacheAddToken(pid, event.token());
-                ringAddLast(pid, event.token());
-                setMarkingBit(pid);
-                markDirty(pid);
+                produceToken(event.place(), event.token(), "");
 
                 if (eventStoreEnabled) emitEvent(new NetEvent.TokenAdded(
                     Instant.now(), event.place().name(), event.token()));
@@ -1851,6 +1917,27 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                 event.resultFuture().completeExceptionally(e);
             }
         }
+    }
+
+    /**
+     * Adds a produced or injected token to place storage: the ring pool for compiled places
+     * (with presence bit, dirty marking and ν-cache mirror), or the retention side map for a
+     * place the program does not know (CORE-072 AC3) — retained in the observable marking,
+     * never silently dropped.
+     *
+     * @param transitionName the producing transition, or {@code ""} at the injection seam
+     */
+    private void produceToken(Place<?> place, Token<?> token, String transitionName) {
+        Integer pid = program.placeIndex.get(place);
+        if (pid == null) {
+            addExtraToken(place, token);
+            warnUnknownPlace(place, transitionName);
+            return;
+        }
+        cacheAddToken(pid, token);
+        ringAddLast(pid, token);
+        setMarkingBit(pid);
+        markDirty(pid);
     }
 
     private void drainPendingExternalEvents() {
@@ -1963,7 +2050,9 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
             // Fast path: Out.Place — just check the single expected place got a token
             var entries = outputs.entries();
             for (var entry : entries) {
-                if (program.placeIndex.get(entry.place()) == simplePid) return;
+                // null for a place the program does not know (retained per CORE-072 AC3)
+                Integer epid = program.placeIndex.get(entry.place());
+                if (epid != null && epid == simplePid) return;
             }
             throw new OutViolationException(
                 "'%s': output does not satisfy declared spec".formatted(t.name()));

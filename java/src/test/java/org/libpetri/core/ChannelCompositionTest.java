@@ -130,6 +130,67 @@ class ChannelCompositionTest {
     }
 
     @Test
+    void channelMerge_samePlaceInputArcs_mergeAdditively() {
+        // MOD-021 AC6: Input(One) from both sides on one place sums, it does
+        // not dedupe — the merged transition consumes one token per side.
+        Place<String> shared = Place.of("shared", String.class);
+
+        Transition caller = Transition.builder("merged")
+            .inputs(Arc.In.one(shared))
+            .build();
+        Transition instance = Transition.builder("instanceSide")
+            .inputs(Arc.In.one(shared))
+            .build();
+
+        var merged = SubnetRewriter.mergeTransitions(caller, instance, "merged");
+
+        assertEquals(List.of(new Arc.In.Exactly(shared, 2)), merged.inputSpecs(),
+            "one() + one() on a shared place must merge to exactly(2) (MOD-021 AC6)");
+    }
+
+    @Test
+    void channelMerge_unsummableInputCardinalities_rejected() {
+        // MOD-021 AC8: One + All on one place has no additive merge.
+        Place<String> shared = Place.of("shared", String.class);
+
+        Transition caller = Transition.builder("merged")
+            .inputs(Arc.In.one(shared))
+            .build();
+        Transition instance = Transition.builder("instanceSide")
+            .inputs(Arc.In.all(shared))
+            .build();
+
+        var ex = assertThrows(IllegalArgumentException.class,
+            () -> SubnetRewriter.mergeTransitions(caller, instance, "merged"));
+        assertTrue(ex.getMessage().contains("'merged'"),
+            "exception must name the merge seam. Got: " + ex.getMessage());
+        assertTrue(ex.getMessage().contains("'shared'"),
+            "exception must name the place. Got: " + ex.getMessage());
+        assertTrue(ex.getMessage().contains("one()") && ex.getMessage().contains("all()"),
+            "exception must name both arc cardinalities. Got: " + ex.getMessage());
+    }
+
+    @Test
+    void channelMerge_conflictingArcKindsOnOnePlace_rejected() {
+        // MOD-021 AC7: Input on one side, Reset on the other — no coherent merge.
+        Place<String> shared = Place.of("shared", String.class);
+
+        Transition caller = Transition.builder("merged")
+            .inputs(Arc.In.one(shared))
+            .build();
+        Transition instance = Transition.builder("instanceSide")
+            .reset(shared)
+            .build();
+
+        var ex = assertThrows(IllegalArgumentException.class,
+            () -> SubnetRewriter.mergeTransitions(caller, instance, "merged"));
+        assertTrue(ex.getMessage().contains("'shared'"),
+            "exception must name the place. Got: " + ex.getMessage());
+        assertTrue(ex.getMessage().contains("input") && ex.getMessage().contains("reset"),
+            "exception must name both arc kinds. Got: " + ex.getMessage());
+    }
+
+    @Test
     void channelMerge_unionsOutputSpecs_intoAnd() {
         Place<String> qCaller = Place.of("qCaller", String.class);
         Place<String> qInstance = Place.of("qInstance", String.class);

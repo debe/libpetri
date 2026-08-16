@@ -122,7 +122,18 @@ export class CompiledNet {
       let needsCardinality = false;
 
       // Input specs
+      // CORE-030: the Transition builder stays permissive; the duplicate-input
+      // rejection lives here so both executors share it.
+      const seenInputPlaces = new Set<string>();
       for (const inSpec of t.inputSpecs) {
+        if (seenInputPlaces.has(inSpec.place.name)) {
+          throw new Error(
+            `Transition '${t.name}' declares two input arcs on place '${inSpec.place.name}'. `
+            + 'Duplicate input places have no coherent consumption semantics and are rejected '
+            + 'at compile time (CORE-030). Use a single arc with exactly(n) / atLeast(n) instead.'
+          );
+        }
+        seenInputPlaces.add(inSpec.place.name);
         const pid = this._placeIndex.get(inSpec.place.name)!;
         setBit(needs, pid);
         placeToTransitionsList[pid]!.push(tid);
@@ -193,6 +204,15 @@ export class CompiledNet {
     const id = this._placeIndex.get(place.name);
     if (id === undefined) throw new Error(`Unknown place: ${place.name}`);
     return id;
+  }
+
+  /**
+   * Non-throwing variant of {@link placeId}: `undefined` when the compiled net
+   * does not know the place. Lets callers retain tokens on undeclared places
+   * (CORE-072) instead of rejecting or dropping them.
+   */
+  tryPlaceId(place: Place<any>): number | undefined {
+    return this._placeIndex.get(place.name);
   }
 
   transitionId(t: Transition): number {

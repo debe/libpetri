@@ -4,8 +4,8 @@ import type { Place } from '../../src/core/place.js';
 import { Transition } from '../../src/core/transition.js';
 import { PetriNet } from '../../src/core/petri-net.js';
 import { FusionSet } from '../../src/core/fusion-set.js';
-import { one } from '../../src/core/in.js';
-import { outPlace } from '../../src/core/out.js';
+import { one, all, exactly } from '../../src/core/in.js';
+import { outPlace, timeout, xor } from '../../src/core/out.js';
 import { tokenOf } from '../../src/core/token.js';
 import type { Token } from '../../src/core/token.js';
 import type { TransitionAction } from '../../src/core/transition-action.js';
@@ -519,5 +519,155 @@ describe('PetriNetBuilder.fuse — fusion resolution at build (MOD-061)', () => 
     const rewritten = findTransition(net, 'readsA');
     const readNames = new Set([...rewritten.readPlaces()].map((p) => p.name));
     expect(readNames.has('A')).toBe(true);
+  });
+
+  // ============================================================
+  //  Colliding input arcs merge additively (MOD-061 AC4 / MOD-021)
+  // ============================================================
+
+  it('fuse_collidingOneArcs_mergeToExactly2_andConsumeBothTokens', async () => {
+    const a = place<string>('A'); // canonical
+    const b = place<string>('B');
+    const done = place<string>('done');
+
+    const forward: TransitionAction = async (ctx) => {
+      for (const op of ctx.outputPlaces()) {
+        ctx.output(op as Place<string>, 'x');
+      }
+    };
+    const t = Transition.builder('consumeBoth')
+      .inputs(one(a), one(b))
+      .outputs(outPlace(done))
+      .action(forward)
+      .build();
+
+    const net = PetriNet.builder('AdditiveFusion')
+      .transitions(t)
+      .fuse(FusionSet.of('ab', a, b))
+      .build();
+
+    // Structural: the two one() arcs collapsed to a single exactly(2) on the
+    // canonical place, so the CORE-030 duplicate-input rejection cannot trip.
+    const merged = findTransition(net, 'consumeBoth');
+    expect(merged.inputSpecs.length).toBe(1);
+    const spec = merged.inputSpecs[0]!;
+    expect(spec.type).toBe('exactly');
+    expect((spec as { count: number }).count).toBe(2);
+    expect(spec.place.name).toBe('A');
+
+    // Dynamic: one firing consumes both tokens from the canonical place.
+    const canonical = [...net.places].find((p) => p.name === 'A')!;
+    const initial = new Map<Place<any>, Token<any>[]>();
+    initial.set(canonical, [tokenOf('t1'), tokenOf('t2')]);
+    const executor = new BitmapNetExecutor(net, initial);
+    const finalMarking = await executor.run(2000);
+
+    expect(finalMarking.tokenCount(canonical)).toBe(0);
+    const doneBuilt = [...net.places].find((p) => p.name === 'done')!;
+    expect(finalMarking.tokenCount(doneBuilt)).toBe(1);
+  });
+
+  it('fuse_oneAndExactly_sumAdditively', () => {
+    const a = place<string>('A');
+    const b = place<string>('B');
+
+    const t = Transition.builder('mixedWeights').inputs(one(a), exactly(2, b)).build();
+
+    const net = PetriNet.builder('AdditiveWeights')
+      .transitions(t)
+      .fuse(FusionSet.of('ab', a, b))
+      .build();
+
+    const merged = findTransition(net, 'mixedWeights');
+    expect(merged.inputSpecs.length).toBe(1);
+    const spec = merged.inputSpecs[0]!;
+    expect(spec.type).toBe('exactly');
+    expect((spec as { count: number }).count).toBe(3);
+    expect(spec.place.name).toBe('A');
+  });
+
+  it('fuse_nonCollidingInputs_untouched', () => {
+    const a = place<string>('A');
+    const b = place<string>('B');
+    const c = place<string>('C'); // outside the fusion set
+
+    const t = Transition.builder('separate').inputs(one(b), one(c)).build();
+
+    const net = PetriNet.builder('NoCollision')
+      .transitions(t)
+      .fuse(FusionSet.of('ab', a, b))
+      .build();
+
+    const merged = findTransition(net, 'separate');
+    expect(merged.inputSpecs.length).toBe(2);
+    const inputNames = new Set([...merged.inputPlaces()].map((p) => p.name));
+    expect(inputNames.has('A')).toBe(true);
+    expect(inputNames.has('C')).toBe(true);
+  });
+
+  it('fuse_unsummableMix_rejectedAtBuild_namingFusionSet', () => {
+    const a = place<string>('A');
+    const b = place<string>('B');
+
+    const t = Transition.builder('mixed').inputs(one(a), all(b)).build();
+
+    let caught: Error | undefined;
+    try {
+      PetriNet.builder('BadFusion')
+        .transitions(t)
+        .fuse(FusionSet.of('mix', a, b))
+        .build();
+    } catch (e) {
+      caught = e as Error;
+    }
+    expect(caught).toBeDefined();
+    expect(caught!.message).toContain("Fusion set 'mix'");
+    expect(caught!.message).toContain("'A'");
+    expect(caught!.message).toContain('one()');
+    expect(caught!.message).toContain('all()');
+    expect(caught!.message).toContain('MOD-021 rule (c)');
+    expect(caught!.message).toContain('Use a single arc with exactly(n) / atLeast(n).');
+  });
+
+  // ============================================================
+  //  Action timeout survives the rewrite (IO-013 / EXEC-022)
+  // ============================================================
+
+  it('fuse_composedTransitionWithActionTimeout_timeoutSurvivesRewrite', () => {
+    // The action timeout is derived from the output spec, so every rewrite has
+    // to carry the Timeout node through — compose renames it, fuse remaps it.
+    const jobDef = place<string>('job');
+    const okDef = place<string>('ok');
+    const lateDef = place<string>('late');
+
+    const work = Transition.builder('work')
+      .inputs(one(jobDef))
+      .outputs(xor(outPlace(okDef), timeout(250, outPlace(lateDef))))
+      .build();
+    expect(work.actionTimeout?.afterMs).toBe(250);
+
+    const def = SubnetDef.builder('TimedWorker')
+      .place(lateDef)
+      .transition(work)
+      .inputPort('job', jobDef)
+      .outputPort('ok', okDef)
+      .build();
+
+    const inst = def.instantiate('w1');
+    const hostLate = place<string>('hostLate');
+    const renamedLate = findRenamedPlace(inst, 'w1/late') as Place<string>;
+
+    const net = PetriNet.builder('TimedHost')
+      .compose(inst)
+      .fuse(FusionSet.of('late', hostLate, renamedLate))
+      .build();
+
+    const rewritten = findTransition(net, 'w1/work');
+    expect(rewritten.hasActionTimeout()).toBe(true);
+    expect(rewritten.actionTimeout!.afterMs).toBe(250);
+    // ...and the timeout branch followed the fusion remap.
+    const outNames = new Set([...rewritten.outputPlaces()].map((pl) => pl.name));
+    expect(outNames.has('hostLate')).toBe(true);
+    expect(outNames.has('w1/late')).toBe(false);
   });
 });

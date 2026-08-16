@@ -172,15 +172,21 @@ export function substitutePlaces(
 // ============================================================
 
 /**
- * Shared implementation: rebuilds `t` with the supplied `name` and arc places
- * rewritten through `remap`. Used by both {@link rewriteTransition} (which
- * prefixes the name) and {@link substitutePlaces} (which keeps the name
- * unchanged).
+ * Shared implementation — the single transition-rebuild site: rebuilds `t` with
+ * the supplied `name` and arc places rewritten through `remap`. Used by
+ * {@link rewriteTransition} (which prefixes the name), {@link substitutePlaces}
+ * (which keeps the name), and {@link applyFusion} (which additionally passes
+ * `normalizeInputs` to reconcile arcs the remap made collide).
+ *
+ * The action timeout is not a builder field: {@link Transition} derives it from
+ * the output spec, which {@link rewriteOut} carries through — including the
+ * `timeout` node itself (IO-013 / EXEC-022).
  */
 function rebuildWithName(
   t: Transition,
   name: string,
   remap: Map<string, Place<unknown>>,
+  normalizeInputs?: (inputs: readonly In[]) => readonly In[],
 ): Transition {
   const builder = Transition.builder(name)
     .timing(t.timing)
@@ -201,7 +207,9 @@ function rebuildWithName(
     for (let i = 0; i < t.inputSpecs.length; i++) {
       rewrittenInputs[i] = rewriteIn(t.inputSpecs[i]!, remap);
     }
-    builder.inputs(...rewrittenInputs);
+    builder.inputs(...(normalizeInputs !== undefined
+      ? normalizeInputs(rewrittenInputs)
+      : rewrittenInputs));
   }
 
   if (t.outputSpec !== null) {
@@ -418,8 +426,10 @@ function resolve<T>(p: Place<T>, remap: Map<string, Place<unknown>>): Place<T> {
  *   `mergedName` (typically `caller.name`), so the merged transition remains
  *   discoverable from caller-side code paths.
  * - **Arcs** — input/inhibitor/read/reset arcs are unioned: caller-side first,
- *   then instance-side. Duplicates (by structural key — same arc kind +
- *   place name) are deduped so identical arcs to a shared place collapse.
+ *   then instance-side. Same-place input arcs are reconciled per MOD-021
+ *   rules (a)-(d) via {@link normalizeInputArcs} (additive where summable,
+ *   rejected otherwise); identical inhibitor/read/reset arcs collapse by
+ *   structural key.
  * - **Output spec** — if both sides carry an output spec, they are wrapped
  *   under a single new outer `OutAnd(caller, instance)` so both sides' outputs
  *   fire on a successful merged firing. If only one side has an output spec,
@@ -436,8 +446,9 @@ function resolve<T>(p: Place<T>, remap: Map<string, Place<unknown>>): Place<T> {
  *   runs against the same {@link import('../transition-context.js').TransitionContext}.
  *   The runtime sees one transition firing per [CORE-021] / [EXEC-001].
  *
- * @throws when timings conflict (per [MOD-021]) — the message names the
- *         channel and both timings so users can resolve it explicitly.
+ * @throws when timings conflict or same-place input arcs have no additive
+ *         merge (per [MOD-021]) — the message names the channel and both
+ *         conflicting values so users can resolve it explicitly.
  */
 export function mergeTransitions(
   caller: Transition,
@@ -465,9 +476,16 @@ export function mergeTransitions(
     builder.action(mergedAction);
   }
 
-  // Inputs: union caller-first, then instance, dedup by (kind, place name,
-  // count/minimum where applicable) — matching Java's record-equality dedupe.
-  const unionedInputs = unionArcs<In>(caller.inputSpecs, instance.inputSpecs, keyOfIn);
+  // MOD-021 rule (d): different arc-kind sets on one place across the two
+  // sides cannot be merged (identical sets pair up under rules (a)/(b)).
+  rejectCrossSideKindConflicts(caller, instance, mergedName);
+
+  // Inputs: union caller-first, then instance; same-place collisions merge
+  // additively or reject per MOD-021 rules (a)-(d).
+  const unionedInputs = normalizeInputArcs(
+    [...caller.inputSpecs, ...instance.inputSpecs],
+    () => `Channel composition '${mergedName}'`,
+  );
   if (unionedInputs.length > 0) {
     builder.inputs(...unionedInputs);
   }
@@ -721,24 +739,6 @@ function describeTiming(t: Timing): string {
   }
 }
 
-/**
- * Structural key for an {@link In} arc. Encodes the discriminant + place
- * name + cardinality (where applicable). Input specifications are purely
- * structural (IO-006), so this key is total.
- */
-function keyOfIn(arc: In): string {
-  switch (arc.type) {
-    case 'one':
-      return `one|${arc.place.name}`;
-    case 'exactly':
-      return `exactly|${arc.place.name}|${arc.count}`;
-    case 'all':
-      return `all|${arc.place.name}`;
-    case 'at-least':
-      return `atLeast|${arc.place.name}|${arc.minimum}`;
-  }
-}
-
 function keyOfInhibitor(arc: ArcInhibitor): string {
   return `inh|${arc.place.name}`;
 }
@@ -747,6 +747,152 @@ function keyOfRead(arc: ArcRead): string {
 }
 function keyOfReset(arc: ArcReset): string {
   return `reset|${arc.place.name}`;
+}
+
+// ============================================================
+//  Input-arc normalization at composition seams (MOD-021 (a)-(d))
+// ============================================================
+
+/**
+ * Normalizes an input-arc list per **MOD-021**'s arc-deduplication rules:
+ * arcs on distinct places pass through in order; same-place arcs merge per
+ * {@link mergeInPair} (additive where summable, rejected otherwise).
+ *
+ * `seamOf(placeName)` supplies the diagnostic prefix naming the seam that
+ * caused the collision (fusion set per [MOD-061], or channel composition).
+ * Collision-free lists are returned by reference — no rebuild.
+ */
+export function normalizeInputArcs(
+  arcs: readonly In[],
+  seamOf: (placeName: string) => string,
+): readonly In[] {
+  if (arcs.length < 2) return arcs;
+  const byPlace = new Map<string, In>();
+  let collided = false;
+  for (let i = 0; i < arcs.length; i++) {
+    const arc = arcs[i]!;
+    const name = arc.place.name;
+    const prior = byPlace.get(name);
+    if (prior === undefined) {
+      byPlace.set(name, arc);
+    } else {
+      collided = true;
+      byPlace.set(name, mergeInPair(prior, arc, seamOf(name)));
+    }
+  }
+  if (!collided) return arcs;
+  const result = new Array<In>(byPlace.size);
+  let i = 0;
+  for (const arc of byPlace.values()) result[i++] = arc;
+  return result;
+}
+
+/**
+ * Merges two same-place input arcs per the canonical [MOD-021] merge table:
+ * `one`/`exactly` weights sum, `atLeast` pairs keep the stricter minimum,
+ * `all`+`all` collapses. Any other pairing is rejected per rule (c).
+ */
+function mergeInPair(a: In, b: In, seam: string): In {
+  if (a.type === 'all' && b.type === 'all') return a;
+  if (a.type === 'at-least' && b.type === 'at-least') {
+    return a.minimum >= b.minimum ? a : b;
+  }
+  const countA = summableCount(a);
+  const countB = summableCount(b);
+  if (countA !== -1 && countB !== -1) {
+    return exactly(countA + countB, a.place);
+  }
+  throw new Error(
+    `${seam}: input arcs ${describeIn(a)} and ${describeIn(b)} collide on place ` +
+      `'${a.place.name}' and have no additive merge (MOD-021 rule (c)). Use a ` +
+      `single arc with exactly(n) / atLeast(n).`,
+  );
+}
+
+/** Summable consumption weight of `one`/`exactly`; -1 for `all`/`at-least`. */
+function summableCount(arc: In): number {
+  switch (arc.type) {
+    case 'one':
+      return 1;
+    case 'exactly':
+      return arc.count;
+    default:
+      return -1;
+  }
+}
+
+/**
+ * Cardinality-only rendering for the collision diagnostic — the place name
+ * already appears once in the sentence.
+ */
+function describeIn(arc: In): string {
+  switch (arc.type) {
+    case 'one':
+      return 'one()';
+    case 'exactly':
+      return `exactly(${arc.count})`;
+    case 'all':
+      return 'all()';
+    case 'at-least':
+      return `atLeast(${arc.minimum})`;
+  }
+}
+
+/**
+ * Rejects a channel merge where the two sides put different arc-kind sets on
+ * the same place — e.g. the caller consumes `P` while the instance resets `P`
+ * (MOD-021 rule (d)). Identical kind sets pair up under rules (a)/(b), and
+ * same-side kind mixes (read+reset on one place, EXEC-013) stay authorable.
+ * Output specs are excluded: caller-consumes / instance-produces on one place
+ * is the normal channel wiring pattern (outputs union via `OutAnd`).
+ */
+function rejectCrossSideKindConflicts(
+  caller: Transition,
+  instance: Transition,
+  mergedName: string,
+): void {
+  const callerKinds = arcKindsByPlace(caller);
+  if (callerKinds.size === 0) return;
+  for (const [place, instanceSet] of arcKindsByPlace(instance)) {
+    const callerSet = callerKinds.get(place);
+    if (callerSet !== undefined && !sameKindSet(callerSet, instanceSet)) {
+      throw new Error(
+        `Channel composition '${mergedName}': conflicting arc kinds on place ` +
+          `'${place}' — caller-side ${describeKinds(callerSet)} vs instance-side ` +
+          `${describeKinds(instanceSet)}. Different arc types on one place ` +
+          `cannot be merged (MOD-021 rule (d)). Resolve explicitly.`,
+      );
+    }
+  }
+}
+
+/** Groups a transition's input/inhibitor/read/reset arcs into place name → kind set. */
+function arcKindsByPlace(t: Transition): Map<string, Set<string>> {
+  const kinds = new Map<string, Set<string>>();
+  const add = (name: string, kind: string): void => {
+    let set = kinds.get(name);
+    if (set === undefined) {
+      set = new Set();
+      kinds.set(name, set);
+    }
+    set.add(kind);
+  };
+  for (const s of t.inputSpecs) add(s.place.name, 'input');
+  for (const a of t.inhibitors) add(a.place.name, 'inhibitor');
+  for (const a of t.reads) add(a.place.name, 'read');
+  for (const a of t.resets) add(a.place.name, 'reset');
+  return kinds;
+}
+
+/** Renders an arc-kind set as `[input, read]` — sorted, so all three languages match. */
+function describeKinds(kinds: ReadonlySet<string>): string {
+  return `[${[...kinds].sort().join(', ')}]`;
+}
+
+function sameKindSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const k of a) if (!b.has(k)) return false;
+  return true;
 }
 
 // ============================================================
@@ -759,31 +905,55 @@ function keyOfReset(arc: ArcReset): string {
  * Returns a fresh insertion-ordered `Set<Transition>`; the input collection
  * is not mutated.
  *
- * This is the loop wrapper around {@link substitutePlaces}; it exists so
+ * This is the loop wrapper around {@link rebuildWithName}; it exists so
  * callers — notably `PetriNetBuilder.build()` during fusion resolution per
  * **MOD-061** — do not duplicate the per-transition dispatch. Transitions
  * whose arcs do not reference any key of `fusionMap` pass through unchanged
- * in shape but are still rebuilt by {@link substitutePlaces} (a fresh
- * `Transition` instance); callers that care about identity preservation for
- * un-affected transitions should instead skip the rewrite entirely when
- * `fusionMap.size === 0`.
+ * in shape but are still rebuilt (a fresh `Transition` instance); callers that
+ * care about identity preservation for un-affected transitions should instead
+ * skip the rewrite entirely when `fusionMap.size === 0`.
  *
  * The remap is keyed by **non-canonical place name** → **canonical place**
  * (matching the `Map<string, Place<unknown>>` key convention used throughout
  * this module — TypeScript Place identity is name-based per
  * `runtime/compiled-net.ts`).
  *
+ * When the substitution makes two input arcs of one transition collide on the
+ * canonical place, they are reconciled per [MOD-021] via
+ * {@link normalizeInputArcs} (additive where summable, rejected otherwise) so
+ * a fused net still compiles under the CORE-030 duplicate-input rejection.
+ *
  * @param transitions the transitions to rewrite (non-null, may be empty)
  * @param fusionMap   non-canonical name → canonical place remap (non-null)
+ * @param seamOf      canonical place name → diagnostic seam prefix (the
+ *                    owning fusion set) for collision rejections
  * @returns a fresh, insertion-ordered set of rewritten transitions
  */
 export function applyFusion(
   transitions: Iterable<Transition>,
   fusionMap: Map<string, Place<unknown>>,
+  seamOf: (canonicalPlaceName: string) => string,
 ): Set<Transition> {
+  // Normalization rides the rebuild rather than rebuilding a second time;
+  // normalizeInputArcs returns collision-free lists by reference.
+  const normalizeInputs = (inputs: readonly In[]): readonly In[] =>
+    normalizeInputArcs(inputs, seamOf);
   const rewritten = new Set<Transition>();
   for (const t of transitions) {
-    rewritten.add(substitutePlaces(t, fusionMap));
+    // Only transitions the fusion actually rewrites get the merge pass: a
+    // pre-existing duplicate on an untouched place stays a CORE-030 compile
+    // rejection rather than being silently summed away.
+    rewritten.add(rebuildWithName(t, t.name, fusionMap,
+      fusionTouchesInputs(t, fusionMap) ? normalizeInputs : undefined));
   }
   return rewritten;
+}
+
+/** True when any input arc of `t` references a fused (non-canonical) place. */
+function fusionTouchesInputs(t: Transition, fusionMap: Map<string, Place<unknown>>): boolean {
+  if (fusionMap.size === 0) return false;
+  for (let i = 0; i < t.inputSpecs.length; i++) {
+    if (fusionMap.has(t.inputSpecs[i]!.place.name)) return true;
+  }
+  return false;
 }

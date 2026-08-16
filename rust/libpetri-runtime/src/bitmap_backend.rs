@@ -22,7 +22,7 @@ use libpetri_core::token::ErasedToken;
 
 use crate::bitmap;
 use crate::compiled_net::CompiledNet;
-use crate::executor_core::backend::{ChangeTracker, ExecutorBackend};
+use crate::executor_core::backend::{ChangeTracker, ExecutorBackend, UnknownPlaceLog};
 use crate::executor_core::deadline::DEADLINE_TOLERANCE_MS;
 use crate::marking::Marking;
 use crate::match_engine::{IncrementalMatcher, NameIndex, select_match_name};
@@ -66,6 +66,11 @@ pub struct BitmapBackend {
     // inputs fed by each place so adds can be mirrored.
     match_caches: Vec<Option<IncrementalMatcher>>,
     place_match_targets: Vec<Vec<(usize, usize)>>,
+
+    /// Places holding tokens the net declares no arc on (CORE-072 AC3).
+    /// The whole `Marking` is kept either way — this only feeds the
+    /// loop's diagnostic.
+    unknown_places: UnknownPlaceLog,
 }
 
 impl BitmapBackend {
@@ -140,6 +145,7 @@ impl BitmapBackend {
             transition_input_place_names,
             match_caches: Vec::new(),
             place_match_targets: vec![Vec::new(); pc],
+            unknown_places: UnknownPlaceLog::default(),
         };
         this.init_match_caches();
         this
@@ -395,6 +401,13 @@ impl ExecutorBackend for BitmapBackend {
             let place = self.compiled.place(pid);
             if self.marking.has_tokens(place.name()) {
                 bitmap::set_bit(&mut self.marked_places, pid);
+            }
+        }
+        // Initial tokens on places the net never declared stay in the
+        // marking, inert — flag them for the loop's diagnostic.
+        for name in self.marking.non_empty_places() {
+            if self.compiled.place_id(&name).is_none() {
+                self.unknown_places.record(&name);
             }
         }
         self.mark_all_dirty();
@@ -664,6 +677,7 @@ impl ExecutorBackend for BitmapBackend {
             self.mark_place_dirty(pid);
         } else {
             self.marking.add_erased(place, token);
+            self.unknown_places.record(place);
         }
     }
 
@@ -692,7 +706,12 @@ impl ExecutorBackend for BitmapBackend {
             self.mark_place_dirty(pid);
         } else {
             self.marking.add_erased(place, token);
+            self.unknown_places.record(place);
         }
+    }
+
+    fn take_unknown_places(&mut self) -> Vec<Arc<str>> {
+        self.unknown_places.take()
     }
 
     fn millis_until_next_timed_transition(&self, now_ms: f64) -> f64 {

@@ -112,7 +112,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | CORE-064 | Execution Context Injection | SHOULD | — |
 | CORE-070 | Marking State | MUST | — |
 | CORE-071 | Marking Thread Safety | MUST | — |
-| CORE-072 | Initial Marking | MUST | — |
+| CORE-072 | Initial Marking | MUST | EVT-013 |
 | CORE-073 | Marking Snapshot and Restore | SHOULD | CORE-010, CORE-011, CORE-072, TIME-010, TIME-011 |
 
 ### ENV — Environment Places
@@ -168,7 +168,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | EXEC-010 | FIFO Token Consumption | MUST | CORE-013, IO-007 |
 | ~~EXEC-011~~ | ~~Guarded Token Consumption~~ (Removed) | — | — |
 | EXEC-012 | Read Arc Peek | MUST | CORE-032 |
-| EXEC-013 | Reset Arc Execution | MUST | CORE-034 |
+| EXEC-013 | Reset Arc Execution | MUST | CORE-034, EXEC-012, CORE-032 |
 | EXEC-020 | Output Token Deposition | MUST | — |
 | EXEC-021 | Output Spec Validation | MUST | IO-011, 012, 015 |
 | EXEC-022 | Action Timeout Handling | MUST | IO-013, 014, EVT-009 |
@@ -233,7 +233,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | MOD-013 | Nested Instantiation (prefix concatenation associative) | MUST | MOD-010, MOD-012, MOD-020 |
 | MOD-014 | SubnetDef.fromNet retrofit utility | MAY | MOD-001, MOD-006 |
 | MOD-020 | Composition Operation (port mapping by structural rewrite) | MUST | MOD-010, MOD-011 |
-| MOD-021 | Channel Composition (transition merge: arc union + conflict resolution) | MUST | MOD-005, CORE-021, TIME-001 |
+| MOD-021 | Channel Composition (transition merge: arc union + conflict resolution) | MUST | MOD-005, CORE-021, TIME-001, CORE-013, TIME-010, CONC-002 |
 | MOD-022 | Type Compatibility at Compose | MUST | CORE-003, MOD-011, MOD-020 |
 | MOD-023 | Composition Produces Flat Net | MUST | MOD-020, MOD-021, CONC-007, EXEC-001 |
 | MOD-024 | Identity-Default Port Inference (auto-compose) | SHOULD | MOD-003, MOD-005, MOD-010, MOD-020, MOD-023 |
@@ -246,7 +246,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | MOD-050 | Verification Pass-Through on Composed Flat Net | MUST | MOD-023, VER-001 |
 | MOD-051 | SubnetDef.verify(harness) for local property verification | SHOULD | MOD-001, VER-001, ENV-001 |
 | MOD-060 | Fusion Set Declaration (orthogonal to composition) | MUST | CORE-003, MOD-020 |
-| MOD-061 | Fusion Resolution at build() | MUST | MOD-023, MOD-060, CORE-040 |
+| MOD-061 | Fusion Resolution at build() | MUST | MOD-021, MOD-023, MOD-060, CORE-040 |
 
 ### NU — ν-nets (correlated fork/join)
 | ID | Title | Priority | Depends On |
@@ -342,6 +342,9 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Token type safety | Typed places + typed tokens | Generics (compile-time) | Phantom type param | Generics (compile-time) |
 | Guard predicates | **Removed** from the model ([IO-006], [EXEC-011]) — no per-token value predicate exists | n/a (never implemented) | n/a (removed) | n/a (removed) |
 | Output spec validation ([IO-015]) | Enforced on every executor backend | ✓ | ✓ | ✓ (both backends; previously unenforced) |
+| Unknown-place token retention | Tokens produced/injected into uncompiled places retained, not dropped ([CORE-072] AC3) | ✓ (both backends) | ✓ (both backends) | ✓ (both backends) |
+| Duplicate input arcs | Rejected at compile with a descriptive error ([CORE-030] AC3) | ✓ | ✓ | ✓ |
+| Enablement-timestamp resolution | Sub-ms precision preserved; equal stamps tie-break by declaration order ([EXEC-002] AC3) | Monotonic long nanos | Float ms | Float ms |
 | SMT verification | IC3/PDR via Z3 Spacer | ✓ | ✓ (WASM) | Not yet |
 | State class graph | Berthomieu-Diaz | ✓ | ✓ | ✓ |
 | Graph export | At least one format | DOT (Graphviz) | DOT (Graphviz) | DOT (Graphviz) |
@@ -409,17 +412,19 @@ with respect to output not yet published ([IO-015]).
 
 This matrix maps spec requirements to test classes/files in each implementation. "—" indicates no corresponding test exists yet.
 
+The Rust column doubles as Python's: `libpetri-py` binds the same engine, so a `Python …` entry listed there is a binding-level regression over Rust's runtime, never independent coverage of the engine. Where no Python entry appears, Rust's test is the coverage for both.
+
 | Requirement | Java Test | TypeScript Test | Rust Test |
 |-------------|-----------|-----------------|-----------|
 | CORE-001–003 | `PlaceTest` | `place.test.ts` | `place::tests` |
 | CORE-010–013 | `TokenTest` | `token.test.ts` | `token::tests` |
 | CORE-020–022 | `TransitionTest` | `transition.test.ts` | `transition::tests` |
-| CORE-030–036 | `ArcTest` | `arc.test.ts` | `arc::tests` |
+| CORE-030–036 | `ArcTest`, `BackendDivergenceRegressionTest` | `arc.test.ts`, `executor-shared-semantics.test.ts` | `arc::tests`, `backend_suite_tests`; Python `test_backend_divergences.py` |
 | CORE-040–042 | `PetriNetTest` | `petri-net.test.ts` | `net::tests` |
 | CORE-043 | `CompiledNetCore043Test` | `compiled-net-core043.test.ts` | `compiled_net::core_043_tests` |
 | CORE-050–054 | `TransitionActionTest` | `transition-action.test.ts` | `context::tests` |
 | CORE-060–064 | `TransitionContextTest` | `transition-context.test.ts` | `context::tests` |
-| CORE-070–072 | `MarkingTest` | `marking.test.ts` | `marking::tests` |
+| CORE-070–072 | `MarkingTest`, `BackendDivergenceRegressionTest` | `marking.test.ts`, `executor-shared-semantics.test.ts` | `marking::tests`, `backend_suite_tests`; Python `test_backend_divergences.py` |
 | CORE-073 | — | — | `executor_handle::tests`; Python `test_marking_snapshot.py` (Rust/Python-first) |
 | IO-001–005, IO-007 | `InTest` | `in.test.ts` | `input::tests` |
 | IO-010–013, IO-016–017 | `OutTest` | `out.test.ts` | `output::tests` |
@@ -427,8 +432,8 @@ This matrix maps spec requirements to test classes/files in each implementation.
 | IO-015 (incl. Xor subsumption tie-break) | `AbstractNetExecutorEngineTest` (out-violation cases), `BitmapNetExecutorAsyncOutputTest` | `executor-support.test.ts` (`validateOutSpec`) | `backend_suite_tests::xor_output_both_branches_violates`, `xor_output_no_branch_violates`, `and_output_partial_violates`, `single_place_output_missing_violates`, `conforming_output_still_succeeds`, `xor_subsuming_branch_is_accepted` (both backends) |
 | TIME-001–006 | `TimingTest` | `timing.test.ts` | `timing::tests` |
 | TIME-010–014 | `NetExecutorTimingTest` | `executor-timing.test.ts` | — |
-| EXEC-001–003 | `NetExecutorTest` | `bitmap-net-executor.test.ts` | `executor::tests` |
-| EXEC-010, 012–013 | `NetExecutorTest` | `bitmap-net-executor.test.ts` | `executor::tests` |
+| EXEC-001–003 | `AbstractNetExecutorEngineTest`, `BackendDivergenceRegressionTest` | `bitmap-net-executor.test.ts`, `executor-shared-semantics.test.ts` | `executor::tests`, `backend_suite_tests::scheduling_order` (covers Python; no binding-level test) |
+| EXEC-010, 012–013 | `AbstractNetExecutorEngineTest`, `BackendDivergenceRegressionTest` | `bitmap-net-executor.test.ts`, `executor-shared-semantics.test.ts` | `executor::tests`, `backend_suite_tests` |
 | EXEC-020–022 | `NetExecutorTest` | `executor-support.test.ts` | `executor::tests` |
 | EXEC-030–031 | `NetExecutorFailureTest` | `executor-failure.test.ts` | — |
 | EXEC-040–041 | `NetExecutorTest` | `bitmap-net-executor.test.ts` | `executor::tests` |
@@ -448,7 +453,7 @@ This matrix maps spec requirements to test classes/files in each implementation.
 | EVT-032 | `MarkingCacheTest` | `marking-cache.test.ts` | `marking_cache::tests` |
 | EXP-001–008 | `DotExporterTest` | `dot-exporter.test.ts` | `dot_renderer::tests`, `mapper::tests` |
 | EXP-017 | `ClusterBuilderTest`, `DotRendererTest` | `cluster-builder.test.ts` | `cluster_builder::tests` |
-| CONC-020–026 | `PrecompiledNetExecutorEngineTest` | `precompiled-net-executor.test.ts` | — |
+| CONC-020–026 | `PrecompiledNetExecutorEngineTest`, `BackendDivergenceRegressionTest` | `precompiled-net-executor.test.ts`, `executor-shared-semantics.test.ts` | `backend_suite_tests::scheduling_order` (covers Python; no binding-level test) |
 | PERF-001–004 | `BitmapNetExecutorBenchmark` | — | — |
 | PERF-020–022 | — | — | — |
 | PERF-040–042 | `PrecompiledNetExecutorBenchmark` | `precompiled-net-executor.bench.ts` | — |
