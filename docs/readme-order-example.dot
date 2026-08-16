@@ -1,0 +1,51 @@
+digraph ReadmeOrderExample {
+  graph [
+    rankdir=LR,
+    bgcolor="transparent",
+    nodesep=0.42,
+    ranksep=0.65,
+    pad=0.25,
+    fontname="Helvetica,Arial,sans-serif",
+    outputorder="edgesfirst"
+  ];
+  node [fontname="Helvetica,Arial,sans-serif", fontsize=12];
+  edge [fontname="Helvetica,Arial,sans-serif", fontsize=10, color="#333333"];
+
+  p_orders    [label="", shape=circle, style=filled, fillcolor="#d4edda", color="#28a745", penwidth=2, width=0.35, fixedsize=true, xlabel="orders"];
+  p_policy    [label="", shape=circle, style=filled, fillcolor="#d4edda", color="#28a745", penwidth=2, width=0.35, fixedsize=true, xlabel="policy"];
+  p_paused    [label="", shape=circle, style=filled, fillcolor="#ffffff", color="#333333", penwidth=1.5, width=0.35, fixedsize=true, xlabel="paused"];
+  p_lastError [label="", shape=circle, style=filled, fillcolor="#d4edda", color="#28a745", penwidth=2, width=0.35, fixedsize=true, xlabel="lastError"];
+
+  t_dispatch [label="dispatch", shape=box, style=filled, fillcolor="#fff3cd", color="#856404", height=0.4, width=0.9];
+  j_fork [label="+", shape=diamond, style=filled, fillcolor="#ffffff", color="#333333", width=0.55, height=0.55, fontsize=14, xlabel="concurrent"];
+
+  p_fraudJob [label="", shape=circle, style=filled, fillcolor="#ffffff", color="#333333", penwidth=1.5, width=0.35, fixedsize=true, xlabel="fraudJob"];
+  p_stockJob [label="", shape=circle, style=filled, fillcolor="#ffffff", color="#333333", penwidth=1.5, width=0.35, fixedsize=true, xlabel="stockJob"];
+  t_fraud [label="fraud-check\n200 ms action", shape=box, style=filled, fillcolor="#fff3cd", color="#856404", height=0.55, width=1.25];
+  t_stock [label="reserve-stock\n20 ms action", shape=box, style=filled, fillcolor="#fff3cd", color="#856404", height=0.55, width=1.25];
+  j_timeout [label="×", shape=diamond, style=filled, fillcolor="#ffffff", color="#333333", width=0.55, height=0.55, fontsize=14];
+
+  p_fraudOk [label="", shape=doublecircle, style=filled, fillcolor="#cce5ff", color="#004085", penwidth=2, width=0.35, fixedsize=true, xlabel="fraudOk"];
+  p_stockOk [label="", shape=doublecircle, style=filled, fillcolor="#cce5ff", color="#004085", penwidth=2, width=0.35, fixedsize=true, xlabel="stockOk"];
+  p_retry [label="", shape=doublecircle, style=filled, fillcolor="#cce5ff", color="#004085", penwidth=2, width=0.35, fixedsize=true, xlabel="retry"];
+
+  p_orders -> t_dispatch [label="consume"];
+  p_policy -> t_dispatch [label="read", color="#6c757d", style=dashed];
+  p_paused -> t_dispatch [label="inhibit", color="#dc3545", arrowhead=odot];
+  t_dispatch -> p_lastError [label="reset", color="#fd7e14", style=bold, penwidth=2];
+  t_dispatch -> j_fork;
+  j_fork -> p_fraudJob [label="fork"];
+  j_fork -> p_stockJob [label="fork"];
+
+  p_fraudJob -> t_fraud;
+  p_stockJob -> t_stock;
+  t_fraud -> j_timeout;
+  j_timeout -> p_fraudOk [label="success"];
+  j_timeout -> p_retry [label="⏱ 50 ms\nforward input", color="#6c757d", style=dashed];
+  t_stock -> p_stockOk [label="success"];
+
+  { rank=same; p_orders; p_policy; p_paused; p_lastError; }
+  { rank=same; p_fraudJob; p_stockJob; }
+  { rank=same; t_fraud; t_stock; }
+  { rank=same; p_fraudOk; p_stockOk; p_retry; }
+}
