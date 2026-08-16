@@ -200,6 +200,9 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
      */
     private volatile Marking publishedMarking;
 
+    /** Unknown places already reported (CORE-072 AC4) — one diagnostic per place, not per token. */
+    private Set<Place<?>> warnedUnknownPlaces;
+
     /** Incremented by a foreign-thread {@link #marking()} to request a fresh {@link #publishedMarking}. */
     private final AtomicLong markingRequestSeq = new AtomicLong();
 
@@ -358,7 +361,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
 
     /** Mirror a token added to correlated input {@code place} into every fast-path matcher. */
     private void cacheAddToken(Place<?> place, Token<?> token) {
-        int pid = compiled.placeId(place);
+        int pid = compiled.placeIdOrMissing(place);
         if (pid < 0) return;
         List<int[]> targets = placeMatchTargets[pid];
         if (targets.isEmpty()) return;
@@ -578,12 +581,14 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
             ExecutorService exec = executor != null
                 ? executor
                 : Executors.newVirtualThreadPerTaskExecutor();
-            return new BitmapNetExecutor(
+            var built = new BitmapNetExecutor(
                 compiled, marking, eventStore, exec,
                 environmentPlaces, executionContextProvider,
                 deadlineToleranceMillis, uncaughtActionHandler,
                 executor == null
             );
+            built.warnUnknownInitialPlaces(initialTokens);
+            return built;
         }
     }
 
@@ -1207,11 +1212,17 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
             List<Token<?>> produced = eventStoreEnabled ? new ArrayList<>(entries.size()) : null;
             for (var entry : entries) {
                 var token = entry.token();
-                int pid = compiled.placeId(entry.place());
+                // Unknown places retain the token (CORE-072 AC3); only compiled
+                // places get presence bits and dirty marking.
+                int pid = compiled.placeIdOrMissing(entry.place());
                 cacheAddToken(entry.place(), token);
                 marking.addToken((Place<Object>) entry.place(), (Token<Object>) token);
-                setMarkingBit(pid);
-                markDirty(pid);
+                if (pid >= 0) {
+                    setMarkingBit(pid);
+                    markDirty(pid);
+                } else {
+                    warnUnknownPlace(entry.place(), t.name());
+                }
                 if (eventStoreEnabled) {
                     produced.add(token);
                     emitEvent(new NetEvent.TokenAdded(
@@ -1274,11 +1285,16 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
                 List<Token<?>> produced = new ArrayList<>(entries.size());
                 for (var entry : entries) {
                     var token = entry.token();
-                    int pid = compiled.placeId(entry.place());
+                    // See processSyncOutput: unknown places retain the token (CORE-072 AC3).
+                    int pid = compiled.placeIdOrMissing(entry.place());
                     cacheAddToken(entry.place(), token);
                     marking.addToken((Place<Object>) entry.place(), (Token<Object>) token);
-                    setMarkingBit(pid);
-                    markDirty(pid);
+                    if (pid >= 0) {
+                        setMarkingBit(pid);
+                        markDirty(pid);
+                    } else {
+                        warnUnknownPlace(entry.place(), t.name());
+                    }
                     produced.add(token);
                     if (eventStoreEnabled) emitEvent(new NetEvent.TokenAdded(
                         Instant.now(), entry.place().name(), token));
@@ -1336,9 +1352,15 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
                     (Place<Object>) event.place(),
                     (Token<Object>) event.token());
 
-                int pid = compiled.placeId(event.place());
-                setMarkingBit(pid);
-                markDirty(pid);
+                // An environment place the compiled net does not know still retains the
+                // token in the marking (CORE-072 AC3); it just cannot enable anything.
+                int pid = compiled.placeIdOrMissing(event.place());
+                if (pid >= 0) {
+                    setMarkingBit(pid);
+                    markDirty(pid);
+                } else {
+                    warnUnknownPlace(event.place(), "");
+                }
 
                 if (eventStoreEnabled) emitEvent(new NetEvent.TokenAdded(
                     Instant.now(), event.place().name(), event.token()));
@@ -1586,6 +1608,29 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
     private void emitEvent(NetEvent event) {
         if (eventStore.isEnabled()) {
             eventStore.append(event);
+        }
+    }
+
+    /**
+     * Reports an unknown place once (CORE-072 AC4), as the EVT-013 log-message event.
+     * Retention (AC3) never depends on this: under a disabled store nothing is emitted.
+     */
+    private void warnUnknownPlace(Place<?> place, String transitionName) {
+        if (!eventStoreEnabled) return;
+        if (warnedUnknownPlaces == null) warnedUnknownPlaces = new HashSet<>();
+        if (!warnedUnknownPlaces.add(place)) return;
+        emitEvent(new NetEvent.LogMessage(Instant.now(), transitionName, "libpetri.runtime", "WARN",
+            "unknown place '" + place.name() + "': tokens are retained in the marking but inert "
+                + "(the net declares no arc on it)", null, null));
+    }
+
+    /** Initial-marking seam for CORE-072 AC4 — the {@link Marking} retains them either way. */
+    private void warnUnknownInitialPlaces(Map<Place<?>, List<Token<?>>> initialTokens) {
+        if (!eventStoreEnabled) return;
+        for (var entry : initialTokens.entrySet()) {
+            if (!entry.getValue().isEmpty() && compiled.placeIdOrMissing(entry.getKey()) < 0) {
+                warnUnknownPlace(entry.getKey(), "");
+            }
         }
     }
 

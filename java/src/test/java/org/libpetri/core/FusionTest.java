@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -81,6 +82,68 @@ class FusionTest {
             "T2 must write to canonical A after fusion. Outputs: " + writeToB.outputPlaces());
         assertFalse(writeToB.outputPlaces().contains(b),
             "T2 must not reference non-canonical B");
+    }
+
+    // ============================================================
+    //  Input-arc collisions merge additively (MOD-021 / MOD-061 AC4)
+    // ============================================================
+
+    @Test
+    void fuse_twoConsumedPlaces_mergeAdditively_andConsumeTwo() {
+        Place<String> a = Place.of("A", String.class);  // canonical
+        Place<String> b = Place.of("B", String.class);  // non-canonical
+
+        var fired = new AtomicInteger();
+        Transition t = Transition.builder("consumeBoth")
+            .inputs(Arc.In.one(a), Arc.In.one(b))
+            .action(ctx -> {
+                fired.incrementAndGet();
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+
+        var net = PetriNet.builder("FusedInputs")
+            .transitions(t)
+            .fuse(FusionSet.of("ab", a, b))
+            .build();
+
+        // The two one() arcs collide on canonical A and merge to exactly(2).
+        var merged = findTransition(net, "consumeBoth");
+        assertEquals(List.of(new Arc.In.Exactly(a, 2)), merged.inputSpecs(),
+            "one() + one() on the fused place must merge to exactly(2) (MOD-021)");
+
+        // The net compiles (CORE-030 rejects duplicate input arcs — the merge
+        // must have removed the duplicate) and consumes 2 tokens per firing.
+        try (var executor = BitmapNetExecutor.create(net, Map.of(
+            a, List.of(Token.of("x"), Token.of("y"), Token.of("z"))))) {
+            var marking = executor.run();
+            assertEquals(1, fired.get(),
+                "3 tokens allow exactly one exactly(2) firing. Marking: " + marking);
+            assertEquals(1, marking.tokenCount(a),
+                "one firing must consume 2 of the 3 tokens. Marking: " + marking);
+        }
+    }
+
+    @Test
+    void fuse_unsummableInputMix_rejectedNamingFusionSet() {
+        Place<String> a = Place.of("A", String.class);  // canonical
+        Place<String> b = Place.of("B", String.class);  // non-canonical
+
+        Transition t = Transition.builder("mixed")
+            .inputs(Arc.In.one(a), Arc.In.all(b))
+            .build();
+
+        var builder = PetriNet.builder("Bad")
+            .transitions(t)
+            .fuse(FusionSet.of("oneAll", a, b));
+
+        var ex = assertThrows(IllegalArgumentException.class, builder::build);
+        assertTrue(ex.getMessage().contains("oneAll"),
+            "exception must name the fusion set. Got: " + ex.getMessage());
+        assertTrue(ex.getMessage().contains("'A'"),
+            "exception must name the canonical place. Got: " + ex.getMessage());
+        assertTrue(ex.getMessage().contains("one()") && ex.getMessage().contains("all()"),
+            "exception must name both colliding arcs. Got: " + ex.getMessage());
     }
 
     // ============================================================

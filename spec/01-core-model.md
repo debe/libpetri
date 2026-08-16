@@ -183,11 +183,15 @@ When any condition ceases to hold, the transition becomes disabled.
 
 An input arc connects a place to a transition. When the transition fires, it **consumes** one or more tokens from the place according to the input's cardinality specification (see [IO-001]–[IO-004]).
 
+A transition MUST NOT declare two input arcs on the same place; compilation rejects such a net with a descriptive error. Duplicate input arcs have no coherent consumption semantics — use a single arc with `exactly(n)` / `at_least(n)` cardinality instead. Both composition seams reconcile colliding arcs before compilation, per the canonical merge table of [MOD-021] (channel composition at compose, fusion at build per [MOD-061]), so a duplicate reaching the compiler is a direct-authoring error.
+
 **Acceptance Criteria:**
 1. Transition with input arc consumes tokens from the place on firing.
 2. Consumed tokens follow FIFO order.
+3. Two input arcs declared on the same place → compilation rejected with a
+   descriptive error.
 
-**Test derivation:** Create transition with input arc; add tokens; verify tokens consumed in FIFO order.
+**Test derivation:** Create transition with input arc; add tokens; verify tokens consumed in FIFO order. Create transition with two `one()` inputs on the same place; verify compilation rejects it.
 
 ---
 
@@ -571,8 +575,23 @@ An executor can be initialized with an initial marking that pre-populates places
 **Acceptance Criteria:**
 1. Initial marking distributes tokens to specified places.
 2. Execution begins with these tokens available.
+3. Tokens on places the net does not declare are **retained** in the observable
+   marking (inert — no arc can reference them — but never silently dropped).
+   This holds for every backend regardless of its internal token storage; the
+   same retention applies to any token reaching a backend for an uncompiled
+   place through production or injection seams.
+4. An implementation SHOULD surface the first write to an undeclared place as an
+   observable diagnostic, emitted as the existing log-message event ([EVT-013]) —
+   no new event type. Field shape: logger `libpetri.runtime` (omitted where the
+   implementation's log-message event carries no logger field), level `WARN`,
+   transition name = the producing transition's name, or `""` at the
+   initial-marking and injection seams where no transition is firing; message
+   `unknown place '<p>': tokens are retained in the marking but inert (the net
+   declares no arc on it)`. Emitted once per distinct unknown place per executor,
+   not once per token. Retention (AC3) does not depend on the diagnostic.
 
-**Test derivation:** Create executor with initial marking {P1: [a, b], P2: [c]}; verify tokens present before first firing.
+**Depends on:** [EVT-013]
+**Test derivation:** Create executor with initial marking {P1: [a, b], P2: [c]}; verify tokens present before first firing. Include a place unknown to the net; verify its tokens appear unchanged in the final marking, and that exactly one `WARN` log-message event names that place however many tokens land on it.
 
 ---
 

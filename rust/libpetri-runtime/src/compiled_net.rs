@@ -100,8 +100,19 @@ impl CompiledNet {
             has_match[tid] = t.match_spec().is_some();
 
             // Input specs
+            let mut seen_input_places = HashSet::new();
             for in_spec in t.input_specs() {
                 let pid = place_index[in_spec.place().name_arc()];
+                if !seen_input_places.insert(pid) {
+                    panic!(
+                        "Transition '{}' declares two input arcs on place '{}'. Duplicate \
+                         input places have no coherent consumption semantics and are rejected \
+                         at compile time (CORE-030). Use a single arc with exactly(n) / \
+                         at_least(n) instead.",
+                        t.name(),
+                        in_spec.place().name()
+                    );
+                }
                 if word_count > 0 {
                     bitmap::set_bit(&mut needs_masks[mask_base..mask_base + word_count], pid);
                 }

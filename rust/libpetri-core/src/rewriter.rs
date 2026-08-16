@@ -31,7 +31,7 @@
 //!   `Vec::with_capacity(n)` + indexed `for` loops (no `Iterator::map`
 //!   collect), mirroring the perf reasoning in the Java/TS counterparts.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -123,7 +123,7 @@ pub(crate) fn rewrite_transition(
     place_remap: &HashMap<Arc<str>, PlaceRef>,
 ) -> Transition {
     let new_name: Arc<str> = Arc::from(format!("{}/{}", prefix, t.name()));
-    rebuild_with_name(t, new_name, place_remap)
+    rebuild_with_name(t, new_name, place_remap, None)
 }
 
 /// Rebuilds `t` with the **same** name, substituting every arc place
@@ -143,7 +143,7 @@ pub(crate) fn substitute_places(
     t: &Transition,
     remap: &HashMap<Arc<str>, PlaceRef>,
 ) -> Transition {
-    rebuild_with_name(t, Arc::clone(t.name_arc()), remap)
+    rebuild_with_name(t, Arc::clone(t.name_arc()), remap, None)
 }
 
 // ============================================================
@@ -151,13 +151,21 @@ pub(crate) fn substitute_places(
 // ============================================================
 
 /// Shared implementation: rebuilds `t` with the supplied `name` and arc
-/// places rewritten through `remap`. Used by both [`rewrite_transition`]
-/// (which prefixes the name) and [`substitute_places`] (which keeps the name
-/// unchanged).
+/// places rewritten through `remap`. Used by [`rewrite_transition`] (which
+/// prefixes the name), [`substitute_places`] (which keeps the name unchanged),
+/// and [`apply_fusion`] (which supplies pre-merged inputs).
+///
+/// `inputs`, when `Some`, replaces `t`'s input list wholesale — it is already
+/// remapped and normalized by the caller; `None` rewrites `t`'s own inputs
+/// through `remap`. This is the **only** transition-rebuild site, so a new
+/// [`Transition`] field is carried by adding it here once. Derived fields
+/// (`action_timeout`, place sets) are re-derived by `build()` from the specs
+/// this function passes on.
 fn rebuild_with_name(
     t: &Transition,
     name: Arc<str>,
     remap: &HashMap<Arc<str>, PlaceRef>,
+    inputs: Option<Vec<In>>,
 ) -> Transition {
     let mut builder = Transition::builder(name)
         .timing(*t.timing())
@@ -173,15 +181,18 @@ fn rebuild_with_name(
         builder = builder.local_name_map(Arc::new(local_map));
     }
 
-    if !t.input_specs().is_empty() {
-        // Pre-size for V8/JIT-friendly hot-path allocation parity with the
-        // Java/TS implementations.
+    // Pre-size for V8/JIT-friendly hot-path allocation parity with the
+    // Java/TS implementations.
+    let inputs = inputs.unwrap_or_else(|| {
         let src = t.input_specs();
         let mut rewritten_inputs: Vec<In> = Vec::with_capacity(src.len());
         for spec in src {
             rewritten_inputs.push(rewrite_in(spec, remap));
         }
-        builder = builder.inputs(rewritten_inputs);
+        rewritten_inputs
+    });
+    if !inputs.is_empty() {
+        builder = builder.inputs(inputs);
     }
 
     if let Some(out) = t.output_spec() {
@@ -450,16 +461,66 @@ fn resolve(p: &PlaceRef, remap: &HashMap<Arc<str>, PlaceRef>) -> PlaceRef {
 /// The remap is keyed by **non-canonical place name** (`Arc<str>`) →
 /// **canonical place** ([`PlaceRef`]) — matching the convention used
 /// throughout this module.
+///
+/// Substitution can leave a transition with two input arcs on the canonical
+/// place (it consumed from several members of one fusion set). Those are
+/// normalized additively via [`merge_input_arcs`] per **MOD-061**/**MOD-021**;
+/// an unsummable mix panics naming the fusion set (looked up in
+/// `set_name_of`, keyed by canonical place name), the place, and both arcs.
+/// Transitions whose input arcs never hit `fusion_map` skip the pass.
+///
+/// # Panics
+/// Panics on an unsummable post-substitution input-arc collision.
 pub(crate) fn apply_fusion(
     transitions: impl IntoIterator<Item = Transition>,
     fusion_map: &HashMap<Arc<str>, PlaceRef>,
+    set_name_of: &HashMap<Arc<str>, Arc<str>>,
 ) -> Vec<Transition> {
     let iter = transitions.into_iter();
     let (lower, upper) = iter.size_hint();
     let cap = upper.unwrap_or(lower);
     let mut rewritten: Vec<Transition> = Vec::with_capacity(cap);
     for t in iter {
-        rewritten.push(substitute_places(&t, fusion_map));
+        let inputs_touched = t
+            .input_specs()
+            .iter()
+            .any(|s| fusion_map.contains_key(s.place().name_arc()));
+        if !inputs_touched {
+            rewritten.push(substitute_places(&t, fusion_map));
+            continue;
+        }
+        // Remap the inputs first — only then are the collisions the fusion
+        // created visible to the additive merge.
+        let src = t.input_specs();
+        let mut remapped: Vec<In> = Vec::with_capacity(src.len());
+        for spec in src {
+            remapped.push(rewrite_in(spec, fusion_map));
+        }
+        match merge_input_arcs(&remapped) {
+            Ok(merged) => rewritten.push(rebuild_with_name(
+                &t,
+                Arc::clone(t.name_arc()),
+                fusion_map,
+                Some(merged),
+            )),
+            Err(c) => {
+                // Falls back to the place's own name when the collision is not on
+                // a fusion canonical, matching Java/TS.
+                let set = set_name_of
+                    .get(c.place.name_arc())
+                    .map(|s| s.as_ref())
+                    .unwrap_or_else(|| c.place.name());
+                panic!(
+                    "Fusion set '{}': input arcs {} and {} collide on place '{}' and have \
+                     no additive merge (MOD-021 rule (c)). Use a single arc with \
+                     exactly(n) / at_least(n).",
+                    set,
+                    describe_in(&c.left),
+                    describe_in(&c.right),
+                    c.place.name()
+                );
+            }
+        }
     }
     rewritten
 }
@@ -477,9 +538,10 @@ pub(crate) fn apply_fusion(
 ///   `merged_name` (typically `caller.name()`), so the merged transition
 ///   remains discoverable from caller-side code paths.
 /// - **Arcs** — input/inhibitor/read/reset arcs are unioned: caller-side
-///   first, then instance-side. Duplicates (by structural key — same arc
-///   kind + place name + cardinality where applicable) are deduped so
-///   identical arcs to a shared place collapse.
+///   first, then instance-side, per the MOD-021 dedup rules. Same-place input
+///   arcs merge additively via [`merge_input_arcs`] (One+One → Exactly(2));
+///   an unsummable input mix or a cross-side arc-kind conflict on one place
+///   panics. Identical inhibitor/read/reset arcs collapse (rule (a)).
 /// - **Output spec** — if both sides carry an output spec, they are wrapped
 ///   under a single new outer `Out::And(vec![caller, instance])` so both
 ///   sides' outputs fire on a successful merged firing. If only one side
@@ -520,6 +582,28 @@ pub(crate) fn merge_transitions(
     let merged_local =
         merge_local_name_maps(caller.local_name_map(), instance.local_name_map(), &merged_name);
 
+    // MOD-021 rule (d): cross-side arc-kind conflicts on one place reject.
+    reject_cross_side_kind_conflicts(caller, instance, &merged_name);
+
+    // Inputs: MOD-021 rules (b)/(c) — same-place arcs from the two sides merge
+    // additively; an unsummable mix rejects naming the place and both arcs.
+    let mut all_inputs: Vec<In> =
+        Vec::with_capacity(caller.input_specs().len() + instance.input_specs().len());
+    all_inputs.extend_from_slice(caller.input_specs());
+    all_inputs.extend_from_slice(instance.input_specs());
+    let merged_inputs = match merge_input_arcs(&all_inputs) {
+        Ok(v) => v,
+        Err(c) => panic!(
+            "Channel composition '{}': input arcs {} and {} collide on place '{}' and \
+             have no additive merge (MOD-021 rule (c)). Use a single arc with \
+             exactly(n) / at_least(n).",
+            merged_name,
+            describe_in(&c.left),
+            describe_in(&c.right),
+            c.place.name()
+        ),
+    };
+
     let mut builder = Transition::builder(merged_name)
         .timing(merged_timing)
         .priority(merged_priority);
@@ -527,11 +611,8 @@ pub(crate) fn merge_transitions(
         builder = builder.action(action);
     }
 
-    // Inputs: union caller-first, then instance, dedup by (kind, place name,
-    // count/minimum where applicable) — matching Java's record-equality dedupe.
-    let unioned_inputs = union_arcs(caller.input_specs(), instance.input_specs(), key_of_in);
-    if !unioned_inputs.is_empty() {
-        builder = builder.inputs(unioned_inputs);
+    if !merged_inputs.is_empty() {
+        builder = builder.inputs(merged_inputs);
     }
 
     // Outputs: wrap both sides under Out::And; one-sided wins; none -> none.
@@ -705,7 +786,8 @@ pub(crate) fn merge_outputs(caller: Option<&Out>, instance: Option<&Out>) -> Opt
 
 /// Returns the union of two arc lists, caller-first then instance, with
 /// duplicates removed by structural key. Order is preserved within each
-/// source list. Used for input, inhibitor, read, and reset arcs.
+/// source list. Used for inhibitor, read, and reset arcs (rule (a));
+/// input arcs merge additively via [`merge_input_arcs`] instead.
 ///
 /// Implementation note: a `Vec` + a `HashSet<String>` of seen keys preserves
 /// insertion order while deduping by the supplied key function. The Rust arc
@@ -735,6 +817,85 @@ pub(crate) fn union_arcs<A: Clone>(
         }
     }
     result
+}
+
+// ============================================================
+//  Input-arc normalization (MOD-021 dedup rules (a)–(c))
+// ============================================================
+
+/// An unmergeable same-place input-arc collision found by
+/// [`merge_input_arcs`]. The caller renders the seam-specific diagnostic
+/// (fusion set vs channel merge) via [`describe_in`].
+pub(crate) struct InputArcConflict {
+    pub(crate) place: PlaceRef,
+    pub(crate) left: In,
+    pub(crate) right: In,
+}
+
+/// Normalizes an input-arc list per the MOD-021 deduplication rules: arcs on
+/// distinct places pass through in first-seen order; same-place arcs merge via
+/// [`merge_in_pair`], and an unmergeable mix surfaces as an
+/// [`InputArcConflict`] for the seam to report.
+pub(crate) fn merge_input_arcs(inputs: &[In]) -> Result<Vec<In>, InputArcConflict> {
+    if inputs.len() <= 1 {
+        return Ok(inputs.to_vec());
+    }
+    let mut merged: Vec<In> = Vec::with_capacity(inputs.len());
+    let mut slot_of: HashMap<Arc<str>, usize> = HashMap::with_capacity(inputs.len());
+    for spec in inputs {
+        match slot_of.get(spec.place().name_arc()) {
+            None => {
+                slot_of.insert(Arc::clone(spec.place().name_arc()), merged.len());
+                merged.push(spec.clone());
+            }
+            Some(&idx) => match merge_in_pair(&merged[idx], spec) {
+                Some(m) => merged[idx] = m,
+                None => {
+                    return Err(InputArcConflict {
+                        place: spec.place().clone(),
+                        left: merged[idx].clone(),
+                        right: spec.clone(),
+                    });
+                }
+            },
+        }
+    }
+    Ok(merged)
+}
+
+/// Merges two same-place input arcs per the canonical MOD-021 merge table:
+/// `One`/`Exactly` weights sum, `AtLeast` pairs keep the stricter minimum,
+/// `All`+`All` collapses. `None` marks anything else, rejected per rule (c).
+fn merge_in_pair(a: &In, b: &In) -> Option<In> {
+    let place = a.place().clone();
+    match (a, b) {
+        (In::One { .. }, In::One { .. }) => Some(In::Exactly { place, count: 2 }),
+        (In::One { .. }, In::Exactly { count, .. })
+        | (In::Exactly { count, .. }, In::One { .. }) => Some(In::Exactly {
+            place,
+            count: count + 1,
+        }),
+        (In::Exactly { count: n, .. }, In::Exactly { count: m, .. }) => Some(In::Exactly {
+            place,
+            count: n + m,
+        }),
+        (In::All { .. }, In::All { .. }) => Some(In::All { place }),
+        (In::AtLeast { minimum: n, .. }, In::AtLeast { minimum: m, .. }) => Some(In::AtLeast {
+            place,
+            minimum: (*n).max(*m),
+        }),
+        _ => None,
+    }
+}
+
+/// Renders an input arc's cardinality for conflict diagnostics.
+fn describe_in(spec: &In) -> String {
+    match spec {
+        In::One { .. } => "one()".to_string(),
+        In::Exactly { count, .. } => format!("exactly({count})"),
+        In::All { .. } => "all()".to_string(),
+        In::AtLeast { minimum, .. } => format!("at_least({minimum})"),
+    }
 }
 
 // ---------- Sequential action composition (caller-then-instance) ----------
@@ -773,19 +934,67 @@ impl TransitionAction for SequentialAction {
     }
 }
 
-// ---------- Structural arc keys (mirror TS keyOf*) ----------
+// ---------- Cross-side arc-kind conflict detection (MOD-021 rule (d)) ----------
 
-/// Structural key for an [`In`] arc. Encodes the discriminant + place name +
-/// cardinality (where applicable). Input specifications are purely structural
-/// (IO-006), so this key is total.
-fn key_of_in(arc: &In) -> String {
-    match arc {
-        In::One { place } => format!("one|{}", place.name()),
-        In::Exactly { place, count } => format!("exactly|{}|{}", place.name(), count),
-        In::All { place } => format!("all|{}", place.name()),
-        In::AtLeast { place, minimum } => format!("atLeast|{}|{}", place.name(), minimum),
+/// Rejects a channel merge where the two sides put different arc-kind sets on
+/// the same place — e.g. the caller consumes `P` while the instance resets `P`
+/// (MOD-021 rule (d)). Same-type arcs across sides pair up under rules (a)/(b)
+/// first, so identical kind sets on both sides (and same-side kind mixes like
+/// read+reset, EXEC-013) are not conflicts. Matches the Java/TS set semantics.
+fn reject_cross_side_kind_conflicts(
+    caller: &Transition,
+    instance: &Transition,
+    channel_name: &str,
+) {
+    let caller_kinds = arc_kinds_by_place(caller);
+    if caller_kinds.is_empty() {
+        return;
+    }
+    for (i_place, i_kinds) in arc_kinds_by_place(instance) {
+        if let Some(c_kinds) = caller_kinds.get(&i_place) {
+            if *c_kinds != i_kinds {
+                panic!(
+                    "Channel composition '{}': conflicting arc kinds on place '{}' — \
+                     caller-side {} vs instance-side {}. Different arc types on \
+                     one place cannot be merged (MOD-021 rule (d)). Resolve explicitly.",
+                    channel_name,
+                    i_place,
+                    describe_kinds(c_kinds),
+                    describe_kinds(&i_kinds)
+                );
+            }
+        }
     }
 }
+
+/// Renders an arc-kind set as `[input, read]`, matching the Java/TS
+/// set rendering so the rule-(d) diagnostic reads identically in all three.
+fn describe_kinds(kinds: &BTreeSet<&'static str>) -> String {
+    format!("[{}]", kinds.iter().copied().collect::<Vec<_>>().join(", "))
+}
+
+/// Groups a transition's input/inhibitor/read/reset arcs into place name →
+/// kind-name set for the rule-(d) check. Output specs are excluded:
+/// caller-consumes / instance-produces on one place is the normal channel
+/// wiring pattern, and outputs union via `Out::And` (see [`merge_outputs`]).
+fn arc_kinds_by_place(t: &Transition) -> BTreeMap<String, BTreeSet<&'static str>> {
+    let mut kinds: BTreeMap<String, BTreeSet<&'static str>> = BTreeMap::new();
+    for s in t.input_specs() {
+        kinds.entry(s.place().name().to_string()).or_default().insert("input");
+    }
+    for a in t.inhibitors() {
+        kinds.entry(a.place.name().to_string()).or_default().insert("inhibitor");
+    }
+    for a in t.reads() {
+        kinds.entry(a.place.name().to_string()).or_default().insert("read");
+    }
+    for a in t.resets() {
+        kinds.entry(a.place.name().to_string()).or_default().insert("reset");
+    }
+    kinds
+}
+
+// ---------- Structural arc keys (mirror TS keyOf*) ----------
 
 fn key_of_inhibitor(arc: &Inhibitor) -> String {
     format!("inh|{}", arc.place.name())
@@ -1256,6 +1465,95 @@ mod tests {
 
         assert_eq!(merged.reads().len(), 1);
         assert_eq!(merged.reads()[0].place.name(), "shared");
+    }
+
+    // ============================================================
+    //  MOD-021 arc deduplication rules (b)–(d)
+    // ============================================================
+
+    #[test]
+    fn channel_merge_sums_one_plus_one_to_exactly_two() {
+        // MOD-021 AC6: Input(One) from both sides on one place → Exactly(2).
+        let p = Place::<String>::new("p");
+
+        let caller = Transition::builder("merged").input(one(&p)).build();
+        let instance = Transition::builder("instanceSide").input(one(&p)).build();
+
+        let merged = merge_transitions(&caller, &instance, Arc::<str>::from("merged"));
+
+        assert_eq!(merged.input_specs().len(), 1);
+        match &merged.input_specs()[0] {
+            In::Exactly { place, count } => {
+                assert_eq!(place.name(), "p");
+                assert_eq!(*count, 2);
+            }
+            other => panic!("expected Exactly(2), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn channel_merge_sums_exactly_and_maxes_at_least() {
+        let p = Place::<String>::new("p");
+        let q = Place::<String>::new("q");
+
+        let caller = Transition::builder("merged")
+            .input(one(&p))
+            .input(at_least(2, &q))
+            .build();
+        let instance = Transition::builder("instanceSide")
+            .input(exactly(3, &p))
+            .input(at_least(5, &q))
+            .build();
+
+        let merged = merge_transitions(&caller, &instance, Arc::<str>::from("merged"));
+
+        assert_eq!(merged.input_specs().len(), 2);
+        match &merged.input_specs()[0] {
+            In::Exactly { count, .. } => assert_eq!(*count, 4),
+            other => panic!("expected Exactly(4), got {other:?}"),
+        }
+        match &merged.input_specs()[1] {
+            In::AtLeast { minimum, .. } => assert_eq!(*minimum, 5),
+            other => panic!("expected AtLeast(5), got {other:?}"),
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "input arcs one() and all() collide on place 'p'")]
+    fn channel_merge_rejects_one_plus_all_input_mix() {
+        let p = Place::<String>::new("p");
+
+        let caller = Transition::builder("merged").input(one(&p)).build();
+        let instance = Transition::builder("instanceSide").input(all(&p)).build();
+
+        let _ = merge_transitions(&caller, &instance, Arc::<str>::from("merged"));
+    }
+
+    #[test]
+    #[should_panic(expected = "conflicting arc kinds on place 'p'")]
+    fn channel_merge_rejects_cross_side_arc_kind_conflict() {
+        // MOD-021 AC7: Input on one side, Reset on the other → reject.
+        let p = Place::<String>::new("p");
+
+        let caller = Transition::builder("merged").input(one(&p)).build();
+        let instance = Transition::builder("instanceSide").reset(reset(&p)).build();
+
+        let _ = merge_transitions(&caller, &instance, Arc::<str>::from("merged"));
+    }
+
+    #[test]
+    fn channel_merge_identical_kind_sets_merge_not_reject() {
+        // Same kind set on both sides is no rule-(d) conflict: input+read on
+        // each side pairs up under rules (a)/(b) — input sums, read collapses.
+        let p = Place::<String>::new("p");
+
+        let caller = Transition::builder("merged").input(one(&p)).read(read(&p)).build();
+        let instance = Transition::builder("instanceSide").input(one(&p)).read(read(&p)).build();
+
+        let merged = merge_transitions(&caller, &instance, Arc::<str>::from("merged"));
+        assert_eq!(merged.input_specs().len(), 1);
+        assert_eq!(crate::input::required_count(&merged.input_specs()[0]), 2);
+        assert_eq!(merged.reads().len(), 1);
     }
 
     #[test]

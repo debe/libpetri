@@ -610,7 +610,8 @@ export class PetriNetBuilder {
    *    Map<string, Place<unknown>> convention — TypeScript Place identity is
    *    name-based per `runtime/compiled-net.ts`).
    * 3. Walk every transition through {@link applyFusion} to rewrite arc place
-   *    references.
+   *    references; input arcs colliding on a canonical place merge per
+   *    [MOD-021] (additive where summable, rejected otherwise).
    * 4. Re-derive the place set from the rewritten transitions plus any
    *    caller-declared standalone places, dropping non-canonical members.
    *    Caller-declared standalone places that happen to be non-canonical
@@ -710,8 +711,13 @@ export class PetriNetBuilder {
     // Step 3: rewrite every transition's arcs through the fusion map.
     // applyFusion always returns a fresh set; if fusionMap is empty (single-
     // member-only sets) the rewrite is structurally a no-op but still rebuilds
-    // Transition records — no observable difference.
-    const rewrittenTransitions = applyFusion(this._transitions, fusionMap);
+    // Transition records — no observable difference. Input-arc collisions on a
+    // canonical place merge per MOD-021, naming the owning fusion set on
+    // rejection.
+    const rewrittenTransitions = applyFusion(this._transitions, fusionMap, (canonicalName) => {
+      const owner = ownership.get(canonicalName);
+      return `Fusion set '${owner !== undefined ? owner.name : canonicalName}'`;
+    });
 
     // Step 4: re-derive the place set. Strategy: start from the current
     // place set, drop every non-canonical member (they are gone from the

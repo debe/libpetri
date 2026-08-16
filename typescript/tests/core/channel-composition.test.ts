@@ -3,7 +3,7 @@ import { place } from '../../src/core/place.js';
 import type { Place } from '../../src/core/place.js';
 import { Transition } from '../../src/core/transition.js';
 import { PetriNet } from '../../src/core/petri-net.js';
-import { one } from '../../src/core/in.js';
+import { one, all, exactly } from '../../src/core/in.js';
 import { outPlace } from '../../src/core/out.js';
 import { delayed, immediate, deadline } from '../../src/core/timing.js';
 import type { TransitionAction } from '../../src/core/transition-action.js';
@@ -93,6 +93,95 @@ describe('SubnetRewriter.mergeTransitions — channel composition (MOD-021)', ()
     const inputPlaces = new Set([...merged.inputPlaces()].map((p) => p.name));
     expect(inputPlaces.has('a')).toBe(true);
     expect(inputPlaces.has('b')).toBe(true);
+  });
+
+  it('channelMerge_samePlaceOneArcs_mergeAdditively: one + one collapses to exactly(2) (MOD-021 AC6)', () => {
+    const shared = place<string>('shared');
+
+    const caller = Transition.builder('merged').inputs(one(shared)).build();
+    const instance = Transition.builder('instanceSide').inputs(one(shared)).build();
+
+    const merged = mergeTransitions(caller, instance, 'merged');
+
+    expect(merged.inputSpecs.length).toBe(1);
+    const spec = merged.inputSpecs[0]!;
+    expect(spec.type).toBe('exactly');
+    expect((spec as { count: number }).count).toBe(2);
+    expect(spec.place.name).toBe('shared');
+  });
+
+  it('channelMerge_samePlaceExactlyArcs_sumWeights: one + exactly(2) merges to exactly(3) (MOD-021)', () => {
+    const shared = place<string>('shared');
+
+    const caller = Transition.builder('merged').inputs(one(shared)).build();
+    const instance = Transition.builder('instanceSide').inputs(exactly(2, shared)).build();
+
+    const merged = mergeTransitions(caller, instance, 'merged');
+
+    expect(merged.inputSpecs.length).toBe(1);
+    const spec = merged.inputSpecs[0]!;
+    expect(spec.type).toBe('exactly');
+    expect((spec as { count: number }).count).toBe(3);
+  });
+
+  it('channelMerge_unsummableInputCardinalities_throws: one + all rejected naming place and both arcs (MOD-021 AC8)', () => {
+    const shared = place<string>('shared');
+
+    const caller = Transition.builder('attempt').inputs(one(shared)).build();
+    const instance = Transition.builder('instanceSide').inputs(all(shared)).build();
+
+    let captured: Error | null = null;
+    try {
+      mergeTransitions(caller, instance, 'attempt');
+    } catch (err) {
+      captured = err as Error;
+    }
+
+    expect(captured).not.toBeNull();
+    const msg = captured!.message;
+    expect(msg).toContain("Channel composition 'attempt'");
+    expect(msg).toContain("'shared'");
+    expect(msg).toContain('one()');
+    expect(msg).toContain('all()');
+    expect(msg).toContain('MOD-021 rule (c)');
+    expect(msg).toContain('Use a single arc with exactly(n) / atLeast(n).');
+  });
+
+  it('channelMerge_conflictingArcKindsOnOnePlace_rejected: input vs reset on one place (MOD-021 AC7)', () => {
+    const shared = place<string>('shared');
+
+    const caller = Transition.builder('attempt').inputs(one(shared)).build();
+    const instance = Transition.builder('instanceSide').reset(shared).build();
+
+    let captured: Error | null = null;
+    try {
+      mergeTransitions(caller, instance, 'attempt');
+    } catch (err) {
+      captured = err as Error;
+    }
+
+    expect(captured).not.toBeNull();
+    const msg = captured!.message;
+    expect(msg).toContain("Channel composition 'attempt'");
+    expect(msg).toContain("conflicting arc kinds on place 'shared'");
+    expect(msg).toContain('input');
+    expect(msg).toContain('reset');
+    expect(msg).toContain('MOD-021');
+  });
+
+  it('channelMerge_identicalKindSets_mergeNotReject: input+read on both sides pairs up per rules (a)/(b)', () => {
+    const shared = place<string>('shared');
+
+    const caller = Transition.builder('merged').inputs(one(shared)).read(shared).build();
+    const instance = Transition.builder('instanceSide').inputs(one(shared)).read(shared).build();
+
+    const merged = mergeTransitions(caller, instance, 'merged');
+
+    expect(merged.inputSpecs.length).toBe(1);
+    const spec = merged.inputSpecs[0]!;
+    expect(spec.type).toBe('exactly');
+    expect((spec as { count: number }).count).toBe(2);
+    expect(merged.reads.length).toBe(1);
   });
 
   it('channelMerge_unionsInhibitorReadResetArcs: inhibitor + read + reset arcs from both sides survive', () => {

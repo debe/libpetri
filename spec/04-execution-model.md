@@ -38,11 +38,21 @@ When multiple transitions are ready to fire (enabled and timing satisfied), they
 1. **Priority** — descending (higher priority fires first)
 2. **Enablement time** — ascending (FIFO; earliest enabled fires first among equal priority)
 
+**All-immediate fast path.** When every transition is `Immediate` and all priorities are equal, backends fire straight from the enablement bitmap in ascending declaration order and do not read the enablement timestamp at all — including when two ready transitions carry different timestamps because one was held across cycles while in flight. This is deliberate, and every backend takes the path under the same condition. The sort above describes the general path.
+
 **Acceptance Criteria:**
 1. Transition with priority 10 fires before transition with priority 5.
-2. Two transitions with equal priority: the one enabled first fires first.
+2. Two transitions with equal priority on the general path: the one enabled first fires first.
+3. Equal priority **and** equal enablement time (transitions enabled in the same
+   orchestrator cycle share one enablement timestamp): the tie breaks by ascending
+   declaration order, so the order is fully deterministic.
+4. Every executor backend produces the **identical** ready order for the same net
+   and marking. Enablement-time order is the general-path order; on the
+   all-immediate single-priority fast path every backend fires in declaration
+   order instead. Backends MUST NOT differ in which order they use, nor in the
+   condition that selects it.
 
-**Test derivation:** Three transitions with priorities 5, 10, 5; enable all simultaneously; verify firing order: P10, then P5 (first enabled), then P5 (second enabled).
+**Test derivation:** Three transitions with priorities 5, 10, 5; enable all simultaneously; verify firing order: P10, then P5 (first enabled), then P5 (second enabled). For AC4, on a net that takes the general path (two priority levels, or one non-`Immediate` transition), enable two equal-priority transitions in different cycles with declaration order opposite to enablement order and verify every backend follows enablement order; on an all-immediate single-priority net, verify every backend fires in declaration order.
 
 ---
 
@@ -117,8 +127,13 @@ When a transition fires, all tokens are removed from each reset place. This happ
 1. Reset place with 5 tokens → all removed.
 2. Reset place empty → no error.
 3. If the reset place is also an input place for another enabled transition, that transition's clock restarts.
+4. Reset draining occurs **after** read-arc peeking within the same firing: a
+   transition with a read arc and a reset arc on the same place observes the
+   pre-reset front token via `ctx.read()` (see [EXEC-012], [CORE-032]). The
+   overall in-firing order is: input consumption, then read peeks, then reset
+   draining.
 
-**Depends on:** [CORE-034]
+**Depends on:** [CORE-034], [EXEC-012], [CORE-032]
 **Test derivation:** Transition with reset on place with 3 tokens; verify all removed; verify clock restart for affected transitions.
 
 ---

@@ -1,12 +1,80 @@
 # Changelog
 
-## Java 2.15.0 / TypeScript 3.0.0 / Rust 4.0.0 / Python 3.0.0 — 2026-08-04
+## Unreleased
 
-**Verifier soundness: three ways a net could be declared safe when it wasn't. Plus input guards removed, and output specs are now enforced instead of merely declared.**
+**Two independent fix sets land together.** The production executor now behaves exactly like the reference executor — four divergences the differential suite never reached are closed. Separately, the verifier no longer returns `Proven` for nets it was analysing unsoundly. Java, TypeScript and Rust are all covered; Python inherits every Rust fix through the PyO3 bindings.
+
+---
+
+### Executor — the production backend now matches the reference
+
+The `PrecompiledNetExecutor` must be behaviorally identical to the `BitmapNetExecutor` reference. It wasn't, in four places. Each divergence is fixed, covered by new differential tests, pinned by new spec acceptance criteria, and retrodicted as a machine-checked counterexample in `lean/`.
+
+#### Fixed — same-priority firing order now follows enablement time (Java, TypeScript*, Rust, Python)
+
+When two transitions with equal priority were enabled in *different* cycles and became ready together, the precompiled executor fired them in declaration order instead of enablement order (EXEC-002: earliest enabled fires first). The per-priority ready queues now sort their occupied slice by `(enablement time, declaration order)` before draining. The fast path for all-immediate single-priority nets is untouched — it fires in declaration order on every backend, by design, and EXEC-002 AC4 now says so. The general path adds only an in-place sort of the few concurrently-ready transitions. *TypeScript already ordered correctly and is unchanged.
+
+#### Fixed — a `read` arc sharing a place with a `reset` arc now sees the token (Java, TypeScript, Rust, Python)
+
+The precompiled executor drained reset arcs before peeking read arcs, so a transition with both on one place found the place already empty and the firing failed. Reads now peek between input consumption and reset draining, matching the reference (EXEC-013 AC4):
+
+```ts
+Transition.builder('t')
+  .input(one(trigger))
+  .read(read(status))    // now observes the pre-reset front token
+  .reset(reset(status))  // then drains
+```
+
+#### Breaking — two input arcs on one place are rejected at compile time (Java, TypeScript, Rust, Python)
+
+`.input(one(p)).input(one(p))` never had coherent semantics: the reference executor silently under-consumed, and the precompiled executor corrupted its token rings (Rust panicked). Compilation now fails with a descriptive error (CORE-030). Use a single arc with `exactly(n)` / `atLeast(n)` instead.
+
+Arcs that collide only because a fusion set merged their places or channel composition merged their transitions still merge, so nets that built before still build:
+
+```
+one        + one         →  exactly(2)
+one        + exactly(n)  →  exactly(n + 1)
+exactly(n) + exactly(m)  →  exactly(n + m)
+all        + all         →  all
+atLeast(n) + atLeast(m)  →  atLeast(max(n, m))
+```
+
+Anything else (`one` + `all`, `exactly` + `atLeast`) is rejected at build, naming the seam, both cardinalities and the place:
+
+```
+Fusion set 'limiter': input arcs one() and all() collide on place 'slots' and have no
+additive merge (MOD-021 rule (c)). Use a single arc with exactly(n) / atLeast(n).
+```
+
+#### Breaking — channel composition rejects mismatched arc kinds on one place (Java, TypeScript, Rust, Python)
+
+Merging a caller transition with an instance channel used to union the two arc sets blindly, so a caller `input(P)` meeting an instance `read(P)` — or worse, `reset(P)` — produced a transition with no coherent firing semantics. MOD-021 rule (d) has always called that a conflict; nothing enforced it. Now it throws:
+
+```
+Channel composition 'attempt': conflicting arc kinds on place 'slots' — caller-side
+[input] vs instance-side [read]. Different arc types on one place cannot be merged
+(MOD-021 rule (d)). Resolve explicitly.
+```
+
+Sides that declare the *same* set of kinds on a place are unaffected — those reconcile pairwise as before. If a composition of yours built before this release and now throws, one side is testing a place the other consumes; give them separate places.
+
+#### Fixed — tokens on places the net doesn't declare are no longer lost (Java, TypeScript, Rust, Python)
+
+Three seams can hand an executor a token for a place the compiled net doesn't know about, and all three behaved differently. An **initial marking** naming an undeclared place lost those tokens on the precompiled executor while the reference kept them; on the **produce** and **inject** seams the reference executor *threw* `Unknown place`. All three seams now retain the tokens in the observable marking on every backend (CORE-072): inert — no arc can touch them — but never dropped and never fatal.
+
+The first token to reach a given undeclared place is reported once per executor, as a `WARN` log-message event on logger `libpetri.runtime`, so retention is not silent.
+
+#### Lean — the engine hot loop is now formalized
+
+`lean/` grew a second axis beyond verifier-abstraction soundness: the flat ring-buffer token pool at full fidelity. It proves `token_conservation` — every pre-fire token is delivered, reset-destroyed, or surviving, as an order-preserving list equality — plus dirty-set soundness (CONC-005), the Bitmap/Precompiled refinement on the immediate fragment, and the ready-ordering theorem behind the firing-order fix. All four pre-fix divergences ship as `decide`-checked witnesses. Every definition names the shipped Rust function it models. `lake build` stays dependency-free and CI-gated (`sorry` grep + `#print axioms`).
+
+---
+
+### Verification — no more false `Proven`
+
+#### Fixed — false `Proven` on `all()` / `atLeast()` inputs (Java, TypeScript, Rust, Python)
 
 If you use `lp.verify(...)` / `Verifier` / `verify()` on nets with `all()` or `atLeast()` inputs, re-run your proofs — a `Proven` result from an earlier version may not hold.
-
-### Verification: false `Proven` fixed (Java, TypeScript, Rust, Python)
 
 **The state-class graph consumed one token where the executor drains the place.** `all()` and `atLeast()` inputs take every matching token when they fire, but the state-class graph subtracted a single token from the successor marking. Every state reached *after* such a firing was therefore computed against a marking that still held tokens the executor had already consumed — so a downstream inhibitor arc looked permanently blocked, and states the executor really reaches were reported unreachable.
 
@@ -19,7 +87,7 @@ Transition.builder("t").input(In.all(p)).output(Out.place(q)).build()
 
 This affected timed reachability (`StateClassGraph`, `VER-010`) and the ν-partition quotient (`VER-012`) in all three implementations. All three now route the successor computation through the single `consumptionCount` definition of `IO-007`.
 
-### Breaking — input guards removed (TypeScript, Rust, Python)
+#### Breaking — input guards removed (TypeScript, Rust, Python)
 
 Input arcs no longer carry a per-token value predicate. `IO-006` removed guards from the specification in February; Java had already dropped them, while TypeScript and Rust kept shipping them — this release finishes that change.
 
@@ -57,7 +125,7 @@ atLeast(2, p, (v) => v.ready)
 
 On correlated (ν) inputs, name equality remains the per-token filter and is unaffected.
 
-### Breaking — output specs are enforced at runtime (Rust, Python)
+#### Breaking — output specs are enforced at runtime (Rust, Python)
 
 `IO-015` validation now runs on every firing. Java and TypeScript already did this; Rust (and therefore Python) treated the output spec as documentation.
 
@@ -84,11 +152,11 @@ lp.run_sync(net, options=lp.ExecutorOptions(skip_output_validation=True))
 
 which brings us to —
 
-### Fixed — `skip_output_validation` was inert (Rust, Python)
+#### Fixed — `skip_output_validation` was inert (Rust, Python)
 
 The builder accepted the flag and dropped it, so the documented escape hatch did nothing, in both `PrecompiledExecutorBuilder` and Python's `ExecutorOptions`. Java and TypeScript honoured it throughout. It now works everywhere.
 
-### Fixed — `Out.ForwardInput` forwarded one token (Java, TypeScript)
+#### Fixed — `Out.ForwardInput` forwarded one token (Java, TypeScript)
 
 A batched input paired with `forwardInput` re-emitted a single token instead of one per token consumed, silently destroying the rest. Rust was already correct.
 
@@ -98,19 +166,22 @@ A batched input paired with `forwardInput` re-emitted a single token instead of 
 // before: q receives 1 token   now: q receives 3, in consumption order
 ```
 
-### Fixed — XOR branch ambiguity resolved consistently (TypeScript)
+#### Fixed — XOR branch ambiguity resolved consistently (TypeScript)
 
 When several `Out.Xor` branches match and one subsumes all the others — `and(a, b, c)` against `and(a, b)` — the most specific branch is selected rather than the firing being rejected. Java already did this and Rust gained it here; TypeScript was the outlier. Genuinely overlapping branches (`and(a, b)` vs `and(b, c)`) remain a violation.
 
-### Added — `lean/`, a machine-checked soundness development
+#### Added — `lean/`, a machine-checked soundness development
 
-A dependency-free Lean 4 development (`lake build`, no Mathlib) proving **Proposition 1** — `α(R(N)) ⊆ R(N̂)`, that the verifier's untimed abstraction really over-approximates the executor — together with decidable counterexamples showing the side conditions cannot be dropped, and models retrodicting two historical false-`Proven` defects. CI builds it and rejects `sorry`/`admit`.
+A dependency-free Lean 4 development (`lake build`, no Mathlib) proving **Proposition 1** — `α(R(N)) ⊆ R(N̂)`, that the verifier's untimed abstraction really over-approximates the executor — with decidable counterexamples showing the side conditions cannot be dropped, and models retrodicting two historical false-`Proven` defects. CI builds it and rejects `sorry`/`admit`.
 
-Every definition names the shipped Rust function it models; if that function changes, the model is wrong until the comment is rechecked.
+---
 
 ### Spec
 
 209 → 208 active requirements. `EXEC-011` (Guarded Token Consumption) tombstoned alongside `IO-006`. `NU-021` retitled *Match as the Sole Per-Token Filter*, fixing the composition order should a unary filter ever return. `IO-014`, `IO-015`, `VER-004`, `VER-010` and `VER-012` amended; `CONC-007` / `CONC-008` retargeted.
+
+The executor fixes added acceptance criteria only — no new requirement IDs, so the count is unchanged. `EXEC-002` AC3/AC4 pin the cross-backend ready order and carve out the all-immediate fast path (mirrored in `CONC-023` AC4); `EXEC-013` AC4 pins read-before-reset; `CORE-030` AC3 pins duplicate-input rejection; `CORE-072` AC3/AC4 pin unknown-place retention and its `WARN` diagnostic. `MOD-021` now carries the canonical input-arc merge table, which `CORE-030` and `MOD-061` reference instead of restating.
+
 ## Java 2.14.0 / TypeScript 2.13.0 / Rust 3.7.0 / Python 2.16.0 — 2026-08-03
 
 **A transition that declares an output but can never produce one now fails to compile ([CORE-043], new).**

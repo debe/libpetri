@@ -53,6 +53,11 @@ public final class PrecompiledNet {
     // Operation sequences per transition
     final int[][] consumeOps;   // consume/reset opcodes
     final int[][] readOps;      // read-arc place IDs
+    /**
+     * Index into {@code consumeOps[tid]} where the RESET tail begins (inputs occupy
+     * {@code [0, resetOpsStart)}); read arcs peek at this boundary (EXEC-013 AC4).
+     */
+    final int[] resetOpsStart;
 
     // Enablement masks (reused from CompiledNet)
     final long[][] needsMaskWords;
@@ -182,6 +187,7 @@ public final class PrecompiledNet {
         // Compile consume/read operation sequences
         this.consumeOps = new int[transitionCount][];
         this.readOps = new int[transitionCount][];
+        this.resetOpsStart = new int[transitionCount];
         this.inputPlaceMaskWords = new long[transitionCount][];
 
         this.simpleOutputPlaceId = new int[transitionCount];
@@ -189,7 +195,9 @@ public final class PrecompiledNet {
 
         for (int tid = 0; tid < transitionCount; tid++) {
             Transition t = transitionsById[tid];
-            consumeOps[tid] = compileFireProgram(t);
+            ConsumeProgram fire = compileFireProgram(t);
+            consumeOps[tid] = fire.ops();
+            resetOpsStart[tid] = fire.resetOpsStart();
             readOps[tid] = compileReadProgram(t);
             inputPlaceMaskWords[tid] = compileInputMask(t);
 
@@ -291,7 +299,10 @@ public final class PrecompiledNet {
 
     // ==================== Operation Sequence Compilation ====================
 
-    private int[] compileFireProgram(Transition t) {
+    /** Compiled consume opcodes plus the boundary where the RESET tail begins. */
+    private record ConsumeProgram(int[] ops, int resetOpsStart) {}
+
+    private ConsumeProgram compileFireProgram(Transition t) {
         // Estimate size: each input spec needs 2-3 ints, each reset needs 2
         var ops = new ArrayList<Integer>();
 
@@ -319,6 +330,7 @@ public final class PrecompiledNet {
             }
         }
 
+        int resetOpsStart = ops.size();
         for (var arc : t.resets()) {
             int pid = placeIndex.get(arc.place());
             ops.add(RESET);
@@ -327,7 +339,7 @@ public final class PrecompiledNet {
 
         int[] result = new int[ops.size()];
         for (int i = 0; i < result.length; i++) result[i] = ops.get(i);
-        return result;
+        return new ConsumeProgram(result, resetOpsStart);
     }
 
     private int[] compileReadProgram(Transition t) {

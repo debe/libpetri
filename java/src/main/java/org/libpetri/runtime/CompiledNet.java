@@ -145,8 +145,20 @@ public final class CompiledNet {
             boolean needsCardinality = false;
             int inputCount = t.inputSpecs().size();
 
+            // CORE-030 AC3: the Transition builder stays permissive; the duplicate-input
+            // rejection lives here so both backends share it.
+            var seenInputPlaces = new BitSet(placeCount);
+
             for (var in : t.inputSpecs()) {
                 int pid = placeIndex.get(in.place());
+                if (seenInputPlaces.get(pid)) {
+                    throw new IllegalStateException(
+                        ("Transition '%s' declares two input arcs on place '%s'. Duplicate "
+                            + "input places have no coherent consumption semantics and are "
+                            + "rejected at compile time (CORE-030). Use a single arc with "
+                            + "exactly(n) / atLeast(n) instead.").formatted(t.name(), in.place().name()));
+                }
+                seenInputPlaces.set(pid);
                 needs.set(pid);
                 placeToTransitionsList[pid].add(tid);
 
@@ -238,6 +250,16 @@ public final class CompiledNet {
         Integer id = placeIndex.get(place);
         if (id == null) throw new IllegalArgumentException("Unknown place: " + place.name());
         return id;
+    }
+
+    /**
+     * Like {@link #placeId(Place)} but returns {@code -1} for a place the compiled net does
+     * not know. Used by the retention seams (CORE-072 AC3): tokens reaching a backend for an
+     * uncompiled place are kept in the observable marking rather than failing the operation.
+     */
+    int placeIdOrMissing(Place<?> place) {
+        Integer id = placeIndex.get(place);
+        return id == null ? -1 : id;
     }
 
     public int transitionId(Transition t) {

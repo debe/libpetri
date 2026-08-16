@@ -84,6 +84,32 @@ impl ChangeTracker for RecordingChangeTracker<'_> {
     }
 }
 
+/// Places that received a token the compiled net declares no arc on
+/// (CORE-072 AC3). Each distinct name is queued **once**, so a hot loop
+/// writing into the same undeclared place cannot flood the event store;
+/// the loop drains the queue and emits the CORE-072 AC4 diagnostic.
+#[derive(Default)]
+pub struct UnknownPlaceLog {
+    seen: HashSet<Arc<str>>,
+    pending: Vec<Arc<str>>,
+}
+
+impl UnknownPlaceLog {
+    /// Queues `place` if this is the first token it has ever received.
+    #[inline]
+    pub fn record(&mut self, place: &Arc<str>) {
+        if self.seen.insert(Arc::clone(place)) {
+            self.pending.push(Arc::clone(place));
+        }
+    }
+
+    /// Hands the queued names to the loop, leaving the queue empty.
+    #[inline]
+    pub fn take(&mut self) -> Vec<Arc<str>> {
+        std::mem::take(&mut self.pending)
+    }
+}
+
 /// Internal seam between the shared loop and per-executor storage.
 ///
 /// **Visibility:** `pub` because it appears in the bounds of
@@ -236,6 +262,13 @@ pub trait ExecutorBackend {
     /// Updates token storage and dirty bits; the loop emits the
     /// `TokenAdded` event.
     fn inject_external_token(&mut self, place: &Arc<str>, token: ErasedToken);
+
+    // ============ Diagnostics ============
+
+    /// Drain the [`UnknownPlaceLog`] entries queued since the last call.
+    /// Empty on every normal path; the loop turns each name into one
+    /// `LogMessage` (CORE-072 AC4).
+    fn take_unknown_places(&mut self) -> Vec<Arc<str>>;
 
     // ============ Async planning ============
 

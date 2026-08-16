@@ -224,6 +224,13 @@ Each transition maps to a priority index for O(1) ready-queue insertion.
 2. Each priority level has a separate FIFO queue.
 3. Transition selection is O(L) where L = distinct priority levels.
 4. Within the same priority, FIFO ordering by enablement time is preserved.
+   Feeding a level's queue in declaration order is NOT sufficient: transitions
+   enabled in different cycles must drain in enablement order even when it
+   disagrees with declaration order, and equal enablement timestamps break by
+   ascending declaration order — the identical order [EXEC-002] AC3/AC4
+   requires of every backend. The all-immediate single-priority fast path is
+   exempt: it bypasses the ready queues and fires in declaration order, which
+   [EXEC-002] AC4 requires of every backend alike.
 
 **Depends on:** [EXEC-002]
 **Test derivation:** Net with 3 priority levels; verify transitions fire in correct priority order with FIFO within each level.

@@ -64,6 +64,12 @@ export class PrecompiledNet {
   // ==================== Opcode Programs ====================
   /** Per-transition consume opcode sequences. */
   readonly consumeOps: readonly (readonly number[])[];
+  /**
+   * Per-transition index into {@link consumeOps} where the RESET tail begins; the
+   * executor peeks read arcs at this boundary so reads observe the post-input,
+   * pre-reset marking (EXEC-013 AC4).
+   */
+  readonly resetOpsStart: Uint32Array;
   /** Per-transition read-arc place IDs. */
   readonly readOps: readonly (readonly number[])[];
 
@@ -198,9 +204,12 @@ export class PrecompiledNet {
     // ==================== Opcode Programs ====================
     const consumeOps: number[][] = new Array(tc);
     const readOps: number[][] = new Array(tc);
+    this.resetOpsStart = new Uint32Array(tc);
     for (let tid = 0; tid < tc; tid++) {
       const t = compiled.transition(tid);
-      consumeOps[tid] = compileConsumeProgram(t, compiled);
+      const program = compileConsumeProgram(t, compiled);
+      consumeOps[tid] = program.ops;
+      this.resetOpsStart[tid] = program.resetOpsStart;
       readOps[tid] = compileReadProgram(t, compiled);
     }
     this.consumeOps = consumeOps;
@@ -408,7 +417,10 @@ function compileSparse(
   }
 }
 
-function compileConsumeProgram(t: Transition, compiled: CompiledNet): number[] {
+function compileConsumeProgram(
+  t: Transition,
+  compiled: CompiledNet,
+): { ops: number[]; resetOpsStart: number } {
   const ops: number[] = [];
 
   for (const spec of t.inputSpecs) {
@@ -429,12 +441,15 @@ function compileConsumeProgram(t: Transition, compiled: CompiledNet): number[] {
     }
   }
 
+  // RESET opcodes are compiled after all input opcodes; the boundary lets the
+  // executor peek read arcs before resets drain (EXEC-013).
+  const resetOpsStart = ops.length;
   for (const arc of t.resets) {
     const pid = compiled.placeId(arc.place);
     ops.push(RESET, pid);
   }
 
-  return ops;
+  return { ops, resetOpsStart };
 }
 
 function compileReadProgram(t: Transition, compiled: CompiledNet): number[] {
