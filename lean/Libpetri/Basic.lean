@@ -46,7 +46,7 @@ inductive Card where
   | atLeast (n : Nat)
   deriving DecidableEq, Repr
 
-/-- Models `libpetri-core/src/input.rs:226` `required_count`. -/
+/-- Models `libpetri-core/src/input.rs:83` `required_count`. -/
 def Card.required : Card → Nat
   | .one => 1
   | .exactly n => n
@@ -112,12 +112,12 @@ def post (br : List PlaceId) (p : PlaceId) : Nat :=
 /-!
 ## Concrete semantics
 
-Models `bitmap_backend.rs:299 can_enable` (enablement) and
-`bitmap_backend.rs:585 consume_for_firing` + `:713 produce_token` (effect).
+Models `bitmap_backend.rs:278 can_enable` (enablement) and
+`bitmap_backend.rs:540 consume_for_firing` + `:659 produce_token` (effect).
 -/
 
 /-- Tokens at `s.place` satisfying `s`'s guard. Models
-`Marking::count_matching` as called at `bitmap_backend.rs:648`. -/
+`Marking::count_matching` as called at `bitmap_backend.rs:594`. -/
 def matchCount (m : CMarking) (s : InSpec) : Nat :=
   match s.guard with
   | none => (m s.place).length
@@ -125,7 +125,7 @@ def matchCount (m : CMarking) (s : InSpec) : Nat :=
 
 /-- Tokens actually removed from `s.place` by one firing.
 
-`bitmap_backend.rs:644-650`: `One => 1`, `Exactly{n} => n`, and
+`bitmap_backend.rs:590-596`: `One => 1`, `Exactly{n} => n`, and
 `All`/`AtLeast` => `count_matching`, i.e. **all guard-matching tokens** — tokens
 failing the guard are left behind by `remove_matching`.
 
@@ -141,7 +141,7 @@ def consumedAt (m : CMarking) (t : Transition) (p : PlaceId) : Nat :=
   | none => 0
   | some s => consumeCount m s
 
-/-- Concrete enablement (`bitmap_backend.rs:299`, minus timing/ν): every input
+/-- Concrete enablement (`bitmap_backend.rs:278`, minus timing/ν): every input
 arc has enough *matching* tokens, every inhibited place is empty, every read
 place is non-empty. Reset arcs deliberately do not gate (CORE-034). -/
 def enabledC (m : CMarking) (t : Transition) : Bool :=
@@ -156,7 +156,7 @@ removes exactly `consumedAt` tokens, a reset arc drains the place
 (`bitmap_backend.rs` reset handling), and the action's writes add `prod p`
 tokens via `produce_token`.
 
-`prod` is deliberately an arbitrary function: `executor_core/output.rs:19`
+`prod` is deliberately an arbitrary function: `executor_core/output.rs:37`
 `validate_out_spec` checks only *which places* the action wrote to, never how
 many tokens it wrote to each. Constraining it is `UnitOutput` below — and that
 constraint turns out to be load-bearing. -/

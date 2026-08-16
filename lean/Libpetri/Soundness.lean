@@ -216,7 +216,7 @@ def mSimple : CMarking := fun p => if p == 0 then [7] else []
 /-- An action that writes *two* tokens to its single output place. -/
 def prodDouble : PlaceId → Nat := fun p => if p == 1 then 2 else 0
 
-/-- **Finding 2.** `validate_out_spec` (`executor_core/output.rs:19`) is a
+/-- **Finding 2.** `validate_out_spec` (`executor_core/output.rs:37`) is a
 set-membership check, so this action is accepted: it wrote to place 1, which is
 what `Out::Place(p₁)` demands. The encoder fixes the gain at one token per
 branch place (`net_flattener.rs:85-88`). Again the concrete successor escapes

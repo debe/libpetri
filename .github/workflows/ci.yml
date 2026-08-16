@@ -102,7 +102,9 @@ jobs:
       - run: python -m pip install dist/libpetri-*.whl
       - run: pytest
 
-  # Machine-checked soundness of the verifier's untimed abstraction (lean/).
+  # Machine-checked soundness (lean/): the verifier's untimed abstraction and
+  # the precompiled executor's hot loop (flat-pool token conservation + the
+  # Bitmap/Precompiled backend refinement).
   # Proof-only: no implementation code depends on this, so the job stands alone.
   # Dependency-free (no Mathlib), so the build is seconds and needs no release
   # cache — only elan itself is cached.
@@ -140,6 +142,18 @@ jobs:
           #print axioms Libpetri.willFire_guard_is_necessary
           #print axioms Libpetri.false_proven_without_injection
           #print axioms Libpetri.injection_reaches_violation
+          #print axioms Libpetri.token_conservation
+          #print axioms Libpetri.consume_faithful
+          #print axioms Libpetri.Pool.removeMatching_some
+          #print axioms Libpetri.Pool.addLast_proj_self
+          #print axioms Libpetri.fireConsume_dirty_sound
+          #print axioms Libpetri.updateEnablement_sync
+          #print axioms Libpetri.precompiled_refines_bitmap_immediate
+          #print axioms Libpetri.collect_ready_general_refines
+          #print axioms Libpetri.tid_order_diverges
+          #print axioms Libpetri.read_reset_order_diverges
+          #print axioms Libpetri.canEnable_insufficient_for_totality
+          #print axioms Libpetri.unknown_place_drop
           EOF
           lake env lean /tmp/axioms.lean | tee /tmp/axioms.out
           ! grep -q "sorryAx" /tmp/axioms.out
