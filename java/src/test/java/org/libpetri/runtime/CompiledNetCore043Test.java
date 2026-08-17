@@ -82,17 +82,6 @@ class CompiledNetCore043Test {
         assertThrows(IllegalStateException.class, () -> PrecompiledNet.compile(offendingNet("t")));
     }
 
-    @Test
-    void netExecutor_rejectsTheSameNet() {
-        var net = offendingNet("t");
-        var initial = Map.<Place<?>, java.util.List<Token<?>>>of();
-
-        var ex = assertThrows(IllegalStateException.class, () -> NetExecutor.create(net, initial));
-        assertTrue(ex.getMessage().contains("'t'"), ex.getMessage());
-        assertThrows(IllegalStateException.class,
-            () -> NetExecutor.builder(net, initial).build());
-    }
-
     // ---------------------------------------------------------------- verification entry points
 
     @Test

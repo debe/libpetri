@@ -15,7 +15,7 @@ import java.util.concurrent.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for environment place support in NetExecutor.
+ * Tests for environment place support in PrecompiledNetExecutor.
  */
 class EnvironmentPlaceTest {
 
@@ -38,7 +38,7 @@ class EnvironmentPlaceTest {
 
         var net = PetriNet.builder("Test").transitions(transition).build();
 
-        try (var executor = NetExecutor.builder(net, Map.of())
+        try (var executor = PrecompiledNetExecutor.builder(net, Map.of())
                 .environmentPlaces(envPlace)
                 .build()) {
 
@@ -74,7 +74,7 @@ class EnvironmentPlaceTest {
         var regularPlace = Place.of("Regular", String.class);
         var net = PetriNet.builder("Test").places(regularPlace).build();
 
-        try (var executor = NetExecutor.builder(net, Map.of())
+        try (var executor = PrecompiledNetExecutor.builder(net, Map.of())
                 .build()) {
 
             var future = executor.inject(EnvironmentPlace.of(regularPlace), Token.of("test"));
@@ -92,7 +92,7 @@ class EnvironmentPlaceTest {
         var envPlace = EnvironmentPlace.of(Place.of("Input", String.class));
         var net = PetriNet.builder("Test").places(envPlace.place()).build();
 
-        try (var executor = NetExecutor.builder(net, Map.of())
+        try (var executor = PrecompiledNetExecutor.builder(net, Map.of())
                 .environmentPlaces(envPlace)
                 .build()) {
 
@@ -113,7 +113,7 @@ class EnvironmentPlaceTest {
         var envPlace = EnvironmentPlace.of(Place.of("Input", String.class));
         var net = PetriNet.builder("Test").places(envPlace.place()).build();
 
-        var executor = NetExecutor.builder(net, Map.of())
+        var executor = PrecompiledNetExecutor.builder(net, Map.of())
             .environmentPlaces(envPlace)
             .build();
         executor.close();
@@ -140,7 +140,7 @@ class EnvironmentPlaceTest {
 
         var net = PetriNet.builder("Test").transitions(transition).build();
 
-        try (var executor = NetExecutor.builder(net, Map.of())
+        try (var executor = PrecompiledNetExecutor.builder(net, Map.of())
                 .environmentPlaces(envPlace)
                 .build()) {
 
@@ -173,7 +173,7 @@ class EnvironmentPlaceTest {
         var net = PetriNet.builder("Test").places(place).build();
 
         // Standard executor with initial token but no transitions
-        try (var executor = NetExecutor.create(net, Map.of(place, List.of(Token.of("initial"))))) {
+        try (var executor = PrecompiledNetExecutor.create(net, Map.of(place, List.of(Token.of("initial"))))) {
             var result = executor.run();
             // Should terminate immediately since no transitions are enabled
             assertEquals(1, result.tokenCount(place));

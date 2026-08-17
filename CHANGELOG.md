@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## Java 3.0.0 / TypeScript 3.0.0 / Rust 4.0.0 / Python 3.0.0 — 2026-08-17
 
-**Two independent fix sets land together.** The production executor now behaves exactly like the reference executor — four divergences the differential suite never reached are closed. Separately, the verifier no longer returns `Proven` for nets it was analysing unsoundly. Java, TypeScript and Rust are all covered; Python inherits every Rust fix through the PyO3 bindings.
+**A major version on every channel.** Three sets of changes land together. The production executor now behaves exactly like the reference executor: four divergences the differential suite never reached are closed. The verifier no longer returns `Proven` for nets it was analysing unsoundly. And two long-deprecated surfaces are gone: input guards in TypeScript and Rust, and Java's `NetExecutor`. Java, TypeScript and Rust are all covered; Python inherits every Rust fix through the PyO3 bindings.
+
+Every channel carries at least one break, which is why all four take a major bump rather than the minor these waves usually get. If you only read one section, read *Verification* below: a `Proven` result from an earlier version may not hold.
 
 ---
 
@@ -173,6 +175,27 @@ When several `Out.Xor` branches match and one subsumes all the others — `and(a
 #### Added — `lean/`, a machine-checked soundness development
 
 A dependency-free Lean 4 development (`lake build`, no Mathlib) proving **Proposition 1** — `α(R(N)) ⊆ R(N̂)`, that the verifier's untimed abstraction really over-approximates the executor — with decidable counterexamples showing the side conditions cannot be dropped, and models retrodicting two historical false-`Proven` defects. CI builds it and rejects `sorry`/`admit`.
+
+---
+
+### Java — `NetExecutor` removed
+
+`NetExecutor`, deprecated in 2.13.0 with `forRemoval = true`, is deleted. It walked the `PetriNet`
+directly instead of compiling it, so it was the one Java executor whose firing path was not covered
+by the bitmap/precompiled differential suite, the same suite that found the four divergences above.
+
+Replace it with `PrecompiledNetExecutor` (production) or `BitmapNetExecutor` (reference). Both carry
+the same `create(...)` / `builder(...)` surface, so the migration is a type rename:
+
+```java
+// before
+try (var executor = NetExecutor.create(net, initial)) { ... }
+
+// after
+try (var executor = PrecompiledNetExecutor.create(net, initial)) { ... }
+```
+
+The JMH suite loses its `ref_*` benchmark arms and the report's `Reference` column with it.
 
 ---
 

@@ -66,7 +66,7 @@ class ThreadSafetyStressTest {
 
         var initial = Map.<Place<?>, List<Token<?>>>of(input, inputs);
 
-        try (var executor = NetExecutor.create(net, initial)) {
+        try (var executor = PrecompiledNetExecutor.create(net, initial)) {
             var result = executor.run(Duration.ofSeconds(10)).toCompletableFuture().join();
 
             assertEquals(N, fired.get(), "All transitions should have fired");
@@ -112,7 +112,7 @@ class ThreadSafetyStressTest {
 
         var initial = Map.<Place<?>, List<Token<?>>>of(input, inputs);
 
-        try (var executor = NetExecutor.create(net, initial)) {
+        try (var executor = PrecompiledNetExecutor.create(net, initial)) {
             var result = executor.run(Duration.ofSeconds(10)).toCompletableFuture().join();
 
             int expected = N * OUTPUTS_PER_TRANSITION;
@@ -157,7 +157,7 @@ class ThreadSafetyStressTest {
 
         var initial = Map.<Place<?>, List<Token<?>>>of(placeA, inputs);
 
-        try (var executor = NetExecutor.create(net, initial)) {
+        try (var executor = PrecompiledNetExecutor.create(net, initial)) {
             var result = executor.run(Duration.ofSeconds(10)).toCompletableFuture().join();
 
             assertEquals(0, result.tokenCount(placeA), "All tokens should leave A");
@@ -209,7 +209,7 @@ class ThreadSafetyStressTest {
             config, List.of(Token.of(new Counter(42)))  // Single config token
         );
 
-        try (var executor = NetExecutor.create(net, initial)) {
+        try (var executor = PrecompiledNetExecutor.create(net, initial)) {
             var result = executor.run(Duration.ofSeconds(10)).toCompletableFuture().join();
 
             // Config token should still be there (not consumed)
@@ -255,7 +255,7 @@ class ThreadSafetyStressTest {
             buffer, bufferTokens
         );
 
-        try (var executor = NetExecutor.create(net, initial)) {
+        try (var executor = PrecompiledNetExecutor.create(net, initial)) {
             var result = executor.run(Duration.ofSeconds(10)).toCompletableFuture().join();
 
             assertEquals(1, clearedCount.get(), "Transition should fire once");
@@ -292,7 +292,7 @@ class ThreadSafetyStressTest {
             blocker, List.of(Token.of(new Counter(999)))
         );
 
-        try (var executor = NetExecutor.create(net, initial)) {
+        try (var executor = PrecompiledNetExecutor.create(net, initial)) {
             // Run briefly - transition should NOT fire
             var result = executor.run(Duration.ofMillis(200)).toCompletableFuture().join();
 
@@ -347,7 +347,7 @@ class ThreadSafetyStressTest {
             // blocker is empty, so not inhibited
         );
 
-        try (var executor = NetExecutor.create(net, initial)) {
+        try (var executor = PrecompiledNetExecutor.create(net, initial)) {
             var result = executor.run(Duration.ofSeconds(10)).toCompletableFuture().join();
 
             assertEquals(0, result.tokenCount(input), "All inputs should be consumed");

@@ -10,7 +10,7 @@ import org.libpetri.core.Token;
 /**
  * Common interface for Petri net executors.
  *
- * <p>Both {@link NetExecutor} and {@link BitmapNetExecutor} implement this
+ * <p>Both {@link PrecompiledNetExecutor} and {@link BitmapNetExecutor} implement this
  * interface, allowing tests and client code to be written against a single
  * contract.
  */

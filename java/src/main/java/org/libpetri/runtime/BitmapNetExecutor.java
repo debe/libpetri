@@ -19,7 +19,7 @@ import org.libpetri.event.NetEvent;
 /**
  * Lock-free bitmap-based executor for Coloured Time Petri Nets.
  *
- * <p>Replaces the O(n²) full-scan approach of {@link NetExecutor} with:
+ * <p>Replaces the O(n²) full-scan enablement check of a naive interpreter with:
  * <ul>
  *   <li><b>Presence bitmap</b> — one bit per place, orchestrator-confined</li>
  *   <li><b>Event-driven dirty set</b> — only transitions affected by a token change
@@ -55,7 +55,7 @@ import org.libpetri.event.NetEvent;
  * synchronization is needed anywhere else.
  *
  * @see CompiledNet
- * @see NetExecutor
+ * @see PrecompiledNetExecutor
  */
 public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunable {
     /** Number of bits to shift for word index (2^6 = 64 bits per long). */

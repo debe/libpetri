@@ -18,7 +18,7 @@ import java.util.concurrent.CompletableFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Configurable deadline-enforcement tolerance (TIME-013), exercised on all three Java executors.
+ * Configurable deadline-enforcement tolerance (TIME-013), exercised on both Java executors.
  *
  * <p>The tolerance is the grace band beyond a hard deadline ({@code deadline()} / {@code window()})
  * before a transition is force-disabled. It absorbs timer-resolution and scheduling jitter and is
@@ -74,21 +74,10 @@ class DeadlineToleranceTest {
     }
 
     @Test
-    void net_builderAcceptsToleranceAndRuns() throws Exception {
-        try (var executor = NetExecutor.builder(trivialNet(), initial())
-                .deadlineTolerance(Duration.ofMillis(50)).build()) {
-            var result = executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
-            assertTrue(result.hasTokens(OUT));
-        }
-    }
-
-    @Test
     void zeroToleranceIsAccepted() {
         assertDoesNotThrow(() -> BitmapNetExecutor.builder(trivialNet(), initial())
             .deadlineTolerance(Duration.ZERO).build().close());
         assertDoesNotThrow(() -> PrecompiledNetExecutor.builder(trivialNet(), initial())
-            .deadlineTolerance(Duration.ZERO).build().close());
-        assertDoesNotThrow(() -> NetExecutor.builder(trivialNet(), initial())
             .deadlineTolerance(Duration.ZERO).build().close());
     }
 
@@ -99,7 +88,5 @@ class DeadlineToleranceTest {
             () -> BitmapNetExecutor.builder(trivialNet(), initial()).deadlineTolerance(neg));
         assertThrows(IllegalArgumentException.class,
             () -> PrecompiledNetExecutor.builder(trivialNet(), initial()).deadlineTolerance(neg));
-        assertThrows(IllegalArgumentException.class,
-            () -> NetExecutor.builder(trivialNet(), initial()).deadlineTolerance(neg));
     }
 }
