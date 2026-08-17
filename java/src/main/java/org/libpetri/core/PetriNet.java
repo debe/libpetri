@@ -28,14 +28,14 @@ import org.libpetri.core.internal.SubnetRewriter;
  *     .build();
  *
  * // Places are auto-collected from transition arcs
- * // Execute with NetExecutor (see runtime package)
+ * // Execute with PrecompiledNetExecutor (see runtime package)
  * }</pre>
  *
  * <h3>Thread Safety</h3>
  * PetriNet is immutable and thread-safe. Multiple executors can run the
  * same net definition concurrently with different markings.
  *
- * @see org.libpetri.runtime.NetExecutor NetExecutor for execution
+ * @see org.libpetri.runtime.PrecompiledNetExecutor PrecompiledNetExecutor for execution
  */
 public final class PetriNet {
     private final String name;

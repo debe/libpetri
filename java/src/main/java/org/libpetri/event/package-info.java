@@ -35,7 +35,7 @@
  * <pre>{@code
  * // Capture events during execution
  * var store = EventStore.inMemory();
- * try (var executor = NetExecutor.builder(net, initial)
+ * try (var executor = PrecompiledNetExecutor.builder(net, initial)
  *         .eventStore(store)
  *         .build()) {
  *     executor.run();
@@ -63,6 +63,6 @@
  * use {@link org.libpetri.event.EventStore#noop()} to completely
  * disable event creation and storage.
  *
- * @see org.libpetri.runtime.NetExecutor
+ * @see org.libpetri.runtime.PrecompiledNetExecutor
  */
 package org.libpetri.event;

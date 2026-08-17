@@ -9,7 +9,7 @@ package org.libpetri.core;
  *
  * <h2>Concurrency Model</h2>
  * <ul>
- *   <li>External threads call {@code NetExecutor.inject(EnvironmentPlace, Token)}</li>
+ *   <li>External threads call the executor's {@code inject(EnvironmentPlace, Token)}</li>
  *   <li>Events queue in a lock-free structure</li>
  *   <li>Orchestrator thread applies them on next loop iteration</li>
  *   <li>Happens-before guaranteed via queue semantics + Semaphore signaling</li>
@@ -30,7 +30,7 @@ package org.libpetri.core;
  * var inputEnv = EnvironmentPlace.of(Place.of("UserInput", String.class));
  *
  * // Use in executor
- * var executor = NetExecutor.builder(net, Map.of())
+ * var executor = PrecompiledNetExecutor.builder(net, Map.of())
  *     .environmentPlaces(inputEnv)
  *     .build();
  *

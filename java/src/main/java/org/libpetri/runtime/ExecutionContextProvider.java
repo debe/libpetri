@@ -25,7 +25,7 @@ import org.libpetri.core.TransitionContext;
  * }</pre>
  *
  * @see TransitionContext#executionContext(Class)
- * @see NetExecutor.Builder#executionContextProvider(ExecutionContextProvider)
+ * @see PrecompiledNetExecutor.Builder#executionContextProvider(ExecutionContextProvider)
  */
 @FunctionalInterface
 public interface ExecutionContextProvider {

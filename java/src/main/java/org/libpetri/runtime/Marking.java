@@ -11,11 +11,11 @@ import org.libpetri.core.Token;
  *
  * <p>A marking represents the distribution of tokens across places at a given
  * point in time. This class provides the runtime state container used by
- * {@link NetExecutor} during net execution.
+ * the runtime executors during net execution.
  *
  * <h2>Threading Model</h2>
  * <p>This class is <strong>not thread-safe</strong>. All access must be from
- * the orchestrator thread (the thread calling {@link NetExecutor#run()}).
+ * the orchestrator thread (the thread calling {@link PetriNetExecutor#run()}).
  * Transition actions must not access the marking directly.
  *
  * <h2>Token Ordering</h2>
@@ -26,7 +26,7 @@ import org.libpetri.core.Token;
  * <p>All operations are type-safe via generics. The place's type parameter
  * ensures only compatible tokens can be added or retrieved.
  *
- * @see NetExecutor
+ * @see PetriNetExecutor
  * @see Place
  * @see Token
  */

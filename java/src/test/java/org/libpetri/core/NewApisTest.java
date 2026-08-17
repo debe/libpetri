@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Timeout;
 
 import org.libpetri.event.EventStore;
 import org.libpetri.event.NetEvent;
-import org.libpetri.runtime.NetExecutor;
+import org.libpetri.runtime.PrecompiledNetExecutor;
 
 import java.time.Duration;
 import java.util.List;
@@ -123,7 +123,7 @@ class NewApisTest {
             );
 
             long start = System.currentTimeMillis();
-            try (var executor = NetExecutor.create(net, initial)) {
+            try (var executor = PrecompiledNetExecutor.create(net, initial)) {
                 var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
                 long elapsed = System.currentTimeMillis() - start;
 
@@ -163,7 +163,7 @@ class NewApisTest {
                 input, List.of(Token.of(new SearchQuery("test")))
             );
 
-            try (var executor = NetExecutor.create(net, initial)) {
+            try (var executor = PrecompiledNetExecutor.create(net, initial)) {
                 var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
 
                 assertTrue(result.hasTokens(success), "Success should have token");
@@ -203,7 +203,7 @@ class NewApisTest {
             );
 
             var eventStore = EventStore.inMemory();
-            try (var executor = NetExecutor.builder(net, initial)
+            try (var executor = PrecompiledNetExecutor.builder(net, initial)
                     .eventStore(eventStore)
                     .build()) {
                 var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
@@ -257,7 +257,7 @@ class NewApisTest {
                 query, List.of(Token.of(originalQuery))
             );
 
-            try (var executor = NetExecutor.create(net, initial)) {
+            try (var executor = PrecompiledNetExecutor.create(net, initial)) {
                 var marking = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
 
                 assertTrue(marking.hasTokens(retry), "Retry should have forwarded token");
@@ -324,7 +324,7 @@ class NewApisTest {
                 )
             );
 
-            try (var executor = NetExecutor.create(net, initial)) {
+            try (var executor = PrecompiledNetExecutor.create(net, initial)) {
                 var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
 
                 // All 3 should be processed one at a time
@@ -367,7 +367,7 @@ class NewApisTest {
                 )
             );
 
-            try (var executor = NetExecutor.create(net, initial)) {
+            try (var executor = PrecompiledNetExecutor.create(net, initial)) {
                 var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
 
                 assertEquals(3, processed.get(), "Should process exactly 3 tokens per firing");
@@ -408,7 +408,7 @@ class NewApisTest {
                 )
             );
 
-            try (var executor = NetExecutor.create(net, initial)) {
+            try (var executor = PrecompiledNetExecutor.create(net, initial)) {
                 var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
 
                 assertEquals(5, consumed.get(), "Should consume all 5 tokens at once");
@@ -449,7 +449,7 @@ class NewApisTest {
                 )
             );
 
-            try (var executor = NetExecutor.create(net, initial2)) {
+            try (var executor = PrecompiledNetExecutor.create(net, initial2)) {
                 var result = executor.run(Duration.ofMillis(200)).toCompletableFuture().join();
 
                 assertEquals(0, consumed.get(), "Should not fire with only 2 tokens");
@@ -469,7 +469,7 @@ class NewApisTest {
                 )
             );
 
-            try (var executor = NetExecutor.create(net, initial5)) {
+            try (var executor = PrecompiledNetExecutor.create(net, initial5)) {
                 var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
 
                 assertEquals(5, consumed.get(), "Should consume all 5 tokens");

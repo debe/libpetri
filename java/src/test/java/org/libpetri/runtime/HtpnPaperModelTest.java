@@ -3,7 +3,7 @@ package org.libpetri.runtime;
 import org.junit.jupiter.api.Test;
 
 import org.libpetri.core.*;
-import org.libpetri.runtime.NetExecutor;
+import org.libpetri.runtime.PrecompiledNetExecutor;
 import static org.libpetri.core.Arc.In.one;
 import static org.libpetri.core.Arc.Out.and;
 import static org.libpetri.core.Arc.Out.place;
@@ -205,7 +205,7 @@ class HtpnPaperModelTest {
         var input = Map.<Place<?>, List<Token<?>>>of(
             pending, List.of(Token.of(new ChatRequest("Show me blue shoes", "session-123")))
         );
-        try (var executor = NetExecutor.create(chatNet, input)) {
+        try (var executor = PrecompiledNetExecutor.create(chatNet, input)) {
             var startTime = System.currentTimeMillis();
             var result = executor.run(Duration.ofSeconds(10)).toCompletableFuture().join();
             var elapsed = System.currentTimeMillis() - startTime;
@@ -354,7 +354,7 @@ class HtpnPaperModelTest {
         var input = Map.<Place<?>, List<Token<?>>>of(
             pending, List.of(Token.of(new ChatRequest("blue shoes", "session-456")))
         );
-        try (var executor = NetExecutor.create(chatNet, input)) {
+        try (var executor = PrecompiledNetExecutor.create(chatNet, input)) {
             var result = executor.run(Duration.ofSeconds(10)).toCompletableFuture().join();
 
             assertTrue(result.hasTokens(answered), "Should reach Answered via fallback path");
@@ -493,7 +493,7 @@ class HtpnPaperModelTest {
         var input = Map.<Place<?>, List<Token<?>>>of(
             pending, List.of(Token.of(new ChatRequest("blue shoes", "session-789")))
         );
-        try (var executor = NetExecutor.create(chatNet, input)) {
+        try (var executor = PrecompiledNetExecutor.create(chatNet, input)) {
             var result = executor.run(Duration.ofSeconds(10)).toCompletableFuture().join();
 
             assertTrue(result.hasTokens(answered), "Should reach Answered via retry path");
@@ -637,7 +637,7 @@ class HtpnPaperModelTest {
         var input = Map.<Place<?>, List<Token<?>>>of(
             pending, List.of(Token.of(new ChatRequest("shoes", "s")))
         );
-        try (var executor = NetExecutor.create(net, input)) {
+        try (var executor = PrecompiledNetExecutor.create(net, input)) {
             var startTime = System.currentTimeMillis();
             var marking = executor.run(Duration.ofMillis(globalTimeout)).toCompletableFuture().join();
             var elapsed = System.currentTimeMillis() - startTime;

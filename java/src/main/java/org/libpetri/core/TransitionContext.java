@@ -479,7 +479,7 @@ public final class TransitionContext {
     /**
      * Returns underlying input container for the executor.
      *
-     * <p><b>Internal API:</b> This method is intended for use by {@code NetExecutor}
+     * <p><b>Internal API:</b> This method is intended for use by the runtime executors
      * to access or reset the raw token input. Application code should
      * use {@link #input(Place)} instead.
      *
@@ -492,11 +492,11 @@ public final class TransitionContext {
     /**
      * Returns underlying output collector for the executor.
      *
-     * <p><b>Internal API:</b> This method is intended for use by {@code NetExecutor}
+     * <p><b>Internal API:</b> This method is intended for use by the runtime executors
      * to retrieve produced tokens after action completion. Application code should
      * use {@link #output(Place, Object)} instead.
      *
-     * <p>Made public to allow cross-package access from {@code runtime.NetExecutor}.
+     * <p>Made public to allow cross-package access from the {@code runtime} package.
      *
      * @return the raw token output collector
      */

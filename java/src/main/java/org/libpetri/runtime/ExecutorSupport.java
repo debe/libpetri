@@ -11,7 +11,7 @@ import java.util.concurrent.TimeUnit;
 import org.libpetri.core.*;
 
 /**
- * Shared static helpers used by both {@link NetExecutor} and {@link BitmapNetExecutor}.
+ * Shared static helpers used by both {@link PrecompiledNetExecutor} and {@link BitmapNetExecutor}.
  */
 final class ExecutorSupport {
 
@@ -266,7 +266,7 @@ final class ExecutorSupport {
     /**
      * Wraps a firing's future with its declared {@code Out.Timeout} budget.
      *
-     * <p>Single implementation shared by all three executors, which previously carried three
+     * <p>Single implementation shared by both executors, which previously carried separate
      * copies that had already drifted apart.
      *
      * <p>Three things this deliberately does <em>not</em> do:

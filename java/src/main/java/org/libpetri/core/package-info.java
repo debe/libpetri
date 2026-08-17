@@ -109,6 +109,6 @@
  *   <li><b>Separation of concerns</b> - net definition vs. execution (see runtime package)</li>
  * </ul>
  *
- * @see org.libpetri.runtime.NetExecutor NetExecutor for execution
+ * @see org.libpetri.runtime.PrecompiledNetExecutor PrecompiledNetExecutor for execution
  */
 package org.libpetri.core;

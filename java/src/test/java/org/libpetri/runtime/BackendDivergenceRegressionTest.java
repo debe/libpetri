@@ -41,7 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * </ul>
  *
  * <p>Deliberately scoped to the two bitmap-compiled backends (not the legacy
- * {@link NetExecutor}, which walks the {@link PetriNet} directly and never compiles).
+ * {@link PrecompiledNetExecutor}, which walks the {@link PetriNet} directly and never compiles).
  */
 @Timeout(60)
 class BackendDivergenceRegressionTest {
