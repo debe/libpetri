@@ -61,6 +61,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
+      # The verification crate shells out to the z3 binary; without it the
+      # z3-gated tests (certificate check, verdict parity) skip silently.
+      - name: Install z3 (for verification tests)
+        run: sudo apt-get update && sudo apt-get install -y z3
       # libpetri-py is a Python extension cdylib; building it without maturin
       # picks up the wrong python linker. Build/test the rest of the workspace
       # here; the dedicated `python` job builds the wheel via maturin.
@@ -154,9 +158,35 @@ jobs:
           #print axioms Libpetri.read_reset_order_diverges
           #print axioms Libpetri.canEnable_insufficient_for_totality
           #print axioms Libpetri.unknown_place_drop
+          #print axioms Libpetri.deadline_reap_dirty_diverges
+          #print axioms Libpetri.bb_never_fires_after_reap
+          #print axioms Libpetri.pb_update_reenables
+          #print axioms Libpetri.invariant_strengthening_sound
+          #print axioms Libpetri.strengthened_reach_eq
+          #print axioms Libpetri.strengthened_reach_eq_inj
+          #print axioms Libpetri.injection_hypothesis_is_necessary
+          #print axioms Libpetri.consume_all_hypothesis_is_necessary
+          #print axioms Libpetri.bad_rule_nonvacuity
+          #print axioms Libpetri.match_cache_lockstep
+          #print axioms Libpetri.fire_muts_lockstep
+          #print axioms Libpetri.sync_seed
+          #print axioms Libpetri.one_exactly_is_necessary
+          #print axioms Libpetri.sole_consumer_is_necessary
+          #print axioms Libpetri.no_reset_is_necessary
           EOF
           lake env lean /tmp/axioms.lean | tee /tmp/axioms.out
           ! grep -q "sorryAx" /tmp/axioms.out
+      # The proofs cite shipped Rust functions; the pins in lean/fidelity.toml
+      # hash those functions so a change to modeled code fails CI until the
+      # model is consciously re-verified (workflow in lean/README.md).
+      - name: Lean fidelity pins match cited Rust source
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/lean-fidelity-check.py
+      # spec/coverage-matrix.md is generated; keep it in lockstep with the
+      # spec index, lean/proof-coverage.json, and the test suites.
+      - name: Spec coverage matrix is up to date
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/spec-coverage-matrix.py --check
 
   # Guards the doc-generator viewer bundle (petrinet-diagrams.js): the baked
   # Graphviz-WASM must instantiate + render, and the committed assets must be
