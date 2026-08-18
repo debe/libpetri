@@ -62,11 +62,17 @@ describe('SmtVerifier certificate downgrade (corrupted answer seam)', () => {
 
     expect(result.verdict.type).toBe('unknown');
     if (result.verdict.type === 'unknown') {
-      expect(result.verdict.reason).toMatch(/^Certificate check FAILED: safety not implied/);
-      expect(result.verdict.reason).toMatch(/verdict downgraded/);
+      expect(result.verdict.reason).toMatch(
+        /^certificate check failed: safety \(VC3\) was not UNSAT - solver returned SATISFIABLE/,
+      );
+      expect(result.verdict.reason).toMatch(
+        /the IC3 certificate could not be independently re-validated against the unstrengthened step relation, so PROVEN is withheld$/,
+      );
     }
-    expect(result.report).toContain('  Certificate check: FAILED (safety not implied');
+    expect(result.report).toContain('  Certificate check: FAILED');
     expect(result.report).toContain('Uncertified invariant: true');
-    expect(result.report).not.toContain('PROVEN');
+    // The downgrade reason says "PROVEN is withheld"; no PROVEN verdict is reported.
+    expect(result.report).not.toContain('PROVEN (IC3/PDR)');
+    expect(result.report).not.toContain('PROVEN (structural)');
   }, Z3_TIMEOUT);
 });

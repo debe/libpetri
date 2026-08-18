@@ -233,8 +233,12 @@ public final class SmtEncoder {
         fp.addRule(qRule, ctx.mkSymbol("env_inject_" + idx));
     }
 
-    /** Non-negativity of a marking vector: {@code AND_i vars[i] >= 0} (same fold order as the CHC rules). */
-    private static BoolExpr encodeNonNegativity(Context ctx, Expr<IntSort>[] vars, int P) {
+    /**
+     * Non-negativity of a marking vector: {@code AND_i vars[i] >= 0} (same fold order
+     * as the CHC rules). Package-private: {@link CertificateChecker} asserts it on the
+     * free current marking so its VCs range over N^P, not Z^P.
+     */
+    static BoolExpr encodeNonNegativity(Context ctx, Expr<IntSort>[] vars, int P) {
         BoolExpr nonNeg = ctx.mkTrue();
         for (int i = 0; i < P; i++) {
             nonNeg = ctx.mkAnd(nonNeg, ctx.mkGe(vars[i], ctx.mkInt(0)));
@@ -285,8 +289,9 @@ public final class SmtEncoder {
      * WITHOUT the P-invariant strengthening conjuncts that {@link #encode} adds
      * to the CHC transition-rule bodies.
      *
-     * <p>This is the step relation {@link CertificateChecker} validates an IC3
-     * certificate against. Dropping the invariant conjuncts keeps the check
+     * <p>Package-private: this is the step relation the sibling
+     * {@link CertificateChecker} validates an IC3 certificate against.
+     * Dropping the invariant conjuncts keeps the check
      * independent of the P-invariant computation: a numerically wrong invariant
      * conjoined into the rules removes reachable successors, so re-checking
      * against the strengthened relation would inherit exactly the failure mode
@@ -300,18 +305,20 @@ public final class SmtEncoder {
      * @param mPrimeVars next-marking expressions (length = placeCount)
      * @return the step relation {@code T(M, M')}; {@code false} for a net with no steps
      */
-    public static BoolExpr encodeStepRelation(
+    static BoolExpr encodeStepRelation(
             Context ctx, FlatNet flatNet,
             Expr<IntSort>[] mVars, Expr<IntSort>[] mPrimeVars
     ) {
         int P = flatNet.placeCount();
         var steps = new java.util.ArrayList<BoolExpr>();
 
+        // Both conjuncts constrain M' alone, so they are the same formula for every
+        // transition disjunct: build them once.
+        BoolExpr nonNeg = encodeNonNegativity(ctx, mPrimeVars, P);
+        BoolExpr envBounds = encodeEnvBounds(ctx, flatNet, mPrimeVars);
         for (var ft : flatNet.transitions()) {
             BoolExpr enabled = encodeEnabled(ctx, ft, flatNet, mVars, P);
             BoolExpr fire = encodeFire(ctx, ft, flatNet, mVars, mPrimeVars, P);
-            BoolExpr nonNeg = encodeNonNegativity(ctx, mPrimeVars, P);
-            BoolExpr envBounds = encodeEnvBounds(ctx, flatNet, mPrimeVars);
             steps.add(ctx.mkAnd(enabled, fire, nonNeg, envBounds));
         }
 
@@ -466,14 +473,14 @@ public final class SmtEncoder {
     /**
      * Encodes the property-violation predicate {@code Bad(M)} over the given
      * marking expressions — the same predicate the Error CHC rule conjoins with
-     * {@code Reachable(M)}. Public so {@link CertificateChecker} can check the
-     * safety verification condition {@code I(M) AND Bad(M)} against the identical
-     * violation semantics used by the encoding.
+     * {@code Reachable(M)}. Package-private: the sibling {@link CertificateChecker}
+     * checks the safety verification condition {@code I(M) AND Bad(M)} against the
+     * identical violation semantics used by the encoding.
      *
      * @throws IllegalArgumentException if the property references a place that is
      *     not in the flattened net (mirrors the Error-rule behavior)
      */
-    public static BoolExpr encodePropertyViolation(
+    static BoolExpr encodePropertyViolation(
             Context ctx, FlatNet flatNet, SmtProperty property,
             Set<Place<?>> sinkPlaces,
             Expr<IntSort>[] mVars, int P

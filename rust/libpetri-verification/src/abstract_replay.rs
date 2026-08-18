@@ -18,11 +18,27 @@
 //!   under its bound), and [`violates`] its `encode_property_violation` /
 //!   `encode_deadlock` (`Bad(M)`).
 //!
+//! [`within_env_bounds`] mirrors `env_bound_conditions`, which the encoders
+//! conjoin into EVERY transition disjunct of the step relation: a firing whose
+//! successor pushes an env place past its `Bounded(k)` cap is not a step of
+//! the encoded system, so it must not be a step here either.
+//!
+//! The module is `pub` and deliberately NOT gated on the `z3` feature: it is
+//! the abstract semantics itself, not a solver front-end. Nothing here spawns
+//! or parses z3 (the decode that feeds it lives in
+//! [`crate::counterexample`], which IS gated), so the correspondence above
+//! stays testable — and citable from Lean — in a build with no solver at all.
+//!
 //! Because the abstraction over-approximates the concrete net, a decoded
 //! counterexample can be *spurious for the concrete net* yet still replay
-//! here; conversely a decoded state set that does NOT replay indicates a
-//! spurious CEX at the abstract level or a decoder mismatch — the verifier
-//! downgrades to `Unknown` in that case, never crashes.
+//! here. The converse is graded, and only one grade is evidence against the
+//! verdict — see [`ReplayOutcome`]: a search that exhausted the whole abstract
+//! successor space without reaching `Bad` ([`ReplayOutcome::NoChain`]) says the
+//! counterexample is spurious or the decoder drifted, and the verifier
+//! downgrades to `Unknown`; a search that merely ran out of budget
+//! ([`ReplayOutcome::Exhausted`]) says nothing about the verdict and leaves it
+//! `Violated`, unconfirmed. Neither ever crashes: every public entry point
+//! here tolerates a malformed state vector rather than indexing out of bounds.
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
 
@@ -33,14 +49,24 @@ use crate::property::SmtProperty;
 /// enablement conjuncts of `smt_encoder::firing_conditions`:
 /// `m_i >= pre[i]` for every input, `m_i = 0` for inhibitors, `m_i >= 1` for
 /// reads. Reset arcs deliberately do not gate (CORE-034).
+///
+/// A state vector shorter than the net (or a transition with a short `pre`)
+/// reads as zero there rather than panicking — the module contract.
 pub fn enabled_a(flat: &FlatNet, state: &[i64], t: &FlatTransition) -> bool {
     for i in 0..flat.place_count {
-        if t.pre[i] > 0 && state[i] < t.pre[i] {
+        let pre = t.pre.get(i).copied().unwrap_or(0);
+        if pre > 0 && at(state, i) < pre {
             return false;
         }
     }
-    t.inhibitor_places.iter().all(|&p| state[p] == 0)
-        && t.read_places.iter().all(|&p| state[p] >= 1)
+    t.inhibitor_places.iter().all(|&p| at(state, p) == 0)
+        && t.read_places.iter().all(|&p| at(state, p) >= 1)
+}
+
+/// Token count at place index `i`, reading past the end of a short state
+/// vector as 0 (the bounds guard behind every public entry point here).
+fn at(state: &[i64], i: usize) -> i64 {
+    state.get(i).copied().unwrap_or(0)
 }
 
 /// Abstract successor — Lean `fireA` (`lean/Libpetri/Basic.lean`), the update
@@ -55,12 +81,11 @@ pub fn enabled_a(flat: &FlatNet, state: &[i64], t: &FlatTransition) -> bool {
 pub fn fire_a(flat: &FlatNet, state: &[i64], t: &FlatTransition) -> Vec<i64> {
     (0..flat.place_count)
         .map(|i| {
-            if t.reset_places.contains(&i) {
-                t.post[i]
-            } else if t.consume_all.contains(&i) {
-                t.post[i]
+            let post = t.post.get(i).copied().unwrap_or(0);
+            if t.reset_places.contains(&i) || t.consume_all.contains(&i) {
+                post
             } else {
-                state[i] - t.pre[i] + t.post[i]
+                at(state, i) - t.pre.get(i).copied().unwrap_or(0) + post
             }
         })
         .collect()
@@ -71,6 +96,9 @@ pub fn fire_a(flat: &FlatNet, state: &[i64], t: &FlatTransition) -> Vec<i64> {
 /// the mode is `Bounded(k)` (`None` = AlwaysAvailable, unguarded). Returns
 /// `None` when the guard blocks.
 pub fn inject_a(state: &[i64], pid: usize, bound: Option<usize>) -> Option<Vec<i64>> {
+    if pid >= state.len() {
+        return None;
+    }
     if let Some(k) = bound {
         if state[pid] >= k as i64 {
             return None;
@@ -79,6 +107,17 @@ pub fn inject_a(state: &[i64], pid: usize, bound: Option<usize>) -> Option<Vec<i
     let mut next = state.to_vec();
     next[pid] += 1;
     Some(next)
+}
+
+/// Environment post-cap predicate — `smt_encoder::env_bound_conditions`, which
+/// rides inside EVERY transition disjunct of the step relation: under
+/// `EnvironmentAnalysisMode::Bounded(k)` a firing may not leave an env place
+/// holding more than `k`. `env_bounds` is `(place index, cap)`; an empty slice
+/// (AlwaysAvailable / Ignore) admits everything.
+pub fn within_env_bounds(state: &[i64], env_bounds: &[(usize, usize)]) -> bool {
+    env_bounds
+        .iter()
+        .all(|&(pid, cap)| at(state, pid) <= cap as i64)
 }
 
 /// The property-violation predicate `Bad(M)` — a concrete evaluation of
@@ -100,16 +139,19 @@ pub fn violates(
                 .iter()
                 .filter_map(|name| flat.place_index.get(name).copied())
                 .collect();
-            !resolved.is_empty() && resolved.iter().all(|&pid| state[pid] >= 1)
+            // The non-empty guard is load-bearing: with every name unresolved
+            // the encoder emits `false`, so an all-unresolved property must
+            // never be violated (otherwise EVERY marking would be `Bad`).
+            !resolved.is_empty() && resolved.iter().all(|&pid| at(state, pid) >= 1)
         }
         SmtProperty::PlaceBound { place, bound }
         | SmtProperty::BranchPlaceBound { place, bound } => flat
             .place_index
             .get(place)
-            .is_some_and(|&pid| state[pid] > *bound as i64),
+            .is_some_and(|&pid| at(state, pid) > *bound as i64),
         SmtProperty::JoinedOrDeadLettered { pending } => {
             flat.place_index.get(pending).is_some_and(|&pid| {
-                deadlocked(flat, state, sink_places, env_inject) && state[pid] >= 1
+                deadlocked(flat, state, sink_places, env_inject) && at(state, pid) >= 1
             })
         }
     }
@@ -119,7 +161,7 @@ pub fn violates(
 /// transition is disabled — with the VER-006 relaxation that an input/read on
 /// an injectable env place is satisfiable by injection (AlwaysAvailable
 /// always; Bounded(k) iff the demand is ≤ k) — and, when sinks are declared,
-/// some non-sink place still holds a token.
+/// no declared sink place holds a token ([VER-002]).
 fn deadlocked(
     flat: &FlatNet,
     state: &[i64],
@@ -143,22 +185,23 @@ fn deadlocked(
         let mut reason_holds = false;
 
         for i in 0..flat.place_count {
-            if ft.pre[i] > 0 {
+            let pre = ft.pre.get(i).copied().unwrap_or(0);
+            if pre > 0 {
                 if let Some(bound) = env_bound(i) {
-                    if matches!(bound, Some(k) if (ft.pre[i] as usize) > k) {
+                    if matches!(bound, Some(k) if (pre as usize) > k) {
                         permanently_disabled = true;
                     }
                     continue;
                 }
                 some_reason = true;
-                if state[i] < ft.pre[i] {
+                if at(state, i) < pre {
                     reason_holds = true;
                 }
             }
         }
         for &inh_pid in &ft.inhibitor_places {
             some_reason = true;
-            if state[inh_pid] > 0 {
+            if at(state, inh_pid) > 0 {
                 reason_holds = true;
             }
         }
@@ -170,7 +213,7 @@ fn deadlocked(
                 continue;
             }
             some_reason = true;
-            if state[read_pid] < 1 {
+            if at(state, read_pid) < 1 {
                 reason_holds = true;
             }
         }
@@ -190,12 +233,11 @@ fn deadlocked(
         }
     }
 
-    if !sink_indices.is_empty() {
-        let non_sink: Vec<usize> = (0..flat.place_count)
-            .filter(|pid| !sink_indices.contains(pid))
-            .collect();
-        if !non_sink.is_empty() && !non_sink.iter().any(|&pid| state[pid] >= 1) {
-            // Only sinks are marked: not a deadlock.
+    // Declared sinks ([VER-002]): a quiescent marking is a violation only when
+    // NO declared sink holds a token — a token in any sink marks an expected
+    // terminal state. Same predicate as the encoder.
+    for &pid in &sink_indices {
+        if at(state, pid) >= 1 {
             return false;
         }
     }
@@ -203,28 +245,62 @@ fn deadlocked(
 }
 
 /// A successful replay: the chain of abstract states from the initial marking
-/// to a state satisfying `Bad`, plus the step labels between them (a flat
-/// transition name, or `inject(<place>)` for a VER-006 env-injection step).
-/// `states.len() == transitions.len() + 1`.
+/// to a state satisfying `Bad`, plus the step labels between them.
 #[derive(Debug, Clone)]
 pub struct Replay {
+    /// The abstract markings, `M₀` first and the violating state last.
     pub states: Vec<Vec<i64>>,
+    /// One label per step between consecutive [`Replay::states`]: a flat
+    /// transition name, or `inject(<place>)` for a VER-006 env-injection step.
+    /// Always `states.len() - 1` long.
     pub transitions: Vec<String>,
+}
+
+/// What the bounded search in [`replay`] concluded. Only [`ReplayOutcome::NoChain`]
+/// is evidence against the solver's verdict; the other two leave it alone. How
+/// each outcome surfaces to callers is the tri-state documented on
+/// [`VerificationResult::counterexample_confirmed`](crate::result::VerificationResult::counterexample_confirmed)
+/// — note that `NoChain` downgrades the verdict AND reports `Some(false)`.
+#[derive(Debug, Clone)]
+pub enum ReplayOutcome {
+    /// A chain `M₀ →* Bad` was found.
+    Confirmed(Replay),
+    /// The reachable abstract successor space was explored in full, within
+    /// both budgets, and contains no violating state — the counterexample is
+    /// spurious at the abstract level, or the decoder drifted from the
+    /// encoder. The one outcome that downgrades `Violated` to `Unknown`.
+    NoChain,
+    /// A budget ran out before the space was covered, so the absence of a
+    /// chain proves nothing. `reason` is report-ready.
+    Exhausted { reason: String },
 }
 
 /// Bounded BFS search for a chain `M₀ →* Bad` through the decoded state set.
 ///
 /// The decoded set is a SET — proof traversal order is deliberately not
-/// trusted. The search runs over abstract steps ([`fire_a`] on enabled
-/// transitions plus [`inject_a`] env steps), resetting a per-segment depth
-/// counter each time it lands on a decoded state: at most `max_segment_steps`
-/// abstract steps are allowed between consecutive decoded states (and after
-/// the last one), so the decoded states must genuinely carry the chain. The
-/// total number of explored nodes is capped at `node_budget`; exhaustion
-/// returns `None` (the caller downgrades — never a crash).
+/// trusted. One global breadth-first search runs over abstract steps
+/// ([`fire_a`] on enabled transitions, kept [`within_env_bounds`], plus
+/// [`inject_a`] env steps), carrying a per-segment depth counter that resets to
+/// 0 each time the search lands on a decoded state: at most
+/// `max_segment_steps` abstract steps are allowed between consecutive decoded
+/// states (and after the last one), so the decoded states must genuinely carry
+/// the chain. A state already reached at the same or a lower segment depth is
+/// dominated and not re-expanded.
+///
+/// `node_budget` caps the nodes ADMITTED TO THE SEARCH — the reference
+/// definition the sibling implementations conform to. A node is *admitted*
+/// when it is pushed onto the search's node arena, i.e. only after it survived
+/// both filters: the segment budget and domination (a state already reached at
+/// the same or a lower segment depth is dropped, never admitted). The anchor
+/// node counts as one, and the budget trips on `>=`: a search that has already
+/// admitted `node_budget` nodes refuses the next one and returns
+/// [`ReplayOutcome::Exhausted`], so at most `node_budget` nodes ever exist.
+/// Successors that were generated and then dropped as dominated or over the
+/// segment budget do NOT count against it.
 ///
 /// The caller anchors the search: `initial` should be a member of `decoded`
 /// (the verifier requires `M₀ ∈ set` before calling).
+#[allow(clippy::too_many_arguments)]
 pub fn replay(
     flat: &FlatNet,
     initial: &[i64],
@@ -232,9 +308,10 @@ pub fn replay(
     property: &SmtProperty,
     sink_places: &[String],
     env_inject: &[(usize, Option<usize>)],
+    env_bounds: &[(usize, usize)],
     max_segment_steps: usize,
     node_budget: usize,
-) -> Option<Replay> {
+) -> ReplayOutcome {
     struct Node {
         state: Vec<i64>,
         parent: Option<usize>,
@@ -257,8 +334,21 @@ pub fn replay(
         }
         states.reverse();
         transitions.reverse();
+        debug_assert_eq!(states.len(), transitions.len() + 1, "one label per step");
         Replay { states, transitions }
     };
+
+    if initial.len() != flat.place_count {
+        // A caller-side shape error, not a statement about the net: keep the
+        // verdict rather than let a malformed anchor read as "no chain".
+        return ReplayOutcome::Exhausted {
+            reason: format!(
+                "the anchor marking has {} entries for a {}-place net",
+                initial.len(),
+                flat.place_count
+            ),
+        };
+    }
 
     let mut nodes = vec![Node {
         state: initial.to_vec(),
@@ -267,7 +357,7 @@ pub fn replay(
         seg: 0,
     }];
     if violates(flat, initial, property, sink_places, env_inject) {
-        return Some(reconstruct(&nodes, 0));
+        return ReplayOutcome::Confirmed(reconstruct(&nodes, 0));
     }
 
     // Best (lowest) segment depth a state was reached with — a lower depth
@@ -275,6 +365,10 @@ pub fn replay(
     let mut best_seg: HashMap<Vec<i64>, usize> = HashMap::new();
     best_seg.insert(initial.to_vec(), 0);
     let mut queue: VecDeque<usize> = VecDeque::from([0]);
+    // Set when a successor was dropped for running past the segment budget:
+    // the space was then NOT covered in full, so an empty queue afterwards is
+    // exhaustion, not proof that no chain exists.
+    let mut segment_pruned = false;
 
     while let Some(idx) = queue.pop_front() {
         let (cur_state, cur_seg) = (nodes[idx].state.clone(), nodes[idx].seg);
@@ -282,7 +376,13 @@ pub fn replay(
         let mut successors: Vec<(Vec<i64>, String)> = Vec::new();
         for ft in &flat.transitions {
             if enabled_a(flat, &cur_state, ft) {
-                successors.push((fire_a(flat, &cur_state, ft), ft.name.clone()));
+                let next = fire_a(flat, &cur_state, ft);
+                // The encoders conjoin the env post-cap into every transition
+                // disjunct; a firing that breaks it is not a step of the
+                // encoded system (V1).
+                if within_env_bounds(&next, env_bounds) {
+                    successors.push((next, ft.name.clone()));
+                }
             }
         }
         for &(pid, bound) in env_inject {
@@ -294,6 +394,7 @@ pub fn replay(
         for (next, label) in successors {
             let seg = if decoded.contains(&next) { 0 } else { cur_seg + 1 };
             if seg > max_segment_steps {
+                segment_pruned = true;
                 continue;
             }
             if best_seg.get(&next).is_some_and(|&d| d <= seg) {
@@ -301,7 +402,9 @@ pub fn replay(
             }
             best_seg.insert(next.clone(), seg);
             if nodes.len() >= node_budget {
-                return None;
+                return ReplayOutcome::Exhausted {
+                    reason: format!("search node budget of {node_budget} exhausted"),
+                };
             }
             nodes.push(Node {
                 state: next.clone(),
@@ -311,13 +414,21 @@ pub fn replay(
             });
             let new_idx = nodes.len() - 1;
             if violates(flat, &next, property, sink_places, env_inject) {
-                return Some(reconstruct(&nodes, new_idx));
+                return ReplayOutcome::Confirmed(reconstruct(&nodes, new_idx));
             }
             queue.push_back(new_idx);
         }
     }
 
-    None
+    if segment_pruned {
+        ReplayOutcome::Exhausted {
+            reason: format!(
+                "segment budget of {max_segment_steps} step(s) between decoded states exhausted"
+            ),
+        }
+    } else {
+        ReplayOutcome::NoChain
+    }
 }
 
 #[cfg(test)]
@@ -478,6 +589,14 @@ mod tests {
         assert!(violates(&flat, &[0, 0, 1], &dl, &[], &[(0, Some(0))]));
     }
 
+    /// Unwraps a `Confirmed` outcome, reporting the other arms.
+    fn confirmed(outcome: ReplayOutcome) -> Replay {
+        match outcome {
+            ReplayOutcome::Confirmed(replay) => replay,
+            other => panic!("expected a confirmed chain, got {other:?}"),
+        }
+    }
+
     /// A chainable decoded set replays: M0 -> mid -> bad, labels in order.
     #[test]
     fn replay_finds_chain_through_decoded_states() {
@@ -490,17 +609,17 @@ mod tests {
         );
         let decoded: BTreeSet<Vec<i64>> =
             [vec![1, 0, 0], vec![0, 1, 0], vec![0, 0, 1]].into_iter().collect();
-        let replay = replay(
+        let replay = confirmed(replay(
             &flat,
             &[1, 0, 0],
             &decoded,
             &SmtProperty::place_bound("p2", 0),
             &[],
             &[],
+            &[],
             3,
             10_000,
-        )
-        .expect("chain must be found");
+        ));
         assert_eq!(
             replay.states,
             vec![vec![1, 0, 0], vec![0, 1, 0], vec![0, 0, 1]]
@@ -510,25 +629,55 @@ mod tests {
 
     /// Segment bound: a Bad state more than `max_segment_steps` past the last
     /// decoded state is out of reach — the decoded set must carry the chain.
+    /// Running out that way is EXHAUSTION, not evidence of no chain (C4).
     #[test]
-    fn replay_unchainable_set_returns_none() {
+    fn replay_unchainable_set_is_exhausted_not_no_chain() {
         // p0=6 -> six steps to p1=6 > 5, but only M0 was "decoded": the
         // 3-step segment budget runs out long before Bad.
         let flat = flat_of(&["p0", "p1"], vec![ft("t", vec![1, 0], vec![0, 1])]);
         let decoded: BTreeSet<Vec<i64>> = [vec![6, 0]].into_iter().collect();
-        assert!(
+        match replay(
+            &flat,
+            &[6, 0],
+            &decoded,
+            &SmtProperty::place_bound("p1", 5),
+            &[],
+            &[],
+            &[],
+            3,
+            10_000,
+        ) {
+            ReplayOutcome::Exhausted { reason } => {
+                assert!(reason.contains("segment budget"), "{reason}")
+            }
+            other => panic!("expected Exhausted(segment), got {other:?}"),
+        }
+    }
+
+    /// A fully covered successor space with no violating state is the only
+    /// genuine `NoChain` — the outcome that downgrades the verdict.
+    #[test]
+    fn replay_fully_explored_space_reports_no_chain() {
+        // The inhibitor freezes t forever, so p1 is never marked; the whole
+        // reachable space is {M0} and no segment budget is ever hit.
+        let mut t = ft("t", vec![1, 0, 0], vec![0, 1, 0]);
+        t.inhibitor_places = vec![2];
+        let flat = flat_of(&["p0", "p1", "blocker"], vec![t]);
+        let decoded: BTreeSet<Vec<i64>> = [vec![1, 0, 1]].into_iter().collect();
+        assert!(matches!(
             replay(
                 &flat,
-                &[6, 0],
+                &[1, 0, 1],
                 &decoded,
-                &SmtProperty::place_bound("p1", 5),
+                &SmtProperty::unreachable(vec!["p1".into()]),
+                &[],
                 &[],
                 &[],
                 3,
                 10_000,
-            )
-            .is_none()
-        );
+            ),
+            ReplayOutcome::NoChain
+        ));
     }
 
     /// Env injection steps participate in the chain with `inject(...)` labels.
@@ -537,41 +686,146 @@ mod tests {
         let flat = flat_of(&["e", "p1"], vec![ft("t", vec![1, 0], vec![0, 1])]);
         let decoded: BTreeSet<Vec<i64>> =
             [vec![0, 0], vec![1, 0], vec![0, 1]].into_iter().collect();
-        let replay = replay(
+        let replay = confirmed(replay(
             &flat,
             &[0, 0],
             &decoded,
             &SmtProperty::place_bound("p1", 0),
             &[],
             &[(0, None)],
+            &[],
             3,
             10_000,
-        )
-        .expect("injection chain must be found");
+        ));
         assert_eq!(replay.transitions, vec!["inject(e)", "t"]);
         assert_eq!(replay.states.last().unwrap(), &vec![0, 1]);
     }
 
-    /// The node budget is a hard cap: an exhausted search downgrades (None),
-    /// never spins.
+    /// V1: under `Bounded(k)` the encoders cap every transition successor at
+    /// `k` on an env place. A chain that only reaches Bad by pushing the env
+    /// place past the cap is NOT a chain of the encoded system, so it must not
+    /// confirm the counterexample.
+    #[test]
+    fn replay_rejects_chain_that_breaks_the_env_bound() {
+        // e is a Bounded(1) env place. `feed` tops it up from p0, `drain`
+        // needs TWO tokens in e — reachable only via e=2, which the post-cap
+        // forbids. Two injections cannot get there either (the guard blocks
+        // the second), so the only candidate chain is inject + feed.
+        let flat = flat_of(
+            &["e", "p0", "p1"],
+            vec![
+                ft("feed", vec![0, 1, 0], vec![1, 0, 0]),
+                ft("drain", vec![2, 0, 0], vec![0, 0, 1]),
+            ],
+        );
+        let m0 = vec![0, 1, 0];
+        let decoded: BTreeSet<Vec<i64>> = [
+            m0.clone(),
+            vec![1, 1, 0],
+            vec![1, 0, 0],
+            vec![2, 0, 0],
+            vec![0, 0, 1],
+        ]
+        .into_iter()
+        .collect();
+        let property = SmtProperty::place_bound("p1", 0);
+        // Without the post-cap the chain inject(e) -> feed -> drain confirms.
+        assert!(matches!(
+            replay(&flat, &m0, &decoded, &property, &[], &[(0, Some(1))], &[], 3, 10_000),
+            ReplayOutcome::Confirmed(_)
+        ));
+        // With it, e never reaches 2 and the space is covered in full.
+        assert!(matches!(
+            replay(&flat, &m0, &decoded, &property, &[], &[(0, Some(1))], &[(0, 1)], 3, 10_000),
+            ReplayOutcome::NoChain
+        ));
+    }
+
+    /// The node budget is a hard cap on nodes ADMITTED (root included, tripped
+    /// on `>=`): an exhausted search says `Exhausted`, never spins and never
+    /// claims `NoChain`.
     #[test]
     fn replay_respects_node_budget() {
         // Unbounded injection makes the abstract state space infinite; an
         // unsatisfiable Bad forces full exploration up to the budget.
         let flat = flat_of(&["e", "p1"], vec![ft("t", vec![1, 0], vec![0, 1])]);
         let decoded: BTreeSet<Vec<i64>> = (0..200).map(|n| vec![n, 0]).collect();
+        match replay(
+            &flat,
+            &[0, 0],
+            &decoded,
+            &SmtProperty::place_bound("nope", 0),
+            &[],
+            &[(0, None)],
+            &[],
+            3,
+            50,
+        ) {
+            ReplayOutcome::Exhausted { reason } => {
+                assert!(reason.contains("node budget of 50"), "{reason}")
+            }
+            other => panic!("expected Exhausted(node budget), got {other:?}"),
+        }
+    }
+
+    /// Pins the exact counting rule the sibling implementations conform to:
+    /// the anchor node is admitted node #1, the budget trips on `>=`, and
+    /// generated-then-dropped successors do not count.
+    #[test]
+    fn node_budget_counts_admitted_nodes_root_included() {
+        // Two transitions with the SAME abstract effect: the second successor
+        // is generated but dominated, so it must not consume budget.
+        let flat = flat_of(
+            &["a", "b"],
+            vec![ft("t1", vec![1, 0], vec![0, 1]), ft("t2", vec![1, 0], vec![0, 1])],
+        );
+        let decoded: BTreeSet<Vec<i64>> = BTreeSet::from([vec![1, 0]]);
+        let unreachable_bad = SmtProperty::place_bound("b", 9);
+        let run = |budget: usize| {
+            replay(&flat, &[1, 0], &decoded, &unreachable_bad, &[], &[], &[], 3, budget)
+        };
+
+        // Budget 1: the anchor alone fills it, so admitting the first
+        // successor is refused.
+        match run(1) {
+            ReplayOutcome::Exhausted { reason } => {
+                assert!(reason.contains("node budget of 1"), "{reason}")
+            }
+            other => panic!("budget 1 must trip on the anchor node, got {other:?}"),
+        }
+        // Budget 2: anchor + one admitted successor covers the whole space.
+        // The dominated duplicate is generated but not admitted, so this is
+        // NoChain and not exhaustion.
         assert!(
+            matches!(run(2), ReplayOutcome::NoChain),
+            "dominated successors must not count against the budget"
+        );
+    }
+
+    /// A state vector that does not match the net is a caller error, not a
+    /// verdict: every entry point tolerates it, and the search reports
+    /// exhaustion rather than the downgrade-triggering `NoChain`.
+    #[test]
+    fn short_state_vectors_do_not_panic() {
+        let flat = flat_of(&["p0", "p1"], vec![ft("t", vec![1, 0], vec![0, 1])]);
+        let t = &flat.transitions[0];
+        assert!(!enabled_a(&flat, &[], t));
+        assert_eq!(fire_a(&flat, &[], t), vec![-1, 1]);
+        assert_eq!(inject_a(&[], 3, None), None);
+        assert!(!violates(&flat, &[], &SmtProperty::place_bound("p1", 0), &[], &[]));
+        assert!(matches!(
             replay(
                 &flat,
-                &[0, 0],
-                &decoded,
-                &SmtProperty::place_bound("nope", 0),
+                &[0],
+                &BTreeSet::new(),
+                &SmtProperty::place_bound("p1", 0),
                 &[],
-                &[(0, None)],
+                &[],
+                &[],
                 3,
-                50,
-            )
-            .is_none()
-        );
+                10_000,
+            ),
+            ReplayOutcome::Exhausted { .. }
+        ));
     }
 }

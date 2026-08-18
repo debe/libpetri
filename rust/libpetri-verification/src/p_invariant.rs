@@ -1,6 +1,6 @@
 use crate::incidence_matrix::IncidenceMatrix;
 use crate::marking_state::MarkingState;
-use crate::net_flattener::FlatTransition;
+use crate::net_flattener::FlatNet;
 
 /// A P-invariant: a weighted sum over places that is constant across all reachable markings.
 ///
@@ -198,7 +198,7 @@ pub fn compute_p_semiflows(
 
 /// Outcome of [`validate_invariants_exact`]: the invariants that re-verified exactly,
 /// plus one report-ready reason per dropped invariant.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InvariantValidation {
     pub valid: Vec<PInvariant>,
     pub dropped: Vec<String>,
@@ -236,18 +236,22 @@ pub struct InvariantValidation {
 /// no guard of their own: their injector columns (`IncidenceMatrix::from_flat_net`)
 /// already force `y = 0` there through the `y·C = 0` check — Strengthening.lean's
 /// H3′ sufficiency result (`invariant_strengthening_sound_inj`).
+///
+/// The net arrives as one `&FlatNet` rather than as separately-passed views of
+/// it: passing an empty transition list used to disable the H1 guard silently
+/// while still reporting the survivors as validated.
 pub fn validate_invariants_exact(
     invariants: Vec<PInvariant>,
     matrix: &IncidenceMatrix,
     initial_marking: &MarkingState,
-    place_names: &[String],
-    flat_transitions: &[FlatTransition],
+    flat: &FlatNet,
 ) -> InvariantValidation {
+    let place_names = &flat.places;
     // Places with non-linear consumption on some flat transition (H1's
     // reset/consume-all arms). Computed once; the matrix may carry extra injector
-    // columns beyond `flat_transitions`, which are linear and need no entry here.
+    // columns beyond `flat.transitions`, which are linear and need no entry here.
     let mut nonlinear = vec![false; matrix.place_count];
-    for ft in flat_transitions {
+    for ft in &flat.transitions {
         for &p in ft.consume_all.iter().chain(&ft.reset_places) {
             if p < nonlinear.len() {
                 nonlinear[p] = true;
@@ -263,7 +267,7 @@ pub fn validate_invariants_exact(
         // Shape: one weight per place, and place_names aligned with the matrix.
         if inv.weights.len() != matrix.place_count || place_names.len() != matrix.place_count {
             dropped.push(format!(
-                "{desc} — weight vector length {} does not match place count {}",
+                "{desc} - weight vector length {} does not match place count {}",
                 inv.weights.len(),
                 matrix.place_count
             ));
@@ -278,7 +282,7 @@ pub fn validate_invariants_exact(
             .collect();
         if inv.support != expected_support {
             dropped.push(format!(
-                "{desc} — support is inconsistent with the nonzero weights"
+                "{desc} - support is inconsistent with the nonzero weights"
             ));
             continue;
         }
@@ -288,7 +292,7 @@ pub fn validate_invariants_exact(
         // real firing, so `y·C = 0` below would not certify conservation.
         if let Some(pid) = (0..inv.weights.len()).find(|&p| inv.weights[p] != 0 && nonlinear[p]) {
             dropped.push(format!(
-                "{desc} — support intersects consume-all/reset place '{}' \
+                "{desc} - support intersects consume-all/reset place '{}' \
                  (non-linear consumption; see Strengthening.lean H1)",
                 place_names.get(pid).map(String::as_str).unwrap_or("?")
             ));
@@ -301,16 +305,15 @@ pub fn validate_invariants_exact(
             for p in 0..matrix.place_count {
                 let term = (inv.weights[p] as i128).checked_mul(matrix.incidence[t][p] as i128);
                 let Some(sum) = term.and_then(|term| component.checked_add(term)) else {
-                    dropped.push(format!(
-                        "{desc} — i128 overflow recomputing y·C at transition column {t}"
-                    ));
+                    dropped.push(format!("{desc} - {}", weight_overflow(place_names, p)));
                     continue 'each;
                 };
                 component = sum;
             }
             if component != 0 {
                 dropped.push(format!(
-                    "{desc} — y·C ≠ 0 at transition column {t} (component = {component})"
+                    "{desc} - y*C is {component} (not 0) at {}",
+                    column_name(flat, t)
                 ));
                 continue 'each;
             }
@@ -322,16 +325,14 @@ pub fn validate_invariants_exact(
             let count = initial_marking.count(&place_names[p]) as i128;
             let term = (inv.weights[p] as i128).checked_mul(count);
             let Some(sum) = term.and_then(|term| recomputed.checked_add(term)) else {
-                dropped.push(format!(
-                    "{desc} — i128 overflow recomputing the constant y·M0"
-                ));
+                dropped.push(format!("{desc} - {}", weight_overflow(place_names, p)));
                 continue 'each;
             };
             recomputed = sum;
         }
         if recomputed != inv.constant as i128 {
             dropped.push(format!(
-                "{desc} — constant {} does not match recomputed y·M0 = {recomputed}",
+                "{desc} - constant {} does not match exact y*M0 = {recomputed}",
                 inv.constant
             ));
             continue;
@@ -342,8 +343,30 @@ pub fn validate_invariants_exact(
     InvariantValidation { valid, dropped }
 }
 
-/// Formats an invariant like the Phase-3 report lines (`2·p1 + p2 = 5`), tolerating
-/// malformed shapes (out-of-range support indices render as `?`).
+/// Names an incidence-matrix column: a flat transition, or one of the
+/// env-injector columns `IncidenceMatrix::from_flat_net` appends after them.
+/// Shared wording with the Java/TypeScript validators.
+fn column_name(flat: &FlatNet, t: usize) -> String {
+    match flat.transitions.get(t) {
+        Some(ft) => format!("transition '{}'", ft.name),
+        None => format!("env-injector column {}", t - flat.transitions.len()),
+    }
+}
+
+/// The exact-arithmetic overflow drop reason, naming the place whose term
+/// could not be recomputed. Shared wording with the Java/TypeScript validators.
+fn weight_overflow(place_names: &[String], place: usize) -> String {
+    format!(
+        "weight overflow at place '{}' (exact value outside this implementation's \
+         integer extraction range)",
+        place_names.get(place).map(String::as_str).unwrap_or("?")
+    )
+}
+
+/// Formats an invariant like the Phase-3 report lines (`2*p1 + p2 = 5`), tolerating
+/// malformed shapes (out-of-range support indices render as `?`). The rendering is
+/// canonical across the four implementations — ASCII `*`, weight 1 elided, empty
+/// support as `0` — because it is embedded in the byte-diffed drop lines.
 fn describe_invariant(inv: &PInvariant, place_names: &[String]) -> String {
     let terms: Vec<String> = inv
         .support
@@ -352,13 +375,13 @@ fn describe_invariant(inv: &PInvariant, place_names: &[String]) -> String {
             let name = place_names.get(pid).map(String::as_str).unwrap_or("?");
             match inv.weights.get(pid) {
                 Some(1) => name.to_string(),
-                Some(w) => format!("{w}·{name}"),
-                None => format!("?·{name}"),
+                Some(w) => format!("{w}*{name}"),
+                None => format!("?*{name}"),
             }
         })
         .collect();
     if terms.is_empty() {
-        format!("(empty support) = {}", inv.constant)
+        format!("0 = {}", inv.constant)
     } else {
         format!("{} = {}", terms.join(" + "), inv.constant)
     }
@@ -452,6 +475,34 @@ fn gcd(a: u64, b: u64) -> u64 {
 
 #[cfg(test)]
 mod tests {
+
+    /// A `FlatNet` for the synthetic-matrix tests: named places, named
+    /// transitions with empty pre/post (the matrix under test supplies the
+    /// numbers), and therefore no non-linear places.
+    fn synthetic_flat(places: &[String], transitions: &[&str]) -> FlatNet {
+        let place_index = places
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.clone(), i))
+            .collect();
+        FlatNet {
+            place_count: places.len(),
+            places: places.to_vec(),
+            place_index,
+            transitions: transitions
+                .iter()
+                .map(|name| crate::net_flattener::FlatTransition {
+                    name: (*name).to_string(),
+                    pre: vec![0; places.len()],
+                    post: vec![0; places.len()],
+                    inhibitor_places: Vec::new(),
+                    read_places: Vec::new(),
+                    reset_places: Vec::new(),
+                    consume_all: Vec::new(),
+                })
+                .collect(),
+        }
+    }
     use super::*;
     use crate::incidence_matrix::IncidenceMatrix;
     use crate::net_flattener::flatten;
@@ -573,11 +624,11 @@ mod tests {
         let mut all = genuine.clone();
         all.push(poisoned);
 
-        let validation = validate_invariants_exact(all, &matrix, &initial, &flat.places, &flat.transitions);
+        let validation = validate_invariants_exact(all, &matrix, &initial, &flat);
         assert_eq!(validation.valid.len(), genuine.len());
         assert_eq!(validation.dropped.len(), 1);
         assert!(
-            validation.dropped[0].contains("y·C ≠ 0"),
+            validation.dropped[0].contains("y*C is") && validation.dropped[0].contains("(not 0) at transition '"),
             "reason must name the failing check: {}",
             validation.dropped[0]
         );
@@ -608,12 +659,17 @@ mod tests {
             support: vec![0, 1, 2],
         };
 
-        let validation = validate_invariants_exact(vec![inv], &matrix, &initial, &names, &[]);
+        let validation = validate_invariants_exact(
+            vec![inv],
+            &matrix,
+            &initial,
+            &synthetic_flat(&names, &["t0"]),
+        );
         assert!(validation.valid.is_empty());
         assert_eq!(validation.dropped.len(), 1);
         assert!(
-            validation.dropped[0].contains("overflow"),
-            "reason must name the overflow: {}",
+            validation.dropped[0].contains("weight overflow at place 'p2'"),
+            "reason must name the overflow and the place: {}",
             validation.dropped[0]
         );
     }
@@ -641,12 +697,15 @@ mod tests {
             support: vec![0, 1, 2],
         };
 
-        let validation = validate_invariants_exact(vec![inv], &matrix, &initial, &names, &[]);
+        let validation = validate_invariants_exact(vec![inv], &matrix, &initial, &synthetic_flat(&names, &[]));
         assert!(validation.valid.is_empty());
         assert_eq!(validation.dropped.len(), 1);
         assert!(
-            validation.dropped[0].contains("overflow recomputing the constant"),
-            "reason must name the overflow: {}",
+            validation.dropped[0].ends_with(
+                "weight overflow at place 'p2' (exact value outside this implementation's \
+                 integer extraction range)"
+            ),
+            "the C2 overflow reason, verbatim: {}",
             validation.dropped[0]
         );
     }
@@ -679,11 +738,11 @@ mod tests {
             constant: 999,
             support: vec![0, 1],
         };
-        let validation = validate_invariants_exact(vec![inv], &matrix, &initial, &flat.places, &flat.transitions);
+        let validation = validate_invariants_exact(vec![inv], &matrix, &initial, &flat);
         assert!(validation.valid.is_empty());
         assert_eq!(validation.dropped.len(), 1);
         assert!(
-            validation.dropped[0].contains("does not match recomputed y·M0 = 3"),
+            validation.dropped[0].contains("constant 999 does not match exact y*M0 = 3"),
             "reason must show the recomputed constant: {}",
             validation.dropped[0]
         );
@@ -711,7 +770,7 @@ mod tests {
             support: vec![0], // missing index 1
         };
 
-        let validation = validate_invariants_exact(vec![inv], &matrix, &initial, &names, &[]);
+        let validation = validate_invariants_exact(vec![inv], &matrix, &initial, &synthetic_flat(&names, &[]));
         assert!(validation.valid.is_empty());
         assert_eq!(validation.dropped.len(), 1);
         assert!(
@@ -748,7 +807,7 @@ mod tests {
         let computed = compute_p_invariants(&matrix, &initial, &flat.places);
         assert!(!computed.is_empty());
         let validation =
-            validate_invariants_exact(computed.clone(), &matrix, &initial, &flat.places, &flat.transitions);
+            validate_invariants_exact(computed.clone(), &matrix, &initial, &flat);
         assert!(validation.dropped.is_empty(), "{:?}", validation.dropped);
         assert_eq!(validation.valid.len(), computed.len());
         for (v, c) in validation.valid.iter().zip(&computed) {
@@ -762,7 +821,7 @@ mod tests {
         let semiflows = compute_p_semiflows(&matrix, &initial, &flat.places);
         assert!(!semiflows.is_empty());
         let sf_validation =
-            validate_invariants_exact(semiflows.clone(), &matrix, &initial, &flat.places, &flat.transitions);
+            validate_invariants_exact(semiflows.clone(), &matrix, &initial, &flat);
         assert!(sf_validation.dropped.is_empty(), "{:?}", sf_validation.dropped);
         assert_eq!(sf_validation.valid.len(), semiflows.len());
     }
@@ -798,7 +857,7 @@ mod tests {
         );
 
         let validation =
-            validate_invariants_exact(invariants, &matrix, &initial, &flat.places, &flat.transitions);
+            validate_invariants_exact(invariants, &matrix, &initial, &flat);
         assert!(
             validation.valid.is_empty(),
             "no invariant of the witness net may survive H1: {:?}",
@@ -817,7 +876,7 @@ mod tests {
         let semiflows = compute_p_semiflows(&matrix, &initial, &flat.places);
         assert!(!semiflows.is_empty());
         let sf_validation =
-            validate_invariants_exact(semiflows, &matrix, &initial, &flat.places, &flat.transitions);
+            validate_invariants_exact(semiflows, &matrix, &initial, &flat);
         assert!(sf_validation.valid.is_empty(), "{:?}", sf_validation.valid);
         assert!(sf_validation.dropped[0].contains("Strengthening.lean H1"));
     }
@@ -849,7 +908,7 @@ mod tests {
         assert!(!invariants.is_empty());
 
         let validation =
-            validate_invariants_exact(invariants, &matrix, &initial, &flat.places, &flat.transitions);
+            validate_invariants_exact(invariants, &matrix, &initial, &flat);
         assert!(validation.valid.is_empty(), "{:?}", validation.valid);
         assert!(
             validation.dropped[0].contains("consume-all/reset place 'p0'")
@@ -887,7 +946,7 @@ mod tests {
         assert!(!invariants.is_empty());
 
         let validation =
-            validate_invariants_exact(invariants, &matrix, &initial, &flat.places, &flat.transitions);
+            validate_invariants_exact(invariants, &matrix, &initial, &flat);
         assert!(validation.valid.is_empty(), "{:?}", validation.valid);
         assert!(
             validation.dropped[0].contains("consume-all/reset place 'p0'"),
@@ -924,8 +983,7 @@ mod tests {
             invariants.clone(),
             &matrix,
             &initial,
-            &flat.places,
-            &flat.transitions,
+            &flat,
         );
         assert!(validation.dropped.is_empty(), "{:?}", validation.dropped);
         assert_eq!(validation.valid.len(), invariants.len());
@@ -966,7 +1024,7 @@ mod tests {
 
         let invariants = compute_p_invariants(&matrix, &initial, &flat.places);
         let validation =
-            validate_invariants_exact(invariants, &matrix, &initial, &flat.places, &flat.transitions);
+            validate_invariants_exact(invariants, &matrix, &initial, &flat);
 
         let pa_idx = flat.place_index["pA"];
         let px_idx = flat.place_index["pX"];

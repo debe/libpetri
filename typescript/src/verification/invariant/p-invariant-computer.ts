@@ -113,7 +113,17 @@ export function computePInvariants(
     }
     if (!isZero) continue;
 
-    // Extract the weight vector from the identity part
+    // Extract the weight vector from the identity part. The elimination above
+    // runs in f64 `number`, so a row whose identity part left the safe-integer
+    // range carries ROUNDED weights, not exact ones. Emit such a row raw — no
+    // sign normalisation, no GCD reduction, which would otherwise launder e.g.
+    // (2^54, 2^54) into a plausible-looking (1, 1) — and let
+    // validateInvariantsExact drop it by name with the overflow reason.
+    if (!rowIsExact(augmented[row]!, T, P)) {
+      invariants.push(rawInvariant(augmented[row]!, T, P, flatNet, initialMarking));
+      continue;
+    }
+
     const weights = new Array<number>(P);
     let allNonNegative = true;
     let hasPositive = false;
@@ -176,6 +186,35 @@ export function computePInvariants(
   return invariants;
 }
 
+/** True when every weight in the identity part of `row` is an exact integer. */
+function rowIsExact(row: readonly number[], T: number, P: number): boolean {
+  for (let i = 0; i < P; i++) {
+    if (!Number.isSafeInteger(row[T + i]!)) return false;
+  }
+  return true;
+}
+
+/** The identity part of `row` verbatim, so the exact re-check sees what f64 produced. */
+function rawInvariant(
+  row: readonly number[],
+  T: number,
+  P: number,
+  flatNet: FlatNet,
+  initialMarking: MarkingState,
+): PInvariant {
+  const weights = new Array<number>(P);
+  const support = new Set<number>();
+  let constant = 0;
+  for (let i = 0; i < P; i++) {
+    weights[i] = row[T + i]!;
+    if (weights[i] !== 0) {
+      support.add(i);
+      constant += weights[i]! * initialMarking.tokens(flatNet.places[i]!);
+    }
+  }
+  return pInvariant(weights, constant, support);
+}
+
 /** An invariant rejected by {@link validateInvariantsExact}, with the reason it failed. */
 export interface DroppedInvariant {
   readonly invariant: PInvariant;
@@ -201,11 +240,14 @@ export interface InvariantValidationResult {
  *
  * Checks per invariant `y`:
  * - every weight and the constant is a safe integer (`Number.isSafeInteger`),
- * - **H1 linearity** (when `flatNet` is given): `y` is zero on every place with
- *   non-linear consumption — see below,
+ * - **H1 linearity**: `y` is zero on every place with non-linear consumption —
+ *   see below,
  * - `y·C = 0` exactly, per transition column of the incidence matrix (BigInt),
- * - when `flatNet` and `initialMarking` are given, the stored constant equals
- *   the exactly recomputed `y·M0`.
+ * - the stored constant equals the exactly recomputed `y·M0`.
+ *
+ * `flatNet` and `initialMarking` are REQUIRED: they were once optional, and
+ * omitting them silently disabled the H1 guard and the constant re-check —
+ * i.e. the call had a configuration in which it certified unsound invariants.
  *
  * **H1 linearity guard** (`lean/Libpetri/Strengthening.lean`,
  * `consume_all_hypothesis_is_necessary`): the incidence matrix *linearizes*
@@ -230,10 +272,10 @@ export interface InvariantValidationResult {
 export function validateInvariantsExact(
   matrix: IncidenceMatrix,
   invariants: readonly PInvariant[],
-  flatNet?: FlatNet,
-  initialMarking?: MarkingState,
+  flatNet: FlatNet,
+  initialMarking: MarkingState,
 ): InvariantValidationResult {
-  const nonlinear = flatNet == null ? null : nonlinearPlaces(flatNet);
+  const nonlinear = nonlinearPlaces(flatNet);
   const valid: PInvariant[] = [];
   const dropped: DroppedInvariant[] = [];
   for (const inv of invariants) {
@@ -267,9 +309,9 @@ function nonlinearPlaces(flatNet: FlatNet): ReadonlySet<number> {
 function exactCheckFailure(
   matrix: IncidenceMatrix,
   inv: PInvariant,
-  nonlinear: ReadonlySet<number> | null,
-  flatNet?: FlatNet,
-  initialMarking?: MarkingState,
+  nonlinear: ReadonlySet<number>,
+  flatNet: FlatNet,
+  initialMarking: MarkingState,
 ): string | null {
   const P = matrix.numPlaces();
   const T = matrix.numTransitions();
@@ -279,7 +321,10 @@ function exactCheckFailure(
   }
   for (let p = 0; p < P; p++) {
     if (!Number.isSafeInteger(inv.weights[p]!)) {
-      return `weight ${inv.weights[p]} for place ${p} is outside the safe-integer range`;
+      return (
+        `weight overflow at place '${placeName(flatNet, p)}' ` +
+        `(exact value outside this implementation's integer extraction range)`
+      );
     }
   }
   if (!Number.isSafeInteger(inv.constant)) {
@@ -289,15 +334,12 @@ function exactCheckFailure(
   // H1 linearity guard (see the {@link validateInvariantsExact} doc): a nonzero
   // weight on a consume-all or reset place makes the linearized column a lie about
   // the real firing, so the y·C = 0 check below would not certify conservation.
-  if (nonlinear !== null) {
-    for (let p = 0; p < inv.weights.length; p++) {
-      if (inv.weights[p] !== 0 && nonlinear.has(p)) {
-        const name = flatNet?.places[p]?.name ?? `#${p}`;
-        return (
-          `support intersects consume-all/reset place '${name}' ` +
-          `(non-linear consumption; see Strengthening.lean H1)`
-        );
-      }
+  for (let p = 0; p < inv.weights.length; p++) {
+    if (inv.weights[p] !== 0 && nonlinear.has(p)) {
+      return (
+        `support intersects consume-all/reset place '${placeName(flatNet, p)}' ` +
+        `(non-linear consumption; see Strengthening.lean H1)`
+      );
     }
   }
 
@@ -315,27 +357,41 @@ function exactCheckFailure(
       dot += y[p]! * BigInt(row[p]!);
     }
     if (dot !== 0n) {
-      return `y·C is ${dot} (not 0) at transition column ${t}`;
+      return `y*C is ${dot} (not 0) at ${columnName(flatNet, t)}`;
     }
   }
 
   // Constant = y·M0, recomputed exactly.
-  if (flatNet != null && initialMarking != null) {
-    let exact = 0n;
-    for (let p = 0; p < P; p++) {
-      if (y[p] === 0n) continue;
-      const tokens = initialMarking.tokens(flatNet.places[p]!);
-      if (!Number.isSafeInteger(tokens)) {
-        return `initial marking of place ${p} (${tokens}) is outside the safe-integer range`;
-      }
-      exact += y[p]! * BigInt(tokens);
+  let exact = 0n;
+  for (let p = 0; p < P; p++) {
+    if (y[p] === 0n) continue;
+    const tokens = initialMarking.tokens(flatNet.places[p]!);
+    if (!Number.isSafeInteger(tokens)) {
+      return `initial marking of place ${p} (${tokens}) is outside the safe-integer range`;
     }
-    if (exact !== BigInt(inv.constant)) {
-      return `constant ${inv.constant} does not match the exact y·M0 = ${exact}`;
-    }
+    exact += y[p]! * BigInt(tokens);
+  }
+  if (exact !== BigInt(inv.constant)) {
+    return `constant ${inv.constant} does not match exact y*M0 = ${exact}`;
   }
 
   return null;
+}
+
+/** Place name for a flat place index (falls back to `#idx` off the end). */
+function placeName(flatNet: FlatNet, p: number): string {
+  return flatNet.places[p]?.name ?? `#${p}`;
+}
+
+/**
+ * Name of incidence column `t`. Columns past `flatNet.transitions` are the
+ * per-env-place injector columns {@link IncidenceMatrix.from} appends.
+ */
+function columnName(flatNet: FlatNet, t: number): string {
+  const ft = flatNet.transitions[t];
+  return ft != null
+    ? `transition '${ft.name}'`
+    : `env-injector column ${t - flatNet.transitions.length}`;
 }
 
 /**
@@ -426,10 +482,6 @@ export function computePSemiflows(
 }
 
 /**
- * Divides a generator row's signature and weight by the GCD of all their absolute
- * values (keeps the P-semiflow minimal and the integers small). Mutates in place.
- */
-/**
  * `cp*a + cn*b` componentwise, or null if any result leaves the safe-integer range
  * (`number` is f64 and loses integer precision above 2^53) — the caller then drops the
  * generator and the colour bound falls back soundly rather than using imprecise values.
@@ -449,6 +501,10 @@ function combineRow(
   return out;
 }
 
+/**
+ * Divides a generator row's signature and weight by the GCD of all their absolute
+ * values (keeps the P-semiflow minimal and the integers small). Mutates in place.
+ */
 function reduceGcd(sig: number[], weight: number[]): void {
   let g = 0;
   for (const v of sig) g = gcd(g, Math.abs(v));

@@ -27,6 +27,11 @@
 //! 3. **safety**: `R'(M) ∧ Bad(M)` — the invariant excludes every violating
 //!    state.
 //!
+//! VC2 and VC3 additionally assert `M >= 0`: the encoded system lives in
+//! `ℕ^P`, and without that domain constraint the queries range over `ℤ^P`,
+//! where a certificate that is genuinely inductive and safe over the markings
+//! the net can hold still fails.
+//!
 //! Polarity cross-check: these are ordinary satisfiability queries with the
 //! standard, unambiguous reading (`unsat` = the VC is valid). That a
 //! Spacer-produced certificate discharges them independently corroborates the
@@ -40,17 +45,33 @@ use crate::property::SmtProperty;
 use crate::smt_encoder;
 use crate::smt_verifier::run_z3_text;
 
-/// Names of the three verification conditions, in script order.
-const VC_NAMES: [&str; 3] = ["init", "consecution", "safety"];
+/// The three verification conditions, in script order. These labels are quoted
+/// verbatim in the verifier's downgrade reason, so all four language
+/// implementations name a failing VC identically.
+const VC_LABELS: [&str; 3] = ["initiation (VC1)", "consecution (VC2)", "safety (VC3)"];
 
 /// Outcome of the certificate check.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CertificateCheck {
     /// All three VCs discharged (z3 answered `unsat` to each).
     Passed,
-    /// The certificate did not check out; `reason` names the failing VC or the
-    /// z3/parse failure. The verifier downgrades the verdict to `Unknown`.
-    Failed { reason: String },
+    /// One VC came back with something other than `unsat`: the certificate is
+    /// not an inductive invariant of the unstrengthened step relation. `vc` is
+    /// one of [`VC_LABELS`], `detail` describes the solver's answer.
+    Failed {
+        /// The failing VC, verbatim from [`VC_LABELS`].
+        vc: &'static str,
+        /// What the solver answered, e.g.
+        /// `solver returned SATISFIABLE (witness: p0=2, p1=1)`.
+        detail: String,
+    },
+    /// The check could not be run to a verdict — a malformed certificate, a
+    /// z3 spawn/parse failure, an errored assert. Distinct from `Failed`: it
+    /// is an absence of evidence, and the verifier says so.
+    Inconclusive {
+        /// Why the check could not run.
+        reason: String,
+    },
 }
 
 /// Re-verifies an extracted proof certificate against the unstrengthened step
@@ -58,9 +79,10 @@ pub enum CertificateCheck {
 /// from the Spacer model (auxiliary definitions included, so `Reachable`
 /// stays resolvable); `invariants` are the validated P-invariants the CHC
 /// encoding was strengthened with — conjoined into the candidate and thereby
-/// re-proven by the VCs themselves (see the module docs). Never panics: every
-/// failure mode — missing `Reachable`, a z3 error, an unparseable reply, a
-/// sat/unknown VC — comes back as [`CertificateCheck::Failed`].
+/// re-proven by the VCs themselves (see the module docs). Never panics: a
+/// malformed net/invariant shape, a missing `Reachable`, a z3 error, an
+/// unparseable reply all come back as [`CertificateCheck::Inconclusive`], and
+/// a sat/unknown VC as [`CertificateCheck::Failed`].
 #[allow(clippy::too_many_arguments)]
 pub fn check_certificate(
     certificate: &str,
@@ -73,15 +95,22 @@ pub fn check_certificate(
     env_injection: &[(String, Option<usize>)],
     timeout_ms: u64,
 ) -> CertificateCheck {
+    // Shape guards for the public entry point: the script builder indexes
+    // `flat.places[i]`, `inv.weights[i]` and the marking-variable vectors by
+    // place index, so a caller-supplied net or invariant that does not line up
+    // must be refused, not panicked on.
+    if let Some(reason) = shape_failure(flat, invariants) {
+        return CertificateCheck::Inconclusive { reason };
+    }
     if !certificate.contains("(define-fun Reachable ")
         && !certificate.contains("(define-fun |Reachable| ")
     {
-        return CertificateCheck::Failed {
+        return CertificateCheck::Inconclusive {
             reason: "certificate does not define Reachable".to_string(),
         };
     }
 
-    let script = build_certificate_script(
+    let vcs = VerificationConditions::build(
         certificate,
         flat,
         initial_marking,
@@ -93,92 +122,236 @@ pub fn check_certificate(
     );
 
     // One plain z3 run for all three VCs (no fp.engine — this is not HORN).
-    let output = match run_z3_text(&script, timeout_ms, &[]) {
-        Ok(output) => output,
-        Err(reason) => return CertificateCheck::Failed { reason },
-    };
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    let results = match parse_vc_results(&stdout) {
+    let results = match run_vc_script(&vcs.script(), timeout_ms) {
         Ok(results) => results,
-        Err(reason) => return CertificateCheck::Failed { reason },
+        Err(reason) => return CertificateCheck::Inconclusive { reason },
     };
 
-    for (vc, result) in VC_NAMES.iter().zip(results.iter()) {
+    for (i, result) in results.iter().enumerate() {
         if result != "unsat" {
             return CertificateCheck::Failed {
-                reason: format!("{vc} VC not discharged: z3 answered '{result}' (expected unsat)"),
+                vc: VC_LABELS[i],
+                detail: vcs.detail_for(i, result, flat, timeout_ms),
             };
         }
     }
     CertificateCheck::Passed
 }
 
-/// Builds the plain SMT-LIB2 script: the pasted certificate, the marking
-/// constants (`m0…mN` current, `m0p…mNp` next — the CHC encoding's naming),
-/// then the three VCs under `(push)`/`(pop)`, each with its own `(check-sat)`.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn build_certificate_script(
-    certificate: &str,
-    flat: &FlatNet,
-    initial_marking: &MarkingState,
-    property: &SmtProperty,
-    invariants: &[PInvariant],
-    sink_places: &[String],
-    env_bounds: &[(String, usize)],
-    env_injection: &[(String, Option<usize>)],
-) -> String {
-    let p = flat.place_count;
-    let m_vars: Vec<String> = (0..p).map(|i| format!("m{i}")).collect();
-    let mp_vars: Vec<String> = (0..p).map(|i| format!("m{i}p")).collect();
+/// Why `flat`/`invariants` cannot be indexed safely, or `None` when they line up.
+fn shape_failure(flat: &FlatNet, invariants: &[PInvariant]) -> Option<String> {
+    if flat.places.len() != flat.place_count {
+        return Some(format!(
+            "flat net declares {} places but carries {} names",
+            flat.place_count,
+            flat.places.len()
+        ));
+    }
+    for inv in invariants {
+        if inv.weights.len() != flat.place_count {
+            return Some(format!(
+                "P-invariant has {} weights for a {}-place net",
+                inv.weights.len(),
+                flat.place_count
+            ));
+        }
+        if let Some(&pid) = inv.support.iter().find(|&&pid| pid >= flat.place_count) {
+            return Some(format!(
+                "P-invariant support names place index {pid} in a {}-place net",
+                flat.place_count
+            ));
+        }
+    }
+    None
+}
 
-    let mut lines = Vec::new();
-    lines.push("; IC3/PDR certificate check (plain SMT-LIB2, not HORN):".to_string());
-    lines.push("; each VC below must be unsat for the certificate to stand.".to_string());
-    lines.push(certificate.to_string());
-    lines.push(String::new());
-    for v in m_vars.iter().chain(mp_vars.iter()) {
-        lines.push(format!("(declare-const {v} Int)"));
+/// Runs one plain-SMT script and returns the three positional `(check-sat)`
+/// answers, or the reason the run could not be trusted.
+///
+/// Both z3 output channels are inspected: an `(error …)` on EITHER stream
+/// means an assert was dropped, which would silently make a VC vacuous, and a
+/// non-success exit means the run did not complete. Only a clean three-answer
+/// stdout counts.
+fn run_vc_script(script: &str, timeout_ms: u64) -> Result<Vec<String>, String> {
+    let output = run_z3_text(script, timeout_ms, &[])?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if let Some(err) = error_line(&stderr) {
+        return Err(format!("z3 reported an error on stderr: {err}"));
+    }
+    let results = parse_vc_results(&stdout)?;
+    if !output.status.success() {
+        return Err(format!(
+            "z3 exited with {} after answering {:?}",
+            output.status, results
+        ));
+    }
+    Ok(results)
+}
+
+/// The first `(error …)` line in a z3 stream, trimmed.
+fn error_line(text: &str) -> Option<String> {
+    text.lines()
+        .map(str::trim)
+        .find(|l| l.starts_with("(error"))
+        .map(str::to_string)
+}
+
+/// The assembled VC script, kept in parts so one VC can be re-run alone to
+/// describe its failure (the model witness / the unknown reason).
+struct VerificationConditions {
+    prelude: Vec<String>,
+    /// The asserts of each VC, in [`VC_LABELS`] order.
+    asserts: [Vec<String>; 3],
+}
+
+impl VerificationConditions {
+    #[allow(clippy::too_many_arguments)]
+    fn build(
+        certificate: &str,
+        flat: &FlatNet,
+        initial_marking: &MarkingState,
+        property: &SmtProperty,
+        invariants: &[PInvariant],
+        sink_places: &[String],
+        env_bounds: &[(String, usize)],
+        env_injection: &[(String, Option<usize>)],
+    ) -> Self {
+        let p = flat.place_count;
+        let m_vars: Vec<String> = (0..p).map(|i| format!("m{i}")).collect();
+        let mp_vars: Vec<String> = (0..p).map(|i| format!("m{i}p")).collect();
+
+        let mut prelude = vec![
+            "; IC3/PDR certificate check (plain SMT-LIB2, not HORN):".to_string(),
+            "; each VC below must be unsat for the certificate to stand.".to_string(),
+            certificate.to_string(),
+            String::new(),
+        ];
+        for v in m_vars.iter().chain(mp_vars.iter()) {
+            prelude.push(format!("(declare-const {v} Int)"));
+        }
+
+        // VC1 (init): the initial marking satisfies the candidate invariant.
+        let m0_values: Vec<String> = (0..p)
+            .map(|i| initial_marking.count(&flat.places[i]).to_string())
+            .collect();
+        let vc1 = vec![format!("(assert (not {}))", candidate(&m0_values, invariants))];
+
+        // The system lives in ℕ^P, not ℤ^P: without this the VCs run over
+        // negative markings the net can never hold, and a certificate that is
+        // inductive/safe over ℕ^P alone fails consecution or safety — a
+        // correct `Proven` lost to a state the encoding excludes anyway. The
+        // step relation already constrains M' (`m'_i >= 0`); this constrains M.
+        let non_negative: Vec<String> = m_vars
+            .iter()
+            .map(|v| format!("(assert (>= {v} 0))"))
+            .collect();
+
+        // VC2 (consecution): the invariant is closed under the unstrengthened
+        // step relation (transition firings + env-injection steps, no
+        // P-invariant conjuncts).
+        let step = smt_encoder::encode_step_relation_smt2(flat, env_bounds, env_injection);
+        let mut vc2 = non_negative.clone();
+        vc2.push(format!("(assert {})", candidate(&m_vars, invariants)));
+        vc2.push(format!("(assert {step})"));
+        vc2.push(format!("(assert (not {}))", candidate(&mp_vars, invariants)));
+
+        // VC3 (safety): the invariant excludes every property-violating state —
+        // exactly the violation the CHC error rule encodes.
+        let env_inject = smt_encoder::resolve_env_injection(flat, env_injection);
+        let bad = smt_encoder::encode_property_violation(
+            flat,
+            property,
+            &m_vars,
+            sink_places,
+            &env_inject,
+        );
+        let mut vc3 = non_negative;
+        vc3.push(format!("(assert {})", candidate(&m_vars, invariants)));
+        vc3.push(format!("(assert {bad})"));
+
+        Self {
+            prelude,
+            asserts: [vc1, vc2, vc3],
+        }
     }
 
-    // VC1 (init): the initial marking satisfies the candidate invariant.
-    let m0_values: Vec<String> = (0..p)
-        .map(|i| initial_marking.count(&flat.places[i]).to_string())
+    /// The full script: the prelude, then the three VCs under `(push)`/`(pop)`,
+    /// each with its own `(check-sat)`.
+    fn script(&self) -> String {
+        let mut lines = self.prelude.clone();
+        for (i, asserts) in self.asserts.iter().enumerate() {
+            lines.push(String::new());
+            lines.push(format!("; VC{} {}", i + 1, VC_LABELS[i]));
+            lines.push("(push)".to_string());
+            lines.extend(asserts.iter().cloned());
+            lines.push("(check-sat)".to_string());
+            lines.push("(pop)".to_string());
+        }
+        lines.join("\n")
+    }
+
+    /// Describes VC `i`'s non-`unsat` answer for the downgrade reason, by
+    /// re-running that VC alone with model/reason extraction enabled. The
+    /// re-run is best effort: without it the answer is still named.
+    fn detail_for(&self, i: usize, answer: &str, flat: &FlatNet, timeout_ms: u64) -> String {
+        let mut lines = vec!["(set-option :produce-models true)".to_string()];
+        lines.extend(self.prelude.iter().cloned());
+        lines.extend(self.asserts[i].iter().cloned());
+        lines.push("(check-sat)".to_string());
+        lines.push(
+            if answer == "sat" { "(get-model)" } else { "(get-info :reason-unknown)" }.to_string(),
+        );
+        let reply = run_z3_text(&lines.join("\n"), timeout_ms, &[])
+            .ok()
+            .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+            .unwrap_or_default();
+
+        if answer == "sat" {
+            match witness(&reply, flat) {
+                Some(w) => format!("solver returned SATISFIABLE (witness: {w})"),
+                None => "solver returned SATISFIABLE".to_string(),
+            }
+        } else {
+            match reason_unknown(&reply) {
+                Some(r) => format!("solver returned UNKNOWN ({r})"),
+                None => "solver returned UNKNOWN".to_string(),
+            }
+        }
+    }
+}
+
+/// Reads the current-marking assignment out of a `(get-model)` reply as
+/// `p0=2, p1=1` (place names, index order). `None` when no `m_i` was defined.
+fn witness(model: &str, flat: &FlatNet) -> Option<String> {
+    let parts: Vec<String> = (0..flat.place_count)
+        .filter_map(|i| {
+            let needle = format!("(define-fun m{i} () Int");
+            let start = model.find(&needle)? + needle.len();
+            let rest = model[start..].trim_start();
+            // A negative literal prints as the s-expression `(- 1)`; flatten it
+            // back to `-1` so the witness reads like a marking.
+            let value = if rest.starts_with('(') {
+                let end = crate::smt_verifier::sexpr_end(rest, 0)?;
+                rest[1..end - 1].split_whitespace().collect::<Vec<_>>().concat()
+            } else {
+                rest.split(|c: char| c.is_whitespace() || c == ')')
+                    .next()?
+                    .to_string()
+            };
+            Some(format!("{}={}", flat.places[i], value))
+        })
         .collect();
-    lines.push(String::new());
-    lines.push("; VC1 init".to_string());
-    lines.push("(push)".to_string());
-    lines.push(format!("(assert (not {}))", candidate(&m0_values, invariants)));
-    lines.push("(check-sat)".to_string());
-    lines.push("(pop)".to_string());
+    (!parts.is_empty()).then(|| parts.join(", "))
+}
 
-    // VC2 (consecution): the invariant is closed under the unstrengthened
-    // step relation (transition firings + env-injection steps, no P-invariant
-    // conjuncts).
-    let step = smt_encoder::encode_step_relation_smt2(flat, env_bounds, env_injection);
-    lines.push(String::new());
-    lines.push("; VC2 consecution".to_string());
-    lines.push("(push)".to_string());
-    lines.push(format!("(assert {})", candidate(&m_vars, invariants)));
-    lines.push(format!("(assert {step})"));
-    lines.push(format!("(assert (not {}))", candidate(&mp_vars, invariants)));
-    lines.push("(check-sat)".to_string());
-    lines.push("(pop)".to_string());
-
-    // VC3 (safety): the invariant excludes every property-violating state —
-    // exactly the violation the CHC error rule encodes.
-    let env_inject = smt_encoder::resolve_env_injection(flat, env_injection);
-    let bad =
-        smt_encoder::encode_property_violation(flat, property, &m_vars, sink_places, &env_inject);
-    lines.push(String::new());
-    lines.push("; VC3 safety".to_string());
-    lines.push("(push)".to_string());
-    lines.push(format!("(assert {})", candidate(&m_vars, invariants)));
-    lines.push(format!("(assert {bad})"));
-    lines.push("(check-sat)".to_string());
-    lines.push("(pop)".to_string());
-
-    lines.join("\n")
+/// Reads z3's `(get-info :reason-unknown)` reply, e.g. `timeout`.
+fn reason_unknown(reply: &str) -> Option<String> {
+    let start = reply.find(":reason-unknown")? + ":reason-unknown".len();
+    let rest = reply[start..].trim_start();
+    let end = rest.find(')')?;
+    let reason = rest[..end].trim().trim_matches('"').trim();
+    (!reason.is_empty()).then(|| reason.to_string())
 }
 
 /// The candidate invariant applied to a variable (or literal) vector:
@@ -187,11 +360,7 @@ pub(crate) fn build_certificate_script(
 fn candidate(vars: &[String], invariants: &[PInvariant]) -> String {
     let mut conjuncts = vec![format!("(Reachable {})", vars.join(" "))];
     conjuncts.extend(smt_encoder::invariant_conditions(invariants, vars));
-    if conjuncts.len() == 1 {
-        conjuncts.swap_remove(0)
-    } else {
-        format!("(and {})", conjuncts.join(" "))
-    }
+    smt_encoder::conjoin(&conjuncts)
 }
 
 /// Parses the three positional `(check-sat)` answers from the z3 reply. Any
@@ -199,11 +368,8 @@ fn candidate(vars: &[String], invariants: &[PInvariant]) -> String {
 /// fails the check outright: an errored assert silently vanishes from the
 /// query, which could leave a VC vacuous.
 fn parse_vc_results(stdout: &str) -> Result<Vec<String>, String> {
-    if let Some(err) = stdout
-        .lines()
-        .find(|l| l.trim_start().starts_with("(error"))
-    {
-        return Err(format!("z3 error while checking the certificate: {}", err.trim()));
+    if let Some(err) = error_line(stdout) {
+        return Err(format!("z3 error while checking the certificate: {err}"));
     }
     let results: Vec<String> = stdout
         .lines()
@@ -233,12 +399,31 @@ mod tests {
     use libpetri_core::place::Place;
     use libpetri_core::transition::Transition;
 
-    fn z3_available() -> bool {
-        std::process::Command::new("z3")
-            .arg("--version")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
+    use crate::smt_verifier::z3_available;
+
+    /// The assembled three-VC script, for the shape assertions below.
+    #[allow(clippy::too_many_arguments)]
+    fn build_certificate_script(
+        certificate: &str,
+        flat: &FlatNet,
+        initial_marking: &MarkingState,
+        property: &SmtProperty,
+        invariants: &[PInvariant],
+        sink_places: &[String],
+        env_bounds: &[(String, usize)],
+        env_injection: &[(String, Option<usize>)],
+    ) -> String {
+        VerificationConditions::build(
+            certificate,
+            flat,
+            initial_marking,
+            property,
+            invariants,
+            sink_places,
+            env_bounds,
+            env_injection,
+        )
+        .script()
     }
 
     /// Chain p1 -> p2 with initial marking p1=1. Sorted place order: p1=0, p2=1.
@@ -277,6 +462,7 @@ mod tests {
         assert!(script.contains("(declare-const m0 Int)"));
         assert!(script.contains("(declare-const m1p Int)"));
         assert!(script.contains("(assert (not (Reachable 1 0)))"), "init VC on M0\n{script}");
+        assert!(script.contains("(assert (>= m0 0))"), "VC2/VC3 constrain M to ℕ^P\n{script}");
         assert!(script.contains("(assert (not (Reachable m0p m1p)))"));
         assert_eq!(script.matches("(check-sat)").count(), 3);
         assert_eq!(script.matches("(push)").count(), 3);
@@ -298,10 +484,10 @@ mod tests {
             5_000,
         );
         match outcome {
-            CertificateCheck::Failed { reason } => {
+            CertificateCheck::Inconclusive { reason } => {
                 assert!(reason.contains("does not define Reachable"), "{reason}")
             }
-            other => panic!("expected Failed, got {other:?}"),
+            other => panic!("expected Inconclusive, got {other:?}"),
         }
     }
 
@@ -360,8 +546,9 @@ mod tests {
             5_000,
         );
         match outcome {
-            CertificateCheck::Failed { reason } => {
-                assert!(reason.contains("safety"), "must name the safety VC: {reason}")
+            CertificateCheck::Failed { vc, detail } => {
+                assert_eq!(vc, "safety (VC3)");
+                assert!(detail.contains("SATISFIABLE"), "{detail}");
             }
             other => panic!("expected Failed(safety), got {other:?}"),
         }
@@ -389,10 +576,11 @@ mod tests {
             5_000,
         );
         match outcome {
-            CertificateCheck::Failed { reason } => assert!(
-                reason.contains("consecution"),
-                "must name the consecution VC: {reason}"
-            ),
+            CertificateCheck::Failed { vc, detail } => {
+                assert_eq!(vc, "consecution (VC2)");
+                // The witness names places, not `m` variables (C2).
+                assert!(detail.contains("SATISFIABLE"), "{detail}");
+            }
             other => panic!("expected Failed(consecution), got {other:?}"),
         }
     }
@@ -417,10 +605,8 @@ mod tests {
             5_000,
         );
         match outcome {
-            CertificateCheck::Failed { reason } => {
-                assert!(reason.contains("init"), "must name the init VC: {reason}")
-            }
-            other => panic!("expected Failed(init), got {other:?}"),
+            CertificateCheck::Failed { vc, .. } => assert_eq!(vc, "initiation (VC1)"),
+            other => panic!("expected Failed(initiation), got {other:?}"),
         }
     }
 
@@ -445,10 +631,10 @@ mod tests {
             5_000,
         );
         match outcome {
-            CertificateCheck::Failed { reason } => {
+            CertificateCheck::Inconclusive { reason } => {
                 assert!(reason.contains("z3 error"), "{reason}")
             }
-            other => panic!("expected Failed(z3 error), got {other:?}"),
+            other => panic!("expected Inconclusive(z3 error), got {other:?}"),
         }
     }
 
@@ -532,10 +718,11 @@ mod tests {
 
         // Wrong constant: p1 + p2 = 2 does not hold at M0 -> init VC fails.
         match check(&[chain_invariant(2)]) {
-            CertificateCheck::Failed { reason } => {
-                assert!(reason.contains("init"), "wrong constant must fail init: {reason}")
-            }
-            other => panic!("expected Failed(init), got {other:?}"),
+            CertificateCheck::Failed { vc, .. } => assert_eq!(
+                vc, "initiation (VC1)",
+                "a wrong constant must fail initiation"
+            ),
+            other => panic!("expected Failed(initiation), got {other:?}"),
         }
 
         // Non-conserved law: p1 = 1 is broken by t1 -> consecution VC fails.
@@ -545,11 +732,121 @@ mod tests {
             support: vec![0],
         };
         match check(&[bogus]) {
-            CertificateCheck::Failed { reason } => assert!(
-                reason.contains("consecution"),
-                "non-conserved law must fail consecution: {reason}"
+            CertificateCheck::Failed { vc, .. } => assert_eq!(
+                vc, "consecution (VC2)",
+                "a non-conserved law must fail consecution"
             ),
             other => panic!("expected Failed(consecution), got {other:?}"),
         }
+    }
+
+    /// V2 (the `conservedPair` fixture shape): a certificate that is inductive
+    /// and safe over ℕ^P but NOT over ℤ^P must still pass. `p0 + p1 = 3` bounds
+    /// `p1` by 3 only when neither place can go negative; without the domain
+    /// constraint the safety VC finds `(-1, 4)` and a correct `Proven` is lost.
+    #[test]
+    fn certificate_inductive_over_naturals_only_still_passes() {
+        if !z3_available() {
+            eprintln!("skipping certificate_inductive_over_naturals_*: z3 binary not on PATH");
+            return;
+        }
+        let p0 = Place::<i32>::new("p0");
+        let p1 = Place::<i32>::new("p1");
+        let t = Transition::builder("t")
+            .input(one(&p0))
+            .output(out_place(&p1))
+            .action(fork())
+            .build();
+        let flat = flatten(&PetriNet::builder("conservedPair").transition(t).build());
+        let marking = MarkingStateBuilder::new().tokens("p0", 3).build();
+        let outcome = check_certificate(
+            "(define-fun Reachable ((x!0 Int) (x!1 Int)) Bool (= (+ x!0 x!1) 3))",
+            &flat,
+            &marking,
+            &SmtProperty::place_bound("p1", 3),
+            &[],
+            &[],
+            &[],
+            &[],
+            5_000,
+        );
+        assert_eq!(outcome, CertificateCheck::Passed);
+    }
+
+    /// V7: the documented "never panics" contract holds for a caller-supplied
+    /// invariant whose shape does not line up with the net.
+    #[test]
+    fn malformed_invariant_shape_is_inconclusive_not_a_panic() {
+        let (flat, marking) = chain();
+        let out_of_range = PInvariant {
+            weights: vec![1, 1],
+            constant: 1,
+            support: vec![0, 7],
+        };
+        match check_certificate(
+            GOOD_CERT,
+            &flat,
+            &marking,
+            &SmtProperty::place_bound("p2", 1),
+            &[out_of_range],
+            &[],
+            &[],
+            &[],
+            5_000,
+        ) {
+            CertificateCheck::Inconclusive { reason } => {
+                assert!(reason.contains("place index 7"), "{reason}")
+            }
+            other => panic!("expected Inconclusive, got {other:?}"),
+        }
+
+        let short = PInvariant {
+            weights: vec![1],
+            constant: 1,
+            support: vec![0],
+        };
+        assert!(matches!(
+            check_certificate(
+                GOOD_CERT,
+                &flat,
+                &marking,
+                &SmtProperty::place_bound("p2", 1),
+                &[short],
+                &[],
+                &[],
+                &[],
+                5_000,
+            ),
+            CertificateCheck::Inconclusive { .. }
+        ));
+    }
+
+    /// V6: an `(error …)` routed to stderr must not leave the three stdout
+    /// answers looking clean, and a non-success exit is never a pass.
+    #[test]
+    fn stderr_errors_and_bad_exit_are_caught() {
+        assert!(error_line("warning: x\n(error \"line 3: bad\")\n").is_some());
+        assert!(error_line("all good\n").is_none());
+        // A warning line ahead of the answers is tolerated (V5's shape).
+        assert_eq!(
+            parse_vc_results("WARNING: blah\nunsat\nunsat\nunsat\n").unwrap(),
+            vec!["unsat", "unsat", "unsat"]
+        );
+    }
+
+    /// The `(get-model)` reply is rendered with PLACE names for the C2 detail.
+    #[test]
+    fn witness_uses_place_names() {
+        let (flat, _) = chain();
+        let model = "sat\n(\n  (define-fun m0 () Int 2)\n  (define-fun m1 () Int 1)\n)\n";
+        assert_eq!(witness(model, &flat).as_deref(), Some("p1=2, p2=1"));
+        // A negative literal prints as `(- 1)`; the witness reads `-1`.
+        let negative = "sat\n(\n  (define-fun m0 () Int (- 1))\n  (define-fun m1 () Int 4)\n)\n";
+        assert_eq!(witness(negative, &flat).as_deref(), Some("p1=-1, p2=4"));
+        assert_eq!(witness("sat\n", &flat), None);
+        assert_eq!(
+            reason_unknown("unknown\n(:reason-unknown \"timeout\")\n").as_deref(),
+            Some("timeout")
+        );
     }
 }

@@ -335,7 +335,8 @@ fn run_per_property(
                 invariants: Vec::new(),
                 discovered_invariants: Vec::new(),
                 counterexample_trace: Vec::new(),
-                counterexample_confirmed: false,
+                // The replay did not apply: no solver ran at all (C1 tri-state).
+                counterexample_confirmed: None,
                 counterexample_transitions: Vec::new(),
                 elapsed_ms: 0,
                 statistics: VerificationStatistics {

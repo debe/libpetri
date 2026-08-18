@@ -12,7 +12,7 @@ import { IncidenceMatrix } from './encoding/incidence-matrix.js';
 import { computePInvariants, computePSemiflows, isCoveredByInvariants, validateInvariantsExact } from './invariant/p-invariant-computer.js';
 import { structuralCheck } from './invariant/structural-check.js';
 import { createSpacerRunner } from './z3/spacer-runner.js';
-import { checkCertificate } from './z3/certificate-checker.js';
+import { checkCertificate, type CertificateCheckOutcome } from './z3/certificate-checker.js';
 import { encode } from './z3/smt-encoder.js';
 import { buildColouredPlan, encodeColoured, type ColouredPlan } from './z3/name-coloured-encoder.js';
 import { verifyViaNameScg } from './nu-scg-verifier.js';
@@ -142,22 +142,11 @@ export class SmtVerifier {
    * Enables/disables abstract counterexample replay (default: enabled).
    *
    * When a violated verdict comes from the flat count encoding, the decoded
-   * counterexample states (an order-free set — the derivation tree is walked
-   * in traversal order, not firing order) are re-executed TS-side against the
-   * abstract semantics the encoder emits (Lean's `fireA`, Basic.lean): a
-   * bounded BFS chains the states from M₀ to a property-violating marking.
-   *
-   * - Chain found → the verdict stays violated with
-   *   `counterexampleConfirmed: true` and the trace re-emitted in firing
-   *   (replay) order.
-   * - States decoded but unchainable → the counterexample is spurious or the
-   *   decoder mis-read the derivation; the verdict DOWNGRADES to unknown.
-   * - Nothing decoded → the verdict stays violated with
-   *   `counterexampleConfirmed: false` and a report note (Spacer's SAT answer
-   *   stands; there is simply nothing to replay).
-   *
-   * The coloured ν-encoding and Route B have their own state shapes and are
-   * out of scope (replay is skipped, `counterexampleConfirmed: null`).
+   * counterexample states (an order-free set — the derivation tree is walked in
+   * traversal order, not firing order) are re-executed TS-side against the
+   * abstract semantics the encoder emits (Lean's `fireA`, Basic.lean), searching
+   * for a firing order from M₀ to a property-violating marking. See
+   * `SmtVerificationResult.counterexampleConfirmed` for how each outcome lands.
    */
   counterexampleReplay(enabled: boolean): this {
     this._counterexampleReplay = enabled;
@@ -349,6 +338,7 @@ export class SmtVerifier {
       report.push('=== RESULT ===\n');
       report.push('PROVEN (structural): Deadlock-freedom verified by Commoner\'s theorem.');
       report.push('  All siphons contain initially marked traps.');
+      report.push('  Certificate check: not applicable (structural proof)');
       return buildResult(
         { type: 'proven', method: 'structural', inductiveInvariant: null },
         report.join('\n'), [], [], [], [],
@@ -386,14 +376,18 @@ export class SmtVerifier {
     for (const inv of invariants) {
       report.push(`  ${formatInvariant(inv, flatNet)}`);
     }
+    // Canonical cross-language wording: "  Dropped <kind>: <desc> - <reason>",
+    // ASCII hyphen-minus as the clause separator so the four implementations'
+    // reports diff byte-for-byte. The structured {invariant, reason} pairs stay
+    // on the result for callers that want more than the rendered line.
     for (const { invariant, reason } of droppedInvariants) {
-      report.push(`  Dropped invariant ${formatInvariant(invariant, flatNet)}: exact re-check failed (${reason})`);
+      report.push(`  Dropped invariant: ${formatInvariant(invariant, flatNet)} - ${reason}`);
     }
     if (droppedInvariants.length > 0) {
       report.push(`  Dropped: ${droppedInvariants.length} invariant(s) failed the exact re-check`);
     }
     for (const { invariant, reason } of droppedSemiflows) {
-      report.push(`  Dropped semiflow ${formatInvariant(invariant, flatNet)}: exact re-check failed (${reason})`);
+      report.push(`  Dropped semiflow: ${formatInvariant(invariant, flatNet)} - ${reason}`);
     }
     if (droppedSemiflows.length > 0) {
       report.push(`  Dropped: ${droppedSemiflows.length} semiflow(s) failed the exact re-check`);
@@ -492,15 +486,19 @@ export class SmtVerifier {
           // wrong-but-validated-looking invariant strengthening can certify a
           // false PROVEN. The coloured ν-encoding has its own state shape and is
           // out of scope; structural proofs return before this point.
-          if (colouredPlan == null && this._certificateCheck) {
+          if (colouredPlan != null) {
+            report.push('  Certificate check: not applicable (name-coloured encoding)');
+          } else if (!this._certificateCheck) {
+            report.push('  Certificate check: not applicable (disabled)');
+          } else {
             const certificate = await checkCertificate(
               runner.ctx, queryResult.answer, flatNet, this._initialMarking,
               this._property, invariants, this._sinkPlaces, this._timeoutMs,
             );
-            if (certificate.type === 'failed') {
-              const reason = `Certificate check FAILED: ${certificate.reason} — verdict downgraded`;
-              report.push(`  Certificate check: FAILED (${certificate.reason})`);
-              if (certificate.invariant != null) {
+            const reason = certificateDowngradeReason(certificate);
+            if (reason != null) {
+              report.push('  Certificate check: FAILED');
+              if (certificate.type !== 'passed' && certificate.invariant != null) {
                 report.push(`  Uncertified invariant: ${substituteNames(certificate.invariant, flatNet)}`);
               }
               report.push('');
@@ -571,77 +569,66 @@ export class SmtVerifier {
             structuralResult: structResultStr,
           };
 
-          // C3: abstract counterexample replay (flat count encoding only — the
-          // coloured ν-encoding's state shape is outside the replayer's scope).
-          // The decoder collects Reachable states in derivation-TRAVERSAL order;
-          // the replay recovers a genuine firing order or downgrades.
+          // C3/C4: abstract counterexample replay (flat count encoding only —
+          // the coloured ν-encoding's state shape is outside the replayer's
+          // scope). The decoder collects Reachable states in derivation-
+          // TRAVERSAL order; the replay recovers a genuine firing order.
           let confirmed: boolean | null = null;
           let trace: readonly MarkingState[] = decoded.trace;
           let transitions: readonly string[] = decoded.transitions;
           let replayed = false;
           if (colouredPlan == null && this._counterexampleReplay) {
-            if (decoded.states.size > 0) {
-              let outcome: ReplayOutcome;
-              try {
-                outcome = replayCounterexample(
-                  flatNet,
-                  vectorize(this._initialMarking, flatNet),
-                  [...decoded.states].map(m => vectorize(m, flatNet)),
-                  this._property,
-                  this._sinkPlaces,
-                );
-              } catch (e: any) {
-                // The abstraction over-approximates (VER-004), so replay failure
-                // must downgrade, never crash the verifier.
-                outcome = {
-                  kind: 'unchainable',
-                  reason: `replay error: ${e?.message ?? e}`,
-                  nodesExplored: 0,
-                };
-              }
-              if (outcome.kind === 'confirmed') {
-                confirmed = true;
-                replayed = true;
-                trace = outcome.states.map(s => toMarkingState(s, flatNet));
-                transitions = outcome.steps.map(stepName);
-                report.push('  Counterexample replay: CONFIRMED (abstract chain M0 -> bad re-executed)');
-              } else {
-                // Decoded states exist but no abstract chain reaches a violating
-                // marking: a spurious counterexample of the untimed+value-blind
-                // over-approximation, or a decoder mismatch. Never keep an
-                // unreplayable VIOLATED — downgrade, with raw + decoded evidence.
-                const reason = 'counterexample failed abstract replay — spurious CEX or decoder mismatch';
-                report.push(`  Counterexample replay: FAILED (${outcome.reason})`);
-                report.push(`  Decoded states (order-free set, ${decoded.states.size}):`);
-                for (const m of decoded.states) {
-                  report.push(`    ${m}`);
-                }
-                if (decoded.trace.length > 0) {
-                  report.push(`  Raw traversal-order trace (${decoded.trace.length} states):`);
-                  for (let i = 0; i < decoded.trace.length; i++) {
-                    report.push(`    ${i}: ${decoded.trace[i]}`);
-                  }
-                }
-                if (decoded.failure != null) {
-                  report.push(`  Decoder degradation: ${describeDecodeFailure(decoded.failure)}`);
-                }
-                report.push(`  Raw Z3 answer: ${truncate(String(queryResult.answer), 2000)}`);
-                report.push('');
-                report.push('=== RESULT ===\n');
-                report.push(`UNKNOWN: ${reason}`);
-                return buildResult(
-                  { type: 'unknown', reason },
-                  report.join('\n'), invariants, [], [], [],
-                  performance.now() - start,
-                  stats,
-                );
-              }
-            } else {
-              // Nothing decodable in the derivation: the SAT verdict stands on
-              // Spacer's answer alone — NOT a downgrade, but say so.
+            const assessment = assessCounterexample(
+              flatNet, this._initialMarking, decoded.states, this._property, this._sinkPlaces,
+            );
+            if (assessment.kind === 'confirmed') {
+              confirmed = true;
+              replayed = true;
+              trace = assessment.trace;
+              transitions = assessment.firings;
+              report.push('  Counterexample replay: CONFIRMED (abstract chain M0 -> bad re-executed)');
+            } else if (assessment.kind === 'unconfirmed') {
+              // The replay could not run to completion (nothing decoded, or the
+              // search hit a budget). Spacer's SAT answer stands on its own —
+              // only a completed search that found no chain may withdraw it.
               confirmed = false;
-              report.push(`  Counterexample replay: NO STATES DECODED (${describeDecodeFailure(decoded.failure)})`);
-              report.push("  The verdict rests on Spacer's SAT answer; there is nothing to replay.");
+              report.push(`  Counterexample replay: UNCONFIRMED (${assessment.note})`);
+              if (decoded.failure != null) {
+                report.push(`  Decoder degradation: ${describeDecodeFailure(decoded.failure)}`);
+              }
+              report.push("  The verdict rests on Spacer's SAT answer.");
+            } else {
+              // The search completed and no abstract chain reaches a violating
+              // marking: a spurious counterexample of the untimed+value-blind
+              // over-approximation, or a decoder mismatch. Never keep an
+              // unreplayable VIOLATED — downgrade, with raw + decoded evidence.
+              report.push('  Counterexample replay: FAILED');
+              report.push(`  Decoded states (order-free set, ${decoded.states.size}):`);
+              for (const m of decoded.states) {
+                report.push(`    ${m}`);
+              }
+              if (decoded.trace.length > 0) {
+                report.push(`  Raw traversal-order trace (${decoded.trace.length} states):`);
+                for (let i = 0; i < decoded.trace.length; i++) {
+                  report.push(`    ${i}: ${decoded.trace[i]}`);
+                }
+              }
+              if (decoded.failure != null) {
+                report.push(`  Decoder degradation: ${describeDecodeFailure(decoded.failure)}`);
+              }
+              report.push(`  Raw Z3 answer: ${truncate(String(queryResult.answer), 2000)}`);
+              report.push('');
+              report.push('=== RESULT ===\n');
+              report.push(`UNKNOWN: ${assessment.reason}`);
+              // The replay APPLIED and refuted the trace, so `false` — not
+              // `null`, which is reserved for "the replay did not apply".
+              return buildResult(
+                { type: 'unknown', reason: assessment.reason },
+                report.join('\n'), invariants, [], [], [],
+                performance.now() - start,
+                stats,
+                false,
+              );
             }
           }
 
@@ -784,6 +771,97 @@ function isReachabilitySafety(property: SmtProperty): boolean {
   }
 }
 
+/**
+ * Assessment of a decoded counterexample by abstract replay (C4). Pure and free
+ * of Z3 types, so the verdict mapping is unit-testable without booting the WASM
+ * solver — the mirror of {@link certificateDowngradeReason}.
+ */
+export type ReplayAssessment =
+  /** The decoded states chain into an abstract run reaching the violation. */
+  | {
+      readonly kind: 'confirmed';
+      readonly trace: readonly MarkingState[];
+      readonly firings: readonly string[];
+    }
+  /** The replay could not complete; the VIOLATED verdict stands, unconfirmed. */
+  | { readonly kind: 'unconfirmed'; readonly note: string }
+  /** No firing chain exists at all; the verdict must not be trusted. */
+  | { readonly kind: 'downgraded'; readonly reason: string };
+
+/**
+ * Maps a decoded counterexample to its replay assessment. Only a completed
+ * search that found no chain (`no-chain`) downgrades: nothing decoded, a
+ * truncated search (node/segment budget, `M₀` absent from the decoded set) and
+ * a replayer crash all leave the verdict `violated` but unconfirmed, because
+ * none of them is evidence that the counterexample is spurious.
+ */
+export function assessCounterexample(
+  flatNet: FlatNet,
+  initialMarking: MarkingState,
+  decodedStates: ReadonlySet<MarkingState>,
+  property: SmtProperty,
+  sinkPlaces: ReadonlySet<Place<any>>,
+): ReplayAssessment {
+  if (decodedStates.size === 0) {
+    return {
+      kind: 'unconfirmed',
+      note: 'no counterexample states could be decoded from the Spacer answer, ' +
+        'so the abstract replay could not run',
+    };
+  }
+
+  let outcome: ReplayOutcome;
+  try {
+    outcome = replayCounterexample(
+      flatNet,
+      vectorize(initialMarking, flatNet),
+      [...decodedStates].map(m => vectorize(m, flatNet)),
+      property,
+      sinkPlaces,
+    );
+  } catch (e: any) {
+    // A replayer bug must degrade like a truncated search — never crash the
+    // verifier, and never withdraw a verdict on its own.
+    outcome = { kind: 'exhausted', reason: `replay threw: ${e?.message ?? e}`, nodesExplored: 0 };
+  }
+
+  switch (outcome.kind) {
+    case 'confirmed':
+      return {
+        kind: 'confirmed',
+        trace: outcome.states.map(s => toMarkingState(s, flatNet)),
+        firings: outcome.steps.map(stepName),
+      };
+    case 'exhausted':
+      return { kind: 'unconfirmed', note: `abstract replay did not complete: ${outcome.reason}` };
+    case 'no-chain':
+      return {
+        kind: 'downgraded',
+        reason: 'counterexample replay found no firing chain to the violation under ' +
+          'the abstract semantics, so VIOLATED is withheld',
+      };
+  }
+}
+
+/**
+ * Maps a certificate-check outcome to the UNKNOWN downgrade reason, or null
+ * when the PROVEN verdict stands. Pure (no Z3 involvement) so the verdict
+ * plumbing is unit-testable without booting the WASM solver.
+ */
+export function certificateDowngradeReason(outcome: CertificateCheckOutcome): string | null {
+  switch (outcome.type) {
+    case 'passed':
+      return null;
+    case 'failed':
+      return `certificate check failed: ${outcome.vc} was not UNSAT - ${outcome.detail}; ` +
+        'the IC3 certificate could not be independently re-validated against the ' +
+        'unstrengthened step relation, so PROVEN is withheld';
+    case 'unavailable':
+      return `certificate check could not run: ${outcome.reason}; ` +
+        'PROVEN is withheld without an independently validated certificate';
+  }
+}
+
 function downgradeToUnknown(result: SmtVerificationResult, reason: string): SmtVerificationResult {
   return {
     ...result,
@@ -821,7 +899,8 @@ function formatInvariant(inv: PInvariant, flatNet: FlatNet): string {
       parts.push(flatNet.places[idx]!.name);
     }
   }
-  return `${parts.join(' + ')} = ${inv.constant}`;
+  // Empty support renders as `0 = c`, matching Java and Rust — the line is byte-diffed.
+  return `${parts.length === 0 ? '0' : parts.join(' + ')} = ${inv.constant}`;
 }
 
 function buildResult(

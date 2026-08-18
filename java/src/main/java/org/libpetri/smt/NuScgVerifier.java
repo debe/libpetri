@@ -84,10 +84,12 @@ final class NuScgVerifier {
         }
 
         int violating = decide(scg, property, sinkPlaces);
+        // The trace below is an explicit path of the name-aware state-class graph —
+        // a genuine run of Route B's semantics by construction. The flat abstract
+        // replay does not apply to these state shapes, so the result reports
+        // counterexampleConfirmed = null rather than false.
         SmtVerificationResult.Verdict verdict = violating >= 0
-            // Confirmed by construction: the trace below is an explicit path of the
-            // name-aware state-class graph, i.e. a genuine run of Route B's semantics.
-            ? new SmtVerificationResult.Verdict.Violated(true)
+            ? new SmtVerificationResult.Verdict.Violated()
             : new SmtVerificationResult.Verdict.Proven("ν name-partition SCG (NU-050, Route B)", null);
 
         List<MarkingState> trace = List.of();

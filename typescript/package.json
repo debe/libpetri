@@ -58,7 +58,7 @@
     "build": "tsup",
     "build:viewer": "tsup && node scripts/build-viewer-iife.mjs && node scripts/check-viewer-wasm.mjs",
     "smoke:viewer": "node scripts/smoke-render-viewer.mjs",
-    "check": "tsc --noEmit",
+    "check": "tsc --noEmit && tsc -p tsconfig.test.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "bench": "vitest bench",

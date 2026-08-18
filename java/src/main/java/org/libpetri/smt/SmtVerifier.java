@@ -89,6 +89,8 @@ public final class SmtVerifier {
     private boolean certificateCheck = true;
     private boolean counterexampleReplay = true;
     private CertificateCheck certificateChecker = CertificateChecker::check;
+    private Set<MarkingState> replayStateSetOverride = null;
+    private int replayNodeBudget = AbstractReplayer.DEFAULT_NODE_BUDGET;
 
     private SmtVerifier(PetriNet net) {
         this.net = Objects.requireNonNull(net);
@@ -282,6 +284,23 @@ public final class SmtVerifier {
     }
 
     /**
+     * Test seam: substitutes the decoded state set handed to the abstract replay,
+     * so the C4 paths that end in {@link AbstractReplayer.ReplayOutcome.Exhausted}
+     * (nothing decoded, M0 absent, segment budget spent) can be driven without a
+     * doctored solver. Package-private — not API.
+     */
+    SmtVerifier replayStateSetOverride(Set<MarkingState> states) {
+        this.replayStateSetOverride = Set.copyOf(states);
+        return this;
+    }
+
+    /** Test seam: shrinks the replay's node budget. Package-private — not API. */
+    SmtVerifier replayNodeBudget(int budget) {
+        this.replayNodeBudget = budget;
+        return this;
+    }
+
+    /**
      * Enables or disables abstract counterexample replay (default: enabled).
      *
      * <p>When enabled, a VIOLATED verdict from the flat IC3/PDR path is
@@ -291,12 +310,12 @@ public final class SmtVerifier {
      * run of the abstract semantics, from the initial marking to a marking
      * satisfying the property-violation predicate, bridging consecutive
      * decoded states with a bounded search. A successful chain confirms the
-     * counterexample ({@code Verdict.Violated(counterexampleConfirmed=true)})
-     * and the replay-ordered trace is reported; decoded states that cannot be
-     * chained downgrade the verdict to UNKNOWN (spurious counterexample or
-     * decoder mismatch — the abstraction is untimed and value-blind, VER-004);
-     * an underivable/empty decode keeps VIOLATED but marks it unconfirmed
-     * (nothing contradicts the solver — there is just nothing to replay).
+     * counterexample ({@link SmtVerificationResult#counterexampleConfirmed()} is
+     * {@code TRUE}) and the replay-ordered trace is reported; a completed search
+     * that finds no chain downgrades the verdict to UNKNOWN (spurious
+     * counterexample or decoder mismatch — the abstraction is untimed and
+     * value-blind, VER-004); a search that cannot decide keeps VIOLATED and
+     * reports {@code FALSE}. Disabling it here leaves the field {@code null}.
      * The replay never invokes Z3.
      */
     public SmtVerifier counterexampleReplay(boolean enabled) {
@@ -412,6 +431,7 @@ public final class SmtVerifier {
             report.append("=== RESULT ===\n\n");
             report.append("PROVEN (structural): Deadlock-freedom verified by Commoner's theorem.\n");
             report.append("  All siphons contain initially marked traps.\n");
+            report.append("  Certificate check: not applicable (structural proof)\n");
             return buildResult(
                 new SmtVerificationResult.Verdict.Proven("structural", null),
                 report.toString(), List.of(), List.of(), List.of(), List.of(),
@@ -424,15 +444,16 @@ public final class SmtVerifier {
         // Phase 3: P-invariants
         report.append("Phase 3: Computing P-invariants...\n");
         var matrix = IncidenceMatrix.from(flatNet);
-        // Exact re-validation gate: the elimination in PInvariantComputer.compute uses
-        // unchecked long arithmetic and an int truncation on extraction, and a numerically
-        // wrong invariant conjoined into the CHC transition-rule body REMOVES reachable
-        // successors — i.e. it can certify a false PROVEN. Only candidates whose y*C = 0
-        // and constant = y*M0 re-verify exactly may reach an encoder; the rest are dropped
-        // and reported below.
+        // Exact re-validation gate: the elimination in PInvariantComputer uses unchecked
+        // long arithmetic, and a numerically wrong invariant conjoined into the CHC
+        // transition-rule body REMOVES reachable successors — i.e. it can certify a false
+        // PROVEN. computeChecked already drops rows whose exact weight or constant does
+        // not fit the int extraction range; only candidates whose y*C = 0 and
+        // constant = y*M0 also re-verify exactly may reach an encoder. Both drop channels
+        // are reported below.
+        var extraction = PInvariantComputer.computeChecked(matrix, flatNet, initialMarking);
         var invariantValidation = PInvariantComputer.validateExact(
-            PInvariantComputer.compute(matrix, flatNet, initialMarking),
-            matrix, flatNet, initialMarking);
+            extraction.valid(), matrix, flatNet, initialMarking);
         var invariants = invariantValidation.valid();
         // P-semiflows (non-negative conservation laws) bound the simultaneously-live
         // colour count that sets the name-coloured encoder's slot count k (see
@@ -446,7 +467,10 @@ public final class SmtVerifier {
         boolean structurallyBounded = PInvariantComputer.isCoveredByInvariants(invariants, flatNet.placeCount());
         report.append("  Structurally bounded: ").append(structurallyBounded ? "YES" : "NO").append("\n");
         for (var inv : invariants) {
-            report.append("  ").append(formatInvariant(inv, flatNet)).append("\n");
+            report.append("  ").append(PInvariantComputer.describe(inv, flatNet)).append("\n");
+        }
+        for (var reason : extraction.dropped()) {
+            report.append("  Dropped invariant: ").append(reason).append("\n");
         }
         for (var reason : invariantValidation.dropped()) {
             report.append("  Dropped invariant: ").append(reason).append("\n");
@@ -454,7 +478,8 @@ public final class SmtVerifier {
         for (var reason : semiflowValidation.dropped()) {
             report.append("  Dropped semiflow: ").append(reason).append("\n");
         }
-        int droppedTotal = invariantValidation.dropped().size() + semiflowValidation.dropped().size();
+        int droppedTotal = extraction.dropped().size()
+            + invariantValidation.dropped().size() + semiflowValidation.dropped().size();
         if (droppedTotal > 0) {
             report.append("  Dropped: ").append(droppedTotal)
                 .append(" candidate(s) failed exact re-validation (excluded from encoding)\n");
@@ -542,7 +567,11 @@ public final class SmtVerifier {
                     // path is not covered, and structural early proofs return before
                     // this phase. Any failure downgrades to UNKNOWN; the checker and
                     // this block never propagate an exception.
-                    if (certificateCheck && colouredPlan == null) {
+                    if (colouredPlan != null) {
+                        report.append("  Certificate check: not applicable (name-coloured encoding)\n\n");
+                    } else if (!certificateCheck) {
+                        report.append("  Certificate check: not applicable (disabled)\n\n");
+                    } else {
                         CertificateChecker.Result certOutcome;
                         try {
                             certOutcome = certificateChecker.run(
@@ -632,10 +661,11 @@ public final class SmtVerifier {
                         report.append("VIOLATED: ").append(propertyDescription()).append("\n");
                         appendDecodedStates(report, decoded);
                         appendUntimedCaveat(report);
+                        // Replay did not apply, so the tri-state stays null (not false).
                         yield buildResult(
-                            new SmtVerificationResult.Verdict.Violated(false),
+                            new SmtVerificationResult.Verdict.Violated(),
                             report.toString(), invariants, List.of(),
-                            List.copyOf(decoded.states()), decoded.transitions(),
+                            decoded.trace(), decoded.transitions(), null,
                             Duration.between(start, Instant.now()), stats);
                     }
 
@@ -643,7 +673,8 @@ public final class SmtVerifier {
                     // actual abstract run, or refuse to report a violation the
                     // abstraction itself cannot reproduce.
                     var assessment = assessCounterexample(
-                        flatNet, initialMarking, decoded, property, sinkPlaces);
+                        flatNet, initialMarking, decoded, property, sinkPlaces,
+                        replayStateSetOverride, replayNodeBudget);
                     yield switch (assessment) {
                         case ReplayAssessment.Confirmed(var trace, var firings) -> {
                             report.append("  Counterexample replay: CONFIRMED — the decoded states chain ")
@@ -660,20 +691,21 @@ public final class SmtVerifier {
                             }
                             appendUntimedCaveat(report);
                             yield buildResult(
-                                new SmtVerificationResult.Verdict.Violated(true),
-                                report.toString(), invariants, List.of(), trace, firings,
+                                new SmtVerificationResult.Verdict.Violated(),
+                                report.toString(), invariants, List.of(), trace, firings, Boolean.TRUE,
                                 Duration.between(start, Instant.now()), stats);
                         }
                         case ReplayAssessment.Unconfirmed(var note) -> {
-                            report.append("  Counterexample replay: skipped — ").append(note).append("\n\n");
+                            report.append("  Counterexample replay: not confirmed — ").append(note).append("\n\n");
                             report.append("=== RESULT ===\n\n");
                             report.append("VIOLATED: ").append(propertyDescription()).append("\n");
                             report.append("  NOTE: ").append(note).append("\n");
+                            appendDecodedStates(report, decoded);
                             appendUntimedCaveat(report);
                             yield buildResult(
-                                new SmtVerificationResult.Verdict.Violated(false),
+                                new SmtVerificationResult.Verdict.Violated(),
                                 report.toString(), invariants, List.of(),
-                                List.copyOf(decoded.states()), decoded.transitions(),
+                                decoded.trace(), decoded.transitions(), Boolean.FALSE,
                                 Duration.between(start, Instant.now()), stats);
                         }
                         case ReplayAssessment.Downgraded(var reason) -> {
@@ -681,10 +713,12 @@ public final class SmtVerifier {
                             appendDecodedStates(report, decoded);
                             report.append("\n=== RESULT ===\n\n");
                             report.append("UNKNOWN: ").append(reason).append("\n");
+                            // The replay APPLIED and refuted the trace, which is strictly
+                            // more informative than "did not apply": FALSE, never null.
                             yield buildResult(
                                 new SmtVerificationResult.Verdict.Unknown(reason),
                                 report.toString(), invariants, List.of(), List.of(), List.of(),
-                                Duration.between(start, Instant.now()), stats);
+                                Boolean.FALSE, Duration.between(start, Instant.now()), stats);
                         }
                     };
                 }
@@ -753,26 +787,26 @@ public final class SmtVerifier {
         return formula;
     }
 
-    private static String formatInvariant(PInvariant inv, FlatNet flatNet) {
-        var sb = new StringBuilder();
-        boolean first = true;
-        for (int idx : inv.support()) {
-            if (!first) sb.append(" + ");
-            if (inv.weights()[idx] != 1) sb.append(inv.weights()[idx]).append("*");
-            sb.append(flatNet.places().get(idx).name());
-            first = false;
-        }
-        sb.append(" = ").append(inv.constant());
-        return sb.toString();
-    }
-
+    /** Result for a path where abstract replay does not apply (confirmed = null). */
     private static SmtVerificationResult buildResult(
             SmtVerificationResult.Verdict verdict, String report,
             List<PInvariant> invariants, List<String> discoveredInvariants,
             List<MarkingState> trace, List<String> transitions,
             Duration elapsed, SmtVerificationResult.SmtStatistics stats
     ) {
-        return new SmtVerificationResult(verdict, report, invariants, discoveredInvariants, trace, transitions, elapsed, stats);
+        return buildResult(verdict, report, invariants, discoveredInvariants,
+            trace, transitions, null, elapsed, stats);
+    }
+
+    private static SmtVerificationResult buildResult(
+            SmtVerificationResult.Verdict verdict, String report,
+            List<PInvariant> invariants, List<String> discoveredInvariants,
+            List<MarkingState> trace, List<String> transitions,
+            Boolean counterexampleConfirmed,
+            Duration elapsed, SmtVerificationResult.SmtStatistics stats
+    ) {
+        return new SmtVerificationResult(verdict, report, invariants, discoveredInvariants,
+            trace, transitions, counterexampleConfirmed, elapsed, stats);
     }
 
     /**
@@ -817,7 +851,8 @@ public final class SmtVerifier {
             return new SmtVerificationResult(
                 result.verdict(), result.report() + note, result.invariants(),
                 result.discoveredInvariants(), result.counterexampleTrace(),
-                result.counterexampleTransitions(), result.elapsed(), result.statistics());
+                result.counterexampleTransitions(), result.counterexampleConfirmed(),
+                result.elapsed(), result.statistics());
         }
         if (!isReachabilitySafety(property)) {
             return downgradeToUnknown(result,
@@ -840,7 +875,8 @@ public final class SmtVerifier {
         return new SmtVerificationResult(
             result.verdict(), result.report() + note, result.invariants(),
             result.discoveredInvariants(), result.counterexampleTrace(),
-            result.counterexampleTransitions(), result.elapsed(), result.statistics());
+            result.counterexampleTransitions(), result.counterexampleConfirmed(),
+            result.elapsed(), result.statistics());
     }
 
     private static SmtVerificationResult downgradeToUnknown(
@@ -849,7 +885,7 @@ public final class SmtVerifier {
         String report = result.report() + "\nDowngraded to UNKNOWN: " + reason + "\n";
         return new SmtVerificationResult(
             new SmtVerificationResult.Verdict.Unknown(reason), report, result.invariants(),
-            List.of(), List.of(), List.of(), result.elapsed(), result.statistics());
+            List.of(), List.of(), List.of(), null, result.elapsed(), result.statistics());
     }
 
     /**
@@ -880,36 +916,50 @@ public final class SmtVerifier {
         /** The decoded states chain into an abstract run reaching the violation. */
         record Confirmed(List<MarkingState> trace, List<String> firings) implements ReplayAssessment {}
 
-        /** Nothing to replay (no decodable states); the VIOLATED verdict stands, unconfirmed. */
+        /** The replay could not decide; the VIOLATED verdict stands, unconfirmed. */
         record Unconfirmed(String note) implements ReplayAssessment {}
 
-        /** The decoded states cannot be chained; the verdict must not be trusted. */
+        /** The search found no chain at all; the verdict must not be trusted. */
         record Downgraded(String reason) implements ReplayAssessment {}
     }
 
     /**
-     * Maps a decode result to the replay assessment (C3). Pure — no Z3 call:
-     * the property-violation predicate is evaluated Java-side by
+     * Maps a decode result to the replay assessment. Pure — no Z3 call: the
+     * property-violation predicate is evaluated Java-side by
      * {@link AbstractReplayer#violates}.
      *
-     * <ul>
-     *   <li>nothing decoded &rarr; {@link ReplayAssessment.Unconfirmed} (the
-     *       VIOLATED verdict stands; there is just nothing to replay);</li>
-     *   <li>states decoded and chained to a violating marking &rarr;
-     *       {@link ReplayAssessment.Confirmed} with the replay-ordered trace;</li>
-     *   <li>states decoded but unchainable &rarr;
-     *       {@link ReplayAssessment.Downgraded} — the abstraction is untimed and
-     *       value-blind (VER-004 over-approximation), so a spurious
-     *       counterexample or a decoder mismatch must not be reported as a
-     *       confident violation.</li>
-     * </ul>
+     * <p>Only a search that RAN TO COMPLETION and found no chain withdraws the
+     * verdict ({@link ReplayAssessment.Downgraded}): the abstraction is untimed
+     * and value-blind (VER-004 over-approximation), so such a counterexample is
+     * spurious or the decoder mis-read the derivation. A search that could not
+     * decide — nothing decoded, M0 not among the decoded states, budget
+     * exhausted — leaves VIOLATED standing as
+     * {@link ReplayAssessment.Unconfirmed}: nothing contradicts the solver.
      */
     static ReplayAssessment assessCounterexample(
             FlatNet flatNet, MarkingState initialMarking,
             CounterexampleDecoder.DecodedStates decoded,
             SmtProperty property, Set<Place<?>> sinkPlaces
     ) {
-        if (decoded.states().isEmpty()) {
+        return assessCounterexample(flatNet, initialMarking, decoded, property, sinkPlaces,
+            null, AbstractReplayer.DEFAULT_NODE_BUDGET);
+    }
+
+    /**
+     * {@link #assessCounterexample(FlatNet, MarkingState, CounterexampleDecoder.DecodedStates,
+     * SmtProperty, Set)} with the two test seams applied: {@code stateSetOverride}
+     * replaces the decoded anchor set when non-null, {@code nodeBudget} the replay's
+     * node budget.
+     */
+    static ReplayAssessment assessCounterexample(
+            FlatNet flatNet, MarkingState initialMarking,
+            CounterexampleDecoder.DecodedStates decoded,
+            SmtProperty property, Set<Place<?>> sinkPlaces,
+            Set<MarkingState> stateSetOverride, int nodeBudget
+    ) {
+        Set<MarkingState> states =
+            stateSetOverride != null ? stateSetOverride : decoded.states();
+        if (states.isEmpty()) {
             return new ReplayAssessment.Unconfirmed(
                 "no counterexample states could be decoded from the Spacer answer, so the "
                 + "abstract replay could not run; the verdict stands, unconfirmed");
@@ -917,29 +967,41 @@ public final class SmtVerifier {
         AbstractReplayer.ReplayOutcome outcome;
         try {
             outcome = AbstractReplayer.replay(
-                flatNet, initialMarking, decoded.states(), property, sinkPlaces);
+                flatNet, initialMarking, states, property, sinkPlaces,
+                AbstractReplayer.MAX_SEGMENT_STEPS, nodeBudget);
         } catch (RuntimeException e) {
-            // A replayer bug must degrade like an unchainable set, never crash the verdict.
-            outcome = new AbstractReplayer.ReplayOutcome.NotChainable("replay threw: " + e);
+            // A replayer bug must leave the verdict alone, never crash it and never
+            // withdraw it on the strength of a bug.
+            outcome = new AbstractReplayer.ReplayOutcome.Exhausted("replay threw: " + e);
         }
         return switch (outcome) {
-            case AbstractReplayer.ReplayOutcome.Chained(var trace, var firings) ->
+            case AbstractReplayer.ReplayOutcome.Confirmed(var trace, var firings) ->
                 new ReplayAssessment.Confirmed(trace, firings);
-            case AbstractReplayer.ReplayOutcome.NotChainable(var why) ->
-                new ReplayAssessment.Downgraded(
-                    "counterexample failed abstract replay — spurious CEX or decoder mismatch"
-                    + (why == null || why.isBlank() ? "" : " (" + why + ")"));
+            case AbstractReplayer.ReplayOutcome.Exhausted(var why) ->
+                new ReplayAssessment.Unconfirmed(
+                    "the abstract replay could not run to completion (" + why
+                    + "); the verdict stands, unconfirmed");
+            case AbstractReplayer.ReplayOutcome.NoChain _ ->
+                new ReplayAssessment.Downgraded(REPLAY_NO_CHAIN_REASON);
         };
     }
 
-    /** Decoded-state listing for the report (order-free; traversal order kept for stability). */
+    /**
+     * The canonical UNKNOWN reason for a completed replay that found no chain —
+     * byte-identical across the Java, TypeScript, Rust and Python verifiers.
+     */
+    static final String REPLAY_NO_CHAIN_REASON =
+        "counterexample replay found no firing chain to the violation under the "
+        + "abstract semantics, so VIOLATED is withheld";
+
+    /** Decoded-state listing for the report, in derivation-traversal order (not a firing order). */
     private static void appendDecodedStates(
             StringBuilder report, CounterexampleDecoder.DecodedStates decoded
     ) {
-        if (!decoded.states().isEmpty()) {
-            report.append("  Decoded states (order-free set, ")
-                  .append(decoded.states().size()).append(" markings):\n");
-            for (var state : decoded.states()) {
+        if (!decoded.trace().isEmpty()) {
+            report.append("  Decoded states (derivation-traversal order, ")
+                  .append(decoded.trace().size()).append(" markings):\n");
+            for (var state : decoded.trace()) {
                 report.append("    - ").append(state).append("\n");
             }
         }
@@ -984,8 +1046,10 @@ public final class SmtVerifier {
         return switch (outcome) {
             case CertificateChecker.Result.Passed() -> null;
             case CertificateChecker.Result.Failed(var vc, var detail) ->
+                // The " - <detail>" clause is UNCONDITIONAL: a conditional one would
+                // let Java render a reason shape no sibling implementation can.
                 "certificate check failed: " + vc.label() + " was not UNSAT"
-                    + (detail == null || detail.isBlank() ? "" : " — " + detail)
+                    + " - " + detail
                     + "; the IC3 certificate could not be independently re-validated "
                     + "against the unstrengthened step relation, so PROVEN is withheld";
             case CertificateChecker.Result.Unavailable(var reason) ->

@@ -33,7 +33,7 @@ impl PySmtProperty {
     }
 }
 
-/// Outcome of an SMT verification run. Inspect `verdict` (`"proven"` / `"violated"` / `"unknown"`), and if violated, `counterexample_trace` / `counterexample_transitions`.
+/// Outcome of an SMT verification run. Inspect `verdict` (`"proven"` / `"violated"` / `"unknown"`), and if violated, `counterexample_trace` / `counterexample_transitions` plus `counterexample_confirmed`.
 #[pyclass(module = "_libpetri", name = "VerificationResult", from_py_object)]
 #[derive(Clone)]
 pub struct PyVerificationResult {
@@ -44,6 +44,7 @@ pub struct PyVerificationResult {
     discovered_invariants: Vec<String>,
     counterexample_transitions: Vec<String>,
     counterexample_trace: Vec<HashMap<String, usize>>,
+    counterexample_confirmed: Option<bool>,
     elapsed_ms: u64,
     places: usize,
     transitions: usize,
@@ -81,6 +82,7 @@ impl PyVerificationResult {
             discovered_invariants: result.discovered_invariants,
             counterexample_transitions: result.counterexample_transitions,
             counterexample_trace,
+            counterexample_confirmed: result.counterexample_confirmed,
             elapsed_ms: result.elapsed_ms,
             places: result.statistics.places,
             transitions: result.statistics.transitions,
@@ -99,6 +101,7 @@ impl PyVerificationResult {
             discovered_invariants: Vec::new(),
             counterexample_transitions: Vec::new(),
             counterexample_trace: Vec::new(),
+            counterexample_confirmed: None,
             elapsed_ms: 0,
             places: 0,
             transitions: 0,
@@ -117,6 +120,14 @@ impl PyVerificationResult {
     #[getter] fn discovered_invariants(&self) -> Vec<String> { self.discovered_invariants.clone() }
     #[getter] fn counterexample_transitions(&self) -> Vec<String> { self.counterexample_transitions.clone() }
     #[getter] fn counterexample_trace(&self) -> Vec<HashMap<String, usize>> { self.counterexample_trace.clone() }
+    /// Tri-state outcome of the abstract counterexample replay: `None` when it
+    /// did not apply (disabled, a non-violated verdict, or a coloured / Route B
+    /// / structural path), `False` when it applied without confirming — either
+    /// inconclusively (the verdict stays `"violated"`) or by refuting the trace
+    /// outright (the verdict is downgraded to `"unknown"`) — and `True` when it
+    /// chained M0 to a violating state. Canonical definition:
+    /// `libpetri_verification::result::VerificationResult::counterexample_confirmed`.
+    #[getter] fn counterexample_confirmed(&self) -> Option<bool> { self.counterexample_confirmed }
     #[getter] fn elapsed_ms(&self) -> u64 { self.elapsed_ms }
     #[getter] fn places(&self) -> usize { self.places }
     #[getter] fn transitions(&self) -> usize { self.transitions }
@@ -341,7 +352,7 @@ fn parse_priority_semantics(
 /// Verifies a single property against `net` using SMT (Z3). Without the `z3`
 /// feature, returns `VerificationResult` with verdict `"unknown"`.
 #[pyfunction(name = "verify_net")]
-#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 30_000, nu_max_classes = None, fragment_mode = None, carrier_places = None, priority_semantics = None))]
+#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 30_000, nu_max_classes = None, fragment_mode = None, carrier_places = None, priority_semantics = None, certificate_check = true, counterexample_replay = true))]
 fn py_verify_net(
     py: Python<'_>,
     net: &PyPetriNet,
@@ -356,6 +367,8 @@ fn py_verify_net(
     fragment_mode: Option<Bound<'_, PyAny>>,
     carrier_places: Option<Vec<String>>,
     priority_semantics: Option<Bound<'_, PyAny>>,
+    certificate_check: bool,
+    counterexample_replay: bool,
 ) -> PyResult<PyVerificationResult> {
     #[cfg(feature = "z3")]
     {
@@ -413,6 +426,11 @@ fn py_verify_net(
                 .fragment_mode(fragment_mode)
                 .carrier_places(carrier_places)
                 .priority_semantics(priority_semantics)
+                // Independent validation layers, both on by default: a Proven
+                // is re-checked against the unstrengthened step relation and a
+                // Violated is replayed under the abstract semantics.
+                .certificate_check(certificate_check)
+                .counterexample_replay(counterexample_replay)
                 .timeout(timeout_ms);
             // ν name-aware SCG class cap (NU-050, Route B); None keeps the Rust default.
             if let Some(n) = nu_max_classes {
@@ -424,7 +442,7 @@ fn py_verify_net(
     }
     #[cfg(not(feature = "z3"))]
     {
-        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes, fragment_mode, carrier_places, priority_semantics);
+        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes, fragment_mode, carrier_places, priority_semantics, certificate_check, counterexample_replay);
         Ok(PyVerificationResult::unknown("z3 feature not enabled"))
     }
 }

@@ -140,7 +140,8 @@ describe('checkCertificate (unit)', () => {
     );
     expect(bare.type).toBe('failed');
     if (bare.type === 'failed') {
-      expect(bare.reason).toBe('consecution not inductive');
+      expect(bare.vc).toBe('consecution (VC2)');
+      expect(bare.detail).toMatch(/^solver returned SATISFIABLE/);
     }
 
     // ...but the candidate strengthened with the verifier's validated
@@ -169,7 +170,7 @@ describe('checkCertificate (unit)', () => {
     );
     expect(outcome.type).toBe('failed');
     if (outcome.type === 'failed') {
-      expect(outcome.reason).toMatch(/init not covered/);
+      expect(outcome.vc).toBe('initiation (VC1)');
     }
   }, Z3_TIMEOUT);
 
@@ -186,7 +187,7 @@ describe('checkCertificate (unit)', () => {
     );
     expect(outcome.type).toBe('failed');
     if (outcome.type === 'failed') {
-      expect(outcome.reason).toBe('consecution not inductive');
+      expect(outcome.vc).toBe('consecution (VC2)');
     }
   }, Z3_TIMEOUT);
 
@@ -202,7 +203,9 @@ describe('checkCertificate (unit)', () => {
     );
     expect(outcome.type).toBe('failed');
     if (outcome.type === 'failed') {
-      expect(outcome.reason).toMatch(/safety not implied/);
+      expect(outcome.vc).toBe('safety (VC3)');
+      // The detail names the marking that escapes the invariant.
+      expect(outcome.detail).toMatch(/^solver returned SATISFIABLE \(witness: /);
       expect(outcome.invariant).toBe('true');
     }
   }, Z3_TIMEOUT);
@@ -219,7 +222,7 @@ describe('checkCertificate (unit)', () => {
     );
     expect(outcome.type).toBe('failed');
     if (outcome.type === 'failed') {
-      expect(outcome.reason).toBe('consecution not inductive');
+      expect(outcome.vc).toBe('consecution (VC2)');
     }
   }, Z3_TIMEOUT);
 
@@ -235,32 +238,32 @@ describe('checkCertificate (unit)', () => {
     );
     expect(outcome.type).toBe('failed');
     if (outcome.type === 'failed') {
-      expect(outcome.reason).toMatch(/init not covered/);
+      expect(outcome.vc).toBe('initiation (VC1)');
     }
   }, Z3_TIMEOUT);
 
-  it('missing answer (null) fails as invariant missing', async () => {
+  it('missing answer (null) is unavailable, not a failed VC', async () => {
     const flatNet = flatten(circularNet(), new Set(), alwaysAvailable());
     const m0 = MarkingState.builder().tokens(pA, 1).build();
 
     const outcome = await checkCertificate(
       ctx, null, flatNet, m0, placeBound(pB, 1), [], new Set(), 30_000,
     );
-    expect(outcome.type).toBe('failed');
-    if (outcome.type === 'failed') {
+    expect(outcome.type).toBe('unavailable');
+    if (outcome.type === 'unavailable') {
       expect(outcome.reason).toMatch(/invariant missing/);
     }
   }, Z3_TIMEOUT);
 
-  it('answer without a Reachable definition fails as unparseable', async () => {
+  it('answer without a Reachable definition is unavailable (unparseable)', async () => {
     const flatNet = flatten(circularNet(), new Set(), alwaysAvailable());
     const m0 = MarkingState.builder().tokens(pA, 1).build();
 
     const outcome = await checkCertificate(
       ctx, ctx.Bool.val(true), flatNet, m0, placeBound(pB, 1), [], new Set(), 30_000,
     );
-    expect(outcome.type).toBe('failed');
-    if (outcome.type === 'failed') {
+    expect(outcome.type).toBe('unavailable');
+    if (outcome.type === 'unavailable') {
       expect(outcome.reason).toMatch(/unparseable/);
     }
   }, Z3_TIMEOUT);
@@ -278,7 +281,7 @@ describe('SmtVerifier certificate check wiring', () => {
     expect(result.report).toContain('  Certificate check: PASSED (init, consecution, safety)');
   }, Z3_TIMEOUT);
 
-  it('certificateCheck(false) skips the check', async () => {
+  it('certificateCheck(false) skips the check and says so', async () => {
     const result = await SmtVerifier.forNet(bindProducers(circularNet()))
       .initialMarking(m => m.tokens(pA, 1))
       .property(placeBound(pB, 1))
@@ -287,6 +290,7 @@ describe('SmtVerifier certificate check wiring', () => {
       .verify();
 
     expect(result.verdict.type).toBe('proven');
-    expect(result.report).not.toContain('Certificate check');
+    expect(result.report).toContain('  Certificate check: not applicable (disabled)');
+    expect(result.report).not.toContain('Certificate check: PASSED');
   }, Z3_TIMEOUT);
 });

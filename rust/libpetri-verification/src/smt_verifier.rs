@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use libpetri_core::petri_net::{PetriNet, require_output_producing_actions};
 
-use crate::abstract_replay;
+use crate::abstract_replay::{self, ReplayOutcome};
 use crate::certificate_check::{self, CertificateCheck};
 use crate::counterexample::{self, DecodedTrace};
 use crate::environment::EnvironmentAnalysisMode;
@@ -13,7 +13,7 @@ use crate::name_coloured_encoder;
 use crate::name_fragment::FragmentMode;
 use crate::net_flattener::{self, FlatNet};
 use crate::nu_scg_verifier;
-use crate::p_invariant;
+use crate::p_invariant::{self, PInvariant};
 use crate::priority_semantics::PrioritySemantics;
 use crate::property::SmtProperty;
 use crate::result::{Verdict, VerificationResult, VerificationStatistics};
@@ -62,22 +62,11 @@ pub struct SmtVerifier<'a> {
     /// firing pre-empted by a conflicting, no-later-ready, strictly-higher-priority
     /// one.
     priority_semantics: PrioritySemantics,
-    /// Whether a `Proven` verdict from the flat IC3/PDR path is re-verified by
-    /// the independent certificate check ([`crate::certificate_check`]):
-    /// Spacer's model is extracted and its `Reachable` interpretation —
-    /// conjoined with the validated P-invariants, which the check re-proves
-    /// itself — re-checked as an inductive invariant of the UNSTRENGTHENED
-    /// step relation in a second, plain (non-HORN) z3 run. Default `true`; a
-    /// failing or inconclusive check downgrades the verdict to `Unknown`.
+    /// Whether a flat-path `Proven` is re-verified by [`crate::certificate_check`]
+    /// (default `true`). See [`SmtVerifier::certificate_phase`].
     certificate_check: bool,
-    /// Whether a `Violated` verdict from the flat IC3/PDR path is re-validated
-    /// by abstract counterexample replay (C3, [`crate::abstract_replay`]): the
-    /// HORN script requests a refutation proof, its ground `Reachable`
-    /// applications are decoded as a state SET, and a chain M₀ →* Bad is
-    /// searched under the abstract semantics. Default `true`; a
-    /// decoded-but-unchainable set downgrades the verdict to `Unknown`
-    /// (spurious CEX or decoder mismatch), while an empty decode leaves
-    /// `Violated` unconfirmed (common, not a downgrade).
+    /// Whether a flat-path `Violated` is re-validated by [`crate::abstract_replay`]
+    /// (default `true`). See [`SmtVerifier::replay_phase`].
     counterexample_replay: bool,
     /// Test seam: replaces the extracted certificate fed to the certificate
     /// check, so tests can prove end-to-end that a corrupt certificate
@@ -90,6 +79,10 @@ pub struct SmtVerifier<'a> {
     /// Violated-unconfirmed.
     #[cfg(test)]
     replay_state_set_override: Option<Vec<Vec<i64>>>,
+    /// Test seam: shrinks the replay's node budget, so a test can reach the
+    /// exhaustion arm on a small net.
+    #[cfg(test)]
+    replay_node_budget_override: Option<usize>,
 }
 
 impl<'a> SmtVerifier<'a> {
@@ -119,6 +112,8 @@ impl<'a> SmtVerifier<'a> {
             certificate_override: None,
             #[cfg(test)]
             replay_state_set_override: None,
+            #[cfg(test)]
+            replay_node_budget_override: None,
         }
     }
 
@@ -225,22 +220,16 @@ impl<'a> SmtVerifier<'a> {
     }
 
     /// Enables or disables the independent certificate check on the proven
-    /// IC3/PDR path (default: enabled). See [`crate::certificate_check`]: the
-    /// extracted Spacer model is re-verified as an inductive invariant of the
-    /// unstrengthened step relation; a failing check downgrades `Proven` to
-    /// `Unknown` rather than certify on the solver's say-so alone.
+    /// IC3/PDR path (default: enabled). With it off, `Proven` rests on the
+    /// solver's say-so alone. See [`crate::certificate_check`].
     pub fn certificate_check(mut self, enabled: bool) -> Self {
         self.certificate_check = enabled;
         self
     }
 
     /// Enables or disables abstract counterexample replay on the violated
-    /// flat-path verdict (default: enabled). See [`crate::abstract_replay`]:
-    /// the ground `Reachable` states in z3's refutation proof are decoded as
-    /// a set and a chain M₀ →* Bad is searched under the abstract semantics —
-    /// a found chain sets `counterexample_confirmed` and re-emits the trace
-    /// in replay order; a decoded-but-unchainable set downgrades `Violated`
-    /// to `Unknown` rather than trust an unreplayable counterexample.
+    /// flat-path verdict (default: enabled). With it off, no counterexample
+    /// trace is produced at all. See [`crate::abstract_replay`].
     pub fn counterexample_replay(mut self, enabled: bool) -> Self {
         self.counterexample_replay = enabled;
         self
@@ -257,6 +246,13 @@ impl<'a> SmtVerifier<'a> {
     #[cfg(test)]
     fn replay_state_set_override(mut self, states: Vec<Vec<i64>>) -> Self {
         self.replay_state_set_override = Some(states);
+        self
+    }
+
+    /// Test seam: shrink the replay's node budget.
+    #[cfg(test)]
+    fn replay_node_budget(mut self, budget: usize) -> Self {
+        self.replay_node_budget_override = Some(budget);
         self
     }
 
@@ -333,22 +329,24 @@ impl<'a> SmtVerifier<'a> {
                     ));
                 }
                 report.push_str(&format!("\nElapsed: {elapsed_ms}ms\n"));
-                return VerificationResult {
-                    verdict: outcome.verdict,
+                return build_result(
+                    outcome.verdict,
                     report,
-                    invariants: Vec::new(),
-                    discovered_invariants: Vec::new(),
-                    counterexample_trace: outcome.trace,
-                    counterexample_transitions: outcome.transitions,
-                    counterexample_confirmed: false,
                     elapsed_ms,
-                    statistics: VerificationStatistics {
+                    VerificationStatistics {
                         places: self.net.places().len(),
                         transitions: self.net.transitions().len(),
                         invariants_found: 0,
                         structural_result: "n/a (ν name-partition SCG)".into(),
                     },
-                };
+                    Diagnostics {
+                        trace: DecodedTrace {
+                            trace: outcome.trace,
+                            transitions: outcome.transitions,
+                        },
+                        ..Diagnostics::none()
+                    },
+                );
             } else if defer_to_route_a {
                 report.push_str(
                     "ν-net Route B inconclusive (name-partition truncated); deferring to \
@@ -431,25 +429,17 @@ impl<'a> SmtVerifier<'a> {
         {
             let elapsed_ms = start.elapsed().as_millis() as u64;
             report.push_str("Deadlock freedom proven structurally (Commoner's theorem).\n");
-            return VerificationResult {
-                verdict: Verdict::Proven {
+            report.push_str(&cert_not_applicable("structural proof"));
+            return build_result(
+                Verdict::Proven {
                     method: "structural".into(),
                     inductive_invariant: None,
                 },
                 report,
-                invariants: Vec::new(),
-                discovered_invariants: Vec::new(),
-                counterexample_trace: Vec::new(),
-                counterexample_transitions: Vec::new(),
-                counterexample_confirmed: false,
                 elapsed_ms,
-                statistics: VerificationStatistics {
-                    places: flat.place_count,
-                    transitions: flat.transitions.len(),
-                    invariants_found: 0,
-                    structural_result: structural_str.into(),
-                },
-            };
+                flat_statistics(&flat, 0, structural_str),
+                Diagnostics::none(),
+            );
         }
 
         // Phase 3: P-invariants
@@ -465,8 +455,7 @@ impl<'a> SmtVerifier<'a> {
             p_invariant::compute_p_invariants(&matrix, &self.initial_marking, &flat.places),
             &matrix,
             &self.initial_marking,
-            &flat.places,
-            &flat.transitions,
+            &flat,
         );
         let invariants = validation.valid;
         // P-semiflows (non-negative conservation laws) bound the simultaneously-live
@@ -477,8 +466,7 @@ impl<'a> SmtVerifier<'a> {
             p_invariant::compute_p_semiflows(&matrix, &self.initial_marking, &flat.places),
             &matrix,
             &self.initial_marking,
-            &flat.places,
-            &flat.transitions,
+            &flat,
         );
         let semiflows = semiflow_validation.valid;
         report.push_str(&format!("Found {} P-invariant(s)\n", invariants.len()));
@@ -567,22 +555,16 @@ impl<'a> SmtVerifier<'a> {
                         .to_string();
                     report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
                     let elapsed_ms = start.elapsed().as_millis() as u64;
-                    return VerificationResult {
-                        verdict: Verdict::Unknown { reason },
+                    return build_result(
+                        Verdict::Unknown { reason },
                         report,
-                        invariants: invariants.clone(),
-                        discovered_invariants: Vec::new(),
-                        counterexample_trace: Vec::new(),
-                        counterexample_transitions: Vec::new(),
-                        counterexample_confirmed: false,
                         elapsed_ms,
-                        statistics: VerificationStatistics {
-                            places: flat.place_count,
-                            transitions: flat.transitions.len(),
-                            invariants_found: invariants.len(),
-                            structural_result: structural_str.into(),
+                        flat_statistics(&flat, invariants.len(), structural_str),
+                        Diagnostics {
+                            invariants: invariants.clone(),
+                            ..Diagnostics::none()
                         },
-                    };
+                    );
                 }
             }
         } else {
@@ -602,8 +584,8 @@ impl<'a> SmtVerifier<'a> {
         // Run Z3 Spacer
         let z3_result = run_z3_spacer(&encoding.smt2, self.timeout_ms);
 
-        let (mut verdict, mut decoded_trace, discovered_invariants) =
-            process_z3_result(&z3_result, &flat, &mut report);
+        let (mut verdict, decoded_trace, discovered_invariants) =
+            process_z3_result(&z3_result, &mut report);
 
         // Guard against silent vacuous proofs (VER-006): in Ignore mode the encoding
         // does not model env injection, so env-gated transitions never fire and ANY
@@ -673,203 +655,395 @@ impl<'a> SmtVerifier<'a> {
             }
         }
 
-        // Certificate check (the second, independent layer — the exact
-        // P-invariant re-validation above being the first): a flat-path
-        // IC3/PDR `Proven` must carry a Spacer model whose `Reachable`
-        // interpretation, conjoined with the validated P-invariants, re-checks
-        // as an inductive invariant of the UNSTRENGTHENED step relation
-        // ([`certificate_check`]) — the VCs re-prove those invariants from
-        // scratch, so a poisoned one fails the check rather than weakening
-        // it. Flat count encoding only — the
-        // coloured/ν encoding has its own variable layout (out of scope here),
-        // and the structural / Route B proofs returned earlier. Any failure —
-        // a sat/unknown VC, extraction failure, a z3 error — downgrades to
-        // `Unknown`; never a panic. Opt out via `.certificate_check(false)`.
-        if self.certificate_check
-            && coloured_plan.is_none()
-            && matches!(&verdict, Verdict::Proven { .. })
-        {
-            let certificate = {
-                let extracted = match &verdict {
-                    Verdict::Proven { inductive_invariant, .. } => inductive_invariant.clone(),
-                    _ => None,
-                };
-                #[cfg(test)]
-                let extracted = self.certificate_override.clone().or(extracted);
-                extracted
-            };
-            match certificate {
-                Some(cert) => match certificate_check::check_certificate(
-                    &cert,
-                    &flat,
-                    &self.initial_marking,
-                    &self.property,
-                    &invariants,
-                    &self.sink_places,
-                    &env_bounds,
-                    &env_injection,
-                    self.timeout_ms,
-                ) {
-                    CertificateCheck::Passed => {
-                        report.push_str(
-                            "  certificate check: PASSED (init, consecution, safety)\n",
-                        );
-                    }
-                    CertificateCheck::Failed { reason } => {
-                        let reason = format!("certificate check failed: {reason}");
-                        report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
-                        verdict = Verdict::Unknown { reason };
-                    }
-                },
-                None => {
-                    let reason = "certificate check failed: no inductive invariant \
-                        (define-fun block) could be extracted from the z3 model"
-                        .to_string();
-                    report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
-                    verdict = Verdict::Unknown { reason };
-                }
-            }
-        }
+        verdict = self.certificate_phase(
+            verdict,
+            &flat,
+            &invariants,
+            &env_bounds,
+            &env_injection,
+            coloured_plan.is_some(),
+            &mut report,
+        );
 
-        // Counterexample replay (C3): a flat-path `Violated` verdict is
-        // re-validated by replaying the state set decoded from z3's
-        // refutation proof against the abstract semantics
-        // ([`crate::abstract_replay`], the executable form of Lean's
-        // enabledA/fireA in `lean/Libpetri/Basic.lean`). The abstraction is
-        // untimed and value-blind ([VER-004]), so a decoded CEX can be
-        // spurious — a decoded-but-unchainable set DOWNGRADES to `Unknown`,
-        // never crashes or certifies. Decoding nothing is common (the proof
-        // shape is z3's, not ours) and is NOT a downgrade: the verdict stays
-        // `Violated`, unconfirmed, with a report note. Flat count encoding
-        // only — the coloured/ν encoding has its own variable layout, and the
-        // Route B / structural verdicts returned earlier. Opt out via
-        // `.counterexample_replay(false)`.
-        let mut counterexample_confirmed = false;
-        if self.counterexample_replay
-            && coloured_plan.is_none()
-            && matches!(verdict, Verdict::Violated)
-        {
-            if let Z3Result::Violated { answer } = &z3_result {
-                let decoded_set = counterexample::decode_state_set(answer, &flat);
-                #[cfg(test)]
-                let decoded_set: BTreeSet<Vec<i64>> = self
-                    .replay_state_set_override
-                    .clone()
-                    .map(|states| states.into_iter().collect())
-                    .unwrap_or(decoded_set);
-                if decoded_set.is_empty() {
-                    report.push_str(
-                        "Counterexample replay: no ground Reachable states in the z3 proof — \
-                         verdict stays Violated (counterexample unconfirmed)\n",
-                    );
-                } else {
-                    let m0: Vec<i64> = flat
-                        .places
-                        .iter()
-                        .map(|name| self.initial_marking.count(name) as i64)
-                        .collect();
-                    let env_inject = smt_encoder::resolve_env_injection(&flat, &env_injection);
-                    // The chain must anchor at the real initial marking: a
-                    // decoded set that does not even contain M₀ cannot replay.
-                    let chain = if decoded_set.contains(&m0) {
-                        abstract_replay::replay(
-                            &flat,
-                            &m0,
-                            &decoded_set,
-                            &self.property,
-                            &self.sink_places,
-                            &env_inject,
-                            REPLAY_MAX_SEGMENT_STEPS,
-                            REPLAY_NODE_BUDGET,
-                        )
-                    } else {
-                        None
-                    };
-                    match chain {
-                        Some(replayed) => {
-                            counterexample_confirmed = true;
-                            report.push_str(&format!(
-                                "Counterexample replay: CONFIRMED — {} decoded state(s), \
-                                 chain of {} step(s) from M0 to a violating state \
-                                 (re-emitted in replay order):\n",
-                                decoded_set.len(),
-                                replayed.transitions.len()
-                            ));
-                            for (i, state) in replayed.states.iter().enumerate() {
-                                report.push_str(&format!(
-                                    "  [{}] {}\n",
-                                    i,
-                                    format_abstract_state(&flat, state)
-                                ));
-                                if let Some(label) = replayed.transitions.get(i) {
-                                    report.push_str(&format!("      --{label}-->\n"));
-                                }
-                            }
-                            decoded_trace = DecodedTrace {
-                                trace: replayed
-                                    .states
-                                    .iter()
-                                    .map(|state| abstract_state_to_marking(&flat, state))
-                                    .collect(),
-                                transitions: replayed.transitions,
-                            };
-                        }
-                        None => {
-                            let reason = "counterexample failed abstract replay — spurious \
-                                          CEX or decoder mismatch"
-                                .to_string();
-                            report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
-                            report.push_str("  decoded state set (no chain M0 ->* Bad):\n");
-                            for state in &decoded_set {
-                                report.push_str(&format!(
-                                    "    {}\n",
-                                    format_abstract_state(&flat, state)
-                                ));
-                            }
-                            report.push_str("  raw z3 answer:\n");
-                            for line in answer.lines() {
-                                report.push_str(&format!("    {line}\n"));
-                            }
-                            verdict = Verdict::Unknown { reason };
-                            decoded_trace = DecodedTrace::empty();
-                        }
-                    }
-                }
-            }
-        }
+        let (verdict, decoded_trace, counterexample_confirmed) = self.replay_phase(
+            verdict,
+            &z3_result,
+            &flat,
+            &env_bounds,
+            &env_injection,
+            coloured_plan.is_some(),
+            decoded_trace,
+            &mut report,
+        );
 
         let elapsed_ms = start.elapsed().as_millis() as u64;
 
         report.push_str(&format!("\nElapsed: {}ms\n", elapsed_ms));
 
-        VerificationResult {
+        build_result(
             verdict,
             report,
-            invariants: invariants.clone(),
-            discovered_invariants,
-            counterexample_trace: decoded_trace.trace,
-            counterexample_transitions: decoded_trace.transitions,
-            counterexample_confirmed,
             elapsed_ms,
-            statistics: VerificationStatistics {
-                places: flat.place_count,
-                transitions: flat.transitions.len(),
-                invariants_found: invariants.len(),
-                structural_result: structural_str.into(),
+            flat_statistics(&flat, invariants.len(), structural_str),
+            Diagnostics {
+                invariants,
+                discovered: discovered_invariants,
+                trace: decoded_trace,
+                confirmed: counterexample_confirmed,
             },
+        )
+    }
+
+    /// Certificate phase — the second independent layer, after Phase 3's exact
+    /// P-invariant re-validation: a flat-path `Proven` must survive
+    /// [`crate::certificate_check`] (canonical description there). Any failure
+    /// downgrades to `Unknown`; a `Proven` the check did not examine says so in
+    /// the report rather than passing silently.
+    #[allow(clippy::too_many_arguments)]
+    fn certificate_phase(
+        &self,
+        verdict: Verdict,
+        flat: &FlatNet,
+        invariants: &[PInvariant],
+        env_bounds: &[(String, usize)],
+        env_injection: &[(String, Option<usize>)],
+        coloured: bool,
+        report: &mut String,
+    ) -> Verdict {
+        if !matches!(verdict, Verdict::Proven { .. }) {
+            return verdict;
+        }
+        // The coloured/ν encoding has its own variable layout, so the flat
+        // count-vector VCs do not describe it. Say so rather than stay silent.
+        if coloured {
+            report.push_str(&cert_not_applicable("name-coloured encoding"));
+            return verdict;
+        }
+        if !self.certificate_check {
+            report.push_str(&cert_not_applicable("disabled"));
+            return verdict;
+        }
+
+        let certificate = {
+            let extracted = match &verdict {
+                Verdict::Proven { inductive_invariant, .. } => inductive_invariant.clone(),
+                _ => None,
+            };
+            #[cfg(test)]
+            let extracted = self.certificate_override.clone().or(extracted);
+            extracted
+        };
+        let Some(cert) = certificate else {
+            let reason = certificate_inconclusive_reason(
+                "no inductive invariant (define-fun block) could be extracted from the z3 model",
+            );
+            report.push_str(CERT_FAILED_LINE);
+            report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
+            return Verdict::Unknown { reason };
+        };
+
+        match certificate_check::check_certificate(
+            &cert,
+            flat,
+            &self.initial_marking,
+            &self.property,
+            invariants,
+            &self.sink_places,
+            env_bounds,
+            env_injection,
+            self.timeout_ms,
+        ) {
+            CertificateCheck::Passed => {
+                report.push_str(CERT_PASSED_LINE);
+                verdict
+            }
+            CertificateCheck::Failed { vc, detail } => {
+                let reason = certificate_failed_reason(vc, &detail);
+                report.push_str(CERT_FAILED_LINE);
+                report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
+                Verdict::Unknown { reason }
+            }
+            CertificateCheck::Inconclusive { reason } => {
+                let reason = certificate_inconclusive_reason(&reason);
+                report.push_str(CERT_FAILED_LINE);
+                report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
+                Verdict::Unknown { reason }
+            }
+        }
+    }
+
+    /// Counterexample-replay phase: a flat-path `Violated` is re-validated
+    /// against the abstract semantics ([`crate::abstract_replay`], canonical
+    /// description there).
+    ///
+    /// Only [`ReplayOutcome::NoChain`] downgrades to `Unknown`. An exhausted
+    /// budget, a decoded set without M₀, and an empty decode all leave
+    /// `Violated` standing with `Some(false)` and a report note: they are
+    /// absences of evidence, not evidence of absence. Flat count encoding only
+    /// — the coloured/ν layout is not this abstraction.
+    #[allow(clippy::too_many_arguments)]
+    fn replay_phase(
+        &self,
+        verdict: Verdict,
+        z3_result: &Z3Result,
+        flat: &FlatNet,
+        env_bounds: &[(String, usize)],
+        env_injection: &[(String, Option<usize>)],
+        coloured: bool,
+        decoded_trace: DecodedTrace,
+        report: &mut String,
+    ) -> (Verdict, DecodedTrace, Option<bool>) {
+        if !self.counterexample_replay || coloured || !matches!(verdict, Verdict::Violated) {
+            return (verdict, decoded_trace, None);
+        }
+        let Z3Result::Violated { answer } = z3_result else {
+            return (verdict, decoded_trace, None);
+        };
+
+        let decoded_set = counterexample::decode_state_set(answer, flat);
+        #[cfg(test)]
+        let decoded_set: BTreeSet<Vec<i64>> = self
+            .replay_state_set_override
+            .clone()
+            .map(|states| states.into_iter().collect())
+            .unwrap_or(decoded_set);
+        if decoded_set.is_empty() {
+            report.push_str(
+                "Counterexample replay: no ground Reachable states in the z3 proof — \
+                 verdict stays Violated (counterexample unconfirmed)\n",
+            );
+            return (verdict, decoded_trace, Some(false));
+        }
+
+        let m0: Vec<i64> = flat
+            .places
+            .iter()
+            .map(|name| self.initial_marking.count(name) as i64)
+            .collect();
+        // The chain must anchor at the real initial marking. A decoded set
+        // without M₀ carries no chain to search, but that is a property of the
+        // proof text, not of the net: unconfirmed, not downgraded.
+        if !decoded_set.contains(&m0) {
+            report.push_str(
+                "Counterexample replay: the decoded state set does not contain M0 — \
+                 verdict stays Violated (counterexample unconfirmed)\n",
+            );
+            return (verdict, decoded_trace, Some(false));
+        }
+
+        let env_inject = smt_encoder::resolve_env_injection(flat, env_injection);
+        let env_caps: Vec<(usize, usize)> = env_bounds
+            .iter()
+            .filter_map(|(name, cap)| flat.place_index.get(name).map(|&pid| (pid, *cap)))
+            .collect();
+        #[cfg(test)]
+        let node_budget = self.replay_node_budget_override.unwrap_or(REPLAY_NODE_BUDGET);
+        #[cfg(not(test))]
+        let node_budget = REPLAY_NODE_BUDGET;
+
+        match abstract_replay::replay(
+            flat,
+            &m0,
+            &decoded_set,
+            &self.property,
+            &self.sink_places,
+            &env_inject,
+            &env_caps,
+            REPLAY_MAX_SEGMENT_STEPS,
+            node_budget,
+        ) {
+            ReplayOutcome::Confirmed(replayed) => {
+                report.push_str(&format!(
+                    "Counterexample replay: CONFIRMED — {} decoded state(s), chain of {} step(s) \
+                     from M0 to a violating state (re-emitted in replay order):\n",
+                    decoded_set.len(),
+                    replayed.transitions.len()
+                ));
+                for (i, state) in replayed.states.iter().enumerate() {
+                    report.push_str(&format!("  [{}] {}\n", i, format_abstract_state(flat, state)));
+                    if let Some(label) = replayed.transitions.get(i) {
+                        report.push_str(&format!("      --{label}-->\n"));
+                    }
+                }
+                let trace = DecodedTrace {
+                    trace: replayed
+                        .states
+                        .iter()
+                        .map(|state| abstract_state_to_marking(flat, state))
+                        .collect(),
+                    transitions: replayed.transitions,
+                };
+                (verdict, trace, Some(true))
+            }
+            ReplayOutcome::Exhausted { reason } => {
+                report.push_str(&format!(
+                    "Counterexample replay: search budget exhausted ({reason}) — \
+                     verdict stays Violated (counterexample unconfirmed)\n"
+                ));
+                (verdict, decoded_trace, Some(false))
+            }
+            ReplayOutcome::NoChain => {
+                report.push_str(&format!("Downgraded to UNKNOWN: {REPLAY_NO_CHAIN_REASON}\n"));
+                report.push_str("  decoded state set (no chain M0 ->* Bad):\n");
+                append_elided(
+                    report,
+                    "    ",
+                    decoded_set
+                        .iter()
+                        .map(|state| format_abstract_state(flat, state))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                        .as_str(),
+                );
+                report.push_str("  raw z3 answer:\n");
+                append_elided(report, "    ", answer);
+                (
+                    Verdict::Unknown {
+                        reason: REPLAY_NO_CHAIN_REASON.to_string(),
+                    },
+                    DecodedTrace::empty(),
+                    Some(false),
+                )
+            }
         }
     }
 }
 
+/// Everything a [`VerificationResult`] carries beyond its verdict, report and
+/// statistics. [`Diagnostics::none`] is the shape of an early exit.
+struct Diagnostics {
+    invariants: Vec<PInvariant>,
+    discovered: Vec<String>,
+    trace: DecodedTrace,
+    confirmed: Option<bool>,
+}
+
+impl Diagnostics {
+    fn none() -> Self {
+        Self {
+            invariants: Vec::new(),
+            discovered: Vec::new(),
+            trace: DecodedTrace::empty(),
+            confirmed: None,
+        }
+    }
+}
+
+/// The single construction site of [`VerificationResult`] (which is
+/// `#[non_exhaustive]`): every `verify()` exit — Route B, structural,
+/// early-Unknown, full pipeline — routes through here, so a new field gets one
+/// default rather than four.
+fn build_result(
+    verdict: Verdict,
+    report: String,
+    elapsed_ms: u64,
+    statistics: VerificationStatistics,
+    diagnostics: Diagnostics,
+) -> VerificationResult {
+    VerificationResult {
+        verdict,
+        report,
+        invariants: diagnostics.invariants,
+        discovered_invariants: diagnostics.discovered,
+        counterexample_trace: diagnostics.trace.trace,
+        counterexample_transitions: diagnostics.trace.transitions,
+        counterexample_confirmed: diagnostics.confirmed,
+        elapsed_ms,
+        statistics,
+    }
+}
+
+/// Statistics keyed off the flattened net — the shape every post-flattening
+/// exit reports.
+fn flat_statistics(
+    flat: &FlatNet,
+    invariants_found: usize,
+    structural_result: &str,
+) -> VerificationStatistics {
+    VerificationStatistics {
+        places: flat.place_count,
+        transitions: flat.transitions.len(),
+        invariants_found,
+        structural_result: structural_result.into(),
+    }
+}
+
+/// Certificate-check report lines (C2) — one canonical wording per outcome,
+/// byte-identical across the four implementations.
+const CERT_PASSED_LINE: &str = "  Certificate check: PASSED (init, consecution, safety)\n";
+const CERT_FAILED_LINE: &str = "  Certificate check: FAILED\n";
+
+/// `  Certificate check: not applicable (<why>)` — emitted on a `Proven`
+/// verdict the check did not examine (`structural proof`, `name-coloured
+/// encoding`, `disabled`).
+fn cert_not_applicable(why: &str) -> String {
+    format!("  Certificate check: not applicable ({why})\n")
+}
+
+/// Downgrade reason when a VC came back other than `unsat`.
+fn certificate_failed_reason(vc: &str, detail: &str) -> String {
+    format!(
+        "certificate check failed: {vc} was not UNSAT - {detail}; the IC3 certificate could \
+         not be independently re-validated against the unstrengthened step relation, so \
+         PROVEN is withheld"
+    )
+}
+
+/// Downgrade reason when the check could not be run to a verdict at all.
+fn certificate_inconclusive_reason(reason: &str) -> String {
+    format!(
+        "certificate check could not run: {reason}; PROVEN is withheld without an \
+         independently validated certificate"
+    )
+}
+
+/// The one replay outcome that withdraws a `Violated` verdict (C2).
+const REPLAY_NO_CHAIN_REASON: &str = "counterexample replay found no firing chain to the \
+     violation under the abstract semantics, so VIOLATED is withheld";
+
+/// Appends `text` to the report at `indent`, keeping only the first and last
+/// [`REPORT_ELISION_HEAD`]/[`REPORT_ELISION_TAIL`] lines. A Spacer refutation
+/// proof for a real net runs to megabytes; the report is meant to be read.
+fn append_elided(report: &mut String, indent: &str, text: &str) {
+    let lines: Vec<&str> = text.lines().collect();
+    let keep = REPORT_ELISION_HEAD + REPORT_ELISION_TAIL;
+    if lines.len() <= keep {
+        for line in lines {
+            report.push_str(&format!("{indent}{line}\n"));
+        }
+        return;
+    }
+    for line in &lines[..REPORT_ELISION_HEAD] {
+        report.push_str(&format!("{indent}{line}\n"));
+    }
+    report.push_str(&format!(
+        "{indent}… {} line(s) elided …\n",
+        lines.len() - keep
+    ));
+    for line in &lines[lines.len() - REPORT_ELISION_TAIL..] {
+        report.push_str(&format!("{indent}{line}\n"));
+    }
+}
+
+/// Lines kept at the head / tail of an elided report block.
+const REPORT_ELISION_HEAD: usize = 20;
+const REPORT_ELISION_TAIL: usize = 5;
+
 /// Appends the Phase-3 report lines for invariants dropped by the exact
 /// re-validation pass ([`p_invariant::validate_invariants_exact`]): one line per
 /// drop plus a closing count line. `kind` is "P-invariant" or "P-semiflow".
+///
+/// The per-drop line is canonical across the four implementations and is
+/// diffed byte-for-byte: `  Dropped invariant: <desc> - <reason>` (`Dropped
+/// semiflow:` for the semiflow pass), with an ASCII hyphen-minus separator.
+/// `validate_invariants_exact` supplies `<desc> - <reason>`.
 fn append_invariant_drop_report(report: &mut String, dropped: &[String], kind: &str) {
     if dropped.is_empty() {
         return;
     }
+    let noun = if kind == "P-semiflow" { "semiflow" } else { "invariant" };
     for reason in dropped {
-        report.push_str(&format!("  dropped {kind}: {reason}\n"));
+        report.push_str(&format!("  Dropped {noun}: {reason}\n"));
     }
     report.push_str(&format!(
         "Dropped {} {kind}(s) that failed exact re-validation (excluded from the encoding)\n",
@@ -961,24 +1135,45 @@ fn run_z3_spacer(smt2: &str, timeout_ms: u64) -> Z3Result {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stdout = stdout.trim();
 
-    if stdout.starts_with("unsat") {
+    // Scan for the verdict LINE rather than the first bytes of the reply. The
+    // script deliberately emits both (get-proof) and (get-model), one of which
+    // answers `(error …)` on either branch, and a z3 build is free to print a
+    // warning first or route those lines differently — anchoring on
+    // `starts_with` turned every such build's flat-path verdict into Unknown.
+    match stdout
+        .lines()
+        .map(str::trim)
+        .find(|l| matches!(*l, "sat" | "unsat" | "unknown"))
+    {
         // unsat => no inductive invariant excludes the bad state => VIOLATED.
-        Z3Result::Violated {
+        Some("unsat") => Z3Result::Violated {
             answer: stdout.to_string(),
-        }
-    } else if stdout.starts_with("sat") {
+        },
         // sat => an inductive invariant exists => PROVEN.
-        Z3Result::Proven {
+        Some("sat") => Z3Result::Proven {
             invariant_formula: extract_invariant_from_output(stdout),
-        }
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        Z3Result::Unknown {
-            reason: if stderr.is_empty() {
-                format!("Unexpected Z3 output: {stdout}")
-            } else {
-                format!("Z3 error: {stderr}")
-            },
+        },
+        Some(_) => Z3Result::Unknown {
+            reason: "Z3 answered unknown".to_string(),
+        },
+        None => {
+            // No verdict at all: an `(error …)` on either stream is the
+            // likeliest cause and the most useful thing to report.
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let error = stdout
+                .lines()
+                .chain(stderr.lines())
+                .map(str::trim)
+                .find(|l| l.starts_with("(error"));
+            Z3Result::Unknown {
+                reason: match error {
+                    Some(err) => format!("Z3 error: {err}"),
+                    None if !stderr.trim().is_empty() => {
+                        format!("Z3 error: {}", stderr.trim())
+                    }
+                    None => format!("Unexpected Z3 output: {stdout}"),
+                },
+            }
         }
     }
 }
@@ -1054,11 +1249,25 @@ pub(crate) fn sexpr_end(s: &str, start: usize) -> Option<usize> {
     None
 }
 
+/// True if the `z3` binary this crate shells out to is on `PATH`. Without it
+/// every SMT path returns `Unknown`; the test suites use this to skip loudly
+/// rather than fail.
+pub fn z3_available() -> bool {
+    std::process::Command::new("z3")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
 /// Replay search bounds (C3): at most this many abstract steps between
 /// consecutive decoded proof states (and after the last one) …
 const REPLAY_MAX_SEGMENT_STEPS: usize = 3;
-/// … and this many explored abstract states in total before the search gives
-/// up (which downgrades the verdict rather than spin).
+/// … and this many search nodes ADMITTED in total before the search gives up
+/// (which leaves the verdict alone — exhaustion is not a no-chain finding).
+/// "Admitted" is the counting rule the sibling implementations conform to:
+/// non-dominated nodes only, anchor included, tripped on `>=` — see
+/// [`abstract_replay::replay`].
 const REPLAY_NODE_BUDGET: usize = 10_000;
 
 /// Renders an abstract count vector with place names for the report,
@@ -1092,7 +1301,6 @@ fn abstract_state_to_marking(flat: &FlatNet, state: &[i64]) -> MarkingState {
 /// Processes the Z3 result into a verdict.
 fn process_z3_result(
     result: &Z3Result,
-    flat: &FlatNet,
     report: &mut String,
 ) -> (Verdict, DecodedTrace, Vec<String>) {
     match result {
@@ -1113,17 +1321,13 @@ fn process_z3_result(
                 discovered,
             )
         }
-        Z3Result::Violated { answer } => {
+        Z3Result::Violated { .. } => {
             report.push_str("Result: property violated (Spacer UNSAT — no inductive invariant)\n");
-            let decoded = counterexample::decode(answer, flat);
-            if !decoded.trace.is_empty() {
-                report.push_str(&format!(
-                    "Counterexample trace: {} states, {} transitions\n",
-                    decoded.trace.len(),
-                    decoded.transitions.len()
-                ));
-            }
-            (Verdict::Violated, decoded, Vec::new())
+            // No trace yet: the refutation proof is a SET of ground `Reachable`
+            // facts in an order the proof printer chose, so the only ordered
+            // trace this crate emits is the one the abstract replay
+            // reconstructs by search (see `replay_phase`).
+            (Verdict::Violated, DecodedTrace::empty(), Vec::new())
         }
         Z3Result::Unknown { reason } => {
             report.push_str(&format!("Result: UNKNOWN ({reason})\n"));
@@ -1147,16 +1351,6 @@ mod tests {
     use libpetri_core::output::out_place;
     use libpetri_core::place::Place;
     use libpetri_core::transition::Transition;
-
-    /// True if the `z3` binary is on PATH (the verifier shells out to it). Tests
-    /// that exercise Z3 early-return (skip) when it is absent.
-    fn z3_available() -> bool {
-        std::process::Command::new("z3")
-            .arg("--version")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    }
 
     /// CORE-043: verification rejects the same nets compilation rejects.
     #[test]
@@ -1265,13 +1459,20 @@ mod tests {
         append_invariant_drop_report(&mut report, &[], "P-invariant");
         assert!(report.is_empty(), "no drops must add no lines");
 
+        // `<desc> - <reason>` as `validate_invariants_exact` renders it: the
+        // separator is an ASCII hyphen-minus, never an em dash (the four
+        // implementations diff these lines byte-for-byte).
         let dropped = vec![
-            "p1 = 1 — y·C ≠ 0 at transition column 0 (component = -1)".to_string(),
-            "3·p2 = 9 — constant 9 does not match recomputed y·M0 = 3".to_string(),
+            "p1 = 1 - y*C is -1 (not 0) at transition 't'".to_string(),
+            "3*p2 = 9 - constant 9 does not match exact y*M0 = 3".to_string(),
         ];
         append_invariant_drop_report(&mut report, &dropped, "P-invariant");
-        assert!(report.contains("dropped P-invariant: p1 = 1 — y·C ≠ 0"));
-        assert!(report.contains("dropped P-invariant: 3·p2 = 9"));
+        assert!(report.contains("  Dropped invariant: p1 = 1 - y*C is -1 (not 0) at transition 't'\n"));
+        assert!(report.contains("  Dropped invariant: 3*p2 = 9 - constant 9 does not match exact y*M0 = 3\n"));
+        assert!(
+            !report.contains('—'),
+            "the canonical drop line uses ' - ', never an em dash:\n{report}"
+        );
         assert!(report.contains("Dropped 2 P-invariant(s) that failed exact re-validation"));
     }
 
@@ -1359,7 +1560,7 @@ mod tests {
             .verify();
         assert!(result.is_proven(), "{}", result.report);
         assert!(
-            result.report.contains("  certificate check: PASSED (init, consecution, safety)"),
+            result.report.contains("  Certificate check: PASSED (init, consecution, safety)"),
             "proven flat path must carry the PASSED line\n{}",
             result.report
         );
@@ -1438,43 +1639,58 @@ mod tests {
             .verify();
         assert!(result.is_proven(), "{}", result.report);
         assert!(
-            result.report.contains("certificate check: PASSED"),
+            result.report.contains("Certificate check: PASSED"),
             "env-injection proven path must also re-verify\n{}",
             result.report
         );
     }
 
-    /// End-to-end seam: a corrupt certificate (`Reachable := true` cannot
-    /// exclude the bad states) must downgrade the flat-path proof to Unknown
-    /// with a reason naming the failing VC — never certify, never panic.
+    /// End-to-end seam: a corrupt certificate must downgrade the flat-path
+    /// proof to Unknown with a reason naming the failing VC — never certify,
+    /// never panic.
+    ///
+    /// The net is the env-injection one deliberately: it has no P-invariants
+    /// (the injector column forces `y = 0` on IN, which then forces `y = 0` on
+    /// OUT), so `Reachable := true` really is the whole candidate. On a
+    /// conserving net the validated invariant rides along in `R'` and rescues
+    /// the safety VC by itself — a pass, correctly.
     #[test]
     fn corrupt_certificate_downgrades_proven_to_unknown() {
         if !z3_available() {
             eprintln!("skipping corrupt_certificate_*: z3 binary not on PATH");
             return;
         }
-        let net = cert_cycle_net();
+        let in_p = Place::<i32>::new("IN");
+        let out = Place::<i32>::new("OUT");
+        let t = Transition::builder("T2")
+            .input(exactly(2, &in_p))
+            .output(out_place(&out))
+            .action(fork())
+            .build();
+        let net = PetriNet::builder("env-mult").transition(t).build();
         let result = SmtVerifier::for_net(&net)
-            .initial_marking(MarkingStateBuilder::new().tokens("p1", 3).build())
-            .property(SmtProperty::place_bound("p2", 3))
+            .environment_places(vec!["IN".into()])
+            .environment_mode(EnvironmentAnalysisMode::Bounded { max_tokens: 1 })
+            .property(SmtProperty::place_bound("OUT", 0))
             .certificate_override("(define-fun Reachable ((x!0 Int) (x!1 Int)) Bool true)")
             .timeout(15_000)
             .verify();
         match &result.verdict {
             Verdict::Unknown { reason } => {
                 assert!(
-                    reason.contains("certificate check failed") && reason.contains("safety"),
-                    "reason must name the failing VC: {reason}"
+                    reason.contains("certificate check failed: safety (VC3) was not UNSAT")
+                        && reason.contains("PROVEN is withheld"),
+                    "reason must name the failing VC (C2): {reason}"
                 );
             }
             other => panic!("expected Unknown after corrupt certificate, got {other:?}\n{}", result.report),
         }
         assert!(
-            result.report.contains("Downgraded to UNKNOWN: certificate check failed"),
+            result.report.contains("  Certificate check: FAILED"),
             "{}",
             result.report
         );
-        assert!(!result.report.contains("certificate check: PASSED"), "{}", result.report);
+        assert!(!result.report.contains("Certificate check: PASSED"), "{}", result.report);
     }
 
     /// Opt-out: `.certificate_check(false)` skips the second z3 run — no
@@ -1494,8 +1710,10 @@ mod tests {
             .verify();
         assert!(result.is_proven(), "{}", result.report);
         assert!(
-            !result.report.contains("certificate check"),
-            "opt-out must not run or mention the check\n{}",
+            result
+                .report
+                .contains("  Certificate check: not applicable (disabled)"),
+            "opt-out must say why no check ran\n{}",
             result.report
         );
         // Even a corrupt certificate is ignored when the check is off.
@@ -1542,8 +1760,7 @@ mod tests {
         assert_eq!(result.invariants.len(), 1);
         assert_eq!(result.invariants[0].constant, 3);
         assert!(
-            !result.report.contains("dropped P-invariant")
-                && !result.report.contains("dropped P-semiflow"),
+            !result.report.contains("Dropped invariant:"),
             "a sound net must not lose invariants to validation\n{}",
             result.report
         );
@@ -1894,15 +2111,15 @@ mod tests {
         }
         // The EXTENDED drain can steal `a` and strand `b` under an unprioritised
         // schedule — a genuine reachable deadlock the coloured encoding must catch.
+        // Sinks are {merged, budget} only: under [VER-002] a quiescent marking is
+        // excused as soon as ANY declared sink holds a token, so declaring
+        // `deadletter` a sink would excuse the stranded-`b` marking (which also
+        // holds the dead-lettered token) and hide the stall.
         let net = nu053_steal_net();
         let result = SmtVerifier::for_net(&net)
             .initial_marking(nu053_seed())
             .property(SmtProperty::DeadlockFree)
-            .sink_places([
-                "merged".to_string(),
-                "budget".to_string(),
-                "deadletter".to_string(),
-            ])
+            .sink_places(["merged".to_string(), "budget".to_string()])
             .budget_place("budget")
             .fragment_mode(FragmentMode::Extended)
             .nu_max_classes(1)
@@ -2325,8 +2542,9 @@ mod tests {
             .timeout(15_000)
             .verify();
         assert!(result.is_violated(), "{}", result.report);
-        assert!(
+        assert_eq!(
             result.counterexample_confirmed,
+            Some(true),
             "the genuine CEX must replay\n{}",
             result.report
         );
@@ -2350,14 +2568,13 @@ mod tests {
         );
     }
 
-    /// An unchainable decoded set (test seam: M0 alone, Bad six steps away —
-    /// twice the segment budget) must downgrade Violated to Unknown with the
-    /// spurious-CEX reason, and carry both raw and decoded forms in the
-    /// report. Never a crash.
+    /// C4: an exhausted SEGMENT budget (test seam: M0 alone, Bad six steps
+    /// away — twice the budget) is an absence of evidence. The Violated
+    /// verdict stands, unconfirmed, with the exhaustion named in the report.
     #[test]
-    fn unchainable_state_set_downgrades_violated_to_unknown() {
+    fn segment_budget_exhaustion_keeps_violated_unconfirmed() {
         if !z3_available() {
-            eprintln!("skipping unchainable_state_set_*: z3 binary not on PATH");
+            eprintln!("skipping segment_budget_exhaustion_*: z3 binary not on PATH");
             return;
         }
         let net = cert_cycle_net();
@@ -2368,32 +2585,45 @@ mod tests {
             .replay_state_set_override(vec![vec![6, 0]])
             .timeout(15_000)
             .verify();
-        match &result.verdict {
-            Verdict::Unknown { reason } => assert!(
-                reason.contains("failed abstract replay"),
-                "reason must name the replay failure: {reason}"
-            ),
-            other => panic!(
-                "expected Unknown after unchainable replay, got {other:?}\n{}",
-                result.report
-            ),
-        }
-        assert!(!result.counterexample_confirmed);
+        assert!(result.is_violated(), "{}", result.report);
+        assert_eq!(result.counterexample_confirmed, Some(false));
         assert!(
-            result.report.contains("decoded state set (no chain M0 ->* Bad):")
-                && result.report.contains("raw z3 answer:"),
-            "both forms must reach the report\n{}",
+            result.report.contains("search budget exhausted (segment budget"),
+            "the report must name the exhausted budget\n{}",
             result.report
-        );
-        assert!(
-            result.counterexample_trace.is_empty(),
-            "a downgraded result must not carry a trace"
         );
     }
 
-    /// A decoded set missing M0 cannot anchor the chain: same downgrade.
+    /// V4: an exhausted NODE budget likewise leaves the verdict alone. The
+    /// seam shrinks the budget to 1, so the search dies at the anchor node.
     #[test]
-    fn state_set_missing_initial_marking_downgrades() {
+    fn node_budget_exhaustion_keeps_violated_unconfirmed() {
+        if !z3_available() {
+            eprintln!("skipping node_budget_exhaustion_*: z3 binary not on PATH");
+            return;
+        }
+        let net = cert_cycle_net();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(MarkingStateBuilder::new().tokens("p1", 3).build())
+            .property(SmtProperty::place_bound("p2", 2))
+            .replay_node_budget(1)
+            .timeout(15_000)
+            .verify();
+        assert!(result.is_violated(), "{}", result.report);
+        assert_eq!(result.counterexample_confirmed, Some(false));
+        assert!(
+            result
+                .report
+                .contains("search budget exhausted (search node budget of 1 exhausted)"),
+            "the report must name the exhausted budget\n{}",
+            result.report
+        );
+    }
+
+    /// C4: a decoded set without M0 cannot anchor a search, so no search runs
+    /// — that says nothing about the net, and the verdict must survive it.
+    #[test]
+    fn state_set_missing_initial_marking_keeps_violated() {
         if !z3_available() {
             eprintln!("skipping state_set_missing_initial_*: z3 binary not on PATH");
             return;
@@ -2405,10 +2635,13 @@ mod tests {
             .replay_state_set_override(vec![vec![2, 1], vec![0, 3]])
             .timeout(15_000)
             .verify();
+        assert!(result.is_violated(), "{}", result.report);
+        assert_eq!(result.counterexample_confirmed, Some(false));
         assert!(
-            matches!(result.verdict, Verdict::Unknown { .. }),
-            "a set without M0 must downgrade, got {:?}\n{}",
-            result.verdict,
+            result
+                .report
+                .contains("the decoded state set does not contain M0"),
+            "{}",
             result.report
         );
     }
@@ -2429,7 +2662,7 @@ mod tests {
             .timeout(15_000)
             .verify();
         assert!(result.is_violated(), "{}", result.report);
-        assert!(!result.counterexample_confirmed);
+        assert_eq!(result.counterexample_confirmed, Some(false));
         assert!(
             result
                 .report
@@ -2455,7 +2688,10 @@ mod tests {
             .timeout(15_000)
             .verify();
         assert!(result.is_violated(), "{}", result.report);
-        assert!(!result.counterexample_confirmed);
+        assert_eq!(
+            result.counterexample_confirmed, None,
+            "the replay did not apply (C1)"
+        );
         assert!(
             !result.report.contains("Counterexample replay"),
             "opt-out must not run or mention the replay\n{}",
@@ -2478,8 +2714,9 @@ mod tests {
             .timeout(15_000)
             .verify();
         assert!(result.is_violated(), "{}", result.report);
-        assert!(
+        assert_eq!(
             result.counterexample_confirmed,
+            Some(true),
             "the injection CEX must replay\n{}",
             result.report
         );
@@ -2492,5 +2729,81 @@ mod tests {
             result.counterexample_transitions,
             result.report
         );
+    }
+
+    /// The report must stay readable: a Spacer refutation proof runs to
+    /// megabytes, so a raw block is kept head-and-tail with an elision marker.
+    #[test]
+    fn long_report_blocks_are_elided() {
+        let mut report = String::new();
+        let text: String = (0..200).map(|i| format!("line{i}\n")).collect();
+        append_elided(&mut report, "    ", &text);
+        assert!(report.contains("    line0\n") && report.contains("    line19\n"));
+        assert!(!report.contains("    line20\n"), "{report}");
+        assert!(report.contains("    … 175 line(s) elided …\n"), "{report}");
+        assert!(report.contains("    line199\n"), "{report}");
+        assert_eq!(report.lines().count(), 26);
+
+        // Short blocks pass through untouched.
+        let mut short = String::new();
+        append_elided(&mut short, "  ", "a\nb\n");
+        assert_eq!(short, "  a\n  b\n");
+    }
+
+    /// A coloured/ν `Proven` gets no certificate check (different variable
+    /// layout) — the report says so rather than staying silent (C2).
+    #[test]
+    fn coloured_path_reports_certificate_not_applicable() {
+        if !z3_available() {
+            eprintln!("skipping coloured_path_reports_*: z3 binary not on PATH");
+            return;
+        }
+        let net = nu_scatter_gather_net();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(nu_initial_marking(2))
+            .property(SmtProperty::branch_place_bound("budget", 2))
+            .budget_place("budget")
+            .timeout(15_000)
+            .verify();
+        assert!(result.is_proven(), "{}", result.report);
+        assert!(
+            result
+                .report
+                .contains("  Certificate check: not applicable (name-coloured encoding)"),
+            "{}",
+            result.report
+        );
+        assert_eq!(result.counterexample_confirmed, None);
+    }
+
+    /// A structural proof returns before any solver runs; it must say so too.
+    #[test]
+    fn structural_proof_reports_certificate_not_applicable() {
+        let p1 = Place::<i32>::new("p1");
+        let p2 = Place::<i32>::new("p2");
+        let t1 = Transition::builder("t1")
+            .input(one(&p1))
+            .output(out_place(&p2))
+            .action(fork())
+            .build();
+        let t2 = Transition::builder("t2")
+            .input(one(&p2))
+            .output(out_place(&p1))
+            .action(fork())
+            .build();
+        let net = PetriNet::builder("cycle").transitions([t1, t2]).build();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(MarkingStateBuilder::new().tokens("p1", 1).build())
+            .property(SmtProperty::DeadlockFree)
+            .verify();
+        assert!(result.is_proven(), "{}", result.report);
+        assert!(
+            result
+                .report
+                .contains("  Certificate check: not applicable (structural proof)"),
+            "{}",
+            result.report
+        );
+        assert_eq!(result.counterexample_confirmed, None);
     }
 }

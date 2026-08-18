@@ -77,6 +77,31 @@ class SmtVerifierTest {
         assertFalse(invariants.isEmpty(), "Should find P-invariants for ExtendedTPN");
     }
 
+    @Test
+    void structuralEarlyProof_saysTheCertificateCheckDoesNotApply() {
+        // The siphon/trap proof returns before the CHC encoding, so there is no IC3
+        // certificate to re-validate — the report must say so rather than stay silent.
+        // No Z3: this path never opens a solver.
+        var p1 = Place.of("A", String.class);
+        var p2 = Place.of("B", String.class);
+        var t1 = Transition.builder("AtoB").inputs(In.one(p1)).outputs(Out.place(p2)).build();
+        var t2 = Transition.builder("BtoA").inputs(In.one(p2)).outputs(Out.place(p1)).build();
+        var net = PetriNet.builder("cycle").transitions(t1, t2).build();
+
+        var result = SmtVerifier.forNet(StructureOnly.bind(net))
+            .initialMarking(m -> m.tokens(p1, 1))
+            .property(SmtProperty.deadlockFree())
+            .timeout(Duration.ofSeconds(5))
+            .verify();
+
+        assertTrue(result.isProven(), result.report());
+        assertTrue(result.report().contains("PROVEN (structural)"), result.report());
+        assertTrue(result.report().contains(
+            "  Certificate check: not applicable (structural proof)"), result.report());
+        assertNull(result.counterexampleConfirmed(),
+            "a proven verdict never carries a replay outcome\n" + result.report());
+    }
+
     // === Z3-dependent tests ===
 
     @Test
@@ -534,6 +559,10 @@ class SmtVerifierTest {
         // decided exactly (NU-050 #1), not via the name-blind over-approximation.
         assertTrue(result.report().contains("name-coloured"),
             "a bounded ν-net in the supported fragment uses the exact name-coloured encoding\n" + result.report());
+        // The IC3 certificate check covers the flat count encoding only, and says so.
+        assertTrue(result.report().contains(
+            "  Certificate check: not applicable (name-coloured encoding)"),
+            "the coloured path must state that the certificate check does not apply\n" + result.report());
     }
 
     @Test
@@ -930,11 +959,10 @@ class SmtVerifierTest {
     @EnabledIf("z3Available")
     void poisonedInvariant_droppedByExactValidationAndReported() {
         // Chain A -(65539)-> B -(65537)-> C: the genuine conservation law carries a
-        // weight of 65539*65537 = 4295229443 > Integer.MAX_VALUE, so the elimination's
-        // unchecked (int) cast emits a numerically wrong invariant. The exact
-        // re-validation gate must drop it before the CHC encoding (a wrong invariant in
-        // the transition-rule body removes reachable successors -> false PROVEN) and the
-        // report must say so.
+        // weight of 65539*65537 = 4295229443 > Integer.MAX_VALUE, so the row cannot be
+        // narrowed to the int weight vector at all. It must be dropped at extraction
+        // (a wrapped invariant in the transition-rule body removes reachable successors
+        // -> false PROVEN) and the report must say so.
         var pA = Place.of("A", String.class);
         var pB = Place.of("B", String.class);
         var pC = Place.of("C", String.class);
@@ -944,14 +972,16 @@ class SmtVerifierTest {
             .inputs(In.exactly(65537, pB)).outputs(Out.place(pC)).build();
         var net = PetriNet.builder("Poisoned").transitions(t1, t2).build();
 
-        var result = SmtVerifier.forNet(net)
+        var result = SmtVerifier.forNet(StructureOnly.bind(net))
             .initialMarking(m -> m.tokens(pA, 1))
             .property(SmtProperty.deadlockFree())
             .timeout(Duration.ofSeconds(30))
             .verify();
 
-        assertTrue(result.report().contains("Dropped invariant:"),
-            "Report should list the dropped invariant with a reason\n" + result.report());
+        assertTrue(result.report().contains(
+            "Dropped invariant: weight overflow at place 'C' "
+            + "(exact value outside this implementation's integer extraction range)"),
+            "Report should list the dropped invariant with the overflow reason\n" + result.report());
         assertTrue(result.report().contains("failed exact re-validation"),
             "Report should include the drop count line\n" + result.report());
         assertTrue(result.invariants().isEmpty(),
@@ -986,11 +1016,30 @@ class SmtVerifierTest {
     @Test
     void certificateDowngradeReason_eachVcHasDistinctLabel() {
         var initReason = SmtVerifier.certificateDowngradeReason(
-            new CertificateChecker.Result.Failed(CertificateChecker.Vc.INIT, null));
+            new CertificateChecker.Result.Failed(
+                CertificateChecker.Vc.INIT, "solver returned SATISFIABLE"));
         var safetyReason = SmtVerifier.certificateDowngradeReason(
-            new CertificateChecker.Result.Failed(CertificateChecker.Vc.SAFETY, ""));
-        assertTrue(initReason.contains("init (VC1)"), initReason);
+            new CertificateChecker.Result.Failed(
+                CertificateChecker.Vc.SAFETY, "solver returned UNKNOWN"));
+        assertTrue(initReason.contains("initiation (VC1)"), initReason);
         assertTrue(safetyReason.contains("safety (VC3)"), safetyReason);
+    }
+
+    @Test
+    void certificateDowngradeReason_detailClauseIsUnconditional() {
+        // The " - <detail>" clause is never conditional: a Java-only shape that
+        // drops it would be a reason string no sibling implementation can emit.
+        // The separator is an ASCII hyphen-minus, so the four reports diff
+        // byte-for-byte.
+        assertEquals(
+            "certificate check failed: consecution (VC2) was not UNSAT"
+            + " - solver returned SATISFIABLE (witness: A=1, B=1)"
+            + "; the IC3 certificate could not be independently re-validated "
+            + "against the unstrengthened step relation, so PROVEN is withheld",
+            SmtVerifier.certificateDowngradeReason(
+                new CertificateChecker.Result.Failed(
+                    CertificateChecker.Vc.CONSECUTION,
+                    "solver returned SATISFIABLE (witness: A=1, B=1)")));
     }
 
     @Test
@@ -1076,7 +1125,9 @@ class SmtVerifierTest {
             .verify();
 
         assertTrue(result.isProven(), "Opt-out must keep the proven verdict\n" + result.report());
-        assertFalse(result.report().contains("Certificate check"),
+        assertTrue(result.report().contains("  Certificate check: not applicable (disabled)"),
+            "Opt-out must say the check did not run\n" + result.report());
+        assertFalse(result.report().contains("Certificate check: PASSED"),
             "Opt-out must skip the check entirely\n" + result.report());
     }
 
@@ -1159,7 +1210,7 @@ class SmtVerifierTest {
     void assessCounterexample_nothingDecoded_keepsViolatedUnconfirmed() {
         // Nothing decoded is NOT a downgrade: the verdict stands, unconfirmed.
         var decoded = new CounterexampleDecoder.DecodedStates(
-            java.util.Set.of(), java.util.List.of(), "answer was null");
+            java.util.List.of(), java.util.Set.of(), java.util.List.of(), "answer was null");
 
         var assessment = SmtVerifier.assessCounterexample(
             deadEndChainFlat(), mk(RP0, 1), decoded, SmtProperty.deadlockFree(), java.util.Set.of());
@@ -1171,6 +1222,7 @@ class SmtVerifierTest {
     @Test
     void assessCounterexample_chainableSet_confirmsWithReplayOrderedTrace() {
         var decoded = new CounterexampleDecoder.DecodedStates(
+            java.util.List.of(mk(RP2, 1), mk(RP0, 1), mk(RP1, 1)),
             java.util.Set.of(mk(RP2, 1), mk(RP0, 1), mk(RP1, 1)), java.util.List.of(), null);
 
         var assessment = SmtVerifier.assessCounterexample(
@@ -1190,6 +1242,7 @@ class SmtVerifierTest {
         var garbage = org.libpetri.analysis.MarkingState.builder()
             .tokens(RP0, 7).tokens(RP1, 7).tokens(RP2, 7).build();
         var decoded = new CounterexampleDecoder.DecodedStates(
+            java.util.List.of(mk(RP0, 1), garbage),
             java.util.Set.of(mk(RP0, 1), garbage), java.util.List.of(), null);
 
         var assessment = SmtVerifier.assessCounterexample(
@@ -1197,8 +1250,9 @@ class SmtVerifierTest {
             SmtProperty.placeBound(RP2, 5), java.util.Set.of());
 
         var downgraded = assertInstanceOf(SmtVerifier.ReplayAssessment.Downgraded.class, assessment);
-        assertTrue(downgraded.reason().contains(
-            "counterexample failed abstract replay — spurious CEX or decoder mismatch"),
+        assertEquals(
+            "counterexample replay found no firing chain to the violation under the "
+            + "abstract semantics, so VIOLATED is withheld",
             downgraded.reason());
     }
 
@@ -1222,9 +1276,9 @@ class SmtVerifierTest {
             .timeout(Duration.ofSeconds(10))
             .verify();
 
-        var violated = assertInstanceOf(SmtVerificationResult.Verdict.Violated.class, result.verdict(),
+        assertInstanceOf(SmtVerificationResult.Verdict.Violated.class, result.verdict(),
             "the genuine deadlock must stay VIOLATED with replay default-on\n" + result.report());
-        assertTrue(violated.counterexampleConfirmed(),
+        assertEquals(Boolean.TRUE, result.counterexampleConfirmed(),
             "the replay must confirm the decoded counterexample\n" + result.report());
         assertTrue(result.report().contains("Counterexample replay: CONFIRMED"), result.report());
         assertFalse(result.counterexampleTrace().isEmpty(), result.report());
@@ -1251,10 +1305,156 @@ class SmtVerifierTest {
             .counterexampleReplay(false)
             .verify();
 
-        var violated = assertInstanceOf(SmtVerificationResult.Verdict.Violated.class, result.verdict(),
+        assertInstanceOf(SmtVerificationResult.Verdict.Violated.class, result.verdict(),
             result.report());
-        assertFalse(violated.counterexampleConfirmed(),
-            "opting out must leave the counterexample unconfirmed\n" + result.report());
+        assertNull(result.counterexampleConfirmed(),
+            "opting out means replay did not apply, not that it failed\n" + result.report());
         assertTrue(result.report().contains("Counterexample replay: disabled"), result.report());
+    }
+
+    // --- C4: a replay that could not decide is an ABSENCE of evidence ---
+    //
+    // Only a search that covers the space and finds no chain may withdraw a
+    // verdict. Every other outcome leaves VIOLATED standing with the tri-state
+    // at FALSE (the replay applied and did not confirm), never at null.
+    // Mirrors rust/libpetri-verification/src/smt_verifier.rs and
+    // typescript/tests/verification/replay-downgrade.test.ts.
+
+    /** p0 -> p1 -> ... -> p5, one token: the violation is five steps from M0. */
+    private static PetriNet longChainNet(java.util.List<Place<String>> places) {
+        var transitions = new java.util.ArrayList<Transition>();
+        for (int i = 0; i + 1 < places.size(); i++) {
+            transitions.add(Transition.builder("T" + i)
+                .inputs(In.one(places.get(i)))
+                .outputs(Out.place(places.get(i + 1)))
+                .build());
+        }
+        return PetriNet.builder("LongChain").transitions(transitions.toArray(Transition[]::new)).build();
+    }
+
+    private static java.util.List<Place<String>> chainPlaces(int n) {
+        var places = new java.util.ArrayList<Place<String>>();
+        for (int i = 0; i < n; i++) {
+            places.add(Place.of("p" + i, String.class));
+        }
+        return java.util.List.copyOf(places);
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void segmentBudgetExhaustion_keepsViolatedUnconfirmed() {
+        // The seam anchors the search on M0 alone; the violation is five steps away,
+        // twice the segment budget. The search is cut short, which says nothing about
+        // the net — the verdict must survive it.
+        var places = chainPlaces(6);
+        var result = SmtVerifier.forNet(StructureOnly.bind(longChainNet(places)))
+            .initialMarking(m -> m.tokens(places.getFirst(), 1))
+            .property(SmtProperty.placeBound(places.getLast(), 0))
+            .replayStateSetOverride(java.util.Set.of(mk(places.getFirst(), 1)))
+            .timeout(Duration.ofSeconds(20))
+            .verify();
+
+        assertInstanceOf(SmtVerificationResult.Verdict.Violated.class, result.verdict(),
+            "a cut-short search must not withdraw the verdict\n" + result.report());
+        assertEquals(Boolean.FALSE, result.counterexampleConfirmed(),
+            "the replay applied and did not confirm: FALSE, not null\n" + result.report());
+        assertTrue(result.report().contains("segment budget"),
+            "the report must name the exhausted budget\n" + result.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void nodeBudgetExhaustion_keepsViolatedUnconfirmed() {
+        // Budget 1 is spent by the root node, so not one successor is admitted.
+        var places = chainPlaces(4);
+        var result = SmtVerifier.forNet(StructureOnly.bind(longChainNet(places)))
+            .initialMarking(m -> m.tokens(places.getFirst(), 1))
+            .property(SmtProperty.placeBound(places.getLast(), 0))
+            .replayNodeBudget(1)
+            .timeout(Duration.ofSeconds(20))
+            .verify();
+
+        assertInstanceOf(SmtVerificationResult.Verdict.Violated.class, result.verdict(),
+            result.report());
+        assertEquals(Boolean.FALSE, result.counterexampleConfirmed(), result.report());
+        assertTrue(result.report().contains("replay budget exhausted (1 nodes admitted)"),
+            "the report must name the exhausted budget\n" + result.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void decodedSetWithoutInitialMarking_keepsViolatedUnconfirmed() {
+        // Nothing to anchor on is a property of the proof text, not of the net.
+        var places = chainPlaces(4);
+        var result = SmtVerifier.forNet(StructureOnly.bind(longChainNet(places)))
+            .initialMarking(m -> m.tokens(places.getFirst(), 1))
+            .property(SmtProperty.placeBound(places.getLast(), 0))
+            .replayStateSetOverride(java.util.Set.of(mk(places.get(1), 1), mk(places.get(2), 1)))
+            .timeout(Duration.ofSeconds(20))
+            .verify();
+
+        assertInstanceOf(SmtVerificationResult.Verdict.Violated.class, result.verdict(),
+            result.report());
+        assertEquals(Boolean.FALSE, result.counterexampleConfirmed(), result.report());
+        assertTrue(result.report().contains("is not among the"),
+            "the report must say the anchor was missing\n" + result.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void emptyDecode_keepsViolatedUnconfirmed() {
+        // Decoding nothing is not a downgrade; mass-downgrading real verdicts on a
+        // decoder that degraded gracefully would be the worse failure.
+        var places = chainPlaces(4);
+        var result = SmtVerifier.forNet(StructureOnly.bind(longChainNet(places)))
+            .initialMarking(m -> m.tokens(places.getFirst(), 1))
+            .property(SmtProperty.placeBound(places.getLast(), 0))
+            .replayStateSetOverride(java.util.Set.of())
+            .timeout(Duration.ofSeconds(20))
+            .verify();
+
+        assertInstanceOf(SmtVerificationResult.Verdict.Violated.class, result.verdict(),
+            result.report());
+        assertEquals(Boolean.FALSE, result.counterexampleConfirmed(), result.report());
+        assertTrue(result.report().contains("no counterexample states could be decoded"),
+            result.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void noChainDowngrade_reportsUnknownWithConfirmedFalse() {
+        // The one outcome that WITHDRAWS a verdict, end to end and without a seam:
+        // an Unreachable property whose places are all outside the flat net. The
+        // encoder's violation conjunction is then over nothing — i.e. TRUE, so Bad
+        // holds everywhere and Spacer answers SAT at M0 — while the replay's
+        // non-empty guard (AbstractReplayer.violates) refuses to call any marking
+        // Bad. The search covers the two-state space, finds no chain, and the
+        // verifier withholds VIOLATED rather than report a violation it cannot
+        // reproduce.
+        var pA = Place.of("A", String.class);
+        var pB = Place.of("B", String.class);
+        var ghost = Place.of("Ghost", String.class); // never declared by a transition
+        var t = Transition.builder("T").inputs(In.one(pA)).outputs(Out.place(pB)).build();
+        var net = PetriNet.builder("tiny").transitions(t).build();
+
+        var result = SmtVerifier.forNet(StructureOnly.bind(net))
+            .initialMarking(m -> m.tokens(pA, 1))
+            .property(SmtProperty.unreachable(java.util.Set.of(ghost)))
+            .timeout(Duration.ofSeconds(20))
+            .verify();
+
+        var unknown = assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(),
+            "a refuted counterexample downgrades, it does not stand\n" + result.report());
+        assertEquals(
+            "counterexample replay found no firing chain to the violation under the "
+            + "abstract semantics, so VIOLATED is withheld",
+            unknown.reason());
+        // D1: the replay APPLIED and refuted the trace. That is strictly more
+        // informative than "did not apply", so the tri-state is FALSE, never null.
+        assertEquals(Boolean.FALSE, result.counterexampleConfirmed(),
+            "a refutation reports FALSE, not the null that means 'replay did not apply'\n"
+            + result.report());
+        assertTrue(result.report().contains("Counterexample replay: FAILED"), result.report());
+        assertTrue(result.counterexampleTrace().isEmpty(), result.report());
     }
 }

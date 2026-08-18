@@ -105,6 +105,8 @@ def verify(
     fragment_mode: str | int | None = None,
     carrier_places: Iterable[PlaceLike] | None = None,
     priority_semantics: str | int | None = None,
+    certificate_check: bool = True,
+    counterexample_replay: bool = True,
 ) -> VerificationResult:
     """Verify ``property`` against ``net`` via SMT (Z3).
 
@@ -154,6 +156,32 @@ def verify(
     conflicting (shares a consumed input place), strictly-higher-priority
     transition can pre-empt it — pruning exactly those interleavings the eager,
     priority-ordered executor never produces, without hiding a genuine stall.
+
+    ``certificate_check`` (default ``True``) re-verifies a ``proven`` verdict
+    from the flat IC3/PDR path: the solver's inductive invariant is re-checked
+    against the unstrengthened step relation in a second, independent solver
+    run, and a failing or unrunnable check downgrades the verdict to
+    ``unknown`` rather than certify on the solver's say-so.
+
+    ``counterexample_replay`` (default ``True``) re-validates a ``violated``
+    verdict by replaying the states decoded from the solver's refutation
+    against the abstract semantics. ``result.counterexample_confirmed`` is the
+    tri-state outcome (canonical definition:
+    ``VerificationResult::counterexample_confirmed`` in the Rust verifier):
+
+    * ``None`` -- the replay did not apply (turned off here, a non-violated
+      verdict, or a verdict from the coloured / Route B / structural path);
+    * ``False`` -- the replay applied and did not confirm the counterexample.
+      Either it could not conclude (nothing decodable in the proof, the initial
+      marking absent from the decoded set, or a budget exhausted), in which case
+      the ``violated`` verdict stands unconfirmed; or it refuted the trace
+      outright by covering the successor space and finding no firing chain, in
+      which case the verdict is downgraded to ``unknown``. A refutation is more
+      informative than "did not apply", so it reports ``False``, never ``None``;
+    * ``True`` -- the replay chained the initial marking to a violating state.
+
+    Turning this off also turns off the only source of
+    ``counterexample_trace``.
     """
     return _ext.verify_net(
         _coerce_net(net),
@@ -172,6 +200,8 @@ def verify(
         fragment_mode=fragment_mode,
         carrier_places=[_coerce_place_name(p) for p in (carrier_places or ())],
         priority_semantics=priority_semantics,
+        certificate_check=certificate_check,
+        counterexample_replay=counterexample_replay,
     )
 
 

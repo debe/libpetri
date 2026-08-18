@@ -15,6 +15,31 @@ import java.util.List;
  * @param discoveredInvariants     IC3-synthesized inductive invariants (empty if not proven by IC3)
  * @param counterexampleTrace      marking trace to error (empty if proven)
  * @param counterexampleTransitions firing sequence to error (empty if proven)
+ * @param counterexampleConfirmed  outcome of the abstract counterexample replay
+ *     ({@link org.libpetri.smt.z3.AbstractReplayer}), as a TRI-STATE. The
+ *     canonical definition lives on the Rust {@code VerificationResult}; this
+ *     restates it:
+ *     <ul>
+ *       <li>{@code TRUE} — the replay chained an abstract firing run from M0 to a
+ *           property-violating marking; {@code counterexampleTrace} is that run,
+ *           in firing order.</li>
+ *       <li>{@code FALSE} — the replay applied and did NOT confirm the
+ *           counterexample. Two shapes, reported the same way:
+ *           <ul>
+ *             <li>it could not conclude (nothing decodable, M0 not among the
+ *                 decoded states, or a budget exhausted) — VIOLATED stands,
+ *                 unconfirmed, on Spacer's SAT answer alone;</li>
+ *             <li>it refuted the trace outright (no firing chain reaches the
+ *                 violation) — the verdict is downgraded to UNKNOWN. A refutation
+ *                 is strictly more informative than "did not apply", so it reports
+ *                 {@code FALSE}, never {@code null}.</li>
+ *           </ul></li>
+ *       <li>{@code null} — replay did not apply: a non-violated verdict that no
+ *           replay touched, replay disabled via
+ *           {@link SmtVerifier#counterexampleReplay(boolean)}, or the coloured
+ *           &nu;-encoding / Route B path, whose state shapes are outside the flat
+ *           replayer's scope.</li>
+ *     </ul>
  * @param elapsed                  wall-clock time for verification
  * @param statistics               solver statistics
  */
@@ -25,6 +50,7 @@ public record SmtVerificationResult(
     List<String> discoveredInvariants,
     List<MarkingState> counterexampleTrace,
     List<String> counterexampleTransitions,
+    Boolean counterexampleConfirmed,
     Duration elapsed,
     SmtStatistics statistics
 ) {
@@ -42,18 +68,12 @@ public record SmtVerificationResult(
         record Proven(String method, String inductiveInvariant) implements Verdict {}
 
         /**
-         * Property violated. A counterexample trace is available.
-         *
-         * @param counterexampleConfirmed whether the counterexample was
-         *     confirmed as a genuine run of the analysis semantics — for the
-         *     flat IC3/PDR path, by {@link org.libpetri.smt.z3.AbstractReplayer}
-         *     chaining the decoded states into an abstract run reaching the
-         *     violation; for the &nu;-net Route B path, by construction (the
-         *     trace is an explicit path of the name-aware state-class graph).
-         *     {@code false} means the verdict stands but no replayable trace
-         *     backs it (nothing decodable, or replay opted out).
+         * Property violated. A counterexample trace is available; whether replay
+         * confirmed it is carried by
+         * {@link SmtVerificationResult#counterexampleConfirmed()}, not by the
+         * verdict.
          */
-        record Violated(boolean counterexampleConfirmed) implements Verdict {}
+        record Violated() implements Verdict {}
 
         /**
          * Could not determine.

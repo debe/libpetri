@@ -344,8 +344,9 @@ fn encode_injection_rule(
 }
 
 /// Joins conjuncts into a single formula (`true` when empty, the bare conjunct
-/// when singleton — SMT-LIB `and` wants at least two arguments).
-fn conjoin(conditions: &[String]) -> String {
+/// when singleton — SMT-LIB `and` wants at least two arguments). Shared with
+/// the certificate check's candidate builder.
+pub(crate) fn conjoin(conditions: &[String]) -> String {
     match conditions {
         [] => "true".to_string(),
         [single] => single.clone(),
@@ -364,7 +365,7 @@ fn conjoin(conditions: &[String]) -> String {
 /// `env_bound_conditions`, `injection_conditions`) but deliberately OMITS the
 /// P-invariant conjuncts, so a certificate poisoned by a wrong invariant
 /// cannot re-certify itself.
-pub fn encode_step_relation_smt2(
+pub(crate) fn encode_step_relation_smt2(
     flat: &FlatNet,
     env_bounds: &[(String, usize)],
     env_injection: &[(String, Option<usize>)],
@@ -550,16 +551,14 @@ fn encode_deadlock(
         disabled_conditions.push(format!("(or {})", disable_reasons.join(" ")));
     }
 
-    // Also check that we're not in a sink state (if sink places specified)
-    // Sink places: states where only sink places have tokens are not deadlocks
-    if !sink_indices.is_empty() {
-        let non_sink_has_tokens: Vec<String> = (0..flat.place_count)
-            .filter(|pid| !sink_indices.contains(pid))
-            .map(|pid| format!("(>= {} 1)", m_vars[pid]))
-            .collect();
-        if !non_sink_has_tokens.is_empty() {
-            disabled_conditions.push(format!("(or {})", non_sink_has_tokens.join(" ")));
-        }
+    // Declared sinks ([VER-002]): the error condition is
+    // `(all transitions disabled) AND (no sink place has a token)`, so each
+    // declared sink contributes `M[sink] = 0`. A quiescent marking holding a
+    // token in ANY declared sink is an expected terminal state, not a deadlock.
+    // Mirrors Java `SmtEncoder.encodePropertyViolation` and TypeScript
+    // `encodePropertyViolation`.
+    for &pid in &sink_indices {
+        disabled_conditions.push(format!("(= {} 0)", m_vars[pid]));
     }
 
     if disabled_conditions.is_empty() {

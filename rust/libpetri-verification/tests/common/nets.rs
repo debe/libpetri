@@ -252,6 +252,39 @@ pub fn build(name: &str) -> FixtureNet {
                 MarkingStateBuilder::new().tokens("p0", 3).build(),
             )
         }
+        // p0(1) -> done + stuck in one shot. The only quiescent marking holds a
+        // token in the declared sink `done` AND one in the non-sink `stuck`;
+        // [VER-002] excuses it because a sink is marked.
+        "sinkPartialTerminal" => {
+            let p0 = Place::<i32>::new("p0");
+            let done = Place::<i32>::new("done");
+            let stuck = Place::<i32>::new("stuck");
+            let t = Transition::builder("t")
+                .input(one(&p0))
+                .output(and(vec![out_place(&done), out_place(&stuck)]))
+                .action(fork())
+                .build();
+            FixtureNet::closed(
+                PetriNet::builder("sinkPartialTerminal").transition(t).build(),
+                MarkingStateBuilder::new().tokens("p0", 1).build(),
+            )
+        }
+        // p0(1) drained by a sink transition (no output spec, [CORE-042]); the
+        // declared sink `done` never receives anything, so the quiescent marking
+        // is empty and [VER-002]'s "no sink place has a token" holds. `done`
+        // touches no arc, so it is declared explicitly on the builder.
+        "sinkDrainedTerminal" => {
+            let p0 = Place::<i32>::new("p0");
+            let done = Place::<i32>::new("done");
+            let t = Transition::builder("t").input(one(&p0)).build();
+            FixtureNet::closed(
+                PetriNet::builder("sinkDrainedTerminal")
+                    .place((&done).into())
+                    .transition(t)
+                    .build(),
+                MarkingStateBuilder::new().tokens("p0", 1).build(),
+            )
+        }
         other => panic!(
             "unknown fixture net '{other}' — add its builder to tests/common/nets.rs \
              (the shared fixtures.json gained a net this implementation does not build yet)"
