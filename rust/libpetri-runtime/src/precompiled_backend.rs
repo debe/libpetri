@@ -59,16 +59,32 @@ pub struct PrecompiledBackend<'a> {
     // ==================== Presence bitmap ====================
     /// `word_count` live presence words, followed in the same allocation by
     /// the `word_count`-word fire-pass snapshot — the analogue of the
-    /// reference's `firing_snap_buffer` (divergence #5). The snapshot half
-    /// is refreshed when the ready list is collected and after each firing's
-    /// consumption — never by `produce_token` — so the EXEC-003 recheck
-    /// gates presence on the post-consumption, PRE-deposit state. Outputs
-    /// land in loop step 1 (process completions) while firing is step 5
-    /// (EXEC-001), so tokens a same-pass sync action deposits must not
-    /// enable or un-inhibit a later ready transition within the pass. One
-    /// allocation, not two, so constructing a backend stays
-    /// allocation-neutral and both halves share locality.
+    /// reference's `firing_snap_buffer` (divergence #5). The snapshot half is
+    /// copied from live once per pass, when the ready list is collected; after
+    /// that it is only ever *cleared*, one place at a time, by
+    /// [`update_bitmap_after_consumption`](Self::update_bitmap_after_consumption).
+    /// Nothing sets a snapshot bit mid-pass, so the EXEC-003 recheck gates
+    /// presence on the post-consumption, PRE-deposit marking: outputs land in
+    /// loop step 1 (process completions) while firing is step 5 (EXEC-001), so
+    /// tokens a same-pass sync action deposits must not enable or un-inhibit a
+    /// later ready transition within the pass. One allocation, not two, so
+    /// constructing a backend stays allocation-neutral and both halves share
+    /// locality.
     marking_bitmap: Vec<u64>,
+
+    // ==================== Same-pass deposit delta ====================
+    /// Per place: tokens a synchronous action deposited since the ready list
+    /// was collected. The counting checks judge `token_counts[pid] -
+    /// deposit_delta[pid]` inside a firing pass, so a same-pass deposit
+    /// satisfies neither a cardinality gate nor a ν-join binding (EXEC-003
+    /// AC4) — the count-side twin of what the snapshot bitmap does for
+    /// presence. Cleared through `deposit_touched` (O(deposits), never
+    /// O(places)); `has_deposits` keeps a pass with no deposits at one
+    /// predictable branch.
+    deposit_delta: Vec<usize>,
+    /// The pids with a non-zero `deposit_delta`, each recorded once.
+    deposit_touched: Vec<usize>,
+    has_deposits: bool,
 
     // ==================== Transition state ====================
     enabled_bitmap: Vec<u64>,
@@ -102,6 +118,10 @@ pub struct PrecompiledBackend<'a> {
     /// Per place: the `(tid, key_index)` of every fast-path matched correlated
     /// input fed by this place, so token adds can be mirrored into the caches.
     place_match_targets: Vec<Vec<(usize, usize)>>,
+    /// Per matched transition: the place ids of its correlated inputs, for the
+    /// EXEC-003 AC4 deposit check in [`can_enable`](Self::can_enable). Empty
+    /// for nets with no ν transitions.
+    match_input_pids: Vec<Vec<usize>>,
 
     /// Grace band (ms) before a hard deadline force-disables (TIME-013).
     deadline_tolerance_ms: f64,
@@ -203,6 +223,13 @@ impl<'a> PrecompiledBackend<'a> {
             has_pending_resets: false,
             match_caches: Vec::new(),
             place_match_targets: vec![Vec::new(); pc],
+            match_input_pids: Vec::new(),
+            deposit_delta: vec![0usize; pc],
+            // One entry per place at most (`record_deposit` pushes a pid only
+            // as it leaves zero), so this capacity is never exceeded and the
+            // pass never allocates.
+            deposit_touched: Vec::with_capacity(pc),
+            has_deposits: false,
             deadline_tolerance_ms: DEADLINE_TOLERANCE_MS,
         };
         this.init_match_caches();
@@ -224,6 +251,19 @@ impl<'a> PrecompiledBackend<'a> {
         if !(0..tc).any(|tid| self.program.compiled().has_match(tid)) {
             return; // no ν-net transitions — leave everything on the fast opcode path
         }
+
+        // Correlated input pids per matched transition (fast-path eligible or
+        // not) — read by `can_enable`'s EXEC-003 AC4 deposit check.
+        self.match_input_pids = (0..tc)
+            .map(|tid| match self.program.transition(tid).match_spec() {
+                Some(ms) => ms
+                    .keys()
+                    .iter()
+                    .filter_map(|mk| self.program.place_id(mk.place_name()))
+                    .collect(),
+                None => Vec::new(),
+            })
+            .collect();
 
         // Which transitions *consume* (input or reset) each place.
         let mut input_consumers: Vec<Vec<usize>> = vec![Vec::new(); pc];
@@ -434,13 +474,17 @@ impl<'a> PrecompiledBackend<'a> {
     }
 
     /// Counts tokens in the ring at `pid` satisfying `predicate` (the ν-net
-    /// name-equality test — see [`Self::ring_remove_matching`]).
+    /// name-equality test — see [`Self::ring_remove_matching`]), scanning only
+    /// the first `limit` ring slots. Callers pass [`Self::drainable`] so a
+    /// matched drain never counts — and therefore never removes — a same-pass
+    /// deposit sitting in the tail (EXEC-003 AC5).
     fn count_matching_in_ring(
         &self,
         pid: usize,
+        limit: usize,
         predicate: &dyn Fn(&dyn std::any::Any) -> bool,
     ) -> usize {
-        let count = self.token_counts[pid];
+        let count = self.token_counts[pid].min(limit);
         if count == 0 {
             return 0;
         }
@@ -572,38 +616,87 @@ impl<'a> PrecompiledBackend<'a> {
         }
     }
 
-    /// Mirror the live presence words into the fire-pass snapshot half of
-    /// `marking_bitmap`. Hand-rolled word loop instead of `copy_from_slice`:
-    /// the bitmap is a word or two for typical nets, and a dynamic-length
-    /// `memcpy` call costs several times the whole copy on the sync hot
-    /// loop.
+    /// Start a firing pass: mirror the live presence words into the snapshot
+    /// half of `marking_bitmap` and drop the previous pass's deposit delta.
+    /// The only place either is refreshed wholesale — inside the pass the
+    /// snapshot is narrowed per place and the delta only grows.
     #[inline]
-    fn refresh_firing_snapshot(&mut self) {
+    fn begin_firing_pass(&mut self) {
         let wc = self.program.word_count();
         let (live, snap) = self.marking_bitmap.split_at_mut(wc);
         for (s, l) in snap.iter_mut().zip(live.iter()) {
             *s = *l;
         }
+        if self.has_deposits {
+            for &pid in &self.deposit_touched {
+                self.deposit_delta[pid] = 0;
+            }
+            self.deposit_touched.clear();
+            self.has_deposits = false;
+        }
     }
+
+    /// Clear `pid`'s bit in the fire-pass snapshot half of `marking_bitmap`.
+    #[inline]
+    fn clear_firing_snapshot_bit(&mut self, pid: usize) {
+        let wc = self.program.word_count();
+        bitmap::clear_bit(&mut self.marking_bitmap[wc..], pid);
+    }
+
+    /// Count a token deposited into `pid` by a sync action (EXEC-003 AC4).
+    #[inline]
+    fn record_deposit(&mut self, pid: usize) {
+        if self.deposit_delta[pid] == 0 {
+            self.deposit_touched.push(pid);
+        }
+        self.deposit_delta[pid] += 1;
+        self.has_deposits = true;
+    }
+
+    /// How many tokens a drain (`all()`, `at_least(n)`, a reset arc) firing
+    /// later in this pass may take from `pid`, given its `live` ring count:
+    /// everything the pass began with, as consumed by earlier firings, but not
+    /// the tokens a same-pass sync action deposited (EXEC-003 AC5). Deposits
+    /// are appended with `ring_add_last`, so the drainable set is the ring
+    /// prefix of length `live - deposit_delta[pid]`.
+    ///
+    /// One predictable branch on a pass that deposited nothing.
+    #[inline]
+    fn drainable(&self, pid: usize, live: usize) -> usize {
+        if self.has_deposits {
+            live - self.deposit_delta[pid].min(live)
+        } else {
+            live
+        }
+    }
+
 
     // ==================== Enablement ====================
 
     /// True when the transition has all required input/read tokens available
-    /// and no inhibitor blocks it. Presence is checked against the given
-    /// words — the live half of `marking_bitmap` from `update_enablement`,
-    /// the pre-deposit snapshot half from `recheck_can_fire` — while the
-    /// cardinality and ν-match checks read live counts, exactly the split
-    /// the bitmap reference's `can_enable` makes.
-    fn can_enable(&self, tid: usize, marking_bits: &[u64]) -> bool {
+    /// and no inhibitor blocks it. `marking_bits` carries presence — the live
+    /// half of `marking_bitmap` from `update_enablement`, the snapshot half
+    /// from `recheck_can_fire` — and `pre_deposit` puts the counting checks on
+    /// that same view: an intra-pass recheck discounts tokens a same-pass
+    /// synchronous action deposited, so neither a cardinality gate nor a ν-join
+    /// can be satisfied by them (EXEC-003 AC4). Mirrored exactly by the bitmap
+    /// reference's `can_enable`.
+    fn can_enable(&self, tid: usize, marking_bits: &[u64], pre_deposit: bool) -> bool {
         if !self.program.can_enable_bitmap(tid, marking_bits) {
             return false;
         }
+
+        let discount = pre_deposit && self.has_deposits;
 
         if let Some(card_check) = self.program.compiled().cardinality_check(tid) {
             for i in 0..card_check.place_ids.len() {
                 let pid = card_check.place_ids[i];
                 let required = card_check.required_counts[i];
-                if self.token_counts[pid] < required {
+                let mut available = self.token_counts[pid];
+                if discount {
+                    available -= self.deposit_delta[pid].min(available);
+                }
+                if available < required {
                     return false;
                 }
             }
@@ -613,6 +706,17 @@ impl<'a> PrecompiledBackend<'a> {
         // Fast-path transitions read the maintained matcher (O(1)); the rest
         // rebuild the index (O(n)).
         if self.program.compiled().has_match(tid) {
+            // A join whose correlated input took a same-pass deposit defers to
+            // the next cycle wholesale (EXEC-003 AC4): the binding is chosen
+            // over whole queues, so there is no honest way to answer it from a
+            // marking the pass is not allowed to see.
+            if discount
+                && self.match_input_pids[tid]
+                    .iter()
+                    .any(|&pid| self.deposit_delta[pid] != 0)
+            {
+                return false;
+            }
             let no_binding = match &self.match_caches[tid] {
                 Some(cache) => cache.best().is_none(),
                 None => self.find_match_binding(tid).is_none(),
@@ -701,8 +805,19 @@ impl<'a> PrecompiledBackend<'a> {
         let n = self.program.compiled().consumption_place_ids(tid).len();
         for i in 0..n {
             let pid = self.program.compiled().consumption_place_ids(tid)[i];
-            if self.token_counts[pid] == 0 {
+            // Narrow the fire-pass snapshot in place (EXEC-003 AC3): a place
+            // this firing emptied of the tokens it held when the pass started
+            // stops being present for the rest of the pass. Only a clear, and
+            // only for the pids this firing touched — a wholesale refresh here
+            // would republish deposits from earlier firings in the pass. The
+            // two bitmaps part ways only when a deposit is in flight, so the
+            // common case stays the single `live == 0` branch it always was.
+            let live = self.token_counts[pid];
+            if live == 0 {
                 self.clear_marking_bit(pid);
+                self.clear_firing_snapshot_bit(pid);
+            } else if self.has_deposits && live <= self.deposit_delta[pid] {
+                self.clear_firing_snapshot_bit(pid);
             }
             self.mark_place_dirty(pid);
         }
@@ -816,7 +931,7 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
                 }
 
                 let was_enabled = self.is_enabled(tid);
-                let can_now = self.can_enable(tid, &self.marking_bitmap);
+                let can_now = self.can_enable(tid, &self.marking_bitmap, false);
 
                 if can_now && !was_enabled {
                     self.set_enabled_bit(tid);
@@ -904,9 +1019,7 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
                 }
             }
         }
-        // Refresh the firing-snapshot bitmap so subsequent
-        // `recheck_can_fire` calls see the live marking.
-        self.refresh_firing_snapshot();
+        self.begin_firing_pass();
     }
 
     fn collect_ready_general(&mut self, now_ms: f64, out: &mut Vec<usize>) {
@@ -950,14 +1063,12 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
             }
         }
 
-        // Refresh the firing-snapshot bitmap so subsequent
-        // `recheck_can_fire` calls see the live marking.
-        self.refresh_firing_snapshot();
+        self.begin_firing_pass();
     }
 
     fn recheck_can_fire(&mut self, tid: usize) -> bool {
         let wc = self.program.word_count();
-        self.is_enabled(tid) && self.can_enable(tid, &self.marking_bitmap[wc..])
+        self.is_enabled(tid) && self.can_enable(tid, &self.marking_bitmap[wc..], true)
     }
 
     fn consume_for_firing<F>(
@@ -1001,7 +1112,11 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
                         In::One { .. } => 1,
                         In::Exactly { count, .. } => *count,
                         In::All { .. } | In::AtLeast { .. } => {
-                            self.count_matching_in_ring(pid, &pred)
+                            // `ring_remove_matching` always takes the frontmost
+                            // match, so bounding the count to the drainable
+                            // prefix keeps the removals inside it too.
+                            let limit = self.drainable(pid, self.token_counts[pid]);
+                            self.count_matching_in_ring(pid, limit, &pred)
                         }
                     };
                     for _ in 0..to_consume {
@@ -1014,10 +1129,15 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
                         }
                     }
                 } else {
+                    // `one` / `exactly(n)` take a fixed count off the ring head
+                    // and are already confined to the pre-deposit prefix; only
+                    // the draining forms need the AC5 discount.
                     let to_consume = match in_spec {
                         In::One { .. } => 1,
                         In::Exactly { count, .. } => *count,
-                        In::All { .. } | In::AtLeast { .. } => self.token_counts[pid],
+                        In::All { .. } | In::AtLeast { .. } => {
+                            self.drainable(pid, self.token_counts[pid])
+                        }
                     };
                     for _ in 0..to_consume {
                         let token = self.ring_remove_first(pid);
@@ -1043,7 +1163,9 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
 
             for arc in &reset_arcs {
                 let pid = self.program.place_id(arc.place.name()).unwrap();
-                let count = self.token_counts[pid];
+                // EXEC-003 AC5: the reset clears the pass-start prefix, leaving
+                // same-pass deposits (the ring tail) for the next cycle.
+                let count = self.drainable(pid, self.token_counts[pid]);
                 for _ in 0..count {
                     let token = self.ring_remove_first(pid);
                     emit_removed(arc.place.name_arc(), &token);
@@ -1090,7 +1212,10 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
                         if opcode == CONSUME_ATLEAST {
                             pc += 1;
                         }
-                        let count = self.token_counts[pid];
+                        // EXEC-003 AC5: drain the pass-start prefix only. The
+                        // AC4 gate already required `live - delta >= minimum`,
+                        // so an `at_least` firing still gets its minimum.
+                        let count = self.drainable(pid, self.token_counts[pid]);
                         for _ in 0..count {
                             let token = self.ring_remove_first(pid);
                             let place_name = Arc::clone(&self.program.place_name_arcs[pid]);
@@ -1111,7 +1236,8 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
                     RESET => {
                         let pid = self.program.consume_ops[tid][pc] as usize;
                         pc += 1;
-                        let count = self.token_counts[pid];
+                        // EXEC-003 AC5: same-pass deposits survive the reset.
+                        let count = self.drainable(pid, self.token_counts[pid]);
                         for _ in 0..count {
                             let token = self.ring_remove_first(pid);
                             emit_removed(&self.program.place_name_arcs[pid], &token);
@@ -1125,16 +1251,10 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
             }
         }
 
+        // Narrows the fire-pass snapshot for the places this firing drained,
+        // so the next `recheck_can_fire` sees this consumption — and nothing
+        // else (EXEC-001 step ordering, EXEC-003).
         self.update_bitmap_after_consumption(tid);
-        // Refresh the firing snapshot so the next `recheck_can_fire` (for
-        // the next ready transition this cycle) sees the live marking after
-        // this consumption — a full-bitmap refresh, which also publishes
-        // EARLIER same-pass deposits, exactly like the reference.
-        // `produce_token` deliberately does NOT refresh it: deposits stay
-        // invisible to intra-pass rechecks until the next consumption or
-        // collect, matching the bitmap reference (EXEC-001 step ordering,
-        // EXEC-003).
-        self.refresh_firing_snapshot();
     }
 
     fn produce_token(&mut self, place: &Arc<str>, token: ErasedToken) {
@@ -1142,6 +1262,9 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
             self.cache_add_token(pid, token.value.as_ref(), token.created_at);
             self.ring_add_last(pid, token);
             self.set_marking_bit(pid);
+            // Live presence only — the fire-pass snapshot and the deposit
+            // delta keep this token out of the rest of the pass (EXEC-003).
+            self.record_deposit(pid);
             self.mark_place_dirty(pid);
         } else {
             self.extra_marking.add_erased(place, token);

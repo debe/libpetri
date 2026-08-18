@@ -108,10 +108,12 @@ impl Marking {
         matched
     }
 
-    /// Counts tokens whose values satisfy `predicate`.
+    /// Counts tokens whose values satisfy `predicate`, over the whole queue.
     ///
-    /// Used by the ν-net join path to size a correlated `all`/`at-least`
-    /// consume (NU-020).
+    /// Public API with no in-crate caller: the ν-net join path (NU-020) used to
+    /// size a correlated `all`/`at-least` consume with this, but a same-pass
+    /// deposit must stay out of that count ([EXEC-003] AC5), so the backends now
+    /// count a bounded prefix inline instead.
     pub fn count_matching(&self, place_name: &str, predicate: &dyn Fn(&dyn Any) -> bool) -> usize {
         self.tokens.get(place_name).map_or(0, |q| {
             q.iter().filter(|t| predicate(t.value.as_ref())).count()

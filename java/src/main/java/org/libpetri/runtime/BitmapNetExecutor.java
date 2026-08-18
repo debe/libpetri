@@ -93,13 +93,34 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
      * <p>Outputs deposit in loop step 1 and firing is step 5 (EXEC-001), so tokens a
      * same-cycle sync action produces must be <em>invisible</em> to the recheck of
      * subsequent ready transitions in the same firing pass; consumption, by contrast,
-     * must be visible (losers are disabled by consumption, EXEC-003). The buffer is
-     * refreshed from {@link #markingBitmap} when the ready set is collected and again
-     * after each firing's consumption ({@link #updateBitmapAfterConsumption}) — never on
-     * deposit — mirroring the Rust reference's {@code firing_snap_buffer}
-     * (backend divergence #5).
+     * must be visible (losers are disabled by consumption, EXEC-003 AC3). Copied from
+     * {@link #markingBitmap} once per pass by {@link #beginFiringPass()}; after that it
+     * is only ever <em>cleared</em>, one place at a time, by
+     * {@link #updateBitmapAfterConsumption}. Nothing sets a bit here mid-pass — a
+     * wholesale refresh would republish deposits from earlier firings in the same pass.
+     * Mirrors the Rust reference's {@code firing_snap_buffer} (backend divergence #5).
      */
     private final long[] fireScanBitmap;
+
+    /**
+     * Tokens deposited into each place since the ready set was collected — the count-side
+     * twin of {@link #fireScanBitmap}. A cardinality gate or ν-join re-evaluated inside a
+     * firing pass judges {@code tokenCount - depositDelta[pid]}, so a same-pass deposit
+     * satisfies neither (EXEC-003 AC4). {@link #depositTouched} lists the pids to reset so
+     * clearing costs O(deposits), never O(places), and {@link #hasDeposits} keeps a pass
+     * with no deposits at one predictable branch.
+     */
+    private final int[] depositDelta;
+    private final int[] depositTouched;
+    private int depositTouchedCount;
+    private boolean hasDeposits;
+
+    /**
+     * Correlated input place ids per matched transition (null for the rest), for the
+     * EXEC-003 AC4 deposit check in {@link #canEnable}. Null until {@link #initMatchCaches}
+     * finds a ν transition.
+     */
+    private int[][] matchInputPids;
 
     // Orchestrator-owned state (single-threaded)
     private final long[] enabledAtNanos;
@@ -257,6 +278,10 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
         int wordCount = compiled.wordCount();
         this.markingBitmap = new long[wordCount];
         this.fireScanBitmap = new long[wordCount];
+        // One slot per place: recordDeposit pushes a pid only as its delta leaves zero,
+        // so a firing pass never outgrows this and never allocates.
+        this.depositDelta = new int[compiled.placeCount()];
+        this.depositTouched = new int[compiled.placeCount()];
 
         this.transitionWords = (compiled.transitionCount() + BIT_MASK) >>> WORD_SHIFT;
         this.enabledAtNanos = new long[compiled.transitionCount()];
@@ -316,6 +341,18 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
             if (compiled.transition(tid).matchSpec() != null) { anyMatch = true; break; }
         }
         if (!anyMatch) return;
+
+        // Correlated input pids per matched transition, fast-path eligible or not —
+        // read by canEnable's EXEC-003 AC4 deposit check.
+        matchInputPids = new int[tc][];
+        for (int tid = 0; tid < tc; tid++) {
+            MatchSpec ms = compiled.transition(tid).matchSpec();
+            if (ms == null) continue;
+            int[] pids = new int[ms.keys().size()];
+            int i = 0;
+            for (var key : ms.keys()) pids[i++] = compiled.placeId(key.place());
+            matchInputPids[tid] = pids;
+        }
 
         List<Integer>[] inputConsumers = new java.util.List[pc];
         boolean[] resetTarget = new boolean[pc];
@@ -435,6 +472,11 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
 
     private void clearMarkingBit(int pid) {
         markingBitmap[pid >>> WORD_SHIFT] &= ~(1L << (pid & BIT_MASK));
+    }
+
+    /** Clears a place's bit in the pre-deposit firing snapshot; nothing ever sets one. */
+    private void clearFireScanBit(int pid) {
+        fireScanBitmap[pid >>> WORD_SHIFT] &= ~(1L << (pid & BIT_MASK));
     }
 
     // ======================== Factory Methods ========================
@@ -843,7 +885,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
                 if (isInFlight(tid)) continue;
 
                 boolean wasEnabled = isEnabled(tid);
-                boolean canNow = canEnable(tid, markingBitmap);
+                boolean canNow = canEnable(tid, markingBitmap, false);
 
                 if (canNow && !wasEnabled) {
                     setEnabledBit(tid);
@@ -877,11 +919,17 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
     }
 
     /**
-     * Enablement check combining bitmap masks and cardinality checks.
+     * Enablement check combining bitmap masks and cardinality checks. {@code markingSnap}
+     * carries presence — the live {@link #markingBitmap} for dirty re-evaluation, the
+     * {@link #fireScanBitmap} for an intra-pass recheck — and {@code preDeposit} puts the
+     * counting checks on that same view: tokens a same-pass sync action deposited are
+     * discounted, so they satisfy neither a cardinality gate nor a ν-join (EXEC-003 AC4).
      */
-    private boolean canEnable(int tid, long[] markingSnap) {
+    private boolean canEnable(int tid, long[] markingSnap, boolean preDeposit) {
         // 1. Fast bitmap check
         if (!compiled.canEnableBitmap(tid, markingSnap)) return false;
+
+        boolean discount = preDeposit && hasDeposits;
 
         // 2. Cardinality check (rare — only for multi-token inputs)
         assert Thread.currentThread() == orchestratorThread;
@@ -891,7 +939,9 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
                 int pid = cardCheck.placeIds()[i];
                 int required = cardCheck.requiredCounts()[i];
                 Place<?> place = compiled.place(pid);
-                if (marking.tokenCount(place) < required) return false;
+                int available = marking.tokenCount(place);
+                if (discount) available -= Math.min(depositDelta[pid], available);
+                if (available < required) return false;
             }
         }
 
@@ -899,6 +949,10 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
         // Fast-path transitions read the maintained matcher (O(1)); the rest
         // rebuild the index (O(n)).
         if (compiled.transition(tid).matchSpec() != null) {
+            // A join whose correlated input took a same-pass deposit defers to the next
+            // cycle wholesale (EXEC-003 AC4): the binding is chosen over whole queues, so
+            // it cannot be answered from a marking this pass may not see.
+            if (discount && anyDepositAt(matchInputPids[tid])) return false;
             MatchEngine.IncrementalMatcher cache = matchCaches[tid];
             boolean noBinding = cache != null
                 ? cache.best() == null
@@ -909,6 +963,52 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
         }
 
         return true;
+    }
+
+    /** True when any of {@code pids} took a deposit in the current firing pass. */
+    private boolean anyDepositAt(int[] pids) {
+        for (int pid : pids) {
+            if (depositDelta[pid] != 0) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Starts a firing pass: refreshes the pre-deposit presence snapshot from the live
+     * bitmap and drops the previous pass's deposit delta. The only wholesale refresh of
+     * either — inside the pass the snapshot is narrowed per place and the delta only grows.
+     */
+    private void beginFiringPass() {
+        System.arraycopy(markingBitmap, 0, fireScanBitmap, 0, markingBitmap.length);
+        if (hasDeposits) {
+            for (int i = 0; i < depositTouchedCount; i++) depositDelta[depositTouched[i]] = 0;
+            depositTouchedCount = 0;
+            hasDeposits = false;
+        }
+    }
+
+    /** Counts a token a sync action deposited into {@code pid} (EXEC-003 AC4). */
+    private void recordDeposit(int pid) {
+        if (depositDelta[pid] == 0) depositTouched[depositTouchedCount++] = pid;
+        depositDelta[pid]++;
+        hasDeposits = true;
+    }
+
+    /**
+     * How many tokens a drain — {@code all()}, {@code atLeast(n)}, or a reset arc — firing
+     * later in this pass may take from {@code place}, given its {@code live} count:
+     * everything the pass began with, as consumed by earlier firings, but <em>not</em> the
+     * tokens a same-pass synchronous action deposited (EXEC-003 AC5). Deposits land at the
+     * tail of the FIFO queue (EXEC-010), so the drainable set is the prefix of length
+     * {@code live - depositDelta}.
+     *
+     * <p>A pass that deposited nothing pays one predictable branch and skips the place-id
+     * lookup entirely.
+     */
+    private int drainable(Place<?> place, int live) {
+        if (!hasDeposits) return live;
+        int pid = compiled.placeIdOrMissing(place);
+        return pid < 0 ? live : live - Math.min(depositDelta[pid], live);
     }
 
     private boolean hasInputFromResetPlace(Transition t) {
@@ -972,8 +1072,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
      */
     private void fireReadyImmediate() {
         if (enabledTransitionCount == 0) return;
-        // Firing snapshot: rechecks below must not see same-cycle deposits (divergence #5).
-        System.arraycopy(markingBitmap, 0, fireScanBitmap, 0, markingBitmap.length);
+        beginFiringPass();
         for (int w = 0; w < transitionWords; w++) {
             long word = enabledBitmap[w] & ~inFlightBitmap[w];
             while (word != 0) {
@@ -981,7 +1080,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
                 int tid = (w << WORD_SHIFT) | bit;
                 word &= word - 1;
 
-                if (canEnable(tid, fireScanBitmap)) {
+                if (canEnable(tid, fireScanBitmap, true)) {
                     fireTransitionGuarded(tid);
                 } else {
                     clearEnabledBit(tid);
@@ -1017,8 +1116,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
         }
         if (readyBuffer.isEmpty()) return;
 
-        // Firing snapshot: rechecks below must not see same-cycle deposits (divergence #5).
-        System.arraycopy(markingBitmap, 0, fireScanBitmap, 0, markingBitmap.length);
+        beginFiringPass();
 
         // Sort: higher priority first, then earlier enablement (FIFO)
         if (readyBuffer.size() > 1) {
@@ -1031,7 +1129,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
 
         for (var entry : readyBuffer) {
             int tid = entry.tid();
-            if (isEnabled(tid) && canEnable(tid, fireScanBitmap)) {
+            if (isEnabled(tid) && canEnable(tid, fireScanBitmap, true)) {
                 fireTransitionGuarded(tid);
             } else {
                 clearEnabledBit(tid);
@@ -1120,8 +1218,17 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
                     case Arc.In.One _ -> 1;
                     case Arc.In.Exactly e -> e.count();
                     default -> {
+                        // Count matches only within the drainable prefix (EXEC-003 AC5).
+                        // removeFirstMatching always takes the frontmost match, so the
+                        // first n it removes are exactly the n counted here — a same-pass
+                        // deposit in the tail is never reached.
+                        int limit = drainable(place, marking.tokenCount(place));
                         int c = 0;
-                        for (Token<?> tk : marking.peekTokens(place)) if (pred.test(tk)) c++;
+                        int seen = 0;
+                        for (Token<?> tk : marking.peekTokens(place)) {
+                            if (seen++ >= limit) break;
+                            if (pred.test(tk)) c++;
+                        }
                         yield c;
                     }
                 };
@@ -1134,11 +1241,14 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
                         Instant.now(), in.place().name(), token));
                 }
             } else {
+                // one / exactly(n) take a fixed count off the FIFO head and are already
+                // confined to the pre-deposit prefix; only the draining forms need the
+                // EXEC-003 AC5 discount.
                 int toConsume = switch (in) {
                     case Arc.In.One _ -> 1;
                     case Arc.In.Exactly e -> e.count();
-                    case Arc.In.All _ -> marking.tokenCount(place);
-                    case Arc.In.AtLeast _ -> marking.tokenCount(place);
+                    case Arc.In.All _ -> drainable(place, marking.tokenCount(place));
+                    case Arc.In.AtLeast _ -> drainable(place, marking.tokenCount(place));
                 };
                 for (int i = 0; i < toConsume; i++) {
                     Token<?> token = marking.removeFirst(place);
@@ -1158,15 +1268,31 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
             }
         }
 
-        // Reset arcs
+        // Reset arcs. A reset firing later in the pass clears what the pass began with,
+        // not what a same-pass action deposited (EXEC-003 AC5): the deposits are the FIFO
+        // tail, so the reset takes the prefix and they survive to the next cycle.
+        // take == live on every deposit-free pass, keeping the wholesale drain as the
+        // fast path.
         for (var arc : t.resets()) {
-            var removed = marking.removeAll((Place<Object>) arc.place());
-            pendingResetPlaces.add(arc.place());
-            for (Token<?> token : removed) {
-                consumed.add(token);
-                if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
-                    Instant.now(), arc.place().name(), token));
+            Place<Object> rp = (Place<Object>) arc.place();
+            int live = marking.tokenCount(rp);
+            int take = drainable(rp, live);
+            if (take >= live) {
+                for (Token<?> token : marking.removeAll(rp)) {
+                    consumed.add(token);
+                    if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
+                        Instant.now(), arc.place().name(), token));
+                }
+            } else {
+                for (int i = 0; i < take; i++) {
+                    Token<?> token = marking.removeFirst(rp);
+                    if (token == null) break;
+                    consumed.add(token);
+                    if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
+                        Instant.now(), arc.place().name(), token));
+                }
             }
+            pendingResetPlaces.add(arc.place());
         }
 
         // Update bitmap for consumed/reset places
@@ -1240,6 +1366,9 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
                 marking.addToken((Place<Object>) entry.place(), (Token<Object>) token);
                 if (pid >= 0) {
                     setMarkingBit(pid);
+                    // Live presence only — the fire-scan snapshot and the deposit delta
+                    // keep this token out of the rest of the pass (EXEC-003).
+                    recordDeposit(pid);
                     markDirty(pid);
                 } else {
                     warnUnknownPlace(entry.place(), t.name());
@@ -1266,23 +1395,28 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
     }
 
     /**
-     * After consuming tokens from a place, update the bitmap if the place is now empty.
+     * After consuming tokens from a place, update the bitmaps if the place is now empty.
      * Also mark affected transitions dirty for those places.
      * Uses precomputed consumption place IDs to avoid HashSet allocation.
+     *
+     * <p>The {@link #fireScanBitmap} is narrowed here and only here (EXEC-003 AC3): a place
+     * this firing emptied of the tokens it held when the pass started stops being present
+     * for the rest of the pass. Only a clear, and only for the pids this firing touched —
+     * a wholesale refresh would republish deposits from earlier firings in the pass.
      */
     private void updateBitmapAfterConsumption(int tid) {
         int[] pids = compiled.consumptionPlaceIds(tid);
         for (int pid : pids) {
             Place<?> place = compiled.place(pid);
-            if (!marking.hasTokens(place)) {
+            int live = marking.tokenCount(place);
+            if (live == 0) {
                 clearMarkingBit(pid);
+                clearFireScanBit(pid);
+            } else if (hasDeposits && live <= depositDelta[pid]) {
+                clearFireScanBit(pid);
             }
             markDirty(pid);
         }
-        // Refresh the firing snapshot so the next intra-pass recheck sees the live marking
-        // after this consumption — but not deposits that land later in the same cycle
-        // (EXEC-001 step order; EXEC-003 consumption visibility; divergence #5).
-        System.arraycopy(markingBitmap, 0, fireScanBitmap, 0, markingBitmap.length);
     }
 
     // ======================== Completion Processing ========================
