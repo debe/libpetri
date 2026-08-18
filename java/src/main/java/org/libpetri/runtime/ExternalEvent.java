@@ -8,7 +8,7 @@ import org.libpetri.core.Token;
 /**
  * An external event queued for injection into the net.
  *
- * <p>External events are created when {@link NetExecutor#inject} is called
+ * <p>External events are created when {@link PrecompiledNetExecutor#inject} is called
  * from an external thread. They are queued and processed by the orchestrator
  * thread on the next loop iteration.
  *

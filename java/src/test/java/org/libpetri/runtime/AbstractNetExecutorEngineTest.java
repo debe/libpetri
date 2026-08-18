@@ -34,7 +34,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Abstract test suite for Petri Net engine semantics.
  *
  * <p>Subclasses provide executor creation via factory methods, allowing the same
- * 66 tests to run against different executor implementations (e.g. {@link NetExecutor},
+ * 66 tests to run against different executor implementations (e.g. {@link PrecompiledNetExecutor},
  * {@link BitmapNetExecutor}).
  */
 @Timeout(60)
@@ -1022,7 +1022,7 @@ abstract class AbstractNetExecutorEngineTest {
             // T uses read arc (doesn't consume) + input arc (does consume).
             // Reset should invalidate timer for transitions with read arcs too.
             // Note: Read arcs are included in the transitionsByInputPlace index
-            // in NetExecutor.buildInputPlaceIndex().
+            // the executors build from a transition's arcs.
             var readPlace = Place.of("ReadPlace", String.class);
             var consumable = Place.of("Consumable", String.class);
             var trigger = Place.of("Trigger", Void.class);
@@ -4974,8 +4974,7 @@ abstract class AbstractNetExecutorEngineTest {
      * believing that name is consumed, so a later identical binding is never found and the join
      * wedges (silent false quiescence). This pins that the boundary also drops the stale matcher,
      * so re-supplying the wronged name still fires the join. Regression for the ν match-cache
-     * desync; the reference (Bitmap) and production (Precompiled) executors both need the fix,
-     * NetExecutor is immune because it always rebinds via {@code findBinding}.
+     * desync; the reference (Bitmap) and production (Precompiled) executors both need the fix.
      */
     @Test
     void nuJoin_containedThrowDuringMatchedConsume_doesNotWedgeTheJoin() throws Exception {

@@ -36,8 +36,8 @@ import org.libpetri.event.NetEvent;
  *     System.out.println("Received: " + event);
  * });
  *
- * // Use with NetExecutor
- * var executor = NetExecutor.builder(net, initial)
+ * // Use with PrecompiledNetExecutor
+ * var executor = PrecompiledNetExecutor.builder(net, initial)
  *     .eventStore(debugStore)
  *     .build();
  *
@@ -51,7 +51,7 @@ import org.libpetri.event.NetEvent;
  * <h2>Thread Safety</h2>
  * <p>{@link #append(NetEvent)} is called from multiple threads concurrently:
  * <ul>
- *   <li>The orchestrator thread (lifecycle events via {@code NetExecutor.emitEvent()})</li>
+ *   <li>The orchestrator thread (lifecycle events emitted by the executor)</li>
  *   <li>Action threads ({@link LogCaptureScope} appender → {@code eventStore::append} for LogMessage events)</li>
  *   <li>CompletableFuture scheduler threads ({@code emitEvent(ActionTimedOut)} in timeout handlers)</li>
  * </ul>
