@@ -7,6 +7,8 @@ import org.libpetri.core.*;
 import org.libpetri.core.Arc.In;
 import org.libpetri.core.Arc.Out;
 import org.libpetri.fixtures.PaperNetworks;
+import org.libpetri.smt.z3.CertificateChecker;
+import org.libpetri.smt.z3.CounterexampleDecoder;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 
@@ -123,6 +125,8 @@ class SmtVerifierTest {
             .verify();
 
         assertTrue(result.isProven(), "Single-token circular net should prove mutual exclusion\n" + result.report());
+        assertTrue(result.report().contains("Certificate check: PASSED (init, consecution, safety)"),
+            "A flat IC3 proof must carry a validated certificate\n" + result.report());
         assertFalse(result.discoveredInvariants().isEmpty(),
             "IC3 should synthesize an inductive invariant\n" + result.report());
         System.out.println("=== Mutual Exclusion Invariant ===");
@@ -184,6 +188,8 @@ class SmtVerifierTest {
             .verify();
 
         assertTrue(result.isProven(), "B should be bounded by 1 in single-token circular net\n" + result.report());
+        assertTrue(result.report().contains("Certificate check: PASSED (init, consecution, safety)"),
+            "A flat IC3 proof must carry a validated certificate\n" + result.report());
         assertFalse(result.discoveredInvariants().isEmpty(),
             "IC3 should synthesize an inductive invariant\n" + result.report());
         System.out.println("=== Place Bound Invariant ===");
@@ -224,8 +230,10 @@ class SmtVerifierTest {
             .verify();
 
         // A+B+C=1 conservation law means A>=1 AND C>=1 requires at least 2 tokens
-        assertFalse(result.isViolated(),
+        assertTrue(result.isProven(),
             "A and C simultaneously marked should be unreachable with 1 token\n" + result.report());
+        assertTrue(result.report().contains("Certificate check: PASSED (init, consecution, safety)"),
+            "A flat IC3 proof must carry a validated certificate\n" + result.report());
     }
 
     @Test
@@ -384,6 +392,8 @@ class SmtVerifierTest {
             .verify();
         assertTrue(bounded1.isProven(),
             "bounded(1) starves a 2-token env input -> OUT stays 0\n" + bounded1.report());
+        assertTrue(bounded1.report().contains("Certificate check: PASSED (init, consecution, safety)"),
+            "The certificate must validate against the injection-aware step relation\n" + bounded1.report());
 
         var always = SmtVerifier.forNet(StructureOnly.bind(build.get()))
             .environmentPlaces(in)
@@ -444,8 +454,10 @@ class SmtVerifierTest {
             .timeout(Duration.ofSeconds(10))
             .verify();
 
-        assertFalse(result.isViolated(),
+        assertTrue(result.isProven(),
             "B with reset arc should never exceed initial value\n" + result.report());
+        assertTrue(result.report().contains("Certificate check: PASSED (init, consecution, safety)"),
+            "The certificate must validate against the reset-arc step semantics\n" + result.report());
     }
 
     // === NU-040 / NU-050: ν-net verification (sound carve-out, Stage 6a) ===
@@ -607,6 +619,8 @@ class SmtVerifierTest {
             .verify();
         assertTrue(result.isProven(),
             "every group joins/dead-letters before quiescence -> Proven\n" + result.report());
+        assertTrue(result.report().contains("Certificate check: PASSED (init, consecution, safety)"),
+            "A flat IC3 proof must carry a validated certificate\n" + result.report());
     }
 
     @Test
@@ -910,5 +924,337 @@ class SmtVerifierTest {
         var routeA = build.apply(1);
         assertTrue(routeB.isProven(), "Route B must prove no-stall\n" + routeB.report());
         assertTrue(routeA.isProven(), "Route A must prove no-stall\n" + routeA.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void poisonedInvariant_droppedByExactValidationAndReported() {
+        // Chain A -(65539)-> B -(65537)-> C: the genuine conservation law carries a
+        // weight of 65539*65537 = 4295229443 > Integer.MAX_VALUE, so the elimination's
+        // unchecked (int) cast emits a numerically wrong invariant. The exact
+        // re-validation gate must drop it before the CHC encoding (a wrong invariant in
+        // the transition-rule body removes reachable successors -> false PROVEN) and the
+        // report must say so.
+        var pA = Place.of("A", String.class);
+        var pB = Place.of("B", String.class);
+        var pC = Place.of("C", String.class);
+        var t1 = Transition.builder("T1")
+            .inputs(In.exactly(65539, pA)).outputs(Out.place(pB)).build();
+        var t2 = Transition.builder("T2")
+            .inputs(In.exactly(65537, pB)).outputs(Out.place(pC)).build();
+        var net = PetriNet.builder("Poisoned").transitions(t1, t2).build();
+
+        var result = SmtVerifier.forNet(net)
+            .initialMarking(m -> m.tokens(pA, 1))
+            .property(SmtProperty.deadlockFree())
+            .timeout(Duration.ofSeconds(30))
+            .verify();
+
+        assertTrue(result.report().contains("Dropped invariant:"),
+            "Report should list the dropped invariant with a reason\n" + result.report());
+        assertTrue(result.report().contains("failed exact re-validation"),
+            "Report should include the drop count line\n" + result.report());
+        assertTrue(result.invariants().isEmpty(),
+            "The corrupted invariant must not reach the encoder or the result\n" + result.report());
+        // T1 needs 65539 tokens but M0(A) = 1: the net deadlocks immediately, so a
+        // correct (unpoisoned) encoding must not certify deadlock-freedom.
+        assertFalse(result.isProven(),
+            "A false PROVEN here would mean the wrong invariant reached the encoder\n" + result.report());
+    }
+
+    // === IC3 certificate check (C1): verdict plumbing and end-to-end wiring ===
+
+    // --- No Z3 needed: the downgrade mapping is pure ---
+
+    @Test
+    void certificateDowngradeReason_passed_returnsNull() {
+        assertNull(SmtVerifier.certificateDowngradeReason(
+            new CertificateChecker.Result.Passed()));
+    }
+
+    @Test
+    void certificateDowngradeReason_failed_namesTheVc() {
+        var reason = SmtVerifier.certificateDowngradeReason(
+            new CertificateChecker.Result.Failed(
+                CertificateChecker.Vc.CONSECUTION, "solver returned SATISFIABLE"));
+        assertNotNull(reason);
+        assertTrue(reason.contains("consecution (VC2)"), reason);
+        assertTrue(reason.contains("unstrengthened"), reason);
+        assertTrue(reason.contains("solver returned SATISFIABLE"), reason);
+    }
+
+    @Test
+    void certificateDowngradeReason_eachVcHasDistinctLabel() {
+        var initReason = SmtVerifier.certificateDowngradeReason(
+            new CertificateChecker.Result.Failed(CertificateChecker.Vc.INIT, null));
+        var safetyReason = SmtVerifier.certificateDowngradeReason(
+            new CertificateChecker.Result.Failed(CertificateChecker.Vc.SAFETY, ""));
+        assertTrue(initReason.contains("init (VC1)"), initReason);
+        assertTrue(safetyReason.contains("safety (VC3)"), safetyReason);
+    }
+
+    @Test
+    void certificateDowngradeReason_unavailable_returnsReason() {
+        var reason = SmtVerifier.certificateDowngradeReason(
+            new CertificateChecker.Result.Unavailable("Spacer produced no certificate"));
+        assertNotNull(reason);
+        assertTrue(reason.contains("Spacer produced no certificate"), reason);
+    }
+
+    // --- Z3-gated: end-to-end wiring through the verifier ---
+
+    /** Single-token circular net: A <-> B, proven mutual exclusion via flat IC3. */
+    private static PetriNet mutexNet(Place<String> p1, Place<String> p2) {
+        var t1 = Transition.builder("AtoB")
+            .inputs(In.one(p1))
+            .outputs(Out.place(p2))
+            .build();
+        var t2 = Transition.builder("BtoA")
+            .inputs(In.one(p2))
+            .outputs(Out.place(p1))
+            .build();
+        return PetriNet.builder("MutualExclusion").transitions(t1, t2).build();
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void corruptCertificate_injectedThroughSeam_downgradesToUnknown() {
+        // The seam replaces the checker with one that reports a failing safety VC,
+        // as a corrupted/invalid Spacer certificate would. The PROVEN verdict must
+        // NOT survive: the verifier downgrades to Unknown naming the VC.
+        var p1 = Place.of("A", String.class);
+        var p2 = Place.of("B", String.class);
+
+        var result = SmtVerifier.forNet(StructureOnly.bind(mutexNet(p1, p2)))
+            .initialMarking(m -> m.tokens(p1, 1))
+            .property(SmtProperty.mutualExclusion(p1, p2))
+            .timeout(Duration.ofSeconds(10))
+            .certificateChecker((_, _, _, _, _, _, _, _, _) ->
+                new CertificateChecker.Result.Failed(
+                    CertificateChecker.Vc.SAFETY, "injected corrupt certificate"))
+            .verify();
+
+        assertFalse(result.isProven(),
+            "A failing certificate must downgrade the proven verdict\n" + result.report());
+        var unknown = assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(),
+            "Downgrade target is the inconclusive verdict\n" + result.report());
+        assertTrue(unknown.reason().contains("safety (VC3)"),
+            "The reason must name the failing VC: " + unknown.reason());
+        assertTrue(result.report().contains("Certificate check: FAILED"), result.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void throwingCertificateChecker_downgradesToUnknown_neverPropagates() {
+        var p1 = Place.of("A", String.class);
+        var p2 = Place.of("B", String.class);
+
+        var result = SmtVerifier.forNet(StructureOnly.bind(mutexNet(p1, p2)))
+            .initialMarking(m -> m.tokens(p1, 1))
+            .property(SmtProperty.mutualExclusion(p1, p2))
+            .timeout(Duration.ofSeconds(10))
+            .certificateChecker((_, _, _, _, _, _, _, _, _) -> {
+                throw new com.microsoft.z3.Z3Exception("simulated Z3 failure");
+            })
+            .verify();
+
+        assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(),
+            "A throwing checker must yield Unknown, not an exception\n" + result.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void certificateCheckOptOut_skipsCheckAndKeepsProven() {
+        var p1 = Place.of("A", String.class);
+        var p2 = Place.of("B", String.class);
+
+        var result = SmtVerifier.forNet(StructureOnly.bind(mutexNet(p1, p2)))
+            .initialMarking(m -> m.tokens(p1, 1))
+            .property(SmtProperty.mutualExclusion(p1, p2))
+            .timeout(Duration.ofSeconds(10))
+            .certificateCheck(false)
+            .verify();
+
+        assertTrue(result.isProven(), "Opt-out must keep the proven verdict\n" + result.report());
+        assertFalse(result.report().contains("Certificate check"),
+            "Opt-out must skip the check entirely\n" + result.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void certificateCheckOptOut_alsoSkipsWithCorruptSeam() {
+        // The opt-out must win over the seam: with the check disabled the injected
+        // failing checker is never invoked.
+        var p1 = Place.of("A", String.class);
+        var p2 = Place.of("B", String.class);
+
+        var result = SmtVerifier.forNet(StructureOnly.bind(mutexNet(p1, p2)))
+            .initialMarking(m -> m.tokens(p1, 1))
+            .property(SmtProperty.mutualExclusion(p1, p2))
+            .timeout(Duration.ofSeconds(10))
+            .certificateCheck(false)
+            .certificateChecker((_, _, _, _, _, _, _, _, _) -> {
+                throw new AssertionError("checker must not run when opted out");
+            })
+            .verify();
+
+        assertTrue(result.isProven(), result.report());
+    }
+
+    // === H1 linearity guard (lean/Libpetri/Strengthening.lean) ===
+
+    @Test
+    @EnabledIf("z3Available")
+    void h1Guard_consumeAllWitness_placeBoundViolatedNotProven() {
+        // End-to-end run of the Lean witness (`consume_all_hypothesis_is_necessary`):
+        // T: all(P0) -> P1 with M0 = (2, 0). The linearized incidence column (-1, +1)
+        // admits y = P0 + P1 = 2, which passes the numeric y*C = 0 gate; conjoined into
+        // the CHC rule bodies it would prune the genuine successor (0, 1) — a real
+        // firing drains BOTH tokens, y*M drops 2 -> 1 — and falsely prove
+        // placeBound(P1, 0). With the H1 guard active the candidate is dropped, P1
+        // genuinely reaches 1, and the verdict must be VIOLATED, never Proven. The
+        // certificate checker (R' = I AND validated invariants) simply sees fewer
+        // invariants folded in — the correct interaction, nothing special-cased.
+        var p0 = Place.of("P0", String.class);
+        var p1 = Place.of("P1", String.class);
+        var t = Transition.builder("T").inputs(In.all(p0)).outputs(Out.place(p1)).build();
+        var net = PetriNet.builder("h1-witness").transitions(t).build();
+
+        var result = SmtVerifier.forNet(StructureOnly.bind(net))
+            .initialMarking(m -> m.tokens(p0, 2))
+            .property(SmtProperty.placeBound(p1, 0))
+            .timeout(Duration.ofSeconds(15))
+            .verify();
+
+        assertFalse(result.isProven(),
+            "false Proven is the exact failure shape the H1 guard closes\n" + result.report());
+        assertTrue(result.isViolated(),
+            "P1 = 1 is genuinely reachable once the bogus invariant is dropped\n" + result.report());
+        assertTrue(result.report().contains("Strengthening.lean H1"),
+            "The existing drop-report plumbing should carry the H1 reason\n" + result.report());
+    }
+
+    // === Counterexample replay (C3): verdict plumbing and end-to-end wiring ===
+
+    // --- No Z3 needed: the assessment mapping is pure (AbstractReplayer is JNI-free) ---
+
+    private static final Place<String> RP0 = Place.of("p0", String.class);
+    private static final Place<String> RP1 = Place.of("p1", String.class);
+    private static final Place<String> RP2 = Place.of("p2", String.class);
+
+    /** p0(1) -> t01 -> p1 -> t12 -> p2, then stuck: the dead-end chain, flattened. */
+    private static org.libpetri.smt.encoding.FlatNet deadEndChainFlat() {
+        var t01 = Transition.builder("t01").inputs(In.one(RP0)).outputs(Out.place(RP1)).build();
+        var t12 = Transition.builder("t12").inputs(In.one(RP1)).outputs(Out.place(RP2)).build();
+        var net = PetriNet.builder("dead-end").transitions(t01, t12).build();
+        return org.libpetri.smt.encoding.NetFlattener.flatten(
+            net, java.util.Set.of(), EnvironmentAnalysisMode.ignore());
+    }
+
+    private static org.libpetri.analysis.MarkingState mk(Place<?> place, int count) {
+        return org.libpetri.analysis.MarkingState.builder().tokens(place, count).build();
+    }
+
+    @Test
+    void assessCounterexample_nothingDecoded_keepsViolatedUnconfirmed() {
+        // Nothing decoded is NOT a downgrade: the verdict stands, unconfirmed.
+        var decoded = new CounterexampleDecoder.DecodedStates(
+            java.util.Set.of(), java.util.List.of(), "answer was null");
+
+        var assessment = SmtVerifier.assessCounterexample(
+            deadEndChainFlat(), mk(RP0, 1), decoded, SmtProperty.deadlockFree(), java.util.Set.of());
+
+        var unconfirmed = assertInstanceOf(SmtVerifier.ReplayAssessment.Unconfirmed.class, assessment);
+        assertTrue(unconfirmed.note().contains("unconfirmed"), unconfirmed.note());
+    }
+
+    @Test
+    void assessCounterexample_chainableSet_confirmsWithReplayOrderedTrace() {
+        var decoded = new CounterexampleDecoder.DecodedStates(
+            java.util.Set.of(mk(RP2, 1), mk(RP0, 1), mk(RP1, 1)), java.util.List.of(), null);
+
+        var assessment = SmtVerifier.assessCounterexample(
+            deadEndChainFlat(), mk(RP0, 1), decoded, SmtProperty.deadlockFree(), java.util.Set.of());
+
+        var confirmed = assertInstanceOf(SmtVerifier.ReplayAssessment.Confirmed.class, assessment);
+        assertEquals(java.util.List.of(mk(RP0, 1), mk(RP1, 1), mk(RP2, 1)), confirmed.trace(),
+            "the replay must order the unordered decoded set into the actual run");
+        assertEquals(java.util.List.of("t01", "t12"), confirmed.firings());
+    }
+
+    @Test
+    void assessCounterexample_unchainableSet_downgradesAsSpuriousOrMismatch() {
+        // The stub mimics a decoder mismatch: a garbage state no abstract run
+        // reaches, under a property the net never violates. The mapping must
+        // produce the downgrade, mirroring certificateDowngradeReason's design.
+        var garbage = org.libpetri.analysis.MarkingState.builder()
+            .tokens(RP0, 7).tokens(RP1, 7).tokens(RP2, 7).build();
+        var decoded = new CounterexampleDecoder.DecodedStates(
+            java.util.Set.of(mk(RP0, 1), garbage), java.util.List.of(), null);
+
+        var assessment = SmtVerifier.assessCounterexample(
+            deadEndChainFlat(), mk(RP0, 1), decoded,
+            SmtProperty.placeBound(RP2, 5), java.util.Set.of());
+
+        var downgraded = assertInstanceOf(SmtVerifier.ReplayAssessment.Downgraded.class, assessment);
+        assertTrue(downgraded.reason().contains(
+            "counterexample failed abstract replay — spurious CEX or decoder mismatch"),
+            downgraded.reason());
+    }
+
+    // --- Z3-gated: end-to-end wiring through the verifier ---
+
+    @Test
+    @EnabledIf("z3Available")
+    void violatedVerdict_confirmedByAbstractReplay() {
+        // Same net as deadlockNet_findsViolation: replay must confirm the genuine
+        // deadlock and report the replay-ordered trace, starting at M0.
+        var p1 = Place.of("A", String.class);
+        var p2 = Place.of("B", String.class);
+        var p3 = Place.of("C", String.class);
+        var t1 = Transition.builder("T1").inputs(In.one(p1)).outputs(Out.place(p2)).build();
+        var t2 = Transition.builder("T2").inputs(In.one(p2), In.one(p3)).outputs(Out.place(p1)).build();
+        var net = PetriNet.builder("DeadlockNet").transitions(t1, t2).build();
+
+        var result = SmtVerifier.forNet(StructureOnly.bind(net))
+            .initialMarking(m -> m.tokens(p1, 1))
+            .property(SmtProperty.deadlockFree())
+            .timeout(Duration.ofSeconds(10))
+            .verify();
+
+        var violated = assertInstanceOf(SmtVerificationResult.Verdict.Violated.class, result.verdict(),
+            "the genuine deadlock must stay VIOLATED with replay default-on\n" + result.report());
+        assertTrue(violated.counterexampleConfirmed(),
+            "the replay must confirm the decoded counterexample\n" + result.report());
+        assertTrue(result.report().contains("Counterexample replay: CONFIRMED"), result.report());
+        assertFalse(result.counterexampleTrace().isEmpty(), result.report());
+        assertEquals(mk(p1, 1), result.counterexampleTrace().getFirst(),
+            "the replay-ordered trace starts at the initial marking\n" + result.report());
+        assertEquals(mk(p2, 1), result.counterexampleTrace().getLast(),
+            "the replay-ordered trace ends at the deadlocked marking\n" + result.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void counterexampleReplayOptOut_keepsViolatedUnconfirmed() {
+        var p1 = Place.of("A", String.class);
+        var p2 = Place.of("B", String.class);
+        var p3 = Place.of("C", String.class);
+        var t1 = Transition.builder("T1").inputs(In.one(p1)).outputs(Out.place(p2)).build();
+        var t2 = Transition.builder("T2").inputs(In.one(p2), In.one(p3)).outputs(Out.place(p1)).build();
+        var net = PetriNet.builder("DeadlockNet").transitions(t1, t2).build();
+
+        var result = SmtVerifier.forNet(StructureOnly.bind(net))
+            .initialMarking(m -> m.tokens(p1, 1))
+            .property(SmtProperty.deadlockFree())
+            .timeout(Duration.ofSeconds(10))
+            .counterexampleReplay(false)
+            .verify();
+
+        var violated = assertInstanceOf(SmtVerificationResult.Verdict.Violated.class, result.verdict(),
+            result.report());
+        assertFalse(violated.counterexampleConfirmed(),
+            "opting out must leave the counterexample unconfirmed\n" + result.report());
+        assertTrue(result.report().contains("Counterexample replay: disabled"), result.report());
     }
 }

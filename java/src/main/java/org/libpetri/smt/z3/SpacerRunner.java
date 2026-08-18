@@ -83,11 +83,12 @@ public final class SpacerRunner implements AutoCloseable {
             return switch (status) {
                 case UNSATISFIABLE -> {
                     String invariantFormula = null;
+                    Expr<?> rawAnswer = null;
                     List<String> levelInvariants = new ArrayList<>();
                     try {
-                        Expr answer = fp.getAnswer();
-                        if (answer != null) {
-                            invariantFormula = answer.toString();
+                        rawAnswer = fp.getAnswer();
+                        if (rawAnswer != null) {
+                            invariantFormula = rawAnswer.toString();
                         }
                     } catch (Z3Exception _) {
                         // Some configurations don't produce answers
@@ -107,7 +108,7 @@ public final class SpacerRunner implements AutoCloseable {
                         }
                     }
 
-                    yield new QueryResult.Proven(invariantFormula, List.copyOf(levelInvariants));
+                    yield new QueryResult.Proven(invariantFormula, rawAnswer, List.copyOf(levelInvariants));
                 }
                 case SATISFIABLE -> {
                     Expr answer = null;
@@ -138,9 +139,13 @@ public final class SpacerRunner implements AutoCloseable {
          * Property proven: no reachable error state (UNSAT).
          *
          * @param invariantFormula the overall inductive invariant synthesized by IC3 (may be null)
+         * @param answer           the raw Fixedpoint answer AST the formula string was rendered
+         *                         from (may be null); valid only while the owning
+         *                         {@link SpacerRunner} is open — {@link CertificateChecker}
+         *                         re-validates it before the verdict is trusted
          * @param levelInvariants  per-level invariant clauses from the IC3 frames
          */
-        record Proven(String invariantFormula, List<String> levelInvariants) implements QueryResult {}
+        record Proven(String invariantFormula, Expr<?> answer, List<String> levelInvariants) implements QueryResult {}
 
         /** Counterexample found (SAT). The answer is the derivation tree. */
         record Violated(Expr answer) implements QueryResult {}

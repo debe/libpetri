@@ -10,7 +10,7 @@ import { Transition } from '../../src/core/transition.js';
 import { place, environmentPlace } from '../../src/core/place.js';
 import type { Place } from '../../src/core/place.js';
 import { classify } from '../../src/verification/analysis/name-fragment.js';
-import { one, exactly } from '../../src/core/in.js';
+import { all, one, exactly } from '../../src/core/in.js';
 import { outPlace, xorPlaces, andPlaces } from '../../src/core/out.js';
 import { matchSpec, matchKey } from '../../src/core/match-spec.js';
 import { nameId } from '../../src/core/name.js';
@@ -119,6 +119,32 @@ describe('SmtVerifier (Z3 integration)', () => {
       .verify();
 
     expect(result.verdict.type).toBe('proven');
+  }, Z3_TIMEOUT);
+
+  it('H1 witness: placeBound violated, not falsely proven (Strengthening.lean)', async () => {
+    // End-to-end H1 witness (consume_all_hypothesis_is_necessary): T: all(P0) -> P1
+    // with M0 = (2, 0). Without the linearity guard, the exact gate accepts
+    // y = (1, 1) (the linearized column is (-1, +1)), the conjoined `P0 + P1 = 2`
+    // prunes the genuine successor (the real firing drains both tokens, y·M drops
+    // 2 -> 1), and placeBound(P1, 0) would come out falsely PROVEN. With the guard
+    // the invariant is dropped and the verdict must be violated — P1 reaches 1.
+    const p0 = place('P0');
+    const p1 = place('P1');
+    const t = Transition.builder('T')
+      .inputs(all(p0))
+      .outputs(outPlace(p1))
+      .build();
+    const net = PetriNet.builder('H1Witness').transitions(t).build();
+
+    const result = await SmtVerifier.forNet(bindProducers(net))
+      .initialMarking(m => m.tokens(p0, 2))
+      .property(placeBound(p1, 0))
+      .timeout(30_000)
+      .verify();
+
+    expect(result.verdict.type).toBe('violated');
+    expect(result.report).toContain('non-linear consumption');
+    expect(result.report).toContain('Strengthening.lean H1');
   }, Z3_TIMEOUT);
 
   it('unreachable property proven for conserving net', async () => {
@@ -929,3 +955,42 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
 // CORE-043 verification-rejection tests live in smt-verifier-core043.test.ts —
 // a separate file so their solver run gets its own z3 WASM heap rather than
 // adding to this file's, which already runs close to the 2 GB wasm32 ceiling.
+
+describe('SmtVerifier exact invariant validation', () => {
+  it('report mentions invariants dropped by the exact re-check', async () => {
+    // Weight-amplifier chain: T_i consumes 8192 of P_{i-1} and produces 1 P_i, so the
+    // conservation law's weights grow by 8192 per stage and reach 8192^5 = 2^65 —
+    // outside the safe-integer range. The exact validation must drop that invariant
+    // (and say so in the report) rather than hand the encoder a vector `number`
+    // arithmetic cannot re-verify.
+    const stages = 5;
+    const chain: Place<any>[] = [];
+    for (let i = 0; i <= stages; i++) chain.push(place(`P${i}`));
+    const transitions = [];
+    for (let i = 1; i <= stages; i++) {
+      transitions.push(
+        Transition.builder(`T${i}`)
+          .inputs(exactly(8192, chain[i - 1]!))
+          .outputs(outPlace(chain[i]!))
+          .build(),
+      );
+    }
+    const net = PetriNet.builder('Amplifier').transitions(...transitions).build();
+
+    const result = await SmtVerifier.forNet(bindProducers(net))
+      .initialMarking(m => m.tokens(chain[0]!, 1))
+      .property(deadlockFree())
+      .timeout(30_000)
+      .verify();
+
+    expect(result.report).toContain('Dropped invariant');
+    expect(result.report).toContain('exact re-check failed');
+    expect(result.report).toContain('safe-integer');
+    expect(result.report).toContain('Dropped: 1 invariant(s)');
+    // The dropped invariant must not reach the result either.
+    expect(result.invariants).toHaveLength(0);
+    // P0 holds 1 token but T1 needs 8192 — the net is dead at the initial marking,
+    // found without any invariant strengthening.
+    expect(result.verdict.type).toBe('violated');
+  }, Z3_TIMEOUT);
+});

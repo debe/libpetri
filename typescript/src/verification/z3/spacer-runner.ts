@@ -11,6 +11,13 @@ export interface QueryProven {
   readonly type: 'proven';
   readonly invariantFormula: string | null;
   readonly levelInvariants: readonly string[];
+  /**
+   * The raw `fp.getAnswer()` AST backing {@link invariantFormula} — the
+   * IC3-synthesized inductive invariant as a Z3 expression in the runner's
+   * context. Consumed by the certificate checker; `null` when the solver
+   * configuration produced no answer.
+   */
+  readonly answer: Expr | null;
 }
 
 /** Counterexample found (SAT). The answer is the derivation tree. */
@@ -68,12 +75,14 @@ export async function createSpacerRunner(timeoutMs: number): Promise<SpacerConte
 
       if (status === 'unsat') {
         let invariantFormula: string | null = null;
+        let provenAnswer: Expr | null = null;
         const levelInvariants: string[] = [];
 
         try {
           const answer = fp.getAnswer();
           if (answer != null) {
             invariantFormula = answer.toString();
+            provenAnswer = answer;
           }
         } catch {
           // Some configurations don't produce answers
@@ -93,7 +102,7 @@ export async function createSpacerRunner(timeoutMs: number): Promise<SpacerConte
           }
         }
 
-        return { type: 'proven', invariantFormula, levelInvariants };
+        return { type: 'proven', invariantFormula, levelInvariants, answer: provenAnswer };
       }
 
       if (status === 'sat') {

@@ -176,6 +176,168 @@ export function computePInvariants(
   return invariants;
 }
 
+/** An invariant rejected by {@link validateInvariantsExact}, with the reason it failed. */
+export interface DroppedInvariant {
+  readonly invariant: PInvariant;
+  readonly reason: string;
+}
+
+/** Result of {@link validateInvariantsExact}: exact-verified invariants plus the rejects. */
+export interface InvariantValidationResult {
+  readonly valid: readonly PInvariant[];
+  readonly dropped: readonly DroppedInvariant[];
+}
+
+/**
+ * Re-verifies each computed P-invariant **exactly** (BigInt) and drops any that fails.
+ *
+ * {@link computePInvariants} runs its integer Gaussian elimination in f64 `number`
+ * with no overflow guard, and the encoder conjoins each invariant into the CHC
+ * transition-rule *body*: a numerically wrong invariant therefore removes reachable
+ * successors and can certify a false `Proven`. This pass must run between
+ * computation and use, so nothing imprecise ever reaches the encoder — mirroring
+ * the defensive style of {@link computePSemiflows}, which drops rows rather than
+ * keep imprecise ones.
+ *
+ * Checks per invariant `y`:
+ * - every weight and the constant is a safe integer (`Number.isSafeInteger`),
+ * - **H1 linearity** (when `flatNet` is given): `y` is zero on every place with
+ *   non-linear consumption — see below,
+ * - `y·C = 0` exactly, per transition column of the incidence matrix (BigInt),
+ * - when `flatNet` and `initialMarking` are given, the stored constant equals
+ *   the exactly recomputed `y·M0`.
+ *
+ * **H1 linearity guard** (`lean/Libpetri/Strengthening.lean`,
+ * `consume_all_hypothesis_is_necessary`): the incidence matrix *linearizes*
+ * consumption — its column is `post − pre` with `pre = requiredCount`, so it says
+ * nothing about consume-all or reset semantics, where the encoder's fire relation
+ * sets `m'_i = post[i]` and erases however many tokens the place actually held.
+ * `y·C = 0` is therefore necessary but NOT sufficient: an invariant weighting such
+ * a place can pass the exact gate yet be false on the real net, and conjoined into
+ * the CHC rule bodies it prunes genuine successors (false PROVEN). Per the Lean
+ * theorem's H1 hypothesis, any invariant with a nonzero weight on a place that is,
+ * for any flat transition, a consume-all input place (`all` **and** `at-least` —
+ * `atLeast(n)` waits for n but then consumes ALL available, see
+ * `consumptionCount` in `core/in.ts`; the linear cardinalities are
+ * `one`/`exactly(n)`) or a reset place is dropped here. Env-injectable places need
+ * no guard of their own: their injector columns ({@link IncidenceMatrix.from})
+ * already force `y = 0` there through the `y·C = 0` check — Strengthening.lean's
+ * H3′ sufficiency result (`invariant_strengthening_sound_inj`).
+ *
+ * Dropping a *valid* conservation law only weakens the encoder's strengthening
+ * lemmas (sound); keeping an invalid one is what must never happen.
+ */
+export function validateInvariantsExact(
+  matrix: IncidenceMatrix,
+  invariants: readonly PInvariant[],
+  flatNet?: FlatNet,
+  initialMarking?: MarkingState,
+): InvariantValidationResult {
+  const nonlinear = flatNet == null ? null : nonlinearPlaces(flatNet);
+  const valid: PInvariant[] = [];
+  const dropped: DroppedInvariant[] = [];
+  for (const inv of invariants) {
+    const reason = exactCheckFailure(matrix, inv, nonlinear, flatNet, initialMarking);
+    if (reason === null) {
+      valid.push(inv);
+    } else {
+      dropped.push({ invariant: inv, reason });
+    }
+  }
+  return { valid, dropped };
+}
+
+/**
+ * Place indices with non-linear consumption on some flat transition — the
+ * reset/consume-all arms of H1. The matrix may carry extra injector columns beyond
+ * `flatNet.transitions`; injections are linear (`+e_p`) and need no entry here.
+ */
+function nonlinearPlaces(flatNet: FlatNet): ReadonlySet<number> {
+  const nonlinear = new Set<number>();
+  for (const ft of flatNet.transitions) {
+    for (let p = 0; p < ft.consumeAll.length; p++) {
+      if (ft.consumeAll[p]) nonlinear.add(p);
+    }
+    for (const p of ft.resetPlaces) nonlinear.add(p);
+  }
+  return nonlinear;
+}
+
+/** Returns why `inv` fails the exact re-check, or null when it passes. */
+function exactCheckFailure(
+  matrix: IncidenceMatrix,
+  inv: PInvariant,
+  nonlinear: ReadonlySet<number> | null,
+  flatNet?: FlatNet,
+  initialMarking?: MarkingState,
+): string | null {
+  const P = matrix.numPlaces();
+  const T = matrix.numTransitions();
+
+  if (inv.weights.length !== P) {
+    return `weight vector has ${inv.weights.length} entries, expected ${P}`;
+  }
+  for (let p = 0; p < P; p++) {
+    if (!Number.isSafeInteger(inv.weights[p]!)) {
+      return `weight ${inv.weights[p]} for place ${p} is outside the safe-integer range`;
+    }
+  }
+  if (!Number.isSafeInteger(inv.constant)) {
+    return `constant ${inv.constant} is outside the safe-integer range`;
+  }
+
+  // H1 linearity guard (see the {@link validateInvariantsExact} doc): a nonzero
+  // weight on a consume-all or reset place makes the linearized column a lie about
+  // the real firing, so the y·C = 0 check below would not certify conservation.
+  if (nonlinear !== null) {
+    for (let p = 0; p < inv.weights.length; p++) {
+      if (inv.weights[p] !== 0 && nonlinear.has(p)) {
+        const name = flatNet?.places[p]?.name ?? `#${p}`;
+        return (
+          `support intersects consume-all/reset place '${name}' ` +
+          `(non-linear consumption; see Strengthening.lean H1)`
+        );
+      }
+    }
+  }
+
+  // y·C = 0, re-derived in BigInt from the incidence matrix (immune to f64 rounding).
+  const y: bigint[] = inv.weights.map((w) => BigInt(w));
+  const incidence = matrix.incidence(); // [t][p]
+  for (let t = 0; t < T; t++) {
+    const row = incidence[t]!;
+    let dot = 0n;
+    for (let p = 0; p < P; p++) {
+      if (y[p] === 0n) continue;
+      if (!Number.isSafeInteger(row[p]!)) {
+        return `incidence entry ${row[p]} at [t=${t}][p=${p}] is outside the safe-integer range`;
+      }
+      dot += y[p]! * BigInt(row[p]!);
+    }
+    if (dot !== 0n) {
+      return `y·C is ${dot} (not 0) at transition column ${t}`;
+    }
+  }
+
+  // Constant = y·M0, recomputed exactly.
+  if (flatNet != null && initialMarking != null) {
+    let exact = 0n;
+    for (let p = 0; p < P; p++) {
+      if (y[p] === 0n) continue;
+      const tokens = initialMarking.tokens(flatNet.places[p]!);
+      if (!Number.isSafeInteger(tokens)) {
+        return `initial marking of place ${p} (${tokens}) is outside the safe-integer range`;
+      }
+      exact += y[p]! * BigInt(tokens);
+    }
+    if (exact !== BigInt(inv.constant)) {
+      return `constant ${inv.constant} does not match the exact y·M0 = ${exact}`;
+    }
+  }
+
+  return null;
+}
+
 /**
  * A P-semiflow generator row during Colom–Silva elimination: the running
  * transition signature `y·C` plus the non-negative place weight `y` that produced

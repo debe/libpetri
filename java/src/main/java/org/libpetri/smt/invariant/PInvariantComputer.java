@@ -287,6 +287,178 @@ public final class PInvariantComputer {
         return List.copyOf(semiflows);
     }
 
+    /**
+     * Outcome of {@link #validateExact}: the candidates that re-verified exactly, plus one
+     * human-readable reason per dropped candidate.
+     *
+     * @param valid   invariants whose {@code y^T·C = 0} and {@code constant = y·M0} were
+     *                re-established with overflow-checked arithmetic
+     * @param dropped one reason string per rejected invariant (place names, not indices)
+     */
+    public record Validation(List<PInvariant> valid, List<String> dropped) {}
+
+    /**
+     * Exactly re-verifies each candidate invariant against the incidence matrix and the
+     * initial marking, dropping any candidate that fails.
+     *
+     * <p>The elimination in {@link #compute} uses unchecked {@code long} arithmetic and
+     * truncates the extracted weights to {@code int}; on adversarial nets (very large arc
+     * weights) that can emit a numerically wrong "invariant". A wrong invariant conjoined
+     * into the CHC transition-rule body removes reachable successors — it can certify a
+     * false PROVEN — so every candidate is re-checked here before it may reach an encoder:
+     *
+     * <ul>
+     *   <li><b>H1 linearity guard</b> ({@code lean/Libpetri/Strengthening.lean},
+     *       {@code consume_all_hypothesis_is_necessary}): a candidate with nonzero weight
+     *       on a place that any flat transition consume-all drains ({@code In.All} /
+     *       {@code In.AtLeast} — both consume ALL available tokens per
+     *       {@code Arc.In#consumptionCount} and IO-007) or resets is dropped outright.
+     *       Those arms set {@code M'[p] = post[p]} in the encoder's fire relation; the
+     *       linearized incidence column cannot express them, so {@code y·C = 0} is
+     *       necessary but not sufficient on their support. Env-injectable places need no
+     *       analogous treatment: the injector columns already force {@code y = 0} there
+     *       via {@code y·C = 0} (Strengthening.lean H3&prime;).</li>
+     *   <li>{@code y·C} is recomputed per transition column with
+     *       {@link Math#multiplyExact(long, long)} / {@link Math#addExact(long, long)};
+     *       every component must be exactly 0. Weights and incidence entries are
+     *       {@code int}, so each product fits a {@code long} exactly — only the running
+     *       sum can overflow, which {@code addExact} detects.</li>
+     *   <li>{@code y·M0} is recomputed the same way and must equal
+     *       {@link PInvariant#constant()}.</li>
+     *   <li>Overflow ({@link ArithmeticException}) or any mismatch drops the candidate
+     *       with a reason. Dropping only weakens the strengthening (resp. loses a
+     *       covering semiflow, so the colour bound falls back soundly) — it never
+     *       affects soundness.</li>
+     * </ul>
+     *
+     * @param candidates     invariants to re-verify (from {@link #compute} or
+     *                       {@link #computePSemiflows})
+     * @param matrix         the incidence matrix the candidates were computed from
+     * @param flatNet        the flat net (for place/transition names in drop reasons)
+     * @param initialMarking the initial marking the constants were computed from
+     * @return the exactly-validated invariants plus a drop reason per rejected one
+     */
+    public static Validation validateExact(
+            List<PInvariant> candidates, IncidenceMatrix matrix,
+            FlatNet flatNet, MarkingState initialMarking) {
+        int[][] incidence = matrix.incidence(); // [t][p], includes env-injector columns
+        int nt = matrix.numTransitions();
+        int np = matrix.numPlaces();
+        var valid = new ArrayList<PInvariant>(candidates.size());
+        var dropped = new ArrayList<String>();
+        for (var inv : candidates) {
+            String failure = recheckExact(inv, incidence, nt, np, flatNet, initialMarking);
+            if (failure == null) {
+                valid.add(inv);
+            } else {
+                dropped.add(describe(inv, flatNet) + " — " + failure);
+            }
+        }
+        return new Validation(List.copyOf(valid), List.copyOf(dropped));
+    }
+
+    /**
+     * Re-verifies one invariant exactly; returns {@code null} on success or the reason to
+     * drop it.
+     */
+    private static String recheckExact(
+            PInvariant inv, int[][] incidence, int nt, int np,
+            FlatNet flatNet, MarkingState initialMarking) {
+        int[] weights = inv.weights();
+        if (weights.length != np) {
+            return "weight vector has " + weights.length + " entries for " + np + " places";
+        }
+        // H1 linearity guard (lean/Libpetri/Strengthening.lean: `ZeroOnNonlinear`,
+        // shown live by `consume_all_hypothesis_is_necessary`). The incidence column
+        // linearizes consumption — pre[p] is Arc.In#requiredCount() and reset places
+        // never enter it at all — but the encoder's fire relation (SmtEncoder, matching
+        // the runtime) has two NON-linear arms that set M'[p] = post[p] outright:
+        //   (a) consume-all inputs — In.All AND In.AtLeast. Both drain the place:
+        //       Arc.In#consumptionCount(available) returns `available` for both
+        //       (spec/02-input-output-specs.md, IO-007), and NetFlattener flags both
+        //       in FlatTransition#consumeAll. Only In.One / In.Exactly consume exactly
+        //       requiredCount and stay linear.
+        //   (b) reset places (FlatTransition#resetPlaces), cleared before post.
+        // The y*C = 0 recheck below is blind to both arms, so a candidate weighted on
+        // such a place can pass the numeric gate yet be falsified by one real firing;
+        // conjoined into a CHC rule body it would prune genuine successors — the
+        // false-Proven shape. Drop it before it can reach an encoder.
+        // Env-injectable places need NO analogous guard here: the injector columns that
+        // IncidenceMatrix#from appends already force y[envPlace] = 0 through this same
+        // y*C = 0 recheck (Strengthening.lean H3').
+        // Reason wording matches the Rust/TS validators verbatim.
+        for (var ft : flatNet.transitions()) {
+            boolean[] consumeAll = ft.consumeAll();
+            for (int p = 0; p < np && p < consumeAll.length; p++) {
+                if (weights[p] != 0 && consumeAll[p]) {
+                    return nonlinearReason(flatNet, p);
+                }
+            }
+            for (int rp : ft.resetPlaces()) {
+                if (rp >= 0 && rp < np && weights[rp] != 0) {
+                    return nonlinearReason(flatNet, rp);
+                }
+            }
+        }
+        for (int t = 0; t < nt; t++) {
+            long component = 0;
+            try {
+                for (int p = 0; p < np; p++) {
+                    if (weights[p] == 0 || incidence[t][p] == 0) continue;
+                    component = Math.addExact(component,
+                        Math.multiplyExact((long) weights[p], (long) incidence[t][p]));
+                }
+            } catch (ArithmeticException _) {
+                return "overflow recomputing y*C at " + columnName(t, flatNet);
+            }
+            if (component != 0) {
+                return "y*C is " + component + " (not 0) at " + columnName(t, flatNet);
+            }
+        }
+        long constant = 0;
+        try {
+            for (int p = 0; p < np; p++) {
+                if (weights[p] == 0) continue;
+                constant = Math.addExact(constant, Math.multiplyExact(
+                    (long) weights[p], (long) initialMarking.tokens(flatNet.places().get(p))));
+            }
+        } catch (ArithmeticException _) {
+            return "overflow recomputing y*M0";
+        }
+        if (constant != inv.constant()) {
+            return "constant " + inv.constant() + " does not match exact y*M0 = " + constant;
+        }
+        return null;
+    }
+
+    /** The H1 drop reason — wording shared verbatim with the Rust and TS validators. */
+    private static String nonlinearReason(FlatNet flatNet, int place) {
+        return "support intersects consume-all/reset place '" + flatNet.places().get(place).name()
+            + "' (non-linear consumption; see Strengthening.lean H1)";
+    }
+
+    /** Names an incidence-matrix column: a flat transition or an env-injector column. */
+    private static String columnName(int t, FlatNet flatNet) {
+        return t < flatNet.transitionCount()
+            ? "transition '" + flatNet.transitions().get(t).name() + "'"
+            : "env-injector column " + (t - flatNet.transitionCount());
+    }
+
+    /** Formats an invariant with place names for drop-reason report lines. */
+    private static String describe(PInvariant inv, FlatNet flatNet) {
+        var sb = new StringBuilder();
+        boolean first = true;
+        for (int idx : inv.support()) {
+            if (!first) sb.append(" + ");
+            long w = idx < inv.weights().length ? inv.weights()[idx] : 0;
+            if (w != 1) sb.append(w).append("*");
+            sb.append(idx < flatNet.placeCount() ? flatNet.places().get(idx).name() : "p" + idx);
+            first = false;
+        }
+        if (first) sb.append("0");
+        return sb.append(" = ").append(inv.constant()).toString();
+    }
+
     /** A generator row during Colom&ndash;Silva elimination: transition signature + place weight. */
     private record Row(long[] sig, long[] weight) {}
 

@@ -135,22 +135,13 @@ function encodeTransitionRule(
   const fireRelation = encodeFire(ctx, ft, flatNet, mVars, mPrimeVars, P);
 
   // Non-negativity of M'
-  let nonNeg: Bool = ctx.Bool.val(true);
-  for (let i = 0; i < P; i++) {
-    nonNeg = ctx.And(nonNeg, mPrimeVars[i]!.ge(0));
-  }
+  const nonNeg = encodeNonNegativity(ctx, mPrimeVars, P);
 
   // P-invariant constraints on M'
   const invConstraints = encodeInvariantConstraints(ctx, invariants, mPrimeVars, P);
 
   // Environment bounds on M'
-  let envBounds: Bool = ctx.Bool.val(true);
-  for (const [name, bound] of flatNet.environmentBounds) {
-    const idx = flatNet.placeIndex.get(name);
-    if (idx != null) {
-      envBounds = ctx.And(envBounds, mPrimeVars[idx]!.le(bound));
-    }
-  }
+  const envBounds = encodeEnvBounds(ctx, flatNet, mPrimeVars);
 
   // Body conjunction
   const body = ctx.And(reachBody, enabled, fireRelation, nonNeg, invConstraints, envBounds);
@@ -192,6 +183,58 @@ function encodeInjectionRule(
 
   const reachBody = (reachable as any).call(...mVars) as Bool;
 
+  const fire = encodeInjectionFire(ctx, idx, mVars, mPrimeVars, P);
+
+  // Bounded injection: only inject while still below the cap.
+  const guard = encodeInjectionGuard(ctx, idx, bound, mVars);
+
+  const body = ctx.And(reachBody, guard, fire);
+  const head = (reachable as any).call(...mPrimeVars) as Bool;
+  const qRule = ctx.ForAll([...mVars, ...mPrimeVars], ctx.Implies(body, head));
+
+  fp.addRule(qRule, `env_inject_${idx}`);
+}
+
+/**
+ * Non-negativity conjunction over a marking vector: `AND_i vars[i] >= 0`.
+ *
+ * Shared by the CHC transition rules (on M') and {@link encodeStepRelation}
+ * so the two encodings cannot drift.
+ */
+function encodeNonNegativity(ctx: Z3Context, vars: Arith[], P: number): Bool {
+  let result: Bool = ctx.Bool.val(true);
+  for (let i = 0; i < P; i++) {
+    result = ctx.And(result, vars[i]!.ge(0));
+  }
+  return result;
+}
+
+/**
+ * Environment bounds on a marking vector: `AND vars[idx] <= bound` per bounded
+ * environment place.
+ *
+ * Shared by the CHC transition rules (on M') and {@link encodeStepRelation}
+ * so the two encodings cannot drift.
+ */
+function encodeEnvBounds(ctx: Z3Context, flatNet: FlatNet, vars: Arith[]): Bool {
+  let result: Bool = ctx.Bool.val(true);
+  for (const [name, bound] of flatNet.environmentBounds) {
+    const idx = flatNet.placeIndex.get(name);
+    if (idx != null) {
+      result = ctx.And(result, vars[idx]!.le(bound));
+    }
+  }
+  return result;
+}
+
+/** Injection firing: `M'[idx] = M[idx] + 1`, all other columns copied unchanged. */
+function encodeInjectionFire(
+  ctx: Z3Context,
+  idx: number,
+  mVars: Arith[],
+  mPrimeVars: Arith[],
+  P: number,
+): Bool {
   let fire: Bool = ctx.Bool.val(true);
   for (let i = 0; i < P; i++) {
     if (i === idx) {
@@ -200,15 +243,60 @@ function encodeInjectionRule(
       fire = ctx.And(fire, mPrimeVars[i]!.eq(mVars[i]!));
     }
   }
+  return fire;
+}
 
-  // Bounded injection: only inject while still below the cap.
-  const guard: Bool = bound === null ? ctx.Bool.val(true) : mVars[idx]!.lt(bound);
+/** Injection guard: below the cap for `Bounded(k)`; unrestricted for `AlwaysAvailable`. */
+function encodeInjectionGuard(
+  ctx: Z3Context,
+  idx: number,
+  bound: number | null,
+  mVars: Arith[],
+): Bool {
+  return bound === null ? ctx.Bool.val(true) : mVars[idx]!.lt(bound);
+}
 
-  const body = ctx.And(reachBody, guard, fire);
-  const head = (reachable as any).call(...mPrimeVars) as Bool;
-  const qRule = ctx.ForAll([...mVars, ...mPrimeVars], ctx.Implies(body, head));
+/**
+ * Encodes the UNSTRENGTHENED one-step relation `T(M, M')`: the disjunction of
+ * all flat-transition firings and environment-injection steps, each disjunct
+ * built from the same condition builders the CHC rules use ({@link encodeEnabled},
+ * {@link encodeFire}, non-negativity, environment bounds, injection guard/fire) —
+ * minus the `Reachable` occurrence and minus any P-invariant strengthening.
+ *
+ * This is the step relation the certificate checker validates an IC3-synthesized
+ * invariant against (VC2, consecution). It deliberately omits the P-invariant
+ * conjuncts that `encode` adds to the CHC transition bodies: the certificate
+ * check is the independent second layer, so a wrong-but-validated-looking
+ * strengthening must not be assumed by the check.
+ */
+export function encodeStepRelation(
+  ctx: Z3Context,
+  flatNet: FlatNet,
+  mVars: Arith[],
+  mPrimeVars: Arith[],
+): Bool {
+  const P = flatNet.places.length;
+  const disjuncts: Bool[] = [];
 
-  fp.addRule(qRule, `env_inject_${idx}`);
+  for (const ft of flatNet.transitions) {
+    const enabled = encodeEnabled(ctx, ft, flatNet, mVars, P);
+    const fire = encodeFire(ctx, ft, flatNet, mVars, mPrimeVars, P);
+    const nonNeg = encodeNonNegativity(ctx, mPrimeVars, P);
+    const envBounds = encodeEnvBounds(ctx, flatNet, mPrimeVars);
+    disjuncts.push(ctx.And(enabled, fire, nonNeg, envBounds));
+  }
+
+  for (const [name, bound] of flatNet.environmentInjection) {
+    const idx = flatNet.placeIndex.get(name);
+    if (idx == null) continue;
+    disjuncts.push(ctx.And(
+      encodeInjectionGuard(ctx, idx, bound, mVars),
+      encodeInjectionFire(ctx, idx, mVars, mPrimeVars, P),
+    ));
+  }
+
+  if (disjuncts.length === 0) return ctx.Bool.val(false);
+  return ctx.Or(...disjuncts);
 }
 
 /** Maps injected environment-place index -> injection bound (null = unbounded). */
@@ -339,7 +427,14 @@ function encodeErrorRule(
   fp.addRule(qRule, `error_${property.type}`);
 }
 
-function encodePropertyViolation(
+/**
+ * Encodes the property-violation predicate `Bad(M)` over the marking variables.
+ *
+ * Exported for the certificate checker (VC3, safety): it is the same predicate
+ * the CHC error rule conjoins with `Reachable(M)`, so the checked `Bad` can
+ * never drift from the queried one.
+ */
+export function encodePropertyViolation(
   ctx: Z3Context,
   flatNet: FlatNet,
   property: SmtProperty,
@@ -432,7 +527,16 @@ function encodeDeadlock(
   return deadlock;
 }
 
-function encodeInvariantConstraints(
+/**
+ * Conjunction of P-invariant equalities `sum(y_i * M[i]) = constant` over a
+ * marking vector.
+ *
+ * Shared by the CHC transition rules (strengthening on M') and the certificate
+ * checker (which conjoins the invariants into the CANDIDATE certificate, never
+ * into the step relation, and then re-proves the strengthened candidate from
+ * scratch) — one builder, so the two uses cannot drift.
+ */
+export function encodeInvariantConstraints(
   ctx: Z3Context,
   invariants: readonly PInvariant[],
   mVars: Arith[],
