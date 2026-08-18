@@ -529,6 +529,7 @@ dependencies = [
  "libpetri-core",
  "libpetri-docgen",
  "libpetri-event",
+ "proptest",
  "tokio",
 ]
 

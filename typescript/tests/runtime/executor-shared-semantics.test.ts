@@ -12,6 +12,9 @@
  *   reported once as an EVT-013 log-message event.
  * - EXEC-002 AC3/AC4, CONC-023 AC4: within a priority level, ready transitions
  *   fire in enablement-time order (FIFO), not declaration/tid order.
+ * - EXEC-001/EXEC-003: outputs of a firing are deposited in loop step 1 of a
+ *   LATER cycle, never mid-pass — same-cycle outputs are invisible to the
+ *   intra-pass enablement recheck (Rust differential-harness divergence #5).
  */
 import { describe, it, expect } from 'vitest';
 import { BitmapNetExecutor } from '../../src/runtime/bitmap-net-executor.js';
@@ -28,7 +31,7 @@ import { delayed } from '../../src/core/timing.js';
 import { tokenOf } from '../../src/core/token.js';
 import type { Token } from '../../src/core/token.js';
 import { InMemoryEventStore, eventsOfType } from '../../src/event/event-store.js';
-import type { LogMessage } from '../../src/event/net-event.js';
+import type { LogMessage, NetEvent } from '../../src/event/net-event.js';
 
 /** Both executors expose the same `new Executor(net, tokens)` + `run(ms)` API. */
 interface Backend {
@@ -411,4 +414,95 @@ describe('ready order within a priority level (EXEC-002, CONC-023)', () => {
       });
     });
   }
+});
+
+
+// ==================== EXEC-001 / EXEC-003: same-cycle outputs are invisible intra-pass ====================
+
+// Pins Rust differential-harness divergence #5. During one firing pass, the
+// reference semantics recheck subsequent ready transitions against a
+// post-consumption, PRE-output-deposit view of the marking: outputs deposit in
+// loop step 1 of a later cycle (EXEC-001), and losers of a conflict are
+// disabled by the winner's consumption (EXEC-003). A buggy executor that lets
+// a same-cycle sync-action deposit become visible to the intra-pass recheck
+// fires [t_high, t_low, t_high] instead of starving t_low entirely.
+//
+// Witness: a holds 3 tokens, b holds 1. t_high (priority 1) consumes one(a),
+// resets b, and its action synchronously produces one token back to b. t_low
+// (priority 0) consumes one(a) and reads b. Each pass fires t_high first; the
+// recheck of t_low must see b EMPTY (reset applied, produced token not yet
+// deposited), so t_high fires 3x and t_low never fires. In TypeScript this
+// holds structurally on both loops: actions complete through the microtask
+// queue into completionQueue, drained at the top of the NEXT cycle, and the
+// recheck reads the firing-pass snapshot of the presence bitmap.
+describe('same-cycle outputs invisible to intra-pass recheck (EXEC-001, EXEC-003)', () => {
+  function witness() {
+    const a = place<string>('a');
+    const b = place<string>('b');
+    const tLow = Transition.builder('t_low')
+      .inputs(one(a))
+      .read(b)
+      .priority(0)
+      .action(async () => {})
+      .build();
+    const tHigh = Transition.builder('t_high')
+      .inputs(one(a))
+      .reset(b)
+      .outputs(outPlace(b))
+      .priority(1)
+      .action(async (ctx) => { ctx.output(b, 'produced'); })
+      .build();
+    const net = PetriNet.builder('N').transitions(tLow, tHigh).build();
+    const tokens = initialTokens(
+      [a, [tokenOf('a1'), tokenOf('a2'), tokenOf('a3')]],
+      [b, [tokenOf('b1')]],
+    );
+    return { net, tokens, a, b };
+  }
+
+  /** Normalizes an event to a timestamp-free shape for cross-executor comparison. */
+  function describeEvent(e: NetEvent): string {
+    switch (e.type) {
+      case 'transition-enabled': return `enabled:${e.transitionName}`;
+      case 'transition-started': return `started:${e.transitionName}`;
+      case 'transition-completed': return `completed:${e.transitionName}`;
+      case 'token-added': return `+${e.placeName}:${String(e.token.value)}`;
+      case 'token-removed': return `-${e.placeName}:${String(e.token.value)}`;
+      default: return e.type;
+    }
+  }
+
+  async function runWitness(backend: Backend) {
+    const { net, tokens, a, b } = witness();
+    const store = new InMemoryEventStore();
+    const marking = await (backend.name === 'BitmapNetExecutor'
+      ? new BitmapNetExecutor(net, tokens, { eventStore: store })
+      : new PrecompiledNetExecutor(net, tokens, { eventStore: store })
+    ).run(5000);
+    return {
+      started: eventsOfType(store, 'transition-started').map(e => e.transitionName),
+      finalA: marking.peekTokens(a).map(tok => tok.value),
+      finalB: marking.peekTokens(b).map(tok => tok.value),
+      sequence: store.events().map(describeEvent),
+    };
+  }
+
+  for (const backend of backends) {
+    it(`${backend.name}: t_high fires 3x, t_low starved by pre-deposit recheck`, async () => {
+      const result = await runWitness(backend);
+
+      // The recheck after each t_high firing sees b empty (reset applied, the
+      // produced token not yet deposited), so t_low never wins a pass.
+      expect(result.started).toEqual(['t_high', 't_high', 't_high']);
+      // a: all three tokens consumed by t_high. b: only the LAST produced
+      // token survives (each firing's reset drains the previous deposit).
+      expect(result.finalA).toEqual([]);
+      expect(result.finalB).toEqual(['produced']);
+    });
+  }
+
+  it('both executors emit the identical event sequence', async () => {
+    const [bitmap, precompiled] = await Promise.all(backends.map(runWitness));
+    expect(precompiled!.sequence).toEqual(bitmap!.sequence);
+  });
 });

@@ -40,8 +40,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *       enablement time ASC, tid ASC as the tie-break</li>
  * </ul>
  *
- * <p>Deliberately scoped to the two bitmap-compiled backends (not the legacy
- * {@link NetExecutor}, which walks the {@link PetriNet} directly and never compiles).
+ * <p>The legacy {@link NetExecutor} (which walks the {@link PetriNet} directly and never
+ * compiles) participates wherever its direct-walk semantics are comparable; the compile-time
+ * rejection and CORE-072 AC4 diagnostic tests stay scoped to the two bitmap-compiled
+ * backends, whose seams they pin.
  */
 @Timeout(60)
 class BackendDivergenceRegressionTest {
@@ -84,6 +86,24 @@ class BackendDivergenceRegressionTest {
             PetriNetExecutor createWithEventStore(PetriNet net, Map<Place<?>, List<Token<?>>> initial,
                                                   EventStore eventStore) {
                 return PrecompiledNetExecutor.builder(net, initial).eventStore(eventStore).build();
+            }
+        },
+        LEGACY {
+            @Override
+            PetriNetExecutor create(PetriNet net, Map<Place<?>, List<Token<?>>> initial) {
+                return NetExecutor.create(net, initial);
+            }
+
+            @Override
+            PetriNetExecutor createWithEnvPlaces(PetriNet net, Map<Place<?>, List<Token<?>>> initial,
+                                                 Set<EnvironmentPlace<?>> envPlaces) {
+                return NetExecutor.builder(net, initial).environmentPlaces(envPlaces).build();
+            }
+
+            @Override
+            PetriNetExecutor createWithEventStore(PetriNet net, Map<Place<?>, List<Token<?>>> initial,
+                                                  EventStore eventStore) {
+                return NetExecutor.builder(net, initial).eventStore(eventStore).build();
             }
         };
 
@@ -142,7 +162,7 @@ class BackendDivergenceRegressionTest {
      * permissive; the check lives in {@link CompiledNet}, which both backends compile through.
      */
     @ParameterizedTest
-    @EnumSource(Backend.class)
+    @EnumSource(value = Backend.class, names = {"BITMAP", "PRECOMPILED"})
     void duplicateInputArcsOnOnePlace_rejectedAtCompileTime(Backend backend) {
         var p = Place.of("P", CounterValue.class);
 
@@ -292,7 +312,7 @@ class BackendDivergenceRegressionTest {
      * still lands in the final marking.
      */
     @ParameterizedTest
-    @EnumSource(Backend.class)
+    @EnumSource(value = Backend.class, names = {"BITMAP", "PRECOMPILED"})
     void unknownPlaceWrites_warnOncePerDistinctPlace(Backend backend) throws Exception {
         var in = Place.of("In", SimpleValue.class);
         var out = Place.of("Out", CounterValue.class);
@@ -344,7 +364,7 @@ class BackendDivergenceRegressionTest {
      * a later production to the SAME unknown place does not report it a second time.
      */
     @ParameterizedTest
-    @EnumSource(Backend.class)
+    @EnumSource(value = Backend.class, names = {"BITMAP", "PRECOMPILED"})
     void unknownPlaceInInitialMarking_warnsOnceWithNoTransitionName(Backend backend) throws Exception {
         var in = Place.of("In", SimpleValue.class);
         var ghost = Place.of("Ghost", CounterValue.class);
@@ -476,6 +496,71 @@ class BackendDivergenceRegressionTest {
             assertEquals(List.of("t_hi", "t_early", "t_late"), List.copyOf(firingOrder),
                 "priority DESC first, then enablement time ASC within the shared level "
                     + "(declaration/tid order must not override enablement order)");
+        }
+    }
+
+    /**
+     * Same-cycle sync-action deposits must be <b>invisible</b> to intra-pass firing rechecks
+     * (backend divergence #5): outputs deposit in loop step 1 while firing is step 5
+     * (EXEC-001), and losers within one pass are disabled by consumption alone (EXEC-003).
+     *
+     * <p>{@code t_high} (priority 1) consumes one(a), resets b, and synchronously re-produces
+     * one token to b; {@code t_low} (priority 0) consumes one(a) and reads b. In every cycle
+     * t_high fires first and drains b, so the token its action deposits back must not revive
+     * t_low's recheck within the same pass: t_high monopolizes a (fires 3x) and t_low starves.
+     * Both compiled backends used to recheck against the live presence bitmap, letting the
+     * deposit leak into the pass and produce the interleaving [t_high, t_low, t_high]; the
+     * legacy executor routes all outputs through its completion queue and was already correct.
+     */
+    @ParameterizedTest
+    @EnumSource(Backend.class)
+    void sameCycleSyncDeposit_invisibleToIntraPassRecheck(Backend backend) throws Exception {
+        var a = Place.of("a", CounterValue.class);
+        var b = Place.of("b", CounterValue.class);
+        Queue<String> firingOrder = new ConcurrentLinkedQueue<>();
+
+        var tLow = Transition.builder("t_low")
+            .inputs(Arc.In.one(a))
+            .read(b)
+            .action(ctx -> {
+                firingOrder.add("t_low");
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+        var tHigh = Transition.builder("t_high")
+            .inputs(Arc.In.one(a))
+            .reset(b)
+            .outputs(Arc.Out.place(b))
+            .priority(1)
+            .action(ctx -> {
+                firingOrder.add("t_high");
+                ctx.output(b, new CounterValue(1));
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+
+        var net = PetriNet.builder("SameCycleDeposit").transitions(tLow, tHigh).build();
+        var initial = Map.<Place<?>, List<Token<?>>>of(
+            a, List.of(Token.of(new CounterValue(10)),
+                       Token.of(new CounterValue(11)),
+                       Token.of(new CounterValue(12))),
+            b, List.of(Token.of(new CounterValue(0)))
+        );
+
+        var eventStore = EventStore.inMemory();
+        try (var executor = backend.createWithEventStore(net, initial, eventStore)) {
+            var result = executor.run();
+
+            assertEquals(List.of("t_high", "t_high", "t_high"), List.copyOf(firingOrder),
+                "same-cycle deposit must not revive t_low inside the firing pass");
+            assertFalse(result.hasTokens(a), "t_high monopolized a");
+            assertEquals(1, result.tokenCount(b), "only the final re-deposit remains");
+
+            var started = eventStore.eventsOfType(NetEvent.TransitionStarted.class).stream()
+                .map(NetEvent.TransitionStarted::transitionName)
+                .toList();
+            assertEquals(List.of("t_high", "t_high", "t_high"), started,
+                "event sequence pins the firing order (no t_low TransitionStarted)");
         }
     }
 

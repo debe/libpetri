@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc d3733e9467c08d4f61745b93f8b9b2548e7009194fac3af1e094d843d8d82b94 # shrinks to g = GenNet { place_count: 5, initial: [[0, 0, 0], [], [], [0], [0]], transitions: [GenTrans { inputs: [(0, One)], output: None, reads: [3], inhibitor: None, reset: None, priority: 0 }, GenTrans { inputs: [(0, One)], output: Single(3), reads: [], inhibitor: None, reset: Some(3), priority: 1 }] }

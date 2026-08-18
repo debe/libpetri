@@ -87,6 +87,20 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
     // Orchestrator-confined, so a plain long[] — no volatile reads, no atomics.
     private final long[] markingBitmap;
 
+    /**
+     * Post-consumption, pre-deposit presence snapshot used for intra-pass firing rechecks.
+     *
+     * <p>Outputs deposit in loop step 1 and firing is step 5 (EXEC-001), so tokens a
+     * same-cycle sync action produces must be <em>invisible</em> to the recheck of
+     * subsequent ready transitions in the same firing pass; consumption, by contrast,
+     * must be visible (losers are disabled by consumption, EXEC-003). The buffer is
+     * refreshed from {@link #markingBitmap} when the ready set is collected and again
+     * after each firing's consumption ({@link #updateBitmapAfterConsumption}) — never on
+     * deposit — mirroring the Rust reference's {@code firing_snap_buffer}
+     * (backend divergence #5).
+     */
+    private final long[] fireScanBitmap;
+
     // Orchestrator-owned state (single-threaded)
     private final long[] enabledAtNanos;
     private final long[] enabledBitmap;
@@ -242,6 +256,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
 
         int wordCount = compiled.wordCount();
         this.markingBitmap = new long[wordCount];
+        this.fireScanBitmap = new long[wordCount];
 
         this.transitionWords = (compiled.transitionCount() + BIT_MASK) >>> WORD_SHIFT;
         this.enabledAtNanos = new long[compiled.transitionCount()];
@@ -956,6 +971,9 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
      * Fires directly from enabled bitmap in ID order.
      */
     private void fireReadyImmediate() {
+        if (enabledTransitionCount == 0) return;
+        // Firing snapshot: rechecks below must not see same-cycle deposits (divergence #5).
+        System.arraycopy(markingBitmap, 0, fireScanBitmap, 0, markingBitmap.length);
         for (int w = 0; w < transitionWords; w++) {
             long word = enabledBitmap[w] & ~inFlightBitmap[w];
             while (word != 0) {
@@ -963,7 +981,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
                 int tid = (w << WORD_SHIFT) | bit;
                 word &= word - 1;
 
-                if (canEnable(tid, markingBitmap)) {
+                if (canEnable(tid, fireScanBitmap)) {
                     fireTransitionGuarded(tid);
                 } else {
                     clearEnabledBit(tid);
@@ -999,6 +1017,9 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
         }
         if (readyBuffer.isEmpty()) return;
 
+        // Firing snapshot: rechecks below must not see same-cycle deposits (divergence #5).
+        System.arraycopy(markingBitmap, 0, fireScanBitmap, 0, markingBitmap.length);
+
         // Sort: higher priority first, then earlier enablement (FIFO)
         if (readyBuffer.size() > 1) {
             readyBuffer.sort((a, b) -> {
@@ -1010,7 +1031,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
 
         for (var entry : readyBuffer) {
             int tid = entry.tid();
-            if (isEnabled(tid) && canEnable(tid, markingBitmap)) {
+            if (isEnabled(tid) && canEnable(tid, fireScanBitmap)) {
                 fireTransitionGuarded(tid);
             } else {
                 clearEnabledBit(tid);
@@ -1258,6 +1279,10 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
             }
             markDirty(pid);
         }
+        // Refresh the firing snapshot so the next intra-pass recheck sees the live marking
+        // after this consumption — but not deposits that land later in the same cycle
+        // (EXEC-001 step order; EXEC-003 consumption visibility; divergence #5).
+        System.arraycopy(markingBitmap, 0, fireScanBitmap, 0, markingBitmap.length);
     }
 
     // ======================== Completion Processing ========================

@@ -44,17 +44,17 @@ use crate::precompiled_net::PrecompiledNet;
 
 /// Result of running a net to sync completion: the final marking, the
 /// events captured along the way, and whether the executor quiesced.
-struct RunResult {
-    marking: Marking,
-    events: Vec<NetEvent>,
-    quiescent: bool,
+pub(crate) struct RunResult {
+    pub(crate) marking: Marking,
+    pub(crate) events: Vec<NetEvent>,
+    pub(crate) quiescent: bool,
 }
 
 /// Abstracts "compile this net, run it to sync completion, give me the
 /// outcome" across the two executor backends. Each shared test is
 /// generic over this trait; [`for_each_backend!`] instantiates it for
 /// both backends.
-trait BackendRunner {
+pub(crate) trait BackendRunner {
     /// Run with an [`InMemoryEventStore`] so both marking-based and
     /// event-based assertions are available from one call. The marking
     /// outcome is independent of the event store, so this also serves
@@ -67,8 +67,9 @@ trait BackendRunner {
 /// `TokenRemoved`. `TokenAdded` is emitted by the loop independently of what
 /// the backend does with the token, so a backend that silently drops or
 /// duplicates a token in its storage layer breaks the balance. Runs after
-/// every suite run via [`BackendRunner::run`].
-fn assert_token_conservation(
+/// every suite run via [`BackendRunner::run`], and after every timed
+/// differential run ([`differential_prop_tests`](crate::differential_prop_tests)).
+pub(crate) fn assert_token_conservation(
     initial: &std::collections::HashMap<Arc<str>, usize>,
     result: &RunResult,
 ) {
@@ -113,7 +114,7 @@ fn assert_token_conservation(
     }
 }
 
-struct BitmapRunner;
+pub(crate) struct BitmapRunner;
 
 impl BackendRunner for BitmapRunner {
     fn run(net: &PetriNet, marking: Marking) -> RunResult {
@@ -131,7 +132,7 @@ impl BackendRunner for BitmapRunner {
     }
 }
 
-struct PrecompiledRunner;
+pub(crate) struct PrecompiledRunner;
 
 impl BackendRunner for PrecompiledRunner {
     fn run(net: &PetriNet, marking: Marking) -> RunResult {
@@ -2075,6 +2076,77 @@ fn unknown_place_warns_once_per_place<R: BackendRunner>() {
     assert_eq!(result.marking.count("ghost"), 3);
 }
 
+/// Divergence #5 — same-pass refill (the four from "align precompiled
+/// executor with the bitmap reference" being #1–4): tokens a firing's sync
+/// action deposits must be INVISIBLE to the EXEC-003 recheck of later
+/// entries in the same fire pass. EXEC-001 orders the loop so outputs are
+/// deposited in step 1 (process completions) while firing is step 5, and
+/// EXEC-003 disables a loser when consumption leaves its inputs
+/// unsatisfied — a same-pass refill is not a satisfaction. The bitmap
+/// reference rechecks against `firing_snap_buffer` (refreshed
+/// post-consumption, PRE-deposit); the precompiled backend used to recheck
+/// the live `marking_bitmap`/`token_counts` and let the loser fire mid-pass.
+///
+/// Witness (the differential harness's shrunken seed, hand-reduced): t_high
+/// outranks t_low, both consume from `a`; every t_high firing drains `b` by
+/// reset and refills it via its own output, and t_low reads `b`. On the
+/// reference t_low's recheck sees `b` empty in the snapshot every pass, so
+/// t_low starves: firing order [t_high, t_high, t_high]. The pre-fix
+/// precompiled backend fired [t_high, t_low, t_high].
+fn same_pass_refill_invisible_to_recheck<R: BackendRunner>() {
+    let a = Place::<i32>::new("a");
+    let b = Place::<i32>::new("b");
+
+    let t_low = Transition::builder("t_low")
+        .input(one(&a))
+        .read(read(&b))
+        .action(passthrough())
+        .build();
+    let t_high = Transition::builder("t_high")
+        .input(one(&a))
+        .reset(reset(&b))
+        .output(out_place(&b))
+        .priority(1)
+        .action(sync_action(|ctx| {
+            let vals = ctx.inputs::<i32>("a")?;
+            let v = vals.first().map(|t| **t).unwrap_or(0);
+            ctx.output("b", v)?;
+            Ok(())
+        }))
+        .build();
+
+    let net = PetriNet::builder("same_pass_refill")
+        .transitions([t_low, t_high])
+        .build();
+
+    let mut marking = Marking::new();
+    for v in [1, 2, 3] {
+        marking.add(&a, Token::at(v, 0));
+    }
+    marking.add(&b, Token::at(10, 0));
+
+    let result = R::run(&net, marking);
+
+    let firing_order: Vec<&str> = result
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            NetEvent::TransitionStarted { transition_name, .. } => {
+                Some(&**transition_name)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        firing_order,
+        ["t_high", "t_high", "t_high"],
+        "t_low must be starved: its recheck sees the pre-deposit snapshot"
+    );
+    assert_eq!(result.marking.count("a"), 0);
+    assert_eq!(result.marking.count("b"), 1);
+    assert_eq!(*result.marking.peek(&b).unwrap(), 3); // the last refill survives
+}
+
 /// Deterministic differential tests for the general (timed / multi-priority)
 /// ready path, driving the backends directly with synthetic timestamps —
 /// `collect_ready_general` was never reachable from the wall-clock-free suite
@@ -2334,4 +2406,5 @@ for_each_backend!(
     duplicate_input_place_rejected_at_compile,
     unknown_place_initial_tokens_retained,
     unknown_place_warns_once_per_place,
+    same_pass_refill_invisible_to_recheck,
 );
