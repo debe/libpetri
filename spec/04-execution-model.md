@@ -65,7 +65,26 @@ When multiple transitions compete for the same input tokens, the highest-priorit
 **Acceptance Criteria:**
 1. Two transitions sharing input place P; T1 (P=10) and T2 (P=5); one token in P; T1 fires; T2 disabled.
 2. If T1 is not ready (timing not satisfied), T2 may fire.
-3. Whether a loser's inputs are "no longer satisfied" is judged against the marking as consumed by earlier firings in the same firing pass but before any tokens their synchronous actions produced: T1 (higher priority) consumes a token T2 needs and refills the place via its own output in the same pass; T2 remains disabled and may fire no earlier than the next cycle, since outputs deposit in step 1 and firing is step 5 (see [EXEC-001]).
+3. Whether a loser's inputs are "no longer satisfied" is judged against the marking
+   as consumed by earlier firings in the same firing pass, but before any tokens
+   their synchronous actions produced: T1 (higher priority) consumes a token T2
+   needs and refills the place via its own output in the same pass; T2 remains
+   disabled and may fire no earlier than the next cycle, since outputs deposit in
+   step 1 and firing is step 5 (see [EXEC-001]).
+4. AC3 governs token **counts**, not only presence. A cardinality gate
+   (`exactly(n)`, `atLeast(n)`) re-evaluated during the pass MUST NOT count tokens
+   a same-pass synchronous action deposited, and a ν-correlated join whose
+   correlated input place received such a deposit fires no earlier than the next
+   cycle. Deposits become visible to every transition uniformly at the next
+   cycle's step 1, never part-way through a pass.
+5. Invisibility extends to consumption, not just to the enablement test. A
+   draining arc — `all()`, `atLeast(n)`, or a reset arc — that fires later in the
+   same pass takes only the tokens that were present when the pass began, as
+   consumed by earlier firings; tokens a same-pass action deposited survive it and
+   remain for the next cycle. Deposits land at the tail of each place's FIFO
+   queue ([EXEC-010]), so this is the prefix of length `available - deposited`.
+   Without this, a gate that correctly refused to *count* a same-pass deposit
+   would still *swallow* it.
 
 **Test derivation:** Two competing transitions; verify only highest priority fires when only 1 token available.
 
