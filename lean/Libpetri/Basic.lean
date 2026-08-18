@@ -27,7 +27,7 @@ Models `libpetri-runtime/src/marking.rs` (`HashMap<Arc<str>, VecDeque<ErasedToke
 abbrev CMarking := PlaceId → List Colour
 
 /-- Abstract marking: one token *count* per place. Models the `m_i` integer
-variables of the CHC encoding (`smt_encoder.rs:129-134`). -/
+variables of the CHC encoding (`encode`, `smt_encoder.rs:65-66`). -/
 abbrev AMarking := PlaceId → Nat
 
 /-- The colour-erasure abstraction `α(M)[p] = |M(p)|`
@@ -112,12 +112,16 @@ def post (br : List PlaceId) (p : PlaceId) : Nat :=
 /-!
 ## Concrete semantics
 
-Models `bitmap_backend.rs:284 can_enable` (enablement) and
-`bitmap_backend.rs:553 consume_for_firing` + `:672 produce_token` (effect).
+Models `bitmap_backend.rs:327 can_enable` (enablement) and
+`bitmap_backend.rs:664 consume_for_firing` + `:815 produce_token` (effect).
 -/
 
-/-- Tokens at `s.place` satisfying `s`'s guard. Models
-`Marking::count_matching` as called at `bitmap_backend.rs:607`. -/
+/-- Tokens at `s.place` satisfying `s`'s guard. Models the guard-matching
+tally a draining arc computes inside `consume_for_firing`
+(`bitmap_backend.rs:723-729`). That arm called `Marking::count_matching`
+(`marking.rs`), which counts over the *whole* queue, until the EXEC-003 AC5
+work replaced it with the same count bounded to the drainable prefix; the
+bound is the scope note on `consumeCount` below. -/
 def matchCount (m : CMarking) (s : InSpec) : Nat :=
   match s.guard with
   | none => (m s.place).length
@@ -125,13 +129,24 @@ def matchCount (m : CMarking) (s : InSpec) : Nat :=
 
 /-- Tokens actually removed from `s.place` by one firing.
 
-`bitmap_backend.rs:603-609`: `One => 1`, `Exactly{n} => n`, and
-`All`/`AtLeast` => `count_matching`, i.e. **all guard-matching tokens** — tokens
-failing the guard are left behind by `remove_matching`.
+`consume_for_firing` (`bitmap_backend.rs:714-731`): `One => 1`,
+`Exactly{n} => n`, and
+`All`/`AtLeast` => the guard-matching count, i.e. **all guard-matching
+tokens** — tokens failing the guard are left behind by `remove_matching`.
 
 Written as a single branch on `consumesAll` rather than a four-way match: for
 `One`/`Exactly` the consumed count coincides with `required_count`, so the two
-forms agree pointwise. -/
+forms agree pointwise.
+
+**EXEC-003 AC5 scope.** The shipped draining arms count and remove within
+`drainable(place, live)` — `live` minus the tokens a same-pass synchronous
+action deposited — not within the whole queue. `drainable = live` on every
+firing with no deposit outstanding at that place, which is the case this
+definition models; `Conservation.lean`'s header states the exclusion once for
+the whole consume model, and `Refinement.lean` records why the cycle-level
+theorem is nevertheless untouched. `One`/`Exactly` are unaffected: they take a
+fixed count off the FIFO head, which the AC4 gate already confined to the
+pre-deposit prefix. -/
 def consumeCount (m : CMarking) (s : InSpec) : Nat :=
   if s.card.consumesAll then matchCount m s else s.card.required
 
@@ -141,9 +156,15 @@ def consumedAt (m : CMarking) (t : Transition) (p : PlaceId) : Nat :=
   | none => 0
   | some s => consumeCount m s
 
-/-- Concrete enablement (`bitmap_backend.rs:284`, minus timing/ν): every input
-arc has enough *matching* tokens, every inhibited place is empty, every read
-place is non-empty. Reset arcs deliberately do not gate (CORE-034). -/
+/-- Concrete enablement (`can_enable`, `bitmap_backend.rs:327`, minus timing
+and ν): every input arc has enough *matching* tokens, every inhibited place is
+empty, every read place is non-empty. Reset arcs deliberately do not gate
+(CORE-034).
+
+This is the `pre_deposit = false` call — the one `update_enablement` makes.
+The intra-pass `recheck_can_fire` passes `true`, which additionally discounts
+the pass's `deposit_delta` from the counting checks (EXEC-003 AC4); that path
+is idealized in `Refinement.lean`, not modelled here. -/
 def enabledC (m : CMarking) (t : Transition) : Bool :=
   t.inputs.all (fun s => s.card.required ≤ matchCount m s)
     && t.inhibitors.all (fun p => (m p).length == 0)
@@ -168,17 +189,19 @@ def alphaFireC (m : CMarking) (t : Transition) (prod : PlaceId → Nat) : AMarki
 /-!
 ## Abstract semantics — the CHC encoding
 
-Models `smt_encoder.rs:141-182` exactly.
+Models `firing_conditions` (`smt_encoder.rs:151-209`) exactly.
 -/
 
-/-- Abstract enablement: `m_i >= pre[i]` (`:142-146`), `m_i = 0` for inhibitors
-(`:149-151`), `m_i >= 1` for reads (`:154-156`). -/
+/-- Abstract enablement: `m_i >= pre[i]` (`firing_conditions`,
+`smt_encoder.rs:160-165`), `m_i = 0` for inhibitors (`:167-170`), `m_i >= 1`
+for reads (`:172-175`). -/
 def enabledA (m : AMarking) (t : Transition) : Bool :=
   t.inputs.all (fun s => s.card.required ≤ m s.place)
     && t.inhibitors.all (fun p => m p == 0)
     && t.reads.all (fun p => 1 ≤ m p)
 
-/-- The abstract fire relation (`smt_encoder.rs:158-182`):
+/-- The abstract fire relation (`firing_conditions`,
+`smt_encoder.rs:177-201`):
 
 * reset place      → `m'_i = post[i]`
 * `consume_all` place → `m'_i = post[i]`

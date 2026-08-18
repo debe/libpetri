@@ -25,6 +25,22 @@ The theorems here are the plan's PB/EN group:
 * EN6 `updateEnablement_sync` — after the dirty scan, every transition's
   `enabled` bit equals `canEnable`, given the running invariant
   `EnabledSync` (clean bits are accurate).
+
+`presence` is the **live** half of `marking_bitmap` only. Its fire-pass
+snapshot half and the per-pass `deposit_delta` that `produce_token` feeds
+(EXEC-003 AC3/AC4) are deliberately absent: both are read exclusively by
+`recheck_can_fire`, never by `update_enablement`, which passes
+`pre_deposit = false` and so sees exactly the counts `canEnable` reads here.
+`produceOne` and `fireConsume` therefore still model the live bit transitions
+exactly — `update_bitmap_after_consumption` clears the live bit on the same
+`count == 0` condition it always did, and the added snapshot clear is a
+second bitmap no theorem in this file reads.
+
+`fireConsume` inherits its pool effect from `consumeForFiring`, so it also
+inherits that model's EXEC-003 AC5 scope: the drain arms are the shipped
+`drainable` in its deposit-free case (`Conservation.lean`, module header).
+The bit transitions proved here are stated against whatever the consume
+leaves, so they are indifferent to how far a drain reaches.
 -/
 import Libpetri.Conservation
 

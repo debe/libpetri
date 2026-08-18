@@ -8,29 +8,29 @@ deadline_tolerance_ms` both backends clear the enabled bit and reset
 `enabled_at_ms` to `NEG_INFINITY` — but
 
 * `PrecompiledBackend::enforce_deadlines`
-  (`rust/libpetri-runtime/src/precompiled_backend.rs:813`, reap block
-  `:841-847`) **also calls `mark_transition_dirty(tid)`** (`:845`), while
-* `BitmapBackend::enforce_deadlines` (`bitmap_backend.rs:479`, reap block
-  `:492-497`) does **not** touch the dirty set.
+  (`rust/libpetri-runtime/src/precompiled_backend.rs:959`, reap block
+  `:987-993`) **also calls `mark_transition_dirty(tid)`** (`:991`), while
+* `BitmapBackend::enforce_deadlines` (`bitmap_backend.rs:595`, reap block
+  `:608-613`) does **not** touch the dirty set.
 
 Both `update_enablement`s are dirty-gated with otherwise *identical* branch
-logic (`precompiled_backend.rs:755`, newly-enabled path `:790-794`;
-`bitmap_backend.rs:432`, `:456-461`): a dirty, disabled transition whose
+logic (`precompiled_backend.rs:901`, newly-enabled path `:936-940`;
+`bitmap_backend.rs:548`, `:573-577`): a dirty, disabled transition whose
 tokens still satisfy `can_enable` is re-enabled with a **fresh** clock
 (`enabled_at_ms[tid] = now_ms` — the TIME-011 restart-from-zero, the same
 newly-enabled path initialization takes). The reaped transition's tokens were
 never consumed, so on the very next update phase the precompiled backend
 re-enables it and — once its window reopens (`collect_ready_general`,
-`precompiled_backend.rs:896-897` / `bitmap_backend.rs:524-527`) — fires it;
+`precompiled_backend.rs:1043-1044` / `bitmap_backend.rs:638-640`) — fires it;
 the bitmap backend never re-examines it, because in a *quiet* net (no token
 mutation: no other firing, no injection, no reset) nothing else dirties it.
 This is not compensated elsewhere: `post_fire` marks dirty in **both**
-backends (`precompiled_backend.rs:1104-1111`, `bitmap_backend.rs:684-691`)
-and `disable` in **neither** (`:1113-1119`, `:693-699`, the EXEC-003 loser
+backends (`precompiled_backend.rs:1275-1282`, `bitmap_backend.rs:830-837`)
+and `disable` in **neither** (`:1284-1290`, `:839-845`, the EXEC-003 loser
 path of `Enablement.lean`'s `disable_frame`) — the reap is the unique
 asymmetric dirty site. The executor consumes the reaped list only to emit
-`TransitionTimedOut` (EVT-009; `executor_core/executor.rs:194` sync,
-`:624` async) — no token change, no re-dirty route.
+`TransitionTimedOut` (EVT-009; `executor_core/executor.rs:227` sync,
+`:686` async) — no token change, no re-dirty route.
 
 **This module rules that the two shipped behaviors differ; it deliberately
 does not rule which one is spec-correct.** TIME-013 mandates "disables it and
@@ -44,7 +44,7 @@ The model is the per-transition control cell at cycle granularity — token
 presence abstracted to one `Bool` (enough for `can_enable`, which the quiet
 net keeps constant), `Nat` clocks per `Sched.lean`'s convention with `none`
 for `NEG_INFINITY`. A cycle is the executor loop's phase order (`run_sync`,
-`executor_core/executor.rs:171`; async loop Phase 3/4/5): update enablement,
+`executor_core/executor.rs:199`; async loop Phase 3/4/5): update enablement,
 enforce deadlines, then the ready/fire decision — the observable. Firing
 *effects* are outside the fragment: the divergence is observable at the fire
 decision itself, before any consumption happens. `exact()` timing is excluded
@@ -72,7 +72,7 @@ namespace Libpetri
 
 /-- One transition's timed control state, at the granularity the deadline
 path reads and writes: `tokens` abstracts the marking to "would
-`can_enable` pass" (`precompiled_backend.rs:566` / `bitmap_backend.rs:284` —
+`can_enable` pass" (`precompiled_backend.rs:684` / `bitmap_backend.rs:327` —
 constant in a quiet net), `enabled` is the enabled bit, `clock` is
 `enabled_at_ms` (`none` = `NEG_INFINITY`), `dirty` is the transition's bit in
 `dirty_bitmap` / `dirty_set`. -/
@@ -92,7 +92,7 @@ structure Timing where
   latest   : Nat
 
 /-- `elapsed > latest`: the reap test of both backends
-(`precompiled_backend.rs:838-841`, `bitmap_backend.rs:490-492`), with `Nat`
+(`precompiled_backend.rs:984-987`, `bitmap_backend.rs:606-608`), with `Nat`
 truncated subtraction as in `Sched.lean`'s `isReady`. `none` is
 `NEG_INFINITY`, whose elapsed time exceeds everything — unreachable for an
 enabled transition (every disable path writes both fields together), modeled
@@ -102,8 +102,8 @@ def deadlineExpired (latest now : Nat) : Option Nat → Bool
   | none   => true
 
 /-- `earliest_ms <= elapsed`: the TIME-010 window gate of
-`collect_ready_general` (`precompiled_backend.rs:896-897`,
-`bitmap_backend.rs:524-527`). Same `none` convention. -/
+`collect_ready_general` (`precompiled_backend.rs:1043-1044`,
+`bitmap_backend.rs:638-640`). Same `none` convention. -/
 def windowOpen (earliest now : Nat) : Option Nat → Bool
   | some c => decide (earliest ≤ now - c)
   | none   => true
@@ -112,15 +112,15 @@ def windowOpen (earliest now : Nat) : Option Nat → Bool
 
 /-- The dirty-gated enablement update — one body for **both** backends,
 because their branch logic is line-for-line identical
-(`precompiled_backend.rs:755` `update_enablement`, dirty-word scan then
-`:790-801`; `bitmap_backend.rs:432`, dirty snapshot then `:456-468`): a
+(`precompiled_backend.rs:901` `update_enablement`, dirty-word scan then
+`:933-948`; `bitmap_backend.rs:548`, dirty snapshot then `:570-585`): a
 clean cell is skipped outright; a dirty one has its bit cleared and is
 re-evaluated — newly enabled gets the fresh clock (`enabled_at_ms = now_ms`,
-TIME-011 restart-from-zero, `:793` / `:460`), newly disabled gets
-`NEG_INFINITY` (`:798` / `:465`). The third branch (`clock_restarted`,
+TIME-011 restart-from-zero, `:939` / `:576`), newly disabled gets
+`NEG_INFINITY` (`:944` / `:581`). The third branch (`clock_restarted`,
 TIME-012) needs `has_input_from_reset_place`, which is `false` with no
-pending resets (`precompiled_backend.rs:647-649`, `bitmap_backend.rs:352`) —
-a quiet net has none, so it is elided. -/
+pending resets (`precompiled_backend.rs:783-785`,
+`bitmap_backend.rs:413-415`) — a quiet net has none, so it is elided. -/
 def updateCell (now : Nat) (s : Cell) : Cell :=
   if s.dirty then
     if s.tokens && !s.enabled then
@@ -136,15 +136,15 @@ transitions never reach it (`is_exact` continue, TIME-006). -/
 def reaps (latest now : Nat) (s : Cell) : Bool :=
   s.enabled && deadlineExpired latest now s.clock
 
-/-- `BitmapBackend::enforce_deadlines` (`bitmap_backend.rs:479`, reap block
-`:492-497`): clear the enabled flag, `enabled_at_ms = NEG_INFINITY` — and
+/-- `BitmapBackend::enforce_deadlines` (`bitmap_backend.rs:595`, reap block
+`:608-613`): clear the enabled flag, `enabled_at_ms = NEG_INFINITY` — and
 **nothing else**; the dirty set is untouched. -/
 def enforceBB (latest now : Nat) (s : Cell) : Cell :=
   if reaps latest now s then { s with enabled := false, clock := none } else s
 
-/-- `PrecompiledBackend::enforce_deadlines` (`precompiled_backend.rs:813`,
-reap block `:841-847`): the same clear — plus `mark_transition_dirty(tid)`
-(`:845`, the bit-set of `:486-490`). The one-field diff from `enforceBB` is
+/-- `PrecompiledBackend::enforce_deadlines` (`precompiled_backend.rs:959`,
+reap block `:987-993`): the same clear — plus `mark_transition_dirty(tid)`
+(`:991`, the bit-set of `:540-545`). The one-field diff from `enforceBB` is
 the entire subject of this module. -/
 def enforcePB (latest now : Nat) (s : Cell) : Cell :=
   if reaps latest now s then
@@ -153,15 +153,23 @@ def enforcePB (latest now : Nat) (s : Cell) : Cell :=
 
 /-- The observable of one cycle: does the ready phase fire the transition?
 Enabled-and-window-open is `collect_ready_general`'s gate; `tokens` is
-`recheck_can_fire` re-running `can_enable` (`bitmap_backend.rs:544-547`),
-redundant while enabled bits are in sync but kept for faithfulness. -/
+`recheck_can_fire` re-running `can_enable` (`bitmap_backend.rs:657-662`),
+redundant while enabled bits are in sync but kept for faithfulness.
+
+Since the EXEC-003 AC3/AC4 work that recheck reads the fire-pass presence
+snapshot and passes `pre_deposit = true`, so `can_enable` additionally
+discounts the pass's `deposit_delta` from every cardinality gate and defers
+any ν-join whose correlated input took a same-pass deposit. A quiet net
+fires nothing, so no deposit is ever recorded: `has_deposits` stays false,
+the discount is inert, and the snapshot equals the live marking. `tokens`
+is therefore the whole content of the recheck in this fragment. -/
 def fires (earliest now : Nat) (s : Cell) : Bool :=
   s.tokens && s.enabled && windowOpen earliest now s.clock
 
 /-! ## One executor cycle, and runs over a schedule
 
-Phase order per the loop (`run_sync`, `executor_core/executor.rs:171`; the
-async loop's Phase 3/4/5, `:619-657`): update enablement, enforce deadlines,
+Phase order per the loop (`run_sync`, `executor_core/executor.rs:199`; the
+async loop's Phase 3/4/5, `:674-729`): update enablement, enforce deadlines,
 collect ready + fire. Advancing time between cycles is the schedule itself:
 a run is driven by the list of cycle timestamps `now`, monotone in every
 scenario proved below. -/
@@ -209,7 +217,7 @@ theorem no_reap_frame {latest now : Nat} {s : Cell}
 /-- **PB half of the mechanism**: one dirty-gated update step re-enables a
 reaped cell whose tokens are still present, with the fresh TIME-011 clock —
 the newly-enabled path of `update_enablement`
-(`precompiled_backend.rs:790-794`), the same path initialization takes. -/
+(`precompiled_backend.rs:936-940`), the same path initialization takes. -/
 theorem pb_update_reenables (now : Nat) {s : Cell} (ht : s.tokens = true)
     (he : s.enabled = false) (hd : s.dirty = true) :
     updateCell now s
@@ -248,8 +256,8 @@ from firing at its enablement instant, the hard `latest` makes it reapable
 (TIME-013 applies to `Deadline`/`Window` only). -/
 def wTiming : Timing := { earliest := 3, latest := 5 }
 
-/-- The cell as `initialize` leaves it (`precompiled_backend.rs:725`,
-`bitmap_backend.rs:399`): tokens present from the initial marking, everything
+/-- The cell as `initialize` leaves it (`precompiled_backend.rs:871`,
+`bitmap_backend.rs:515`): tokens present from the initial marking, everything
 dirty (`mark_all_dirty`), nothing enabled yet. -/
 def wInit : Cell := { tokens := true, enabled := false, clock := none, dirty := true }
 

@@ -65,6 +65,20 @@ file = "rust/libpetri-runtime/src/precompiled_backend.rs"
 fn = "produce_token"
 lean = ["Libpetri/Enablement.lean", "Libpetri/RetrodictExec.lean"]
 
+# The EXEC-003 AC5 drain bound. `consumeCountAt` / `execOp`'s drain arms are
+# this function's `drainable == live` case, and `begin_firing_pass` is why that
+# case is every firing of a deposit-free pass — both are what the consume
+# model's scope note (Conservation.lean, header) rests on. Both backends.
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "drainable"
+lean = ["Libpetri/Conservation.lean", "Libpetri/Compile.lean", "Libpetri/Refinement.lean", "Libpetri/MatchCache.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "begin_firing_pass"
+lean = ["Libpetri/Conservation.lean", "Libpetri/Refinement.lean"]
+
 [[pin]]
 file = "rust/libpetri-runtime/src/precompiled_backend.rs"
 fn = "materialize_marking"
@@ -100,6 +114,21 @@ file = "rust/libpetri-runtime/src/precompiled_backend.rs"
 fn = "collect_ready_general"
 lean = ["Libpetri/Sched.lean", "Libpetri/RetrodictExec.lean"]
 
+# `pcRecheck` models this. The bitmap twin was pinned for TimedCycle.lean and
+# this one was not — a per-file citation guard cannot see the gap, so it is
+# added by hand (lean/README.md, "Fidelity").
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "recheck_can_fire"
+lean = ["Libpetri/Refinement.lean"]
+
+# `fireConsume` is "the consume plus `update_bitmap_after_consumption`", and
+# PB1's clearing direction is that function's postcondition. Both backends.
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "update_bitmap_after_consumption"
+lean = ["Libpetri/Enablement.lean", "Libpetri/Refinement.lean"]
+
 # ---- rust/libpetri-runtime/src/precompiled_net.rs ----
 
 [[pin]]
@@ -131,8 +160,23 @@ lean = ["Libpetri/Basic.lean"]
 
 [[pin]]
 file = "rust/libpetri-runtime/src/bitmap_backend.rs"
+fn = "drainable"
+lean = ["Libpetri/Basic.lean", "Libpetri/Conservation.lean", "Libpetri/Refinement.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/bitmap_backend.rs"
+fn = "begin_firing_pass"
+lean = ["Libpetri/Conservation.lean", "Libpetri/Refinement.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/bitmap_backend.rs"
 fn = "collect_ready_general"
 lean = ["Libpetri/Sched.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/bitmap_backend.rs"
+fn = "update_bitmap_after_consumption"
+lean = ["Libpetri/Enablement.lean", "Libpetri/Refinement.lean"]
 
 # ---- rust/libpetri-runtime/src/compiled_net.rs ----
 
@@ -311,6 +355,19 @@ fn = "recheck_can_fire"
 lean = ["Libpetri/TimedCycle.lean"]
 
 # ---- Strengthening.lean (P-invariant strengthening soundness) ----
+# `fireA` models the fire relation these conditions emit; `dot` / `ReachAStr`
+# model the conjunct `invariant_conditions` builds and `encode_transition_rule`
+# splices into the rule body.
+[[pin]]
+file = "rust/libpetri-verification/src/smt_encoder.rs"
+fn = "firing_conditions"
+lean = ["Libpetri/Strengthening.lean", "Libpetri/Basic.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_encoder.rs"
+fn = "invariant_conditions"
+lean = ["Libpetri/Strengthening.lean"]
+
 [[pin]]
 file = "rust/libpetri-verification/src/incidence_matrix.rs"
 fn = "from_flat_net"
@@ -375,4 +432,11 @@ lean = ["Libpetri/MatchCache.lean"]
 [[pin]]
 file = "rust/libpetri-core/src/name.rs"
 fn = "NameId"
+lean = ["Libpetri/MatchCache.lean"]
+
+# `KeyOf` models this projection directly; it lives in a file no other pin
+# covers, so without its own pin the citation guard could not see it.
+[[pin]]
+file = "rust/libpetri-core/src/match_spec.rs"
+fn = "extract"
 lean = ["Libpetri/MatchCache.lean"]

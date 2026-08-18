@@ -18,6 +18,30 @@ queue is exactly `delivered ++ destroyed ++ survivors`, in order.
   clone of the oldest post-input token per read arc.
 * FR5 `produceAll_spec` — outputs append at the FIFO tail in emission order
   (EXEC-020), via `ring_add_last`.
+
+**Scope: the drains modelled here are the deposit-free ones (EXEC-003 AC5).**
+Every draining site of the shipped `consume_for_firing` — the `all()` and
+`at_least(n)` arms, their ν-matched twins, and the RESET tail — takes
+`drainable(p, live)` tokens, not `live`: `live` minus whatever a same-pass
+synchronous action deposited into `p` since the ready list was collected
+(`drainable`, both backends). `drainable` returns `live` unchanged whenever no
+deposit is outstanding at `p`. That is every firing of a pass in which no
+earlier firing's action produced into `p`: always the first firing of any
+pass, and always every firing of a pass whose actions are asynchronous, since
+`begin_firing_pass` drops the previous pass's delta before the fire loop and
+an async completion produces in loop step 1 of a later cycle. It is the case
+`execOp` models.
+
+**Not covered: a drain in a pass where an earlier firing already deposited
+into the drained place.** There the shipped code splits the queue earlier than
+`consumeCountAt` computes, so `consume_faithful`'s prefix is the deposit-free
+prefix and nothing more; `token_conservation`'s list equality has the same
+shape under either split (the code still delivers a prefix and leaves the
+rest), but the split point it names is the deposit-free one. This model has no
+notion of a pass at all, so it cannot state the deposited case — and no
+theorem below is weakened to pretend otherwise. `Refinement.lean` has the one
+cycle-level model in this development that *does* reach the case, and records
+there why its statement survives.
 -/
 import Libpetri.Compile
 
@@ -122,7 +146,11 @@ structure ConsumeResult where
 /-- One opcode (`precompiled_backend.rs` `consume_for_firing`, fast path):
 `CONSUME_ONE` pops 1, `CONSUME_N` pops its count, `CONSUME_ALL` and
 `CONSUME_ATLEAST` drain `token_counts[pid]` (the `atLeast` minimum is
-skipped), `RESET` drains into `destroyed`. -/
+skipped), `RESET` drains into `destroyed`.
+
+The three drain arms are the shipped `drainable(pid, token_counts[pid])` in
+its `drainable = token_counts[pid]` case — see the AC5 scope note in the
+module header for the case they are not. -/
 def execOp (r : ConsumeResult) : ConsumeOp → ConsumeResult
   | .one p =>
     { r with pool := (popN r.pool p 1).1
@@ -404,7 +432,10 @@ Over one firing's consume phase, every place's pre-fire FIFO queue is
 *exactly* the tokens delivered to the action, then the tokens destroyed by
 resets, then the surviving queue — as a list equality, so nothing is lost,
 nothing is duplicated, and order is preserved. Places the transition does not
-touch are equal on the nose. -/
+touch are equal on the nose.
+
+Stated at the split `consumeCountAt` computes, hence for a drain with no
+same-pass deposit outstanding (module header, AC5 scope). -/
 theorem token_conservation {s : Pool} (hwf : Pool.WF s) {t : Transition}
     (hdist : DistinctInputPlaces t) (hb : PlacesInBounds t s.nplaces)
     (hen : canEnable s t = true) :
@@ -461,7 +492,14 @@ theorem token_conservation {s : Pool} (hwf : Pool.WF s) {t : Transition}
 
 /-- **FR1 — consumption faithfulness** (EXEC-010, IO-007): each input place
 delivers exactly the `consumptionCount(available)` FIFO prefix into the
-action's `inputs`, in queue order. -/
+action's `inputs`, in queue order.
+
+This is the statement EXEC-003 AC5 moves: on a draining arc the shipped
+`available` is `drainable(p, live)`, so the prefix is `consumptionCount` of the
+pass-start count, not of the live count. Equal whenever no same-pass deposit is
+outstanding at `p` — the modelled case (module header) — and the `One`/`Exactly`
+arms are equal unconditionally, since a fixed count off the FIFO head stays
+inside the pre-deposit prefix that the AC4 recheck already required. -/
 theorem consume_faithful {s : Pool} (hwf : Pool.WF s) {t : Transition}
     (hdist : DistinctInputPlaces t) (hb : PlacesInBounds t s.nplaces)
     (hen : canEnable s t = true) :

@@ -48,7 +48,13 @@ def compileConsumeOps (t : Transition) : List ConsumeOp :=
 
 /-- IO-007's `consumptionCount(available)` column, as the opcode interpreter
 realises it (the `to_consume` match of `consume_for_firing`): `One`/`Exactly`
-consume their required count, `All`/`AtLeast` drain everything available. -/
+consume their required count, `All`/`AtLeast` drain everything available.
+
+`available` is the shipped `drainable(pid, token_counts[pid])`, which is
+`token_counts[pid]` exactly when no same-pass synchronous deposit is
+outstanding at the place (EXEC-003 AC5). Callers here pass the live count, so
+this column is the deposit-free one — `Conservation.lean`'s header states the
+exclusion for the whole consume model. -/
 def consumeCountAt (avail : Nat) : Card → Nat
   | .one => 1
   | .exactly k => k
@@ -67,7 +73,14 @@ occupied, every inhibitor place empty; reset places gate nothing, CORE-034)
 plus `CompiledNet::cardinality_check` (`compiled_net.rs` — each spec's
 `required_count` individually against `token_counts`). Models
 `precompiled_backend.rs` `can_enable`, minus timing and the ν-match clause
-(deferred to the ν phase). -/
+(deferred to the ν phase).
+
+Specifically the `pre_deposit = false` call, which is the one
+`update_enablement` makes: the intra-pass `recheck_can_fire` passes `true`
+and the cardinality gate then reads `token_counts[pid] - deposit_delta[pid]`,
+so a token a same-pass synchronous action deposited cannot satisfy it
+(EXEC-003 AC4). `Refinement.lean` idealizes that path — equally on both
+backends — and says so. -/
 def canEnable (s : Pool) (t : Transition) : Bool :=
   t.inputs.all (fun sp =>
     decide (0 < s.cnt sp.place) && decide (sp.card.required ≤ s.cnt sp.place))

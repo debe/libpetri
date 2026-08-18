@@ -51,7 +51,7 @@ def slot (s : Pool) (p : PlaceId) (i : Nat) : Nat :=
   cached `tail` equals `(head + cnt) % cap` and whose block fits in the pool.
 * `occupied` / `free` — RB2: live positions hold `Some`, free positions of the
   *current* block hold `None`. This is what makes `ring_remove_first`'s
-  `.take().unwrap()` (`precompiled_backend.rs:332`) total. Slots outside every
+  `.take().unwrap()` (`precompiled_backend.rs:383`) total. Slots outside every
   current block (blocks leaked by `grow_ring_static`) are unconstrained.
 * `disjoint` — RB3: current blocks of distinct places never overlap, so one
   place's writes cannot corrupt another's ring. -/
@@ -178,7 +178,7 @@ theorem proj_length {s : Pool} (hwf : WF s) {p : PlaceId} (hp : p < s.nplaces) :
     have := hwf.occupied p hp i hi
     simpa using this)
 
-/-! ## `ring_remove_first` (`precompiled_backend.rs:329-336`)
+/-! ## `ring_remove_first` (`precompiled_backend.rs:380-387`)
 
 `take()` the head slot (the returned token is `first`), advance the head,
 decrement the count. -/
@@ -225,7 +225,7 @@ theorem removeFirst_slot_other (s : Pool) {p q : PlaceId} (hne : q ≠ p) (i : N
   unfold slot
   rw [removeFirst_offset, removeFirst_cap, removeFirst_head_other s hne]
 
-/-- Totality of the `.unwrap()` at `precompiled_backend.rs:332`: under RB2 a
+/-- Totality of the `.unwrap()` at `precompiled_backend.rs:383`: under RB2 a
 non-empty ring's head slot is `Some`. -/
 theorem first_isSome {s : Pool} (hwf : WF s) {p : PlaceId} (hp : p < s.nplaces)
     (hcnt : 0 < s.cnt p) : (s.first p).isSome :=
@@ -349,7 +349,7 @@ theorem removeFirst_proj_other {s : Pool} (hwf : WF s) {p q : PlaceId}
   rw [removeFirst_slot_other s hne, removeFirst_pool,
     if_neg (Ne.symm (slot_ne_of_place_ne hwf hp hq (Ne.symm hne) 0 (0 + i)))]
 
-/-! ## `ring_peek_first` (`precompiled_backend.rs:359-364`) -/
+/-! ## `ring_peek_first` (`precompiled_backend.rs:410-415`) -/
 
 def peekFirst (s : Pool) (p : PlaceId) : Option Colour :=
   if s.cnt p = 0 then none else s.pool (s.slot p 0)
@@ -367,7 +367,7 @@ theorem peekFirst_eq_head {s : Pool} (hwf : WF s) {p : PlaceId} (hp : p < s.npla
   · rw [if_neg hcnt]
     exact first_eq_head hwf hp (by omega)
 
-/-! ## `grow_ring_static` (`precompiled_backend.rs:1179-1206`)
+/-! ## `grow_ring_static` (`precompiled_backend.rs:1350-1377`)
 
 Appends a fresh `2 * cap` block at the end of the pool, `take()`s the `cnt`
 live tokens into it linearly (`head = 0`, `tail = cnt`), and re-points the
@@ -601,7 +601,7 @@ theorem growRing_proj_other {s : Pool} (hwf : WF s) {p q : PlaceId}
       have h2 := offset_le_slot s q i
       rcases hwf.disjoint p q hp hq (fun h => hne h.symm) with h | h <;> omega)]
 
-/-! ## `ring_add_last` (`precompiled_backend.rs:339-356`)
+/-! ## `ring_add_last` (`precompiled_backend.rs:390-407`)
 
 Write at the tail slot, bump the tail, increment the count — growing first
 when the ring is full. `pushLast` is the write half; `addLast` is the shipped
@@ -808,7 +808,7 @@ theorem addLast_proj_other {s : Pool} (hwf : WF s) {p q : PlaceId}
   · rw [if_neg hfull]
     exact pushLast_proj_other hwf hp hq hne c
 
-/-! ## `ring_remove_matching` (`precompiled_backend.rs:371-423`)
+/-! ## `ring_remove_matching` (`precompiled_backend.rs:422-474`)
 
 The ν-net matched consume: scan positions from the head for the first token
 satisfying `pred`, `take()` it, then close the gap from whichever end is
@@ -912,7 +912,8 @@ theorem proj_split {s : Pool} (_hwf : WF s) {p : PlaceId} (_hp : p < s.nplaces)
   simp only [projFrom, hc, Option.toList, List.append_nil, List.cons_append,
     List.nil_append]
 
-/-! ### The head-side compaction (`precompiled_backend.rs:395-403`) -/
+/-! ### The head-side compaction (`ring_remove_matching`'s nearer-the-head
+branch, `precompiled_backend.rs:446-454`) -/
 
 def headSlideAt (s : Pool) (p : PlaceId) (i : Nat) : Pool :=
   { s with
@@ -1093,7 +1094,8 @@ theorem headSlideAt_proj_other {s : Pool} (hwf : WF s) {p q : PlaceId}
   rw [headSlideAt_slot_other s i hne,
     headSlideAt_pool_other hwf hp hq hne i (0 + m)]
 
-/-! ### The tail-side compaction (`precompiled_backend.rs:404-417`) -/
+/-! ### The tail-side compaction (`ring_remove_matching`'s nearer-the-tail
+branch, `precompiled_backend.rs:455-468`) -/
 
 def tailSlideAt (s : Pool) (p : PlaceId) (i : Nat) : Pool :=
   { s with
