@@ -1,0 +1,378 @@
+# Fidelity pin manifest — the Lean ↔ Rust bridge.
+#
+# One [[pin]] per shipped Rust item the Lean development models. The checker
+# (scripts/lean-fidelity-check.py) hashes each item's current source span and
+# compares it against lean/fidelity.lock; any change to a pinned item — code
+# or comment — fails until the Lean model is re-verified and the lock is
+# regenerated with `python3 scripts/lean-fidelity-check.py --update`.
+#
+# Fields:
+#   file — repo-relative Rust source path
+#   fn   — item name: a function, or an enum/struct where the type itself is
+#          what is modeled (type pins also hash the item's impl blocks)
+#   lean — the Lean modules that model the item (documentation only; the
+#          checker does not parse them beyond citation scanning)
+#
+# Hand-maintained: add a pin when a Lean doc comment starts citing a new Rust
+# item, remove it when the citation goes away. RetrodictExec.lean's pre-fix
+# citations (commit 1bdf586) are historical and deliberately have no pins of
+# their own — they are listed under the current items they diverge from.
+
+# ---- rust/libpetri-runtime/src/precompiled_backend.rs ----
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "ring_remove_first"
+lean = ["Libpetri/Ring.lean", "Libpetri/RingArith.lean", "Libpetri/Conservation.lean", "Libpetri/RetrodictExec.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "ring_add_last"
+lean = ["Libpetri/Ring.lean", "Libpetri/RingArith.lean", "Libpetri/Conservation.lean", "Libpetri/Enablement.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "ring_peek_first"
+lean = ["Libpetri/Ring.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "ring_remove_matching"
+lean = ["Libpetri/Ring.lean", "Libpetri/RingArith.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "grow_ring_static"
+lean = ["Libpetri/Ring.lean", "Libpetri/RingArith.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "can_enable"
+lean = ["Libpetri/Compile.lean", "Libpetri/RetrodictExec.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "consume_for_firing"
+lean = ["Libpetri/Conservation.lean", "Libpetri/Compile.lean", "Libpetri/Enablement.lean", "Libpetri/RetrodictExec.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "peek_reads"
+lean = ["Libpetri/Conservation.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "produce_token"
+lean = ["Libpetri/Enablement.lean", "Libpetri/RetrodictExec.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "materialize_marking"
+lean = ["Libpetri/Ring.lean", "Libpetri/Refinement.lean", "Libpetri/RetrodictExec.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "update_enablement"
+lean = ["Libpetri/Enablement.lean", "Libpetri/Refinement.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "mark_place_dirty"
+lean = ["Libpetri/Enablement.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "post_fire"
+lean = ["Libpetri/Enablement.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "fast_path_available"
+lean = ["Libpetri/Refinement.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "collect_ready_immediate"
+lean = ["Libpetri/Refinement.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "collect_ready_general"
+lean = ["Libpetri/Sched.lean", "Libpetri/RetrodictExec.lean"]
+
+# ---- rust/libpetri-runtime/src/precompiled_net.rs ----
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_net.rs"
+fn = "compile_consume_ops"
+lean = ["Libpetri/Compile.lean", "Libpetri/Conservation.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_net.rs"
+fn = "can_enable_bitmap"
+lean = ["Libpetri/Compile.lean"]
+
+# ---- rust/libpetri-runtime/src/bitmap_backend.rs ----
+
+[[pin]]
+file = "rust/libpetri-runtime/src/bitmap_backend.rs"
+fn = "can_enable"
+lean = ["Libpetri/Basic.lean", "Libpetri/Refinement.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/bitmap_backend.rs"
+fn = "consume_for_firing"
+lean = ["Libpetri/Basic.lean", "Libpetri/Refinement.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/bitmap_backend.rs"
+fn = "produce_token"
+lean = ["Libpetri/Basic.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/bitmap_backend.rs"
+fn = "collect_ready_general"
+lean = ["Libpetri/Sched.lean"]
+
+# ---- rust/libpetri-runtime/src/compiled_net.rs ----
+
+[[pin]]
+file = "rust/libpetri-runtime/src/compiled_net.rs"
+fn = "compile"
+lean = ["Libpetri/Compile.lean", "Libpetri/Enablement.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/compiled_net.rs"
+fn = "affected_transitions"
+lean = ["Libpetri/Enablement.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/compiled_net.rs"
+fn = "cardinality_check"
+lean = ["Libpetri/Compile.lean", "Libpetri/RetrodictExec.lean"]
+
+# ---- rust/libpetri-runtime/src/marking.rs ----
+
+[[pin]]
+file = "rust/libpetri-runtime/src/marking.rs"
+fn = "Marking"
+lean = ["Libpetri/Basic.lean", "Libpetri/Refinement.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/marking.rs"
+fn = "count_matching"
+lean = ["Libpetri/Basic.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/marking.rs"
+fn = "remove_matching"
+lean = ["Libpetri/Basic.lean"]
+
+# ---- rust/libpetri-runtime/src/executor_core/executor.rs ----
+
+[[pin]]
+file = "rust/libpetri-runtime/src/executor_core/executor.rs"
+fn = "run_sync"
+lean = ["Libpetri/Refinement.lean"]
+
+# ---- rust/libpetri-runtime/src/executor_core/output.rs ----
+
+[[pin]]
+file = "rust/libpetri-runtime/src/executor_core/output.rs"
+fn = "validate_out_spec"
+lean = ["Libpetri/Basic.lean", "Libpetri/Soundness.lean"]
+
+# ---- rust/libpetri-core/src/input.rs ----
+
+[[pin]]
+file = "rust/libpetri-core/src/input.rs"
+fn = "In"
+lean = ["Libpetri/Basic.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/input.rs"
+fn = "required_count"
+lean = ["Libpetri/Basic.lean", "Libpetri/Compile.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/input.rs"
+fn = "consumption_count"
+lean = ["Libpetri/Compile.lean", "Libpetri/Conservation.lean"]
+
+# ---- rust/libpetri-core/src/token.rs ----
+
+[[pin]]
+file = "rust/libpetri-core/src/token.rs"
+fn = "Token"
+lean = ["Libpetri/Basic.lean"]
+
+# ---- rust/libpetri-verification/src/smt_encoder.rs ----
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_encoder.rs"
+fn = "encode"
+lean = ["Libpetri/Soundness.lean", "Libpetri/Retrodict.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_encoder.rs"
+fn = "encode_transition_rule"
+lean = ["Libpetri/Basic.lean", "Libpetri/Soundness.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_encoder.rs"
+fn = "encode_injection_rule"
+lean = ["Libpetri/Retrodict.lean"]
+
+# ---- rust/libpetri-verification/src/net_flattener.rs ----
+
+[[pin]]
+file = "rust/libpetri-verification/src/net_flattener.rs"
+fn = "flatten"
+lean = ["Libpetri/Basic.lean", "Libpetri/Soundness.lean"]
+
+# ---- rust/libpetri-verification/src/priority_semantics.rs ----
+
+[[pin]]
+file = "rust/libpetri-verification/src/priority_semantics.rs"
+fn = "PrioritySemantics"
+lean = ["Libpetri/Priority.lean"]
+
+# ---- rust/libpetri-verification/src/name_state_class_graph.rs ----
+
+[[pin]]
+file = "rust/libpetri-verification/src/name_state_class_graph.rs"
+fn = "priority_dominated"
+lean = ["Libpetri/Priority.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/name_state_class_graph.rs"
+fn = "will_fire"
+lean = ["Libpetri/Priority.lean"]
+
+# ---- TimedCycle.lean (deadline reap asymmetry) ----
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "enforce_deadlines"
+lean = ["Libpetri/TimedCycle.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "mark_transition_dirty"
+lean = ["Libpetri/TimedCycle.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "has_input_from_reset_place"
+lean = ["Libpetri/TimedCycle.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "disable"
+lean = ["Libpetri/TimedCycle.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "initialize"
+lean = ["Libpetri/TimedCycle.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/bitmap_backend.rs"
+fn = "enforce_deadlines"
+lean = ["Libpetri/TimedCycle.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/bitmap_backend.rs"
+fn = "update_enablement"
+lean = ["Libpetri/TimedCycle.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/bitmap_backend.rs"
+fn = "has_input_from_reset_place"
+lean = ["Libpetri/TimedCycle.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/bitmap_backend.rs"
+fn = "post_fire"
+lean = ["Libpetri/TimedCycle.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/bitmap_backend.rs"
+fn = "disable"
+lean = ["Libpetri/TimedCycle.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/bitmap_backend.rs"
+fn = "initialize"
+lean = ["Libpetri/TimedCycle.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/bitmap_backend.rs"
+fn = "recheck_can_fire"
+lean = ["Libpetri/TimedCycle.lean"]
+
+# ---- Strengthening.lean (P-invariant strengthening soundness) ----
+[[pin]]
+file = "rust/libpetri-verification/src/incidence_matrix.rs"
+fn = "from_flat_net"
+lean = ["Libpetri/Strengthening.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/p_invariant.rs"
+fn = "validate_invariants_exact"
+lean = ["Libpetri/Strengthening.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/p_invariant.rs"
+fn = "PInvariant"
+lean = ["Libpetri/Strengthening.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_verifier.rs"
+fn = "process_z3_result"
+lean = ["Libpetri/Strengthening.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_encoder.rs"
+fn = "encode_property_violation"
+lean = ["Libpetri/Strengthening.lean"]
+
+# ---- MatchCache.lean (nu-match cache lockstep) ----
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "init_match_caches"
+lean = ["Libpetri/MatchCache.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "cache_add_token"
+lean = ["Libpetri/MatchCache.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "find_match_binding"
+lean = ["Libpetri/MatchCache.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/precompiled_backend.rs"
+fn = "inject_external_token"
+lean = ["Libpetri/MatchCache.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/match_engine.rs"
+fn = "IncrementalMatcher"
+lean = ["Libpetri/MatchCache.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/match_engine.rs"
+fn = "MinQueue"
+lean = ["Libpetri/MatchCache.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/match_engine.rs"
+fn = "select_match_name"
+lean = ["Libpetri/MatchCache.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/name.rs"
+fn = "NameId"
+lean = ["Libpetri/MatchCache.lean"]

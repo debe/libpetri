@@ -172,20 +172,35 @@ suite before the fixes' new tests.
 flattening, environment places, conflict-priority pruning; and (axis 2) the
 flat ring-buffer pool at full fidelity, the consume opcode program, the
 presence/dirty bit machinery, the immediate-fragment backend refinement, and
-the general-path ready ordering with abstract `Nat` clocks.
+the general-path ready ordering with abstract `Nat` clocks. Three later
+modules extend both axes: `TimedCycle.lean` (a control-cell witness that the
+two shipped `enforce_deadlines` diverge observably after a reap —
+`deadline_reap_dirty_diverges`; which behaviour TIME-013 should mandate is a
+pending semantics decision), `MatchCache.lean` (the ν-match cache lockstep
+invariant `match_cache_lockstep` under the fast-path eligibility gate, at
+queue-contents granularity, plus per-conjunct necessity witnesses), and
+`Strengthening.lean` (P-invariant strengthening preserves the abstract
+reachable set under H1/H2/H3′ — the H1 hypothesis forced the consume-all/
+reset guard now shipped in all three validators).
 
-**Out:** real-valued time, deadline enforcement (TIME-013, including its
-dirty-marking asymmetry between backends), DBM / Berthomieu–Diaz state
-classes, and the full timed-cycle refinement (only the ready-collection
-phase is covered); the async loop and action plumbing (actions are pure
-emission functions here); the ν-match consume path and cache lockstep
-(NU-020 — `removeMatching`/RB6 is proven at the ring layer so the ν phase
-can build on it); the u64 word packing and two-level summaries (bit/set
+**Out:** real-valued time, deadline *refinement* (the reap divergence is
+witnessed in `TimedCycle.lean`, but the TIME-013 semantics ruling and the
+full timed-cycle refinement remain open — only the ready-collection phase is
+covered), DBM / Berthomieu–Diaz state
+classes; the async loop and action plumbing (actions are pure
+emission functions here); ν-match `best()` selection and tie-break (NU-022
+AC2 stays a differential-test claim — `MatchCache.lean` covers queue
+contents only); the u64 word packing and two-level summaries (bit/set
 granularity only; PERF-042 AC4 pins the words differentially); the u32
 opcode encoding (FR4 is proven on the structured op stream); the ν name
 layer beyond the boolean `nameEnabled` abstraction in `Priority.lean` (so
 the ν-budget retrodictions `667e67d` and `a4038f5` are **not** covered);
-Lemma 0 quiescence; extraction to the four implementations.
+Lemma 0 quiescence; extraction to the four implementations. One resolution
+lesson: the immediate-fragment refinement idealizes the EXEC-003 recheck the
+same way on both sides, which is why pre-fix divergence #5 (same-pass output
+visibility in the precompiled recheck; fixed 2026-08, pinned in
+`backend_suite_tests.rs`) fell outside the proven correspondence — an
+explicit snapshot-recheck model that would have *seen* it is future work.
 
 **Modelling assumptions**, each stated in the source where used:
 
@@ -203,6 +218,31 @@ models. If one of those functions changes, this development is wrong until the
 comment is rechecked — that is the maintenance obligation this directory adds.
 The function name is the primary reference and the line number a hint: a moved
 line is a doc fix, a changed function is a fidelity breach.
+
+### Fidelity check
+
+That obligation is mechanized. `fidelity.toml` pins every modeled Rust item —
+one `[[pin]]` per function (or type, where the type itself is what is modeled)
+with the Lean modules that model it — and `fidelity.lock` records a SHA-256 of
+each pinned item's current source span, doc comments and attributes included:
+a comment edit trips it too, deliberately, because the comments carry the
+semantics the model was checked against. `scripts/lean-fidelity-check.py`
+re-hashes the pins against the lock, and additionally fails if any `.rs` file
+cited in a Lean doc comment has no pin at all — so a new citation forces a new
+pin. `RetrodictExec.lean`'s pre-fix citations (commit `1bdf586`) are
+historical; they carry no pins of their own beyond the current items they
+diverge from.
+
+When the check fails:
+
+1. Open the named Rust function and re-verify the listed Lean module(s)
+   against it — fix the model, or confirm the change is outside the modelled
+   fragment.
+2. Refresh any line-number hints that moved (a moved line is still just a
+   doc fix; the pin follows the function by name).
+3. `python3 scripts/lean-fidelity-check.py --update` to regenerate the lock.
+4. Commit the lock together with any Lean fixes, so the lock always records
+   the exact code this development was last verified against.
 
 Nothing in `theory/` is edited by this development; the papers are read-only
 reference for the theorem statements.

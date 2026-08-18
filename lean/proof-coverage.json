@@ -1,0 +1,411 @@
+{
+  "$comment": "Hand-maintained annotation layer mapping Lean theorems to the spec requirements they support. Consumed by scripts/spec-coverage-matrix.py, which validates every name against `theorem NAME`/`lemma NAME` declarations in the claimed module and every id against the active registry in spec/00-index.md. Each `fragment` scopes the claim honestly \u2014 a listed id means the theorem supports THAT fragment of the requirement, nothing more. See lean/README.md for the development's overall scope and out-of-scope list.",
+  "theorems": [
+    {
+      "name": "proposition_one",
+      "module": "Libpetri/Soundness.lean",
+      "specIds": [
+        {
+          "id": "VER-004",
+          "fragment": "abstraction soundness alpha(R(N)) subset R(N-hat) on the untimed flat fragment, under the GuardFreeConsumeAll (vacuous since the IO-006 guard removal) and UnitOutput side conditions; the CHC encoder is modelled, not extracted"
+        }
+      ]
+    },
+    {
+      "name": "guard_hypothesis_is_necessary",
+      "module": "Libpetri/Soundness.lean",
+      "specIds": [
+        {
+          "id": "VER-004",
+          "fragment": "necessity of the guard-free side condition: concrete counterexample where a guarded consume-all arc made the untimed abstraction unsound (historical evidence; discharged by the IO-006 guard removal)"
+        }
+      ]
+    },
+    {
+      "name": "unit_output_hypothesis_is_necessary",
+      "module": "Libpetri/Soundness.lean",
+      "specIds": [
+        {
+          "id": "VER-004",
+          "fragment": "necessity of the unit-output side condition: validate_out_spec checks place membership, never multiplicity, while the encoder fixes the abstract gain at one token per branch place \u2014 the hypothesis remains unchecked by the shipped encoder"
+        }
+      ]
+    },
+    {
+      "name": "false_proven_without_injection",
+      "module": "Libpetri/Retrodict.lean",
+      "specIds": [
+        {
+          "id": "VER-006",
+          "fragment": "retrodiction of 98b9297: without the environment-injection rule the abstract reachable set freezes at M0, so PlaceBound(p1, 0) is proven vacuously \u2014 the pre-fix false Proven, on the minimal one-env-place witness net"
+        }
+      ]
+    },
+    {
+      "name": "injection_reaches_violation",
+      "module": "Libpetri/Retrodict.lean",
+      "specIds": [
+        {
+          "id": "VER-006",
+          "fragment": "with the injection rule of smt_encoder.rs:81-83 encoded, the vacuous bound above is refuted (p1 reaches 1) \u2014 witnesses the fix on the minimal net, not full environment-analysis-mode soundness"
+        }
+      ]
+    },
+    {
+      "name": "willFire_guard_is_necessary",
+      "module": "Libpetri/Priority.lean",
+      "specIds": [
+        {
+          "id": "NU-052",
+          "fragment": "retrodiction of c23cd9e: the pre-fix conflict-only prune (no will-fire guard) drops a drain firing the executor really performs, the shipped prune does not \u2014 nu name layer abstracted to a boolean nameEnabled, untimed fragment"
+        }
+      ]
+    },
+    {
+      "name": "postFixPrune_agrees_with_executor",
+      "module": "Libpetri/Priority.lean",
+      "specIds": [
+        {
+          "id": "NU-052",
+          "fragment": "the shipped prune condition never contradicts the executor's firing rule (immediate by construction \u2014 the condition is the executor's rule); untimed fragment, boolean name layer"
+        }
+      ]
+    },
+    {
+      "name": "token_conservation",
+      "module": "Libpetri/Conservation.lean",
+      "specIds": [
+        {
+          "id": "EXEC-010",
+          "fragment": "single-firing consume phase on the compiled consume program: every place's pre-fire FIFO queue is exactly delivered ++ reset-destroyed ++ survivors as an ordered list equality \u2014 nothing lost, nothing duplicated; async plumbing out of scope"
+        },
+        {
+          "id": "EXEC-013",
+          "fragment": "the reset-destroyed summand of the conservation equality: after input opcodes run, each reset place's remaining queue is destroyed in full and survives nowhere; clock-restart and event obligations of the requirement not covered"
+        },
+        {
+          "id": "IO-007",
+          "fragment": "the balance side of the contract: consumption removes exactly the consumptionCount prefix \u2014 no token beyond it leaves an input place in one firing"
+        }
+      ]
+    },
+    {
+      "name": "consume_faithful",
+      "module": "Libpetri/Conservation.lean",
+      "specIds": [
+        {
+          "id": "EXEC-010",
+          "fragment": "each input place delivers exactly its FIFO prefix into the action's inputs, in queue order; single firing on the compiled consume program"
+        },
+        {
+          "id": "IO-007",
+          "fragment": "delivered count is consumptionCount(available): required count for One/Exactly, full drain for All/AtLeast \u2014 the interpreter realises the spec's consumptionCount column"
+        }
+      ]
+    },
+    {
+      "name": "consumeForFiring_eq_program",
+      "module": "Libpetri/Conservation.lean",
+      "specIds": [
+        {
+          "id": "EXEC-012",
+          "fragment": "the read peek at the reset_ops_start boundary observes but does not mutate the pool (peekReads is pure by construction); peeked content is the post-input, pre-reset head token per read place"
+        },
+        {
+          "id": "EXEC-013",
+          "fragment": "inputs-then-RESET-tail ordering of the compiled consume program, with reads peeked at the reset_ops_start boundary \u2014 the ordering EXEC-013 requires; single firing only"
+        }
+      ]
+    },
+    {
+      "name": "produceAll_spec",
+      "module": "Libpetri/Conservation.lean",
+      "specIds": [
+        {
+          "id": "EXEC-020",
+          "fragment": "produced tokens append at the FIFO tail of their target place in emission order via ring_add_last (grow path included); single-firing produce phase, output-spec validation out of scope"
+        }
+      ]
+    },
+    {
+      "name": "fireConsume_dirty_sound",
+      "module": "Libpetri/Enablement.lean",
+      "specIds": [
+        {
+          "id": "CONC-005",
+          "fragment": "dirty-set soundness over one firing's consume phase: any state change that can flip another transition's enablement marks it dirty (canEnable reads only touched places, affected_transitions covers every toucher); bit granularity \u2014 u64 word packing and two-level summaries out of scope"
+        }
+      ]
+    },
+    {
+      "name": "disable_frame",
+      "module": "Libpetri/Enablement.lean",
+      "specIds": [
+        {
+          "id": "EXEC-003",
+          "fragment": "loser path only: disable changes no token counts, so skipping dirty-marking for the conflict loser is sound (the winner's consume already marked it); the competitive re-check itself is covered by the immediate-fragment refinement"
+        }
+      ]
+    },
+    {
+      "name": "updateEnablement_sync",
+      "module": "Libpetri/Enablement.lean",
+      "specIds": [
+        {
+          "id": "CONC-005",
+          "fragment": "the dirty scan restores exact enablement: after update_enablement every transition's enabled bit equals canEnable (clean bits were accurate, dirty bits recomputed) \u2014 what makes the dirty-set optimization behaviorally invisible; bit granularity"
+        },
+        {
+          "id": "EXEC-003",
+          "fragment": "the loser re-evaluation EXEC-003 relies on: after the winner's consume marks competitors dirty, the scan re-derives exact enablement for them; untimed enablement predicate only"
+        }
+      ]
+    },
+    {
+      "name": "precompiled_refines_bitmap_immediate",
+      "module": "Libpetri/Refinement.lean",
+      "specIds": [
+        {
+          "id": "CONC-021",
+          "fragment": "the opcode consume program plus flat pool refine the bitmap reference: identical firing decisions and materialized markings, cycle for cycle \u2014 untimed/immediate sync fragment, actions abstracted to a pure emission function with proven-identical inputs/reads bags; u32 opcode encoding not modelled"
+        },
+        {
+          "id": "EXEC-003",
+          "fragment": "both backends make identical conflict decisions on the untimed/immediate fragment (same control bits, same ready order, same winner/loser outcomes); timed competitive scheduling out of scope"
+        }
+      ]
+    },
+    {
+      "name": "collect_ready_general_refines",
+      "module": "Libpetri/Sched.lean",
+      "specIds": [
+        {
+          "id": "EXEC-002",
+          "fragment": "ready-collection phase only: the canonical (priority DESC, enabled_at ASC, tid ASC) order is the unique sorted permutation of the ready set and both backends' outputs equal it; abstract Nat clocks"
+        },
+        {
+          "id": "CONC-023",
+          "fragment": "the post-fix per-priority-level drain (LevelBlocks, RQ1-RQ4) produces the same list as the reference's stable (priority DESC, enabled_at ASC) sort; queue maintenance beyond the collection phase not modelled"
+        },
+        {
+          "id": "TIME-010",
+          "fragment": "ready-collection fragment only: readiness reads the enablement clock as the lower bound earliest <= now - clock; clock start/restart semantics and deadline enforcement are explicitly out of scope (see lean/README.md)"
+        }
+      ]
+    },
+    {
+      "name": "tid_order_diverges",
+      "module": "Libpetri/RetrodictExec.lean",
+      "specIds": [
+        {
+          "id": "EXEC-002",
+          "fragment": "retrodiction of divergence (a): the pre-fix ascending-tid per-level drain is provably not the canonical enablement-time order on a two-transition witness \u2014 a divergence witness for the fixed bug, not a positive property of the shipped code"
+        }
+      ]
+    },
+    {
+      "name": "read_reset_order_diverges",
+      "module": "Libpetri/RetrodictExec.lean",
+      "specIds": [
+        {
+          "id": "EXEC-012",
+          "fragment": "retrodiction of divergence (b): pre-fix reads peeked after the RESET tail observed an empty place; post-fix consumeForFiring peeks at the reset_ops_start boundary and observes the pre-reset head, as the reference does \u2014 minimal read+reset overlap witness"
+        },
+        {
+          "id": "EXEC-013",
+          "fragment": "retrodiction of divergence (b), the reset side: the RESET tail must drain after reads peek \u2014 witness that the opposite order is observably wrong; single minimal net"
+        }
+      ]
+    },
+    {
+      "name": "canEnable_insufficient_for_totality",
+      "module": "Libpetri/RetrodictExec.lean",
+      "specIds": [
+        {
+          "id": "CORE-030",
+          "fragment": "AC3 retrodiction of divergence (c): with duplicate input arcs on one place, cardinality_check passes each spec individually yet the second ring_remove_first finds the head empty \u2014 compile-time duplicate-input-place rejection (DistinctInputPlaces) is necessary for consumption totality"
+        }
+      ]
+    },
+    {
+      "name": "unknown_place_drop",
+      "module": "Libpetri/RetrodictExec.lean",
+      "specIds": [
+        {
+          "id": "CORE-072",
+          "fragment": "AC3 retrodiction of divergence (d): pre-fix produce_token was the identity for places the program does not know \u2014 a token silently dropped, violating conservation; motivates the extra_marking retention fix, whose post-fix behaviour is not itself modelled"
+        }
+      ]
+    },
+    {
+      "name": "deadline_reap_dirty_diverges",
+      "module": "Libpetri/TimedCycle.lean",
+      "specIds": [
+        {
+          "id": "TIME-013",
+          "fragment": "witness that the two shipped enforce_deadlines diverge observably after a reap (precompiled re-dirties, bitmap does not) on a one-transition quiet-net control-cell model - establishes the behaviors differ, does not rule which is spec-correct (post-reap re-enablement is unaddressed by TIME-013)"
+        }
+      ]
+    },
+    {
+      "name": "pb_update_reenables",
+      "module": "Libpetri/TimedCycle.lean",
+      "specIds": [
+        {
+          "id": "TIME-011",
+          "fragment": "the precompiled post-reap re-enablement takes the shared newly-enabled path with a restarted clock (enabled_at = now) - restart-from-zero on re-enablement, on the control-cell fragment"
+        }
+      ]
+    },
+    {
+      "name": "bb_never_fires_after_reap",
+      "module": "Libpetri/TimedCycle.lean",
+      "specIds": [
+        {
+          "id": "TIME-013",
+          "fragment": "the bitmap side of the divergence: with no token mutation after a reap, the transition stays disabled over every schedule (no re-dirty route exists) - quiet-net fragment only"
+        }
+      ]
+    },
+    {
+      "name": "bb_reaped_stays_disabled",
+      "module": "Libpetri/TimedCycle.lean",
+      "specIds": [
+        {
+          "id": "TIME-013",
+          "fragment": "induction backbone for bb_never_fires_after_reap: a disabled, clean control cell is a fixed point of the bitmap cycle over any schedule"
+        }
+      ]
+    },
+    {
+      "name": "invariant_strengthening_sound",
+      "module": "Libpetri/Strengthening.lean",
+      "specIds": [
+        {
+          "id": "VER-005",
+          "fragment": "weighted-sum conservation over ReachA under H1 (zero weight on consume-all/atLeast/reset places; now enforced by the shipped validators) and H2 (y.C = 0, the exact-validation gate's check); injection-free fragment"
+        }
+      ]
+    },
+    {
+      "name": "strengthened_reach_eq",
+      "module": "Libpetri/Strengthening.lean",
+      "specIds": [
+        {
+          "id": "VER-005",
+          "fragment": "under H1+H2, conjoining y.M = y.M0 into CHC rule bodies preserves the abstract reachable set - the strengthening the encoders perform is sound"
+        }
+      ]
+    },
+    {
+      "name": "consume_all_hypothesis_is_necessary",
+      "module": "Libpetri/Strengthening.lean",
+      "specIds": [
+        {
+          "id": "VER-005",
+          "fragment": "live-gap witness that forced the H1 guard: an exact-gate-valid invariant on an In::All net prunes a genuine successor - false Proven without the guard"
+        }
+      ]
+    },
+    {
+      "name": "invariant_strengthening_sound_inj",
+      "module": "Libpetri/Strengthening.lean",
+      "specIds": [
+        {
+          "id": "VER-006",
+          "fragment": "env-aware variant: with injection rules, conservation needs H3' (zero weight on injectable places) - the sufficiency proof for the shipped injector-column design"
+        }
+      ]
+    },
+    {
+      "name": "strengthened_reach_eq_inj",
+      "module": "Libpetri/Strengthening.lean",
+      "specIds": [
+        {
+          "id": "VER-006",
+          "fragment": "under H1+H2+H3', strengthening preserves the injected reachable set"
+        }
+      ]
+    },
+    {
+      "name": "injection_hypothesis_is_necessary",
+      "module": "Libpetri/Strengthening.lean",
+      "specIds": [
+        {
+          "id": "VER-006",
+          "fragment": "necessity of H3': a unit weight on an injectable place freezes the strengthened relation while the true relation reaches a violation"
+        }
+      ]
+    },
+    {
+      "name": "bad_rule_nonvacuity",
+      "module": "Libpetri/Strengthening.lean",
+      "specIds": [
+        {
+          "id": "VER-004",
+          "fragment": "the flat encoder's unresolvable-property-place fallback (Bad body = false) certifies any net vacuously - the formal argument that refusing to certify is the only sound behavior for that case"
+        }
+      ]
+    },
+    {
+      "name": "match_cache_lockstep",
+      "module": "Libpetri/MatchCache.lean",
+      "specIds": [
+        {
+          "id": "NU-020",
+          "fragment": "incremental match-cache lockstep: under the three-conjunct fast-path eligibility gate of init_match_caches, cache contents equal the from-scratch per-name FIFO recompute of the live ring after any sequence of modeled pool mutations - queue contents only, at one correlated input's granularity; name selection/tie-break not covered"
+        }
+      ]
+    },
+    {
+      "name": "fire_muts_lockstep",
+      "module": "Libpetri/MatchCache.lean",
+      "specIds": [
+        {
+          "id": "NU-020",
+          "fragment": "the eligibility gate isolates a cached place: foreign firings emit no mutation on it, the owner's consume phase is exactly one fixed-count matched consume mirrored by the matcher - consume phase modeled per place, produce/inject as mirrored adds"
+        }
+      ]
+    },
+    {
+      "name": "one_exactly_is_necessary",
+      "module": "Libpetri/MatchCache.lean",
+      "specIds": [
+        {
+          "id": "NU-020",
+          "fragment": "necessity of the One/Exactly conjunct: an AtLeast(1) correlated input consumes count_matching tokens while the fixed-consume matcher pops only the minimum - concrete two-token desync"
+        }
+      ]
+    },
+    {
+      "name": "sole_consumer_is_necessary",
+      "module": "Libpetri/MatchCache.lean",
+      "specIds": [
+        {
+          "id": "NU-020",
+          "fragment": "necessity of the sole-consumer conjunct: a rival input arc consumes via ring_remove_first, a path with no cache call - concrete one-firing desync"
+        }
+      ]
+    },
+    {
+      "name": "no_reset_is_necessary",
+      "module": "Libpetri/MatchCache.lean",
+      "specIds": [
+        {
+          "id": "NU-020",
+          "fragment": "necessity of the never-reset conjunct: a reset arc drains the ring with no cache call - concrete one-sweep desync"
+        }
+      ]
+    },
+    {
+      "name": "sync_matchedRemove_step",
+      "module": "Libpetri/MatchCache.lean",
+      "specIds": [
+        {
+          "id": "NU-022",
+          "fragment": "the incremental consume (FIFO-within-name pop paired with ring_remove_matching) preserves content equality with the reference index's underlying queues - contents fragment only; AC2 selection equality remains the differential test's claim"
+        }
+      ]
+    }
+  ]
+}
