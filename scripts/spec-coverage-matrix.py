@@ -18,9 +18,9 @@ Inputs (all read-only):
       target/, node_modules/, .lake/, .venv/, dist/ are excluded.
 
 Modes:
-  (default) / --update   regenerate spec/coverage-matrix.md in place
-  --check                regenerate to memory, diff against the committed
+  (default) / --check    regenerate to memory, diff against the committed
                          file; exit 1 with a diff summary if stale
+  --update               rewrite spec/coverage-matrix.md in place
 
 python3 stdlib only.
 """
@@ -405,9 +405,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--update", action="store_true",
-                      help="regenerate spec/coverage-matrix.md in place (the default)")
+                      help="rewrite spec/coverage-matrix.md in place")
     mode.add_argument("--check", action="store_true",
-                      help="verify spec/coverage-matrix.md is up to date; exit 1 if stale")
+                      help="verify spec/coverage-matrix.md is up to date; exit 1 "
+                           "if stale (the default)")
     args = ap.parse_args()
 
     spec_files, active, tombstones = parse_spec_index(
@@ -428,41 +429,43 @@ def main() -> int:
 
     content = render(spec_files, active, proven, lean_refs, tests)
 
-    if args.check:
-        if not OUTPUT.exists():
-            sys.stderr.write(
-                f"spec-coverage-matrix: {OUTPUT} does not exist; run "
-                f"scripts/spec-coverage-matrix.py to generate it\n"
-            )
-            return 1
-        on_disk = OUTPUT.read_text(encoding="utf-8")
-        if on_disk == content:
-            print(f"spec-coverage-matrix: {OUTPUT.relative_to(REPO)} is up to date")
-            return 0
-        diff = list(difflib.unified_diff(
-            on_disk.splitlines(), content.splitlines(),
-            fromfile=f"{OUTPUT.relative_to(REPO)} (committed)",
-            tofile=f"{OUTPUT.relative_to(REPO)} (regenerated)",
-            lineterm="",
-        ))
-        sys.stderr.write(
-            f"spec-coverage-matrix: {OUTPUT.relative_to(REPO)} is STALE "
-            f"({sum(1 for l in diff if l.startswith('-') and not l.startswith('---'))} removed / "
-            f"{sum(1 for l in diff if l.startswith('+') and not l.startswith('+++'))} added lines). "
-            f"Regenerate with: python3 scripts/spec-coverage-matrix.py --update\n"
+    if args.update:
+        OUTPUT.write_text(content, encoding="utf-8")
+        print(
+            f"spec-coverage-matrix: wrote {OUTPUT.relative_to(REPO)} "
+            f"({EXPECTED_ACTIVE} requirements)"
         )
-        head = diff[:60]
-        sys.stderr.write("\n".join(head) + "\n")
-        if len(diff) > len(head):
-            sys.stderr.write(f"... ({len(diff) - len(head)} more diff lines)\n")
-        return 1
+        return 0
 
-    OUTPUT.write_text(content, encoding="utf-8")
-    print(
-        f"spec-coverage-matrix: wrote {OUTPUT.relative_to(REPO)} "
-        f"({EXPECTED_ACTIVE} requirements)"
+    # Default is verify — like the sibling scripts/lean-fidelity-check.py, a
+    # bare invocation must never rewrite a tracked file.
+    if not OUTPUT.exists():
+        sys.stderr.write(
+            f"spec-coverage-matrix: {OUTPUT} does not exist; run "
+            f"scripts/spec-coverage-matrix.py --update to generate it\n"
+        )
+        return 1
+    on_disk = OUTPUT.read_text(encoding="utf-8")
+    if on_disk == content:
+        print(f"spec-coverage-matrix: {OUTPUT.relative_to(REPO)} is up to date")
+        return 0
+    diff = list(difflib.unified_diff(
+        on_disk.splitlines(), content.splitlines(),
+        fromfile=f"{OUTPUT.relative_to(REPO)} (committed)",
+        tofile=f"{OUTPUT.relative_to(REPO)} (regenerated)",
+        lineterm="",
+    ))
+    sys.stderr.write(
+        f"spec-coverage-matrix: {OUTPUT.relative_to(REPO)} is STALE "
+        f"({sum(1 for l in diff if l.startswith('-') and not l.startswith('---'))} removed / "
+        f"{sum(1 for l in diff if l.startswith('+') and not l.startswith('+++'))} added lines). "
+        f"Regenerate with: python3 scripts/spec-coverage-matrix.py --update\n"
     )
-    return 0
+    head = diff[:60]
+    sys.stderr.write("\n".join(head) + "\n")
+    if len(diff) > len(head):
+        sys.stderr.write(f"... ({len(diff) - len(head)} more diff lines)\n")
+    return 1
 
 
 if __name__ == "__main__":

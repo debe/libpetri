@@ -26,6 +26,29 @@ jobs:
         with:
           java-version: '25-ea'
           distribution: 'temurin'
+      # The SMT verifier binds com.microsoft.z3 through JNI, but the
+      # javasmt-solver-z3 artifact ships only the Java classes — the natives it
+      # calls (libz3java.so, libz3.so) are not a Maven dependency. Without them
+      # every @EnabledIf("z3Available") suite skipped silently: 47 of 136 tests,
+      # the whole certificate-check / replay / verdict-parity feature. The version
+      # must track javasmt-z3.version in java/pom.xml, since the JNI symbol set is
+      # version-specific; on Linux the JVM seeds java.library.path from
+      # LD_LIBRARY_PATH, so no argLine override is needed and JaCoCo stays intact.
+      # Z3NativeGateTest fails the build if the natives still do not load.
+      - name: Install z3 JNI natives
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's|.*<javasmt-z3.version>\(.*\)</javasmt-z3.version>.*|\1|p' \
+            "$GITHUB_WORKSPACE/java/pom.xml")
+          url=$(curl -fsSL "https://api.github.com/repos/Z3Prover/z3/releases/tags/z3-$version" \
+            | grep -o 'https://[^"]*x64-glibc[^"]*\.zip' | head -1)
+          test -n "$url" || { echo "no x64-glibc asset for z3-$version"; exit 1; }
+          curl -fsSL -o z3.zip "$url"
+          unzip -q z3.zip
+          bin=$(dirname "$(find . -name libz3java.so -print -quit)")
+          test -f "$bin/libz3java.so" || { echo "libz3java.so missing from $url"; exit 1; }
+          echo "LD_LIBRARY_PATH=$PWD/${bin#./}" >> "$GITHUB_ENV"
       - run: ./mvnw verify
 
   typescript:
@@ -70,6 +93,25 @@ jobs:
       # here; the dedicated `python` job builds the wheel via maturin.
       - run: cargo build --workspace --exclude libpetri-py --all-features
       - run: cargo test --workspace --exclude libpetri-py --all-features
+      # The TIME-013 reap witness is `#[ignore]`d (real clock + thread::sleep,
+      # ~2.5s) and nothing else runs `--ignored`, so without this step the
+      # allowlist in the timed differential property has no executed check
+      # against the real executor at all. Stable only — it is a semantics
+      # witness, not an MSRV concern.
+      - if: matrix.rust == 'stable'
+        name: TIME-013 reap-asymmetry witness (ignored by default)
+        shell: bash
+        run: |
+          # `cargo test` exits 0 when a filter matches nothing, so assert the
+          # witness actually ran — a rename must fail here, not pass silently.
+          out=$(cargo test -p libpetri-runtime --all-features \
+                  differential_prop_tests::time013_reap_asymmetry_witness \
+                  -- --ignored --exact --nocapture 2>&1) || { echo "$out"; exit 1; }
+          echo "$out"
+          grep -q "test result: ok. 1 passed" <<< "$out" || {
+            echo "the TIME-013 witness did not run — renamed, moved, or re-gated"
+            exit 1
+          }
       # Compile-check the PyO3 binding too. The steps above exclude libpetri-py
       # (it needs maturin's python-extension linkage to *build*), so a binding-only
       # compile error would otherwise slip through to `maturin develop` / the python
@@ -136,7 +178,13 @@ jobs:
       # (sorryAx shows up there even if the text is generated).
       - name: No sorry / admit in source
         run: '! grep -rnE "\bsorry\b|\badmit\b" Libpetri Libpetri.lean'
+      # GitHub's implicit shell for a `run:` block is `bash -e {0}` — no
+      # pipefail — so piping `lake env lean` into anything would mask its exit
+      # status. `shell: bash` is `bash --noprofile --norc -eo pipefail {0}`, and
+      # the redirect below avoids the pipe entirely; belt and braces, because a
+      # green step that never ran is the exact failure this gate exists to stop.
       - name: Headline theorems depend on no unexpected axioms
+        shell: bash
         run: |
           cat > /tmp/axioms.lean <<'EOF'
           import Libpetri
@@ -173,9 +221,29 @@ jobs:
           #print axioms Libpetri.one_exactly_is_necessary
           #print axioms Libpetri.sole_consumer_is_necessary
           #print axioms Libpetri.no_reset_is_necessary
+          #print axioms Libpetri.wJoinOne_is_fast_path
+          #print axioms Libpetri.reap_dirty_is_the_asymmetry
+          #print axioms Libpetri.no_reap_frame
+          #print axioms Libpetri.bad_rule_proves_every_net
           EOF
-          lake env lean /tmp/axioms.lean | tee /tmp/axioms.out
+          if ! lake env lean /tmp/axioms.lean > /tmp/axioms.out 2>&1; then
+            cat /tmp/axioms.out
+            echo "axiom check: lake env lean failed — a listed theorem was" \
+                 "renamed, moved out of the Libpetri namespace, or deleted."
+            exit 1
+          fi
+          cat /tmp/axioms.out
           ! grep -q "sorryAx" /tmp/axioms.out
+          # Every `#print axioms` must have produced a report line ('Name' ...).
+          # Without this a truncated or empty output passes the grep above
+          # *because* the check did not run.
+          want=$(grep -c '^#print axioms' /tmp/axioms.lean)
+          got=$(grep -c "^'" /tmp/axioms.out || true)
+          if [ "$got" -ne "$want" ]; then
+            echo "axiom check reported $got of $want theorems — the check did not run"
+            exit 1
+          fi
+          echo "axiom check: $got theorems reported, no sorryAx"
       # The proofs cite shipped Rust functions; the pins in lean/fidelity.toml
       # hash those functions so a change to modeled code fails CI until the
       # model is consciously re-verified (workflow in lean/README.md).
