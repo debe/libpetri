@@ -2,13 +2,13 @@
 
 ## Unreleased
 
-**Two independent fix sets land together.** The production executor now behaves exactly like the reference executor — four divergences the differential suite never reached are closed. Separately, the verifier no longer returns `Proven` for nets it was analysing unsoundly. Java, TypeScript and Rust are all covered; Python inherits every Rust fix through the PyO3 bindings.
+**Two independent fix sets land together.** The production executor now behaves exactly like the reference executor — five divergences the differential suite never reached are closed. Separately, the verifier no longer returns `Proven` for nets it was analysing unsoundly, and it now checks its own answers before returning them. Java, TypeScript and Rust are all covered; Python inherits every Rust fix through the PyO3 bindings.
 
 ---
 
 ### Executor — the production backend now matches the reference
 
-The `PrecompiledNetExecutor` must be behaviorally identical to the `BitmapNetExecutor` reference. It wasn't, in four places. Each divergence is fixed, covered by new differential tests, pinned by new spec acceptance criteria, and retrodicted as a machine-checked counterexample in `lean/`.
+The `PrecompiledNetExecutor` must be behaviorally identical to the `BitmapNetExecutor` reference. It wasn't, in five places. Each divergence is fixed, covered by new differential tests, pinned by new spec acceptance criteria, and — for the first four — retrodicted as a machine-checked counterexample in `lean/`.
 
 #### Fixed — same-priority firing order now follows enablement time (Java, TypeScript*, Rust, Python)
 
@@ -64,6 +64,23 @@ Three seams can hand an executor a token for a place the compiled net doesn't kn
 
 The first token to reach a given undeclared place is reported once per executor, as a `WARN` log-message event on logger `libpetri.runtime`, so retention is not silent.
 
+#### Fixed — a transition's own output no longer revives its competitors mid-pass (Java, Rust, Python)
+
+Within one firing pass, tokens produced by a synchronous action were visible to the enablement recheck of transitions still waiting to fire in that same pass. A higher-priority transition that drained a place and refilled it from its own output therefore let a lower-priority competitor through, where the reference executor kept it disabled until the next cycle. Outputs deposit in step 1 and firing is step 5, so the pass judges losers against consumption alone ([EXEC-001], [EXEC-003] AC3).
+
+```java
+// t_high (priority 1): consumes one(a), resets b, action produces one token to b
+// t_low  (priority 0): consumes one(a), reads b
+// marking: a = 3 tokens, b = 1 token
+
+// before (compiled executors): t_high, t_low, t_high   ← t_low saw the refill
+// now  (every executor):       t_high, t_high, t_high  ← t_low starves, as intended
+```
+
+Final markings were identical either way, so only firing order and starvation changed — which is why marking-based assertions never caught it. **In Java both compiled executors were affected, including `BitmapNetExecutor`**, the reference the other is checked against; the legacy `NetExecutor` was always correct. TypeScript was already correct on both executors.
+
+If a net of yours depends on a competitor running in the same pass as the transition that refilled its place, it now waits one cycle.
+
 #### Lean — the engine hot loop is now formalized
 
 `lean/` grew a second axis beyond verifier-abstraction soundness: the flat ring-buffer token pool at full fidelity. It proves `token_conservation` — every pre-fire token is delivered, reset-destroyed, or surviving, as an order-preserving list equality — plus dirty-set soundness (CONC-005), the Bitmap/Precompiled refinement on the immediate fragment, and the ready-ordering theorem behind the firing-order fix. All four pre-fix divergences ship as `decide`-checked witnesses. Every definition names the shipped Rust function it models. `lake build` stays dependency-free and CI-gated (`sorry` grep + `#print axioms`).
@@ -86,6 +103,30 @@ Transition.builder("t").input(In.all(p)).output(Out.place(q)).build()
 ```
 
 This affected timed reachability (`StateClassGraph`, `VER-010`) and the ν-partition quotient (`VER-012`) in all three implementations. All three now route the successor computation through the single `consumptionCount` definition of `IO-007`.
+
+#### Fixed — invariants that cannot be trusted are no longer used (Java, TypeScript, Rust, Python)
+
+**Re-run any proof you rely on.** The P-invariants the verifier computes are conjoined into the solver query to narrow its search, so a wrong one removes reachable states and manufactures a proof. Two ways that happened:
+
+- The computation ran in floating point (TypeScript) or unchecked integers (Java, Rust). Every invariant is now re-derived in exact arithmetic and dropped if it does not check out. This caught a live Java defect where an unchecked `int` cast emitted corrupted weights once the true weight exceeded 32 bits.
+- The incidence matrix linearises `all()` and `atLeast()` and omits reset drains entirely, so an invariant could be numerically perfect and still wrong about what firing does. Invariants carrying weight on a consume-all, at-least, or reset place are now rejected outright.
+
+Dropped invariants are named in the report with the reason. Dropping only costs the solver a hint; it can never change a correct verdict.
+
+#### Added — `Proven` is now a checked certificate, `Violated` a replayed trace (Java, TypeScript, Rust, Python)
+
+The inductive invariant returned by IC3 used to be printed and otherwise ignored. It is now discharged against three conditions — initiation, consecution, and safety — before the verdict is returned, with the P-invariants re-proven as part of the candidate rather than assumed. Counterexamples are replayed against the net's own semantics, so a trace is reported in firing order instead of solver traversal order, and carries a confirmation flag.
+
+Anything that fails downgrades to `Unknown` naming the condition, rather than reporting a verdict nobody checked:
+
+```
+=== RESULT ===
+Downgraded to UNKNOWN: certificate check failed — consecution (VC2)
+```
+
+Both are on by default. `certificateCheck(false)` and `counterexampleReplay(false)` opt out per verifier; the cost is a few extra solver queries on an already-slow path.
+
+A shared fixture set (`spec/verification-fixtures/`) pins ten net-and-property pairs to an expected verdict, so the four implementations cannot quietly disagree about an answer.
 
 #### Breaking — input guards removed (TypeScript, Rust, Python)
 
@@ -174,13 +215,17 @@ When several `Out.Xor` branches match and one subsumes all the others — `and(a
 
 A dependency-free Lean 4 development (`lake build`, no Mathlib) proving **Proposition 1** — `α(R(N)) ⊆ R(N̂)`, that the verifier's untimed abstraction really over-approximates the executor — with decidable counterexamples showing the side conditions cannot be dropped, and models retrodicting two historical false-`Proven` defects. CI builds it and rejects `sorry`/`admit`.
 
+Since extended to the ν-match cache (`match_cache_lockstep`), the deadline-reap disagreement between the two backends, and the soundness of invariant strengthening — that last one is where the `all()` / `atLeast()` guard above came from: the proof would not close without a hypothesis the code never enforced. Thirty-three theorems are gated in CI through `#print axioms`.
+
+Two supporting artefacts ship with it. `lean/fidelity.toml` pins every shipped Rust function the proofs model, and CI fails when one changes until the model is re-checked, so a proof cannot quietly stop describing the code. `spec/coverage-matrix.md` is generated per requirement and states plainly what is proven, what is only mentioned, and what is merely tested — 21 of 208 requirements carry a machine-checked fragment today, each with a note saying what it does not claim.
+
 ---
 
 ### Spec
 
 209 → 208 active requirements. `EXEC-011` (Guarded Token Consumption) tombstoned alongside `IO-006`. `NU-021` retitled *Match as the Sole Per-Token Filter*, fixing the composition order should a unary filter ever return. `IO-014`, `IO-015`, `VER-004`, `VER-010` and `VER-012` amended; `CONC-007` / `CONC-008` retargeted.
 
-The executor fixes added acceptance criteria only — no new requirement IDs, so the count is unchanged. `EXEC-002` AC3/AC4 pin the cross-backend ready order and carve out the all-immediate fast path (mirrored in `CONC-023` AC4); `EXEC-013` AC4 pins read-before-reset; `CORE-030` AC3 pins duplicate-input rejection; `CORE-072` AC3/AC4 pin unknown-place retention and its `WARN` diagnostic. `MOD-021` now carries the canonical input-arc merge table, which `CORE-030` and `MOD-061` reference instead of restating.
+The executor fixes added acceptance criteria only — no new requirement IDs, so the count is unchanged. `EXEC-002` AC3/AC4 pin the cross-backend ready order and carve out the all-immediate fast path (mirrored in `CONC-023` AC4); `EXEC-003` AC3 pins that same-pass outputs stay invisible to the intra-pass recheck; `EXEC-013` AC4 pins read-before-reset; `CORE-030` AC3 pins duplicate-input rejection; `CORE-072` AC3/AC4 pin unknown-place retention and its `WARN` diagnostic. `MOD-021` now carries the canonical input-arc merge table, which `CORE-030` and `MOD-061` reference instead of restating.
 
 ## Java 2.14.0 / TypeScript 2.13.0 / Rust 3.7.0 / Python 2.16.0 — 2026-08-03
 
