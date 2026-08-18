@@ -31,6 +31,12 @@ Formally, each implementation's output is characterised by the premises
 than by re-implementing the sort algorithms; the shapes are the documented
 postconditions of `sort_by`/`sort_unstable_by` plus the queue structure.
 RQ1–RQ4 of the plan are the `levelPartition_sorted` premise components.
+
+Both backends' `collect_ready_general` ends by calling `begin_firing_pass`
+(refresh the fire-pass presence snapshot from live, reset the pass's
+`deposit_delta` — EXEC-003 AC3/AC4). That writes state only
+`recheck_can_fire` reads; it neither adds to nor removes from the ready set
+and does not touch its order, so it is outside this module's fragment.
 -/
 import Libpetri.Basic
 

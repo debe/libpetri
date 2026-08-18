@@ -173,15 +173,16 @@ flattening, environment places, conflict-priority pruning; and (axis 2) the
 flat ring-buffer pool at full fidelity, the consume opcode program, the
 presence/dirty bit machinery, the immediate-fragment backend refinement, and
 the general-path ready ordering with abstract `Nat` clocks. Three later
-modules extend both axes: `TimedCycle.lean` (a control-cell witness that the
-two shipped `enforce_deadlines` diverge observably after a reap —
-`deadline_reap_dirty_diverges`; which behaviour TIME-013 should mandate is a
-pending semantics decision), `MatchCache.lean` (the ν-match cache lockstep
-invariant `match_cache_lockstep` under the fast-path eligibility gate, at
-queue-contents granularity, plus per-conjunct necessity witnesses), and
-`Strengthening.lean` (P-invariant strengthening preserves the abstract
-reachable set under H1/H2/H3′ — the H1 hypothesis forced the consume-all/
-reset guard now shipped in all three validators).
+modules extend both axes:
+
+- `TimedCycle.lean` — `deadline_reap_dirty_diverges`: the two shipped
+  `enforce_deadlines` diverge observably after a reap. Which behaviour
+  TIME-013 mandates is a pending semantics decision.
+- `MatchCache.lean` — `match_cache_lockstep` at queue-contents granularity
+  under the fast-path eligibility gate, plus a necessity witness per conjunct.
+- `Strengthening.lean` — P-invariant strengthening preserves the abstract
+  reachable set under H1/H2/H3′. H1 is what shipped the consume-all/reset
+  guard now in all three validators.
 
 **Out:** real-valued time, deadline *refinement* (the reap divergence is
 witnessed in `TimedCycle.lean`, but the TIME-013 semantics ruling and the
@@ -195,12 +196,35 @@ granularity only; PERF-042 AC4 pins the words differentially); the u32
 opcode encoding (FR4 is proven on the structured op stream); the ν name
 layer beyond the boolean `nameEnabled` abstraction in `Priority.lean` (so
 the ν-budget retrodictions `667e67d` and `a4038f5` are **not** covered);
-Lemma 0 quiescence; extraction to the four implementations. One resolution
-lesson: the immediate-fragment refinement idealizes the EXEC-003 recheck the
-same way on both sides, which is why pre-fix divergence #5 (same-pass output
-visibility in the precompiled recheck; fixed 2026-08, pinned in
-`backend_suite_tests.rs`) fell outside the proven correspondence — an
-explicit snapshot-recheck model that would have *seen* it is future work.
+Lemma 0 quiescence; extraction to the four implementations.
+
+The immediate-fragment refinement also idealizes the EXEC-003 recheck the same
+way on both sides — `pcRecheck` and `bbRecheck` both re-read the *live*
+marking — which is why divergence #5 fell outside the proven correspondence.
+That idealization now elides more than it did when the note was first written.
+Since the EXEC-003 AC3/AC4 work the shipped recheck differs from live twice
+over: presence comes from a fire-pass snapshot copied from live once per pass
+and thereafter only *cleared* per place by `update_bitmap_after_consumption`
+(never re-published, which is the fix for #5), and the counting checks run
+with `pre_deposit = true`, subtracting the pass's `deposit_delta` so that a
+token a same-pass synchronous action deposited satisfies no cardinality gate
+and defers any ν-join on that place wholesale. Both backends implement the
+snapshot and the delta in lockstep, so the equal-idealization argument still
+holds and the refinement theorem still says what it says — but the model would
+not see a divergence in *either* half. An explicit snapshot-and-delta recheck
+model remains future work, now with two things to model rather than one.
+
+EXEC-003 AC5 adds a third, on the *consume* side. A draining arc (`all()`,
+`atLeast(n)`, a reset) firing later in a pass now takes `drainable(p, live)`
+tokens — `live` minus what a same-pass synchronous action deposited — instead
+of `live`. The consume model (`Conservation.lean`, `Compile.lean`,
+`Basic.lean`) has no notion of a pass, so its drain arms are that function's
+`drainable == live` case; its header names the excluded case in as many words,
+and `token_conservation` / `consume_faithful` are stated there, not weakened.
+`Refinement.lean` is the one model here whose fold *does* carry a same-pass
+deposit, and it drains to the live count on both sides, so this is again an
+equal idealization: the refinement theorem stands, and would again not see a
+divergence. The same explicit model would close all three.
 
 **Modelling assumptions**, each stated in the source where used:
 
@@ -224,25 +248,37 @@ line is a doc fix, a changed function is a fidelity breach.
 That obligation is mechanized. `fidelity.toml` pins every modeled Rust item —
 one `[[pin]]` per function (or type, where the type itself is what is modeled)
 with the Lean modules that model it — and `fidelity.lock` records a SHA-256 of
-each pinned item's current source span, doc comments and attributes included:
-a comment edit trips it too, deliberately, because the comments carry the
-semantics the model was checked against. `scripts/lean-fidelity-check.py`
-re-hashes the pins against the lock, and additionally fails if any `.rs` file
-cited in a Lean doc comment has no pin at all — so a new citation forces a new
-pin. `RetrodictExec.lean`'s pre-fix citations (commit `1bdf586`) are
-historical; they carry no pins of their own beyond the current items they
-diverge from.
+each pinned item's current source span, doc comments and attributes included.
+`scripts/lean-fidelity-check.py` re-hashes the pins against the lock, and runs
+two citation guards:
 
-When the check fails:
+- **file coverage** — every `.rs` file cited in a Lean doc comment must have at
+  least one pin. This is per *file*, not per item: a comment that starts
+  modelling a second function in an already-pinned file is not caught here, so
+  add the pin by hand.
+- **line hints** — a `file.rs:NNN` hint written in the same comment block as a
+  pinned item's name must fall inside that item. Hints that name no pinned item
+  (a struct field, a call site) are structural and skipped, so this adds no
+  manifest burden; it only stops the hints that *do* name a pin from rotting.
+  Bare continuation hints (`` `:NNN` `` after a file is named) carry no file of
+  their own and are not machine-checked.
 
-1. Open the named Rust function and re-verify the listed Lean module(s)
-   against it — fix the model, or confirm the change is outside the modelled
-   fragment.
-2. Refresh any line-number hints that moved (a moved line is still just a
-   doc fix; the pin follows the function by name).
-3. `python3 scripts/lean-fidelity-check.py --update` to regenerate the lock.
-4. Commit the lock together with any Lean fixes, so the lock always records
-   the exact code this development was last verified against.
+`RetrodictExec.lean`'s pre-fix citations (commit `1bdf586`) are historical: no
+pins of their own, and exempt from the line-hint guard.
+
+The recovery workflow is printed by the script on every failure; the short form
+is re-verify the Lean model against the named Rust item, then
+`--update` and commit the lock with the Lean fixes.
+
+### Coverage annotations
+
+`proof-coverage.json` is the hand-maintained map from theorem name to the spec
+requirement — and the *fragment* of it — that theorem proves. It is the file to
+edit when adding a theorem that closes part of a requirement.
+`scripts/spec-coverage-matrix.py` validates it (every name must resolve to a
+`theorem`/`lemma` in its claimed module, every ID must be active in
+`spec/00-index.md`) and regenerates `spec/coverage-matrix.md` under `--update`;
+without it the script verifies instead, which is what CI runs.
 
 Nothing in `theory/` is edited by this development; the papers are read-only
 reference for the theorem statements.

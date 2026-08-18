@@ -21,6 +21,45 @@ lemmas prove identical, so identical outputs are sound, not assumed.
 
 Scope: untimed, non-ν, sync fragment; fix (c) (`DistinctInputPlaces`) is a
 standing hypothesis exactly because compilation now enforces it.
+
+**The EXEC-003 recheck is idealized — identically on both sides.**
+`pcRecheck` / `bbRecheck` below re-run enablement against the *live* marking.
+The shipped `recheck_can_fire` does not, and since the EXEC-003 AC3/AC4 work
+it diverges from the live marking in two ways, not one:
+
+* presence comes from the fire-pass snapshot (`marking_bitmap`'s second half
+  / `firing_snap_buffer`), copied from live once per pass when the ready list
+  is collected and thereafter only ever *cleared*, one place at a time, by
+  `update_bitmap_after_consumption`; and
+* the counting checks run with `pre_deposit = true`, so `can_enable`
+  subtracts the pass's `deposit_delta` from every cardinality gate and defers
+  wholesale any ν-join whose correlated input took a same-pass deposit.
+
+Here, by contrast, `pcFire` / `bbFire` append `emit`'s outputs into the very
+marking the rest of the fold reads, so a same-pass deposit can re-enable a
+later transition in this model where the shipped executor will not fire it
+until the next cycle. Both backends implement the snapshot and the delta in
+lockstep (`bitmap_backend.rs:657-662` and its precompiled twin call the same
+`can_enable` shape), so the idealization is *equal* on the two sides and the
+refinement statement below stands as a statement about their agreement — but
+it is precisely why divergence #5 (a wholesale snapshot refresh on one side
+only) was invisible here, and the AC4 counting side is invisible for the same
+reason. Modelling the snapshot and the delta explicitly is the open item
+recorded in `lean/README.md`.
+
+**The consume is idealized the same way (EXEC-003 AC5).** Because this fold's
+marking really does carry a same-pass deposit, this is the one model in the
+development that *reaches* the case `Conservation.lean`'s header excludes: a
+drain (`.all`, `.atLeast`, a reset) firing later in the fold takes that
+deposit too, where both shipped backends stop at `drainable(p, live)` and
+leave it for the next cycle. `consumeForFiring` and `bbConsumeMarking` both
+drain to the live count, and the two `drainable`s agree body for body (place
+name against pid lookup aside), are called at the same sites, and are gated by
+the same per-pass `has_deposits`, so this idealization is *equal* on the two
+sides exactly as the recheck one is: the theorem below
+still says what it says about their agreement. What it would not see is an
+AC5 divergence between them — the same blind spot, now with a third mechanism
+behind it.
 -/
 import Libpetri.Enablement
 
@@ -80,14 +119,18 @@ def bbCanEnable (m : CMarking) (t : Transition) : Bool :=
     && t.inhibitors.all (fun p => (m p).length == 0)
 
 /-- Reference marking after the input phase (One/Exactly take their required
-count, All/AtLeast drain — `bitmap_backend.rs` `consume_for_firing`). -/
+count, All/AtLeast drain — `bitmap_backend.rs` `consume_for_firing`). The
+drain is to the live count, i.e. the shipped `drainable` idealized as in the
+module header; `consumeForFiring` idealizes it identically. -/
 def bbPostInput (m : CMarking) (t : Transition) : CMarking :=
   fun p =>
     match specAt t p with
     | some sp => (m p).drop (consumeCountAt (m p).length sp.card)
     | none => m p
 
-/-- Reference marking after the whole consume (inputs then resets). -/
+/-- Reference marking after the whole consume (inputs then resets). The reset
+empties the place outright, again the module header's AC5 idealization — the
+shipped reset clears the pass-start prefix only. -/
 def bbConsumeMarking (m : CMarking) (t : Transition) : CMarking :=
   fun p => if p ∈ t.resets then [] else bbPostInput m t p
 
@@ -155,6 +198,9 @@ def produceMany (net : Net) (st : PBState) : List (PlaceId × Colour) → PBStat
   | [] => st
   | (p, c) :: rest => produceMany net (produceOne net st p c) rest
 
+/-- The EXEC-003 recheck before each firing, **idealized**: `canEnable` over
+the live pool. The shipped `recheck_can_fire` reads the fire-pass snapshot
+and the deposit delta instead — see the module header. -/
 def pcRecheck (net : Net) (st : PBState) (tid : TId) : Bool :=
   st.enabled tid && match net[tid]? with
     | some t => canEnable st.ring t
@@ -172,6 +218,9 @@ def pcCycle (net : Net) (emit : Emit) (st : PBState) : PBState :=
     (fun s tid => if pcRecheck net s tid then pcFire net emit s tid else disable s tid)
     (updateEnablement net st)
 
+/-- The reference's EXEC-003 recheck, idealized the same way as `pcRecheck`
+— which is what makes the correspondence below fair, and what makes it blind
+to the snapshot/deposit machinery both backends share. -/
 def bbRecheck (net : Net) (bb : BBState) (tid : TId) : Bool :=
   bb.enabled tid && match net[tid]? with
     | some t => bbCanEnable bb.marking t

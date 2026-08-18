@@ -2,11 +2,11 @@
 # ν-match cache lockstep: the NU-020 fast path of `PrecompiledBackend`
 
 `PrecompiledBackend` keeps one `IncrementalMatcher` per *fast-path eligible*
-matched transition (`match_caches`, `precompiled_backend.rs:90`) so that a
-ν-join's enablement read (`can_enable`, `precompiled_backend.rs:581-592`) is
-O(1) instead of the O(n) index rebuild `find_match_binding`
-(`precompiled_backend.rs:601-638`). The doc comment on `init_match_caches`
-(`precompiled_backend.rs:200-208`) argues that under its eligibility
+matched transition (the `match_caches` field) so that a ν-join's enablement
+read (`can_enable`, `precompiled_backend.rs:708-727`) is O(1) instead of the
+O(n) index rebuild `find_match_binding` (`precompiled_backend.rs:732-773`).
+The doc comment on `init_match_caches` (`precompiled_backend.rs:239-246`)
+argues that under its eligibility
 conditions "the cache can never desync". This module turns that prose into
 theorems over the flat-pool model of `Ring.lean`:
 
@@ -21,7 +21,7 @@ theorems over the flat-pool model of `Ring.lean`:
 * `fire_muts_lockstep` — the bridge from the eligibility predicate to that
   hypothesis: under the exact three-conjunct gate of `init_match_caches`,
   the consume phase of ANY transition firing (`consume_for_firing`,
-  `precompiled_backend.rs:924`) performs only permitted mutations on the
+  `precompiled_backend.rs:1074`) performs only permitted mutations on the
   cached place — a foreign firing performs none at all
   (`foreign_fire_emits_nothing`), the owner performs exactly one matched
   consume with equal ring/cache counts (`owner_fire_emits_lockstep`).
@@ -32,20 +32,27 @@ theorems over the flat-pool model of `Ring.lean`:
 ## The eligibility predicate (spec NU-020, `init_match_caches`)
 
 For every correlated input place `p` of a matched transition `tid`
-(`precompiled_backend.rs:245-268`), the code requires — beyond `p` being a
-compiled place id (`:246-249`, absorbed here by dense `PlaceId`s; unknown
+(`precompiled_backend.rs:285-323`), the code requires — beyond `p` being a
+compiled place id (`:297-300`, absorbed here by dense `PlaceId`s; unknown
 places live in `extra_marking`, outside both the pool and the caches,
 CORE-072):
 
 1. the input spec on `p` is `One`/`Exactly` — a **fixed consume count**
-   (`:254-262`, the `_ => eligible = false` arm also catching a missing
+   (`:305-314`, the `_ => eligible = false` arm also catching a missing
    spec);
-2. `p` is **never a reset target** of any transition (`:264`,
-   `reset_target` built at `:217-232`);
+2. `p` is **never a reset target** of any transition (`:315`,
+   `reset_target` built at `:268-283`);
 3. `tid` is the **sole input consumer** of `p` —
-   `input_consumers[pid] == [tid]` (`:264`, map built at `:217-232`; one
+   `input_consumers[pid] == [tid]` (`:315`, map built at `:268-283`; one
    entry per input spec, so a duplicate input arc of `tid` itself also
    fails the test).
+
+Since the EXEC-003 AC4 work `init_match_caches` also precomputes
+`match_input_pids` (`:255-266`) — the correlated input pids of *every*
+matched transition, eligible or not — for `can_enable`'s same-pass deposit
+check. It is written before the eligibility scan and read only by that
+check; it adds no conjunct, gates no cache, and is outside this module's
+fragment. The three conjuncts below are still the whole gate.
 
 `FastPathEligible` states exactly these conjuncts; `fixedRequired`,
 `resetTarget` and `inputConsumers` mirror the three code artifacts.
@@ -70,9 +77,11 @@ CORE-072):
 * `Mut.consumeFirst` guards `ring_remove_first` by `0 < cnt`, modelling the
   executor's cardinality gate (`can_enable`; `Ring.lean`'s `first_isSome`
   is the totality fact). A reset drains by `cnt` repeated head removals,
-  exactly as `consume_for_firing`'s RESET tail does (`:1005-1013`).
+  exactly as `consume_for_firing`'s RESET tail does
+  (`precompiled_backend.rs:1164-1172` matched, `:1236-1248` opcode).
 * A matched firing with no binding cannot reach the consume phase
-  (`can_enable`'s `no_binding` bail-out, `:584-592`), so the firing model
+  (`can_enable`'s `no_binding` bail-out,
+  `precompiled_backend.rs:720-726`), so the firing model
   carries the chosen name.
 * `cache_add_token` at a *different* place touches other key indices of the
   matcher only, never this input's queues — the frame case of `applyStep`.
@@ -91,13 +100,13 @@ string; only equality matters for lockstep (NU-001 ordering matters to
 selection, which is out of scope here), so `Nat` suffices. -/
 abbrev Name := Nat
 
-/-- A match key's projection, `MatchKey::extract` as used at
-`precompiled_backend.rs:307` and `:285`: `value → Option<NameId>` — a token
-whose extraction fails is invisible to the matcher. -/
+/-- A match key's projection: `MatchKey::extract` (`match_spec.rs:55`), as
+called by `cache_add_token` and `find_match_binding`. `value → Option<NameId>`
+— a token whose extraction fails is invisible to the matcher. -/
 abbrev KeyOf := Colour → Option Name
 
 /-- The ν-net name-equality test — the `pred` closure the matched consume
-builds at `precompiled_backend.rs:955-960`:
+builds at `precompiled_backend.rs:1105-1110`:
 `matches!((key(v), &chosen), (Some(n), Some(c)) if n == *c)`. Per NU-021 this
 is the *only* per-token filter in the system. -/
 def keyPred (key : KeyOf) (n : Name) : Colour → Bool := fun c => key c == some n
@@ -110,15 +119,15 @@ a name mapped to `[]` is the map's absent entry. -/
 abbrev CacheQ := Name → List Colour
 
 /-- `IncrementalMatcher::add` (`match_engine.rs:186-191`) as called by
-`cache_add_token` (`precompiled_backend.rs:299-316`): if the key extracts a
+`cache_add_token` (`precompiled_backend.rs:348-367`): if the key extracts a
 name, push the token at the back of that name's queue; otherwise do
 nothing. -/
 def cacheAdd (key : KeyOf) (q : CacheQ) (c : Colour) : CacheQ :=
   fun n => if key c == some n then q n ++ [c] else q n
 
-/-- One `q.pop_front()` on name `m`'s queue (`match_engine.rs:197-199`,
-`MinQueue::pop_front` at `:102-109`): FIFO-within-name removal, a no-op on
-an empty queue. -/
+/-- One `q.pop_front()` on name `m`'s queue — `IncrementalMatcher::consume`
+(`match_engine.rs:197-199`) calling `MinQueue::pop_front` (`:102-109`):
+FIFO-within-name removal, a no-op on an empty queue. -/
 def cachePop (q : CacheQ) (m : Name) : CacheQ :=
   fun n => if n == m then (q n).tail else q n
 
@@ -132,9 +141,9 @@ def cachePopN (q : CacheQ) (m : Name) : Nat → CacheQ
 /-- The from-scratch answer the cache claims to equal: walk the ring
 projection in FIFO order and keep, per name, the tokens extracting to it.
 This is what the seeding loop of `init_match_caches` builds
-(`precompiled_backend.rs:274-293`) and the queue-level ground truth
+(`precompiled_backend.rs:325-343`) and the queue-level ground truth
 underlying `find_match_binding`'s `(count, min_created_at)` index
-(`precompiled_backend.rs:617-632`) — the index is the image of these
+(`precompiled_backend.rs:753-767`) — the index is the image of these
 queues. -/
 def recompute (key : KeyOf) (l : List Colour) : CacheQ :=
   fun n => l.filter (keyPred key n)
@@ -154,8 +163,8 @@ def Sync (key : KeyOf) (s : Pool) (p : PlaceId) (q : CacheQ) : Prop :=
   ∀ n, q n = recompute key (s.proj p) n
 
 /-- Seeding establishes the invariant: `init_match_caches` walks the ring in
-FIFO order and `add`s every extracting token (`precompiled_backend.rs:
-277-290`), which is `recompute` by construction. -/
+FIFO order and `add`s every extracting token
+(`precompiled_backend.rs:328-343`), which is `recompute` by construction. -/
 theorem sync_seed (key : KeyOf) (s : Pool) (p : PlaceId) :
     Sync key s p (recompute key (s.proj p)) := fun _ => rfl
 
@@ -165,15 +174,17 @@ Every way the shipped backend can touch a compiled place's ring, with the
 cache mirroring exactly the calls the code makes (and only those). -/
 
 /-- The ring side of one matched consume: `to_consume` iterations of
-`ring_remove_matching` (`precompiled_backend.rs:968-975`), each removing the
-first `pred`-satisfying token or nothing. -/
+`ring_remove_matching`, as `consume_for_firing` calls it
+(`precompiled_backend.rs:1122-1130`), each removing the first
+`pred`-satisfying token or nothing. -/
 def matchedRemoveIter (s : Pool) (p : PlaceId) (pred : Colour → Bool) :
     Nat → Pool
   | 0 => s
   | k + 1 => matchedRemoveIter (s.removeMatching p pred).2 p pred k
 
-/-- A reset drain: `token_counts[pid]` repeated `ring_remove_first` calls
-(`precompiled_backend.rs:1005-1013`). -/
+/-- A reset drain: `drainable(pid, token_counts[pid])` repeated
+`ring_remove_first` calls — `consume_for_firing`'s RESET tail
+(`precompiled_backend.rs:1164-1172` matched, `:1236-1248` opcode). -/
 def drainIter (s : Pool) (p : PlaceId) : Nat → Pool
   | 0 => s
   | k + 1 => drainIter (s.removeFirst p) p k
@@ -181,22 +192,25 @@ def drainIter (s : Pool) (p : PlaceId) : Nat → Pool
 /-- One backend mutation addressed to one place.
 
 * `add c` — `produce_token` / `inject_external_token`
-  (`precompiled_backend.rs:1092-1102`, `:1121-1131`): `cache_add_token`
+  (`precompiled_backend.rs:1260-1273`, `:1292-1302`): `cache_add_token`
   then `ring_add_last`. The only mutations that *insert* into a ring.
+  `produce_token` additionally records a same-pass deposit (EXEC-003 AC4/AC5,
+  `:1265-1267`), which touches neither ring nor cache and is invisible here.
 * `matchedConsume pred m ringK cacheK` — the matched branch of
   `consume_for_firing` on one correlated input: `ringK` iterations of
-  `ring_remove_matching pred` (`:961-975`) plus `cache.consume(m)` popping
-  `cacheK` tokens of `m`'s queue for this input (`:997-1001`,
-  `match_engine.rs:195-201`). The shipped eligible path always has
-  `pred = keyPred key m` (the `:955-960` closure) and
+  `ring_remove_matching pred` (`precompiled_backend.rs:1122-1130`) plus
+  `cache.consume(m)` popping `cacheK` tokens of `m`'s queue for this input
+  (`:1156-1160`, `match_engine.rs:195-201`). The shipped eligible path always
+  has `pred = keyPred key m` (the `precompiled_backend.rs:1105-1110` closure) and
   `ringK = cacheK = required`; the counts are carried separately precisely
   so `one_exactly_is_necessary` can exhibit why `One`/`Exactly` is
   load-bearing.
-* `consumeFirst` — one foreign `ring_remove_first` (`:329-336`; the opcode
+* `consumeFirst` — one foreign `ring_remove_first`
+  (`precompiled_backend.rs:380-387`; the opcode
   path of `consume_for_firing` and the matched path's non-correlated
   inputs). **No cache call exists on this path.**
-* `reset` — the RESET drain (`:1005-1013`). **No cache call exists on this
-  path either.** -/
+* `reset` — the RESET drain (`:1164-1172` / `:1236-1248`). **No cache call
+  exists on this path either.** -/
 inductive Mut where
   | add (c : Colour)
   | matchedConsume (pred : Colour → Bool) (m : Name) (ringK cacheK : Nat)
@@ -664,7 +678,7 @@ theorem match_cache_lockstep {key : KeyOf} {p : PlaceId}
 /-! ## The eligibility predicate, exactly as `init_match_caches` states it -/
 
 /-- The `required` match of `init_match_caches`
-(`precompiled_backend.rs:254-262`): `Some(In::One) => 1`,
+(`precompiled_backend.rs:305-314`): `Some(In::One) => 1`,
 `Some(In::Exactly{count}) => count`, everything else — `All`, `AtLeast`, or
 no input spec at all — is ineligible (`_ => { eligible = false }`). -/
 def fixedRequired : Card → Option Nat
@@ -674,20 +688,20 @@ def fixedRequired : Card → Option Nat
   | .atLeast _ => none
 
 /-- Conjunct 1 for one correlated input: the spec lookup
-(`t.input_specs().iter().find(...)`, `precompiled_backend.rs:250-253` —
+(`t.input_specs().iter().find(...)`, `precompiled_backend.rs:301-304` —
 `specAt` in `Basic.lean`) composed with `fixedRequired`. `some k` means the
 input consumes a fixed `k` tokens per firing. -/
 def requiredOf (t : Transition) (p : PlaceId) : Option Nat :=
   (specAt t p).bind fun sp => fixedRequired sp.card
 
 /-- Conjunct 2's artifact: the `reset_target` boolean array of
-`init_match_caches` (`precompiled_backend.rs:224-231`) — is `p` a reset
+`init_match_caches` (`precompiled_backend.rs:270-282`) — is `p` a reset
 target of *any* transition (the owner included)? -/
 def resetTarget (ts : List Transition) (p : PlaceId) : Bool :=
   ts.any fun u => u.resets.any fun r => r == p
 
 /-- The Rust inner loop `for spec in t.input_specs() { if pid { push(tid) } }`
-(`precompiled_backend.rs:218-223`): one entry per input spec of the
+(`precompiled_backend.rs:273-277`): one entry per input spec of the
 transition at index `i` that lands on `p`. -/
 def specTids (i : Nat) (p : PlaceId) : List InSpec → List Nat
   | [] => []
@@ -695,7 +709,7 @@ def specTids (i : Nat) (p : PlaceId) : List InSpec → List Nat
     if sp.place == p then i :: specTids i p rest else specTids i p rest
 
 /-- Conjunct 3's artifact: the `input_consumers[pid]` vector
-(`precompiled_backend.rs:217-223`) — every transition index that consumes
+(`precompiled_backend.rs:269-277`) — every transition index that consumes
 `p` through an input arc, in index order, with multiplicity. -/
 def consumerTids : List Transition → Nat → PlaceId → List Nat
   | [], _, _ => []
@@ -705,16 +719,16 @@ def inputConsumers (ts : List Transition) (p : PlaceId) : List Nat :=
   consumerTids ts 0 p
 
 /-- **The fast-path eligibility predicate of `init_match_caches`**
-(`precompiled_backend.rs:245-268`), for the correlated input `p` of the
+(`precompiled_backend.rs:296-320`), for the correlated input `p` of the
 matched transition at index `tid`:
 
 * `fixed_count` — the input spec on `p` is `One`/`Exactly` with consume
-  count `k` (`:254-262`);
-* `no_reset` — `!reset_target[pid]` (`:264`);
-* `sole_consumer` — `input_consumers[pid] == [tid]` (`:264`): exactly one
+  count `k` (`:305-314`);
+* `no_reset` — `!reset_target[pid]` (`:315`);
+* `sole_consumer` — `input_consumers[pid] == [tid]` (`:315`): exactly one
   input arc in the whole net lands on `p`, and it is `tid`'s.
 
-The code additionally requires `p` to be a compiled place id (`:246-249`);
+The code additionally requires `p` to be a compiled place id (`:297-300`);
 the model's `PlaceId`s are dense, so that conjunct is absorbed (tokens for
 unknown places never enter the pool or the caches — CORE-072). A matched
 transition is fast-path eligible when every one of its key places satisfies
@@ -851,18 +865,24 @@ theorem resetTarget_false {ts : List Transition} {p : PlaceId}
 /-! ## What one firing does to the cached place -/
 
 /-- The mutations the consume phase of one firing of `u`
-(`consume_for_firing`, `precompiled_backend.rs:924-1014`) performs **on the
+(`consume_for_firing`, `precompiled_backend.rs:1074-1258`) performs **on the
 single place `p`**, in program order: for each input spec landing on `p`, a
 matched consume when `p` is one of `u`'s correlated inputs
-(`key_for(...).is_some()`, `:948-953`; ring count per `:961-967` —
-`One => 1`, `Exactly => count`, `All`/`AtLeast => count_matching`, the
-`matchAvail` parameter — cache pops per the matcher's fixed
-`requireds[i] = sp.card.required`, cf. `find_match_binding`'s
-`:610-615`), else plain FIFO removals (`consumeCountAt`, opcode path,
-`avail = token_counts[pid]`); then one reset drain per reset arc on `p`
-(`:1005-1013`). Read arcs peek and mutate nothing (`:1003`). Steps at
-other places of the same firing are separate `applyStep` targets, covered
-by the frame case. -/
+(`key_for(...).is_some()`, `:1098-1103`; ring count per `:1111-1121` —
+`One => 1`, `Exactly => count`, `All`/`AtLeast` => the matched tally over the
+drainable ring prefix, the `matchAvail` parameter — cache pops per the
+matcher's fixed `requireds[i] = sp.card.required`, cf. `find_match_binding`'s
+`:748-752`), else plain FIFO removals (`consumeCountAt`, opcode path,
+`avail = drainable(pid, token_counts[pid])`); then one reset drain per reset
+arc on `p` (`:1164-1172` / `:1236-1248`). Read arcs peek and mutate nothing
+(`:1162`). Steps at other places of the same firing are separate `applyStep`
+targets, covered by the frame case.
+
+`avail` and `matchAvail` are free parameters, so how far a drain reaches —
+`token_counts[pid]` or the shorter `drainable` bound EXEC-003 AC5 imposes on a
+pass with a same-pass deposit — is quantified over, not assumed. Eligibility
+rules drains out of the cached place anyway: conjunct 1 requires `One`/`Exactly`
+there and conjunct 3 forbids a reset arc on it. -/
 def consumeMutsAt (u : Transition) (p : PlaceId) (isKey : Bool)
     (pred : Colour → Bool) (chosen : Name) (avail matchAvail : Nat) :
     List Mut :=
@@ -900,7 +920,8 @@ theorem foreign_fire_emits_nothing {ts : List Transition} {tid : Nat}
 /-- Conjunct 1 shapes the owner's own firing: on an eligible key place the
 whole consume phase is **one** matched consume whose ring count and cache
 count are both the fixed `k` — `One`/`Exactly` is precisely the fragment
-where `to_consume` (`:961-967`) and the matcher's `requireds[i]` agree, and
+where `to_consume` (`precompiled_backend.rs:1111-1121`) and the matcher's
+`requireds[i]` agree, and
 `sole_consumer` guarantees the single spec and `no_reset` the empty reset
 tail. -/
 theorem owner_fire_emits_lockstep {ts : List Transition} {tid : Nat}
