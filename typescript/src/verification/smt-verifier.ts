@@ -9,15 +9,19 @@ import type { FlatNet } from './encoding/flat-net.js';
 import { flatten } from './encoding/net-flattener.js';
 import { type EnvironmentAnalysisMode, alwaysAvailable } from './analysis/environment-analysis-mode.js';
 import { IncidenceMatrix } from './encoding/incidence-matrix.js';
-import { computePInvariants, computePSemiflows, isCoveredByInvariants } from './invariant/p-invariant-computer.js';
+import { computePInvariants, computePSemiflows, isCoveredByInvariants, validateInvariantsExact } from './invariant/p-invariant-computer.js';
 import { structuralCheck } from './invariant/structural-check.js';
 import { createSpacerRunner } from './z3/spacer-runner.js';
+import { checkCertificate } from './z3/certificate-checker.js';
 import { encode } from './z3/smt-encoder.js';
 import { buildColouredPlan, encodeColoured, type ColouredPlan } from './z3/name-coloured-encoder.js';
 import { verifyViaNameScg } from './nu-scg-verifier.js';
 import type { FragmentMode } from './analysis/name-fragment.js';
 import type { PrioritySemantics } from './analysis/priority-semantics.js';
-import { decode } from './z3/counterexample-decoder.js';
+import { decode, describeDecodeFailure } from './z3/counterexample-decoder.js';
+import {
+  replayCounterexample, vectorize, toMarkingState, stepName, type ReplayOutcome,
+} from './z3/abstract-replayer.js';
 import { requireOutputProducingActions } from '../core/internal/output-action-check.js';
 
 /**
@@ -51,6 +55,8 @@ export class SmtVerifier {
   private readonly _budgetPlaces = new Set<string>();
   private _environmentMode: EnvironmentAnalysisMode = alwaysAvailable();
   private _timeoutMs: number = 60_000;
+  private _certificateCheck: boolean = true;
+  private _counterexampleReplay: boolean = true;
   private _nuMaxClasses: number = 100_000;
   private _fragmentMode: FragmentMode = 'base';
   private readonly _carrierPlaces = new Set<string>();
@@ -114,6 +120,47 @@ export class SmtVerifier {
 
   timeout(ms: number): this {
     this._timeoutMs = ms;
+    return this;
+  }
+
+  /**
+   * Enables/disables the independent IC3 certificate check (default: enabled).
+   *
+   * When a proven verdict comes from the IC3/Spacer path on the flat count
+   * encoding, the synthesized inductive invariant is re-validated with a plain
+   * solver against the UNSTRENGTHENED step relation — VC1 (init), VC2
+   * (consecution), VC3 (safety) — so a Spacer or encoder defect cannot certify
+   * a false PROVEN. A certificate that fails validation downgrades the verdict
+   * to unknown. Structural proofs and the coloured ν-encoding are unaffected.
+   */
+  certificateCheck(enabled: boolean): this {
+    this._certificateCheck = enabled;
+    return this;
+  }
+
+  /**
+   * Enables/disables abstract counterexample replay (default: enabled).
+   *
+   * When a violated verdict comes from the flat count encoding, the decoded
+   * counterexample states (an order-free set — the derivation tree is walked
+   * in traversal order, not firing order) are re-executed TS-side against the
+   * abstract semantics the encoder emits (Lean's `fireA`, Basic.lean): a
+   * bounded BFS chains the states from M₀ to a property-violating marking.
+   *
+   * - Chain found → the verdict stays violated with
+   *   `counterexampleConfirmed: true` and the trace re-emitted in firing
+   *   (replay) order.
+   * - States decoded but unchainable → the counterexample is spurious or the
+   *   decoder mis-read the derivation; the verdict DOWNGRADES to unknown.
+   * - Nothing decoded → the verdict stays violated with
+   *   `counterexampleConfirmed: false` and a report note (Spacer's SAT answer
+   *   stands; there is simply nothing to replay).
+   *
+   * The coloured ν-encoding and Route B have their own state shapes and are
+   * out of scope (replay is skipped, `counterexampleConfirmed: null`).
+   */
+  counterexampleReplay(enabled: boolean): this {
+    this._counterexampleReplay = enabled;
     return this;
   }
 
@@ -313,16 +360,43 @@ export class SmtVerifier {
     // Phase 3: P-invariants
     report.push('Phase 3: Computing P-invariants...');
     const matrix = IncidenceMatrix.from(flatNet);
-    const invariants = computePInvariants(matrix, flatNet, this._initialMarking);
+    // Exact re-check (BigInt) before invariants reach the encoder: the Gaussian
+    // elimination runs in f64 `number`, and a numerically wrong invariant conjoined
+    // into the CHC transition bodies removes reachable successors — i.e. it could
+    // certify a false PROVEN. Drop anything the exact re-verification rejects.
+    const { valid: invariants, dropped: droppedInvariants } = validateInvariantsExact(
+      matrix,
+      computePInvariants(matrix, flatNet, this._initialMarking),
+      flatNet,
+      this._initialMarking,
+    );
     // P-semiflows (non-negative conservation laws) bound the simultaneously-live
     // colour count that sets the name-coloured encoder's slot count `k` (see
-    // buildColouredPlan / colourSlotBound).
-    const semiflows = computePSemiflows(matrix, flatNet, this._initialMarking);
+    // buildColouredPlan / colourSlotBound) — validated the same way (incl. the H1
+    // linearity guard) before they can set that bound, mirroring the Rust verifier.
+    const { valid: semiflows, dropped: droppedSemiflows } = validateInvariantsExact(
+      matrix,
+      computePSemiflows(matrix, flatNet, this._initialMarking),
+      flatNet,
+      this._initialMarking,
+    );
     report.push(`  Found: ${invariants.length} P-invariant(s)`);
     const structurallyBounded = isCoveredByInvariants(invariants, flatNet.places.length);
     report.push(`  Structurally bounded: ${structurallyBounded ? 'YES' : 'NO'}`);
     for (const inv of invariants) {
       report.push(`  ${formatInvariant(inv, flatNet)}`);
+    }
+    for (const { invariant, reason } of droppedInvariants) {
+      report.push(`  Dropped invariant ${formatInvariant(invariant, flatNet)}: exact re-check failed (${reason})`);
+    }
+    if (droppedInvariants.length > 0) {
+      report.push(`  Dropped: ${droppedInvariants.length} invariant(s) failed the exact re-check`);
+    }
+    for (const { invariant, reason } of droppedSemiflows) {
+      report.push(`  Dropped semiflow ${formatInvariant(invariant, flatNet)}: exact re-check failed (${reason})`);
+    }
+    if (droppedSemiflows.length > 0) {
+      report.push(`  Dropped: ${droppedSemiflows.length} semiflow(s) failed the exact re-check`);
     }
     report.push('');
 
@@ -410,7 +484,38 @@ export class SmtVerifier {
             );
           }
 
-          report.push('  Status: UNSAT (property holds)\n');
+          report.push('  Status: UNSAT (property holds)');
+
+          // Independent certificate check (flat count encoding only): re-validate
+          // the IC3-synthesized invariant against the UNSTRENGTHENED step relation
+          // with a plain solver, so neither a Spacer/encoder defect nor a
+          // wrong-but-validated-looking invariant strengthening can certify a
+          // false PROVEN. The coloured ν-encoding has its own state shape and is
+          // out of scope; structural proofs return before this point.
+          if (colouredPlan == null && this._certificateCheck) {
+            const certificate = await checkCertificate(
+              runner.ctx, queryResult.answer, flatNet, this._initialMarking,
+              this._property, invariants, this._sinkPlaces, this._timeoutMs,
+            );
+            if (certificate.type === 'failed') {
+              const reason = `Certificate check FAILED: ${certificate.reason} — verdict downgraded`;
+              report.push(`  Certificate check: FAILED (${certificate.reason})`);
+              if (certificate.invariant != null) {
+                report.push(`  Uncertified invariant: ${substituteNames(certificate.invariant, flatNet)}`);
+              }
+              report.push('');
+              report.push('=== RESULT ===\n');
+              report.push(`UNKNOWN: ${reason}`);
+              return buildResult(
+                { type: 'unknown', reason },
+                report.join('\n'), invariants, [], [], [],
+                performance.now() - start,
+                { places: flatNet.places.length, transitions: flatNet.transitions.length, invariantsFound: invariants.length, structuralResult: structResultStr },
+              );
+            }
+            report.push('  Certificate check: PASSED (init, consecution, safety)');
+          }
+          report.push('');
 
           // Decode IC3-synthesized invariants with place name substitution
           const discoveredInvariants: string[] = [];
@@ -459,26 +564,107 @@ export class SmtVerifier {
           report.push('  Status: SAT (counterexample found)\n');
 
           const decoded = decode(runner.ctx, queryResult.answer, flatNet);
+          const stats: SmtStatistics = {
+            places: flatNet.places.length,
+            transitions: flatNet.transitions.length,
+            invariantsFound: invariants.length,
+            structuralResult: structResultStr,
+          };
+
+          // C3: abstract counterexample replay (flat count encoding only — the
+          // coloured ν-encoding's state shape is outside the replayer's scope).
+          // The decoder collects Reachable states in derivation-TRAVERSAL order;
+          // the replay recovers a genuine firing order or downgrades.
+          let confirmed: boolean | null = null;
+          let trace: readonly MarkingState[] = decoded.trace;
+          let transitions: readonly string[] = decoded.transitions;
+          let replayed = false;
+          if (colouredPlan == null && this._counterexampleReplay) {
+            if (decoded.states.size > 0) {
+              let outcome: ReplayOutcome;
+              try {
+                outcome = replayCounterexample(
+                  flatNet,
+                  vectorize(this._initialMarking, flatNet),
+                  [...decoded.states].map(m => vectorize(m, flatNet)),
+                  this._property,
+                  this._sinkPlaces,
+                );
+              } catch (e: any) {
+                // The abstraction over-approximates (VER-004), so replay failure
+                // must downgrade, never crash the verifier.
+                outcome = {
+                  kind: 'unchainable',
+                  reason: `replay error: ${e?.message ?? e}`,
+                  nodesExplored: 0,
+                };
+              }
+              if (outcome.kind === 'confirmed') {
+                confirmed = true;
+                replayed = true;
+                trace = outcome.states.map(s => toMarkingState(s, flatNet));
+                transitions = outcome.steps.map(stepName);
+                report.push('  Counterexample replay: CONFIRMED (abstract chain M0 -> bad re-executed)');
+              } else {
+                // Decoded states exist but no abstract chain reaches a violating
+                // marking: a spurious counterexample of the untimed+value-blind
+                // over-approximation, or a decoder mismatch. Never keep an
+                // unreplayable VIOLATED — downgrade, with raw + decoded evidence.
+                const reason = 'counterexample failed abstract replay — spurious CEX or decoder mismatch';
+                report.push(`  Counterexample replay: FAILED (${outcome.reason})`);
+                report.push(`  Decoded states (order-free set, ${decoded.states.size}):`);
+                for (const m of decoded.states) {
+                  report.push(`    ${m}`);
+                }
+                if (decoded.trace.length > 0) {
+                  report.push(`  Raw traversal-order trace (${decoded.trace.length} states):`);
+                  for (let i = 0; i < decoded.trace.length; i++) {
+                    report.push(`    ${i}: ${decoded.trace[i]}`);
+                  }
+                }
+                if (decoded.failure != null) {
+                  report.push(`  Decoder degradation: ${describeDecodeFailure(decoded.failure)}`);
+                }
+                report.push(`  Raw Z3 answer: ${truncate(String(queryResult.answer), 2000)}`);
+                report.push('');
+                report.push('=== RESULT ===\n');
+                report.push(`UNKNOWN: ${reason}`);
+                return buildResult(
+                  { type: 'unknown', reason },
+                  report.join('\n'), invariants, [], [], [],
+                  performance.now() - start,
+                  stats,
+                );
+              }
+            } else {
+              // Nothing decodable in the derivation: the SAT verdict stands on
+              // Spacer's answer alone — NOT a downgrade, but say so.
+              confirmed = false;
+              report.push(`  Counterexample replay: NO STATES DECODED (${describeDecodeFailure(decoded.failure)})`);
+              report.push("  The verdict rests on Spacer's SAT answer; there is nothing to replay.");
+            }
+          }
 
           report.push('=== RESULT ===\n');
           report.push(`VIOLATED: ${propDesc}`);
-          if (decoded.trace.length > 0) {
-            report.push(`  Counterexample trace (${decoded.trace.length} states):`);
-            for (let i = 0; i < decoded.trace.length; i++) {
-              report.push(`    ${i}: ${decoded.trace[i]}`);
+          if (trace.length > 0) {
+            report.push(`  Counterexample trace (${replayed ? 'replay order, ' : ''}${trace.length} states):`);
+            for (let i = 0; i < trace.length; i++) {
+              report.push(`    ${i}: ${trace[i]}`);
             }
           }
-          if (decoded.transitions.length > 0) {
-            report.push(`  Firing sequence: ${decoded.transitions.join(' -> ')}`);
+          if (transitions.length > 0) {
+            report.push(`  Firing sequence: ${transitions.join(' -> ')}`);
           }
           report.push('\n  WARNING: This counterexample is in UNTIMED semantics.');
           report.push('  It may be spurious if timing constraints prevent this sequence.');
 
           return this.applyNuGuard(buildResult(
             { type: 'violated' },
-            report.join('\n'), invariants, [], decoded.trace as MarkingState[], decoded.transitions as string[],
+            report.join('\n'), invariants, [], trace as MarkingState[], transitions as string[],
             performance.now() - start,
-            { places: flatNet.places.length, transitions: flatNet.transitions.length, invariantsFound: invariants.length, structuralResult: structResultStr },
+            stats,
+            confirmed,
           ), hasMatch, nuBounded, colouredPlan != null);
         }
 
@@ -606,7 +792,13 @@ function downgradeToUnknown(result: SmtVerificationResult, reason: string): SmtV
     discoveredInvariants: [],
     counterexampleTrace: [],
     counterexampleTransitions: [],
+    counterexampleConfirmed: null,
   };
+}
+
+/** Truncates long raw solver output for the report. */
+function truncate(s: string, max: number): string {
+  return s.length <= max ? s : `${s.slice(0, max)}… (${s.length - max} chars truncated)`;
 }
 
 /**
@@ -641,6 +833,7 @@ function buildResult(
   transitions: readonly string[],
   elapsedMs: number,
   statistics: SmtStatistics,
+  counterexampleConfirmed: boolean | null = null,
 ): SmtVerificationResult {
-  return { verdict, report, invariants, discoveredInvariants, counterexampleTrace: trace, counterexampleTransitions: transitions, elapsedMs, statistics };
+  return { verdict, report, invariants, discoveredInvariants, counterexampleTrace: trace, counterexampleTransitions: transitions, counterexampleConfirmed, elapsedMs, statistics };
 }

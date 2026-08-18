@@ -48,6 +48,15 @@ pub struct VerificationResult {
     pub discovered_invariants: Vec<String>,
     pub counterexample_trace: Vec<MarkingState>,
     pub counterexample_transitions: Vec<String>,
+    /// Whether a `Violated` verdict's counterexample was confirmed by the
+    /// abstract replay (C3, [`crate::abstract_replay`]): the state set decoded
+    /// from the z3 refutation proof chained from the initial marking to a
+    /// state satisfying the property violation under the abstract (untimed,
+    /// value-blind) semantics. `false` on every non-violated verdict, when
+    /// replay is disabled or not applicable (name-coloured / Route B /
+    /// structural paths), and when the proof yielded no decodable states
+    /// (common — not a downgrade; see the report note).
+    pub counterexample_confirmed: bool,
     pub elapsed_ms: u64,
     pub statistics: VerificationStatistics,
 }

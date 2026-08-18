@@ -14,6 +14,8 @@ import org.libpetri.smt.encoding.NetFlattener;
 import org.libpetri.smt.invariant.PInvariant;
 import org.libpetri.smt.invariant.PInvariantComputer;
 import org.libpetri.smt.invariant.StructuralCheck;
+import org.libpetri.smt.z3.AbstractReplayer;
+import org.libpetri.smt.z3.CertificateChecker;
 import org.libpetri.smt.z3.CounterexampleDecoder;
 import org.libpetri.smt.z3.NameColouredEncoder;
 import org.libpetri.smt.z3.SmtEncoder;
@@ -84,6 +86,9 @@ public final class SmtVerifier {
     private FragmentMode fragmentMode = FragmentMode.BASE;
     private final Set<String> carrierPlaces = new HashSet<>();
     private PrioritySemantics prioritySemantics = PrioritySemantics.NONE;
+    private boolean certificateCheck = true;
+    private boolean counterexampleReplay = true;
+    private CertificateCheck certificateChecker = CertificateChecker::check;
 
     private SmtVerifier(PetriNet net) {
         this.net = Objects.requireNonNull(net);
@@ -245,6 +250,61 @@ public final class SmtVerifier {
     }
 
     /**
+     * Enables or disables the IC3 certificate check (default: enabled).
+     *
+     * <p>When enabled, a PROVEN verdict from the flat IC3/PDR path is only
+     * reported after the Spacer-synthesized inductive invariant has been
+     * independently re-validated with a plain solver. The candidate is
+     * {@code R' = I AND invs} — Spacer's invariant conjoined with the validated
+     * P-invariant equalities, which the check re-proves rather than trusts:
+     * initiation ({@code NOT R'(M0)} unsat), consecution against the
+     * <em>unstrengthened</em> step relation ({@code R'(M) AND T(M,M') AND NOT
+     * R'(M')} unsat — no invariant conjuncts in {@code T}), and safety
+     * ({@code R'(M) AND Bad(M)} unsat). If any condition fails, or the
+     * certificate is missing or unparseable, the verdict is downgraded to
+     * UNKNOWN with the failing condition named — a proof is never silently
+     * trusted. The check applies only to the flat count encoding; structural
+     * early proofs and the name-coloured (ν) encoding path are not covered.
+     */
+    public SmtVerifier certificateCheck(boolean enabled) {
+        this.certificateCheck = enabled;
+        return this;
+    }
+
+    /**
+     * Test seam: replaces the certificate-check implementation. Package-private —
+     * used to inject a corrupted-certificate outcome without depending on
+     * Spacer's answer shape.
+     */
+    SmtVerifier certificateChecker(CertificateCheck checker) {
+        this.certificateChecker = Objects.requireNonNull(checker);
+        return this;
+    }
+
+    /**
+     * Enables or disables abstract counterexample replay (default: enabled).
+     *
+     * <p>When enabled, a VIOLATED verdict from the flat IC3/PDR path is
+     * cross-checked before it is reported: the markings decoded from Spacer's
+     * derivation (an order-free set — the derivation traversal order is not an
+     * execution order) are chained by {@link AbstractReplayer} into an actual
+     * run of the abstract semantics, from the initial marking to a marking
+     * satisfying the property-violation predicate, bridging consecutive
+     * decoded states with a bounded search. A successful chain confirms the
+     * counterexample ({@code Verdict.Violated(counterexampleConfirmed=true)})
+     * and the replay-ordered trace is reported; decoded states that cannot be
+     * chained downgrade the verdict to UNKNOWN (spurious counterexample or
+     * decoder mismatch — the abstraction is untimed and value-blind, VER-004);
+     * an underivable/empty decode keeps VIOLATED but marks it unconfirmed
+     * (nothing contradicts the solver — there is just nothing to replay).
+     * The replay never invokes Z3.
+     */
+    public SmtVerifier counterexampleReplay(boolean enabled) {
+        this.counterexampleReplay = enabled;
+        return this;
+    }
+
+    /**
      * Runs the verification pipeline.
      *
      * @return the verification result
@@ -364,16 +424,40 @@ public final class SmtVerifier {
         // Phase 3: P-invariants
         report.append("Phase 3: Computing P-invariants...\n");
         var matrix = IncidenceMatrix.from(flatNet);
-        var invariants = PInvariantComputer.compute(matrix, flatNet, initialMarking);
+        // Exact re-validation gate: the elimination in PInvariantComputer.compute uses
+        // unchecked long arithmetic and an int truncation on extraction, and a numerically
+        // wrong invariant conjoined into the CHC transition-rule body REMOVES reachable
+        // successors — i.e. it can certify a false PROVEN. Only candidates whose y*C = 0
+        // and constant = y*M0 re-verify exactly may reach an encoder; the rest are dropped
+        // and reported below.
+        var invariantValidation = PInvariantComputer.validateExact(
+            PInvariantComputer.compute(matrix, flatNet, initialMarking),
+            matrix, flatNet, initialMarking);
+        var invariants = invariantValidation.valid();
         // P-semiflows (non-negative conservation laws) bound the simultaneously-live
         // colour count that sets the name-coloured encoder's slot count k (see
-        // NameColouredEncoder.buildPlan / colourSlotBound).
-        var semiflows = PInvariantComputer.computePSemiflows(matrix, flatNet, initialMarking);
+        // NameColouredEncoder.buildPlan / colourSlotBound). Same exact gate: a wrong
+        // semiflow would under-bound k and unsound the coloured encoding.
+        var semiflowValidation = PInvariantComputer.validateExact(
+            PInvariantComputer.computePSemiflows(matrix, flatNet, initialMarking),
+            matrix, flatNet, initialMarking);
+        var semiflows = semiflowValidation.valid();
         report.append("  Found: ").append(invariants.size()).append(" P-invariant(s)\n");
         boolean structurallyBounded = PInvariantComputer.isCoveredByInvariants(invariants, flatNet.placeCount());
         report.append("  Structurally bounded: ").append(structurallyBounded ? "YES" : "NO").append("\n");
         for (var inv : invariants) {
             report.append("  ").append(formatInvariant(inv, flatNet)).append("\n");
+        }
+        for (var reason : invariantValidation.dropped()) {
+            report.append("  Dropped invariant: ").append(reason).append("\n");
+        }
+        for (var reason : semiflowValidation.dropped()) {
+            report.append("  Dropped semiflow: ").append(reason).append("\n");
+        }
+        int droppedTotal = invariantValidation.dropped().size() + semiflowValidation.dropped().size();
+        if (droppedTotal > 0) {
+            report.append("  Dropped: ").append(droppedTotal)
+                .append(" candidate(s) failed exact re-validation (excluded from encoding)\n");
         }
         report.append("\n");
 
@@ -427,7 +511,7 @@ public final class SmtVerifier {
             var queryResult = runner.query(encoding.errorExpr(), encoding.reachableDecl());
 
             var smtResult = switch (queryResult) {
-                case SpacerRunner.QueryResult.Proven(var formula, var levels) -> {
+                case SpacerRunner.QueryResult.Proven(var formula, var rawAnswer, var levels) -> {
                     // Guard against silent vacuous proofs (VER-006): in Ignore mode the
                     // encoding does not model env injection, so env-gated transitions never
                     // fire and ANY safety bound is trivially "proven". Refuse to certify —
@@ -451,6 +535,41 @@ public final class SmtVerifier {
                     }
 
                     report.append("  Status: UNSAT (property holds)\n\n");
+
+                    // Certificate check (flat count encoding only): independently
+                    // re-validate the IC3 certificate with a plain solver before the
+                    // PROVEN verdict is trusted. The coloured (NameColouredEncoder)
+                    // path is not covered, and structural early proofs return before
+                    // this phase. Any failure downgrades to UNKNOWN; the checker and
+                    // this block never propagate an exception.
+                    if (certificateCheck && colouredPlan == null) {
+                        CertificateChecker.Result certOutcome;
+                        try {
+                            certOutcome = certificateChecker.run(
+                                ctx, rawAnswer, encoding.reachableDecl(), flatNet,
+                                initialMarking, property, sinkPlaces, invariants, timeout);
+                        } catch (RuntimeException e) {
+                            // Z3Exception extends RuntimeException; a checker that
+                            // throws must not fail the pipeline.
+                            certOutcome = new CertificateChecker.Result.Unavailable(
+                                "certificate check threw: " + e);
+                        }
+                        String downgrade = certificateDowngradeReason(certOutcome);
+                        if (downgrade == null) {
+                            report.append("  Certificate check: PASSED (init, consecution, safety)\n\n");
+                        } else {
+                            report.append("  Certificate check: FAILED\n\n");
+                            report.append("=== RESULT ===\n\n");
+                            report.append("UNKNOWN: ").append(downgrade).append("\n");
+                            yield buildResult(
+                                new SmtVerificationResult.Verdict.Unknown(downgrade),
+                                report.toString(), invariants, List.of(), List.of(), List.of(),
+                                Duration.between(start, Instant.now()),
+                                new SmtVerificationResult.SmtStatistics(
+                                    flatNet.placeCount(), flatNet.transitionCount(),
+                                    invariants.size(), structResultStr));
+                        }
+                    }
 
                     // Decode IC3-synthesized invariants with place name substitution
                     var discoveredInvariants = new ArrayList<String>();
@@ -496,32 +615,78 @@ public final class SmtVerifier {
                 case SpacerRunner.QueryResult.Violated(var answer) -> {
                     report.append("  Status: SAT (counterexample found)\n\n");
 
-                    // Decode counterexample
+                    // Decode the counterexample as an order-free marking set; the
+                    // execution order is reconstructed by the abstract replay below.
                     var decoded = CounterexampleDecoder.decode(answer, flatNet);
+                    if (decoded.note() != null) {
+                        report.append("  Counterexample decoding: ").append(decoded.note()).append("\n");
+                    }
 
-                    report.append("=== RESULT ===\n\n");
-                    report.append("VIOLATED: ").append(propertyDescription()).append("\n");
-                    if (!decoded.trace().isEmpty()) {
-                        report.append("  Counterexample trace (").append(decoded.trace().size()).append(" states):\n");
-                        for (int i = 0; i < decoded.trace().size(); i++) {
-                            report.append("    ").append(i).append(": ").append(decoded.trace().get(i)).append("\n");
+                    var stats = new SmtVerificationResult.SmtStatistics(
+                        flatNet.placeCount(), flatNet.transitionCount(),
+                        invariants.size(), structResultStr);
+
+                    if (!counterexampleReplay) {
+                        report.append("  Counterexample replay: disabled (counterexampleReplay(false))\n\n");
+                        report.append("=== RESULT ===\n\n");
+                        report.append("VIOLATED: ").append(propertyDescription()).append("\n");
+                        appendDecodedStates(report, decoded);
+                        appendUntimedCaveat(report);
+                        yield buildResult(
+                            new SmtVerificationResult.Verdict.Violated(false),
+                            report.toString(), invariants, List.of(),
+                            List.copyOf(decoded.states()), decoded.transitions(),
+                            Duration.between(start, Instant.now()), stats);
+                    }
+
+                    // Counterexample replay (C3): confirm the decoded states as an
+                    // actual abstract run, or refuse to report a violation the
+                    // abstraction itself cannot reproduce.
+                    var assessment = assessCounterexample(
+                        flatNet, initialMarking, decoded, property, sinkPlaces);
+                    yield switch (assessment) {
+                        case ReplayAssessment.Confirmed(var trace, var firings) -> {
+                            report.append("  Counterexample replay: CONFIRMED — the decoded states chain ")
+                                  .append("into an abstract run reaching the violation.\n\n");
+                            report.append("=== RESULT ===\n\n");
+                            report.append("VIOLATED: ").append(propertyDescription()).append("\n");
+                            report.append("  Replay-ordered trace (").append(trace.size()).append(" states):\n");
+                            for (int i = 0; i < trace.size(); i++) {
+                                report.append("    ").append(i).append(": ").append(trace.get(i));
+                                if (i > 0) {
+                                    report.append("   [").append(firings.get(i - 1)).append("]");
+                                }
+                                report.append("\n");
+                            }
+                            appendUntimedCaveat(report);
+                            yield buildResult(
+                                new SmtVerificationResult.Verdict.Violated(true),
+                                report.toString(), invariants, List.of(), trace, firings,
+                                Duration.between(start, Instant.now()), stats);
                         }
-                    }
-                    if (!decoded.transitions().isEmpty()) {
-                        report.append("  Firing sequence: ").append(decoded.transitions()).append("\n");
-                    }
-                    report.append("\n  WARNING: This counterexample is in UNTIMED semantics.\n");
-                    report.append("  It may be spurious if timing constraints prevent this sequence.\n");
-                    report.append("  Java guards are also ignored in this analysis.\n");
-
-                    yield buildResult(
-                        new SmtVerificationResult.Verdict.Violated(),
-                        report.toString(), invariants, List.of(), decoded.trace(), decoded.transitions(),
-                        Duration.between(start, Instant.now()),
-                        new SmtVerificationResult.SmtStatistics(
-                            flatNet.placeCount(), flatNet.transitionCount(),
-                            invariants.size(), structResultStr)
-                    );
+                        case ReplayAssessment.Unconfirmed(var note) -> {
+                            report.append("  Counterexample replay: skipped — ").append(note).append("\n\n");
+                            report.append("=== RESULT ===\n\n");
+                            report.append("VIOLATED: ").append(propertyDescription()).append("\n");
+                            report.append("  NOTE: ").append(note).append("\n");
+                            appendUntimedCaveat(report);
+                            yield buildResult(
+                                new SmtVerificationResult.Verdict.Violated(false),
+                                report.toString(), invariants, List.of(),
+                                List.copyOf(decoded.states()), decoded.transitions(),
+                                Duration.between(start, Instant.now()), stats);
+                        }
+                        case ReplayAssessment.Downgraded(var reason) -> {
+                            report.append("  Counterexample replay: FAILED\n");
+                            appendDecodedStates(report, decoded);
+                            report.append("\n=== RESULT ===\n\n");
+                            report.append("UNKNOWN: ").append(reason).append("\n");
+                            yield buildResult(
+                                new SmtVerificationResult.Verdict.Unknown(reason),
+                                report.toString(), invariants, List.of(), List.of(), List.of(),
+                                Duration.between(start, Instant.now()), stats);
+                        }
+                    };
                 }
 
                 case SpacerRunner.QueryResult.Unknown(var reason) -> {
@@ -703,6 +868,129 @@ public final class SmtVerifier {
             case SmtProperty.Unreachable _ -> true;
             case SmtProperty.DeadlockFree _ -> false;
             case SmtProperty.JoinedOrDeadLettered _ -> false;
+        };
+    }
+
+    /**
+     * Assessment of a decoded counterexample by abstract replay. Package-private
+     * and free of Z3 types, so the verdict mapping is testable without the
+     * native library (mirror of the {@link #certificateDowngradeReason} design).
+     */
+    sealed interface ReplayAssessment {
+        /** The decoded states chain into an abstract run reaching the violation. */
+        record Confirmed(List<MarkingState> trace, List<String> firings) implements ReplayAssessment {}
+
+        /** Nothing to replay (no decodable states); the VIOLATED verdict stands, unconfirmed. */
+        record Unconfirmed(String note) implements ReplayAssessment {}
+
+        /** The decoded states cannot be chained; the verdict must not be trusted. */
+        record Downgraded(String reason) implements ReplayAssessment {}
+    }
+
+    /**
+     * Maps a decode result to the replay assessment (C3). Pure — no Z3 call:
+     * the property-violation predicate is evaluated Java-side by
+     * {@link AbstractReplayer#violates}.
+     *
+     * <ul>
+     *   <li>nothing decoded &rarr; {@link ReplayAssessment.Unconfirmed} (the
+     *       VIOLATED verdict stands; there is just nothing to replay);</li>
+     *   <li>states decoded and chained to a violating marking &rarr;
+     *       {@link ReplayAssessment.Confirmed} with the replay-ordered trace;</li>
+     *   <li>states decoded but unchainable &rarr;
+     *       {@link ReplayAssessment.Downgraded} — the abstraction is untimed and
+     *       value-blind (VER-004 over-approximation), so a spurious
+     *       counterexample or a decoder mismatch must not be reported as a
+     *       confident violation.</li>
+     * </ul>
+     */
+    static ReplayAssessment assessCounterexample(
+            FlatNet flatNet, MarkingState initialMarking,
+            CounterexampleDecoder.DecodedStates decoded,
+            SmtProperty property, Set<Place<?>> sinkPlaces
+    ) {
+        if (decoded.states().isEmpty()) {
+            return new ReplayAssessment.Unconfirmed(
+                "no counterexample states could be decoded from the Spacer answer, so the "
+                + "abstract replay could not run; the verdict stands, unconfirmed");
+        }
+        AbstractReplayer.ReplayOutcome outcome;
+        try {
+            outcome = AbstractReplayer.replay(
+                flatNet, initialMarking, decoded.states(), property, sinkPlaces);
+        } catch (RuntimeException e) {
+            // A replayer bug must degrade like an unchainable set, never crash the verdict.
+            outcome = new AbstractReplayer.ReplayOutcome.NotChainable("replay threw: " + e);
+        }
+        return switch (outcome) {
+            case AbstractReplayer.ReplayOutcome.Chained(var trace, var firings) ->
+                new ReplayAssessment.Confirmed(trace, firings);
+            case AbstractReplayer.ReplayOutcome.NotChainable(var why) ->
+                new ReplayAssessment.Downgraded(
+                    "counterexample failed abstract replay — spurious CEX or decoder mismatch"
+                    + (why == null || why.isBlank() ? "" : " (" + why + ")"));
+        };
+    }
+
+    /** Decoded-state listing for the report (order-free; traversal order kept for stability). */
+    private static void appendDecodedStates(
+            StringBuilder report, CounterexampleDecoder.DecodedStates decoded
+    ) {
+        if (!decoded.states().isEmpty()) {
+            report.append("  Decoded states (order-free set, ")
+                  .append(decoded.states().size()).append(" markings):\n");
+            for (var state : decoded.states()) {
+                report.append("    - ").append(state).append("\n");
+            }
+        }
+        if (!decoded.transitions().isEmpty()) {
+            report.append("  Derivation rule applications: ").append(decoded.transitions()).append("\n");
+        }
+    }
+
+    /** The standing abstraction caveat on every reported counterexample. */
+    private static void appendUntimedCaveat(StringBuilder report) {
+        report.append("\n  WARNING: This counterexample is in UNTIMED semantics.\n");
+        report.append("  It may be spurious if timing constraints prevent this sequence.\n");
+        report.append("  Java guards are also ignored in this analysis.\n");
+    }
+
+    /**
+     * Signature of the certificate check invoked on a flat-encoding PROVEN
+     * verdict. Package-private so tests can inject outcomes without JNI; the
+     * default implementation is {@link CertificateChecker#check}.
+     */
+    @FunctionalInterface
+    interface CertificateCheck {
+        CertificateChecker.Result run(
+            com.microsoft.z3.Context ctx,
+            com.microsoft.z3.Expr<?> answer,
+            com.microsoft.z3.FuncDecl<com.microsoft.z3.BoolSort> reachableDecl,
+            FlatNet flatNet,
+            MarkingState initialMarking,
+            SmtProperty property,
+            Set<Place<?>> sinkPlaces,
+            List<PInvariant> invariants,
+            Duration timeout);
+    }
+
+    /**
+     * Maps a certificate-check outcome to the UNKNOWN downgrade reason, or
+     * {@code null} when the PROVEN verdict stands. Package-private (static, no
+     * Z3 involvement) so the verdict plumbing is testable without the native
+     * library.
+     */
+    static String certificateDowngradeReason(CertificateChecker.Result outcome) {
+        return switch (outcome) {
+            case CertificateChecker.Result.Passed() -> null;
+            case CertificateChecker.Result.Failed(var vc, var detail) ->
+                "certificate check failed: " + vc.label() + " was not UNSAT"
+                    + (detail == null || detail.isBlank() ? "" : " — " + detail)
+                    + "; the IC3 certificate could not be independently re-validated "
+                    + "against the unstrengthened step relation, so PROVEN is withheld";
+            case CertificateChecker.Result.Unavailable(var reason) ->
+                "certificate check could not run: " + reason
+                    + "; PROVEN is withheld without an independently validated certificate";
         };
     }
 }

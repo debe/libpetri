@@ -24,6 +24,14 @@ pub struct SmtEncoding {
 /// injected (VER-006): `(name, None)` is unbounded (AlwaysAvailable), `(name,
 /// Some(k))` caps injection at `k` (Bounded). Each entry emits one injection rule
 /// and relaxes the deadlock check for that place's inputs.
+///
+/// `produce_proofs` (C3, counterexample replay) emits
+/// `(set-option :produce-proofs true)` ahead of the script and `(get-proof)`
+/// after `(check-sat)`: on unsat (property VIOLATED) z3 prints the refutation
+/// proof, whose ground `Reachable` applications the replay decoder collects
+/// ([`crate::counterexample::decode_state_set`]); on sat (PROVEN) z3 answers
+/// `(error "proof is not available")` and the model still follows — both
+/// verified empirically on z3 4.13, so the proven path ignores it gracefully.
 pub fn encode(
     flat: &FlatNet,
     initial_marking: &MarkingState,
@@ -32,16 +40,17 @@ pub fn encode(
     sink_places: &[String],
     env_bounds: &[(String, usize)],
     env_injection: &[(String, Option<usize>)],
+    produce_proofs: bool,
 ) -> SmtEncoding {
     let p = flat.place_count;
     let mut lines = Vec::new();
 
     // Resolve injectable env places to (index, bound) once.
-    let env_inject: Vec<(usize, Option<usize>)> = env_injection
-        .iter()
-        .filter_map(|(name, bound)| flat.place_index.get(name).map(|&pid| (pid, *bound)))
-        .collect();
+    let env_inject = resolve_env_injection(flat, env_injection);
 
+    if produce_proofs {
+        lines.push("(set-option :produce-proofs true)".to_string());
+    }
     lines.push("(set-logic HORN)".to_string());
     lines.push(String::new());
 
@@ -95,6 +104,18 @@ pub fn encode(
     // invalid empty binder that z3 rejects.)
     lines.push("(assert (not Error))".to_string());
     lines.push("(check-sat)".to_string());
+    if produce_proofs {
+        // Unsat (VIOLATED): the refutation proof carries the ground
+        // `Reachable` facts the replay decoder needs. Sat (PROVEN): a benign
+        // `(error "proof is not available")` line; the model still prints.
+        lines.push("(get-proof)".to_string());
+    }
+    // On sat (property PROVEN) this prints the model — the interpretation of
+    // `Reachable` is the inductive invariant, which the verifier extracts and
+    // re-checks independently (see `certificate_check`). On unsat z3 prints
+    // `(error "model is not available")` after the `unsat` line; the line-based
+    // result parsing in `smt_verifier` keys on the first line and ignores it.
+    lines.push("(get-model)".to_string());
 
     SmtEncoding {
         smt2: lines.join("\n"),
@@ -102,41 +123,39 @@ pub fn encode(
     }
 }
 
+/// Resolves the named `env_injection` list to `(place index, bound)` pairs,
+/// silently dropping names that do not resolve in the flat net. Shared by the
+/// CHC encoding and the certificate check so both see the same injection set.
+pub(crate) fn resolve_env_injection(
+    flat: &FlatNet,
+    env_injection: &[(String, Option<usize>)],
+) -> Vec<(usize, Option<usize>)> {
+    env_injection
+        .iter()
+        .filter_map(|(name, bound)| flat.place_index.get(name).map(|&pid| (pid, *bound)))
+        .collect()
+}
+
+// === Shared condition emitters ===
+//
+// The per-transition / per-injection conjuncts below are emitted by BOTH the
+// CHC rule encoding (this module's `encode`) and the plain-SMT step relation
+// `encode_step_relation_smt2` used by the independent certificate check
+// (`crate::certificate_check`), so the two encodings cannot drift.
+
 #[allow(clippy::needless_range_loop)]
-/// Encodes a single transition rule as a CHC.
-///
-/// ```text
-/// (assert (forall ((m0 Int) ... (m0p Int) ...)
-///   (=> (and (Reachable m0 ... mP-1)
-///            enabled(M, t)
-///            fire(M, M', t)
-///            non-negativity(M')
-///            invariants(M')
-///            env-bounds(M'))
-///       (Reachable m0p ... mP-1p))))
-/// ```
-fn encode_transition_rule(
+/// Enablement + firing + non-negativity conjuncts for one flat transition:
+/// `enabled(M, t)`, `fire(M, M', t)`, `M' >= 0`. Deliberately EXCLUDES the
+/// `Reachable` body atom, the P-invariant strengthening, and the env bounds —
+/// the callers add what their encoding needs.
+fn firing_conditions(
     flat: &FlatNet,
     ft: &FlatTransition,
     m_vars: &[String],
     mp_vars: &[String],
-    invariants: &[PInvariant],
-    env_bounds: &[(String, usize)],
-) -> String {
+) -> Vec<String> {
     let p = flat.place_count;
-
-    // Quantified variables
-    let all_vars: String = m_vars
-        .iter()
-        .chain(mp_vars.iter())
-        .map(|v| format!("({v} Int)"))
-        .collect::<Vec<_>>()
-        .join(" ");
-
     let mut conditions = Vec::new();
-
-    // Reachable(m0, ..., mP-1)
-    conditions.push(format!("(Reachable {})", m_vars.join(" ")));
 
     // Enablement: pre-conditions (m_i >= pre[i])
     for i in 0..p {
@@ -186,7 +205,16 @@ fn encode_transition_rule(
         conditions.push(format!("(>= {} 0)", mp_vars[i]));
     }
 
-    // P-invariant constraints on next marking
+    conditions
+}
+
+/// P-invariant conjuncts over the given marking variables (the CHC path
+/// applies them to the next marking). The step relation
+/// (`encode_step_relation_smt2`) never emits these — the certificate check
+/// keeps its relation UNSTRENGTHENED and instead conjoins them into the
+/// certificate candidate, where the VCs re-prove them ([`crate::certificate_check`]).
+pub(crate) fn invariant_conditions(invariants: &[PInvariant], mp_vars: &[String]) -> Vec<String> {
+    let mut conditions = Vec::new();
     for inv in invariants {
         let terms: Vec<String> = inv
             .support
@@ -202,13 +230,82 @@ fn encode_transition_rule(
             conditions.push(format!("(= {} {})", sum, inv.constant));
         }
     }
+    conditions
+}
 
-    // Environment bounds
+/// Environment post-cap conjuncts on the next marking (legacy Bounded mode).
+fn env_bound_conditions(
+    flat: &FlatNet,
+    env_bounds: &[(String, usize)],
+    mp_vars: &[String],
+) -> Vec<String> {
+    let mut conditions = Vec::new();
     for (place_name, max_tokens) in env_bounds {
         if let Some(&pid) = flat.place_index.get(place_name) {
             conditions.push(format!("(<= {} {})", mp_vars[pid], max_tokens));
         }
     }
+    conditions
+}
+
+/// Guard + column-update conjuncts for one env-injection step (VER-006):
+/// `[m_pid < bound]`, `m'_pid = m_pid + 1`, all other columns copied.
+fn injection_conditions(
+    p: usize,
+    pid: usize,
+    bound: Option<usize>,
+    m_vars: &[String],
+    mp_vars: &[String],
+) -> Vec<String> {
+    let mut conditions = Vec::new();
+    if let Some(k) = bound {
+        conditions.push(format!("(< {} {})", m_vars[pid], k));
+    }
+    for i in 0..p {
+        if i == pid {
+            conditions.push(format!("(= {} (+ {} 1))", mp_vars[i], m_vars[i]));
+        } else {
+            conditions.push(format!("(= {} {})", mp_vars[i], m_vars[i]));
+        }
+    }
+    conditions
+}
+
+/// Encodes a single transition rule as a CHC.
+///
+/// ```text
+/// (assert (forall ((m0 Int) ... (m0p Int) ...)
+///   (=> (and (Reachable m0 ... mP-1)
+///            enabled(M, t)
+///            fire(M, M', t)
+///            non-negativity(M')
+///            invariants(M')
+///            env-bounds(M'))
+///       (Reachable m0p ... mP-1p))))
+/// ```
+fn encode_transition_rule(
+    flat: &FlatNet,
+    ft: &FlatTransition,
+    m_vars: &[String],
+    mp_vars: &[String],
+    invariants: &[PInvariant],
+    env_bounds: &[(String, usize)],
+) -> String {
+    // Quantified variables
+    let all_vars: String = m_vars
+        .iter()
+        .chain(mp_vars.iter())
+        .map(|v| format!("({v} Int)"))
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    let mut conditions = Vec::new();
+
+    // Reachable(m0, ..., mP-1)
+    conditions.push(format!("(Reachable {})", m_vars.join(" ")));
+    conditions.extend(firing_conditions(flat, ft, m_vars, mp_vars));
+    conditions.extend(invariant_conditions(invariants, mp_vars));
+    conditions.extend(env_bound_conditions(flat, env_bounds, mp_vars));
 
     let body = format!("(and {})", conditions.join("\n            "));
 
@@ -237,22 +334,61 @@ fn encode_injection_rule(
 
     let mut conditions = Vec::new();
     conditions.push(format!("(Reachable {})", m_vars.join(" ")));
-    if let Some(k) = bound {
-        conditions.push(format!("(< {} {})", m_vars[pid], k));
-    }
-    for i in 0..p {
-        if i == pid {
-            conditions.push(format!("(= {} (+ {} 1))", mp_vars[i], m_vars[i]));
-        } else {
-            conditions.push(format!("(= {} {})", mp_vars[i], m_vars[i]));
-        }
-    }
+    conditions.extend(injection_conditions(p, pid, bound, m_vars, mp_vars));
 
     let body = format!("(and {})", conditions.join("\n            "));
     format!(
         "(assert (forall ({all_vars})\n  (=> {body}\n      (Reachable {}))))",
         mp_vars.join(" ")
     )
+}
+
+/// Joins conjuncts into a single formula (`true` when empty, the bare conjunct
+/// when singleton — SMT-LIB `and` wants at least two arguments).
+fn conjoin(conditions: &[String]) -> String {
+    match conditions {
+        [] => "true".to_string(),
+        [single] => single.clone(),
+        _ => format!("(and {})", conditions.join(" ")),
+    }
+}
+
+/// Encodes the net's one-step transition relation `T(M, M')` as a single plain
+/// SMT-LIB2 formula over the free variables `m0..mN` / `m0p..mNp` (the same
+/// naming the CHC encoding quantifies over): the disjunction of every
+/// flat-transition firing and every env-injection step (VER-006).
+///
+/// This is the UNSTRENGTHENED relation used by the independent certificate
+/// check ([`crate::certificate_check`]): it shares the per-transition /
+/// per-injection condition emitters with the CHC path (`firing_conditions`,
+/// `env_bound_conditions`, `injection_conditions`) but deliberately OMITS the
+/// P-invariant conjuncts, so a certificate poisoned by a wrong invariant
+/// cannot re-certify itself.
+pub fn encode_step_relation_smt2(
+    flat: &FlatNet,
+    env_bounds: &[(String, usize)],
+    env_injection: &[(String, Option<usize>)],
+) -> String {
+    let p = flat.place_count;
+    let m_vars: Vec<String> = (0..p).map(|i| format!("m{i}")).collect();
+    let mp_vars: Vec<String> = (0..p).map(|i| format!("m{i}p")).collect();
+    let env_inject = resolve_env_injection(flat, env_injection);
+
+    let mut disjuncts = Vec::new();
+    for ft in &flat.transitions {
+        let mut conditions = firing_conditions(flat, ft, &m_vars, &mp_vars);
+        conditions.extend(env_bound_conditions(flat, env_bounds, &mp_vars));
+        disjuncts.push(conjoin(&conditions));
+    }
+    for &(pid, bound) in &env_inject {
+        disjuncts.push(conjoin(&injection_conditions(p, pid, bound, &m_vars, &mp_vars)));
+    }
+
+    match disjuncts.as_slice() {
+        [] => "false".to_string(),
+        [single] => single.clone(),
+        _ => format!("(or {})", disjuncts.join("\n    ")),
+    }
 }
 
 /// Encodes the error rule based on the property.
@@ -277,8 +413,10 @@ fn encode_error_rule(
     )
 }
 
-/// Encodes the property violation condition.
-fn encode_property_violation(
+/// Encodes the property violation condition (`Bad(M)` over `m_vars`). Also
+/// used by the certificate check's safety VC ([`crate::certificate_check`]),
+/// which must test against exactly the violation the error rule encodes.
+pub(crate) fn encode_property_violation(
     flat: &FlatNet,
     property: &SmtProperty,
     m_vars: &[String],
@@ -460,7 +598,7 @@ mod tests {
     fn encode_deadlock_free_produces_valid_smt2() {
         let (net, marking) = simple_chain_net();
         let flat = flatten(&net);
-        let encoding = encode(&flat, &marking, &SmtProperty::DeadlockFree, &[], &[], &[], &[]);
+        let encoding = encode(&flat, &marking, &SmtProperty::DeadlockFree, &[], &[], &[], &[], false);
 
         assert!(encoding.smt2.contains("(set-logic HORN)"));
         assert!(encoding.smt2.contains("(declare-fun Reachable"));
@@ -473,7 +611,7 @@ mod tests {
     fn encode_contains_init_rule() {
         let (net, marking) = simple_chain_net();
         let flat = flatten(&net);
-        let encoding = encode(&flat, &marking, &SmtProperty::DeadlockFree, &[], &[], &[], &[]);
+        let encoding = encode(&flat, &marking, &SmtProperty::DeadlockFree, &[], &[], &[], &[], false);
 
         // Should contain (assert (Reachable ...)) for initial marking
         assert!(encoding.smt2.contains("(assert (Reachable"));
@@ -483,7 +621,7 @@ mod tests {
     fn encode_contains_transition_rules() {
         let (net, marking) = simple_chain_net();
         let flat = flatten(&net);
-        let encoding = encode(&flat, &marking, &SmtProperty::DeadlockFree, &[], &[], &[], &[]);
+        let encoding = encode(&flat, &marking, &SmtProperty::DeadlockFree, &[], &[], &[], &[], false);
 
         // Should contain forall with quantified variables
         assert!(encoding.smt2.contains("(forall"));
@@ -503,6 +641,7 @@ mod tests {
             &[],
             &[],
             &[],
+            false,
         );
 
         // Error rule should check both places have tokens
@@ -521,6 +660,7 @@ mod tests {
             &[],
             &[],
             &[],
+            false,
         );
 
         // Error rule should check bound violation
@@ -546,6 +686,7 @@ mod tests {
             &[],
             &[],
             &[],
+            false,
         );
 
         // Should contain invariant constraint
@@ -565,9 +706,28 @@ mod tests {
             &[],
             &[("p1".into(), 3)],
             &[],
+            false,
         );
 
         // Should contain bound constraint on environment place
         assert!(encoding.smt2.contains("(<= "));
+    }
+
+    /// C3 proof emission: `:produce-proofs` leads the script, `(get-proof)`
+    /// sits between `(check-sat)` and `(get-model)`; off by default.
+    #[test]
+    fn encode_produce_proofs_ordering() {
+        let (net, marking) = simple_chain_net();
+        let flat = flatten(&net);
+        let with = encode(&flat, &marking, &SmtProperty::DeadlockFree, &[], &[], &[], &[], true);
+        assert!(with.smt2.starts_with("(set-option :produce-proofs true)\n(set-logic HORN)"));
+        let cs = with.smt2.find("(check-sat)").unwrap();
+        let gp = with.smt2.find("(get-proof)").unwrap();
+        let gm = with.smt2.find("(get-model)").unwrap();
+        assert!(cs < gp && gp < gm, "check-sat < get-proof < get-model");
+
+        let without = encode(&flat, &marking, &SmtProperty::DeadlockFree, &[], &[], &[], &[], false);
+        assert!(!without.smt2.contains("produce-proofs"));
+        assert!(!without.smt2.contains("(get-proof)"));
     }
 }

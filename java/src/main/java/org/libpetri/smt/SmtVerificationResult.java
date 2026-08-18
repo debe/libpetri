@@ -41,8 +41,19 @@ public record SmtVerificationResult(
          */
         record Proven(String method, String inductiveInvariant) implements Verdict {}
 
-        /** Property violated. A counterexample trace is available. */
-        record Violated() implements Verdict {}
+        /**
+         * Property violated. A counterexample trace is available.
+         *
+         * @param counterexampleConfirmed whether the counterexample was
+         *     confirmed as a genuine run of the analysis semantics — for the
+         *     flat IC3/PDR path, by {@link org.libpetri.smt.z3.AbstractReplayer}
+         *     chaining the decoded states into an abstract run reaching the
+         *     violation; for the &nu;-net Route B path, by construction (the
+         *     trace is an explicit path of the name-aware state-class graph).
+         *     {@code false} means the verdict stands but no replayable trace
+         *     backs it (nothing decodable, or replay opted out).
+         */
+        record Violated(boolean counterexampleConfirmed) implements Verdict {}
 
         /**
          * Could not determine.

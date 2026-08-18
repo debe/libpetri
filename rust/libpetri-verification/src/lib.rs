@@ -46,7 +46,10 @@
 //! - **PlaceBound** — upper bound on tokens in a place
 //! - **Unreachable** — given places cannot all be simultaneously marked
 
+pub mod abstract_replay;
 pub mod analyzer;
+#[cfg(feature = "z3")]
+pub mod certificate_check;
 pub mod counterexample;
 pub mod dbm;
 pub mod environment;

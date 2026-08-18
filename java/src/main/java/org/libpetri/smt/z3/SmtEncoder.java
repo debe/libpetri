@@ -168,23 +168,13 @@ public final class SmtEncoder {
         BoolExpr fireRelation = encodeFire(ctx, ft, flatNet, mVars, mPrimeVars, P);
 
         // 4. Non-negativity of M'
-        BoolExpr nonNeg = ctx.mkTrue();
-        for (int i = 0; i < P; i++) {
-            nonNeg = ctx.mkAnd(nonNeg, ctx.mkGe(mPrimeVars[i], ctx.mkInt(0)));
-        }
+        BoolExpr nonNeg = encodeNonNegativity(ctx, mPrimeVars, P);
 
         // 5. P-invariant constraints on M' (strengthening)
         BoolExpr invConstraints = encodeInvariantConstraints(ctx, invariants, mPrimeVars, P);
 
         // 6. Environment bounds on M'
-        BoolExpr envBounds = ctx.mkTrue();
-        for (var entry : flatNet.environmentBounds().entrySet()) {
-            int idx = flatNet.indexOf(entry.getKey());
-            if (idx >= 0) {
-                envBounds = ctx.mkAnd(envBounds,
-                    ctx.mkLe(mPrimeVars[idx], ctx.mkInt(entry.getValue())));
-            }
-        }
+        BoolExpr envBounds = encodeEnvBounds(ctx, flatNet, mPrimeVars);
 
         // Body conjunction
         BoolExpr body = ctx.mkAnd(reachBody, enabled, fireRelation, nonNeg, invConstraints, envBounds);
@@ -230,6 +220,46 @@ public final class SmtEncoder {
         BoolExpr reachBody = (BoolExpr) reachable.apply(mVars);
 
         // fire: M'[idx] = M[idx] + 1; all other columns unchanged.
+        BoolExpr fire = encodeInjectionFire(ctx, idx, mVars, mPrimeVars, P);
+
+        // Bounded injection: only inject while still below the cap.
+        BoolExpr guard = encodeInjectionGuard(ctx, idx, bound, mVars);
+
+        BoolExpr body = ctx.mkAnd(reachBody, guard, fire);
+        BoolExpr head = (BoolExpr) reachable.apply(mPrimeVars);
+        BoolExpr rule = ctx.mkImplies(body, head);
+        Quantifier qRule = ctx.mkForall(allSorts, allNames, rule, 1, null, null, null, null);
+
+        fp.addRule(qRule, ctx.mkSymbol("env_inject_" + idx));
+    }
+
+    /** Non-negativity of a marking vector: {@code AND_i vars[i] >= 0} (same fold order as the CHC rules). */
+    private static BoolExpr encodeNonNegativity(Context ctx, Expr<IntSort>[] vars, int P) {
+        BoolExpr nonNeg = ctx.mkTrue();
+        for (int i = 0; i < P; i++) {
+            nonNeg = ctx.mkAnd(nonNeg, ctx.mkGe(vars[i], ctx.mkInt(0)));
+        }
+        return nonNeg;
+    }
+
+    /** Bounded-environment caps on a marking vector: {@code AND vars[idx] <= bound} per bounded env place. */
+    private static BoolExpr encodeEnvBounds(Context ctx, FlatNet flatNet, Expr<IntSort>[] vars) {
+        BoolExpr envBounds = ctx.mkTrue();
+        for (var entry : flatNet.environmentBounds().entrySet()) {
+            int idx = flatNet.indexOf(entry.getKey());
+            if (idx >= 0) {
+                envBounds = ctx.mkAnd(envBounds,
+                    ctx.mkLe(vars[idx], ctx.mkInt(entry.getValue())));
+            }
+        }
+        return envBounds;
+    }
+
+    /** Injection arithmetic: {@code M'[idx] = M[idx] + 1}, all other columns copied unchanged. */
+    private static BoolExpr encodeInjectionFire(
+            Context ctx, int idx,
+            Expr<IntSort>[] mVars, Expr<IntSort>[] mPrimeVars, int P
+    ) {
         BoolExpr fire = ctx.mkTrue();
         for (int i = 0; i < P; i++) {
             if (i == idx) {
@@ -238,16 +268,66 @@ public final class SmtEncoder {
                 fire = ctx.mkAnd(fire, ctx.mkEq(mPrimeVars[i], mVars[i]));
             }
         }
+        return fire;
+    }
 
-        // Bounded injection: only inject while still below the cap.
-        BoolExpr guard = bound == null ? ctx.mkTrue() : ctx.mkLt(mVars[idx], ctx.mkInt(bound));
+    /** Injection guard: {@code M[idx] < bound} for Bounded(k); {@code true} for AlwaysAvailable (null bound). */
+    private static BoolExpr encodeInjectionGuard(Context ctx, int idx, Integer bound, Expr<IntSort>[] mVars) {
+        return bound == null ? ctx.mkTrue() : ctx.mkLt(mVars[idx], ctx.mkInt(bound));
+    }
 
-        BoolExpr body = ctx.mkAnd(reachBody, guard, fire);
-        BoolExpr head = (BoolExpr) reachable.apply(mPrimeVars);
-        BoolExpr rule = ctx.mkImplies(body, head);
-        Quantifier qRule = ctx.mkForall(allSorts, allNames, rule, 1, null, null, null, null);
+    /**
+     * One <em>unstrengthened</em> step of the encoded net as a single formula
+     * {@code T(M, M')} over the given current/next marking expressions: the
+     * disjunction of all transition steps (strict enablement AND firing
+     * arithmetic AND non-negativity of M' AND environment bounds on M') and all
+     * environment-injection steps (bound guard AND injection arithmetic, VER-006),
+     * WITHOUT the P-invariant strengthening conjuncts that {@link #encode} adds
+     * to the CHC transition-rule bodies.
+     *
+     * <p>This is the step relation {@link CertificateChecker} validates an IC3
+     * certificate against. Dropping the invariant conjuncts keeps the check
+     * independent of the P-invariant computation: a numerically wrong invariant
+     * conjoined into the rules removes reachable successors, so re-checking
+     * against the strengthened relation would inherit exactly the failure mode
+     * the certificate check exists to catch. Every disjunct is built by the same
+     * per-transition condition builders as the CHC rules, so the step semantics
+     * match the encoding exactly.
+     *
+     * @param ctx        Z3 context
+     * @param flatNet    the flattened net
+     * @param mVars      current-marking expressions (length = placeCount)
+     * @param mPrimeVars next-marking expressions (length = placeCount)
+     * @return the step relation {@code T(M, M')}; {@code false} for a net with no steps
+     */
+    public static BoolExpr encodeStepRelation(
+            Context ctx, FlatNet flatNet,
+            Expr<IntSort>[] mVars, Expr<IntSort>[] mPrimeVars
+    ) {
+        int P = flatNet.placeCount();
+        var steps = new java.util.ArrayList<BoolExpr>();
 
-        fp.addRule(qRule, ctx.mkSymbol("env_inject_" + idx));
+        for (var ft : flatNet.transitions()) {
+            BoolExpr enabled = encodeEnabled(ctx, ft, flatNet, mVars, P);
+            BoolExpr fire = encodeFire(ctx, ft, flatNet, mVars, mPrimeVars, P);
+            BoolExpr nonNeg = encodeNonNegativity(ctx, mPrimeVars, P);
+            BoolExpr envBounds = encodeEnvBounds(ctx, flatNet, mPrimeVars);
+            steps.add(ctx.mkAnd(enabled, fire, nonNeg, envBounds));
+        }
+
+        for (var entry : flatNet.environmentInjection().entrySet()) {
+            int idx = flatNet.indexOf(entry.getKey());
+            if (idx >= 0) {
+                BoolExpr guard = encodeInjectionGuard(ctx, idx, entry.getValue(), mVars);
+                BoolExpr fire = encodeInjectionFire(ctx, idx, mVars, mPrimeVars, P);
+                steps.add(ctx.mkAnd(guard, fire));
+            }
+        }
+
+        if (steps.isEmpty()) {
+            return ctx.mkFalse();
+        }
+        return ctx.mkOr(steps.toArray(new BoolExpr[0]));
     }
 
     private static BoolExpr encodeEnabled(
@@ -383,7 +463,17 @@ public final class SmtEncoder {
         fp.addRule(qRule, ctx.mkSymbol("error_" + property.getClass().getSimpleName()));
     }
 
-    private static BoolExpr encodePropertyViolation(
+    /**
+     * Encodes the property-violation predicate {@code Bad(M)} over the given
+     * marking expressions — the same predicate the Error CHC rule conjoins with
+     * {@code Reachable(M)}. Public so {@link CertificateChecker} can check the
+     * safety verification condition {@code I(M) AND Bad(M)} against the identical
+     * violation semantics used by the encoding.
+     *
+     * @throws IllegalArgumentException if the property references a place that is
+     *     not in the flattened net (mirrors the Error-rule behavior)
+     */
+    public static BoolExpr encodePropertyViolation(
             Context ctx, FlatNet flatNet, SmtProperty property,
             Set<Place<?>> sinkPlaces,
             Expr<IntSort>[] mVars, int P
@@ -483,7 +573,13 @@ public final class SmtEncoder {
         return deadlock;
     }
 
-    private static BoolExpr encodeInvariantConstraints(
+    /**
+     * Conjunction of P-invariant equalities {@code sum(y_i * M[i]) = constant}
+     * over the given marking expressions. Package-private: {@link CertificateChecker}
+     * folds the same equalities into its candidate invariant — where they are
+     * re-proven from scratch (initiation and consecution), not trusted.
+     */
+    static BoolExpr encodeInvariantConstraints(
             Context ctx, List<PInvariant> invariants,
             Expr<IntSort>[] mVars, int P
     ) {

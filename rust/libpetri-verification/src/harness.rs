@@ -335,6 +335,7 @@ fn run_per_property(
                 invariants: Vec::new(),
                 discovered_invariants: Vec::new(),
                 counterexample_trace: Vec::new(),
+                counterexample_confirmed: false,
                 counterexample_transitions: Vec::new(),
                 elapsed_ms: 0,
                 statistics: VerificationStatistics {
