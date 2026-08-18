@@ -23,7 +23,7 @@ namespace Libpetri
 /-- A transition together with the ν name-layer verdict the base marking cannot
 see. `nameEnabled = false` models a join that is base-enabled — its input places
 hold tokens — but whose correlated names do not match, so it cannot fire
-(`name_state_class_graph.rs:307`, the `will_fire` guard). -/
+(`name_state_class_graph.rs:327`, the `will_fire` guard). -/
 structure NuTransition where
   base        : Transition
   nameEnabled : Bool

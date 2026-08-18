@@ -32,7 +32,7 @@ inductive ConsumeOp where
   | reset (p : PlaceId)
   deriving DecidableEq, Repr
 
-/-- The input-spec half of `compile_consume_ops` (`precompiled_net.rs:357-379`). -/
+/-- The input-spec half of `compile_consume_ops` (`precompiled_net.rs:364-386`). -/
 def opOfSpec (sp : InSpec) : ConsumeOp :=
   match sp.card with
   | .one => .one sp.place
@@ -40,7 +40,7 @@ def opOfSpec (sp : InSpec) : ConsumeOp :=
   | .all => .all sp.place
   | .atLeast m => .atLeast sp.place m
 
-/-- `compile_consume_ops` (`precompiled_net.rs:354-389`): all input specs in
+/-- `compile_consume_ops` (`precompiled_net.rs:361-396`): all input specs in
 declaration order, then all reset arcs in declaration order. The boundary
 between the two halves is the shipped `reset_ops_start`. -/
 def compileConsumeOps (t : Transition) : List ConsumeOp :=
