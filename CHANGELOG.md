@@ -79,6 +79,23 @@ Within one firing pass, tokens produced by a synchronous action were visible to 
 
 Final markings were identical either way, so only firing order and starvation changed — which is why marking-based assertions never caught it. **In Java both compiled executors were affected, including `BitmapNetExecutor`**, the reference the other is checked against; the legacy `NetExecutor` was always correct. TypeScript was already correct on both executors.
 
+The rule governs token *counts*, not just presence ([EXEC-003] AC4): an `exactly(n)` or `atLeast(n)` gate re-evaluated during the pass no longer counts a same-pass deposit either, and a ν-correlated join whose input place received one waits for the next cycle. The first fix only hid the presence bit, so a place that already held a token still leaked its refill to a cardinality gate.
+
+It also governs *consumption* ([EXEC-003] AC5). A draining arc — `all()`, `atLeast(n)`, or a reset — firing later in the same pass takes only the tokens the pass started with; a token deposited during the pass survives it and is there next cycle. Otherwise a gate that correctly refused to count a same-pass deposit would still swallow it. Deposits land at the tail of the FIFO queue, so the tokens taken are exactly the head prefix.
+
+The visible case is a reset racing a producer in one pass:
+
+```python
+# emit: one(seed) -> data, action deposits three tokens
+# reset_data: one(trigger), reset(data) -> cleared
+# both are enabled at the start, so both fire in the first pass
+
+# before (Java, Rust, Python): data == 0   ← the reset swallowed tokens it could not see
+# now  (every implementation):  data == 3   ← they land next cycle, as TypeScript always did
+```
+
+TypeScript is unchanged here and always reported `3`: its outputs resolve on a promise, so they were never in the place when the reset ran. If you relied on a same-pass reset clearing a producer's output, put the reset in a later cycle.
+
 If a net of yours depends on a competitor running in the same pass as the transition that refilled its place, it now waits one cycle.
 
 #### Lean — the engine hot loop is now formalized
@@ -121,12 +138,24 @@ Anything that fails downgrades to `Unknown` naming the condition, rather than re
 
 ```
 === RESULT ===
-Downgraded to UNKNOWN: certificate check failed — consecution (VC2)
+UNKNOWN: certificate check failed: consecution (VC2) was not UNSAT - solver returned
+SATISFIABLE (witness: p0=2, p1=1); the IC3 certificate could not be independently
+re-validated against the unstrengthened step relation, so PROVEN is withheld
 ```
 
-Both are on by default. `certificateCheck(false)` and `counterexampleReplay(false)` opt out per verifier; the cost is a few extra solver queries on an already-slow path.
+The downgrade wording, the dropped-invariant reasons and the replay search are the same in all four implementations — literally the same text, so a disagreement between them is greppable rather than a matter of interpretation.
 
-A shared fixture set (`spec/verification-fixtures/`) pins ten net-and-property pairs to an expected verdict, so the four implementations cannot quietly disagree about an answer.
+Both are on by default. `certificateCheck(false)` and `counterexampleReplay(false)` opt out per verifier (`certificate_check=False` / `counterexample_replay=False` on Python's `verify_net`); the cost is a few extra solver queries on an already-slow path.
+
+**Source break (Rust, Python).** The replay is now the only source of a counterexample trace. The old decoder turned the solver's answer into an unordered pile of markings and labelled it a trace; it is gone, so with `counterexample_replay(false)` the trace comes back empty rather than arbitrarily ordered.
+
+A shared fixture set (`spec/verification-fixtures/`) pins twelve net-and-property pairs to an expected verdict, so the four implementations cannot quietly disagree about an answer. Each language builds the nets from the same JSON contract and asserts the same verdict, Python included.
+
+**Source break (Rust).** `VerificationResult` and `VerificationStatistics` gained fields and are now `#[non_exhaustive]`, so construct them from the verifier rather than by struct literal. `counterexample_confirmed` is `Option<bool>`: `None` when replay did not apply, `Some(false)` when it ran without confirming.
+
+#### Fixed — `deadlock-free` with sink places follows the spec (Rust, Python)
+
+[VER-002] defines the error condition as "(all transitions disabled) ∧ (no sink place has a token)". Java and TypeScript encoded exactly that. Rust encoded the opposite reading — a violation whenever some *non*-sink place still holds a token — in its SMT encoder, its ν-aware coloured encoder, and its counterexample replay. The two answers differ on a quiescent marking holding tokens in both a sink and a non-sink (Rust called it a violation; the spec does not) and on a net that drains completely (the spec calls it a violation; Rust did not). No fixture declared sink places, which is why nothing caught it. Two now do, in all four implementations.
 
 #### Breaking — input guards removed (TypeScript, Rust, Python)
 
