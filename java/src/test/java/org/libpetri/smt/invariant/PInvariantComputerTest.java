@@ -171,8 +171,80 @@ class PInvariantComputerTest {
 
         assertTrue(validation.valid().isEmpty(), "Overflowing candidate must be dropped");
         assertEquals(1, validation.dropped().size());
-        assertTrue(validation.dropped().getFirst().contains("overflow"),
-            "Reason should mention overflow: " + validation.dropped().getFirst());
+        // ONE overflow reason for the whole pipeline, at extraction and at the exact
+        // recheck alike, naming the place whose term could not be recomputed — the
+        // recheck must not invent a wording no sibling implementation has.
+        assertTrue(validation.dropped().getFirst().contains(
+            "weight overflow at place 'P3' "
+            + "(exact value outside this implementation's integer extraction range)"),
+            "Reason should be the canonical overflow wording: " + validation.dropped().getFirst());
+    }
+
+    @Test
+    void validateExact_dropsCandidateOnConstantOverflow_sameCanonicalReason() {
+        // The y*C recheck passes (single transition, weights balanced), so the drop
+        // happens in the y*M0 recompute — which must report the same canonical
+        // wording, not a stage-specific one.
+        var p1 = Place.of("P1", String.class);
+        var p2 = Place.of("P2", String.class);
+        var p3 = Place.of("P3", String.class);
+        var t1 = Transition.builder("T1").inputs(In.one(p1)).outputs(Out.place(p2)).build();
+        var t2 = Transition.builder("T2").inputs(In.one(p2)).outputs(Out.place(p3)).build();
+        var net = PetriNet.builder("ConstantOverflow").transitions(t1, t2).build();
+        var flatNet = NetFlattener.flatten(net, Set.of(), EnvironmentAnalysisMode.ignore());
+        var matrix = IncidenceMatrix.from(flatNet);
+        // y = (MAX, MAX, MAX) is a genuine conservation law of P1 -> P2 -> P3
+        // (y*C = 0 on both columns), but three MAX*MAX terms overflow the long y*M0.
+        int[] weights = new int[flatNet.placeCount()];
+        weights[flatNet.indexOf(p1)] = Integer.MAX_VALUE;
+        weights[flatNet.indexOf(p2)] = Integer.MAX_VALUE;
+        weights[flatNet.indexOf(p3)] = Integer.MAX_VALUE;
+        var marking = MarkingState.builder()
+            .tokens(p1, Integer.MAX_VALUE).tokens(p2, Integer.MAX_VALUE)
+            .tokens(p3, Integer.MAX_VALUE).build();
+        var candidate = new PInvariant(weights, 0,
+            Set.of(flatNet.indexOf(p1), flatNet.indexOf(p2), flatNet.indexOf(p3)));
+
+        var validation = PInvariantComputer.validateExact(
+            List.of(candidate), matrix, flatNet, marking);
+
+        assertTrue(validation.valid().isEmpty(), "Overflowing candidate must be dropped");
+        assertEquals(1, validation.dropped().size());
+        assertTrue(validation.dropped().getFirst().contains(
+            "weight overflow at place '"),
+            "Reason should be the canonical overflow wording: " + validation.dropped().getFirst());
+        assertTrue(validation.dropped().getFirst().contains(
+            "(exact value outside this implementation's integer extraction range)"),
+            validation.dropped().getFirst());
+    }
+
+    @Test
+    void validateExact_dropReasonUsesAnAsciiHyphenSeparator() {
+        // The rendered report line is "<description> - <reason>" with an ASCII
+        // hyphen-minus. An em dash here would break the byte-for-byte diff against
+        // the TypeScript, Rust and Python reports.
+        var pA = Place.of("A", String.class);
+        var pB = Place.of("B", String.class);
+        var t1 = Transition.builder("T1").inputs(In.one(pA)).outputs(Out.place(pB)).build();
+        var t2 = Transition.builder("T2").inputs(In.one(pB)).outputs(Out.place(pA)).build();
+        var net = PetriNet.builder("Circular").transitions(t1, t2).build();
+        var flatNet = NetFlattener.flatten(net, Set.of(), EnvironmentAnalysisMode.ignore());
+        var matrix = IncidenceMatrix.from(flatNet);
+        var marking = MarkingState.builder().tokens(pA, 1).build();
+        int[] weights = new int[flatNet.placeCount()];
+        weights[flatNet.indexOf(pA)] = 1;
+        weights[flatNet.indexOf(pB)] = 1;
+        var wrongConstant = new PInvariant(weights, 2,
+            Set.of(flatNet.indexOf(pA), flatNet.indexOf(pB)));
+
+        var dropped = PInvariantComputer.validateExact(
+            List.of(wrongConstant), matrix, flatNet, marking).dropped().getFirst();
+
+        assertEquals(
+            PInvariantComputer.describe(wrongConstant, flatNet)
+            + " - constant 2 does not match exact y*M0 = 1",
+            dropped);
+        assertFalse(dropped.contains("\u2014"), "no em dash in a canonical report line: " + dropped);
     }
 
     @Test
@@ -224,12 +296,12 @@ class PInvariantComputerTest {
     }
 
     @Test
-    void validateExact_catchesTruncationCorruptedInvariant() {
+    void compute_dropsRowsOutsideTheIntExtractionRange() {
         // Chain A -(65539)-> B -(65537)-> C with unit outputs. The genuine conservation
-        // law is A + 65539*B + (65539*65537)*C, but 65539*65537 = 4295229443 overflows
-        // int: compute()'s unchecked (int) cast on extraction truncates the third weight,
-        // so the emitted "invariant" no longer satisfies y*C = 0 — exactly the numerical
-        // corruption the validation gate exists to catch before it reaches an encoder.
+        // law is A + 65539*B + (65539*65537)*C, and 65539*65537 = 4295229443 does not fit
+        // int: the row cannot be narrowed to a weight vector at all. It must be dropped
+        // at extraction with the overflow reason — narrowing wraps, and a wrapped
+        // "invariant" conjoined into a CHC rule body prunes reachable successors.
         var pA = Place.of("A", String.class);
         var pB = Place.of("B", String.class);
         var pC = Place.of("C", String.class);
@@ -242,15 +314,21 @@ class PInvariantComputerTest {
         var matrix = IncidenceMatrix.from(flatNet);
         var marking = MarkingState.builder().tokens(pA, 1).build();
 
-        var computed = PInvariantComputer.compute(matrix, flatNet, marking);
-        assertFalse(computed.isEmpty(), "Elimination emits a (corrupted) candidate");
+        var extraction = PInvariantComputer.computeChecked(matrix, flatNet, marking);
+        assertEquals(1, extraction.dropped().size(),
+            "the out-of-range row must be dropped, not narrowed: " + extraction.dropped());
+        assertEquals(
+            "weight overflow at place 'C' "
+            + "(exact value outside this implementation's integer extraction range)",
+            extraction.dropped().getFirst());
+        assertTrue(PInvariantComputer.compute(matrix, flatNet, marking).isEmpty(),
+            "no wrapped candidate may reach a caller of compute()");
 
-        var validation = PInvariantComputer.validateExact(computed, matrix, flatNet, marking);
-        assertTrue(validation.valid().size() < computed.size(),
-            "The truncation-corrupted candidate must not survive validation");
-        assertFalse(validation.dropped().isEmpty());
-        assertTrue(validation.dropped().getFirst().contains("y*C"),
-            "Drop reason should show the nonzero component: " + validation.dropped().getFirst());
+        // The exact re-validation gate stays the backstop for whatever does get through.
+        var validation = PInvariantComputer.validateExact(
+            extraction.valid(), matrix, flatNet, marking);
+        assertTrue(validation.valid().isEmpty());
+        assertTrue(validation.dropped().isEmpty());
     }
 
     // === H1 linearity guard (lean/Libpetri/Strengthening.lean) ===

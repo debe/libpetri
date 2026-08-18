@@ -624,11 +624,15 @@ def test_nu053_route_a_proves_deadlock_free_when_route_b_truncates():
 def test_nu053_route_a_detects_stranding_deadlock():
     # The EXTENDED drain can steal `a` and strand `b` under an unprioritised
     # schedule — a genuine reachable deadlock the coloured encoding must catch.
+    # Sinks are {merged, budget} only: under VER-002 a quiescent marking is
+    # excused as soon as ANY declared sink holds a token, so declaring
+    # `deadletter` a sink would excuse the stranded-`b` marking (which also
+    # holds the dead-lettered token) and hide the stall.
     result = lp.verify(
         _nu053_steal_net(),
         lp.deadlock_free(),
         initial_marking=_NU053_SEED,
-        sink_places=["merged", "budget", "deadletter"],
+        sink_places=["merged", "budget"],
         budget_places=["budget"],
         fragment_mode="extended",
         nu_max_classes=1,

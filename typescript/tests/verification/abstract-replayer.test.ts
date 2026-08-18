@@ -121,7 +121,47 @@ describe('abstract-replayer: enabledA / fireA (Basic.lean mirror)', () => {
     // AlwaysAvailable: never gated.
     const alwaysFlat = flatten(net, new Set([e]), alwaysAvailable());
     const many = successors(state(alwaysFlat, { E: 50 }), alwaysFlat);
-    expect(many.some(s => s.step.kind === 'inject' && stepName(s.step) === 'env:E')).toBe(true);
+    expect(many.some(s => s.step.kind === 'inject' && stepName(s.step) === 'inject(E)')).toBe(true);
+  });
+});
+
+describe('abstract-replayer: environment post-caps (encodeStepRelation mirror)', () => {
+  // bounded(1) on E. `A -> E` is enabled at {A:2, E:1} but its successor holds
+  // E = 2, which the encoder's envBounds(M') conjunct forbids — and the only
+  // other route to E = 2 is a second injection, which the M[E] < 1 guard
+  // forbids. So E = 2 is unreachable in the encoded system and replay must not
+  // chain through it.
+  function cappedNet() {
+    const e = environmentPlace('E');
+    const a = place('A');
+    const t = Transition.builder('AtoE').inputs(one(a)).outputs(outPlace(e.place)).build();
+    const net = PetriNet.builder('Capped').transitions(t).build();
+    return { e, a, flat: flatten(net, new Set([e]), bounded(1)) };
+  }
+
+  it('successors drops a firing whose M-prime breaches the environment cap', () => {
+    const { flat } = cappedNet();
+    const idxE = flat.placeIndex.get('E')!;
+
+    // Under the cap: the firing is a genuine step.
+    expect(successors(state(flat, { A: 2, E: 0 }), flat)
+      .some(s => s.step.kind === 'fire' && s.step.transition === 'AtoE')).toBe(true);
+    // At the cap: firing would make E = 2 > 1, and a second injection is gated.
+    const atCap = successors(state(flat, { A: 2, E: 1 }), flat);
+    expect(atCap.some(s => s.step.kind === 'fire')).toBe(false);
+    expect(atCap.some(s => s.step.kind === 'inject')).toBe(false);
+    for (const s of successors(state(flat, { A: 2, E: 0 }), flat)) {
+      expect(s.state[idxE]!).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('replay does not confirm a violation only reachable past the cap', () => {
+    const { e, flat } = cappedNet();
+    const m0 = state(flat, { A: 2 });
+    const outcome = replayCounterexample(
+      flat, m0, [m0], placeBound(e.place, 1), NO_SINKS,
+    );
+    expect(outcome.kind).toBe('no-chain');
   });
 });
 
@@ -165,6 +205,23 @@ describe('abstract-replayer: satisfiesBad (encodePropertyViolation mirror)', () 
     expect(satisfiesBad(state(flat, { A: 1, B: 1 }), flat, unreachable(new Set([a, b])), NO_SINKS)).toBe(true);
     expect(satisfiesBad(state(flat, { B: 1 }), flat, unreachable(new Set([a, b])), NO_SINKS)).toBe(false);
   });
+
+  it('unreachable: a property whose places all fail to resolve is never violated', () => {
+    const a = place('A');
+    const b = place('B');
+    const t = Transition.builder('T').inputs(one(a)).outputs(outPlace(b)).build();
+    const flat = flatten(PetriNet.builder('N').transitions(t).build());
+    // Neither place is in this net; with every place skipped the conjunction
+    // would be vacuously true and EVERY marking would count as violating.
+    const foreign = unreachable(new Set([place('X'), place('Y')]));
+
+    expect(satisfiesBad(state(flat, {}), flat, foreign, NO_SINKS)).toBe(false);
+    expect(satisfiesBad(state(flat, { A: 1 }), flat, foreign, NO_SINKS)).toBe(false);
+    // One resolvable place still decides normally.
+    const mixed = unreachable(new Set([b, place('X')]));
+    expect(satisfiesBad(state(flat, { B: 1 }), flat, mixed, NO_SINKS)).toBe(true);
+    expect(satisfiesBad(state(flat, { A: 1 }), flat, mixed, NO_SINKS)).toBe(false);
+  });
 });
 
 describe('abstract-replayer: replayCounterexample', () => {
@@ -199,7 +256,7 @@ describe('abstract-replayer: replayCounterexample', () => {
     }
   });
 
-  it('bridges gaps of up to 3 steps between decoded states', () => {
+  it('bridges up to 3 steps between decoded anchors', () => {
     // Only M0 and the state 3 steps later are decoded; the two intermediates
     // must be found by the bounded BFS.
     const { places, flat } = chainNet('A', 'B', 'C', 'D');
@@ -213,38 +270,63 @@ describe('abstract-replayer: replayCounterexample', () => {
     }
   });
 
-  it('unchainable: the bad state lies beyond the gap of every decoded state', () => {
-    // Bad state E is 4 steps from M0 and no intermediate waypoint was decoded.
+  it('exhausted: the bad state lies beyond the segment budget of every anchor', () => {
+    // Bad state E is 4 steps from M0 and no intermediate waypoint was decoded,
+    // so the segment budget (3) truncates the search — truncation is NOT
+    // evidence that no chain exists, so this must not be `no-chain`.
     const { places, flat } = chainNet('A', 'B', 'C', 'D', 'E');
     const m0 = state(flat, { A: 1 });
     const outcome = replayCounterexample(flat, m0, [m0], placeBound(places[4]!, 0), NO_SINKS);
-    expect(outcome.kind).toBe('unchainable');
-    if (outcome.kind === 'unchainable') {
-      expect(outcome.reason).toContain('no abstract chain');
+    expect(outcome.kind).toBe('exhausted');
+    if (outcome.kind === 'exhausted') {
+      expect(outcome.reason).toContain('within 3 abstract step(s) of a decoded state');
     }
   });
 
-  it('unchainable: the initial marking must be among the decoded states', () => {
+  it('confirms across a long chain once the intermediates are decoded anchors', () => {
+    // Same net, but D is decoded too: the segment counter resets there, so the
+    // search reaches E without raising the budget.
+    const { places, flat } = chainNet('A', 'B', 'C', 'D', 'E');
+    const m0 = state(flat, { A: 1 });
+    const outcome = replayCounterexample(
+      flat, m0, [m0, state(flat, { D: 1 })], placeBound(places[4]!, 0), NO_SINKS,
+    );
+    expect(outcome.kind).toBe('confirmed');
+    if (outcome.kind === 'confirmed') {
+      expect(outcome.steps.map(stepName)).toEqual(['T0', 'T1', 'T2', 'T3']);
+    }
+  });
+
+  it('no-chain: a completed search that reaches no violating state', () => {
+    // A -> B and nothing else; placeBound(B, 5) can never be violated, and the
+    // whole reachable set is explored without hitting either budget.
+    const { places, flat } = chainNet('A', 'B');
+    const m0 = state(flat, { A: 1 });
+    const outcome = replayCounterexample(flat, m0, [m0], placeBound(places[1]!, 5), NO_SINKS);
+    expect(outcome.kind).toBe('no-chain');
+  });
+
+  it('exhausted: the initial marking must be among the decoded states', () => {
     const { places, flat } = chainNet('A', 'B', 'C');
     const m0 = state(flat, { A: 1 });
     const outcome = replayCounterexample(
       flat, m0, [state(flat, { B: 1 })], placeBound(places[2]!, 0), NO_SINKS,
     );
-    expect(outcome.kind).toBe('unchainable');
-    if (outcome.kind === 'unchainable') {
+    expect(outcome.kind).toBe('exhausted');
+    if (outcome.kind === 'exhausted') {
       expect(outcome.reason).toContain('initial marking is not among the decoded states');
     }
   });
 
-  it('unchainable: the node budget caps the search', () => {
+  it('exhausted: the node budget caps the search', () => {
     const { places, flat } = chainNet('A', 'B', 'C');
     const m0 = state(flat, { A: 1 });
     const outcome = replayCounterexample(
       flat, m0, [m0, state(flat, { B: 1 }), state(flat, { C: 1 })],
       placeBound(places[2]!, 0), NO_SINKS, { nodeBudget: 1 },
     );
-    expect(outcome.kind).toBe('unchainable');
-    if (outcome.kind === 'unchainable') {
+    expect(outcome.kind).toBe('exhausted');
+    if (outcome.kind === 'exhausted') {
       expect(outcome.reason).toContain('budget exhausted');
     }
   });

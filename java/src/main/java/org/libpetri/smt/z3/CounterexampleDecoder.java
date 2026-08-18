@@ -29,9 +29,12 @@ import java.util.Set;
  *
  * <p><b>Order-free by design:</b> the traversal order of the derivation tree is
  * NOT an execution order (Spacer nests and shares subderivations freely), so
- * the markings are returned as a set. The execution order is reconstructed —
- * and the counterexample confirmed — by {@link AbstractReplayer}, which chains
- * the set into an actual run of the abstract semantics.
+ * the markings are returned both as the raw traversal
+ * {@linkplain DecodedStates#trace() trace} (what a report may show verbatim) and
+ * as an order-free {@linkplain DecodedStates#states() set}. The execution order
+ * is reconstructed — and the counterexample confirmed — by
+ * {@link AbstractReplayer}, which chains the set into an actual run of the
+ * abstract semantics.
  *
  * <p><b>Graceful degradation:</b> the Z3 answer format varies across versions;
  * any unrecognized shape degrades to whatever states were recovered, with a
@@ -45,8 +48,10 @@ public final class CounterexampleDecoder {
     /**
      * Result of counterexample decoding.
      *
-     * @param states      the markings appearing in the derivation, as an
-     *                    order-free set (insertion-ordered for stable reports)
+     * @param trace       the markings in derivation-TRAVERSAL order, duplicates
+     *                    included — what the raw report shows; NOT a firing order
+     * @param states      the same markings as an order-free set (deduplicated) —
+     *                    what {@link AbstractReplayer} chains into a firing order
      * @param transitions names of transition rules appearing in the derivation,
      *                    in traversal order (informational — not an execution
      *                    order)
@@ -54,6 +59,7 @@ public final class CounterexampleDecoder {
      *                    the whole answer was decoded cleanly)
      */
     public record DecodedStates(
+        List<MarkingState> trace,
         Set<MarkingState> states,
         List<String> transitions,
         String note
@@ -68,18 +74,19 @@ public final class CounterexampleDecoder {
      * @return the decoded states; empty with a note if nothing was decodable
      */
     public static DecodedStates decode(Expr answer, FlatNet flatNet) {
+        var trace = new ArrayList<MarkingState>();
         var states = new LinkedHashSet<MarkingState>();
         var transitions = new ArrayList<String>();
 
         if (answer == null) {
-            return new DecodedStates(Set.of(), List.of(),
+            return new DecodedStates(List.of(), Set.of(), List.of(),
                 "Spacer returned no counterexample derivation (answer was null)");
         }
 
         int[] nonConcrete = new int[1];
         String failure = null;
         try {
-            extract(answer, flatNet, states, transitions, nonConcrete);
+            extract(answer, flatNet, trace, states, transitions, nonConcrete);
         } catch (Exception e) {
             // Z3 answer format varies; keep whatever was recovered so far.
             failure = "decoding aborted mid-traversal: " + e;
@@ -95,7 +102,7 @@ public final class CounterexampleDecoder {
             note = "no Reachable applications with concrete markings found in the derivation";
         }
 
-        return new DecodedStates(
+        return new DecodedStates(List.copyOf(trace),
             Collections.unmodifiableSet(states), List.copyOf(transitions), note);
     }
 
@@ -104,7 +111,7 @@ public final class CounterexampleDecoder {
      * rule names.
      */
     private static void extract(
-            Expr expr, FlatNet flatNet,
+            Expr expr, FlatNet flatNet, List<MarkingState> trace,
             Set<MarkingState> states, List<String> transitions, int[] nonConcrete
     ) {
         if (expr == null || !expr.isApp()) {
@@ -118,6 +125,7 @@ public final class CounterexampleDecoder {
         if (name.equals("Reachable") && expr.getNumArgs() == flatNet.placeCount()) {
             var marking = extractMarking(expr, flatNet);
             if (marking != null) {
+                trace.add(marking);
                 states.add(marking);
             } else {
                 nonConcrete[0]++;
@@ -126,7 +134,7 @@ public final class CounterexampleDecoder {
 
         // Recurse into children to find the rest of the derivation.
         for (int i = 0; i < expr.getNumArgs(); i++) {
-            extract(expr.getArgs()[i], flatNet, states, transitions, nonConcrete);
+            extract(expr.getArgs()[i], flatNet, trace, states, transitions, nonConcrete);
         }
 
         // Transition rule application names carry the fired transition.

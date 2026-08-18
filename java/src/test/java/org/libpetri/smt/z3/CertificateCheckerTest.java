@@ -391,6 +391,73 @@ class CertificateCheckerTest {
         }
     }
 
+    // === Marking domain (N^P) and the ground answer shape ===
+
+    private static final Place<String> CONS_P0 = Place.of("p0", String.class);
+    private static final Place<String> CONS_P1 = Place.of("p1", String.class);
+
+    /** {@code p0(3); t: one(p0) -> p1} — the conservedPair fixture; law p0 + p1 = 3. */
+    private static FlatNet conservedPairFlatNet() {
+        var t = Transition.builder("t")
+            .inputs(In.one(CONS_P0))
+            .outputs(Out.place(CONS_P1))
+            .build();
+        var net = PetriNet.builder("conservedPair").transitions(t).build();
+        return NetFlattener.flatten(net, Set.of(), EnvironmentAnalysisMode.ignore());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void certificateInductiveOverNaturalsOnly_passes() {
+        // p0 + p1 = 3 bounds p1 by 3 only because neither place can go negative:
+        // over Z the safety VC finds (p0=-1, p1=4) and would reject a correct
+        // proof. A marking is a vector of token counts, so the VCs must assert
+        // M >= 0 on the free current marking too.
+        var flat = conservedPairFlatNet();
+        int i0 = flat.indexOf(CONS_P0);
+        int i1 = flat.indexOf(CONS_P1);
+        var m0 = MarkingState.builder().tokens(CONS_P0, 3).build();
+        try (var ctx = new Context()) {
+            var decl = reachableDecl(ctx, flat.placeCount());
+            var answer = certificate(ctx, decl, flat.placeCount(), false, false,
+                v -> ctx.mkEq(ctx.mkAdd(v[i0], v[i1]), ctx.mkInt(3)));
+            var result = CertificateChecker.check(
+                ctx, answer, decl, flat, m0,
+                SmtProperty.placeBound(CONS_P1, 3), Set.of(), List.of(), Duration.ofSeconds(10));
+            assertInstanceOf(CertificateChecker.Result.Passed.class, result,
+                "a certificate inductive and safe over N^P must not be rejected: " + result);
+        }
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void groundCertificate_unquantifiedHead_passes() {
+        // Spacer also emits the definition WITHOUT a quantifier — `Reachable(7, 9)
+        // = phi(7, 9)`, argument j standing for place j. The head's argument terms
+        // are substituted positionally; discarding the shape would throw away a
+        // valid proof.
+        var flat = conservedPairFlatNet();
+        int P = flat.placeCount();
+        int i0 = flat.indexOf(CONS_P0);
+        int i1 = flat.indexOf(CONS_P1);
+        var m0 = MarkingState.builder().tokens(CONS_P0, 3).build();
+        try (var ctx = new Context()) {
+            var decl = reachableDecl(ctx, P);
+            Expr<IntSort>[] args = new Expr[P];
+            args[i0] = ctx.mkInt(7);
+            args[i1] = ctx.mkInt(9);
+            BoolExpr head = (BoolExpr) decl.apply(args);
+            BoolExpr answer = ctx.mkEq(head,
+                ctx.mkEq(ctx.mkAdd(args[i0], args[i1]), ctx.mkInt(3)));
+
+            var result = CertificateChecker.check(
+                ctx, answer, decl, flat, m0,
+                SmtProperty.placeBound(CONS_P1, 3), Set.of(), List.of(), Duration.ofSeconds(10));
+            assertInstanceOf(CertificateChecker.Result.Passed.class, result,
+                "a ground Reachable definition is a certificate too: " + result);
+        }
+    }
+
     @Test
     @EnabledIf("z3Available")
     void nullAnswer_unavailable() {

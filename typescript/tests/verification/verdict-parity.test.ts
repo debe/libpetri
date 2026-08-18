@@ -28,6 +28,8 @@ interface Fixture {
   readonly net: string;
   readonly netDescription: string;
   readonly property: FixtureProperty;
+  /** Expected terminal places (VER-002 sink semantics); absent for closed nets. */
+  readonly sinkPlaces?: readonly string[];
   readonly expected: 'proven' | 'violated' | 'unknown';
   readonly expectReportContains?: string;
 }
@@ -78,6 +80,9 @@ describe('verdict parity (spec/verification-fixtures/fixtures.json)', () => {
         verifier
           .environmentPlaces(...built.environmentPlaces)
           .environmentMode(built.environmentMode!);
+      }
+      if (fixture.sinkPlaces != null && fixture.sinkPlaces.length > 0) {
+        verifier.sinkPlaces(...fixture.sinkPlaces.map(n => placeOf(built.places, n)));
       }
       const result = await verifier.verify();
 

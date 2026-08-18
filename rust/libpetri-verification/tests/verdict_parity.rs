@@ -20,17 +20,7 @@ mod nets;
 
 use libpetri_verification::property::SmtProperty;
 use libpetri_verification::result::Verdict;
-use libpetri_verification::smt_verifier::SmtVerifier;
-
-/// True if the `z3` binary is on PATH (the verifier shells out to it) — the
-/// crate's established skip pattern.
-fn z3_available() -> bool {
-    std::process::Command::new("z3")
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
+use libpetri_verification::smt_verifier::{SmtVerifier, z3_available};
 
 // === Minimal JSON reader ===
 //
@@ -73,6 +63,21 @@ impl Json {
     fn arr(&self, key: &str) -> &[Json] {
         match self.get(key) {
             Some(Json::Arr(items)) => items,
+            other => panic!("expected array at key '{key}', got {other:?}"),
+        }
+    }
+
+    /// Optional string array (`sinkPlaces`): absent -> empty.
+    fn str_arr_opt(&self, key: &str) -> Vec<String> {
+        match self.get(key) {
+            None | Some(Json::Null) => Vec::new(),
+            Some(Json::Arr(items)) => items
+                .iter()
+                .map(|it| match it {
+                    Json::Str(s) => s.clone(),
+                    other => panic!("expected string in '{key}', got {other:?}"),
+                })
+                .collect(),
             other => panic!("expected array at key '{key}', got {other:?}"),
         }
     }
@@ -255,6 +260,15 @@ fn verdict_word(verdict: &Verdict) -> &'static str {
 #[test]
 fn verdict_parity_fixtures() {
     if !z3_available() {
+        // A skip here used to be a silent green: the whole cross-language
+        // fixture contract goes unchecked. `tests/z3_gate.rs` polices this
+        // from outside the `z3` cfg; fail loudly here too so the runner that
+        // lost its solver names the suite it dropped.
+        assert!(
+            std::env::var("CI").is_err(),
+            "verdict_parity_fixtures cannot run on this CI runner: no `z3` binary on PATH, \
+             so the shared cross-language fixture expectations were never checked"
+        );
         eprintln!("skipping verdict_parity_fixtures: z3 binary not on PATH");
         return;
     }
@@ -289,11 +303,16 @@ fn verdict_parity_fixtures() {
                 .environment_places(built.env_places.iter().cloned())
                 .environment_mode(built.env_mode.clone());
         }
+        // Optional shared-schema field: expected terminal places, per [VER-002].
+        let sinks = fixture.str_arr_opt("sinkPlaces");
+        if !sinks.is_empty() {
+            verifier = verifier.sink_places(sinks.iter().cloned());
+        }
         let result = verifier.verify();
 
         let got = verdict_word(&result.verdict);
         eprintln!(
-            "[parity] {id}: expected={expected} got={got} replay_confirmed={} elapsed={}ms",
+            "[parity] {id}: expected={expected} got={got} replay_confirmed={:?} elapsed={}ms",
             result.counterexample_confirmed, result.elapsed_ms
         );
         if got != expected {
@@ -320,7 +339,7 @@ fn verdict_parity_fixtures() {
         // (observed across all five violated shapes: deadlock, mutex, bound,
         // env injection, H1 consume-all). Losing this is a replay/decoder
         // regression, NOT a fixture mismatch — reported separately.
-        if expected == "violated" && !result.counterexample_confirmed {
+        if expected == "violated" && result.counterexample_confirmed != Some(true) {
             findings.push(format!(
                 "REPLAY REGRESSION [{id}]: verdict is Violated as expected, but the \
                  counterexample no longer replays (confirmed=false)\n\

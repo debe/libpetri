@@ -787,7 +787,7 @@ fn coloured_disabled_term(cls: &Class, plan: &ColouredPlan, lay: &Layout) -> Opt
 }
 
 /// Colour-aware deadlock predicate ([NU-053]): every transition is disabled (no
-/// colour enables it) and the marking is not a sink state. Mirrors
+/// colour enables it) and no declared sink place holds a token ([VER-002]). Mirrors
 /// [`crate::smt_encoder`]'s flat `encode_deadlock` with the same env-injection
 /// relaxation (VER-006), lifted to the coloured layout.
 fn encode_coloured_deadlock(
@@ -820,18 +820,12 @@ fn encode_coloured_deadlock(
         });
     }
 
-    // Not a sink state: some non-sink place still holds a token (aggregate count).
-    let sink_indices: HashSet<usize> = sink_places
-        .iter()
-        .filter_map(|n| flat.place_index.get(n).copied())
-        .collect();
-    if !sink_indices.is_empty() {
-        let non_sink: Vec<String> = (0..flat.place_count)
-            .filter(|pid| !sink_indices.contains(pid))
-            .map(|pid| format!("(>= {} 1)", lay.aggregate(pid, plan, &lay.cur)))
-            .collect();
-        if !non_sink.is_empty() {
-            disabled_conditions.push(format!("(or {})", non_sink.join(" ")));
+    // Declared sinks ([VER-002]): quiescence is a violation only when NO declared
+    // sink holds a token, so each declared sink contributes `aggregate(sink) = 0`
+    // over its colour slots. Same predicate as the flat `encode_deadlock`.
+    for name in sink_places {
+        if let Some(&pid) = flat.place_index.get(name) {
+            disabled_conditions.push(format!("(= {} 0)", lay.aggregate(pid, plan, &lay.cur)));
         }
     }
 
@@ -1018,7 +1012,15 @@ mod tests {
             ["budget1".to_string(), "budget2".to_string()].into_iter().collect();
         let carrier_set: HashSet<String> = carriers.iter().map(|s| s.to_string()).collect();
         let matrix = crate::incidence_matrix::IncidenceMatrix::from_flat_net(&flat, &[]);
-        let semiflows = crate::p_invariant::compute_p_semiflows(&matrix, &initial, &flat.places);
+        // Same route the verifier takes: only exactly re-validated semiflows may
+        // set the colour-slot bound (see `p_invariant::validate_invariants_exact`).
+        let semiflows = crate::p_invariant::validate_invariants_exact(
+            crate::p_invariant::compute_p_semiflows(&matrix, &initial, &flat.places),
+            &matrix,
+            &initial,
+            &flat,
+        )
+        .valid;
         build_plan(net, &flat, &initial, &budget, mode, &carrier_set, &semiflows)
     }
 

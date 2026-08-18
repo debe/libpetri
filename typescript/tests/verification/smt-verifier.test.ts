@@ -983,9 +983,17 @@ describe('SmtVerifier exact invariant validation', () => {
       .timeout(30_000)
       .verify();
 
-    expect(result.report).toContain('Dropped invariant');
-    expect(result.report).toContain('exact re-check failed');
-    expect(result.report).toContain('safe-integer');
+    // Canonical cross-language rendering: "  Dropped invariant: <desc> - <reason>",
+    // ASCII hyphen-minus as the clause separator (never an em dash) so the four
+    // implementations' reports diff byte-for-byte, with the one canonical
+    // overflow reason as the <reason>.
+    expect(result.report).toMatch(
+      /^ {2}Dropped invariant: .+ - weight overflow at place 'P5' /m,
+    );
+    expect(result.report).toContain(
+      "weight overflow at place 'P5' (exact value outside this implementation's " +
+      'integer extraction range)',
+    );
     expect(result.report).toContain('Dropped: 1 invariant(s)');
     // The dropped invariant must not reach the result either.
     expect(result.invariants).toHaveLength(0);

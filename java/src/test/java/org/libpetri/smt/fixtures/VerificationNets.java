@@ -56,6 +56,8 @@ public final class VerificationNets {
             case "inhibitorFrozen" -> inhibitorFrozen();
             case "h1ConsumeAll" -> h1ConsumeAll();
             case "atLeastDrain" -> atLeastDrain();
+            case "sinkPartialTerminal" -> sinkPartialTerminal();
+            case "sinkDrainedTerminal" -> sinkDrainedTerminal();
             default -> throw new IllegalArgumentException("unknown fixture net: " + name);
         };
     }
@@ -218,5 +220,38 @@ public final class VerificationNets {
         return closed(
             PetriNet.builder("atLeastDrain").transitions(t).build(),
             MarkingState.builder().tokens(p0, 3).build());
+    }
+
+    /**
+     * {@code p0(1),done,stuck; t: one(p0) -> and(done, stuck)}. The only
+     * quiescent marking holds a token in the declared sink {@code done} AND one
+     * in the non-sink {@code stuck}; per [VER-002] the sink token excuses it.
+     * The fixture's {@code sinkPlaces} declares {@code done}.
+     */
+    public static NamedNet sinkPartialTerminal() {
+        var p0 = place("p0");
+        var done = place("done");
+        var stuck = place("stuck");
+        var t = Transition.builder("t")
+            .inputs(In.one(p0)).outputs(Out.and(done, stuck)).build();
+        return closed(
+            PetriNet.builder("sinkPartialTerminal").transitions(t).build(),
+            MarkingState.builder().tokens(p0, 1).build());
+    }
+
+    /**
+     * {@code p0(1),done; t: one(p0)} with NO output spec — a sink transition
+     * ([CORE-042], [CORE-043] AC4). {@code done} touches no arc, so it is
+     * declared explicitly on the builder; after t fires the net holds no tokens
+     * anywhere, so no declared sink has a token and [VER-002]'s error condition
+     * holds.
+     */
+    public static NamedNet sinkDrainedTerminal() {
+        var p0 = place("p0");
+        var done = place("done");
+        var t = Transition.builder("t").inputs(In.one(p0)).build();
+        return closed(
+            PetriNet.builder("sinkDrainedTerminal").places(done).transitions(t).build(),
+            MarkingState.builder().tokens(p0, 1).build());
     }
 }

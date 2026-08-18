@@ -45,8 +45,10 @@
  * (wrong constant) or VC2 (wrong weights) of `R'` and the verdict downgrades,
  * while a genuine strengthening-dependent certificate passes.
  *
- * Any failure — missing/unparseable invariant, a VC that is not UNSAT, or an
- * exception — is reported as a `failed` outcome; this module never throws.
+ * Outcomes are split the way the caller must treat them: `failed` names the
+ * first VC that was not UNSAT (with the solver status and, for SAT, a witness
+ * marking), `unavailable` means the check could not run at all (missing or
+ * unparseable answer, solver error). Both withhold PROVEN; neither throws.
  */
 import type { Arith, Bool, Expr } from 'z3-solver';
 import type { FlatNet } from '../encoding/flat-net.js';
@@ -59,18 +61,30 @@ import { encodeInvariantConstraints, encodePropertyViolation, encodeStepRelation
 /** Z3 high-level context. Typed as `any` because z3-solver's TS types are incomplete. */
 type Z3Context = any;
 
+/** Label of a validity condition, as it appears in the downgrade reason. */
+export type CertificateVc = 'initiation (VC1)' | 'consecution (VC2)' | 'safety (VC3)';
+
 /**
  * Outcome of the certificate check.
  *
  * `passed` — all three validity conditions are UNSAT; the proven verdict is
  * certified independently of the Fixedpoint engine.
- * `failed` — the certificate could not be validated (a VC was not UNSAT, the
- * invariant was missing/unparseable, or the check errored); the caller must
- * downgrade the verdict, never keep an uncertified PROVEN.
+ * `failed` — a validity condition was not UNSAT; `detail` carries the solver
+ * status and, when the solver produced a model, a witness marking.
+ * `unavailable` — the check could not run (missing/unparseable answer, solver
+ * error), so no VC is implicated.
+ *
+ * The caller must withhold PROVEN on `failed` and `unavailable` alike.
  */
 export type CertificateCheckOutcome =
   | { readonly type: 'passed'; readonly invariant: string }
-  | { readonly type: 'failed'; readonly reason: string; readonly invariant: string | null };
+  | {
+      readonly type: 'failed';
+      readonly vc: CertificateVc;
+      readonly detail: string;
+      readonly invariant: string;
+    }
+  | { readonly type: 'unavailable'; readonly reason: string; readonly invariant: string | null };
 
 /**
  * Re-validates the IC3 certificate for a proven flat-encoding verdict.
@@ -99,7 +113,7 @@ export async function checkCertificate(
   try {
     if (answer == null) {
       return {
-        type: 'failed',
+        type: 'unavailable',
         reason: 'invariant missing (Z3 produced no inductive-invariant answer)',
         invariant: null,
       };
@@ -117,7 +131,7 @@ export async function checkCertificate(
     const invariant = extractInvariant(ctx, answer, P, mVars);
     if (invariant == null) {
       return {
-        type: 'failed',
+        type: 'unavailable',
         reason: 'invariant unparseable (no Reachable definition recognized in the Z3 answer)',
         invariant: String(answer),
       };
@@ -137,41 +151,21 @@ export async function checkCertificate(
       return { type: 'passed', invariant: String(candidate) };
     }
 
-    return {
-      type: 'failed',
-      reason: failureReason(failure),
-      invariant: String(candidate),
-    };
+    return { type: 'failed', vc: failure.vc, detail: failure.detail, invariant: String(candidate) };
   } catch (e: any) {
     return {
-      type: 'failed',
+      type: 'unavailable',
       reason: `certificate check error: ${e?.message ?? e}`,
       invariant: null,
     };
   }
 }
 
-/** A validity condition that was not UNSAT. */
+/** A validity condition that was not UNSAT, with the solver's account of why. */
 interface VcFailure {
-  readonly vc: 'init' | 'consecution' | 'safety';
-  readonly status: 'sat' | 'unknown';
-}
-
-function failureReason(failure: VcFailure): string {
-  switch (failure.vc) {
-    case 'init':
-      return failure.status === 'sat'
-        ? 'init not covered (the invariant excludes the initial marking)'
-        : 'init check inconclusive (solver returned unknown)';
-    case 'consecution':
-      return failure.status === 'sat'
-        ? 'consecution not inductive'
-        : 'consecution check inconclusive (solver returned unknown)';
-    case 'safety':
-      return failure.status === 'sat'
-        ? 'safety not implied (the invariant admits a property-violating marking)'
-        : 'safety check inconclusive (solver returned unknown)';
-  }
+  readonly vc: CertificateVc;
+  /** e.g. `solver returned SATISFIABLE (witness: A=2, B=1)`. */
+  readonly detail: string;
 }
 
 /**
@@ -205,20 +199,21 @@ async function validateCandidate(
     Int.val(initialMarking.tokens(flatNet.places[i]!)) as Expr,
   ]);
   const candidateAtInit = ctx.substitute(candidate, ...initPairs);
-  const vc1 = await checkUnsat(ctx, timeoutMs, [ctx.Not(candidateAtInit)]);
-  if (vc1 !== 'unsat') return { vc: 'init', status: vc1 };
+  const vc1 = await checkUnsat(ctx, flatNet, mVars, timeoutMs, 'initiation (VC1)', [ctx.Not(candidateAtInit)]);
+  if (vc1 != null) return vc1;
 
   // === VC2 (consecution): I(M) ∧ M ≥ 0 ∧ T(M,M') ∧ ¬I(M') must be UNSAT ===
   const primePairs: [Expr, Expr][] = mVars.map((v, i) => [v as Expr, mPrimeVars[i]! as Expr]);
   const candidatePrime = ctx.substitute(candidate, ...primePairs);
   const step = encodeStepRelation(ctx, flatNet, mVars, mPrimeVars);
-  const vc2 = await checkUnsat(ctx, timeoutMs, [candidate, nonNegM, step, ctx.Not(candidatePrime)]);
-  if (vc2 !== 'unsat') return { vc: 'consecution', status: vc2 };
+  const vc2 = await checkUnsat(ctx, flatNet, mVars, timeoutMs, 'consecution (VC2)',
+    [candidate, nonNegM, step, ctx.Not(candidatePrime)]);
+  if (vc2 != null) return vc2;
 
   // === VC3 (safety): I(M) ∧ M ≥ 0 ∧ Bad(M) must be UNSAT ===
   const bad = encodePropertyViolation(ctx, flatNet, property, sinkPlaces, mVars, P);
-  const vc3 = await checkUnsat(ctx, timeoutMs, [candidate, nonNegM, bad]);
-  if (vc3 !== 'unsat') return { vc: 'safety', status: vc3 };
+  const vc3 = await checkUnsat(ctx, flatNet, mVars, timeoutMs, 'safety (VC3)', [candidate, nonNegM, bad]);
+  if (vc3 != null) return vc3;
 
   return null;
 }
@@ -318,12 +313,19 @@ function isReachableApp(ctx: Z3Context, expr: Expr, P: number): boolean {
     && (expr as any).numArgs() === P;
 }
 
-/** Runs one validity condition on a fresh plain solver; returns the raw status. */
+/**
+ * Runs one validity condition on a fresh plain solver. Returns null when it is
+ * UNSAT (the condition holds), else the failure with the solver's status and —
+ * for SAT — the marking that witnesses it.
+ */
 async function checkUnsat(
   ctx: Z3Context,
+  flatNet: FlatNet,
+  mVars: Arith[],
   timeoutMs: number,
+  vc: CertificateVc,
   assertions: readonly Bool[],
-): Promise<'sat' | 'unsat' | 'unknown'> {
+): Promise<VcFailure | null> {
   const solver = new ctx.Solver();
   if (timeoutMs > 0) {
     solver.set('timeout', Math.min(timeoutMs, 2147483647));
@@ -331,5 +333,47 @@ async function checkUnsat(
   for (const assertion of assertions) {
     solver.add(assertion);
   }
-  return await solver.check();
+  const status = await solver.check();
+  if (status === 'unsat') return null;
+
+  if (status === 'sat') {
+    const witness = describeWitness(solver, flatNet, mVars);
+    return {
+      vc,
+      detail: `solver returned SATISFIABLE${witness == null ? '' : ` (witness: ${witness})`}`,
+    };
+  }
+  let why: string | null = null;
+  try {
+    why = String(solver.reasonUnknown());
+  } catch {
+    // Reason not available; the plain status is enough.
+  }
+  return { vc, detail: `solver returned UNKNOWN${why == null || why === '' ? '' : ` (${why})`}` };
+}
+
+/** Compact `place=count` witness from a SAT model; null when unavailable. */
+function describeWitness(solver: any, flatNet: FlatNet, mVars: Arith[]): string | null {
+  try {
+    const model = solver.model();
+    const parts: string[] = [];
+    let length = 0;
+    for (let i = 0; i < mVars.length; i++) {
+      const value = model.eval(mVars[i]!, false);
+      // Uninterpreted vars evaluate back to themselves; keep numerals only
+      // (Z3 renders a negative one as `(- 5)`).
+      const text = value == null ? '' : String(value);
+      if (!/^(-?\d+|\(- \d+\))$/.test(text)) continue;
+      const part = `${flatNet.places[i]!.name}=${text}`;
+      parts.push(part);
+      length += part.length + 2;
+      if (length > 160) {
+        parts.push('...');
+        break;
+      }
+    }
+    return parts.length === 0 ? null : parts.join(', ');
+  } catch {
+    return null;
+  }
 }

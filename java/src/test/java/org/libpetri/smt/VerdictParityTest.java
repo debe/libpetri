@@ -76,6 +76,11 @@ class VerdictParityTest {
                 .environmentPlaces(named.environmentPlaces().toArray(new EnvironmentPlace<?>[0]))
                 .environmentMode(named.environmentMode());
         }
+        // Optional shared-schema field: expected terminal places, per [VER-002].
+        var sinks = sinkPlaces(fixture);
+        if (!sinks.isEmpty()) {
+            verifier.sinkPlaces(sinks.toArray(new Place<?>[0]));
+        }
         var result = verifier.verify();
 
         switch (expected) {
@@ -91,6 +96,17 @@ class VerdictParityTest {
                 + "\" — report this cross-language disagreement, do not adjust the fixture\n"
                 + result.report());
         }
+    }
+
+    /** The fixture's optional {@code sinkPlaces} array, resolved to places. */
+    private static List<Place<?>> sinkPlaces(JsonNode fixture) {
+        var out = new ArrayList<Place<?>>();
+        if (fixture.hasNonNull("sinkPlaces")) {
+            for (JsonNode name : fixture.get("sinkPlaces")) {
+                out.add(place(name.asText()));
+            }
+        }
+        return out;
     }
 
     private static SmtProperty parseProperty(JsonNode property) {

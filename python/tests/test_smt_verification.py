@@ -124,3 +124,99 @@ def test_control_closed_net_place_bound_stays_sound():
     # all-empty closed net is trivially proven, which is still a sound result.
     safe = lp.verify(net, lp.place_bound(b, 1), timeout_ms=15_000)
     assert safe.verdict == "proven", safe.report
+
+
+def _conserved_pair():
+    """p0(3) -> p1: conservation p0 + p1 = 3, so place_bound(p1, 3) is proven."""
+    p0 = lp.Place("p0")
+    p1 = lp.Place("p1")
+    net = (
+        lp.Net("conservedPair")
+        .transition(lp.Transition("t").input(lp.one(p0)).output(lp.out(p1)).action(lp.fork).build())
+        .build()
+    )
+    return p0, p1, net
+
+
+def test_certificate_check_kwarg_toggles_the_second_solver_run():
+    # Default on: the proof is re-verified against the unstrengthened step
+    # relation and the report says so. Off: the check is skipped, and says why.
+    _p0, p1, net = _conserved_pair()
+    on = lp.verify(net, lp.place_bound(p1, 3), initial_marking={"p0": 3}, timeout_ms=15_000)
+    assert on.verdict == "proven", on.report
+    assert "  Certificate check: PASSED (init, consecution, safety)" in on.report
+
+    off = lp.verify(
+        net,
+        lp.place_bound(p1, 3),
+        initial_marking={"p0": 3},
+        certificate_check=False,
+        timeout_ms=15_000,
+    )
+    assert off.verdict == "proven", off.report
+    assert "  Certificate check: not applicable (disabled)" in off.report
+
+
+def test_counterexample_confirmed_is_a_tri_state():
+    _p0, p1, net = _conserved_pair()
+
+    # Violated with a replayed chain -> True.
+    violated = lp.verify(net, lp.place_bound(p1, 2), initial_marking={"p0": 3}, timeout_ms=15_000)
+    assert violated.verdict == "violated", violated.report
+    assert violated.counterexample_confirmed is True
+    assert violated.counterexample_trace, "a confirmed replay carries the trace"
+
+    # Proven -> the replay never applied.
+    proven = lp.verify(net, lp.place_bound(p1, 3), initial_marking={"p0": 3}, timeout_ms=15_000)
+    assert proven.verdict == "proven", proven.report
+    assert proven.counterexample_confirmed is None
+
+    # Replay disabled -> also "did not apply", and no trace is produced.
+    off = lp.verify(
+        net,
+        lp.place_bound(p1, 2),
+        initial_marking={"p0": 3},
+        counterexample_replay=False,
+        timeout_ms=15_000,
+    )
+    assert off.verdict == "violated", off.report
+    assert off.counterexample_confirmed is None
+    assert off.counterexample_trace == []
+
+
+def _wide_fanout_net(width):
+    """One source place drained by `width` competing transitions, one sink each.
+
+    The abstract counterexample replay searches breadth-first, so with S=4 it
+    must admit every 3-token distribution over the `width` sinks before it can
+    reach the 4-firing violation of ``place_bound(P00, 3)``. At width 48 that
+    is C(50, 3) = 19_600 states, comfortably past the replay's 10_000-node
+    budget.
+    """
+    source = lp.Place("S")
+    sinks = [lp.Place(f"P{i:02d}") for i in range(width)]
+    net = lp.Net("fanout")
+    for i, sink in enumerate(sinks):
+        net = net.transition(
+            lp.Transition(f"t{i:02d}")
+            .input(lp.one(source))
+            .output(lp.out(sink))
+            .action(lp.fork)
+            .build()
+        )
+    return sinks[0], net.build()
+
+
+def test_counterexample_confirmed_is_false_when_the_replay_exhausts_its_budget():
+    # The False arm of the tri-state, mirroring the Rust budget-exhaustion
+    # tests through the bindings. False means the replay APPLIED and did not
+    # confirm -- here because its search budget ran out, which is an absence
+    # of evidence, so the violated verdict stands. That is exactly what
+    # separates False from None: None means the replay never ran at all.
+    first_sink, net = _wide_fanout_net(48)
+    result = lp.verify(
+        net, lp.place_bound(first_sink, 3), initial_marking={"S": 4}, timeout_ms=30_000
+    )
+    assert result.verdict == "violated", result.report
+    assert result.counterexample_confirmed is False, result.report
+    assert "search node budget" in result.report, result.report

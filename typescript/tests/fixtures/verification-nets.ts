@@ -149,6 +149,32 @@ function atLeastDrain(): VerificationFixtureNet {
   return fixture(net, m => m.tokens(p0, 3), [p0, p1]);
 }
 
+/**
+ * p0(1),done,stuck; t: one(p0)->AND(done, stuck). The only quiescent marking
+ * holds a token in the declared sink `done` AND in the non-sink `stuck`.
+ */
+function sinkPartialTerminal(): VerificationFixtureNet {
+  const p0 = place('p0');
+  const done = place('done');
+  const stuck = place('stuck');
+  const t = Transition.builder('t').inputs(one(p0)).outputs(andPlaces(done, stuck)).build();
+  const net = PetriNet.builder('sinkPartialTerminal').transitions(t).build();
+  return fixture(net, m => m.tokens(p0, 1), [p0, done, stuck]);
+}
+
+/**
+ * p0(1) and done (empty); t: one(p0) with NO output spec — a sink transition
+ * (CORE-042). `done` touches no arc, so it is declared explicitly on the
+ * builder; after t fires the net holds no tokens anywhere.
+ */
+function sinkDrainedTerminal(): VerificationFixtureNet {
+  const p0 = place('p0');
+  const done = place('done');
+  const t = Transition.builder('t').inputs(one(p0)).build();
+  const net = PetriNet.builder('sinkDrainedTerminal').place(done).transitions(t).build();
+  return fixture(net, m => m.tokens(p0, 1), [p0, done]);
+}
+
 /** Registry: fixture `net` name -> builder. */
 export const verificationNets: Record<string, () => VerificationFixtureNet> = {
   circularChain,
@@ -160,4 +186,6 @@ export const verificationNets: Record<string, () => VerificationFixtureNet> = {
   inhibitorFrozen,
   h1ConsumeAll,
   atLeastDrain,
+  sinkPartialTerminal,
+  sinkDrainedTerminal,
 };

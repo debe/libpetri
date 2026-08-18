@@ -29,11 +29,32 @@ public final class PInvariantComputer {
      * @return list of semi-positive P-invariants
      */
     public static List<PInvariant> compute(IncidenceMatrix matrix, FlatNet flatNet, MarkingState initialMarking) {
+        return computeChecked(matrix, flatNet, initialMarking).valid();
+    }
+
+    /**
+     * {@link #compute}, reporting the candidates it had to drop.
+     *
+     * <p>The elimination runs in {@code long} but {@link PInvariant#weights()} and
+     * {@link PInvariant#constant()} are {@code int}: a row whose exact weight or
+     * {@code y*M0} does not fit that range is DROPPED with a reason rather than
+     * narrowed. Narrowing wraps, and a wrapped "invariant" conjoined into a CHC
+     * transition-rule body removes reachable successors — the false-PROVEN shape.
+     * {@link #validateExact} remains the backstop for rows the unchecked
+     * elimination itself corrupted.
+     *
+     * @param matrix  the incidence matrix
+     * @param flatNet the flat net (for place info and drop-reason place names)
+     * @param initialMarking the initial marking (for computing constants)
+     * @return the extracted semi-positive P-invariants plus one reason per drop
+     */
+    public static Validation computeChecked(
+            IncidenceMatrix matrix, FlatNet flatNet, MarkingState initialMarking) {
         int P = matrix.numPlaces();
         int T = matrix.numTransitions();
 
         if (P == 0 || T == 0) {
-            return List.of();
+            return new Validation(List.of(), List.of());
         }
 
         // We want to find y such that y^T * C = 0, i.e., C^T * y = 0
@@ -95,6 +116,7 @@ public final class PInvariantComputer {
 
         // Extract invariants: rows where C^T part is all zeros
         var invariants = new ArrayList<PInvariant>();
+        var dropped = new ArrayList<String>();
         for (int row = 0; row < P; row++) {
             boolean isZero = true;
             for (int col = 0; col < T; col++) {
@@ -105,67 +127,85 @@ public final class PInvariantComputer {
             }
             if (!isZero) continue;
 
-            // Extract the weight vector from the identity part
-            int[] weights = new int[P];
-            boolean allNonNegative = true;
+            // Extract the weight vector from the identity part, still in long.
+            long[] weightsL = new long[P];
             boolean hasPositive = false;
-
+            boolean hasNegative = false;
             for (int i = 0; i < P; i++) {
-                weights[i] = (int) augmented[row][T + i];
-                if (weights[i] < 0) {
-                    allNonNegative = false;
-                    break;
-                }
-                if (weights[i] > 0) hasPositive = true;
+                weightsL[i] = augmented[row][T + i];
+                if (weightsL[i] > 0) hasPositive = true;
+                if (weightsL[i] < 0) hasNegative = true;
             }
 
-            // We want semi-positive invariants (all weights >= 0, at least one > 0)
-            if (!allNonNegative) {
-                // Try negating
-                boolean allNonPositive = true;
+            // We want semi-positive invariants (all weights >= 0, at least one > 0);
+            // a semi-negative row is the same law negated.
+            if (hasPositive && hasNegative) continue;
+            if (!hasPositive && !hasNegative) continue;
+            if (hasNegative) {
                 for (int i = 0; i < P; i++) {
-                    if (augmented[row][T + i] > 0) {
-                        allNonPositive = false;
-                        break;
-                    }
-                }
-                if (allNonPositive) {
-                    for (int i = 0; i < P; i++) {
-                        weights[i] = (int) -augmented[row][T + i];
-                    }
-                    hasPositive = true;
-                    allNonNegative = true;
+                    weightsL[i] = -weightsL[i];
                 }
             }
-
-            if (!allNonNegative || !hasPositive) continue;
 
             // Normalize: divide by GCD of weights
-            int gcd = 0;
-            for (int w : weights) {
-                if (w > 0) gcd = gcd(gcd, w);
+            long g = 0;
+            for (long w : weightsL) {
+                if (w > 0) g = gcd(g, w);
             }
-            if (gcd > 1) {
+            if (g > 1) {
                 for (int i = 0; i < P; i++) {
-                    weights[i] /= gcd;
+                    weightsL[i] /= g;
                 }
             }
 
-            // Compute support and constant
+            // Narrow to int and accumulate the constant with checked arithmetic: the
+            // weights are semi-positive and the token counts non-negative, so the sum
+            // is monotone and the first out-of-range step names the offending place.
+            int[] weights = new int[P];
             var support = new TreeSet<Integer>();
-            int constant = 0;
+            long constant = 0;
+            String overflow = null;
             for (int i = 0; i < P; i++) {
-                if (weights[i] != 0) {
-                    support.add(i);
-                    var place = flatNet.places().get(i);
-                    constant += weights[i] * initialMarking.tokens(place);
+                long w = weightsL[i];
+                if (w > Integer.MAX_VALUE || w < Integer.MIN_VALUE) {
+                    overflow = overflowReason(flatNet, i);
+                    break;
+                }
+                weights[i] = (int) w;
+                if (w == 0) continue;
+                support.add(i);
+                try {
+                    constant = Math.addExact(constant, Math.multiplyExact(
+                        w, (long) initialMarking.tokens(flatNet.places().get(i))));
+                } catch (ArithmeticException _) {
+                    overflow = overflowReason(flatNet, i);
+                    break;
+                }
+                if (constant > Integer.MAX_VALUE) {
+                    overflow = overflowReason(flatNet, i);
+                    break;
                 }
             }
+            if (overflow != null) {
+                dropped.add(overflow);
+                continue;
+            }
 
-            invariants.add(new PInvariant(weights, constant, Set.copyOf(support)));
+            invariants.add(new PInvariant(weights, (int) constant, Set.copyOf(support)));
         }
 
-        return List.copyOf(invariants);
+        return new Validation(List.copyOf(invariants), List.copyOf(dropped));
+    }
+
+    /**
+     * The one canonical overflow drop reason, shared by every stage that can detect
+     * an overflow — {@link #computeChecked}'s narrowing and {@link #validateExact}'s
+     * exact recheck alike — and byte-identical across the four implementations. It
+     * names the place whose term could not be represented.
+     */
+    private static String overflowReason(FlatNet flatNet, int place) {
+        return "weight overflow at place '" + flatNet.places().get(place).name()
+            + "' (exact value outside this implementation's integer extraction range)";
     }
 
     /**
@@ -331,6 +371,13 @@ public final class PInvariantComputer {
      *       affects soundness.</li>
      * </ul>
      *
+     * <p>The drop reasons are canonical strings: the Java, TypeScript, Rust and
+     * Python verifiers emit them byte-identically, so keep the wording (here and in
+     * {@link #computeChecked}) in sync when it changes. A dropped candidate renders
+     * as {@code <description> - <reason>}, with an ASCII hyphen-minus separator —
+     * never an em dash, which would break a byte-for-byte cross-language diff — and
+     * an overflow at any stage uses the single {@link #overflowReason} wording.
+     *
      * @param candidates     invariants to re-verify (from {@link #compute} or
      *                       {@link #computePSemiflows})
      * @param matrix         the incidence matrix the candidates were computed from
@@ -344,14 +391,19 @@ public final class PInvariantComputer {
         int[][] incidence = matrix.incidence(); // [t][p], includes env-injector columns
         int nt = matrix.numTransitions();
         int np = matrix.numPlaces();
+        // The H1 place set depends only on the net, not on the candidate: walking every
+        // flat transition once here instead of per candidate.
+        boolean[] nonlinear = nonlinearPlaces(flatNet, np);
         var valid = new ArrayList<PInvariant>(candidates.size());
         var dropped = new ArrayList<String>();
         for (var inv : candidates) {
-            String failure = recheckExact(inv, incidence, nt, np, flatNet, initialMarking);
+            String failure = recheckExact(inv, incidence, nt, np, nonlinear, flatNet, initialMarking);
             if (failure == null) {
                 valid.add(inv);
             } else {
-                dropped.add(describe(inv, flatNet) + " — " + failure);
+                // ASCII " - ", never an em dash: the four implementations' report
+                // lines are diffed byte-for-byte.
+                dropped.add(describe(inv, flatNet) + " - " + failure);
             }
         }
         return new Validation(List.copyOf(valid), List.copyOf(dropped));
@@ -362,7 +414,7 @@ public final class PInvariantComputer {
      * drop it.
      */
     private static String recheckExact(
-            PInvariant inv, int[][] incidence, int nt, int np,
+            PInvariant inv, int[][] incidence, int nt, int np, boolean[] nonlinear,
             FlatNet flatNet, MarkingState initialMarking) {
         int[] weights = inv.weights();
         if (weights.length != np) {
@@ -386,44 +438,37 @@ public final class PInvariantComputer {
         // Env-injectable places need NO analogous guard here: the injector columns that
         // IncidenceMatrix#from appends already force y[envPlace] = 0 through this same
         // y*C = 0 recheck (Strengthening.lean H3').
-        // Reason wording matches the Rust/TS validators verbatim.
-        for (var ft : flatNet.transitions()) {
-            boolean[] consumeAll = ft.consumeAll();
-            for (int p = 0; p < np && p < consumeAll.length; p++) {
-                if (weights[p] != 0 && consumeAll[p]) {
-                    return nonlinearReason(flatNet, p);
-                }
-            }
-            for (int rp : ft.resetPlaces()) {
-                if (rp >= 0 && rp < np && weights[rp] != 0) {
-                    return nonlinearReason(flatNet, rp);
-                }
+        for (int p = 0; p < np; p++) {
+            if (weights[p] != 0 && nonlinear[p]) {
+                return nonlinearReason(flatNet, p);
             }
         }
         for (int t = 0; t < nt; t++) {
             long component = 0;
-            try {
-                for (int p = 0; p < np; p++) {
-                    if (weights[p] == 0 || incidence[t][p] == 0) continue;
+            for (int p = 0; p < np; p++) {
+                if (weights[p] == 0 || incidence[t][p] == 0) continue;
+                try {
                     component = Math.addExact(component,
                         Math.multiplyExact((long) weights[p], (long) incidence[t][p]));
+                } catch (ArithmeticException _) {
+                    // One overflow reason for the whole pipeline, naming the place
+                    // whose term could not be recomputed — same text as extraction.
+                    return overflowReason(flatNet, p);
                 }
-            } catch (ArithmeticException _) {
-                return "overflow recomputing y*C at " + columnName(t, flatNet);
             }
             if (component != 0) {
                 return "y*C is " + component + " (not 0) at " + columnName(t, flatNet);
             }
         }
         long constant = 0;
-        try {
-            for (int p = 0; p < np; p++) {
-                if (weights[p] == 0) continue;
+        for (int p = 0; p < np; p++) {
+            if (weights[p] == 0) continue;
+            try {
                 constant = Math.addExact(constant, Math.multiplyExact(
                     (long) weights[p], (long) initialMarking.tokens(flatNet.places().get(p))));
+            } catch (ArithmeticException _) {
+                return overflowReason(flatNet, p);
             }
-        } catch (ArithmeticException _) {
-            return "overflow recomputing y*M0";
         }
         if (constant != inv.constant()) {
             return "constant " + inv.constant() + " does not match exact y*M0 = " + constant;
@@ -431,7 +476,29 @@ public final class PInvariantComputer {
         return null;
     }
 
-    /** The H1 drop reason — wording shared verbatim with the Rust and TS validators. */
+    /**
+     * Places some flat transition consumes non-linearly: consume-all inputs
+     * ({@code In.All} / {@code In.AtLeast}) and reset places — the H1 arms.
+     */
+    private static boolean[] nonlinearPlaces(FlatNet flatNet, int np) {
+        var nonlinear = new boolean[np];
+        for (var ft : flatNet.transitions()) {
+            boolean[] consumeAll = ft.consumeAll();
+            for (int p = 0; p < np && p < consumeAll.length; p++) {
+                if (consumeAll[p]) {
+                    nonlinear[p] = true;
+                }
+            }
+            for (int rp : ft.resetPlaces()) {
+                if (rp >= 0 && rp < np) {
+                    nonlinear[rp] = true;
+                }
+            }
+        }
+        return nonlinear;
+    }
+
+    /** The H1 drop reason (canonical wording — see {@link #validateExact}). */
     private static String nonlinearReason(FlatNet flatNet, int place) {
         return "support intersects consume-all/reset place '" + flatNet.places().get(place).name()
             + "' (non-linear consumption; see Strengthening.lean H1)";
@@ -444,8 +511,11 @@ public final class PInvariantComputer {
             : "env-injector column " + (t - flatNet.transitionCount());
     }
 
-    /** Formats an invariant with place names for drop-reason report lines. */
-    private static String describe(PInvariant inv, FlatNet flatNet) {
+    /**
+     * Formats an invariant with place names, e.g. {@code 2*A + B = 3} — the report
+     * rendering for both the kept invariants and the drop-reason lines.
+     */
+    public static String describe(PInvariant inv, FlatNet flatNet) {
         var sb = new StringBuilder();
         boolean first = true;
         for (int idx : inv.support()) {
@@ -463,10 +533,6 @@ public final class PInvariantComputer {
     private record Row(long[] sig, long[] weight) {}
 
     /**
-     * Divides a (signature, weight) pair by the gcd of all its entries to keep the
-     * integers small during elimination.
-     */
-    /**
      * {@code cp*a + cn*b} componentwise, or {@code null} on long overflow (so the caller
      * drops the generator and the colour bound falls back soundly rather than using
      * wrapped values).
@@ -483,6 +549,10 @@ public final class PInvariantComputer {
         return out;
     }
 
+    /**
+     * Divides a (signature, weight) pair by the gcd of all its entries to keep the
+     * integers small during elimination.
+     */
     private static void reduceGcd(long[] sig, long[] weight) {
         long g = 0;
         for (long v : sig) {
@@ -580,15 +650,6 @@ public final class PInvariantComputer {
     private static long gcd(long a, long b) {
         while (b != 0) {
             long t = b;
-            b = a % b;
-            a = t;
-        }
-        return a;
-    }
-
-    private static int gcd(int a, int b) {
-        while (b != 0) {
-            int t = b;
             b = a % b;
             a = t;
         }

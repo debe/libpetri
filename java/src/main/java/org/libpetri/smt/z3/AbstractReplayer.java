@@ -9,9 +9,9 @@ import org.libpetri.smt.encoding.FlatTransition;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -63,11 +63,16 @@ import java.util.Set;
  */
 public final class AbstractReplayer {
 
-    /** Maximum abstract steps bridged between two consecutive decoded states. */
-    public static final int MAX_HOP_STEPS = 3;
+    /** Maximum abstract steps allowed between two decoded states (the segment budget). */
+    public static final int MAX_SEGMENT_STEPS = 3;
 
-    /** Default total exploration budget (states expanded across all hops). */
-    public static final int DEFAULT_BUDGET = 10_000;
+    /**
+     * Default search budget, counted in nodes ADMITTED to the search: the root
+     * plus every non-dominated successor, tripped with {@code >=}. The same unit
+     * and the same comparison in all four implementations, so a net that
+     * exhausts the budget in one exhausts it in all.
+     */
+    public static final int DEFAULT_NODE_BUDGET = 10_000;
 
     private AbstractReplayer() {}
 
@@ -75,12 +80,17 @@ public final class AbstractReplayer {
      * One abstract step.
      *
      * @param firing the step label: the flat transition name, or
-     *               {@code env_inject_<place>} for an environment injection
+     *               {@code inject(<place>)} for an environment injection
      * @param state  the successor count vector
      */
     public record Step(String firing, int[] state) {}
 
-    /** Outcome of an attempted replay. */
+    /**
+     * Outcome of an attempted replay. Only {@link ReplayOutcome.NoChain} — a
+     * search that ran to completion and found no chain — may withdraw a VIOLATED
+     * verdict; {@link ReplayOutcome.Exhausted} means the search could not settle
+     * the question and the verdict stands, unconfirmed.
+     */
     public sealed interface ReplayOutcome {
         /**
          * The decoded states chain into an abstract run reaching a
@@ -89,18 +99,26 @@ public final class AbstractReplayer {
          * @param trace   replay-ordered markings, initial marking first,
          *                violating marking last
          * @param firings labels of the steps between consecutive trace states
-         *                (transition names, or {@code env_inject_<place>} for
+         *                (transition names, or {@code inject(<place>)} for
          *                environment injections)
          */
-        record Chained(List<MarkingState> trace, List<String> firings) implements ReplayOutcome {}
+        record Confirmed(List<MarkingState> trace, List<String> firings) implements ReplayOutcome {}
 
         /**
-         * No abstract run through the decoded states reaches a violation
-         * within the hop/budget bounds.
-         *
-         * @param reason structured description of where the chain broke
+         * The search space was covered and no abstract run through the decoded
+         * states reaches a violation: the counterexample is spurious or the
+         * decoder mis-read the derivation.
          */
-        record NotChainable(String reason) implements ReplayOutcome {}
+        record NoChain() implements ReplayOutcome {}
+
+        /**
+         * The search could not decide: a budget ran out (node or segment), or
+         * there was nothing anchored to search from (no decoded states, or the
+         * initial marking is not among them).
+         *
+         * @param reason what stopped the search
+         */
+        record Exhausted(String reason) implements ReplayOutcome {}
     }
 
     /**
@@ -136,12 +154,18 @@ public final class AbstractReplayer {
      */
     public static int[] fireA(int[] m, FlatTransition ft) {
         int P = m.length;
+        int[] pre = ft.preVector();
+        int[] post = ft.postVector();
+        boolean[] consumeAll = ft.consumeAll();
         int[] next = new int[P];
         for (int p = 0; p < P; p++) {
-            if (isReset(ft, p) || ft.consumeAll()[p]) {
-                next[p] = ft.postVector()[p];
-            } else {
-                next[p] = m[p] - ft.preVector()[p] + ft.postVector()[p];
+            next[p] = consumeAll[p] ? post[p] : m[p] - pre[p] + post[p];
+        }
+        // Reset places are few and indexed, so they are applied after the sweep
+        // rather than re-scanned inside it.
+        for (int rp : ft.resetPlaces()) {
+            if (rp >= 0 && rp < P) {
+                next[rp] = post[rp];
             }
         }
         return next;
@@ -152,7 +176,7 @@ public final class AbstractReplayer {
      * relation ({@code SmtEncoder.encodeStepRelation}): enabled transitions
      * whose successor respects the bounded-environment caps, plus one
      * environment-injection step per injected env place still under its bound
-     * (VER-006). Injection steps are labeled {@code env_inject_<place>}.
+     * (VER-006). Injection steps are labeled {@code inject(<place>)}.
      */
     public static List<Step> successors(FlatNet flatNet, int[] m) {
         var out = new ArrayList<Step>();
@@ -174,7 +198,7 @@ public final class AbstractReplayer {
             if (bound == null || m[idx] < bound) {
                 int[] next = m.clone();
                 next[idx]++;
-                out.add(new Step("env_inject_" + entry.getKey().name(), next));
+                out.add(new Step("inject(" + entry.getKey().name() + ")", next));
             }
         }
         return out;
@@ -193,9 +217,20 @@ public final class AbstractReplayer {
     public static boolean violates(
             FlatNet flatNet, SmtProperty property, Set<Place<?>> sinkPlaces, int[] m
     ) {
+        return violates(flatNet, property, sinkPlaces, m, injectedEnvIndices(flatNet));
+    }
+
+    /**
+     * {@link #violates} with the injected-env-place map precomputed — the form the
+     * replay search uses, so the map is built once per replay instead of per state.
+     */
+    static boolean violates(
+            FlatNet flatNet, SmtProperty property, Set<Place<?>> sinkPlaces, int[] m,
+            Map<Integer, Integer> envInj
+    ) {
         return switch (property) {
             case SmtProperty.DeadlockFree() -> {
-                if (!isDeadlock(flatNet, m)) {
+                if (!isDeadlock(flatNet, m, envInj)) {
                     yield false;
                 }
                 for (var sink : sinkPlaces) {
@@ -220,143 +255,144 @@ public final class AbstractReplayer {
                 if (idx < 0) {
                     yield false; // unknown pending place: no state can violate
                 }
-                yield isDeadlock(flatNet, m) && m[idx] >= 1;
+                yield isDeadlock(flatNet, m, envInj) && m[idx] >= 1;
             }
             case SmtProperty.Unreachable ur -> {
+                // The non-empty guard is load-bearing: with every place unresolved the
+                // encoder's conjunction is over nothing, so an all-unresolved property
+                // must never be violated — otherwise EVERY marking would be Bad and the
+                // replay would "confirm" at M0.
+                boolean anyResolved = false;
+                boolean allMarked = true;
                 for (var place : ur.places()) {
                     int idx = flatNet.indexOf(place);
-                    if (idx >= 0 && m[idx] < 1) {
-                        yield false;
+                    if (idx < 0) {
+                        continue;
+                    }
+                    anyResolved = true;
+                    if (m[idx] < 1) {
+                        allMarked = false;
+                        break;
                     }
                 }
-                yield true;
+                yield anyResolved && allMarked;
             }
         };
     }
 
     /**
-     * Replays the decoded counterexample states with the default hop bound
-     * ({@value #MAX_HOP_STEPS} abstract steps between consecutive decoded
-     * states) and budget ({@value #DEFAULT_BUDGET} expanded states).
+     * Replays the decoded counterexample states with the default segment bound
+     * ({@value #MAX_SEGMENT_STEPS} abstract steps between decoded states) and node
+     * budget ({@value #DEFAULT_NODE_BUDGET} nodes admitted).
      */
     public static ReplayOutcome replay(
             FlatNet flatNet, MarkingState initialMarking, Set<MarkingState> decodedStates,
             SmtProperty property, Set<Place<?>> sinkPlaces
     ) {
         return replay(flatNet, initialMarking, decodedStates, property, sinkPlaces,
-            MAX_HOP_STEPS, DEFAULT_BUDGET);
+            MAX_SEGMENT_STEPS, DEFAULT_NODE_BUDGET);
     }
 
     /**
-     * Replays the decoded counterexample states: starting from the initial
-     * marking (which must itself be among the decoded states), repeatedly
-     * bridges to a not-yet-visited decoded state — or to any marking satisfying
-     * {@link #violates} — with a bounded BFS of at most {@code maxHopSteps}
-     * abstract steps, expanding at most {@code budget} states in total.
+     * Replays the decoded counterexample states: one breadth-first search over
+     * abstract successors, from the initial marking (which must be among the
+     * decoded states) to any marking satisfying {@link #violates}.
      *
-     * <p>Reaching a violating marking confirms the counterexample and yields
-     * the replay-ordered {@link ReplayOutcome.Chained} trace; running out of
-     * bridgeable decoded states (or budget) yields
-     * {@link ReplayOutcome.NotChainable} with the break point named. Decoded
-     * states that turn out to be interior duplicates the chain never needs are
-     * not required — the chain ends as soon as a violation is reached.
+     * <p>The decoded set is order-free, so it is used as a set of ANCHORS rather
+     * than as a sequence. Every node carries the number of steps taken since the
+     * last anchor it passed through; reaching an anchor resets that counter, and a
+     * node at {@code maxSegmentSteps} is not expanded further. A node is dominated
+     * — and dropped — when the same marking was already reached with an equal or
+     * smaller counter, since a smaller counter can only reach more. The search is
+     * therefore global: no waypoint is ever committed to, so a dead-end anchor
+     * cannot make replay fail on a net where a chain exists.
+     *
+     * <p>{@code budget} counts nodes ADMITTED to the search across the whole run:
+     * the root plus every non-dominated successor, tripped with {@code >=}. A
+     * dominated successor is dropped before it counts.
+     *
+     * <p>Dropping a node at the segment bound leaves the successor space only
+     * partly covered, so a search that pruned that way reports
+     * {@link ReplayOutcome.Exhausted}, never {@link ReplayOutcome.NoChain}: a
+     * budget is an absence of evidence, not evidence of absence, and only
+     * {@code NoChain} may withdraw a verdict.
+     *
+     * @return {@link ReplayOutcome.Confirmed} with the replay-ordered trace when a
+     *     violating marking is reached; {@link ReplayOutcome.NoChain} when the
+     *     search covered the space and found none; {@link ReplayOutcome.Exhausted}
+     *     when it could not run to completion (either budget, or nothing to
+     *     anchor on)
      */
     public static ReplayOutcome replay(
             FlatNet flatNet, MarkingState initialMarking, Set<MarkingState> decodedStates,
             SmtProperty property, Set<Place<?>> sinkPlaces,
-            int maxHopSteps, int budget
+            int maxSegmentSteps, int budget
     ) {
         if (decodedStates.isEmpty()) {
-            return new ReplayOutcome.NotChainable("no decoded states to replay");
+            return new ReplayOutcome.Exhausted("no decoded states to replay");
+        }
+        var anchors = new HashSet<Vec>();
+        for (var state : decodedStates) {
+            anchors.add(new Vec(toVector(flatNet, state)));
         }
         Vec m0 = new Vec(toVector(flatNet, initialMarking));
-        var remaining = new LinkedHashSet<Vec>();
-        for (var state : decodedStates) {
-            remaining.add(new Vec(toVector(flatNet, state)));
-        }
-        if (!remaining.remove(m0)) {
-            return new ReplayOutcome.NotChainable(
+        if (!anchors.contains(m0)) {
+            return new ReplayOutcome.Exhausted(
                 "the initial marking " + initialMarking + " is not among the "
                 + decodedStates.size() + " decoded state(s)");
         }
 
-        var trace = new ArrayList<int[]>();
-        var firings = new ArrayList<String>();
-        trace.add(m0.counts());
-        Vec current = m0;
-        int expanded = 0;
-
-        while (true) {
-            if (violates(flatNet, property, sinkPlaces, current.counts())) {
-                return new ReplayOutcome.Chained(toMarkings(flatNet, trace), List.copyOf(firings));
-            }
-
-            // Bounded BFS from the current chained state for the nearest goal:
-            // a violating marking, or a decoded state not yet chained.
-            var parents = new HashMap<Vec, Vec>();
-            var vias = new HashMap<Vec, String>();
-            var visited = new HashSet<Vec>();
-            var frontier = new ArrayDeque<Vec>();
-            visited.add(current);
-            frontier.add(current);
-            Vec goal = null;
-            boolean goalIsViolation = false;
-
-            search:
-            for (int depth = 0; depth < maxHopSteps && !frontier.isEmpty(); depth++) {
-                int levelSize = frontier.size();
-                for (int i = 0; i < levelSize; i++) {
-                    Vec node = frontier.poll();
-                    if (++expanded > budget) {
-                        return new ReplayOutcome.NotChainable(
-                            "replay budget exhausted (" + budget + " expanded states) before the "
-                            + "decoded states chained to a violating marking");
-                    }
-                    for (var step : successors(flatNet, node.counts())) {
-                        Vec succ = new Vec(step.state());
-                        if (!visited.add(succ)) {
-                            continue;
-                        }
-                        parents.put(succ, node);
-                        vias.put(succ, step.firing());
-                        if (violates(flatNet, property, sinkPlaces, succ.counts())) {
-                            goal = succ;
-                            goalIsViolation = true;
-                            break search;
-                        }
-                        if (remaining.contains(succ)) {
-                            goal = succ;
-                            break search;
-                        }
-                        frontier.add(succ);
-                    }
-                }
-            }
-
-            if (goal == null) {
-                return new ReplayOutcome.NotChainable(
-                    "no abstract run of at most " + maxHopSteps + " step(s) leads from "
-                    + toMarking(flatNet, current.counts()) + " to another decoded state or to a "
-                    + "property-violating marking (" + remaining.size() + " decoded state(s) unchained)");
-            }
-
-            // Append the bridging path (goal-side first, reversed onto the trace).
-            var hopStates = new ArrayList<Vec>();
-            var hopFirings = new ArrayList<String>();
-            for (Vec v = goal; !v.equals(current); v = parents.get(v)) {
-                hopStates.add(v);
-                hopFirings.add(vias.get(v));
-            }
-            for (int i = hopStates.size() - 1; i >= 0; i--) {
-                trace.add(hopStates.get(i).counts());
-                firings.add(hopFirings.get(i));
-            }
-            if (goalIsViolation) {
-                return new ReplayOutcome.Chained(toMarkings(flatNet, trace), List.copyOf(firings));
-            }
-            remaining.remove(goal);
-            current = goal;
+        // Built once, then shared by every violates() call in the search.
+        Map<Integer, Integer> envInj = injectedEnvIndices(flatNet);
+        if (violates(flatNet, property, sinkPlaces, m0.counts(), envInj)) {
+            return new ReplayOutcome.Confirmed(
+                List.of(toMarking(flatNet, m0.counts())), List.of());
         }
+
+        var bestSegment = new HashMap<Vec, Integer>();
+        bestSegment.put(m0, 0);
+        var frontier = new ArrayDeque<Node>();
+        frontier.add(new Node(m0, 0, null, null));
+        // Nodes admitted to the search, the root included — the budget's unit.
+        int admitted = 1;
+        // Set when a node was dropped for sitting at the segment bound: the space
+        // was then NOT covered in full, so an empty frontier afterwards is
+        // exhaustion, not proof that no chain exists.
+        boolean segmentPruned = false;
+
+        while (!frontier.isEmpty()) {
+            Node node = frontier.poll();
+            if (node.segment() >= maxSegmentSteps) {
+                segmentPruned = true;
+                continue; // the next step would leave the segment unanchored
+            }
+            for (var step : successors(flatNet, node.state().counts())) {
+                Vec succ = new Vec(step.state());
+                int segment = anchors.contains(succ) ? 0 : node.segment() + 1;
+                Integer best = bestSegment.get(succ);
+                if (best != null && best <= segment) {
+                    continue; // dominated: a smaller counter can only reach more
+                }
+                bestSegment.put(succ, segment);
+                if (admitted >= budget) {
+                    return new ReplayOutcome.Exhausted(
+                        "replay budget exhausted (" + budget + " nodes admitted) before the "
+                        + "decoded states chained to a violating marking");
+                }
+                admitted++;
+                var child = new Node(succ, segment, node, step.firing());
+                if (violates(flatNet, property, sinkPlaces, succ.counts(), envInj)) {
+                    return chained(flatNet, child);
+                }
+                frontier.add(child);
+            }
+        }
+        if (segmentPruned) {
+            return new ReplayOutcome.Exhausted(
+                "segment budget of " + maxSegmentSteps
+                + " step(s) between decoded states exhausted");
+        }
+        return new ReplayOutcome.NoChain();
     }
 
     /** Projects a {@link MarkingState} onto the flat net's count vector. */
@@ -382,6 +418,27 @@ public final class AbstractReplayer {
 
     // === internals ===
 
+    /**
+     * A search node: a marking, the steps taken since the last decoded anchor, and
+     * the step that produced it (null at the root).
+     */
+    private record Node(Vec state, int segment, Node parent, String via) {}
+
+    /** Walks a node's parents into the replay-ordered trace and firing labels. */
+    private static ReplayOutcome.Confirmed chained(FlatNet flatNet, Node goal) {
+        var states = new ArrayList<int[]>();
+        var firings = new ArrayList<String>();
+        for (Node n = goal; n != null; n = n.parent()) {
+            states.add(n.state().counts());
+            if (n.via() != null) {
+                firings.add(n.via());
+            }
+        }
+        Collections.reverse(states);
+        Collections.reverse(firings);
+        return new ReplayOutcome.Confirmed(toMarkings(flatNet, states), List.copyOf(firings));
+    }
+
     /** Count vector with content-based equality, usable as a set/map key. */
     private record Vec(int[] counts) {
         @Override
@@ -403,15 +460,6 @@ public final class AbstractReplayer {
         return List.copyOf(out);
     }
 
-    private static boolean isReset(FlatTransition ft, int p) {
-        for (int rp : ft.resetPlaces()) {
-            if (rp == p) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private static boolean withinEnvBounds(FlatNet flatNet, int[] m) {
         for (var entry : flatNet.environmentBounds().entrySet()) {
             int idx = flatNet.indexOf(entry.getKey());
@@ -427,8 +475,7 @@ public final class AbstractReplayer {
      * no transition is enabled, with input/read requirements on injected
      * environment places treated as satisfiable by injection (VER-006).
      */
-    private static boolean isDeadlock(FlatNet flatNet, int[] m) {
-        Map<Integer, Integer> envInj = injectedEnvIndices(flatNet);
+    private static boolean isDeadlock(FlatNet flatNet, int[] m, Map<Integer, Integer> envInj) {
         for (var ft : flatNet.transitions()) {
             if (enabledRelaxed(m, ft, envInj)) {
                 return false;

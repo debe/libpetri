@@ -137,7 +137,7 @@ class AbstractReplayerTest {
         // Empty marking: only the injection step exists.
         var fromEmpty = AbstractReplayer.successors(flat, vec(flat, marking()));
         assertEquals(1, fromEmpty.size());
-        assertEquals("env_inject_E", fromEmpty.getFirst().firing());
+        assertEquals("inject(E)", fromEmpty.getFirst().firing());
         assertEquals(marking(e, 1), AbstractReplayer.toMarking(flat, fromEmpty.getFirst().state()));
 
         // At the bound: injection is gated off, only the transition fires.
@@ -223,7 +223,7 @@ class AbstractReplayerTest {
         var outcome = AbstractReplayer.replay(
             flat, marking(A, 1), decoded, SmtProperty.deadlockFree(), Set.of());
 
-        var chained = assertInstanceOf(AbstractReplayer.ReplayOutcome.Chained.class, outcome);
+        var chained = assertInstanceOf(AbstractReplayer.ReplayOutcome.Confirmed.class, outcome);
         assertEquals(List.of(marking(A, 1), marking(B, 1), marking(C, 1)), chained.trace(),
             "the replay must order the set into the actual run");
         assertEquals(List.of("t01", "t12"), chained.firings());
@@ -240,7 +240,7 @@ class AbstractReplayerTest {
         var outcome = AbstractReplayer.replay(
             flat, marking(A, 3), decoded, SmtProperty.placeBound(B, 2), Set.of());
 
-        var chained = assertInstanceOf(AbstractReplayer.ReplayOutcome.Chained.class, outcome);
+        var chained = assertInstanceOf(AbstractReplayer.ReplayOutcome.Confirmed.class, outcome);
         assertEquals(4, chained.trace().size(), "3 bridged steps: (3,0) .. (0,3)");
         assertEquals(marking(B, 3), chained.trace().getLast());
         assertEquals(List.of("t", "t", "t"), chained.firings());
@@ -254,53 +254,141 @@ class AbstractReplayerTest {
         var outcome = AbstractReplayer.replay(
             flat, marking(A, 1), Set.of(marking(A, 1)), SmtProperty.placeBound(A, 0), Set.of());
 
-        var chained = assertInstanceOf(AbstractReplayer.ReplayOutcome.Chained.class, outcome);
+        var chained = assertInstanceOf(AbstractReplayer.ReplayOutcome.Confirmed.class, outcome);
         assertEquals(List.of(marking(A, 1)), chained.trace());
         assertTrue(chained.firings().isEmpty());
     }
 
     @Test
-    void replay_initialMarkingMissingFromSet_isNotChainable() {
+    void replay_initialMarkingMissingFromSet_isExhausted() {
+        // Nothing to anchor the search on: the verdict must stand, unconfirmed.
         var flat = deadEndChain();
 
         var outcome = AbstractReplayer.replay(
             flat, marking(A, 1), Set.of(marking(B, 1)), SmtProperty.deadlockFree(), Set.of());
 
-        var notChainable = assertInstanceOf(AbstractReplayer.ReplayOutcome.NotChainable.class, outcome);
-        assertTrue(notChainable.reason().contains("initial marking"), notChainable.reason());
+        var exhausted = assertInstanceOf(AbstractReplayer.ReplayOutcome.Exhausted.class, outcome);
+        assertTrue(exhausted.reason().contains("initial marking"), exhausted.reason());
     }
 
     @Test
-    void replay_unchainableSet_isNotChainable() {
-        // The garbage state is unreachable and the property is never violated,
-        // so the chain must break with a structured reason.
+    void replay_noChainExists_isNoChain() {
+        // The garbage state is unreachable and the property is never violated, so
+        // the search covers the space and comes back empty — the only outcome that
+        // may withdraw a VIOLATED verdict.
         var flat = deadEndChain();
         var decoded = Set.of(marking(A, 1), marking(A, 7, B, 7, C, 7));
 
         var outcome = AbstractReplayer.replay(
             flat, marking(A, 1), decoded, SmtProperty.placeBound(C, 5), Set.of());
 
-        var notChainable = assertInstanceOf(AbstractReplayer.ReplayOutcome.NotChainable.class, outcome);
-        assertTrue(notChainable.reason().contains("decoded state"), notChainable.reason());
+        assertInstanceOf(AbstractReplayer.ReplayOutcome.NoChain.class, outcome);
     }
 
     @Test
-    void replay_budgetExhaustion_isNotChainable() {
+    void replay_budgetExhaustion_isExhausted() {
         var flat = deadEndChain();
         var decoded = Set.of(marking(A, 1), marking(C, 1));
 
         var outcome = AbstractReplayer.replay(
             flat, marking(A, 1), decoded, SmtProperty.deadlockFree(), Set.of(),
-            AbstractReplayer.MAX_HOP_STEPS, 0);
+            AbstractReplayer.MAX_SEGMENT_STEPS, 0);
 
-        var notChainable = assertInstanceOf(AbstractReplayer.ReplayOutcome.NotChainable.class, outcome);
-        assertTrue(notChainable.reason().contains("budget"), notChainable.reason());
+        var exhausted = assertInstanceOf(AbstractReplayer.ReplayOutcome.Exhausted.class, outcome);
+        assertTrue(exhausted.reason().contains("budget"), exhausted.reason());
     }
 
     @Test
-    void replay_emptySet_isNotChainable() {
+    void replay_emptySet_isExhausted() {
         var outcome = AbstractReplayer.replay(
             deadEndChain(), marking(A, 1), Set.of(), SmtProperty.deadlockFree(), Set.of());
-        assertInstanceOf(AbstractReplayer.ReplayOutcome.NotChainable.class, outcome);
+        assertInstanceOf(AbstractReplayer.ReplayOutcome.Exhausted.class, outcome);
+    }
+
+    @Test
+    void replay_deadEndDecodedState_stillFindsTheChain() {
+        // A(1) forks: t_dead moves the token to the dead-end place D (nothing left to
+        // fire, but D is NOT a violation), t_ab starts the chain A -> B -> C that
+        // violates placeBound(C, 0). D is among the decoded states and sits one step
+        // from M0, so a greedy hop-by-hop search takes it first, deletes it from the
+        // remaining set and gets stuck — the divergence this global search removes.
+        var d = Place.of("D", String.class);
+        var tDead = Transition.builder("t_dead").inputs(In.one(A)).outputs(Out.place(d)).build();
+        var tAb = Transition.builder("t_ab").inputs(In.one(A)).outputs(Out.place(B)).build();
+        var tBc = Transition.builder("t_bc").inputs(In.one(B)).outputs(Out.place(C)).build();
+        var flat = flatten(PetriNet.builder("fork").transitions(tDead, tAb, tBc).build());
+        var decoded = Set.of(marking(A, 1), marking(d, 1), marking(B, 1), marking(C, 1));
+        assertEquals("t_dead", AbstractReplayer.successors(flat, vec(flat, marking(A, 1))).getFirst().firing(),
+            "the dead end must be the first successor, or this net would not pin the greedy failure");
+
+        var outcome = AbstractReplayer.replay(
+            flat, marking(A, 1), decoded, SmtProperty.placeBound(C, 0), Set.of());
+
+        var confirmed = assertInstanceOf(AbstractReplayer.ReplayOutcome.Confirmed.class, outcome);
+        assertEquals(List.of(marking(A, 1), marking(B, 1), marking(C, 1)), confirmed.trace());
+        assertEquals(List.of("t_ab", "t_bc"), confirmed.firings());
+    }
+
+    @Test
+    void replay_unchainableSet_isExhaustedNotNoChain() {
+        // Five firings between the only two decoded states: no segment of at most
+        // MAX_SEGMENT_STEPS bridges them, so the search is CUT SHORT at the segment
+        // bound. That is an absence of evidence, not evidence of absence — reporting
+        // NoChain here would withdraw a correct VIOLATED verdict (C4).
+        var t = Transition.builder("t").inputs(In.one(A)).outputs(Out.place(B)).build();
+        var flat = flatten(PetriNet.builder("conserved").transitions(t).build());
+        var decoded = Set.of(marking(A, 5), marking(B, 5));
+
+        var outcome = AbstractReplayer.replay(
+            flat, marking(A, 5), decoded, SmtProperty.placeBound(B, 4), Set.of());
+
+        var exhausted = assertInstanceOf(AbstractReplayer.ReplayOutcome.Exhausted.class, outcome);
+        assertTrue(exhausted.reason().contains("segment budget"), exhausted.reason());
+    }
+
+    @Test
+    void replay_nodeBudgetCountsAdmittedNodesIncludingTheRoot() {
+        // The budget unit is nodes ADMITTED to the search — the root plus every
+        // non-dominated successor — tripped with >=. A budget of 1 is therefore
+        // already spent by the root, so not one successor is admitted; a budget of 2
+        // admits exactly one more, which is the violating marking here.
+        var t = Transition.builder("t").inputs(In.one(A)).outputs(Out.place(B)).build();
+        var flat = flatten(PetriNet.builder("conserved").transitions(t).build());
+        var decoded = Set.of(marking(A, 2), marking(A, 1, B, 1));
+
+        var atOne = AbstractReplayer.replay(
+            flat, marking(A, 2), decoded, SmtProperty.placeBound(B, 0), Set.of(),
+            AbstractReplayer.MAX_SEGMENT_STEPS, 1);
+        var exhausted = assertInstanceOf(AbstractReplayer.ReplayOutcome.Exhausted.class, atOne);
+        assertTrue(exhausted.reason().contains("1 nodes admitted"), exhausted.reason());
+
+        var atTwo = AbstractReplayer.replay(
+            flat, marking(A, 2), decoded, SmtProperty.placeBound(B, 0), Set.of(),
+            AbstractReplayer.MAX_SEGMENT_STEPS, 2);
+        var confirmed = assertInstanceOf(AbstractReplayer.ReplayOutcome.Confirmed.class, atTwo);
+        assertEquals(List.of(marking(A, 2), marking(A, 1, B, 1)), confirmed.trace());
+    }
+
+    @Test
+    void replay_dominatedSuccessorsDoNotSpendTheBudget() {
+        // A diamond re-reaches the same marking by two routes; the second arrival is
+        // dominated and dropped BEFORE the budget is charged. Counting generated
+        // successors instead would make this net exhaust at a budget the search
+        // provably does not need.
+        var tAb = Transition.builder("t_ab").inputs(In.one(A)).outputs(Out.place(B)).build();
+        var tAr = Transition.builder("t_ar").inputs(In.one(A)).outputs(Out.place(R)).build();
+        var tBc = Transition.builder("t_bc").inputs(In.one(B)).outputs(Out.place(C)).build();
+        var tRc = Transition.builder("t_rc").inputs(In.one(R)).outputs(Out.place(C)).build();
+        var flat = flatten(
+            PetriNet.builder("diamond").transitions(tAb, tAr, tBc, tRc).build());
+        var decoded = Set.of(marking(A, 1));
+
+        // Admitted: root, B, R, C = 4. The second route to C is dominated.
+        var outcome = AbstractReplayer.replay(
+            flat, marking(A, 1), decoded, SmtProperty.placeBound(C, 0), Set.of(),
+            AbstractReplayer.MAX_SEGMENT_STEPS, 4);
+
+        var confirmed = assertInstanceOf(AbstractReplayer.ReplayOutcome.Confirmed.class, outcome);
+        assertEquals(marking(C, 1), confirmed.trace().getLast());
     }
 }

@@ -186,10 +186,11 @@ describe('validateInvariantsExact', () => {
     expect(valid).toHaveLength(0);
     expect(dropped).toHaveLength(1);
     expect(dropped[0]!.invariant).toBe(bogus);
-    expect(dropped[0]!.reason).toContain('y·C');
+    expect(dropped[0]!.reason).toContain('y*C');
+    expect(dropped[0]!.reason).toContain("at transition 'T1'");
   });
 
-  it('drops an invariant with a weight outside the safe-integer range', () => {
+  it('drops an invariant with a weight outside the exact-extraction range', () => {
     const { flatNet, matrix, initialMarking } = circularFixture();
     const idxA = flatNet.placeIndex.get('A')!;
     const idxB = flatNet.placeIndex.get('B')!;
@@ -203,10 +204,13 @@ describe('validateInvariantsExact', () => {
 
     expect(valid).toHaveLength(0);
     expect(dropped).toHaveLength(1);
-    expect(dropped[0]!.reason).toContain('safe-integer');
+    expect(dropped[0]!.reason).toBe(
+      "weight overflow at place 'A' (exact value outside this implementation's " +
+      'integer extraction range)',
+    );
   });
 
-  it('drops an invariant whose constant disagrees with the exact y·M0', () => {
+  it('drops an invariant whose constant disagrees with the exact y*M0', () => {
     const { flatNet, matrix, initialMarking } = circularFixture();
     const invariants = computePInvariants(matrix, flatNet, initialMarking);
     const good = invariants[0]!;
@@ -216,19 +220,27 @@ describe('validateInvariantsExact', () => {
 
     expect(valid).toHaveLength(0);
     expect(dropped).toHaveLength(1);
-    expect(dropped[0]!.reason).toContain('y·M0');
+    expect(dropped[0]!.reason).toContain('does not match exact y*M0 =');
   });
 
-  it('skips the constant re-check when net and marking are not supplied', () => {
+  it('cannot be called without the net and marking (the degraded form is a type error)', () => {
     const { flatNet, matrix, initialMarking } = circularFixture();
     const invariants = computePInvariants(matrix, flatNet, initialMarking);
     const good = invariants[0]!;
     const staleConstant = pInvariant([...good.weights], good.constant + 1, new Set(good.support));
 
-    // Without M0 the constant cannot be re-derived; y·C and safe-integer checks still run.
-    const withoutMarking = validateInvariantsExact(matrix, [staleConstant]);
-    expect(withoutMarking.dropped).toHaveLength(0);
-    expect(withoutMarking.valid).toHaveLength(1);
+    // The two-argument form once compiled and silently skipped BOTH the H1
+    // guard and the y*M0 re-check. It is now a compile error — type-level
+    // assertion only, never executed (it would throw at runtime).
+    function _degraded() {
+      // @ts-expect-error flatNet and initialMarking are required
+      return validateInvariantsExact(matrix, [staleConstant]);
+    }
+
+    // Supplied, the stale constant is caught.
+    const { valid, dropped } = validateInvariantsExact(matrix, [staleConstant], flatNet, initialMarking);
+    expect(valid).toHaveLength(0);
+    expect(dropped[0]!.reason).toContain('does not match exact y*M0 =');
   });
 
   it('keeps the good and drops the bad in a mixed batch', () => {
@@ -400,5 +412,37 @@ describe('validateInvariantsExact H1 linearity guard', () => {
     expect(valid.some((inv) => inv.weights[idxA] !== 0)).toBe(true);
     expect(valid.every((inv) => inv.weights[idxX] === 0)).toBe(true);
     expect(dropped.some(({ reason }) => reason.includes("'X'"))).toBe(true);
+  });
+});
+
+describe('computePInvariants f64 extraction guard', () => {
+  // P0 --exactly(1e8)--> P1 --exactly(1e8)--> P2 has the genuine conservation
+  // law P0 + 1e8*P1 + 1e16*P2 = c, but 1e16 is past Number.MAX_SAFE_INTEGER:
+  // the f64 elimination cannot extract that weight exactly. The row must reach
+  // the exact re-check verbatim and be dropped, never GCD-normalised into a
+  // plausible-looking (and unverifiable) invariant.
+  it('drops an invariant whose true weight exceeds Number.MAX_SAFE_INTEGER', () => {
+    const p0 = place('P0');
+    const p1 = place('P1');
+    const p2 = place('P2');
+    const w = 1e8;
+    const t1 = Transition.builder('T1').inputs(exactly(w, p0)).outputs(outPlace(p1)).build();
+    const t2 = Transition.builder('T2').inputs(exactly(w, p1)).outputs(outPlace(p2)).build();
+    const flatNet = flatten(PetriNet.builder('Overflow').transitions(t1, t2).build());
+    const matrix = IncidenceMatrix.from(flatNet);
+    const initialMarking = MarkingState.builder().tokens(p0, 1).build();
+
+    const invariants = computePInvariants(matrix, flatNet, initialMarking);
+    expect(invariants).toHaveLength(1);
+    // Emitted raw, so the overflowing weight is visible to the re-check.
+    expect(invariants[0]!.weights[flatNet.placeIndex.get('P2')!]).toBe(1e16);
+
+    const { valid, dropped } = validateInvariantsExact(matrix, invariants, flatNet, initialMarking);
+    expect(valid).toHaveLength(0);
+    expect(dropped).toHaveLength(1);
+    expect(dropped[0]!.reason).toBe(
+      "weight overflow at place 'P2' (exact value outside this implementation's " +
+      'integer extraction range)',
+    );
   });
 });

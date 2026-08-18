@@ -23,12 +23,17 @@ import java.util.Set;
  *
  * <ol>
  *   <li><b>VC1 (init)</b>: {@code NOT I(M0)} is UNSAT — the invariant holds initially.</li>
- *   <li><b>VC2 (consecution)</b>: {@code I(M) AND T(M,M') AND NOT I(M')} is UNSAT —
- *       the invariant is preserved by every step of the
+ *   <li><b>VC2 (consecution)</b>: {@code I(M) AND M >= 0 AND T(M,M') AND NOT I(M')}
+ *       is UNSAT — the invariant is preserved by every step of the
  *       {@linkplain SmtEncoder#encodeStepRelation unstrengthened} step relation.</li>
- *   <li><b>VC3 (safety)</b>: {@code I(M) AND Bad(M)} is UNSAT — the invariant
- *       excludes every property-violating marking.</li>
+ *   <li><b>VC3 (safety)</b>: {@code I(M) AND M >= 0 AND Bad(M)} is UNSAT — the
+ *       invariant excludes every property-violating marking.</li>
  * </ol>
+ *
+ * <p>The {@code M >= 0} conjunct is the state domain: markings are token counts,
+ * so the VCs must range over N^P. The step relation constrains only {@code M'},
+ * so without it a certificate inductive over N^P would be refuted by a negative
+ * predecessor in Z^P.
  *
  * <p><b>Candidate:</b> the checked invariant is {@code R' := I AND invs}, where
  * {@code invs} conjoins the validated P-invariant equalities
@@ -55,7 +60,9 @@ import java.util.Set;
  * mapping is recovered from the argument positions of the {@code Reachable}
  * application itself (Z3 de Bruijn indices number bound variables from the
  * innermost/last one), so the checker is correct for any variable ordering
- * Spacer emits. Anything unrecognized yields {@link Result.Unavailable} — never
+ * Spacer emits. The ground shape — {@code Reachable(1, 0) = phi} with no
+ * quantifier — is accepted too, by substituting the head's argument terms
+ * positionally. Anything unrecognized yields {@link Result.Unavailable} — never
  * a false PASSED.
  *
  * <p>This class never throws: every Z3 or parsing failure becomes a
@@ -68,7 +75,7 @@ public final class CertificateChecker {
     /** The three verification conditions of an inductive safety certificate. */
     public enum Vc {
         /** VC1: the invariant holds in the initial marking. */
-        INIT("init (VC1)"),
+        INIT("initiation (VC1)"),
         /** VC2: the invariant is preserved by every unstrengthened step. */
         CONSECUTION("consecution (VC2)"),
         /** VC3: the invariant excludes every property-violating marking. */
@@ -198,18 +205,27 @@ public final class CertificateChecker {
             return vc1;
         }
 
-        // VC2 (consecution): R'(M) AND T(M,M') AND NOT R'(M'), with T the
+        // Domain constraint for VC2/VC3: a marking is a vector of token COUNTS, so
+        // the free constants stand for a state in N^P, not Z^P. The step relation
+        // only constrains M' (encodeNonNegativity on mPrimeVars), so without this
+        // conjunct a certificate that is inductive over N^P — the only claim it
+        // makes — is refuted by a negative "predecessor" and a correct PROVEN is
+        // downgraded.
+        BoolExpr nonNegCur = SmtEncoder.encodeNonNegativity(ctx, cur, P);
+
+        // VC2 (consecution): R'(M) AND M >= 0 AND T(M,M') AND NOT R'(M'), with T the
         // UNSTRENGTHENED step relation (no P-invariant conjuncts).
         BoolExpr step = SmtEncoder.encodeStepRelation(ctx, flatNet, cur, next);
         Result vc2 = checkUnsat(ctx, Vc.CONSECUTION, timeout, flatNet, cur,
-            candCur, step, ctx.mkNot(candNext));
+            candCur, nonNegCur, step, ctx.mkNot(candNext));
         if (vc2 != null) {
             return vc2;
         }
 
-        // VC3 (safety): R'(M) AND Bad(M), same violation predicate as the Error rule.
+        // VC3 (safety): R'(M) AND M >= 0 AND Bad(M), same violation predicate as the
+        // Error rule.
         BoolExpr bad = SmtEncoder.encodePropertyViolation(ctx, flatNet, property, sinkPlaces, cur, P);
-        Result vc3 = checkUnsat(ctx, Vc.SAFETY, timeout, flatNet, cur, candCur, bad);
+        Result vc3 = checkUnsat(ctx, Vc.SAFETY, timeout, flatNet, cur, candCur, nonNegCur, bad);
         if (vc3 != null) {
             return vc3;
         }
@@ -286,24 +302,33 @@ public final class CertificateChecker {
      *
      * @param phi             invariant body (bound variables unresolved); null means {@code true}
      * @param numBound        number of bound variables of the enclosing quantifier
+     *                        (0 for the ground shape)
      * @param varIndexToPlace de Bruijn index -&gt; place index; -1 for a bound
      *                        variable that does not appear in the Reachable head
+     * @param groundArgs      the head's argument terms for the ground shape
+     *                        (argument j is place j); null when {@code numBound > 0}
      */
-    private record ParsedCertificate(Expr<BoolSort> phi, int numBound, int[] varIndexToPlace) {
+    private record ParsedCertificate(
+        Expr<BoolSort> phi, int numBound, int[] varIndexToPlace, Expr<?>[] groundArgs
+    ) {
 
         /**
          * Instantiates the invariant at the given marking vector. Z3's
          * {@code substituteVars} replaces the variable with de Bruijn index
          * {@code i} by {@code to[i]}, and index 0 is the LAST bound variable —
          * the mapping recovered from the Reachable head absorbs that ordering,
-         * so no positional assumption is made here.
+         * so no positional assumption is made here. In the ground shape the
+         * head's argument terms are replaced positionally instead (one
+         * simultaneous substitution, so no cascading).
          */
         BoolExpr instantiate(Context ctx, Expr<IntSort>[] marking, String tag) {
             if (phi == null) {
                 return ctx.mkTrue();
             }
             if (numBound == 0) {
-                return (BoolExpr) phi;
+                return groundArgs == null || groundArgs.length == 0
+                    ? (BoolExpr) phi
+                    : (BoolExpr) phi.substitute(groundArgs, marking);
             }
             Expr<?>[] to = new Expr[numBound];
             for (int i = 0; i < numBound; i++) {
@@ -401,11 +426,26 @@ public final class CertificateChecker {
      * and its de Bruijn index tells which bound variable stands for it. Rejects
      * (returns null) heads whose arguments are not plain distinct bound
      * variables — an inverted mapping cannot be recovered from those.
+     *
+     * <p>Without an enclosing quantifier ({@code numBound == 0}) the head is
+     * ground, e.g. {@code Reachable(1, 0)}: the argument terms themselves are
+     * kept and substituted positionally at instantiation. Discarding this shape
+     * would throw away a valid proof.
      */
     private static ParsedCertificate fromHeadAndPhi(Expr<?> head, Expr<?> phi, int numBound) {
-        int[] varIndexToPlace = new int[Math.max(numBound, 0)];
-        Arrays.fill(varIndexToPlace, -1);
         Expr<?>[] args = head.getArgs();
+        @SuppressWarnings("unchecked")
+        Expr<BoolSort> typedPhi = (Expr<BoolSort>) phi;
+        if (numBound == 0) {
+            for (Expr<?> arg : args) {
+                if (arg.isVar()) {
+                    return null; // a de Bruijn variable with no quantifier to bind it
+                }
+            }
+            return new ParsedCertificate(typedPhi, 0, new int[0], args.clone());
+        }
+        int[] varIndexToPlace = new int[numBound];
+        Arrays.fill(varIndexToPlace, -1);
         for (int j = 0; j < args.length; j++) {
             Expr<?> arg = args[j];
             if (!arg.isVar()) {
@@ -417,9 +457,7 @@ public final class CertificateChecker {
             }
             varIndexToPlace[deBruijn] = j;
         }
-        @SuppressWarnings("unchecked")
-        Expr<BoolSort> typedPhi = (Expr<BoolSort>) phi;
-        return new ParsedCertificate(typedPhi, numBound, varIndexToPlace);
+        return new ParsedCertificate(typedPhi, numBound, varIndexToPlace, null);
     }
 
     /** Whether {@code e} is an application of the Reachable relation with full arity. */
