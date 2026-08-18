@@ -33,8 +33,9 @@
  *       {@link org.libpetri.core.PetriNet PetriNet}</dd>
  *
  *   <dt>{@link org.libpetri.runtime}</dt>
- *   <dd>Execution engine: {@link org.libpetri.runtime.NetExecutor NetExecutor}
- *       orchestrates token flow and transition firing with async action support</dd>
+ *   <dd>Execution engine: {@link org.libpetri.runtime.PrecompiledNetExecutor PrecompiledNetExecutor}
+ *       (production) and {@link org.libpetri.runtime.BitmapNetExecutor BitmapNetExecutor}
+ *       (reference) orchestrate token flow and transition firing with async action support</dd>
  *
  *   <dt>{@link org.libpetri.event}</dt>
  *   <dd>Event sourcing: {@link org.libpetri.event.NetEvent NetEvent} hierarchy
@@ -132,13 +133,13 @@
  * <ul>
  *   <li>Model classes ({@code Place}, {@code Transition}, {@code PetriNet}) are immutable
  *       and thread-safe</li>
- *   <li>{@code NetExecutor} owns all runtime state; the orchestrator thread (caller of
+ *   <li>The executor owns all runtime state; the orchestrator thread (caller of
  *       {@code run()}) is the only thread that modifies marking</li>
  *   <li>Transition actions execute asynchronously but must not access marking directly</li>
  *   <li>{@code EventStore} implementations must be thread-safe</li>
  * </ul>
  *
  * @see org.libpetri.core
- * @see org.libpetri.runtime.NetExecutor
+ * @see org.libpetri.runtime.PrecompiledNetExecutor
  */
 package org.libpetri;

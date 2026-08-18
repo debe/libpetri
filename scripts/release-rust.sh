@@ -100,10 +100,14 @@ cd "$RUST_DIR"
 sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
 # Workspace dependency version pins (path = "...", version = "X.Y.Z")
 sed -i "s/\(path = \"[^\"]*\"\), version = \"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\"/\1, version = \"$VERSION\"/g" Cargo.toml
+# libpetri-py is versioned independently (release-python.sh owns its package
+# version) but depends on the umbrella crate by path + version, so its pin has
+# to follow the workspace or the workspace build stops resolving.
+sed -i "s/\(libpetri = { path = \"\.\.\/libpetri\", version = \)\"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\"/\1\"$VERSION\"/" libpetri-py/Cargo.toml
 
 # --- Commit the version bump ---
 cd "$PROJECT_ROOT"
-git add rust/Cargo.toml
+git add rust/Cargo.toml rust/libpetri-py/Cargo.toml
 git diff --cached --quiet || git commit -m "release: rust ${VERSION}"
 
 # --- Build and test ---

@@ -29,13 +29,13 @@
  *     System.out.println("Event: " + event);
  * });
  *
- * // Use with NetExecutor
- * var executor = NetExecutor.builder(net, initial)
+ * // Use with PrecompiledNetExecutor
+ * var executor = PrecompiledNetExecutor.builder(net, initial)
  *     .eventStore(session.eventStore())
  *     .build();
  * }</pre>
  *
  * @see org.libpetri.event.EventStore
- * @see org.libpetri.runtime.NetExecutor
+ * @see org.libpetri.runtime.PrecompiledNetExecutor
  */
 package org.libpetri.debug;

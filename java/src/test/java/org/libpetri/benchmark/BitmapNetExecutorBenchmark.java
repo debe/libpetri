@@ -8,7 +8,6 @@ import org.libpetri.debug.DebugEventStore;
 import org.libpetri.debug.LogCaptureScopeForwardingExecutor;
 import org.libpetri.event.EventStore;
 import org.libpetri.runtime.BitmapNetExecutor;
-import org.libpetri.runtime.NetExecutor;
 import org.libpetri.runtime.PrecompiledNetExecutor;
 
 import java.time.Duration;
@@ -1292,80 +1291,7 @@ public class BitmapNetExecutorBenchmark {
         runComplexCompiledNet(storeState.store, virtualExecutor, bh);
     }
 
-    // ==================== NET EXECUTOR (REFERENCE): SYNC LINEAR CHAIN ====================
-
-    @Benchmark
-    public void ref_sync_linear_10t(Blackhole bh) {
-        runNetExecutor(syncLinearNet10, syncStart10, bh);
-    }
-
-    @Benchmark
-    public void ref_sync_linear_20t(Blackhole bh) {
-        runNetExecutor(syncLinearNet20, syncStart20, bh);
-    }
-
-    @Benchmark
-    public void ref_sync_linear_50t(Blackhole bh) {
-        runNetExecutor(syncLinearNet50, syncStart50, bh);
-    }
-
-    @Benchmark
-    public void ref_sync_linear_100t(Blackhole bh) {
-        runNetExecutor(syncLinearNet100, syncStart100, bh);
-    }
-
-    @Benchmark
-    public void ref_sync_linear_200t(Blackhole bh) {
-        runNetExecutor(syncLinearNet200, syncStart200, bh);
-    }
-
-    @Benchmark
-    public void ref_sync_linear_500t(Blackhole bh) {
-        runNetExecutor(syncLinearNet500, syncStart500, bh);
-    }
-
-    // ==================== NET EXECUTOR (REFERENCE): COMPLEX WORKFLOW ====================
-
-    @Benchmark
-    public void ref_complex_noop(Blackhole bh) {
-        runComplexNetExecutor(EventStore.noop(), virtualExecutor, bh);
-    }
-
     // ==================== HELPERS ====================
-
-    private void runNetExecutor(PetriNet net, Place<BenchToken> start, Blackhole bh) {
-        var input = Map.<Place<?>, List<Token<?>>>of(
-            start,
-            List.of(Token.of(new BenchToken("start")))
-        );
-        try (
-            var exec = NetExecutor.create(
-                net,
-                input,
-                EventStore.noop(),
-                virtualExecutor
-            )
-        ) {
-            bh.consume(exec.run());
-        }
-    }
-
-    private void runComplexNetExecutor(EventStore store, ExecutorService exec, Blackhole bh) {
-        var input = Map.<Place<?>, List<Token<?>>>of(
-            complexWorkflow.start,
-            List.of(Token.of(new BenchToken("start")))
-        );
-        try (
-            var executor = NetExecutor.create(
-                complexWorkflow.net,
-                input,
-                store,
-                exec
-            )
-        ) {
-            bh.consume(executor.run());
-        }
-    }
 
     private void runCompiledNet(PetriNet net, Place<BenchToken> start, Blackhole bh) {
         var input = Map.<Place<?>, List<Token<?>>>of(
@@ -1747,15 +1673,14 @@ public class BitmapNetExecutorBenchmark {
         printScalingSummary(results);
     }
 
-    private static final Pattern SYNC_PATTERN = Pattern.compile("^(?:compiled_|ref_)?sync_linear_(\\d+)t$");
-    private static final Pattern MIXED_PATTERN = Pattern.compile("^(?:compiled_|ref_)?mixed_linear_(\\d+)t$");
-    private static final Pattern ASYNC_PATTERN = Pattern.compile("^(?:compiled_|ref_)?linear_(\\d+)t(?:_\\d+p)?$");
+    private static final Pattern SYNC_PATTERN = Pattern.compile("^(?:compiled_)?sync_linear_(\\d+)t$");
+    private static final Pattern MIXED_PATTERN = Pattern.compile("^(?:compiled_)?mixed_linear_(\\d+)t$");
+    private static final Pattern ASYNC_PATTERN = Pattern.compile("^(?:compiled_)?linear_(\\d+)t(?:_\\d+p)?$");
 
     private static void printScalingSummary(Collection<RunResult> results) {
         // engine -> mode -> transitionCount -> score (us)
         var bitmap = new TreeMap<String, TreeMap<Integer, Double>>();
         var compiled = new TreeMap<String, TreeMap<Integer, Double>>();
-        var reference = new TreeMap<String, TreeMap<Integer, Double>>();
 
         for (var r : results) {
             if (r.getParams().getMode() != Mode.AverageTime) continue;
@@ -1764,8 +1689,7 @@ public class BitmapNetExecutorBenchmark {
             var methodName = benchName.substring(benchName.lastIndexOf('.') + 1);
             double score = r.getPrimaryResult().getScore();
             boolean isCompiled = methodName.startsWith("compiled_");
-            boolean isRef = methodName.startsWith("ref_");
-            var target = isCompiled ? compiled : isRef ? reference : bitmap;
+            var target = isCompiled ? compiled : bitmap;
 
             var syncM = SYNC_PATTERN.matcher(methodName);
             var mixedM = MIXED_PATTERN.matcher(methodName);
@@ -1783,38 +1707,31 @@ public class BitmapNetExecutorBenchmark {
             }
         }
 
-        if (bitmap.isEmpty() && compiled.isEmpty() && reference.isEmpty()) return;
+        if (bitmap.isEmpty() && compiled.isEmpty()) return;
 
         var allSizes = new TreeSet<Integer>();
         bitmap.values().forEach(m -> allSizes.addAll(m.keySet()));
         compiled.values().forEach(m -> allSizes.addAll(m.keySet()));
-        reference.values().forEach(m -> allSizes.addAll(m.keySet()));
 
         for (var mode : List.of("sync", "mixed", "async")) {
-            var rData = reference.getOrDefault(mode, new TreeMap<>());
             var bData = bitmap.getOrDefault(mode, new TreeMap<>());
             var cData = compiled.getOrDefault(mode, new TreeMap<>());
-            if (bData.isEmpty() && cData.isEmpty() && rData.isEmpty()) continue;
+            if (bData.isEmpty() && cData.isEmpty()) continue;
 
             System.out.println();
             System.out.printf("=== %s LINEAR SCALING (avgt, us/op) ===%n", mode.toUpperCase());
-            System.out.printf("%-12s │ %10s │ %10s │ %10s │ %10s │ %10s%n",
-                "Transitions", "Reference", "Bitmap", "Compiled", "Ref/Bitmap", "Bitmap/Comp");
+            System.out.printf("%-12s │ %10s │ %10s │ %10s%n",
+                "Transitions", "Bitmap", "Compiled", "Bitmap/Comp");
             System.out.println("─".repeat(12) + "─┼─" + "─".repeat(10) + "─┼─"
-                + "─".repeat(10) + "─┼─" + "─".repeat(10) + "─┼─"
                 + "─".repeat(10) + "─┼─" + "─".repeat(10));
 
             for (int size : allSizes) {
-                var rScore = rData.get(size);
                 var bScore = bData.get(size);
                 var cScore = cData.get(size);
-                String refVsBitmap = (rScore != null && bScore != null && bScore > 0)
-                    ? String.format("%.2fx", rScore / bScore) : "";
                 String bitmapVsCompiled = (bScore != null && cScore != null && cScore > 0)
                     ? String.format("%.2fx", bScore / cScore) : "";
-                System.out.printf("%-12d │ %10s │ %10s │ %10s │ %10s │ %10s%n",
-                    size, fmtScore(rScore), fmtScore(bScore), fmtScore(cScore),
-                    refVsBitmap, bitmapVsCompiled);
+                System.out.printf("%-12d │ %10s │ %10s │ %10s%n",
+                    size, fmtScore(bScore), fmtScore(cScore), bitmapVsCompiled);
             }
         }
         System.out.println();

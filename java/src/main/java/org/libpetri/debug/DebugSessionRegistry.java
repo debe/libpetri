@@ -37,7 +37,7 @@ import java.util.LinkedHashSet;
  * <pre>{@code
  * var registry = new DebugSessionRegistry();
  *
- * // Register a new session when NetExecutor starts
+ * // Register a new session when an executor starts
  * var session = registry.register("session-123", net);
  *
  * // List active sessions

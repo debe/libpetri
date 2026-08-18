@@ -31,7 +31,7 @@ import static java.lang.System.Logger.Level;
  * returns an O(n) snapshot copy. Concrete implementations may override for efficiency.
  *
  * <h2>Thread Safety</h2>
- * <p>{@link #append(NetEvent)} must be thread-safe. Events are emitted from the NetExecutor
+ * <p>{@link #append(NetEvent)} must be thread-safe. Events are emitted from the executor's
  * orchestrator thread, action threads (via {@code LogCaptureScope} appender), and timeout scheduler threads.
  *
  * <h2>Implementations</h2>
@@ -44,7 +44,7 @@ import static java.lang.System.Logger.Level;
  * <pre>{@code
  * // With event capture
  * var store = EventStore.inMemory();
- * try (var executor = NetExecutor.builder(net, initial)
+ * try (var executor = PrecompiledNetExecutor.builder(net, initial)
  *         .eventStore(store)
  *         .build()) {
  *     executor.run();
@@ -55,7 +55,7 @@ import static java.lang.System.Logger.Level;
  * store.failures().forEach(e -> log.error("Failed: {}", e));
  *
  * // Without event capture (best performance)
- * try (var executor = NetExecutor.builder(net, initial)
+ * try (var executor = PrecompiledNetExecutor.builder(net, initial)
  *         .eventStore(EventStore.noop())
  *         .build()) {
  *     executor.run();
