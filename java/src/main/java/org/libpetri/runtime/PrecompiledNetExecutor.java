@@ -106,17 +106,25 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
 
     /**
      * Post-consumption, pre-deposit presence snapshot used for intra-pass firing rechecks.
-     *
-     * <p>Outputs deposit in loop step 1 and firing is step 5 (EXEC-001), so tokens a
-     * same-cycle sync action produces must be <em>invisible</em> to the recheck of
-     * subsequent ready transitions in the same firing pass; consumption, by contrast,
-     * must be visible (losers are disabled by consumption, EXEC-003). The buffer is
-     * refreshed from {@link #markingBitmap} when the ready set is collected and again
-     * after each firing's consumption ({@link #updateBitmapAfterConsumption}) — never on
-     * deposit — matching the {@link BitmapNetExecutor} reference and the Rust
-     * {@code firing_snap_buffer} (backend divergence #5).
+     * Copied from {@link #markingBitmap} once per pass by {@link #beginFiringPass()} and
+     * afterwards only ever <em>cleared</em>, one place at a time, by
+     * {@link #updateBitmapAfterConsumption}. See {@link BitmapNetExecutor}'s field of the
+     * same name for the EXEC-001/EXEC-003 rationale (backend divergence #5).
      */
     private final long[] fireScanBitmap;
+
+    /**
+     * Tokens deposited into each place since the ready queues were filled — the count-side
+     * twin of {@link #fireScanBitmap} (EXEC-003 AC4). See {@link BitmapNetExecutor}'s
+     * fields of the same names.
+     */
+    private final int[] depositDelta;
+    private final int[] depositTouched;
+    private int depositTouchedCount;
+    private boolean hasDeposits;
+
+    /** Correlated input place ids per matched transition; null for the rest. */
+    private int[][] matchInputPids;
 
     // ==================== Transition State ====================
 
@@ -307,6 +315,10 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         int wordCount = program.wordCount;
         this.markingBitmap = new long[wordCount];
         this.fireScanBitmap = new long[wordCount];
+        // One slot per place: recordDeposit pushes a pid only as its delta leaves zero,
+        // so a firing pass never outgrows this and never allocates.
+        this.depositDelta = new int[program.placeCount];
+        this.depositTouched = new int[program.placeCount];
 
         // Transition bitmaps
         this.transitionWords = (program.transitionCount + BIT_MASK) >>> WORD_SHIFT;
@@ -395,6 +407,21 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
             if (program.hasMatch[tid]) { anyMatch = true; break; }
         }
         if (!anyMatch) return;
+
+        // Correlated input pids per matched transition, fast-path eligible or not —
+        // read by canEnable's EXEC-003 AC4 deposit check.
+        matchInputPids = new int[tc][];
+        for (int tid = 0; tid < tc; tid++) {
+            MatchSpec spec = program.transitionsById[tid].matchSpec();
+            if (spec == null) continue;
+            int[] pids = new int[spec.keys().size()];
+            int i = 0;
+            for (var key : spec.keys()) {
+                Integer pidObj = program.placeIndex.get(key.place());
+                pids[i++] = pidObj == null ? -1 : pidObj;
+            }
+            matchInputPids[tid] = pids;
+        }
 
         List<Integer>[] inputConsumers = new java.util.List[pc];
         boolean[] resetTarget = new boolean[pc];
@@ -568,9 +595,14 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         return null;
     }
 
-    /** Counts ring tokens at {@code pid} satisfying {@code pred}. */
-    private int countMatchingInRing(int pid, Predicate<Token<?>> pred) {
-        int count = tokenCounts[pid];
+    /**
+     * Counts ring tokens at {@code pid} satisfying {@code pred}, scanning only the first
+     * {@code limit} ring slots. Callers pass {@link #drainable} so a matched drain never
+     * counts — and therefore never removes — a same-pass deposit sitting in the tail
+     * (EXEC-003 AC5).
+     */
+    private int countMatchingInRing(int pid, int limit, Predicate<Token<?>> pred) {
+        int count = Math.min(tokenCounts[pid], limit);
         int offset = placeOffset[pid];
         int head = ringHead[pid];
         int cap = ringCapacity[pid];
@@ -651,10 +683,12 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                         return false;
                     }
                 };
+                // ringRemoveMatching always takes the frontmost match, so bounding the
+                // count to the drainable prefix keeps the removals inside it too.
                 int toConsume = switch (in) {
                     case Arc.In.One _ -> 1;
                     case Arc.In.Exactly e -> e.count();
-                    default -> countMatchingInRing(pid, pred);
+                    default -> countMatchingInRing(pid, drainable(pid, tokenCounts[pid]), pred);
                 };
                 for (int i = 0; i < toConsume; i++) {
                     Token<?> token = ringRemoveMatching(pid, pred);
@@ -665,10 +699,13 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                         Instant.now(), in.place().name(), token));
                 }
             } else {
+                // one / exactly(n) take a fixed count off the ring head and are already
+                // confined to the pre-deposit prefix; only the draining forms need the
+                // EXEC-003 AC5 discount.
                 int toConsume = switch (in) {
                     case Arc.In.One _ -> 1;
                     case Arc.In.Exactly e -> e.count();
-                    default -> tokenCounts[pid];
+                    default -> drainable(pid, tokenCounts[pid]);
                 };
                 for (int i = 0; i < toConsume; i++) {
                     Token<?> token = ringRemoveFirst(pid);
@@ -743,6 +780,54 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
 
     private void clearMarkingBit(int pid) {
         markingBitmap[pid >>> WORD_SHIFT] &= ~(1L << (pid & BIT_MASK));
+    }
+
+    /** Clears a place's bit in the pre-deposit firing snapshot; nothing ever sets one. */
+    private void clearFireScanBit(int pid) {
+        fireScanBitmap[pid >>> WORD_SHIFT] &= ~(1L << (pid & BIT_MASK));
+    }
+
+    /**
+     * Starts a firing pass: refreshes the pre-deposit presence snapshot from the live
+     * bitmap and drops the previous pass's deposit delta. The only wholesale refresh of
+     * either — inside the pass the snapshot is narrowed per place and the delta only grows.
+     */
+    private void beginFiringPass() {
+        System.arraycopy(markingBitmap, 0, fireScanBitmap, 0, markingBitmap.length);
+        if (hasDeposits) {
+            for (int i = 0; i < depositTouchedCount; i++) depositDelta[depositTouched[i]] = 0;
+            depositTouchedCount = 0;
+            hasDeposits = false;
+        }
+    }
+
+    /** Counts a token a sync action deposited into {@code pid} (EXEC-003 AC4). */
+    private void recordDeposit(int pid) {
+        if (depositDelta[pid] == 0) depositTouched[depositTouchedCount++] = pid;
+        depositDelta[pid]++;
+        hasDeposits = true;
+    }
+
+    /**
+     * How many tokens a drain — {@code all()}, {@code atLeast(n)}, or a reset arc — firing
+     * later in this pass may take from {@code pid}, given its {@code live} ring count:
+     * everything the pass began with, as consumed by earlier firings, but <em>not</em> the
+     * tokens a same-pass synchronous action deposited (EXEC-003 AC5). Deposits are appended
+     * with {@code ringAddLast}, so the drainable set is the ring prefix of length
+     * {@code live - depositDelta[pid]}.
+     *
+     * <p>One predictable branch on a pass that deposited nothing.
+     */
+    private int drainable(int pid, int live) {
+        return hasDeposits ? live - Math.min(depositDelta[pid], live) : live;
+    }
+
+    /** True when any of {@code pids} took a deposit in the current firing pass. */
+    private boolean anyDepositAt(int[] pids) {
+        for (int pid : pids) {
+            if (pid >= 0 && depositDelta[pid] != 0) return true;
+        }
+        return false;
     }
 
     // ==================== Ready Queue Operations ====================
@@ -1369,7 +1454,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                 if (isInFlight(tid)) continue;
 
                 boolean wasEnabled = isEnabled(tid);
-                boolean canNow = canEnable(tid, markingBitmap);
+                boolean canNow = canEnable(tid, markingBitmap, false);
 
                 if (canNow && !wasEnabled) {
                     setEnabledBit(tid);
@@ -1394,20 +1479,24 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
 
     /**
      * Enablement check combining bitmap masks and cardinality checks. The presence bitmap is
-     * a parameter so the firing pass can recheck against {@link #fireScanBitmap} (same-cycle
+     * a parameter so the firing pass can recheck against {@link #fireScanBitmap} (same-pass
      * deposits invisible, divergence #5) while dirty re-evaluation uses the live
-     * {@link #markingBitmap}; cardinality and ν-binding always consult live token state,
-     * matching the {@link BitmapNetExecutor} reference.
+     * {@link #markingBitmap}; {@code preDeposit} puts the cardinality and ν checks on that
+     * same view (EXEC-003 AC4), matching the {@link BitmapNetExecutor} reference.
      */
-    private boolean canEnable(int tid, long[] markingSnap) {
+    private boolean canEnable(int tid, long[] markingSnap, boolean preDeposit) {
         if (!program.canEnableBitmap(tid, markingSnap)) return false;
+
+        boolean discount = preDeposit && hasDeposits;
 
         var cardCheck = program.cardinalityChecks[tid];
         if (cardCheck != null) {
             for (int i = 0; i < cardCheck.placeIds().length; i++) {
                 int pid = cardCheck.placeIds()[i];
                 int required = cardCheck.requiredCounts()[i];
-                if (tokenCounts[pid] < required) return false;
+                int available = tokenCounts[pid];
+                if (discount) available -= Math.min(depositDelta[pid], available);
+                if (available < required) return false;
             }
         }
 
@@ -1416,6 +1505,9 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         // rebuild the index (O(n)). Gated on the flat flag so non-ν transitions
         // skip this entirely.
         if (program.hasMatch[tid]) {
+            // A join whose correlated input took a same-pass deposit defers to the next
+            // cycle wholesale — see BitmapNetExecutor.canEnable (EXEC-003 AC4).
+            if (discount && anyDepositAt(matchInputPids[tid])) return false;
             MatchEngine.IncrementalMatcher cache = matchCaches[tid];
             boolean noBinding = cache != null ? cache.best() == null : findMatchBinding(tid) == null;
             if (noBinding) {
@@ -1505,8 +1597,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
      */
     private void fireReadyImmediate() {
         if (enabledTransitionCount == 0) return;
-        // Firing snapshot: rechecks below must not see same-cycle deposits (divergence #5).
-        System.arraycopy(markingBitmap, 0, fireScanBitmap, 0, markingBitmap.length);
+        beginFiringPass();
         for (int s = 0; s < summaryWords; s++) {
             long summary = enabledWordSummary[s];
             while (summary != 0) {
@@ -1519,7 +1610,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                     int tid = (w << WORD_SHIFT) | bit;
                     word &= word - 1;
 
-                    if (canEnable(tid, fireScanBitmap)) {
+                    if (canEnable(tid, fireScanBitmap, true)) {
                         fireTransitionGuarded(tid);
                     } else {
                         clearEnabledBit(tid);
@@ -1564,8 +1655,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         }
         if (!anyReady) return;
 
-        // Firing snapshot: rechecks below must not see same-cycle deposits (divergence #5).
-        System.arraycopy(markingBitmap, 0, fireScanBitmap, 0, markingBitmap.length);
+        beginFiringPass();
 
         // Ready order within a level: enablement time ASC, tid tie-break
         // (EXEC-002 AC3/AC4, CONC-023 AC4).
@@ -1579,7 +1669,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                 int tid = readyQueuePop(pi);
                 if (!isEnabled(tid) || isInFlight(tid)) continue;
 
-                if (canEnable(tid, fireScanBitmap)) {
+                if (canEnable(tid, fireScanBitmap, true)) {
                     fireTransitionGuarded(tid);
                 } else {
                     clearEnabledBit(tid);
@@ -1776,7 +1866,9 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                     if (opcode == PrecompiledNet.CONSUME_ATLEAST) {
                         pc++; // skip minimum (already verified during enablement)
                     }
-                    int count = tokenCounts[pid];
+                    // EXEC-003 AC5: drain the pass-start prefix only. The AC4 gate already
+                    // required live - delta >= minimum, so an atLeast firing still gets it.
+                    int count = drainable(pid, tokenCounts[pid]);
                     Place<Object> place = (Place<Object>) program.placesById[pid];
                     for (int i = 0; i < count; i++) {
                         Token<?> token = ringRemoveFirst(pid);
@@ -1788,7 +1880,8 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                 }
                 case PrecompiledNet.RESET -> {
                     int pid = prog[pc++];
-                    int count = tokenCounts[pid];
+                    // EXEC-003 AC5: same-pass deposits survive the reset.
+                    int count = drainable(pid, tokenCounts[pid]);
                     for (int i = 0; i < count; i++) {
                         Token<?> token = ringRemoveFirst(pid);
                         if (consumed != null) consumed.add(token);
@@ -1803,18 +1896,25 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         }
     }
 
+    /**
+     * Reconciles both presence bitmaps after a firing's consumption. The
+     * {@link #fireScanBitmap} is narrowed here and only here (EXEC-003 AC3): a place this
+     * firing emptied of the tokens it held when the pass started stops being present for
+     * the rest of the pass. Only a clear, and only for the pids this firing touched — a
+     * wholesale refresh would republish deposits from earlier firings in the pass.
+     */
     private void updateBitmapAfterConsumption(int tid) {
         int[] pids = program.consumptionPlaceIds[tid];
         for (int pid : pids) {
-            if (tokenCounts[pid] == 0) {
+            int live = tokenCounts[pid];
+            if (live == 0) {
                 clearMarkingBit(pid);
+                clearFireScanBit(pid);
+            } else if (hasDeposits && live <= depositDelta[pid]) {
+                clearFireScanBit(pid);
             }
             markDirty(pid);
         }
-        // Refresh the firing snapshot so the next intra-pass recheck sees the live marking
-        // after this consumption — but not deposits that land later in the same cycle
-        // (EXEC-001 step order; EXEC-003 consumption visibility; divergence #5).
-        System.arraycopy(markingBitmap, 0, fireScanBitmap, 0, markingBitmap.length);
     }
 
     // ==================== Output Processing ====================
@@ -1835,7 +1935,10 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
             List<Token<?>> produced = eventStoreEnabled ? new ArrayList<>(entries.size()) : null;
             for (var entry : entries) {
                 var token = entry.token();
-                produceToken(entry.place(), token, t.name());
+                int pid = produceToken(entry.place(), token, t.name());
+                // Live presence only — the fire-scan snapshot and the deposit delta keep
+                // this token out of the rest of the pass (EXEC-003).
+                if (pid >= 0) recordDeposit(pid);
                 if (eventStoreEnabled) {
                     produced.add(token);
                     emitEvent(new NetEvent.TokenAdded(
@@ -1962,17 +2065,18 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
      *
      * @param transitionName the producing transition, or {@code ""} at the injection seam
      */
-    private void produceToken(Place<?> place, Token<?> token, String transitionName) {
+    private int produceToken(Place<?> place, Token<?> token, String transitionName) {
         Integer pid = program.placeIndex.get(place);
         if (pid == null) {
             addExtraToken(place, token);
             warnUnknownPlace(place, transitionName);
-            return;
+            return -1;
         }
         cacheAddToken(pid, token);
         ringAddLast(pid, token);
         setMarkingBit(pid);
         markDirty(pid);
+        return pid;
     }
 
     private void drainPendingExternalEvents() {

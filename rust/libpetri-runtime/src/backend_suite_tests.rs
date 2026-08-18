@@ -2147,6 +2147,429 @@ fn same_pass_refill_invisible_to_recheck<R: BackendRunner>() {
     assert_eq!(*result.marking.peek(&b).unwrap(), 3); // the last refill survives
 }
 
+/// Helper for the EXEC-003 witnesses below: how many tokens were removed from
+/// `place`, i.e. how much the pass actually consumed there.
+fn removed_from(result: &RunResult, place: &str) -> usize {
+    result
+        .events
+        .iter()
+        .filter(|e| matches!(e, NetEvent::TokenRemoved { place_name, .. } if &**place_name == place))
+        .count()
+}
+
+/// Helper for the EXEC-003 witnesses below: the `TransitionStarted` names in
+/// firing order.
+fn firing_order(result: &RunResult) -> Vec<&str> {
+    result
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            NetEvent::TransitionStarted { transition_name, .. } => Some(&**transition_name),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Divergence #5, interleaved-firing form (EXEC-003 AC3): a deposit must stay
+/// invisible for the WHOLE pass, not just until the next firing consumes
+/// something. Both backends used to re-copy the entire live presence bitmap
+/// into the fire-pass snapshot after every consumption, so an unrelated
+/// firing in between republished the earlier deposit.
+///
+/// `t1` (priority 3) drains `p` and its sync action refills it; `t2`
+/// (priority 2) consumes the unrelated `b`; `t3` (priority 1) waits on `p`.
+/// The republish happened at `t2`'s consumption, which touches neither `p`
+/// nor anything `t3` reads. With the snapshot narrowed per place instead,
+/// `t3` loses the pass and the refill only becomes visible next cycle —
+/// where `t4` (priority 5, enabled by `t1`'s other output) outranks it and
+/// takes the token. That priority inversion is what makes the difference
+/// observable: firing `t3` a pass too early is not merely early, it starves
+/// `t4` for good.
+///
+/// Accounting, because the name used to claim otherwise: the pass collects
+/// **three** ready transitions (`t1`, `t2`, `t3`) and produces **two**
+/// firings — `t3`'s recheck fails, which is the whole point — and `t4` fires
+/// in the following cycle, for three firings across the run. The property
+/// being pinned is the unrelated firing *between* the deposit and the
+/// recheck, not the firing count. For a pass that really does fire three
+/// transitions, see `same_pass_deposit_survives_all_drain`.
+fn same_pass_deposit_invisible_after_unrelated_firing<R: BackendRunner>() {
+    let a = Place::<i32>::new("a");
+    let b = Place::<i32>::new("b");
+    let p = Place::<i32>::new("p");
+    let q = Place::<i32>::new("q");
+    let r = Place::<i32>::new("r");
+    let s = Place::<i32>::new("s");
+
+    let t1 = Transition::builder("t1")
+        .input(one(&a))
+        .input(one(&p))
+        .output(and(vec![out_place(&p), out_place(&q)]))
+        .priority(3)
+        .action(sync_action(|ctx| {
+            ctx.output("p", 1)?;
+            ctx.output("q", 1)?;
+            Ok(())
+        }))
+        .build();
+    let t2 = Transition::builder("t2")
+        .input(one(&b))
+        .priority(2)
+        .action(passthrough())
+        .build();
+    let t3 = Transition::builder("t3")
+        .input(one(&p))
+        .output(out_place(&r))
+        .priority(1)
+        .action(sync_action(|ctx| {
+            ctx.output("r", 1)?;
+            Ok(())
+        }))
+        .build();
+    let t4 = Transition::builder("t4")
+        .input(one(&q))
+        .input(one(&p))
+        .output(out_place(&s))
+        .priority(5)
+        .action(sync_action(|ctx| {
+            ctx.output("s", 1)?;
+            Ok(())
+        }))
+        .build();
+
+    let net = PetriNet::builder("interleaved_firing_pass")
+        .transitions([t1, t2, t3, t4])
+        .build();
+
+    let mut marking = Marking::new();
+    marking.add(&a, Token::at(0, 0));
+    marking.add(&b, Token::at(0, 0));
+    marking.add(&p, Token::at(10, 0));
+
+    let result = R::run(&net, marking);
+    assert!(result.quiescent);
+
+    assert_eq!(
+        firing_order(&result),
+        ["t1", "t2", "t4"],
+        "t3 must not be revived by t1's deposit — republished by t2's consumption pre-fix"
+    );
+    assert_eq!(result.marking.count("r"), 0, "t3 never fires");
+    assert_eq!(result.marking.count("s"), 1, "t4 wins the refilled token next cycle");
+    assert_eq!(result.marking.count("p"), 0);
+    assert_eq!(result.marking.count("q"), 0);
+}
+
+/// EXEC-003 AC4, counting half: a cardinality gate re-evaluated inside a
+/// firing pass must not count tokens a same-pass synchronous action
+/// deposited. Presence alone cannot catch this — `p` never empties, so its
+/// snapshot bit stays set and only the count moves.
+///
+/// `p` starts with two tokens; `t1` (priority 3) takes one and deposits one
+/// back, leaving the live count at two but the pre-deposit count at one.
+/// `t3` gates on `exactly(2, p)` and must lose the pass. As in the presence
+/// witness, `t4` (priority 5) becomes ready next cycle and outranks `t3`, so
+/// firing a pass too early is observable rather than merely early.
+fn same_pass_deposit_invisible_to_cardinality<R: BackendRunner>() {
+    let a = Place::<i32>::new("a");
+    let p = Place::<i32>::new("p");
+    let q = Place::<i32>::new("q");
+    let r = Place::<i32>::new("r");
+    let s = Place::<i32>::new("s");
+
+    let t1 = Transition::builder("t1")
+        .input(one(&a))
+        .input(one(&p))
+        .output(and(vec![out_place(&p), out_place(&q)]))
+        .priority(3)
+        .action(sync_action(|ctx| {
+            ctx.output("p", 99)?;
+            ctx.output("q", 1)?;
+            Ok(())
+        }))
+        .build();
+    let t3 = Transition::builder("t3")
+        .input(exactly(2, &p))
+        .output(out_place(&r))
+        .priority(1)
+        .action(sync_action(|ctx| {
+            ctx.output("r", 1)?;
+            Ok(())
+        }))
+        .build();
+    let t4 = Transition::builder("t4")
+        .input(one(&q))
+        .input(one(&p))
+        .output(out_place(&s))
+        .priority(5)
+        .action(sync_action(|ctx| {
+            ctx.output("s", 1)?;
+            Ok(())
+        }))
+        .build();
+
+    let net = PetriNet::builder("cardinality_pass")
+        .transitions([t1, t3, t4])
+        .build();
+
+    let mut marking = Marking::new();
+    marking.add(&a, Token::at(0, 0));
+    marking.add(&p, Token::at(7, 0));
+    marking.add(&p, Token::at(8, 0));
+
+    let result = R::run(&net, marking);
+    assert!(result.quiescent);
+
+    assert_eq!(
+        firing_order(&result),
+        ["t1", "t4"],
+        "exactly(2, p) must not be satisfied by t1's same-pass deposit"
+    );
+    assert_eq!(result.marking.count("r"), 0, "t3 never fires");
+    assert_eq!(result.marking.count("s"), 1);
+    // t1 took 7, t4 took 8 next cycle; only t1's deposit is left.
+    assert_eq!(result.marking.count("p"), 1);
+    assert_eq!(*result.marking.peek(&p).unwrap(), 99);
+}
+
+/// EXEC-003 AC4, ν half: a correlated join whose correlated input took a
+/// same-pass deposit defers to the next cycle rather than binding against a
+/// marking the pass may not see. The binding is chosen over whole queues, so
+/// there is no honest per-token filter — the conservative refusal is the
+/// semantics.
+///
+/// `y` holds `n1, n2` and `x` holds `n1`, so `join` binds `n1` at pass start.
+/// `t1` (priority 3) consumes `y`'s `n1` FIFO and deposits a fresh `n1` — the
+/// live queues once again admit the binding, but only because of a deposit.
+/// `y` never empties, so presence does not catch it; the pre-fix backends
+/// rebuilt the binding from live tokens and fired the join mid-pass.
+///
+/// The join is on the O(n) rebuild path here, and necessarily so: disturbing
+/// a correlated input mid-pass takes a second consumer of that place, which
+/// is exactly what disqualifies the O(1) incremental matcher (see
+/// `init_match_caches`). Both paths sit behind the same deposit check.
+fn same_pass_deposit_defers_nu_join<R: BackendRunner>() {
+    let a = Place::<i32>::new("a");
+    let x = Place::<NuMsg>::new("x");
+    let y = Place::<NuMsg>::new("y");
+    let q = Place::<i32>::new("q");
+    let out_j = Place::<String>::new("out_j");
+    let out_k = Place::<String>::new("out_k");
+
+    let t1 = Transition::builder("t1")
+        .input(one(&a))
+        .input(one(&y))
+        .output(and(vec![out_place(&y), out_place(&q)]))
+        .priority(3)
+        .action(sync_action(|ctx| {
+            ctx.output("y", NuMsg { cid: "n1".into() })?;
+            ctx.output("q", 1)?;
+            Ok(())
+        }))
+        .build();
+    let join = Transition::builder("join")
+        .input(one(&x))
+        .input(one(&y))
+        .match_spec(
+            MatchSpec::builder()
+                .key(&x, |m: &NuMsg| NameId::new(m.cid.clone()))
+                .key(&y, |m: &NuMsg| NameId::new(m.cid.clone()))
+                .build(),
+        )
+        .output(out_place(&out_j))
+        .priority(1)
+        .action(sync_action(|ctx| {
+            let mx = ctx.input::<NuMsg>("x")?;
+            ctx.output("out_j", mx.cid.clone())?;
+            Ok(())
+        }))
+        .build();
+    let k = Transition::builder("k")
+        .input(one(&q))
+        .input(one(&x))
+        .output(out_place(&out_k))
+        .priority(5)
+        .action(sync_action(|ctx| {
+            ctx.output("out_k", "k".to_string())?;
+            Ok(())
+        }))
+        .build();
+
+    let net = PetriNet::builder("nu_pass")
+        .transitions([t1, join, k])
+        .build();
+
+    let mut marking = Marking::new();
+    marking.add(&a, Token::at(0, 0));
+    marking.add(&x, Token::at(NuMsg { cid: "n1".into() }, 0));
+    marking.add(&y, Token::at(NuMsg { cid: "n1".into() }, 0));
+    marking.add(&y, Token::at(NuMsg { cid: "n2".into() }, 0));
+
+    let result = R::run(&net, marking);
+    assert!(result.quiescent);
+
+    assert_eq!(
+        firing_order(&result),
+        ["t1", "k"],
+        "the join must not rebind against t1's same-pass deposit"
+    );
+    assert_eq!(result.marking.count("out_j"), 0, "the join never fires");
+    assert_eq!(result.marking.count("out_k"), 1);
+    assert_eq!(result.marking.count("y"), 2, "n2 plus the deposited n1 remain");
+}
+
+/// EXEC-003 AC5, `all()` half: invisibility extends to **consumption**, not
+/// just to the enablement test. A drain firing later in the pass may take only
+/// the tokens the pass began with, as consumed by earlier firings; a same-pass
+/// deposit sits at the FIFO tail (EXEC-010) and survives to the next cycle.
+///
+/// Pre-fix every backend gated `all()` / `at_least(n)` on the discounted count
+/// (AC4, already correct) and then drained the **live** marking, so the
+/// deposit the gate had just refused to count was swallowed anyway.
+///
+/// This is also the suite's genuine *three firings in one pass* witness:
+/// `t_dep`, `t_mid` and `t_drain` are all ready when the ready list is
+/// collected and all three fire in that pass, with the unrelated `t_mid`
+/// sitting between the deposit and the drain — the structural shape that
+/// broke the old wholesale snapshot refresh.
+///
+/// `p` holds 7 and 8; `t_dep` (priority 5) deposits 99 into `p`; `t_mid`
+/// (priority 3) consumes the unrelated `b`; `t_drain` (priority 1) then drains
+/// `p` with `all()`. It must take 7 and 8 and leave 99 behind.
+fn same_pass_deposit_survives_all_drain<R: BackendRunner>() {
+    let a = Place::<i32>::new("a");
+    let b = Place::<i32>::new("b");
+    let g = Place::<i32>::new("g");
+    let p = Place::<i32>::new("p");
+    let drained = Place::<i32>::new("drained");
+
+    let t_dep = Transition::builder("t_dep")
+        .input(one(&a))
+        .output(out_place(&p))
+        .priority(5)
+        .action(sync_action(|ctx| {
+            ctx.output("p", 99)?;
+            Ok(())
+        }))
+        .build();
+    let t_mid = Transition::builder("t_mid")
+        .input(one(&b))
+        .priority(3)
+        .action(passthrough())
+        .build();
+    let t_drain = Transition::builder("t_drain")
+        .input(one(&g))
+        .input(all(&p))
+        .output(out_place(&drained))
+        .priority(1)
+        .action(sync_action(|ctx| {
+            ctx.output("drained", 1)?;
+            Ok(())
+        }))
+        .build();
+
+    let net = PetriNet::builder("all_drain_pass")
+        .transitions([t_dep, t_mid, t_drain])
+        .build();
+
+    let mut marking = Marking::new();
+    marking.add(&a, Token::at(0, 0));
+    marking.add(&b, Token::at(0, 0));
+    marking.add(&g, Token::at(0, 0));
+    marking.add(&p, Token::at(7, 0));
+    marking.add(&p, Token::at(8, 0));
+
+    let result = R::run(&net, marking);
+    assert!(result.quiescent);
+
+    assert_eq!(
+        firing_order(&result),
+        ["t_dep", "t_mid", "t_drain"],
+        "all three ready transitions fire in the one pass"
+    );
+    assert_eq!(result.marking.count("drained"), 1, "the drain did fire");
+    assert_eq!(
+        removed_from(&result, "p"),
+        2,
+        "all() takes only the two tokens the pass began with"
+    );
+    assert_eq!(
+        result.marking.count("p"),
+        1,
+        "t_dep's same-pass deposit survives t_drain's all()"
+    );
+    assert_eq!(*result.marking.peek(&p).unwrap(), 99);
+}
+
+/// EXEC-003 AC5, reset-arc half: a reset firing later in the pass clears what
+/// the pass began with, not what a same-pass action deposited. Same three-ready
+/// / three-firing pass as the `all()` witness, with `t_reset`'s reset arc in
+/// place of the draining input.
+fn same_pass_deposit_survives_reset_arc<R: BackendRunner>() {
+    let a = Place::<i32>::new("a");
+    let b = Place::<i32>::new("b");
+    let g = Place::<i32>::new("g");
+    let p = Place::<i32>::new("p");
+    let cleared = Place::<i32>::new("cleared");
+
+    let t_dep = Transition::builder("t_dep")
+        .input(one(&a))
+        .output(out_place(&p))
+        .priority(5)
+        .action(sync_action(|ctx| {
+            ctx.output("p", 99)?;
+            Ok(())
+        }))
+        .build();
+    let t_mid = Transition::builder("t_mid")
+        .input(one(&b))
+        .priority(3)
+        .action(passthrough())
+        .build();
+    let t_reset = Transition::builder("t_reset")
+        .input(one(&g))
+        .reset(reset(&p))
+        .output(out_place(&cleared))
+        .priority(1)
+        .action(sync_action(|ctx| {
+            ctx.output("cleared", 1)?;
+            Ok(())
+        }))
+        .build();
+
+    let net = PetriNet::builder("reset_drain_pass")
+        .transitions([t_dep, t_mid, t_reset])
+        .build();
+
+    let mut marking = Marking::new();
+    marking.add(&a, Token::at(0, 0));
+    marking.add(&b, Token::at(0, 0));
+    marking.add(&g, Token::at(0, 0));
+    marking.add(&p, Token::at(7, 0));
+    marking.add(&p, Token::at(8, 0));
+
+    let result = R::run(&net, marking);
+    assert!(result.quiescent);
+
+    assert_eq!(
+        firing_order(&result),
+        ["t_dep", "t_mid", "t_reset"],
+        "all three ready transitions fire in the one pass"
+    );
+    assert_eq!(result.marking.count("cleared"), 1, "the reset did fire");
+    assert_eq!(
+        removed_from(&result, "p"),
+        2,
+        "the reset clears only the two tokens the pass began with"
+    );
+    assert_eq!(
+        result.marking.count("p"),
+        1,
+        "t_dep's same-pass deposit survives t_reset's reset arc"
+    );
+    assert_eq!(*result.marking.peek(&p).unwrap(), 99);
+}
+
 /// Deterministic differential tests for the general (timed / multi-priority)
 /// ready path, driving the backends directly with synthetic timestamps —
 /// `collect_ready_general` was never reachable from the wall-clock-free suite
@@ -2407,4 +2830,9 @@ for_each_backend!(
     unknown_place_initial_tokens_retained,
     unknown_place_warns_once_per_place,
     same_pass_refill_invisible_to_recheck,
+    same_pass_deposit_invisible_after_unrelated_firing,
+    same_pass_deposit_invisible_to_cardinality,
+    same_pass_deposit_defers_nu_join,
+    same_pass_deposit_survives_all_drain,
+    same_pass_deposit_survives_reset_arc,
 );

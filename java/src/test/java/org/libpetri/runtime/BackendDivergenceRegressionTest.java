@@ -14,6 +14,8 @@ import org.junit.jupiter.params.provider.EnumSource;
 
 import org.libpetri.core.Arc;
 import org.libpetri.core.EnvironmentPlace;
+import org.libpetri.core.MatchSpec;
+import org.libpetri.core.NameId;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
 import org.libpetri.core.Timing;
@@ -50,6 +52,8 @@ class BackendDivergenceRegressionTest {
 
     record SimpleValue(String data) {}
     record CounterValue(int count) {}
+    /** Carries the correlation id for the ν-join witness. */
+    record NuValue(String cid) {}
 
     enum Backend {
         BITMAP {
@@ -562,6 +566,412 @@ class BackendDivergenceRegressionTest {
             assertEquals(List.of("t_high", "t_high", "t_high"), started,
                 "event sequence pins the firing order (no t_low TransitionStarted)");
         }
+    }
+
+    /**
+     * Divergence #5, interleaved-firing form (EXEC-003 AC3): a deposit must stay invisible
+     * for the <b>whole</b> pass, not merely until the next firing consumes something. Both
+     * compiled backends used to re-copy the entire live presence bitmap into the firing
+     * snapshot after every consumption, so an unrelated firing in between republished the
+     * earlier deposit.
+     *
+     * <p>{@code t1} (priority 3) drains {@code p} and its action refills it; {@code t2}
+     * (priority 2) consumes the unrelated {@code b}; {@code t3} (priority 1) waits on
+     * {@code p}. The republish happened at {@code t2}'s consumption, which touches neither
+     * {@code p} nor anything {@code t3} reads. With the snapshot narrowed per place,
+     * {@code t3} loses the pass and the refill only becomes visible next cycle — where
+     * {@code t4} (priority 5, enabled by {@code t1}'s other output) outranks it and takes
+     * the token. That priority inversion is what makes the difference observable: firing
+     * {@code t3} a pass too early is not merely early, it starves {@code t4} for good.
+     *
+     * <p>Accounting, because the name used to claim otherwise: the pass collects
+     * <b>three</b> ready transitions ({@code t1}, {@code t2}, {@code t3}) and produces
+     * <b>two</b> firings — {@code t3}'s recheck fails, which is the whole point — and
+     * {@code t4} fires in the following cycle, for three firings across the run. The
+     * property pinned here is the unrelated firing <i>between</i> the deposit and the
+     * recheck, not the firing count. For a pass that really does fire three transitions,
+     * see {@link #samePassDeposit_survivesAllDrain}.
+     */
+    @ParameterizedTest
+    @EnumSource(value = Backend.class, names = {"BITMAP", "PRECOMPILED"})
+    void samePassDeposit_invisibleAfterUnrelatedFiring(Backend backend) throws Exception {
+        var a = Place.of("a", CounterValue.class);
+        var b = Place.of("b", CounterValue.class);
+        var p = Place.of("p", CounterValue.class);
+        var q = Place.of("q", CounterValue.class);
+        var r = Place.of("r", CounterValue.class);
+        var s = Place.of("s", CounterValue.class);
+        Queue<String> firingOrder = new ConcurrentLinkedQueue<>();
+
+        var t1 = Transition.builder("t1")
+            .inputs(Arc.In.one(a), Arc.In.one(p))
+            .outputs(Arc.Out.and(p, q))
+            .priority(3)
+            .action(ctx -> {
+                firingOrder.add("t1");
+                ctx.output(p, new CounterValue(1));
+                ctx.output(q, new CounterValue(1));
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+        var t2 = Transition.builder("t2")
+            .inputs(Arc.In.one(b))
+            .priority(2)
+            .action(ctx -> {
+                firingOrder.add("t2");
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+        var t3 = Transition.builder("t3")
+            .inputs(Arc.In.one(p))
+            .outputs(Arc.Out.place(r))
+            .priority(1)
+            .action(ctx -> {
+                firingOrder.add("t3");
+                ctx.output(r, new CounterValue(1));
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+        var t4 = Transition.builder("t4")
+            .inputs(Arc.In.one(q), Arc.In.one(p))
+            .outputs(Arc.Out.place(s))
+            .priority(5)
+            .action(ctx -> {
+                firingOrder.add("t4");
+                ctx.output(s, new CounterValue(1));
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+
+        var net = PetriNet.builder("InterleavedFiringPass").transitions(t1, t2, t3, t4).build();
+        var initial = Map.<Place<?>, List<Token<?>>>of(
+            a, List.of(Token.of(new CounterValue(0))),
+            b, List.of(Token.of(new CounterValue(0))),
+            p, List.of(Token.of(new CounterValue(10)))
+        );
+
+        try (var executor = backend.create(net, initial)) {
+            var result = executor.run();
+
+            assertEquals(List.of("t1", "t2", "t4"), List.copyOf(firingOrder),
+                "t3 must not be revived by t1's deposit — republished by t2's consumption pre-fix");
+            assertFalse(result.hasTokens(r), "t3 never fires");
+            assertEquals(1, result.tokenCount(s), "t4 wins the refilled token next cycle");
+            assertFalse(result.hasTokens(p));
+            assertFalse(result.hasTokens(q));
+        }
+    }
+
+    /**
+     * EXEC-003 AC4, counting half: a cardinality gate re-evaluated inside a firing pass must
+     * not count tokens a same-pass synchronous action deposited. Presence alone cannot catch
+     * this — {@code p} never empties, so its snapshot bit stays set and only the count moves.
+     *
+     * <p>{@code p} starts with two tokens; {@code t1} (priority 3) takes one and deposits one
+     * back, leaving the live count at two but the pre-deposit count at one. {@code t3} gates
+     * on {@code exactly(2, p)} and must lose the pass; as above, {@code t4} (priority 5)
+     * becomes ready next cycle and outranks it, so firing a pass too early is observable.
+     */
+    @ParameterizedTest
+    @EnumSource(value = Backend.class, names = {"BITMAP", "PRECOMPILED"})
+    void samePassDeposit_invisibleToCardinalityGate(Backend backend) throws Exception {
+        var a = Place.of("a", CounterValue.class);
+        var p = Place.of("p", CounterValue.class);
+        var q = Place.of("q", CounterValue.class);
+        var r = Place.of("r", CounterValue.class);
+        var s = Place.of("s", CounterValue.class);
+        Queue<String> firingOrder = new ConcurrentLinkedQueue<>();
+
+        var t1 = Transition.builder("t1")
+            .inputs(Arc.In.one(a), Arc.In.one(p))
+            .outputs(Arc.Out.and(p, q))
+            .priority(3)
+            .action(ctx -> {
+                firingOrder.add("t1");
+                ctx.output(p, new CounterValue(99));
+                ctx.output(q, new CounterValue(1));
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+        var t3 = Transition.builder("t3")
+            .inputs(Arc.In.exactly(2, p))
+            .outputs(Arc.Out.place(r))
+            .priority(1)
+            .action(ctx -> {
+                firingOrder.add("t3");
+                ctx.output(r, new CounterValue(1));
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+        var t4 = Transition.builder("t4")
+            .inputs(Arc.In.one(q), Arc.In.one(p))
+            .outputs(Arc.Out.place(s))
+            .priority(5)
+            .action(ctx -> {
+                firingOrder.add("t4");
+                ctx.output(s, new CounterValue(1));
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+
+        var net = PetriNet.builder("CardinalityPass").transitions(t1, t3, t4).build();
+        var initial = Map.<Place<?>, List<Token<?>>>of(
+            a, List.of(Token.of(new CounterValue(0))),
+            p, List.of(Token.of(new CounterValue(7)), Token.of(new CounterValue(8)))
+        );
+
+        try (var executor = backend.create(net, initial)) {
+            var result = executor.run();
+
+            assertEquals(List.of("t1", "t4"), List.copyOf(firingOrder),
+                "exactly(2, p) must not be satisfied by t1's same-pass deposit");
+            assertFalse(result.hasTokens(r), "t3 never fires");
+            assertEquals(1, result.tokenCount(s));
+            // t1 took 7, t4 took 8 next cycle; only t1's deposit is left.
+            assertEquals(1, result.tokenCount(p));
+            assertEquals(new CounterValue(99), result.peekTokens(p).iterator().next().value());
+        }
+    }
+
+    /**
+     * EXEC-003 AC4, ν half: a correlated join whose correlated input took a same-pass deposit
+     * defers to the next cycle rather than binding against a marking the pass may not see.
+     * The binding is chosen over whole queues, so there is no honest per-token filter — the
+     * conservative refusal is the semantics.
+     *
+     * <p>{@code y} holds {@code n1, n2} and {@code x} holds {@code n1}, so the join binds
+     * {@code n1} at pass start. {@code t1} (priority 3) consumes {@code y}'s {@code n1} FIFO
+     * and deposits a fresh {@code n1}: the live queues once again admit the binding, but only
+     * because of a deposit. {@code y} never empties, so presence does not catch it.
+     *
+     * <p>The join is on the O(n) rebuild path here, and necessarily so: disturbing a
+     * correlated input mid-pass takes a second consumer of that place, which is exactly what
+     * disqualifies the O(1) incremental matcher. Both paths sit behind the same check.
+     */
+    @ParameterizedTest
+    @EnumSource(value = Backend.class, names = {"BITMAP", "PRECOMPILED"})
+    void samePassDeposit_defersCorrelatedJoin(Backend backend) throws Exception {
+        var a = Place.of("a", CounterValue.class);
+        var x = Place.of("x", NuValue.class);
+        var y = Place.of("y", NuValue.class);
+        var q = Place.of("q", CounterValue.class);
+        var outJoin = Place.of("out_join", SimpleValue.class);
+        var outK = Place.of("out_k", SimpleValue.class);
+        Queue<String> firingOrder = new ConcurrentLinkedQueue<>();
+
+        var t1 = Transition.builder("t1")
+            .inputs(Arc.In.one(a), Arc.In.one(y))
+            .outputs(Arc.Out.and(y, q))
+            .priority(3)
+            .action(ctx -> {
+                firingOrder.add("t1");
+                ctx.output(y, new NuValue("n1"));
+                ctx.output(q, new CounterValue(1));
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+        var join = Transition.builder("join")
+            .inputs(Arc.In.one(x), Arc.In.one(y))
+            .match(MatchSpec.builder()
+                .key(x, (NuValue v) -> NameId.of(v.cid()))
+                .key(y, (NuValue v) -> NameId.of(v.cid()))
+                .build())
+            .outputs(Arc.Out.place(outJoin))
+            .priority(1)
+            .action(ctx -> {
+                firingOrder.add("join");
+                ctx.output(outJoin, new SimpleValue(ctx.input(x).cid()));
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+        var k = Transition.builder("k")
+            .inputs(Arc.In.one(q), Arc.In.one(x))
+            .outputs(Arc.Out.place(outK))
+            .priority(5)
+            .action(ctx -> {
+                firingOrder.add("k");
+                ctx.output(outK, new SimpleValue("k"));
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+
+        var net = PetriNet.builder("NuPass").transitions(t1, join, k).build();
+        var initial = Map.<Place<?>, List<Token<?>>>of(
+            a, List.of(Token.of(new CounterValue(0))),
+            x, List.of(Token.of(new NuValue("n1"))),
+            y, List.of(Token.of(new NuValue("n1")), Token.of(new NuValue("n2")))
+        );
+
+        try (var executor = backend.create(net, initial)) {
+            var result = executor.run();
+
+            assertEquals(List.of("t1", "k"), List.copyOf(firingOrder),
+                "the join must not rebind against t1's same-pass deposit");
+            assertFalse(result.hasTokens(outJoin), "the join never fires");
+            assertEquals(1, result.tokenCount(outK));
+            assertEquals(2, result.tokenCount(y), "n2 plus the deposited n1 remain");
+        }
+    }
+
+    /**
+     * EXEC-003 AC5, {@code all()} half: invisibility extends to <b>consumption</b>, not just
+     * to the enablement test. A drain firing later in the pass may take only the tokens the
+     * pass began with, as consumed by earlier firings; a same-pass deposit sits at the tail
+     * of the FIFO queue (EXEC-010) and survives to the next cycle.
+     *
+     * <p>Pre-fix both compiled backends gated {@code all()} / {@code atLeast(n)} on the
+     * discounted count (AC4, already correct) and then drained the <b>live</b> marking, so
+     * the deposit the gate had just refused to count was swallowed anyway.
+     *
+     * <p>This is also the suite's genuine <i>three firings in one pass</i> witness:
+     * {@code t_dep}, {@code t_mid} and {@code t_drain} are all ready when the ready list is
+     * collected and all three fire in that pass, with the unrelated {@code t_mid} sitting
+     * between the deposit and the drain.
+     *
+     * <p>{@code p} holds 7 and 8; {@code t_dep} (priority 5) deposits 99 into {@code p};
+     * {@code t_mid} (priority 3) consumes the unrelated {@code b}; {@code t_drain}
+     * (priority 1) then drains {@code p} with {@code all()}. It must take 7 and 8 and leave
+     * 99 behind.
+     *
+     * <p>The legacy {@link NetExecutor} runs this too and was already correct: it routes every
+     * output through its completion queue, so nothing deposits part-way through a pass.
+     */
+    @ParameterizedTest
+    @EnumSource(Backend.class)
+    void samePassDeposit_survivesAllDrain(Backend backend) throws Exception {
+        var a = Place.of("a", CounterValue.class);
+        var b = Place.of("b", CounterValue.class);
+        var g = Place.of("g", CounterValue.class);
+        var p = Place.of("p", CounterValue.class);
+        var drained = Place.of("drained", CounterValue.class);
+        Queue<String> firingOrder = new ConcurrentLinkedQueue<>();
+
+        var tDep = Transition.builder("t_dep")
+            .inputs(Arc.In.one(a))
+            .outputs(Arc.Out.place(p))
+            .priority(5)
+            .action(ctx -> {
+                firingOrder.add("t_dep");
+                ctx.output(p, new CounterValue(99));
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+        var tMid = Transition.builder("t_mid")
+            .inputs(Arc.In.one(b))
+            .priority(3)
+            .action(ctx -> {
+                firingOrder.add("t_mid");
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+        var tDrain = Transition.builder("t_drain")
+            .inputs(Arc.In.one(g), Arc.In.all(p))
+            .outputs(Arc.Out.place(drained))
+            .priority(1)
+            .action(ctx -> {
+                firingOrder.add("t_drain");
+                ctx.output(drained, new CounterValue(1));
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+
+        var net = PetriNet.builder("AllDrainPass").transitions(tDep, tMid, tDrain).build();
+        var initial = Map.<Place<?>, List<Token<?>>>of(
+            a, List.of(Token.of(new CounterValue(0))),
+            b, List.of(Token.of(new CounterValue(0))),
+            g, List.of(Token.of(new CounterValue(0))),
+            p, List.of(Token.of(new CounterValue(7)), Token.of(new CounterValue(8)))
+        );
+
+        var eventStore = EventStore.inMemory();
+        try (var executor = backend.createWithEventStore(net, initial, eventStore)) {
+            var result = executor.run();
+
+            assertEquals(List.of("t_dep", "t_mid", "t_drain"), List.copyOf(firingOrder),
+                "all three ready transitions fire in the one pass");
+            assertEquals(1, result.tokenCount(drained), "the drain did fire");
+            assertEquals(2, removedFrom(eventStore, "p"),
+                "all() takes only the two tokens the pass began with");
+            assertEquals(1, result.tokenCount(p),
+                "t_dep's same-pass deposit survives t_drain's all()");
+            assertEquals(new CounterValue(99), result.peekTokens(p).iterator().next().value());
+        }
+    }
+
+    /**
+     * EXEC-003 AC5, reset-arc half: a reset firing later in the pass clears what the pass
+     * began with, not what a same-pass action deposited. Same three-ready / three-firing pass
+     * as the {@code all()} witness, with {@code t_reset}'s reset arc in place of the draining
+     * input. The legacy {@link NetExecutor} participates for the same reason as above.
+     */
+    @ParameterizedTest
+    @EnumSource(Backend.class)
+    void samePassDeposit_survivesResetArc(Backend backend) throws Exception {
+        var a = Place.of("a", CounterValue.class);
+        var b = Place.of("b", CounterValue.class);
+        var g = Place.of("g", CounterValue.class);
+        var p = Place.of("p", CounterValue.class);
+        var cleared = Place.of("cleared", CounterValue.class);
+        Queue<String> firingOrder = new ConcurrentLinkedQueue<>();
+
+        var tDep = Transition.builder("t_dep")
+            .inputs(Arc.In.one(a))
+            .outputs(Arc.Out.place(p))
+            .priority(5)
+            .action(ctx -> {
+                firingOrder.add("t_dep");
+                ctx.output(p, new CounterValue(99));
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+        var tMid = Transition.builder("t_mid")
+            .inputs(Arc.In.one(b))
+            .priority(3)
+            .action(ctx -> {
+                firingOrder.add("t_mid");
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+        var tReset = Transition.builder("t_reset")
+            .inputs(Arc.In.one(g))
+            .reset(p)
+            .outputs(Arc.Out.place(cleared))
+            .priority(1)
+            .action(ctx -> {
+                firingOrder.add("t_reset");
+                ctx.output(cleared, new CounterValue(1));
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+
+        var net = PetriNet.builder("ResetDrainPass").transitions(tDep, tMid, tReset).build();
+        var initial = Map.<Place<?>, List<Token<?>>>of(
+            a, List.of(Token.of(new CounterValue(0))),
+            b, List.of(Token.of(new CounterValue(0))),
+            g, List.of(Token.of(new CounterValue(0))),
+            p, List.of(Token.of(new CounterValue(7)), Token.of(new CounterValue(8)))
+        );
+
+        var eventStore = EventStore.inMemory();
+        try (var executor = backend.createWithEventStore(net, initial, eventStore)) {
+            var result = executor.run();
+
+            assertEquals(List.of("t_dep", "t_mid", "t_reset"), List.copyOf(firingOrder),
+                "all three ready transitions fire in the one pass");
+            assertEquals(1, result.tokenCount(cleared), "the reset did fire");
+            assertEquals(2, removedFrom(eventStore, "p"),
+                "the reset clears only the two tokens the pass began with");
+            assertEquals(1, result.tokenCount(p),
+                "t_dep's same-pass deposit survives t_reset's reset arc");
+            assertEquals(new CounterValue(99), result.peekTokens(p).iterator().next().value());
+        }
+    }
+
+    /** How many tokens the run removed from {@code placeName} — what the pass consumed there. */
+    private static int removedFrom(EventStore eventStore, String placeName) {
+        return (int) eventStore.eventsOfType(NetEvent.TokenRemoved.class).stream()
+            .filter(e -> e.placeName().equals(placeName))
+            .count();
     }
 
     private static void sleepUninterruptibly(long millis) {

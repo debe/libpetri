@@ -219,5 +219,12 @@ def test_reset_arc_clears_all_tokens_on_firing() -> None:
         initial={seed: [{"start": True}], trigger: [{"go": True}]},
     )
 
-    assert result.count(data) == 0, "reset arc must clear the place"
+    # `emit` and `reset_data` are both enabled at the start, so they fire in the same
+    # pass — and `emit`'s three tokens are deposited by its synchronous action *during*
+    # that pass. Per EXEC-003 AC5 a drain takes only what the pass began with, so the
+    # reset clears the (empty) place and the three tokens land in the next cycle, with
+    # nothing left to clear them. TypeScript has always behaved this way (its outputs
+    # resolve on a promise, so they were never there when the reset ran); this test used
+    # to pin the Rust/Java inline-deposit artifact, which is the divergence AC5 closes.
+    assert result.count(data) == 3, "same-pass deposits outlive a reset in that pass"
     assert result.count(cleared) == 1

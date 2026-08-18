@@ -4,7 +4,8 @@
 //! hand-written semantic test against both `BitmapNetExecutor` (the
 //! reference) and `PrecompiledNetExecutor` (production). This module closes
 //! the gap the hand-written suite cannot: it generates small well-formed
-//! **untimed** nets with proptest, runs each one through both backends via
+//! nets with proptest — untimed for one property, timed for its twin —
+//! runs each one through both backends via
 //! the suite's [`BackendRunner`]s, and asserts the outcomes are
 //! observationally equal — final marking (token values per place, FIFO
 //! order), quiescence, and the deterministic projection of the event
@@ -12,10 +13,14 @@
 //! so every generated case also re-checks the Lean `token_conservation`
 //! twin per backend.
 //!
-//! Generated fragment: 2–8 places (all `i32`), 0–4 initial tokens per place
-//! (values 0–9), 1–6 transitions with 1–3 distinct input places
+//! Generated fragment: 2–8 places (all `i32`), 0–6 initial tokens per place
+//! (values 0–9), 1–8 transitions with 1–3 distinct input places
 //! (cardinality one / exactly(2) / all / at_least(2)), 0–2 read arcs, 0–1
-//! inhibitor arcs, 0–1 reset arcs, priority 0–3. The untimed property keeps
+//! inhibitor arcs, 0–1 reset arcs, priority 0–2. Transitions outnumber
+//! priority levels on purpose: passes that fire three or more transitions
+//! are where intra-pass visibility bugs live (divergence #5 below), and they
+//! only occur when several transitions sit ready at the same level with
+//! enough tokens to satisfy all of them. The untimed property keeps
 //! timing `immediate` only; the timed property additionally draws timing from
 //! {immediate, delayed, window, deadline, exact} (see [`gen_timing`]) and
 //! drives both backends through `run_sync` on the executor's `#[cfg(test)]`
@@ -164,7 +169,9 @@ fn gen_transition(place_count: usize) -> impl Strategy<Value = GenTrans> {
         prop::sample::subsequence(places, 0..=2usize),
         prop::option::of(0..place_count),
         prop::option::of(0..place_count),
-        0i32..=3,
+        // Fewer priority levels than transitions, so ready lists stack up
+        // several deep at one level (see the module docs).
+        0i32..=2,
     )
         .prop_map(
             move |(ins, cards, out_kind, o1, o2, reads, inhibitor, reset, priority)| {
@@ -215,8 +222,8 @@ fn gen_transition(place_count: usize) -> impl Strategy<Value = GenTrans> {
 fn gen_net() -> impl Strategy<Value = GenNet> {
     (2usize..=8).prop_flat_map(|place_count| {
         (
-            prop::collection::vec(prop::collection::vec(0i32..10, 0..=4), place_count),
-            prop::collection::vec(gen_transition(place_count), 1..=6),
+            prop::collection::vec(prop::collection::vec(0i32..10, 0..=6), place_count),
+            prop::collection::vec(gen_transition(place_count), 1..=8),
         )
             .prop_map(move |(initial, transitions)| GenNet {
                 place_count,
@@ -255,8 +262,8 @@ fn gen_timed_transition(place_count: usize) -> impl Strategy<Value = GenTrans> {
 fn gen_timed_net() -> impl Strategy<Value = GenNet> {
     (2usize..=8).prop_flat_map(|place_count| {
         (
-            prop::collection::vec(prop::collection::vec(0i32..10, 0..=4), place_count),
-            prop::collection::vec(gen_timed_transition(place_count), 1..=6),
+            prop::collection::vec(prop::collection::vec(0i32..10, 0..=6), place_count),
+            prop::collection::vec(gen_timed_transition(place_count), 1..=8),
         )
             .prop_map(move |(initial, transitions)| GenNet {
                 place_count,
@@ -545,13 +552,24 @@ static REAP_DIVERGENCES_ALLOWLISTED: AtomicUsize = AtomicUsize::new(0);
 /// the asymmetry (weakening the oracle) nor fail on it (blocking the suite
 /// on a known, documented, formally-modelled divergence).
 ///
-/// The signature is detected structurally, not by net shape: the two
-/// projections must share a common prefix that contains a
-/// `transition-timed-out` event, and the first differing event (in either
-/// stream) must involve one of the transitions reaped in that shared prefix
-/// — exactly the Lean witness, where the divergence opens with the
-/// precompiled-only re-enable of the reaped transition. Anything else is a
-/// NEW finding and fails the property with the full diff.
+/// The signature is detected structurally, not by net shape, and it is the
+/// Lean witness read literally — nothing wider:
+///
+/// 1. the two projections share a common prefix whose **last**
+///    `transition-timed-out` names some transition `r` (the most recent reap;
+///    an older, unrelated reap must not license a divergence that opens
+///    hundreds of events later), and
+/// 2. the first differing position is `transition-enabled r` **in the
+///    precompiled stream** — `pb_update_reenables`, the one-sided re-enable
+///    that is the whole asymmetry. The bitmap stream differs there by
+///    construction (`bb_never_fires_after_reap`).
+///
+/// The reverse direction, a different event kind on `r`, a different
+/// transition, or a divergence that merely happens *after* a reap is a NEW
+/// finding and fails the property with the full diff. The allowlist is also
+/// scoped to the event projection alone: final marking and quiescence stay
+/// asserted unconditionally at the call site, so a reap-shaped event
+/// divergence that also moves tokens still fails.
 ///
 /// Expected hit rate: ~zero under the random property. The virtual clock
 /// advances `run_sync` to *exact* timed boundaries and only when a full
@@ -560,8 +578,9 @@ static REAP_DIVERGENCES_ALLOWLISTED: AtomicUsize = AtomicUsize::new(0);
 /// never "blocked past a deadline" the way the Lean schedule
 /// `[0, 10, 12, 15]` requires (a reap needs a stalled orchestrator, e.g. a
 /// blocking sync action on the real clock). The detector is therefore
-/// pinned against the deterministic real-clock reproduction in
-/// [`time013_reap_asymmetry_witness`] rather than against random traffic.
+/// pinned by [`is_known_reap_divergence_matches_only_the_lean_signature`] on
+/// synthetic projections and by the deterministic real-clock reproduction in
+/// [`time013_reap_asymmetry_witness`], not by random traffic.
 fn is_known_reap_divergence(bitmap: &[String], precompiled: &[String]) -> bool {
     let prefix = bitmap
         .iter()
@@ -571,60 +590,136 @@ fn is_known_reap_divergence(bitmap: &[String], precompiled: &[String]) -> bool {
     if prefix == bitmap.len() && prefix == precompiled.len() {
         return false; // no divergence at all
     }
-    let reaped: Vec<&str> = bitmap[..prefix]
+    let Some(reaped) = bitmap[..prefix]
         .iter()
-        .filter_map(|e| e.strip_prefix("transition-timed-out "))
-        .collect();
-    if reaped.is_empty() {
-        return false;
-    }
-    [bitmap.get(prefix), precompiled.get(prefix)]
-        .into_iter()
-        .flatten()
-        .any(|e| reaped.iter().any(|t| projected_event_names(e, t)))
+        .rev()
+        .find_map(|e| e.strip_prefix("transition-timed-out "))
+    else {
+        return false; // divergence not preceded by any reap
+    };
+    let reenable = format!("transition-enabled {reaped}");
+    precompiled.get(prefix) == Some(&reenable)
 }
 
-/// True when projected event `e` involves the place/transition `name`.
-/// Every projected kind puts its name in the second whitespace token
-/// ([`project_events`]); `transition-failed` suffixes it with `:`.
-fn projected_event_names(e: &str, name: &str) -> bool {
-    e.split_whitespace().nth(1).map(|n| n.trim_end_matches(':')) == Some(name)
+/// Unit pin for [`is_known_reap_divergence`] over synthetic projections — no
+/// clock, no executor. Without it the predicate has zero executed coverage:
+/// the virtual clock lands exactly on timed boundaries so the random property
+/// never reaps, and [`time013_reap_asymmetry_witness`] is `#[ignore]`d, so
+/// rewriting the body to `|_, _| true` would silently turn the timed property
+/// into a no-op.
+#[test]
+fn is_known_reap_divergence_matches_only_the_lean_signature() {
+    let ev = |s: &str| s.to_string();
+    let prefix = || {
+        vec![
+            ev("execution-started n"),
+            ev("transition-enabled t_w"),
+            ev("transition-timed-out t_w"),
+        ]
+    };
+
+    // ACCEPT — the canonical signature: precompiled re-enables the transition
+    // it just reaped, bitmap goes on to something else.
+    let mut bb = prefix();
+    bb.push(ev("transition-started t_keep"));
+    let mut pb = prefix();
+    pb.push(ev("transition-enabled t_w"));
+    assert!(is_known_reap_divergence(&bb, &pb), "canonical signature");
+
+    // ACCEPT — same shape with the bitmap run already finished at the reap.
+    assert!(
+        is_known_reap_divergence(&prefix(), &pb),
+        "bitmap stream exhausted at the divergence point"
+    );
+
+    // REJECT — no divergence at all.
+    assert!(
+        !is_known_reap_divergence(&prefix(), &prefix()),
+        "identical streams"
+    );
+
+    // REJECT — a divergence with no reap anywhere in the shared prefix.
+    let bb_noreap = vec![ev("execution-started n"), ev("transition-started a")];
+    let pb_noreap = vec![ev("execution-started n"), ev("transition-enabled t_w")];
+    assert!(
+        !is_known_reap_divergence(&bb_noreap, &pb_noreap),
+        "no reap in prefix"
+    );
+
+    // REJECT — right transition, wrong event kind (a fire, not a re-enable).
+    let mut pb_started = prefix();
+    pb_started.push(ev("transition-started t_w"));
+    assert!(!is_known_reap_divergence(&bb, &pb_started), "wrong event kind");
+
+    // REJECT — a re-enable, but of a transition that was never reaped.
+    let mut pb_other = prefix();
+    pb_other.push(ev("transition-enabled t_other"));
+    assert!(!is_known_reap_divergence(&bb, &pb_other), "unreaped transition");
+
+    // REJECT — the asymmetry is directional: a bitmap-only re-enable is a new
+    // finding, not the modelled precompiled-only one.
+    assert!(!is_known_reap_divergence(&pb, &bb), "reversed direction");
+
+    // REJECT — stale reap: `t_old` was reaped, then `t_w`, and the divergence
+    // re-enables `t_old`. Only the most recent reap counts.
+    let stale = || {
+        vec![
+            ev("transition-timed-out t_old"),
+            ev("transition-started t_mid"),
+            ev("transition-timed-out t_w"),
+        ]
+    };
+    let mut bb_stale = stale();
+    bb_stale.push(ev("transition-started t_keep"));
+    let mut pb_stale = stale();
+    pb_stale.push(ev("transition-enabled t_old"));
+    assert!(!is_known_reap_divergence(&bb_stale, &pb_stale), "stale reap");
+
+    // ACCEPT — the same prefix, re-enabling the most recent reap.
+    let mut pb_recent = stale();
+    pb_recent.push(ev("transition-enabled t_w"));
+    assert!(is_known_reap_divergence(&bb_stale, &pb_recent), "most recent reap");
+
+    // REJECT — precompiled exhausted at the divergence point.
+    assert!(!is_known_reap_divergence(&bb, &prefix()), "precompiled exhausted");
 }
 
 // ---------------------------------------------------------------------------
 //  The differential property
 // ---------------------------------------------------------------------------
 
-// FINDING (open): same-cycle recheck visibility of produced tokens.
-//
-// The first harness run found a genuine backend divergence — a fifth class
-// beyond the four fixed by "align precompiled executor with the bitmap
-// reference" (9956cda). The committed regression seed in
-// proptest-regressions/differential_prop_tests.txt replays it, so this test
-// stays red until the runtime is fixed; per the harness's failure policy the
-// oracle is NOT weakened to hide it.
+// Divergence #5 (fixed in 25209af): same-pass recheck visibility of produced
+// tokens. The seed in proptest-regressions/differential_prop_tests.txt is
+// retained as a regression pin — it replays before any novel case on every
+// run. It is a pin on the harness, not on the semantics: widening the
+// generated fragment re-keys the RNG stream, so the seed no longer rebuilds
+// the net recorded in its comment. The semantics are pinned exactly, by hand,
+// in [`backend_suite_tests`](crate::backend_suite_tests):
+// `same_pass_refill_invisible_to_recheck` plus the `same_pass_deposit_*`
+// trio (presence across an unrelated firing, cardinality, ν-join).
 //
 // Mechanism: the shared loop collects the cycle's ready list once, then
 // rechecks each entry before firing (`executor_core/executor.rs`,
-// `recheck_can_fire`). The bitmap reference rechecks against
-// `firing_snap_buffer`, refreshed at the END of `consume_for_firing` —
-// post-consumption but PRE-output-deposit. The precompiled backend rechecks
-// `can_enable(tid)` against the live `marking_bitmap`/`token_counts`, which
-// already include tokens deposited by earlier same-cycle firings. When an
-// earlier firing drains a place a later ready transition depends on and
-// refills it via its own output, the backends disagree on whether the later
-// transition may still fire this cycle — an EXEC-002 AC4 violation (backends
-// MUST produce the identical ready order).
+// `recheck_can_fire`). The recheck must judge a pass-start marking narrowed
+// by what earlier firings CONSUMED and never widened by what their actions
+// DEPOSITED (EXEC-001 step order, EXEC-003 AC3/AC4). The precompiled backend
+// used to recheck the live `marking_bitmap`/`token_counts`, which already
+// include tokens deposited by earlier same-pass firings; both backends then
+// re-published those deposits anyway by refreshing the whole snapshot after
+// every consumption. When an earlier firing drains a place a later ready
+// transition depends on and refills it via its own output, the backends
+// disagreed on whether the later transition may still fire this pass — an
+// EXEC-002 AC4 violation (backends MUST produce the identical ready order).
 //
 // Minimal hand-verified witness (public API only, no harness code):
 //   a: 3 tokens, b: 1 token
 //   t_low  (priority 0): input one(a), read(b), passthrough
 //   t_high (priority 1): input one(a), reset(b), output -> b (echo)
-// bitmap fires      [t_high, t_high, t_high]  (t_low starved: its recheck
+// both backends fire [t_high, t_high, t_high]  (t_low starved: its recheck
 //                   sees b empty in the snapshot, so it is disabled and
 //                   loses the next cycle's priority sort again)
-// precompiled fires [t_high, t_low, t_high]   (t_low's live recheck sees
-//                   t_high's refill of b and fires in the same cycle)
+// the pre-fix precompiled backend fired [t_high, t_low, t_high]  (its live
+//                   recheck saw t_high's refill of b and fired mid-pass)
 // Final markings happen to agree here; with an inhibitor dependency instead
 // of a read the same window can diverge markings, not just order.
 
@@ -669,8 +764,9 @@ proptest! {
     /// {immediate, delayed, window, deadline, exact}, both backends driven
     /// through `run_sync` on the virtual clock with deadline tolerance 0.
     /// The single allowlisted divergence is the TIME-013 reap asymmetry
-    /// ([`is_known_reap_divergence`]); anything else fails with the full
-    /// diff.
+    /// ([`is_known_reap_divergence`]), and it is allowlisted for the event
+    /// projection ONLY — marking and quiescence are asserted first and
+    /// unconditionally. Anything else fails with the full diff.
     #[test]
     fn backends_agree_on_timed_nets(g in gen_timed_net()) {
         let (net, marking) = build_net(&g);
@@ -679,21 +775,11 @@ proptest! {
 
         let bitmap_proj = project_events(&bitmap.events);
         let precompiled_proj = project_events(&precompiled.events);
-        let agree = marking_values(&g, &bitmap.marking)
-            == marking_values(&g, &precompiled.marking)
-            && bitmap.quiescent == precompiled.quiescent
-            && bitmap_proj == precompiled_proj;
 
-        if !agree && is_known_reap_divergence(&bitmap_proj, &precompiled_proj) {
-            let n = REAP_DIVERGENCES_ALLOWLISTED.fetch_add(1, Ordering::Relaxed) + 1;
-            eprintln!(
-                "[differential] allowlisted known divergence #{n}: TIME-013 reap \
-                 asymmetry (lean/Libpetri/TimedCycle.lean `deadline_reap_dirty_diverges`; \
-                 semantics decision pending, plan phase 4)"
-            );
-            return Ok(());
-        }
-
+        // Marking and quiescence are asserted unconditionally: the TIME-013
+        // allowlist covers the event projection ONLY. A reap-shaped event
+        // divergence that also moves tokens or changes quiescence is a
+        // different, unmodelled thing and must fail here.
         prop_assert_eq!(
             marking_values(&g, &bitmap.marking),
             marking_values(&g, &precompiled.marking),
@@ -704,6 +790,19 @@ proptest! {
             precompiled.quiescent,
             "quiescence diverged"
         );
+
+        if bitmap_proj != precompiled_proj
+            && is_known_reap_divergence(&bitmap_proj, &precompiled_proj)
+        {
+            let n = REAP_DIVERGENCES_ALLOWLISTED.fetch_add(1, Ordering::Relaxed) + 1;
+            eprintln!(
+                "[differential] allowlisted known divergence #{n}: TIME-013 reap \
+                 asymmetry (lean/Libpetri/TimedCycle.lean `deadline_reap_dirty_diverges`; \
+                 semantics decision pending, plan phase 4)"
+            );
+            return Ok(());
+        }
+
         prop_assert_eq!(
             bitmap_proj,
             precompiled_proj,
@@ -730,10 +829,12 @@ proptest! {
 /// - `t_block` fires instantly and sleeps 400ms — the blocked gap;
 /// - `t_w` `window(50, 120)` never opens before the stall ends, so both
 ///   backends reap it at ~400ms (`transition-timed-out t_w`);
-/// - `t_keep` `delayed(600)` keeps the loop alive past the reap: `run_sync`
+/// - `t_keep` `delayed(1200)` keeps the loop alive past the reap: `run_sync`
 ///   exits at `enabled_count == 0` right after `enforce_deadlines`, so
 ///   without a still-enabled bystander BOTH backends would terminate at the
-///   reap and the dirty-bit asymmetry would stay invisible.
+///   reap and the dirty-bit asymmetry would stay invisible. The delay is set
+///   far beyond the ~450ms re-fire so a loaded CI runner cannot turn the
+///   ordering into a race.
 ///
 /// After the reap the precompiled backend re-enables `t_w` (fresh clock) and
 /// fires it at ~450ms; the bitmap backend never re-examines it. Final
@@ -742,7 +843,9 @@ proptest! {
 #[test]
 #[ignore = "documents the known TIME-013 reap divergence (lean/Libpetri/TimedCycle.lean \
             `deadline_reap_dirty_diverges`; semantics decision pending, plan phase 4); \
-            real clock + thread::sleep, ~1.2s"]
+            real clock + thread::sleep, ~2.5s. CI runs it explicitly with --ignored \
+            (.github/workflows/ci.yml, rust job) — it is the only executed check on \
+            the real executor that `is_known_reap_divergence` still matches."]
 fn time013_reap_asymmetry_witness() {
     let pb = Place::<i32>::new("p_block");
     let pw = Place::<i32>::new("p_window");
@@ -762,7 +865,7 @@ fn time013_reap_asymmetry_witness() {
         .build();
     let t_keep = Transition::builder("t_keep")
         .input(one(&pk))
-        .timing(delayed(600))
+        .timing(delayed(1200))
         .action(passthrough())
         .build();
 
