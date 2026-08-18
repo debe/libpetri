@@ -104,6 +104,20 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
 
     private final long[] markingBitmap;  // orchestrator-only, no CAS needed
 
+    /**
+     * Post-consumption, pre-deposit presence snapshot used for intra-pass firing rechecks.
+     *
+     * <p>Outputs deposit in loop step 1 and firing is step 5 (EXEC-001), so tokens a
+     * same-cycle sync action produces must be <em>invisible</em> to the recheck of
+     * subsequent ready transitions in the same firing pass; consumption, by contrast,
+     * must be visible (losers are disabled by consumption, EXEC-003). The buffer is
+     * refreshed from {@link #markingBitmap} when the ready set is collected and again
+     * after each firing's consumption ({@link #updateBitmapAfterConsumption}) — never on
+     * deposit — matching the {@link BitmapNetExecutor} reference and the Rust
+     * {@code firing_snap_buffer} (backend divergence #5).
+     */
+    private final long[] fireScanBitmap;
+
     // ==================== Transition State ====================
 
     private final long[] enabledBitmap;
@@ -292,6 +306,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         // Initialize marking bitmap
         int wordCount = program.wordCount;
         this.markingBitmap = new long[wordCount];
+        this.fireScanBitmap = new long[wordCount];
 
         // Transition bitmaps
         this.transitionWords = (program.transitionCount + BIT_MASK) >>> WORD_SHIFT;
@@ -1354,7 +1369,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                 if (isInFlight(tid)) continue;
 
                 boolean wasEnabled = isEnabled(tid);
-                boolean canNow = canEnable(tid);
+                boolean canNow = canEnable(tid, markingBitmap);
 
                 if (canNow && !wasEnabled) {
                     setEnabledBit(tid);
@@ -1377,8 +1392,15 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         clearPendingResets();
     }
 
-    private boolean canEnable(int tid) {
-        if (!program.canEnableBitmap(tid, markingBitmap)) return false;
+    /**
+     * Enablement check combining bitmap masks and cardinality checks. The presence bitmap is
+     * a parameter so the firing pass can recheck against {@link #fireScanBitmap} (same-cycle
+     * deposits invisible, divergence #5) while dirty re-evaluation uses the live
+     * {@link #markingBitmap}; cardinality and ν-binding always consult live token state,
+     * matching the {@link BitmapNetExecutor} reference.
+     */
+    private boolean canEnable(int tid, long[] markingSnap) {
+        if (!program.canEnableBitmap(tid, markingSnap)) return false;
 
         var cardCheck = program.cardinalityChecks[tid];
         if (cardCheck != null) {
@@ -1482,6 +1504,9 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
      * Fires directly from enabled bitmap — no ready queues, no timing checks.
      */
     private void fireReadyImmediate() {
+        if (enabledTransitionCount == 0) return;
+        // Firing snapshot: rechecks below must not see same-cycle deposits (divergence #5).
+        System.arraycopy(markingBitmap, 0, fireScanBitmap, 0, markingBitmap.length);
         for (int s = 0; s < summaryWords; s++) {
             long summary = enabledWordSummary[s];
             while (summary != 0) {
@@ -1494,7 +1519,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                     int tid = (w << WORD_SHIFT) | bit;
                     word &= word - 1;
 
-                    if (canEnable(tid)) {
+                    if (canEnable(tid, fireScanBitmap)) {
                         fireTransitionGuarded(tid);
                     } else {
                         clearEnabledBit(tid);
@@ -1514,6 +1539,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
 
         // Populate ready queues from enabled bitmap using summary
         clearAllReadyQueues();
+        boolean anyReady = false;
         for (int s = 0; s < summaryWords; s++) {
             long summary = enabledWordSummary[s];
             while (summary != 0) {
@@ -1531,10 +1557,15 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
 
                     if (program.earliestMillis[tid] <= elapsedMillis) {
                         readyQueuePush(tid);
+                        anyReady = true;
                     }
                 }
             }
         }
+        if (!anyReady) return;
+
+        // Firing snapshot: rechecks below must not see same-cycle deposits (divergence #5).
+        System.arraycopy(markingBitmap, 0, fireScanBitmap, 0, markingBitmap.length);
 
         // Ready order within a level: enablement time ASC, tid tie-break
         // (EXEC-002 AC3/AC4, CONC-023 AC4).
@@ -1548,7 +1579,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                 int tid = readyQueuePop(pi);
                 if (!isEnabled(tid) || isInFlight(tid)) continue;
 
-                if (canEnable(tid)) {
+                if (canEnable(tid, fireScanBitmap)) {
                     fireTransitionGuarded(tid);
                 } else {
                     clearEnabledBit(tid);
@@ -1780,6 +1811,10 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
             }
             markDirty(pid);
         }
+        // Refresh the firing snapshot so the next intra-pass recheck sees the live marking
+        // after this consumption — but not deposits that land later in the same cycle
+        // (EXEC-001 step order; EXEC-003 consumption visibility; divergence #5).
+        System.arraycopy(markingBitmap, 0, fireScanBitmap, 0, markingBitmap.length);
     }
 
     // ==================== Output Processing ====================

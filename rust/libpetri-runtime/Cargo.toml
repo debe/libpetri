@@ -19,3 +19,8 @@ libpetri-docgen = { workspace = true }
 [features]
 default = []
 tokio = ["dep:tokio"]
+
+[dev-dependencies]
+# Property-based differential testing of the two executor backends
+# (see src/differential_prop_tests.rs).
+proptest = "1"

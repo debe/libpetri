@@ -65,6 +65,7 @@ When multiple transitions compete for the same input tokens, the highest-priorit
 **Acceptance Criteria:**
 1. Two transitions sharing input place P; T1 (P=10) and T2 (P=5); one token in P; T1 fires; T2 disabled.
 2. If T1 is not ready (timing not satisfied), T2 may fire.
+3. Whether a loser's inputs are "no longer satisfied" is judged against the marking as consumed by earlier firings in the same firing pass but before any tokens their synchronous actions produced: T1 (higher priority) consumes a token T2 needs and refills the place via its own output in the same pass; T2 remains disabled and may fire no earlier than the next cycle, since outputs deposit in step 1 and firing is step 5 (see [EXEC-001]).
 
 **Test derivation:** Two competing transitions; verify only highest priority fires when only 1 token available.
 

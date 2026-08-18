@@ -57,6 +57,17 @@ pub struct PrecompiledBackend<'a> {
     unknown_places: UnknownPlaceLog,
 
     // ==================== Presence bitmap ====================
+    /// `word_count` live presence words, followed in the same allocation by
+    /// the `word_count`-word fire-pass snapshot — the analogue of the
+    /// reference's `firing_snap_buffer` (divergence #5). The snapshot half
+    /// is refreshed when the ready list is collected and after each firing's
+    /// consumption — never by `produce_token` — so the EXEC-003 recheck
+    /// gates presence on the post-consumption, PRE-deposit state. Outputs
+    /// land in loop step 1 (process completions) while firing is step 5
+    /// (EXEC-001), so tokens a same-pass sync action deposits must not
+    /// enable or un-inhibit a later ready transition within the pass. One
+    /// allocation, not two, so constructing a backend stays
+    /// allocation-neutral and both halves share locality.
     marking_bitmap: Vec<u64>,
 
     // ==================== Transition state ====================
@@ -174,7 +185,7 @@ impl<'a> PrecompiledBackend<'a> {
             ring_capacity,
             extra_marking,
             unknown_places,
-            marking_bitmap: vec![0u64; wc],
+            marking_bitmap: vec![0u64; wc * 2],
             enabled_bitmap: vec![0u64; transition_words],
             dirty_bitmap: vec![0u64; transition_words],
             dirty_scan_buffer: vec![0u64; transition_words],
@@ -561,10 +572,30 @@ impl<'a> PrecompiledBackend<'a> {
         }
     }
 
+    /// Mirror the live presence words into the fire-pass snapshot half of
+    /// `marking_bitmap`. Hand-rolled word loop instead of `copy_from_slice`:
+    /// the bitmap is a word or two for typical nets, and a dynamic-length
+    /// `memcpy` call costs several times the whole copy on the sync hot
+    /// loop.
+    #[inline]
+    fn refresh_firing_snapshot(&mut self) {
+        let wc = self.program.word_count();
+        let (live, snap) = self.marking_bitmap.split_at_mut(wc);
+        for (s, l) in snap.iter_mut().zip(live.iter()) {
+            *s = *l;
+        }
+    }
+
     // ==================== Enablement ====================
 
-    fn can_enable(&self, tid: usize) -> bool {
-        if !self.program.can_enable_bitmap(tid, &self.marking_bitmap) {
+    /// True when the transition has all required input/read tokens available
+    /// and no inhibitor blocks it. Presence is checked against the given
+    /// words — the live half of `marking_bitmap` from `update_enablement`,
+    /// the pre-deposit snapshot half from `recheck_can_fire` — while the
+    /// cardinality and ν-match checks read live counts, exactly the split
+    /// the bitmap reference's `can_enable` makes.
+    fn can_enable(&self, tid: usize, marking_bits: &[u64]) -> bool {
+        if !self.program.can_enable_bitmap(tid, marking_bits) {
             return false;
         }
 
@@ -785,7 +816,7 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
                 }
 
                 let was_enabled = self.is_enabled(tid);
-                let can_now = self.can_enable(tid);
+                let can_now = self.can_enable(tid, &self.marking_bitmap);
 
                 if can_now && !was_enabled {
                     self.set_enabled_bit(tid);
@@ -873,6 +904,9 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
                 }
             }
         }
+        // Refresh the firing-snapshot bitmap so subsequent
+        // `recheck_can_fire` calls see the live marking.
+        self.refresh_firing_snapshot();
     }
 
     fn collect_ready_general(&mut self, now_ms: f64, out: &mut Vec<usize>) {
@@ -915,10 +949,15 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
                 out.push(self.ready_queue_pop(pi));
             }
         }
+
+        // Refresh the firing-snapshot bitmap so subsequent
+        // `recheck_can_fire` calls see the live marking.
+        self.refresh_firing_snapshot();
     }
 
     fn recheck_can_fire(&mut self, tid: usize) -> bool {
-        self.is_enabled(tid) && self.can_enable(tid)
+        let wc = self.program.word_count();
+        self.is_enabled(tid) && self.can_enable(tid, &self.marking_bitmap[wc..])
     }
 
     fn consume_for_firing<F>(
@@ -1087,6 +1126,15 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
         }
 
         self.update_bitmap_after_consumption(tid);
+        // Refresh the firing snapshot so the next `recheck_can_fire` (for
+        // the next ready transition this cycle) sees the live marking after
+        // this consumption — a full-bitmap refresh, which also publishes
+        // EARLIER same-pass deposits, exactly like the reference.
+        // `produce_token` deliberately does NOT refresh it: deposits stay
+        // invisible to intra-pass rechecks until the next consumption or
+        // collect, matching the bitmap reference (EXEC-001 step ordering,
+        // EXEC-003).
+        self.refresh_firing_snapshot();
     }
 
     fn produce_token(&mut self, place: &Arc<str>, token: ErasedToken) {

@@ -48,6 +48,15 @@ pub struct Executor<S: ExecutorBackend, E: EventStore> {
     event_store: E,
     start_time: Instant,
 
+    /// Test-only virtual clock (milliseconds). `None` unless a test opts in
+    /// via [`enable_virtual_clock`](Self::enable_virtual_clock); when set,
+    /// [`elapsed_ms`](Self::elapsed_ms) returns this value instead of the
+    /// real monotonic clock and `run_sync` advances it in exact jumps to the
+    /// next timed boundary (see the loop). The field, its reads, and its
+    /// writes are all `#[cfg(test)]` so release binaries are byte-identical.
+    #[cfg(test)]
+    virtual_now_ms: Option<f64>,
+
     /// True when the configured net references any environment places.
     /// The async loop short-circuits the event-injection phase when this
     /// is false. The sync loop uses it to decide whether to terminate
@@ -103,6 +112,8 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             backend,
             event_store,
             start_time: Instant::now(),
+            #[cfg(test)]
+            virtual_now_ms: None,
             has_environment_places,
             skip_output_validation: false,
             reusable_inputs: HashMap::new(),
@@ -163,7 +174,24 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
 
     #[inline]
     fn elapsed_ms(&self) -> f64 {
+        #[cfg(test)]
+        if let Some(virtual_now) = self.virtual_now_ms {
+            return virtual_now;
+        }
         elapsed_ms_since(self.start_time)
+    }
+
+    /// Puts this executor on a deterministic virtual clock starting at 0ms.
+    ///
+    /// Test-only seam for the timed differential harness
+    /// ([`differential_prop_tests`](crate::differential_prop_tests)):
+    /// `run_sync` then advances time in exact jumps to the next timed
+    /// boundary (next `earliest` opening or hard deadline) instead of
+    /// busy-waiting on the real monotonic clock, making timed runs both
+    /// instant and bit-for-bit reproducible.
+    #[cfg(test)]
+    pub(crate) fn enable_virtual_clock(&mut self) {
+        self.virtual_now_ms = Some(0.0);
     }
 
     /// Runs the executor synchronously until completion. All transition
@@ -215,11 +243,40 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 self.backend.collect_ready_general(cycle_now, &mut ready);
             }
 
+            #[cfg(test)]
+            let mut fired_any = false;
             for &tid in &ready {
                 if self.backend.recheck_can_fire(tid) {
                     self.fire_transition_sync(tid);
+                    #[cfg(test)]
+                    {
+                        fired_any = true;
+                    }
                 } else {
                     self.backend.disable(tid);
+                }
+            }
+
+            // Virtual-clock advance (test builds only; release `run_sync`
+            // is untouched and waits out timed windows on the real clock).
+            // When a full cycle at the current virtual instant fired
+            // nothing and left no dirty work, but transitions are still
+            // enabled and waiting on their windows, jump straight to the
+            // next timed boundary. `millis_until_next_timed_transition`
+            // is finite whenever anything is enabled (every timing has a
+            // finite `earliest`), so the INFINITY case coincides with
+            // `enabled_count() == 0` and falls through to the quiescence
+            // exit below. The `.max(0.5)` floor guarantees progress even
+            // if a backend ever reported a 0ms wait.
+            #[cfg(test)]
+            if !fired_any
+                && !self.backend.has_dirty_bits()
+                && self.backend.enabled_count() > 0
+                && let Some(virtual_now) = self.virtual_now_ms
+            {
+                let wait = self.backend.millis_until_next_timed_transition(virtual_now);
+                if wait.is_finite() {
+                    self.virtual_now_ms = Some(virtual_now + wait.max(0.5));
                 }
             }
 

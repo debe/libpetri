@@ -66,6 +66,8 @@
 
 #[cfg(test)]
 mod backend_suite_tests;
+#[cfg(test)]
+mod differential_prop_tests;
 pub mod bitmap;
 pub mod bitmap_backend;
 pub mod compiled_net;
