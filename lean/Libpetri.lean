@@ -10,3 +10,6 @@ import Libpetri.Enablement
 import Libpetri.Refinement
 import Libpetri.Sched
 import Libpetri.RetrodictExec
+import Libpetri.Strengthening
+import Libpetri.TimedCycle
+import Libpetri.MatchCache
