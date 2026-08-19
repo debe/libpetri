@@ -67,6 +67,15 @@ impl Json {
         }
     }
 
+    /// Optional string (`route`): absent -> `None`.
+    fn str_opt(&self, key: &str) -> Option<&str> {
+        match self.get(key) {
+            None | Some(Json::Null) => None,
+            Some(Json::Str(s)) => Some(s),
+            other => panic!("expected string at key '{key}', got {other:?}"),
+        }
+    }
+
     /// Optional string array (`sinkPlaces`): absent -> empty.
     fn str_arr_opt(&self, key: &str) -> Vec<String> {
         match self.get(key) {
@@ -248,6 +257,12 @@ fn property_of(prop: &Json) -> SmtProperty {
     }
 }
 
+/// The line every implementation prints when the ν name-aware state-class-graph
+/// verifier ([NU-050] Route B) — not the SMT / Route A encoders — decided the
+/// query. Fixtures marked `"route": "B"` assert it BEFORE their verdict, so a
+/// silent fall-back to Route A fails loudly instead of passing vacuously.
+const ROUTE_B_MARKER: &str = "ν-net Route B: name-aware state-class graph (NU-050)";
+
 fn verdict_word(verdict: &Verdict) -> &'static str {
     match verdict {
         Verdict::Proven { .. } => "proven",
@@ -311,10 +326,26 @@ fn verdict_parity_fixtures() {
         let result = verifier.verify();
 
         let got = verdict_word(&result.verdict);
+        let route_b = fixture.str_opt("route") == Some("B");
         eprintln!(
-            "[parity] {id}: expected={expected} got={got} replay_confirmed={:?} elapsed={}ms",
-            result.counterexample_confirmed, result.elapsed_ms
+            "[parity] {id}: expected={expected} got={got} route={} replay_confirmed={:?} elapsed={}ms",
+            fixture.str_opt("route").unwrap_or("A"),
+            result.counterexample_confirmed,
+            result.elapsed_ms
         );
+        // The route marker is checked FIRST: a `route: "B"` fixture that silently
+        // fell back to Route A would pin nothing, so name that failure directly
+        // rather than letting it surface as a confusing verdict mismatch.
+        if route_b && !result.report.contains(ROUTE_B_MARKER) {
+            findings.push(format!(
+                "ROUTE FINDING [{id}]: fixture declares route \"B\" but the report does not \
+                 name the ν name-aware state-class graph — the query fell back to Route A, so \
+                 the Route B deadlock predicate was never exercised\n\
+                 --- verifier report ---\n{}",
+                result.report
+            ));
+            continue;
+        }
         if got != expected {
             findings.push(format!(
                 "PARITY FINDING [{id}]: expected '{expected}', got '{got}'\n\
@@ -339,7 +370,10 @@ fn verdict_parity_fixtures() {
         // (observed across all five violated shapes: deadlock, mutex, bound,
         // env injection, H1 consume-all). Losing this is a replay/decoder
         // regression, NOT a fixture mismatch — reported separately.
-        if expected == "violated" && result.counterexample_confirmed != Some(true) {
+        // Route B is exempt: its counterexample is a path of the name-partition
+        // graph, not of the flat abstract semantics, so it reports
+        // `counterexample_confirmed = None` by construction.
+        if expected == "violated" && !route_b && result.counterexample_confirmed != Some(true) {
             findings.push(format!(
                 "REPLAY REGRESSION [{id}]: verdict is Violated as expected, but the \
                  counterexample no longer replays (confirmed=false)\n\

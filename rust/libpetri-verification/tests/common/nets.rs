@@ -10,6 +10,8 @@
 use libpetri_core::action::fork;
 use libpetri_core::arc::inhibitor;
 use libpetri_core::input::{all, at_least, one};
+use libpetri_core::match_spec::MatchSpec;
+use libpetri_core::name::NameId;
 use libpetri_core::output::{and, out_place};
 use libpetri_core::petri_net::PetriNet;
 use libpetri_core::place::Place;
@@ -283,6 +285,93 @@ pub fn build(name: &str) -> FixtureNet {
                     .transition(t)
                     .build(),
                 MarkingStateBuilder::new().tokens("p0", 1).build(),
+            )
+        }
+        // === Route B fixtures (`"route": "B"` in fixtures.json) ===
+        //
+        // ν nets in the BASE mint→matched-join fragment, so the name-aware
+        // state-class-graph verifier ([NU-050] Route B) decides them and the
+        // SMT / Route A encoders never see them. They pin the two markings on
+        // which Route B's deadlock predicate — quiescent AND NOT(every marked
+        // place is a declared sink) — disagrees with [VER-002]'s, which Route A
+        // implements verbatim. The disagreement is recorded deliberately; see
+        // each fixture's netDescription.
+
+        // fork co-mints ONE fresh name into branchA+branchB; join correlates
+        // them by name equality into done+stuck. The only quiescent marking is
+        // {done:1, stuck:1}: a token in the declared sink AND one in the
+        // non-sink `stuck`. Route B: violated. Route A on the same shape (see
+        // `sinkPartialTerminal`): proven. Non-vacuity guard: a failed ν
+        // correlation would also quiesce (at {branchA:1, branchB:1}, neither a
+        // sink) and also read violated here — `nuDrainedTerminal` below, built on
+        // the identical correlation, is what turns violated if that ever happens.
+        "nuMixedTerminal" => {
+            let source = Place::<()>::new("source");
+            let a = Place::<String>::new("branchA");
+            let b = Place::<String>::new("branchB");
+            let done = Place::<i32>::new("done");
+            let stuck = Place::<i32>::new("stuck");
+            let t_fork = Transition::builder("fork")
+                .input(one(&source))
+                .output(and(vec![out_place(&a), out_place(&b)]))
+                .action(fork())
+                .build();
+            let t_join = Transition::builder("join")
+                .input(one(&a))
+                .input(one(&b))
+                .match_spec(
+                    MatchSpec::builder()
+                        .key(&a, |s: &String| NameId::new(s.clone()))
+                        .key(&b, |s: &String| NameId::new(s.clone()))
+                        .build(),
+                )
+                .output(and(vec![out_place(&done), out_place(&stuck)]))
+                .action(fork())
+                .build();
+            FixtureNet::closed(
+                PetriNet::builder("nuMixedTerminal")
+                    .transitions([t_fork, t_join])
+                    .build(),
+                MarkingStateBuilder::new().tokens("source", 1).build(),
+            )
+        }
+        // Same mint→join shape, but the join has NO output spec (a sink
+        // transition, [CORE-042]/[CORE-043] AC4), so the only quiescent marking
+        // is the EMPTY one. The declared sink `done` touches no arc and is
+        // therefore declared explicitly on the builder, so the declaration
+        // resolves against the flattened net (the same requirement its Route A
+        // sibling carries). Route B: proven — vacuously as to the predicate
+        // (nothing is marked outside the sinks) but NOT as to the net: the empty
+        // marking is reachable only because the ν join really correlates the
+        // co-minted pair and drains it; a correlation failure would quiesce at
+        // {branchA:1, branchB:1} and turn this fixture violated. Route A on the
+        // same shape (see `sinkDrainedTerminal`): violated.
+        "nuDrainedTerminal" => {
+            let source = Place::<()>::new("source");
+            let a = Place::<String>::new("branchA");
+            let b = Place::<String>::new("branchB");
+            let done = Place::<i32>::new("done");
+            let t_fork = Transition::builder("fork")
+                .input(one(&source))
+                .output(and(vec![out_place(&a), out_place(&b)]))
+                .action(fork())
+                .build();
+            let t_join = Transition::builder("join")
+                .input(one(&a))
+                .input(one(&b))
+                .match_spec(
+                    MatchSpec::builder()
+                        .key(&a, |s: &String| NameId::new(s.clone()))
+                        .key(&b, |s: &String| NameId::new(s.clone()))
+                        .build(),
+                )
+                .build();
+            FixtureNet::closed(
+                PetriNet::builder("nuDrainedTerminal")
+                    .place((&done).into())
+                    .transitions([t_fork, t_join])
+                    .build(),
+                MarkingStateBuilder::new().tokens("source", 1).build(),
             )
         }
         other => panic!(

@@ -33,6 +33,12 @@ FIXTURES = (
     / "fixtures.json"
 )
 
+# The line every implementation prints when the ν name-aware state-class-graph
+# verifier (NU-050 Route B) — not the SMT / Route A encoders — decided the query.
+# Fixtures marked ``"route": "B"`` assert it BEFORE their verdict, so a silent
+# fall-back to Route A fails loudly instead of passing vacuously.
+ROUTE_B_MARKER = "ν-net Route B: name-aware state-class graph (NU-050)"
+
 
 def _net(name: str):
     """Builds the named fixture net, its initial marking and env configuration."""
@@ -183,6 +189,73 @@ def _net(name: str):
         )
         return net, {"p0": 1}, {}
 
+    # === Route B fixtures (``"route": "B"`` in fixtures.json) ===
+    #
+    # ν nets in the BASE mint->matched-join fragment, so the name-aware
+    # state-class-graph verifier (NU-050 Route B) decides them and the SMT /
+    # Route A encoders never see them. They pin the two markings on which Route
+    # B's deadlock predicate — quiescent AND NOT(every marked place is a declared
+    # sink) — disagrees with VER-002's, which Route A implements verbatim. The
+    # disagreement is recorded deliberately; see each fixture's netDescription.
+
+    if name == "nuMixedTerminal":
+        # `fork` co-mints ONE fresh name into branchA+branchB; `join` correlates
+        # them by name equality into done+stuck. The only quiescent marking is
+        # {done:1, stuck:1} — a token in the declared sink AND one in the
+        # non-sink `stuck`. Route B: violated. Route A on the same shape (see
+        # `sinkPartialTerminal`): proven. Non-vacuity guard: a failed ν
+        # correlation would also quiesce (at {branchA:1, branchB:1}, neither a
+        # sink) and also read violated here — `nuDrainedTerminal` below, built on
+        # the identical correlation, is what turns violated if that ever happens.
+        source = lp.Place("source")
+        branch_a, branch_b = lp.Place("branchA"), lp.Place("branchB")
+        done, stuck = lp.Place("done"), lp.Place("stuck")
+        net = (
+            lp.Net("nuMixedTerminal")
+            .transition(
+                lp.Transition("fork").input(lp.one(source))
+                .output(lp.and_(branch_a, branch_b)).action(lp.fork).build()
+            )
+            .transition(
+                lp.Transition("join").input(lp.one(branch_a)).input(lp.one(branch_b))
+                .match_spec(lp.match_spec([(branch_a, lambda m: m), (branch_b, lambda m: m)]))
+                .output(lp.and_(lp.out(done), lp.out(stuck))).action(lp.fork).build()
+            )
+            .build()
+        )
+        return net, {"source": 1}, {}
+
+    if name == "nuDrainedTerminal":
+        # Same mint->join shape, but `join` has NO output spec — a sink
+        # transition (CORE-042 / CORE-043 AC4) — so the only quiescent marking is
+        # the EMPTY one. The declared sink `done` touches no arc and is therefore
+        # declared explicitly on the builder, so the declaration resolves against
+        # the flattened net (the same requirement its Route A sibling carries).
+        # Route B: proven — vacuously as to the predicate (nothing is marked
+        # outside the sinks) but NOT as to the net: the empty marking is reachable
+        # only because the ν join really correlates the co-minted pair and drains
+        # it; a correlation failure would quiesce at {branchA:1, branchB:1} and
+        # turn this fixture violated. Route A on the same shape (see
+        # `sinkDrainedTerminal`): violated.
+        source = lp.Place("source")
+        branch_a, branch_b = lp.Place("branchA"), lp.Place("branchB")
+        done = lp.Place("done")
+        net = (
+            lp.Net("nuDrainedTerminal")
+            .place(done)
+            .transition(
+                lp.Transition("fork").input(lp.one(source))
+                .output(lp.and_(branch_a, branch_b)).action(lp.fork).build()
+            )
+            .transition(
+                lp.Transition("join").input(lp.one(branch_a)).input(lp.one(branch_b))
+                .match_spec(lp.match_spec([(branch_a, lambda m: m), (branch_b, lambda m: m)]))
+                .build()
+            )
+            .build()
+        )
+        return net, {"source": 1}, {}
+
     raise AssertionError(
         f"unknown fixture net {name!r} — add its builder here "
         "(the shared fixtures.json gained a net this implementation does not build yet)"
@@ -232,10 +305,23 @@ def test_verdict_parity_fixtures():
             timeout_ms=30_000,
             **env,
         )
+        route_b = fixture.get("route") == "B"
         print(
             f"[parity] {fid}: expected={expected} got={result.verdict} "
+            f"route={fixture.get('route', 'A')} "
             f"replay_confirmed={result.counterexample_confirmed} elapsed={result.elapsed_ms}ms"
         )
+        # The route marker is checked FIRST: a `route: "B"` fixture that silently
+        # fell back to Route A would pin nothing, so name that failure directly
+        # rather than letting it surface as a confusing verdict mismatch.
+        if route_b and ROUTE_B_MARKER not in result.report:
+            findings.append(
+                f'ROUTE FINDING [{fid}]: fixture declares route "B" but the report does not '
+                "name the ν name-aware state-class graph — the query fell back to Route A, so "
+                "the Route B deadlock predicate was never exercised\n"
+                f"--- verifier report ---\n{result.report}"
+            )
+            continue
         if result.verdict != expected:
             findings.append(
                 f"PARITY FINDING [{fid}]: expected {expected!r}, got {result.verdict!r}\n"
@@ -250,7 +336,10 @@ def test_verdict_parity_fixtures():
                 f"--- verifier report ---\n{result.report}"
             )
             continue
-        if expected == "violated" and result.counterexample_confirmed is not True:
+        # Route B is exempt: its counterexample is a path of the name-partition
+        # graph, not of the flat abstract semantics, so it reports
+        # counterexample_confirmed = None by construction.
+        if expected == "violated" and not route_b and result.counterexample_confirmed is not True:
             findings.append(
                 f"REPLAY REGRESSION [{fid}]: verdict is violated as expected, but the "
                 f"counterexample no longer replays (confirmed="
