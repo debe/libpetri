@@ -39,6 +39,16 @@ import static org.junit.jupiter.api.Assertions.*;
 @EnabledIf("z3Available")
 class VerdictParityTest {
 
+    /**
+     * The line every implementation prints when the &nu; name-aware
+     * state-class-graph verifier (NU-050 Route B) — not the SMT / Route A
+     * encoders — decided the query. Fixtures marked {@code "route": "B"} assert
+     * it BEFORE their verdict, so a silent fall-back to Route A fails loudly
+     * instead of passing vacuously.
+     */
+    private static final String ROUTE_B_MARKER =
+        "\u03bd-net Route B: name-aware state-class graph (NU-050)";
+
     static boolean z3Available() {
         try {
             new com.microsoft.z3.Context().close();
@@ -82,6 +92,17 @@ class VerdictParityTest {
             verifier.sinkPlaces(sinks.toArray(new Place<?>[0]));
         }
         var result = verifier.verify();
+
+        // The route marker is checked FIRST: a `route: "B"` fixture that
+        // silently fell back to Route A would pin nothing, so name that failure
+        // directly rather than letting it surface as a confusing verdict
+        // mismatch.
+        if (fixture.hasNonNull("route") && "B".equals(fixture.get("route").asText())) {
+            assertTrue(result.report().contains(ROUTE_B_MARKER), () ->
+                "ROUTE FINDING [" + id + "]: fixture declares route \"B\" but the report does not "
+                + "name the \u03bd name-aware state-class graph — the query fell back to Route A, "
+                + "so the Route B deadlock predicate was never exercised\n" + result.report());
+        }
 
         switch (expected) {
             case "proven" -> assertTrue(result.isProven(), () -> parityFinding(id, expected, result));

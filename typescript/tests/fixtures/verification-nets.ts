@@ -13,6 +13,8 @@ import { place, environmentPlace } from '../../src/core/place.js';
 import type { Place, EnvironmentPlace } from '../../src/core/place.js';
 import { one, all, atLeast } from '../../src/core/in.js';
 import { outPlace, andPlaces } from '../../src/core/out.js';
+import { matchSpec, matchKey } from '../../src/core/match-spec.js';
+import { nameId } from '../../src/core/name.js';
 import type { MarkingStateBuilder } from '../../src/verification/marking-state.js';
 import {
   type EnvironmentAnalysisMode,
@@ -175,6 +177,79 @@ function sinkDrainedTerminal(): VerificationFixtureNet {
   return fixture(net, m => m.tokens(p0, 1), [p0, done]);
 }
 
+// === Route B fixtures (`"route": "B"` in fixtures.json) ===
+//
+// ν nets in the BASE mint->matched-join fragment, so the name-aware
+// state-class-graph verifier (NU-050 Route B) decides them and the SMT / Route A
+// encoders never see them. They pin the two markings on which Route B's deadlock
+// predicate — quiescent AND NOT(every marked place is a declared sink) —
+// disagrees with VER-002's, which Route A implements verbatim. The disagreement
+// is recorded deliberately; see each fixture's netDescription.
+
+/**
+ * ν net: fork co-mints ONE fresh name into branchA+branchB; join correlates them
+ * by name equality into done+stuck. The only quiescent marking is
+ * {done:1, stuck:1} — a token in the declared sink AND one in the non-sink
+ * `stuck`. Route B: violated. Route A on the same shape (see
+ * `sinkPartialTerminal`): proven. Non-vacuity guard: a failed ν correlation would
+ * also quiesce (at {branchA:1, branchB:1}, neither a sink) and also read violated
+ * here — `nuDrainedTerminal` below, built on the identical correlation, is what
+ * turns violated if that ever happens.
+ */
+function nuMixedTerminal(): VerificationFixtureNet {
+  const source = place<string>('source');
+  const branchA = place<string>('branchA');
+  const branchB = place<string>('branchB');
+  const done = place<string>('done');
+  const stuck = place<string>('stuck');
+  const fork = Transition.builder('fork')
+    .inputs(one(source))
+    .outputs(andPlaces(branchA, branchB))
+    .build();
+  const join = Transition.builder('join')
+    .inputs(one(branchA), one(branchB))
+    .match(matchSpec(
+      matchKey(branchA, (v: string) => nameId(v)),
+      matchKey(branchB, (v: string) => nameId(v)),
+    ))
+    .outputs(andPlaces(done, stuck))
+    .build();
+  const net = PetriNet.builder('nuMixedTerminal').transitions(fork, join).build();
+  return fixture(net, m => m.tokens(source, 1), [source, branchA, branchB, done, stuck]);
+}
+
+/**
+ * Same mint->join shape, but `join` has NO output spec (a sink transition,
+ * CORE-042 / CORE-043 AC4), so the only quiescent marking is the EMPTY one. The
+ * declared sink `done` touches no arc and is therefore declared explicitly on the
+ * builder, so the declaration resolves against the flattened net (the same
+ * requirement its Route A sibling carries). Route B: proven — vacuously as to the
+ * predicate (nothing is marked outside the sinks) but NOT as to the net: the empty
+ * marking is reachable only because the ν join really correlates the co-minted
+ * pair and drains it; a correlation failure would quiesce at
+ * {branchA:1, branchB:1} and turn this fixture violated. Route A on the same
+ * shape (see `sinkDrainedTerminal`): violated.
+ */
+function nuDrainedTerminal(): VerificationFixtureNet {
+  const source = place<string>('source');
+  const branchA = place<string>('branchA');
+  const branchB = place<string>('branchB');
+  const done = place<string>('done');
+  const fork = Transition.builder('fork')
+    .inputs(one(source))
+    .outputs(andPlaces(branchA, branchB))
+    .build();
+  const join = Transition.builder('join')
+    .inputs(one(branchA), one(branchB))
+    .match(matchSpec(
+      matchKey(branchA, (v: string) => nameId(v)),
+      matchKey(branchB, (v: string) => nameId(v)),
+    ))
+    .build();
+  const net = PetriNet.builder('nuDrainedTerminal').place(done).transitions(fork, join).build();
+  return fixture(net, m => m.tokens(source, 1), [source, branchA, branchB, done]);
+}
+
 /** Registry: fixture `net` name -> builder. */
 export const verificationNets: Record<string, () => VerificationFixtureNet> = {
   circularChain,
@@ -188,4 +263,6 @@ export const verificationNets: Record<string, () => VerificationFixtureNet> = {
   atLeastDrain,
   sinkPartialTerminal,
   sinkDrainedTerminal,
+  nuMixedTerminal,
+  nuDrainedTerminal,
 };

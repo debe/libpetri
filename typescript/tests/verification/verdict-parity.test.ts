@@ -16,6 +16,14 @@ import { verificationNets } from '../fixtures/verification-nets.js';
 // FINDING — report it prominently; never adjust the fixture to make it pass.
 const Z3_TIMEOUT = 60_000;
 
+/**
+ * The line every implementation prints when the ν name-aware state-class-graph
+ * verifier (NU-050 Route B) — not the SMT / Route A encoders — decided the query.
+ * Fixtures marked `route: 'B'` assert it BEFORE their verdict, so a silent
+ * fall-back to Route A fails loudly instead of passing vacuously.
+ */
+const ROUTE_B_MARKER = 'ν-net Route B: name-aware state-class graph (NU-050)';
+
 interface FixtureProperty {
   readonly type: string;
   readonly places?: readonly string[];
@@ -30,6 +38,8 @@ interface Fixture {
   readonly property: FixtureProperty;
   /** Expected terminal places (VER-002 sink semantics); absent for closed nets. */
   readonly sinkPlaces?: readonly string[];
+  /** `'B'` = decided by the ν name-aware SCG verifier (NU-050 Route B); absent = Route A. */
+  readonly route?: string;
   readonly expected: 'proven' | 'violated' | 'unknown';
   readonly expectReportContains?: string;
 }
@@ -86,6 +96,19 @@ describe('verdict parity (spec/verification-fixtures/fixtures.json)', () => {
       }
       const result = await verifier.verify();
 
+      // The route marker is checked FIRST: a `route: 'B'` fixture that silently
+      // fell back to Route A would pin nothing, so name that failure directly
+      // rather than letting it surface as a confusing verdict mismatch.
+      const routeB = fixture.route === 'B';
+      if (routeB) {
+        expect(
+          result.report,
+          `ROUTE FINDING for '${fixture.id}': fixture declares route "B" but the report does ` +
+            'not name the ν name-aware state-class graph — the query fell back to Route A, so ' +
+            `the Route B deadlock predicate was never exercised\n--- report ---\n${result.report}`,
+        ).toContain(ROUTE_B_MARKER);
+      }
+
       expect(
         result.verdict.type,
         `parity FINDING for '${fixture.id}': expected ${fixture.expected}, ` +
@@ -99,7 +122,10 @@ describe('verdict parity (spec/verification-fixtures/fixtures.json)', () => {
       // Observability for the replay layer: a violated parity verdict should
       // normally be replay-confirmed. An unconfirmed one is not a parity
       // failure (the fixture only fixes the verdict) but is worth surfacing.
-      if (result.verdict.type === 'violated' && result.counterexampleConfirmed !== true) {
+      // Route B is exempt: its counterexample is a path of the name-partition
+      // graph, not of the flat abstract semantics, so it reports
+      // counterexampleConfirmed = null by construction.
+      if (!routeB && result.verdict.type === 'violated' && result.counterexampleConfirmed !== true) {
         console.warn(
           `[verdict-parity] '${fixture.id}': violated but counterexampleConfirmed=` +
             `${result.counterexampleConfirmed}`,

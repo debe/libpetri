@@ -5,6 +5,8 @@ import org.libpetri.analysis.MarkingState;
 import org.libpetri.core.Arc.In;
 import org.libpetri.core.Arc.Out;
 import org.libpetri.core.EnvironmentPlace;
+import org.libpetri.core.MatchSpec;
+import org.libpetri.core.NameId;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
 import org.libpetri.core.Transition;
@@ -58,6 +60,8 @@ public final class VerificationNets {
             case "atLeastDrain" -> atLeastDrain();
             case "sinkPartialTerminal" -> sinkPartialTerminal();
             case "sinkDrainedTerminal" -> sinkDrainedTerminal();
+            case "nuMixedTerminal" -> nuMixedTerminal();
+            case "nuDrainedTerminal" -> nuDrainedTerminal();
             default -> throw new IllegalArgumentException("unknown fixture net: " + name);
         };
     }
@@ -253,5 +257,81 @@ public final class VerificationNets {
         return closed(
             PetriNet.builder("sinkDrainedTerminal").places(done).transitions(t).build(),
             MarkingState.builder().tokens(p0, 1).build());
+    }
+
+    // === Route B fixtures ({@code "route": "B"} in fixtures.json) ===
+    //
+    // &nu; nets in the BASE mint&rarr;matched-join fragment, so the name-aware
+    // state-class-graph verifier (NU-050 Route B) decides them and the SMT /
+    // Route A encoders never see them. They pin the two markings on which Route
+    // B's deadlock predicate — quiescent AND NOT(every marked place is a declared
+    // sink) — disagrees with [VER-002]'s, which Route A implements verbatim. The
+    // disagreement is recorded deliberately; see each fixture's netDescription.
+
+    /** The ν-join correlation used by both Route B fixtures: name equality on the payload. */
+    private static MatchSpec branchMatch(Place<String> branchA, Place<String> branchB) {
+        return MatchSpec.builder()
+            .key(branchA, NameId::of)
+            .key(branchB, NameId::of)
+            .build();
+    }
+
+    /**
+     * &nu; net: {@code fork} co-mints ONE fresh name into {@code branchA}+{@code branchB};
+     * {@code join} correlates them by name equality into {@code done}+{@code stuck}. The only
+     * quiescent marking is {@code {done:1, stuck:1}} — a token in the declared sink AND one in
+     * the non-sink {@code stuck}. Route B: violated. Route A on the same shape (see
+     * {@link #sinkPartialTerminal()}): proven. Non-vacuity guard: a failed &nu; correlation
+     * would also quiesce (at {@code {branchA:1, branchB:1}}, neither a sink) and also read
+     * violated here — {@link #nuDrainedTerminal()}, built on the identical correlation, is what
+     * turns violated if that ever happens.
+     *
+     * @return the named net
+     */
+    public static NamedNet nuMixedTerminal() {
+        var source = place("source");
+        var branchA = place("branchA");
+        var branchB = place("branchB");
+        var done = place("done");
+        var stuck = place("stuck");
+        var fork = Transition.builder("fork")
+            .inputs(In.one(source)).outputs(Out.and(branchA, branchB)).build();
+        var join = Transition.builder("join")
+            .inputs(In.one(branchA), In.one(branchB))
+            .match(branchMatch(branchA, branchB))
+            .outputs(Out.and(done, stuck))
+            .build();
+        return closed(
+            PetriNet.builder("nuMixedTerminal").transitions(fork, join).build(),
+            MarkingState.builder().tokens(source, 1).build());
+    }
+
+    /**
+     * Same mint&rarr;join shape, but {@code join} has NO output spec — a sink transition
+     * ([CORE-042], [CORE-043] AC4) — so the only quiescent marking is the EMPTY one. The
+     * declared sink {@code done} touches no arc and is therefore declared explicitly on the
+     * builder, so the declaration resolves against the flattened net (the same requirement its
+     * Route A sibling carries). Route B: proven — vacuously as to the predicate (nothing is
+     * marked outside the sinks) but NOT as to the net: the empty marking is reachable only
+     * because the &nu; join really correlates the co-minted pair and drains it; a correlation
+     * failure would quiesce at {@code {branchA:1, branchB:1}} and turn this fixture violated.
+     * Route A on the same shape (see {@link #sinkDrainedTerminal()}): violated.
+     *
+     * @return the named net
+     */
+    public static NamedNet nuDrainedTerminal() {
+        var source = place("source");
+        var branchA = place("branchA");
+        var branchB = place("branchB");
+        var done = place("done");
+        var fork = Transition.builder("fork")
+            .inputs(In.one(source)).outputs(Out.and(branchA, branchB)).build();
+        var join = Transition.builder("join")
+            .inputs(In.one(branchA), In.one(branchB))
+            .match(branchMatch(branchA, branchB))
+            .build();
+        return closed(
+            PetriNet.builder("nuDrainedTerminal").places(done).transitions(fork, join).build(),
+            MarkingState.builder().tokens(source, 1).build());
     }
 }
