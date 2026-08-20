@@ -122,7 +122,15 @@ python3 -m venv .release-venv
 source .release-venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install dist/libpetri-*.whl pytest pytest-asyncio
-python -m pytest tests
+# `pytest`, not `python -m pytest`: the -m form prepends the cwd to sys.path,
+# and the cwd here is python/, which contains the libpetri source package. That
+# shadows the wheel we just installed, so the smoke test silently exercised the
+# source tree against whatever stale `python/libpetri/_libpetri*.so` a previous
+# `maturin develop` left behind — gitignored, so invisible in `git status`. It
+# failed 37 tests against a perfectly good 3.0.1 wheel before this was fixed.
+# The console script does not touch sys.path, so the import resolves to
+# site-packages and the test covers what actually ships.
+pytest tests
 deactivate
 
 if [[ "$DRY_RUN" == true ]]; then
