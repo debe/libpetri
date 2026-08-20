@@ -46,6 +46,7 @@ import { tagReplicas } from './replica-tagging.js';
 import { applyVisibility, type VisibilityState } from './visibility.js';
 import { VIEWER_CSS_VARIABLES } from './styles.js';
 import { flattenClusters } from './dot-flatten.js';
+import { VERSION } from './version.js';
 import type {
   ClusterLayout,
   ElkLayoutConfig,
@@ -55,6 +56,7 @@ import type {
 export {
   colorForPrefix,
   discoverClusters,
+  VERSION,
   VIEWER_CSS_VARIABLES,
   DEFAULT_PANZOOM_OPTS,
 };

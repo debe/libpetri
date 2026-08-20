@@ -11,3 +11,6 @@ description = "Build-script helper for embedding Petri net diagrams in rustdoc (
 [dependencies]
 libpetri-core = { workspace = true }
 libpetri-export = { workspace = true }
+
+[dev-dependencies]
+sha2 = { workspace = true }

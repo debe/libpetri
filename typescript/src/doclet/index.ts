@@ -43,6 +43,8 @@
 
 export { load } from './petri-net-plugin.js';
 export { renderSvg, renderSubnetSvg, escapeHtml } from './diagram-renderer.js';
+// Stock Graphviz layout with diagonal spline edges, not the orthogonal
+// routing the plugin itself emits. See the module doc on `svg-renderer.ts`.
 export { dotToSvg } from './svg-renderer.js';
 export { resolveNet, type ResolvedNet } from './net-resolver.js';
 export { forSubnetDef, forInstance } from './subnet-header.js';

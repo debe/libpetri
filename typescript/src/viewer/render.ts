@@ -13,16 +13,15 @@
  * remains as a fallback for callers that want stock layout (or for
  * environments where elkjs isn't installed).
  *
+ * The ELK stage is pulled in by dynamic import rather than at module load, so
+ * the plain-Graphviz path genuinely works without `elkjs` present. Under a
+ * static import the whole module failed to load and `layout: 'graphviz'` was
+ * an escape hatch that could never be reached.
+ *
  * @module viewer/render
  */
 
 import { instance as vizInstance } from '@viz-js/viz';
-import {
-  foldOrphans,
-  parseLibpetriDot,
-  replicateShared,
-} from './layout/preprocess.js';
-import { elkLayout, writeBack } from './layout/elk-place.js';
 import type { ElkLayoutConfig } from './layout/elk-place.js';
 
 type Viz = Awaited<ReturnType<typeof vizInstance>>;
@@ -103,6 +102,21 @@ export async function renderDotToSvgWithElkLayout(
   const key = fnv1a(dotSource + '\0' + JSON.stringify(cfg ?? {}));
   let pinnedDot = getCachedPinnedDot(key);
   if (pinnedDot === undefined) {
+    const { foldOrphans, parseLibpetriDot, replicateShared } =
+      await import('./layout/preprocess.js');
+    // `elkjs` is an optional peer dependency, in line with the viewer's other
+    // browser-only peers. Name it explicitly here: the raw resolution failure
+    // mentions a deep path inside elkjs and reads as a libpetri bug.
+    const { elkLayout, writeBack } = await import('./layout/elk-place.js').catch(
+      (cause: unknown) => {
+        throw new Error(
+          "the viewer's default 'elk' layout requires the optional peer "
+            + "dependency 'elkjs'. Install it, or pass { layout: 'graphviz' } "
+            + 'to mount() for stock Graphviz layout with spline edges.',
+          { cause },
+        );
+      },
+    );
     const graph = replicateShared(
       foldOrphans(parseLibpetriDot(dotSource), 0.7),
       { max: Infinity },

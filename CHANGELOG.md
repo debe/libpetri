@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-**Two fix sets on top of 3.0.0.** A fifth executor divergence is closed and the rule behind it now covers token counts and consumption, not just presence. And the verifier stops taking the solver's word for it: every `Proven` discharges its own certificate, every `Violated` replays its own counterexample, and untrustworthy invariants are dropped before they reach the encoder. Java, TypeScript and Rust are covered; Python inherits every Rust fix through the PyO3 bindings.
+**Three fix sets on top of 3.0.0.** A fifth executor divergence is closed and the rule behind it now covers token counts and consumption, not just presence. And the verifier stops taking the solver's word for it: every `Proven` discharges its own certificate, every `Violated` replays its own counterexample, and untrustworthy invariants are dropped before they reach the encoder. And the diagram pipeline stops drifting: the published TypeDoc plugin no longer embeds a viewer one build behind the one it ships beside, a failed mount says so instead of leaving an empty box, and every port now fails its build when its copy of the viewer bundle goes stale. Java, TypeScript and Rust are covered; Python inherits every Rust fix through the PyO3 bindings.
 
 ---
 
@@ -89,6 +89,28 @@ A shared fixture set (`spec/verification-fixtures/`) pins twelve net-and-propert
 Since extended to the ν-match cache (`match_cache_lockstep`), the deadline-reap disagreement between the two backends, and the soundness of invariant strengthening — that last one is where the `all()` / `atLeast()` guard above came from: the proof would not close without a hypothesis the code never enforced. Thirty-seven theorems are gated in CI through `#print axioms`.
 
 Two supporting artefacts ship with it. `lean/fidelity.toml` pins every shipped Rust function the proofs model, and CI fails when one changes until the model is re-checked, so a proof cannot quietly stop describing the code. `spec/coverage-matrix.md` is generated per requirement and states plainly what is proven, what is only mentioned, and what is merely tested — 21 of 208 requirements carry a machine-checked fragment today, each with a note saying what it does not claim.
+
+---
+
+### Diagrams
+
+#### Fixed — the published TypeDoc plugin shipped a viewer one build behind (TypeScript)
+
+`tsup`'s `onSuccess` copied the doclet's viewer resources into `dist/` before it built the IIFE bundle, so every published build paired a current viewer with a plugin embedding the previous one. `dist/` is what npm ships, so the lag was permanent rather than local. The copy now comes from the freshly built bundle.
+
+#### Fixed — a failed diagram mount left an empty box (Java, TypeScript)
+
+The init snippets wrapped an async `mount()` in a synchronous `try`/`catch`, so a rejection went unhandled and the page showed nothing at all. All three doc generators now paint a visible `.libpetri-diagram-error` message, bound their wait for the viewer bundle, and record which bundle drew the page in `data-libpetri-viewer` on the diagram container. Rust also stopped sharing one `var` binding across its mount loop, which sent every diagram's handle to the last container.
+
+#### Changed — `libpetri/render-dom` renders through the canonical viewer (TypeScript)
+
+`renderDotToContainer()` pinned Graphviz `engine: 'dot'` and drew diagonal spline edges while every first-party surface drew orthogonal ones. It now delegates to `mount()`, with the same signature and return shape. `dotToSvg()` from `libpetri/doclet` and a raw `dotExport()` piped to your own `dot` stay stock Graphviz by design; the README now states which path yields which.
+
+The viewer's ELK stage is loaded on demand, so `mount(dot, el, { layout: 'graphviz' })` genuinely works without `elkjs` installed. Under the previous static import the whole module failed to load and the documented fallback was unreachable.
+
+#### Added — drift gate on the mirrored viewer bundle (Java, TypeScript, Rust)
+
+`scripts/build-viewer.sh` records the bundle digests in `spec/viewer-bundle.sha256`, and each port tests its own copy of `petrinet-diagrams.{js,css}` against them. A mirror left on an older bundle now fails that port's build instead of quietly rendering a stale viewer.
 
 ---
 

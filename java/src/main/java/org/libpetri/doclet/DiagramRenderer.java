@@ -83,15 +83,34 @@ public final class DiagramRenderer {
         // strip, cluster collapse, and fullscreen controls — no placeholders
         // are emitted from the Java side. Idempotency guard keys off
         // `_libpetriViewerInit` so the script only executes once per page.
+        //
+        // The init snippet is kept in lockstep with the TypeScript doclet
+        // (`diagram-renderer.ts` mountScript) and the Rust docgen
+        // (`diagram_renderer.rs`). Three things it has to get right:
+        // `data-libpetri-viewer` records the bundle version so a page drawn by
+        // an old viewer is identifiable without comparing pixels; `mount()` is
+        // async so its rejection needs a `.catch` (a bare try/catch sees only
+        // synchronous throws and leaves a failed render as an empty box); and
+        // the poll for the bundle is bounded, because a viewer that never
+        // arrives must not look like a diagram that simply has no edges.
         return """
             <style>%s</style>
             <script>if(!window._libpetriViewerInit){window._libpetriViewerInit=true;
             %s
-            (function(){function mountAll(){if(!window.LibpetriViewer||!window.LibpetriViewer.mount)return;\
+            (function(){function fail(n,e){console.error('[libpetri] viewer mount failed',e);\
+            var p=document.createElement('p');p.className='libpetri-diagram-error';\
+            p.textContent='Diagram render failed: '+(e&&e.message?e.message:e);\
+            n.textContent='';n.appendChild(p);}
+            var tries=0;
+            function mountAll(){\
             var nodes=document.querySelectorAll('.petrinet-diagram-viewer[data-dot]:not([data-libpetri-mounted])');\
+            if(!window.LibpetriViewer||typeof window.LibpetriViewer.mount!=='function'){\
+            if(++tries>100){nodes.forEach(function(n){fail(n,new Error('viewer bundle did not load'));});return;}\
+            return setTimeout(mountAll,30);}
             nodes.forEach(function(n){n.setAttribute('data-libpetri-mounted','');\
-            try{window.LibpetriViewer.mount(n.getAttribute('data-dot'),n,{chrome:true});}\
-            catch(e){console.error('LibpetriViewer.mount failed',e);}});}
+            n.setAttribute('data-libpetri-viewer',window.LibpetriViewer.VERSION||'unknown');\
+            try{Promise.resolve(window.LibpetriViewer.mount(n.getAttribute('data-dot'),n,{chrome:true})).catch(function(e){fail(n,e);});}\
+            catch(e){fail(n,e);}});}
             if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',mountAll);}else{mountAll();}})();
             }</script>
             <div class="%s">

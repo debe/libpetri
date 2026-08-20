@@ -12,6 +12,8 @@
 #   java/src/main/resources/javadoc/petrinet-diagrams.{js,css}
 #   rust/libpetri-docgen/resources/petrinet-diagrams.{js,css}
 #   typescript/src/doclet/resources/petrinet-diagrams.{js,css}
+# Digests of both files are recorded in spec/viewer-bundle.sha256, which the
+# per-port drift tests check against.
 
 set -euo pipefail
 
@@ -52,3 +54,15 @@ diff "${DESTS[0]}/petrinet-diagrams.js"  "${DESTS[2]}/petrinet-diagrams.js"  >/d
 diff "${DESTS[0]}/petrinet-diagrams.css" "${DESTS[1]}/petrinet-diagrams.css" >/dev/null
 diff "${DESTS[0]}/petrinet-diagrams.css" "${DESTS[2]}/petrinet-diagrams.css" >/dev/null
 echo "==> All three consumer dirs hold byte-identical petrinet-diagrams.{js,css}."
+
+# Record the canonical digests. Each port has a test that hashes its own copy
+# of petrinet-diagrams.{js,css} and compares against this file, so a mirror
+# left behind on an older bundle fails that port's build instead of silently
+# rendering a stale viewer (which is how a doc page can end up with diagonal
+# spline edges long after the orthogonal routing landed).
+CHECKSUMS="$REPO_ROOT/spec/viewer-bundle.sha256"
+{
+  printf '%s  petrinet-diagrams.js\n'  "$(sha256sum "$VIEWER_JS"  | cut -d' ' -f1)"
+  printf '%s  petrinet-diagrams.css\n' "$(sha256sum "$VIEWER_CSS" | cut -d' ' -f1)"
+} > "$CHECKSUMS"
+echo "==> Wrote $CHECKSUMS"

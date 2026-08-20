@@ -189,6 +189,25 @@ describe('doclet/subnet plugin', () => {
       expect(html).toContain('chrome:true');
     });
 
+    it('stamps the viewer version and reports a failed mount', () => {
+      const html = renderSvg('X', 'digraph X { }');
+
+      // Records which bundle drew the page. Without it, a page rendered by an
+      // old viewer (Graphviz-routed diagonal edges rather than ELK orthogonal
+      // routes) is indistinguishable from a current one except by eye.
+      expect(html).toContain('dataset.libpetriViewer');
+      expect(html).toContain('LibpetriViewer.VERSION');
+
+      // mount() is async: a bare try/catch sees only synchronous throws and
+      // leaves a rejected render as an empty box plus an unhandled rejection.
+      expect(html).toContain('.catch(');
+      expect(html).toContain('libpetri-diagram-error');
+
+      // The poll for the bundle must terminate, otherwise a viewer that never
+      // arrives looks like a diagram that simply has no edges.
+      expect(html).toContain('viewer bundle did not load');
+    });
+
     it('escapes the DOT source inside the data-dot attribute', () => {
       // A DOT body containing `"`, `<`, `&`, and `'` must be encoded so the
       // attribute parses correctly — otherwise the embedded HTML breaks.

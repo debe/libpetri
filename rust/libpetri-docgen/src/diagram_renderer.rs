@@ -66,19 +66,48 @@ fn render_internal(
     // calls `LibpetriViewer.mount(dot, container, { chrome: true })`. It is
     // idempotent: subsequent invocations (e.g. on SPA-style re-mount) skip
     // containers already tagged with `data-libpetri-mounted`.
+    //
+    // Kept in lockstep with the Java taglet (`DiagramRenderer.java`) and the
+    // TypeScript doclet (`diagram-renderer.ts` mountScript). Three things it
+    // has to get right: `data-libpetri-viewer` records the bundle version so a
+    // page drawn by an old viewer is identifiable without comparing pixels; a
+    // rejected `mount()` paints a visible error rather than leaving an empty
+    // box; and the poll for the bundle is bounded, because a viewer that never
+    // arrives must not look like a diagram that simply has no edges.
+    //
+    // `el` is bound with `let` on purpose: under `var` the whole loop shares
+    // one binding, so every `.then` callback would write the handle of the
+    // last container.
     let init_script = "(function(){\
+        function fail(el,e){\
+            console.error('[libpetri] viewer mount failed',e);\
+            var p=document.createElement('p');\
+            p.className='libpetri-diagram-error';\
+            p.textContent='Diagram render failed: '+(e&&e.message?e.message:e);\
+            el.textContent='';el.appendChild(p);\
+        }\
+        var tries=0;\
         function boot(){\
-            if(!window.LibpetriViewer||typeof window.LibpetriViewer.mount!=='function')return;\
             var nodes=document.querySelectorAll('.diagram-container[data-dot]');\
+            if(!window.LibpetriViewer||typeof window.LibpetriViewer.mount!=='function'){\
+                if(++tries>100){\
+                    for(var j=0;j<nodes.length;j++){\
+                        fail(nodes[j],new Error('viewer bundle did not load'));\
+                    }\
+                    return;\
+                }\
+                return setTimeout(boot,30);\
+            }\
             for(var i=0;i<nodes.length;i++){\
-                var el=nodes[i];\
+                let el=nodes[i];\
                 if(el.dataset.libpetriMounted==='true')continue;\
                 el.dataset.libpetriMounted='true';\
+                el.dataset.libpetriViewer=window.LibpetriViewer.VERSION||'unknown';\
                 try{\
                     Promise.resolve(window.LibpetriViewer.mount(el.dataset.dot,el,{chrome:true}))\
                         .then(function(h){el.__libpetriHandle=h;})\
-                        .catch(function(e){console.error('[libpetri] mount failed',e);});\
-                }catch(e){console.error('[libpetri] mount failed',e);}\
+                        .catch(function(e){fail(el,e);});\
+                }catch(e){fail(el,e);}\
             }\
         }\
         if(document.readyState==='loading'){\
@@ -259,5 +288,99 @@ mod tests {
         // inside the <pre><code> details block.
         assert!(html.contains("data-dot=\"digraph G { &quot;a&quot; -&gt; &quot;b&quot; }\""));
         assert!(html.contains("digraph G { &quot;a&quot; -&gt; &quot;b&quot; }"));
+    }
+
+    // ---- viewer bundle drift gate ----------------------------------------
+    //
+    // `typescript/src/viewer/` is the single source of truth, but this crate
+    // ships a *copy* of the built bundle in `resources/`, as do the Java
+    // javadoc taglet and the TypeScript doclet. `scripts/build-viewer.sh`
+    // distributes all three and records the canonical digests in
+    // `spec/viewer-bundle.sha256`.
+    //
+    // Nothing forced a rebuild before, so a consumer could sit on an old
+    // bundle indefinitely and quietly render an old viewer. That is how a
+    // generated doc page ends up with Graphviz-routed diagonal edges long
+    // after the ELK orthogonal routing shipped, with nothing on the page to
+    // say so.
+    //
+    // When this fails, the fix is `scripts/build-viewer.sh`. The files under
+    // `resources/` are build outputs and must never be hand-edited.
+
+    /// Resolves the checksum file upward from this crate's manifest directory.
+    fn locate_checksums() -> std::path::PathBuf {
+        let mut dir: Option<&std::path::Path> =
+            Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")));
+        while let Some(d) = dir {
+            let candidate = d.join("spec").join("viewer-bundle.sha256");
+            if candidate.is_file() {
+                return candidate;
+            }
+            dir = d.parent();
+        }
+        panic!(
+            "could not locate spec/viewer-bundle.sha256 upward from {}",
+            env!("CARGO_MANIFEST_DIR")
+        );
+    }
+
+    /// Parses the `<sha256>  <filename>` lines written by build-viewer.sh.
+    fn canonical_digest(filename: &str) -> String {
+        let path = locate_checksums();
+        let contents = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+        for line in contents.lines() {
+            let mut parts = line.split_whitespace();
+            let (Some(digest), Some(name)) = (parts.next(), parts.next()) else {
+                continue;
+            };
+            if name == filename {
+                return digest.to_string();
+            }
+        }
+        panic!("spec/viewer-bundle.sha256 has no entry for {filename}");
+    }
+
+    fn sha256_hex(bytes: &[u8]) -> String {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(bytes);
+        hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
+
+    #[test]
+    fn bundled_js_matches_canonical_digest() {
+        assert_eq!(
+            canonical_digest("petrinet-diagrams.js"),
+            sha256_hex(INLINE_JS.as_bytes()),
+            "resources/petrinet-diagrams.js is stale — run scripts/build-viewer.sh \
+             (do not hand-edit build outputs)"
+        );
+    }
+
+    #[test]
+    fn bundled_css_matches_canonical_digest() {
+        assert_eq!(
+            canonical_digest("petrinet-diagrams.css"),
+            sha256_hex(INLINE_CSS.as_bytes()),
+            "resources/petrinet-diagrams.css is stale — run scripts/build-viewer.sh \
+             (do not hand-edit build outputs)"
+        );
+    }
+
+    /// Cheap canary independent of the digests: the orthogonal edge routing
+    /// draws ELK's own routes under Graphviz `nop2`. A bundle predating that
+    /// renders ELK-placed nodes joined by diagonal splines, which reads as a
+    /// styling preference rather than a stale build.
+    #[test]
+    fn bundle_ships_orthogonal_routing() {
+        assert!(
+            INLINE_JS.contains("nop2"),
+            "viewer bundle predates orthogonal edge routing"
+        );
     }
 }

@@ -21,6 +21,9 @@
   --lpv-border:                   #ddd;
   --lpv-text:                     #111827;
   --lpv-muted:                    #6b7280;
+  --lpv-error-bg:                 #fef2f2;
+  --lpv-error-border:             #fecaca;
+  --lpv-error-text:               #991b1b;
 
   /* Cluster visuals — user feedback: clusters must be visually obvious.
      Bumped the cluster background from a near-white tint to a saturated
@@ -752,7 +755,25 @@ g.node.petri-replica > text.libpetri-replica-glyph {
   --lpv-sidebar-chip-hover-bg:    #312e81;
   --lpv-replica-fill:             #312e81;
   --lpv-replica-stroke:           #a78bfa;
+  --lpv-error-bg:                 #3f1d1d;
+  --lpv-error-border:             #7f1d1d;
+  --lpv-error-text:               #fecaca;
   --lpv-shared-glyph-color:       #a78bfa;
+}
+
+/* Painted by the doc-generator init snippets when `mount()` rejects or the
+   viewer bundle never loads. Without it a failed render is an empty box, which
+   reads as "this net has no diagram" rather than "rendering broke". */
+.libpetri-diagram-error {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--lpv-error-border);
+  border-radius: 4px;
+  background: var(--lpv-error-bg);
+  color: var(--lpv-error-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 [data-lpv-theme="dark"] .libpetri-sidebar .libpetri-sidebar-actions button {
