@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Java 3.0.1 / TypeScript 3.0.1 / Rust 4.0.1 / Python 3.0.1 — 2026-08-20
 
 **Three fix sets on top of 3.0.0.** A fifth executor divergence is closed and the rule behind it now covers token counts and consumption, not just presence. And the verifier stops taking the solver's word for it: every `Proven` discharges its own certificate, every `Violated` replays its own counterexample, and untrustworthy invariants are dropped before they reach the encoder. And the diagram pipeline stops drifting: the published TypeDoc plugin no longer embeds a viewer one build behind the one it ships beside, a failed mount says so instead of leaving an empty box, and every port now fails its build when its copy of the viewer bundle goes stale. Java, TypeScript and Rust are covered; Python inherits every Rust fix through the PyO3 bindings.
 
