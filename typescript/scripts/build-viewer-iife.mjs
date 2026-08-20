@@ -12,13 +12,16 @@
  * can ship it alongside the JS bundle.
  */
 import { build } from 'esbuild';
-import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const tsRoot = join(here, '..');
 const outDir = join(tsRoot, 'dist', 'viewer');
+const { version } = JSON.parse(
+  readFileSync(join(tsRoot, 'package.json'), 'utf-8'),
+);
 mkdirSync(outDir, { recursive: true });
 
 // Banner is pure ASCII on purpose (see the template-literal note below): the
@@ -41,6 +44,9 @@ await build({
   target: ['es2022'],
   outfile: join(outDir, 'viewer.iife.js'),
   loader: { '.wasm': 'binary' },
+  // Stamps the package version into the bundle (see src/viewer/version.ts) so
+  // `window.LibpetriViewer.VERSION` identifies which viewer a doc page embeds.
+  define: { __LIBPETRI_VIEWER_VERSION__: JSON.stringify(version) },
   banner: { js: banner },
   minify: true,
   // @viz-js/viz embeds the Graphviz WASM as a template-literal string whose

@@ -103,6 +103,27 @@ export function renderSubnetSvg(
   return renderInternal(title ?? null, headerHtml, dotSource);
 }
 
+/**
+ * The client-side init snippet for one diagram container.
+ *
+ * Byte-for-byte the same JavaScript the Java taglet and the Rust docgen emit
+ * (`DiagramRenderer.java`, `diagram_renderer.rs`) — the three generators must
+ * stay in lockstep so a diagram looks identical whichever port produced the
+ * page. Three things it has to get right:
+ *
+ *  - `data-libpetri-viewer` records the bundle version, so a page rendered by
+ *    an old viewer can be identified without comparing pixels.
+ *  - `mount()` is async, so its rejection needs a `.catch`. A bare `try/catch`
+ *    around the call only sees synchronous throws and leaves a failed render as
+ *    an empty box plus an unhandled rejection.
+ *  - the poll for the bundle is bounded. An unbounded retry on a bundle that
+ *    never loads is indistinguishable from a diagram that simply has no edges.
+ */
+function mountScript(containerId: string): string {
+  const id = JSON.stringify(containerId);
+  return `(function(){function fail(el,e){console.error('[libpetri] viewer mount failed',e);var p=document.createElement('p');p.className='libpetri-diagram-error';p.textContent='Diagram render failed: '+(e&&e.message?e.message:e);el.textContent='';el.appendChild(p);}var tries=0;function mount(){var el=document.getElementById(${id});if(!el)return;if(el.dataset.libpetriMounted)return;if(!window.LibpetriViewer||typeof window.LibpetriViewer.mount!=='function'){if(++tries>100){return fail(el,new Error('viewer bundle did not load'));}return setTimeout(mount,30);}el.dataset.libpetriMounted='1';el.dataset.libpetriViewer=window.LibpetriViewer.VERSION||'unknown';try{Promise.resolve(window.LibpetriViewer.mount(el.dataset.dot,el,{chrome:true})).catch(function(e){fail(el,e);});}catch(e){fail(el,e);}}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',mount);}else{mount();}})();`;
+}
+
 let diagramIdCounter = 0;
 
 function renderInternal(
@@ -128,5 +149,5 @@ ${titleHtml}${headerBlock}<div class="diagram-container" id="${containerId}" dat
 <pre><code>${escapeHtml(dotSource)}</code></pre>
 </details>
 </div>
-<script>(function(){function mount(){var el=document.getElementById(${JSON.stringify(containerId)});if(!el)return;if(el.dataset.libpetriMounted)return;if(!window.LibpetriViewer||typeof window.LibpetriViewer.mount!=='function'){return setTimeout(mount,30);}el.dataset.libpetriMounted='1';try{window.LibpetriViewer.mount(el.dataset.dot,el,{chrome:true});}catch(e){console.error('[libpetri] mount failed',e);}}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',mount);}else{mount();}})();</script>`;
+<script>${mountScript(containerId)}</script>`;
 }

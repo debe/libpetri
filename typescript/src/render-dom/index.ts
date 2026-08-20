@@ -1,30 +1,47 @@
 /**
- * DOM rendering helper for libpetri DOT diagrams.
+ * Compatibility wrapper over the canonical viewer.
  *
- * Single source of truth for the viz.js + panzoom pipeline used by both
- * debug-ui (live sessions) and the internal dev-preview Vite app
- * (sample.dot iteration loop). Doc generators (Javadoc taglet, Rustdoc
- * build.rs, TypeDoc plugin) take a different path — they shell out to the
- * Graphviz `dot` binary at build time — and do not consume this module.
+ * This module predates `libpetri/viewer` and used to be the shared viz.js +
+ * panzoom pipeline behind debug-ui and the dev-preview app. Both moved to the
+ * canonical viewer at `274cb41`, and the doc generators (Javadoc taglet,
+ * `libpetri-docgen`, TypeDoc plugin) never shelled out to a `dot` binary
+ * again either: they embed the viewer IIFE and mount client-side.
  *
- * Browser-only: requires `@viz-js/viz` and `panzoom` as peer dependencies.
+ * What was left behind was a public export that still pinned Graphviz
+ * `engine: 'dot'`, so anything reaching for it got stock spline layout with
+ * diagonal edges while every first-party surface rendered ELK-placed nodes
+ * with orthogonal routes. `renderDotToContainer` now delegates to
+ * {@link mount}, so all render paths agree.
+ *
+ * Prefer importing `libpetri/viewer` directly in new code: `mount()` returns a
+ * {@link ViewerHandle} with cluster collapse, subnet toggling, filtering and
+ * highlight control, of which this wrapper surfaces only the SVG and the
+ * panzoom instance.
+ *
+ * Browser-only. Requires `@viz-js/viz`, `panzoom`, and `elkjs` (the viewer's
+ * default layout) as peer dependencies.
  *
  * @module render-dom
  */
 
-import { instance as vizInstance } from '@viz-js/viz';
-import panzoom from 'panzoom';
+import {
+  DEFAULT_PANZOOM_OPTS,
+  mount,
+  type PanzoomInstance,
+  type PanzoomOptions,
+  type ViewerHandle,
+} from '../viewer/index.js';
 
-type Viz = Awaited<ReturnType<typeof vizInstance>>;
-export type PanzoomInstance = ReturnType<typeof panzoom>;
+export type { PanzoomInstance, PanzoomOptions };
 
-let vizPromise: Promise<Viz> | null = null;
-
-/** Memoizes the viz.js instance so loading happens only once per page. */
-function getViz(): Promise<Viz> {
-  if (!vizPromise) vizPromise = vizInstance();
-  return vizPromise;
-}
+/**
+ * Default panzoom configuration.
+ *
+ * Re-exported from the viewer rather than redefined here; a second copy of
+ * these numbers is exactly how the two render paths drifted apart in the first
+ * place.
+ */
+export { DEFAULT_PANZOOM_OPTS };
 
 export interface RenderDotOptions {
   /**
@@ -38,7 +55,7 @@ export interface RenderDotOptions {
    * so partial overrides keep the unspecified defaults (e.g. passing only
    * `smoothScroll: true` retains `maxZoom: 1000` and `minZoom: 0.02`).
    */
-  readonly panzoom?: Parameters<typeof panzoom>[1];
+  readonly panzoom?: PanzoomOptions;
 }
 
 export interface RenderDotResult {
@@ -47,27 +64,12 @@ export interface RenderDotResult {
 }
 
 /**
- * Default panzoom configuration shared by debug-ui and the dev preview.
- *
- * - `maxZoom: 1000` — effectively unlimited; lets users dive into ~150-node
- *   diagrams without hitting an artificial ceiling.
- * - `minZoom: 0.02` — allows fitting very large nets in a small viewport.
- * - `smoothScroll: false` — sharper interactive feel.
- * - `zoomDoubleClickSpeed: 1` — single-click double-zoom toggle.
- */
-export const DEFAULT_PANZOOM_OPTS = {
-  smoothScroll: false,
-  zoomDoubleClickSpeed: 1,
-  maxZoom: 1000,
-  minZoom: 0.02,
-} as const satisfies Parameters<typeof panzoom>[1];
-
-/**
  * Render a DOT string into a container element and wrap it with panzoom.
  *
- * Engine is pinned to `'dot'` so layout is deterministic across reloads;
- * libpetri mappers emit byte-stable DOT (per spec EXP-014) and the `dot`
- * engine produces identical SVG for identical input.
+ * Layout is the viewer default: ELK node placement plus ELK-computed
+ * orthogonal edge routes, drawn by Graphviz `nop2`. Deterministic across
+ * reloads, since libpetri mappers emit byte-stable DOT (spec EXP-014) and
+ * neither stage introduces randomness.
  *
  * The container's existing children are removed before the new SVG is
  * appended.
@@ -81,18 +83,22 @@ export async function renderDotToContainer(
   container: HTMLElement,
   opts: RenderDotOptions = {},
 ): Promise<RenderDotResult> {
-  const viz = await getViz();
-  const svg = viz.renderSVGElement(dotSource, { engine: 'dot' });
-
-  container.innerHTML = '';
-  container.appendChild(svg);
-
+  // Disposed up front rather than after the swap (the pre-viewer ordering):
+  // the old instance is bound to nodes `mount` is about to discard, and a
+  // panzoom still listening on a detached subtree has nothing useful to do.
   if (opts.previousPanzoom) {
-    opts.previousPanzoom.dispose();
+    try {
+      opts.previousPanzoom.dispose();
+    } catch {
+      // Already detached, or panzoom raised on a missing root. Either way the
+      // only goal was to stop the old instance.
+    }
   }
 
-  const panzoomOpts = { ...DEFAULT_PANZOOM_OPTS, ...opts.panzoom };
-  const instance = panzoom(svg, panzoomOpts);
+  const handle: ViewerHandle = await mount(dotSource, container, {
+    chrome: false,
+    panzoom: opts.panzoom,
+  });
 
-  return { svg, panzoom: instance };
+  return { svg: handle.svg, panzoom: handle.panzoom };
 }
