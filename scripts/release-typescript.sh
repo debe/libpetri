@@ -98,9 +98,27 @@ info "Setting TypeScript version to ${VERSION}"
 cd "$TS_DIR"
 npm version "$VERSION" --no-git-tag-version --allow-same-version
 
+# --- Re-stamp the viewer bundle ---
+# The bundle carries the package version (src/viewer/version.ts, injected by
+# both bundlers) so a generated doc page can report which viewer drew it. That
+# makes the built asset a function of package.json, so bumping the version
+# without rebuilding leaves the committed mirrors stale — and CI's
+# "No viewer-asset drift" step rebuilds from locked deps and demands a
+# byte-identical match, so the release commit would land red. Rebuild here and
+# ship the mirrors in the same commit as the bump.
+info "Rebuilding the viewer bundle at ${VERSION}"
+bash "$PROJECT_ROOT/scripts/build-viewer.sh"
+
 # --- Commit the version bump ---
 cd "$PROJECT_ROOT"
-git add typescript/package.json typescript/package-lock.json
+git add typescript/package.json typescript/package-lock.json \
+    spec/viewer-bundle.sha256 \
+    java/src/main/resources/javadoc/petrinet-diagrams.js \
+    java/src/main/resources/javadoc/petrinet-diagrams.css \
+    rust/libpetri-docgen/resources/petrinet-diagrams.js \
+    rust/libpetri-docgen/resources/petrinet-diagrams.css \
+    typescript/src/doclet/resources/petrinet-diagrams.js \
+    typescript/src/doclet/resources/petrinet-diagrams.css
 git diff --cached --quiet || git commit -m "release: typescript ${VERSION}"
 
 # --- Build, test ---
