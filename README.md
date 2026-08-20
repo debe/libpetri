@@ -23,7 +23,7 @@ All four APIs follow the same [language-agnostic specification](spec/00-index.md
 
 | Language | Runtime | Maturity | Install | Guide |
 |---|---|---:|---|---|
-| Java 25 | `CompletionStage` actions | Production | `org.libpetri:libpetri:2.14.0` | [Java guide](java/README.md) |
+| Java 25 | `CompletionStage` actions | Production | `org.libpetri:libpetri:3.0.1` | [Java guide](java/README.md) |
 | TypeScript 6 | Promises and the event loop | Production | `npm install libpetri` | [TypeScript guide](typescript/README.md) |
 | Rust 2024 | Tokio | Production | `cargo add libpetri --features tokio` | [Rust guide](rust/README.md) |
 | Python ≥3.11 | Tokio through PyO3 | Beta | `pip install libpetri` | [Python guide](python/README.md) |
