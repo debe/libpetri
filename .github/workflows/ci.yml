@@ -26,29 +26,9 @@ jobs:
         with:
           java-version: '25-ea'
           distribution: 'temurin'
-      # The SMT verifier binds com.microsoft.z3 through JNI, but the
-      # javasmt-solver-z3 artifact ships only the Java classes — the natives it
-      # calls (libz3java.so, libz3.so) are not a Maven dependency. Without them
-      # every @EnabledIf("z3Available") suite skipped silently: 47 of 136 tests,
-      # the whole certificate-check / replay / verdict-parity feature. The version
-      # must track javasmt-z3.version in java/pom.xml, since the JNI symbol set is
-      # version-specific; on Linux the JVM seeds java.library.path from
-      # LD_LIBRARY_PATH, so no argLine override is needed and JaCoCo stays intact.
-      # Z3NativeGateTest fails the build if the natives still do not load.
-      - name: Install z3 JNI natives
-        working-directory: ${{ runner.temp }}
-        run: |
-          set -euo pipefail
-          version=$(sed -n 's|.*<javasmt-z3.version>\(.*\)</javasmt-z3.version>.*|\1|p' \
-            "$GITHUB_WORKSPACE/java/pom.xml")
-          url=$(curl -fsSL "https://api.github.com/repos/Z3Prover/z3/releases/tags/z3-$version" \
-            | grep -o 'https://[^"]*x64-glibc[^"]*\.zip' | head -1)
-          test -n "$url" || { echo "no x64-glibc asset for z3-$version"; exit 1; }
-          curl -fsSL -o z3.zip "$url"
-          unzip -q z3.zip
-          bin=$(dirname "$(find . -name libz3java.so -print -quit)")
-          test -f "$bin/libz3java.so" || { echo "libz3java.so missing from $url"; exit 1; }
-          echo "LD_LIBRARY_PATH=$PWD/${bin#./}" >> "$GITHUB_ENV"
+      # Natives for the com.microsoft.z3 JNI bindings; see the action for why.
+      # Shared with .github/workflows/benchmark.yml, which also runs `mvnw verify`.
+      - uses: ./.github/actions/z3-jni-natives
       - run: ./mvnw verify
 
   typescript:
