@@ -103,6 +103,6 @@
     }
   },
   "dependencies": {
-    "z3-solver": "^4.16.0"
+    "z3-solver": "^5.2.0"
   }
 }
