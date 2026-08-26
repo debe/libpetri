@@ -35,7 +35,7 @@ pyo3 = { version = "0.28", default-features = false }
 pyo3-async-runtimes = { version = "0.28", default-features = false, features = ["tokio-runtime"] }
 # Test-only. Used by the viewer-bundle drift gate in libpetri-docgen to hash
 # the mirrored petrinet-diagrams.{js,css} against spec/viewer-bundle.sha256.
-sha2 = "0.10"
+sha2 = "0.11"
 
 # LTO + single codegen-unit are workspace-wide because `lto` is not allowed in
 # per-package profile overrides (cargo enforces this). The Python wheel is the
