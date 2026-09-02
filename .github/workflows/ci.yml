@@ -205,6 +205,15 @@ jobs:
           #print axioms Libpetri.reap_dirty_is_the_asymmetry
           #print axioms Libpetri.no_reap_frame
           #print axioms Libpetri.bad_rule_proves_every_net
+          #print axioms Libpetri.invariant_strengthening_sound_inj
+          #print axioms Libpetri.semiflow_union_sound
+          #print axioms Libpetri.semiflow_union_sound_inj
+          #print axioms Libpetri.semiflow_gate_is_necessary
+          #print axioms Libpetri.vacuous_colour_layer
+          #print axioms Libpetri.vacuous_colour_layer_inj
+          #print axioms Libpetri.Explorer.interned_keys_eq
+          #print axioms Libpetri.Explorer.interned_edges_eq
+          #print axioms Libpetri.equivariance_is_necessary
           EOF
           if ! lake env lean /tmp/axioms.lean > /tmp/axioms.out 2>&1; then
             cat /tmp/axioms.out
