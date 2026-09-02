@@ -68,6 +68,10 @@ pub struct SmtVerifier<'a> {
     /// Whether a flat-path `Violated` is re-validated by [`crate::abstract_replay`]
     /// (default `true`). See [`SmtVerifier::replay_phase`].
     counterexample_replay: bool,
+    /// Whether the gate-validated P-semiflows are handed to the encoders alongside
+    /// the null-space basis ([VER-007], default `false`). See
+    /// [`SmtVerifier::semiflow_invariants`].
+    semiflow_invariants: bool,
     /// Test seam: replaces the extracted certificate fed to the certificate
     /// check, so tests can prove end-to-end that a corrupt certificate
     /// downgrades the verdict.
@@ -108,6 +112,7 @@ impl<'a> SmtVerifier<'a> {
             priority_semantics: PrioritySemantics::None,
             certificate_check: true,
             counterexample_replay: true,
+            semiflow_invariants: false,
             #[cfg(test)]
             certificate_override: None,
             #[cfg(test)]
@@ -232,6 +237,30 @@ impl<'a> SmtVerifier<'a> {
     /// trace is produced at all. See [`crate::abstract_replay`].
     pub fn counterexample_replay(mut self, enabled: bool) -> Self {
         self.counterexample_replay = enabled;
+        self
+    }
+
+    /// Also hands the validated **P-semiflows** to the encoders as invariants
+    /// ([VER-007]; default: disabled — the encoders then see only the null-space
+    /// basis).
+    ///
+    /// Every validated semiflow is a conservation law in its own right (`y ≥ 0`,
+    /// `y·C = 0`, `y·M0` exact, zero weight on every reset / consume-all place), and
+    /// the Farkas enumeration returns the *minimal* laws of the net. The null-space
+    /// basis the encoders get by default is one basis of many: elimination hands back
+    /// rows that fold a reset place into a chain whose other combinations avoid it,
+    /// and the H1 guard drops them. On a net with a few reset arcs that can lose every
+    /// law of the chains those arcs touch, and without them IC3 has to rediscover the
+    /// conservation of each chain — on a ~100-place net it does not within any
+    /// practical budget. With the semiflows in, the same reachability-safety queries
+    /// close in about a second.
+    ///
+    /// Soundness is unchanged: the semiflows pass the same exact re-validation as the
+    /// basis rows, the union is pure strengthening (`Semiflow.lean`,
+    /// `semiflow_union_sound`), and the certificate check re-proves the strengthened
+    /// invariant. Off by default so reports stay byte-equal.
+    pub fn semiflow_invariants(mut self, enabled: bool) -> Self {
+        self.semiflow_invariants = enabled;
         self
     }
 
@@ -470,6 +499,17 @@ impl<'a> SmtVerifier<'a> {
         );
         let semiflows = semiflow_validation.valid;
         report.push_str(&format!("Found {} P-invariant(s)\n", invariants.len()));
+        // [VER-007]: the minimal conservation laws, as extra invariants for the
+        // encoders. The report line is emitted only when enabled so default reports
+        // stay byte-identical (AC2/AC3).
+        let invariants = if self.semiflow_invariants {
+            let (strengthened, added) =
+                p_invariant::strengthen_with_semiflows(invariants, &semiflows);
+            report.push_str(&format!("  Semiflows encoded as invariants: {added}\n"));
+            strengthened
+        } else {
+            invariants
+        };
 
         for (i, inv) in invariants.iter().enumerate() {
             let terms: Vec<String> = inv
@@ -1384,6 +1424,102 @@ mod tests {
             .timeout(5000);
 
         assert_eq!(verifier.timeout_ms, 5000);
+        // [VER-007] AC2: the semiflow union is opt-in.
+        assert!(!verifier.semiflow_invariants);
+    }
+
+    /// [VER-007] test derivation: a budgeted work loop with one reset arc on a side
+    /// place. `Open: one(budget), reset(stamp) -> and(work, stamp)`,
+    /// `Step: one(work) -> done`, `Close: one(done) -> and(budget, sink)`. The
+    /// semiflow enumeration finds `budget + work + done = 1` with zero weight on
+    /// the reset place; the null-space basis may fold `stamp` into it and lose it
+    /// to the H1 guard.
+    fn semiflow_loop() -> PetriNet {
+        use libpetri_core::arc::reset;
+        use libpetri_core::output::and;
+        let budget = Place::<i32>::new("budget");
+        let work = Place::<i32>::new("work");
+        let done = Place::<i32>::new("done");
+        let stamp = Place::<i32>::new("stamp");
+        let sink = Place::<i32>::new("sink");
+        let open = Transition::builder("Open")
+            .input(one(&budget))
+            .reset(reset(&stamp))
+            .output(and(vec![out_place(&work), out_place(&stamp)]))
+            .action(fork())
+            .build();
+        let step = Transition::builder("Step")
+            .input(one(&work))
+            .output(out_place(&done))
+            .action(fork())
+            .build();
+        let close = Transition::builder("Close")
+            .input(one(&done))
+            .output(and(vec![out_place(&budget), out_place(&sink)]))
+            .action(fork())
+            .build();
+        PetriNet::builder("loop").transitions([open, step, close]).build()
+    }
+
+    /// [VER-007] AC2/AC3: the validated P-semiflows reach the encoder as extra
+    /// invariants, and only when asked for.
+    #[test]
+    fn semiflows_are_encoded_only_when_enabled() {
+        if !z3_available() {
+            eprintln!("skipping semiflows_are_encoded_*: z3 binary not on PATH");
+            return;
+        }
+        let net = semiflow_loop();
+        let off = SmtVerifier::for_net(&net)
+            .initial_marking(MarkingStateBuilder::new().tokens("budget", 1).build())
+            .property(SmtProperty::place_bound("work", 1))
+            .timeout(30_000)
+            .verify();
+        assert!(
+            !off.report.contains("Semiflows encoded as invariants"),
+            "off by default, no report line\n{}",
+            off.report
+        );
+
+        let on = SmtVerifier::for_net(&net)
+            .initial_marking(MarkingStateBuilder::new().tokens("budget", 1).build())
+            .property(SmtProperty::place_bound("work", 1))
+            .semiflow_invariants(true)
+            .timeout(30_000)
+            .verify();
+        assert!(matches!(on.verdict, Verdict::Proven { .. }), "{}", on.report);
+        assert!(
+            on.report.contains("  Semiflows encoded as invariants: "),
+            "{}",
+            on.report
+        );
+        assert!(
+            on.report.lines().any(|l| l.starts_with("  I")
+                && l.contains("budget")
+                && l.contains("work")
+                && l.contains("done")
+                && l.ends_with("= 1")),
+            "the loop's conservation law must survive the reset arc on stamp\n{}",
+            on.report
+        );
+    }
+
+    /// [VER-007] AC5: strengthening never hides a counterexample. `sink` gains a
+    /// token per loop iteration, so the bound 1 is genuinely violated.
+    #[test]
+    fn strengthening_never_hides_a_counterexample() {
+        if !z3_available() {
+            eprintln!("skipping strengthening_never_hides_*: z3 binary not on PATH");
+            return;
+        }
+        let net = semiflow_loop();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(MarkingStateBuilder::new().tokens("budget", 1).build())
+            .property(SmtProperty::place_bound("sink", 1))
+            .semiflow_invariants(true)
+            .timeout(30_000)
+            .verify();
+        assert!(matches!(result.verdict, Verdict::Violated), "{}", result.report);
     }
 
     #[test]

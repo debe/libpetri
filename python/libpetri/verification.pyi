@@ -48,6 +48,9 @@ def verify(
     fragment_mode: str | int | None = ...,
     carrier_places: Iterable[PlaceLike] | None = ...,
     priority_semantics: str | int | None = ...,
+    certificate_check: bool = ...,
+    counterexample_replay: bool = ...,
+    semiflow_invariants: bool = ...,
 ) -> VerificationResult: ...
 def verify_subnet(
     subnet: BuiltSubnetDef,

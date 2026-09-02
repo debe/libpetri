@@ -956,6 +956,67 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
 // a separate file so their solver run gets its own z3 WASM heap rather than
 // adding to this file's, which already runs close to the 2 GB wasm32 ceiling.
 
+describe('SmtVerifier semiflow invariants (VER-007)', () => {
+  // A budgeted work loop with one reset arc on a side place — the shape that makes
+  // the null-space basis fold the reset place into the loop's conservation law and
+  // lose it to the H1 guard. The semiflow enumeration still finds
+  // Budget + Work + Done = 1 with zero weight on the reset place.
+  const BUDGET = place('Budget');
+  const WORK = place('Work');
+  const DONE = place('Done');
+  const STAMP = place('Stamp');
+  const SINK = place('Sink');
+  function loop(): PetriNet {
+    const open = Transition.builder('Open')
+      .inputs(one(BUDGET))
+      .resets(STAMP)
+      .outputs(andPlaces(WORK, STAMP))
+      .build();
+    const step = Transition.builder('Step').inputs(one(WORK)).outputs(outPlace(DONE)).build();
+    const close = Transition.builder('Close')
+      .inputs(one(DONE))
+      .outputs(andPlaces(BUDGET, SINK))
+      .build();
+    return bindProducers(PetriNet.builder('loop').transitions(open, step, close).build());
+  }
+
+  it('encodes the semiflows only when enabled (AC2/AC3)', async () => {
+    const off = await SmtVerifier.forNet(loop())
+      .initialMarking(m => m.tokens(BUDGET, 1))
+      .property(placeBound(WORK, 1))
+      .timeout(30_000)
+      .verify();
+    expect(off.report).not.toContain('Semiflows encoded as invariants');
+
+    const on = await SmtVerifier.forNet(loop())
+      .initialMarking(m => m.tokens(BUDGET, 1))
+      .property(placeBound(WORK, 1))
+      .semiflowInvariants(true)
+      .timeout(30_000)
+      .verify();
+    expect(on.verdict.type, on.report).toBe('proven');
+    expect(on.report).toContain('  Semiflows encoded as invariants: ');
+    // The loop's conservation law must survive the reset arc on Stamp.
+    expect(
+      on.report.split('\n').some(l =>
+        l.startsWith('  ') && !l.includes('Dropped') && l.includes('Budget') &&
+        l.includes('Work') && l.includes('Done') && l.trimEnd().endsWith('= 1')),
+      on.report,
+    ).toBe(true);
+  }, Z3_TIMEOUT);
+
+  it('never hides a counterexample (AC5)', async () => {
+    // Sink accumulates one token per loop iteration: the bound 1 is genuinely violated.
+    const result = await SmtVerifier.forNet(loop())
+      .initialMarking(m => m.tokens(BUDGET, 1))
+      .property(placeBound(SINK, 1))
+      .semiflowInvariants(true)
+      .timeout(30_000)
+      .verify();
+    expect(result.verdict.type, result.report).toBe('violated');
+  }, Z3_TIMEOUT);
+});
+
 describe('SmtVerifier exact invariant validation', () => {
   it('report mentions invariants dropped by the exact re-check', async () => {
     // Weight-amplifier chain: T_i consumes 8192 of P_{i-1} and produces 1 P_i, so the

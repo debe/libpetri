@@ -473,6 +473,35 @@ fn gcd(a: u64, b: u64) -> u64 {
     if b == 0 { a } else { gcd(b, a % b) }
 }
 
+/// [VER-007] — the semiflow union. Appends every gate-validated P-semiflow that is
+/// not already a basis row (same weights, same constant) to `invariants`, returning
+/// the strengthened list and how many rows were added.
+///
+/// The null-space basis is one basis of many: elimination hands back rows that fold
+/// a reset place into a chain whose other combinations avoid it, and the H1 guard of
+/// [`validate_invariants_exact`] then drops them — on a reset-heavy net every law of
+/// the chains those arcs touch, leaving IC3 to rediscover conservation it cannot
+/// within any practical budget. The Farkas rows ([`compute_p_semiflows`]) are the
+/// minimal laws of the net. Conjoining them alongside the basis is pure
+/// strengthening (`Semiflow.lean`, `semiflow_union_sound`) **provided both lists
+/// passed the same exact gate** (`semiflow_gate_is_necessary`) — the caller's
+/// obligation; this function only merges.
+pub fn strengthen_with_semiflows(
+    mut invariants: Vec<PInvariant>,
+    semiflows: &[PInvariant],
+) -> (Vec<PInvariant>, usize) {
+    let same_law =
+        |a: &PInvariant, b: &PInvariant| a.weights == b.weights && a.constant == b.constant;
+    let mut added = 0;
+    for sf in semiflows {
+        if !invariants.iter().any(|inv| same_law(inv, sf)) {
+            invariants.push(sf.clone());
+            added += 1;
+        }
+    }
+    (invariants, added)
+}
+
 #[cfg(test)]
 mod tests {
 

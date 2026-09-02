@@ -13,8 +13,9 @@ other combinations avoid it — both lost to the exact gate
 of the chains those arcs touch. The Farkas / Colom–Silva enumeration
 (`compute_p_semiflows`, `p_invariant.rs`) returns the *minimal* semi-positive
 laws instead. [VER-007] lets the verifier union the gate-validated semiflows
-into the list the encoders receive (Java `SmtVerifier.semiflowInvariants`; the
-Rust and TypeScript ports mirror it), off by default.
+into the list the encoders receive (`strengthen_with_semiflows`,
+`p_invariant.rs`; Java `SmtVerifier.semiflowInvariants` and the TypeScript
+`strengthenWithSemiflows` mirror it), off by default.
 
 * `ValidLaw` — what the gate accepts, from either source: H1 + H2 of
   `Strengthening.lean`. `Semiflow` adds semi-positivity, the one thing a Farkas

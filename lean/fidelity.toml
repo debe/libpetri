@@ -448,6 +448,11 @@ fn = "compute_p_semiflows"
 lean = ["Libpetri/Semiflow.lean"]
 
 [[pin]]
+file = "rust/libpetri-verification/src/p_invariant.rs"
+fn = "strengthen_with_semiflows"
+lean = ["Libpetri/Semiflow.lean"]
+
+[[pin]]
 file = "rust/libpetri-verification/src/name_coloured_encoder.rs"
 fn = "colour_slot_bound"
 lean = ["Libpetri/Semiflow.lean"]

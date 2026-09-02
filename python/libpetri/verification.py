@@ -107,6 +107,7 @@ def verify(
     priority_semantics: str | int | None = None,
     certificate_check: bool = True,
     counterexample_replay: bool = True,
+    semiflow_invariants: bool = False,
 ) -> VerificationResult:
     """Verify ``property`` against ``net`` via SMT (Z3).
 
@@ -182,6 +183,19 @@ def verify(
 
     Turning this off also turns off the only source of
     ``counterexample_trace``.
+
+    ``semiflow_invariants`` (default ``False``, VER-007) also hands the
+    gate-validated P-semiflows (the net's minimal non-negative conservation
+    laws) to the encoders as invariants, alongside the null-space basis. The
+    basis is one basis of many and on a reset-heavy net can lose every law of
+    the chains the reset arcs touch, leaving IC3 to rediscover conservation it
+    cannot within any practical budget; the semiflows are those laws. Pure
+    strengthening (Lean ``semiflow_union_sound``): the semiflows pass the same
+    exact gate as the basis rows and the certificate check re-proves the
+    strengthened invariant, so a ``violated`` verdict can never become
+    ``proven``. When enabled the report carries
+    ``  Semiflows encoded as invariants: N``; off by default so reports stay
+    byte-identical.
     """
     return _ext.verify_net(
         _coerce_net(net),
@@ -202,6 +216,7 @@ def verify(
         priority_semantics=priority_semantics,
         certificate_check=certificate_check,
         counterexample_replay=counterexample_replay,
+        semiflow_invariants=semiflow_invariants,
     )
 
 

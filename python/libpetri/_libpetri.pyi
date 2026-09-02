@@ -431,6 +431,12 @@ def verify_net(
     budget_places: list[str] | None = ...,
     timeout_ms: int = ...,
     nu_max_classes: int | None = ...,
+    fragment_mode: str | int | None = ...,
+    carrier_places: list[str] | None = ...,
+    priority_semantics: str | int | None = ...,
+    certificate_check: bool = ...,
+    counterexample_replay: bool = ...,
+    semiflow_invariants: bool = ...,
 ) -> VerificationResult: ...
 def verify_subnet(
     subnet: SubnetDef, harness: VerificationHarness

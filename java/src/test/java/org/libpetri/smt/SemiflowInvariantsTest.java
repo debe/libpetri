@@ -15,8 +15,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * {@link SmtVerifier#semiflowInvariants(boolean)}: the validated P-semiflows reach the
- * encoder as extra invariants, and only when asked for.
+ * VER-007 — {@link SmtVerifier#semiflowInvariants(boolean)}: the validated P-semiflows
+ * reach the encoder as extra invariants, and only when asked for.
  *
  * <p>The net is a budgeted work loop with one reset arc on a side place — the shape that
  * makes the null-space basis fold the reset place into the loop's conservation law and lose
