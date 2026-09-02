@@ -11,8 +11,8 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 - Active requirements: **209**
 - Proven in Lean (≥ 1 validated theorem fragment): **24**
 - Referenced in Lean comments only (mention without a validated theorem mapping): **7**
-- Referenced by ≥ 1 test file: java **66**, typescript **63**, rust **71**, python **24**
-- Untested anywhere (no test-file reference in any language): **131**
+- Referenced by ≥ 1 test file: java **67**, typescript **64**, rust **72**, python **24**
+- Untested anywhere (no test-file reference in any language): **130**
 
 ## 01-core-model.md — CORE
 
@@ -162,7 +162,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | VER-007 | `semiflow_union_sound` — AC2/AC5: conjoining basis ++ semiflows into the CHC rule bodies preserves the abstract reachable set whenever every member passed the exact gate (H1+H2) - the union is pure strengthening and can never turn Violated into Proven; injection-free fragment, encoder modelled not extracted<br>`semiflow_union_sound_inj` — the env-aware union: with injection rules present the same holds under H3' (zero weight on injectable places), which the injector columns force through the gate<br>`semiflow_gate_is_necessary` — AC1: a semi-positive y.C = 0 row - exactly what the Farkas enumeration returns - that fails H1 prunes a genuinely reachable violating state, so the semiflow source must pass the same gate as the basis rows<br>`strengthening_monotone` — appending one more validated law never changes what the strengthened relation reaches - the monotone-safety of adding laws | ✓ | ✓ | ✓ | ✓ | ✓ |
 | VER-010 | — | — | — | — | — | — |
 | VER-011 | — | — | — | — | — | — |
-| VER-012 | `interned_keys_eq` — hash-consing the base class and the name layer is semantics-free: under key-equivariance of the successor step, exploring from any key-preserving representative reaches the same set of canonical keys (state classes) as exploring from the states themselves - generic worklist model; the shipped name_successors / canonical_key equivariance and the ready_earliest-inclusive base key are stated hypotheses, not proven<br>`interned_edges_eq` — the interned graph has the same (key, label, key) edge set as the plain one, not merely the same vertex set; class indices and enumeration order are not claimed<br>`equivariance_is_necessary` — necessity of key-equivariance: a step that reads a datum the key hides loses a reachable class under interning - the shape of the ready_earliest hole the base intern key closes | ✓ | — | — | — | — |
+| VER-012 | `interned_keys_eq` — hash-consing the base class and the name layer is semantics-free: under key-equivariance of the successor step, exploring from any key-preserving representative reaches the same set of canonical keys (state classes) as exploring from the states themselves - generic worklist model; the shipped name_successors / canonical_key equivariance and the ready_earliest-inclusive base key are stated hypotheses, not proven<br>`interned_edges_eq` — the interned graph has the same (key, label, key) edge set as the plain one, not merely the same vertex set; class indices and enumeration order are not claimed<br>`equivariance_is_necessary` — necessity of key-equivariance: a step that reads a datum the key hides loses a reachable class under interning - the shape of the ready_earliest hole the base intern key closes | ✓ | ✓ | ✓ | ✓ | — |
 | VER-020 | — | — | — | — | — | — |
 | VER-021 | — | — | — | — | — | — |
 

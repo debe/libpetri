@@ -2,7 +2,8 @@
 # Interning in the ν state-class graph: when sharing a representative is free
 
 `NameStateClassGraph.build` (Java `analysis/NameStateClassGraph.java`; Rust
-`name_state_class_graph.rs`; TypeScript `name-state-class-graph.ts`) explores
+`name_state_class_graph.rs`, the interning itself in `intern_base` /
+`intern_names`; TypeScript `name-state-class-graph.ts`) explores
 the [VER-012] quotient by a worklist: pop a class, compute its labelled
 successors (`name_successors`, one name layer per enabling symbol, minting a
 fresh symbol from a monotone counter), dedup each by its canonical key, push

@@ -478,6 +478,16 @@ fn = "enabling_symbols"
 lean = ["Libpetri/Interning.lean"]
 
 [[pin]]
+file = "rust/libpetri-verification/src/name_state_class_graph.rs"
+fn = "intern_base"
+lean = ["Libpetri/Interning.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/name_state_class_graph.rs"
+fn = "intern_names"
+lean = ["Libpetri/Interning.lean"]
+
+[[pin]]
 file = "rust/libpetri-verification/src/name_marking.rs"
 fn = "canonical_key"
 lean = ["Libpetri/Interning.lean"]
