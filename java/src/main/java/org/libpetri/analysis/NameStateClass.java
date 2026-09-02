@@ -17,9 +17,18 @@ final class NameStateClass {
     private final String nameKey;
 
     NameStateClass(StateClass base, NameMarking names, List<String> colouredOrder) {
+        this(base, names, names.canonicalKey(colouredOrder));
+    }
+
+    /** As above with a precomputed key — used when sharing an interned name layer. */
+    NameStateClass(StateClass base, NameMarking names, String nameKey) {
         this.base = base;
         this.names = names;
-        this.nameKey = names.canonicalKey(colouredOrder);
+        this.nameKey = nameKey;
+    }
+
+    String nameKey() {
+        return nameKey;
     }
 
     @Override
