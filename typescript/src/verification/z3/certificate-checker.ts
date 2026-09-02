@@ -1,78 +1,71 @@
 /**
  * @module certificate-checker
  *
- * Independent re-validation of the inductive invariant Z3 Spacer synthesizes
- * for a `proven` verdict (the IC3 certificate).
+ * Independent certificate check for IC3/PDR proofs.
  *
- * A "proven" answer from the Fixedpoint engine is only as trustworthy as Z3
- * plus the CHC encoder. This module re-checks the certificate with a plain
- * `ctx.Solver()` in the same Z3 WASM context, against the UNSTRENGTHENED step
- * relation ({@link encodeStepRelation} — no P-invariant conjuncts), so even a
- * wrong-but-validated-looking invariant strengthening can never smuggle a
- * false PROVEN through. Three validity conditions, each expected UNSAT:
+ * When Z3 Spacer answers `sat` on the CHC encoding ({@link module:smt-encoder}), the
+ * model it prints interprets `Reachable` as an inductive invariant, the proof
+ * certificate. This module re-verifies that certificate with plain (non-HORN) SMT
+ * queries in a SECOND z3 run, so a `proven` verdict no longer rests on the empirical
+ * HORN sat ⇒ proven mapping alone, nor on the correctness of the P-invariant
+ * strengthening: the three verification conditions below are discharged against the
+ * UNSTRENGTHENED step relation ({@link encodeStepRelationSmt2}).
  *
- * 1. **VC1 (init)**: `¬I(M₀)` — the initial marking satisfies the invariant
- * 2. **VC2 (consecution)**: `I(M) ∧ M ≥ 0 ∧ T(M,M') ∧ ¬I(M')` — the invariant
- *    is inductive under the unstrengthened step relation
- * 3. **VC3 (safety)**: `I(M) ∧ M ≥ 0 ∧ Bad(M)` — the invariant excludes every
- *    property-violating marking
+ * The candidate invariant is `R' := R ∧ Inv`, where `R` is the pasted `Reachable`
+ * interpretation and `Inv` the validated P-invariant equalities the CHC encoding
+ * strengthened its rule bodies with: a Spacer model is only guaranteed inductive
+ * *relative to* that strengthening, so the conjuncts ride along in the candidate, but
+ * the RELATION stays unstrengthened, which means VC1/VC2 re-prove each conjunct's
+ * initiation and inductiveness from scratch. A wrong P-invariant cannot weaken this
+ * check: it fails init or consecution instead.
  *
- * The `M ≥ 0` domain conjunct in VC2/VC3 is sound: the net's state space is
- * ℕ^P (the initial marking is non-negative, transition steps constrain
- * `M' ≥ 0`, and injection steps only increment), so restricting the check to
- * ℕ^P checks exactly the states the system can inhabit — while the invariant
- * itself is only required to over-approximate `Reachable`, which never leaves
- * ℕ^P either.
+ * 1. **VC1 (init)**: `¬R'(M₀)` is UNSAT.
+ * 2. **VC2 (consecution)**: `M ≥ 0 ∧ R'(M) ∧ T(M,M') ∧ ¬R'(M')` is UNSAT.
+ * 3. **VC3 (safety)**: `M ≥ 0 ∧ R'(M) ∧ Bad(M)` is UNSAT.
  *
- * **Answer AST shapes** (`fp.getAnswer()` after an UNSAT query): typically a
- * top-level `and` of one definition per relation, where the `Reachable`
- * definition is `forall vars. Reachable(vars) = φ` (equivalence; `iff` and the
- * over-approximating `Reachable(vars) => φ` are accepted too). A ground
- * (unquantified) `Reachable(args) = φ` definition is handled as well. Inside a
- * `forall` the arguments of the `Reachable` application are de Bruijn
- * variables; argument position `j` names place `j`, and `ctx.substituteVars`
- * maps de Bruijn index `i` to its `to[i]` — the mapping is built from
- * `getVarIndex` per argument, so any bound-variable order is handled.
+ * The `M ≥ 0` conjunct is the state domain: markings are token counts, so the VCs
+ * range over ℕ^P; without it a certificate inductive over ℕ^P is refuted by a negative
+ * predecessor in ℤ^P.
  *
- * **Candidate certificate**: Spacer synthesizes its invariant against CHC
- * bodies that conjoin the exactly-validated P-invariants, so the plain answer
- * `I` is often inductive only RELATIVE to that strengthening (e.g. `¬(B ≥ 2)`
- * relying on `A + B = 1` — bare consecution fails). The checked candidate is
- * therefore `R' := I ∧ (y·M = y·M₀ for each validated P-invariant)`, with all
- * three VCs proven for `R'` from scratch against the same unstrengthened step
- * relation (the design shared with the Rust and Java checkers). The
- * strengthening is verified, never assumed: a poisoned P-invariant fails VC1
- * (wrong constant) or VC2 (wrong weights) of `R'` and the verdict downgrades,
- * while a genuine strengthening-dependent certificate passes.
+ * The certificate is the `(define-fun …)` block of the `(get-model)` reply, pasted
+ * verbatim: auxiliary definitions stay alongside `Reachable`, so every name resolves
+ * in the fresh script. The three VCs run under `(push)`/`(pop)` in ONE script; the
+ * emitted text is byte-identical to the Rust reference (`certificate_check.rs`) and
+ * the Java port.
  *
- * Outcomes are split the way the caller must treat them: `failed` names the
- * first VC that was not UNSAT (with the solver status and, for SAT, a witness
- * marking), `unavailable` means the check could not run at all (missing or
- * unparseable answer, solver error). Both withhold PROVEN; neither throws.
+ * Outcomes are split the way the caller must treat them: `failed` names the first VC
+ * that was not UNSAT (with the solver status and, for SAT, a witness marking),
+ * `unavailable` means the check could not run at all (missing or malformed
+ * certificate, solver spawn failure, errored assert). Both withhold PROVEN; neither
+ * throws.
  */
-import type { Arith, Bool, Expr } from 'z3-solver';
 import type { FlatNet } from '../encoding/flat-net.js';
 import type { MarkingState } from '../marking-state.js';
 import type { SmtProperty } from '../smt-property.js';
 import type { PInvariant } from '../invariant/p-invariant.js';
 import type { Place } from '../../core/place.js';
-import { encodeInvariantConstraints, encodePropertyViolation, encodeStepRelation } from './smt-encoder.js';
-
-/** Z3 high-level context. Typed as `any` because z3-solver's TS types are incomplete. */
-type Z3Context = any;
+import {
+  conjoin, encodePropertyViolation, encodeStepRelationSmt2, invariantConditions, resolveEnvInjection,
+} from './smt-encoder.js';
+import { errorLine, sexprEnd, timeoutLine } from './smt-text.js';
+import {
+  hardTimeoutSecs, replySucceeded, runZ3Text, timeoutBudget, watchdogMs, type Z3Solver,
+} from './z3-process.js';
 
 /** Label of a validity condition, as it appears in the downgrade reason. */
 export type CertificateVc = 'initiation (VC1)' | 'consecution (VC2)' | 'safety (VC3)';
 
+const VC_LABELS: readonly CertificateVc[] = ['initiation (VC1)', 'consecution (VC2)', 'safety (VC3)'];
+
 /**
  * Outcome of the certificate check.
  *
- * `passed` — all three validity conditions are UNSAT; the proven verdict is
- * certified independently of the Fixedpoint engine.
- * `failed` — a validity condition was not UNSAT; `detail` carries the solver
- * status and, when the solver produced a model, a witness marking.
- * `unavailable` — the check could not run (missing/unparseable answer, solver
- * error), so no VC is implicated.
+ * `passed` — all three validity conditions are UNSAT; the proven verdict is certified
+ * independently of the Fixedpoint engine.
+ * `failed` — a validity condition was not UNSAT; `detail` carries the solver status
+ * and, when the solver produced a model, a witness marking.
+ * `unavailable` — the check could not run (missing/malformed certificate, solver
+ * failure), so no VC is implicated.
  *
  * The caller must withhold PROVEN on `failed` and `unavailable` alike.
  */
@@ -87,293 +80,282 @@ export type CertificateCheckOutcome =
   | { readonly type: 'unavailable'; readonly reason: string; readonly invariant: string | null };
 
 /**
- * Re-validates the IC3 certificate for a proven flat-encoding verdict.
+ * Re-verifies an extracted proof certificate against the unstrengthened step relation.
  *
- * @param ctx the Z3 high-level context the answer was produced in
- * @param answer the raw `fp.getAnswer()` AST (null when Z3 produced none)
+ * @param certificate the `(define-fun …)` block extracted verbatim from the Spacer
+ *   model (`null` when the solver printed none)
  * @param flatNet the flat net the CHC query was encoded from
  * @param initialMarking the verified initial marking (VC1)
  * @param property the verified property (VC3)
  * @param invariants the exactly-validated P-invariants the CHC bodies were
- *   strengthened with; conjoined into the CANDIDATE certificate and re-proven
- *   by the three VCs (never conjoined into the step relation)
+ *   strengthened with; conjoined into the CANDIDATE certificate and re-proven by the
+ *   three VCs (never conjoined into the step relation)
  * @param sinkPlaces declared sink places (deadlock-freedom VC3)
- * @param timeoutMs per-VC solver timeout in milliseconds
+ * @param solver the resolved z3 executable
+ * @param timeoutMs per-invocation solver budget in milliseconds
  */
 export async function checkCertificate(
-  ctx: Z3Context,
-  answer: Expr | null,
+  certificate: string | null,
   flatNet: FlatNet,
   initialMarking: MarkingState,
   property: SmtProperty,
   invariants: readonly PInvariant[],
   sinkPlaces: ReadonlySet<Place<any>>,
+  solver: Z3Solver,
   timeoutMs: number,
 ): Promise<CertificateCheckOutcome> {
-  try {
-    if (answer == null) {
-      return {
-        type: 'unavailable',
-        reason: 'invariant missing (Z3 produced no inductive-invariant answer)',
-        invariant: null,
-      };
-    }
-
-    const P = flatNet.places.length;
-    const Int = ctx.Int;
-    const mVars: Arith[] = [];
-    const mPrimeVars: Arith[] = [];
-    for (let i = 0; i < P; i++) {
-      mVars.push(Int.const(`m${i}`));
-      mPrimeVars.push(Int.const(`mp${i}`));
-    }
-
-    const invariant = extractInvariant(ctx, answer, P, mVars);
-    if (invariant == null) {
-      return {
-        type: 'unavailable',
-        reason: 'invariant unparseable (no Reachable definition recognized in the Z3 answer)',
-        invariant: String(answer),
-      };
-    }
-
-    // Candidate R' := I ∧ P-invariant equalities — the strengthening is part of
-    // the candidate, never of the step relation, and is re-proven by the three
-    // VCs from scratch (see module doc).
-    const candidate: Bool = invariants.length > 0
-      ? ctx.And(invariant, encodeInvariantConstraints(ctx, invariants, mVars, P))
-      : invariant;
-
-    const failure = await validateCandidate(
-      ctx, candidate, flatNet, initialMarking, property, sinkPlaces, timeoutMs, mVars, mPrimeVars,
-    );
-    if (failure == null) {
-      return { type: 'passed', invariant: String(candidate) };
-    }
-
-    return { type: 'failed', vc: failure.vc, detail: failure.detail, invariant: String(candidate) };
-  } catch (e: any) {
+  if (certificate == null) {
     return {
       type: 'unavailable',
-      reason: `certificate check error: ${e?.message ?? e}`,
+      reason: 'no inductive invariant (define-fun block) could be extracted from the z3 model',
       invariant: null,
     };
   }
-}
+  const shape = shapeFailure(flatNet, invariants);
+  if (shape != null) return { type: 'unavailable', reason: shape, invariant: certificate };
+  if (!certificate.includes('(define-fun Reachable ') && !certificate.includes('(define-fun |Reachable| ')) {
+    return { type: 'unavailable', reason: 'certificate does not define Reachable', invariant: certificate };
+  }
 
-/** A validity condition that was not UNSAT, with the solver's account of why. */
-interface VcFailure {
-  readonly vc: CertificateVc;
-  /** e.g. `solver returned SATISFIABLE (witness: A=2, B=1)`. */
-  readonly detail: string;
+  const vcs = buildVerificationConditions(certificate, flatNet, initialMarking, property, sinkPlaces, invariants);
+  let results: string[];
+  try {
+    results = await runVcScript(script(vcs), timeoutMs, solver);
+  } catch (e: any) {
+    return { type: 'unavailable', reason: String(e?.message ?? e), invariant: certificate };
+  }
+  for (let i = 0; i < results.length; i++) {
+    if (results[i] !== 'unsat') {
+      const detail = await detailFor(vcs, i, results[i]!, flatNet, timeoutMs, solver);
+      return { type: 'failed', vc: VC_LABELS[i]!, detail, invariant: certificate };
+    }
+  }
+  return { type: 'passed', invariant: certificate };
 }
 
 /**
- * Runs the three validity conditions for one candidate certificate against the
- * unstrengthened step relation. Returns null when all three are UNSAT, else
- * the first failing condition.
+ * The certificate-check script for the given inputs, exactly as
+ * {@link checkCertificate} would send it (VER-013 script parity): what the
+ * cross-language golden tests diff.
  */
-async function validateCandidate(
-  ctx: Z3Context,
-  candidate: Bool,
+export function vcScript(
+  certificate: string,
   flatNet: FlatNet,
   initialMarking: MarkingState,
   property: SmtProperty,
   sinkPlaces: ReadonlySet<Place<any>>,
-  timeoutMs: number,
-  mVars: Arith[],
-  mPrimeVars: Arith[],
-): Promise<VcFailure | null> {
+  invariants: readonly PInvariant[],
+): string {
+  return script(buildVerificationConditions(certificate, flatNet, initialMarking, property, sinkPlaces, invariants));
+}
+
+/** Why the net and invariants cannot be indexed safely, or `null`. */
+function shapeFailure(flatNet: FlatNet, invariants: readonly PInvariant[]): string | null {
   const P = flatNet.places.length;
-  const Int = ctx.Int;
-
-  // Domain constraint for VC2/VC3: the system never leaves ℕ^P (see module doc).
-  let nonNegM: Bool = ctx.Bool.val(true);
-  for (let i = 0; i < P; i++) {
-    nonNegM = ctx.And(nonNegM, mVars[i]!.ge(0));
-  }
-
-  // === VC1 (init): ¬I(M₀) must be UNSAT ===
-  const initPairs: [Expr, Expr][] = mVars.map((v, i) => [
-    v as Expr,
-    Int.val(initialMarking.tokens(flatNet.places[i]!)) as Expr,
-  ]);
-  const candidateAtInit = ctx.substitute(candidate, ...initPairs);
-  const vc1 = await checkUnsat(ctx, flatNet, mVars, timeoutMs, 'initiation (VC1)', [ctx.Not(candidateAtInit)]);
-  if (vc1 != null) return vc1;
-
-  // === VC2 (consecution): I(M) ∧ M ≥ 0 ∧ T(M,M') ∧ ¬I(M') must be UNSAT ===
-  const primePairs: [Expr, Expr][] = mVars.map((v, i) => [v as Expr, mPrimeVars[i]! as Expr]);
-  const candidatePrime = ctx.substitute(candidate, ...primePairs);
-  const step = encodeStepRelation(ctx, flatNet, mVars, mPrimeVars);
-  const vc2 = await checkUnsat(ctx, flatNet, mVars, timeoutMs, 'consecution (VC2)',
-    [candidate, nonNegM, step, ctx.Not(candidatePrime)]);
-  if (vc2 != null) return vc2;
-
-  // === VC3 (safety): I(M) ∧ M ≥ 0 ∧ Bad(M) must be UNSAT ===
-  const bad = encodePropertyViolation(ctx, flatNet, property, sinkPlaces, mVars, P);
-  const vc3 = await checkUnsat(ctx, flatNet, mVars, timeoutMs, 'safety (VC3)', [candidate, nonNegM, bad]);
-  if (vc3 != null) return vc3;
-
-  return null;
-}
-
-/**
- * Extracts `I(mVars)` from the Fixedpoint answer: finds the conjunct defining
- * `Reachable` and substitutes its bound (or ground) arguments with the marking
- * constants. Returns null when no recognizable definition is present.
- */
-function extractInvariant(ctx: Z3Context, answer: Expr, P: number, mVars: Arith[]): Bool | null {
-  for (const conjunct of topLevelConjuncts(ctx, answer)) {
-    const invariant = tryExtractDefinition(ctx, conjunct, P, mVars);
-    if (invariant != null) return invariant;
-  }
-  return null;
-}
-
-/** Top-level `and` children, or the expression itself when it is not an `and`. */
-function topLevelConjuncts(ctx: Z3Context, expr: Expr): Expr[] {
-  if (!ctx.isQuantifier(expr) && ctx.isApp(expr) && String((expr as any).decl().name()) === 'and') {
-    const out: Expr[] = [];
-    const n = (expr as any).numArgs();
-    for (let i = 0; i < n; i++) out.push((expr as any).arg(i));
-    return out;
-  }
-  return [expr];
-}
-
-/**
- * Attempts to read one conjunct as a `Reachable` definition and returns the
- * defining formula over `mVars`. Handles the `forall`-quantified shape (de
- * Bruijn arguments, any order) and the ground (unquantified) shape.
- */
-function tryExtractDefinition(ctx: Z3Context, expr: Expr, P: number, mVars: Arith[]): Bool | null {
-  if (ctx.isQuantifier(expr) && (expr as any).is_forall()) {
-    const q: any = expr;
-    const parts = splitDefinition(ctx, q.body(), P);
-    if (parts == null) return null;
-
-    // Argument position j of the Reachable application names place j; its de
-    // Bruijn index tells substituteVars which slot to fill with mVars[j].
-    const numVars: number = q.num_vars();
-    const to: (Expr | undefined)[] = new Array(numVars);
-    for (let j = 0; j < P; j++) {
-      const arg = parts.app.arg(j);
-      if (!ctx.isVar(arg)) return null;
-      const idx = ctx.getVarIndex(arg);
-      if (idx >= numVars || to[idx] != null) return null;
-      to[idx] = mVars[j] as Expr;
+  for (const inv of invariants) {
+    if (inv.weights.length !== P) {
+      return `P-invariant has ${inv.weights.length} weights for a ${P}-place net`;
     }
-    // Bound variables not used as Reachable arguments (none in practice) are
-    // kept free under a fresh constant so substituteVars gets a full mapping.
-    for (let i = 0; i < numVars; i++) {
-      if (to[i] == null) to[i] = ctx.Int.const(`certFree${i}`) as Expr;
+    for (const pid of inv.support) {
+      if (pid >= P || pid < 0) return `P-invariant support names place index ${pid} in a ${P}-place net`;
     }
-    return ctx.substituteVars(parts.phi, ...to);
-  }
-
-  // Ground shape: Reachable(args) = φ with unquantified arguments.
-  const parts = splitDefinition(ctx, expr, P);
-  if (parts == null) return null;
-  const pairs: [Expr, Expr][] = [];
-  for (let j = 0; j < P; j++) {
-    const arg = parts.app.arg(j);
-    if (ctx.isVar(arg)) return null;
-    pairs.push([arg as Expr, mVars[j]! as Expr]);
-  }
-  if (pairs.length === 0) return parts.phi as Bool;
-  return ctx.substitute(parts.phi, ...pairs);
-}
-
-/**
- * Splits a definition node into the `Reachable` application and the defining
- * formula. Accepts `=`/`iff` with `Reachable` on either side and
- * `Reachable(...) => φ` (φ then over-approximates `Reachable`, which is
- * exactly what a certificate must do); rejects `φ => Reachable(...)`, which
- * only under-approximates.
- */
-function splitDefinition(ctx: Z3Context, body: Expr, P: number): { app: any; phi: Expr } | null {
-  if (ctx.isQuantifier(body) || !ctx.isApp(body)) return null;
-  const b: any = body;
-  const decl = String(b.decl().name());
-  if ((decl === '=' || decl === 'iff') && b.numArgs() === 2) {
-    if (isReachableApp(ctx, b.arg(0), P)) return { app: b.arg(0), phi: b.arg(1) };
-    if (isReachableApp(ctx, b.arg(1), P)) return { app: b.arg(1), phi: b.arg(0) };
-    return null;
-  }
-  if (decl === '=>' && b.numArgs() === 2 && isReachableApp(ctx, b.arg(0), P)) {
-    return { app: b.arg(0), phi: b.arg(1) };
   }
   return null;
 }
 
-function isReachableApp(ctx: Z3Context, expr: Expr, P: number): boolean {
-  return ctx.isApp(expr)
-    && String((expr as any).decl().name()) === 'Reachable'
-    && (expr as any).numArgs() === P;
+/** A VC run that could not be trusted; the message is the reason. */
+class VcFailure extends Error {}
+
+/**
+ * Runs one plain-SMT script and returns the three positional `(check-sat)` answers.
+ * Both output channels are inspected: an `(error …)` on EITHER stream means an assert
+ * was dropped, which would silently make a VC vacuous; a `timeout` line, a watchdog
+ * kill and a non-success exit mean the run did not complete. Only a clean
+ * three-answer stdout counts.
+ */
+async function runVcScript(text: string, timeoutMs: number, solver: Z3Solver): Promise<string[]> {
+  const reply = await runZ3Text(solver, text, 'certificate', timeoutMs, []);
+  const budget = timeoutBudget(timeoutMs);
+  const err = errorLine(reply.stderr);
+  if (err != null) throw new VcFailure(`z3 reported an error on stderr: ${err}`);
+  if (timeoutLine(reply.stdout)) {
+    throw new VcFailure(`z3 hard timeout after ${hardTimeoutSecs(budget)}s while checking the certificate`);
+  }
+  if (reply.exit.kind === 'killed') {
+    throw new VcFailure(`z3 did not exit within ${watchdogMs(budget)} ms while checking the certificate and was killed`);
+  }
+  const results = parseVcResults(reply.stdout);
+  if (!replySucceeded(reply)) {
+    const status = reply.exit.kind === 'exited' ? `exit status: ${reply.exit.code}` : 'the watchdog kill';
+    throw new VcFailure(`z3 exited with ${status} after answering [${results.join(', ')}]`);
+  }
+  return results;
 }
 
 /**
- * Runs one validity condition on a fresh plain solver. Returns null when it is
- * UNSAT (the condition holds), else the failure with the solver's status and —
- * for SAT — the marking that witnesses it.
+ * Parses the three positional `(check-sat)` answers. Any `(error …)` line fails the
+ * check outright (an errored assert silently vanishes from the query, which could
+ * leave a VC vacuous); a `timeout` line is z3's `-T` backstop, not a fourth answer.
  */
-async function checkUnsat(
-  ctx: Z3Context,
+export function parseVcResults(stdout: string): string[] {
+  const err = errorLine(stdout);
+  if (err != null) throw new VcFailure(`z3 error while checking the certificate: ${err}`);
+  if (timeoutLine(stdout)) throw new VcFailure('z3 hard timeout while checking the certificate');
+  const results = stdout
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l === 'sat' || l === 'unsat' || l === 'unknown');
+  if (results.length !== 3) {
+    throw new VcFailure(`expected 3 VC answers from z3, got ${results.length}: [${results.join(', ')}]`);
+  }
+  return results;
+}
+
+/** The assembled VC script, kept in parts so one VC can be re-run alone. */
+interface VerificationConditions {
+  readonly prelude: readonly string[];
+  /** The asserts of each VC, in `VC_LABELS` order. */
+  readonly asserts: readonly (readonly string[])[];
+}
+
+function buildVerificationConditions(
+  certificate: string,
   flatNet: FlatNet,
-  mVars: Arith[],
-  timeoutMs: number,
-  vc: CertificateVc,
-  assertions: readonly Bool[],
-): Promise<VcFailure | null> {
-  const solver = new ctx.Solver();
-  if (timeoutMs > 0) {
-    solver.set('timeout', Math.min(timeoutMs, 2147483647));
+  initialMarking: MarkingState,
+  property: SmtProperty,
+  sinkPlaces: ReadonlySet<Place<any>>,
+  invariants: readonly PInvariant[],
+): VerificationConditions {
+  const P = flatNet.places.length;
+  const mVars: string[] = [];
+  const mpVars: string[] = [];
+  for (let i = 0; i < P; i++) {
+    mVars.push(`m${i}`);
+    mpVars.push(`m${i}p`);
   }
-  for (const assertion of assertions) {
-    solver.add(assertion);
-  }
-  const status = await solver.check();
-  if (status === 'unsat') return null;
 
-  if (status === 'sat') {
-    const witness = describeWitness(solver, flatNet, mVars);
-    return {
-      vc,
-      detail: `solver returned SATISFIABLE${witness == null ? '' : ` (witness: ${witness})`}`,
-    };
-  }
-  let why: string | null = null;
-  try {
-    why = String(solver.reasonUnknown());
-  } catch {
-    // Reason not available; the plain status is enough.
-  }
-  return { vc, detail: `solver returned UNKNOWN${why == null || why === '' ? '' : ` (${why})`}` };
+  const prelude: string[] = [
+    '; IC3/PDR certificate check (plain SMT-LIB2, not HORN):',
+    '; each VC below must be unsat for the certificate to stand.',
+    certificate,
+    '',
+  ];
+  for (const v of mVars) prelude.push(`(declare-const ${v} Int)`);
+  for (const v of mpVars) prelude.push(`(declare-const ${v} Int)`);
+
+  // VC1 (init): the initial marking satisfies the candidate invariant.
+  const m0: string[] = [];
+  for (let i = 0; i < P; i++) m0.push(String(initialMarking.tokens(flatNet.places[i]!)));
+  const vc1 = [`(assert (not ${candidate(m0, invariants)}))`];
+
+  // The system lives in N^P, not Z^P.
+  const nonNegative = mVars.map((v) => `(assert (>= ${v} 0))`);
+
+  // VC2 (consecution): closed under the unstrengthened step relation.
+  const step = encodeStepRelationSmt2(flatNet);
+  const vc2 = [
+    ...nonNegative,
+    `(assert ${candidate(mVars, invariants)})`,
+    `(assert ${step})`,
+    `(assert (not ${candidate(mpVars, invariants)}))`,
+  ];
+
+  // VC3 (safety): excludes every property-violating state, exactly the violation
+  // the CHC error rule encodes.
+  const bad = encodePropertyViolation(flatNet, property, mVars, sinkPlaces, resolveEnvInjection(flatNet));
+  const vc3 = [...nonNegative, `(assert ${candidate(mVars, invariants)})`, `(assert ${bad})`];
+
+  return { prelude, asserts: [vc1, vc2, vc3] };
 }
 
-/** Compact `place=count` witness from a SAT model; null when unavailable. */
-function describeWitness(solver: any, flatNet: FlatNet, mVars: Arith[]): string | null {
-  try {
-    const model = solver.model();
-    const parts: string[] = [];
-    let length = 0;
-    for (let i = 0; i < mVars.length; i++) {
-      const value = model.eval(mVars[i]!, false);
-      // Uninterpreted vars evaluate back to themselves; keep numerals only
-      // (Z3 renders a negative one as `(- 5)`).
-      const text = value == null ? '' : String(value);
-      if (!/^(-?\d+|\(- \d+\))$/.test(text)) continue;
-      const part = `${flatNet.places[i]!.name}=${text}`;
-      parts.push(part);
-      length += part.length + 2;
-      if (length > 160) {
-        parts.push('...');
-        break;
-      }
-    }
-    return parts.length === 0 ? null : parts.join(', ');
-  } catch {
-    return null;
+/** The full script: the prelude, then the three VCs under push/pop. */
+function script(vcs: VerificationConditions): string {
+  const lines = [...vcs.prelude];
+  for (let i = 0; i < vcs.asserts.length; i++) {
+    lines.push('');
+    lines.push(`; VC${i + 1} ${VC_LABELS[i]}`);
+    lines.push('(push)');
+    lines.push(...vcs.asserts[i]!);
+    lines.push('(check-sat)');
+    lines.push('(pop)');
   }
+  return lines.join('\n');
+}
+
+/**
+ * Describes VC `i`'s non-`unsat` answer for the downgrade reason, by re-running that
+ * VC alone with model/reason extraction enabled. Best effort: without it the answer is
+ * still named.
+ */
+async function detailFor(
+  vcs: VerificationConditions,
+  i: number,
+  answer: string,
+  flatNet: FlatNet,
+  timeoutMs: number,
+  solver: Z3Solver,
+): Promise<string> {
+  const lines = ['(set-option :produce-models true)', ...vcs.prelude, ...vcs.asserts[i]!, '(check-sat)'];
+  lines.push(answer === 'sat' ? '(get-model)' : '(get-info :reason-unknown)');
+  let reply = '';
+  try {
+    reply = (await runZ3Text(solver, lines.join('\n'), 'certificate-detail', timeoutMs, [])).stdout;
+  } catch {
+    reply = '';
+  }
+  if (answer === 'sat') {
+    const w = witness(reply, flatNet);
+    return w == null ? 'solver returned SATISFIABLE' : `solver returned SATISFIABLE (witness: ${w})`;
+  }
+  const r = reasonUnknown(reply);
+  return r == null ? 'solver returned UNKNOWN' : `solver returned UNKNOWN (${r})`;
+}
+
+/**
+ * Reads the current-marking assignment out of a `(get-model)` reply as `p0=2, p1=1`
+ * (place names, index order); `null` when no `m_i` was defined.
+ */
+export function witness(model: string, flatNet: FlatNet): string | null {
+  const parts: string[] = [];
+  for (let i = 0; i < flatNet.places.length; i++) {
+    const needle = `(define-fun m${i} () Int`;
+    const at = model.indexOf(needle);
+    if (at < 0) continue;
+    const rest = model.slice(at + needle.length).trimStart();
+    let value: string;
+    if (rest.startsWith('(')) {
+      const end = sexprEnd(rest, 0);
+      if (end < 0) continue;
+      // A negative literal prints as `(- 1)`; flatten it back to `-1`.
+      value = rest.slice(1, end - 1).trim().split(/\s+/).join('');
+    } else {
+      let end = 0;
+      while (end < rest.length && !/\s/.test(rest[end]!) && rest[end] !== ')') end++;
+      if (end === 0) continue;
+      value = rest.slice(0, end);
+    }
+    parts.push(`${flatNet.places[i]!.name}=${value}`);
+  }
+  return parts.length === 0 ? null : parts.join(', ');
+}
+
+/** Reads z3's `(get-info :reason-unknown)` reply, e.g. `timeout`. */
+export function reasonUnknown(reply: string): string | null {
+  const at = reply.indexOf(':reason-unknown');
+  if (at < 0) return null;
+  const rest = reply.slice(at + ':reason-unknown'.length).trimStart();
+  const end = rest.indexOf(')');
+  if (end < 0) return null;
+  let reason = rest.slice(0, end).trim();
+  if (reason.startsWith('"') && reason.endsWith('"') && reason.length >= 2) reason = reason.slice(1, -1);
+  reason = reason.trim();
+  return reason === '' ? null : reason;
+}
+
+/**
+ * The candidate invariant applied to a variable (or literal) vector:
+ * `R'(vars) = (Reachable vars) ∧ Inv(vars)`.
+ */
+function candidate(names: readonly string[], invariants: readonly PInvariant[]): string {
+  return conjoin([`(Reachable ${names.join(' ')})`, ...invariantConditions(invariants, names)]);
 }

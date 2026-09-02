@@ -1,559 +1,398 @@
 /**
  * @module smt-encoder
  *
- * Encodes a flattened Petri net as Constrained Horn Clauses (CHC) for Z3's Spacer engine.
+ * Encodes a flattened Petri net as Constrained Horn Clauses (CHC) in SMT-LIB2 text
+ * for Z3's Spacer engine (VER-013).
  *
- * **CHC encoding strategy**: The net's state space is modeled as integer vectors
- * (one variable per place = token count). Three rule types:
+ * The net's state space is modeled as integer vectors (one variable per place = token
+ * count). Three rule types:
  *
- * 1. **Init**: `Reachable(M0)` — the initial marking is reachable
- * 2. **Transition**: `Reachable(M') :- Reachable(M) ∧ enabled(M,t) ∧ fire(M,M',t)` —
- *    one rule per flat transition (XOR branches are separate transitions)
- * 3. **Error**: `Error() :- Reachable(M) ∧ violation(M)` — safety property violation
+ * 1. **Init**: `(assert (Reachable M0))` — the initial marking is reachable
+ * 2. **Transition**: `Reachable(M') :- Reachable(M) ∧ enabled(M,t) ∧ fire(M,M',t) ∧
+ *    M' ≥ 0 ∧ invariants(M') ∧ env-bounds(M')` — one rule per flat transition, plus
+ *    one env-injection rule per injected environment place (VER-006)
+ * 3. **Error**: `Error :- Reachable(M) ∧ violation(M)`; `(assert (not Error))`, so
+ *    `sat` is PROVEN and `unsat` is VIOLATED
  *
- * Transition rules include: non-negativity constraints on M', P-invariant strengthening
- * clauses, and environment bounds for bounded analysis.
- *
- * Z3 types are complex and partially untyped; the ctx/fp parameters use `any`.
+ * The emitted script is byte-identical to the Rust reference (`smt_encoder.rs`) and
+ * the Java port for the same input: places in code-point order of their names, the
+ * property's places, sinks, env bounds and injections in place-index order,
+ * invariants in the order the verifier canonicalised.
  */
-import type { Arith, Bool, FuncDecl } from 'z3-solver';
 import type { FlatNet } from '../encoding/flat-net.js';
 import type { FlatTransition } from '../encoding/flat-transition.js';
 import type { MarkingState } from '../marking-state.js';
 import type { SmtProperty } from '../smt-property.js';
 import type { PInvariant } from '../invariant/p-invariant.js';
 import type { Place } from '../../core/place.js';
-import { flatNetIndexOf } from '../encoding/flat-net.js';
 
-/** Z3 high-level context. Typed as `any` because z3-solver's TS types are incomplete. */
-type Z3Context = any;
-/** Z3 Fixedpoint solver instance. Typed as `any` because z3-solver's TS types are incomplete. */
-type Z3Fixedpoint = any;
+/** An encoded SMT-LIB2 script. */
+export interface SmtEncoding {
+  /** The script text. */
+  readonly smt2: string;
+  /** The number of flat places (the arity of `Reachable` in the flat encoding). */
+  readonly placeCount: number;
+}
 
-/**
- * Result of CHC encoding.
- */
-export interface EncodingResult {
-  readonly errorExpr: Bool;
-  readonly reachableDecl: FuncDecl;
+/** An injected environment place: its flat index and its cap (`null` = unbounded). */
+export interface Injection {
+  readonly pid: number;
+  readonly bound: number | null;
 }
 
 /**
- * Encodes a flattened Petri net as Constrained Horn Clauses (CHC) for Z3's Spacer engine.
+ * Encodes the net and property as a HORN script.
  *
- * CHC rules:
- * - Reachable(M0) — initial state is reachable
- * - Reachable(M') :- Reachable(M) AND enabled(M,t) AND fire(M,M',t) — transition rules
- * - Error() :- Reachable(M) AND property_violation(M) — safety property
+ * @param produceProofs emit `:produce-proofs` and `(get-proof)` so an `unsat` reply
+ *   carries the refutation the replay decodes
  */
 export function encode(
-  ctx: Z3Context,
-  fp: Z3Fixedpoint,
   flatNet: FlatNet,
   initialMarking: MarkingState,
   property: SmtProperty,
   invariants: readonly PInvariant[],
   sinkPlaces: ReadonlySet<Place<any>> = new Set(),
-): EncodingResult {
+  produceProofs = false,
+): SmtEncoding {
   const P = flatNet.places.length;
-  const Int = ctx.Int;
-  const Bool_ = ctx.Bool;
+  const lines: string[] = [];
+  const envInject = resolveEnvInjection(flatNet);
 
-  // Create sorts array for function declaration
-  const intSort = Int.sort();
-  const boolSort = Bool_.sort();
-  const markingSorts: any[] = new Array(P).fill(intSort);
+  if (produceProofs) lines.push('(set-option :produce-proofs true)');
+  lines.push('(set-logic HORN)');
+  lines.push('');
 
-  // Create the Reachable relation: (Int, Int, ...) -> Bool
-  const reachable: FuncDecl = ctx.Function.declare('Reachable', ...markingSorts, boolSort);
-  fp.registerRelation(reachable);
+  lines.push(`(declare-fun Reachable (${ints(P).join(' ')}) Bool)`);
+  lines.push('(declare-fun Error () Bool)');
+  lines.push('');
 
-  // Create the Error relation: () -> Bool
-  const error: FuncDecl = ctx.Function.declare('Error', boolSort);
-  fp.registerRelation(error);
+  const mVars = vars(P, '');
+  const mpVars = vars(P, 'p');
 
-  // === Rule 1: Initial state ===
-  // Reachable(m0_0, m0_1, ..., m0_{P-1})
-  const m0Args: Arith[] = [];
-  for (let i = 0; i < P; i++) {
-    const tokens = initialMarking.tokens(flatNet.places[i]!);
-    m0Args.push(Int.val(tokens));
-  }
-  const initFact = (reachable as any).call(...m0Args) as Bool;
-  fp.addRule(initFact, 'init');
-
-  // === Rule 2: Transition rules ===
-  for (let t = 0; t < flatNet.transitions.length; t++) {
-    const ft = flatNet.transitions[t]!;
-    encodeTransitionRule(ctx, fp, reachable, ft, flatNet, invariants, P);
-  }
-
-  // === Rule 2b: Environment-injection rules (VER-006) ===
-  // Per injected env place p: Reachable(M') :- Reachable(M) ∧ [M[p] < bound] ∧
-  //   M'[p] = M[p]+1 ∧ (∀q≠p) M'[q] = M[q]. Unbounded (AlwaysAvailable) omits the
-  //   guard so p can grow without limit. These are NOT flat transitions, so the
-  //   deadlock encoding (which iterates flatNet.transitions) never sees them and
-  //   deadlock-freedom does not become trivially true. P-invariants are NOT
-  //   conjoined here — injection deliberately breaks closed-net conservation.
-  for (const [name, bound] of flatNet.environmentInjection) {
-    const idx = flatNet.placeIndex.get(name);
-    if (idx == null) continue;
-    encodeInjectionRule(ctx, fp, reachable, idx, bound, P);
-  }
-
-  // === Rule 3: Error rule (property violation) ===
-  encodeErrorRule(ctx, fp, reachable, error, flatNet, property, sinkPlaces, P);
-
-  return {
-    errorExpr: (error as any).call() as Bool,
-    reachableDecl: reachable,
-  };
-}
-
-function encodeTransitionRule(
-  ctx: Z3Context,
-  fp: Z3Fixedpoint,
-  reachable: FuncDecl,
-  ft: FlatTransition,
-  flatNet: FlatNet,
-  invariants: readonly PInvariant[],
-  P: number,
-): void {
-  const Int = ctx.Int;
-
-  // Create named variables for current and next marking
-  const mVars: Arith[] = [];
-  const mPrimeVars: Arith[] = [];
-  for (let i = 0; i < P; i++) {
-    mVars.push(Int.const(`m${i}`));
-    mPrimeVars.push(Int.const(`mp${i}`));
-  }
-
-  // Body: Reachable(M) AND enabled(M,t) AND fire(M,M',t) AND non-negativity(M') AND invariants(M') AND env bounds(M')
-  const reachBody = (reachable as any).call(...mVars) as Bool;
-  const enabled = encodeEnabled(ctx, ft, flatNet, mVars, P);
-  const fireRelation = encodeFire(ctx, ft, flatNet, mVars, mPrimeVars, P);
-
-  // Non-negativity of M'
-  const nonNeg = encodeNonNegativity(ctx, mPrimeVars, P);
-
-  // P-invariant constraints on M'
-  const invConstraints = encodeInvariantConstraints(ctx, invariants, mPrimeVars, P);
-
-  // Environment bounds on M'
-  const envBounds = encodeEnvBounds(ctx, flatNet, mPrimeVars);
-
-  // Body conjunction
-  const body = ctx.And(reachBody, enabled, fireRelation, nonNeg, invConstraints, envBounds);
-
-  // Head: Reachable(M')
-  const head = (reachable as any).call(...mPrimeVars) as Bool;
-
-  // Rule: forall M, M'. body => head
-  const allVars = [...mVars, ...mPrimeVars];
-  const rule = ctx.Implies(body, head);
-  const qRule = ctx.ForAll(allVars, rule);
-
-  fp.addRule(qRule, `t_${ft.name}`);
-}
-
-/**
- * Encodes one environment-injection rule (VER-006): the external world adds a
- * token to environment place `idx`. `bound === null` ⇒ unbounded (AlwaysAvailable);
- * a number ⇒ guarded so the place never exceeds `bound` (Bounded). All other
- * columns are copied unchanged. No P-invariant strengthening (injection breaks
- * conservation by design); non-negativity is implied by `M[idx] ≥ 0 ⇒ M'[idx] ≥ 1`.
- */
-function encodeInjectionRule(
-  ctx: Z3Context,
-  fp: Z3Fixedpoint,
-  reachable: FuncDecl,
-  idx: number,
-  bound: number | null,
-  P: number,
-): void {
-  const Int = ctx.Int;
-
-  const mVars: Arith[] = [];
-  const mPrimeVars: Arith[] = [];
-  for (let i = 0; i < P; i++) {
-    mVars.push(Int.const(`m${i}`));
-    mPrimeVars.push(Int.const(`mp${i}`));
-  }
-
-  const reachBody = (reachable as any).call(...mVars) as Bool;
-
-  const fire = encodeInjectionFire(ctx, idx, mVars, mPrimeVars, P);
-
-  // Bounded injection: only inject while still below the cap.
-  const guard = encodeInjectionGuard(ctx, idx, bound, mVars);
-
-  const body = ctx.And(reachBody, guard, fire);
-  const head = (reachable as any).call(...mPrimeVars) as Bool;
-  const qRule = ctx.ForAll([...mVars, ...mPrimeVars], ctx.Implies(body, head));
-
-  fp.addRule(qRule, `env_inject_${idx}`);
-}
-
-/**
- * Non-negativity conjunction over a marking vector: `AND_i vars[i] >= 0`.
- *
- * Shared by the CHC transition rules (on M') and {@link encodeStepRelation}
- * so the two encodings cannot drift.
- */
-function encodeNonNegativity(ctx: Z3Context, vars: Arith[], P: number): Bool {
-  let result: Bool = ctx.Bool.val(true);
-  for (let i = 0; i < P; i++) {
-    result = ctx.And(result, vars[i]!.ge(0));
-  }
-  return result;
-}
-
-/**
- * Environment bounds on a marking vector: `AND vars[idx] <= bound` per bounded
- * environment place.
- *
- * Shared by the CHC transition rules (on M') and {@link encodeStepRelation}
- * so the two encodings cannot drift.
- */
-function encodeEnvBounds(ctx: Z3Context, flatNet: FlatNet, vars: Arith[]): Bool {
-  let result: Bool = ctx.Bool.val(true);
-  for (const [name, bound] of flatNet.environmentBounds) {
-    const idx = flatNet.placeIndex.get(name);
-    if (idx != null) {
-      result = ctx.And(result, vars[idx]!.le(bound));
-    }
-  }
-  return result;
-}
-
-/** Injection firing: `M'[idx] = M[idx] + 1`, all other columns copied unchanged. */
-function encodeInjectionFire(
-  ctx: Z3Context,
-  idx: number,
-  mVars: Arith[],
-  mPrimeVars: Arith[],
-  P: number,
-): Bool {
-  let fire: Bool = ctx.Bool.val(true);
-  for (let i = 0; i < P; i++) {
-    if (i === idx) {
-      fire = ctx.And(fire, mPrimeVars[i]!.eq(mVars[i]!.add(1)));
-    } else {
-      fire = ctx.And(fire, mPrimeVars[i]!.eq(mVars[i]!));
-    }
-  }
-  return fire;
-}
-
-/** Injection guard: below the cap for `Bounded(k)`; unrestricted for `AlwaysAvailable`. */
-function encodeInjectionGuard(
-  ctx: Z3Context,
-  idx: number,
-  bound: number | null,
-  mVars: Arith[],
-): Bool {
-  return bound === null ? ctx.Bool.val(true) : mVars[idx]!.lt(bound);
-}
-
-/**
- * Encodes the UNSTRENGTHENED one-step relation `T(M, M')`: the disjunction of
- * all flat-transition firings and environment-injection steps, each disjunct
- * built from the same condition builders the CHC rules use ({@link encodeEnabled},
- * {@link encodeFire}, non-negativity, environment bounds, injection guard/fire) —
- * minus the `Reachable` occurrence and minus any P-invariant strengthening.
- *
- * This is the step relation the certificate checker validates an IC3-synthesized
- * invariant against (VC2, consecution). It deliberately omits the P-invariant
- * conjuncts that `encode` adds to the CHC transition bodies: the certificate
- * check is the independent second layer, so a wrong-but-validated-looking
- * strengthening must not be assumed by the check.
- */
-export function encodeStepRelation(
-  ctx: Z3Context,
-  flatNet: FlatNet,
-  mVars: Arith[],
-  mPrimeVars: Arith[],
-): Bool {
-  const P = flatNet.places.length;
-  const disjuncts: Bool[] = [];
+  const m0: string[] = [];
+  for (let i = 0; i < P; i++) m0.push(String(initialMarking.tokens(flatNet.places[i]!)));
+  lines.push(`(assert (Reachable ${m0.join(' ')}))`);
+  lines.push('');
 
   for (const ft of flatNet.transitions) {
-    const enabled = encodeEnabled(ctx, ft, flatNet, mVars, P);
-    const fire = encodeFire(ctx, ft, flatNet, mVars, mPrimeVars, P);
-    const nonNeg = encodeNonNegativity(ctx, mPrimeVars, P);
-    const envBounds = encodeEnvBounds(ctx, flatNet, mPrimeVars);
-    disjuncts.push(ctx.And(enabled, fire, nonNeg, envBounds));
+    lines.push(encodeTransitionRule(flatNet, ft, mVars, mpVars, invariants));
   }
-
-  for (const [name, bound] of flatNet.environmentInjection) {
-    const idx = flatNet.placeIndex.get(name);
-    if (idx == null) continue;
-    disjuncts.push(ctx.And(
-      encodeInjectionGuard(ctx, idx, bound, mVars),
-      encodeInjectionFire(ctx, idx, mVars, mPrimeVars, P),
-    ));
+  // Environment-injection rules (VER-006): NOT flat transitions, so the deadlock
+  // encoding never sees them; no P-invariant strengthening, injection breaks
+  // conservation on purpose.
+  for (const inj of envInject) {
+    lines.push(encodeInjectionRule(P, inj.pid, inj.bound, mVars, mpVars));
   }
+  lines.push('');
 
-  if (disjuncts.length === 0) return ctx.Bool.val(false);
-  return ctx.Or(...disjuncts);
+  lines.push(encodeErrorRule(flatNet, property, mVars, sinkPlaces, envInject));
+  lines.push('');
+
+  // Under HORN/Spacer this is SAT when an inductive invariant excludes every
+  // violating state (PROVEN) and UNSAT when none exists (VIOLATED).
+  lines.push('(assert (not Error))');
+  lines.push('(check-sat)');
+  if (produceProofs) lines.push('(get-proof)');
+  lines.push('(get-model)');
+
+  return { smt2: lines.join('\n'), placeCount: P };
 }
 
-/** Maps injected environment-place index -> injection bound (null = unbounded). */
-function injectedEnvIndices(flatNet: FlatNet): Map<number, number | null> {
-  const out = new Map<number, number | null>();
+/** The injected environment places in place-index order. */
+export function resolveEnvInjection(flatNet: FlatNet): Injection[] {
+  const out: Injection[] = [];
   for (const [name, bound] of flatNet.environmentInjection) {
-    const idx = flatNet.placeIndex.get(name);
-    if (idx != null) out.set(idx, bound);
+    const pid = flatNet.placeIndex.get(name);
+    if (pid != null) out.push({ pid, bound });
   }
+  out.sort((a, b) => a.pid - b.pid);
   return out;
 }
 
-/**
- * Encodes the enablement predicate for a flat transition.
- *
- * When `relaxEnv` is true (used only by the deadlock check), input/read
- * requirements on injectable environment places are treated as satisfiable by
- * external injection — `AlwaysAvailable` always satisfies them, `Bounded(k)`
- * satisfies them iff the required cardinality is ≤ k (a compile-time check on the
- * arc weight, not on the marking). This mirrors the state class graph's
- * always-available enablement (VER-006) so a reactive net merely *waiting for
- * input* is not reported as a deadlock; only a marking that no injection could
- * ever re-enable counts. Transition firing rules always use the strict form
- * (`relaxEnv` false) because firing genuinely consumes tokens.
- */
-function encodeEnabled(
-  ctx: Z3Context,
-  ft: FlatTransition,
-  flatNet: FlatNet,
-  mVars: Arith[],
-  P: number,
-  relaxEnv = false,
-): Bool {
-  let result: Bool = ctx.Bool.val(true);
-  const envInj = relaxEnv ? injectedEnvIndices(flatNet) : undefined;
-
-  // Input requirements: M[p] >= pre[p] (relaxed for injectable env inputs).
-  for (let p = 0; p < P; p++) {
-    const pre = ft.preVector[p]!;
-    if (pre <= 0) continue;
-    if (envInj?.has(p)) {
-      const bound = envInj.get(p)!;
-      if (bound !== null && pre > bound) return ctx.Bool.val(false); // never enableable
-      continue; // satisfiable by injection
-    }
-    result = ctx.And(result, mVars[p]!.ge(pre));
+/** The bounded environment places (legacy post-cap) in place-index order. */
+function envBounds(flatNet: FlatNet): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  for (const [name, max] of flatNet.environmentBounds) {
+    const pid = flatNet.placeIndex.get(name);
+    if (pid != null) out.push([pid, max]);
   }
-
-  // Read arcs: M[p] >= 1 (relaxed for injectable env inputs).
-  for (const p of ft.readPlaces) {
-    if (envInj?.has(p)) {
-      const bound = envInj.get(p)!;
-      if (bound !== null && bound < 1) return ctx.Bool.val(false);
-      continue;
-    }
-    result = ctx.And(result, mVars[p]!.ge(1));
-  }
-
-  // Inhibitor arcs: M[p] == 0
-  for (const p of ft.inhibitorPlaces) {
-    result = ctx.And(result, mVars[p]!.eq(0));
-  }
-
-  // Non-negativity of current marking
-  for (let p = 0; p < P; p++) {
-    result = ctx.And(result, mVars[p]!.ge(0));
-  }
-
-  return result;
+  out.sort((a, b) => a[0] - b[0]);
+  return out;
 }
 
-function encodeFire(
-  ctx: Z3Context,
+function ints(n: number): string[] {
+  return new Array<string>(n).fill('Int');
+}
+
+function vars(P: number, suffix: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < P; i++) out.push(`m${i}${suffix}`);
+  return out;
+}
+
+function quantified(names: readonly string[]): string {
+  return names.map((v) => `(${v} Int)`).join(' ');
+}
+
+// === Shared condition emitters ===
+//
+// Emitted by BOTH the CHC rule encoding and the plain-SMT step relation
+// (encodeStepRelationSmt2) the certificate check uses, so the two cannot drift.
+
+/**
+ * Enablement + firing + non-negativity conjuncts for one flat transition:
+ * `enabled(M, t)`, `fire(M, M', t)`, `M' >= 0`. Excludes the `Reachable` body atom,
+ * the P-invariant strengthening and the env bounds.
+ */
+function firingConditions(
+  flatNet: FlatNet,
   ft: FlatTransition,
-  _flatNet: FlatNet,
-  mVars: Arith[],
-  mPrimeVars: Arith[],
-  P: number,
-): Bool {
-  let result: Bool = ctx.Bool.val(true);
-
-  for (let p = 0; p < P; p++) {
-    const isReset = ft.resetPlaces.includes(p);
-
-    if (isReset || ft.consumeAll[p]) {
-      // Reset/consumeAll: M'[p] = post[p]
-      result = ctx.And(result, mPrimeVars[p]!.eq(ft.postVector[p]!));
+  mVars: readonly string[],
+  mpVars: readonly string[],
+): string[] {
+  const P = flatNet.places.length;
+  const conditions: string[] = [];
+  for (let i = 0; i < P; i++) {
+    if (ft.preVector[i]! > 0) conditions.push(`(>= ${mVars[i]} ${ft.preVector[i]})`);
+  }
+  for (const inh of ft.inhibitorPlaces) conditions.push(`(= ${mVars[inh]} 0)`);
+  for (const rd of ft.readPlaces) conditions.push(`(>= ${mVars[rd]} 1)`);
+  for (let i = 0; i < P; i++) {
+    if (ft.resetPlaces.includes(i) || ft.consumeAll[i]) {
+      // Reset / consume-all: clear then add post.
+      conditions.push(`(= ${mpVars[i]} ${ft.postVector[i]})`);
     } else {
-      // Standard: M'[p] = M[p] - pre[p] + post[p]
-      const delta = ft.postVector[p]! - ft.preVector[p]!;
-      if (delta === 0) {
-        result = ctx.And(result, mPrimeVars[p]!.eq(mVars[p]!));
-      } else {
-        result = ctx.And(result, mPrimeVars[p]!.eq(mVars[p]!.add(delta)));
-      }
+      const delta = ft.postVector[i]! - ft.preVector[i]!;
+      if (delta > 0) conditions.push(`(= ${mpVars[i]} (+ ${mVars[i]} ${delta}))`);
+      else if (delta < 0) conditions.push(`(= ${mpVars[i]} (- ${mVars[i]} ${-delta}))`);
+      else conditions.push(`(= ${mpVars[i]} ${mVars[i]})`);
     }
   }
+  for (let i = 0; i < P; i++) conditions.push(`(>= ${mpVars[i]} 0)`);
+  return conditions;
+}
 
-  return result;
+/**
+ * P-invariant conjuncts over the given marking variables. The step relation never
+ * emits these: the certificate check keeps its relation UNSTRENGTHENED and conjoins
+ * them into the candidate instead, where the VCs re-prove them.
+ */
+export function invariantConditions(invariants: readonly PInvariant[], names: readonly string[]): string[] {
+  const conditions: string[] = [];
+  for (const inv of invariants) {
+    const terms = [...inv.support].sort((a, b) => a - b).map((i) => `(* ${inv.weights[i]} ${names[i]})`);
+    if (terms.length === 0) continue;
+    const sum = terms.length === 1 ? terms[0]! : `(+ ${terms.join(' ')})`;
+    conditions.push(`(= ${sum} ${inv.constant})`);
+  }
+  return conditions;
+}
+
+/** Environment post-cap conjuncts on the next marking (legacy Bounded mode). */
+function envBoundConditions(flatNet: FlatNet, mpVars: readonly string[]): string[] {
+  return envBounds(flatNet).map(([pid, max]) => `(<= ${mpVars[pid]} ${max})`);
+}
+
+/**
+ * Guard + column-update conjuncts for one env-injection step (VER-006):
+ * `[m_pid < bound]`, `m'_pid = m_pid + 1`, all other columns copied.
+ */
+function injectionConditions(
+  P: number,
+  pid: number,
+  bound: number | null,
+  mVars: readonly string[],
+  mpVars: readonly string[],
+): string[] {
+  const conditions: string[] = [];
+  if (bound != null) conditions.push(`(< ${mVars[pid]} ${bound})`);
+  for (let i = 0; i < P; i++) {
+    if (i === pid) conditions.push(`(= ${mpVars[i]} (+ ${mVars[i]} 1))`);
+    else conditions.push(`(= ${mpVars[i]} ${mVars[i]})`);
+  }
+  return conditions;
+}
+
+function encodeTransitionRule(
+  flatNet: FlatNet,
+  ft: FlatTransition,
+  mVars: readonly string[],
+  mpVars: readonly string[],
+  invariants: readonly PInvariant[],
+): string {
+  const conditions = [`(Reachable ${mVars.join(' ')})`];
+  conditions.push(...firingConditions(flatNet, ft, mVars, mpVars));
+  conditions.push(...invariantConditions(invariants, mpVars));
+  conditions.push(...envBoundConditions(flatNet, mpVars));
+  const body = `(and ${conditions.join('\n            ')})`;
+  return `(assert (forall (${quantified([...mVars, ...mpVars])})\n  (=> ${body}\n      (Reachable ${mpVars.join(' ')}))))`;
+}
+
+function encodeInjectionRule(
+  P: number,
+  pid: number,
+  bound: number | null,
+  mVars: readonly string[],
+  mpVars: readonly string[],
+): string {
+  const conditions = [`(Reachable ${mVars.join(' ')})`];
+  conditions.push(...injectionConditions(P, pid, bound, mVars, mpVars));
+  const body = `(and ${conditions.join('\n            ')})`;
+  return `(assert (forall (${quantified([...mVars, ...mpVars])})\n  (=> ${body}\n      (Reachable ${mpVars.join(' ')}))))`;
+}
+
+/**
+ * Joins conjuncts into one formula (`true` when empty, the bare conjunct when
+ * singleton, since SMT-LIB `and` wants at least two arguments).
+ */
+export function conjoin(conditions: readonly string[]): string {
+  if (conditions.length === 0) return 'true';
+  if (conditions.length === 1) return conditions[0]!;
+  return `(and ${conditions.join(' ')})`;
+}
+
+/**
+ * The net's one-step relation `T(M, M')` as one plain SMT-LIB2 formula over the free
+ * variables `m0..` / `m0p..`: the disjunction of every flat transition firing and
+ * every env-injection step (VER-006). This is the UNSTRENGTHENED relation the
+ * certificate check validates against: it shares the condition emitters with the CHC
+ * path but omits the P-invariant conjuncts, so a certificate poisoned by a wrong
+ * invariant cannot re-certify itself.
+ */
+export function encodeStepRelationSmt2(flatNet: FlatNet): string {
+  const P = flatNet.places.length;
+  const mVars = vars(P, '');
+  const mpVars = vars(P, 'p');
+  const disjuncts: string[] = [];
+  for (const ft of flatNet.transitions) {
+    const conditions = firingConditions(flatNet, ft, mVars, mpVars);
+    conditions.push(...envBoundConditions(flatNet, mpVars));
+    disjuncts.push(conjoin(conditions));
+  }
+  for (const inj of resolveEnvInjection(flatNet)) {
+    disjuncts.push(conjoin(injectionConditions(P, inj.pid, inj.bound, mVars, mpVars)));
+  }
+  if (disjuncts.length === 0) return 'false';
+  if (disjuncts.length === 1) return disjuncts[0]!;
+  return `(or ${disjuncts.join('\n    ')})`;
 }
 
 function encodeErrorRule(
-  ctx: Z3Context,
-  fp: Z3Fixedpoint,
-  reachable: FuncDecl,
-  error: FuncDecl,
   flatNet: FlatNet,
   property: SmtProperty,
+  mVars: readonly string[],
   sinkPlaces: ReadonlySet<Place<any>>,
-  P: number,
-): void {
-  const Int = ctx.Int;
+  envInject: readonly Injection[],
+): string {
+  const violation = encodePropertyViolation(flatNet, property, mVars, sinkPlaces, envInject);
+  return `(assert (forall (${quantified(mVars)})\n  (=> (and (Reachable ${mVars.join(' ')}) ${violation})\n      Error)))`;
+}
 
-  // Create variables for the error rule
-  const mVars: Arith[] = [];
-  for (let i = 0; i < P; i++) {
-    mVars.push(Int.const(`em${i}`));
+/** The flat indices of the given places that resolve, ascending and deduplicated. */
+export function indexOrdered(flatNet: FlatNet, places: Iterable<Place<any>>): number[] {
+  const idx = new Set<number>();
+  for (const place of places) {
+    const i = flatNet.placeIndex.get(place.name);
+    if (i != null) idx.add(i);
   }
-
-  const reachBody = (reachable as any).call(...mVars) as Bool;
-  const violation = encodePropertyViolation(ctx, flatNet, property, sinkPlaces, mVars, P);
-
-  const head = (error as any).call() as Bool;
-  const body = ctx.And(reachBody, violation);
-  const rule = ctx.Implies(body, head);
-  const qRule = ctx.ForAll(mVars, rule);
-
-  fp.addRule(qRule, `error_${property.type}`);
+  return [...idx].sort((a, b) => a - b);
 }
 
 /**
- * Encodes the property-violation predicate `Bad(M)` over the marking variables.
- *
- * Exported for the certificate checker (VC3, safety): it is the same predicate
- * the CHC error rule conjoins with `Reachable(M)`, so the checked `Bad` can
- * never drift from the queried one.
+ * The property-violation condition `Bad(M)` over `mVars`. Also used by the
+ * certificate check's safety VC, which must test against exactly the violation the
+ * error rule encodes. A place the net does not declare contributes nothing; the
+ * verifier refuses such a property before encoding.
  */
 export function encodePropertyViolation(
-  ctx: Z3Context,
   flatNet: FlatNet,
   property: SmtProperty,
+  mVars: readonly string[],
   sinkPlaces: ReadonlySet<Place<any>>,
-  mVars: Arith[],
-  P: number,
-): Bool {
+  envInject: readonly Injection[],
+): string {
   switch (property.type) {
-    case 'deadlock-free': {
-      const deadlock = encodeDeadlock(ctx, flatNet, mVars, P);
-      if (sinkPlaces.size > 0) {
-        // Deadlock is only a violation if NOT at any expected sink place
-        let notAtSink: Bool = ctx.Bool.val(true);
-        for (const sink of sinkPlaces) {
-          const idx = flatNetIndexOf(flatNet, sink);
-          if (idx >= 0) {
-            notAtSink = ctx.And(notAtSink, mVars[idx]!.eq(0));
-          }
-        }
-        return ctx.And(deadlock, notAtSink);
-      }
-      return deadlock;
-    }
-
+    case 'deadlock-free':
+      return encodeDeadlock(flatNet, mVars, sinkPlaces, envInject);
     case 'mutual-exclusion': {
-      const idx1 = flatNetIndexOf(flatNet, property.p1);
-      const idx2 = flatNetIndexOf(flatNet, property.p2);
-      if (idx1 < 0) throw new Error(`MutualExclusion references unknown place: ${property.p1.name}`);
-      if (idx2 < 0) throw new Error(`MutualExclusion references unknown place: ${property.p2.name}`);
-      return ctx.And(mVars[idx1]!.ge(1), mVars[idx2]!.ge(1));
+      const conditions = indexOrdered(flatNet, [property.p1, property.p2]).map((i) => `(>= ${mVars[i]} 1)`);
+      return conditions.length === 0 ? 'false' : `(and ${conditions.join(' ')})`;
     }
-
-    case 'place-bound': {
-      const idx = flatNetIndexOf(flatNet, property.place);
-      if (idx < 0) throw new Error(`PlaceBound references unknown place: ${property.place.name}`);
-      return mVars[idx]!.gt(property.bound);
-    }
-
+    case 'place-bound':
     case 'branch-place-bound': {
-      // ν-net budget lever (NU-040): a count bound, encoded identically to
-      // place-bound. Sound under the matched-transition over-approximation —
-      // the real net fires fewer joins, so it cannot exceed a bound the
-      // over-approximation respects.
-      const idx = flatNetIndexOf(flatNet, property.place);
-      if (idx < 0) throw new Error(`BranchPlaceBound references unknown place: ${property.place.name}`);
-      return mVars[idx]!.gt(property.bound);
+      // BranchPlaceBound is the ν-net budget lever (NU-040): a count bound, encoded
+      // like PlaceBound.
+      const pid = flatNet.placeIndex.get(property.place.name);
+      return pid == null ? 'false' : `(> ${mVars[pid]} ${property.bound})`;
     }
-
-    case 'joined-or-dead-lettered': {
-      // NU-040: a quiescent (deadlocked) marking that still holds a `pending`
-      // token is a stranded correlation group. Reuse the deadlock predicate and
-      // conjoin pending non-emptiness.
-      const idx = flatNetIndexOf(flatNet, property.pending);
-      if (idx < 0) return ctx.Bool.val(false); // unknown pending place: no violation
-      const deadlock = encodeDeadlock(ctx, flatNet, mVars, P);
-      return ctx.And(deadlock, mVars[idx]!.ge(1));
-    }
-
     case 'unreachable': {
-      let allMarked: Bool = ctx.Bool.val(true);
-      for (const place of property.places) {
-        const idx = flatNetIndexOf(flatNet, place);
-        if (idx >= 0) {
-          allMarked = ctx.And(allMarked, mVars[idx]!.ge(1));
-        }
-      }
-      return allMarked;
+      const conditions = indexOrdered(flatNet, property.places).map((i) => `(>= ${mVars[i]} 1)`);
+      return conditions.length === 0 ? 'false' : `(and ${conditions.join(' ')})`;
+    }
+    case 'joined-or-dead-lettered': {
+      // NU-040: a quiescent marking still holding a `pending` token.
+      const deadlock = encodeDeadlock(flatNet, mVars, sinkPlaces, envInject);
+      const pid = flatNet.placeIndex.get(property.pending.name);
+      return pid == null ? 'false' : `(and ${deadlock} (>= ${mVars[pid]} 1))`;
     }
   }
 }
 
 /**
- * Encodes the deadlock condition: no transition is enabled. Environment inputs
- * are treated as injectable (`relaxEnv`), so a marking that an external injection
- * could re-enable is NOT a deadlock — only a genuinely stuck marking is (VER-006).
+ * Deadlock: every transition is disabled. Environment inputs are treated as
+ * injectable (VER-006): an input/read on an injectable env place is NOT a reason the
+ * transition is disabled (AlwaysAvailable always satisfies it, Bounded(k) iff the
+ * demand is at most k), so a reactive net merely waiting for input is not a deadlock;
+ * only a genuinely stuck marking is. Declared sinks (VER-002) each contribute
+ * `M[sink] = 0`.
  */
 function encodeDeadlock(
-  ctx: Z3Context,
   flatNet: FlatNet,
-  mVars: Arith[],
-  P: number,
-): Bool {
-  let deadlock: Bool = ctx.Bool.val(true);
-
+  mVars: readonly string[],
+  sinkPlaces: ReadonlySet<Place<any>>,
+  envInject: readonly Injection[],
+): string {
+  const envBound = new Map<number, number | null>();
+  for (const inj of envInject) envBound.set(inj.pid, inj.bound);
+  const disabledConditions: string[] = [];
   for (const ft of flatNet.transitions) {
-    const enabled = encodeEnabled(ctx, ft, flatNet, mVars, P, /* relaxEnv */ true);
-    deadlock = ctx.And(deadlock, ctx.Not(enabled));
-  }
-
-  return deadlock;
-}
-
-/**
- * Conjunction of P-invariant equalities `sum(y_i * M[i]) = constant` over a
- * marking vector.
- *
- * Shared by the CHC transition rules (strengthening on M') and the certificate
- * checker (which conjoins the invariants into the CANDIDATE certificate, never
- * into the step relation, and then re-proves the strengthened candidate from
- * scratch) — one builder, so the two uses cannot drift.
- */
-export function encodeInvariantConstraints(
-  ctx: Z3Context,
-  invariants: readonly PInvariant[],
-  mVars: Arith[],
-  P: number,
-): Bool {
-  let result: Bool = ctx.Bool.val(true);
-
-  for (const inv of invariants) {
-    // sum(y_i * M[i]) == constant
-    let sum: Arith = ctx.Int.val(0);
-    for (const idx of inv.support) {
-      if (idx < P) {
-        sum = sum.add(mVars[idx]!.mul(inv.weights[idx]!));
+    const disableReasons: string[] = [];
+    let permanentlyDisabled = false;
+    for (let i = 0; i < flatNet.places.length; i++) {
+      if (ft.preVector[i]! > 0) {
+        if (envBound.has(i)) {
+          const k = envBound.get(i)!;
+          if (k != null && ft.preVector[i]! > k) permanentlyDisabled = true;
+          continue;
+        }
+        disableReasons.push(`(< ${mVars[i]} ${ft.preVector[i]})`);
       }
     }
-    result = ctx.And(result, sum.eq(inv.constant));
+    for (const inh of ft.inhibitorPlaces) disableReasons.push(`(> ${mVars[inh]} 0)`);
+    for (const rd of ft.readPlaces) {
+      if (envBound.has(rd)) {
+        const k = envBound.get(rd)!;
+        if (k != null && k < 1) permanentlyDisabled = true;
+        continue;
+      }
+      disableReasons.push(`(< ${mVars[rd]} 1)`);
+    }
+    if (permanentlyDisabled) {
+      disabledConditions.push('true');
+      continue;
+    }
+    if (disableReasons.length === 0) return 'false';
+    disabledConditions.push(`(or ${disableReasons.join(' ')})`);
   }
+  for (const pid of indexOrdered(flatNet, sinkPlaces)) {
+    disabledConditions.push(`(= ${mVars[pid]} 0)`);
+  }
+  return disabledConditions.length === 0 ? 'true' : `(and ${disabledConditions.join('\n         ')})`;
+}
 
-  return result;
+/** Env-injectable bound map, index to cap (`null` = unbounded), for the coloured encoder. */
+export function injectionMap(flatNet: FlatNet): Map<number, number | null> {
+  const out = new Map<number, number | null>();
+  for (const inj of resolveEnvInjection(flatNet)) out.set(inj.pid, inj.bound);
+  return out;
 }

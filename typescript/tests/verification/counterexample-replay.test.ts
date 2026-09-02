@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { it, expect } from 'vitest';
+import { describeZ3 } from '../fixtures/z3.js';
 import { SmtVerifier } from '../../src/verification/smt-verifier.js';
 import { deadlockFree, placeBound, mutualExclusion } from '../../src/verification/smt-property.js';
 import { PetriNet } from '../../src/core/petri-net.js';
@@ -8,10 +9,10 @@ import { one } from '../../src/core/in.js';
 import { outPlace } from '../../src/core/out.js';
 import { bindProducers } from '../fixtures/producing-actions.js';
 
-// End-to-end abstract counterexample replay (C3) against real Z3 WASM.
+// End-to-end abstract counterexample replay (C3) against the real z3 executable.
 const Z3_TIMEOUT = 60_000;
 
-describe('counterexample replay (Z3 integration)', () => {
+describeZ3('counterexample replay (Z3 integration)', () => {
   // T1: A -> B, T2: B + C -> A with M0 = {A:1}: T1 fires, then T2 starves on C.
   const deadlockNet = () => {
     const pA = place('A');
@@ -74,7 +75,10 @@ describe('counterexample replay (Z3 integration)', () => {
     expect(last.tokens(crit2)).toBeGreaterThanOrEqual(1);
   }, Z3_TIMEOUT);
 
-  it('counterexampleReplay(false) opts out: verdict and legacy trace unchanged, confirmed = null', async () => {
+  it('counterexampleReplay(false) opts out: verdict unchanged, no proof requested, confirmed = null', async () => {
+    // Without the replay the HORN script asks for no refutation proof (as in Rust
+    // and Java), so there are no decoded states either: the verdict rests on the
+    // solver's answer alone.
     const { pA, net } = deadlockNet();
     const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => m.tokens(pA, 1))
@@ -86,7 +90,7 @@ describe('counterexample replay (Z3 integration)', () => {
     expect(result.verdict.type).toBe('violated');
     expect(result.counterexampleConfirmed).toBeNull();
     expect(result.report).not.toContain('Counterexample replay');
-    expect(result.counterexampleTrace.length).toBeGreaterThan(0);
+    expect(result.counterexampleTrace).toHaveLength(0);
   }, Z3_TIMEOUT);
 
   it('a proven verdict reports counterexampleConfirmed = null', async () => {

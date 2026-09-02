@@ -124,49 +124,23 @@ export function computePInvariants(
       continue;
     }
 
+    // A signed null-space basis, exactly as the Rust reference computes it
+    // (VER-013 script parity): a mixed-sign row is a conservation law like any
+    // other and passes the same exact gate; a semi-negative row is the same law
+    // negated. Non-negativity is only required of the P-semiflows that bound the
+    // colour slots (computePSemiflows), never of the strengthening laws. Rows were
+    // GCD-normalised during the elimination, so no renormalisation here.
     const weights = new Array<number>(P);
-    let allNonNegative = true;
     let hasPositive = false;
-
+    let hasNegative = false;
     for (let i = 0; i < P; i++) {
       weights[i] = augmented[row]![T + i]!;
-      if (weights[i]! < 0) {
-        allNonNegative = false;
-        break;
-      }
       if (weights[i]! > 0) hasPositive = true;
+      if (weights[i]! < 0) hasNegative = true;
     }
-
-    // We want semi-positive invariants (all weights >= 0, at least one > 0)
-    if (!allNonNegative) {
-      // Try negating
-      let allNonPositive = true;
-      for (let i = 0; i < P; i++) {
-        if (augmented[row]![T + i]! > 0) {
-          allNonPositive = false;
-          break;
-        }
-      }
-      if (allNonPositive) {
-        for (let i = 0; i < P; i++) {
-          weights[i] = -augmented[row]![T + i]!;
-        }
-        hasPositive = true;
-        allNonNegative = true;
-      }
-    }
-
-    if (!allNonNegative || !hasPositive) continue;
-
-    // Normalize: divide by GCD of weights
-    let g = 0;
-    for (const w of weights) {
-      if (w > 0) g = gcd(g, w);
-    }
-    if (g > 1) {
-      for (let i = 0; i < P; i++) {
-        weights[i] = weights[i]! / g;
-      }
+    if (!hasPositive && !hasNegative) continue;
+    if (!hasPositive) {
+      for (let i = 0; i < P; i++) weights[i] = -weights[i]!;
     }
 
     // Compute support and constant
@@ -613,4 +587,23 @@ function gcd(a: number, b: number): number {
     a = t;
   }
   return a;
+}
+
+/**
+ * The invariants in canonical order (VER-013): by ascending support, then weights,
+ * then constant, each compared lexicographically. The same order the Rust and Java
+ * verifiers apply, so the strengthened scripts are byte-identical.
+ */
+export function canonicalInvariantOrder(invariants: readonly PInvariant[]): PInvariant[] {
+  const lex = (a: readonly number[], b: readonly number[]): number => {
+    const n = Math.min(a.length, b.length);
+    for (let i = 0; i < n; i++) {
+      if (a[i]! !== b[i]!) return a[i]! - b[i]!;
+    }
+    return a.length - b.length;
+  };
+  const support = (inv: PInvariant): number[] => [...inv.support].sort((x, y) => x - y);
+  return [...invariants].sort(
+    (a, b) => lex(support(a), support(b)) || lex(a.weights, b.weights) || a.constant - b.constant,
+  );
 }

@@ -11,7 +11,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 - Active requirements: **210**
 - Proven in Lean (≥ 1 validated theorem fragment): **24**
 - Referenced in Lean comments only (mention without a validated theorem mapping): **7**
-- Referenced by ≥ 1 test file: java **68**, typescript **64**, rust **73**, python **25**
+- Referenced by ≥ 1 test file: java **68**, typescript **65**, rust **73**, python **25**
 - Untested anywhere (no test-file reference in any language): **130**
 
 ## 01-core-model.md — CORE
@@ -163,7 +163,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | VER-010 | — | — | — | — | — | — |
 | VER-011 | — | — | — | — | — | — |
 | VER-012 | `interned_keys_eq` — hash-consing the base class and the name layer is semantics-free: under key-equivariance of the successor step, exploring from any key-preserving representative reaches the same set of canonical keys (state classes) as exploring from the states themselves - generic worklist model; the shipped name_successors / canonical_key equivariance and the ready_earliest-inclusive base key are stated hypotheses, not proven<br>`interned_edges_eq` — the interned graph has the same (key, label, key) edge set as the plain one, not merely the same vertex set; class indices and enumeration order are not claimed<br>`equivariance_is_necessary` — necessity of key-equivariance: a step that reads a datum the key hides loses a reachable class under interning - the shape of the ready_earliest hole the base intern key closes | ✓ | ✓ | ✓ | ✓ | — |
-| VER-013 | — | — | ✓ | — | ✓ | ✓ |
+| VER-013 | — | — | ✓ | ✓ | ✓ | ✓ |
 | VER-020 | — | — | — | — | — | — |
 | VER-021 | — | — | — | — | — | — |
 
