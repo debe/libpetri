@@ -156,6 +156,61 @@ property — it reports `Unknown` (with a reason) instead of silently certifying
 
 ---
 
+#### VER-007: Invariant Strengthening from P-Semiflows
+
+**Priority:** SHOULD
+
+The verifier's encoders conjoin every accepted conservation law `y·M = y·M0` into the
+transition-rule bodies of the CHC/IC3 encoding ([VER-004], [VER-005]). A law is accepted only
+by the **exact gate**: `y·C = 0` against the incidence matrix and `y·M0 = c` are re-checked in
+exact (overflow-checked) integer arithmetic, and `y` MUST carry zero weight on every place a
+transition consumes with `all()` / `atLeast(n)` or clears with a reset arc, because the
+encoder's fire relation is not linear there (Lean `Strengthening.lean`, hypotheses H1/H2;
+injected environment places are covered by [VER-006], H3'). A law that fails the gate is
+dropped from the encoding and listed in the report.
+
+Two sources feed the gate. The null-space basis of [VER-005] is one basis of many: Gaussian
+elimination returns mixed-sign rows (discarded as not semi-positive) and rows that fold a reset
+place into a chain whose other combinations avoid it (dropped by the gate). On a net with a
+handful of reset arcs this can lose every law of the chains those arcs touch, and IC3 then has
+to rediscover each conservation law itself, which on a net of a hundred places it does not do
+within any practical budget. The non-negative **P-semiflows** (`y ≥ 0`, `y·C = 0`, the minimal
+laws of the net, computed by the Farkas / Colom-Silva enumeration that [NU-053] already uses
+for the colour-slot bound) are the missing laws.
+
+An implementation SHOULD therefore offer an option that unions the gate-validated semiflows
+into the invariant list the encoders receive. The option is **off by default** so that reports
+stay byte-identical across releases. It is pure strengthening (Lean `Semiflow.lean`,
+`semiflow_union_sound`: conjoining any list of gate-validated laws preserves the abstract
+reachable set), so enabling it can never turn a `Violated` into a `Proven`.
+
+**Acceptance Criteria:**
+1. Semiflows are re-validated by the same exact gate as the basis rows before use; a semiflow
+   that fails it is dropped with a `Dropped semiflow:` report line and is never encoded.
+2. With the option disabled (the default) the semiflows do not reach the encoders and the
+   report is byte-identical to a build without the feature.
+3. With the option enabled the report carries `  Semiflows encoded as invariants: N`, where
+   `N` counts the semiflows added after deduplication against the basis rows, and the result's
+   invariant count and list include them.
+4. `Proven` is never weakened: where the certificate check applies (the flat encoding) it
+   receives the strengthened list and re-proves every law's initiation and consecution against
+   the unstrengthened step relation before the verdict is reported.
+5. A genuine violation stays `Violated` with the option enabled.
+
+**Implementation notes:**
+- Java: `SmtVerifier.semiflowInvariants(boolean)`.
+- TypeScript: `SmtVerifier.semiflowInvariants(enabled)`.
+- Rust: `SmtVerifier::semiflow_invariants(bool)`.
+- Python: `verify(..., semiflow_invariants=True)`.
+
+**Depends on:** [VER-004], [VER-005], [VER-006], [NU-053]
+
+**Test derivation:** a budgeted work loop with one reset arc on a side place, whose null-space
+basis folds the reset place into the loop's law: a `placeBound` on the loop is proven only with
+the option; a bound the loop genuinely exceeds stays `Violated` with it.
+
+---
+
 ## State Class Graph
 
 #### VER-010: State Class Graph Analysis
@@ -256,6 +311,13 @@ to the same cardinality contract the executor uses rather than restating it.
 - TypeScript: Full implementation (`verification/analysis/name-state-class-graph`
   / `verification/nu-scg-verifier`).
 - Python: inherits the Rust analysis through `verify`.
+- Memory: an implementation MAY intern (hash-cons) the base class and the name layer
+  between state classes. The base intern key MUST include the class-relative
+  earliest-ready times alongside the marking and zone, because the [NU-052] prune reads
+  them while class equality does not. Interning is semantics-free by key-equivariance of
+  the successor step (Lean `Interning.lean`, `interned_keys_eq`): the reachable quotient
+  and the verdict are unchanged; class indices and the reported counterexample trace may
+  differ from a non-interned build.
 - Solver-free (no Z3); the verifier prefers Route A's bounded name-colouring for
   budget-declared untimed reachability-safety and uses this route for quiescence,
   budget-less, and timed ν-nets.
