@@ -85,6 +85,16 @@ public final class NameStateClassGraph {
         var initial = new NameStateClass(base0, new NameMarking(), fragment.colouredOrder);
 
         var indexOf = new HashMap<NameStateClass, Integer>();
+        // Hash-consing (memory only, no semantic effect): the base class (marking + zone)
+        // and the name layer are each shared between every state class that carries an
+        // equal one. Two name layers with the same canonical key are the same partition up
+        // to a renaming of symbols, and every consumer of the layer is symmetric under
+        // renaming (successor steps, willFire, the key itself); freshness stays sound
+        // because minted symbols come from a monotone counter that never revisits an id.
+        // Without this a class costs ~4 KB (TreeMap-of-TreeMaps + key string dominate) and a
+        // few million classes exhaust the heap before a medium-sized ν-net closes.
+        var baseIntern = new HashMap<StateClass, StateClass>();
+        var nameIntern = new HashMap<String, NameStateClass>();
         graph.pushClass(initial, indexOf);
 
         int[] nextSym = {0};
@@ -116,8 +126,15 @@ public final class NameStateClassGraph {
                         continue; // DBM zone infeasible
                     }
                     var nameSuccs = nameSuccessors(role, current.names, vt.outputPlaces(), fragment, nextSym);
+                    var sharedBase = baseIntern.computeIfAbsent(baseSucc, b -> b);
                     for (var nm : nameSuccs) {
-                        var succ = new NameStateClass(baseSucc, nm, fragment.colouredOrder);
+                        var succ = new NameStateClass(sharedBase, nm, fragment.colouredOrder);
+                        var sharedNames = nameIntern.get(succ.nameKey());
+                        if (sharedNames == null) {
+                            nameIntern.put(succ.nameKey(), succ);
+                        } else {
+                            succ = new NameStateClass(sharedBase, sharedNames.names, sharedNames.nameKey());
+                        }
                         Integer toIdx = indexOf.get(succ);
                         if (toIdx == null) {
                             toIdx = graph.classes.size();
