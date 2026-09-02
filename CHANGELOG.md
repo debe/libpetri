@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-**Verifier reach, ν-graph memory, and the proofs behind both.** IC3 can now be handed the net's minimal conservation laws, the ν state-class graph interns its two layers, and a zero colour budget is decided instead of declined. Each change is proved in Lean before it is ported; Java, TypeScript and Rust carry the same tests, Python runs them through the binding.
+**One solver transport, verifier reach, ν-graph memory, and the proofs behind them.** Every verifier now runs the `z3` executable and sends it the same script, byte for byte; IC3 can be handed the net's minimal conservation laws, the ν state-class graph interns its two layers, and a zero colour budget is decided instead of declined. Each proof-backed change is proved in Lean before it is ported; Java, TypeScript and Rust carry the same tests, Python runs them through the binding.
 
 ---
 

@@ -1,4 +1,4 @@
-//! CI gate for the z3 back-end (the Rust analogue of Java's `Z3NativeGateTest`).
+//! CI gate for the z3 back-end (the Rust analogue of Java's `Z3BinaryGateTest`).
 //!
 //! Everything that exercises the SMT verifier can vanish without turning a
 //! build red, in two independent ways:
