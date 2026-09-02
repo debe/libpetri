@@ -38,7 +38,8 @@
 //! ## SMT Verification
 //!
 //! With the `z3` feature enabled, `smt_encoder` and `smt_verifier` provide
-//! IC3/PDR-based model checking. Supported properties
+//! IC3/PDR-based model checking through the `z3` executable ([`z3_process`]:
+//! `z3` on `PATH` or `LIBPETRI_Z3`, version 4.8.0 or newer). Supported properties
 //! ([`SmtProperty`](property::SmtProperty)):
 //!
 //! - **DeadlockFree** — no reachable deadlock state
@@ -77,3 +78,5 @@ pub mod structural_check;
 
 #[cfg(feature = "z3")]
 pub mod smt_verifier;
+#[cfg(feature = "z3")]
+pub mod z3_process;

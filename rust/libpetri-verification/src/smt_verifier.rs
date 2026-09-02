@@ -19,6 +19,7 @@ use crate::property::SmtProperty;
 use crate::result::{Verdict, VerificationResult, VerificationStatistics};
 use crate::smt_encoder;
 use crate::structural_check::{self, StructuralCheckResult};
+use crate::z3_process::{self, Z3Solver};
 
 /// Builder for SMT verification of Petri net properties.
 ///
@@ -32,7 +33,7 @@ pub struct SmtVerifier<'a> {
     net: &'a PetriNet,
     initial_marking: MarkingState,
     property: SmtProperty,
-    env_places: HashSet<String>,
+    env_places: BTreeSet<String>,
     env_mode: EnvironmentAnalysisMode,
     sink_places: Vec<String>,
     /// ν-net budget places ([NU-040]): places whose token count bounds the live
@@ -101,7 +102,7 @@ impl<'a> SmtVerifier<'a> {
             net,
             initial_marking: MarkingStateBuilder::new().build(),
             property: SmtProperty::DeadlockFree,
-            env_places: HashSet::new(),
+            env_places: BTreeSet::new(),
             env_mode: EnvironmentAnalysisMode::Ignore,
             sink_places: Vec::new(),
             budget_places: HashSet::new(),
@@ -406,6 +407,12 @@ impl<'a> SmtVerifier<'a> {
             flat.transitions.len()
         ));
 
+        // [VER-013] Script determinism: the encoders receive the sink places and
+        // the property's place lists in place-index order, so the emitted script
+        // does not depend on the order the caller listed them in.
+        let sink_places = canonical_place_order(&flat, &self.sink_places);
+        let property = canonical_property(&flat, &self.property);
+
         // Environment bounds (legacy post-cap) and the injection map (VER-006).
         // env_injection drives the env-injection CHC rule, the incidence-matrix
         // injector columns, and the relaxed deadlock check. None = unbounded
@@ -450,9 +457,9 @@ impl<'a> SmtVerifier<'a> {
         // siphon/trap analysis runs on the closed net and is blind to env injection
         // (VER-006), so its early proof could be unsound — fall through to the
         // (injection-aware) SMT encoding instead.
-        if matches!(self.property, SmtProperty::DeadlockFree)
+        if matches!(property, SmtProperty::DeadlockFree)
             && !has_match
-            && self.sink_places.is_empty()
+            && sink_places.is_empty()
             && self.env_places.is_empty()
             && structural_result == StructuralCheckResult::NoPotentialDeadlock
         {
@@ -510,6 +517,16 @@ impl<'a> SmtVerifier<'a> {
         } else {
             invariants
         };
+        // [VER-013] Canonical invariant order (support, weights, constant), so the
+        // strengthened rule bodies and the certificate candidate read the same in
+        // every implementation whatever order the elimination produced them in.
+        let mut invariants = invariants;
+        invariants.sort_by(|a, b| {
+            a.support
+                .cmp(&b.support)
+                .then_with(|| a.weights.cmp(&b.weights))
+                .then_with(|| a.constant.cmp(&b.constant))
+        });
 
         for (i, inv) in invariants.iter().enumerate() {
             let terms: Vec<String> = inv
@@ -542,7 +559,31 @@ impl<'a> SmtVerifier<'a> {
 
         // Phase 4: SMT Encode + Query
         report.push_str("=== Phase 4: SMT Verification ===\n");
-        report.push_str(&format!("Property: {}\n", self.property.description()));
+        report.push_str(&format!("Property: {}\n", property.description()));
+
+        // [VER-013] One z3 process per query. Resolve the executable before any
+        // encoding work so a missing or too-old solver is reported as such.
+        let solver = match Z3Solver::resolve() {
+            Ok(solver) => {
+                report.push_str(&format!("  Solver: z3 {}\n", solver.version()));
+                solver
+            }
+            Err(reason) => {
+                report.push_str(&format!("  Solver: z3 unavailable ({reason})\n"));
+                report.push_str(&format!("Result: UNKNOWN ({reason})\n"));
+                let elapsed_ms = start.elapsed().as_millis() as u64;
+                return build_result(
+                    Verdict::Unknown { reason },
+                    report,
+                    elapsed_ms,
+                    flat_statistics(&flat, invariants.len(), structural_str),
+                    Diagnostics {
+                        invariants,
+                        ..Diagnostics::none()
+                    },
+                );
+            }
+        };
 
         // ν-net exact refinement (NU-050 #1, Route A). For a budget-bounded ν-net
         // in the supported mint→matched-join fragment, encode names as a finite
@@ -579,9 +620,9 @@ impl<'a> SmtVerifier<'a> {
                 plan,
                 &flat,
                 &self.initial_marking,
-                &self.property,
+                &property,
                 &invariants,
-                &self.sink_places,
+                &sink_places,
                 &env_inject_idx,
             ) {
                 Some(enc) => enc,
@@ -611,9 +652,9 @@ impl<'a> SmtVerifier<'a> {
             smt_encoder::encode(
                 &flat,
                 &self.initial_marking,
-                &self.property,
+                &property,
                 &invariants,
-                &self.sink_places,
+                &sink_places,
                 &env_bounds,
                 &env_injection,
                 // C3: request the refutation proof the replay decoder reads.
@@ -622,7 +663,8 @@ impl<'a> SmtVerifier<'a> {
         };
 
         // Run Z3 Spacer
-        let z3_result = run_z3_spacer(&encoding.smt2, self.timeout_ms);
+        let phase = if coloured_plan.is_some() { "horn-coloured" } else { "horn" };
+        let z3_result = run_z3_spacer(&encoding.smt2, &solver, self.timeout_ms, phase);
 
         let (mut verdict, decoded_trace, discovered_invariants) =
             process_z3_result(&z3_result, &mut report);
@@ -658,7 +700,7 @@ impl<'a> SmtVerifier<'a> {
                      (k = budget); the verdict is sound and complete within the budget bound — \
                      no spurious different-name counterexample (NU-050 #1 / NU-053).\n",
                 );
-            } else if !is_reachability_safety(&self.property) {
+            } else if !is_reachability_safety(&property) {
                 // Quiescence-based properties, name-blind (no coloured plan): the
                 // over-approximation over-fires joins, so it sees fewer quiescent
                 // states and may miss a real stranded marking. Refuse to certify —
@@ -698,10 +740,13 @@ impl<'a> SmtVerifier<'a> {
         verdict = self.certificate_phase(
             verdict,
             &flat,
+            &property,
+            &sink_places,
             &invariants,
             &env_bounds,
             &env_injection,
             coloured_plan.is_some(),
+            &solver,
             &mut report,
         );
 
@@ -709,6 +754,8 @@ impl<'a> SmtVerifier<'a> {
             verdict,
             &z3_result,
             &flat,
+            &property,
+            &sink_places,
             &env_bounds,
             &env_injection,
             coloured_plan.is_some(),
@@ -744,10 +791,13 @@ impl<'a> SmtVerifier<'a> {
         &self,
         verdict: Verdict,
         flat: &FlatNet,
+        property: &SmtProperty,
+        sink_places: &[String],
         invariants: &[PInvariant],
         env_bounds: &[(String, usize)],
         env_injection: &[(String, Option<usize>)],
         coloured: bool,
+        solver: &Z3Solver,
         report: &mut String,
     ) -> Verdict {
         if !matches!(verdict, Verdict::Proven { .. }) {
@@ -782,16 +832,17 @@ impl<'a> SmtVerifier<'a> {
             return Verdict::Unknown { reason };
         };
 
-        match certificate_check::check_certificate(
+        match certificate_check::check_certificate_with(
             &cert,
             flat,
             &self.initial_marking,
-            &self.property,
+            property,
             invariants,
-            &self.sink_places,
+            sink_places,
             env_bounds,
             env_injection,
             self.timeout_ms,
+            solver,
         ) {
             CertificateCheck::Passed => {
                 report.push_str(CERT_PASSED_LINE);
@@ -827,6 +878,8 @@ impl<'a> SmtVerifier<'a> {
         verdict: Verdict,
         z3_result: &Z3Result,
         flat: &FlatNet,
+        property: &SmtProperty,
+        sink_places: &[String],
         env_bounds: &[(String, usize)],
         env_injection: &[(String, Option<usize>)],
         coloured: bool,
@@ -885,8 +938,8 @@ impl<'a> SmtVerifier<'a> {
             flat,
             &m0,
             &decoded_set,
-            &self.property,
-            &self.sink_places,
+            property,
+            sink_places,
             &env_inject,
             &env_caps,
             REPLAY_MAX_SEGMENT_STEPS,
@@ -1123,68 +1176,21 @@ enum Z3Result {
     Unknown { reason: String },
 }
 
-/// Spawns the `z3` binary (`-smt2 -in -T:<secs>` plus `extra_args`), feeding
-/// `smt2` on stdin. Returns the raw process output — stdout may well contain
-/// `(error …)` lines, which callers interpret — or a spawn/pipe failure
-/// description. Shared by the Spacer run and the certificate check
-/// ([`crate::certificate_check`]).
-pub(crate) fn run_z3_text(
-    smt2: &str,
-    timeout_ms: u64,
-    extra_args: &[&str],
-) -> Result<std::process::Output, String> {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
-
-    // Z3 -T flag uses seconds; round up so sub-second timeouts don't become 0
-    let timeout_secs = timeout_ms.div_ceil(1000).max(1);
-
-    let mut child = match Command::new("z3")
-        .args(["-smt2", "-in", &format!("-T:{timeout_secs}")])
-        .args(extra_args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-    {
-        Ok(child) => child,
-        Err(e) => return Err(format!("Failed to spawn z3: {e}")),
-    };
-
-    if let Some(stdin) = child.stdin.as_mut() {
-        if let Err(e) = stdin.write_all(smt2.as_bytes()) {
-            return Err(format!("Failed to write to z3 stdin: {e}"));
-        }
-    }
-
-    match child.wait_with_output() {
-        Ok(output) => Ok(output),
-        Err(e) => Err(format!("Z3 process error: {e}")),
-    }
-}
-
-/// Runs Z3 Spacer on the given SMT-LIB2 string.
-///
-/// Invokes `z3` as a subprocess with Spacer engine.
-fn run_z3_spacer(smt2: &str, timeout_ms: u64) -> Z3Result {
-    let output = match run_z3_text(smt2, timeout_ms, &["fp.engine=spacer"]) {
-        Ok(output) => output,
+/// Runs Z3 Spacer on the given SMT-LIB2 string through one `z3` process
+/// ([`crate::z3_process`]) and classifies the reply in verdict terms.
+fn run_z3_spacer(smt2: &str, solver: &Z3Solver, timeout_ms: u64, phase: &str) -> Z3Result {
+    let reply = match solver.run(smt2, phase, timeout_ms, &["fp.engine=spacer"]) {
+        Ok(reply) => reply,
         Err(reason) => return Z3Result::Unknown { reason },
     };
+    let stdout = reply.stdout.trim();
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stdout = stdout.trim();
-
-    // Scan for the verdict LINE rather than the first bytes of the reply. The
-    // script deliberately emits both (get-proof) and (get-model), one of which
-    // answers `(error …)` on either branch, and a z3 build is free to print a
-    // warning first or route those lines differently — anchoring on
-    // `starts_with` turned every such build's flat-path verdict into Unknown.
-    match stdout
-        .lines()
-        .map(str::trim)
-        .find(|l| matches!(*l, "sat" | "unsat" | "unknown"))
-    {
+    // The verdict is a LINE anywhere in the reply, never its first bytes: the
+    // script asks for both (get-proof) and (get-model), one of which answers
+    // `(error …)` on either branch, and a build is free to print a warning
+    // first. Anchoring on `starts_with` once turned every such reply into
+    // Unknown.
+    match z3_process::classify_first_line(stdout) {
         // unsat => no inductive invariant excludes the bad state => VIOLATED.
         Some("unsat") => Z3Result::Violated {
             answer: stdout.to_string(),
@@ -1196,25 +1202,11 @@ fn run_z3_spacer(smt2: &str, timeout_ms: u64) -> Z3Result {
         Some(_) => Z3Result::Unknown {
             reason: "Z3 answered unknown".to_string(),
         },
-        None => {
-            // No verdict at all: an `(error …)` on either stream is the
-            // likeliest cause and the most useful thing to report.
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let error = stdout
-                .lines()
-                .chain(stderr.lines())
-                .map(str::trim)
-                .find(|l| l.starts_with("(error"));
-            Z3Result::Unknown {
-                reason: match error {
-                    Some(err) => format!("Z3 error: {err}"),
-                    None if !stderr.trim().is_empty() => {
-                        format!("Z3 error: {}", stderr.trim())
-                    }
-                    None => format!("Unexpected Z3 output: {stdout}"),
-                },
-            }
-        }
+        // No verdict at all: the `-T` backstop, the watchdog, an `(error …)`
+        // on either stream, in that order ([VER-013]).
+        None => Z3Result::Unknown {
+            reason: z3_process::failure_reason(&reply, timeout_ms),
+        },
     }
 }
 
@@ -1289,15 +1281,38 @@ pub(crate) fn sexpr_end(s: &str, start: usize) -> Option<usize> {
     None
 }
 
-/// True if the `z3` binary this crate shells out to is on `PATH`. Without it
+/// True if a usable `z3` executable resolves: `LIBPETRI_Z3` if set, else `z3`
+/// on `PATH`, at or above [`crate::z3_process::MIN_Z3_VERSION`]. Without one
 /// every SMT path returns `Unknown`; the test suites use this to skip loudly
 /// rather than fail.
 pub fn z3_available() -> bool {
-    std::process::Command::new("z3")
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    Z3Solver::resolve().is_ok()
+}
+
+/// The given place names in flat place-index order, unknown names last in
+/// name order, duplicates removed ([VER-013] script determinism).
+fn canonical_place_order(flat: &FlatNet, names: &[String]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut named: Vec<&String> = names.iter().filter(|n| seen.insert(n.as_str())).collect();
+    named.sort_by(|a, b| {
+        (flat.place_index.get(*a).copied(), a.as_str())
+            .cmp(&(flat.place_index.get(*b).copied(), b.as_str()))
+    });
+    named.into_iter().cloned().collect()
+}
+
+/// The property with its place lists in canonical order; the sets are
+/// unordered, so this changes nothing but the emitted script text.
+fn canonical_property(flat: &FlatNet, property: &SmtProperty) -> SmtProperty {
+    match property {
+        SmtProperty::MutualExclusion { places } => SmtProperty::MutualExclusion {
+            places: canonical_place_order(flat, places),
+        },
+        SmtProperty::Unreachable { places } => SmtProperty::Unreachable {
+            places: canonical_place_order(flat, places),
+        },
+        other => other.clone(),
+    }
 }
 
 /// Replay search bounds (C3): at most this many abstract steps between

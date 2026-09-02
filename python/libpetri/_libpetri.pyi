@@ -441,6 +441,7 @@ def verify_net(
 def verify_subnet(
     subnet: SubnetDef, harness: VerificationHarness
 ) -> SubnetVerificationResult: ...
+def z3_available() -> bool: ...
 
 # ---------------------------------------------------------------------------
 # Export

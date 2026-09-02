@@ -277,10 +277,12 @@ def _property(spec):
 
 
 def test_verdict_parity_fixtures():
-    if not lp.HAS_Z3:
+    if not (lp.HAS_Z3 and lp.z3_available()):
+        # tests/test_z3_gate.py turns this skip into a failure on a CI runner.
         pytest.skip(
-            "VERDICT PARITY NOT RUN: the wheel was built without the z3 feature, so the "
-            "shared fixtures were not checked against the Python binding at all"
+            "VERDICT PARITY NOT RUN: the wheel was built without the z3 feature or no "
+            "usable z3 executable resolves, so the shared fixtures were not checked "
+            "against the Python binding at all"
         )
 
     doc = json.loads(FIXTURES.read_text())

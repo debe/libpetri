@@ -587,15 +587,12 @@ mod tests {
     //  End-to-end SMT verification (gated on z3 feature + binary).
     // ============================================================
 
-    /// Probe whether the `z3` binary is on PATH. Mirrors Java's
+    /// Probe whether a usable `z3` executable resolves (`PATH` or
+    /// `LIBPETRI_Z3`, at or above the version floor). Mirrors Java's
     /// `z3Available()` runtime guard.
-    #[allow(dead_code)]
+    #[cfg(feature = "z3")]
     fn z3_binary_available() -> bool {
-        std::process::Command::new("z3")
-            .arg("-version")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
+        crate::smt_verifier::z3_available()
     }
 
     #[cfg(feature = "z3")]
