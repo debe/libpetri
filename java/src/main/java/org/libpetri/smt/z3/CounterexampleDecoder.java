@@ -1,6 +1,5 @@
 package org.libpetri.smt.z3;
 
-import com.microsoft.z3.*;
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.smt.encoding.FlatNet;
 
@@ -11,35 +10,18 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Decodes Z3 Spacer counterexample answers into the set of reachable markings
- * appearing in the derivation.
+ * Decodes z3's refutation output into replayable counterexample material.
  *
- * <p>When Spacer finds a counterexample (property violation), it produces a
- * derivation tree showing how the error state is reachable. This class extracts
- * the concrete markings carried by the tree's {@code Reachable(...)}
- * applications.
+ * <p>There is exactly one decoder: {@link #decodeStateSet}, which collects the ground
+ * {@code Reachable} facts of a {@code :produce-proofs} refutation into a SET. The
+ * ordered trace a caller sees is reconstructed from that set by
+ * {@link AbstractReplayer}; the proof printer's traversal order is not a firing order
+ * and was never safe to read as one.
  *
- * <p><b>Z3 proof tree structure:</b> The answer is a nested function
- * application tree. Interior nodes are rule applications named after the CHC
- * rules (e.g., {@code t_Search}, {@code t_Compose}). Leaf nodes are
- * {@code Reachable(m0, m1, ...)} applications carrying concrete integer
- * markings. The decoder performs a depth-first traversal, collecting
- * {@code Reachable(...)} applications as marking states and {@code t_*}
- * function names as fired transitions.
- *
- * <p><b>Order-free by design:</b> the traversal order of the derivation tree is
- * NOT an execution order (Spacer nests and shares subderivations freely), so
- * the markings are returned both as the raw traversal
- * {@linkplain DecodedStates#trace() trace} (what a report may show verbatim) and
- * as an order-free {@linkplain DecodedStates#states() set}. The execution order
- * is reconstructed — and the counterexample confirmed — by
- * {@link AbstractReplayer}, which chains the set into an actual run of the
- * abstract semantics.
- *
- * <p><b>Graceful degradation:</b> the Z3 answer format varies across versions;
- * any unrecognized shape degrades to whatever states were recovered, with a
- * structured {@link DecodedStates#note()} describing what was lost. Decoding
- * never throws.
+ * <p>Applications with non-ground arguments (rule bodies quantify {@code Reachable}
+ * over variables) or the wrong arity are skipped; a malformed proof simply yields a
+ * smaller (possibly empty) set, never an exception. Byte-for-byte mirror of the Rust
+ * {@code counterexample::decode_state_set}.
  */
 public final class CounterexampleDecoder {
 
@@ -48,122 +30,140 @@ public final class CounterexampleDecoder {
     /**
      * Result of counterexample decoding.
      *
-     * @param trace       the markings in derivation-TRAVERSAL order, duplicates
-     *                    included — what the raw report shows; NOT a firing order
-     * @param states      the same markings as an order-free set (deduplicated) —
-     *                    what {@link AbstractReplayer} chains into a firing order
-     * @param transitions names of transition rules appearing in the derivation,
-     *                    in traversal order (informational — not an execution
-     *                    order)
-     * @param note        structured reason when decoding degraded (null when
-     *                    the whole answer was decoded cleanly)
+     * @param states the ground {@code Reachable} markings of the proof as an order-free
+     *               set (text order preserved for display), what
+     *               {@link AbstractReplayer} chains into a firing order
+     * @param note   why nothing was decoded ({@code null} when {@code states} is non-empty)
      */
-    public record DecodedStates(
-        List<MarkingState> trace,
-        Set<MarkingState> states,
-        List<String> transitions,
-        String note
-    ) {}
+    public record DecodedStates(Set<MarkingState> states, String note) {}
 
-    /**
-     * Attempts to decode a Z3 counterexample into the set of markings it
-     * derives. Never throws.
-     *
-     * @param answer  the Z3 Fixedpoint answer expression (may be null)
-     * @param flatNet the flat net (for place info)
-     * @return the decoded states; empty with a note if nothing was decodable
-     */
-    public static DecodedStates decode(Expr answer, FlatNet flatNet) {
-        var trace = new ArrayList<MarkingState>();
-        var states = new LinkedHashSet<MarkingState>();
-        var transitions = new ArrayList<String>();
-
-        if (answer == null) {
-            return new DecodedStates(List.of(), Set.of(), List.of(),
-                "Spacer returned no counterexample derivation (answer was null)");
-        }
-
-        int[] nonConcrete = new int[1];
-        String failure = null;
-        try {
-            extract(answer, flatNet, trace, states, transitions, nonConcrete);
-        } catch (Exception e) {
-            // Z3 answer format varies; keep whatever was recovered so far.
-            failure = "decoding aborted mid-traversal: " + e;
-        }
-
-        String note = null;
-        if (failure != null) {
-            note = failure;
-        } else if (nonConcrete[0] > 0) {
-            note = nonConcrete[0] + " Reachable application(s) carried non-concrete "
-                + "marking arguments and were skipped";
-        } else if (states.isEmpty()) {
-            note = "no Reachable applications with concrete markings found in the derivation";
-        }
-
-        return new DecodedStates(List.copyOf(trace),
-            Collections.unmodifiableSet(states), List.copyOf(transitions), note);
+    /** Decodes the states of a z3 reply; a note says so when none were found. */
+    public static DecodedStates decode(String answer, FlatNet flatNet) {
+        var states = decodeStateSet(answer, flatNet);
+        String note = states.isEmpty()
+            ? "no ground Reachable states in the z3 proof"
+            : null;
+        return new DecodedStates(states, note);
     }
 
     /**
-     * Recursively traverses the Z3 proof tree, collecting marking states and
-     * rule names.
+     * Collects the ground {@code Reachable(...)} applications from a z3 refutation
+     * proof into a state set, in text order.
      */
-    private static void extract(
-            Expr expr, FlatNet flatNet, List<MarkingState> trace,
-            Set<MarkingState> states, List<String> transitions, int[] nonConcrete
-    ) {
-        if (expr == null || !expr.isApp()) {
-            return;
+    public static Set<MarkingState> decodeStateSet(String answer, FlatNet flatNet) {
+        var set = new LinkedHashSet<MarkingState>();
+        if (answer == null) {
+            return Collections.unmodifiableSet(set);
         }
-
-        FuncDecl decl = expr.getFuncDecl();
-        String name = decl.getName().toString();
-
-        // A Reachable application with one integer argument per place.
-        if (name.equals("Reachable") && expr.getNumArgs() == flatNet.placeCount()) {
-            var marking = extractMarking(expr, flatNet);
-            if (marking != null) {
-                trace.add(marking);
-                states.add(marking);
-            } else {
-                nonConcrete[0]++;
+        int P = flatNet.placeCount();
+        for (String head : new String[] {"(Reachable", "(|Reachable|"}) {
+            int from = 0;
+            while (true) {
+                int pos = answer.indexOf(head, from);
+                if (pos < 0) {
+                    break;
+                }
+                int start = pos;
+                from = start + head.length();
+                // Word boundary: "(Reachable" must not match "(ReachableFoo …".
+                if (head.equals("(Reachable")) {
+                    if (from >= answer.length()) {
+                        continue;
+                    }
+                    char next = answer.charAt(from);
+                    if (!Character.isWhitespace(next) && next != ')') {
+                        continue;
+                    }
+                }
+                int end = SmtText.sexprEnd(answer, start);
+                if (end < 0) {
+                    break;
+                }
+                String inner = answer.substring(start + head.length(), end - 1);
+                long[] args = parseGroundIntArgs(inner);
+                if (args != null && args.length == P) {
+                    set.add(toMarking(args, flatNet));
+                }
             }
         }
-
-        // Recurse into children to find the rest of the derivation.
-        for (int i = 0; i < expr.getNumArgs(); i++) {
-            extract(expr.getArgs()[i], flatNet, trace, states, transitions, nonConcrete);
-        }
-
-        // Transition rule application names carry the fired transition.
-        if (name.startsWith("t_")) {
-            transitions.add(name.substring(2));
-        }
+        return Collections.unmodifiableSet(set);
     }
 
-    /**
-     * Extracts a MarkingState from a Reachable(...) application; null if any
-     * argument is not a concrete integer.
-     */
-    private static MarkingState extractMarking(Expr reachableApp, FlatNet flatNet) {
-        int P = flatNet.placeCount();
-        if (reachableApp.getNumArgs() != P) return null;
-
+    private static MarkingState toMarking(long[] args, FlatNet flatNet) {
         var builder = MarkingState.builder();
-        for (int i = 0; i < P; i++) {
-            Expr arg = reachableApp.getArgs()[i];
-            if (arg instanceof IntNum intNum) {
-                int tokens = intNum.getInt();
-                if (tokens > 0) {
-                    builder.tokens(flatNet.places().get(i), tokens);
-                }
-            } else {
-                // Non-concrete value in counterexample
-                return null;
+        for (int i = 0; i < args.length; i++) {
+            if (args[i] > 0) {
+                builder.tokens(flatNet.places().get(i), (int) Math.min(args[i], Integer.MAX_VALUE));
             }
         }
         return builder.build();
+    }
+
+    /**
+     * Parses an application's argument text into integers, accepting only GROUND
+     * arguments: bare integer literals ({@code 3}, {@code -1}) and the SMT-LIB negation
+     * form {@code (- 3)}. Any other token (a bound variable, a nested expression) makes
+     * the application non-ground: returns {@code null}.
+     */
+    static long[] parseGroundIntArgs(String inner) {
+        var args = new ArrayList<Long>();
+        String rest = inner.stripLeading();
+        while (!rest.isEmpty()) {
+            if (rest.startsWith("(")) {
+                String stripped = rest.substring(1);
+                int close = stripped.indexOf(')');
+                if (close < 0) {
+                    return null;
+                }
+                String body = stripped.substring(0, close);
+                if (body.contains("(")) {
+                    return null;
+                }
+                String trimmed = body.strip();
+                if (!trimmed.startsWith("-")) {
+                    return null;
+                }
+                String negated = trimmed.substring(1).strip();
+                Long n = parseLong(negated);
+                if (n == null) {
+                    return null;
+                }
+                args.add(-n);
+                rest = stripped.substring(close + 1).stripLeading();
+            } else {
+                int tokenEnd = rest.length();
+                for (int i = 0; i < rest.length(); i++) {
+                    char c = rest.charAt(i);
+                    if (Character.isWhitespace(c) || c == '(' || c == ')') {
+                        tokenEnd = i;
+                        break;
+                    }
+                }
+                Long n = parseLong(rest.substring(0, tokenEnd));
+                if (n == null) {
+                    return null;
+                }
+                args.add(n);
+                rest = rest.substring(tokenEnd).stripLeading();
+            }
+        }
+        long[] out = new long[args.size()];
+        for (int i = 0; i < out.length; i++) {
+            out[i] = args.get(i);
+        }
+        return out;
+    }
+
+    private static Long parseLong(String token) {
+        try {
+            return Long.parseLong(token);
+        } catch (NumberFormatException _) {
+            return null;
+        }
+    }
+
+    /** The decoded states as a list, in text order (a report convenience). */
+    public static List<MarkingState> asList(Set<MarkingState> states) {
+        return List.copyOf(states);
     }
 }

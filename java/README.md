@@ -59,6 +59,10 @@ Java actions are invoked **inline on the orchestrator thread**. libpetri does no
 
 One orchestrator owns the marking. Completed stages, external events, and timers wake it so token movement remains deterministic even when actions overlap.
 
+## SMT verification needs a `z3` executable
+
+The verifier (`org.libpetri.smt.SmtVerifier`) does not bundle a solver. It runs the `z3` executable found on `PATH` (or named by `LIBPETRI_Z3`), version 4.8.0 or newer, one process per query; `SmtVerifier.z3Available()` tells you whether one resolves, and without it every verification returns `Unknown` with a reason naming the command. Set `LIBPETRI_SMT_DUMP` to a directory to keep every SMT-LIB2 script and solver reply. The timeout is per solver invocation.
+
 ## Main packages
 
 | Package | Purpose |

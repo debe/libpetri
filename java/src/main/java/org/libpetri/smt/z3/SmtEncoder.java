@@ -1,6 +1,5 @@
 package org.libpetri.smt.z3;
 
-import com.microsoft.z3.*;
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.core.Place;
 import org.libpetri.smt.SmtProperty;
@@ -8,600 +7,487 @@ import org.libpetri.smt.encoding.FlatNet;
 import org.libpetri.smt.encoding.FlatTransition;
 import org.libpetri.smt.invariant.PInvariant;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
+import java.util.TreeSet;
 
 /**
- * Encodes a flattened Petri net as Constrained Horn Clauses (CHC) for Z3's Spacer engine.
+ * Encodes a flattened Petri net as Constrained Horn Clauses (CHC) in SMT-LIB2 text for
+ * Z3's Spacer engine (VER-013).
  *
  * <p>The encoding maps the Petri net to integer arithmetic over a state vector
- * M = (m_0, ..., m_{n-1}) where m_i is the token count of place i.
- *
- * <p>CHC rules:
+ * {@code M = (m0, ..., m{P-1})} where {@code m_i} is the token count of place {@code i}:
  * <ul>
- *   <li><b>Reachable(M0)</b> - initial state is reachable</li>
- *   <li><b>Reachable(M') :- Reachable(M) AND enabled(M,t) AND fire(M,M',t)</b> - transition rules</li>
- *   <li><b>Error() :- Reachable(M) AND property_violation(M)</b> - safety property</li>
+ *   <li>{@code (assert (Reachable M0))} — the initial marking is reachable</li>
+ *   <li>one rule per flat transition: {@code Reachable(M') :- Reachable(M) AND enabled(M,t)
+ *       AND fire(M,M',t) AND M' >= 0 AND invariants(M') AND env-bounds(M')}</li>
+ *   <li>one env-injection rule per injected environment place (VER-006)</li>
+ *   <li>{@code Error :- Reachable(M) AND violation(M)}</li>
+ *   <li>{@code (assert (not Error))}: {@code sat} is PROVEN, {@code unsat} is VIOLATED</li>
  * </ul>
+ *
+ * <p>The emitted script is byte-identical to the Rust reference
+ * ({@code smt_encoder.rs}) and the TypeScript port for the same input: places are in
+ * code-point order of their names, the property's places, sinks, env bounds and
+ * injections in place-index order, invariants in the order the verifier canonicalised.
  */
 public final class SmtEncoder {
 
     private SmtEncoder() {}
 
     /**
-     * Result of CHC encoding, containing both the error query expression
-     * and the Reachable relation declaration (needed for invariant extraction).
+     * An encoded SMT-LIB2 script.
      *
-     * @param errorExpr     the error predicate to query
-     * @param reachableDecl the Reachable relation declaration
+     * @param smt2       the script text
+     * @param placeCount the number of flat places (the arity of {@code Reachable} in the
+     *                   flat encoding)
      */
-    public record EncodingResult(BoolExpr errorExpr, FuncDecl<BoolSort> reachableDecl) {}
+    public record SmtEncoding(String smt2, int placeCount) {}
+
+    /** An injected environment place: its flat index and its cap ({@code null} = unbounded). */
+    record Injection(int pid, Integer bound) {}
 
     /**
-     * Encodes the net and property as CHC rules in the given Fixedpoint.
+     * Encodes the net and property as a HORN script.
      *
-     * @param ctx            Z3 context
-     * @param fp             Z3 Fixedpoint solver
-     * @param flatNet        the flattened net
+     * @param flatNet        the flattened net (carries the env bounds and injection map)
      * @param initialMarking the initial marking
      * @param property       the safety property to verify
-     * @param invariants     P-invariants for strengthening
+     * @param invariants     P-invariants for strengthening (canonical order)
      * @param sinkPlaces     expected terminal places (deadlock permitted when any has a token)
-     * @return the encoding result containing the error predicate and reachable declaration
+     * @param produceProofs  emit {@code :produce-proofs} and {@code (get-proof)} so an
+     *                       {@code unsat} reply carries the refutation the replay decodes
      */
-    public static EncodingResult encode(
-            Context ctx,
-            Fixedpoint fp,
+    public static SmtEncoding encode(
             FlatNet flatNet,
             MarkingState initialMarking,
             SmtProperty property,
             List<PInvariant> invariants,
-            Set<Place<?>> sinkPlaces
+            Collection<Place<?>> sinkPlaces,
+            boolean produceProofs
     ) {
-        int P = flatNet.placeCount();
+        int p = flatNet.placeCount();
+        var lines = new ArrayList<String>();
+        List<Injection> envInject = resolveEnvInjection(flatNet);
 
-        // Create integer sorts for place markings
-        IntSort intSort = ctx.getIntSort();
-        Sort[] markingSorts = new Sort[P];
-        Symbol[] markingNames = new Symbol[P];
-        for (int i = 0; i < P; i++) {
-            markingSorts[i] = intSort;
-            markingNames[i] = ctx.mkSymbol("m" + i);
+        if (produceProofs) {
+            lines.add("(set-option :produce-proofs true)");
         }
+        lines.add("(set-logic HORN)");
+        lines.add("");
 
-        // Create the Reachable relation
-        FuncDecl<BoolSort> reachable = ctx.mkFuncDecl(
-            ctx.mkSymbol("Reachable"), markingSorts, ctx.getBoolSort());
-        fp.registerRelation(reachable);
+        lines.add("(declare-fun Reachable (" + String.join(" ", ints(p)) + ") Bool)");
+        lines.add("(declare-fun Error () Bool)");
+        lines.add("");
 
-        // Create the Error relation (0-ary)
-        FuncDecl<BoolSort> error = ctx.mkFuncDecl(
-            ctx.mkSymbol("Error"), new Sort[0], ctx.getBoolSort());
-        fp.registerRelation(error);
+        List<String> mVars = vars(p, "");
+        List<String> mpVars = vars(p, "p");
 
-        // === Rule 1: Initial state ===
-        // Reachable(m0_0, m0_1, ..., m0_{n-1})
-        IntExpr[] m0 = new IntExpr[P];
-        for (int i = 0; i < P; i++) {
-            int tokens = initialMarking.tokens(flatNet.places().get(i));
-            m0[i] = ctx.mkInt(tokens);
+        var m0 = new ArrayList<String>(p);
+        for (int i = 0; i < p; i++) {
+            m0.add(Integer.toString(initialMarking.tokens(flatNet.places().get(i))));
         }
-        BoolExpr initFact = (BoolExpr) reachable.apply((Expr[]) m0);
-        fp.addRule(initFact, ctx.mkSymbol("init"));
+        lines.add("(assert (Reachable " + String.join(" ", m0) + "))");
+        lines.add("");
 
-        // === Rule 2: Transition rules ===
-        // For each flat transition, create a CHC rule
-        IntExpr[] mVars = new IntExpr[P];   // current marking
-        IntExpr[] mPrimeVars = new IntExpr[P]; // next marking
-
-        for (int i = 0; i < P; i++) {
-            mVars[i] = (IntExpr) ctx.mkBound(P - 1 - i + P, intSort);
-            mPrimeVars[i] = (IntExpr) ctx.mkBound(P - 1 - i, intSort);
+        for (var ft : flatNet.transitions()) {
+            lines.add(encodeTransitionRule(flatNet, ft, mVars, mpVars, invariants));
         }
-
-        // We need quantified variables for the rules
-        // Use mkForall with bound variables
-        for (int t = 0; t < flatNet.transitionCount(); t++) {
-            var ft = flatNet.transitions().get(t);
-            encodeTransitionRule(ctx, fp, reachable, ft, flatNet, invariants, P, markingSorts, markingNames);
+        // Environment-injection rules (VER-006): NOT flat transitions, so the deadlock
+        // encoding never sees them; no P-invariant strengthening, injection breaks
+        // conservation on purpose.
+        for (var inj : envInject) {
+            lines.add(encodeInjectionRule(p, inj.pid(), inj.bound(), mVars, mpVars));
         }
+        lines.add("");
 
-        // === Rule 2b: Environment-injection rules (VER-006) ===
-        // Per injected env place p: Reachable(M') :- Reachable(M) AND [M[p] < bound]
-        //   AND M'[p] = M[p]+1 AND (for all q != p) M'[q] = M[q]. AlwaysAvailable
-        //   (null bound) omits the guard so p grows without limit. These are NOT flat
-        //   transitions, so the deadlock encoding (which iterates flatNet.transitions)
-        //   never sees them and deadlock-freedom does not become trivially true.
-        //   P-invariants are NOT conjoined — injection deliberately breaks conservation.
+        lines.add(encodeErrorRule(flatNet, property, mVars, sinkPlaces, envInject));
+        lines.add("");
+
+        // Under HORN/Spacer this is SAT when an inductive invariant excludes every
+        // violating state (PROVEN) and UNSAT when none exists (VIOLATED).
+        lines.add("(assert (not Error))");
+        lines.add("(check-sat)");
+        if (produceProofs) {
+            lines.add("(get-proof)");
+        }
+        lines.add("(get-model)");
+
+        return new SmtEncoding(String.join("\n", lines), p);
+    }
+
+    /** The injected environment places in place-index order. */
+    static List<Injection> resolveEnvInjection(FlatNet flatNet) {
+        var out = new ArrayList<Injection>();
         for (var entry : flatNet.environmentInjection().entrySet()) {
             int idx = flatNet.indexOf(entry.getKey());
             if (idx >= 0) {
-                encodeInjectionRule(ctx, fp, reachable, idx, entry.getValue(), P);
+                out.add(new Injection(idx, entry.getValue()));
             }
         }
-
-        // === Rule 3: Error rule (property violation) ===
-        encodeErrorRule(ctx, fp, reachable, error, flatNet, property, sinkPlaces, P, markingSorts, markingNames);
-
-        // Return query expression and reachable declaration for invariant extraction
-        return new EncodingResult((BoolExpr) error.apply(), reachable);
+        out.sort(Comparator.comparingInt(Injection::pid));
+        return out;
     }
 
-    private static void encodeTransitionRule(
-            Context ctx, Fixedpoint fp,
-            FuncDecl<BoolSort> reachable,
-            FlatTransition ft, FlatNet flatNet,
-            List<PInvariant> invariants,
-            int P, Sort[] sorts, Symbol[] names
-    ) {
-        // Create variables: m_0..m_{P-1} (current), m'_0..m'_{P-1} (next)
-        Symbol[] allNames = new Symbol[2 * P];
-        Sort[] allSorts = new Sort[2 * P];
-        Expr<IntSort>[] mVars = new Expr[P];
-        Expr<IntSort>[] mPrimeVars = new Expr[P];
-
-        // Z3 de Bruijn indexing: mkBound(k) refers to the k-th innermost (rightmost)
-        // bound variable. For forall(m0, m1, ..., m_{P-1}, m'0, ..., m'_{P-1}):
-        //   m'_{P-1} is innermost -> index 0
-        //   m'_i     -> index P-1-i
-        //   m_{P-1}  -> index P
-        //   m_i      -> index 2P-1-i
-        for (int i = 0; i < P; i++) {
-            allNames[i] = ctx.mkSymbol("m" + i);
-            allSorts[i] = ctx.getIntSort();
-            allNames[P + i] = ctx.mkSymbol("m'" + i);
-            allSorts[P + i] = ctx.getIntSort();
-
-            mVars[i] = (Expr<IntSort>) ctx.mkBound(2 * P - 1 - i, ctx.getIntSort());
-            mPrimeVars[i] = (Expr<IntSort>) ctx.mkBound(P - 1 - i, ctx.getIntSort());
-        }
-
-        // Build body: Reachable(M) AND enabled(M,t) AND fire(M,M',t) AND non-negativity(M')
-
-        // 1. Reachable(M)
-        BoolExpr reachBody = (BoolExpr) reachable.apply(mVars);
-
-        // 2. enabled(M, t)
-        BoolExpr enabled = encodeEnabled(ctx, ft, flatNet, mVars, P);
-
-        // 3. fire(M, M', t) - transition relation
-        BoolExpr fireRelation = encodeFire(ctx, ft, flatNet, mVars, mPrimeVars, P);
-
-        // 4. Non-negativity of M'
-        BoolExpr nonNeg = encodeNonNegativity(ctx, mPrimeVars, P);
-
-        // 5. P-invariant constraints on M' (strengthening)
-        BoolExpr invConstraints = encodeInvariantConstraints(ctx, invariants, mPrimeVars, P);
-
-        // 6. Environment bounds on M'
-        BoolExpr envBounds = encodeEnvBounds(ctx, flatNet, mPrimeVars);
-
-        // Body conjunction
-        BoolExpr body = ctx.mkAnd(reachBody, enabled, fireRelation, nonNeg, invConstraints, envBounds);
-
-        // Head: Reachable(M')
-        BoolExpr head = (BoolExpr) reachable.apply(mPrimeVars);
-
-        // Rule: forall M, M'. head :- body
-        BoolExpr rule = ctx.mkImplies(body, head);
-        Quantifier qRule = ctx.mkForall(allSorts, allNames, rule, 1, null, null, null, null);
-
-        fp.addRule(qRule, ctx.mkSymbol("t_" + ft.name()));
-    }
-
-    /**
-     * Encodes one environment-injection rule (VER-006): the external world adds a
-     * token to environment place {@code idx}. A {@code null} bound means unbounded
-     * (AlwaysAvailable); an integer guards injection so the place never exceeds the
-     * bound (Bounded). All other columns are copied unchanged. No P-invariant
-     * strengthening (injection breaks conservation by design); non-negativity holds
-     * because {@code M[idx] >= 0} implies {@code M'[idx] >= 1}.
-     */
-    private static void encodeInjectionRule(
-            Context ctx, Fixedpoint fp,
-            FuncDecl<BoolSort> reachable,
-            int idx, Integer bound, int P
-    ) {
-        Symbol[] allNames = new Symbol[2 * P];
-        Sort[] allSorts = new Sort[2 * P];
-        Expr<IntSort>[] mVars = new Expr[P];
-        Expr<IntSort>[] mPrimeVars = new Expr[P];
-
-        for (int i = 0; i < P; i++) {
-            allNames[i] = ctx.mkSymbol("m" + i);
-            allSorts[i] = ctx.getIntSort();
-            allNames[P + i] = ctx.mkSymbol("m'" + i);
-            allSorts[P + i] = ctx.getIntSort();
-
-            mVars[i] = (Expr<IntSort>) ctx.mkBound(2 * P - 1 - i, ctx.getIntSort());
-            mPrimeVars[i] = (Expr<IntSort>) ctx.mkBound(P - 1 - i, ctx.getIntSort());
-        }
-
-        BoolExpr reachBody = (BoolExpr) reachable.apply(mVars);
-
-        // fire: M'[idx] = M[idx] + 1; all other columns unchanged.
-        BoolExpr fire = encodeInjectionFire(ctx, idx, mVars, mPrimeVars, P);
-
-        // Bounded injection: only inject while still below the cap.
-        BoolExpr guard = encodeInjectionGuard(ctx, idx, bound, mVars);
-
-        BoolExpr body = ctx.mkAnd(reachBody, guard, fire);
-        BoolExpr head = (BoolExpr) reachable.apply(mPrimeVars);
-        BoolExpr rule = ctx.mkImplies(body, head);
-        Quantifier qRule = ctx.mkForall(allSorts, allNames, rule, 1, null, null, null, null);
-
-        fp.addRule(qRule, ctx.mkSymbol("env_inject_" + idx));
-    }
-
-    /**
-     * Non-negativity of a marking vector: {@code AND_i vars[i] >= 0} (same fold order
-     * as the CHC rules). Package-private: {@link CertificateChecker} asserts it on the
-     * free current marking so its VCs range over N^P, not Z^P.
-     */
-    static BoolExpr encodeNonNegativity(Context ctx, Expr<IntSort>[] vars, int P) {
-        BoolExpr nonNeg = ctx.mkTrue();
-        for (int i = 0; i < P; i++) {
-            nonNeg = ctx.mkAnd(nonNeg, ctx.mkGe(vars[i], ctx.mkInt(0)));
-        }
-        return nonNeg;
-    }
-
-    /** Bounded-environment caps on a marking vector: {@code AND vars[idx] <= bound} per bounded env place. */
-    private static BoolExpr encodeEnvBounds(Context ctx, FlatNet flatNet, Expr<IntSort>[] vars) {
-        BoolExpr envBounds = ctx.mkTrue();
+    /** The bounded environment places (legacy post-cap) in place-index order. */
+    private static List<int[]> envBounds(FlatNet flatNet) {
+        var out = new ArrayList<int[]>();
         for (var entry : flatNet.environmentBounds().entrySet()) {
             int idx = flatNet.indexOf(entry.getKey());
             if (idx >= 0) {
-                envBounds = ctx.mkAnd(envBounds,
-                    ctx.mkLe(vars[idx], ctx.mkInt(entry.getValue())));
+                out.add(new int[] {idx, entry.getValue()});
             }
         }
-        return envBounds;
+        out.sort(Comparator.comparingInt(a -> a[0]));
+        return out;
     }
 
-    /** Injection arithmetic: {@code M'[idx] = M[idx] + 1}, all other columns copied unchanged. */
-    private static BoolExpr encodeInjectionFire(
-            Context ctx, int idx,
-            Expr<IntSort>[] mVars, Expr<IntSort>[] mPrimeVars, int P
-    ) {
-        BoolExpr fire = ctx.mkTrue();
-        for (int i = 0; i < P; i++) {
-            if (i == idx) {
-                fire = ctx.mkAnd(fire, ctx.mkEq(mPrimeVars[i], ctx.mkAdd(mVars[i], ctx.mkInt(1))));
-            } else {
-                fire = ctx.mkAnd(fire, ctx.mkEq(mPrimeVars[i], mVars[i]));
-            }
-        }
-        return fire;
-    }
-
-    /** Injection guard: {@code M[idx] < bound} for Bounded(k); {@code true} for AlwaysAvailable (null bound). */
-    private static BoolExpr encodeInjectionGuard(Context ctx, int idx, Integer bound, Expr<IntSort>[] mVars) {
-        return bound == null ? ctx.mkTrue() : ctx.mkLt(mVars[idx], ctx.mkInt(bound));
-    }
-
-    /**
-     * One <em>unstrengthened</em> step of the encoded net as a single formula
-     * {@code T(M, M')} over the given current/next marking expressions: the
-     * disjunction of all transition steps (strict enablement AND firing
-     * arithmetic AND non-negativity of M' AND environment bounds on M') and all
-     * environment-injection steps (bound guard AND injection arithmetic, VER-006),
-     * WITHOUT the P-invariant strengthening conjuncts that {@link #encode} adds
-     * to the CHC transition-rule bodies.
-     *
-     * <p>Package-private: this is the step relation the sibling
-     * {@link CertificateChecker} validates an IC3 certificate against.
-     * Dropping the invariant conjuncts keeps the check
-     * independent of the P-invariant computation: a numerically wrong invariant
-     * conjoined into the rules removes reachable successors, so re-checking
-     * against the strengthened relation would inherit exactly the failure mode
-     * the certificate check exists to catch. Every disjunct is built by the same
-     * per-transition condition builders as the CHC rules, so the step semantics
-     * match the encoding exactly.
-     *
-     * @param ctx        Z3 context
-     * @param flatNet    the flattened net
-     * @param mVars      current-marking expressions (length = placeCount)
-     * @param mPrimeVars next-marking expressions (length = placeCount)
-     * @return the step relation {@code T(M, M')}; {@code false} for a net with no steps
-     */
-    static BoolExpr encodeStepRelation(
-            Context ctx, FlatNet flatNet,
-            Expr<IntSort>[] mVars, Expr<IntSort>[] mPrimeVars
-    ) {
-        int P = flatNet.placeCount();
-        var steps = new java.util.ArrayList<BoolExpr>();
-
-        // Both conjuncts constrain M' alone, so they are the same formula for every
-        // transition disjunct: build them once.
-        BoolExpr nonNeg = encodeNonNegativity(ctx, mPrimeVars, P);
-        BoolExpr envBounds = encodeEnvBounds(ctx, flatNet, mPrimeVars);
-        for (var ft : flatNet.transitions()) {
-            BoolExpr enabled = encodeEnabled(ctx, ft, flatNet, mVars, P);
-            BoolExpr fire = encodeFire(ctx, ft, flatNet, mVars, mPrimeVars, P);
-            steps.add(ctx.mkAnd(enabled, fire, nonNeg, envBounds));
-        }
-
-        for (var entry : flatNet.environmentInjection().entrySet()) {
-            int idx = flatNet.indexOf(entry.getKey());
-            if (idx >= 0) {
-                BoolExpr guard = encodeInjectionGuard(ctx, idx, entry.getValue(), mVars);
-                BoolExpr fire = encodeInjectionFire(ctx, idx, mVars, mPrimeVars, P);
-                steps.add(ctx.mkAnd(guard, fire));
-            }
-        }
-
-        if (steps.isEmpty()) {
-            return ctx.mkFalse();
-        }
-        return ctx.mkOr(steps.toArray(new BoolExpr[0]));
-    }
-
-    private static BoolExpr encodeEnabled(
-            Context ctx, FlatTransition ft, FlatNet flatNet,
-            Expr<IntSort>[] mVars, int P
-    ) {
-        return encodeEnabled(ctx, ft, flatNet, mVars, P, false);
-    }
-
-    /**
-     * Encodes the enablement predicate for a flat transition.
-     *
-     * <p>When {@code relaxEnv} is true (used only by the deadlock check),
-     * input/read requirements on injectable environment places are treated as
-     * satisfiable by external injection — AlwaysAvailable always satisfies them,
-     * Bounded(k) satisfies them iff the required cardinality is &le; k (a check on
-     * the arc weight, not the marking). This mirrors the state class graph's
-     * always-available enablement (VER-006) so a reactive net merely waiting for
-     * input is not reported as a deadlock. Transition firing always uses the strict
-     * form because firing genuinely consumes tokens.
-     */
-    private static BoolExpr encodeEnabled(
-            Context ctx, FlatTransition ft, FlatNet flatNet,
-            Expr<IntSort>[] mVars, int P, boolean relaxEnv
-    ) {
-        BoolExpr result = ctx.mkTrue();
-        java.util.Map<Integer, Integer> envInj = relaxEnv ? injectedEnvIndices(flatNet) : null;
-
-        // Input requirements: M[p] >= pre[p] (relaxed for injectable env inputs).
-        for (int p = 0; p < P; p++) {
-            int pre = ft.preVector()[p];
-            if (pre <= 0) continue;
-            if (envInj != null && envInj.containsKey(p)) {
-                Integer bound = envInj.get(p);
-                if (bound != null && pre > bound) return ctx.mkFalse(); // never enableable
-                continue; // satisfiable by injection
-            }
-            result = ctx.mkAnd(result, ctx.mkGe(mVars[p], ctx.mkInt(pre)));
-        }
-
-        // Read arcs: M[p] >= 1 (relaxed for injectable env inputs).
-        for (int p : ft.readPlaces()) {
-            if (envInj != null && envInj.containsKey(p)) {
-                Integer bound = envInj.get(p);
-                if (bound != null && bound < 1) return ctx.mkFalse();
-                continue;
-            }
-            result = ctx.mkAnd(result, ctx.mkGe(mVars[p], ctx.mkInt(1)));
-        }
-
-        // Inhibitor arcs: M[p] == 0
-        for (int p : ft.inhibitorPlaces()) {
-            result = ctx.mkAnd(result, ctx.mkEq(mVars[p], ctx.mkInt(0)));
-        }
-
-        // Non-negativity of current marking
-        for (int p = 0; p < P; p++) {
-            result = ctx.mkAnd(result, ctx.mkGe(mVars[p], ctx.mkInt(0)));
-        }
-
-        return result;
-    }
-
-    /** Maps injected environment-place index -> injection bound (null = unbounded). */
-    private static java.util.Map<Integer, Integer> injectedEnvIndices(FlatNet flatNet) {
-        var out = new java.util.HashMap<Integer, Integer>();
-        for (var entry : flatNet.environmentInjection().entrySet()) {
-            int idx = flatNet.indexOf(entry.getKey());
-            if (idx >= 0) out.put(idx, entry.getValue());
+    private static List<String> ints(int n) {
+        var out = new ArrayList<String>(n);
+        for (int i = 0; i < n; i++) {
+            out.add("Int");
         }
         return out;
     }
 
-    private static BoolExpr encodeFire(
-            Context ctx, FlatTransition ft, FlatNet flatNet,
-            Expr<IntSort>[] mVars, Expr<IntSort>[] mPrimeVars, int P
-    ) {
-        BoolExpr result = ctx.mkTrue();
+    private static List<String> vars(int p, String suffix) {
+        var out = new ArrayList<String>(p);
+        for (int i = 0; i < p; i++) {
+            out.add("m" + i + suffix);
+        }
+        return out;
+    }
 
-        for (int p = 0; p < P; p++) {
-            boolean isReset = false;
-            for (int rp : ft.resetPlaces()) {
-                if (rp == p) { isReset = true; break; }
+    private static String quantified(List<String> vars) {
+        var parts = new ArrayList<String>(vars.size());
+        for (var v : vars) {
+            parts.add("(" + v + " Int)");
+        }
+        return String.join(" ", parts);
+    }
+
+    private static boolean contains(int[] arr, int v) {
+        for (int x : arr) {
+            if (x == v) {
+                return true;
             }
+        }
+        return false;
+    }
 
-            if (isReset || ft.consumeAll()[p]) {
-                // Reset/consumeAll: M'[p] = post[p]
-                result = ctx.mkAnd(result,
-                    ctx.mkEq(mPrimeVars[p], ctx.mkInt(ft.postVector()[p])));
+    // === Shared condition emitters ===
+    //
+    // Emitted by BOTH the CHC rule encoding and the plain-SMT step relation
+    // (encodeStepRelationSmt2) the certificate check uses, so the two cannot drift.
+
+    /**
+     * Enablement + firing + non-negativity conjuncts for one flat transition:
+     * {@code enabled(M, t)}, {@code fire(M, M', t)}, {@code M' >= 0}. Excludes the
+     * {@code Reachable} body atom, the P-invariant strengthening and the env bounds.
+     */
+    static List<String> firingConditions(
+            FlatNet flatNet, FlatTransition ft, List<String> mVars, List<String> mpVars
+    ) {
+        int p = flatNet.placeCount();
+        var conditions = new ArrayList<String>();
+        for (int i = 0; i < p; i++) {
+            if (ft.preVector()[i] > 0) {
+                conditions.add("(>= " + mVars.get(i) + " " + ft.preVector()[i] + ")");
+            }
+        }
+        for (int inh : ft.inhibitorPlaces()) {
+            conditions.add("(= " + mVars.get(inh) + " 0)");
+        }
+        for (int rd : ft.readPlaces()) {
+            conditions.add("(>= " + mVars.get(rd) + " 1)");
+        }
+        for (int i = 0; i < p; i++) {
+            if (contains(ft.resetPlaces(), i) || ft.consumeAll()[i]) {
+                // Reset / consume-all: clear then add post.
+                conditions.add("(= " + mpVars.get(i) + " " + ft.postVector()[i] + ")");
             } else {
-                // Standard: M'[p] = M[p] - pre[p] + post[p]
-                int delta = ft.postVector()[p] - ft.preVector()[p];
-                if (delta == 0) {
-                    result = ctx.mkAnd(result,
-                        ctx.mkEq(mPrimeVars[p], mVars[p]));
+                int delta = ft.postVector()[i] - ft.preVector()[i];
+                if (delta > 0) {
+                    conditions.add("(= " + mpVars.get(i) + " (+ " + mVars.get(i) + " " + delta + "))");
+                } else if (delta < 0) {
+                    conditions.add("(= " + mpVars.get(i) + " (- " + mVars.get(i) + " " + (-delta) + "))");
                 } else {
-                    result = ctx.mkAnd(result,
-                        ctx.mkEq(mPrimeVars[p],
-                            ctx.mkAdd(mVars[p], ctx.mkInt(delta))));
+                    conditions.add("(= " + mpVars.get(i) + " " + mVars.get(i) + ")");
                 }
             }
         }
-
-        return result;
-    }
-
-    private static void encodeErrorRule(
-            Context ctx, Fixedpoint fp,
-            FuncDecl<BoolSort> reachable, FuncDecl<BoolSort> error,
-            FlatNet flatNet, SmtProperty property,
-            Set<Place<?>> sinkPlaces,
-            int P, Sort[] sorts, Symbol[] names
-    ) {
-        // Create variables for the error rule
-        Symbol[] varNames = new Symbol[P];
-        Sort[] varSorts = new Sort[P];
-        Expr<IntSort>[] mVars = new Expr[P];
-
-        for (int i = 0; i < P; i++) {
-            varNames[i] = ctx.mkSymbol("m" + i);
-            varSorts[i] = ctx.getIntSort();
-            mVars[i] = (Expr<IntSort>) ctx.mkBound(P - 1 - i, ctx.getIntSort());
+        for (int i = 0; i < p; i++) {
+            conditions.add("(>= " + mpVars.get(i) + " 0)");
         }
-
-        BoolExpr reachBody = (BoolExpr) reachable.apply(mVars);
-        BoolExpr violation = encodePropertyViolation(ctx, flatNet, property, sinkPlaces, mVars, P);
-
-        BoolExpr head = (BoolExpr) error.apply();
-        BoolExpr body = ctx.mkAnd(reachBody, violation);
-        BoolExpr rule = ctx.mkImplies(body, head);
-
-        Quantifier qRule = ctx.mkForall(varSorts, varNames, rule, 1, null, null, null, null);
-        fp.addRule(qRule, ctx.mkSymbol("error_" + property.getClass().getSimpleName()));
+        return conditions;
     }
 
     /**
-     * Encodes the property-violation predicate {@code Bad(M)} over the given
-     * marking expressions — the same predicate the Error CHC rule conjoins with
-     * {@code Reachable(M)}. Package-private: the sibling {@link CertificateChecker}
-     * checks the safety verification condition {@code I(M) AND Bad(M)} against the
-     * identical violation semantics used by the encoding.
-     *
-     * @throws IllegalArgumentException if the property references a place that is
-     *     not in the flattened net (mirrors the Error-rule behavior)
+     * P-invariant conjuncts over the given marking variables. The step relation never
+     * emits these: the certificate check keeps its relation UNSTRENGTHENED and conjoins
+     * them into the candidate instead, where the VCs re-prove them.
      */
-    static BoolExpr encodePropertyViolation(
-            Context ctx, FlatNet flatNet, SmtProperty property,
-            Set<Place<?>> sinkPlaces,
-            Expr<IntSort>[] mVars, int P
+    static List<String> invariantConditions(List<PInvariant> invariants, List<String> vars) {
+        var conditions = new ArrayList<String>();
+        for (var inv : invariants) {
+            var terms = new ArrayList<String>();
+            for (int i : new TreeSet<>(inv.support())) {
+                terms.add("(* " + inv.weights()[i] + " " + vars.get(i) + ")");
+            }
+            if (terms.isEmpty()) {
+                continue;
+            }
+            String sum = terms.size() == 1 ? terms.getFirst() : "(+ " + String.join(" ", terms) + ")";
+            conditions.add("(= " + sum + " " + inv.constant() + ")");
+        }
+        return conditions;
+    }
+
+    /** Environment post-cap conjuncts on the next marking (legacy Bounded mode). */
+    private static List<String> envBoundConditions(FlatNet flatNet, List<String> mpVars) {
+        var conditions = new ArrayList<String>();
+        for (int[] bound : envBounds(flatNet)) {
+            conditions.add("(<= " + mpVars.get(bound[0]) + " " + bound[1] + ")");
+        }
+        return conditions;
+    }
+
+    /**
+     * Guard + column-update conjuncts for one env-injection step (VER-006):
+     * {@code [m_pid < bound]}, {@code m'_pid = m_pid + 1}, all other columns copied.
+     */
+    private static List<String> injectionConditions(
+            int p, int pid, Integer bound, List<String> mVars, List<String> mpVars
+    ) {
+        var conditions = new ArrayList<String>();
+        if (bound != null) {
+            conditions.add("(< " + mVars.get(pid) + " " + bound + ")");
+        }
+        for (int i = 0; i < p; i++) {
+            if (i == pid) {
+                conditions.add("(= " + mpVars.get(i) + " (+ " + mVars.get(i) + " 1))");
+            } else {
+                conditions.add("(= " + mpVars.get(i) + " " + mVars.get(i) + ")");
+            }
+        }
+        return conditions;
+    }
+
+    private static String encodeTransitionRule(
+            FlatNet flatNet, FlatTransition ft, List<String> mVars, List<String> mpVars,
+            List<PInvariant> invariants
+    ) {
+        var all = new ArrayList<>(mVars);
+        all.addAll(mpVars);
+        var conditions = new ArrayList<String>();
+        conditions.add("(Reachable " + String.join(" ", mVars) + ")");
+        conditions.addAll(firingConditions(flatNet, ft, mVars, mpVars));
+        conditions.addAll(invariantConditions(invariants, mpVars));
+        conditions.addAll(envBoundConditions(flatNet, mpVars));
+        String body = "(and " + String.join("\n            ", conditions) + ")";
+        return "(assert (forall (" + quantified(all) + ")\n  (=> " + body
+            + "\n      (Reachable " + String.join(" ", mpVars) + "))))";
+    }
+
+    private static String encodeInjectionRule(
+            int p, int pid, Integer bound, List<String> mVars, List<String> mpVars
+    ) {
+        var all = new ArrayList<>(mVars);
+        all.addAll(mpVars);
+        var conditions = new ArrayList<String>();
+        conditions.add("(Reachable " + String.join(" ", mVars) + ")");
+        conditions.addAll(injectionConditions(p, pid, bound, mVars, mpVars));
+        String body = "(and " + String.join("\n            ", conditions) + ")";
+        return "(assert (forall (" + quantified(all) + ")\n  (=> " + body
+            + "\n      (Reachable " + String.join(" ", mpVars) + "))))";
+    }
+
+    /**
+     * Joins conjuncts into one formula ({@code true} when empty, the bare conjunct when
+     * singleton, since SMT-LIB {@code and} wants at least two arguments).
+     */
+    static String conjoin(List<String> conditions) {
+        return switch (conditions.size()) {
+            case 0 -> "true";
+            case 1 -> conditions.getFirst();
+            default -> "(and " + String.join(" ", conditions) + ")";
+        };
+    }
+
+    /**
+     * The net's one-step relation {@code T(M, M')} as one plain SMT-LIB2 formula over
+     * the free variables {@code m0..} / {@code m0p..}: the disjunction of every flat
+     * transition firing and every env-injection step (VER-006). This is the
+     * UNSTRENGTHENED relation the certificate check validates against: it shares the
+     * condition emitters with the CHC path but omits the P-invariant conjuncts, so a
+     * certificate poisoned by a wrong invariant cannot re-certify itself.
+     */
+    static String encodeStepRelationSmt2(FlatNet flatNet) {
+        int p = flatNet.placeCount();
+        List<String> mVars = vars(p, "");
+        List<String> mpVars = vars(p, "p");
+        var disjuncts = new ArrayList<String>();
+        for (var ft : flatNet.transitions()) {
+            var conditions = firingConditions(flatNet, ft, mVars, mpVars);
+            conditions.addAll(envBoundConditions(flatNet, mpVars));
+            disjuncts.add(conjoin(conditions));
+        }
+        for (var inj : resolveEnvInjection(flatNet)) {
+            disjuncts.add(conjoin(injectionConditions(p, inj.pid(), inj.bound(), mVars, mpVars)));
+        }
+        return switch (disjuncts.size()) {
+            case 0 -> "false";
+            case 1 -> disjuncts.getFirst();
+            default -> "(or " + String.join("\n    ", disjuncts) + ")";
+        };
+    }
+
+    private static String encodeErrorRule(
+            FlatNet flatNet, SmtProperty property, List<String> mVars,
+            Collection<Place<?>> sinkPlaces, List<Injection> envInject
+    ) {
+        String violation = encodePropertyViolation(flatNet, property, mVars, sinkPlaces, envInject);
+        return "(assert (forall (" + quantified(mVars) + ")\n  (=> (and (Reachable "
+            + String.join(" ", mVars) + ") " + violation + ")\n      Error)))";
+    }
+
+    /** The flat indices of the given places that resolve, ascending. */
+    static List<Integer> indexOrdered(FlatNet flatNet, Collection<Place<?>> places) {
+        var idx = new TreeSet<Integer>();
+        for (var place : places) {
+            int i = flatNet.indexOf(place);
+            if (i >= 0) {
+                idx.add(i);
+            }
+        }
+        return List.copyOf(idx);
+    }
+
+    private static int requireIndex(FlatNet flatNet, Place<?> place, String property) {
+        int idx = flatNet.indexOf(place);
+        if (idx < 0) {
+            throw new IllegalArgumentException(
+                property + " property references unknown place: " + place.name());
+        }
+        return idx;
+    }
+
+    /**
+     * The property-violation condition {@code Bad(M)} over {@code mVars}. Also used by
+     * the certificate check's safety VC, which must test against exactly the violation
+     * the error rule encodes.
+     */
+    static String encodePropertyViolation(
+            FlatNet flatNet, SmtProperty property, List<String> mVars,
+            Collection<Place<?>> sinkPlaces, List<Injection> envInject
     ) {
         return switch (property) {
-            case SmtProperty.DeadlockFree() -> {
-                BoolExpr deadlock = encodeDeadlock(ctx, flatNet, mVars, P);
-                if (!sinkPlaces.isEmpty()) {
-                    // Deadlock is only a violation if NOT at any expected sink place
-                    BoolExpr notAtSink = ctx.mkTrue();
-                    for (var sink : sinkPlaces) {
-                        int idx = flatNet.indexOf(sink);
-                        if (idx >= 0) {
-                            notAtSink = ctx.mkAnd(notAtSink,
-                                ctx.mkEq(mVars[idx], ctx.mkInt(0)));
-                        }
-                    }
-                    yield ctx.mkAnd(deadlock, notAtSink);
-                }
-                yield deadlock;
-            }
+            case SmtProperty.DeadlockFree() -> encodeDeadlock(flatNet, mVars, sinkPlaces, envInject);
             case SmtProperty.MutualExclusion me -> {
-                int idx1 = flatNet.indexOf(me.p1());
-                int idx2 = flatNet.indexOf(me.p2());
-                if (idx1 < 0) throw new IllegalArgumentException(
-                    "MutualExclusion property references unknown place: " + me.p1().name());
-                if (idx2 < 0) throw new IllegalArgumentException(
-                    "MutualExclusion property references unknown place: " + me.p2().name());
-                // Violation: both places have tokens simultaneously
-                yield ctx.mkAnd(
-                    ctx.mkGe(mVars[idx1], ctx.mkInt(1)),
-                    ctx.mkGe(mVars[idx2], ctx.mkInt(1))
-                );
+                int i1 = requireIndex(flatNet, me.p1(), "MutualExclusion");
+                int i2 = requireIndex(flatNet, me.p2(), "MutualExclusion");
+                var conditions = new ArrayList<String>();
+                for (int i : new TreeSet<>(List.of(i1, i2))) {
+                    conditions.add("(>= " + mVars.get(i) + " 1)");
+                }
+                yield "(and " + String.join(" ", conditions) + ")";
             }
             case SmtProperty.PlaceBound pb -> {
-                int idx = flatNet.indexOf(pb.place());
-                if (idx < 0) throw new IllegalArgumentException(
-                    "PlaceBound property references unknown place: " + pb.place().name());
-                // Violation: place exceeds bound
-                yield ctx.mkGt(mVars[idx], ctx.mkInt(pb.bound()));
+                int idx = requireIndex(flatNet, pb.place(), "PlaceBound");
+                yield "(> " + mVars.get(idx) + " " + pb.bound() + ")";
             }
             case SmtProperty.BranchPlaceBound bpb -> {
-                // ν-net budget lever (NU-040): a count bound, encoded identically
-                // to PlaceBound. Sound under the matched-transition
-                // over-approximation — the real net fires fewer joins, so it
-                // cannot exceed a bound the over-approximation respects.
-                int idx = flatNet.indexOf(bpb.place());
-                if (idx < 0) throw new IllegalArgumentException(
-                    "BranchPlaceBound property references unknown place: " + bpb.place().name());
-                yield ctx.mkGt(mVars[idx], ctx.mkInt(bpb.bound()));
-            }
-            case SmtProperty.JoinedOrDeadLettered jdl -> {
-                // NU-040: a quiescent (deadlocked) marking that still holds a
-                // `pending` token is a stranded correlation group. Reuse the
-                // deadlock predicate and conjoin pending non-emptiness.
-                int idx = flatNet.indexOf(jdl.pending());
-                if (idx < 0) {
-                    // Unknown pending place: no state can violate.
-                    yield ctx.mkFalse();
-                }
-                BoolExpr deadlock = encodeDeadlock(ctx, flatNet, mVars, P);
-                yield ctx.mkAnd(deadlock, ctx.mkGe(mVars[idx], ctx.mkInt(1)));
+                // ν-net budget lever (NU-040): a count bound, encoded like PlaceBound.
+                int idx = requireIndex(flatNet, bpb.place(), "BranchPlaceBound");
+                yield "(> " + mVars.get(idx) + " " + bpb.bound() + ")";
             }
             case SmtProperty.Unreachable ur -> {
-                // Violation: all specified places have tokens (marking is reachable)
-                BoolExpr allMarked = ctx.mkTrue();
-                for (var place : ur.places()) {
-                    int idx = flatNet.indexOf(place);
-                    if (idx >= 0) {
-                        allMarked = ctx.mkAnd(allMarked,
-                            ctx.mkGe(mVars[idx], ctx.mkInt(1)));
-                    }
+                var conditions = new ArrayList<String>();
+                for (int i : indexOrdered(flatNet, ur.places())) {
+                    conditions.add("(>= " + mVars.get(i) + " 1)");
                 }
-                yield allMarked;
+                yield conditions.isEmpty() ? "false" : "(and " + String.join(" ", conditions) + ")";
+            }
+            case SmtProperty.JoinedOrDeadLettered jdl -> {
+                // NU-040: a quiescent marking still holding a `pending` token.
+                String deadlock = encodeDeadlock(flatNet, mVars, sinkPlaces, envInject);
+                int idx = flatNet.indexOf(jdl.pending());
+                yield idx < 0 ? "false" : "(and " + deadlock + " (>= " + mVars.get(idx) + " 1))";
             }
         };
     }
 
     /**
-     * Encodes the deadlock condition: no transition is enabled. Environment inputs
-     * are treated as injectable (relaxed enablement), so a marking that an external
-     * injection could re-enable is NOT a deadlock — only a genuinely stuck marking
-     * is (VER-006).
+     * Deadlock: every transition is disabled. Environment inputs are treated as
+     * injectable (VER-006): an input/read on an injectable env place is NOT a reason
+     * the transition is disabled (AlwaysAvailable always satisfies it, Bounded(k) iff
+     * the demand is at most k), so a reactive net merely waiting for input is not a
+     * deadlock; only a genuinely stuck marking is. Declared sinks (VER-002) each
+     * contribute {@code M[sink] = 0}.
      */
-    private static BoolExpr encodeDeadlock(
-            Context ctx, FlatNet flatNet,
-            Expr<IntSort>[] mVars, int P
+    private static String encodeDeadlock(
+            FlatNet flatNet, List<String> mVars, Collection<Place<?>> sinkPlaces,
+            List<Injection> envInject
     ) {
-        BoolExpr deadlock = ctx.mkTrue();
-
-        for (var ft : flatNet.transitions()) {
-            // NOT enabled(M, t), with env inputs treated as injectable.
-            BoolExpr enabled = encodeEnabled(ctx, ft, flatNet, mVars, P, /* relaxEnv */ true);
-            deadlock = ctx.mkAnd(deadlock, ctx.mkNot(enabled));
+        var envBound = new java.util.HashMap<Integer, Integer>();
+        for (var inj : envInject) {
+            envBound.put(inj.pid(), inj.bound());
         }
-
-        return deadlock;
-    }
-
-    /**
-     * Conjunction of P-invariant equalities {@code sum(y_i * M[i]) = constant}
-     * over the given marking expressions. Package-private: {@link CertificateChecker}
-     * folds the same equalities into its candidate invariant — where they are
-     * re-proven from scratch (initiation and consecution), not trusted.
-     */
-    static BoolExpr encodeInvariantConstraints(
-            Context ctx, List<PInvariant> invariants,
-            Expr<IntSort>[] mVars, int P
-    ) {
-        BoolExpr result = ctx.mkTrue();
-        for (var inv : invariants) {
-            // sum(y_i * M[i]) == constant
-            ArithExpr<IntSort> sum = ctx.mkInt(0);
-            for (int idx : inv.support()) {
-                if (idx < P) {
-                    sum = ctx.mkAdd(sum,
-                        ctx.mkMul(ctx.mkInt(inv.weights()[idx]), mVars[idx]));
+        var disabledConditions = new ArrayList<String>();
+        for (var ft : flatNet.transitions()) {
+            var disableReasons = new ArrayList<String>();
+            boolean permanentlyDisabled = false;
+            for (int i = 0; i < flatNet.placeCount(); i++) {
+                if (ft.preVector()[i] > 0) {
+                    if (envBound.containsKey(i)) {
+                        Integer k = envBound.get(i);
+                        if (k != null && ft.preVector()[i] > k) {
+                            permanentlyDisabled = true;
+                        }
+                        continue;
+                    }
+                    disableReasons.add("(< " + mVars.get(i) + " " + ft.preVector()[i] + ")");
                 }
             }
-            result = ctx.mkAnd(result, ctx.mkEq(sum, ctx.mkInt(inv.constant())));
+            for (int inh : ft.inhibitorPlaces()) {
+                disableReasons.add("(> " + mVars.get(inh) + " 0)");
+            }
+            for (int rd : ft.readPlaces()) {
+                if (envBound.containsKey(rd)) {
+                    Integer k = envBound.get(rd);
+                    if (k != null && k < 1) {
+                        permanentlyDisabled = true;
+                    }
+                    continue;
+                }
+                disableReasons.add("(< " + mVars.get(rd) + " 1)");
+            }
+            if (permanentlyDisabled) {
+                disabledConditions.add("true");
+                continue;
+            }
+            if (disableReasons.isEmpty()) {
+                return "false";
+            }
+            disabledConditions.add("(or " + String.join(" ", disableReasons) + ")");
         }
-        return result;
+        for (int pid : indexOrdered(flatNet, sinkPlaces)) {
+            disabledConditions.add("(= " + mVars.get(pid) + " 0)");
+        }
+        return disabledConditions.isEmpty()
+            ? "true"
+            : "(and " + String.join("\n         ", disabledConditions) + ")";
+    }
+
+    /** Env-injectable bound map, index to cap ({@code null} = unbounded), for the coloured encoder. */
+    static Map<Integer, Integer> injectionMap(FlatNet flatNet) {
+        var out = new java.util.HashMap<Integer, Integer>();
+        for (var inj : resolveEnvInjection(flatNet)) {
+            out.put(inj.pid(), inj.bound());
+        }
+        return out;
     }
 }

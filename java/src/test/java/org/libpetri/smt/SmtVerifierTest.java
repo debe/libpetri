@@ -29,12 +29,7 @@ class SmtVerifierTest {
     private static final Place<String> PENDING = Place.of("Pending", String.class);
 
     static boolean z3Available() {
-        try {
-            new com.microsoft.z3.Context().close();
-            return true;
-        } catch (UnsatisfiedLinkError | NoClassDefFoundError _) {
-            return false;
-        }
+        return SmtVerifier.z3Available();
     }
 
     // === Encoding-layer tests (no Z3 needed) ===
@@ -950,11 +945,15 @@ class SmtVerifierTest {
     @EnabledIf("z3Available")
     void nu053RouteADetectsStrandingDeadlock() {
         // The EXTENDED drain can steal `a` and strand `b` under an unprioritised schedule
-        // — a genuine reachable deadlock the coloured encoding must catch.
+        // — a genuine reachable deadlock the coloured encoding must catch. Sinks are
+        // {merged, budget} only: under VER-002 a quiescent marking is excused as soon as
+        // ANY declared sink holds a token, so declaring `deadletter` a sink would excuse
+        // the stranded-`b` marking (which also holds the dead-lettered token) and hide
+        // the stall. Same fixture and sinks as the Rust and TypeScript tests.
         var result = SmtVerifier.forNet(StructureOnly.bind(nu053StealNet()))
             .initialMarking(m -> { m.tokens(NU053_SOURCE, 1); m.tokens(NU053_BUDGET, 1); })
             .property(SmtProperty.deadlockFree())
-            .sinkPlaces(NU053_MERGED, NU053_BUDGET, NU053_DEADLETTER)
+            .sinkPlaces(NU053_MERGED, NU053_BUDGET)
             .budgetPlaces(NU053_BUDGET)
             .fragmentMode(FragmentMode.EXTENDED)
             .nuMaxClasses(1)
@@ -1111,7 +1110,7 @@ class SmtVerifierTest {
             .initialMarking(m -> m.tokens(p1, 1))
             .property(SmtProperty.mutualExclusion(p1, p2))
             .timeout(Duration.ofSeconds(10))
-            .certificateChecker((_, _, _, _, _, _, _, _, _) ->
+            .certificateChecker((_, _, _, _, _, _, _, _) ->
                 new CertificateChecker.Result.Failed(
                     CertificateChecker.Vc.SAFETY, "injected corrupt certificate"))
             .verify();
@@ -1135,8 +1134,8 @@ class SmtVerifierTest {
             .initialMarking(m -> m.tokens(p1, 1))
             .property(SmtProperty.mutualExclusion(p1, p2))
             .timeout(Duration.ofSeconds(10))
-            .certificateChecker((_, _, _, _, _, _, _, _, _) -> {
-                throw new com.microsoft.z3.Z3Exception("simulated Z3 failure");
+            .certificateChecker((_, _, _, _, _, _, _, _) -> {
+                throw new RuntimeException("simulated solver failure");
             })
             .verify();
 
@@ -1177,7 +1176,7 @@ class SmtVerifierTest {
             .property(SmtProperty.mutualExclusion(p1, p2))
             .timeout(Duration.ofSeconds(10))
             .certificateCheck(false)
-            .certificateChecker((_, _, _, _, _, _, _, _, _) -> {
+            .certificateChecker((_, _, _, _, _, _, _, _) -> {
                 throw new AssertionError("checker must not run when opted out");
             })
             .verify();
@@ -1243,7 +1242,7 @@ class SmtVerifierTest {
     void assessCounterexample_nothingDecoded_keepsViolatedUnconfirmed() {
         // Nothing decoded is NOT a downgrade: the verdict stands, unconfirmed.
         var decoded = new CounterexampleDecoder.DecodedStates(
-            java.util.List.of(), java.util.Set.of(), java.util.List.of(), "answer was null");
+            java.util.Set.of(), "no ground Reachable states in the z3 proof");
 
         var assessment = SmtVerifier.assessCounterexample(
             deadEndChainFlat(), mk(RP0, 1), decoded, SmtProperty.deadlockFree(), java.util.Set.of());
@@ -1255,8 +1254,7 @@ class SmtVerifierTest {
     @Test
     void assessCounterexample_chainableSet_confirmsWithReplayOrderedTrace() {
         var decoded = new CounterexampleDecoder.DecodedStates(
-            java.util.List.of(mk(RP2, 1), mk(RP0, 1), mk(RP1, 1)),
-            java.util.Set.of(mk(RP2, 1), mk(RP0, 1), mk(RP1, 1)), java.util.List.of(), null);
+            java.util.Set.of(mk(RP2, 1), mk(RP0, 1), mk(RP1, 1)), null);
 
         var assessment = SmtVerifier.assessCounterexample(
             deadEndChainFlat(), mk(RP0, 1), decoded, SmtProperty.deadlockFree(), java.util.Set.of());
@@ -1275,8 +1273,7 @@ class SmtVerifierTest {
         var garbage = org.libpetri.analysis.MarkingState.builder()
             .tokens(RP0, 7).tokens(RP1, 7).tokens(RP2, 7).build();
         var decoded = new CounterexampleDecoder.DecodedStates(
-            java.util.List.of(mk(RP0, 1), garbage),
-            java.util.Set.of(mk(RP0, 1), garbage), java.util.List.of(), null);
+            java.util.Set.of(mk(RP0, 1), garbage), null);
 
         var assessment = SmtVerifier.assessCounterexample(
             deadEndChainFlat(), mk(RP0, 1), decoded,
@@ -1455,15 +1452,13 @@ class SmtVerifierTest {
 
     @Test
     @EnabledIf("z3Available")
-    void noChainDowngrade_reportsUnknownWithConfirmedFalse() {
-        // The one outcome that WITHDRAWS a verdict, end to end and without a seam:
-        // an Unreachable property whose places are all outside the flat net. The
-        // encoder's violation conjunction is then over nothing — i.e. TRUE, so Bad
-        // holds everywhere and Spacer answers SAT at M0 — while the replay's
-        // non-empty guard (AbstractReplayer.violates) refuses to call any marking
-        // Bad. The search covers the two-state space, finds no chain, and the
-        // verifier withholds VIOLATED rather than report a violation it cannot
-        // reproduce.
+    void unresolvedPropertyPlace_refusesToCertify() {
+        // A property naming a place outside the net (a typo) would encode to a vacuous
+        // violation predicate: `false` proves anything, `true` violates at M0. Neither
+        // is a verdict about the net, so the verifier refuses with an Unknown that names
+        // the problem, on the flat path exactly as on the coloured one. (The end-to-end
+        // no-chain replay downgrade this scenario used to drive is covered by
+        // StubZ3Test.c4 against a scripted solver reply.)
         var pA = Place.of("A", String.class);
         var pB = Place.of("B", String.class);
         var ghost = Place.of("Ghost", String.class); // never declared by a transition
@@ -1477,17 +1472,8 @@ class SmtVerifierTest {
             .verify();
 
         var unknown = assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(),
-            "a refuted counterexample downgrades, it does not stand\n" + result.report());
-        assertEquals(
-            "counterexample replay found no firing chain to the violation under the "
-            + "abstract semantics, so VIOLATED is withheld",
-            unknown.reason());
-        // D1: the replay APPLIED and refuted the trace. That is strictly more
-        // informative than "did not apply", so the tri-state is FALSE, never null.
-        assertEquals(Boolean.FALSE, result.counterexampleConfirmed(),
-            "a refutation reports FALSE, not the null that means 'replay did not apply'\n"
-            + result.report());
-        assertTrue(result.report().contains("Counterexample replay: FAILED"), result.report());
-        assertTrue(result.counterexampleTrace().isEmpty(), result.report());
+            "a property over a place outside the net must not certify\n" + result.report());
+        assertTrue(unknown.reason().contains("does not resolve in the net"), unknown.reason());
+        assertNull(result.counterexampleConfirmed(), result.report());
     }
 }

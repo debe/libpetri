@@ -50,12 +50,7 @@ class VerdictParityTest {
         "\u03bd-net Route B: name-aware state-class graph (NU-050)";
 
     static boolean z3Available() {
-        try {
-            new com.microsoft.z3.Context().close();
-            return true;
-        } catch (UnsatisfiedLinkError | NoClassDefFoundError _) {
-            return false;
-        }
+        return org.libpetri.smt.SmtVerifier.z3Available();
     }
 
     @TestFactory
