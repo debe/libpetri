@@ -649,6 +649,27 @@ impl<'a> SmtVerifier<'a> {
                 }
             }
         } else {
+            // A property naming a place outside the net would encode to a vacuous
+            // violation predicate (`false` proves anything). Refuse, as the coloured
+            // path does, so a mis-named place never silently certifies.
+            if let Some(name) = unresolved_property_place(&flat, &property) {
+                let reason = format!(
+                    "property names a place that does not resolve in the net ('{name}'); \
+                     refusing to certify (the encoding would be vacuously proven)"
+                );
+                report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
+                let elapsed_ms = start.elapsed().as_millis() as u64;
+                return build_result(
+                    Verdict::Unknown { reason },
+                    report,
+                    elapsed_ms,
+                    flat_statistics(&flat, invariants.len(), structural_str),
+                    Diagnostics {
+                        invariants,
+                        ..Diagnostics::none()
+                    },
+                );
+            }
             smt_encoder::encode(
                 &flat,
                 &self.initial_marking,
@@ -1301,6 +1322,24 @@ fn canonical_place_order(flat: &FlatNet, names: &[String]) -> Vec<String> {
     named.into_iter().cloned().collect()
 }
 
+/// The first place the property names that is not in the flat net.
+fn unresolved_property_place(flat: &FlatNet, property: &SmtProperty) -> Option<String> {
+    let named: Vec<&String> = match property {
+        SmtProperty::DeadlockFree => Vec::new(),
+        SmtProperty::MutualExclusion { places } | SmtProperty::Unreachable { places } => {
+            places.iter().collect()
+        }
+        SmtProperty::PlaceBound { place, .. } | SmtProperty::BranchPlaceBound { place, .. } => {
+            vec![place]
+        }
+        SmtProperty::JoinedOrDeadLettered { pending } => vec![pending],
+    };
+    named
+        .into_iter()
+        .find(|name| !flat.place_index.contains_key(*name))
+        .cloned()
+}
+
 /// The property with its place lists in canonical order; the sets are
 /// unordered, so this changes nothing but the emitted script text.
 fn canonical_property(flat: &FlatNet, property: &SmtProperty) -> SmtProperty {
@@ -1420,6 +1459,38 @@ mod tests {
         let net = PetriNet::builder("test").transition(t).build();
 
         SmtVerifier::for_net(&net);
+    }
+
+    #[test]
+    fn unresolved_property_place_refuses_to_certify() {
+        if !z3_available() {
+            eprintln!("skipping unresolved_property_place_refuses_to_certify: no z3");
+            return;
+        }
+        // A property over a place the net never declares would encode to `false`,
+        // which proves anything. The flat path refuses, as the coloured path does,
+        // with the same reason in every implementation.
+        let p1 = Place::<i32>::new("p1");
+        let p2 = Place::<i32>::new("p2");
+        let t = Transition::builder("t1")
+            .input(one(&p1))
+            .output(out_place(&p2))
+            .action(fork())
+            .build();
+        let net = PetriNet::builder("tiny").transition(t).build();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(MarkingStateBuilder::new().tokens("p1", 1).build())
+            .property(SmtProperty::unreachable(vec!["Ghost".into()]))
+            .verify();
+        match &result.verdict {
+            Verdict::Unknown { reason } => assert_eq!(
+                reason,
+                "property names a place that does not resolve in the net ('Ghost'); refusing to \
+                 certify (the encoding would be vacuously proven)"
+            ),
+            other => panic!("expected the refusal, got {other:?}\n{}", result.report),
+        }
+        assert!(result.counterexample_confirmed.is_none());
     }
 
     #[test]

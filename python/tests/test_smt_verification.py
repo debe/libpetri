@@ -288,3 +288,20 @@ def test_counterexample_confirmed_is_false_when_the_replay_exhausts_its_budget()
     assert result.verdict == "violated", result.report
     assert result.counterexample_confirmed is False, result.report
     assert "search node budget" in result.report, result.report
+
+
+def test_unresolved_property_place_is_refused():
+    # A property over a place the net never declares would encode to `false`,
+    # which proves anything. Every implementation refuses with the same reason.
+    if not lp.z3_available():
+        pytest.skip("no usable z3 executable")
+    p0 = lp.Place("p0")
+    p1 = lp.Place("p1")
+    net = (
+        lp.Net("tiny")
+        .transition(lp.Transition("t").input(lp.one(p0)).output(lp.out(p1)).action(lp.fork).build())
+        .build()
+    )
+    result = lp.verify(net, lp.unreachable([lp.Place("Ghost")]), initial_marking={p0: 1})
+    assert result.verdict == "unknown", result.report
+    assert "does not resolve in the net ('Ghost')" in result.report

@@ -149,16 +149,10 @@ public final class PInvariantComputer {
                 }
             }
 
-            // Normalize: divide by GCD of weights
-            long g = 0;
-            for (long w : weightsL) {
-                if (w > 0) g = gcd(g, w);
-            }
-            if (g > 1) {
-                for (int i = 0; i < P; i++) {
-                    weightsL[i] /= g;
-                }
-            }
+            // No renormalisation here: every eliminated row was GCD-normalised over
+            // all of its entries above, and an untouched identity row is a unit
+            // vector. (A positives-only GCD would corrupt a signed row such as
+            // (2, -3).)
 
             // Narrow to int and accumulate the constant with checked arithmetic; the
             // first out-of-range step names the offending place.
@@ -622,6 +616,18 @@ public final class PInvariantComputer {
     public static boolean isCoveredByInvariants(List<PInvariant> invariants, int numPlaces) {
         var covered = new boolean[numPlaces];
         for (var inv : invariants) {
+            // Only a non-negative law bounds its support; a mixed-sign law (which the
+            // signed null-space basis now carries) says nothing about boundedness.
+            boolean nonNegative = true;
+            for (int w : inv.weights()) {
+                if (w < 0) {
+                    nonNegative = false;
+                    break;
+                }
+            }
+            if (!nonNegative) {
+                continue;
+            }
             for (int idx : inv.support()) {
                 if (idx < numPlaces) {
                     covered[idx] = true;
