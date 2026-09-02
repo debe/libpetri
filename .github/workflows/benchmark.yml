@@ -25,6 +25,8 @@ jobs:
       # `mvnw verify` below runs the full suite, including the Z3NativeGateTest
       # gate — without the natives this workflow fails where CI passes.
       - uses: ./.github/actions/z3-jni-natives
+      # The pinned z3 executable every verifier shells out to (VER-013).
+      - uses: ./.github/actions/install-z3
 
       - name: Run tests
         working-directory: java
