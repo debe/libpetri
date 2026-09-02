@@ -8,11 +8,11 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 
 ## Summary
 
-- Active requirements: **208**
+- Active requirements: **209**
 - Proven in Lean (≥ 1 validated theorem fragment): **21**
 - Referenced in Lean comments only (mention without a validated theorem mapping): **7**
 - Referenced by ≥ 1 test file: java **65**, typescript **62**, rust **70**, python **23**
-- Untested anywhere (no test-file reference in any language): **131**
+- Untested anywhere (no test-file reference in any language): **132**
 
 ## 01-core-model.md — CORE
 
@@ -159,6 +159,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | VER-004 | `proposition_one` — abstraction soundness alpha(R(N)) subset R(N-hat) on the untimed flat fragment, under the GuardFreeConsumeAll (vacuous since the IO-006 guard removal) and UnitOutput side conditions; the CHC encoder is modelled, not extracted<br>`guard_hypothesis_is_necessary` — necessity of the guard-free side condition: concrete counterexample where a guarded consume-all arc made the untimed abstraction unsound (historical evidence; discharged by the IO-006 guard removal)<br>`unit_output_hypothesis_is_necessary` — necessity of the unit-output side condition: validate_out_spec checks place membership, never multiplicity, while the encoder fixes the abstract gain at one token per branch place — the hypothesis remains unchecked by the shipped encoder<br>`bad_rule_nonvacuity` — the flat encoder's unresolvable-property-place fallback (Bad body = false) certifies any net vacuously - the formal argument that refusing to certify is the only sound behavior for that case | ✓ | — | — | ✓ | — |
 | VER-005 | `invariant_strengthening_sound` — weighted-sum conservation over ReachA under H1 (zero weight on consume-all/atLeast/reset places; now enforced by the shipped validators) and H2 (y.C = 0, the exact-validation gate's check); injection-free fragment<br>`strengthened_reach_eq` — under H1+H2, conjoining y.M = y.M0 into CHC rule bodies preserves the abstract reachable set - the strengthening the encoders perform is sound<br>`consume_all_hypothesis_is_necessary` — live-gap witness that forced the H1 guard: an exact-gate-valid invariant on an In::All net prunes a genuine successor - false Proven without the guard | ✓ | — | — | — | — |
 | VER-006 | `false_proven_without_injection` — retrodiction of 98b9297: without the environment-injection rule the abstract reachable set freezes at M0, so PlaceBound(p1, 0) is proven vacuously — the pre-fix false Proven, on the minimal one-env-place witness net<br>`injection_reaches_violation` — with the injection rule of smt_encoder.rs:81-83 encoded, the vacuous bound above is refuted (p1 reaches 1) — witnesses the fix on the minimal net, not full environment-analysis-mode soundness<br>`invariant_strengthening_sound_inj` — env-aware variant: with injection rules, conservation needs H3' (zero weight on injectable places) - the sufficiency proof for the shipped injector-column design<br>`strengthened_reach_eq_inj` — under H1+H2+H3', strengthening preserves the injected reachable set<br>`injection_hypothesis_is_necessary` — necessity of H3': a unit weight on an injectable place freezes the strengthened relation while the true relation reaches a violation | ✓ | ✓ | ✓ | ✓ | ✓ |
+| VER-007 | — | — | — | — | — | — |
 | VER-010 | — | — | — | — | — | — |
 | VER-011 | — | — | — | — | — | — |
 | VER-012 | — | — | — | — | — | — |

@@ -43,7 +43,7 @@ LEAN_DIR = REPO / "lean"
 # The canonical active-requirement count. spec/00-index.md is the registry;
 # if the spec gains or loses a requirement, update this constant in the same
 # change — the hard failure is deliberate, so index drift surfaces here.
-EXPECTED_ACTIVE = 208
+EXPECTED_ACTIVE = 209
 
 EXCLUDED_DIR_NAMES = {"target", "node_modules", ".lake", ".venv", "dist"}
 SPEC_ID_RE = re.compile(r"\b([A-Z]{2,6}-\d{3})\b")

@@ -37,13 +37,13 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | [04-execution-model.md](04-execution-model.md) | EXEC | Orchestrator loop, scheduling, token consumption, failure, quiescence | 14 |
 | [05-concurrency.md](05-concurrency.md) | CONC | Single-threaded orchestrator, bitmap executor, precompiled flat-array executor, async actions, wake-up | 18 |
 | [06-environment-places.md](06-environment-places.md) | ENV | External event injection, implicit long-running behavior, executor lifecycle | 13 |
-| [07-verification.md](07-verification.md) | VER | SMT/IC3, state class graph, structural analysis | 11 |
+| [07-verification.md](07-verification.md) | VER | SMT/IC3, state class graph, structural analysis | 12 |
 | [08-events-observability.md](08-events-observability.md) | EVT | Event types, event store, log capture | 23 |
 | [09-export.md](09-export.md) | EXP | Graph export, formal interchange | 17 |
 | [10-performance.md](10-performance.md) | PERF | Scaling, benchmarks, memory efficiency, flat-array executor performance | 14 |
 | [11-modular-composition.md](11-modular-composition.md) | MOD | Open-net subnet definition, instantiation, port composition, channel fusion, action binding per instance, place fusion | 26 |
 | [12-nu-nets.md](12-nu-nets.md) | NU | Token name identity, fresh-name minting (ν-binder/fork), join by name equality, bounded-budget decidability ledger | 12 |
-| **Total** | | | **208** |
+| **Total** | | | **209** |
 
 > **IO-006** (Input Guard Predicate) and **EXEC-011** (Guarded Token Consumption) were
 > removed (see [IO-006], [EXEC-011]); both are retained as struck-through tombstones for
@@ -306,6 +306,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | VER-004 | Untimed Over-Approximation | SHOULD | — |
 | VER-005 | P-Invariant Computation | SHOULD | — |
 | VER-006 | Environment Analysis Mode | SHOULD | — |
+| VER-007 | Invariant Strengthening from P-Semiflows | SHOULD | VER-004, 005, 006, NU-053 |
 | VER-010 | State Class Graph Analysis | MAY | IO-007, EXEC-010 |
 | VER-011 | DBM Zone Representation | MAY | — |
 | VER-012 | Name-Aware State Class Graph (ν-Partition Quotient) | MAY | VER-010, 011, NU-020, NU-050, IO-007 |
@@ -319,9 +320,9 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Priority | Count | Description |
 |----------|-------|-------------|
 | MUST     | 141   | Core contract; all implementations must conform |
-| SHOULD   | 52    | Recommended; implementations should include unless technically infeasible |
+| SHOULD   | 53    | Recommended; implementations should include unless technically infeasible |
 | MAY      | 15    | Optional; implementations may include |
-| **Total** | **208** | Matches the active-requirement total above; tombstones (IO-006, EXEC-011) excluded |
+| **Total** | **209** | Matches the active-requirement total above; tombstones (IO-006, EXEC-011) excluded |
 
 ---
 
@@ -443,6 +444,7 @@ The Rust column doubles as Python's: `libpetri-py` binds the same engine, so a `
 | ENV-014 | — | — | `executor_handle::tests`; Python `test_marking_snapshot.py` (Rust/Python-first) |
 | ENV-015–016 | `AbstractNetExecutorEnvironmentTest` (Java-first) | — | — |
 | VER-001–006 | `SmtVerifierTest` | `smt-verifier.test.ts` | `structural_check::tests`, `p_invariant::tests` |
+| VER-007 | `SemiflowInvariantsTest` | `smt-verifier.test.ts` (semiflow invariants) | `smt_verifier::tests` (semiflow invariants); Python `test_smt_verification.py` |
 | VER-010–011 | `StateClassGraphTest` | `analysis/*.test.ts` | `state_class_graph::tests` |
 | VER-010 AC2 (executor-faithful consumption, [IO-007]) | `StateClassGraphConsumptionTest#allInputDrainsPlaceSoInhibitedSuccessorIsReachable`, `#atLeastInputDrainsPlaceLeavingNoResidue` | `state-class-graph.test.ts > draining input semantics (IO-007)` (2 cases) | `state_class_graph::tests::all_input_drains_place_so_inhibited_successor_is_reachable`, `at_least_input_drains_place` |
 | VER-012 | `SmtVerifierTest` (Route B) | `smt-verifier.test.ts` (Route B) | `nu_scg_verifier::tests` |
