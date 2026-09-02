@@ -112,6 +112,33 @@ pub fn check_certificate(
     }
 }
 
+/// The certificate-check script for the given inputs, exactly as
+/// [`check_certificate`] sends it ([VER-013] script parity): what the
+/// cross-language golden tests diff.
+#[allow(clippy::too_many_arguments)]
+pub fn vc_script(
+    certificate: &str,
+    flat: &FlatNet,
+    initial_marking: &MarkingState,
+    property: &SmtProperty,
+    invariants: &[PInvariant],
+    sink_places: &[String],
+    env_bounds: &[(String, usize)],
+    env_injection: &[(String, Option<usize>)],
+) -> String {
+    VerificationConditions::build(
+        certificate,
+        flat,
+        initial_marking,
+        property,
+        invariants,
+        sink_places,
+        env_bounds,
+        env_injection,
+    )
+    .script()
+}
+
 /// [`check_certificate`] against an already-resolved solver: what the
 /// verifier calls, so one `verify()` probes the executable once.
 #[allow(clippy::too_many_arguments)]

@@ -276,6 +276,13 @@ in the `(get-proof)` reply, ordered only by the replay ([VER-003]).
   executable resolves (`HAS_Z3` is the compile feature only).
 - Java: `org.libpetri.smt.z3.Z3Process` / `Z3Solver`; `SmtVerifier.z3Available()`.
 - TypeScript: `verification/z3/z3-process` (`resolveZ3` / `runZ3Text`); `z3Available()`.
+- AC1 is checked without a solver: `SmtVerifier::encode_scripts` (Rust), `encodeScripts()`
+  (Java, TypeScript) and `libpetri.encode_smt_scripts` (Python) return the HORN script and,
+  for the flat encoding, the certificate script around the placeholder certificate
+  `(define-fun Reachable (…) Bool true)`; the goldens under
+  `spec/verification-fixtures/scripts/<id>/` are written by the Rust verifier
+  (`scripts/smt-script-parity.py --update`) and diffed by every implementation's
+  script-parity test.
 
 **Depends on:** [VER-001], [VER-003], [VER-007], [IO-016]
 

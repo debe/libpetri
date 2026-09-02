@@ -374,6 +374,48 @@ pub fn build(name: &str) -> FixtureNet {
                 MarkingStateBuilder::new().tokens("source", 1).build(),
             )
         }
+        // ν scatter-gather on Route A's exact name-coloured encoding ([NU-053]): a
+        // declared budget puts the reachability-safety query on the coloured
+        // encoder. fork consumes source+budget and co-mints one fresh name into
+        // branchA+branchB (plus a pending token); join correlates the branches and
+        // returns the budget token. Conservation budget + pending = 2 bounds
+        // budget by 2.
+        "nuScatterGather" => {
+            let source = Place::<()>::new("source");
+            let budget = Place::<()>::new("budget");
+            let pending = Place::<()>::new("pending");
+            let a = Place::<String>::new("branchA");
+            let b = Place::<String>::new("branchB");
+            let merged = Place::<String>::new("merged");
+            let t_fork = Transition::builder("fork")
+                .input(one(&source))
+                .input(one(&budget))
+                .output(and(vec![out_place(&a), out_place(&b), out_place(&pending)]))
+                .action(fork())
+                .build();
+            let t_join = Transition::builder("join")
+                .input(one(&a))
+                .input(one(&b))
+                .input(one(&pending))
+                .match_spec(
+                    MatchSpec::builder()
+                        .key(&a, |s: &String| NameId::new(s.clone()))
+                        .key(&b, |s: &String| NameId::new(s.clone()))
+                        .build(),
+                )
+                .output(and(vec![out_place(&merged), out_place(&budget)]))
+                .action(fork())
+                .build();
+            FixtureNet::closed(
+                PetriNet::builder("nuScatterGather")
+                    .transitions([t_fork, t_join])
+                    .build(),
+                MarkingStateBuilder::new()
+                    .tokens("source", 3)
+                    .tokens("budget", 2)
+                    .build(),
+            )
+        }
         other => panic!(
             "unknown fixture net '{other}' — add its builder to tests/common/nets.rs \
              (the shared fixtures.json gained a net this implementation does not build yet)"

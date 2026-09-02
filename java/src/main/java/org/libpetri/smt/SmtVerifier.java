@@ -861,6 +861,62 @@ public final class SmtVerifier {
         };
     }
 
+    /**
+     * The SMT-LIB2 scripts {@link #verify()} would send to z3 for this configuration,
+     * without running a solver (VER-013 AC1): the HORN query (flat, or name-coloured
+     * when a declared budget puts the net on Route A's exact encoding) and, for the
+     * flat encoding, the certificate-check script built around
+     * {@link #placeholderCertificate}. This is what the cross-language golden tests
+     * diff byte for byte. Route B, the structural pre-check and the unresolved-place
+     * refusal are bypassed: it is what Route A encodes.
+     *
+     * @param horn        the HORN query, flat or name-coloured
+     * @param certificate the certificate-check script around the placeholder
+     *                    certificate; {@code null} for the name-coloured encoding
+     * @param coloured    whether {@code horn} is the name-coloured encoding
+     */
+    public record EncodedScripts(String horn, String certificate, boolean coloured) {}
+
+    /**
+     * {@code (define-fun Reachable ((x!0 Int) …) Bool true)}: the certificate stand-in
+     * the golden certificate scripts are built around (a real certificate is solver
+     * output and never part of a golden).
+     */
+    public static String placeholderCertificate(int placeCount) {
+        var params = new ArrayList<String>(placeCount);
+        for (int i = 0; i < placeCount; i++) {
+            params.add("(x!" + i + " Int)");
+        }
+        return "(define-fun Reachable (" + String.join(" ", params) + ") Bool\n    true)";
+    }
+
+    /** See {@link EncodedScripts}. */
+    public EncodedScripts encodeScripts() {
+        OutputActionCheck.requireOutputProducingActions(net);
+        boolean hasMatch = net.transitions().stream().anyMatch(t -> t.matchSpec() != null);
+        boolean nuBounded = !budgetPlaces.isEmpty();
+        FlatNet flatNet = NetFlattener.flatten(net, environmentPlaces, environmentMode);
+        var invariants = encoderInvariants(flatNet, initialMarking, semiflowInvariants);
+        if (hasMatch && nuBounded) {
+            var plan = NameColouredEncoder.buildPlan(
+                net, flatNet, initialMarking, budgetPlaces, fragmentMode, carrierPlaces,
+                validatedSemiflows(flatNet, initialMarking));
+            if (plan != null) {
+                var coloured = NameColouredEncoder.encode(
+                    plan, flatNet, initialMarking, property, invariants, sinkPlaces);
+                if (coloured != null) {
+                    return new EncodedScripts(coloured.smt2(), null, true);
+                }
+            }
+        }
+        String horn = SmtEncoder.encode(
+            flatNet, initialMarking, property, invariants, sinkPlaces, counterexampleReplay).smt2();
+        String certificate = CertificateChecker.vcScript(
+            placeholderCertificate(flatNet.placeCount()), flatNet, initialMarking, property,
+            sinkPlaces, invariants);
+        return new EncodedScripts(horn, certificate, false);
+    }
+
     /** The name of the first place the property names that is not in the flat net, or {@code null}. */
     private static String unresolvedPropertyPlace(FlatNet flatNet, SmtProperty property) {
         List<Place<?>> named = switch (property) {

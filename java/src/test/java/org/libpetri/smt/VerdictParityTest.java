@@ -86,6 +86,12 @@ class VerdictParityTest {
         if (!sinks.isEmpty()) {
             verifier.sinkPlaces(sinks.toArray(new Place<?>[0]));
         }
+        // Optional shared-schema field: ν budget places ([NU-040]), which put a
+        // reachability-safety query on Route A's name-coloured encoding.
+        var budgets = budgetPlaces(fixture);
+        if (!budgets.isEmpty()) {
+            verifier.budgetPlaces(budgets.toArray(new Place<?>[0]));
+        }
         var result = verifier.verify();
 
         // The route marker is checked FIRST: a `route: "B"` fixture that
@@ -115,17 +121,26 @@ class VerdictParityTest {
     }
 
     /** The fixture's optional {@code sinkPlaces} array, resolved to places. */
-    private static List<Place<?>> sinkPlaces(JsonNode fixture) {
+    static List<Place<?>> sinkPlaces(JsonNode fixture) {
+        return placeList(fixture, "sinkPlaces");
+    }
+
+    /** The fixture's optional {@code budgetPlaces} array, resolved to places. */
+    static List<Place<?>> budgetPlaces(JsonNode fixture) {
+        return placeList(fixture, "budgetPlaces");
+    }
+
+    private static List<Place<?>> placeList(JsonNode fixture, String field) {
         var out = new ArrayList<Place<?>>();
-        if (fixture.hasNonNull("sinkPlaces")) {
-            for (JsonNode name : fixture.get("sinkPlaces")) {
+        if (fixture.hasNonNull(field)) {
+            for (JsonNode name : fixture.get(field)) {
                 out.add(place(name.asText()));
             }
         }
         return out;
     }
 
-    private static SmtProperty parseProperty(JsonNode property) {
+    static SmtProperty parseProperty(JsonNode property) {
         String type = property.get("type").asText();
         return switch (type) {
             case "deadlock-free" -> SmtProperty.deadlockFree();
@@ -158,7 +173,7 @@ class VerdictParityTest {
      * (surefire runs with cwd {@code java/}, so the first hit is
      * {@code ../spec/verification-fixtures/fixtures.json}).
      */
-    private static Path locateFixtures() {
+    static Path locateFixtures() {
         Path dir = Path.of("").toAbsolutePath();
         for (int depth = 0; dir != null && depth < 8; depth++, dir = dir.getParent()) {
             Path candidate = dir.resolve("spec").resolve("verification-fixtures").resolve("fixtures.json");

@@ -12,7 +12,7 @@ import { IncidenceMatrix } from './encoding/incidence-matrix.js';
 import { canonicalInvariantOrder, computePInvariants, computePSemiflows, isCoveredByInvariants, strengthenWithSemiflows, validateInvariantsExact } from './invariant/p-invariant-computer.js';
 import { structuralCheck } from './invariant/structural-check.js';
 import { runZ3Spacer } from './z3/spacer-runner.js';
-import { checkCertificate, type CertificateCheckOutcome } from './z3/certificate-checker.js';
+import { checkCertificate, vcScript, type CertificateCheckOutcome } from './z3/certificate-checker.js';
 import { encode, type SmtEncoding } from './z3/smt-encoder.js';
 import { formatZ3Version, resolveZ3, Z3Unavailable, type Z3Solver } from './z3/z3-process.js';
 import { buildColouredPlan, encodeColoured, type ColouredPlan } from './z3/name-coloured-encoder.js';
@@ -236,6 +236,48 @@ export class SmtVerifier {
   prioritySemantics(semantics: PrioritySemantics): this {
     this._prioritySemantics = semantics;
     return this;
+  }
+
+  /**
+   * The SMT-LIB2 scripts {@link verify} would send to z3 for this configuration,
+   * without running a solver (VER-013 AC1): the HORN query (flat, or name-coloured
+   * when a declared budget puts the net on Route A's exact encoding) and, for the
+   * flat encoding, the certificate-check script built around
+   * {@link placeholderCertificate}. This is what the cross-language golden tests diff
+   * byte for byte. Route B, the structural pre-check and the unresolved-place
+   * refusal are bypassed: it is what Route A encodes.
+   */
+  encodeScripts(): EncodedScripts {
+    requireOutputProducingActions(this.net);
+    const hasMatch = [...this.net.transitions].some(t => t.matchSpec !== null);
+    const nuBounded = this._budgetPlaces.size > 0;
+    const flatNet = flatten(this.net, this._environmentPlaces, this._environmentMode);
+    const matrix = IncidenceMatrix.from(flatNet);
+    const { valid: basis } = validateInvariantsExact(
+      matrix, computePInvariants(matrix, flatNet, this._initialMarking), flatNet, this._initialMarking,
+    );
+    const { valid: semiflows } = validateInvariantsExact(
+      matrix, computePSemiflows(matrix, flatNet, this._initialMarking), flatNet, this._initialMarking,
+    );
+    let invariants: readonly PInvariant[] = basis;
+    if (this._semiflowInvariants) invariants = strengthenWithSemiflows(basis, semiflows).invariants;
+    invariants = canonicalInvariantOrder(invariants);
+    if (hasMatch && nuBounded) {
+      const plan = buildColouredPlan(
+        this.net, flatNet, this._initialMarking, this._budgetPlaces,
+        this._fragmentMode, this._carrierPlaces, semiflows,
+      );
+      if (plan != null) {
+        const coloured = encodeColoured(plan, flatNet, this._initialMarking, this._property, invariants, this._sinkPlaces);
+        if (coloured != null) return { horn: coloured.smt2, certificate: null, coloured: true };
+      }
+    }
+    const horn = encode(flatNet, this._initialMarking, this._property, invariants, this._sinkPlaces, this._counterexampleReplay).smt2;
+    const certificate = vcScript(
+      placeholderCertificate(flatNet.places.length), flatNet, this._initialMarking,
+      this._property, this._sinkPlaces, invariants,
+    );
+    return { horn, certificate, coloured: false };
   }
 
   /**
@@ -856,6 +898,27 @@ export function certificateDowngradeReason(outcome: CertificateCheckOutcome): st
       return `certificate check could not run: ${outcome.reason}; ` +
         'PROVEN is withheld without an independently validated certificate';
   }
+}
+
+/** The scripts {@link SmtVerifier.encodeScripts} reports. */
+export interface EncodedScripts {
+  /** The HORN query, flat or name-coloured. */
+  readonly horn: string;
+  /** The certificate-check script around {@link placeholderCertificate}; `null` for the name-coloured encoding. */
+  readonly certificate: string | null;
+  /** Whether `horn` is the name-coloured encoding. */
+  readonly coloured: boolean;
+}
+
+/**
+ * `(define-fun Reachable ((x!0 Int) …) Bool true)`: the certificate stand-in the
+ * golden certificate scripts are built around (a real certificate is solver output
+ * and never part of a golden).
+ */
+export function placeholderCertificate(placeCount: number): string {
+  const params: string[] = [];
+  for (let i = 0; i < placeCount; i++) params.push(`(x!${i} Int)`);
+  return `(define-fun Reachable (${params.join(' ')}) Bool\n    true)`;
 }
 
 function downgradeToUnknown(result: SmtVerificationResult, reason: string): SmtVerificationResult {

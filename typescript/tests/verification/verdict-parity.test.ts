@@ -25,20 +25,22 @@ const Z3_TIMEOUT = 60_000;
  */
 const ROUTE_B_MARKER = 'ν-net Route B: name-aware state-class graph (NU-050)';
 
-interface FixtureProperty {
+export interface FixtureProperty {
   readonly type: string;
   readonly places?: readonly string[];
   readonly place?: string;
   readonly bound?: number;
 }
 
-interface Fixture {
+export interface Fixture {
   readonly id: string;
   readonly net: string;
   readonly netDescription: string;
   readonly property: FixtureProperty;
   /** Expected terminal places (VER-002 sink semantics); absent for closed nets. */
   readonly sinkPlaces?: readonly string[];
+  /** ν budget places (NU-040): put a reachability-safety query on Route A's coloured encoding. */
+  readonly budgetPlaces?: readonly string[];
   /** `'B'` = decided by the ν name-aware SCG verifier (NU-050 Route B); absent = Route A. */
   readonly route?: string;
   readonly expected: 'proven' | 'violated' | 'unknown';
@@ -46,16 +48,16 @@ interface Fixture {
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
-const fixturesPath = resolve(here, '../../../spec/verification-fixtures/fixtures.json');
-const fixtures: readonly Fixture[] = JSON.parse(readFileSync(fixturesPath, 'utf8')).fixtures;
+export const fixturesPath = resolve(here, '../../../spec/verification-fixtures/fixtures.json');
+export const fixtures: readonly Fixture[] = JSON.parse(readFileSync(fixturesPath, 'utf8')).fixtures;
 
-function placeOf(places: ReadonlyMap<string, Place<any>>, name: string): Place<any> {
+export function placeOf(places: ReadonlyMap<string, Place<any>>, name: string): Place<any> {
   const p = places.get(name);
   if (p == null) throw new Error(`fixture references unknown place '${name}'`);
   return p;
 }
 
-function toProperty(spec: FixtureProperty, places: ReadonlyMap<string, Place<any>>): SmtProperty {
+export function toProperty(spec: FixtureProperty, places: ReadonlyMap<string, Place<any>>): SmtProperty {
   switch (spec.type) {
     case 'deadlock-free':
       return deadlockFree();
@@ -94,6 +96,9 @@ describeZ3('verdict parity (spec/verification-fixtures/fixtures.json)', () => {
       }
       if (fixture.sinkPlaces != null && fixture.sinkPlaces.length > 0) {
         verifier.sinkPlaces(...fixture.sinkPlaces.map(n => placeOf(built.places, n)));
+      }
+      if (fixture.budgetPlaces != null && fixture.budgetPlaces.length > 0) {
+        verifier.budgetPlaces(...fixture.budgetPlaces.map(n => placeOf(built.places, n)));
       }
       const result = await verifier.verify();
 

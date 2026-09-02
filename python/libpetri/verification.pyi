@@ -56,4 +56,18 @@ def verify_subnet(
     subnet: BuiltSubnetDef,
     harness: VerificationHarness | Iterable[SmtProperty],
 ) -> SubnetVerificationResult: ...
+def encode_smt_scripts(
+    net: BuiltNet,
+    property: SmtProperty,
+    *,
+    initial_marking: Mapping[PlaceLike, int] | None = ...,
+    environment_places: Iterable[PlaceLike] | None = ...,
+    environment_mode: EnvironmentAnalysisMode | None = ...,
+    sink_places: Iterable[PlaceLike] | None = ...,
+    budget_places: Iterable[PlaceLike] | None = ...,
+    fragment_mode: str | int | None = ...,
+    carrier_places: Iterable[PlaceLike] | None = ...,
+    counterexample_replay: bool = ...,
+    semiflow_invariants: bool = ...,
+) -> dict[str, str | bool | None]: ...
 def z3_available() -> bool: ...

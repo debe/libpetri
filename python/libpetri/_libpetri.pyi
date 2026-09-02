@@ -441,6 +441,20 @@ def verify_net(
 def verify_subnet(
     subnet: SubnetDef, harness: VerificationHarness
 ) -> SubnetVerificationResult: ...
+def encode_smt_scripts(
+    net: Net,
+    property: SmtProperty,
+    *,
+    initial_marking: dict[str, int] | None = ...,
+    environment_places: list[str] | None = ...,
+    environment_mode: EnvironmentAnalysisMode | None = ...,
+    sink_places: list[str] | None = ...,
+    budget_places: list[str] | None = ...,
+    fragment_mode: str | int | None = ...,
+    carrier_places: list[str] | None = ...,
+    counterexample_replay: bool = ...,
+    semiflow_invariants: bool = ...,
+) -> dict[str, str | bool | None]: ...
 def z3_available() -> bool: ...
 
 # ---------------------------------------------------------------------------

@@ -230,6 +230,48 @@ def verify_subnet(subnet: BuiltSubnetDef, harness) -> SubnetVerificationResult:
     return _ext.verify_subnet(_coerce_subnet(subnet), _coerce_harness(harness))
 
 
+def encode_smt_scripts(
+    net: BuiltNet,
+    property: SmtProperty,
+    *,
+    initial_marking: Mapping[PlaceLike, int] | None = None,
+    environment_places: Iterable[PlaceLike] | None = None,
+    environment_mode: EnvironmentAnalysisMode | None = None,
+    sink_places: Iterable[PlaceLike] | None = None,
+    budget_places: Iterable[PlaceLike] | None = None,
+    fragment_mode: str | int | None = None,
+    carrier_places: Iterable[PlaceLike] | None = None,
+    counterexample_replay: bool = True,
+    semiflow_invariants: bool = False,
+) -> dict:
+    """The SMT-LIB2 scripts :func:`verify` would send to z3 for this configuration,
+    without running a solver (VER-013 AC1).
+
+    Returns ``{"horn": str, "certificate": str | None, "coloured": bool}``: the HORN
+    query (flat, or name-coloured when a declared budget puts the net on Route A's
+    exact encoding) and, for the flat encoding, the certificate-check script built
+    around the placeholder certificate. This is what the cross-language golden
+    tests diff byte for byte.
+    """
+    return _ext.encode_smt_scripts(
+        _coerce_net(net),
+        property,
+        initial_marking={
+            _coerce_place_name(p): n for p, n in (initial_marking or {}).items()
+        },
+        environment_places=[
+            _coerce_place_name(p) for p in (environment_places or ())
+        ],
+        environment_mode=environment_mode,
+        sink_places=[_coerce_place_name(p) for p in (sink_places or ())],
+        budget_places=[_coerce_place_name(p) for p in (budget_places or ())],
+        fragment_mode=fragment_mode,
+        carrier_places=[_coerce_place_name(p) for p in (carrier_places or ())],
+        counterexample_replay=counterexample_replay,
+        semiflow_invariants=semiflow_invariants,
+    )
+
+
 def z3_available() -> bool:
     """Whether SMT verification can actually run on this machine.
 
@@ -261,5 +303,6 @@ __all__ = [
     "unreachable",
     "verify",
     "verify_subnet",
+    "encode_smt_scripts",
     "z3_available",
 ]
