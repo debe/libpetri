@@ -98,6 +98,37 @@ def test_pending_bound_proven_exact():
     assert "name-coloured" in result.report
 
 
+def test_zero_budget_quiescence_decided_by_zero_slot_plan():
+    # NU-053 AC6: a mid-phase marking with no budget token (the covering semiflow's
+    # initial sum is zero) is decided exactly by the zero-slot coloured plan instead of
+    # being downgraded to unknown. Route B is forced to truncate (nu_max_classes=1) so
+    # the deferral to Route A is exercised. No sink: the initial marking is quiescent
+    # with `source` tokens stranded.
+    net, source, budget, _pending = _nu_scatter_gather_net()
+    violated = lp.verify(
+        net,
+        lp.deadlock_free(),
+        initial_marking={source: 3, budget: 0},
+        budget_places=[budget],
+        nu_max_classes=1,
+        timeout_ms=15_000,
+    )
+    assert "exact within budget k=0" in violated.report, violated.report
+    assert violated.verdict == "violated", violated.report
+    # Declaring `source` a sink makes that marking a legitimate end state.
+    proven = lp.verify(
+        net,
+        lp.deadlock_free(),
+        initial_marking={source: 3, budget: 0},
+        budget_places=[budget],
+        sink_places=[source],
+        nu_max_classes=1,
+        timeout_ms=15_000,
+    )
+    assert "exact within budget k=0" in proven.report, proven.report
+    assert proven.verdict == "proven", proven.report
+
+
 def test_structurally_bounded_without_declared_budget_decided_by_route_b():
     # NU-050 Route B: without a DECLARED budget the SMT/Route-A path returns
     # unknown, but the name-aware SCG name-partition quotient discovers the

@@ -102,6 +102,11 @@ pub struct ColouredPlan {
 /// such `y·M0` (each `PInvariant.constant` is `y·M0`), or `None` when no covering
 /// non-negative semiflow exists — the coloured set is then not structurally
 /// token-bounded (a genuine unbounded colour leak) and the caller must fall back.
+///
+/// `0` is a bound like any other ([NU-053] AC6): with the covering law's initial sum
+/// at zero no coloured token can ever exist, every mint / join / consumer is dead on
+/// the reachable set, and the zero-slot plan is exact (`Semiflow.lean`,
+/// `vacuous_colour_layer`). A validated semi-positive law's `y·M0` is never negative.
 fn colour_slot_bound(coloured: &[usize], invariants: &[PInvariant]) -> Option<usize> {
     let w = |inv: &PInvariant, pid: usize| inv.weights.get(pid).copied().unwrap_or(0);
     let is_semiflow = |inv: &PInvariant| inv.weights.iter().all(|&x| x >= 0);
@@ -110,7 +115,7 @@ fn colour_slot_bound(coloured: &[usize], invariants: &[PInvariant]) -> Option<us
     let single = invariants
         .iter()
         .filter(|inv| {
-            is_semiflow(inv) && inv.constant >= 1 && coloured.iter().all(|&pid| w(inv, pid) >= 1)
+            is_semiflow(inv) && coloured.iter().all(|&pid| w(inv, pid) >= 1)
         })
         .map(|inv| inv.constant)
         .min();
@@ -118,26 +123,42 @@ fn colour_slot_bound(coloured: &[usize], invariants: &[PInvariant]) -> Option<us
         return Some(c as usize);
     }
 
-    // Otherwise sum the non-negative semiflows that touch a coloured place — the sum
-    // is itself a valid non-negative P-semiflow. If together they weight every coloured
-    // place, `Σ y·M0` is a sound (looser) bound; if some coloured place stays at weight
-    // 0 across all of them, no non-negative semiflow covers it, so the coloured set is
-    // not structurally token-bounded → None (sound over-approximation).
-    let mut sum_const = 0i64;
+    // Otherwise sum non-negative semiflows that touch a coloured place — the sum is
+    // itself a valid non-negative P-semiflow, so `Σ y·M0` over any covering set is a
+    // sound (looser) bound. Zero-constant semiflows cover their places for free, so
+    // they go in first; a semiflow with a positive constant is added only if it
+    // touches a coloured place the free ones left uncovered (decided against that
+    // snapshot, so the result does not depend on enumeration order). If some
+    // coloured place stays at weight 0 across all of them, no non-negative semiflow
+    // covers it, so the coloured set is not structurally token-bounded → None
+    // (sound over-approximation).
+    let semiflows: Vec<&PInvariant> = invariants.iter().filter(|inv| is_semiflow(inv)).collect();
     let mut covered = vec![false; coloured.len()];
-    for inv in invariants.iter().filter(|inv| is_semiflow(inv)) {
-        let mut touches = false;
+    for inv in semiflows.iter().filter(|inv| inv.constant == 0) {
         for (i, &pid) in coloured.iter().enumerate() {
             if w(inv, pid) >= 1 {
                 covered[i] = true;
-                touches = true;
             }
         }
-        if touches {
-            sum_const += inv.constant;
-        }
     }
-    if covered.iter().all(|&c| c) && sum_const >= 1 {
+    let free = covered.clone();
+    let mut sum_const = 0i64;
+    for inv in semiflows.iter().filter(|inv| inv.constant != 0) {
+        let touches_uncovered = coloured
+            .iter()
+            .enumerate()
+            .any(|(i, &pid)| !free[i] && w(inv, pid) >= 1);
+        if !touches_uncovered {
+            continue;
+        }
+        for (i, &pid) in coloured.iter().enumerate() {
+            if w(inv, pid) >= 1 {
+                covered[i] = true;
+            }
+        }
+        sum_const += inv.constant;
+    }
+    if covered.iter().all(|&c| c) {
         Some(sum_const as usize)
     } else {
         None
@@ -217,6 +238,15 @@ pub fn build_plan(
     let Some(k) = colour_slot_bound(&coloured, invariants) else {
         return None;
     };
+    // [NU-053] AC6: `k = 0` is an exact plan — no coloured token can ever exist, so
+    // every mint / join / consumer is dead and the zero-slot encoding emits no rule
+    // for them (`Semiflow.lean`, `vacuous_colour_layer`). The one shape it cannot
+    // encode is a net with no uncoloured place at all: `Reachable` would be nullary
+    // and every rule's `forall` binder list empty. Such a net holds no token at
+    // `M0` (coloured places start empty), so fall back to the flat encoding.
+    if k == 0 && coloured.len() == p {
+        return None;
+    }
 
     // Budget places gate minting: a mint must consume ≥1 budget token — that is what
     // makes it a fresh-name fork rather than an arbitrary coloured producer.
@@ -357,10 +387,11 @@ impl Layout {
     fn aggregate(&self, place: usize, plan: &ColouredPlan, vars: &[String]) -> String {
         if plan.is_coloured[place] {
             let parts: Vec<&str> = self.col_col[place].iter().map(|&c| vars[c].as_str()).collect();
-            if parts.len() == 1 {
-                parts[0].to_string()
-            } else {
-                format!("(+ {})", parts.join(" "))
+            match parts.len() {
+                // `k = 0`: a coloured place has no slot and never holds a token.
+                0 => "0".to_string(),
+                1 => parts[0].to_string(),
+                _ => format!("(+ {})", parts.join(" ")),
             }
         } else {
             vars[self.col_unc[place]].clone()
@@ -745,6 +776,15 @@ fn uncoloured_disable(
 /// uncoloured disable reasons: the transition is disabled if EITHER holds.
 fn coloured_disabled_term(cls: &Class, plan: &ColouredPlan, lay: &Layout) -> Option<String> {
     let k = plan.k;
+    // `k = 0` ([NU-053] AC6): no colour can ever be present, so every coloured class
+    // is disabled outright — the empty conjunctions below would otherwise render as
+    // `(and )`, which is not SMT-LIB.
+    if k == 0 {
+        return match cls {
+            Class::Untouched => None,
+            _ => Some("true".to_string()),
+        };
+    }
     match cls {
         Class::Untouched => None,
         Class::Mint { .. } => {
@@ -1006,8 +1046,21 @@ mod tests {
     }
 
     fn plan_for(net: &PetriNet, mode: FragmentMode, carriers: &[&str]) -> Option<ColouredPlan> {
+        plan_for_marking(
+            net,
+            mode,
+            carriers,
+            MarkingStateBuilder::new().tokens("budget1", 1).build(),
+        )
+    }
+
+    fn plan_for_marking(
+        net: &PetriNet,
+        mode: FragmentMode,
+        carriers: &[&str],
+        initial: MarkingState,
+    ) -> Option<ColouredPlan> {
         let flat = net_flattener::flatten(net);
-        let initial = MarkingStateBuilder::new().tokens("budget1", 1).build();
         let budget: HashSet<String> =
             ["budget1".to_string(), "budget2".to_string()].into_iter().collect();
         let carrier_set: HashSet<String> = carriers.iter().map(|s| s.to_string()).collect();
@@ -1022,6 +1075,21 @@ mod tests {
         )
         .valid;
         build_plan(net, &flat, &initial, &budget, mode, &carrier_set, &semiflows)
+    }
+
+    /// [NU-053] AC6: with no budget token the covering semiflow's initial sum is
+    /// zero, and `k = 0` is an exact plan rather than a fallback — no coloured
+    /// token can ever exist (`Semiflow.lean`, `vacuous_colour_layer`).
+    #[test]
+    fn zero_budget_yields_the_exact_zero_slot_plan() {
+        let plan = plan_for_marking(
+            &mint_join_net(false),
+            FragmentMode::Base,
+            &[],
+            MarkingStateBuilder::new().build(),
+        )
+        .expect("k = 0 is a plan, not a fallback");
+        assert_eq!(plan.k, 0);
     }
 
     #[test]

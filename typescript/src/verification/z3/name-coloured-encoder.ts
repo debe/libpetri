@@ -102,6 +102,11 @@ export interface ColouredPlan {
  * non-negative semiflow exists — the coloured set is then not structurally
  * token-bounded (a genuine unbounded colour leak) and the caller must fall back.
  *
+ * `0` is a bound like any other (NU-053 AC6): with the covering law's initial sum at
+ * zero no coloured token can ever exist, every mint / join / consumer is dead on the
+ * reachable set, and the zero-slot plan is exact (`Semiflow.lean`,
+ * `vacuous_colour_layer`). A validated semi-positive law's `y·M0` is never negative.
+ *
  * Mirrors the Rust reference `colour_slot_bound`.
  */
 function colourSlotBound(coloured: readonly number[], semiflows: readonly PInvariant[]): number | null {
@@ -111,31 +116,38 @@ function colourSlotBound(coloured: readonly number[], semiflows: readonly PInvar
   // Tightest bound: a single non-negative P-semiflow weighting every coloured place.
   let single: number | null = null;
   for (const inv of semiflows) {
-    if (isSemiflow(inv) && inv.constant >= 1 && coloured.every((pid) => w(inv, pid) >= 1)) {
+    if (isSemiflow(inv) && coloured.every((pid) => w(inv, pid) >= 1)) {
       if (single === null || inv.constant < single) single = inv.constant;
     }
   }
   if (single !== null) return single;
 
-  // Otherwise sum the non-negative semiflows that touch a coloured place — the sum is
-  // itself a valid non-negative P-semiflow. If together they weight every coloured
-  // place, `Σ y·M0` is a sound (looser) bound; if some coloured place stays at weight
-  // 0 across all of them, no non-negative semiflow covers it, so the coloured set is
-  // not structurally token-bounded → null (sound over-approximation).
-  let sumConst = 0;
+  // Otherwise sum non-negative semiflows that touch a coloured place — the sum is
+  // itself a valid non-negative P-semiflow, so `Σ y·M0` over any covering set is a
+  // sound (looser) bound. Zero-constant semiflows cover their places for free, so they
+  // go in first; a semiflow with a positive constant is added only if it touches a
+  // coloured place the free ones left uncovered (decided against that snapshot, so the
+  // result does not depend on enumeration order). If some coloured place stays at
+  // weight 0 across all of them, no non-negative semiflow covers it, so the coloured
+  // set is not structurally token-bounded → null (sound over-approximation).
   const covered = new Array<boolean>(coloured.length).fill(false);
   for (const inv of semiflows) {
-    if (!isSemiflow(inv)) continue;
-    let touches = false;
+    if (!isSemiflow(inv) || inv.constant !== 0) continue;
     for (let i = 0; i < coloured.length; i++) {
-      if (w(inv, coloured[i]!) >= 1) {
-        covered[i] = true;
-        touches = true;
-      }
+      if (w(inv, coloured[i]!) >= 1) covered[i] = true;
     }
-    if (touches) sumConst += inv.constant;
   }
-  if (covered.every((c) => c) && sumConst >= 1) return sumConst;
+  const free = [...covered];
+  let sumConst = 0;
+  for (const inv of semiflows) {
+    if (!isSemiflow(inv) || inv.constant === 0) continue;
+    if (!coloured.some((pid, i) => !free[i] && w(inv, pid) >= 1)) continue;
+    for (let i = 0; i < coloured.length; i++) {
+      if (w(inv, coloured[i]!) >= 1) covered[i] = true;
+    }
+    sumConst += inv.constant;
+  }
+  if (covered.every((c) => c)) return sumConst;
   return null;
 }
 
@@ -205,6 +217,12 @@ export function buildColouredPlan(
   // structural discipline checks (atomic-rejoin + budget-Φ) below.
   const k = colourSlotBound(coloured, semiflows);
   if (k === null) return null;
+  // NU-053 AC6: `k = 0` is an exact plan — no coloured token can ever exist, so every
+  // mint / join / consumer is dead and the zero-slot encoding emits no rule for them
+  // (`Semiflow.lean`, `vacuous_colour_layer`). The one shape it cannot encode is a net
+  // with no uncoloured place at all (`Reachable` would be nullary and every rule's
+  // `ForAll` binder list empty); such a net holds no token at M0, so fall back.
+  if (k === 0 && coloured.length === P) return null;
 
   // Budget places gate minting: a mint must consume ≥1 budget token — that is what
   // makes it a fresh-name fork rather than an arbitrary coloured producer.
@@ -281,6 +299,8 @@ interface Layout {
   readonly cur: Arith[];
   /** Next-marking vars, one per column. */
   readonly nxt: Arith[];
+  /** The literal `0`: what a coloured place aggregates to when `k = 0`. */
+  readonly zero: Arith;
 }
 
 function buildLayout(ctx: Z3Context, plan: ColouredPlan, P: number): Layout {
@@ -302,7 +322,7 @@ function buildLayout(ctx: Z3Context, plan: ColouredPlan, P: number): Layout {
     cur.push(ctx.Int.const(`c${col}`));
     nxt.push(ctx.Int.const(`cp${col}`));
   }
-  return { colUnc, colCol, nCols, cur, nxt };
+  return { colUnc, colCol, nCols, cur, nxt, zero: ctx.Int.val(0) };
 }
 
 /** Contributes the enablement guards and the changed-column updates of a rule. */
@@ -499,6 +519,8 @@ function uncolouredIncidence(
 function aggregate(plan: ColouredPlan, lay: Layout, place: number, vars: readonly Arith[]): Arith {
   if (plan.isColoured[place]) {
     const cols = lay.colCol[place]!;
+    // k = 0: a coloured place has no slot and never holds a token.
+    if (cols.length === 0) return lay.zero;
     let sum = vars[cols[0]!]!;
     for (let c = 1; c < cols.length; c++) sum = sum.add(vars[cols[c]!]!);
     return sum;

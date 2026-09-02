@@ -462,6 +462,35 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
     return { net, source, budget, pending };
   }
 
+  it('decides quiescence at zero budget via the zero-slot plan (NU-053 AC6)', async () => {
+    // A mid-phase marking with no budget token — the covering semiflow's initial sum
+    // is zero — is decided exactly by the zero-slot coloured plan instead of being
+    // downgraded to unknown. Route B is forced to truncate (nuMaxClasses(1)) so the
+    // deferral to Route A is exercised. No sink: the initial marking is quiescent with
+    // `source` tokens stranded.
+    const { net, source, budget } = nuScatterGatherNet();
+    const violated = await SmtVerifier.forNet(bindProducers(net))
+      .initialMarking(m => { m.tokens(source, 3); m.tokens(budget, 0); })
+      .property(deadlockFree())
+      .budgetPlaces(budget)
+      .nuMaxClasses(1)
+      .timeout(30_000)
+      .verify();
+    expect(violated.report).toContain('exact within budget k=0');
+    expect(violated.verdict.type, violated.report).toBe('violated');
+    // Declaring `source` a sink makes that marking a legitimate end state.
+    const proven = await SmtVerifier.forNet(bindProducers(net))
+      .initialMarking(m => { m.tokens(source, 3); m.tokens(budget, 0); })
+      .property(deadlockFree())
+      .budgetPlaces(budget)
+      .sinkPlaces(source)
+      .nuMaxClasses(1)
+      .timeout(30_000)
+      .verify();
+    expect(proven.report).toContain('exact within budget k=0');
+    expect(proven.verdict.type, proven.report).toBe('proven');
+  }, Z3_TIMEOUT);
+
   it('proves BranchPlaceBound(budget, k) with a declared budget', async () => {
     // NU-040 #1: the live correlation pool is bounded by conservation.
     const { net, source, budget } = nuScatterGatherNet();

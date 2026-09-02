@@ -213,6 +213,15 @@ public final class NameColouredEncoder {
             return null;
         }
         int k = kBound;
+        // NU-053 AC6: k = 0 is an exact plan — no coloured token can ever exist, so every
+        // mint / join / consumer is dead and the zero-slot encoding emits no rule for them
+        // (Semiflow.lean, vacuous_colour_layer). The one shape it cannot encode is a net
+        // with no uncoloured place at all (Reachable would be nullary and every rule's
+        // quantifier empty); such a net holds no token at M0, so fall back to the flat
+        // encoding.
+        if (k == 0 && coloured.length == p) {
+            return null;
+        }
 
         // Budget places gate minting: a mint must consume ≥1 budget token — that is what
         // makes it a fresh-name fork rather than an arbitrary coloured producer.
@@ -307,12 +316,18 @@ public final class NameColouredEncoder {
      * {@link PInvariant#constant()} is {@code y·M0}), or {@code null} when no covering
      * non-negative semiflow exists — the coloured set is then not structurally
      * token-bounded (a genuine unbounded colour leak) and the caller must fall back.
+     *
+     * <p>{@code 0} is a bound like any other (NU-053 AC6): with the covering law's initial
+     * sum at zero no coloured token can ever exist, every mint / join / consumer is dead on
+     * the reachable set, and the zero-slot plan is exact ({@code Semiflow.lean},
+     * {@code vacuous_colour_layer}). A validated semi-positive law's {@code y·M0} is never
+     * negative.
      */
     private static Integer colourSlotBound(int[] coloured, List<PInvariant> invariants) {
         // Tightest bound: a single non-negative P-semiflow weighting every coloured place.
         Integer single = null;
         for (PInvariant inv : invariants) {
-            if (!isSemiflow(inv) || inv.constant() < 1) {
+            if (!isSemiflow(inv)) {
                 continue;
             }
             boolean coversAll = true;
@@ -330,27 +345,48 @@ public final class NameColouredEncoder {
             return single;
         }
 
-        // Otherwise sum the non-negative semiflows that touch a coloured place — the sum
-        // is itself a valid non-negative P-semiflow. If together they weight every coloured
-        // place, Σ y·M0 is a sound (looser) bound; if some coloured place stays at weight 0
-        // across all of them, no non-negative semiflow covers it, so the coloured set is
-        // not structurally token-bounded → null (sound over-approximation).
-        long sumConst = 0;
+        // Otherwise sum non-negative semiflows that touch a coloured place — the sum is
+        // itself a valid non-negative P-semiflow, so Σ y·M0 over any covering set is a
+        // sound (looser) bound. Zero-constant semiflows cover their places for free, so
+        // they go in first; a semiflow with a positive constant is added only if it
+        // touches a coloured place the free ones left uncovered (decided against that
+        // snapshot, so the result does not depend on enumeration order). If some
+        // coloured place stays at weight 0 across all of them, no non-negative semiflow
+        // covers it, so the coloured set is not structurally token-bounded → null
+        // (sound over-approximation).
         boolean[] covered = new boolean[coloured.length];
         for (PInvariant inv : invariants) {
-            if (!isSemiflow(inv)) {
+            if (!isSemiflow(inv) || inv.constant() != 0) {
                 continue;
             }
-            boolean touches = false;
             for (int i = 0; i < coloured.length; i++) {
                 if (weightAt(inv, coloured[i]) >= 1) {
                     covered[i] = true;
-                    touches = true;
                 }
             }
-            if (touches) {
-                sumConst += inv.constant();
+        }
+        boolean[] free = covered.clone();
+        long sumConst = 0;
+        for (PInvariant inv : invariants) {
+            if (!isSemiflow(inv) || inv.constant() == 0) {
+                continue;
             }
+            boolean touchesUncovered = false;
+            for (int i = 0; i < coloured.length; i++) {
+                if (!free[i] && weightAt(inv, coloured[i]) >= 1) {
+                    touchesUncovered = true;
+                    break;
+                }
+            }
+            if (!touchesUncovered) {
+                continue;
+            }
+            for (int i = 0; i < coloured.length; i++) {
+                if (weightAt(inv, coloured[i]) >= 1) {
+                    covered[i] = true;
+                }
+            }
+            sumConst += inv.constant();
         }
         boolean allCovered = true;
         for (boolean c : covered) {
@@ -359,7 +395,7 @@ public final class NameColouredEncoder {
                 break;
             }
         }
-        return (allCovered && sumConst >= 1) ? (int) sumConst : null;
+        return allCovered ? (int) sumConst : null;
     }
 
     /** Weight of place {@code pid} in {@code inv} (0 if out of range). */
@@ -667,6 +703,10 @@ public final class NameColouredEncoder {
             Context ctx, int place, ColouredPlan plan, Layout lay, Expr<IntSort>[] vars) {
         if (plan.isColoured[place]) {
             int[] cols = lay.colCol[place];
+            if (cols.length == 0) {
+                // k = 0: a coloured place has no slot and never holds a token.
+                return ctx.mkInt(0);
+            }
             ArithExpr<IntSort> sum = (ArithExpr<IntSort>) vars[cols[0]];
             for (int c = 1; c < cols.length; c++) {
                 sum = ctx.mkAdd(sum, vars[cols[c]]);
@@ -885,6 +925,11 @@ public final class NameColouredEncoder {
     private static BoolExpr colouredDisabledTerm(
             Context ctx, Klass cls, ColouredPlan plan, Layout lay, Expr<IntSort>[] cur) {
         int k = plan.k;
+        if (k == 0) {
+            // k = 0 (NU-053 AC6): no colour can ever be present, so every coloured class is
+            // disabled outright rather than by an empty (nullary) conjunction.
+            return cls instanceof Untouched ? null : ctx.mkTrue();
+        }
         return switch (cls) {
             case Untouched _ -> null;
             case Mint _ -> {

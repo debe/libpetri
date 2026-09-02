@@ -1,5 +1,6 @@
 package org.libpetri.smt.z3;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
@@ -182,14 +183,29 @@ class NameColouredEncoderTest {
 
     private static NameColouredEncoder.ColouredPlan planFor(
             PetriNet net, FragmentMode mode, String... carriers) {
+        return planFor(net, mode, 1, carriers);
+    }
+
+    private static NameColouredEncoder.ColouredPlan planFor(
+            PetriNet net, FragmentMode mode, int budgetTokens, String... carriers) {
         var flat = NetFlattener.flatten(net, Set.of(), EnvironmentAnalysisMode.ignore());
         var initial = MarkingState.builder()
-            .tokens(Place.of("budget1", Integer.class), 1)
+            .tokens(Place.of("budget1", Integer.class), budgetTokens)
             .build();
         var matrix = IncidenceMatrix.from(flat);
         var semiflows = PInvariantComputer.computePSemiflows(matrix, flat, initial);
         return NameColouredEncoder.buildPlan(
             net, flat, initial, Set.of("budget1", "budget2"), mode, Set.of(carriers), semiflows);
+    }
+
+    @Test
+    void zeroBudgetYieldsTheExactZeroSlotPlan() {
+        // NU-053 AC6: with no budget token the covering semiflow's initial sum is zero, and
+        // k = 0 is an exact plan rather than a fallback — no coloured token can ever exist
+        // (Semiflow.lean, vacuous_colour_layer).
+        var plan = planFor(mintJoinNet(false), FragmentMode.BASE, 0);
+        assertNotNull(plan, "k = 0 is a plan, not a fallback");
+        assertEquals(0, plan.k);
     }
 
     @Test

@@ -530,6 +530,39 @@ class SmtVerifierTest {
 
     @Test
     @EnabledIf("z3Available")
+    void nuZeroBudget_quiescenceDecidedByZeroSlotPlan() {
+        // NU-053 AC6: a mid-phase marking with no budget token — the covering semiflow's
+        // initial sum is zero — is decided exactly by the zero-slot coloured plan instead of
+        // being downgraded to Unknown. Route B is forced to truncate (nuMaxClasses(1)) so the
+        // deferral to Route A is exercised. No sink: the initial marking is quiescent with
+        // `source` tokens stranded.
+        var violated = SmtVerifier.forNet(StructureOnly.bind(nuScatterGatherNet()))
+            .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 0); })
+            .property(SmtProperty.deadlockFree())
+            .budgetPlaces(NU_BUDGET)
+            .nuMaxClasses(1)
+            .timeout(Duration.ofSeconds(15))
+            .verify();
+        assertTrue(violated.report().contains("exact within budget k=0"),
+            "the zero-slot plan must be taken\n" + violated.report());
+        assertTrue(violated.isViolated(),
+            "no budget, no sink: the initial marking is a deadlock\n" + violated.report());
+        // Declaring `source` a sink makes that marking a legitimate end state.
+        var proven = SmtVerifier.forNet(StructureOnly.bind(nuScatterGatherNet()))
+            .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 0); })
+            .property(SmtProperty.deadlockFree())
+            .budgetPlaces(NU_BUDGET)
+            .sinkPlaces(NU_SOURCE)
+            .nuMaxClasses(1)
+            .timeout(Duration.ofSeconds(15))
+            .verify();
+        assertTrue(proven.report().contains("exact within budget k=0"), proven.report());
+        assertTrue(proven.isProven(),
+            "with `source` a sink the only quiescent marking is a sink state\n" + proven.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
     void nuBranchBudgetBound_provenWithDeclaredBudget() {
         // NU-040 #1: with the budget declared, the live correlation pool is
         // bounded — BranchPlaceBound(budget, k) is proven by conservation.
