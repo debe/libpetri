@@ -802,6 +802,131 @@ impl<'a> SmtVerifier<'a> {
         )
     }
 
+    /// The SMT-LIB2 scripts [`SmtVerifier::verify`] would send to z3 for this
+    /// configuration, without running a solver ([VER-013] AC1): the HORN query
+    /// (flat, or name-coloured when a declared budget puts the net on Route A's
+    /// exact encoding) and, for the flat encoding, the certificate-check script
+    /// built around [`placeholder_certificate`]. This is what the cross-language
+    /// golden tests diff byte for byte. Route B, the structural pre-check and the
+    /// unresolved-place refusal are bypassed: it is what Route A encodes.
+    pub fn encode_scripts(self) -> EncodedScripts {
+        let has_match = self.net.transitions().iter().any(|t| t.match_spec().is_some());
+        let nu_bounded = !self.budget_places.is_empty();
+        let flat = net_flattener::flatten(self.net);
+        let sink_places = canonical_place_order(&flat, &self.sink_places);
+        let property = canonical_property(&flat, &self.property);
+
+        let env_bounds: Vec<(String, usize)> = match &self.env_mode {
+            EnvironmentAnalysisMode::Bounded { max_tokens } => self
+                .env_places
+                .iter()
+                .map(|name| (name.clone(), *max_tokens))
+                .collect(),
+            _ => Vec::new(),
+        };
+        let env_injection: Vec<(String, Option<usize>)> = match &self.env_mode {
+            EnvironmentAnalysisMode::AlwaysAvailable => {
+                self.env_places.iter().map(|n| (n.clone(), None)).collect()
+            }
+            EnvironmentAnalysisMode::Bounded { max_tokens } => self
+                .env_places
+                .iter()
+                .map(|n| (n.clone(), Some(*max_tokens)))
+                .collect(),
+            EnvironmentAnalysisMode::Ignore => Vec::new(),
+        };
+        let env_inject_indices: Vec<usize> = env_injection
+            .iter()
+            .filter_map(|(name, _)| flat.place_index.get(name).copied())
+            .collect();
+
+        let matrix = IncidenceMatrix::from_flat_net(&flat, &env_inject_indices);
+        let invariants = p_invariant::validate_invariants_exact(
+            p_invariant::compute_p_invariants(&matrix, &self.initial_marking, &flat.places),
+            &matrix,
+            &self.initial_marking,
+            &flat,
+        )
+        .valid;
+        let semiflows = p_invariant::validate_invariants_exact(
+            p_invariant::compute_p_semiflows(&matrix, &self.initial_marking, &flat.places),
+            &matrix,
+            &self.initial_marking,
+            &flat,
+        )
+        .valid;
+        let mut invariants = if self.semiflow_invariants {
+            p_invariant::strengthen_with_semiflows(invariants, &semiflows).0
+        } else {
+            invariants
+        };
+        invariants.sort_by(|a, b| {
+            a.support
+                .cmp(&b.support)
+                .then_with(|| a.weights.cmp(&b.weights))
+                .then_with(|| a.constant.cmp(&b.constant))
+        });
+
+        if has_match && nu_bounded {
+            if let Some(plan) = name_coloured_encoder::build_plan(
+                self.net,
+                &flat,
+                &self.initial_marking,
+                &self.budget_places,
+                self.fragment_mode,
+                &self.carrier_places,
+                &semiflows,
+            ) {
+                let env_inject_idx: Vec<(usize, Option<usize>)> = env_injection
+                    .iter()
+                    .filter_map(|(name, b)| flat.place_index.get(name).map(|&pid| (pid, *b)))
+                    .collect();
+                if let Some(enc) = name_coloured_encoder::encode_coloured(
+                    &plan,
+                    &flat,
+                    &self.initial_marking,
+                    &property,
+                    &invariants,
+                    &sink_places,
+                    &env_inject_idx,
+                ) {
+                    return EncodedScripts {
+                        horn: enc.smt2,
+                        certificate: None,
+                        coloured: true,
+                    };
+                }
+            }
+        }
+
+        let horn = smt_encoder::encode(
+            &flat,
+            &self.initial_marking,
+            &property,
+            &invariants,
+            &sink_places,
+            &env_bounds,
+            &env_injection,
+            self.counterexample_replay,
+        )
+        .smt2;
+        let certificate = certificate_check::vc_script(
+            &placeholder_certificate(flat.place_count),
+            &flat,
+            &self.initial_marking,
+            &property,
+            &invariants,
+            &sink_places,
+            &env_bounds,
+            &env_injection,
+        );
+        EncodedScripts {
+            horn,
+            certificate: Some(certificate),
+            coloured: false,
+        }
+    }
+
     /// Certificate phase — the second independent layer, after Phase 3's exact
     /// P-invariant re-validation: a flat-path `Proven` must survive
     /// [`crate::certificate_check`] (canonical description there). Any failure
@@ -1021,6 +1146,26 @@ impl<'a> SmtVerifier<'a> {
             }
         }
     }
+}
+
+/// The scripts [`SmtVerifier::encode_scripts`] reports.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EncodedScripts {
+    /// The HORN query, flat or name-coloured.
+    pub horn: String,
+    /// The certificate-check script around [`placeholder_certificate`]; `None`
+    /// for the name-coloured encoding, which has no certificate check.
+    pub certificate: Option<String>,
+    /// Whether `horn` is the name-coloured encoding.
+    pub coloured: bool,
+}
+
+/// `(define-fun Reachable ((x!0 Int) …) Bool true)`: the certificate stand-in
+/// the golden certificate scripts are built around (a real certificate is
+/// solver output and never part of a golden).
+pub fn placeholder_certificate(place_count: usize) -> String {
+    let params: Vec<String> = (0..place_count).map(|i| format!("(x!{i} Int)")).collect();
+    format!("(define-fun Reachable ({}) Bool\n    true)", params.join(" "))
 }
 
 /// Everything a [`VerificationResult`] carries beyond its verdict, report and

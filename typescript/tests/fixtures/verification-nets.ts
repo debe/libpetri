@@ -250,6 +250,39 @@ function nuDrainedTerminal(): VerificationFixtureNet {
   return fixture(net, m => m.tokens(source, 1), [source, branchA, branchB, done]);
 }
 
+/**
+ * ν scatter-gather on Route A's exact name-coloured encoding (NU-053): a declared
+ * budget puts the reachability-safety query on the coloured encoder. `fork`
+ * consumes source+budget and co-mints one fresh name into branchA+branchB (plus a
+ * pending token); `join` correlates the branches and returns the budget token.
+ * Conservation budget + pending = 2 bounds budget by 2.
+ */
+function nuScatterGather(): VerificationFixtureNet {
+  const source = place<string>('source');
+  const budget = place<string>('budget');
+  const pending = place<string>('pending');
+  const branchA = place<string>('branchA');
+  const branchB = place<string>('branchB');
+  const merged = place<string>('merged');
+  const fork = Transition.builder('fork')
+    .inputs(one(source), one(budget))
+    .outputs(andPlaces(branchA, branchB, pending))
+    .build();
+  const join = Transition.builder('join')
+    .inputs(one(branchA), one(branchB), one(pending))
+    .match(matchSpec(
+      matchKey(branchA, (v: string) => nameId(v)),
+      matchKey(branchB, (v: string) => nameId(v)),
+    ))
+    .outputs(andPlaces(merged, budget))
+    .build();
+  const net = PetriNet.builder('nuScatterGather').transitions(fork, join).build();
+  return fixture(
+    net, m => { m.tokens(source, 3); m.tokens(budget, 2); },
+    [source, budget, pending, branchA, branchB, merged],
+  );
+}
+
 /** Registry: fixture `net` name -> builder. */
 export const verificationNets: Record<string, () => VerificationFixtureNet> = {
   circularChain,
@@ -265,4 +298,5 @@ export const verificationNets: Record<string, () => VerificationFixtureNet> = {
   sinkDrainedTerminal,
   nuMixedTerminal,
   nuDrainedTerminal,
+  nuScatterGather,
 };

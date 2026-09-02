@@ -62,6 +62,7 @@ public final class VerificationNets {
             case "sinkDrainedTerminal" -> sinkDrainedTerminal();
             case "nuMixedTerminal" -> nuMixedTerminal();
             case "nuDrainedTerminal" -> nuDrainedTerminal();
+            case "nuScatterGather" -> nuScatterGather();
             default -> throw new IllegalArgumentException("unknown fixture net: " + name);
         };
     }
@@ -333,5 +334,35 @@ public final class VerificationNets {
         return closed(
             PetriNet.builder("nuDrainedTerminal").places(done).transitions(fork, join).build(),
             MarkingState.builder().tokens(source, 1).build());
+    }
+
+    /**
+     * &nu; scatter-gather on Route A's exact name-coloured encoding ([NU-053]): a declared
+     * budget puts the reachability-safety query on the coloured encoder. {@code fork} consumes
+     * {@code source}+{@code budget} and co-mints one fresh name into {@code branchA}+{@code
+     * branchB} (plus a {@code pending} token); {@code join} correlates the branches and returns
+     * the budget token. Conservation {@code budget + pending = 2} bounds {@code budget} by 2.
+     *
+     * @return the named net
+     */
+    public static NamedNet nuScatterGather() {
+        var source = place("source");
+        var budget = place("budget");
+        var pending = place("pending");
+        var branchA = place("branchA");
+        var branchB = place("branchB");
+        var merged = place("merged");
+        var fork = Transition.builder("fork")
+            .inputs(In.one(source), In.one(budget))
+            .outputs(Out.and(branchA, branchB, pending))
+            .build();
+        var join = Transition.builder("join")
+            .inputs(In.one(branchA), In.one(branchB), In.one(pending))
+            .match(branchMatch(branchA, branchB))
+            .outputs(Out.and(merged, budget))
+            .build();
+        return closed(
+            PetriNet.builder("nuScatterGather").transitions(fork, join).build(),
+            MarkingState.builder().tokens(source, 3).tokens(budget, 2).build());
     }
 }
