@@ -1,0 +1,48 @@
+# One pinned z3 for every job. All four verifiers shell out to the z3
+# executable (spec/07-verification.md, VER-013), so the solver version is a
+# test input: before this action the Rust and Python jobs ran the shared
+# verdict-parity fixtures against whatever `apt-get install z3` shipped on
+# ubuntu-latest while Java and TypeScript pinned their bindings, and nothing
+# asserted the four agreed on a solver. The release zip's `bin/` holds a
+# standalone `z3`; it goes on PATH from a cache keyed by version, and the last
+# step proves the binary on PATH is the one asked for.
+name: Install z3
+description: Put a pinned z3 release binary on PATH.
+
+inputs:
+  version:
+    description: z3 release to install (tag z3-<version> of Z3Prover/z3)
+    required: false
+    default: '4.16.0'
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@v6
+      id: cache
+      with:
+        path: ~/.cache/libpetri-z3/${{ inputs.version }}
+        key: z3-${{ runner.os }}-${{ inputs.version }}
+    - if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        version='${{ inputs.version }}'
+        dest="$HOME/.cache/libpetri-z3/$version"
+        url=$(curl -fsSL "https://api.github.com/repos/Z3Prover/z3/releases/tags/z3-$version" \
+          | grep -o 'https://[^"]*x64-glibc[^"]*\.zip' | head -1)
+        test -n "$url" || { echo "no x64-glibc asset for z3-$version"; exit 1; }
+        tmp=$(mktemp -d)
+        curl -fsSL -o "$tmp/z3.zip" "$url"
+        unzip -q "$tmp/z3.zip" -d "$tmp"
+        bin=$(dirname "$(find "$tmp" -type f -name z3 -path '*/bin/*' -print -quit)")
+        test -x "$bin/z3" || { echo "bin/z3 missing from $url"; exit 1; }
+        mkdir -p "$dest"
+        cp -R "$bin"/. "$dest"/
+    - shell: bash
+      run: |
+        set -euo pipefail
+        dest="$HOME/.cache/libpetri-z3/${{ inputs.version }}"
+        echo "$dest" >> "$GITHUB_PATH"
+        "$dest/z3" --version | grep -F 'Z3 version ${{ inputs.version }}' \
+          || { "$dest/z3" --version; echo "unexpected z3 version on PATH"; exit 1; }
