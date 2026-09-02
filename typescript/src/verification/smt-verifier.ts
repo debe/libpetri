@@ -9,7 +9,7 @@ import type { FlatNet } from './encoding/flat-net.js';
 import { flatten } from './encoding/net-flattener.js';
 import { type EnvironmentAnalysisMode, alwaysAvailable } from './analysis/environment-analysis-mode.js';
 import { IncidenceMatrix } from './encoding/incidence-matrix.js';
-import { computePInvariants, computePSemiflows, isCoveredByInvariants, validateInvariantsExact } from './invariant/p-invariant-computer.js';
+import { computePInvariants, computePSemiflows, isCoveredByInvariants, strengthenWithSemiflows, validateInvariantsExact } from './invariant/p-invariant-computer.js';
 import { structuralCheck } from './invariant/structural-check.js';
 import { createSpacerRunner } from './z3/spacer-runner.js';
 import { checkCertificate, type CertificateCheckOutcome } from './z3/certificate-checker.js';
@@ -57,6 +57,7 @@ export class SmtVerifier {
   private _timeoutMs: number = 60_000;
   private _certificateCheck: boolean = true;
   private _counterexampleReplay: boolean = true;
+  private _semiflowInvariants: boolean = false;
   private _nuMaxClasses: number = 100_000;
   private _fragmentMode: FragmentMode = 'base';
   private readonly _carrierPlaces = new Set<string>();
@@ -150,6 +151,31 @@ export class SmtVerifier {
    */
   counterexampleReplay(enabled: boolean): this {
     this._counterexampleReplay = enabled;
+    return this;
+  }
+
+  /**
+   * Also hands the validated **P-semiflows** to the encoders as invariants
+   * (VER-007; default: disabled — the encoders then see only the null-space basis).
+   *
+   * Every validated semiflow is a conservation law in its own right (`y >= 0`,
+   * `y·C = 0`, `y·M0` exact, zero weight on every reset / consume-all place), and
+   * the Farkas enumeration returns the *minimal* laws of the net. The null-space
+   * basis the encoders get by default is one basis of many: elimination hands back
+   * mixed-sign rows (discarded as not semi-positive) or rows that fold a reset place
+   * into a chain whose other combinations avoid it (dropped by the H1 guard). On a
+   * net with a few reset arcs that can lose every law of the chains those arcs
+   * touch, and without them IC3 has to rediscover the conservation of each chain —
+   * on a ~100-place net it does not within any practical budget. With the semiflows
+   * in, the same reachability-safety queries close in about a second.
+   *
+   * Soundness is unchanged: the semiflows pass the same exact re-validation as the
+   * basis rows, the union is pure strengthening (`Semiflow.lean`,
+   * `semiflow_union_sound`), and the certificate check re-proves the strengthened
+   * invariant. Off by default so reports stay byte-equal.
+   */
+  semiflowInvariants(enabled: boolean): this {
+    this._semiflowInvariants = enabled;
     return this;
   }
 
@@ -354,7 +380,7 @@ export class SmtVerifier {
     // elimination runs in f64 `number`, and a numerically wrong invariant conjoined
     // into the CHC transition bodies removes reachable successors — i.e. it could
     // certify a false PROVEN. Drop anything the exact re-verification rejects.
-    const { valid: invariants, dropped: droppedInvariants } = validateInvariantsExact(
+    const { valid: basisInvariants, dropped: droppedInvariants } = validateInvariantsExact(
       matrix,
       computePInvariants(matrix, flatNet, this._initialMarking),
       flatNet,
@@ -370,7 +396,16 @@ export class SmtVerifier {
       flatNet,
       this._initialMarking,
     );
-    report.push(`  Found: ${invariants.length} P-invariant(s)`);
+    report.push(`  Found: ${basisInvariants.length} P-invariant(s)`);
+    // VER-007: the minimal conservation laws, as extra invariants for the encoders.
+    // The report line is emitted only when enabled so default reports stay
+    // byte-identical (AC2/AC3).
+    let invariants: readonly PInvariant[] = basisInvariants;
+    if (this._semiflowInvariants) {
+      const { invariants: strengthened, added } = strengthenWithSemiflows(basisInvariants, semiflows);
+      invariants = strengthened;
+      report.push(`  Semiflows encoded as invariants: ${added}`);
+    }
     const structurallyBounded = isCoveredByInvariants(invariants, flatNet.places.length);
     report.push(`  Structurally bounded: ${structurallyBounded ? 'YES' : 'NO'}`);
     for (const inv of invariants) {

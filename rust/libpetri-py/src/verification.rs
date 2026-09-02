@@ -352,7 +352,7 @@ fn parse_priority_semantics(
 /// Verifies a single property against `net` using SMT (Z3). Without the `z3`
 /// feature, returns `VerificationResult` with verdict `"unknown"`.
 #[pyfunction(name = "verify_net")]
-#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 30_000, nu_max_classes = None, fragment_mode = None, carrier_places = None, priority_semantics = None, certificate_check = true, counterexample_replay = true))]
+#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 30_000, nu_max_classes = None, fragment_mode = None, carrier_places = None, priority_semantics = None, certificate_check = true, counterexample_replay = true, semiflow_invariants = false))]
 fn py_verify_net(
     py: Python<'_>,
     net: &PyPetriNet,
@@ -369,6 +369,7 @@ fn py_verify_net(
     priority_semantics: Option<Bound<'_, PyAny>>,
     certificate_check: bool,
     counterexample_replay: bool,
+    semiflow_invariants: bool,
 ) -> PyResult<PyVerificationResult> {
     #[cfg(feature = "z3")]
     {
@@ -431,6 +432,9 @@ fn py_verify_net(
                 // Violated is replayed under the abstract semantics.
                 .certificate_check(certificate_check)
                 .counterexample_replay(counterexample_replay)
+                // VER-007: hand the gate-validated P-semiflows to the encoders as
+                // extra invariants (off by default, report parity).
+                .semiflow_invariants(semiflow_invariants)
                 .timeout(timeout_ms);
             // ν name-aware SCG class cap (NU-050, Route B); None keeps the Rust default.
             if let Some(n) = nu_max_classes {
@@ -442,7 +446,7 @@ fn py_verify_net(
     }
     #[cfg(not(feature = "z3"))]
     {
-        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes, fragment_mode, carrier_places, priority_semantics, certificate_check, counterexample_replay);
+        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes, fragment_mode, carrier_places, priority_semantics, certificate_check, counterexample_replay, semiflow_invariants);
         Ok(PyVerificationResult::unknown("z3 feature not enabled"))
     }
 }

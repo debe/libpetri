@@ -416,6 +416,44 @@ interface SemiflowRow {
  *
  * Mirrors the Rust reference `compute_p_semiflows`.
  */
+/** Same conservation law: identical weight vector and constant. */
+function sameInvariant(a: PInvariant, b: PInvariant): boolean {
+  if (a.constant !== b.constant || a.weights.length !== b.weights.length) return false;
+  for (let i = 0; i < a.weights.length; i++) {
+    if (a.weights[i] !== b.weights[i]) return false;
+  }
+  return true;
+}
+
+/**
+ * VER-007 — the semiflow union. Appends every gate-validated P-semiflow that is not
+ * already a basis row (same weights, same constant) to `invariants`, returning the
+ * strengthened list and how many rows were added.
+ *
+ * The null-space basis is one basis of many: elimination hands back mixed-sign rows
+ * and rows that fold a reset place into a chain whose other combinations avoid it,
+ * both lost to the exact gate — on a reset-heavy net every law of the chains those
+ * arcs touch, leaving IC3 to rediscover conservation it cannot within any practical
+ * budget. The Farkas rows ({@link computePSemiflows}) are the minimal laws of the
+ * net. Conjoining them alongside the basis is pure strengthening (`Semiflow.lean`,
+ * `semiflow_union_sound`) **provided both lists passed the same exact gate**
+ * (`semiflow_gate_is_necessary`) — the caller's obligation; this only merges.
+ */
+export function strengthenWithSemiflows(
+  invariants: readonly PInvariant[],
+  semiflows: readonly PInvariant[],
+): { readonly invariants: readonly PInvariant[]; readonly added: number } {
+  const strengthened = [...invariants];
+  let added = 0;
+  for (const sf of semiflows) {
+    if (!strengthened.some((inv) => sameInvariant(inv, sf))) {
+      strengthened.push(sf);
+      added++;
+    }
+  }
+  return { invariants: strengthened, added };
+}
+
 export function computePSemiflows(
   matrix: IncidenceMatrix,
   flatNet: FlatNet,
