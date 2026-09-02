@@ -559,6 +559,9 @@ function keepSupportMinimal(rows: SemiflowRow[]): SemiflowRow[] {
 export function isCoveredByInvariants(invariants: readonly PInvariant[], numPlaces: number): boolean {
   const covered = new Array<boolean>(numPlaces).fill(false);
   for (const inv of invariants) {
+    // Only a non-negative law bounds its support; a mixed-sign law (which the signed
+    // null-space basis now carries) says nothing about boundedness.
+    if (inv.weights.some((w) => w < 0)) continue;
     for (const idx of inv.support) {
       if (idx < numPlaces) covered[idx] = true;
     }

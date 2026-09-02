@@ -110,6 +110,14 @@ describe('PInvariantComputer', () => {
     expect(invariants).toHaveLength(0);
   });
 
+  it('isCoveredByInvariants ignores mixed-sign laws', () => {
+    // `p0 - p1 = 0` bounds neither place: coverage counts non-negative laws only.
+    const mixed = pInvariant([1, -1], 0, new Set([0, 1]));
+    expect(isCoveredByInvariants([mixed], 2)).toBe(false);
+    const conserving = pInvariant([1, 1], 1, new Set([0, 1]));
+    expect(isCoveredByInvariants([mixed, conserving], 2)).toBe(true);
+  });
+
   it('isCoveredByInvariants false when a place is uncovered', () => {
     // Net with a source transition (produces to B but doesn't consume from B)
     // A → B → C, but add B → D (no transition consumes D)

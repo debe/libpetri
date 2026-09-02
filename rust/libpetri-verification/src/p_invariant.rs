@@ -451,7 +451,10 @@ fn keep_support_minimal(rows: Vec<(Vec<i64>, Vec<i64>)>) -> Vec<(Vec<i64>, Vec<i
 /// Checks if all places are covered by at least one P-invariant.
 pub fn is_covered_by_invariants(invariants: &[PInvariant], place_count: usize) -> bool {
     let mut covered = vec![false; place_count];
-    for inv in invariants {
+    // Only a non-negative law bounds its support (`Σ w·M = c` with `w ≥ 0` caps every
+    // place it weights); a mixed-sign law says nothing about boundedness, and the
+    // signed null-space basis now carries those too.
+    for inv in invariants.iter().filter(|inv| inv.weights.iter().all(|&w| w >= 0)) {
         for &pid in &inv.support {
             if pid < place_count {
                 covered[pid] = true;
@@ -618,6 +621,24 @@ mod tests {
 
         let invariants = compute_p_invariants(&matrix, &initial, &flat.places);
         assert!(is_covered_by_invariants(&invariants, flat.place_count));
+    }
+
+    #[test]
+    fn mixed_sign_law_covers_nothing() {
+        // `p0 - p1 = 0` holds on a net that copies p0 into p1, but it bounds neither
+        // place: coverage counts non-negative laws only.
+        let mixed = PInvariant {
+            weights: vec![1, -1],
+            constant: 0,
+            support: vec![0, 1],
+        };
+        assert!(!is_covered_by_invariants(&[mixed.clone()], 2));
+        let conserving = PInvariant {
+            weights: vec![1, 1],
+            constant: 1,
+            support: vec![0, 1],
+        };
+        assert!(is_covered_by_invariants(&[mixed, conserving], 2));
     }
 
     #[test]

@@ -81,6 +81,15 @@ class PInvariantComputerTest {
     }
 
     @Test
+    void isCoveredByInvariants_ignoresMixedSignLaws() {
+        // `p0 - p1 = 0` bounds neither place: coverage counts non-negative laws only.
+        var mixed = new PInvariant(new int[] {1, -1}, 0, Set.of(0, 1));
+        assertFalse(PInvariantComputer.isCoveredByInvariants(List.of(mixed), 2));
+        var conserving = new PInvariant(new int[] {1, 1}, 1, Set.of(0, 1));
+        assertTrue(PInvariantComputer.isCoveredByInvariants(List.of(mixed, conserving), 2));
+    }
+
+    @Test
     void isCoveredByInvariants_trueForConservingNet() {
         var pA = Place.of("A", String.class);
         var pB = Place.of("B", String.class);
