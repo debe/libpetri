@@ -24,11 +24,10 @@ The engine supports safety property verification using SMT solvers via the IC3/P
 2. Returns a verdict (Proven, Violated, or Unknown) with supporting evidence.
 
 **Implementation notes:**
-- Java: Full pipeline with Z3 Spacer
-- TypeScript: Full pipeline with z3-solver WASM
-- Rust: Full pipeline behind the `z3` feature (CHC emitted as SMT-LIB2, solved by the `z3`
-  binary with `fp.engine=spacer`)
-- Python: exposes the Rust pipeline via the PyO3 binding (wheel built with the `z3` feature)
+- All implementations: full pipeline; the CHC system is emitted as SMT-LIB2 text and solved by
+  the `z3` executable with `fp.engine=spacer` through the one solver transport of [VER-013].
+- Rust: behind the `z3` feature. Python exposes the Rust pipeline via the PyO3 binding (wheel
+  built with the `z3` feature).
 
 **Test derivation:** Simple mutual exclusion net; verify Proven verdict for mutual exclusion property.
 
@@ -208,6 +207,83 @@ reachable set), so enabling it can never turn a `Violated` into a `Proven`.
 **Test derivation:** a budgeted work loop with one reset arc on a side place, whose null-space
 basis folds the reset place into the loop's law: a `placeBound` on the loop is proven only with
 the option; a bound the loop genuinely exceeds stays `Violated` with it.
+
+#### VER-013: Solver Transport
+
+**Priority:** SHOULD
+
+The SMT pipeline ([VER-001]) reaches the solver through one transport in every implementation:
+each query is one `z3` process. The process is started with the argument list
+
+```
+z3 -smt2 -in -t:<timeout_ms> -T:<ceil((timeout_ms + 1000) / 1000)>
+```
+
+plus `fp.engine=spacer` for the HORN query, is fed the complete SMT-LIB2 script on stdin in a
+single write, and then has its stdin closed so it sees end-of-file. Both output streams are
+drained concurrently from the start, so a reply larger than a pipe buffer cannot stall the
+solver, and a wall-clock watchdog at `timeout_ms + 2000` milliseconds kills a process that
+ignored both timeouts. The process is killed and reaped on every exit path. No solver state
+survives a query: concurrent verifications in one host process are independent, and a solver
+crash is a verdict, never a crashed host. The timeout is per invocation; the HORN query, the
+certificate script and its detail re-run each receive the full budget.
+
+The executable is `z3` on `PATH` unless the environment variable `LIBPETRI_Z3` names another
+one. It is probed once per verification with `--version` and refused below **4.8.0**. Setting
+`LIBPETRI_SMT_DUMP` to a directory keeps every script and reply there as `NNN-<phase>.smt2`,
+`NNN-<phase>.out` and, when stderr was not empty, `NNN-<phase>.err`, with `NNN` a zero-padded
+counter and the phase one of `horn`, `horn-coloured`, `certificate`, `certificate-detail`.
+
+**Reply classification.** The verdict is the first stdout line equal to `sat`, `unsat` or
+`unknown`, wherever it appears: a build may print a warning first, and the HORN script's paired
+`(get-proof)` / `(get-model)` always yields one `(error …)` line. Under the HORN query
+`(assert (not Error))`, `sat` is `Proven` and `unsat` is `Violated`. Without a verdict line the
+`Unknown` reason is, in this order: the `timeout` line printed by the `-T` backstop; the watchdog
+kill; the first `(error …)` line on stdout, then on stderr; any other stderr text; the unexpected
+stdout itself. The certificate script requires exactly three positional answers; an `(error …)`
+on either stream, a `timeout` line, a kill or a non-zero exit makes the check inconclusive and
+withholds `Proven`.
+
+**Script determinism.** For the same net, initial marking, property and options every
+implementation MUST emit byte-identical HORN and certificate scripts: places in Unicode
+code-point order of their names; flat transitions in net order with XOR branches in enumeration
+order ([IO-016]); environment-injection rules, sink conjuncts and the property's place lists in
+place-index order; invariants in `(support, weights, constant)` order after the [VER-007] union;
+lines joined with `\n`; no rule names. The certificate is the `(define-fun …)` block of the
+`(get-model)` reply pasted verbatim, and a counterexample is the set of ground `Reachable` facts
+in the `(get-proof)` reply, ordered only by the replay ([VER-003]).
+
+**Acceptance Criteria:**
+1. The same net, marking, property and options produce byte-identical HORN and certificate
+   scripts in every implementation (the golden scripts under
+   `spec/verification-fixtures/scripts/`).
+2. A missing executable yields `Unknown` with a reason naming the command tried and
+   `LIBPETRI_Z3`; no exception escapes and the host process survives.
+3. An executable below 4.8.0, or one whose `--version` reports no version, yields `Unknown`
+   naming both versions (or the reply).
+4. A `timeout` reply, an `(error …)` on either stream, a non-zero exit and a process that never
+   exits each yield `Unknown` with a distinct reason and leave no solver process behind.
+5. A reply preceded by a banner of arbitrary size on either stream is classified by its verdict
+   line.
+6. The report carries `  Solver: z3 <version>` after the `Property:` line, or
+   `  Solver: z3 unavailable (<reason>)` followed by `Result: UNKNOWN (<reason>)` when no
+   solver resolved.
+
+**Implementation notes:**
+- Rust: `libpetri-verification` `z3_process` (`Z3Solver::resolve` / `Z3Solver::run`);
+  stub-solver scenarios in `tests/stub_z3.rs`, CI gate in `tests/z3_gate.rs`.
+- Python: inherits the Rust transport; `libpetri.z3_available()` reports whether a usable
+  executable resolves (`HAS_Z3` is the compile feature only).
+- Java: `org.libpetri.smt.z3.Z3Process` / `Z3Solver`; `SmtVerifier.z3Available()`.
+- TypeScript: `verification/z3/z3-process` (`resolveZ3` / `runZ3Text`); `z3Available()`.
+
+**Depends on:** [VER-001], [VER-003], [VER-007], [IO-016]
+
+**Test derivation:** a stub `z3` shell script named by `LIBPETRI_Z3` that answers `--version`
+and then replays a scripted reply: a banner before `unsat`; an `(error …)` on stderr during the
+certificate check; a `timeout` line; a script that never exits; a two-megabyte banner on each
+stream; a version below the floor; a missing executable. Plus the golden-script diff over the
+shared verdict-parity fixtures.
 
 ---
 

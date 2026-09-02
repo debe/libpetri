@@ -119,7 +119,7 @@ That is the “why”: coordination policy is explicit and inspectable. A viewer
 - **Long-running and observable workflows.** Environment places accept external events. Thirteen event types, pluggable event stores, DOT export, and the debug protocol expose what fired, what moved, and why a net is waiting.
 - **Analysis before execution.** Check deadlock freedom, mutual exclusion, place bounds, and unreachability with structural analysis, timed state-class graphs, and SMT/IC3 where supported.
 
-The full contract covers **208 active requirements** across the core model, I/O, timing, execution, concurrency, environment places, verification, observability, export, performance, modular composition, and ν-nets. Start with the [specification index](spec/00-index.md) when exact behavior matters.
+The full contract covers **210 active requirements** across the core model, I/O, timing, execution, concurrency, environment places, verification, observability, export, performance, modular composition, and ν-nets. Start with the [specification index](spec/00-index.md) when exact behavior matters.
 
 ## Evidence, not just an API
 
