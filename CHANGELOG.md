@@ -24,13 +24,13 @@ A Route B class cost about 4 KB, most of it a map of maps and a key string that 
 
 ### Lean
 
-`Semiflow.lean` and `Interning.lean` are new. The semiflow union is sound for any list of gate-validated laws; at `k = 0` every transition touching a covered place is dead, so dropping them reaches the same markings; exploring a worklist from key-preserving representatives reaches the same keys and edges provided the successor step is key-equivariant, with a witness that a step reading past the key loses a class, which is the exact shape of the earliest-ready hole above. Forty-six theorems are gated in CI; 24 of 209 requirements carry a proof fragment.
+`Semiflow.lean` and `Interning.lean` are new. The semiflow union is sound for any list of gate-validated laws; at `k = 0` every transition touching a covered place is dead, so dropping them reaches the same markings; exploring a worklist from key-preserving representatives reaches the same keys and edges provided the successor step is key-equivariant, with a witness that a step reading past the key loses a class, which is the exact shape of the earliest-ready hole above. Forty-six theorems are gated in CI; 24 of 210 requirements carry a proof fragment.
 
 ---
 
 ### Spec
 
-[VER-007] Invariant Strengthening from P-Semiflows is new and is the first spec statement of the exact invariant gate; [NU-053] gains AC6; [VER-012] records the interning contract. 208 → 209 active requirements.
+[VER-007] Invariant Strengthening from P-Semiflows is new and is the first spec statement of the exact invariant gate; [NU-053] gains AC6; [VER-012] records the interning contract; [VER-013] Solver Transport is new: one `z3` process per query, the reply contract, and byte-identical scripts across implementations. 208 → 210 active requirements.
 
 ---
 
