@@ -2070,6 +2070,56 @@ mod tests {
             .build()
     }
 
+    /// [NU-053] AC6: a mid-phase marking with no budget token — the covering
+    /// semiflow's initial sum is zero — is decided exactly by the zero-slot
+    /// coloured plan instead of being downgraded to Unknown. Route B is forced to
+    /// truncate (`nu_max_classes(1)`) so the deferral to Route A is exercised.
+    #[test]
+    fn nu_zero_budget_quiescence_decided_by_zero_slot_plan() {
+        if !z3_available() {
+            eprintln!("skipping nu_zero_budget_*: z3 binary not on PATH");
+            return;
+        }
+        let net = nu_scatter_gather_net();
+        // No sink: the initial marking is quiescent with `source` tokens stranded.
+        let violated = SmtVerifier::for_net(&net)
+            .initial_marking(nu_initial_marking(0))
+            .property(SmtProperty::DeadlockFree)
+            .budget_place("budget")
+            .nu_max_classes(1)
+            .timeout(15_000)
+            .verify();
+        assert!(
+            violated.report.contains("exact within budget k=0"),
+            "the zero-slot plan must be taken\n{}",
+            violated.report
+        );
+        assert!(
+            matches!(violated.verdict, Verdict::Violated),
+            "no budget, no sink: the initial marking is a deadlock\n{}",
+            violated.report
+        );
+        // Declaring `source` a sink makes that marking a legitimate end state.
+        let proven = SmtVerifier::for_net(&net)
+            .initial_marking(nu_initial_marking(0))
+            .property(SmtProperty::DeadlockFree)
+            .budget_place("budget")
+            .sink_places(["source".to_string()])
+            .nu_max_classes(1)
+            .timeout(15_000)
+            .verify();
+        assert!(
+            proven.report.contains("exact within budget k=0"),
+            "{}",
+            proven.report
+        );
+        assert!(
+            matches!(proven.verdict, Verdict::Proven { .. }),
+            "with `source` a sink the only quiescent marking is a sink state\n{}",
+            proven.report
+        );
+    }
+
     #[test]
     fn nu_branch_budget_bound_proven_with_declared_budget() {
         if !z3_available() {

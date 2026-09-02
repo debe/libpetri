@@ -47,13 +47,22 @@ describe('name-coloured fragment gate (colour-slot bound)', () => {
     return { net, budget1 };
   }
 
-  function planFor(extraRefund: boolean) {
+  function planFor(extraRefund: boolean, budgetTokens = 1) {
     const { net, budget1 } = mintJoinNet(extraRefund);
     const flat = flatten(net);
-    const initial = MarkingState.builder().tokens(budget1, 1).build();
+    const initial = MarkingState.builder().tokens(budget1, budgetTokens).build();
     const semiflows = computePSemiflows(IncidenceMatrix.from(flat), flat, initial);
     return buildColouredPlan(net, flat, initial, new Set(['budget1', 'budget2']), 'base', new Set(), semiflows);
   }
+
+  it('yields the exact zero-slot plan when no budget token exists (NU-053 AC6)', () => {
+    // With no budget token the covering semiflow's initial sum is zero, and k = 0 is
+    // an exact plan rather than a fallback — no coloured token can ever exist
+    // (Semiflow.lean, vacuous_colour_layer).
+    const plan = planFor(false, 0);
+    expect(plan, 'k = 0 is a plan, not a fallback').not.toBeNull();
+    expect(plan!.k).toBe(0);
+  });
 
   it('takes the exact path when the join conserves budget', () => {
     // Refund (1) == mint cost (1): live names ≤ k.
