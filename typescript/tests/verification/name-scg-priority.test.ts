@@ -4,12 +4,15 @@ import { deadlockFree } from '../../src/verification/smt-property.js';
 import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
-import { one } from '../../src/core/in.js';
+import type { Place } from '../../src/core/place.js';
+import { one, exactly } from '../../src/core/in.js';
 import { outPlace, andPlaces } from '../../src/core/out.js';
 import { matchSpec, matchKey } from '../../src/core/match-spec.js';
 import { nameId } from '../../src/core/name.js';
 import { delayed } from '../../src/core/timing.js';
-import { NameStateClassGraph } from '../../src/verification/analysis/name-state-class-graph.js';
+import { NameStateClassGraph, nameSuccessors } from '../../src/verification/analysis/name-state-class-graph.js';
+import { NameMarking, type Sym } from '../../src/verification/analysis/name-marking.js';
+import type { NameFragment } from '../../src/verification/analysis/name-fragment.js';
 import { classify } from '../../src/verification/analysis/name-fragment.js';
 import { MarkingState } from '../../src/verification/marking-state.js';
 import type { PrioritySemantics } from '../../src/verification/analysis/priority-semantics.js';
@@ -206,5 +209,123 @@ describe('NameStateClassGraph residual-earliest prune (NU-052 Part A)', () => {
 
     expect(reachesDeadletter(net, initial, 'none')).toBe(true);
     expect(reachesDeadletter(net, initial, 'conflict')).toBe(true);
+  });
+});
+
+/**
+ * VER-012 interning: hash-consing the base class and the name layer in
+ * `NameStateClassGraph.build` must not change the explored quotient graph
+ * (`Interning.lean`, `interned_keys_eq`). Two things are pinned: the base intern key
+ * carries `readyEarliest` alongside marking and zone (two arrivals at one zone can
+ * disagree on it, and the NU-052 prune reads it — `equivariance_is_necessary` is the
+ * shape of that hole), and the name-layer successor step is equivariant under a
+ * renaming of symbols.
+ */
+describe('NameStateClassGraph interning (VER-012)', () => {
+  const P = place<string>('P');
+  const C1 = place<string>('C1');
+  const C2 = place<string>('C2');
+  const Q = place<string>('Q');
+  const OUT2 = place<string>('OUT');
+  const OUT_H = place<string>('OUT_H');
+  const DEAD = place<string>('DEAD');
+  const DRAINED = place<string>('DRAINED');
+  /** Never marked: keeps `J` structurally a ν-join without ever enabling it. */
+  const R = place<string>('R');
+
+  /**
+   * Two routes to one (marking, zone) that disagree on `readyEarliest` under different
+   * name layers. `MC` co-mints one name into `C1`, `C2` and enables `H` fresh (ready in
+   * 5 s); `M1` then `M2` mint two names and leave `H` persistent through `M2`'s
+   * unbounded delay (ready now). `H` (priority 10) and `L` (priority 0) compete for
+   * `Q`. `J` is gated on the never-marked `R` so the meeting class enables exactly `H`
+   * and `L`, both fresh at the point each route enables them, and the two zones agree
+   * constraint for constraint.
+   */
+  function fixture(withDrain: boolean): PetriNet {
+    const mc = Transition.builder('MC').inputs(exactly(2, P)).outputs(andPlaces(C1, C2, Q)).build();
+    const m1 = Transition.builder('M1').inputs(one(P)).outputs(andPlaces(C1, Q)).build();
+    const m2 = Transition.builder('M2').inputs(one(P)).timing(delayed(3_000)).outputs(outPlace(C2)).build();
+    const h = Transition.builder('H')
+      .inputs(one(Q))
+      .timing(delayed(5_000))
+      .priority(10)
+      .outputs(outPlace(OUT_H))
+      .build();
+    const l = Transition.builder('L').inputs(one(Q)).outputs(outPlace(DEAD)).build();
+    const j = Transition.builder('J')
+      .inputs(one(C1), one(C2), one(R))
+      .match(matchSpec(matchKey(C1, (s: string) => nameId(s)), matchKey(C2, (s: string) => nameId(s))))
+      .outputs(outPlace(OUT2))
+      .build();
+    const transitions = [mc, m1, m2, h, l, j];
+    if (withDrain) {
+      transitions.push(Transition.builder('D').inputs(one(C1)).outputs(outPlace(DRAINED)).build());
+    }
+    return PetriNet.builder('interning').transitions(...transitions).build();
+  }
+
+  function target(graph: NameStateClassGraph, from: number, name: string): number {
+    const e = graph.edges.find(e => e.from === from && e.transitionName === name);
+    if (!e) throw new Error(`no edge ${name} out of class ${from}`);
+    return e.to;
+  }
+
+  function hasEdge(graph: NameStateClassGraph, from: number, name: string): boolean {
+    return graph.edges.some(e => e.from === from && e.transitionName === name);
+  }
+
+  it("interned base keeps each arrival's readyEarliest", () => {
+    const net = fixture(false);
+    const fragment = classify(net, 'base', new Set())!;
+    const initial = MarkingState.builder().tokens(P, 2).build();
+    const graph = NameStateClassGraph.build(net, initial, fragment, 10_000, undefined, undefined, 'conflict');
+
+    const same = target(graph, 0, 'MC'); // one name in C1 and C2
+    const mid = target(graph, 0, 'M1');
+    const diff = target(graph, mid, 'M2'); // two names
+    expect(same).not.toBe(diff);
+    expect(graph.markingOf(same).toString()).toBe(graph.markingOf(diff).toString());
+    // H is freshly enabled at `same` (ready in 5 s), so L is not pre-empted there.
+    expect(hasEdge(graph, same, 'L')).toBe(true);
+    // H has been enabled since M1 at `diff` and may be ready now, so L is pre-empted:
+    // an interned base must not hand this class the other arrival's readyEarliest.
+    expect(hasEdge(graph, diff, 'L')).toBe(false);
+    expect(graph.classes[same]!.base, 'the two arrivals disagree on readyEarliest, so they must not share a base')
+      .not.toBe(graph.classes[diff]!.base);
+  });
+
+  function rename(nm: NameMarking, places: readonly string[], sigma: (s: Sym) => Sym): NameMarking {
+    const out = new NameMarking();
+    for (const p of places) {
+      for (const s of nm.symbolsIn(p)) out.add(p, sigma(s), nm.countOf(p, s));
+    }
+    return out;
+  }
+
+  function successorKeys(
+    fragment: NameFragment, transition: string, names: NameMarking, outputs: Set<Place<any>>, fresh: Sym,
+  ): string[] {
+    return nameSuccessors(fragment.role(transition), names, outputs, fragment, { next: fresh })
+      .map(nm => nm.canonicalKey(fragment.colouredOrder))
+      .sort();
+  }
+
+  it('nameSuccessors is equivariant under a renaming of symbols', () => {
+    // The hypothesis Interning.lean rests on: a renamed layer (same canonical key)
+    // has successors with the same canonical keys, for every role, given fresh counters.
+    const fragment = classify(fixture(true), 'extended', new Set())!;
+    const names = new NameMarking();
+    names.add(C1.name, 3, 1);
+    names.add(C2.name, 3, 1);
+    names.add(C2.name, 7, 1);
+    const renamed = rename(names, [C1.name, C2.name], s => (s === 3 ? 11 : s === 7 ? 2 : s));
+    expect(renamed.canonicalKey(fragment.colouredOrder)).toBe(names.canonicalKey(fragment.colouredOrder));
+
+    const outputs = new Set<Place<any>>([C1, C2, Q]);
+    for (const t of ['MC', 'J', 'H', 'D']) {
+      expect(successorKeys(fragment, t, renamed, outputs, 12), t)
+        .toEqual(successorKeys(fragment, t, names, outputs, 8));
+    }
   });
 });

@@ -21,7 +21,8 @@ import type { EnvironmentAnalysisMode } from './environment-analysis-mode.js';
 import { ignore } from './environment-analysis-mode.js';
 import { initialStateClass, expandTransition, computeSuccessor } from './state-class-graph.js';
 import { NameMarking, type Sym } from './name-marking.js';
-import { NameStateClass } from './name-state-class.js';
+import { NameStateClass, baseKeyOf } from './name-state-class.js';
+import type { StateClass } from './state-class.js';
 import type { NameFragment, Role } from './name-fragment.js';
 import type { PrioritySemantics } from './priority-semantics.js';
 
@@ -71,12 +72,23 @@ export class NameStateClassGraph {
 
     const graph = new NameStateClassGraph();
     const base0 = initialStateClass(net, initialMarking, envPlaces, envMode);
+    // Hash-consing (memory only, no semantic effect — VER-012, `Interning.lean`):
+    // the base layer is shared between classes at the same (marking, zone,
+    // earliest-ready times) and the name layer between classes with the same
+    // canonical key; a class is identified by the pair of intern ids, so no
+    // per-class key string is retained.
+    const baseIntern = new Map<string, InternedBase>();
+    const nameIntern = new Map<string, InternedNames>();
+    const indexOf = new Map<string, number>();
     // Coloured places start empty in the supported fragment (the verifier guards
     // this), so the initial name partition is empty.
-    const initial = new NameStateClass(base0, new NameMarking(), fragment.colouredOrder);
-
-    const indexOf = new Map<string, number>();
-    graph.pushClass(initial, indexOf);
+    const b0 = internBase(baseIntern, base0);
+    const n0 = internNames(nameIntern, new NameMarking(), fragment.colouredOrder);
+    graph.pushClass(
+      new NameStateClass(b0.base, n0.names, fragment.colouredOrder, n0.nameKey),
+      classId(b0.id, n0.id),
+      indexOf,
+    );
 
     const sym = { next: 0 as Sym };
     const queue: number[] = [0];
@@ -118,12 +130,18 @@ export class NameStateClassGraph {
           const baseSucc = computeSuccessor(net, current.base, vt, envPlaces, envMode);
           if (baseSucc === null || baseSucc.isEmpty()) continue;
           const nameSuccs = nameSuccessors(role, current.names, vt.outputPlaces, fragment, sym);
+          const shared = internBase(baseIntern, baseSucc);
           for (const nm of nameSuccs) {
-            const succ = new NameStateClass(baseSucc, nm, fragment.colouredOrder);
-            let toIdx = indexOf.get(succ.key);
+            const sharedNames = internNames(nameIntern, nm, fragment.colouredOrder);
+            const id = classId(shared.id, sharedNames.id);
+            let toIdx = indexOf.get(id);
             if (toIdx === undefined) {
               toIdx = graph.classes.length;
-              graph.pushClass(succ, indexOf);
+              graph.pushClass(
+                new NameStateClass(shared.base, sharedNames.names, fragment.colouredOrder, sharedNames.nameKey),
+                id,
+                indexOf,
+              );
               queue.push(toIdx);
             }
             graph.addEdge(curIdx, toIdx, transition.name);
@@ -134,17 +152,75 @@ export class NameStateClassGraph {
     return graph;
   }
 
-  private pushClass(c: NameStateClass, indexOf: Map<string, number>): void {
+  private pushClass(c: NameStateClass, id: string, indexOf: Map<string, number>): void {
     const idx = this.classes.length;
     this.classes.push(c);
     this._successors.push([]);
-    indexOf.set(c.key, idx);
+    indexOf.set(id, idx);
   }
 
   private addEdge(from: number, to: number, name: string): void {
     this.edges.push({ from, to, transitionName: name });
     this._successors[from]!.push(to);
   }
+}
+
+interface InternedBase {
+  readonly id: number;
+  readonly base: StateClass;
+}
+
+interface InternedNames {
+  readonly id: number;
+  readonly names: NameMarking;
+  readonly nameKey: string;
+}
+
+/** A class's identity: the pair of intern ids of its two layers. */
+function classId(baseId: number, nameId: number): string {
+  return `${baseId}:${nameId}`;
+}
+
+/**
+ * Interns the base layer: one {@link StateClass} per distinct (marking, zone,
+ * earliest-ready times). `StateClass.equals` is marking + zone, which is all base
+ * timed-reachability needs — but the NU-052 prune ({@link priorityDominated}) also
+ * reads `readyEarliest`, the class-relative lower bounds captured before
+ * `letTimePass`, and two arrivals at one zone can disagree on those (a transition
+ * freshly enabled here versus one persistent through an unbounded delay). Sharing a
+ * base across name layers is semantics-free only if the shared object carries
+ * everything the successor step reads (`Interning.lean`, `equivariance_is_necessary`
+ * is the witness), so the key is all three.
+ */
+function internBase(intern: Map<string, InternedBase>, base: StateClass): InternedBase {
+  const key = `${baseKeyOf(base)}#${base.readyEarliest.join(',')}`;
+  let entry = intern.get(key);
+  if (entry === undefined) {
+    entry = { id: intern.size, base };
+    intern.set(key, entry);
+  }
+  return entry;
+}
+
+/**
+ * Interns the name layer: one {@link NameMarking} per canonical key. Two layers with
+ * the same key are the same partition up to a renaming of symbols, and every
+ * consumer of the layer — {@link nameSuccessors}, {@link willFire}, the key itself —
+ * is invariant under renaming; freshness stays sound because the mint counter never
+ * revisits an id (`Interning.lean`, `interned_keys_eq`).
+ */
+function internNames(
+  intern: Map<string, InternedNames>,
+  names: NameMarking,
+  colouredOrder: readonly string[],
+): InternedNames {
+  const nameKey = names.canonicalKey(colouredOrder);
+  let entry = intern.get(nameKey);
+  if (entry === undefined) {
+    entry = { id: intern.size, names, nameKey };
+    intern.set(nameKey, entry);
+  }
+  return entry;
 }
 
 /** Float slack for the class-relative earliest-ready comparison (matches the DBM's own EPSILON). */
@@ -284,8 +360,11 @@ function colouredOutputs(outputPlaces: ReadonlySet<Place<any>>, fragment: NameFr
  * yields one successor per resident symbol of the single coloured input (count 1,
  * so NONE is dropped), threading that symbol into every coloured output (relay)
  * or dropping it (drain, no coloured output).
+ *
+ * Exported for the interning test only: this step's equivariance under symbol
+ * renaming is the hypothesis `Interning.lean` rests on.
  */
-function nameSuccessors(
+export function nameSuccessors(
   role: Role,
   names: NameMarking,
   outputPlaces: ReadonlySet<Place<any>>,
