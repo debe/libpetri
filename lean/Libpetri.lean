@@ -13,3 +13,5 @@ import Libpetri.RetrodictExec
 import Libpetri.Strengthening
 import Libpetri.TimedCycle
 import Libpetri.MatchCache
+import Libpetri.Semiflow
+import Libpetri.Interning

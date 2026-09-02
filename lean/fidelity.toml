@@ -434,6 +434,64 @@ file = "rust/libpetri-core/src/name.rs"
 fn = "NameId"
 lean = ["Libpetri/MatchCache.lean"]
 
+# ---- Semiflow.lean ([VER-007] union soundness, [NU-053] AC6 vacuous colour layer) ----
+# The two invariant sources the union joins, and the colour-slot bound whose
+# `k = 0` case `vacuous_colour_layer` makes exact.
+[[pin]]
+file = "rust/libpetri-verification/src/p_invariant.rs"
+fn = "compute_p_invariants"
+lean = ["Libpetri/Semiflow.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/p_invariant.rs"
+fn = "compute_p_semiflows"
+lean = ["Libpetri/Semiflow.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/name_coloured_encoder.rs"
+fn = "colour_slot_bound"
+lean = ["Libpetri/Semiflow.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/name_coloured_encoder.rs"
+fn = "build_plan"
+lean = ["Libpetri/Semiflow.lean"]
+
+# ---- Interning.lean (hash-consing in the nu state-class graph) ----
+# `Explorer.succ` models `name_successors` (with the prune folded in); the
+# key-equivariance hypothesis rests on `canonical_key` being a complete orbit
+# invariant and on the base intern key carrying everything `priority_dominated`
+# reads beyond `StateClass` equality.
+[[pin]]
+file = "rust/libpetri-verification/src/name_state_class_graph.rs"
+fn = "name_successors"
+lean = ["Libpetri/Interning.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/name_state_class_graph.rs"
+fn = "enabling_symbols"
+lean = ["Libpetri/Interning.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/name_marking.rs"
+fn = "canonical_key"
+lean = ["Libpetri/Interning.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/name_marking.rs"
+fn = "symbols_in"
+lean = ["Libpetri/Interning.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/state_class.rs"
+fn = "StateClass"
+lean = ["Libpetri/Interning.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/name_state_class.rs"
+fn = "NameStateClass"
+lean = ["Libpetri/Interning.lean"]
+
 # `KeyOf` models this projection directly; it lives in a file no other pin
 # covers, so without its own pin the citation guard could not see it.
 [[pin]]
