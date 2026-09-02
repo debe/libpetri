@@ -26,10 +26,8 @@ jobs:
         with:
           java-version: '25-ea'
           distribution: 'temurin'
-      # Natives for the com.microsoft.z3 JNI bindings; see the action for why.
-      # Shared with .github/workflows/benchmark.yml, which also runs `mvnw verify`.
-      - uses: ./.github/actions/z3-jni-natives
-      # The pinned z3 executable every verifier shells out to (VER-013).
+      # The pinned z3 executable every verifier shells out to (VER-013);
+      # Z3BinaryGateTest fails the build if it does not resolve on this runner.
       - uses: ./.github/actions/install-z3
       - run: ./mvnw verify
 

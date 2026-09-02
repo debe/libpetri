@@ -449,7 +449,7 @@ The Rust column doubles as Python's: `libpetri-py` binds the same engine, so a `
 | VER-010–011 | `StateClassGraphTest` | `analysis/*.test.ts` | `state_class_graph::tests` |
 | VER-010 AC2 (executor-faithful consumption, [IO-007]) | `StateClassGraphConsumptionTest#allInputDrainsPlaceSoInhibitedSuccessorIsReachable`, `#atLeastInputDrainsPlaceLeavingNoResidue` | `state-class-graph.test.ts > draining input semantics (IO-007)` (2 cases) | `state_class_graph::tests::all_input_drains_place_so_inhibited_successor_is_reachable`, `at_least_input_drains_place` |
 | VER-012 | `SmtVerifierTest` (Route B) | `smt-verifier.test.ts` (Route B) | `nu_scg_verifier::tests` |
-| VER-013 | `StubZ3Test`, `Z3BinaryGateTest` | `stub-z3.test.ts`, `z3-gate.test.ts` | `tests/stub_z3.rs`, `tests/z3_gate.rs`, `z3_process::tests`; Python `test_z3_gate.py` |
+| VER-013 | `StubZ3Test`, `Z3BinaryGateTest`, `SmtScriptGoldenTest` | `stub-z3.test.ts`, `z3-gate.test.ts` | `tests/stub_z3.rs`, `tests/z3_gate.rs`, `z3_process::tests`; Python `test_z3_gate.py` |
 | EVT-001–014 | `NetEventTest` | `net-event.test.ts` | `net_event::tests` |
 | EVT-020–024 | `EventStoreTest` | `event-store.test.ts` | `event_store::tests` |
 | EVT-025 | `SessionArchiveWriterConsistencyTest`, `SessionArchiveV3Test` | `session-archive-writer-consistency.test.ts`, `session-archive-v3.test.ts` | `session_archive_reader::tests` |

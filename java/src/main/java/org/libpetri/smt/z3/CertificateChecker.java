@@ -1,6 +1,5 @@
 package org.libpetri.smt.z3;
 
-import com.microsoft.z3.*;
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.core.Place;
 import org.libpetri.smt.SmtProperty;
@@ -8,65 +7,48 @@ import org.libpetri.smt.encoding.FlatNet;
 import org.libpetri.smt.invariant.PInvariant;
 
 import java.time.Duration;
-import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
-import java.util.Set;
 
 /**
- * Independent re-validation of an IC3/PDR certificate produced by Z3's Spacer engine.
+ * Independent certificate check for IC3/PDR proofs.
  *
- * <p>A "proven" Spacer verdict rests on the inductive invariant {@code I} that
- * {@code Fixedpoint.getAnswer()} returns for the {@code Reachable} relation. This
- * checker re-derives the three verification conditions of an inductive safety
- * proof with a plain {@link Solver} — deliberately outside the Fixedpoint engine
- * that produced the certificate:
+ * <p>When Z3 Spacer answers {@code sat} on the CHC encoding ({@link SmtEncoder}), the
+ * model it prints interprets {@code Reachable} as an inductive invariant, the proof
+ * certificate. This checker re-verifies that certificate with plain (non-HORN) SMT
+ * queries in a SECOND z3 run, so a PROVEN verdict no longer rests on the empirical
+ * HORN sat ⇒ proven mapping alone, nor on the correctness of the P-invariant
+ * strengthening: the three verification conditions below are discharged against the
+ * UNSTRENGTHENED step relation ({@link SmtEncoder#encodeStepRelationSmt2}).
+ *
+ * <p>The candidate invariant is {@code R' := R AND Inv}, where {@code R} is the pasted
+ * {@code Reachable} interpretation and {@code Inv} the validated P-invariant equalities
+ * the CHC encoding strengthened its rule bodies with: a Spacer model is only guaranteed
+ * inductive <em>relative to</em> that strengthening, so the conjuncts ride along in the
+ * candidate, but the RELATION stays unstrengthened, which means VC1/VC2 re-prove each
+ * conjunct's initiation and inductiveness from scratch. A wrong P-invariant cannot
+ * weaken this check: it fails init or consecution instead.
  *
  * <ol>
- *   <li><b>VC1 (init)</b>: {@code NOT I(M0)} is UNSAT — the invariant holds initially.</li>
- *   <li><b>VC2 (consecution)</b>: {@code I(M) AND M >= 0 AND T(M,M') AND NOT I(M')}
- *       is UNSAT — the invariant is preserved by every step of the
- *       {@linkplain SmtEncoder#encodeStepRelation unstrengthened} step relation.</li>
- *   <li><b>VC3 (safety)</b>: {@code I(M) AND M >= 0 AND Bad(M)} is UNSAT — the
- *       invariant excludes every property-violating marking.</li>
+ *   <li><b>VC1 (init)</b>: {@code NOT R'(M0)} is UNSAT.</li>
+ *   <li><b>VC2 (consecution)</b>: {@code M >= 0 AND R'(M) AND T(M,M') AND NOT R'(M')} is UNSAT.</li>
+ *   <li><b>VC3 (safety)</b>: {@code M >= 0 AND R'(M) AND Bad(M)} is UNSAT.</li>
  * </ol>
  *
- * <p>The {@code M >= 0} conjunct is the state domain: markings are token counts,
- * so the VCs must range over N^P. The step relation constrains only {@code M'},
- * so without it a certificate inductive over N^P would be refuted by a negative
- * predecessor in Z^P.
+ * <p>The {@code M >= 0} conjunct is the state domain: markings are token counts, so the
+ * VCs range over N^P; without it a certificate inductive over N^P is refuted by a
+ * negative predecessor in Z^P.
  *
- * <p><b>Candidate:</b> the checked invariant is {@code R' := I AND invs}, where
- * {@code invs} conjoins the validated P-invariant equalities
- * {@code y*M = y*M0}. Spacer's {@code I} may be inductive only <em>relative</em>
- * to the strengthening conjuncts the CHC encoding adds to the rule bodies
- * (e.g. {@code I = NOT(p >= k)} on a conservation cycle), so checking {@code I}
- * alone against the bare step relation would reject genuine certificates.
- * Folding the equalities into the candidate — instead of into {@code T} — keeps
- * the layer independent: VC1 re-proves each equality at {@code M0} and VC2
- * re-proves its preservation under the unstrengthened relation, so a
- * numerically wrong invariant fails VC1 or VC2 here regardless of what the
- * upstream computation claimed.
+ * <p>The certificate is the {@code (define-fun …)} block of the {@code (get-model)}
+ * reply, pasted verbatim: auxiliary definitions stay alongside {@code Reachable}, so
+ * every name resolves in the fresh script. The three VCs run under
+ * {@code (push)}/{@code (pop)} in ONE script; the emitted text is byte-identical to the
+ * Rust reference ({@code certificate_check.rs}).
  *
- * <p><b>Independence:</b> VC2 uses the step relation WITHOUT the P-invariant
- * strengthening conjuncts that the CHC encoding adds to the transition-rule
- * bodies. Nothing produced by the P-invariant computation is assumed: what is
- * folded into the candidate is proven from scratch by the VCs themselves.
- *
- * <p><b>Certificate extraction:</b> {@code getAnswer()} typically yields a
- * universally quantified definition — possibly inside a conjunction of
- * per-relation definitions — whose body relates {@code Reachable(vars)} to the
- * invariant formula via {@code =}, {@code iff}, {@code =>}, or the clausal
- * {@code (or (not (Reachable vars)) ...)} rendering. The bound-variable-to-place
- * mapping is recovered from the argument positions of the {@code Reachable}
- * application itself (Z3 de Bruijn indices number bound variables from the
- * innermost/last one), so the checker is correct for any variable ordering
- * Spacer emits. The ground shape — {@code Reachable(1, 0) = phi} with no
- * quantifier — is accepted too, by substituting the head's argument terms
- * positionally. Anything unrecognized yields {@link Result.Unavailable} — never
- * a false PASSED.
- *
- * <p>This class never throws: every Z3 or parsing failure becomes a
- * {@link Result.Unavailable}, which the caller maps to an UNKNOWN verdict.
+ * <p>This class never throws: a malformed certificate, a solver spawn failure, an
+ * errored assert, a truncated reply all become {@link Result.Unavailable}, which the
+ * caller maps to an UNKNOWN verdict.
  */
 public final class CertificateChecker {
 
@@ -107,9 +89,9 @@ public final class CertificateChecker {
         record Failed(Vc vc, String detail) implements Result {}
 
         /**
-         * The check could not run: missing or unparseable Spacer answer, or a Z3
-         * failure. Treated like a failure by the caller (the verdict is not
-         * certified), but no specific VC is implicated.
+         * The check could not run to a verdict: a missing or malformed certificate, a
+         * solver failure, an errored assert. Treated like a failure by the caller (the
+         * verdict is not certified), but no specific VC is implicated.
          *
          * @param reason why the certificate could not be checked
          */
@@ -117,360 +99,340 @@ public final class CertificateChecker {
     }
 
     /**
-     * Checks the Spacer certificate against the three verification conditions.
+     * Re-verifies an extracted proof certificate against the unstrengthened step
+     * relation.
      *
-     * @param ctx            the Z3 context the answer belongs to (must still be open)
-     * @param answer         the raw {@code Fixedpoint.getAnswer()} expression (may be null)
-     * @param reachableDecl  the {@code Reachable} relation declaration from the encoding
+     * @param certificate    the {@code (define-fun …)} block extracted verbatim from
+     *                       the Spacer model
      * @param flatNet        the flattened net the CHC system was encoded from
      * @param initialMarking the initial marking (VC1)
      * @param property       the verified property (VC3 uses its violation predicate)
      * @param sinkPlaces     expected terminal places (part of the deadlock violation predicate)
-     * @param invariants     validated P-invariants folded into the candidate
-     *                       {@code R' = I AND invs} and re-proven by VC1/VC2 (not trusted)
-     * @param timeout        per-VC solver timeout (null or zero = no limit)
+     * @param invariants     validated P-invariants folded into the candidate and re-proven
+     * @param solver         the resolved z3 executable
+     * @param timeout        per-invocation solver budget
      * @return the check outcome; never throws
      */
     public static Result check(
-            Context ctx,
-            Expr<?> answer,
-            FuncDecl<BoolSort> reachableDecl,
+            String certificate,
             FlatNet flatNet,
             MarkingState initialMarking,
             SmtProperty property,
-            Set<Place<?>> sinkPlaces,
+            Collection<Place<?>> sinkPlaces,
             List<PInvariant> invariants,
+            Z3Solver solver,
             Duration timeout
     ) {
         try {
-            return doCheck(ctx, answer, reachableDecl, flatNet, initialMarking, property, sinkPlaces, invariants, timeout);
-        } catch (Z3Exception e) {
-            return new Result.Unavailable("Z3 exception during certificate check: " + e.getMessage());
+            return doCheck(certificate, flatNet, initialMarking, property, sinkPlaces,
+                invariants, solver, timeout);
         } catch (RuntimeException e) {
             return new Result.Unavailable("unexpected error during certificate check: " + e);
         }
     }
 
     private static Result doCheck(
-            Context ctx,
-            Expr<?> answer,
-            FuncDecl<BoolSort> reachableDecl,
-            FlatNet flatNet,
-            MarkingState initialMarking,
-            SmtProperty property,
-            Set<Place<?>> sinkPlaces,
-            List<PInvariant> invariants,
-            Duration timeout
+            String certificate, FlatNet flatNet, MarkingState initialMarking,
+            SmtProperty property, Collection<Place<?>> sinkPlaces, List<PInvariant> invariants,
+            Z3Solver solver, Duration timeout
     ) {
-        if (answer == null) {
-            return new Result.Unavailable("Spacer produced no certificate (getAnswer() returned null)");
-        }
-        int P = flatNet.placeCount();
-
-        ParsedCertificate cert = parse(ctx, answer, reachableDecl, P);
-        if (cert == null) {
+        if (certificate == null) {
             return new Result.Unavailable(
-                "could not extract the Reachable invariant from the Spacer answer: " + abbreviate(answer));
+                "no inductive invariant (define-fun block) could be extracted from the z3 model");
+        }
+        String shape = shapeFailure(flatNet, invariants);
+        if (shape != null) {
+            return new Result.Unavailable(shape);
+        }
+        if (!certificate.contains("(define-fun Reachable ")
+                && !certificate.contains("(define-fun |Reachable| ")) {
+            return new Result.Unavailable("certificate does not define Reachable");
         }
 
-        // Fresh integer constants standing for an arbitrary current/next marking.
-        Expr<IntSort>[] cur = new Expr[P];
-        Expr<IntSort>[] next = new Expr[P];
-        for (int i = 0; i < P; i++) {
-            cur[i] = ctx.mkIntConst("cert_m" + i);
-            next[i] = ctx.mkIntConst("cert_mp" + i);
+        var vcs = VerificationConditions.build(
+            certificate, flatNet, initialMarking, property, sinkPlaces, invariants);
+
+        List<String> results;
+        try {
+            results = runVcScript(vcs.script(), timeout, solver);
+        } catch (Z3Process.Z3ProcessException | VcFailure e) {
+            return new Result.Unavailable(e.getMessage());
         }
-
-        // Candidate R'(M) = I(M) AND invs(M): Spacer's invariant conjoined with the
-        // validated P-invariant equalities. The equalities are RE-PROVEN here — VC1
-        // establishes them at M0, VC2 their preservation under the unstrengthened
-        // step relation — never assumed.
-        BoolExpr candCur = ctx.mkAnd(
-            cert.instantiate(ctx, cur, "cur"),
-            SmtEncoder.encodeInvariantConstraints(ctx, invariants, cur, P));
-        BoolExpr candNext = ctx.mkAnd(
-            cert.instantiate(ctx, next, "next"),
-            SmtEncoder.encodeInvariantConstraints(ctx, invariants, next, P));
-
-        // VC1 (init): R'(M0) — assert NOT R'(M0), require UNSAT.
-        Expr<IntSort>[] m0 = new Expr[P];
-        for (int i = 0; i < P; i++) {
-            m0[i] = ctx.mkInt(initialMarking.tokens(flatNet.places().get(i)));
+        Vc[] order = Vc.values();
+        for (int i = 0; i < results.size(); i++) {
+            if (!results.get(i).equals("unsat")) {
+                return new Result.Failed(order[i],
+                    vcs.detailFor(i, results.get(i), flatNet, timeout, solver));
+            }
         }
-        BoolExpr candInit = ctx.mkAnd(
-            cert.instantiate(ctx, m0, "init"),
-            SmtEncoder.encodeInvariantConstraints(ctx, invariants, m0, P));
-        Result vc1 = checkUnsat(ctx, Vc.INIT, timeout, flatNet, cur, ctx.mkNot(candInit));
-        if (vc1 != null) {
-            return vc1;
-        }
-
-        // Domain constraint for VC2/VC3: a marking is a vector of token COUNTS, so
-        // the free constants stand for a state in N^P, not Z^P. The step relation
-        // only constrains M' (encodeNonNegativity on mPrimeVars), so without this
-        // conjunct a certificate that is inductive over N^P — the only claim it
-        // makes — is refuted by a negative "predecessor" and a correct PROVEN is
-        // downgraded.
-        BoolExpr nonNegCur = SmtEncoder.encodeNonNegativity(ctx, cur, P);
-
-        // VC2 (consecution): R'(M) AND M >= 0 AND T(M,M') AND NOT R'(M'), with T the
-        // UNSTRENGTHENED step relation (no P-invariant conjuncts).
-        BoolExpr step = SmtEncoder.encodeStepRelation(ctx, flatNet, cur, next);
-        Result vc2 = checkUnsat(ctx, Vc.CONSECUTION, timeout, flatNet, cur,
-            candCur, nonNegCur, step, ctx.mkNot(candNext));
-        if (vc2 != null) {
-            return vc2;
-        }
-
-        // VC3 (safety): R'(M) AND M >= 0 AND Bad(M), same violation predicate as the
-        // Error rule.
-        BoolExpr bad = SmtEncoder.encodePropertyViolation(ctx, flatNet, property, sinkPlaces, cur, P);
-        Result vc3 = checkUnsat(ctx, Vc.SAFETY, timeout, flatNet, cur, candCur, nonNegCur, bad);
-        if (vc3 != null) {
-            return vc3;
-        }
-
         return new Result.Passed();
     }
 
     /**
-     * Checks one VC with a plain solver. Returns {@code null} on UNSAT (the VC
-     * holds) or a {@link Result.Failed} naming the VC otherwise.
+     * The certificate-check script for the given inputs, exactly as {@link #check}
+     * would send it (VER-013 script parity): what the cross-language golden tests diff.
      */
-    private static Result checkUnsat(
-            Context ctx, Vc vc, Duration timeout, FlatNet flatNet,
-            Expr<IntSort>[] cur, BoolExpr... assertions
+    public static String vcScript(
+            String certificate, FlatNet flatNet, MarkingState initialMarking,
+            SmtProperty property, Collection<Place<?>> sinkPlaces, List<PInvariant> invariants
     ) {
-        Solver solver = ctx.mkSolver();
-        if (timeout != null && !timeout.isZero()) {
-            Params params = ctx.mkParams();
-            params.add("timeout", (int) Math.min(timeout.toMillis(), Integer.MAX_VALUE));
-            solver.setParameters(params);
-        }
-        solver.add(assertions);
-        Status status = solver.check();
-        if (status == Status.UNSATISFIABLE) {
-            return null;
-        }
-        String detail = "solver returned " + status;
-        if (status == Status.SATISFIABLE) {
-            String witness = describeWitness(solver, flatNet, cur);
-            if (witness != null) {
-                detail += " (witness: " + witness + ")";
-            }
-        } else {
-            try {
-                detail += " (" + solver.getReasonUnknown() + ")";
-            } catch (Z3Exception _) {
-                // Reason not available; the plain status is enough.
-            }
-        }
-        return new Result.Failed(vc, detail);
+        return VerificationConditions.build(
+            certificate, flatNet, initialMarking, property, sinkPlaces, invariants).script();
     }
 
-    /** Compact witness marking (place=value pairs) from a SAT model; null if unavailable. */
-    private static String describeWitness(Solver solver, FlatNet flatNet, Expr<IntSort>[] cur) {
-        try {
-            Model model = solver.getModel();
-            var sb = new StringBuilder();
-            for (int i = 0; i < cur.length; i++) {
-                Expr<?> value = model.evaluate(cur[i], false);
-                if (value == null || !value.isIntNum()) {
-                    continue;
-                }
-                if (!sb.isEmpty()) {
-                    sb.append(", ");
-                }
-                sb.append(flatNet.places().get(i).name()).append("=").append(value);
-                if (sb.length() > 160) {
-                    sb.append(", ...");
-                    break;
+    /** Why the net and invariants cannot be indexed safely, or {@code null}. */
+    private static String shapeFailure(FlatNet flatNet, List<PInvariant> invariants) {
+        int p = flatNet.placeCount();
+        for (var inv : invariants) {
+            if (inv.weights().length != p) {
+                return "P-invariant has " + inv.weights().length + " weights for a " + p + "-place net";
+            }
+            for (int pid : inv.support()) {
+                if (pid >= p || pid < 0) {
+                    return "P-invariant support names place index " + pid + " in a " + p + "-place net";
                 }
             }
-            return sb.isEmpty() ? null : sb.toString();
-        } catch (Z3Exception _) {
-            return null;
         }
+        return null;
     }
 
-    // === Certificate extraction ===
+    /** A VC run that could not be trusted; the message is the reason. */
+    private static final class VcFailure extends Exception {
+        VcFailure(String message) {
+            super(message);
+        }
+    }
 
     /**
-     * The invariant formula with its quantifier's bound variables still in de
-     * Bruijn form, plus the mapping from de Bruijn index to place index
-     * (recovered from the {@code Reachable(vars)} argument positions).
-     *
-     * @param phi             invariant body (bound variables unresolved); null means {@code true}
-     * @param numBound        number of bound variables of the enclosing quantifier
-     *                        (0 for the ground shape)
-     * @param varIndexToPlace de Bruijn index -&gt; place index; -1 for a bound
-     *                        variable that does not appear in the Reachable head
-     * @param groundArgs      the head's argument terms for the ground shape
-     *                        (argument j is place j); null when {@code numBound > 0}
+     * Runs one plain-SMT script and returns the three positional {@code (check-sat)}
+     * answers. Both output channels are inspected: an {@code (error …)} on EITHER
+     * stream means an assert was dropped, which would silently make a VC vacuous; a
+     * {@code timeout} line, a watchdog kill and a non-success exit mean the run did not
+     * complete. Only a clean three-answer stdout counts.
      */
-    private record ParsedCertificate(
-        Expr<BoolSort> phi, int numBound, int[] varIndexToPlace, Expr<?>[] groundArgs
-    ) {
+    private static List<String> runVcScript(String script, Duration timeout, Z3Solver solver)
+            throws Z3Process.Z3ProcessException, VcFailure {
+        var reply = solver.run(script, "certificate", timeout, List.of());
+        long timeoutMs = Z3Solver.timeoutMs(timeout);
+        String err = SmtText.errorLine(reply.stderr());
+        if (err != null) {
+            throw new VcFailure("z3 reported an error on stderr: " + err);
+        }
+        if (SmtText.timeoutLine(reply.stdout())) {
+            throw new VcFailure("z3 hard timeout after " + Z3Process.hardTimeoutSecs(timeoutMs)
+                + "s while checking the certificate");
+        }
+        if (reply.exit() instanceof Z3Process.Exit.Killed) {
+            throw new VcFailure("z3 did not exit within " + Z3Process.watchdogMs(timeoutMs)
+                + " ms while checking the certificate and was killed");
+        }
+        List<String> results = parseVcResults(reply.stdout());
+        if (!reply.success()) {
+            String status = reply.exit() instanceof Z3Process.Exit.Exited(int code)
+                ? "exit status: " + code
+                : "the watchdog kill";
+            throw new VcFailure("z3 exited with " + status + " after answering " + results);
+        }
+        return results;
+    }
+
+    /**
+     * Parses the three positional {@code (check-sat)} answers. Any {@code (error …)}
+     * line fails the check outright (an errored assert silently vanishes from the
+     * query, which could leave a VC vacuous); a {@code timeout} line is z3's {@code -T}
+     * backstop, not a fourth answer.
+     */
+    static List<String> parseVcResults(String stdout) throws VcFailure {
+        String err = SmtText.errorLine(stdout);
+        if (err != null) {
+            throw new VcFailure("z3 error while checking the certificate: " + err);
+        }
+        if (SmtText.timeoutLine(stdout)) {
+            throw new VcFailure("z3 hard timeout while checking the certificate");
+        }
+        List<String> results = stdout.lines()
+            .map(String::strip)
+            .filter(l -> l.equals("sat") || l.equals("unsat") || l.equals("unknown"))
+            .toList();
+        if (results.size() != 3) {
+            throw new VcFailure("expected 3 VC answers from z3, got " + results.size() + ": " + results);
+        }
+        return results;
+    }
+
+    /**
+     * The assembled VC script, kept in parts so one VC can be re-run alone to describe
+     * its failure (the model witness / the unknown reason).
+     */
+    private record VerificationConditions(List<String> prelude, List<List<String>> asserts) {
+
+        static VerificationConditions build(
+                String certificate, FlatNet flatNet, MarkingState initialMarking,
+                SmtProperty property, Collection<Place<?>> sinkPlaces, List<PInvariant> invariants
+        ) {
+            int p = flatNet.placeCount();
+            var mVars = new ArrayList<String>(p);
+            var mpVars = new ArrayList<String>(p);
+            for (int i = 0; i < p; i++) {
+                mVars.add("m" + i);
+                mpVars.add("m" + i + "p");
+            }
+
+            var prelude = new ArrayList<String>();
+            prelude.add("; IC3/PDR certificate check (plain SMT-LIB2, not HORN):");
+            prelude.add("; each VC below must be unsat for the certificate to stand.");
+            prelude.add(certificate);
+            prelude.add("");
+            for (var v : mVars) {
+                prelude.add("(declare-const " + v + " Int)");
+            }
+            for (var v : mpVars) {
+                prelude.add("(declare-const " + v + " Int)");
+            }
+
+            // VC1 (init): the initial marking satisfies the candidate invariant.
+            var m0 = new ArrayList<String>(p);
+            for (int i = 0; i < p; i++) {
+                m0.add(Integer.toString(initialMarking.tokens(flatNet.places().get(i))));
+            }
+            var vc1 = new ArrayList<String>();
+            vc1.add("(assert (not " + candidate(m0, invariants) + "))");
+
+            // The system lives in N^P, not Z^P: without this the VCs run over
+            // negative markings the net can never hold.
+            var nonNegative = new ArrayList<String>();
+            for (var v : mVars) {
+                nonNegative.add("(assert (>= " + v + " 0))");
+            }
+
+            // VC2 (consecution): closed under the unstrengthened step relation.
+            String step = SmtEncoder.encodeStepRelationSmt2(flatNet);
+            var vc2 = new ArrayList<>(nonNegative);
+            vc2.add("(assert " + candidate(mVars, invariants) + ")");
+            vc2.add("(assert " + step + ")");
+            vc2.add("(assert (not " + candidate(mpVars, invariants) + "))");
+
+            // VC3 (safety): excludes every property-violating state, exactly the
+            // violation the CHC error rule encodes.
+            String bad = SmtEncoder.encodePropertyViolation(
+                flatNet, property, mVars, sinkPlaces, SmtEncoder.resolveEnvInjection(flatNet));
+            var vc3 = new ArrayList<>(nonNegative);
+            vc3.add("(assert " + candidate(mVars, invariants) + ")");
+            vc3.add("(assert " + bad + ")");
+
+            return new VerificationConditions(prelude, List.of(vc1, vc2, vc3));
+        }
+
+        /** The full script: the prelude, then the three VCs under push/pop. */
+        String script() {
+            var lines = new ArrayList<>(prelude);
+            Vc[] labels = Vc.values();
+            for (int i = 0; i < asserts.size(); i++) {
+                lines.add("");
+                lines.add("; VC" + (i + 1) + " " + labels[i].label());
+                lines.add("(push)");
+                lines.addAll(asserts.get(i));
+                lines.add("(check-sat)");
+                lines.add("(pop)");
+            }
+            return String.join("\n", lines);
+        }
 
         /**
-         * Instantiates the invariant at the given marking vector. Z3's
-         * {@code substituteVars} replaces the variable with de Bruijn index
-         * {@code i} by {@code to[i]}, and index 0 is the LAST bound variable —
-         * the mapping recovered from the Reachable head absorbs that ordering,
-         * so no positional assumption is made here. In the ground shape the
-         * head's argument terms are replaced positionally instead (one
-         * simultaneous substitution, so no cascading).
+         * Describes VC {@code i}'s non-{@code unsat} answer for the downgrade reason,
+         * by re-running that VC alone with model/reason extraction enabled. Best
+         * effort: without it the answer is still named.
          */
-        BoolExpr instantiate(Context ctx, Expr<IntSort>[] marking, String tag) {
-            if (phi == null) {
-                return ctx.mkTrue();
+        String detailFor(int i, String answer, FlatNet flatNet, Duration timeout, Z3Solver solver) {
+            var lines = new ArrayList<String>();
+            lines.add("(set-option :produce-models true)");
+            lines.addAll(prelude);
+            lines.addAll(asserts.get(i));
+            lines.add("(check-sat)");
+            lines.add(answer.equals("sat") ? "(get-model)" : "(get-info :reason-unknown)");
+            String reply;
+            try {
+                reply = solver.run(String.join("\n", lines), "certificate-detail", timeout, List.of())
+                    .stdout();
+            } catch (Z3Process.Z3ProcessException _) {
+                reply = "";
             }
-            if (numBound == 0) {
-                return groundArgs == null || groundArgs.length == 0
-                    ? (BoolExpr) phi
-                    : (BoolExpr) phi.substitute(groundArgs, marking);
+            if (answer.equals("sat")) {
+                String w = witness(reply, flatNet);
+                return w == null
+                    ? "solver returned SATISFIABLE"
+                    : "solver returned SATISFIABLE (witness: " + w + ")";
             }
-            Expr<?>[] to = new Expr[numBound];
-            for (int i = 0; i < numBound; i++) {
-                to[i] = varIndexToPlace[i] >= 0
-                    ? marking[varIndexToPlace[i]]
-                    // A bound variable that never occurs in the Reachable head:
-                    // substitute a fresh constant. Solver constants are implicitly
-                    // existential and every VC asserts a negated claim, so this
-                    // still checks the original universal statement.
-                    : ctx.mkIntConst("cert_free_" + tag + "_" + i);
-            }
-            return (BoolExpr) phi.substituteVars(to);
+            String r = reasonUnknown(reply);
+            return r == null ? "solver returned UNKNOWN" : "solver returned UNKNOWN (" + r + ")";
         }
-    }
-
-    /** Unpacks the Fixedpoint answer; null if no Reachable definition is recognized. */
-    private static ParsedCertificate parse(
-            Context ctx, Expr<?> answer, FuncDecl<BoolSort> reachableDecl, int P
-    ) {
-        // The answer may be a single definition or a conjunction of per-relation
-        // definitions (e.g. Reachable and Error).
-        Expr<?>[] candidates = answer.isAnd() ? answer.getArgs() : new Expr<?>[] {answer};
-        for (Expr<?> candidate : candidates) {
-            ParsedCertificate parsed;
-            if (candidate instanceof Quantifier q && q.isUniversal()) {
-                parsed = parseDefinition(ctx, q.getBody(), q.getNumBound(), reachableDecl, P);
-            } else {
-                parsed = parseDefinition(ctx, candidate, 0, reachableDecl, P);
-            }
-            if (parsed != null) {
-                return parsed;
-            }
-        }
-        return null;
-    }
-
-    /** Recognizes one definition body shape; null if it does not define Reachable. */
-    private static ParsedCertificate parseDefinition(
-            Context ctx, Expr<?> body, int numBound, FuncDecl<BoolSort> reachableDecl, int P
-    ) {
-        if (!body.isApp()) {
-            return null;
-        }
-
-        // Shape 1: Reachable(vars) on either side of =, iff, or => — Spacer emits
-        // all three across versions. The other side is the invariant formula. For
-        // =>, only `Reachable(vars) => phi` is a certificate (phi over-approximates
-        // the reachable states); `phi => Reachable(vars)` is an under-approximation
-        // and is rejected.
-        if ((body.isEq() || body.isIff() || body.isImplies()) && body.getNumArgs() == 2) {
-            Expr<?> lhs = body.getArgs()[0];
-            Expr<?> rhs = body.getArgs()[1];
-            if (isReachableApp(lhs, reachableDecl, P)) {
-                return fromHeadAndPhi(lhs, rhs, numBound);
-            }
-            if (!body.isImplies() && isReachableApp(rhs, reachableDecl, P)) {
-                return fromHeadAndPhi(rhs, lhs, numBound);
-            }
-            return null;
-        }
-
-        // Shape 2: clausal implication (or ... (not (Reachable vars)) ...) — the
-        // remaining literals form the invariant.
-        if (body.isOr()) {
-            Expr<?>[] args = body.getArgs();
-            for (int i = 0; i < args.length; i++) {
-                Expr<?> a = args[i];
-                if (a.isNot() && a.getNumArgs() == 1 && isReachableApp(a.getArgs()[0], reachableDecl, P)) {
-                    Expr<?>[] rest = new Expr<?>[args.length - 1];
-                    int k = 0;
-                    for (int j = 0; j < args.length; j++) {
-                        if (j != i) {
-                            rest[k++] = args[j];
-                        }
-                    }
-                    Expr<?> phi = rest.length == 1
-                        ? rest[0]
-                        : ctx.mkOr(Arrays.copyOf(rest, rest.length, BoolExpr[].class));
-                    return fromHeadAndPhi(a.getArgs()[0], phi, numBound);
-                }
-            }
-            return null;
-        }
-
-        // Shape 3: bare `forall vars. Reachable(vars)` — the trivial invariant `true`.
-        if (isReachableApp(body, reachableDecl, P)) {
-            return fromHeadAndPhi(body, null, numBound);
-        }
-        return null;
     }
 
     /**
-     * Builds the de-Bruijn-index-to-place mapping from the argument positions of
-     * the {@code Reachable} application: argument {@code j} is place {@code j},
-     * and its de Bruijn index tells which bound variable stands for it. Rejects
-     * (returns null) heads whose arguments are not plain distinct bound
-     * variables — an inverted mapping cannot be recovered from those.
-     *
-     * <p>Without an enclosing quantifier ({@code numBound == 0}) the head is
-     * ground, e.g. {@code Reachable(1, 0)}: the argument terms themselves are
-     * kept and substituted positionally at instantiation. Discarding this shape
-     * would throw away a valid proof.
+     * Reads the current-marking assignment out of a {@code (get-model)} reply as
+     * {@code p0=2, p1=1} (place names, index order); {@code null} when no {@code m_i}
+     * was defined.
      */
-    private static ParsedCertificate fromHeadAndPhi(Expr<?> head, Expr<?> phi, int numBound) {
-        Expr<?>[] args = head.getArgs();
-        @SuppressWarnings("unchecked")
-        Expr<BoolSort> typedPhi = (Expr<BoolSort>) phi;
-        if (numBound == 0) {
-            for (Expr<?> arg : args) {
-                if (arg.isVar()) {
-                    return null; // a de Bruijn variable with no quantifier to bind it
+    static String witness(String model, FlatNet flatNet) {
+        var parts = new ArrayList<String>();
+        for (int i = 0; i < flatNet.placeCount(); i++) {
+            String needle = "(define-fun m" + i + " () Int";
+            int at = model.indexOf(needle);
+            if (at < 0) {
+                continue;
+            }
+            String rest = model.substring(at + needle.length()).stripLeading();
+            String value;
+            if (rest.startsWith("(")) {
+                int end = SmtText.sexprEnd(rest, 0);
+                if (end < 0) {
+                    continue;
                 }
+                // A negative literal prints as `(- 1)`; flatten it back to `-1`.
+                value = String.join("", rest.substring(1, end - 1).trim().split("\\s+"));
+            } else {
+                int end = 0;
+                while (end < rest.length()
+                        && !Character.isWhitespace(rest.charAt(end)) && rest.charAt(end) != ')') {
+                    end++;
+                }
+                if (end == 0) {
+                    continue;
+                }
+                value = rest.substring(0, end);
             }
-            return new ParsedCertificate(typedPhi, 0, new int[0], args.clone());
+            parts.add(flatNet.places().get(i).name() + "=" + value);
         }
-        int[] varIndexToPlace = new int[numBound];
-        Arrays.fill(varIndexToPlace, -1);
-        for (int j = 0; j < args.length; j++) {
-            Expr<?> arg = args[j];
-            if (!arg.isVar()) {
-                return null;
-            }
-            int deBruijn = arg.getIndex();
-            if (deBruijn < 0 || deBruijn >= numBound || varIndexToPlace[deBruijn] != -1) {
-                return null;
-            }
-            varIndexToPlace[deBruijn] = j;
-        }
-        return new ParsedCertificate(typedPhi, numBound, varIndexToPlace, null);
+        return parts.isEmpty() ? null : String.join(", ", parts);
     }
 
-    /** Whether {@code e} is an application of the Reachable relation with full arity. */
-    private static boolean isReachableApp(Expr<?> e, FuncDecl<BoolSort> reachableDecl, int P) {
-        if (!e.isApp() || e.getNumArgs() != P) {
-            return false;
+    /** Reads z3's {@code (get-info :reason-unknown)} reply, e.g. {@code timeout}. */
+    static String reasonUnknown(String reply) {
+        int at = reply.indexOf(":reason-unknown");
+        if (at < 0) {
+            return null;
         }
-        FuncDecl<?> decl = e.getFuncDecl();
-        return decl.equals(reachableDecl) || "Reachable".equals(decl.getName().toString());
+        String rest = reply.substring(at + ":reason-unknown".length()).stripLeading();
+        int end = rest.indexOf(')');
+        if (end < 0) {
+            return null;
+        }
+        String reason = rest.substring(0, end).strip();
+        if (reason.startsWith("\"") && reason.endsWith("\"") && reason.length() >= 2) {
+            reason = reason.substring(1, reason.length() - 1);
+        }
+        reason = reason.strip();
+        return reason.isEmpty() ? null : reason;
     }
 
-    private static String abbreviate(Expr<?> answer) {
-        String s = String.valueOf(answer);
-        return s.length() <= 200 ? s : s.substring(0, 200) + "...";
+    /**
+     * The candidate invariant applied to a variable (or literal) vector:
+     * {@code R'(vars) = (Reachable vars) AND Inv(vars)}.
+     */
+    private static String candidate(List<String> vars, List<PInvariant> invariants) {
+        var conjuncts = new ArrayList<String>();
+        conjuncts.add("(Reachable " + String.join(" ", vars) + ")");
+        conjuncts.addAll(SmtEncoder.invariantConditions(invariants, vars));
+        return SmtEncoder.conjoin(conjuncts);
     }
 }

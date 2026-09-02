@@ -265,9 +265,9 @@ in the `(get-proof)` reply, ordered only by the replay ([VER-003]).
    exits each yield `Unknown` with a distinct reason and leave no solver process behind.
 5. A reply preceded by a banner of arbitrary size on either stream is classified by its verdict
    line.
-6. The report carries `  Solver: z3 <version>` after the `Property:` line, or
-   `  Solver: z3 unavailable (<reason>)` followed by `Result: UNKNOWN (<reason>)` when no
-   solver resolved.
+6. The report carries `  Solver: z3 <version>` in its solver phase, or
+   `  Solver: z3 unavailable (<reason>)` followed by the implementation's `UNKNOWN` result
+   line naming the same reason when no solver resolved.
 
 **Implementation notes:**
 - Rust: `libpetri-verification` `z3_process` (`Z3Solver::resolve` / `Z3Solver::run`);

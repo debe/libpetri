@@ -26,7 +26,7 @@ public final class PInvariantComputer {
      * @param matrix  the incidence matrix
      * @param flatNet the flat net (for place info)
      * @param initialMarking the initial marking (for computing constants)
-     * @return list of semi-positive P-invariants
+     * @return the null-space basis of conservation laws (signed, GCD-normalised)
      */
     public static List<PInvariant> compute(IncidenceMatrix matrix, FlatNet flatNet, MarkingState initialMarking) {
         return computeChecked(matrix, flatNet, initialMarking).valid();
@@ -46,7 +46,7 @@ public final class PInvariantComputer {
      * @param matrix  the incidence matrix
      * @param flatNet the flat net (for place info and drop-reason place names)
      * @param initialMarking the initial marking (for computing constants)
-     * @return the extracted semi-positive P-invariants plus one reason per drop
+     * @return the extracted P-invariants plus one reason per drop
      */
     public static Validation computeChecked(
             IncidenceMatrix matrix, FlatNet flatNet, MarkingState initialMarking) {
@@ -137,11 +137,13 @@ public final class PInvariantComputer {
                 if (weightsL[i] < 0) hasNegative = true;
             }
 
-            // We want semi-positive invariants (all weights >= 0, at least one > 0);
-            // a semi-negative row is the same law negated.
-            if (hasPositive && hasNegative) continue;
+            // A signed null-space basis, exactly as the Rust reference computes it
+            // (VER-013 script parity): a mixed-sign row is a conservation law like any
+            // other and passes the same exact gate; a semi-negative row is the same law
+            // negated. Non-negativity is only required of the P-semiflows that bound
+            // the colour slots (computePSemiflows), never of the strengthening laws.
             if (!hasPositive && !hasNegative) continue;
-            if (hasNegative) {
+            if (!hasPositive) {
                 for (int i = 0; i < P; i++) {
                     weightsL[i] = -weightsL[i];
                 }
@@ -158,9 +160,8 @@ public final class PInvariantComputer {
                 }
             }
 
-            // Narrow to int and accumulate the constant with checked arithmetic: the
-            // weights are semi-positive and the token counts non-negative, so the sum
-            // is monotone and the first out-of-range step names the offending place.
+            // Narrow to int and accumulate the constant with checked arithmetic; the
+            // first out-of-range step names the offending place.
             int[] weights = new int[P];
             var support = new TreeSet<Integer>();
             long constant = 0;
@@ -181,7 +182,7 @@ public final class PInvariantComputer {
                     overflow = overflowReason(flatNet, i);
                     break;
                 }
-                if (constant > Integer.MAX_VALUE) {
+                if (constant > Integer.MAX_VALUE || constant < Integer.MIN_VALUE) {
                     overflow = overflowReason(flatNet, i);
                     break;
                 }
