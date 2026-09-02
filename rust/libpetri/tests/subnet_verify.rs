@@ -196,15 +196,11 @@ fn verify_input_generator_invoked_at_construction() {
 //  End-to-end SMT verification (gated on z3 feature + binary).
 // ============================================================
 
-/// Probe whether the `z3` binary is on PATH. Mirrors Java's
-/// `z3Available()` runtime guard.
+/// Probe whether a usable `z3` executable resolves (`PATH` or `LIBPETRI_Z3`,
+/// at or above the version floor). Mirrors Java's `z3Available()` guard.
 #[cfg(feature = "z3")]
 fn z3_binary_available() -> bool {
-    std::process::Command::new("z3")
-        .arg("-version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    libpetri::verification::smt_verifier::z3_available()
 }
 
 #[cfg(feature = "z3")]

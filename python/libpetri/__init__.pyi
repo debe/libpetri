@@ -94,6 +94,7 @@ from .verification import (
     unreachable as unreachable,
     verify as verify,
     verify_subnet as verify_subnet,
+    z3_available as z3_available,
 )
 
 CallbackError = _libpetri.CallbackError

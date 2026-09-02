@@ -451,6 +451,21 @@ fn py_verify_net(
     }
 }
 
+/// True when a usable `z3` executable resolves (`LIBPETRI_Z3` if set, else
+/// `z3` on `PATH`, at or above the version floor). `HAS_Z3` says whether the
+/// wheel was BUILT with the SMT surface; this says whether it can run.
+#[pyfunction(name = "z3_available")]
+fn py_z3_available() -> bool {
+    #[cfg(feature = "z3")]
+    {
+        libpetri::verification::smt_verifier::z3_available()
+    }
+    #[cfg(not(feature = "z3"))]
+    {
+        false
+    }
+}
+
 /// Verifies all properties in `harness` against `subnet`. The harness's
 /// input suppliers and channels are wired into a closed synthetic net.
 #[pyfunction(name = "verify_subnet")]
@@ -529,5 +544,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_joined_or_dead_lettered, m)?)?;
     m.add_function(wrap_pyfunction!(py_verify_net, m)?)?;
     m.add_function(wrap_pyfunction!(py_verify_subnet, m)?)?;
+    m.add_function(wrap_pyfunction!(py_z3_available, m)?)?;
     Ok(())
 }

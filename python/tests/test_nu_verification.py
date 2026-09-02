@@ -12,20 +12,18 @@ feature (Route B itself is solver-free, but the Python entry point is gated with
 the rest of the SMT surface).
 """
 
-import shutil
-
 import libpetri as lp
 import pytest
 
 pytestmark = pytest.mark.skipif(not lp.HAS_Z3, reason="z3 feature not enabled")
 
 # ``lp.HAS_Z3`` is the compile feature; the Route A coloured quiescence path
-# (NU-053) shells out to the ``z3`` BINARY, which is separate. Skip the
-# binary-driven nu053_* tests when the binary is absent so they cleanly SKIP (not
-# fail), matching the Rust/Java clean-skip when z3 is not on PATH.
-_HAS_Z3_BINARY = shutil.which("z3") is not None
+# (NU-053) shells out to the ``z3`` executable, which is separate
+# (``lp.z3_available()``, VER-013). Skip the binary-driven nu053_* tests when it
+# is absent so they cleanly SKIP (not fail), matching the Rust/Java clean-skip.
+_HAS_Z3_BINARY = lp.z3_available()
 _needs_z3_binary = pytest.mark.skipif(
-    not _HAS_Z3_BINARY, reason="z3 binary not on PATH (Route A coloured encoder)"
+    not _HAS_Z3_BINARY, reason="no usable z3 executable (Route A coloured encoder)"
 )
 
 

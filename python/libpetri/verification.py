@@ -230,6 +230,19 @@ def verify_subnet(subnet: BuiltSubnetDef, harness) -> SubnetVerificationResult:
     return _ext.verify_subnet(_coerce_subnet(subnet), _coerce_harness(harness))
 
 
+def z3_available() -> bool:
+    """Whether SMT verification can actually run on this machine.
+
+    The verifier shells out to a ``z3`` executable (VER-013): ``LIBPETRI_Z3``
+    if set, else ``z3`` on ``PATH``, version 4.8.0 or newer. ``libpetri.HAS_Z3``
+    only says the wheel was *built* with the SMT surface; without a usable
+    binary every :func:`verify` call returns ``unknown`` with a reason naming
+    the command and the variable. Set ``LIBPETRI_SMT_DUMP`` to a directory to
+    keep every script and solver reply.
+    """
+    return bool(_ext.z3_available())
+
+
 __all__ = [
     "EnvironmentAnalysisMode",
     "PropertyResult",
@@ -248,4 +261,5 @@ __all__ = [
     "unreachable",
     "verify",
     "verify_subnet",
+    "z3_available",
 ]
