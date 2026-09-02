@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { it, expect, vi } from 'vitest';
 import { SmtVerifier } from '../../src/verification/smt-verifier.js';
 import { MarkingState } from '../../src/verification/marking-state.js';
 import { placeBound } from '../../src/verification/smt-property.js';
@@ -8,13 +8,13 @@ import { place } from '../../src/core/place.js';
 import { one } from '../../src/core/in.js';
 import { outPlace } from '../../src/core/out.js';
 import { bindProducers } from '../fixtures/producing-actions.js';
+import { describeZ3 } from '../fixtures/z3.js';
 
-// All tests in this file require Z3 WASM which is slow to initialize.
 const Z3_TIMEOUT = 60_000;
 
 // Two seams reproduce the failure mode replay exists to catch: Spacer claims a
 // violation the encoded system cannot reach.
-//   1. the runner reports VIOLATED for a query that actually came back UNSAT;
+//   1. the runner reports VIOLATED for a query that actually came back proven;
 //   2. the decoder yields the initial marking as the only decoded state.
 // The net's whole abstract state space is then explored without hitting either
 // budget and no marking violates — a genuine `no-chain`, the ONLY outcome that
@@ -23,16 +23,10 @@ vi.mock('../../src/verification/z3/spacer-runner.js', async (importOriginal) => 
   const mod = await importOriginal<typeof import('../../src/verification/z3/spacer-runner.js')>();
   return {
     ...mod,
-    createSpacerRunner: async (timeoutMs: number) => {
-      const runner = await mod.createSpacerRunner(timeoutMs);
-      return {
-        ...runner,
-        query: async (errorExpr: any, reachableDecl?: any) => {
-          const result = await runner.query(errorExpr, reachableDecl);
-          if (result.type !== 'proven') return result;
-          return { type: 'violated' as const, answer: result.answer };
-        },
-      };
+    runZ3Spacer: async (solver: any, timeoutMs: number, smt2: string, phase: string) => {
+      const result = await mod.runZ3Spacer(solver, timeoutMs, smt2, phase);
+      if (result.type !== 'proven') return result;
+      return { type: 'violated' as const, answer: 'unsat' };
     },
   };
 });
@@ -41,11 +35,9 @@ vi.mock('../../src/verification/z3/counterexample-decoder.js', async (importOrig
   const mod = await importOriginal<typeof import('../../src/verification/z3/counterexample-decoder.js')>();
   return {
     ...mod,
-    decode: (_ctx: any, _answer: any, _flatNet: any) => ({
+    decode: (_answer: string, _flatNet: any) => ({
       states: new Set([MarkingState.builder().tokens(place('A'), 1).build()]),
-      trace: [],
-      transitions: [],
-      failure: null,
+      note: null,
     }),
   };
 });
@@ -58,7 +50,7 @@ function twoStepNet() {
   return { pA, pB, net: PetriNet.builder('TwoStep').transitions(t).build() };
 }
 
-describe('SmtVerifier replay downgrade (unchainable counterexample seam)', () => {
+describeZ3('SmtVerifier replay downgrade (unchainable counterexample seam)', () => {
   it('a counterexample with no firing chain downgrades the violated verdict to unknown', async () => {
     const { pA, pB, net } = twoStepNet();
 

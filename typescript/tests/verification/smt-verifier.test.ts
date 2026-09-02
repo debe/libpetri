@@ -16,12 +16,12 @@ import { matchSpec, matchKey } from '../../src/core/match-spec.js';
 import { nameId } from '../../src/core/name.js';
 import { alwaysAvailable, bounded, ignore } from '../../src/verification/analysis/environment-analysis-mode.js';
 import { bindProducers } from '../fixtures/producing-actions.js';
+import { describeZ3 } from '../fixtures/z3.js';
 
-// All tests in this file require Z3 WASM which is slow to initialize.
-// Tests are set to a generous timeout.
+// Solver-backed: every suite here skips without a usable z3 executable (VER-013).
 const Z3_TIMEOUT = 60_000;
 
-describe('SmtVerifier (Z3 integration)', () => {
+describeZ3('SmtVerifier (Z3 integration)', () => {
   it('circular net is deadlock-free', async () => {
     const pA = place('A');
     const pB = place('B');
@@ -430,7 +430,7 @@ describe('SmtVerifier (Z3 integration)', () => {
 // reachability-safety bounds (a `proven` holds for the real net) — so the
 // bounded-budget decidability lever is checkable today — but not for quiescence
 // properties, and not for unbounded fresh names.
-describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
+describeZ3('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
   // Structural scatter-gather: `fork` consumes a `budget` token and stamps a
   // `pending` token plus both branches; `join` correlates the branches by name,
   // consumes `pending`, and returns the `budget` token. The conservation laws
@@ -947,11 +947,15 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
   it('(NU-053) Route A detects the drain-steal stranding as a deadlock', async () => {
     // The EXTENDED drain can steal `a` and strand `b` under an unprioritised
     // schedule — a genuine reachable deadlock the coloured encoding must catch.
-    const { net, source, budget, merged, deadletter } = nu053StealNet();
+    // Sinks are {merged, budget} only: under VER-002 a quiescent marking is excused
+    // as soon as ANY declared sink holds a token, so declaring `deadletter` a sink
+    // would excuse the stranded-`b` marking (which also holds the dead-lettered
+    // token) and hide the stall. Same fixture and sinks as the Rust and Java tests.
+    const { net, source, budget, merged } = nu053StealNet();
     const result = await SmtVerifier.forNet(bindProducers(net))
       .initialMarking(m => { m.tokens(source, 1); m.tokens(budget, 1); })
       .property(deadlockFree())
-      .sinkPlaces(merged, budget, deadletter)
+      .sinkPlaces(merged, budget)
       .budgetPlaces(budget)
       .fragmentMode('extended')
       .nuMaxClasses(1)
@@ -985,7 +989,7 @@ describe('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
 // a separate file so their solver run gets its own z3 WASM heap rather than
 // adding to this file's, which already runs close to the 2 GB wasm32 ceiling.
 
-describe('SmtVerifier semiflow invariants (VER-007)', () => {
+describeZ3('SmtVerifier semiflow invariants (VER-007)', () => {
   // A budgeted work loop with one reset arc on a side place — the shape that makes
   // the null-space basis fold the reset place into the loop's conservation law and
   // lose it to the H1 guard. The semiflow enumeration still finds
@@ -1046,7 +1050,7 @@ describe('SmtVerifier semiflow invariants (VER-007)', () => {
   }, Z3_TIMEOUT);
 });
 
-describe('SmtVerifier exact invariant validation', () => {
+describeZ3('SmtVerifier exact invariant validation', () => {
   it('report mentions invariants dropped by the exact re-check', async () => {
     // Weight-amplifier chain: T_i consumes 8192 of P_{i-1} and produces 1 P_i, so the
     // conservation law's weights grow by 8192 per stage and reach 8192^5 = 2^65 —

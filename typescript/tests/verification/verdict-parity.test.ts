@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { it, expect } from 'vitest';
+import { describeZ3 } from '../fixtures/z3.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -69,7 +70,7 @@ function toProperty(spec: FixtureProperty, places: ReadonlyMap<string, Place<any
   }
 }
 
-describe('verdict parity (spec/verification-fixtures/fixtures.json)', () => {
+describeZ3('verdict parity (spec/verification-fixtures/fixtures.json)', () => {
   it('loads the shared fixtures and has a builder for every named net', () => {
     expect(fixtures.length).toBeGreaterThan(0);
     for (const f of fixtures) {

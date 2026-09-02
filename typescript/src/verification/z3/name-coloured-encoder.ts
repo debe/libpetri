@@ -49,11 +49,9 @@
  * consumer no resident colour) and the marking is not a sink state — mirroring the
  * flat {@link module:smt-encoder} deadlock with the same env-injection relaxation.
  *
- * Mirrors the Rust reference `name_coloured_encoder.rs` exactly; the difference
- * is that this builds z3-solver expressions rather than emitting SMT-LIB2 text.
- * Z3 types are partially untyped; the ctx/fp parameters use `any`.
+ * Mirrors the Rust reference `name_coloured_encoder.rs` exactly and emits the same
+ * SMT-LIB2 text byte for byte (VER-013).
  */
-import type { Arith, Bool, FuncDecl } from 'z3-solver';
 import type { PetriNet } from '../../core/petri-net.js';
 import type { Place } from '../../core/place.js';
 import type { FlatNet } from '../encoding/flat-net.js';
@@ -62,13 +60,7 @@ import type { MarkingState } from '../marking-state.js';
 import type { SmtProperty } from '../smt-property.js';
 import type { PInvariant } from '../invariant/p-invariant.js';
 import type { FragmentMode } from '../analysis/name-fragment.js';
-import type { EncodingResult } from './smt-encoder.js';
-import { flatNetIndexOf } from '../encoding/flat-net.js';
-
-/** Z3 high-level context. Typed as `any` because z3-solver's TS types are incomplete. */
-type Z3Context = any;
-/** Z3 Fixedpoint solver instance. Typed as `any` because z3-solver's TS types are incomplete. */
-type Z3Fixedpoint = any;
+import { indexOrdered, injectionMap, type SmtEncoding } from './smt-encoder.js';
 
 /** How a transition relates to the coloured (correlation-carrying) places. */
 type Klass =
@@ -285,415 +277,354 @@ export function buildColouredPlan(
 
 /**
  * Column layout over the coloured state vector: uncoloured place → one var,
- * coloured place → `k` per-colour vars. The current/next-marking variables are
- * named consts reused across every rule (each `ForAll` scopes its own binding).
+ * coloured place → `k` per-colour vars, named exactly as the Rust reference names
+ * them (`m{i}` / `m{i}_{c}`, next marking with a `p` suffix).
  */
 interface Layout {
   /** Column index of each uncoloured place (`-1` if coloured). */
   readonly colUnc: number[];
   /** Per coloured place: its `k` column indices (empty if uncoloured). */
   readonly colCol: number[][];
-  /** Total column count. */
-  readonly nCols: number;
-  /** Current-marking vars, one per column. */
-  readonly cur: Arith[];
-  /** Next-marking vars, one per column. */
-  readonly nxt: Arith[];
-  /** The literal `0`: what a coloured place aggregates to when `k = 0`. */
-  readonly zero: Arith;
+  /** Current-marking variable names, one per column. */
+  readonly cur: string[];
+  /** Next-marking variable names, one per column. */
+  readonly nxt: string[];
 }
 
-function buildLayout(ctx: Z3Context, plan: ColouredPlan, P: number): Layout {
+function buildLayout(plan: ColouredPlan, P: number): Layout {
   const colUnc: number[] = new Array<number>(P).fill(-1);
   const colCol: number[][] = Array.from({ length: P }, () => []);
-  let nCols = 0;
+  const cur: string[] = [];
+  const nxt: string[] = [];
   for (let i = 0; i < P; i++) {
     if (plan.isColoured[i]) {
       const idxs: number[] = [];
-      for (let c = 0; c < plan.k; c++) idxs.push(nCols++);
+      for (let c = 0; c < plan.k; c++) {
+        idxs.push(cur.length);
+        cur.push(`m${i}_${c}`);
+        nxt.push(`m${i}_${c}p`);
+      }
       colCol[i] = idxs;
     } else {
-      colUnc[i] = nCols++;
+      colUnc[i] = cur.length;
+      cur.push(`m${i}`);
+      nxt.push(`m${i}p`);
     }
   }
-  const cur: Arith[] = [];
-  const nxt: Arith[] = [];
-  for (let col = 0; col < nCols; col++) {
-    cur.push(ctx.Int.const(`c${col}`));
-    nxt.push(ctx.Int.const(`cp${col}`));
-  }
-  return { colUnc, colCol, nCols, cur, nxt, zero: ctx.Int.val(0) };
+  return { colUnc, colCol, cur, nxt };
+}
+
+function quantified(names: readonly string[]): string {
+  return names.map((v) => `(${v} Int)`).join(' ');
+}
+
+/** A changed column and its update expression. */
+interface Update {
+  readonly col: number;
+  readonly expr: string;
 }
 
 /** Contributes the enablement guards and the changed-column updates of a rule. */
-type Fill = (enab: Bool[], upd: Map<number, Arith>) => void;
+type Fill = (enab: string[], upd: Update[]) => void;
 
 /**
- * Encodes the supported ν-net as bounded name-coloured CHC for Z3 Spacer. Reuses
- * {@link EncodingResult}; with the query `(not Error)`, `sat` ⇒ PROVEN, `unsat` ⇒
- * VIOLATED (the Spacer convention shared with the flat encoder).
+ * Encodes the supported ν-net as bounded name-coloured CHC for Z3 Spacer, as SMT-LIB2
+ * text byte-identical to the Rust reference (`encode_coloured`). With the query
+ * `(not Error)`, `sat` ⇒ PROVEN, `unsat` ⇒ VIOLATED (the Spacer convention shared with
+ * the flat encoder).
  *
  * Returns `null` when the property names a place that does not resolve in the net
  * (see {@link encodeViolation}); the verifier reports Unknown rather than certify a
  * vacuous PROVEN.
  */
 export function encodeColoured(
-  ctx: Z3Context,
-  fp: Z3Fixedpoint,
   plan: ColouredPlan,
   flat: FlatNet,
   initial: MarkingState,
   property: SmtProperty,
   invariants: readonly PInvariant[],
-  sinkPlaces: ReadonlySet<Place<any>> = new Set(),
-): EncodingResult | null {
+  sinkPlaces: ReadonlySet<Place<any>>,
+): SmtEncoding | null {
   const P = flat.places.length;
   const k = plan.k;
-  const lay = buildLayout(ctx, plan, P);
+  const lay = buildLayout(plan, P);
+  const nCols = lay.cur.length;
 
-  const intSort = ctx.Int.sort();
-  const boolSort = ctx.Bool.sort();
-  const markingSorts: any[] = new Array(lay.nCols).fill(intSort);
-  const reachable: FuncDecl = ctx.Function.declare('Reachable', ...markingSorts, boolSort);
-  fp.registerRelation(reachable);
-  const error: FuncDecl = ctx.Function.declare('Error', boolSort);
-  fp.registerRelation(error);
+  const lines: string[] = [];
+  lines.push('(set-logic HORN)');
+  lines.push('');
+  lines.push(`(declare-fun Reachable (${new Array<string>(nCols).fill('Int').join(' ')}) Bool)`);
+  lines.push('(declare-fun Error () Bool)');
+  lines.push('');
 
   // Init: uncoloured places carry their initial count; coloured start empty.
-  const initArgs: Arith[] = new Array(lay.nCols);
+  const init: string[] = [];
   for (let i = 0; i < P; i++) {
     if (plan.isColoured[i]) {
-      for (let c = 0; c < k; c++) initArgs[lay.colCol[i]![c]!] = ctx.Int.val(0);
+      for (let c = 0; c < k; c++) init.push('0');
     } else {
-      initArgs[lay.colUnc[i]!] = ctx.Int.val(initial.tokens(flat.places[i]!));
+      init.push(String(initial.tokens(flat.places[i]!)));
     }
   }
-  fp.addRule((reachable as any).call(...initArgs) as Bool, 'init');
+  lines.push(`(assert (Reachable ${init.join(' ')}))`);
+  lines.push('');
 
   // Transition rules.
   for (let ti = 0; ti < plan.classes.length; ti++) {
     const cls = plan.classes[ti]!;
     const ft = flat.transitions[ti]!;
-    if (cls.kind === 'untouched') {
-      addRule(ctx, fp, reachable, lay, plan, invariants, `${ft.name}_u`, (enab, upd) =>
-        uncolouredIncidence(ctx, lay, plan, ft, enab, upd),
-      );
-    } else if (cls.kind === 'mint') {
-      const colouredOut = cls.colouredOut;
-      for (let c = 0; c < k; c++) {
-        const cc = c;
-        addRule(ctx, fp, reachable, lay, plan, invariants, `${ft.name}_mint_${cc}`, (enab, upd) => {
-          uncolouredIncidence(ctx, lay, plan, ft, enab, upd);
-          // Globally fresh colour: cc must be empty in every coloured place.
-          for (const q of plan.coloured) enab.push(lay.cur[lay.colCol[q]![cc]!]!.eq(0));
-          for (const o of colouredOut) {
-            const col = lay.colCol[o]![cc]!;
-            upd.set(col, lay.cur[col]!.add(1));
-          }
-        });
-      }
-    } else if (cls.kind === 'join') {
-      const colouredIn = cls.colouredIn;
-      for (let c = 0; c < k; c++) {
-        const cc = c;
-        addRule(ctx, fp, reachable, lay, plan, invariants, `${ft.name}_join_${cc}`, (enab, upd) => {
-          uncolouredIncidence(ctx, lay, plan, ft, enab, upd);
-          // Same colour cc present in every correlated input.
-          for (const ip of colouredIn) {
-            const col = lay.colCol[ip]![cc]!;
-            enab.push(lay.cur[col]!.ge(1));
-            upd.set(col, lay.cur[col]!.add(-1));
-          }
-        });
-      }
-    } else {
-      // EXTENDED coloured consumer: one rule per colour — consume colour cc from
-      // the single coloured input and thread it into each coloured output (relay),
-      // or into none (drain).
-      const inputCol = cls.inputCol;
-      const colouredOut = cls.colouredOut;
-      for (let c = 0; c < k; c++) {
-        const cc = c;
-        addRule(ctx, fp, reachable, lay, plan, invariants, `${ft.name}_consume_${cc}`, (enab, upd) => {
-          uncolouredIncidence(ctx, lay, plan, ft, enab, upd);
-          const icol = lay.colCol[inputCol]![cc]!;
-          enab.push(lay.cur[icol]!.ge(1));
-          upd.set(icol, lay.cur[icol]!.add(-1));
-          for (const o of colouredOut) {
-            const ocol = lay.colCol[o]![cc]!;
-            upd.set(ocol, lay.cur[ocol]!.add(1));
-          }
-        });
-      }
+    switch (cls.kind) {
+      case 'untouched':
+        lines.push(encodeRule(plan, lay, invariants, (enab, upd) => uncolouredIncidence(lay, plan, ft, enab, upd)));
+        break;
+      case 'mint':
+        for (let c = 0; c < k; c++) {
+          lines.push(encodeRule(plan, lay, invariants, (enab, upd) => {
+            uncolouredIncidence(lay, plan, ft, enab, upd);
+            // Globally fresh colour: c must be empty in every coloured place.
+            for (const q of plan.coloured) enab.push(`(= ${lay.cur[lay.colCol[q]![c]!]} 0)`);
+            for (const o of cls.colouredOut) {
+              const col = lay.colCol[o]![c]!;
+              upd.push({ col, expr: `(+ ${lay.cur[col]} 1)` });
+            }
+          }));
+        }
+        break;
+      case 'join':
+        for (let c = 0; c < k; c++) {
+          lines.push(encodeRule(plan, lay, invariants, (enab, upd) => {
+            uncolouredIncidence(lay, plan, ft, enab, upd);
+            // Same colour c present in every correlated input.
+            for (const ip of cls.colouredIn) {
+              const col = lay.colCol[ip]![c]!;
+              enab.push(`(>= ${lay.cur[col]} 1)`);
+              upd.push({ col, expr: `(- ${lay.cur[col]} 1)` });
+            }
+          }));
+        }
+        break;
+      case 'consume':
+        // One rule per colour: consume colour c from the single coloured input and
+        // thread it into each coloured output (relay), or into none (drain).
+        for (let c = 0; c < k; c++) {
+          lines.push(encodeRule(plan, lay, invariants, (enab, upd) => {
+            uncolouredIncidence(lay, plan, ft, enab, upd);
+            const icol = lay.colCol[cls.inputCol]![c]!;
+            enab.push(`(>= ${lay.cur[icol]} 1)`);
+            upd.push({ col: icol, expr: `(- ${lay.cur[icol]} 1)` });
+            for (const o of cls.colouredOut) {
+              const ocol = lay.colCol[o]![c]!;
+              upd.push({ col: ocol, expr: `(+ ${lay.cur[ocol]} 1)` });
+            }
+          }));
+        }
+        break;
     }
   }
+  lines.push('');
 
-  // Error rule. `false` ⇒ the property names an unresolved place; refuse to build
-  // a vacuously-provable encoding and let the verifier report Unknown.
-  if (!addErrorRule(ctx, fp, reachable, error, lay, plan, flat, property, sinkPlaces)) {
-    return null;
-  }
+  // Error rule. `null` ⇒ the property names an unresolved place; refuse to build a
+  // vacuously-provable encoding and let the verifier report Unknown.
+  const error = encodeError(plan, lay, flat, property, sinkPlaces, injectionMap(flat));
+  if (error == null) return null;
+  lines.push(error);
+  lines.push('');
+  lines.push('(assert (not Error))');
+  lines.push('(check-sat)');
 
-  return {
-    errorExpr: (error as any).call() as Bool,
-    reachableDecl: reachable,
-  };
+  return { smt2: lines.join('\n'), placeCount: P };
 }
 
 /**
- * Builds one transition CHC rule. `fill` contributes the enablement guards and
- * the changed-column updates; every other column is copied unchanged, changed
- * columns get a non-negativity guard, and the (lifted) P-invariants constrain the
- * successor.
+ * Builds one transition CHC rule. `fill` contributes the enablement guards and the
+ * changed-column updates; every other column is copied unchanged, changed columns get
+ * a non-negativity guard, and the (lifted) P-invariants constrain the successor.
  */
-function addRule(
-  ctx: Z3Context,
-  fp: Z3Fixedpoint,
-  reachable: FuncDecl,
-  lay: Layout,
-  plan: ColouredPlan,
-  invariants: readonly PInvariant[],
-  ruleName: string,
-  fill: Fill,
-): void {
-  const enab: Bool[] = [];
-  const upd = new Map<number, Arith>();
+function encodeRule(plan: ColouredPlan, lay: Layout, invariants: readonly PInvariant[], fill: Fill): string {
+  const enab: string[] = [];
+  const upd: Update[] = [];
   fill(enab, upd);
 
-  const conds: Bool[] = [(reachable as any).call(...lay.cur) as Bool, ...enab];
-  for (let col = 0; col < lay.nCols; col++) {
-    const expr = upd.get(col);
-    if (expr !== undefined) {
-      conds.push(lay.nxt[col]!.eq(expr), lay.nxt[col]!.ge(0));
+  const conditions: string[] = [`(Reachable ${lay.cur.join(' ')})`, ...enab];
+
+  // A changed column gets its update + non-negativity guard; every other column is
+  // copied unchanged. A later update of the same column wins.
+  const changed: (string | null)[] = new Array<string | null>(lay.cur.length).fill(null);
+  for (const u of upd) changed[u.col] = u.expr;
+  for (let col = 0; col < lay.cur.length; col++) {
+    const expr = changed[col];
+    if (expr != null) {
+      conditions.push(`(= ${lay.nxt[col]} ${expr})`);
+      conditions.push(`(>= ${lay.nxt[col]} 0)`);
     } else {
-      conds.push(lay.nxt[col]!.eq(lay.cur[col]!));
+      conditions.push(`(= ${lay.nxt[col]} ${lay.cur[col]})`);
     }
   }
+
   for (const inv of invariants) {
-    const eq = liftedInvariant(ctx, inv, plan, lay, lay.nxt);
-    if (eq) conds.push(eq);
+    const eq = liftedInvariant(inv, plan, lay, lay.nxt);
+    if (eq != null) conditions.push(eq);
   }
 
-  const body = ctx.And(...conds);
-  const head = (reachable as any).call(...lay.nxt) as Bool;
-  const qRule = ctx.ForAll([...lay.cur, ...lay.nxt], ctx.Implies(body, head));
-  fp.addRule(qRule, ruleName);
+  const body = `(and ${conditions.join('\n            ')})`;
+  return `(assert (forall (${quantified([...lay.cur, ...lay.nxt])})\n  (=> ${body}\n      (Reachable ${lay.nxt.join(' ')}))))`;
 }
 
 /**
  * Pushes the enablement guards and column updates contributed by a transition's
- * **uncoloured** incidence (consume/produce on non-coloured places). Coloured
- * columns are handled by the caller (mint produces, join consumes). Mirrors the
- * Rust reference — no blanket current-marking non-negativity guard.
+ * **uncoloured** incidence (consume/produce on non-coloured places). Coloured columns
+ * are handled by the caller (mint produces, join/consumer consume).
  */
-function uncolouredIncidence(
-  ctx: Z3Context,
-  lay: Layout,
-  plan: ColouredPlan,
-  ft: FlatTransition,
-  enab: Bool[],
-  upd: Map<number, Arith>,
-): void {
+function uncolouredIncidence(lay: Layout, plan: ColouredPlan, ft: FlatTransition, enab: string[], upd: Update[]): void {
   const P = ft.preVector.length;
   for (let i = 0; i < P; i++) {
     if (plan.isColoured[i]) continue;
     const col = lay.colUnc[i]!;
     const pre = ft.preVector[i]!;
-    if (pre > 0) enab.push(lay.cur[col]!.ge(pre));
+    if (pre > 0) enab.push(`(>= ${lay.cur[col]} ${pre})`);
     if (ft.resetPlaces.includes(i) || ft.consumeAll[i]) {
-      upd.set(col, ctx.Int.val(ft.postVector[i]!));
+      upd.push({ col, expr: String(ft.postVector[i]) });
     } else {
       const delta = ft.postVector[i]! - ft.preVector[i]!;
-      if (delta !== 0) upd.set(col, lay.cur[col]!.add(delta));
+      if (delta > 0) upd.push({ col, expr: `(+ ${lay.cur[col]} ${delta})` });
+      else if (delta < 0) upd.push({ col, expr: `(- ${lay.cur[col]} ${-delta})` });
     }
   }
   // Inhibitor / read arcs (all on uncoloured places — checked in buildColouredPlan).
-  for (const pid of ft.inhibitorPlaces) enab.push(lay.cur[lay.colUnc[pid]!]!.eq(0));
-  for (const pid of ft.readPlaces) enab.push(lay.cur[lay.colUnc[pid]!]!.ge(1));
+  for (const pid of ft.inhibitorPlaces) enab.push(`(= ${lay.cur[lay.colUnc[pid]!]} 0)`);
+  for (const pid of ft.readPlaces) enab.push(`(>= ${lay.cur[lay.colUnc[pid]!]} 1)`);
 }
 
 /**
- * Aggregate token-count expression for a place over the given var-set: the single
- * uncoloured var, or the sum of its colours.
+ * Aggregate token-count expression for a place over the given var-set (`cur` or
+ * `nxt`): the single uncoloured var, or the sum of its colours.
  */
-function aggregate(plan: ColouredPlan, lay: Layout, place: number, vars: readonly Arith[]): Arith {
+function aggregate(plan: ColouredPlan, lay: Layout, place: number, names: readonly string[]): string {
   if (plan.isColoured[place]) {
     const cols = lay.colCol[place]!;
     // k = 0: a coloured place has no slot and never holds a token.
-    if (cols.length === 0) return lay.zero;
-    let sum = vars[cols[0]!]!;
-    for (let c = 1; c < cols.length; c++) sum = sum.add(vars[cols[c]!]!);
-    return sum;
+    if (cols.length === 0) return '0';
+    if (cols.length === 1) return names[cols[0]!]!;
+    return `(+ ${cols.map((c) => names[c]!).join(' ')})`;
   }
-  return vars[lay.colUnc[place]!]!;
+  return names[lay.colUnc[place]!]!;
 }
 
 /**
  * Lifts a flat P-invariant to the coloured layout: a coloured place's variable
- * becomes the sum of its colours (= its aggregate count), so the (true) flat
- * invariant constrains the coloured successor without excluding any reachable
- * state.
+ * becomes the sum of its colours (= its aggregate count). Returns `null` when the
+ * invariant support is empty.
  */
-function liftedInvariant(
-  ctx: Z3Context,
-  inv: PInvariant,
-  plan: ColouredPlan,
-  lay: Layout,
-  vars: readonly Arith[],
-): Bool | null {
-  if (inv.support.size === 0) return null;
-  let sum: Arith = ctx.Int.val(0);
-  for (const i of inv.support) {
-    const agg = aggregate(plan, lay, i, vars);
+function liftedInvariant(inv: PInvariant, plan: ColouredPlan, lay: Layout, names: readonly string[]): string | null {
+  const terms: string[] = [];
+  for (const i of [...inv.support].sort((a, b) => a - b)) {
+    const agg = aggregate(plan, lay, i, names);
     const w = inv.weights[i]!;
-    sum = sum.add(w === 1 ? agg : agg.mul(w));
+    terms.push(w === 1 ? agg : `(* ${w} ${agg})`);
   }
-  return sum.eq(inv.constant);
+  if (terms.length === 0) return null;
+  const sum = terms.length === 1 ? terms[0]! : `(+ ${terms.join(' ')})`;
+  return `(= ${sum} ${inv.constant})`;
 }
 
 /**
- * Encodes the error rule: a reachable marking that violates the property.
- * Returns `false` when the property names an unresolved place ({@link encodeViolation}
- * returned `null`); no rule is added and the caller reports Unknown rather than
- * certify a vacuous PROVEN.
+ * Encodes the error rule: a reachable marking that violates the property, or `null`
+ * when the property names an unresolved place ({@link encodeViolation}).
  */
-function addErrorRule(
-  ctx: Z3Context,
-  fp: Z3Fixedpoint,
-  reachable: FuncDecl,
-  error: FuncDecl,
-  lay: Layout,
+function encodeError(
   plan: ColouredPlan,
+  lay: Layout,
   flat: FlatNet,
   property: SmtProperty,
   sinkPlaces: ReadonlySet<Place<any>>,
-): boolean {
-  const violation = encodeViolation(ctx, plan, lay, flat, property, lay.cur, sinkPlaces);
-  if (violation === null) return false; // unresolved property place → signal Unknown
-  const reachBody = (reachable as any).call(...lay.cur) as Bool;
-  const body = ctx.And(reachBody, violation);
-  const head = (error as any).call() as Bool;
-  const qRule = ctx.ForAll([...lay.cur], ctx.Implies(body, head));
-  fp.addRule(qRule, 'error');
-  return true;
+  envInj: ReadonlyMap<number, number | null>,
+): string | null {
+  const violation = encodeViolation(plan, lay, flat, property, sinkPlaces, envInj);
+  if (violation == null) return null;
+  return `(assert (forall (${quantified(lay.cur)})\n  (=> (and (Reachable ${lay.cur.join(' ')}) ${violation})\n      Error)))`;
 }
 
 /**
  * Encodes the property-violation condition over the coloured current marking.
  * Reachability-safety properties compare aggregate place counts; quiescence
- * properties ([NU-053]) use the colour-aware deadlock predicate.
+ * properties (NU-053) use the colour-aware deadlock predicate.
  *
- * Returns `null` when the property names a place that does not resolve in the
- * net (e.g. a typo'd bound/pending place). A `false` violation term there would
- * make the Error rule unsatisfiable and yield a **vacuous** PROVEN, silently
- * certifying a mis-named place; `null` propagates up so the verifier reports
- * Unknown instead.
+ * Returns `null` when the property names a place that does not resolve in the net
+ * (e.g. a typo'd bound/pending place). A `false` violation term there would make the
+ * Error rule unsatisfiable and yield a **vacuous** PROVEN, silently certifying a
+ * mis-named place; `null` propagates up so the verifier reports Unknown instead.
  */
 function encodeViolation(
-  ctx: Z3Context,
   plan: ColouredPlan,
   lay: Layout,
   flat: FlatNet,
   property: SmtProperty,
-  cur: readonly Arith[],
   sinkPlaces: ReadonlySet<Place<any>>,
-): Bool | null {
+  envInj: ReadonlyMap<number, number | null>,
+): string | null {
+  const anyPlacePresent = (places: Iterable<Place<any>>): string => {
+    const conds = indexOrdered(flat, places).map((pid) => `(>= ${aggregate(plan, lay, pid, lay.cur)} 1)`);
+    return conds.length === 0 ? 'false' : `(and ${conds.join(' ')})`;
+  };
   switch (property.type) {
     case 'place-bound':
     case 'branch-place-bound': {
-      const idx = flatNetIndexOf(flat, property.place);
-      if (idx < 0) return null;
-      return aggregate(plan, lay, idx, cur).gt(property.bound);
+      const pid = flat.placeIndex.get(property.place.name);
+      // Unresolved bound place: a false violation term would vacuously PROVE the
+      // bound. Return null so the verifier reports Unknown instead of certifying.
+      if (pid == null) return null;
+      return `(> ${aggregate(plan, lay, pid, lay.cur)} ${property.bound})`;
     }
-    case 'mutual-exclusion': {
-      const i1 = flatNetIndexOf(flat, property.p1);
-      const i2 = flatNetIndexOf(flat, property.p2);
-      if (i1 < 0 || i2 < 0) return ctx.Bool.val(false);
-      return ctx.And(aggregate(plan, lay, i1, cur).ge(1), aggregate(plan, lay, i2, cur).ge(1));
-    }
-    case 'unreachable': {
-      const conds: Bool[] = [];
-      for (const place of property.places) {
-        const idx = flatNetIndexOf(flat, place);
-        if (idx >= 0) conds.push(aggregate(plan, lay, idx, cur).ge(1));
-      }
-      if (conds.length === 0) return ctx.Bool.val(false);
-      return conds.length === 1 ? conds[0]! : ctx.And(...conds);
-    }
+    case 'mutual-exclusion':
+      return anyPlacePresent([property.p1, property.p2]);
+    case 'unreachable':
+      return anyPlacePresent(property.places);
     case 'deadlock-free':
-      return encodeColouredDeadlock(ctx, plan, lay, flat, sinkPlaces);
+      return encodeColouredDeadlock(plan, lay, flat, sinkPlaces, envInj);
     case 'joined-or-dead-lettered': {
-      const idx = flatNetIndexOf(flat, property.pending);
-      if (idx < 0) return null;
-      const deadlock = encodeColouredDeadlock(ctx, plan, lay, flat, sinkPlaces);
-      return ctx.And(deadlock, aggregate(plan, lay, idx, cur).ge(1));
+      const pid = flat.placeIndex.get(property.pending.name);
+      if (pid == null) return null;
+      const deadlock = encodeColouredDeadlock(plan, lay, flat, sinkPlaces, envInj);
+      return `(and ${deadlock} (>= ${aggregate(plan, lay, pid, lay.cur)} 1))`;
     }
   }
-}
-
-/** Conjunction of `xs` (empty ⇒ `true`), avoiding variadic-spread edge cases. */
-function andAll(ctx: Z3Context, xs: Bool[]): Bool {
-  if (xs.length === 0) return ctx.Bool.val(true);
-  let r = xs[0]!;
-  for (let i = 1; i < xs.length; i++) r = ctx.And(r, xs[i]!);
-  return r;
-}
-
-/** Disjunction of `xs` (empty ⇒ `false`). */
-function orAll(ctx: Z3Context, xs: Bool[]): Bool {
-  if (xs.length === 0) return ctx.Bool.val(false);
-  let r = xs[0]!;
-  for (let i = 1; i < xs.length; i++) r = ctx.Or(r, xs[i]!);
-  return r;
-}
-
-/** Maps injected environment-place index -> injection bound (null = unbounded). */
-function injectedEnvIndices(flat: FlatNet): Map<number, number | null> {
-  const out = new Map<number, number | null>();
-  for (const [name, bound] of flat.environmentInjection) {
-    const idx = flat.placeIndex.get(name);
-    if (idx != null) out.set(idx, bound);
-  }
-  return out;
 }
 
 /**
  * The uncoloured disable reasons for a flat row: marking-dependent clauses (any one
- * true ⇒ the transition's uncoloured part is unmet), plus a flag that it is
- * permanently disabled (an env cap below the demand means it can never fire).
- * Coloured places are excluded — their enablement is the per-class colour term.
- * Mirrors the flat {@link module:smt-encoder} deadlock with the same env relaxation.
+ * true ⇒ the transition's uncoloured part is unmet), collected into `reasons`;
+ * returns `true` when the transition is permanently disabled (an env cap below the
+ * demand means it can never fire). Coloured places are excluded — their enablement is
+ * the per-class colour term.
  */
 function uncolouredDisable(
   ft: FlatTransition,
   lay: Layout,
   plan: ColouredPlan,
-  envInj: Map<number, number | null>,
-): { reasons: Bool[]; permanentlyDisabled: boolean } {
-  const reasons: Bool[] = [];
+  envInj: ReadonlyMap<number, number | null>,
+  reasons: string[],
+): boolean {
   let permanentlyDisabled = false;
   const P = ft.preVector.length;
   for (let i = 0; i < P; i++) {
-    if (plan.isColoured[i] || ft.preVector[i]! === 0) continue;
+    if (plan.isColoured[i] || ft.preVector[i] === 0) continue;
     if (envInj.has(i)) {
       const bound = envInj.get(i)!;
-      if (bound !== null && ft.preVector[i]! > bound) permanentlyDisabled = true;
+      if (bound != null && ft.preVector[i]! > bound) permanentlyDisabled = true;
       continue;
     }
-    reasons.push(lay.cur[lay.colUnc[i]!]!.lt(ft.preVector[i]!));
+    reasons.push(`(< ${lay.cur[lay.colUnc[i]!]} ${ft.preVector[i]})`);
   }
-  for (const inh of ft.inhibitorPlaces) {
-    reasons.push(lay.cur[lay.colUnc[inh]!]!.gt(0));
-  }
+  for (const inh of ft.inhibitorPlaces) reasons.push(`(> ${lay.cur[lay.colUnc[inh]!]} 0)`);
   for (const rd of ft.readPlaces) {
     if (envInj.has(rd)) {
       const bound = envInj.get(rd)!;
-      if (bound !== null && bound < 1) permanentlyDisabled = true;
+      if (bound != null && bound < 1) permanentlyDisabled = true;
       continue;
     }
-    reasons.push(lay.cur[lay.colUnc[rd]!]!.lt(1));
+    reasons.push(`(< ${lay.cur[lay.colUnc[rd]!]} 1)`);
   }
-  return { reasons, permanentlyDisabled };
+  return permanentlyDisabled;
 }
 
 /**
@@ -701,90 +632,81 @@ function uncolouredDisable(
  * class imposes no coloured enablement constraint). Combined by the caller with the
  * uncoloured disable reasons: the transition is disabled if EITHER holds.
  */
-function colouredDisabledTerm(ctx: Z3Context, cls: Klass, plan: ColouredPlan, lay: Layout): Bool | null {
+function colouredDisabledTerm(cls: Klass, plan: ColouredPlan, lay: Layout): string | null {
   const k = plan.k;
+  if (k === 0) {
+    // k = 0 (NU-053 AC6): no colour can ever be present, so every coloured class is
+    // disabled outright; the empty conjunctions below would render as `(and )`.
+    return cls.kind === 'untouched' ? null : 'true';
+  }
   switch (cls.kind) {
     case 'untouched':
       return null;
     case 'mint': {
       // No globally-fresh colour: for every colour c, some coloured place holds c.
-      const perColour: Bool[] = [];
+      const perColour: string[] = [];
       for (let c = 0; c < k; c++) {
-        const present = plan.coloured.map((q) => lay.cur[lay.colCol[q]![c]!]!.ge(1));
-        perColour.push(orAll(ctx, present));
+        const present = plan.coloured.map((q) => `(>= ${lay.cur[lay.colCol[q]![c]!]} 1)`);
+        perColour.push(`(or ${present.join(' ')})`);
       }
-      return andAll(ctx, perColour);
+      return `(and ${perColour.join(' ')})`;
     }
     case 'join': {
-      // No colour is shared by all correlated inputs: for every colour c, some
-      // input lacks c.
-      const perColour: Bool[] = [];
+      // No colour is shared by all correlated inputs: for every colour c, some input
+      // lacks c.
+      const perColour: string[] = [];
       for (let c = 0; c < k; c++) {
-        const missing = cls.colouredIn.map((i) => lay.cur[lay.colCol[i]![c]!]!.eq(0));
-        perColour.push(orAll(ctx, missing));
+        const missing = cls.colouredIn.map((i) => `(= ${lay.cur[lay.colCol[i]![c]!]} 0)`);
+        perColour.push(`(or ${missing.join(' ')})`);
       }
-      return andAll(ctx, perColour);
+      return `(and ${perColour.join(' ')})`;
     }
     case 'consume': {
       // No colour present at the single coloured input.
-      const perColour: Bool[] = [];
-      for (let c = 0; c < k; c++) {
-        perColour.push(lay.cur[lay.colCol[cls.inputCol]![c]!]!.eq(0));
-      }
-      return andAll(ctx, perColour);
+      const perColour: string[] = [];
+      for (let c = 0; c < k; c++) perColour.push(`(= ${lay.cur[lay.colCol[cls.inputCol]![c]!]} 0)`);
+      return `(and ${perColour.join(' ')})`;
     }
   }
 }
 
 /**
- * Colour-aware deadlock predicate ([NU-053]): every transition is disabled (no
- * colour enables it) and the marking is not a sink state. Mirrors the flat
- * {@link module:smt-encoder}'s `encodeDeadlock` with the same env-injection
- * relaxation (VER-006), lifted to the coloured layout.
+ * Colour-aware deadlock predicate (NU-053): every transition is disabled (no colour
+ * enables it) and no declared sink place holds a token (VER-002). Mirrors the flat
+ * deadlock with the same env-injection relaxation (VER-006), lifted to the coloured
+ * layout.
  */
 function encodeColouredDeadlock(
-  ctx: Z3Context,
   plan: ColouredPlan,
   lay: Layout,
   flat: FlatNet,
   sinkPlaces: ReadonlySet<Place<any>>,
-): Bool {
-  const envInj = injectedEnvIndices(flat);
-  const disabledConditions: Bool[] = [];
+  envInj: ReadonlyMap<number, number | null>,
+): string {
+  const disabledConditions: string[] = [];
   for (let ti = 0; ti < plan.classes.length; ti++) {
     const cls = plan.classes[ti]!;
     const ft = flat.transitions[ti]!;
-    const { reasons, permanentlyDisabled } = uncolouredDisable(ft, lay, plan, envInj);
+    const reasons: string[] = [];
+    const permanentlyDisabled = uncolouredDisable(ft, lay, plan, envInj, reasons);
     if (permanentlyDisabled) {
       // The transition can never fire — it is always "disabled".
-      disabledConditions.push(ctx.Bool.val(true));
+      disabledConditions.push('true');
       continue;
     }
-    const term = colouredDisabledTerm(ctx, cls, plan, lay);
-    if (term !== null) reasons.push(term);
-    if (reasons.length === 0) {
-      // Always enabled (possibly via injection) — no marking is a deadlock.
-      return ctx.Bool.val(false);
-    }
-    disabledConditions.push(reasons.length === 1 ? reasons[0]! : orAll(ctx, reasons));
+    const term = colouredDisabledTerm(cls, plan, lay);
+    if (term != null) reasons.push(term);
+    // Always enabled (possibly via injection) — no marking is a deadlock.
+    if (reasons.length === 0) return 'false';
+    disabledConditions.push(reasons.length === 1 ? reasons[0]! : `(or ${reasons.join(' ')})`);
   }
 
-  // Not a sink state: some non-sink place still holds a token (aggregate count).
-  const sinkIndices = new Set<number>();
-  for (const sink of sinkPlaces) {
-    const idx = flatNetIndexOf(flat, sink);
-    if (idx >= 0) sinkIndices.add(idx);
-  }
-  if (sinkIndices.size > 0) {
-    const nonSink: Bool[] = [];
-    for (let pid = 0; pid < flat.places.length; pid++) {
-      if (sinkIndices.has(pid)) continue;
-      nonSink.push(aggregate(plan, lay, pid, lay.cur).ge(1));
-    }
-    if (nonSink.length > 0) {
-      disabledConditions.push(orAll(ctx, nonSink));
-    }
+  // Declared sinks (VER-002): quiescence is a violation only when NO declared sink
+  // holds a token, so each declared sink contributes `aggregate(sink) = 0` over its
+  // colour slots. Same predicate as the flat deadlock.
+  for (const pid of indexOrdered(flat, sinkPlaces)) {
+    disabledConditions.push(`(= ${aggregate(plan, lay, pid, lay.cur)} 0)`);
   }
 
-  return andAll(ctx, disabledConditions);
+  return disabledConditions.length === 0 ? 'true' : `(and ${disabledConditions.join(' ')})`;
 }

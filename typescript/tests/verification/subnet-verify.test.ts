@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { Z3_AVAILABLE } from '../fixtures/z3.js';
 import { tokenOf, type Token } from '../../src/core/token.js';
 import { SubnetDef } from '../../src/core/subnet-def.js';
 import {
@@ -21,10 +22,9 @@ import {
  *    CI without invoking the SMT solver.
  *
  * 2. **End-to-end SMT tests**: invoke the verifier on a degenerate fixture
- *    and assert structural properties of the result. The TypeScript
- *    verifier ships with `z3-solver` bundled in `package.json`, so Z3 is
- *    always available — no `skipIf` gating is needed (in contrast to the
- *    Java port, which gates on a `UnsatisfiedLinkError` probe).
+ *    and assert structural properties of the result. The verifier shells out
+ *    to a `z3` executable (VER-013), so these skip without one; the z3 gate
+ *    test turns that skip into a failure on a CI runner.
  *
  * Mirrors `java/src/test/java/org/libpetri/verification/SubnetVerifyTest.java`.
  */
@@ -187,7 +187,7 @@ describe('SubnetDef.verify (MOD-051 harness)', () => {
     }
   }, Z3_TIMEOUT);
 
-  it('verify_leakyBucket_isKBounded — verifier produces a per-property result', async () => {
+  it.skipIf(!Z3_AVAILABLE)('verify_leakyBucket_isKBounded — verifier produces a per-property result', async () => {
     // End-to-end: discover the synthetic accept place from a probe call,
     // then verify a PlaceBound property against it. We assert the verifier
     // runs and produces a well-formed SmtVerificationResult; we don't
@@ -232,7 +232,7 @@ describe('SubnetDef.verify (MOD-051 harness)', () => {
     expect(verdict!.verdict.type).toMatch(/proven|violated|unknown/);
   }, Z3_TIMEOUT);
 
-  it('verify_emptyProperties_allProvenIsVacuouslyTrue', async () => {
+  it.skipIf(!Z3_AVAILABLE)('verify_emptyProperties_allProvenIsVacuouslyTrue', async () => {
     // No properties → allProven() is vacuously true; anyViolated() is false.
     const prod = producer();
     const result = await prod.verify({
