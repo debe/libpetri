@@ -88,6 +88,7 @@ public final class SmtVerifier {
     private PrioritySemantics prioritySemantics = PrioritySemantics.NONE;
     private boolean certificateCheck = true;
     private boolean counterexampleReplay = true;
+    private boolean semiflowInvariants = false;
     private CertificateCheck certificateChecker = CertificateChecker::check;
     private Set<MarkingState> replayStateSetOverride = null;
     private int replayNodeBudget = AbstractReplayer.DEFAULT_NODE_BUDGET;
@@ -270,6 +271,29 @@ public final class SmtVerifier {
      */
     public SmtVerifier certificateCheck(boolean enabled) {
         this.certificateCheck = enabled;
+        return this;
+    }
+
+    /**
+     * Also hands the validated <b>P-semiflows</b> to the encoder as invariants
+     * (default: disabled — the flat encoding then sees only the null-space basis).
+     *
+     * <p>Every validated semiflow is a conservation law in its own right ({@code y >= 0},
+     * {@code y*C = 0}, {@code y*M0} exact, zero weight on every reset / consume-all place),
+     * and the Farkas enumeration returns the <em>minimal</em> laws of the net. The
+     * null-space basis the encoder gets by default is one basis of many: Gaussian
+     * elimination hands back mixed-sign rows (discarded as not semi-positive) or rows that
+     * fold a reset place into a chain whose other combinations avoid it (dropped by the H1
+     * guard). On a net with a few reset arcs that can lose every law of the chains those
+     * arcs touch, and without them IC3 has to rediscover the conservation of each chain —
+     * on a ~100-place net it does not within any practical budget. With the semiflows in,
+     * the same reachability-safety queries close in about a second.
+     *
+     * <p>Soundness is unchanged: the semiflows pass the same exact re-validation as the
+     * basis rows, and the certificate check re-proves the strengthened invariant.
+     */
+    public SmtVerifier semiflowInvariants(boolean enabled) {
+        this.semiflowInvariants = enabled;
         return this;
     }
 
@@ -464,6 +488,20 @@ public final class SmtVerifier {
             matrix, flatNet, initialMarking);
         var semiflows = semiflowValidation.valid();
         report.append("  Found: ").append(invariants.size()).append(" P-invariant(s)\n");
+        if (semiflowInvariants) {
+            // See #semiflowInvariants(boolean): the minimal conservation laws, as extra
+            // invariants for the encoder.
+            var strengthened = new ArrayList<>(invariants);
+            int added = 0;
+            for (var sf : semiflows) {
+                if (!strengthened.contains(sf)) {
+                    strengthened.add(sf);
+                    added++;
+                }
+            }
+            invariants = List.copyOf(strengthened);
+            report.append("  Semiflows encoded as invariants: ").append(added).append("\n");
+        }
         boolean structurallyBounded = PInvariantComputer.isCoveredByInvariants(invariants, flatNet.placeCount());
         report.append("  Structurally bounded: ").append(structurallyBounded ? "YES" : "NO").append("\n");
         for (var inv : invariants) {
