@@ -22,9 +22,9 @@ jobs:
           java-version: '25'
           distribution: 'temurin'
 
-      # `mvnw verify` below runs the full suite, including the Z3NativeGateTest
-      # gate — without the natives this workflow fails where CI passes.
-      - uses: ./.github/actions/z3-jni-natives
+      # `mvnw verify` below runs the full suite, including the Z3BinaryGateTest
+      # gate — without the solver this workflow fails where CI passes.
+      - uses: ./.github/actions/install-z3
 
       - name: Run tests
         working-directory: java

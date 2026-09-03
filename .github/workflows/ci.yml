@@ -26,9 +26,9 @@ jobs:
         with:
           java-version: '25-ea'
           distribution: 'temurin'
-      # Natives for the com.microsoft.z3 JNI bindings; see the action for why.
-      # Shared with .github/workflows/benchmark.yml, which also runs `mvnw verify`.
-      - uses: ./.github/actions/z3-jni-natives
+      # The pinned z3 executable every verifier shells out to (VER-013);
+      # Z3BinaryGateTest fails the build if it does not resolve on this runner.
+      - uses: ./.github/actions/install-z3
       - run: ./mvnw verify
 
   typescript:
@@ -42,6 +42,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
+      # The pinned z3 executable every verifier shells out to (VER-013).
+      - uses: ./.github/actions/install-z3
       - run: npm ci
       - run: npm run build
       - run: npm run check
@@ -64,10 +66,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-      # The verification crate shells out to the z3 binary; without it the
-      # z3-gated tests (certificate check, verdict parity) skip silently.
-      - name: Install z3 (for verification tests)
-        run: sudo apt-get update && sudo apt-get install -y z3
+      # The verification crate shells out to the z3 executable (VER-013);
+      # without it the z3-gated tests (certificate check, verdict parity) skip,
+      # and tests/z3_gate.rs turns that skip into a red build here.
+      - uses: ./.github/actions/install-z3
       # libpetri-py is a Python extension cdylib; building it without maturin
       # picks up the wrong python linker. Build/test the rest of the workspace
       # here; the dedicated `python` job builds the wheel via maturin.
@@ -119,8 +121,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-      - name: Install z3 (for verification tests)
-        run: sudo apt-get update && sudo apt-get install -y z3
+      # Same pinned solver as the rust job; tests/test_z3_gate.py polices it.
+      - uses: ./.github/actions/install-z3
       - run: python -m pip install --upgrade pip
       - run: python -m pip install maturin pytest pytest-asyncio
       - run: maturin build --release --locked --out dist --compatibility pypi
@@ -205,6 +207,15 @@ jobs:
           #print axioms Libpetri.reap_dirty_is_the_asymmetry
           #print axioms Libpetri.no_reap_frame
           #print axioms Libpetri.bad_rule_proves_every_net
+          #print axioms Libpetri.invariant_strengthening_sound_inj
+          #print axioms Libpetri.semiflow_union_sound
+          #print axioms Libpetri.semiflow_union_sound_inj
+          #print axioms Libpetri.semiflow_gate_is_necessary
+          #print axioms Libpetri.vacuous_colour_layer
+          #print axioms Libpetri.vacuous_colour_layer_inj
+          #print axioms Libpetri.Explorer.interned_keys_eq
+          #print axioms Libpetri.Explorer.interned_edges_eq
+          #print axioms Libpetri.equivariance_is_necessary
           EOF
           if ! lake env lean /tmp/axioms.lean > /tmp/axioms.out 2>&1; then
             cat /tmp/axioms.out

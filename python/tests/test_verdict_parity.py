@@ -256,6 +256,30 @@ def _net(name: str):
         )
         return net, {"source": 1}, {}
 
+    if name == "nuScatterGather":
+        # ν scatter-gather on Route A's exact name-coloured encoding (NU-053): a
+        # declared budget puts the reachability-safety query on the coloured
+        # encoder. fork consumes source+budget and co-mints one fresh name into
+        # branchA+branchB (plus a pending token); join correlates the branches and
+        # returns the budget token. Conservation budget + pending = 2 bounds
+        # budget by 2.
+        source, budget, pending = lp.Place("source"), lp.Place("budget"), lp.Place("pending")
+        a, b, merged = lp.Place("branchA"), lp.Place("branchB"), lp.Place("merged")
+        net = (
+            lp.Net("nuScatterGather")
+            .transition(
+                lp.Transition("fork").input(lp.one(source)).input(lp.one(budget))
+                .output(lp.and_(a, b, pending)).action(lp.fork).build()
+            )
+            .transition(
+                lp.Transition("join").input(lp.one(a)).input(lp.one(b)).input(lp.one(pending))
+                .match_spec(lp.match_spec([(a, lambda m: m), (b, lambda m: m)]))
+                .output(lp.and_(merged, budget)).action(lp.fork).build()
+            )
+            .build()
+        )
+        return net, {"source": 3, "budget": 2}, {}
+
     raise AssertionError(
         f"unknown fixture net {name!r} — add its builder here "
         "(the shared fixtures.json gained a net this implementation does not build yet)"
@@ -277,10 +301,12 @@ def _property(spec):
 
 
 def test_verdict_parity_fixtures():
-    if not lp.HAS_Z3:
+    if not (lp.HAS_Z3 and lp.z3_available()):
+        # tests/test_z3_gate.py turns this skip into a failure on a CI runner.
         pytest.skip(
-            "VERDICT PARITY NOT RUN: the wheel was built without the z3 feature, so the "
-            "shared fixtures were not checked against the Python binding at all"
+            "VERDICT PARITY NOT RUN: the wheel was built without the z3 feature or no "
+            "usable z3 executable resolves, so the shared fixtures were not checked "
+            "against the Python binding at all"
         )
 
     doc = json.loads(FIXTURES.read_text())
@@ -296,8 +322,10 @@ def test_verdict_parity_fixtures():
             net,
             _property(fixture["property"]),
             initial_marking=marking,
-            # Optional shared-schema field: expected terminal places (VER-002).
+            # Optional shared-schema fields: expected terminal places (VER-002) and
+            # ν budget places (NU-040, Route A's coloured encoding).
             sink_places=fixture.get("sinkPlaces") or None,
+            budget_places=fixture.get("budgetPlaces") or None,
             # Both independent validation layers explicitly ON — the point of
             # the parity suite (they are also the defaults).
             certificate_check=True,

@@ -105,8 +105,10 @@ from .verification import (
     mutual_exclusion,
     place_bound,
     unreachable,
+    encode_smt_scripts,
     verify,
     verify_subnet,
+    z3_available,
 )
 
 CallbackError = _libpetri.CallbackError
@@ -114,6 +116,8 @@ LibpetriError = _libpetri.LibpetriError
 StructureError = _libpetri.StructureError
 
 HAS_TOKIO = bool(_libpetri.HAS_TOKIO)
+# Compile feature only: the wheel carries the SMT surface. Whether a ``z3``
+# executable is actually available is :func:`z3_available` (VER-013).
 HAS_Z3 = bool(_libpetri.HAS_Z3)
 HAS_DEBUG = bool(_libpetri.HAS_DEBUG)
 HAS_ARCHIVE = bool(_libpetri.HAS_ARCHIVE)
@@ -207,6 +211,8 @@ __all__ = [
     "unreachable",
     "verify",
     "verify_subnet",
+    "encode_smt_scripts",
+    "z3_available",
     "window",
     "xor",
     "xor_outputs",

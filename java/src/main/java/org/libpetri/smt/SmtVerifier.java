@@ -20,13 +20,13 @@ import org.libpetri.smt.z3.CounterexampleDecoder;
 import org.libpetri.smt.z3.NameColouredEncoder;
 import org.libpetri.smt.z3.SmtEncoder;
 import org.libpetri.smt.z3.SpacerRunner;
+import org.libpetri.smt.z3.Z3Solver;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.function.Consumer;
-import java.util.regex.Pattern;
 
 /**
  * IC3/PDR-based safety verifier for Petri nets using Z3's Spacer engine.
@@ -88,7 +88,9 @@ public final class SmtVerifier {
     private PrioritySemantics prioritySemantics = PrioritySemantics.NONE;
     private boolean certificateCheck = true;
     private boolean counterexampleReplay = true;
+    private boolean semiflowInvariants = false;
     private CertificateCheck certificateChecker = CertificateChecker::check;
+    private Z3Solver solver = null;
     private Set<MarkingState> replayStateSetOverride = null;
     private int replayNodeBudget = AbstractReplayer.DEFAULT_NODE_BUDGET;
 
@@ -271,6 +273,54 @@ public final class SmtVerifier {
     public SmtVerifier certificateCheck(boolean enabled) {
         this.certificateCheck = enabled;
         return this;
+    }
+
+    /**
+     * Also hands the validated <b>P-semiflows</b> to the encoder as invariants
+     * (default: disabled — the flat encoding then sees only the null-space basis).
+     *
+     * <p>Every validated semiflow is a conservation law in its own right ({@code y >= 0},
+     * {@code y*C = 0}, {@code y*M0} exact, zero weight on every reset / consume-all place),
+     * and the Farkas enumeration returns the <em>minimal</em> laws of the net. The
+     * null-space basis the encoder gets by default is one basis of many: Gaussian
+     * elimination hands back mixed-sign rows (discarded as not semi-positive) or rows that
+     * fold a reset place into a chain whose other combinations avoid it (dropped by the H1
+     * guard). On a net with a few reset arcs that can lose every law of the chains those
+     * arcs touch, and without them IC3 has to rediscover the conservation of each chain —
+     * on a ~100-place net it does not within any practical budget. With the semiflows in,
+     * the same reachability-safety queries close in about a second.
+     *
+     * <p>Soundness is unchanged: the semiflows pass the same exact re-validation as the
+     * basis rows, and the certificate check re-proves the strengthened invariant.
+     */
+    public SmtVerifier semiflowInvariants(boolean enabled) {
+        this.semiflowInvariants = enabled;
+        return this;
+    }
+
+    /**
+     * Test seam: runs this verification against a specific z3 executable instead of
+     * resolving {@code LIBPETRI_Z3} / {@code PATH} (the JVM cannot change its own
+     * environment). Package-private — not API.
+     */
+    SmtVerifier solver(Z3Solver solver) {
+        this.solver = Objects.requireNonNull(solver);
+        return this;
+    }
+
+    /**
+     * True if a usable {@code z3} executable resolves: {@code LIBPETRI_Z3} if set, else
+     * {@code z3} on {@code PATH}, at or above {@link Z3Solver#MIN_VERSION} (VER-013).
+     * Without one every SMT path returns {@code Unknown}; the test suites use this to
+     * skip loudly rather than fail.
+     */
+    public static boolean z3Available() {
+        try {
+            Z3Solver.resolve();
+            return true;
+        } catch (Z3Solver.Z3Unavailable _) {
+            return false;
+        }
     }
 
     /**
@@ -464,6 +514,24 @@ public final class SmtVerifier {
             matrix, flatNet, initialMarking);
         var semiflows = semiflowValidation.valid();
         report.append("  Found: ").append(invariants.size()).append(" P-invariant(s)\n");
+        if (semiflowInvariants) {
+            // See #semiflowInvariants(boolean): the minimal conservation laws, as extra
+            // invariants for the encoder.
+            var strengthened = new ArrayList<>(invariants);
+            int added = 0;
+            for (var sf : semiflows) {
+                if (!strengthened.contains(sf)) {
+                    strengthened.add(sf);
+                    added++;
+                }
+            }
+            invariants = List.copyOf(strengthened);
+            report.append("  Semiflows encoded as invariants: ").append(added).append("\n");
+        }
+        // VER-013: canonical invariant order (support, weights, constant), so the
+        // strengthened rule bodies and the certificate candidate read the same in every
+        // implementation whatever order the elimination produced them in.
+        invariants = canonicalInvariantOrder(invariants);
         boolean structurallyBounded = PInvariantComputer.isCoveredByInvariants(invariants, flatNet.placeCount());
         report.append("  Structurally bounded: ").append(structurallyBounded ? "YES" : "NO").append("\n");
         for (var inv : invariants) {
@@ -489,6 +557,28 @@ public final class SmtVerifier {
         // Phase 4: SMT encode + query via Spacer
         report.append("Phase 4: IC3/PDR verification via Z3 Spacer...\n");
 
+        // VER-013: one z3 process per query. Resolve the executable before any
+        // encoding work so a missing or too-old solver is reported as such.
+        Z3Solver z3;
+        try {
+            z3 = solver != null ? solver : Z3Solver.resolve();
+        } catch (Z3Solver.Z3Unavailable e) {
+            String reason = e.getMessage();
+            report.append("  Solver: z3 unavailable (").append(reason).append(")\n");
+            report.append("  Status: UNKNOWN (").append(reason).append(")\n\n");
+            report.append("=== RESULT ===\n\n");
+            report.append("UNKNOWN: Could not determine ").append(propertyDescription()).append("\n");
+            report.append("  Reason: ").append(reason).append("\n");
+            return buildResult(
+                new SmtVerificationResult.Verdict.Unknown(reason),
+                report.toString(), invariants, List.of(), List.of(), List.of(),
+                Duration.between(start, Instant.now()),
+                new SmtVerificationResult.SmtStatistics(
+                    flatNet.placeCount(), flatNet.transitionCount(),
+                    invariants.size(), structResultStr));
+        }
+        report.append("  Solver: z3 ").append(z3.version()).append("\n");
+
         // ν-net exact refinement (NU-050 #1, Route A). For a budget-bounded ν-net in
         // the supported mint→matched-join fragment, encode names as a finite colour
         // set (k = the declared budget) with exact same-colour join matching, instead
@@ -501,259 +591,255 @@ public final class SmtVerifier {
                 ? NameColouredEncoder.buildPlan(net, flatNet, initialMarking, budgetPlaces, fragmentMode, carrierPlaces, semiflows)
                 : null;
 
-        try (var runner = new SpacerRunner(timeout)) {
-            var ctx = runner.context();
-            var fp = runner.fixedpoint();
+        SmtEncoder.SmtEncoding encoding;
+        if (colouredPlan != null) {
+            report.append("  ν-encoding: name-coloured (exact within budget k=")
+                .append(colouredPlan.k()).append("; ")
+                .append(colouredPlan.colouredCount()).append(" coloured place(s))\n");
+            encoding = NameColouredEncoder.encode(
+                colouredPlan, flatNet, initialMarking, property, invariants, sinkPlaces);
+            if (encoding == null) {
+                // The property names a place that does not resolve in the net (e.g. a
+                // typo'd bound/pending place). Emitting the encoding anyway would certify
+                // a vacuous PROVEN; refuse and report Unknown so a mis-named place never
+                // silently certifies.
+                String reason = "property names a place that does not resolve in the net; "
+                    + "refusing to certify (the encoding would be vacuously proven)";
+                report.append("  Status: UNKNOWN (unresolved property place)\n\n");
+                report.append("=== RESULT ===\n\n");
+                report.append("UNKNOWN: ").append(reason).append("\n");
+                return buildResult(
+                    new SmtVerificationResult.Verdict.Unknown(reason),
+                    report.toString(), invariants, List.of(), List.of(), List.of(),
+                    Duration.between(start, Instant.now()),
+                    new SmtVerificationResult.SmtStatistics(
+                        flatNet.placeCount(), flatNet.transitionCount(),
+                        invariants.size(), structResultStr));
+            }
+        } else {
+            // A property naming a place outside the net would encode to a vacuous
+            // violation predicate (`false` proves anything). Refuse, as the coloured path
+            // does, so a mis-named place never silently certifies.
+            String unresolved = unresolvedPropertyPlace(flatNet, property);
+            if (unresolved != null) {
+                String reason = "property names a place that does not resolve in the net ('"
+                    + unresolved + "'); refusing to certify (the encoding would be vacuously proven)";
+                report.append("  Status: UNKNOWN (unresolved property place)\n\n");
+                report.append("=== RESULT ===\n\n");
+                report.append("UNKNOWN: ").append(reason).append("\n");
+                return buildResult(
+                    new SmtVerificationResult.Verdict.Unknown(reason),
+                    report.toString(), invariants, List.of(), List.of(), List.of(),
+                    Duration.between(start, Instant.now()),
+                    new SmtVerificationResult.SmtStatistics(
+                        flatNet.placeCount(), flatNet.transitionCount(),
+                        invariants.size(), structResultStr));
+            }
+            // C3: request the refutation proof the replay decoder reads.
+            encoding = SmtEncoder.encode(
+                flatNet, initialMarking, property, invariants, sinkPlaces, counterexampleReplay);
+        }
+        String phase = colouredPlan != null ? "horn-coloured" : "horn";
+        var queryResult = SpacerRunner.run(z3, timeout, encoding.smt2(), phase);
 
-            SmtEncoder.EncodingResult encoding;
-            if (colouredPlan != null) {
-                report.append("  ν-encoding: name-coloured (exact within budget k=")
-                    .append(colouredPlan.k()).append("; ")
-                    .append(colouredPlan.colouredCount()).append(" coloured place(s))\n");
-                encoding = NameColouredEncoder.encode(
-                    ctx, fp, colouredPlan, flatNet, initialMarking, property, invariants, sinkPlaces);
-                if (encoding == null) {
-                    // The property names a place that does not resolve in the net (e.g. a
-                    // typo'd bound/pending place). Emitting the encoding anyway would certify
-                    // a vacuous PROVEN; refuse and report Unknown so a mis-named place never
-                    // silently certifies.
-                    String reason = "property names a place that does not resolve in the net; "
-                        + "refusing to certify (the encoding would be vacuously proven)";
-                    report.append("  Status: UNKNOWN (unresolved property place)\n\n");
+        var smtResult = switch (queryResult) {
+            case SpacerRunner.QueryResult.Proven(var formula) -> {
+                // Guard against silent vacuous proofs (VER-006): in Ignore mode the
+                // encoding does not model env injection, so env-gated transitions never
+                // fire and ANY safety bound is trivially "proven". Refuse to certify —
+                // downgrade to UNKNOWN with actionable guidance.
+                if (!environmentPlaces.isEmpty()
+                        && environmentMode instanceof EnvironmentAnalysisMode.Ignore) {
+                    String reason = "environment places present but not modeled (mode=ignore); "
+                        + "a proof would be vacuous — use EnvironmentAnalysisMode.alwaysAvailable() "
+                        + "or bounded(k) to model external injection";
+                    report.append("  Status: UNSAT, but vacuous under ignore mode\n\n");
                     report.append("=== RESULT ===\n\n");
                     report.append("UNKNOWN: ").append(reason).append("\n");
-                    return buildResult(
+                    yield buildResult(
                         new SmtVerificationResult.Verdict.Unknown(reason),
                         report.toString(), invariants, List.of(), List.of(), List.of(),
                         Duration.between(start, Instant.now()),
                         new SmtVerificationResult.SmtStatistics(
                             flatNet.placeCount(), flatNet.transitionCount(),
-                            invariants.size(), structResultStr));
+                            invariants.size(), structResultStr)
+                    );
                 }
-            } else {
-                encoding = SmtEncoder.encode(ctx, fp, flatNet, initialMarking, property, invariants, sinkPlaces);
-            }
-            var queryResult = runner.query(encoding.errorExpr(), encoding.reachableDecl());
 
-            var smtResult = switch (queryResult) {
-                case SpacerRunner.QueryResult.Proven(var formula, var rawAnswer, var levels) -> {
-                    // Guard against silent vacuous proofs (VER-006): in Ignore mode the
-                    // encoding does not model env injection, so env-gated transitions never
-                    // fire and ANY safety bound is trivially "proven". Refuse to certify —
-                    // downgrade to UNKNOWN with actionable guidance.
-                    if (!environmentPlaces.isEmpty()
-                            && environmentMode instanceof EnvironmentAnalysisMode.Ignore) {
-                        String reason = "environment places present but not modeled (mode=ignore); "
-                            + "a proof would be vacuous — use EnvironmentAnalysisMode.alwaysAvailable() "
-                            + "or bounded(k) to model external injection";
-                        report.append("  Status: UNSAT, but vacuous under ignore mode\n\n");
+                report.append("  Status: UNSAT (property holds)\n\n");
+
+                // Certificate check (flat count encoding only): independently
+                // re-validate the IC3 certificate in a second z3 run before the
+                // PROVEN verdict is trusted. The coloured (NameColouredEncoder)
+                // path is not covered, and structural early proofs return before
+                // this phase. Any failure downgrades to UNKNOWN; the checker and
+                // this block never propagate an exception.
+                if (colouredPlan != null) {
+                    report.append("  Certificate check: not applicable (name-coloured encoding)\n\n");
+                } else if (!certificateCheck) {
+                    report.append("  Certificate check: not applicable (disabled)\n\n");
+                } else {
+                    CertificateChecker.Result certOutcome;
+                    if (formula == null) {
+                        certOutcome = new CertificateChecker.Result.Unavailable(
+                            "no inductive invariant (define-fun block) could be extracted from the z3 model");
+                    } else {
+                        try {
+                            certOutcome = certificateChecker.run(
+                                formula, flatNet, initialMarking, property, sinkPlaces,
+                                invariants, z3, timeout);
+                        } catch (RuntimeException e) {
+                            // A checker that throws must not fail the pipeline.
+                            certOutcome = new CertificateChecker.Result.Unavailable(
+                                "certificate check threw: " + e);
+                        }
+                    }
+                    String downgrade = certificateDowngradeReason(certOutcome);
+                    if (downgrade == null) {
+                        report.append("  Certificate check: PASSED (init, consecution, safety)\n\n");
+                    } else {
+                        report.append("  Certificate check: FAILED\n\n");
                         report.append("=== RESULT ===\n\n");
-                        report.append("UNKNOWN: ").append(reason).append("\n");
+                        report.append("UNKNOWN: ").append(downgrade).append("\n");
                         yield buildResult(
-                            new SmtVerificationResult.Verdict.Unknown(reason),
+                            new SmtVerificationResult.Verdict.Unknown(downgrade),
                             report.toString(), invariants, List.of(), List.of(), List.of(),
                             Duration.between(start, Instant.now()),
                             new SmtVerificationResult.SmtStatistics(
                                 flatNet.placeCount(), flatNet.transitionCount(),
-                                invariants.size(), structResultStr)
-                        );
+                                invariants.size(), structResultStr));
                     }
-
-                    report.append("  Status: UNSAT (property holds)\n\n");
-
-                    // Certificate check (flat count encoding only): independently
-                    // re-validate the IC3 certificate with a plain solver before the
-                    // PROVEN verdict is trusted. The coloured (NameColouredEncoder)
-                    // path is not covered, and structural early proofs return before
-                    // this phase. Any failure downgrades to UNKNOWN; the checker and
-                    // this block never propagate an exception.
-                    if (colouredPlan != null) {
-                        report.append("  Certificate check: not applicable (name-coloured encoding)\n\n");
-                    } else if (!certificateCheck) {
-                        report.append("  Certificate check: not applicable (disabled)\n\n");
-                    } else {
-                        CertificateChecker.Result certOutcome;
-                        try {
-                            certOutcome = certificateChecker.run(
-                                ctx, rawAnswer, encoding.reachableDecl(), flatNet,
-                                initialMarking, property, sinkPlaces, invariants, timeout);
-                        } catch (RuntimeException e) {
-                            // Z3Exception extends RuntimeException; a checker that
-                            // throws must not fail the pipeline.
-                            certOutcome = new CertificateChecker.Result.Unavailable(
-                                "certificate check threw: " + e);
-                        }
-                        String downgrade = certificateDowngradeReason(certOutcome);
-                        if (downgrade == null) {
-                            report.append("  Certificate check: PASSED (init, consecution, safety)\n\n");
-                        } else {
-                            report.append("  Certificate check: FAILED\n\n");
-                            report.append("=== RESULT ===\n\n");
-                            report.append("UNKNOWN: ").append(downgrade).append("\n");
-                            yield buildResult(
-                                new SmtVerificationResult.Verdict.Unknown(downgrade),
-                                report.toString(), invariants, List.of(), List.of(), List.of(),
-                                Duration.between(start, Instant.now()),
-                                new SmtVerificationResult.SmtStatistics(
-                                    flatNet.placeCount(), flatNet.transitionCount(),
-                                    invariants.size(), structResultStr));
-                        }
-                    }
-
-                    // Decode IC3-synthesized invariants with place name substitution
-                    var discoveredInvariants = new ArrayList<String>();
-                    if (formula != null) {
-                        discoveredInvariants.add(substituteNames(formula, flatNet));
-                    }
-                    for (var level : levels) {
-                        discoveredInvariants.add(substituteNames(level, flatNet));
-                    }
-
-                    // Phase 5: Inductive invariant
-                    if (!discoveredInvariants.isEmpty()) {
-                        report.append("Phase 5: Inductive invariant (discovered by IC3)\n");
-                        report.append("  Spacer synthesized: ").append(discoveredInvariants.getFirst()).append("\n");
-                        report.append("  This formula is INDUCTIVE: preserved by all transitions.\n");
-                        if (discoveredInvariants.size() > 1) {
-                            report.append("  Per-level clauses:\n");
-                            for (int i = 1; i < discoveredInvariants.size(); i++) {
-                                report.append("    ").append(discoveredInvariants.get(i)).append("\n");
-                            }
-                        }
-                        report.append("\n");
-                    }
-
-                    report.append("=== RESULT ===\n\n");
-                    report.append("PROVEN (IC3/PDR): ").append(propertyDescription()).append("\n");
-                    report.append("  Z3 Spacer proved no reachable state violates the property.\n");
-                    report.append("  NOTE: Verification ignores timing constraints and Java guards.\n");
-                    report.append("  An untimed proof is STRONGER than a timed one ");
-                    report.append("(timing only restricts behavior).\n");
-
-                    yield buildResult(
-                        new SmtVerificationResult.Verdict.Proven("IC3/PDR",
-                            formula != null ? substituteNames(formula, flatNet) : null),
-                        report.toString(), invariants, List.copyOf(discoveredInvariants), List.of(), List.of(),
-                        Duration.between(start, Instant.now()),
-                        new SmtVerificationResult.SmtStatistics(
-                            flatNet.placeCount(), flatNet.transitionCount(),
-                            invariants.size(), structResultStr)
-                    );
                 }
 
-                case SpacerRunner.QueryResult.Violated(var answer) -> {
-                    report.append("  Status: SAT (counterexample found)\n\n");
+                // The inductive invariant is the (define-fun …) block of the model,
+                // verbatim (the certificate the check above re-validated).
+                List<String> discoveredInvariants = formula != null ? List.of(formula) : List.of();
 
-                    // Decode the counterexample as an order-free marking set; the
-                    // execution order is reconstructed by the abstract replay below.
-                    var decoded = CounterexampleDecoder.decode(answer, flatNet);
-                    if (decoded.note() != null) {
-                        report.append("  Counterexample decoding: ").append(decoded.note()).append("\n");
-                    }
+                // Phase 5: Inductive invariant
+                if (formula != null) {
+                    report.append("Phase 5: Inductive invariant (discovered by IC3)\n");
+                    report.append("  Spacer synthesized:\n");
+                    formula.lines().forEach(line -> report.append("    ").append(line).append("\n"));
+                    report.append("  This formula is INDUCTIVE: preserved by all transitions.\n\n");
+                }
 
-                    var stats = new SmtVerificationResult.SmtStatistics(
+                report.append("=== RESULT ===\n\n");
+                report.append("PROVEN (IC3/PDR): ").append(propertyDescription()).append("\n");
+                report.append("  Z3 Spacer proved no reachable state violates the property.\n");
+                report.append("  NOTE: Verification ignores timing constraints and Java guards.\n");
+                report.append("  An untimed proof is STRONGER than a timed one ");
+                report.append("(timing only restricts behavior).\n");
+
+                yield buildResult(
+                    new SmtVerificationResult.Verdict.Proven("IC3/PDR", formula),
+                    report.toString(), invariants, discoveredInvariants, List.of(), List.of(),
+                    Duration.between(start, Instant.now()),
+                    new SmtVerificationResult.SmtStatistics(
                         flatNet.placeCount(), flatNet.transitionCount(),
-                        invariants.size(), structResultStr);
+                        invariants.size(), structResultStr)
+                );
+            }
 
-                    if (!counterexampleReplay) {
-                        report.append("  Counterexample replay: disabled (counterexampleReplay(false))\n\n");
+            case SpacerRunner.QueryResult.Violated(var answer) -> {
+                report.append("  Status: SAT (counterexample found)\n\n");
+
+                // Decode the counterexample as an order-free marking set; the
+                // execution order is reconstructed by the abstract replay below.
+                var decoded = CounterexampleDecoder.decode(answer, flatNet);
+                if (decoded.note() != null) {
+                    report.append("  Counterexample decoding: ").append(decoded.note()).append("\n");
+                }
+                List<MarkingState> decodedList = List.copyOf(decoded.states());
+
+                var stats = new SmtVerificationResult.SmtStatistics(
+                    flatNet.placeCount(), flatNet.transitionCount(),
+                    invariants.size(), structResultStr);
+
+                if (!counterexampleReplay) {
+                    report.append("  Counterexample replay: disabled (counterexampleReplay(false))\n\n");
+                    report.append("=== RESULT ===\n\n");
+                    report.append("VIOLATED: ").append(propertyDescription()).append("\n");
+                    appendDecodedStates(report, decoded);
+                    appendUntimedCaveat(report);
+                    // Replay did not apply, so the tri-state stays null (not false).
+                    yield buildResult(
+                        new SmtVerificationResult.Verdict.Violated(),
+                        report.toString(), invariants, List.of(),
+                        decodedList, List.of(), null,
+                        Duration.between(start, Instant.now()), stats);
+                }
+
+                // Counterexample replay (C3): confirm the decoded states as an
+                // actual abstract run, or refuse to report a violation the
+                // abstraction itself cannot reproduce.
+                var assessment = assessCounterexample(
+                    flatNet, initialMarking, decoded, property, sinkPlaces,
+                    replayStateSetOverride, replayNodeBudget);
+                yield switch (assessment) {
+                    case ReplayAssessment.Confirmed(var trace, var firings) -> {
+                        report.append("  Counterexample replay: CONFIRMED — the decoded states chain ")
+                              .append("into an abstract run reaching the violation.\n\n");
                         report.append("=== RESULT ===\n\n");
                         report.append("VIOLATED: ").append(propertyDescription()).append("\n");
+                        report.append("  Replay-ordered trace (").append(trace.size()).append(" states):\n");
+                        for (int i = 0; i < trace.size(); i++) {
+                            report.append("    ").append(i).append(": ").append(trace.get(i));
+                            if (i > 0) {
+                                report.append("   [").append(firings.get(i - 1)).append("]");
+                            }
+                            report.append("\n");
+                        }
+                        appendUntimedCaveat(report);
+                        yield buildResult(
+                            new SmtVerificationResult.Verdict.Violated(),
+                            report.toString(), invariants, List.of(), trace, firings, Boolean.TRUE,
+                            Duration.between(start, Instant.now()), stats);
+                    }
+                    case ReplayAssessment.Unconfirmed(var note) -> {
+                        report.append("  Counterexample replay: not confirmed — ").append(note).append("\n\n");
+                        report.append("=== RESULT ===\n\n");
+                        report.append("VIOLATED: ").append(propertyDescription()).append("\n");
+                        report.append("  NOTE: ").append(note).append("\n");
                         appendDecodedStates(report, decoded);
                         appendUntimedCaveat(report);
-                        // Replay did not apply, so the tri-state stays null (not false).
                         yield buildResult(
                             new SmtVerificationResult.Verdict.Violated(),
                             report.toString(), invariants, List.of(),
-                            decoded.trace(), decoded.transitions(), null,
+                            decodedList, List.of(), Boolean.FALSE,
                             Duration.between(start, Instant.now()), stats);
                     }
+                    case ReplayAssessment.Downgraded(var reason) -> {
+                        report.append("  Counterexample replay: FAILED\n");
+                        appendDecodedStates(report, decoded);
+                        report.append("\n=== RESULT ===\n\n");
+                        report.append("UNKNOWN: ").append(reason).append("\n");
+                        // The replay APPLIED and refuted the trace, which is strictly
+                        // more informative than "did not apply": FALSE, never null.
+                        yield buildResult(
+                            new SmtVerificationResult.Verdict.Unknown(reason),
+                            report.toString(), invariants, List.of(), List.of(), List.of(),
+                            Boolean.FALSE, Duration.between(start, Instant.now()), stats);
+                    }
+                };
+            }
 
-                    // Counterexample replay (C3): confirm the decoded states as an
-                    // actual abstract run, or refuse to report a violation the
-                    // abstraction itself cannot reproduce.
-                    var assessment = assessCounterexample(
-                        flatNet, initialMarking, decoded, property, sinkPlaces,
-                        replayStateSetOverride, replayNodeBudget);
-                    yield switch (assessment) {
-                        case ReplayAssessment.Confirmed(var trace, var firings) -> {
-                            report.append("  Counterexample replay: CONFIRMED — the decoded states chain ")
-                                  .append("into an abstract run reaching the violation.\n\n");
-                            report.append("=== RESULT ===\n\n");
-                            report.append("VIOLATED: ").append(propertyDescription()).append("\n");
-                            report.append("  Replay-ordered trace (").append(trace.size()).append(" states):\n");
-                            for (int i = 0; i < trace.size(); i++) {
-                                report.append("    ").append(i).append(": ").append(trace.get(i));
-                                if (i > 0) {
-                                    report.append("   [").append(firings.get(i - 1)).append("]");
-                                }
-                                report.append("\n");
-                            }
-                            appendUntimedCaveat(report);
-                            yield buildResult(
-                                new SmtVerificationResult.Verdict.Violated(),
-                                report.toString(), invariants, List.of(), trace, firings, Boolean.TRUE,
-                                Duration.between(start, Instant.now()), stats);
-                        }
-                        case ReplayAssessment.Unconfirmed(var note) -> {
-                            report.append("  Counterexample replay: not confirmed — ").append(note).append("\n\n");
-                            report.append("=== RESULT ===\n\n");
-                            report.append("VIOLATED: ").append(propertyDescription()).append("\n");
-                            report.append("  NOTE: ").append(note).append("\n");
-                            appendDecodedStates(report, decoded);
-                            appendUntimedCaveat(report);
-                            yield buildResult(
-                                new SmtVerificationResult.Verdict.Violated(),
-                                report.toString(), invariants, List.of(),
-                                decoded.trace(), decoded.transitions(), Boolean.FALSE,
-                                Duration.between(start, Instant.now()), stats);
-                        }
-                        case ReplayAssessment.Downgraded(var reason) -> {
-                            report.append("  Counterexample replay: FAILED\n");
-                            appendDecodedStates(report, decoded);
-                            report.append("\n=== RESULT ===\n\n");
-                            report.append("UNKNOWN: ").append(reason).append("\n");
-                            // The replay APPLIED and refuted the trace, which is strictly
-                            // more informative than "did not apply": FALSE, never null.
-                            yield buildResult(
-                                new SmtVerificationResult.Verdict.Unknown(reason),
-                                report.toString(), invariants, List.of(), List.of(), List.of(),
-                                Boolean.FALSE, Duration.between(start, Instant.now()), stats);
-                        }
-                    };
-                }
+            case SpacerRunner.QueryResult.Unknown(var reason) -> {
+                report.append("  Status: UNKNOWN (").append(reason).append(")\n\n");
+                report.append("=== RESULT ===\n\n");
+                report.append("UNKNOWN: Could not determine ").append(propertyDescription()).append("\n");
+                report.append("  Reason: ").append(reason).append("\n");
 
-                case SpacerRunner.QueryResult.Unknown(var reason) -> {
-                    report.append("  Status: UNKNOWN (").append(reason).append(")\n\n");
-                    report.append("=== RESULT ===\n\n");
-                    report.append("UNKNOWN: Could not determine ").append(propertyDescription()).append("\n");
-                    report.append("  Reason: ").append(reason).append("\n");
-
-                    yield buildResult(
-                        new SmtVerificationResult.Verdict.Unknown(reason),
-                        report.toString(), invariants, List.of(), List.of(), List.of(),
-                        Duration.between(start, Instant.now()),
-                        new SmtVerificationResult.SmtStatistics(
-                            flatNet.placeCount(), flatNet.transitionCount(),
-                            invariants.size(), structResultStr)
-                    );
-                }
-            };
-            return applyNuGuard(smtResult, hasMatch, nuBounded, colouredPlan != null);
-        } catch (com.microsoft.z3.Z3Exception e) {
-            report.append("  ERROR: ").append(e.getMessage()).append("\n\n");
-            report.append("=== RESULT ===\n\n");
-            report.append("UNKNOWN: Z3 solver error: ").append(e.getMessage()).append("\n");
-
-            return buildResult(
-                new SmtVerificationResult.Verdict.Unknown("Z3 error: " + e.getMessage()),
-                report.toString(), invariants, List.of(), List.of(), List.of(),
-                Duration.between(start, Instant.now()),
-                new SmtVerificationResult.SmtStatistics(
-                    flatNet.placeCount(), flatNet.transitionCount(),
-                    invariants.size(), structResultStr)
-            );
-        }
+                yield buildResult(
+                    new SmtVerificationResult.Verdict.Unknown(reason),
+                    report.toString(), invariants, List.of(), List.of(), List.of(),
+                    Duration.between(start, Instant.now()),
+                    new SmtVerificationResult.SmtStatistics(
+                        flatNet.placeCount(), flatNet.transitionCount(),
+                        invariants.size(), structResultStr)
+                );
+            }
+        };
+        return applyNuGuard(smtResult, hasMatch, nuBounded, colouredPlan != null);
     }
 
     private String propertyDescription() {
@@ -776,15 +862,142 @@ public final class SmtVerifier {
     }
 
     /**
-     * Substitutes Z3 variable names (m0, m1, ...) with place names in a formula string.
-     * Uses word-boundary regex to avoid matching inside Z3 internal identifiers.
+     * The SMT-LIB2 scripts {@link #verify()} would send to z3 for this configuration,
+     * without running a solver (VER-013 AC1): the HORN query (flat, or name-coloured
+     * when a declared budget puts the net on Route A's exact encoding) and, for the
+     * flat encoding, the certificate-check script built around
+     * {@link #placeholderCertificate}. This is what the cross-language golden tests
+     * diff byte for byte. Route B, the structural pre-check and the unresolved-place
+     * refusal are bypassed: it is what Route A encodes.
+     *
+     * @param horn        the HORN query, flat or name-coloured
+     * @param certificate the certificate-check script around the placeholder
+     *                    certificate; {@code null} for the name-coloured encoding
+     * @param coloured    whether {@code horn} is the name-coloured encoding
      */
-    private static String substituteNames(String formula, FlatNet flatNet) {
-        for (int i = flatNet.placeCount() - 1; i >= 0; i--) {
-            formula = Pattern.compile("\\bm" + i + "\\b").matcher(formula)
-                .replaceAll(flatNet.places().get(i).name());
+    public record EncodedScripts(String horn, String certificate, boolean coloured) {}
+
+    /**
+     * {@code (define-fun Reachable ((x!0 Int) …) Bool true)}: the certificate stand-in
+     * the golden certificate scripts are built around (a real certificate is solver
+     * output and never part of a golden).
+     */
+    public static String placeholderCertificate(int placeCount) {
+        var params = new ArrayList<String>(placeCount);
+        for (int i = 0; i < placeCount; i++) {
+            params.add("(x!" + i + " Int)");
         }
-        return formula;
+        return "(define-fun Reachable (" + String.join(" ", params) + ") Bool\n    true)";
+    }
+
+    /** See {@link EncodedScripts}. */
+    public EncodedScripts encodeScripts() {
+        OutputActionCheck.requireOutputProducingActions(net);
+        boolean hasMatch = net.transitions().stream().anyMatch(t -> t.matchSpec() != null);
+        boolean nuBounded = !budgetPlaces.isEmpty();
+        FlatNet flatNet = NetFlattener.flatten(net, environmentPlaces, environmentMode);
+        var invariants = encoderInvariants(flatNet, initialMarking, semiflowInvariants);
+        if (hasMatch && nuBounded) {
+            var plan = NameColouredEncoder.buildPlan(
+                net, flatNet, initialMarking, budgetPlaces, fragmentMode, carrierPlaces,
+                validatedSemiflows(flatNet, initialMarking));
+            if (plan != null) {
+                var coloured = NameColouredEncoder.encode(
+                    plan, flatNet, initialMarking, property, invariants, sinkPlaces);
+                if (coloured != null) {
+                    return new EncodedScripts(coloured.smt2(), null, true);
+                }
+            }
+        }
+        String horn = SmtEncoder.encode(
+            flatNet, initialMarking, property, invariants, sinkPlaces, counterexampleReplay).smt2();
+        String certificate = CertificateChecker.vcScript(
+            placeholderCertificate(flatNet.placeCount()), flatNet, initialMarking, property,
+            sinkPlaces, invariants);
+        return new EncodedScripts(horn, certificate, false);
+    }
+
+    /** The name of the first place the property names that is not in the flat net, or {@code null}. */
+    private static String unresolvedPropertyPlace(FlatNet flatNet, SmtProperty property) {
+        List<Place<?>> named = switch (property) {
+            case SmtProperty.DeadlockFree() -> List.of();
+            case SmtProperty.MutualExclusion me -> List.of(me.p1(), me.p2());
+            case SmtProperty.PlaceBound pb -> List.of(pb.place());
+            case SmtProperty.BranchPlaceBound bpb -> List.of(bpb.place());
+            case SmtProperty.Unreachable ur -> List.copyOf(ur.places());
+            case SmtProperty.JoinedOrDeadLettered jdl -> List.of(jdl.pending());
+        };
+        for (var place : named) {
+            if (flatNet.indexOf(place) < 0) {
+                return place.name();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The invariants exactly as {@link #verify} hands them to the encoders: the checked
+     * null-space rows that pass the exact gate, plus the validated semiflows when
+     * {@code semiflowInvariants} is on, in canonical order. Package-private for the
+     * script-parity tests.
+     */
+    static List<PInvariant> encoderInvariants(
+            FlatNet flatNet, MarkingState initialMarking, boolean semiflowInvariants
+    ) {
+        var matrix = IncidenceMatrix.from(flatNet);
+        var extraction = PInvariantComputer.computeChecked(matrix, flatNet, initialMarking);
+        List<PInvariant> invariants = PInvariantComputer.validateExact(
+            extraction.valid(), matrix, flatNet, initialMarking).valid();
+        if (semiflowInvariants) {
+            var semiflows = PInvariantComputer.validateExact(
+                PInvariantComputer.computePSemiflows(matrix, flatNet, initialMarking),
+                matrix, flatNet, initialMarking).valid();
+            var strengthened = new ArrayList<>(invariants);
+            for (var sf : semiflows) {
+                if (!strengthened.contains(sf)) {
+                    strengthened.add(sf);
+                }
+            }
+            invariants = strengthened;
+        }
+        return canonicalInvariantOrder(invariants);
+    }
+
+    /** The validated P-semiflows the coloured plan is built from (script-parity tests). */
+    static List<PInvariant> validatedSemiflows(FlatNet flatNet, MarkingState initialMarking) {
+        var matrix = IncidenceMatrix.from(flatNet);
+        return PInvariantComputer.validateExact(
+            PInvariantComputer.computePSemiflows(matrix, flatNet, initialMarking),
+            matrix, flatNet, initialMarking).valid();
+    }
+
+    /**
+     * The invariants in canonical order (VER-013): by ascending support, then weights,
+     * then constant, each compared lexicographically. The same order the Rust and
+     * TypeScript verifiers apply, so the strengthened scripts are byte-identical.
+     */
+    static List<PInvariant> canonicalInvariantOrder(List<PInvariant> invariants) {
+        var sorted = new ArrayList<>(invariants);
+        sorted.sort((a, b) -> {
+            int c = compareLex(sortedSupport(a), sortedSupport(b));
+            if (c != 0) {
+                return c;
+            }
+            c = Arrays.compare(a.weights(), b.weights());
+            if (c != 0) {
+                return c;
+            }
+            return Integer.compare(a.constant(), b.constant());
+        });
+        return List.copyOf(sorted);
+    }
+
+    private static int[] sortedSupport(PInvariant inv) {
+        return inv.support().stream().mapToInt(Integer::intValue).sorted().toArray();
+    }
+
+    private static int compareLex(int[] a, int[] b) {
+        return Arrays.compare(a, b);
     }
 
     /** Result for a path where abstract replay does not apply (confirmed = null). */
@@ -994,19 +1207,16 @@ public final class SmtVerifier {
         "counterexample replay found no firing chain to the violation under the "
         + "abstract semantics, so VIOLATED is withheld";
 
-    /** Decoded-state listing for the report, in derivation-traversal order (not a firing order). */
+    /** Decoded-state listing for the report, in proof-text order (not a firing order). */
     private static void appendDecodedStates(
             StringBuilder report, CounterexampleDecoder.DecodedStates decoded
     ) {
-        if (!decoded.trace().isEmpty()) {
-            report.append("  Decoded states (derivation-traversal order, ")
-                  .append(decoded.trace().size()).append(" markings):\n");
-            for (var state : decoded.trace()) {
+        if (!decoded.states().isEmpty()) {
+            report.append("  Decoded states (proof order, ")
+                  .append(decoded.states().size()).append(" markings):\n");
+            for (var state : decoded.states()) {
                 report.append("    - ").append(state).append("\n");
             }
-        }
-        if (!decoded.transitions().isEmpty()) {
-            report.append("  Derivation rule applications: ").append(decoded.transitions()).append("\n");
         }
     }
 
@@ -1019,20 +1229,19 @@ public final class SmtVerifier {
 
     /**
      * Signature of the certificate check invoked on a flat-encoding PROVEN
-     * verdict. Package-private so tests can inject outcomes without JNI; the
+     * verdict. Package-private so tests can inject outcomes without a solver; the
      * default implementation is {@link CertificateChecker#check}.
      */
     @FunctionalInterface
     interface CertificateCheck {
         CertificateChecker.Result run(
-            com.microsoft.z3.Context ctx,
-            com.microsoft.z3.Expr<?> answer,
-            com.microsoft.z3.FuncDecl<com.microsoft.z3.BoolSort> reachableDecl,
+            String certificate,
             FlatNet flatNet,
             MarkingState initialMarking,
             SmtProperty property,
             Set<Place<?>> sinkPlaces,
             List<PInvariant> invariants,
+            Z3Solver solver,
             Duration timeout);
     }
 

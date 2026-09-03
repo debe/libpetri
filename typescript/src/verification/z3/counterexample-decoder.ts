@@ -1,168 +1,119 @@
-import type { Expr } from 'z3-solver';
+/**
+ * @module counterexample-decoder
+ *
+ * Decodes z3's refutation output into replayable counterexample material.
+ *
+ * There is exactly one decoder: {@link decodeStateSet}, which collects the ground
+ * `Reachable` facts of a `:produce-proofs` refutation into a SET. The ordered trace
+ * a caller sees is reconstructed from that set by the abstract replayer; the proof
+ * printer's traversal order is not a firing order and was never safe to read as one.
+ *
+ * Applications with non-ground arguments (rule bodies quantify `Reachable` over
+ * variables) or the wrong arity are skipped; a malformed proof simply yields a
+ * smaller (possibly empty) set, never a throw. Byte-for-byte mirror of the Rust
+ * `counterexample::decode_state_set`.
+ */
 import { MarkingState } from '../marking-state.js';
 import type { FlatNet } from '../encoding/flat-net.js';
+import { sexprEnd } from './smt-text.js';
 
-/**
- * Structured reason why decoding degraded (never thrown — decoding a
- * counterexample must not crash a violated verdict).
- */
-export type DecodeFailure =
-  | { readonly kind: 'no-answer' }
-  | { readonly kind: 'traversal-error'; readonly message: string }
-  | { readonly kind: 'non-concrete'; readonly skipped: number };
-
-/** Human-readable form of a {@link DecodeFailure} (or of a clean-but-empty walk). */
-export function describeDecodeFailure(failure: DecodeFailure | null): string {
-  if (failure == null) {
-    return 'no Reachable applications with concrete arguments found in the derivation';
-  }
-  switch (failure.kind) {
-    case 'no-answer':
-      return 'Z3 produced no derivation answer';
-    case 'traversal-error':
-      return `derivation walk failed: ${failure.message}`;
-    case 'non-concrete':
-      return `${failure.skipped} Reachable application(s) had non-concrete arguments`;
-  }
-}
-
-/**
- * Result of counterexample decoding.
- */
+/** Result of counterexample decoding. */
 export interface DecodedTrace {
   /**
-   * Reachable states in derivation-TRAVERSAL order — NOT firing order (the
-   * derivation tree is walked recursively, so display order is fragile).
-   * May contain duplicates. Kept for raw reporting; the replayer consumes
-   * {@link states} instead.
-   */
-  readonly trace: readonly MarkingState[];
-  /** Rule names encountered during the walk (same traversal-order caveat). */
-  readonly transitions: readonly string[];
-  /**
-   * The decoded Reachable states as an order-free SET, deduplicated by
-   * marking. This is the shape the abstract replayer chains into firing order.
+   * The ground `Reachable` markings of the proof as an order-free set (text order
+   * preserved for display), what the abstract replayer chains into a firing order.
    */
   readonly states: ReadonlySet<MarkingState>;
-  /**
-   * Structured reason when decoding degraded (partial results are still
-   * returned); `null` when the walk completed cleanly.
-   */
-  readonly failure: DecodeFailure | null;
+  /** Why nothing was decoded; `null` when `states` is non-empty. */
+  readonly note: string | null;
+}
+
+/** Decodes the states of a z3 reply; a note says so when none were found. */
+export function decode(answer: string, flatNet: FlatNet): DecodedTrace {
+  const states = decodeStateSet(answer, flatNet);
+  return { states, note: states.size === 0 ? 'no ground Reachable states in the z3 proof' : null };
 }
 
 /**
- * Decodes Z3 Spacer counterexample answers into Petri net marking traces.
- *
- * When Spacer finds a counterexample (property violation), it produces
- * a derivation tree showing how the error state is reachable. This function
- * extracts the marking at each `Reachable` application. The derivation is
- * walked in TRAVERSAL order, so `trace` is not a firing sequence; `states`
- * carries the same markings as an order-free set for the abstract replayer
- * to chain. Failures degrade gracefully and are surfaced via `failure`.
+ * Collects the ground `Reachable(...)` applications from a z3 refutation proof into
+ * a state set, in text order.
  */
-export function decode(ctx: any, answer: Expr | null, flatNet: FlatNet): DecodedTrace {
-  const trace: MarkingState[] = [];
-  const transitions: string[] = [];
-  const stateByKey = new Map<string, MarkingState>();
-
-  if (answer == null) {
-    return { trace, transitions, states: new Set(), failure: { kind: 'no-answer' } };
-  }
-
-  const counters = { skipped: 0 };
-  let failure: DecodeFailure | null = null;
-  try {
-    extractTrace(ctx, answer, flatNet, trace, transitions, stateByKey, counters);
-  } catch (e: any) {
-    // Z3 answer format varies; gracefully degrade — but say why.
-    failure = { kind: 'traversal-error', message: String(e?.message ?? e) };
-  }
-  if (failure == null && counters.skipped > 0) {
-    failure = { kind: 'non-concrete', skipped: counters.skipped };
-  }
-
-  return { trace, transitions, states: new Set(stateByKey.values()), failure };
-}
-
-/**
- * Recursively traverses the Z3 proof tree to extract marking states.
- */
-function extractTrace(
-  ctx: any,
-  expr: any,
-  flatNet: FlatNet,
-  trace: MarkingState[],
-  transitions: string[],
-  stateByKey: Map<string, MarkingState>,
-  counters: { skipped: number },
-): void {
-  if (expr == null) return;
-
-  // Check if this is a function application
-  if (!ctx.isApp(expr)) return;
-
-  let name: string;
-  try {
-    const decl = expr.decl();
-    name = String(decl.name());
-  } catch {
-    return;
-  }
-
-  // Check if this is a Reachable application with integer arguments
+export function decodeStateSet(answer: string, flatNet: FlatNet): ReadonlySet<MarkingState> {
+  const byKey = new Map<string, MarkingState>();
   const P = flatNet.places.length;
-  if (name === 'Reachable') {
-    const numArgs = expr.numArgs();
-    if (numArgs === P) {
-      const marking = extractMarking(ctx, expr, flatNet);
-      if (marking != null) {
-        trace.push(marking);
-        // MarkingState.toString() sorts by place name — a canonical dedup key.
+  for (const head of ['(Reachable', '(|Reachable|']) {
+    let from = 0;
+    for (;;) {
+      const start = answer.indexOf(head, from);
+      if (start < 0) break;
+      from = start + head.length;
+      // Word boundary: "(Reachable" must not match "(ReachableFoo …".
+      if (head === '(Reachable') {
+        const next = answer[from];
+        if (next == null || !(/\s/.test(next) || next === ')')) continue;
+      }
+      const end = sexprEnd(answer, start);
+      if (end < 0) break;
+      const inner = answer.slice(start + head.length, end - 1);
+      const args = parseGroundIntArgs(inner);
+      if (args != null && args.length === P) {
+        const marking = toMarking(args, flatNet);
         const key = marking.toString();
-        if (!stateByKey.has(key)) stateByKey.set(key, marking);
-      } else {
-        counters.skipped++;
+        if (!byKey.has(key)) byKey.set(key, marking);
       }
     }
   }
-
-  // Recurse into children to find the derivation chain
-  try {
-    const numArgs = expr.numArgs();
-    for (let i = 0; i < numArgs; i++) {
-      const child = expr.arg(i);
-      extractTrace(ctx, child, flatNet, trace, transitions, stateByKey, counters);
-    }
-  } catch {
-    // Not all expressions support arg()
-  }
-
-  // Try to extract transition name from rule application
-  if (name.startsWith('t_')) {
-    transitions.push(name.substring(2));
-  }
+  return new Set(byKey.values());
 }
 
-/**
- * Extracts a MarkingState from a Reachable(...) application.
- */
-function extractMarking(ctx: any, reachableApp: any, flatNet: FlatNet): MarkingState | null {
-  const P = flatNet.places.length;
-  if (reachableApp.numArgs() !== P) return null;
-
+function toMarking(args: readonly number[], flatNet: FlatNet): MarkingState {
   const builder = MarkingState.builder();
-  for (let i = 0; i < P; i++) {
-    const arg = reachableApp.arg(i);
-    if (ctx.isIntVal(arg)) {
-      const tokens = Number(arg.value());
-      if (tokens > 0) {
-        builder.tokens(flatNet.places[i]!, tokens);
-      }
-    } else {
-      // Non-concrete value in counterexample
-      return null;
-    }
+  for (let i = 0; i < args.length; i++) {
+    if (args[i]! > 0) builder.tokens(flatNet.places[i]!, args[i]!);
   }
   return builder.build();
+}
+
+/**
+ * Parses an application's argument text into integers, accepting only GROUND
+ * arguments: bare integer literals (`3`, `-1`) and the SMT-LIB negation form
+ * `(- 3)`. Any other token (a bound variable, a nested expression) makes the
+ * application non-ground: returns `null`.
+ */
+export function parseGroundIntArgs(inner: string): number[] | null {
+  const args: number[] = [];
+  let rest = inner.trimStart();
+  while (rest !== '') {
+    if (rest.startsWith('(')) {
+      const stripped = rest.slice(1);
+      const close = stripped.indexOf(')');
+      if (close < 0) return null;
+      const body = stripped.slice(0, close);
+      if (body.includes('(')) return null;
+      const trimmed = body.trim();
+      if (!trimmed.startsWith('-')) return null;
+      const n = parseInt64(trimmed.slice(1).trim());
+      if (n == null) return null;
+      args.push(-n);
+      rest = stripped.slice(close + 1).trimStart();
+    } else {
+      let tokenEnd = rest.length;
+      for (let i = 0; i < rest.length; i++) {
+        const c = rest[i]!;
+        if (/\s/.test(c) || c === '(' || c === ')') {
+          tokenEnd = i;
+          break;
+        }
+      }
+      const n = parseInt64(rest.slice(0, tokenEnd));
+      if (n == null) return null;
+      args.push(n);
+      rest = rest.slice(tokenEnd).trimStart();
+    }
+  }
+  return args;
+}
+
+function parseInt64(token: string): number | null {
+  return /^-?\d+$/.test(token) ? Number(token) : null;
 }

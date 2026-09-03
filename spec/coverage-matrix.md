@@ -8,11 +8,11 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 
 ## Summary
 
-- Active requirements: **208**
-- Proven in Lean (≥ 1 validated theorem fragment): **21**
+- Active requirements: **210**
+- Proven in Lean (≥ 1 validated theorem fragment): **24**
 - Referenced in Lean comments only (mention without a validated theorem mapping): **7**
-- Referenced by ≥ 1 test file: java **65**, typescript **62**, rust **70**, python **23**
-- Untested anywhere (no test-file reference in any language): **131**
+- Referenced by ≥ 1 test file: java **68**, typescript **65**, rust **73**, python **25**
+- Untested anywhere (no test-file reference in any language): **130**
 
 ## 01-core-model.md — CORE
 
@@ -159,9 +159,11 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | VER-004 | `proposition_one` — abstraction soundness alpha(R(N)) subset R(N-hat) on the untimed flat fragment, under the GuardFreeConsumeAll (vacuous since the IO-006 guard removal) and UnitOutput side conditions; the CHC encoder is modelled, not extracted<br>`guard_hypothesis_is_necessary` — necessity of the guard-free side condition: concrete counterexample where a guarded consume-all arc made the untimed abstraction unsound (historical evidence; discharged by the IO-006 guard removal)<br>`unit_output_hypothesis_is_necessary` — necessity of the unit-output side condition: validate_out_spec checks place membership, never multiplicity, while the encoder fixes the abstract gain at one token per branch place — the hypothesis remains unchecked by the shipped encoder<br>`bad_rule_nonvacuity` — the flat encoder's unresolvable-property-place fallback (Bad body = false) certifies any net vacuously - the formal argument that refusing to certify is the only sound behavior for that case | ✓ | — | — | ✓ | — |
 | VER-005 | `invariant_strengthening_sound` — weighted-sum conservation over ReachA under H1 (zero weight on consume-all/atLeast/reset places; now enforced by the shipped validators) and H2 (y.C = 0, the exact-validation gate's check); injection-free fragment<br>`strengthened_reach_eq` — under H1+H2, conjoining y.M = y.M0 into CHC rule bodies preserves the abstract reachable set - the strengthening the encoders perform is sound<br>`consume_all_hypothesis_is_necessary` — live-gap witness that forced the H1 guard: an exact-gate-valid invariant on an In::All net prunes a genuine successor - false Proven without the guard | ✓ | — | — | — | — |
 | VER-006 | `false_proven_without_injection` — retrodiction of 98b9297: without the environment-injection rule the abstract reachable set freezes at M0, so PlaceBound(p1, 0) is proven vacuously — the pre-fix false Proven, on the minimal one-env-place witness net<br>`injection_reaches_violation` — with the injection rule of smt_encoder.rs:81-83 encoded, the vacuous bound above is refuted (p1 reaches 1) — witnesses the fix on the minimal net, not full environment-analysis-mode soundness<br>`invariant_strengthening_sound_inj` — env-aware variant: with injection rules, conservation needs H3' (zero weight on injectable places) - the sufficiency proof for the shipped injector-column design<br>`strengthened_reach_eq_inj` — under H1+H2+H3', strengthening preserves the injected reachable set<br>`injection_hypothesis_is_necessary` — necessity of H3': a unit weight on an injectable place freezes the strengthened relation while the true relation reaches a violation | ✓ | ✓ | ✓ | ✓ | ✓ |
+| VER-007 | `semiflow_union_sound` — AC2/AC5: conjoining basis ++ semiflows into the CHC rule bodies preserves the abstract reachable set whenever every member passed the exact gate (H1+H2) - the union is pure strengthening and can never turn Violated into Proven; injection-free fragment, encoder modelled not extracted<br>`semiflow_union_sound_inj` — the env-aware union: with injection rules present the same holds under H3' (zero weight on injectable places), which the injector columns force through the gate<br>`semiflow_gate_is_necessary` — AC1: a semi-positive y.C = 0 row - exactly what the Farkas enumeration returns - that fails H1 prunes a genuinely reachable violating state, so the semiflow source must pass the same gate as the basis rows<br>`strengthening_monotone` — appending one more validated law never changes what the strengthened relation reaches - the monotone-safety of adding laws | ✓ | ✓ | ✓ | ✓ | ✓ |
 | VER-010 | — | — | — | — | — | — |
 | VER-011 | — | — | — | — | — | — |
-| VER-012 | — | — | — | — | — | — |
+| VER-012 | `interned_keys_eq` — hash-consing the base class and the name layer is semantics-free: under key-equivariance of the successor step, exploring from any key-preserving representative reaches the same set of canonical keys (state classes) as exploring from the states themselves - generic worklist model; the shipped name_successors / canonical_key equivariance and the ready_earliest-inclusive base key are stated hypotheses, not proven<br>`interned_edges_eq` — the interned graph has the same (key, label, key) edge set as the plain one, not merely the same vertex set; class indices and enumeration order are not claimed<br>`equivariance_is_necessary` — necessity of key-equivariance: a step that reads a datum the key hides loses a reachable class under interning - the shape of the ready_earliest hole the base intern key closes | ✓ | ✓ | ✓ | ✓ | — |
+| VER-013 | — | — | ✓ | ✓ | ✓ | ✓ |
 | VER-020 | — | — | — | — | — | — |
 | VER-021 | — | — | — | — | — | — |
 
@@ -279,5 +281,5 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | NU-050 | — | — | ✓ | ✓ | ✓ | ✓ |
 | NU-051 | — | — | — | ✓ | ✓ | ✓ |
 | NU-052 | `willFire_guard_is_necessary` — retrodiction of c23cd9e: the pre-fix conflict-only prune (no will-fire guard) drops a drain firing the executor really performs, the shipped prune does not — nu name layer abstracted to a boolean nameEnabled, untimed fragment<br>`postFixPrune_agrees_with_executor` — the shipped prune condition never contradicts the executor's firing rule (immediate by construction — the condition is the executor's rule); untimed fragment, boolean name layer | ✓ | ✓ | ✓ | ✓ | ✓ |
-| NU-053 | — | — | ✓ | ✓ | ✓ | ✓ |
+| NU-053 | `covered_place_empty` — AC6, the column side: under a covering semi-positive validated law with y.M0 = 0 every positively-weighted (coloured) place is empty on every abstract reachable marking - the zero colour slots the k = 0 plan drops are identically zero<br>`vacuous_colour_layer` — AC6, the rule side: every flat transition consuming from or producing into a covered place is dead on the reachable set, so any sub-net keeping the untouched rows (what the zero-slot coloured encoding emits) reaches exactly the same markings - the k = 0 plan is exact; coloured encoder modelled, not extracted; injection-free fragment (vacuous_colour_layer_inj is the env-aware twin) | ✓ | ✓ | ✓ | ✓ | ✓ |
 | NU-060 | — | — | ✓ | ✓ | ✓ | ✓ |

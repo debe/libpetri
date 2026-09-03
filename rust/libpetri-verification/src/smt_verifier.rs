@@ -19,6 +19,7 @@ use crate::property::SmtProperty;
 use crate::result::{Verdict, VerificationResult, VerificationStatistics};
 use crate::smt_encoder;
 use crate::structural_check::{self, StructuralCheckResult};
+use crate::z3_process::{self, Z3Solver};
 
 /// Builder for SMT verification of Petri net properties.
 ///
@@ -32,7 +33,7 @@ pub struct SmtVerifier<'a> {
     net: &'a PetriNet,
     initial_marking: MarkingState,
     property: SmtProperty,
-    env_places: HashSet<String>,
+    env_places: BTreeSet<String>,
     env_mode: EnvironmentAnalysisMode,
     sink_places: Vec<String>,
     /// ν-net budget places ([NU-040]): places whose token count bounds the live
@@ -68,6 +69,10 @@ pub struct SmtVerifier<'a> {
     /// Whether a flat-path `Violated` is re-validated by [`crate::abstract_replay`]
     /// (default `true`). See [`SmtVerifier::replay_phase`].
     counterexample_replay: bool,
+    /// Whether the gate-validated P-semiflows are handed to the encoders alongside
+    /// the null-space basis ([VER-007], default `false`). See
+    /// [`SmtVerifier::semiflow_invariants`].
+    semiflow_invariants: bool,
     /// Test seam: replaces the extracted certificate fed to the certificate
     /// check, so tests can prove end-to-end that a corrupt certificate
     /// downgrades the verdict.
@@ -97,7 +102,7 @@ impl<'a> SmtVerifier<'a> {
             net,
             initial_marking: MarkingStateBuilder::new().build(),
             property: SmtProperty::DeadlockFree,
-            env_places: HashSet::new(),
+            env_places: BTreeSet::new(),
             env_mode: EnvironmentAnalysisMode::Ignore,
             sink_places: Vec::new(),
             budget_places: HashSet::new(),
@@ -108,6 +113,7 @@ impl<'a> SmtVerifier<'a> {
             priority_semantics: PrioritySemantics::None,
             certificate_check: true,
             counterexample_replay: true,
+            semiflow_invariants: false,
             #[cfg(test)]
             certificate_override: None,
             #[cfg(test)]
@@ -232,6 +238,30 @@ impl<'a> SmtVerifier<'a> {
     /// trace is produced at all. See [`crate::abstract_replay`].
     pub fn counterexample_replay(mut self, enabled: bool) -> Self {
         self.counterexample_replay = enabled;
+        self
+    }
+
+    /// Also hands the validated **P-semiflows** to the encoders as invariants
+    /// ([VER-007]; default: disabled — the encoders then see only the null-space
+    /// basis).
+    ///
+    /// Every validated semiflow is a conservation law in its own right (`y ≥ 0`,
+    /// `y·C = 0`, `y·M0` exact, zero weight on every reset / consume-all place), and
+    /// the Farkas enumeration returns the *minimal* laws of the net. The null-space
+    /// basis the encoders get by default is one basis of many: elimination hands back
+    /// rows that fold a reset place into a chain whose other combinations avoid it,
+    /// and the H1 guard drops them. On a net with a few reset arcs that can lose every
+    /// law of the chains those arcs touch, and without them IC3 has to rediscover the
+    /// conservation of each chain — on a ~100-place net it does not within any
+    /// practical budget. With the semiflows in, the same reachability-safety queries
+    /// close in about a second.
+    ///
+    /// Soundness is unchanged: the semiflows pass the same exact re-validation as the
+    /// basis rows, the union is pure strengthening (`Semiflow.lean`,
+    /// `semiflow_union_sound`), and the certificate check re-proves the strengthened
+    /// invariant. Off by default so reports stay byte-equal.
+    pub fn semiflow_invariants(mut self, enabled: bool) -> Self {
+        self.semiflow_invariants = enabled;
         self
     }
 
@@ -377,6 +407,12 @@ impl<'a> SmtVerifier<'a> {
             flat.transitions.len()
         ));
 
+        // [VER-013] Script determinism: the encoders receive the sink places and
+        // the property's place lists in place-index order, so the emitted script
+        // does not depend on the order the caller listed them in.
+        let sink_places = canonical_place_order(&flat, &self.sink_places);
+        let property = canonical_property(&flat, &self.property);
+
         // Environment bounds (legacy post-cap) and the injection map (VER-006).
         // env_injection drives the env-injection CHC rule, the incidence-matrix
         // injector columns, and the relaxed deadlock check. None = unbounded
@@ -421,9 +457,9 @@ impl<'a> SmtVerifier<'a> {
         // siphon/trap analysis runs on the closed net and is blind to env injection
         // (VER-006), so its early proof could be unsound — fall through to the
         // (injection-aware) SMT encoding instead.
-        if matches!(self.property, SmtProperty::DeadlockFree)
+        if matches!(property, SmtProperty::DeadlockFree)
             && !has_match
-            && self.sink_places.is_empty()
+            && sink_places.is_empty()
             && self.env_places.is_empty()
             && structural_result == StructuralCheckResult::NoPotentialDeadlock
         {
@@ -470,6 +506,27 @@ impl<'a> SmtVerifier<'a> {
         );
         let semiflows = semiflow_validation.valid;
         report.push_str(&format!("Found {} P-invariant(s)\n", invariants.len()));
+        // [VER-007]: the minimal conservation laws, as extra invariants for the
+        // encoders. The report line is emitted only when enabled so default reports
+        // stay byte-identical (AC2/AC3).
+        let invariants = if self.semiflow_invariants {
+            let (strengthened, added) =
+                p_invariant::strengthen_with_semiflows(invariants, &semiflows);
+            report.push_str(&format!("  Semiflows encoded as invariants: {added}\n"));
+            strengthened
+        } else {
+            invariants
+        };
+        // [VER-013] Canonical invariant order (support, weights, constant), so the
+        // strengthened rule bodies and the certificate candidate read the same in
+        // every implementation whatever order the elimination produced them in.
+        let mut invariants = invariants;
+        invariants.sort_by(|a, b| {
+            a.support
+                .cmp(&b.support)
+                .then_with(|| a.weights.cmp(&b.weights))
+                .then_with(|| a.constant.cmp(&b.constant))
+        });
 
         for (i, inv) in invariants.iter().enumerate() {
             let terms: Vec<String> = inv
@@ -502,7 +559,31 @@ impl<'a> SmtVerifier<'a> {
 
         // Phase 4: SMT Encode + Query
         report.push_str("=== Phase 4: SMT Verification ===\n");
-        report.push_str(&format!("Property: {}\n", self.property.description()));
+        report.push_str(&format!("Property: {}\n", property.description()));
+
+        // [VER-013] One z3 process per query. Resolve the executable before any
+        // encoding work so a missing or too-old solver is reported as such.
+        let solver = match Z3Solver::resolve() {
+            Ok(solver) => {
+                report.push_str(&format!("  Solver: z3 {}\n", solver.version()));
+                solver
+            }
+            Err(reason) => {
+                report.push_str(&format!("  Solver: z3 unavailable ({reason})\n"));
+                report.push_str(&format!("Result: UNKNOWN ({reason})\n"));
+                let elapsed_ms = start.elapsed().as_millis() as u64;
+                return build_result(
+                    Verdict::Unknown { reason },
+                    report,
+                    elapsed_ms,
+                    flat_statistics(&flat, invariants.len(), structural_str),
+                    Diagnostics {
+                        invariants,
+                        ..Diagnostics::none()
+                    },
+                );
+            }
+        };
 
         // ν-net exact refinement (NU-050 #1, Route A). For a budget-bounded ν-net
         // in the supported mint→matched-join fragment, encode names as a finite
@@ -539,9 +620,9 @@ impl<'a> SmtVerifier<'a> {
                 plan,
                 &flat,
                 &self.initial_marking,
-                &self.property,
+                &property,
                 &invariants,
-                &self.sink_places,
+                &sink_places,
                 &env_inject_idx,
             ) {
                 Some(enc) => enc,
@@ -568,12 +649,33 @@ impl<'a> SmtVerifier<'a> {
                 }
             }
         } else {
+            // A property naming a place outside the net would encode to a vacuous
+            // violation predicate (`false` proves anything). Refuse, as the coloured
+            // path does, so a mis-named place never silently certifies.
+            if let Some(name) = unresolved_property_place(&flat, &property) {
+                let reason = format!(
+                    "property names a place that does not resolve in the net ('{name}'); \
+                     refusing to certify (the encoding would be vacuously proven)"
+                );
+                report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
+                let elapsed_ms = start.elapsed().as_millis() as u64;
+                return build_result(
+                    Verdict::Unknown { reason },
+                    report,
+                    elapsed_ms,
+                    flat_statistics(&flat, invariants.len(), structural_str),
+                    Diagnostics {
+                        invariants,
+                        ..Diagnostics::none()
+                    },
+                );
+            }
             smt_encoder::encode(
                 &flat,
                 &self.initial_marking,
-                &self.property,
+                &property,
                 &invariants,
-                &self.sink_places,
+                &sink_places,
                 &env_bounds,
                 &env_injection,
                 // C3: request the refutation proof the replay decoder reads.
@@ -582,7 +684,8 @@ impl<'a> SmtVerifier<'a> {
         };
 
         // Run Z3 Spacer
-        let z3_result = run_z3_spacer(&encoding.smt2, self.timeout_ms);
+        let phase = if coloured_plan.is_some() { "horn-coloured" } else { "horn" };
+        let z3_result = run_z3_spacer(&encoding.smt2, &solver, self.timeout_ms, phase);
 
         let (mut verdict, decoded_trace, discovered_invariants) =
             process_z3_result(&z3_result, &mut report);
@@ -618,7 +721,7 @@ impl<'a> SmtVerifier<'a> {
                      (k = budget); the verdict is sound and complete within the budget bound — \
                      no spurious different-name counterexample (NU-050 #1 / NU-053).\n",
                 );
-            } else if !is_reachability_safety(&self.property) {
+            } else if !is_reachability_safety(&property) {
                 // Quiescence-based properties, name-blind (no coloured plan): the
                 // over-approximation over-fires joins, so it sees fewer quiescent
                 // states and may miss a real stranded marking. Refuse to certify —
@@ -658,10 +761,13 @@ impl<'a> SmtVerifier<'a> {
         verdict = self.certificate_phase(
             verdict,
             &flat,
+            &property,
+            &sink_places,
             &invariants,
             &env_bounds,
             &env_injection,
             coloured_plan.is_some(),
+            &solver,
             &mut report,
         );
 
@@ -669,6 +775,8 @@ impl<'a> SmtVerifier<'a> {
             verdict,
             &z3_result,
             &flat,
+            &property,
+            &sink_places,
             &env_bounds,
             &env_injection,
             coloured_plan.is_some(),
@@ -694,6 +802,131 @@ impl<'a> SmtVerifier<'a> {
         )
     }
 
+    /// The SMT-LIB2 scripts [`SmtVerifier::verify`] would send to z3 for this
+    /// configuration, without running a solver ([VER-013] AC1): the HORN query
+    /// (flat, or name-coloured when a declared budget puts the net on Route A's
+    /// exact encoding) and, for the flat encoding, the certificate-check script
+    /// built around [`placeholder_certificate`]. This is what the cross-language
+    /// golden tests diff byte for byte. Route B, the structural pre-check and the
+    /// unresolved-place refusal are bypassed: it is what Route A encodes.
+    pub fn encode_scripts(self) -> EncodedScripts {
+        let has_match = self.net.transitions().iter().any(|t| t.match_spec().is_some());
+        let nu_bounded = !self.budget_places.is_empty();
+        let flat = net_flattener::flatten(self.net);
+        let sink_places = canonical_place_order(&flat, &self.sink_places);
+        let property = canonical_property(&flat, &self.property);
+
+        let env_bounds: Vec<(String, usize)> = match &self.env_mode {
+            EnvironmentAnalysisMode::Bounded { max_tokens } => self
+                .env_places
+                .iter()
+                .map(|name| (name.clone(), *max_tokens))
+                .collect(),
+            _ => Vec::new(),
+        };
+        let env_injection: Vec<(String, Option<usize>)> = match &self.env_mode {
+            EnvironmentAnalysisMode::AlwaysAvailable => {
+                self.env_places.iter().map(|n| (n.clone(), None)).collect()
+            }
+            EnvironmentAnalysisMode::Bounded { max_tokens } => self
+                .env_places
+                .iter()
+                .map(|n| (n.clone(), Some(*max_tokens)))
+                .collect(),
+            EnvironmentAnalysisMode::Ignore => Vec::new(),
+        };
+        let env_inject_indices: Vec<usize> = env_injection
+            .iter()
+            .filter_map(|(name, _)| flat.place_index.get(name).copied())
+            .collect();
+
+        let matrix = IncidenceMatrix::from_flat_net(&flat, &env_inject_indices);
+        let invariants = p_invariant::validate_invariants_exact(
+            p_invariant::compute_p_invariants(&matrix, &self.initial_marking, &flat.places),
+            &matrix,
+            &self.initial_marking,
+            &flat,
+        )
+        .valid;
+        let semiflows = p_invariant::validate_invariants_exact(
+            p_invariant::compute_p_semiflows(&matrix, &self.initial_marking, &flat.places),
+            &matrix,
+            &self.initial_marking,
+            &flat,
+        )
+        .valid;
+        let mut invariants = if self.semiflow_invariants {
+            p_invariant::strengthen_with_semiflows(invariants, &semiflows).0
+        } else {
+            invariants
+        };
+        invariants.sort_by(|a, b| {
+            a.support
+                .cmp(&b.support)
+                .then_with(|| a.weights.cmp(&b.weights))
+                .then_with(|| a.constant.cmp(&b.constant))
+        });
+
+        if has_match && nu_bounded {
+            if let Some(plan) = name_coloured_encoder::build_plan(
+                self.net,
+                &flat,
+                &self.initial_marking,
+                &self.budget_places,
+                self.fragment_mode,
+                &self.carrier_places,
+                &semiflows,
+            ) {
+                let env_inject_idx: Vec<(usize, Option<usize>)> = env_injection
+                    .iter()
+                    .filter_map(|(name, b)| flat.place_index.get(name).map(|&pid| (pid, *b)))
+                    .collect();
+                if let Some(enc) = name_coloured_encoder::encode_coloured(
+                    &plan,
+                    &flat,
+                    &self.initial_marking,
+                    &property,
+                    &invariants,
+                    &sink_places,
+                    &env_inject_idx,
+                ) {
+                    return EncodedScripts {
+                        horn: enc.smt2,
+                        certificate: None,
+                        coloured: true,
+                    };
+                }
+            }
+        }
+
+        let horn = smt_encoder::encode(
+            &flat,
+            &self.initial_marking,
+            &property,
+            &invariants,
+            &sink_places,
+            &env_bounds,
+            &env_injection,
+            self.counterexample_replay,
+        )
+        .smt2;
+        let certificate = certificate_check::vc_script(
+            &placeholder_certificate(flat.place_count),
+            &flat,
+            &self.initial_marking,
+            &property,
+            &invariants,
+            &sink_places,
+            &env_bounds,
+            &env_injection,
+        );
+        EncodedScripts {
+            horn,
+            certificate: Some(certificate),
+            coloured: false,
+        }
+    }
+
     /// Certificate phase — the second independent layer, after Phase 3's exact
     /// P-invariant re-validation: a flat-path `Proven` must survive
     /// [`crate::certificate_check`] (canonical description there). Any failure
@@ -704,10 +937,13 @@ impl<'a> SmtVerifier<'a> {
         &self,
         verdict: Verdict,
         flat: &FlatNet,
+        property: &SmtProperty,
+        sink_places: &[String],
         invariants: &[PInvariant],
         env_bounds: &[(String, usize)],
         env_injection: &[(String, Option<usize>)],
         coloured: bool,
+        solver: &Z3Solver,
         report: &mut String,
     ) -> Verdict {
         if !matches!(verdict, Verdict::Proven { .. }) {
@@ -742,16 +978,17 @@ impl<'a> SmtVerifier<'a> {
             return Verdict::Unknown { reason };
         };
 
-        match certificate_check::check_certificate(
+        match certificate_check::check_certificate_with(
             &cert,
             flat,
             &self.initial_marking,
-            &self.property,
+            property,
             invariants,
-            &self.sink_places,
+            sink_places,
             env_bounds,
             env_injection,
             self.timeout_ms,
+            solver,
         ) {
             CertificateCheck::Passed => {
                 report.push_str(CERT_PASSED_LINE);
@@ -787,6 +1024,8 @@ impl<'a> SmtVerifier<'a> {
         verdict: Verdict,
         z3_result: &Z3Result,
         flat: &FlatNet,
+        property: &SmtProperty,
+        sink_places: &[String],
         env_bounds: &[(String, usize)],
         env_injection: &[(String, Option<usize>)],
         coloured: bool,
@@ -845,8 +1084,8 @@ impl<'a> SmtVerifier<'a> {
             flat,
             &m0,
             &decoded_set,
-            &self.property,
-            &self.sink_places,
+            property,
+            sink_places,
             &env_inject,
             &env_caps,
             REPLAY_MAX_SEGMENT_STEPS,
@@ -907,6 +1146,26 @@ impl<'a> SmtVerifier<'a> {
             }
         }
     }
+}
+
+/// The scripts [`SmtVerifier::encode_scripts`] reports.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EncodedScripts {
+    /// The HORN query, flat or name-coloured.
+    pub horn: String,
+    /// The certificate-check script around [`placeholder_certificate`]; `None`
+    /// for the name-coloured encoding, which has no certificate check.
+    pub certificate: Option<String>,
+    /// Whether `horn` is the name-coloured encoding.
+    pub coloured: bool,
+}
+
+/// `(define-fun Reachable ((x!0 Int) …) Bool true)`: the certificate stand-in
+/// the golden certificate scripts are built around (a real certificate is
+/// solver output and never part of a golden).
+pub fn placeholder_certificate(place_count: usize) -> String {
+    let params: Vec<String> = (0..place_count).map(|i| format!("(x!{i} Int)")).collect();
+    format!("(define-fun Reachable ({}) Bool\n    true)", params.join(" "))
 }
 
 /// Everything a [`VerificationResult`] carries beyond its verdict, report and
@@ -1083,68 +1342,21 @@ enum Z3Result {
     Unknown { reason: String },
 }
 
-/// Spawns the `z3` binary (`-smt2 -in -T:<secs>` plus `extra_args`), feeding
-/// `smt2` on stdin. Returns the raw process output — stdout may well contain
-/// `(error …)` lines, which callers interpret — or a spawn/pipe failure
-/// description. Shared by the Spacer run and the certificate check
-/// ([`crate::certificate_check`]).
-pub(crate) fn run_z3_text(
-    smt2: &str,
-    timeout_ms: u64,
-    extra_args: &[&str],
-) -> Result<std::process::Output, String> {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
-
-    // Z3 -T flag uses seconds; round up so sub-second timeouts don't become 0
-    let timeout_secs = timeout_ms.div_ceil(1000).max(1);
-
-    let mut child = match Command::new("z3")
-        .args(["-smt2", "-in", &format!("-T:{timeout_secs}")])
-        .args(extra_args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-    {
-        Ok(child) => child,
-        Err(e) => return Err(format!("Failed to spawn z3: {e}")),
-    };
-
-    if let Some(stdin) = child.stdin.as_mut() {
-        if let Err(e) = stdin.write_all(smt2.as_bytes()) {
-            return Err(format!("Failed to write to z3 stdin: {e}"));
-        }
-    }
-
-    match child.wait_with_output() {
-        Ok(output) => Ok(output),
-        Err(e) => Err(format!("Z3 process error: {e}")),
-    }
-}
-
-/// Runs Z3 Spacer on the given SMT-LIB2 string.
-///
-/// Invokes `z3` as a subprocess with Spacer engine.
-fn run_z3_spacer(smt2: &str, timeout_ms: u64) -> Z3Result {
-    let output = match run_z3_text(smt2, timeout_ms, &["fp.engine=spacer"]) {
-        Ok(output) => output,
+/// Runs Z3 Spacer on the given SMT-LIB2 string through one `z3` process
+/// ([`crate::z3_process`]) and classifies the reply in verdict terms.
+fn run_z3_spacer(smt2: &str, solver: &Z3Solver, timeout_ms: u64, phase: &str) -> Z3Result {
+    let reply = match solver.run(smt2, phase, timeout_ms, &["fp.engine=spacer"]) {
+        Ok(reply) => reply,
         Err(reason) => return Z3Result::Unknown { reason },
     };
+    let stdout = reply.stdout.trim();
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stdout = stdout.trim();
-
-    // Scan for the verdict LINE rather than the first bytes of the reply. The
-    // script deliberately emits both (get-proof) and (get-model), one of which
-    // answers `(error …)` on either branch, and a z3 build is free to print a
-    // warning first or route those lines differently — anchoring on
-    // `starts_with` turned every such build's flat-path verdict into Unknown.
-    match stdout
-        .lines()
-        .map(str::trim)
-        .find(|l| matches!(*l, "sat" | "unsat" | "unknown"))
-    {
+    // The verdict is a LINE anywhere in the reply, never its first bytes: the
+    // script asks for both (get-proof) and (get-model), one of which answers
+    // `(error …)` on either branch, and a build is free to print a warning
+    // first. Anchoring on `starts_with` once turned every such reply into
+    // Unknown.
+    match z3_process::classify_first_line(stdout) {
         // unsat => no inductive invariant excludes the bad state => VIOLATED.
         Some("unsat") => Z3Result::Violated {
             answer: stdout.to_string(),
@@ -1156,25 +1368,11 @@ fn run_z3_spacer(smt2: &str, timeout_ms: u64) -> Z3Result {
         Some(_) => Z3Result::Unknown {
             reason: "Z3 answered unknown".to_string(),
         },
-        None => {
-            // No verdict at all: an `(error …)` on either stream is the
-            // likeliest cause and the most useful thing to report.
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let error = stdout
-                .lines()
-                .chain(stderr.lines())
-                .map(str::trim)
-                .find(|l| l.starts_with("(error"));
-            Z3Result::Unknown {
-                reason: match error {
-                    Some(err) => format!("Z3 error: {err}"),
-                    None if !stderr.trim().is_empty() => {
-                        format!("Z3 error: {}", stderr.trim())
-                    }
-                    None => format!("Unexpected Z3 output: {stdout}"),
-                },
-            }
-        }
+        // No verdict at all: the `-T` backstop, the watchdog, an `(error …)`
+        // on either stream, in that order ([VER-013]).
+        None => Z3Result::Unknown {
+            reason: z3_process::failure_reason(&reply, timeout_ms),
+        },
     }
 }
 
@@ -1249,15 +1447,56 @@ pub(crate) fn sexpr_end(s: &str, start: usize) -> Option<usize> {
     None
 }
 
-/// True if the `z3` binary this crate shells out to is on `PATH`. Without it
+/// True if a usable `z3` executable resolves: `LIBPETRI_Z3` if set, else `z3`
+/// on `PATH`, at or above [`crate::z3_process::MIN_Z3_VERSION`]. Without one
 /// every SMT path returns `Unknown`; the test suites use this to skip loudly
 /// rather than fail.
 pub fn z3_available() -> bool {
-    std::process::Command::new("z3")
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    Z3Solver::resolve().is_ok()
+}
+
+/// The given place names in flat place-index order, unknown names last in
+/// name order, duplicates removed ([VER-013] script determinism).
+fn canonical_place_order(flat: &FlatNet, names: &[String]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut named: Vec<&String> = names.iter().filter(|n| seen.insert(n.as_str())).collect();
+    named.sort_by(|a, b| {
+        (flat.place_index.get(*a).copied(), a.as_str())
+            .cmp(&(flat.place_index.get(*b).copied(), b.as_str()))
+    });
+    named.into_iter().cloned().collect()
+}
+
+/// The first place the property names that is not in the flat net.
+fn unresolved_property_place(flat: &FlatNet, property: &SmtProperty) -> Option<String> {
+    let named: Vec<&String> = match property {
+        SmtProperty::DeadlockFree => Vec::new(),
+        SmtProperty::MutualExclusion { places } | SmtProperty::Unreachable { places } => {
+            places.iter().collect()
+        }
+        SmtProperty::PlaceBound { place, .. } | SmtProperty::BranchPlaceBound { place, .. } => {
+            vec![place]
+        }
+        SmtProperty::JoinedOrDeadLettered { pending } => vec![pending],
+    };
+    named
+        .into_iter()
+        .find(|name| !flat.place_index.contains_key(*name))
+        .cloned()
+}
+
+/// The property with its place lists in canonical order; the sets are
+/// unordered, so this changes nothing but the emitted script text.
+fn canonical_property(flat: &FlatNet, property: &SmtProperty) -> SmtProperty {
+    match property {
+        SmtProperty::MutualExclusion { places } => SmtProperty::MutualExclusion {
+            places: canonical_place_order(flat, places),
+        },
+        SmtProperty::Unreachable { places } => SmtProperty::Unreachable {
+            places: canonical_place_order(flat, places),
+        },
+        other => other.clone(),
+    }
 }
 
 /// Replay search bounds (C3): at most this many abstract steps between
@@ -1368,6 +1607,38 @@ mod tests {
     }
 
     #[test]
+    fn unresolved_property_place_refuses_to_certify() {
+        if !z3_available() {
+            eprintln!("skipping unresolved_property_place_refuses_to_certify: no z3");
+            return;
+        }
+        // A property over a place the net never declares would encode to `false`,
+        // which proves anything. The flat path refuses, as the coloured path does,
+        // with the same reason in every implementation.
+        let p1 = Place::<i32>::new("p1");
+        let p2 = Place::<i32>::new("p2");
+        let t = Transition::builder("t1")
+            .input(one(&p1))
+            .output(out_place(&p2))
+            .action(fork())
+            .build();
+        let net = PetriNet::builder("tiny").transition(t).build();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(MarkingStateBuilder::new().tokens("p1", 1).build())
+            .property(SmtProperty::unreachable(vec!["Ghost".into()]))
+            .verify();
+        match &result.verdict {
+            Verdict::Unknown { reason } => assert_eq!(
+                reason,
+                "property names a place that does not resolve in the net ('Ghost'); refusing to \
+                 certify (the encoding would be vacuously proven)"
+            ),
+            other => panic!("expected the refusal, got {other:?}\n{}", result.report),
+        }
+        assert!(result.counterexample_confirmed.is_none());
+    }
+
+    #[test]
     fn verifier_builder_creates_defaults() {
         let p1 = Place::<i32>::new("p1");
         let p2 = Place::<i32>::new("p2");
@@ -1384,6 +1655,102 @@ mod tests {
             .timeout(5000);
 
         assert_eq!(verifier.timeout_ms, 5000);
+        // [VER-007] AC2: the semiflow union is opt-in.
+        assert!(!verifier.semiflow_invariants);
+    }
+
+    /// [VER-007] test derivation: a budgeted work loop with one reset arc on a side
+    /// place. `Open: one(budget), reset(stamp) -> and(work, stamp)`,
+    /// `Step: one(work) -> done`, `Close: one(done) -> and(budget, sink)`. The
+    /// semiflow enumeration finds `budget + work + done = 1` with zero weight on
+    /// the reset place; the null-space basis may fold `stamp` into it and lose it
+    /// to the H1 guard.
+    fn semiflow_loop() -> PetriNet {
+        use libpetri_core::arc::reset;
+        use libpetri_core::output::and;
+        let budget = Place::<i32>::new("budget");
+        let work = Place::<i32>::new("work");
+        let done = Place::<i32>::new("done");
+        let stamp = Place::<i32>::new("stamp");
+        let sink = Place::<i32>::new("sink");
+        let open = Transition::builder("Open")
+            .input(one(&budget))
+            .reset(reset(&stamp))
+            .output(and(vec![out_place(&work), out_place(&stamp)]))
+            .action(fork())
+            .build();
+        let step = Transition::builder("Step")
+            .input(one(&work))
+            .output(out_place(&done))
+            .action(fork())
+            .build();
+        let close = Transition::builder("Close")
+            .input(one(&done))
+            .output(and(vec![out_place(&budget), out_place(&sink)]))
+            .action(fork())
+            .build();
+        PetriNet::builder("loop").transitions([open, step, close]).build()
+    }
+
+    /// [VER-007] AC2/AC3: the validated P-semiflows reach the encoder as extra
+    /// invariants, and only when asked for.
+    #[test]
+    fn semiflows_are_encoded_only_when_enabled() {
+        if !z3_available() {
+            eprintln!("skipping semiflows_are_encoded_*: z3 binary not on PATH");
+            return;
+        }
+        let net = semiflow_loop();
+        let off = SmtVerifier::for_net(&net)
+            .initial_marking(MarkingStateBuilder::new().tokens("budget", 1).build())
+            .property(SmtProperty::place_bound("work", 1))
+            .timeout(30_000)
+            .verify();
+        assert!(
+            !off.report.contains("Semiflows encoded as invariants"),
+            "off by default, no report line\n{}",
+            off.report
+        );
+
+        let on = SmtVerifier::for_net(&net)
+            .initial_marking(MarkingStateBuilder::new().tokens("budget", 1).build())
+            .property(SmtProperty::place_bound("work", 1))
+            .semiflow_invariants(true)
+            .timeout(30_000)
+            .verify();
+        assert!(matches!(on.verdict, Verdict::Proven { .. }), "{}", on.report);
+        assert!(
+            on.report.contains("  Semiflows encoded as invariants: "),
+            "{}",
+            on.report
+        );
+        assert!(
+            on.report.lines().any(|l| l.starts_with("  I")
+                && l.contains("budget")
+                && l.contains("work")
+                && l.contains("done")
+                && l.ends_with("= 1")),
+            "the loop's conservation law must survive the reset arc on stamp\n{}",
+            on.report
+        );
+    }
+
+    /// [VER-007] AC5: strengthening never hides a counterexample. `sink` gains a
+    /// token per loop iteration, so the bound 1 is genuinely violated.
+    #[test]
+    fn strengthening_never_hides_a_counterexample() {
+        if !z3_available() {
+            eprintln!("skipping strengthening_never_hides_*: z3 binary not on PATH");
+            return;
+        }
+        let net = semiflow_loop();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(MarkingStateBuilder::new().tokens("budget", 1).build())
+            .property(SmtProperty::place_bound("sink", 1))
+            .semiflow_invariants(true)
+            .timeout(30_000)
+            .verify();
+        assert!(matches!(result.verdict, Verdict::Violated), "{}", result.report);
     }
 
     #[test]
@@ -1932,6 +2299,56 @@ mod tests {
             .tokens("source", 3)
             .tokens("budget", k)
             .build()
+    }
+
+    /// [NU-053] AC6: a mid-phase marking with no budget token — the covering
+    /// semiflow's initial sum is zero — is decided exactly by the zero-slot
+    /// coloured plan instead of being downgraded to Unknown. Route B is forced to
+    /// truncate (`nu_max_classes(1)`) so the deferral to Route A is exercised.
+    #[test]
+    fn nu_zero_budget_quiescence_decided_by_zero_slot_plan() {
+        if !z3_available() {
+            eprintln!("skipping nu_zero_budget_*: z3 binary not on PATH");
+            return;
+        }
+        let net = nu_scatter_gather_net();
+        // No sink: the initial marking is quiescent with `source` tokens stranded.
+        let violated = SmtVerifier::for_net(&net)
+            .initial_marking(nu_initial_marking(0))
+            .property(SmtProperty::DeadlockFree)
+            .budget_place("budget")
+            .nu_max_classes(1)
+            .timeout(15_000)
+            .verify();
+        assert!(
+            violated.report.contains("exact within budget k=0"),
+            "the zero-slot plan must be taken\n{}",
+            violated.report
+        );
+        assert!(
+            matches!(violated.verdict, Verdict::Violated),
+            "no budget, no sink: the initial marking is a deadlock\n{}",
+            violated.report
+        );
+        // Declaring `source` a sink makes that marking a legitimate end state.
+        let proven = SmtVerifier::for_net(&net)
+            .initial_marking(nu_initial_marking(0))
+            .property(SmtProperty::DeadlockFree)
+            .budget_place("budget")
+            .sink_places(["source".to_string()])
+            .nu_max_classes(1)
+            .timeout(15_000)
+            .verify();
+        assert!(
+            proven.report.contains("exact within budget k=0"),
+            "{}",
+            proven.report
+        );
+        assert!(
+            matches!(proven.verdict, Verdict::Proven { .. }),
+            "with `source` a sink the only quiescent marking is a sink state\n{}",
+            proven.report
+        );
     }
 
     #[test]

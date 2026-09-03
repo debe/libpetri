@@ -59,7 +59,7 @@ Use places and transitions for coordination rather than hiding concurrency insid
 |---|---|
 | `libpetri` | Core model, runtime, events, and composition |
 | `libpetri/export` | DOT mapping and rendering |
-| `libpetri/verification` | Structural analysis, state classes, and Z3-backed SMT verification |
+| `libpetri/verification` | Structural analysis, state classes, and SMT verification through the `z3` executable |
 | `libpetri/debug` | Debug protocol and session archives |
 | `libpetri/viewer` | Interactive DOT/SVG viewer, the canonical renderer |
 | `libpetri/render-dom` | Thin compatibility wrapper over `libpetri/viewer` |
@@ -122,6 +122,10 @@ npm run build
 npm run check
 npm test
 ```
+
+## SMT verification needs a `z3` executable
+
+The package does not bundle a solver. `SmtVerifier` runs the `z3` executable found on `PATH` (or named by `LIBPETRI_Z3`), version 4.8.0 or newer, one process per query, so the event loop stays free while it solves; `z3Available()` from `libpetri/verification` tells you whether one resolves, and without it every verification returns `unknown` with a reason naming the command. Set `LIBPETRI_SMT_DUMP` to a directory to keep every SMT-LIB2 script and solver reply. The timeout is per solver invocation. The verification entry is Node-only.
 
 ## Project links
 

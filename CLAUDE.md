@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-libpetri is a multi-language **Coloured Time Petri Net** (CTPN) engine with formal verification. Four implementations conform to one language-agnostic specification (`spec/`, **208 active requirements across 13 files** — `spec/00-index.md` is the canonical count):
+libpetri is a multi-language **Coloured Time Petri Net** (CTPN) engine with formal verification. Four implementations conform to one language-agnostic specification (`spec/`, **210 active requirements across 13 files** — `spec/00-index.md` is the canonical count):
 
 | Implementation | Language | Runtime | Status |
 |---|---|---|---|
@@ -56,7 +56,7 @@ cargo test -p libpetri-runtime precompiled                      # filter tests b
 cargo bench                                                     # Criterion benchmarks
 ```
 
-Rust 2024 edition, rustc ≥1.88. Cargo workspace of 10 crates (`libpetri-core`, `-event`, `-runtime`, `-export`, `-verification`, `-debug`, `-docgen`, `libpetri` umbrella, `libpetri-py`, `benches`). **NOT fmt/clippy-gated** — match the existing hand-style; CI runs neither. Verification shells out to the **`z3` binary** via SMT-LIB2 text (the `z3` cargo feature is an empty compile-gate, *not* the z3/z3-sys crate).
+Rust 2024 edition, rustc ≥1.88. Cargo workspace of 10 crates (`libpetri-core`, `-event`, `-runtime`, `-export`, `-verification`, `-debug`, `-docgen`, `libpetri` umbrella, `libpetri-py`, `benches`). **NOT fmt/clippy-gated** — match the existing hand-style; CI runs neither. Verification shells out to the **`z3` executable** via SMT-LIB2 text, as every implementation does (VER-013; the `z3` cargo feature is an empty compile-gate, *not* the z3/z3-sys crate).
 
 ### Python (`python/`)
 
@@ -129,7 +129,7 @@ which libpetri does not own; a blocking action blocks the whole net. Consequentl
 
 Z3-based SMT verification using IC3/PDR. Supports: deadlock freedom, mutual exclusion, place bounds, unreachability. Uses Farkas method for P-invariants and structural siphon/trap pre-checks. State-class graph (Berthomieu-Diaz) for timed reachability.
 
-**Z3 transport differs per language**: Java uses `com.microsoft.z3` JNI (in-process), TypeScript uses `z3-solver` WASM (in-process), Rust shells out to the **`z3` binary** via SMT-LIB2 text. Implications: verification is sound but incomplete for the Turing-complete fragment (inhibitor arcs) — proofs target the decidable safety properties above on bounded nets.
+**One solver transport everywhere (VER-013)**: all four implementations start one `z3` process per query and speak SMT-LIB2 text (`z3` on `PATH` or `LIBPETRI_Z3`, version 4.8.0 or newer; no JNI, no WASM). The scripts are byte-identical across languages: `encodeScripts()` / `encode_scripts()` / `encode_smt_scripts()` return them without a solver, the goldens under `spec/verification-fixtures/scripts/` are written by Rust (`scripts/smt-script-parity.py --update`, never by hand) and diffed by every language's script-parity test. `LIBPETRI_SMT_DUMP=<dir>` keeps every script and reply of a run. Verification is sound but incomplete for the Turing-complete fragment (inhibitor arcs) — proofs target the decidable safety properties above on bounded nets.
 
 ### Export (`src/export/`)
 
@@ -200,7 +200,7 @@ contents change, and they're identical across the three destinations.
 
 ## Specification
 
-`spec/` contains 13 spec files (`00-index.md` … `12-nu-nets.md`), **208 active requirements**. Prefixes: CORE, IO, TIME, EXEC, CONC, ENV, VER, EVT, EXP, PERF, plus **MOD** (modular composition, `11-`) and **NU** (ν-nets / correlated fork-join by ID, `12-`). Requirements use MUST/SHOULD/MAY priority with testable acceptance criteria; cross-references use `[PREFIX-NNN]`. `spec/00-index.md` is the canonical registry — it tracks active vs removed/tombstoned IDs (e.g. IO-006), so trust the index count over any prose figure elsewhere.
+`spec/` contains 13 spec files (`00-index.md` … `12-nu-nets.md`), **210 active requirements**. Prefixes: CORE, IO, TIME, EXEC, CONC, ENV, VER, EVT, EXP, PERF, plus **MOD** (modular composition, `11-`) and **NU** (ν-nets / correlated fork-join by ID, `12-`). Requirements use MUST/SHOULD/MAY priority with testable acceptance criteria; cross-references use `[PREFIX-NNN]`. `spec/00-index.md` is the canonical registry — it tracks active vs removed/tombstoned IDs (e.g. IO-006), so trust the index count over any prose figure elsewhere.
 
 ## Release
 

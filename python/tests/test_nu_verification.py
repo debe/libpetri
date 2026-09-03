@@ -12,20 +12,18 @@ feature (Route B itself is solver-free, but the Python entry point is gated with
 the rest of the SMT surface).
 """
 
-import shutil
-
 import libpetri as lp
 import pytest
 
 pytestmark = pytest.mark.skipif(not lp.HAS_Z3, reason="z3 feature not enabled")
 
 # ``lp.HAS_Z3`` is the compile feature; the Route A coloured quiescence path
-# (NU-053) shells out to the ``z3`` BINARY, which is separate. Skip the
-# binary-driven nu053_* tests when the binary is absent so they cleanly SKIP (not
-# fail), matching the Rust/Java clean-skip when z3 is not on PATH.
-_HAS_Z3_BINARY = shutil.which("z3") is not None
+# (NU-053) shells out to the ``z3`` executable, which is separate
+# (``lp.z3_available()``, VER-013). Skip the binary-driven nu053_* tests when it
+# is absent so they cleanly SKIP (not fail), matching the Rust/Java clean-skip.
+_HAS_Z3_BINARY = lp.z3_available()
 _needs_z3_binary = pytest.mark.skipif(
-    not _HAS_Z3_BINARY, reason="z3 binary not on PATH (Route A coloured encoder)"
+    not _HAS_Z3_BINARY, reason="no usable z3 executable (Route A coloured encoder)"
 )
 
 
@@ -96,6 +94,37 @@ def test_pending_bound_proven_exact():
     )
     assert result.verdict == "proven", result.report
     assert "name-coloured" in result.report
+
+
+def test_zero_budget_quiescence_decided_by_zero_slot_plan():
+    # NU-053 AC6: a mid-phase marking with no budget token (the covering semiflow's
+    # initial sum is zero) is decided exactly by the zero-slot coloured plan instead of
+    # being downgraded to unknown. Route B is forced to truncate (nu_max_classes=1) so
+    # the deferral to Route A is exercised. No sink: the initial marking is quiescent
+    # with `source` tokens stranded.
+    net, source, budget, _pending = _nu_scatter_gather_net()
+    violated = lp.verify(
+        net,
+        lp.deadlock_free(),
+        initial_marking={source: 3, budget: 0},
+        budget_places=[budget],
+        nu_max_classes=1,
+        timeout_ms=15_000,
+    )
+    assert "exact within budget k=0" in violated.report, violated.report
+    assert violated.verdict == "violated", violated.report
+    # Declaring `source` a sink makes that marking a legitimate end state.
+    proven = lp.verify(
+        net,
+        lp.deadlock_free(),
+        initial_marking={source: 3, budget: 0},
+        budget_places=[budget],
+        sink_places=[source],
+        nu_max_classes=1,
+        timeout_ms=15_000,
+    )
+    assert "exact within budget k=0" in proven.report, proven.report
+    assert proven.verdict == "proven", proven.report
 
 
 def test_structurally_bounded_without_declared_budget_decided_by_route_b():

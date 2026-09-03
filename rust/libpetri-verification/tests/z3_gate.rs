@@ -1,4 +1,4 @@
-//! CI gate for the z3 back-end (the Rust analogue of Java's `Z3NativeGateTest`).
+//! CI gate for the z3 back-end (the Rust analogue of Java's `Z3BinaryGateTest`).
 //!
 //! Everything that exercises the SMT verifier can vanish without turning a
 //! build red, in two independent ways:
@@ -18,11 +18,16 @@
 //! (no `CI` in the environment) it only prints what was skipped, so a
 //! developer without z3 can still run the suite.
 
-/// True if the `z3` binary the verification crate shells out to answers on
-/// `PATH`. Duplicated from `smt_verifier::z3_available` on purpose: that
-/// function lives behind the very feature gate this test exists to police.
+/// True if the `z3` executable the verification crate shells out to answers
+/// (`LIBPETRI_Z3` if set, else `z3` on `PATH`). Duplicated from
+/// `smt_verifier::z3_available` on purpose: that function lives behind the
+/// very feature gate this test exists to police, so it only checks that the
+/// binary answers, not the version floor.
 fn z3_binary_available() -> bool {
-    std::process::Command::new("z3")
+    let program = std::env::var_os("LIBPETRI_Z3")
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "z3".into());
+    std::process::Command::new(program)
         .arg("--version")
         .output()
         .map(|o| o.status.success())
@@ -46,8 +51,8 @@ fn z3_backed_suites_must_actually_run_in_ci() {
     }
     if !binary_on {
         skipped.push(
-            "the `z3` binary is not on PATH, so the verdict-parity runner, the certificate \
-             check and the counterexample replay skipped themselves — install z3",
+            "no `z3` executable answers (PATH or LIBPETRI_Z3), so the verdict-parity runner, \
+             the certificate check and the counterexample replay skipped themselves — install z3",
         );
     }
 

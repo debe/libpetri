@@ -43,7 +43,7 @@ use crate::net_flattener::FlatNet;
 use crate::p_invariant::PInvariant;
 use crate::property::SmtProperty;
 use crate::smt_encoder;
-use crate::smt_verifier::run_z3_text;
+use crate::z3_process::{self, Z3Exit, Z3Solver};
 
 /// The three verification conditions, in script order. These labels are quoted
 /// verbatim in the verifier's downgrade reason, so all four language
@@ -95,6 +95,65 @@ pub fn check_certificate(
     env_injection: &[(String, Option<usize>)],
     timeout_ms: u64,
 ) -> CertificateCheck {
+    match Z3Solver::resolve() {
+        Ok(solver) => check_certificate_with(
+            certificate,
+            flat,
+            initial_marking,
+            property,
+            invariants,
+            sink_places,
+            env_bounds,
+            env_injection,
+            timeout_ms,
+            &solver,
+        ),
+        Err(reason) => CertificateCheck::Inconclusive { reason },
+    }
+}
+
+/// The certificate-check script for the given inputs, exactly as
+/// [`check_certificate`] sends it ([VER-013] script parity): what the
+/// cross-language golden tests diff.
+#[allow(clippy::too_many_arguments)]
+pub fn vc_script(
+    certificate: &str,
+    flat: &FlatNet,
+    initial_marking: &MarkingState,
+    property: &SmtProperty,
+    invariants: &[PInvariant],
+    sink_places: &[String],
+    env_bounds: &[(String, usize)],
+    env_injection: &[(String, Option<usize>)],
+) -> String {
+    VerificationConditions::build(
+        certificate,
+        flat,
+        initial_marking,
+        property,
+        invariants,
+        sink_places,
+        env_bounds,
+        env_injection,
+    )
+    .script()
+}
+
+/// [`check_certificate`] against an already-resolved solver: what the
+/// verifier calls, so one `verify()` probes the executable once.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn check_certificate_with(
+    certificate: &str,
+    flat: &FlatNet,
+    initial_marking: &MarkingState,
+    property: &SmtProperty,
+    invariants: &[PInvariant],
+    sink_places: &[String],
+    env_bounds: &[(String, usize)],
+    env_injection: &[(String, Option<usize>)],
+    timeout_ms: u64,
+    solver: &Z3Solver,
+) -> CertificateCheck {
     // Shape guards for the public entry point: the script builder indexes
     // `flat.places[i]`, `inv.weights[i]` and the marking-variable vectors by
     // place index, so a caller-supplied net or invariant that does not line up
@@ -122,7 +181,7 @@ pub fn check_certificate(
     );
 
     // One plain z3 run for all three VCs (no fp.engine — this is not HORN).
-    let results = match run_vc_script(&vcs.script(), timeout_ms) {
+    let results = match run_vc_script(&vcs.script(), timeout_ms, solver) {
         Ok(results) => results,
         Err(reason) => return CertificateCheck::Inconclusive { reason },
     };
@@ -131,7 +190,7 @@ pub fn check_certificate(
         if result != "unsat" {
             return CertificateCheck::Failed {
                 vc: VC_LABELS[i],
-                detail: vcs.detail_for(i, result, flat, timeout_ms),
+                detail: vcs.detail_for(i, result, flat, timeout_ms, solver),
             };
         }
     }
@@ -169,32 +228,42 @@ fn shape_failure(flat: &FlatNet, invariants: &[PInvariant]) -> Option<String> {
 /// answers, or the reason the run could not be trusted.
 ///
 /// Both z3 output channels are inspected: an `(error …)` on EITHER stream
-/// means an assert was dropped, which would silently make a VC vacuous, and a
-/// non-success exit means the run did not complete. Only a clean three-answer
-/// stdout counts.
-fn run_vc_script(script: &str, timeout_ms: u64) -> Result<Vec<String>, String> {
-    let output = run_z3_text(script, timeout_ms, &[])?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    if let Some(err) = error_line(&stderr) {
+/// means an assert was dropped, which would silently make a VC vacuous; a
+/// `timeout` line, a watchdog kill and a non-success exit mean the run did not
+/// complete. Only a clean three-answer stdout counts.
+fn run_vc_script(
+    script: &str,
+    timeout_ms: u64,
+    solver: &Z3Solver,
+) -> Result<Vec<String>, String> {
+    let reply = solver.run(script, "certificate", timeout_ms, &[])?;
+    if let Some(err) = z3_process::error_line(&reply.stderr) {
         return Err(format!("z3 reported an error on stderr: {err}"));
     }
-    let results = parse_vc_results(&stdout)?;
-    if !output.status.success() {
+    if z3_process::timeout_line(&reply.stdout) {
         return Err(format!(
-            "z3 exited with {} after answering {:?}",
-            output.status, results
+            "z3 hard timeout after {}s while checking the certificate",
+            z3_process::hard_timeout_secs(timeout_ms)
+        ));
+    }
+    if reply.exit == Z3Exit::Killed {
+        return Err(format!(
+            "z3 did not exit within {} ms while checking the certificate and was killed",
+            z3_process::watchdog_ms(timeout_ms)
+        ));
+    }
+    let results = parse_vc_results(&reply.stdout)?;
+    if !reply.success() {
+        let status = match reply.exit {
+            Z3Exit::Exited(Some(code)) => format!("exit status: {code}"),
+            Z3Exit::Exited(None) => "a signal".to_string(),
+            Z3Exit::Killed => "the watchdog kill".to_string(),
+        };
+        return Err(format!(
+            "z3 exited with {status} after answering {results:?}"
         ));
     }
     Ok(results)
-}
-
-/// The first `(error …)` line in a z3 stream, trimmed.
-fn error_line(text: &str) -> Option<String> {
-    text.lines()
-        .map(str::trim)
-        .find(|l| l.starts_with("(error"))
-        .map(str::to_string)
 }
 
 /// The assembled VC script, kept in parts so one VC can be re-run alone to
@@ -294,7 +363,14 @@ impl VerificationConditions {
     /// Describes VC `i`'s non-`unsat` answer for the downgrade reason, by
     /// re-running that VC alone with model/reason extraction enabled. The
     /// re-run is best effort: without it the answer is still named.
-    fn detail_for(&self, i: usize, answer: &str, flat: &FlatNet, timeout_ms: u64) -> String {
+    fn detail_for(
+        &self,
+        i: usize,
+        answer: &str,
+        flat: &FlatNet,
+        timeout_ms: u64,
+        solver: &Z3Solver,
+    ) -> String {
         let mut lines = vec!["(set-option :produce-models true)".to_string()];
         lines.extend(self.prelude.iter().cloned());
         lines.extend(self.asserts[i].iter().cloned());
@@ -302,9 +378,9 @@ impl VerificationConditions {
         lines.push(
             if answer == "sat" { "(get-model)" } else { "(get-info :reason-unknown)" }.to_string(),
         );
-        let reply = run_z3_text(&lines.join("\n"), timeout_ms, &[])
-            .ok()
-            .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+        let reply = solver
+            .run(&lines.join("\n"), "certificate-detail", timeout_ms, &[])
+            .map(|reply| reply.stdout)
             .unwrap_or_default();
 
         if answer == "sat" {
@@ -366,10 +442,14 @@ fn candidate(vars: &[String], invariants: &[PInvariant]) -> String {
 /// Parses the three positional `(check-sat)` answers from the z3 reply. Any
 /// `(error …)` line — a certificate that failed to parse, an arity mismatch —
 /// fails the check outright: an errored assert silently vanishes from the
-/// query, which could leave a VC vacuous.
+/// query, which could leave a VC vacuous. A `timeout` line is z3's `-T`
+/// backstop, not a fourth answer.
 fn parse_vc_results(stdout: &str) -> Result<Vec<String>, String> {
-    if let Some(err) = error_line(stdout) {
+    if let Some(err) = z3_process::error_line(stdout) {
         return Err(format!("z3 error while checking the certificate: {err}"));
+    }
+    if z3_process::timeout_line(stdout) {
+        return Err("z3 hard timeout while checking the certificate".to_string());
     }
     let results: Vec<String> = stdout
         .lines()
@@ -400,6 +480,7 @@ mod tests {
     use libpetri_core::transition::Transition;
 
     use crate::smt_verifier::z3_available;
+    use crate::z3_process::error_line;
 
     /// The assembled three-VC script, for the shape assertions below.
     #[allow(clippy::too_many_arguments)]

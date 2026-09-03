@@ -124,49 +124,23 @@ export function computePInvariants(
       continue;
     }
 
+    // A signed null-space basis, exactly as the Rust reference computes it
+    // (VER-013 script parity): a mixed-sign row is a conservation law like any
+    // other and passes the same exact gate; a semi-negative row is the same law
+    // negated. Non-negativity is only required of the P-semiflows that bound the
+    // colour slots (computePSemiflows), never of the strengthening laws. Rows were
+    // GCD-normalised during the elimination, so no renormalisation here.
     const weights = new Array<number>(P);
-    let allNonNegative = true;
     let hasPositive = false;
-
+    let hasNegative = false;
     for (let i = 0; i < P; i++) {
       weights[i] = augmented[row]![T + i]!;
-      if (weights[i]! < 0) {
-        allNonNegative = false;
-        break;
-      }
       if (weights[i]! > 0) hasPositive = true;
+      if (weights[i]! < 0) hasNegative = true;
     }
-
-    // We want semi-positive invariants (all weights >= 0, at least one > 0)
-    if (!allNonNegative) {
-      // Try negating
-      let allNonPositive = true;
-      for (let i = 0; i < P; i++) {
-        if (augmented[row]![T + i]! > 0) {
-          allNonPositive = false;
-          break;
-        }
-      }
-      if (allNonPositive) {
-        for (let i = 0; i < P; i++) {
-          weights[i] = -augmented[row]![T + i]!;
-        }
-        hasPositive = true;
-        allNonNegative = true;
-      }
-    }
-
-    if (!allNonNegative || !hasPositive) continue;
-
-    // Normalize: divide by GCD of weights
-    let g = 0;
-    for (const w of weights) {
-      if (w > 0) g = gcd(g, w);
-    }
-    if (g > 1) {
-      for (let i = 0; i < P; i++) {
-        weights[i] = weights[i]! / g;
-      }
+    if (!hasPositive && !hasNegative) continue;
+    if (!hasPositive) {
+      for (let i = 0; i < P; i++) weights[i] = -weights[i]!;
     }
 
     // Compute support and constant
@@ -416,6 +390,44 @@ interface SemiflowRow {
  *
  * Mirrors the Rust reference `compute_p_semiflows`.
  */
+/** Same conservation law: identical weight vector and constant. */
+function sameInvariant(a: PInvariant, b: PInvariant): boolean {
+  if (a.constant !== b.constant || a.weights.length !== b.weights.length) return false;
+  for (let i = 0; i < a.weights.length; i++) {
+    if (a.weights[i] !== b.weights[i]) return false;
+  }
+  return true;
+}
+
+/**
+ * VER-007 — the semiflow union. Appends every gate-validated P-semiflow that is not
+ * already a basis row (same weights, same constant) to `invariants`, returning the
+ * strengthened list and how many rows were added.
+ *
+ * The null-space basis is one basis of many: elimination hands back mixed-sign rows
+ * and rows that fold a reset place into a chain whose other combinations avoid it,
+ * both lost to the exact gate — on a reset-heavy net every law of the chains those
+ * arcs touch, leaving IC3 to rediscover conservation it cannot within any practical
+ * budget. The Farkas rows ({@link computePSemiflows}) are the minimal laws of the
+ * net. Conjoining them alongside the basis is pure strengthening (`Semiflow.lean`,
+ * `semiflow_union_sound`) **provided both lists passed the same exact gate**
+ * (`semiflow_gate_is_necessary`) — the caller's obligation; this only merges.
+ */
+export function strengthenWithSemiflows(
+  invariants: readonly PInvariant[],
+  semiflows: readonly PInvariant[],
+): { readonly invariants: readonly PInvariant[]; readonly added: number } {
+  const strengthened = [...invariants];
+  let added = 0;
+  for (const sf of semiflows) {
+    if (!strengthened.some((inv) => sameInvariant(inv, sf))) {
+      strengthened.push(sf);
+      added++;
+    }
+  }
+  return { invariants: strengthened, added };
+}
+
 export function computePSemiflows(
   matrix: IncidenceMatrix,
   flatNet: FlatNet,
@@ -547,6 +559,9 @@ function keepSupportMinimal(rows: SemiflowRow[]): SemiflowRow[] {
 export function isCoveredByInvariants(invariants: readonly PInvariant[], numPlaces: number): boolean {
   const covered = new Array<boolean>(numPlaces).fill(false);
   for (const inv of invariants) {
+    // Only a non-negative law bounds its support; a mixed-sign law (which the signed
+    // null-space basis now carries) says nothing about boundedness.
+    if (inv.weights.some((w) => w < 0)) continue;
     for (const idx of inv.support) {
       if (idx < numPlaces) covered[idx] = true;
     }
@@ -575,4 +590,23 @@ function gcd(a: number, b: number): number {
     a = t;
   }
   return a;
+}
+
+/**
+ * The invariants in canonical order (VER-013): by ascending support, then weights,
+ * then constant, each compared lexicographically. The same order the Rust and Java
+ * verifiers apply, so the strengthened scripts are byte-identical.
+ */
+export function canonicalInvariantOrder(invariants: readonly PInvariant[]): PInvariant[] {
+  const lex = (a: readonly number[], b: readonly number[]): number => {
+    const n = Math.min(a.length, b.length);
+    for (let i = 0; i < n; i++) {
+      if (a[i]! !== b[i]!) return a[i]! - b[i]!;
+    }
+    return a.length - b.length;
+  };
+  const support = (inv: PInvariant): number[] => [...inv.support].sort((x, y) => x - y);
+  return [...invariants].sort(
+    (a, b) => lex(support(a), support(b)) || lex(a.weights, b.weights) || a.constant - b.constant,
+  );
 }

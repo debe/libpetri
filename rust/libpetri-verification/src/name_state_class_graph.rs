@@ -17,6 +17,7 @@
 //! is truncated (`complete == false`) and the verifier reports `Unknown`.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::rc::Rc;
 
 use libpetri_core::petri_net::PetriNet;
 use libpetri_core::transition::Transition;
@@ -27,6 +28,7 @@ use crate::name_fragment::{NameFragment, Role};
 use crate::name_marking::{NameMarking, Sym};
 use crate::name_state_class::NameStateClass;
 use crate::priority_semantics::PrioritySemantics;
+use crate::state_class::StateClass;
 use crate::state_class_graph::{compute_successor, expand_transition, initial_state_class};
 
 /// Edge in the name-aware state class graph (a transition firing).
@@ -57,9 +59,6 @@ impl NameStateClassGraph {
     ) -> Self {
         let env_set: HashSet<&str> = env_places.iter().copied().collect();
         let base0 = initial_state_class(net, initial_marking, &env_set, env_mode);
-        // Coloured places start empty in the supported fragment (the verifier
-        // guards this), so the initial name partition is empty.
-        let initial = NameStateClass::new(base0, NameMarking::new());
 
         let mut graph = NameStateClassGraph {
             classes: Vec::new(),
@@ -68,9 +67,22 @@ impl NameStateClassGraph {
             predecessors: Vec::new(),
             complete: true,
         };
-        let mut keys: HashMap<String, usize> = HashMap::new();
-        let key0 = initial.canonical_key(&fragment.coloured_order);
-        graph.push_class(initial, key0, &mut keys);
+        // Hash-consing (memory only, no semantic effect — [VER-012], `Interning.lean`):
+        // the base layer is shared between classes at the same (marking, zone,
+        // earliest-ready times) and the name layer between classes with the same
+        // canonical key; a class is identified by the pair of intern ids, so no
+        // per-class key string is retained. Without this a class costs kilobytes
+        // (a map of maps plus a DBM) and a medium ν-net exhausts memory before it
+        // closes.
+        let mut base_intern: HashMap<String, (u32, Rc<StateClass>)> = HashMap::new();
+        let mut name_intern: HashMap<String, (u32, Rc<NameMarking>)> = HashMap::new();
+        let mut index_of: HashMap<(u32, u32), usize> = HashMap::new();
+        // Coloured places start empty in the supported fragment (the verifier
+        // guards this), so the initial name partition is empty.
+        let (bid0, base0) = intern_base(&mut base_intern, base0);
+        let (nid0, names0) =
+            intern_names(&mut name_intern, NameMarking::new(), &fragment.coloured_order);
+        graph.push_class(NameStateClass::new(base0, names0), (bid0, nid0), &mut index_of);
 
         let mut next_sym: Sym = 0;
         let mut queue: VecDeque<usize> = VecDeque::new();
@@ -139,14 +151,19 @@ impl NameStateClassGraph {
                     let name_succs =
                         name_successors(role, &current.names, &output_places, fragment, &mut next_sym);
 
+                    let (bid, shared_base) = intern_base(&mut base_intern, base_succ);
                     for names in name_succs {
-                        let succ = NameStateClass::new(base_succ.clone(), names);
-                        let key = succ.canonical_key(&fragment.coloured_order);
-                        let to_idx = if let Some(&i) = keys.get(&key) {
+                        let (nid, shared_names) =
+                            intern_names(&mut name_intern, names, &fragment.coloured_order);
+                        let to_idx = if let Some(&i) = index_of.get(&(bid, nid)) {
                             i
                         } else {
                             let idx = graph.classes.len();
-                            graph.push_class(succ, key, &mut keys);
+                            graph.push_class(
+                                NameStateClass::new(Rc::clone(&shared_base), shared_names),
+                                (bid, nid),
+                                &mut index_of,
+                            );
                             queue.push_back(idx);
                             idx
                         };
@@ -159,12 +176,17 @@ impl NameStateClassGraph {
         graph
     }
 
-    fn push_class(&mut self, c: NameStateClass, key: String, keys: &mut HashMap<String, usize>) {
+    fn push_class(
+        &mut self,
+        c: NameStateClass,
+        ids: (u32, u32),
+        index_of: &mut HashMap<(u32, u32), usize>,
+    ) {
         let idx = self.classes.len();
         self.classes.push(c);
         self.successors.push(Vec::new());
         self.predecessors.push(Vec::new());
-        keys.insert(key, idx);
+        index_of.insert(ids, idx);
     }
 
     fn add_edge(&mut self, from: usize, to: usize, t_name: &str) {
@@ -188,6 +210,52 @@ impl NameStateClassGraph {
     pub(crate) fn successors(&self, idx: usize) -> &[usize] {
         &self.successors[idx]
     }
+}
+
+/// Interns the base layer: one `Rc<StateClass>` per distinct (marking, zone,
+/// earliest-ready times), returning its id and the shared object.
+///
+/// `StateClass` equality (`state_class.rs`) is marking + zone, which is all base
+/// timed-reachability needs — but the [NU-052] prune (`priority_dominated`) also
+/// reads `ready_earliest`, the class-relative lower bounds captured before
+/// `let_time_pass`, and two arrivals at one zone can disagree on those (a
+/// transition freshly enabled here versus one persistent through an unbounded
+/// delay). Sharing a base across name layers is semantics-free only if the
+/// shared object carries everything the successor step reads
+/// (`Interning.lean`, `equivariance_is_necessary` is the witness), so the key
+/// is all three, bit-exact on the doubles.
+fn intern_base(
+    intern: &mut HashMap<String, (u32, Rc<StateClass>)>,
+    base: StateClass,
+) -> (u32, Rc<StateClass>) {
+    let mut key = base.canonical_key();
+    key.push('#');
+    for (i, r) in base.ready_earliest.iter().enumerate() {
+        if i > 0 {
+            key.push(',');
+        }
+        key.push_str(&r.to_bits().to_string());
+    }
+    let next = intern.len() as u32;
+    let (id, shared) = intern.entry(key).or_insert_with(|| (next, Rc::new(base)));
+    (*id, Rc::clone(shared))
+}
+
+/// Interns the name layer: one `Rc<NameMarking>` per canonical key, returning its
+/// id and the shared object. Two layers with the same key are the same partition
+/// up to a renaming of symbols, and every consumer of the layer —
+/// `name_successors`, `will_fire`, the key itself — is invariant under renaming;
+/// freshness stays sound because `next_sym` never revisits an id
+/// (`Interning.lean`, `interned_keys_eq`).
+fn intern_names(
+    intern: &mut HashMap<String, (u32, Rc<NameMarking>)>,
+    names: NameMarking,
+    coloured_order: &[String],
+) -> (u32, Rc<NameMarking>) {
+    let key = names.canonical_key(coloured_order);
+    let next = intern.len() as u32;
+    let (id, shared) = intern.entry(key).or_insert_with(|| (next, Rc::new(names)));
+    (*id, Rc::clone(shared))
 }
 
 /// The coloured output places of the fired branch (used by `Mint` to stamp a
@@ -379,6 +447,326 @@ fn consumed_demand(t: &Transition, place: &str) -> usize {
 mod tests {
     use super::*;
     use libpetri_core::action::fork;
+
+    /// [VER-012] interning regression fixture (`Interning.lean`,
+    /// `equivariance_is_necessary`): two routes to one (marking, zone) that
+    /// disagree on `ready_earliest` under different name layers. `MC` co-mints one
+    /// name into `C1`, `C2` and enables `H` fresh (ready in 5 s); `M1` then `M2`
+    /// mint two names and leave `H` persistent through `M2`'s unbounded delay
+    /// (ready now). `H` (priority 10) and `L` (priority 0) compete for `Q`. `J` is
+    /// gated on the never-marked `R` so the meeting class enables exactly `H` and
+    /// `L`, both fresh at the point each route enables them, and the two zones
+    /// agree constraint for constraint.
+    fn interning_fixture(with_drain: bool) -> PetriNet {
+        use libpetri_core::input::{exactly, one};
+        use libpetri_core::match_spec::MatchSpec;
+        use libpetri_core::name::NameId;
+        use libpetri_core::output::{and, out_place};
+        use libpetri_core::place::Place;
+        use libpetri_core::timing;
+        use libpetri_core::transition::Transition;
+
+        let p = Place::<String>::new("P");
+        let c1 = Place::<String>::new("C1");
+        let c2 = Place::<String>::new("C2");
+        let q = Place::<String>::new("Q");
+        let out = Place::<String>::new("OUT");
+        let out_h = Place::<String>::new("OUT_H");
+        let dead = Place::<String>::new("DEAD");
+        let drained = Place::<String>::new("DRAINED");
+        // Never marked: keeps `J` structurally a ν-join without ever enabling it.
+        let r = Place::<String>::new("R");
+
+        let mc = Transition::builder("MC")
+            .input(exactly(2, &p))
+            .output(and(vec![out_place(&c1), out_place(&c2), out_place(&q)]))
+            .action(fork())
+            .build();
+        let m1 = Transition::builder("M1")
+            .input(one(&p))
+            .output(and(vec![out_place(&c1), out_place(&q)]))
+            .action(fork())
+            .build();
+        let m2 = Transition::builder("M2")
+            .input(one(&p))
+            .timing(timing::delayed(3_000))
+            .output(out_place(&c2))
+            .action(fork())
+            .build();
+        let h = Transition::builder("H")
+            .input(one(&q))
+            .timing(timing::delayed(5_000))
+            .priority(10)
+            .output(out_place(&out_h))
+            .action(fork())
+            .build();
+        let l = Transition::builder("L")
+            .input(one(&q))
+            .output(out_place(&dead))
+            .action(fork())
+            .build();
+        let j = Transition::builder("J")
+            .input(one(&c1))
+            .input(one(&c2))
+            .input(one(&r))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&c1, |s: &String| NameId::new(s.clone()))
+                    .key(&c2, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(out_place(&out))
+            .action(fork())
+            .build();
+        let mut transitions = vec![mc, m1, m2, h, l, j];
+        if with_drain {
+            transitions.push(
+                Transition::builder("D")
+                    .input(one(&c1))
+                    .output(out_place(&drained))
+                    .action(fork())
+                    .build(),
+            );
+        }
+        PetriNet::builder("interning").transitions(transitions).build()
+    }
+
+    fn edge_target(graph: &NameStateClassGraph, from: usize, name: &str) -> usize {
+        graph
+            .edges
+            .iter()
+            .find(|e| e.from == from && e.transition_name == name)
+            .map(|e| e.to)
+            .unwrap_or_else(|| panic!("no edge {name} out of class {from}"))
+    }
+
+    fn has_edge(graph: &NameStateClassGraph, from: usize, name: &str) -> bool {
+        graph.edges.iter().any(|e| e.from == from && e.transition_name == name)
+    }
+
+    #[test]
+    fn interned_base_keeps_each_arrivals_ready_earliest() {
+        use crate::marking_state::MarkingStateBuilder;
+        use crate::name_fragment::{classify, FragmentMode};
+        use std::collections::BTreeSet;
+
+        let net = interning_fixture(false);
+        let fragment = classify(&net, FragmentMode::Base, &BTreeSet::new())
+            .expect("the interning fixture is in the base fragment");
+        let initial = MarkingStateBuilder::new().tokens("P", 2).build();
+        let graph = NameStateClassGraph::build(
+            &net,
+            &initial,
+            &fragment,
+            10_000,
+            &[],
+            &EnvironmentAnalysisMode::Ignore,
+            PrioritySemantics::Conflict,
+        );
+
+        let same = edge_target(&graph, 0, "MC"); // one name in C1 and C2
+        let mid = edge_target(&graph, 0, "M1");
+        let diff = edge_target(&graph, mid, "M2"); // two names
+        assert_ne!(same, diff, "different name partitions are different classes");
+        assert_eq!(
+            graph.classes[same].base.marking, graph.classes[diff].base.marking,
+            "same base marking"
+        );
+        assert!(
+            has_edge(&graph, same, "L"),
+            "H is freshly enabled here (ready in 5 s), so L is not pre-empted"
+        );
+        assert!(
+            !has_edge(&graph, diff, "L"),
+            "H has been enabled since M1 and may be ready now, so L is pre-empted: an interned \
+             base must not hand this class the other arrival's ready_earliest"
+        );
+        assert!(
+            !Rc::ptr_eq(&graph.classes[same].base, &graph.classes[diff].base),
+            "the two arrivals disagree on ready_earliest, so they must not share a base"
+        );
+    }
+
+    /// The same two arrivals, reaching one name layer: `MC` and `M1` each co-mint one
+    /// name into `C1` and `C2`, and the uncoloured `B` balances the marking so both
+    /// routes meet at `C1 + C2 + B + Q`. `MC` enables `H` fresh (ready in 5 s); `M1`
+    /// then the 3 s `M2` leaves `H` persistent (ready now). Class identity therefore has
+    /// to carry `ready_earliest` itself: sharing the base object is not enough when the
+    /// name layers coincide.
+    fn same_name_layer_fixture() -> PetriNet {
+        use libpetri_core::input::{exactly, one};
+        use libpetri_core::match_spec::MatchSpec;
+        use libpetri_core::name::NameId;
+        use libpetri_core::output::{and, out_place};
+        use libpetri_core::place::Place;
+        use libpetri_core::timing;
+        use libpetri_core::transition::Transition;
+
+        let p = Place::<String>::new("P");
+        let c1 = Place::<String>::new("C1");
+        let c2 = Place::<String>::new("C2");
+        let b = Place::<String>::new("B");
+        let q = Place::<String>::new("Q");
+        let out = Place::<String>::new("OUT");
+        let out_h = Place::<String>::new("OUT_H");
+        let dead = Place::<String>::new("DEAD");
+        let r = Place::<String>::new("R");
+
+        let mc = Transition::builder("MC")
+            .input(exactly(2, &p))
+            .output(and(vec![out_place(&c1), out_place(&c2), out_place(&b), out_place(&q)]))
+            .action(fork())
+            .build();
+        let m1 = Transition::builder("M1")
+            .input(one(&p))
+            .output(and(vec![out_place(&c1), out_place(&c2), out_place(&q)]))
+            .action(fork())
+            .build();
+        let m2 = Transition::builder("M2")
+            .input(one(&p))
+            .timing(timing::delayed(3_000))
+            .output(out_place(&b))
+            .action(fork())
+            .build();
+        let h = Transition::builder("H")
+            .input(one(&q))
+            .timing(timing::delayed(5_000))
+            .priority(10)
+            .output(out_place(&out_h))
+            .action(fork())
+            .build();
+        let l = Transition::builder("L")
+            .input(one(&q))
+            .output(out_place(&dead))
+            .action(fork())
+            .build();
+        let j = Transition::builder("J")
+            .input(one(&c1))
+            .input(one(&c2))
+            .input(one(&r))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&c1, |s: &String| NameId::new(s.clone()))
+                    .key(&c2, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(out_place(&out))
+            .action(fork())
+            .build();
+        PetriNet::builder("interning-same-layer")
+            .transitions(vec![mc, m1, m2, h, l, j])
+            .build()
+    }
+
+    #[test]
+    fn class_identity_carries_ready_earliest_when_name_layers_coincide() {
+        use crate::marking_state::MarkingStateBuilder;
+        use crate::name_fragment::{classify, FragmentMode};
+        use std::collections::BTreeSet;
+
+        let net = same_name_layer_fixture();
+        let fragment = classify(&net, FragmentMode::Base, &BTreeSet::new())
+            .expect("the fixture is in the base fragment");
+        let initial = MarkingStateBuilder::new().tokens("P", 2).build();
+        let graph = NameStateClassGraph::build(
+            &net,
+            &initial,
+            &fragment,
+            10_000,
+            &[],
+            &EnvironmentAnalysisMode::Ignore,
+            PrioritySemantics::Conflict,
+        );
+
+        let fresh = edge_target(&graph, 0, "MC"); // H enabled here, ready in 5 s
+        let mid = edge_target(&graph, 0, "M1");
+        let persistent = edge_target(&graph, mid, "M2"); // H enabled since M1, may be ready now
+
+        assert_eq!(
+            graph.classes[fresh].names.canonical_key(&fragment.coloured_order),
+            graph.classes[persistent].names.canonical_key(&fragment.coloured_order),
+            "both routes co-mint one name into C1 and C2, so the layers are the same partition"
+        );
+        assert_eq!(
+            graph.classes[fresh].base.marking, graph.classes[persistent].base.marking,
+            "same base marking"
+        );
+        assert_ne!(
+            fresh, persistent,
+            "the arrivals disagree on ready_earliest, so they are two classes: dedup on \
+             (marking, zone, name key) alone would hand one arrival the other's prune input"
+        );
+        assert!(
+            has_edge(&graph, fresh, "L"),
+            "H is freshly enabled here (ready in 5 s), so L is not pre-empted"
+        );
+        assert!(
+            !has_edge(&graph, persistent, "L"),
+            "H may be ready now, so L is pre-empted (NU-052)"
+        );
+    }
+
+    fn rename(nm: &NameMarking, places: &[&str], sigma: impl Fn(Sym) -> Sym) -> NameMarking {
+        let mut out = NameMarking::new();
+        for p in places {
+            for s in nm.symbols_in(p) {
+                out.add(p, sigma(s), nm.count_of(p, s));
+            }
+        }
+        out
+    }
+
+    fn successor_keys(
+        fragment: &NameFragment,
+        transition: &str,
+        names: &NameMarking,
+        outputs: &HashSet<String>,
+        mut fresh: Sym,
+    ) -> Vec<String> {
+        let mut keys: Vec<String> =
+            name_successors(fragment.role(transition), names, outputs, fragment, &mut fresh)
+                .iter()
+                .map(|nm| nm.canonical_key(&fragment.coloured_order))
+                .collect();
+        keys.sort();
+        keys
+    }
+
+    /// The hypothesis `Interning.lean` rests on: `name_successors` is equivariant
+    /// under a renaming of symbols — a renamed layer (same canonical key) has
+    /// successors with the same canonical keys, for every role, given fresh
+    /// counters.
+    #[test]
+    fn name_successors_is_key_equivariant() {
+        use crate::name_fragment::{classify, FragmentMode};
+        use std::collections::BTreeSet;
+
+        let net = interning_fixture(true);
+        let fragment = classify(&net, FragmentMode::Extended, &BTreeSet::new())
+            .expect("the drain is an EXTENDED coloured consumer");
+        let mut names = NameMarking::new();
+        names.add("C1", 3, 1);
+        names.add("C2", 3, 1);
+        names.add("C2", 7, 1);
+        let renamed = rename(&names, &["C1", "C2"], |s| match s {
+            3 => 11,
+            7 => 2,
+            s => s,
+        });
+        assert_eq!(
+            names.canonical_key(&fragment.coloured_order),
+            renamed.canonical_key(&fragment.coloured_order)
+        );
+
+        let outputs: HashSet<String> = ["C1", "C2", "Q"].iter().map(|s| s.to_string()).collect();
+        for t in ["MC", "J", "H", "D"] {
+            assert_eq!(
+                successor_keys(&fragment, t, &names, &outputs, 8),
+                successor_keys(&fragment, t, &renamed, &outputs, 12),
+                "{t}"
+            );
+        }
+    }
 
     #[test]
     fn enabling_requires_shared_symbol() {

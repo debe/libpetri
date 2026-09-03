@@ -352,7 +352,7 @@ fn parse_priority_semantics(
 /// Verifies a single property against `net` using SMT (Z3). Without the `z3`
 /// feature, returns `VerificationResult` with verdict `"unknown"`.
 #[pyfunction(name = "verify_net")]
-#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 30_000, nu_max_classes = None, fragment_mode = None, carrier_places = None, priority_semantics = None, certificate_check = true, counterexample_replay = true))]
+#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 30_000, nu_max_classes = None, fragment_mode = None, carrier_places = None, priority_semantics = None, certificate_check = true, counterexample_replay = true, semiflow_invariants = false))]
 fn py_verify_net(
     py: Python<'_>,
     net: &PyPetriNet,
@@ -369,6 +369,7 @@ fn py_verify_net(
     priority_semantics: Option<Bound<'_, PyAny>>,
     certificate_check: bool,
     counterexample_replay: bool,
+    semiflow_invariants: bool,
 ) -> PyResult<PyVerificationResult> {
     #[cfg(feature = "z3")]
     {
@@ -431,6 +432,9 @@ fn py_verify_net(
                 // Violated is replayed under the abstract semantics.
                 .certificate_check(certificate_check)
                 .counterexample_replay(counterexample_replay)
+                // VER-007: hand the gate-validated P-semiflows to the encoders as
+                // extra invariants (off by default, report parity).
+                .semiflow_invariants(semiflow_invariants)
                 .timeout(timeout_ms);
             // ν name-aware SCG class cap (NU-050, Route B); None keeps the Rust default.
             if let Some(n) = nu_max_classes {
@@ -442,8 +446,87 @@ fn py_verify_net(
     }
     #[cfg(not(feature = "z3"))]
     {
-        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes, fragment_mode, carrier_places, priority_semantics, certificate_check, counterexample_replay);
+        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes, fragment_mode, carrier_places, priority_semantics, certificate_check, counterexample_replay, semiflow_invariants);
         Ok(PyVerificationResult::unknown("z3 feature not enabled"))
+    }
+}
+
+/// The SMT-LIB2 scripts `verify_net` would send to z3 for this configuration,
+/// without running a solver (VER-013 AC1): `{"horn": str, "certificate": str | None,
+/// "coloured": bool}`. What the cross-language golden tests diff.
+#[pyfunction(name = "encode_smt_scripts")]
+#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, fragment_mode = None, carrier_places = None, counterexample_replay = true, semiflow_invariants = false))]
+fn py_encode_smt_scripts(
+    py: Python<'_>,
+    net: &PyPetriNet,
+    property: &PySmtProperty,
+    initial_marking: Option<HashMap<String, usize>>,
+    environment_places: Option<Vec<String>>,
+    environment_mode: Option<PyEnvironmentAnalysisMode>,
+    sink_places: Option<Vec<String>>,
+    budget_places: Option<Vec<String>>,
+    fragment_mode: Option<Bound<'_, PyAny>>,
+    carrier_places: Option<Vec<String>>,
+    counterexample_replay: bool,
+    semiflow_invariants: bool,
+) -> PyResult<Py<pyo3::types::PyDict>> {
+    #[cfg(feature = "z3")]
+    {
+        use libpetri::verification::name_fragment::FragmentMode;
+        use pyo3::types::PyDict;
+        let net = net.net().clone();
+        let property = property.inner.clone();
+        let fragment_mode = match &fragment_mode {
+            Some(obj) => parse_fragment_mode(obj)?,
+            None => FragmentMode::Base,
+        };
+        let environment_mode = environment_mode
+            .map(|m| m.inner)
+            .unwrap_or(EnvironmentAnalysisMode::Ignore);
+        let mut mb = libpetri::verification::marking_state::MarkingStateBuilder::new();
+        for (name, count) in initial_marking.unwrap_or_default() {
+            mb = mb.tokens(name, count);
+        }
+        let marking = mb.build();
+        let scripts = panic_to_py(|| {
+            libpetri::verification::smt_verifier::SmtVerifier::for_net(&net)
+                .initial_marking(marking)
+                .property(property)
+                .environment_places(environment_places.unwrap_or_default())
+                .environment_mode(environment_mode)
+                .sink_places(sink_places.unwrap_or_default())
+                .budget_places(budget_places.unwrap_or_default())
+                .fragment_mode(fragment_mode)
+                .carrier_places(carrier_places.unwrap_or_default())
+                .counterexample_replay(counterexample_replay)
+                .semiflow_invariants(semiflow_invariants)
+                .encode_scripts()
+        })?;
+        let dict = PyDict::new(py);
+        dict.set_item("horn", scripts.horn)?;
+        dict.set_item("certificate", scripts.certificate)?;
+        dict.set_item("coloured", scripts.coloured)?;
+        Ok(dict.unbind())
+    }
+    #[cfg(not(feature = "z3"))]
+    {
+        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, fragment_mode, carrier_places, counterexample_replay, semiflow_invariants);
+        Err(pyo3::exceptions::PyRuntimeError::new_err("z3 feature not enabled"))
+    }
+}
+
+/// True when a usable `z3` executable resolves (`LIBPETRI_Z3` if set, else
+/// `z3` on `PATH`, at or above the version floor). `HAS_Z3` says whether the
+/// wheel was BUILT with the SMT surface; this says whether it can run.
+#[pyfunction(name = "z3_available")]
+fn py_z3_available() -> bool {
+    #[cfg(feature = "z3")]
+    {
+        libpetri::verification::smt_verifier::z3_available()
+    }
+    #[cfg(not(feature = "z3"))]
+    {
+        false
     }
 }
 
@@ -525,5 +608,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_joined_or_dead_lettered, m)?)?;
     m.add_function(wrap_pyfunction!(py_verify_net, m)?)?;
     m.add_function(wrap_pyfunction!(py_verify_subnet, m)?)?;
+    m.add_function(wrap_pyfunction!(py_z3_available, m)?)?;
+    m.add_function(wrap_pyfunction!(py_encode_smt_scripts, m)?)?;
     Ok(())
 }

@@ -1,139 +1,77 @@
-import { init } from 'z3-solver';
-import type { Bool, Expr, FuncDecl } from 'z3-solver';
-
 /**
- * Result of a Spacer query.
+ * @module spacer-runner
+ *
+ * Runs Z3 Spacer on a HORN script through one `z3` process (VER-013) and
+ * classifies the reply in verdict terms.
+ *
+ * HORN/Spacer convention (shared with the Rust and Java verifiers and corroborated
+ * by the certificate check): with the query `(assert (not Error))`, z3 prints `sat`
+ * when the property is PROVEN (an inductive invariant excluding every violating
+ * state exists) and `unsat` when it is VIOLATED (no such invariant; the refutation
+ * proof carries the counterexample states).
  */
+import { failureReason, runZ3Text, timeoutBudget, type Z3Solver } from './z3-process.js';
+import { classifyFirstLine, extractInvariant } from './smt-text.js';
+
+/** Result of a Spacer query. */
 export type QueryResult = QueryProven | QueryViolated | QueryUnknown;
 
-/** Property proven: no reachable error state (UNSAT). */
+/** Property proven (z3 `sat`). */
 export interface QueryProven {
   readonly type: 'proven';
-  readonly invariantFormula: string | null;
-  readonly levelInvariants: readonly string[];
   /**
-   * The raw `fp.getAnswer()` AST backing {@link invariantFormula} — the
-   * IC3-synthesized inductive invariant as a Z3 expression in the runner's
-   * context. Consumed by the certificate checker; `null` when the solver
-   * configuration produced no answer.
+   * The `(define-fun …)` block of the model, verbatim (the certificate the
+   * certificate checker re-validates), or `null` when no model printed.
    */
-  readonly answer: Expr | null;
+  readonly invariantFormula: string | null;
 }
 
-/** Counterexample found (SAT). The answer is the derivation tree. */
+/** Property violated (z3 `unsat`). */
 export interface QueryViolated {
   readonly type: 'violated';
-  readonly answer: Expr | null;
+  /** The raw solver reply; the refutation proof in it is decoded by the counterexample decoder. */
+  readonly answer: string;
 }
 
-/** Solver could not determine (timeout, resource limit). */
+/** Solver could not determine (timeout, resource limit, transport failure). */
 export interface QueryUnknown {
   readonly type: 'unknown';
   readonly reason: string;
 }
 
 /**
- * The Z3 context and helpers returned by SpacerRunner.create().
- * Exposes the context object for building expressions.
+ * Runs `smt2` with `fp.engine=spacer`. `phase` names the dump files (`horn` or
+ * `horn-coloured`).
  */
-export interface SpacerContext {
-  /** The Z3 high-level context for building expressions. */
-  readonly ctx: ReturnType<Awaited<ReturnType<typeof init>>['Context']>;
-  /** The Z3 Fixedpoint solver instance (Spacer engine). Z3 types are complex; using any. */
-  readonly fp: any;
-
-  /** Queries whether the error state is reachable. */
-  query(errorExpr: Bool, reachableDecl?: FuncDecl): Promise<QueryResult>;
-
-  /** Releases Z3 resources. */
-  dispose(): void;
-}
-
-// Use a type alias for the Z3 context to avoid the deep inference
-type Z3Context = ReturnType<Awaited<ReturnType<typeof init>>['Context']>;
-
-/**
- * Creates a Spacer runner with the given timeout.
- *
- * Uses Z3's Spacer engine (CHC solver based on IC3/PDR) to prove or
- * disprove safety properties.
- */
-export async function createSpacerRunner(timeoutMs: number): Promise<SpacerContext> {
-  const { Context } = await init();
-  const ctx = new Context('main') as Z3Context;
-  const fp = new (ctx as any).Fixedpoint() as any;
-
-  // Configure Spacer engine
-  fp.set('engine', 'spacer');
-  if (timeoutMs > 0) {
-    fp.set('timeout', Math.min(timeoutMs, 2147483647));
+export async function runZ3Spacer(
+  solver: Z3Solver,
+  timeoutMs: number,
+  smt2: string,
+  phase: string,
+): Promise<QueryResult> {
+  let reply;
+  try {
+    reply = await runZ3Text(solver, smt2, phase, timeoutMs, ['fp.engine=spacer']);
+  } catch (e: any) {
+    return { type: 'unknown', reason: String(e?.message ?? e) };
   }
+  const stdout = reply.stdout.trim();
 
-  async function query(errorExpr: Bool, reachableDecl?: FuncDecl): Promise<QueryResult> {
-    try {
-      const status = await fp.query(errorExpr);
-
-      if (status === 'unsat') {
-        let invariantFormula: string | null = null;
-        let provenAnswer: Expr | null = null;
-        const levelInvariants: string[] = [];
-
-        try {
-          const answer = fp.getAnswer();
-          if (answer != null) {
-            invariantFormula = answer.toString();
-            provenAnswer = answer;
-          }
-        } catch {
-          // Some configurations don't produce answers
-        }
-
-        if (reachableDecl != null) {
-          try {
-            const levels = fp.getNumLevels(reachableDecl);
-            for (let i = 0; i < levels; i++) {
-              const cover = fp.getCoverDelta(i, reachableDecl);
-              if (cover != null && !(ctx as any).isTrue(cover)) {
-                levelInvariants.push(`Level ${i}: ${cover.toString()}`);
-              }
-            }
-          } catch {
-            // Level queries may not be available
-          }
-        }
-
-        return { type: 'proven', invariantFormula, levelInvariants, answer: provenAnswer };
-      }
-
-      if (status === 'sat') {
-        let answer: Expr | null = null;
-        try {
-          answer = fp.getAnswer();
-        } catch {
-          // Some configurations don't produce answers
-        }
-        return { type: 'violated', answer };
-      }
-
-      // unknown
-      return { type: 'unknown', reason: fp.getReasonUnknown() };
-    } catch (e: any) {
-      return { type: 'unknown', reason: `Z3 exception: ${e.message ?? e}` };
-    }
+  // The verdict is a LINE anywhere in the reply, never its first bytes: the script
+  // asks for both (get-proof) and (get-model), one of which answers `(error …)` on
+  // either branch, and a build is free to print a warning first.
+  switch (classifyFirstLine(stdout)) {
+    // unsat => no inductive invariant excludes the bad state => VIOLATED.
+    case 'unsat':
+      return { type: 'violated', answer: stdout };
+    // sat => an inductive invariant exists => PROVEN.
+    case 'sat':
+      return { type: 'proven', invariantFormula: extractInvariant(stdout) };
+    case 'unknown':
+      return { type: 'unknown', reason: 'Z3 answered unknown' };
+    default:
+      // No verdict at all: the `-T` backstop, the watchdog, an `(error …)` on
+      // either stream, in that order (VER-013).
+      return { type: 'unknown', reason: failureReason(reply, timeoutBudget(timeoutMs)) };
   }
-
-  function dispose(): void {
-    try {
-      fp.release();
-    } catch {
-      // ignore
-    }
-  }
-
-  return {
-    ctx,
-    fp,
-    query,
-    dispose,
-  } as SpacerContext;
 }

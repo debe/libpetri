@@ -101,8 +101,5 @@
     "panzoom": {
       "optional": true
     }
-  },
-  "dependencies": {
-    "z3-solver": "^4.16.0"
   }
 }

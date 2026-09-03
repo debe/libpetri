@@ -1,156 +1,74 @@
 package org.libpetri.smt.z3;
 
-import com.microsoft.z3.*;
-
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 
 /**
- * Manages the Z3 Context and Fixedpoint solver lifecycle for IC3/PDR verification.
+ * Runs Z3 Spacer on a HORN script through one {@code z3} process (VER-013) and
+ * classifies the reply in verdict terms.
  *
- * <p>Uses Z3's Spacer engine (CHC solver based on IC3/PDR) to prove or
- * disprove safety properties. Spacer incrementally constructs inductive
- * invariants without enumerating all reachable states.
- *
- * <p>Implements {@link AutoCloseable} to ensure Z3 native resources are released.
+ * <p>HORN/Spacer convention (shared with the Rust and TypeScript verifiers and
+ * corroborated by the certificate check): with the query {@code (assert (not Error))},
+ * z3 prints {@code sat} when the property is PROVEN (an inductive invariant excluding
+ * every violating state exists) and {@code unsat} when it is VIOLATED (no such
+ * invariant; the refutation proof carries the counterexample states).
  */
-public final class SpacerRunner implements AutoCloseable {
+public final class SpacerRunner {
 
-    private final Context ctx;
-    private final Fixedpoint fp;
-    private final Duration timeout;
+    private SpacerRunner() {}
 
-    /**
-     * Creates a new Spacer runner with the given timeout.
-     *
-     * @param timeout maximum time for the solver
-     */
-    public SpacerRunner(Duration timeout) {
-        this.timeout = timeout;
-
-        // Z3 context with proof generation enabled for counterexamples
-        var cfg = new HashMap<String, String>();
-        cfg.put("proof", "true");
-        this.ctx = new Context(cfg);
-
-        this.fp = ctx.mkFixedpoint();
-
-        Params params = ctx.mkParams();
-        params.add("engine", "spacer");
-        if (timeout != null && !timeout.isZero()) {
-            params.add("timeout", (int) Math.min(timeout.toMillis(), Integer.MAX_VALUE));
-        }
-        fp.setParameters(params);
-    }
-
-    /**
-     * Returns the Z3 context for building expressions.
-     */
-    public Context context() {
-        return ctx;
-    }
-
-    /**
-     * Returns the Fixedpoint solver for adding rules and querying.
-     */
-    public Fixedpoint fixedpoint() {
-        return fp;
-    }
-
-    /**
-     * Queries whether the error state is reachable.
-     *
-     * @param errorExpr the error predicate expression
-     * @return the query result
-     */
-    public QueryResult query(BoolExpr errorExpr) {
-        return query(errorExpr, null);
-    }
-
-    /**
-     * Queries whether the error state is reachable, extracting the inductive
-     * invariant from the proof when the property holds.
-     *
-     * @param errorExpr     the error predicate expression
-     * @param reachableDecl the Reachable relation declaration (for invariant extraction)
-     * @return the query result
-     */
-    public QueryResult query(BoolExpr errorExpr, FuncDecl<BoolSort> reachableDecl) {
-        try {
-            Status status = fp.query(errorExpr);
-            return switch (status) {
-                case UNSATISFIABLE -> {
-                    String invariantFormula = null;
-                    Expr<?> rawAnswer = null;
-                    List<String> levelInvariants = new ArrayList<>();
-                    try {
-                        rawAnswer = fp.getAnswer();
-                        if (rawAnswer != null) {
-                            invariantFormula = rawAnswer.toString();
-                        }
-                    } catch (Z3Exception _) {
-                        // Some configurations don't produce answers
-                    }
-
-                    if (reachableDecl != null) {
-                        try {
-                            int levels = fp.getNumLevels(reachableDecl);
-                            for (int i = 0; i < levels; i++) {
-                                Expr cover = fp.getCoverDelta(i, reachableDecl);
-                                if (cover != null && !cover.isTrue()) {
-                                    levelInvariants.add("Level " + i + ": " + cover);
-                                }
-                            }
-                        } catch (Z3Exception _) {
-                            // Level queries may not be available in all configurations
-                        }
-                    }
-
-                    yield new QueryResult.Proven(invariantFormula, rawAnswer, List.copyOf(levelInvariants));
-                }
-                case SATISFIABLE -> {
-                    Expr answer = null;
-                    try {
-                        answer = fp.getAnswer();
-                    } catch (Z3Exception _) {
-                        // Some configurations don't produce answers
-                    }
-                    yield new QueryResult.Violated(answer);
-                }
-                case UNKNOWN -> new QueryResult.Unknown(fp.getReasonUnknown());
-            };
-        } catch (Z3Exception e) {
-            return new QueryResult.Unknown("Z3 exception: " + e.getMessage());
-        }
-    }
-
-    @Override
-    public void close() {
-        ctx.close();
-    }
-
-    /**
-     * Result of a Spacer query.
-     */
+    /** Result of a Spacer query. */
     public sealed interface QueryResult {
         /**
-         * Property proven: no reachable error state (UNSAT).
+         * Property proven (z3 {@code sat}).
          *
-         * @param invariantFormula the overall inductive invariant synthesized by IC3 (may be null)
-         * @param answer           the raw Fixedpoint answer AST the formula string was rendered
-         *                         from (may be null); valid only while the owning
-         *                         {@link SpacerRunner} is open — {@link CertificateChecker}
-         *                         re-validates it before the verdict is trusted
-         * @param levelInvariants  per-level invariant clauses from the IC3 frames
+         * @param invariantFormula the {@code (define-fun …)} block of the model, verbatim
+         *                         (the certificate the {@link CertificateChecker}
+         *                         re-validates), or {@code null} when no model printed
          */
-        record Proven(String invariantFormula, Expr<?> answer, List<String> levelInvariants) implements QueryResult {}
+        record Proven(String invariantFormula) implements QueryResult {}
 
-        /** Counterexample found (SAT). The answer is the derivation tree. */
-        record Violated(Expr answer) implements QueryResult {}
+        /**
+         * Property violated (z3 {@code unsat}).
+         *
+         * @param answer the raw solver reply; the refutation proof in it is decoded by
+         *               {@link CounterexampleDecoder}
+         */
+        record Violated(String answer) implements QueryResult {}
 
-        /** Solver could not determine (timeout, resource limit). */
+        /** Solver could not determine (timeout, resource limit, transport failure). */
         record Unknown(String reason) implements QueryResult {}
+    }
+
+    /**
+     * Runs {@code smt2} with {@code fp.engine=spacer}. {@code phase} names the dump
+     * files ({@code horn} or {@code horn-coloured}).
+     */
+    public static QueryResult run(Z3Solver solver, Duration timeout, String smt2, String phase) {
+        Z3Process.Reply reply;
+        try {
+            reply = solver.run(smt2, phase, timeout, List.of("fp.engine=spacer"));
+        } catch (Z3Process.Z3ProcessException e) {
+            return new QueryResult.Unknown(e.getMessage());
+        }
+        String stdout = reply.stdout().strip();
+
+        // The verdict is a LINE anywhere in the reply, never its first bytes: the
+        // script asks for both (get-proof) and (get-model), one of which answers
+        // `(error …)` on either branch, and a build is free to print a warning first.
+        String verdict = SmtText.classifyFirstLine(stdout);
+        if (verdict == null) {
+            // No verdict at all: the `-T` backstop, the watchdog, an `(error …)` on
+            // either stream, in that order (VER-013).
+            return new QueryResult.Unknown(
+                Z3Process.failureReason(reply, Z3Solver.timeoutMs(timeout)));
+        }
+        return switch (verdict) {
+            // unsat => no inductive invariant excludes the bad state => VIOLATED.
+            case "unsat" -> new QueryResult.Violated(stdout);
+            // sat => an inductive invariant exists => PROVEN.
+            case "sat" -> new QueryResult.Proven(SmtText.extractInvariant(stdout));
+            default -> new QueryResult.Unknown("Z3 answered unknown");
+        };
     }
 }

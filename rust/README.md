@@ -67,7 +67,7 @@ With the `tokio` feature, transition futures can overlap while the orchestrator 
 | Feature | Effect |
 |---|---|
 | `tokio` | Async executor and environment-event APIs |
-| `z3` | Enables the SMT verification surface; the `z3` executable is required at runtime |
+| `z3` | Enables the SMT verification surface; a `z3` executable (4.8.0 or newer, on `PATH` or named by `LIBPETRI_Z3`) is required at runtime |
 | `debug` | WebSocket debug protocol |
 | `archive` | Debug support plus session archives |
 

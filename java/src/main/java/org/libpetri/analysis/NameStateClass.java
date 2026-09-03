@@ -1,14 +1,18 @@
 package org.libpetri.analysis;
 
 import java.util.List;
-import java.util.Objects;
 
 /**
  * A name-aware state class (NU-050, Route B): the base count + DBM
  * {@link StateClass} plus the abstract {@link NameMarking} partition layer. The
  * base class is reused verbatim, so the timing/zone dimension is untouched —
- * name&times;time composition is automatic. Dedup is by {@code (base, nameKey)}
- * where {@code nameKey} is the symmetry-canonical name-partition key.
+ * name&times;time composition is automatic.
+ *
+ * <p>Both layers are interned by {@link NameStateClassGraph#build} ([VER-012]), and the pair of
+ * intern ids is what identifies a class: the base id covers marking, zone and the class-relative
+ * earliest-ready times, the name id covers the symmetry-canonical partition key. The class object
+ * itself carries no equality, so nothing can dedup on {@code (base, nameKey)} and hand one arrival
+ * another's earliest-ready times, which the NU-052 prune reads.
  */
 final class NameStateClass {
 
@@ -17,20 +21,17 @@ final class NameStateClass {
     private final String nameKey;
 
     NameStateClass(StateClass base, NameMarking names, List<String> colouredOrder) {
+        this(base, names, names.canonicalKey(colouredOrder));
+    }
+
+    /** As above with a precomputed key — used when sharing an interned name layer. */
+    NameStateClass(StateClass base, NameMarking names, String nameKey) {
         this.base = base;
         this.names = names;
-        this.nameKey = names.canonicalKey(colouredOrder);
+        this.nameKey = nameKey;
     }
 
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof NameStateClass other)) return false;
-        return base.equals(other.base) && nameKey.equals(other.nameKey);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(base, nameKey);
+    String nameKey() {
+        return nameKey;
     }
 }

@@ -45,12 +45,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class SubnetVerifyTest {
 
     static boolean z3Available() {
-        try {
-            new com.microsoft.z3.Context().close();
-            return true;
-        } catch (UnsatisfiedLinkError | NoClassDefFoundError _) {
-            return false;
-        }
+        return org.libpetri.smt.SmtVerifier.z3Available();
     }
 
     // ============================================================
