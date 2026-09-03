@@ -2244,6 +2244,40 @@ describe('Conditional Token Selection Tests', () => {
 // ======================== DEADLINE ENFORCEMENT TESTS ========================
 
 describe('Deadline Enforcement Tests', () => {
+
+  it('quiesces when the only transition\'s window expires while the event loop is blocked', async () => {
+    // Regression: awaitWork() read millisUntilNextTimedTransition() === 0 as "no
+    // timer needed" rather than "a boundary is already due". With no action in
+    // flight the race then held only the external wake-up promise, which this net
+    // — having no environment places — has nobody to resolve, so the executor slept
+    // until its run budget expired instead of reaping the expired window.
+    const input = place<string>('IN');
+    const output = place<string>('OUT');
+
+    const t = Transition.builder('Windowed')
+      .inputs(one(input))
+      .outputs(outPlace(output))
+      .timing(window(50, 200))
+      .action(async (ctx) => { ctx.output(output, ctx.input(input)); })
+      .build();
+
+    const net = PetriNet.builder('N').transition(t).build();
+    const eventStore = new InMemoryEventStore();
+    const executor = new PrecompiledNetExecutor(net, initialTokens([input, [tokenOf('go')]]), { eventStore });
+
+    const running = executor.run(1000);
+    // Starve the earliest-firing timer past `late` the way machine load does.
+    // Synchronous, so the starvation is deterministic rather than timing-dependent.
+    const blockUntil = performance.now() + 400;
+    while (performance.now() < blockUntil) { /* block the event loop */ }
+
+    const marking = await running;
+
+    // The window is gone, so the transition must be reaped, not fired.
+    expect(marking.hasTokens(output)).toBe(false);
+    expect(eventsOfType(eventStore, 'transition-timed-out').length).toBe(1);
+  });
+
   it('transition with window timing fires within window', { timeout: 15000 }, async () => {
     const input = place<string>('IN');
     const output = place<string>('OUT');

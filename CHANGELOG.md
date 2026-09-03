@@ -6,6 +6,22 @@
 
 ---
 
+### Executor
+
+#### Fixed — an expired window no longer parks the executor (TypeScript)
+
+`awaitWork()` read `millisUntilNextTimedTransition() === 0` as "no timer needed"
+rather than "a boundary is already due", so it scheduled nothing. With no action
+in flight the wait then held only the external wake-up promise, which a net with
+no environment places has nobody to resolve: instead of reaping the expired
+window on the next cycle, the executor slept until its run budget expired and
+`run(ms)` rejected with `Execution timed out`. A `window()` whose deadline passed
+while the event loop was blocked hit exactly this, so the symptom was
+load-dependent. Both TypeScript executors were affected; Rust and Java already
+returned immediately on a due boundary, and Python inherits the Rust behaviour.
+
+---
+
 ### Verification
 
 #### Changed — one solver transport: every verifier runs the `z3` executable (Rust, Python, Java, TypeScript)
