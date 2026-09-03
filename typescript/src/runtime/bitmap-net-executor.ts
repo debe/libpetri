@@ -1084,11 +1084,20 @@ export class BitmapNetExecutor implements PetriNetExecutor {
 
     // When closed, only wait for in-flight completions — skip event/timer promises
     if (!this.closed) {
+      // Zero means a timing boundary is already due: an earliest firing time has
+      // been reached, or a deadline needs enforcing. There is nothing to wait for,
+      // and with no action in flight the race below would hold only the external
+      // wake-up promise — which a net with no environment places has nobody to
+      // resolve, so the loop would sleep until its run budget expired. Return and
+      // let the next cycle act on the boundary. Rust reaches the same outcome via
+      // sleep(0); Java returns early on `millisUntilNextTimedTransition() <= 0`.
+      const timerMs = this.millisUntilNextTimedTransition();
+      if (timerMs === 0 && promises.length === 0) return;
+
       // 2. External event wake-up
       promises.push(new Promise<void>(resolve => { this.wakeUpResolve = resolve; }));
 
       // 3. Timer for next delayed transition
-      const timerMs = this.millisUntilNextTimedTransition();
       if (timerMs > 0 && timerMs < Infinity) {
         promises.push(new Promise<void>(r => setTimeout(r, timerMs)));
       }
