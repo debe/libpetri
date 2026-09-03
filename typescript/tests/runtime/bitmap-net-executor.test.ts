@@ -2282,10 +2282,15 @@ describe('Deadline Enforcement Tests', () => {
     const input = place<string>('IN');
     const output = place<string>('OUT');
 
+    // `late` is deliberately generous: this test asserts the *earliest* bound is
+    // respected, and the deadline is covered by the two tests below. A tight
+    // `late` here only makes the case load-sensitive — under a busy machine the
+    // window expires legitimately and the transition is reaped, which is correct
+    // behaviour but not what this test is about.
     const t = Transition.builder('Windowed')
       .inputs(one(input))
       .outputs(outPlace(output))
-      .timing(window(50, 200))
+      .timing(window(50, 2000))
       .action(async (ctx) => { ctx.output(output, ctx.input(input)); })
       .build();
 
