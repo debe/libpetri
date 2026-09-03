@@ -587,6 +587,125 @@ mod tests {
         );
     }
 
+    /// The same two arrivals, reaching one name layer: `MC` and `M1` each co-mint one
+    /// name into `C1` and `C2`, and the uncoloured `B` balances the marking so both
+    /// routes meet at `C1 + C2 + B + Q`. `MC` enables `H` fresh (ready in 5 s); `M1`
+    /// then the 3 s `M2` leaves `H` persistent (ready now). Class identity therefore has
+    /// to carry `ready_earliest` itself: sharing the base object is not enough when the
+    /// name layers coincide.
+    fn same_name_layer_fixture() -> PetriNet {
+        use libpetri_core::input::{exactly, one};
+        use libpetri_core::match_spec::MatchSpec;
+        use libpetri_core::name::NameId;
+        use libpetri_core::output::{and, out_place};
+        use libpetri_core::place::Place;
+        use libpetri_core::timing;
+        use libpetri_core::transition::Transition;
+
+        let p = Place::<String>::new("P");
+        let c1 = Place::<String>::new("C1");
+        let c2 = Place::<String>::new("C2");
+        let b = Place::<String>::new("B");
+        let q = Place::<String>::new("Q");
+        let out = Place::<String>::new("OUT");
+        let out_h = Place::<String>::new("OUT_H");
+        let dead = Place::<String>::new("DEAD");
+        let r = Place::<String>::new("R");
+
+        let mc = Transition::builder("MC")
+            .input(exactly(2, &p))
+            .output(and(vec![out_place(&c1), out_place(&c2), out_place(&b), out_place(&q)]))
+            .action(fork())
+            .build();
+        let m1 = Transition::builder("M1")
+            .input(one(&p))
+            .output(and(vec![out_place(&c1), out_place(&c2), out_place(&q)]))
+            .action(fork())
+            .build();
+        let m2 = Transition::builder("M2")
+            .input(one(&p))
+            .timing(timing::delayed(3_000))
+            .output(out_place(&b))
+            .action(fork())
+            .build();
+        let h = Transition::builder("H")
+            .input(one(&q))
+            .timing(timing::delayed(5_000))
+            .priority(10)
+            .output(out_place(&out_h))
+            .action(fork())
+            .build();
+        let l = Transition::builder("L")
+            .input(one(&q))
+            .output(out_place(&dead))
+            .action(fork())
+            .build();
+        let j = Transition::builder("J")
+            .input(one(&c1))
+            .input(one(&c2))
+            .input(one(&r))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&c1, |s: &String| NameId::new(s.clone()))
+                    .key(&c2, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(out_place(&out))
+            .action(fork())
+            .build();
+        PetriNet::builder("interning-same-layer")
+            .transitions(vec![mc, m1, m2, h, l, j])
+            .build()
+    }
+
+    #[test]
+    fn class_identity_carries_ready_earliest_when_name_layers_coincide() {
+        use crate::marking_state::MarkingStateBuilder;
+        use crate::name_fragment::{classify, FragmentMode};
+        use std::collections::BTreeSet;
+
+        let net = same_name_layer_fixture();
+        let fragment = classify(&net, FragmentMode::Base, &BTreeSet::new())
+            .expect("the fixture is in the base fragment");
+        let initial = MarkingStateBuilder::new().tokens("P", 2).build();
+        let graph = NameStateClassGraph::build(
+            &net,
+            &initial,
+            &fragment,
+            10_000,
+            &[],
+            &EnvironmentAnalysisMode::Ignore,
+            PrioritySemantics::Conflict,
+        );
+
+        let fresh = edge_target(&graph, 0, "MC"); // H enabled here, ready in 5 s
+        let mid = edge_target(&graph, 0, "M1");
+        let persistent = edge_target(&graph, mid, "M2"); // H enabled since M1, may be ready now
+
+        assert_eq!(
+            graph.classes[fresh].names.canonical_key(&fragment.coloured_order),
+            graph.classes[persistent].names.canonical_key(&fragment.coloured_order),
+            "both routes co-mint one name into C1 and C2, so the layers are the same partition"
+        );
+        assert_eq!(
+            graph.classes[fresh].base.marking, graph.classes[persistent].base.marking,
+            "same base marking"
+        );
+        assert_ne!(
+            fresh, persistent,
+            "the arrivals disagree on ready_earliest, so they are two classes: dedup on \
+             (marking, zone, name key) alone would hand one arrival the other's prune input"
+        );
+        assert!(
+            has_edge(&graph, fresh, "L"),
+            "H is freshly enabled here (ready in 5 s), so L is not pre-empted"
+        );
+        assert!(
+            !has_edge(&graph, persistent, "L"),
+            "H may be ready now, so L is pre-empted (NU-052)"
+        );
+    }
+
     fn rename(nm: &NameMarking, places: &[&str], sigma: impl Fn(Sym) -> Sym) -> NameMarking {
         let mut out = NameMarking::new();
         for p in places {

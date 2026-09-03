@@ -90,7 +90,8 @@ public final class NameStateClassGraph {
         // guards this), so the initial name partition is empty.
         var initial = new NameStateClass(base0, new NameMarking(), fragment.colouredOrder);
 
-        var indexOf = new HashMap<NameStateClass, Integer>();
+
+        var indexOf = new HashMap<ClassId, Integer>();
         // Hash-consing (memory only, no semantic effect): the base class and the name
         // layer are each shared between every state class that carries an equal one. Two
         // name layers with the same canonical key are the same partition up to a renaming
@@ -102,9 +103,15 @@ public final class NameStateClassGraph {
         // interned_keys_eq; equivariance_is_necessary is the witness for that clause.
         // Without this a class costs ~4 KB (TreeMap-of-TreeMaps + key string dominate) and a
         // few million classes exhaust the heap before a medium-sized ν-net closes.
-        var baseIntern = new HashMap<BaseKey, StateClass>();
-        var nameIntern = new HashMap<String, NameStateClass>();
-        graph.pushClass(initial, indexOf);
+        //
+        // The intern ids are also the class identity: a class is a (base id, name id) pair, so
+        // two arrivals that share a marking, a zone and a name layer but disagree on
+        // readyEarliest stay two classes and each keeps its own NU-052 prune input.
+        var baseIntern = new HashMap<BaseKey, InternedBase>();
+        var nameIntern = new HashMap<String, InternedNames>();
+        var interned0 = internBase(baseIntern, base0);
+        var names0 = internNames(nameIntern, new NameMarking(), fragment.colouredOrder);
+        graph.pushClass(initial, new ClassId(interned0.id(), names0.id()), indexOf);
 
         int[] nextSym = {0};
         var queue = new ArrayDeque<Integer>();
@@ -135,19 +142,16 @@ public final class NameStateClassGraph {
                         continue; // DBM zone infeasible
                     }
                     var nameSuccs = nameSuccessors(role, current.names, vt.outputPlaces(), fragment, nextSym);
-                    var sharedBase = baseIntern.computeIfAbsent(new BaseKey(baseSucc), _ -> baseSucc);
+                    var sharedBase = internBase(baseIntern, baseSucc);
                     for (var nm : nameSuccs) {
-                        var succ = new NameStateClass(sharedBase, nm, fragment.colouredOrder);
-                        var sharedNames = nameIntern.get(succ.nameKey());
-                        if (sharedNames == null) {
-                            nameIntern.put(succ.nameKey(), succ);
-                        } else {
-                            succ = new NameStateClass(sharedBase, sharedNames.names, sharedNames.nameKey());
-                        }
-                        Integer toIdx = indexOf.get(succ);
+                        var sharedNames = internNames(nameIntern, nm, fragment.colouredOrder);
+                        var id = new ClassId(sharedBase.id(), sharedNames.id());
+                        Integer toIdx = indexOf.get(id);
                         if (toIdx == null) {
                             toIdx = graph.classes.size();
-                            graph.pushClass(succ, indexOf);
+                            graph.pushClass(
+                                new NameStateClass(sharedBase.base(), sharedNames.names(), sharedNames.nameKey()),
+                                id, indexOf);
                             queue.add(toIdx);
                         }
                         graph.addEdge(curIdx, toIdx, transition.name());
@@ -158,11 +162,38 @@ public final class NameStateClassGraph {
         return graph;
     }
 
-    private void pushClass(NameStateClass c, Map<NameStateClass, Integer> indexOf) {
+    private void pushClass(NameStateClass c, ClassId id, Map<ClassId, Integer> indexOf) {
         int idx = classes.size();
         classes.add(c);
         successors.add(new ArrayList<>());
-        indexOf.put(c, idx);
+        indexOf.put(id, idx);
+    }
+
+    /**
+     * Class identity: the pair of intern ids, mirroring the Rust reference
+     * ({@code name_state_class_graph.rs}, {@code index_of}). The base id already carries
+     * {@code readyEarliest} (see {@link BaseKey}), which {@link StateClass#equals(Object)}
+     * deliberately does not, so keying on the id and not on the class object is what keeps the
+     * NU-052 prune reading each arrival's own earliest-ready times.
+     */
+    private record ClassId(int baseId, int nameId) {}
+
+    /** An interned base class with the id that identifies it. */
+    private record InternedBase(int id, StateClass base) {}
+
+    /** An interned name layer with the id that identifies it and its canonical key. */
+    private record InternedNames(int id, NameMarking names, String nameKey) {}
+
+    private static InternedBase internBase(Map<BaseKey, InternedBase> intern, StateClass base) {
+        int next = intern.size();
+        return intern.computeIfAbsent(new BaseKey(base), _ -> new InternedBase(next, base));
+    }
+
+    private static InternedNames internNames(
+            Map<String, InternedNames> intern, NameMarking names, List<String> colouredOrder) {
+        var key = names.canonicalKey(colouredOrder);
+        int next = intern.size();
+        return intern.computeIfAbsent(key, _ -> new InternedNames(next, names, key));
     }
 
     private void addEdge(int from, int to, String name) {

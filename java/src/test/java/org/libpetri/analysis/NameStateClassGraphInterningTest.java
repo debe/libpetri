@@ -40,6 +40,8 @@ class NameStateClassGraphInterningTest {
     private static final Place<String> C1 = Place.of("C1", String.class);
     private static final Place<String> C2 = Place.of("C2", String.class);
     private static final Place<String> Q = Place.of("Q", String.class);
+    /** Uncoloured: balances the marking of the two routes in {@link #sameNameLayerFixture()}. */
+    private static final Place<String> B = Place.of("B", String.class);
     private static final Place<String> OUT = Place.of("OUT", String.class);
     private static final Place<String> OUT_H = Place.of("OUT_H", String.class);
     private static final Place<String> DEAD = Place.of("DEAD", String.class);
@@ -178,5 +180,76 @@ class NameStateClassGraphInterningTest {
                 successorKeys(fragment, t, renamed, outputs, 12),
                 t);
         }
+    }
+
+    /**
+     * The same two arrivals as {@link #fixture(boolean)}, but reaching one name layer: {@code MC}
+     * and {@code M1} each co-mint one name into {@code C1} and {@code C2}, and the uncoloured
+     * {@code B} balances the marking so both routes meet at {@code C1 + C2 + B + Q}. {@code MC} enables {@code H}
+     * fresh (ready in 5 s); {@code M1} then the 3 s {@code M2} leaves {@code H} persistent (ready
+     * now). Class identity therefore has to carry {@code readyEarliest} itself: sharing the base
+     * object is not enough when the name layers coincide.
+     */
+    private static PetriNet sameNameLayerFixture() {
+        var mc = Transition.builder("MC")
+            .inputs(Arc.In.exactly(2, P))
+            .outputs(Arc.Out.and(C1, C2, B, Q))
+            .build();
+        var m1 = Transition.builder("M1")
+            .inputs(Arc.In.one(P))
+            .outputs(Arc.Out.and(C1, C2, Q))
+            .build();
+        var m2 = Transition.builder("M2")
+            .inputs(Arc.In.one(P))
+            .timing(Timing.delayed(Duration.ofSeconds(3)))
+            .outputs(Arc.Out.place(B))
+            .build();
+        var h = Transition.builder("H")
+            .inputs(Arc.In.one(Q))
+            .timing(Timing.delayed(Duration.ofSeconds(5)))
+            .priority(10)
+            .outputs(Arc.Out.place(OUT_H))
+            .build();
+        var l = Transition.builder("L")
+            .inputs(Arc.In.one(Q))
+            .outputs(Arc.Out.place(DEAD))
+            .build();
+        var j = Transition.builder("J")
+            .inputs(Arc.In.one(C1), Arc.In.one(C2), Arc.In.one(R))
+            .match(MatchSpec.builder()
+                .key(C1, (String s) -> NameId.of(s))
+                .key(C2, (String s) -> NameId.of(s))
+                .build())
+            .outputs(Arc.Out.place(OUT))
+            .build();
+        return StructureOnly.bind(
+            PetriNet.builder("interning-same-layer").transitions(mc, m1, m2, h, l, j).build());
+    }
+
+    @Test
+    void classIdentityCarriesReadyEarliestWhenNameLayersCoincide() {
+        var net = sameNameLayerFixture();
+        var fragment = NameFragment.classify(net, FragmentMode.BASE, Set.of());
+        var initial = MarkingState.builder().tokens(P, 2).build();
+        var graph = NameStateClassGraph.build(
+            net, initial, fragment, 10_000, Set.of(), EnvironmentAnalysisMode.ignore(),
+            PrioritySemantics.CONFLICT);
+
+        int fresh = target(graph, 0, "MC");          // H enabled here, ready in 5 s
+        int mid = target(graph, 0, "M1");
+        int persistent = target(graph, mid, "M2");   // H enabled since M1, may be ready now
+
+        assertEquals(
+            graph.classAt(fresh).nameKey(), graph.classAt(persistent).nameKey(),
+            "both routes co-mint one name into C1 and C2, so the layers are the same partition");
+        assertEquals(graph.markingOf(fresh), graph.markingOf(persistent), "same base marking");
+        assertNotEquals(fresh, persistent,
+            "the arrivals disagree on readyEarliest, so they are two classes: dedup on "
+            + "(marking, zone, nameKey) alone would hand one arrival the other's prune input");
+
+        assertTrue(hasEdge(graph, fresh, "L"),
+            "H is freshly enabled here (ready in 5 s), so L is not pre-empted");
+        assertFalse(hasEdge(graph, persistent, "L"),
+            "H may be ready now, so L is pre-empted (NU-052)");
     }
 }

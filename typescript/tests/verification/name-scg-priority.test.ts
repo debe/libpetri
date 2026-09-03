@@ -230,6 +230,8 @@ describe('NameStateClassGraph interning (VER-012)', () => {
   const OUT_H = place<string>('OUT_H');
   const DEAD = place<string>('DEAD');
   const DRAINED = place<string>('DRAINED');
+  /** Uncoloured: balances the marking of the two routes in `sameNameLayerFixture`. */
+  const B = place<string>('B');
   /** Never marked: keeps `J` structurally a ν-join without ever enabling it. */
   const R = place<string>('R');
 
@@ -293,6 +295,55 @@ describe('NameStateClassGraph interning (VER-012)', () => {
     expect(hasEdge(graph, diff, 'L')).toBe(false);
     expect(graph.classes[same]!.base, 'the two arrivals disagree on readyEarliest, so they must not share a base')
       .not.toBe(graph.classes[diff]!.base);
+  });
+
+  /**
+   * The same two arrivals, reaching one name layer: `MC` and `M1` each co-mint one name into
+   * `C1` and `C2`, and the uncoloured `B` balances the marking so both routes meet at
+   * `C1 + C2 + B + Q`. `MC` enables `H` fresh (ready in 5 s); `M1` then the 3 s `M2` leaves `H`
+   * persistent (ready now). Class identity therefore has to carry `readyEarliest` itself:
+   * sharing the base object is not enough when the name layers coincide.
+   */
+  function sameNameLayerFixture(): PetriNet {
+    const mc = Transition.builder('MC').inputs(exactly(2, P)).outputs(andPlaces(C1, C2, B, Q)).build();
+    const m1 = Transition.builder('M1').inputs(one(P)).outputs(andPlaces(C1, C2, Q)).build();
+    const m2 = Transition.builder('M2').inputs(one(P)).timing(delayed(3_000)).outputs(outPlace(B)).build();
+    const h = Transition.builder('H')
+      .inputs(one(Q))
+      .timing(delayed(5_000))
+      .priority(10)
+      .outputs(outPlace(OUT_H))
+      .build();
+    const l = Transition.builder('L').inputs(one(Q)).outputs(outPlace(DEAD)).build();
+    const j = Transition.builder('J')
+      .inputs(one(C1), one(C2), one(R))
+      .match(matchSpec(matchKey(C1, (s: string) => nameId(s)), matchKey(C2, (s: string) => nameId(s))))
+      .outputs(outPlace(OUT2))
+      .build();
+    return PetriNet.builder('interning-same-layer').transitions(mc, m1, m2, h, l, j).build();
+  }
+
+  it('class identity carries readyEarliest when the name layers coincide', () => {
+    const net = sameNameLayerFixture();
+    const fragment = classify(net, 'base', new Set())!;
+    const initial = MarkingState.builder().tokens(P, 2).build();
+    const graph = NameStateClassGraph.build(net, initial, fragment, 10_000, undefined, undefined, 'conflict');
+
+    const fresh = target(graph, 0, 'MC'); // H enabled here, ready in 5 s
+    const mid = target(graph, 0, 'M1');
+    const persistent = target(graph, mid, 'M2'); // H enabled since M1, may be ready now
+
+    // Both routes co-mint one name into C1 and C2, so the layers are the same partition.
+    expect(graph.classes[fresh]!.names.canonicalKey(fragment.colouredOrder))
+      .toBe(graph.classes[persistent]!.names.canonicalKey(fragment.colouredOrder));
+    expect(graph.markingOf(fresh).toString()).toBe(graph.markingOf(persistent).toString());
+    // The arrivals disagree on readyEarliest, so they are two classes: dedup on
+    // (marking, zone, name key) alone would hand one arrival the other's prune input.
+    expect(fresh).not.toBe(persistent);
+    // H is freshly enabled at `fresh` (ready in 5 s), so L is not pre-empted there.
+    expect(hasEdge(graph, fresh, 'L')).toBe(true);
+    // H may be ready now at `persistent`, so L is pre-empted (NU-052).
+    expect(hasEdge(graph, persistent, 'L')).toBe(false);
   });
 
   function rename(nm: NameMarking, places: readonly string[], sigma: (s: Sym) => Sym): NameMarking {

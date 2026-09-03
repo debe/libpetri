@@ -397,7 +397,10 @@ to the same cardinality contract the executor uses rather than restating it.
 - Memory: an implementation MAY intern (hash-cons) the base class and the name layer
   between state classes. The base intern key MUST include the class-relative
   earliest-ready times alongside the marking and zone, because the [NU-052] prune reads
-  them while class equality does not. Interning is semantics-free by key-equivariance of
+  them while class equality does not. Class identity MUST carry them too: the graph's
+  dedup key is the pair of intern ids (base, name layer), not the class object, so two
+  arrivals that agree on marking, zone and name layer but disagree on the earliest-ready
+  times stay two classes and each keeps its own prune input. Interning is semantics-free by key-equivariance of
   the successor step (Lean `Interning.lean`, `interned_keys_eq`): the reachable quotient
   and the verdict are unchanged; class indices and the reported counterexample trace may
   differ from a non-interned build.
