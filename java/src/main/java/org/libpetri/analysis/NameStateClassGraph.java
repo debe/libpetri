@@ -8,6 +8,7 @@ import org.libpetri.core.Transition;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -64,6 +65,11 @@ public final class NameStateClassGraph {
         return edges;
     }
 
+    /** The full class at {@code idx} (package-private, for the interning tests). */
+    NameStateClass classAt(int idx) {
+        return classes.get(idx);
+    }
+
     public static NameStateClassGraph build(
             PetriNet net,
             MarkingState initialMarking,
@@ -84,8 +90,28 @@ public final class NameStateClassGraph {
         // guards this), so the initial name partition is empty.
         var initial = new NameStateClass(base0, new NameMarking(), fragment.colouredOrder);
 
-        var indexOf = new HashMap<NameStateClass, Integer>();
-        graph.pushClass(initial, indexOf);
+
+        var indexOf = new HashMap<ClassId, Integer>();
+        // Hash-consing (memory only, no semantic effect): the base class and the name
+        // layer are each shared between every state class that carries an equal one. Two
+        // name layers with the same canonical key are the same partition up to a renaming
+        // of symbols, and every consumer of the layer is symmetric under renaming
+        // (successor steps, willFire, the key itself); freshness stays sound because
+        // minted symbols come from a monotone counter that never revisits an id. The base
+        // is shared only when marking, zone AND readyEarliest agree (see BaseKey), so the
+        // shared object carries everything the successor step reads — Interning.lean,
+        // interned_keys_eq; equivariance_is_necessary is the witness for that clause.
+        // Without this a class costs ~4 KB (TreeMap-of-TreeMaps + key string dominate) and a
+        // few million classes exhaust the heap before a medium-sized ν-net closes.
+        //
+        // The intern ids are also the class identity: a class is a (base id, name id) pair, so
+        // two arrivals that share a marking, a zone and a name layer but disagree on
+        // readyEarliest stay two classes and each keeps its own NU-052 prune input.
+        var baseIntern = new HashMap<BaseKey, InternedBase>();
+        var nameIntern = new HashMap<String, InternedNames>();
+        var interned0 = internBase(baseIntern, base0);
+        var names0 = internNames(nameIntern, new NameMarking(), fragment.colouredOrder);
+        graph.pushClass(initial, new ClassId(interned0.id(), names0.id()), indexOf);
 
         int[] nextSym = {0};
         var queue = new ArrayDeque<Integer>();
@@ -116,12 +142,16 @@ public final class NameStateClassGraph {
                         continue; // DBM zone infeasible
                     }
                     var nameSuccs = nameSuccessors(role, current.names, vt.outputPlaces(), fragment, nextSym);
+                    var sharedBase = internBase(baseIntern, baseSucc);
                     for (var nm : nameSuccs) {
-                        var succ = new NameStateClass(baseSucc, nm, fragment.colouredOrder);
-                        Integer toIdx = indexOf.get(succ);
+                        var sharedNames = internNames(nameIntern, nm, fragment.colouredOrder);
+                        var id = new ClassId(sharedBase.id(), sharedNames.id());
+                        Integer toIdx = indexOf.get(id);
                         if (toIdx == null) {
                             toIdx = graph.classes.size();
-                            graph.pushClass(succ, indexOf);
+                            graph.pushClass(
+                                new NameStateClass(sharedBase.base(), sharedNames.names(), sharedNames.nameKey()),
+                                id, indexOf);
                             queue.add(toIdx);
                         }
                         graph.addEdge(curIdx, toIdx, transition.name());
@@ -132,16 +162,72 @@ public final class NameStateClassGraph {
         return graph;
     }
 
-    private void pushClass(NameStateClass c, Map<NameStateClass, Integer> indexOf) {
+    private void pushClass(NameStateClass c, ClassId id, Map<ClassId, Integer> indexOf) {
         int idx = classes.size();
         classes.add(c);
         successors.add(new ArrayList<>());
-        indexOf.put(c, idx);
+        indexOf.put(id, idx);
+    }
+
+    /**
+     * Class identity: the pair of intern ids, mirroring the Rust reference
+     * ({@code name_state_class_graph.rs}, {@code index_of}). The base id already carries
+     * {@code readyEarliest} (see {@link BaseKey}), which {@link StateClass#equals(Object)}
+     * deliberately does not, so keying on the id and not on the class object is what keeps the
+     * NU-052 prune reading each arrival's own earliest-ready times.
+     */
+    private record ClassId(int baseId, int nameId) {}
+
+    /** An interned base class with the id that identifies it. */
+    private record InternedBase(int id, StateClass base) {}
+
+    /** An interned name layer with the id that identifies it and its canonical key. */
+    private record InternedNames(int id, NameMarking names, String nameKey) {}
+
+    private static InternedBase internBase(Map<BaseKey, InternedBase> intern, StateClass base) {
+        int next = intern.size();
+        return intern.computeIfAbsent(new BaseKey(base), _ -> new InternedBase(next, base));
+    }
+
+    private static InternedNames internNames(
+            Map<String, InternedNames> intern, NameMarking names, List<String> colouredOrder) {
+        var key = names.canonicalKey(colouredOrder);
+        int next = intern.size();
+        return intern.computeIfAbsent(key, _ -> new InternedNames(next, names, key));
     }
 
     private void addEdge(int from, int to, String name) {
         edges.add(new Edge(from, to, name));
         successors.get(from).add(to);
+    }
+
+    /**
+     * Intern key for the base layer. {@link StateClass#equals(Object)} is marking + zone, which
+     * is all base timed-reachability needs — but the NU-052 conflict prune also reads
+     * {@link StateClass#readyEarliest()}, the class-relative earliest-ready times captured
+     * before {@code letTimePass}, and two arrivals at one zone can disagree on those (a
+     * transition freshly enabled here versus one persistent through an unbounded delay).
+     * Sharing a base across name layers is semantics-free only if the shared object carries
+     * everything the successor step reads ({@code Interning.lean},
+     * {@code equivariance_is_necessary}), so the key is all three. Bit-exact on the doubles
+     * ({@link Arrays#equals(double[], double[])}).
+     */
+    private record BaseKey(StateClass base, double[] readyEarliest) {
+        BaseKey(StateClass base) {
+            this(base, base.readyEarliest());
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof BaseKey other
+                && base.equals(other.base)
+                && Arrays.equals(readyEarliest, other.readyEarliest);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * base.hashCode() + Arrays.hashCode(readyEarliest);
+        }
     }
 
     /** Float slack for the class-relative earliest-ready comparison (matches the DBM's own EPSILON). */
@@ -259,8 +345,11 @@ public final class NameStateClassGraph {
      * symbol of its single coloured input, removing that symbol and re-emitting it
      * into the fired branch's coloured outputs, so a branch with no coloured output
      * drains the symbol and a branch with one relays it.
+     *
+     * <p>Package-private for {@code NameStateClassGraphInterningTest}: this step's
+     * equivariance under symbol renaming is the hypothesis {@code Interning.lean} rests on.
      */
-    private static List<NameMarking> nameSuccessors(
+    static List<NameMarking> nameSuccessors(
             NameFragment.Role role,
             NameMarking names,
             Set<Place<?>> outputPlaces,

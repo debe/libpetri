@@ -51,9 +51,14 @@ fi
 info()  { echo "==> $*"; }
 error() { echo "Error: $*" >&2; exit 1; }
 
+# Extract the CHANGELOG.md section for the given version. Matches a `## ` header
+# that contains the version as a space-delimited token, so it works with the
+# coordinated multi-language headers (e.g. `## Java 4.0.0 / Python 3.1.0 — …`)
+# as well as a bare `## 3.1.0`. Prints empty string if no section matches.
 changelog_section() {
     awk -v v="$1" '
-        $0 == "## " v { p = 1; next }
+        BEGIN { gsub(/\./, "\\.", v); re = " " v " " }
+        /^## / && $0 ~ re { p = 1; next }
         p && /^## / { exit }
         p
     ' "$PROJECT_ROOT/CHANGELOG.md"

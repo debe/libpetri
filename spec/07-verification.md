@@ -24,11 +24,10 @@ The engine supports safety property verification using SMT solvers via the IC3/P
 2. Returns a verdict (Proven, Violated, or Unknown) with supporting evidence.
 
 **Implementation notes:**
-- Java: Full pipeline with Z3 Spacer
-- TypeScript: Full pipeline with z3-solver WASM
-- Rust: Full pipeline behind the `z3` feature (CHC emitted as SMT-LIB2, solved by the `z3`
-  binary with `fp.engine=spacer`)
-- Python: exposes the Rust pipeline via the PyO3 binding (wheel built with the `z3` feature)
+- All implementations: full pipeline; the CHC system is emitted as SMT-LIB2 text and solved by
+  the `z3` executable with `fp.engine=spacer` through the one solver transport of [VER-013].
+- Rust: behind the `z3` feature. Python exposes the Rust pipeline via the PyO3 binding (wheel
+  built with the `z3` feature).
 
 **Test derivation:** Simple mutual exclusion net; verify Proven verdict for mutual exclusion property.
 
@@ -156,6 +155,145 @@ property — it reports `Unknown` (with a reason) instead of silently certifying
 
 ---
 
+#### VER-007: Invariant Strengthening from P-Semiflows
+
+**Priority:** SHOULD
+
+The verifier's encoders conjoin every accepted conservation law `y·M = y·M0` into the
+transition-rule bodies of the CHC/IC3 encoding ([VER-004], [VER-005]). A law is accepted only
+by the **exact gate**: `y·C = 0` against the incidence matrix and `y·M0 = c` are re-checked in
+exact (overflow-checked) integer arithmetic, and `y` MUST carry zero weight on every place a
+transition consumes with `all()` / `atLeast(n)` or clears with a reset arc, because the
+encoder's fire relation is not linear there (Lean `Strengthening.lean`, hypotheses H1/H2;
+injected environment places are covered by [VER-006], H3'). A law that fails the gate is
+dropped from the encoding and listed in the report.
+
+Two sources feed the gate. The null-space basis of [VER-005] is one basis of many: Gaussian
+elimination returns mixed-sign rows (discarded as not semi-positive) and rows that fold a reset
+place into a chain whose other combinations avoid it (dropped by the gate). On a net with a
+handful of reset arcs this can lose every law of the chains those arcs touch, and IC3 then has
+to rediscover each conservation law itself, which on a net of a hundred places it does not do
+within any practical budget. The non-negative **P-semiflows** (`y ≥ 0`, `y·C = 0`, the minimal
+laws of the net, computed by the Farkas / Colom-Silva enumeration that [NU-053] already uses
+for the colour-slot bound) are the missing laws.
+
+An implementation SHOULD therefore offer an option that unions the gate-validated semiflows
+into the invariant list the encoders receive. The option is **off by default** so that reports
+stay byte-identical across releases. It is pure strengthening (Lean `Semiflow.lean`,
+`semiflow_union_sound`: conjoining any list of gate-validated laws preserves the abstract
+reachable set), so enabling it can never turn a `Violated` into a `Proven`.
+
+**Acceptance Criteria:**
+1. Semiflows are re-validated by the same exact gate as the basis rows before use; a semiflow
+   that fails it is dropped with a `Dropped semiflow:` report line and is never encoded.
+2. With the option disabled (the default) the semiflows do not reach the encoders and the
+   report is byte-identical to a build without the feature.
+3. With the option enabled the report carries `  Semiflows encoded as invariants: N`, where
+   `N` counts the semiflows added after deduplication against the basis rows, and the result's
+   invariant count and list include them.
+4. `Proven` is never weakened: where the certificate check applies (the flat encoding) it
+   receives the strengthened list and re-proves every law's initiation and consecution against
+   the unstrengthened step relation before the verdict is reported.
+5. A genuine violation stays `Violated` with the option enabled.
+
+**Implementation notes:**
+- Java: `SmtVerifier.semiflowInvariants(boolean)`.
+- TypeScript: `SmtVerifier.semiflowInvariants(enabled)`.
+- Rust: `SmtVerifier::semiflow_invariants(bool)`.
+- Python: `verify(..., semiflow_invariants=True)`.
+
+**Depends on:** [VER-004], [VER-005], [VER-006], [NU-053]
+
+**Test derivation:** a budgeted work loop with one reset arc on a side place, whose null-space
+basis folds the reset place into the loop's law: a `placeBound` on the loop is proven only with
+the option; a bound the loop genuinely exceeds stays `Violated` with it.
+
+#### VER-013: Solver Transport
+
+**Priority:** SHOULD
+
+The SMT pipeline ([VER-001]) reaches the solver through one transport in every implementation:
+each query is one `z3` process. The process is started with the argument list
+
+```
+z3 -smt2 -in -t:<timeout_ms> -T:<ceil((timeout_ms + 1000) / 1000)>
+```
+
+plus `fp.engine=spacer` for the HORN query, is fed the complete SMT-LIB2 script on stdin in a
+single write, and then has its stdin closed so it sees end-of-file. Both output streams are
+drained concurrently from the start, so a reply larger than a pipe buffer cannot stall the
+solver, and a wall-clock watchdog at `timeout_ms + 2000` milliseconds kills a process that
+ignored both timeouts. The process is killed and reaped on every exit path. No solver state
+survives a query: concurrent verifications in one host process are independent, and a solver
+crash is a verdict, never a crashed host. The timeout is per invocation; the HORN query, the
+certificate script and its detail re-run each receive the full budget.
+
+The executable is `z3` on `PATH` unless the environment variable `LIBPETRI_Z3` names another
+one. It is probed once per verification with `--version` and refused below **4.8.0**. Setting
+`LIBPETRI_SMT_DUMP` to a directory keeps every script and reply there as `NNN-<phase>.smt2`,
+`NNN-<phase>.out` and, when stderr was not empty, `NNN-<phase>.err`, with `NNN` a zero-padded
+counter and the phase one of `horn`, `horn-coloured`, `certificate`, `certificate-detail`.
+
+**Reply classification.** The verdict is the first stdout line equal to `sat`, `unsat` or
+`unknown`, wherever it appears: a build may print a warning first, and the HORN script's paired
+`(get-proof)` / `(get-model)` always yields one `(error …)` line. Under the HORN query
+`(assert (not Error))`, `sat` is `Proven` and `unsat` is `Violated`. Without a verdict line the
+`Unknown` reason is, in this order: the `timeout` line printed by the `-T` backstop; the watchdog
+kill; the first `(error …)` line on stdout, then on stderr; any other stderr text; the unexpected
+stdout itself. The certificate script requires exactly three positional answers; an `(error …)`
+on either stream, a `timeout` line, a kill or a non-zero exit makes the check inconclusive and
+withholds `Proven`.
+
+**Script determinism.** For the same net, initial marking, property and options every
+implementation MUST emit byte-identical HORN and certificate scripts: places in Unicode
+code-point order of their names; flat transitions in net order with XOR branches in enumeration
+order ([IO-016]); environment-injection rules, sink conjuncts and the property's place lists in
+place-index order; invariants in `(support, weights, constant)` order after the [VER-007] union;
+lines joined with `\n`; no rule names. The certificate is the `(define-fun …)` block of the
+`(get-model)` reply pasted verbatim, and a counterexample is the set of ground `Reachable` facts
+in the `(get-proof)` reply, ordered only by the replay ([VER-003]).
+
+**Acceptance Criteria:**
+1. The same net, marking, property and options produce byte-identical HORN and certificate
+   scripts in every implementation (the golden scripts under
+   `spec/verification-fixtures/scripts/`).
+2. A missing executable yields `Unknown` with a reason naming the command tried and
+   `LIBPETRI_Z3`; no exception escapes and the host process survives.
+3. An executable below 4.8.0, or one whose `--version` reports no version, yields `Unknown`
+   naming both versions (or the reply).
+4. A `timeout` reply, an `(error …)` on either stream, a non-zero exit and a process that never
+   exits each yield `Unknown` with a distinct reason and leave no solver process behind.
+5. A reply preceded by a banner of arbitrary size on either stream is classified by its verdict
+   line.
+6. The report carries `  Solver: z3 <version>` in its solver phase, or
+   `  Solver: z3 unavailable (<reason>)` followed by the implementation's `UNKNOWN` result
+   line naming the same reason when no solver resolved.
+
+**Implementation notes:**
+- Rust: `libpetri-verification` `z3_process` (`Z3Solver::resolve` / `Z3Solver::run`);
+  stub-solver scenarios in `tests/stub_z3.rs`, CI gate in `tests/z3_gate.rs`.
+- Python: inherits the Rust transport; `libpetri.z3_available()` reports whether a usable
+  executable resolves (`HAS_Z3` is the compile feature only).
+- Java: `org.libpetri.smt.z3.Z3Process` / `Z3Solver`; `SmtVerifier.z3Available()`.
+- TypeScript: `verification/z3/z3-process` (`resolveZ3` / `runZ3Text`); `z3Available()`.
+- AC1 is checked without a solver: `SmtVerifier::encode_scripts` (Rust), `encodeScripts()`
+  (Java, TypeScript) and `libpetri.encode_smt_scripts` (Python) return the HORN script and,
+  for the flat encoding, the certificate script around the placeholder certificate
+  `(define-fun Reachable (…) Bool true)`; the goldens under
+  `spec/verification-fixtures/scripts/<id>/` are written by the Rust verifier
+  (`scripts/smt-script-parity.py --update`) and diffed by every implementation's
+  script-parity test.
+
+**Depends on:** [VER-001], [VER-003], [VER-007], [IO-016]
+
+**Test derivation:** a stub `z3` shell script named by `LIBPETRI_Z3` that answers `--version`
+and then replays a scripted reply: a banner before `unsat`; an `(error …)` on stderr during the
+certificate check; a `timeout` line; a script that never exits; a two-megabyte banner on each
+stream; a version below the floor; a missing executable. Plus the golden-script diff over the
+shared verdict-parity fixtures.
+
+---
+
 ## State Class Graph
 
 #### VER-010: State Class Graph Analysis
@@ -256,6 +394,16 @@ to the same cardinality contract the executor uses rather than restating it.
 - TypeScript: Full implementation (`verification/analysis/name-state-class-graph`
   / `verification/nu-scg-verifier`).
 - Python: inherits the Rust analysis through `verify`.
+- Memory: an implementation MAY intern (hash-cons) the base class and the name layer
+  between state classes. The base intern key MUST include the class-relative
+  earliest-ready times alongside the marking and zone, because the [NU-052] prune reads
+  them while class equality does not. Class identity MUST carry them too: the graph's
+  dedup key is the pair of intern ids (base, name layer), not the class object, so two
+  arrivals that agree on marking, zone and name layer but disagree on the earliest-ready
+  times stay two classes and each keeps its own prune input. Interning is semantics-free by key-equivariance of
+  the successor step (Lean `Interning.lean`, `interned_keys_eq`): the reachable quotient
+  and the verdict are unchanged; class indices and the reported counterexample trace may
+  differ from a non-interned build.
 - Solver-free (no Z3); the verifier prefers Route A's bounded name-colouring for
   budget-declared untimed reachability-safety and uses this route for quiescence,
   budget-less, and timed ν-nets.

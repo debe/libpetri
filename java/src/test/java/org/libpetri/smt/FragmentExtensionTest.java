@@ -98,12 +98,7 @@ class FragmentExtensionTest {
     }
 
     static boolean z3Available() {
-        try {
-            Class.forName("com.microsoft.z3.Context").getDeclaredConstructor().newInstance();
-            return true;
-        } catch (Exception | LinkageError e) {
-            return false;
-        }
+        return SmtVerifier.z3Available();
     }
 
     @Test

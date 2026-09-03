@@ -61,6 +61,10 @@ Outputs are normally published atomically when an action returns. In an async ac
 - ν-net fresh identities and correlated joins.
 - Structural, timed, and SMT verification through the Rust engine where available.
 
+## SMT verification needs a `z3` executable
+
+The wheel ships the SMT verifier compiled in, but it does not bundle a solver. `verify()` runs the `z3` executable found on `PATH` (or named by `LIBPETRI_Z3`), version 4.8.0 or newer; `libpetri.z3_available()` tells you whether one resolves, and without it every verification returns `unknown` with a reason naming the command. Set `LIBPETRI_SMT_DUMP` to a directory to keep every SMT-LIB2 script and solver reply.
+
 ## Token typing
 
 The package ships `.pyi` stubs and `py.typed`, so net construction is IDE- and type-checker-friendly. Token values cross the FFI as Python objects, however: unlike Java, TypeScript, and Rust, Python cannot enforce a place's token type at runtime. Validate data at system boundaries before adding it to a marking.

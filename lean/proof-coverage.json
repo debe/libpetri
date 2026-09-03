@@ -406,6 +406,96 @@
           "fragment": "the incremental consume (FIFO-within-name pop paired with ring_remove_matching) preserves content equality with the reference index's underlying queues - contents fragment only; AC2 selection equality remains the differential test's claim"
         }
       ]
+    },
+    {
+      "name": "semiflow_union_sound",
+      "module": "Libpetri/Semiflow.lean",
+      "specIds": [
+        {
+          "id": "VER-007",
+          "fragment": "AC2/AC5: conjoining basis ++ semiflows into the CHC rule bodies preserves the abstract reachable set whenever every member passed the exact gate (H1+H2) - the union is pure strengthening and can never turn Violated into Proven; injection-free fragment, encoder modelled not extracted"
+        }
+      ]
+    },
+    {
+      "name": "semiflow_union_sound_inj",
+      "module": "Libpetri/Semiflow.lean",
+      "specIds": [
+        {
+          "id": "VER-007",
+          "fragment": "the env-aware union: with injection rules present the same holds under H3' (zero weight on injectable places), which the injector columns force through the gate"
+        }
+      ]
+    },
+    {
+      "name": "semiflow_gate_is_necessary",
+      "module": "Libpetri/Semiflow.lean",
+      "specIds": [
+        {
+          "id": "VER-007",
+          "fragment": "AC1: a semi-positive y.C = 0 row - exactly what the Farkas enumeration returns - that fails H1 prunes a genuinely reachable violating state, so the semiflow source must pass the same gate as the basis rows"
+        }
+      ]
+    },
+    {
+      "name": "strengthening_monotone",
+      "module": "Libpetri/Semiflow.lean",
+      "specIds": [
+        {
+          "id": "VER-007",
+          "fragment": "appending one more validated law never changes what the strengthened relation reaches - the monotone-safety of adding laws"
+        }
+      ]
+    },
+    {
+      "name": "covered_place_empty",
+      "module": "Libpetri/Semiflow.lean",
+      "specIds": [
+        {
+          "id": "NU-053",
+          "fragment": "AC6, the column side: under a covering semi-positive validated law with y.M0 = 0 every positively-weighted (coloured) place is empty on every abstract reachable marking - the zero colour slots the k = 0 plan drops are identically zero"
+        }
+      ]
+    },
+    {
+      "name": "vacuous_colour_layer",
+      "module": "Libpetri/Semiflow.lean",
+      "specIds": [
+        {
+          "id": "NU-053",
+          "fragment": "AC6, the rule side: every flat transition consuming from or producing into a covered place is dead on the reachable set, so any sub-net keeping the untouched rows (what the zero-slot coloured encoding emits) reaches exactly the same markings - the k = 0 plan is exact; coloured encoder modelled, not extracted; injection-free fragment (vacuous_colour_layer_inj is the env-aware twin)"
+        }
+      ]
+    },
+    {
+      "name": "interned_keys_eq",
+      "module": "Libpetri/Interning.lean",
+      "specIds": [
+        {
+          "id": "VER-012",
+          "fragment": "hash-consing the base class and the name layer is semantics-free: under key-equivariance of the successor step, exploring from any key-preserving representative reaches the same set of canonical keys (state classes) as exploring from the states themselves - generic worklist model; the shipped name_successors / canonical_key equivariance and the ready_earliest-inclusive base key are stated hypotheses, not proven"
+        }
+      ]
+    },
+    {
+      "name": "interned_edges_eq",
+      "module": "Libpetri/Interning.lean",
+      "specIds": [
+        {
+          "id": "VER-012",
+          "fragment": "the interned graph has the same (key, label, key) edge set as the plain one, not merely the same vertex set; class indices and enumeration order are not claimed"
+        }
+      ]
+    },
+    {
+      "name": "equivariance_is_necessary",
+      "module": "Libpetri/Interning.lean",
+      "specIds": [
+        {
+          "id": "VER-012",
+          "fragment": "necessity of key-equivariance: a step that reads a datum the key hides loses a reachable class under interning - the shape of the ready_earliest hole the base intern key closes"
+        }
+      ]
     }
   ]
 }

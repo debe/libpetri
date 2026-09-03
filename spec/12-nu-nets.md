@@ -529,7 +529,10 @@ Under this extension the coloured encoder:
   non-negative **P-semiflow** rather than a budget-conservation heuristic. A colour
   is live iff some coloured place holds it, so if a non-negative P-semiflow `y`
   (`y ≥ 0`, `y·C = 0`) weights **every** coloured place then `Σ_{coloured} M ≤ y·M0`
-  and `k = y·M0` is a sound colour-slot bound. The plan scans the P-invariant basis
+  and `k = y·M0` is a sound colour-slot bound, `k = 0` included: when the covering
+  semiflow's initial sum is zero no coloured token can ever exist, every mint, join and
+  coloured consumer is dead on the reachable set (Lean `Semiflow.lean`,
+  `vacuous_colour_layer`), and the zero-slot plan is exact rather than a fallback. The plan scans the P-invariant basis
   for such a covering non-negative semiflow (with an LP feasibility search as a
   no-hatch backstop); when **no** covering non-negative semiflow exists the coloured
   set is not structurally token-bounded (a genuine unbounded colour leak), so the
@@ -567,6 +570,10 @@ than returning `Unknown`. A verdict from the exact coloured plan is not downgrad
    join never re-collects (e.g. an un-drained carrier) — falls back rather than a
    false `Proven`: the colour would otherwise outlive its budget and the k-colour
    encoding would under-approximate.
+6. A covering non-negative P-semiflow whose initial sum is zero (a mid-phase marking with
+   no budget token) yields the exact plan with `k = 0`: quiescence is decided, never
+   downgraded to `Unknown`, and the emitted encoding is well-formed with zero colour slots.
+   The plan is still refused when no covering semiflow exists.
 
 **Depends on:** [NU-050], [NU-051], [VER-004], [VER-006], [VER-012]
 **Test derivation:** a co-mint→join net is `Proven` deadlock-free via Route A when

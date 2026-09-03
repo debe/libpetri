@@ -63,8 +63,10 @@ export function flatten(
     for (const arc of t.resets) allPlacesSet.set(arc.place.name, arc.place);
   }
 
-  // Sort by name for stable indexing
-  const places = [...allPlacesSet.values()].sort((a, b) => a.name.localeCompare(b.name));
+  // Sort by name for stable indexing. Unicode code-point order (not the
+  // locale-sensitive `localeCompare`), so the index agrees with the Rust and Java
+  // flatteners on every name and the emitted scripts stay byte-identical (VER-013).
+  const places = [...allPlacesSet.values()].sort((a, b) => compareCodePoints(a.name, b.name));
 
   const placeIndex = new Map<string, number>();
   for (let i = 0; i < places.length; i++) {
@@ -185,4 +187,20 @@ function enumerateOutputBranches(t: { outputSpec: Out | null }): ReadonlySet<Pla
   }
   // No outputs (sink transition)
   return [new Set()];
+}
+
+/** Lexicographic order on Unicode code points (what Rust's `String` order is). */
+export function compareCodePoints(a: string, b: string): number {
+  const ia = a[Symbol.iterator]();
+  const ib = b[Symbol.iterator]();
+  for (;;) {
+    const na = ia.next();
+    const nb = ib.next();
+    if (na.done && nb.done) return 0;
+    if (na.done) return -1;
+    if (nb.done) return 1;
+    const ca = na.value.codePointAt(0)!;
+    const cb = nb.value.codePointAt(0)!;
+    if (ca !== cb) return ca - cb;
+  }
 }

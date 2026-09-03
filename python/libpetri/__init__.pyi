@@ -92,8 +92,10 @@ from .verification import (
     mutual_exclusion as mutual_exclusion,
     place_bound as place_bound,
     unreachable as unreachable,
+    encode_smt_scripts as encode_smt_scripts,
     verify as verify,
     verify_subnet as verify_subnet,
+    z3_available as z3_available,
 )
 
 CallbackError = _libpetri.CallbackError

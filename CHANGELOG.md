@@ -1,5 +1,51 @@
 # Changelog
 
+## Java 4.0.0 / TypeScript 4.0.0 / Rust 4.1.0 / Python 3.1.0 — 2026-09-03
+
+**One solver transport, verifier reach, ν-graph memory, and the proofs behind them.** Every verifier now runs the `z3` executable and sends it the same script, byte for byte; IC3 can be handed the net's minimal conservation laws, the ν state-class graph interns its two layers, and a zero colour budget is decided instead of declined. Each proof-backed change is proved in Lean before it is ported; Java, TypeScript and Rust carry the same tests, Python runs them through the binding.
+
+---
+
+### Verification
+
+#### Changed — one solver transport: every verifier runs the `z3` executable (Rust, Python, Java, TypeScript)
+
+The Java verifier no longer binds Z3 through JNI and the TypeScript verifier no longer loads the `z3-solver` WASM. Like Rust and Python they start one `z3` process per query, hands it the SMT-LIB2 script on stdin and reads the reply: no native library to put on `java.library.path`, no solver state shared between concurrent verifiers, a solver crash is an `Unknown`, and a wedged solver is killed by a watchdog. The `javasmt-solver-z3` dependency is gone; a `z3` executable (4.8.0 or newer, on `PATH` or named by `LIBPETRI_Z3`) is required at run time and `SmtVerifier.z3Available()` says whether one resolves. `LIBPETRI_SMT_DUMP` keeps every script and reply. **Breaking for Java** (4.0): `SpacerRunner`, `SmtEncoder`, `NameColouredEncoder`, `CertificateChecker` and `CounterexampleDecoder` now emit and read text; IC3 level invariants and the derivation-order counterexample listing are gone (the replay-ordered trace stays); the `Solver:` line is new in the report. **Breaking for TypeScript** (4.0): the 32 MB `z3-solver` dependency is gone and a `z3` executable is required at run time; `runZ3Spacer`, `encode`, `encodeColoured`, `checkCertificate` and `decode` are text-based and `createSpacerRunner` is removed; a solve no longer occupies the event loop or serialises behind a module mutex; with the replay disabled no proof is requested, so the violated result carries no trace. New requirement [VER-013].
+
+The Rust transport, now the reference, gained what it lacked: a kill-on-drop guard, concurrent stdout/stderr drains, a wall-clock watchdog, a soft `-t:<ms>` budget with the `-T` backstop, the `timeout` reply classified, a version floor, and the two environment variables. Python gains `libpetri.z3_available()`; `HAS_Z3` only ever said the wheel was built with the SMT surface.
+
+Scripts are byte-identical across the implementations, and the Java and TypeScript ports are checked against goldens the Rust verifier wrote. Making them identical surfaced three divergences in Java and the same three in TypeScript, all fixed: the name-coloured deadlock predicate excused a quiescent marking only when *every* marked place was a declared sink, where [VER-002] and the Rust encoder excuse it when *any* declared sink holds a token (one test had declared its dead-letter place a sink to compensate); the null-space basis dropped every mixed-sign conservation law, which the exact gate accepts and IC3 wants; and a property naming a place outside the net now refuses with `Unknown` on the flat path as it already did on the coloured one, instead of encoding a vacuous predicate.
+
+#### Added — the scripts are a gate (Java, TypeScript, Rust, Python)
+
+`encodeScripts()` (`encode_scripts` in Rust, `libpetri.encode_smt_scripts` in Python) returns the HORN and certificate scripts a verification would send to z3, without a solver. The scripts for every shared verdict-parity fixture are pinned under `spec/verification-fixtures/scripts/` (written by Rust, `scripts/smt-script-parity.py --update`) and every implementation diffs its own output against them byte for byte; a diff is a parity finding in whichever emitter drifted. A new fixture puts the name-coloured encoder under the same gate (`budgetPlaces` is a fixture field now).
+
+#### Added — semiflow invariants for IC3, opt in (Java, TypeScript, Rust, Python)
+
+The null-space basis is one basis of many: elimination folds a reset place into a chain's conservation law, the exact gate drops it, and on a reset-heavy net IC3 is left to rediscover every such law itself, which on a hundred-place net it does not do within any budget. `semiflowInvariants(true)` (`semiflow_invariants=True` in Python) unions the gate-validated P-semiflows, the net's minimal laws, into what the encoders and the certificate check receive; the report says how many with `  Semiflows encoded as invariants: N`. On the net that surfaced this, eight reachability queries that timed out at 120 s close in about a second. Off by default so reports stay byte-identical. Pure strengthening: a `Violated` can never become `Proven` (`semiflow_union_sound`), and the semiflows pass the same gate as the basis rows because semi-positivity alone is not enough (`semiflow_gate_is_necessary`). New requirement [VER-007].
+
+#### Fixed — a zero colour budget is decided, not declined (Java, TypeScript, Rust, Python)
+
+A ν-net marking with no budget token has a covering semiflow with initial sum 0, and the coloured encoder refused it, so quiescence fell back to the name-blind encoding and downgraded to `Unknown`. No coloured token can ever exist there, every mint, join and coloured consumer is dead, and the zero-slot plan is exact (`vacuous_colour_layer`), so it is now taken. The colour-slot bound also lets zero-constant semiflows cover their places before any positive law is summed, which tightens `k` on nets where a conserved counter happens to touch a coloured place. [NU-053] AC6.
+
+#### Changed — the ν state-class graph interns its base class and name layer (Java, TypeScript, Rust, Python)
+
+A Route B class cost about 4 KB, most of it a map of maps and a key string that millions of classes repeated; a medium ν-net exhausted 20 GB before it closed. Classes now share one base object per (marking, zone, earliest-ready times) and one name layer per canonical key. The reachable quotient and the verdict are unchanged (`interned_keys_eq`); class indices, and which of several violating classes a counterexample trace reports, may differ from a non-interned build. The intern key carries the earliest-ready times on purpose: `StateClass` equality ignores them but the conflict-priority prune reads them, and sharing across that difference would have changed prune decisions. Class identity is the pair of intern ids for the same reason, so two arrivals that agree on marking, zone and name layer but disagree on those times stay two classes. Two regression tests in each language pin it.
+
+---
+
+### Lean
+
+`Semiflow.lean` and `Interning.lean` are new. The semiflow union is sound for any list of gate-validated laws; at `k = 0` every transition touching a covered place is dead, so dropping them reaches the same markings; exploring a worklist from key-preserving representatives reaches the same keys and edges provided the successor step is key-equivariant, with a witness that a step reading past the key loses a class, which is the exact shape of the earliest-ready hole above. Forty-six theorems are gated in CI; 24 of 210 requirements carry a proof fragment.
+
+---
+
+### Spec
+
+[VER-007] Invariant Strengthening from P-Semiflows is new and is the first spec statement of the exact invariant gate; [NU-053] gains AC6; [VER-012] records the interning contract; [VER-013] Solver Transport is new: one `z3` process per query, the reply contract, and byte-identical scripts across implementations. 208 → 210 active requirements.
+
+---
+
 ## Java 3.0.1 / TypeScript 3.0.1 / Rust 4.0.1 / Python 3.0.1 — 2026-08-20
 
 **Three fix sets on top of 3.0.0.** A fifth executor divergence is closed and the rule behind it now covers token counts and consumption, not just presence. And the verifier stops taking the solver's word for it: every `Proven` discharges its own certificate, every `Violated` replays its own counterexample, and untrustworthy invariants are dropped before they reach the encoder. And the diagram pipeline stops drifting: the published TypeDoc plugin no longer embeds a viewer one build behind the one it ships beside, a failed mount says so instead of leaving an empty box, and every port now fails its build when its copy of the viewer bundle goes stale. Java, TypeScript and Rust are covered; Python inherits every Rust fix through the PyO3 bindings.

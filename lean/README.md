@@ -137,6 +137,31 @@ The full timed-cycle refinement (deadlines, TIME-012 restarts) remains
 future work; only the ready-collection phase — where divergence (a) lived —
 is covered.
 
+## What is proved — the verifier's strengthening and the ν graph's interning
+
+`Libpetri/Semiflow.lean` — two corollaries of `Strengthening.lean`.
+**`semiflow_union_sound`** ([VER-007]): conjoining the gate-validated
+P-semiflows alongside the null-space basis preserves the abstract reachable
+set, so the `semiflowInvariants` option is pure strengthening — it can close a
+proof IC3 could not, never manufacture one. `semiflow_gate_is_necessary` is
+the reminder that the semiflow source must pass the *same* gate (a Farkas row
+is semi-positive and `y·C = 0` by construction, and `yUnit` is exactly such a
+row on `netAll`). **`vacuous_colour_layer`** ([NU-053] AC6): at colour-slot
+bound `k = 0` every place a covering semiflow weights is empty on the whole
+reachable set, so every mint, join and coloured consumer is dead and the
+zero-slot coloured encoding — which emits no rule for them — is exact rather
+than a fallback.
+
+`Libpetri/Interning.lean` — hash-consing in `NameStateClassGraph.build`.
+**`interned_keys_eq`** / `interned_edges_eq` ([VER-012]): under
+key-equivariance of the successor step, exploring from any key-preserving
+representative reaches the same canonical keys and the same `(key, label,
+key)` edges as exploring from the states themselves — the memory change is
+semantics-free. `equivariance_is_necessary` is the witness that a step reading
+a datum the key hides loses a reachable class; it is the shape of the
+`ready_earliest` hole that made the base intern key carry the earliest-ready
+times alongside marking and zone.
+
 ## What is retrodicted
 
 The acceptance criterion for this spike: the model must have enough resolution
@@ -172,7 +197,7 @@ suite before the fixes' new tests.
 flattening, environment places, conflict-priority pruning; and (axis 2) the
 flat ring-buffer pool at full fidelity, the consume opcode program, the
 presence/dirty bit machinery, the immediate-fragment backend refinement, and
-the general-path ready ordering with abstract `Nat` clocks. Three later
+the general-path ready ordering with abstract `Nat` clocks. Five later
 modules extend both axes:
 
 - `TimedCycle.lean` — `deadline_reap_dirty_diverges`: the two shipped
@@ -183,6 +208,13 @@ modules extend both axes:
 - `Strengthening.lean` — P-invariant strengthening preserves the abstract
   reachable set under H1/H2/H3′. H1 is what shipped the consume-all/reset
   guard now in all three validators.
+- `Semiflow.lean` — `semiflow_union_sound`: the gate-validated P-semiflows
+  may be conjoined alongside the basis ([VER-007]); `vacuous_colour_layer`:
+  the `k = 0` colour-slot plan is exact ([NU-053] AC6).
+- `Interning.lean` — `interned_keys_eq`: hash-consing the ν graph's base
+  class and name layer reaches the same quotient graph, given
+  key-equivariance of the successor step; `equivariance_is_necessary`
+  witnesses the hypothesis.
 
 **Out:** real-valued time, deadline *refinement* (the reap divergence is
 witnessed in `TimedCycle.lean`, but the TIME-013 semantics ruling and the
@@ -195,8 +227,18 @@ contents only); the u64 word packing and two-level summaries (bit/set
 granularity only; PERF-042 AC4 pins the words differentially); the u32
 opcode encoding (FR4 is proven on the structured op stream); the ν name
 layer beyond the boolean `nameEnabled` abstraction in `Priority.lean` (so
-the ν-budget retrodictions `667e67d` and `a4038f5` are **not** covered);
-Lemma 0 quiescence; extraction to the four implementations.
+the ν-budget retrodictions `667e67d` and `a4038f5` are **not** covered) and
+beyond the generic key/step model of `Interning.lean` (that `canonicalKey`
+is a complete invariant of the symbol-renaming orbit and that
+`name_successors` is equivariant under renaming are stated hypotheses, not
+theorems); that the Farkas enumeration returns genuine semiflows (the gate
+re-validates every row, so `Semiflow.lean` assumes only what the gate
+checks); Lemma 0 quiescence; extraction to the four implementations.
+
+Those two hypotheses — orbit-completeness of `canonicalKey` (`Multiset`,
+`Equiv.Perm`) and Farkas correctness (`Matrix`, exact rationals) — are the
+proofs Mathlib would pay for. They remain future work; the development stays
+dependency-free.
 
 The immediate-fragment refinement also idealizes the EXEC-003 recheck the same
 way on both sides — `pcRecheck` and `bbRecheck` both re-read the *live*

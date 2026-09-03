@@ -157,6 +157,74 @@ def test_certificate_check_kwarg_toggles_the_second_solver_run():
     assert "  Certificate check: not applicable (disabled)" in off.report
 
 
+def _semiflow_loop():
+    """VER-007 test derivation: a budgeted work loop with one reset arc on a side
+    place. Open: one(Budget), reset(Stamp) -> and(Work, Stamp); Step: one(Work) ->
+    Done; Close: one(Done) -> and(Budget, Sink). The semiflow enumeration finds
+    Budget + Work + Done = 1 with zero weight on the reset place."""
+    budget, work, done = lp.Place("Budget"), lp.Place("Work"), lp.Place("Done")
+    stamp, sink = lp.Place("Stamp"), lp.Place("Sink")
+    net = (
+        lp.Net("loop")
+        .transition(
+            lp.Transition("Open")
+            .input(lp.one(budget))
+            .reset(lp.reset(stamp))
+            .output(lp.and_(lp.out(work), lp.out(stamp)))
+            .action(lp.fork)
+            .build()
+        )
+        .transition(
+            lp.Transition("Step").input(lp.one(work)).output(lp.out(done)).action(lp.fork).build()
+        )
+        .transition(
+            lp.Transition("Close")
+            .input(lp.one(done))
+            .output(lp.and_(lp.out(budget), lp.out(sink)))
+            .action(lp.fork)
+            .build()
+        )
+        .build()
+    )
+    return work, sink, net
+
+
+def test_semiflow_invariants_kwarg_adds_the_report_line():
+    # VER-007 AC2/AC3: off by default (no report line); on, the minimal laws reach
+    # the encoder, the report says how many, and the loop's bound is proven.
+    work, _sink, net = _semiflow_loop()
+    off = lp.verify(net, lp.place_bound(work, 1), initial_marking={"Budget": 1}, timeout_ms=30_000)
+    assert "Semiflows encoded as invariants" not in off.report, off.report
+
+    on = lp.verify(
+        net,
+        lp.place_bound(work, 1),
+        initial_marking={"Budget": 1},
+        semiflow_invariants=True,
+        timeout_ms=30_000,
+    )
+    assert on.verdict == "proven", on.report
+    assert "  Semiflows encoded as invariants: " in on.report, on.report
+    assert any(
+        line.startswith("  I") and "Budget" in line and "Work" in line and "Done" in line
+        and line.endswith("= 1")
+        for line in on.report.splitlines()
+    ), on.report
+
+
+def test_semiflow_invariants_never_hide_a_counterexample():
+    # VER-007 AC5: Sink gains one token per loop iteration, so bound 1 is violated.
+    _work, sink, net = _semiflow_loop()
+    result = lp.verify(
+        net,
+        lp.place_bound(sink, 1),
+        initial_marking={"Budget": 1},
+        semiflow_invariants=True,
+        timeout_ms=30_000,
+    )
+    assert result.verdict == "violated", result.report
+
+
 def test_counterexample_confirmed_is_a_tri_state():
     _p0, p1, net = _conserved_pair()
 
@@ -220,3 +288,20 @@ def test_counterexample_confirmed_is_false_when_the_replay_exhausts_its_budget()
     assert result.verdict == "violated", result.report
     assert result.counterexample_confirmed is False, result.report
     assert "search node budget" in result.report, result.report
+
+
+def test_unresolved_property_place_is_refused():
+    # A property over a place the net never declares would encode to `false`,
+    # which proves anything. Every implementation refuses with the same reason.
+    if not lp.z3_available():
+        pytest.skip("no usable z3 executable")
+    p0 = lp.Place("p0")
+    p1 = lp.Place("p1")
+    net = (
+        lp.Net("tiny")
+        .transition(lp.Transition("t").input(lp.one(p0)).output(lp.out(p1)).action(lp.fork).build())
+        .build()
+    )
+    result = lp.verify(net, lp.unreachable([lp.Place("Ghost")]), initial_marking={p0: 1})
+    assert result.verdict == "unknown", result.report
+    assert "does not resolve in the net ('Ghost')" in result.report

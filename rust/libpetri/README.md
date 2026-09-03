@@ -61,7 +61,7 @@ Transition futures may overlap, but one orchestrator owns the marking. This keep
 | Feature | Effect |
 |---|---|
 | `tokio` | Async execution and environment-event APIs |
-| `z3` | SMT verification API; requires the `z3` executable at runtime |
+| `z3` | SMT verification API; requires a `z3` executable (4.8.0 or newer, on `PATH` or `LIBPETRI_Z3`) at runtime |
 | `debug` | Debug protocol module |
 | `archive` | Debug module and session archive support |
 

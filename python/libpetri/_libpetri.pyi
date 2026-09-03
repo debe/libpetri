@@ -431,10 +431,31 @@ def verify_net(
     budget_places: list[str] | None = ...,
     timeout_ms: int = ...,
     nu_max_classes: int | None = ...,
+    fragment_mode: str | int | None = ...,
+    carrier_places: list[str] | None = ...,
+    priority_semantics: str | int | None = ...,
+    certificate_check: bool = ...,
+    counterexample_replay: bool = ...,
+    semiflow_invariants: bool = ...,
 ) -> VerificationResult: ...
 def verify_subnet(
     subnet: SubnetDef, harness: VerificationHarness
 ) -> SubnetVerificationResult: ...
+def encode_smt_scripts(
+    net: Net,
+    property: SmtProperty,
+    *,
+    initial_marking: dict[str, int] | None = ...,
+    environment_places: list[str] | None = ...,
+    environment_mode: EnvironmentAnalysisMode | None = ...,
+    sink_places: list[str] | None = ...,
+    budget_places: list[str] | None = ...,
+    fragment_mode: str | int | None = ...,
+    carrier_places: list[str] | None = ...,
+    counterexample_replay: bool = ...,
+    semiflow_invariants: bool = ...,
+) -> dict[str, str | bool | None]: ...
+def z3_available() -> bool: ...
 
 # ---------------------------------------------------------------------------
 # Export
