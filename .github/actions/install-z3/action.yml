@@ -25,12 +25,15 @@ runs:
         key: z3-${{ runner.os }}-${{ inputs.version }}
     - if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
         version='${{ inputs.version }}'
         dest="$HOME/.cache/libpetri-z3/$version"
-        url=$(curl -fsSL "https://api.github.com/repos/Z3Prover/z3/releases/tags/z3-$version" \
-          | grep -o 'https://[^"]*x64-glibc[^"]*\.zip' | head -1)
+        url=$(gh release view "z3-$version" --repo Z3Prover/z3 \
+          --json assets --jq '.assets[] | select(.name | test("x64-glibc.*[.]zip$")) | .url' \
+          | head -1)
         test -n "$url" || { echo "no x64-glibc asset for z3-$version"; exit 1; }
         tmp=$(mktemp -d)
         curl -fsSL -o "$tmp/z3.zip" "$url"
