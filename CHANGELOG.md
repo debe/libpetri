@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Java 4.0.0 / TypeScript 4.0.0 / Rust 4.1.0 / Python 3.1.0 — 2026-09-03
 
 **One solver transport, verifier reach, ν-graph memory, and the proofs behind them.** Every verifier now runs the `z3` executable and sends it the same script, byte for byte; IC3 can be handed the net's minimal conservation laws, the ν state-class graph interns its two layers, and a zero colour budget is decided instead of declined. Each proof-backed change is proved in Lean before it is ported; Java, TypeScript and Rust carry the same tests, Python runs them through the binding.
 
