@@ -347,15 +347,15 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Unknown-place token retention | Tokens produced/injected into uncompiled places retained, not dropped ([CORE-072] AC3) | ✓ (both backends) | ✓ (both backends) | ✓ (both backends) |
 | Duplicate input arcs | Rejected at compile with a descriptive error ([CORE-030] AC3) | ✓ | ✓ | ✓ |
 | Enablement-timestamp resolution | Sub-ms precision preserved; equal stamps tie-break by declaration order ([EXEC-002] AC3) | Monotonic long nanos | Float ms | Float ms |
-| SMT verification | IC3/PDR via Z3 Spacer | ✓ | ✓ (WASM) | Not yet |
+| SMT verification | IC3/PDR via Z3 Spacer, reached through the `z3` executable ([VER-013]) | ✓ | ✓ | ✓ |
 | State class graph | Berthomieu-Diaz | ✓ | ✓ | ✓ |
 | Graph export | At least one format | DOT (Graphviz) | DOT (Graphviz) | DOT (Graphviz) |
-| Log capture | Action log → events | SLF4J LogCaptureScope | ctx.log() | Not yet |
+| Log capture | Action log → events | SLF4J LogCaptureScope | ctx.log() | ctx.log() |
 | Debug event store | Live tailing | ✓ | ✓ | ✓ |
 | Action binding | Separated from structure | ✓ (bindActions) | ✓ (bindActions) | NetStructureBuilder |
-| Precompiled flat-array executor | 2–4× speedup via flat arrays | ✓ (PrecompiledNetExecutor) | ✓ (PrecompiledNetExecutor) | Not yet |
+| Precompiled flat-array executor | 2–4× speedup via flat arrays | ✓ (PrecompiledNetExecutor) | ✓ (PrecompiledNetExecutor) | ✓ (PrecompiledNetExecutor) |
 | Inline sync execution | Avoid task dispatch | — | — | ✓ (try_run_inline) |
-| Modular composition | Open-net subnets, instantiation, port composition, fusion | Not yet | Not yet | Not yet |
+| Modular composition | Open-net subnets, instantiation, port composition, fusion ([MOD-001]..[MOD-024]) | ✓ | ✓ | ✓ |
 | ν-net correlated fork/join | Fresh-name minting + join by name equality | ✓ | ✓ | ✓ |
 
 \* Rust uses 64-bit words matching Java.
