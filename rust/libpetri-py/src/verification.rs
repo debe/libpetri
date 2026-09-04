@@ -204,6 +204,7 @@ impl PyVerificationHarness {
         { let mut this = slf.borrow_mut(py); this.properties.push(property.inner.clone()); }
         Ok(slf)
     }
+
 }
 
 /// How environment places are modeled during SMT verification (VER-006). Build via
@@ -398,11 +399,14 @@ fn py_verify_net(
             Some(obj) => parse_priority_semantics(obj)?,
             None => libpetri::verification::priority_semantics::PrioritySemantics::None,
         };
-        // Default to Ignore (the Rust default); the verifier downgrades a would-be
-        // vacuous "proven" to "unknown" when env places are present under Ignore.
+        // Default to AlwaysAvailable, matching the Rust builder. Under Ignore the
+        // verifier downgrades a would-be vacuous "proven" to "unknown" whenever env
+        // places are present (VER-006), so it can never prove anything about a net
+        // with an environment; over-approximating injection is the useful default,
+        // and a proof under it holds for any environment.
         let environment_mode = environment_mode
             .map(|m| m.inner)
-            .unwrap_or(EnvironmentAnalysisMode::Ignore);
+            .unwrap_or(EnvironmentAnalysisMode::AlwaysAvailable);
         let sink_places = sink_places.unwrap_or_default();
         // ν-net budget places (NU-040): declaring them places a name-minting net
         // in the decidable bounded fragment; without them a ν-net yields
@@ -480,9 +484,10 @@ fn py_encode_smt_scripts(
             Some(obj) => parse_fragment_mode(obj)?,
             None => FragmentMode::Base,
         };
+        // Same default as `verify` and the Rust builder: AlwaysAvailable.
         let environment_mode = environment_mode
             .map(|m| m.inner)
-            .unwrap_or(EnvironmentAnalysisMode::Ignore);
+            .unwrap_or(EnvironmentAnalysisMode::AlwaysAvailable);
         let mut mb = libpetri::verification::marking_state::MarkingStateBuilder::new();
         for (name, count) in initial_marking.unwrap_or_default() {
             mb = mb.tokens(name, count);
@@ -533,11 +538,18 @@ fn py_z3_available() -> bool {
 /// Verifies all properties in `harness` against `subnet`. The harness's
 /// input suppliers and channels are wired into a closed synthetic net.
 #[pyfunction(name = "verify_subnet")]
+#[pyo3(signature = (subnet, harness, *, environment_mode = None))]
 fn py_verify_subnet(
     py: Python<'_>,
     subnet: &PySubnetDef,
     harness: &PyVerificationHarness,
+    environment_mode: Option<PyEnvironmentAnalysisMode>,
 ) -> PyResult<PySubnetVerificationResult> {
+    // Same default as `verify`: AlwaysAvailable, under which a `proven` holds for any
+    // environment. Under Ignore VER-006 refuses to certify (MOD-051 AC3).
+    let environment_mode = environment_mode
+        .map(|m| m.inner)
+        .unwrap_or(EnvironmentAnalysisMode::AlwaysAvailable);
     let mut rust_harness = VerificationHarness::<()>::new();
     #[cfg(feature = "z3")]
     {
@@ -573,7 +585,9 @@ fn py_verify_subnet(
 
     let subnet = subnet.inner.clone();
     // Same CORE-043 guard as the net path: the harness compiles a synthetic net.
-    let result = panic_to_py(|| py.detach(move || subnet.verify(rust_harness)))?;
+    let result = panic_to_py(|| {
+        py.detach(move || subnet.verify_with_mode(rust_harness, environment_mode))
+    })?;
 
     let property_results = result
         .per_property

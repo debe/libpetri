@@ -68,6 +68,7 @@ class SmtScriptParityTest {
         if (!budgets.isEmpty()) {
             verifier.budgetPlaces(budgets.toArray(new Place<?>[0]));
         }
+        verifier.semiflowInvariants(VerdictParityTest.semiflowInvariants(fixture));
         var scripts = verifier.encodeScripts();
 
         compare(id, goldenDir.resolve("horn.smt2"), scripts.horn());

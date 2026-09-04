@@ -92,6 +92,8 @@ class VerdictParityTest {
         if (!budgets.isEmpty()) {
             verifier.budgetPlaces(budgets.toArray(new Place<?>[0]));
         }
+        // Optional shared-schema field: [VER-007]'s semiflow union.
+        verifier.semiflowInvariants(semiflowInvariants(fixture));
         var result = verifier.verify();
 
         // The route marker is checked FIRST: a `route: "B"` fixture that
@@ -126,6 +128,12 @@ class VerdictParityTest {
     }
 
     /** The fixture's optional {@code budgetPlaces} array, resolved to places. */
+    /** Optional shared-schema field: [VER-007]'s semiflow union, off when absent. */
+    static boolean semiflowInvariants(JsonNode fixture) {
+        var node = fixture.get("semiflowInvariants");
+        return node != null && node.asBoolean(false);
+    }
+
     static List<Place<?>> budgetPlaces(JsonNode fixture) {
         return placeList(fixture, "budgetPlaces");
     }

@@ -27,6 +27,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * IC3/PDR-based safety verifier for Petri nets using Z3's Spacer engine.
@@ -80,7 +81,17 @@ public final class SmtVerifier {
     private final Set<EnvironmentPlace<?>> environmentPlaces = new HashSet<>();
     private final Set<Place<?>> sinkPlaces = new HashSet<>();
     private final Set<String> budgetPlaces = new HashSet<>();
-    private EnvironmentAnalysisMode environmentMode = EnvironmentAnalysisMode.ignore();
+    private EnvironmentAnalysisMode environmentMode = EnvironmentAnalysisMode.alwaysAvailable();
+
+    /**
+     * Why a {@code Proven} is refused under {@link EnvironmentAnalysisMode#ignore()}
+     * ([VER-006]). Shared by every route that can return {@code Proven}, so the two
+     * guards cannot drift apart.
+     */
+    private static final String IGNORE_MODE_VACUITY_REASON =
+        "environment places present but not modeled (mode=ignore); "
+        + "a proof would be vacuous — use EnvironmentAnalysisMode.alwaysAvailable() "
+        + "or bounded(k) to model external injection";
     private Duration timeout = Duration.ofSeconds(60);
     private int nuMaxClasses = 100_000;
     private FragmentMode fragmentMode = FragmentMode.BASE;
@@ -276,22 +287,36 @@ public final class SmtVerifier {
     }
 
     /**
-     * Also hands the validated <b>P-semiflows</b> to the encoder as invariants
-     * (default: disabled — the flat encoding then sees only the null-space basis).
+     * Also hands the validated <b>P-semiflows</b> to the encoders as invariants
+     * ([VER-007]; default: disabled — the encoders then see only the null-space basis).
      *
      * <p>Every validated semiflow is a conservation law in its own right ({@code y >= 0},
      * {@code y*C = 0}, {@code y*M0} exact, zero weight on every reset / consume-all place),
      * and the Farkas enumeration returns the <em>minimal</em> laws of the net. The
-     * null-space basis the encoder gets by default is one basis of many: Gaussian
+     * null-space basis the encoders get by default is one basis of many: Gaussian
      * elimination hands back mixed-sign rows (discarded as not semi-positive) or rows that
      * fold a reset place into a chain whose other combinations avoid it (dropped by the H1
      * guard). On a net with a few reset arcs that can lose every law of the chains those
      * arcs touch, and without them IC3 has to rediscover the conservation of each chain —
-     * on a ~100-place net it does not within any practical budget. With the semiflows in,
-     * the same reachability-safety queries close in about a second.
+     * on a ~100-place net it does not within any practical budget.
+     *
+     * <p><b>Turn this on if the net has any {@code all()} / {@code atLeast(n)} or reset
+     * arc on a busy place</b> — draining an input queue is the everyday case. Every basis
+     * row whose support touches such a place fails the H1 guard and is dropped, so the
+     * encoders run on a deficient invariant set and nothing in the report says a law is
+     * missing beyond the {@code Dropped} lines.
+     *
+     * <p>This reaches the <b>name-coloured</b> encoder ([NU-050]) as well as the flat one,
+     * and it matters most there. On a 113-place ν-net, whole-net deadlock-freedom went
+     * from {@code Unknown} after 50 minutes to {@code Proven} in about 15 seconds with
+     * this option as the only change; on the flat path, reachability-safety queries that
+     * timed out at 120 s close in about a second.
      *
      * <p>Soundness is unchanged: the semiflows pass the same exact re-validation as the
-     * basis rows, and the certificate check re-proves the strengthened invariant.
+     * basis rows, the union is pure strengthening (Lean {@code Semiflow.lean},
+     * {@code semiflow_union_sound}), and the certificate check re-proves the strengthened
+     * invariant. That check is flat-path only — a coloured {@code Proven} reports
+     * {@code Certificate check: not applicable (name-coloured encoding)}.
      */
     public SmtVerifier semiflowInvariants(boolean enabled) {
         this.semiflowInvariants = enabled;
@@ -427,8 +452,23 @@ public final class SmtVerifier {
                     report.append("  Counterexample trace: ").append(outcome.trace().size())
                           .append(" states, ").append(outcome.transitions().size()).append(" transitions\n");
                 }
+                // [VER-006] binds every route that can return Proven, not only the SMT
+                // encoding. Under Ignore the name-partition graph treats an environment
+                // place as an ordinary empty one, so a bound that holds only because
+                // injection never happens is exactly the vacuous proof the guard exists
+                // to refuse — and Route B reaches this return without passing the guard
+                // on the solver path below.
+                var routeBVerdict = outcome.verdict();
+                if (routeBVerdict instanceof SmtVerificationResult.Verdict.Proven
+                        && !environmentPlaces.isEmpty()
+                        && environmentMode instanceof EnvironmentAnalysisMode.Ignore) {
+                    report.append("  Downgraded to UNKNOWN: ")
+                          .append(IGNORE_MODE_VACUITY_REASON).append("\n");
+                    routeBVerdict = new SmtVerificationResult.Verdict.Unknown(
+                        IGNORE_MODE_VACUITY_REASON);
+                }
                 return buildResult(
-                    outcome.verdict(), report.toString(), List.of(), List.of(),
+                    routeBVerdict, report.toString(), List.of(), List.of(),
                     outcome.trace(), outcome.transitions(),
                     Duration.between(start, Instant.now()),
                     new SmtVerificationResult.SmtStatistics(
@@ -586,18 +626,15 @@ public final class SmtVerifier {
         // counterexamples that would equate two distinct names. Reachability-safety AND
         // quiescence (NU-053) properties are both routed here; a net outside the
         // fragment keeps the flat encoding.
-        NameColouredEncoder.ColouredPlan colouredPlan =
-            (hasMatch && nuBounded)
-                ? NameColouredEncoder.buildPlan(net, flatNet, initialMarking, budgetPlaces, fragmentMode, carrierPlaces, semiflows)
-                : null;
+        var colouredAttempt = colouredAttempt(flatNet, invariants, () -> semiflows);
+        NameColouredEncoder.ColouredPlan colouredPlan = colouredAttempt.plan();
 
         SmtEncoder.SmtEncoding encoding;
         if (colouredPlan != null) {
             report.append("  ν-encoding: name-coloured (exact within budget k=")
                 .append(colouredPlan.k()).append("; ")
                 .append(colouredPlan.colouredCount()).append(" coloured place(s))\n");
-            encoding = NameColouredEncoder.encode(
-                colouredPlan, flatNet, initialMarking, property, invariants, sinkPlaces);
+            encoding = colouredAttempt.encoding();
             if (encoding == null) {
                 // The property names a place that does not resolve in the net (e.g. a
                 // typo'd bound/pending place). Emitting the encoding anyway would certify
@@ -650,9 +687,7 @@ public final class SmtVerifier {
                 // downgrade to UNKNOWN with actionable guidance.
                 if (!environmentPlaces.isEmpty()
                         && environmentMode instanceof EnvironmentAnalysisMode.Ignore) {
-                    String reason = "environment places present but not modeled (mode=ignore); "
-                        + "a proof would be vacuous — use EnvironmentAnalysisMode.alwaysAvailable() "
-                        + "or bounded(k) to model external injection";
+                    String reason = IGNORE_MODE_VACUITY_REASON;
                     report.append("  Status: UNSAT, but vacuous under ignore mode\n\n");
                     report.append("=== RESULT ===\n\n");
                     report.append("UNKNOWN: ").append(reason).append("\n");
@@ -890,24 +925,60 @@ public final class SmtVerifier {
         return "(define-fun Reachable (" + String.join(" ", params) + ") Bool\n    true)";
     }
 
+    /**
+     * The name-coloured plan and its encoding, or a null plan when the net is outside
+     * the fragment ([NU-050]) and a null encoding when the property names a place the
+     * net does not resolve.
+     *
+     * <p>{@link #verify()} and {@link #encodeScripts()} share this deliberately. They
+     * used to invoke {@code buildPlan} and {@code encode} separately, a few hundred
+     * lines apart, so handing the encoder the wrong one of the two lists changed only
+     * one of them — and the script-parity goldens are generated from
+     * {@code encodeScripts}. Unifying the invocation closes that. It does not make the
+     * two paths identical: each still computes its own invariant and semiflow lists, so
+     * they can still drift through the arguments rather than through the call.
+     *
+     * @param invariants what the encoder conjoins into every rule body: the null-space
+     *                   basis, unioned with the semiflows when [VER-007] is enabled
+     * @param semiflows  supplies the gate-validated semiflows, which set the colour-slot
+     *                   bound {@code k} ([NU-053]) and are <em>not</em> the same list.
+     *                   Deferred so a flat net never pays for the enumeration.
+     */
+    private ColouredAttempt colouredAttempt(
+            FlatNet flatNet, List<PInvariant> invariants, Supplier<List<PInvariant>> semiflows) {
+        boolean hasMatch = net.transitions().stream().anyMatch(t -> t.matchSpec() != null);
+        boolean nuBounded = !budgetPlaces.isEmpty();
+        if (!hasMatch || !nuBounded) {
+            return new ColouredAttempt(null, null);
+        }
+        // Supplied rather than passed by value: Java evaluates arguments eagerly, so a
+        // plain parameter would run the Farkas enumeration on every encodeScripts()
+        // call, including the flat nets that never reach this line.
+        var plan = NameColouredEncoder.buildPlan(
+            net, flatNet, initialMarking, budgetPlaces, fragmentMode, carrierPlaces,
+            semiflows.get());
+        if (plan == null) {
+            return new ColouredAttempt(null, null);
+        }
+        return new ColouredAttempt(plan, NameColouredEncoder.encode(
+            plan, flatNet, initialMarking, property, invariants, sinkPlaces));
+    }
+
+    /** A coloured plan and the encoding built from it; see {@link #colouredAttempt}. */
+    private record ColouredAttempt(
+        NameColouredEncoder.ColouredPlan plan,
+        SmtEncoder.SmtEncoding encoding
+    ) {}
+
     /** See {@link EncodedScripts}. */
     public EncodedScripts encodeScripts() {
         OutputActionCheck.requireOutputProducingActions(net);
-        boolean hasMatch = net.transitions().stream().anyMatch(t -> t.matchSpec() != null);
-        boolean nuBounded = !budgetPlaces.isEmpty();
         FlatNet flatNet = NetFlattener.flatten(net, environmentPlaces, environmentMode);
         var invariants = encoderInvariants(flatNet, initialMarking, semiflowInvariants);
-        if (hasMatch && nuBounded) {
-            var plan = NameColouredEncoder.buildPlan(
-                net, flatNet, initialMarking, budgetPlaces, fragmentMode, carrierPlaces,
-                validatedSemiflows(flatNet, initialMarking));
-            if (plan != null) {
-                var coloured = NameColouredEncoder.encode(
-                    plan, flatNet, initialMarking, property, invariants, sinkPlaces);
-                if (coloured != null) {
-                    return new EncodedScripts(coloured.smt2(), null, true);
-                }
-            }
+        var coloured = colouredAttempt(
+            flatNet, invariants, () -> validatedSemiflows(flatNet, initialMarking));
+        if (coloured.encoding() != null) {
+            return new EncodedScripts(coloured.encoding().smt2(), null, true);
         }
         String horn = SmtEncoder.encode(
             flatNet, initialMarking, property, invariants, sinkPlaces, counterexampleReplay).smt2();

@@ -439,7 +439,10 @@ def verify_net(
     semiflow_invariants: bool = ...,
 ) -> VerificationResult: ...
 def verify_subnet(
-    subnet: SubnetDef, harness: VerificationHarness
+    subnet: SubnetDef,
+    harness: VerificationHarness,
+    *,
+    environment_mode: EnvironmentAnalysisMode | None = ...,
 ) -> SubnetVerificationResult: ...
 def encode_smt_scripts(
     net: Net,
