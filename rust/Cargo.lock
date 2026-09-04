@@ -498,7 +498,7 @@ checksum = "b5b646652bf6661599e1da8901b3b9522896f01e736bad5f723fe7a3a27f899d"
 
 [[package]]
 name = "libpetri"
-version = "4.1.0"
+version = "4.2.0"
 dependencies = [
  "libpetri-core",
  "libpetri-debug",
@@ -512,7 +512,7 @@ dependencies = [
 
 [[package]]
 name = "libpetri-benches"
-version = "4.1.0"
+version = "4.2.0"
 dependencies = [
  "criterion",
  "libpetri",
@@ -521,7 +521,7 @@ dependencies = [
 
 [[package]]
 name = "libpetri-core"
-version = "4.1.0"
+version = "4.2.0"
 dependencies = [
  "libpetri-event",
  "proptest",
@@ -529,7 +529,7 @@ dependencies = [
 
 [[package]]
 name = "libpetri-debug"
-version = "4.1.0"
+version = "4.2.0"
 dependencies = [
  "crossbeam-channel",
  "flate2",
@@ -542,7 +542,7 @@ dependencies = [
 
 [[package]]
 name = "libpetri-docgen"
-version = "4.1.0"
+version = "4.2.0"
 dependencies = [
  "libpetri-core",
  "libpetri-export",
@@ -551,11 +551,11 @@ dependencies = [
 
 [[package]]
 name = "libpetri-event"
-version = "4.1.0"
+version = "4.2.0"
 
 [[package]]
 name = "libpetri-export"
-version = "4.1.0"
+version = "4.2.0"
 dependencies = [
  "libpetri-core",
 ]
@@ -573,7 +573,7 @@ dependencies = [
 
 [[package]]
 name = "libpetri-runtime"
-version = "4.1.0"
+version = "4.2.0"
 dependencies = [
  "libpetri-core",
  "libpetri-docgen",
@@ -584,7 +584,7 @@ dependencies = [
 
 [[package]]
 name = "libpetri-verification"
-version = "4.1.0"
+version = "4.2.0"
 dependencies = [
  "libpetri-core",
  "libpetri-docgen",
