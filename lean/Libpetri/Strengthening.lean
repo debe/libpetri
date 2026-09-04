@@ -496,7 +496,7 @@ place name: no state can violate."), and identically the unresolved
 `:460-461`.
 With `Bad ≡ false`, the error rule `Error :- Reachable(M) ∧ Bad(M)` has an
 unsatisfiable body, so Spacer answers `sat` — reported as `Proven`
-(`process_z3_result`, `smt_verifier.rs:1540-1582`) — for EVERY net, marking
+(`process_z3_result`, `smt_verifier.rs:1596-1638`) — for EVERY net, marking
 and semantics. The
 theorem quantifies over an arbitrary reachable-set predicate to make
 "regardless of semantics" literal.

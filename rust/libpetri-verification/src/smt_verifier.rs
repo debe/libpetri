@@ -90,6 +90,12 @@ pub struct SmtVerifier<'a> {
     replay_node_budget_override: Option<usize>,
 }
 
+/// Why a `Proven` is refused under [`EnvironmentAnalysisMode::Ignore`] ([VER-006]).
+/// Shared by every route that can return `Proven`, so the guards cannot drift apart.
+const IGNORE_MODE_VACUITY_REASON: &str =
+    "environment places present but not modeled (mode=Ignore); a proof would be vacuous \
+     — use AlwaysAvailable or Bounded(k) to model external injection";
+
 impl<'a> SmtVerifier<'a> {
     /// Creates a verifier for the given net.
     ///
@@ -103,7 +109,7 @@ impl<'a> SmtVerifier<'a> {
             initial_marking: MarkingStateBuilder::new().build(),
             property: SmtProperty::DeadlockFree,
             env_places: BTreeSet::new(),
-            env_mode: EnvironmentAnalysisMode::Ignore,
+            env_mode: EnvironmentAnalysisMode::AlwaysAvailable,
             sink_places: Vec::new(),
             budget_places: HashSet::new(),
             timeout_ms: 30_000,
@@ -253,13 +259,26 @@ impl<'a> SmtVerifier<'a> {
     /// and the H1 guard drops them. On a net with a few reset arcs that can lose every
     /// law of the chains those arcs touch, and without them IC3 has to rediscover the
     /// conservation of each chain — on a ~100-place net it does not within any
-    /// practical budget. With the semiflows in, the same reachability-safety queries
-    /// close in about a second.
+    /// practical budget.
+    ///
+    /// **Turn this on if the net has any `all()` / `at_least(n)` or reset arc on a busy
+    /// place** — draining an input queue is the everyday case. Every basis row whose
+    /// support touches such a place fails the H1 guard and is dropped, so the encoders
+    /// run on a deficient invariant set and nothing in the report says a law is missing
+    /// beyond the `Dropped` lines.
+    ///
+    /// This reaches the **name-coloured** encoder ([NU-050]) as well as the flat one,
+    /// and it matters most there. On a 113-place ν-net, whole-net deadlock-freedom went
+    /// from `Unknown` after 50 minutes to `Proven` in about 15 seconds with this option
+    /// as the only change; on the flat path, reachability-safety queries that timed out
+    /// at 120 s close in about a second.
     ///
     /// Soundness is unchanged: the semiflows pass the same exact re-validation as the
     /// basis rows, the union is pure strengthening (`Semiflow.lean`,
     /// `semiflow_union_sound`), and the certificate check re-proves the strengthened
-    /// invariant. Off by default so reports stay byte-equal.
+    /// invariant — that check is flat-path only, so a coloured `Proven` reports
+    /// `Certificate check: not applicable (name-coloured encoding)`. Off by default so
+    /// reports stay byte-equal.
     pub fn semiflow_invariants(mut self, enabled: bool) -> Self {
         self.semiflow_invariants = enabled;
         self
@@ -358,9 +377,24 @@ impl<'a> SmtVerifier<'a> {
                         outcome.transitions.len()
                     ));
                 }
+                // [VER-006] binds every route that can return Proven, not only the SMT
+                // encoding. Under Ignore the name-partition graph treats an environment
+                // place as an ordinary empty one, so a bound that holds only because
+                // injection never happens is exactly the vacuous proof the guard exists
+                // to refuse — and Route B returns here without passing the guard on the
+                // solver path below.
+                let mut route_b_verdict = outcome.verdict;
+                if matches!(route_b_verdict, Verdict::Proven { .. })
+                    && !self.env_places.is_empty()
+                    && self.env_mode == EnvironmentAnalysisMode::Ignore
+                {
+                    let reason = IGNORE_MODE_VACUITY_REASON.to_string();
+                    report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
+                    route_b_verdict = Verdict::Unknown { reason };
+                }
                 report.push_str(&format!("\nElapsed: {elapsed_ms}ms\n"));
                 return build_result(
-                    outcome.verdict,
+                    route_b_verdict,
                     report,
                     elapsed_ms,
                     VerificationStatistics {
@@ -592,18 +626,16 @@ impl<'a> SmtVerifier<'a> {
         // spurious counterexamples that would equate two distinct names.
         // Reachability-safety AND quiescence ([NU-053]) properties are both routed
         // here; a net outside the fragment keeps the flat encoding.
-        let coloured_plan = if has_match && nu_bounded {
-            name_coloured_encoder::build_plan(
-                self.net,
-                &flat,
-                &self.initial_marking,
-                &self.budget_places,
-                self.fragment_mode,
-                &self.carrier_places,
-                &semiflows,
-            )
-        } else {
-            None
+        let (coloured_plan, coloured_encoding) = match self.coloured_attempt(
+            &flat,
+            &property,
+            &invariants,
+            &semiflows,
+            &sink_places,
+            &env_injection,
+        ) {
+            Some((plan, encoding)) => (Some(plan), encoding),
+            None => (None, None),
         };
 
         let encoding = if let Some(plan) = &coloured_plan {
@@ -612,19 +644,7 @@ impl<'a> SmtVerifier<'a> {
                 plan.k,
                 plan.coloured.len()
             ));
-            let env_inject_idx: Vec<(usize, Option<usize>)> = env_injection
-                .iter()
-                .filter_map(|(name, b)| flat.place_index.get(name).map(|&pid| (pid, *b)))
-                .collect();
-            match name_coloured_encoder::encode_coloured(
-                plan,
-                &flat,
-                &self.initial_marking,
-                &property,
-                &invariants,
-                &sink_places,
-                &env_inject_idx,
-            ) {
+            match coloured_encoding {
                 Some(enc) => enc,
                 None => {
                     // The property names a place that does not resolve in the net
@@ -697,9 +717,7 @@ impl<'a> SmtVerifier<'a> {
             && !self.env_places.is_empty()
             && self.env_mode == EnvironmentAnalysisMode::Ignore
         {
-            let reason = "environment places present but not modeled (mode=Ignore); a proof \
-                would be vacuous — use AlwaysAvailable or Bounded(k) to model external injection"
-                .to_string();
+            let reason = IGNORE_MODE_VACUITY_REASON.to_string();
             report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
             verdict = Verdict::Unknown { reason };
         }
@@ -810,8 +828,6 @@ impl<'a> SmtVerifier<'a> {
     /// golden tests diff byte for byte. Route B, the structural pre-check and the
     /// unresolved-place refusal are bypassed: it is what Route A encodes.
     pub fn encode_scripts(self) -> EncodedScripts {
-        let has_match = self.net.transitions().iter().any(|t| t.match_spec().is_some());
-        let nu_bounded = !self.budget_places.is_empty();
         let flat = net_flattener::flatten(self.net);
         let sink_places = canonical_place_order(&flat, &self.sink_places);
         let property = canonical_property(&flat, &self.property);
@@ -867,36 +883,19 @@ impl<'a> SmtVerifier<'a> {
                 .then_with(|| a.constant.cmp(&b.constant))
         });
 
-        if has_match && nu_bounded {
-            if let Some(plan) = name_coloured_encoder::build_plan(
-                self.net,
-                &flat,
-                &self.initial_marking,
-                &self.budget_places,
-                self.fragment_mode,
-                &self.carrier_places,
-                &semiflows,
-            ) {
-                let env_inject_idx: Vec<(usize, Option<usize>)> = env_injection
-                    .iter()
-                    .filter_map(|(name, b)| flat.place_index.get(name).map(|&pid| (pid, *b)))
-                    .collect();
-                if let Some(enc) = name_coloured_encoder::encode_coloured(
-                    &plan,
-                    &flat,
-                    &self.initial_marking,
-                    &property,
-                    &invariants,
-                    &sink_places,
-                    &env_inject_idx,
-                ) {
-                    return EncodedScripts {
-                        horn: enc.smt2,
-                        certificate: None,
-                        coloured: true,
-                    };
-                }
-            }
+        if let Some((_, Some(enc))) = self.coloured_attempt(
+            &flat,
+            &property,
+            &invariants,
+            &semiflows,
+            &sink_places,
+            &env_injection,
+        ) {
+            return EncodedScripts {
+                horn: enc.smt2,
+                certificate: None,
+                coloured: true,
+            };
         }
 
         let horn = smt_encoder::encode(
@@ -925,6 +924,63 @@ impl<'a> SmtVerifier<'a> {
             certificate: Some(certificate),
             coloured: false,
         }
+    }
+
+    /// The name-coloured plan and its encoding, or `None` when the net is outside
+    /// the fragment ([NU-050]). The inner `Option` is `None` when the property names
+    /// a place the net does not resolve.
+    ///
+    /// [`Self::verify`] and [`Self::encode_scripts`] share this deliberately. They
+    /// used to invoke `build_plan` and `encode_coloured` separately, a few hundred
+    /// lines apart, so handing the encoder the wrong one of the two lists changed only
+    /// one of them — and the script-parity goldens are generated from `encode_scripts`.
+    /// Unifying the invocation closes that. It does not make the two paths identical:
+    /// each still computes its own invariant and semiflow lists, so they can still
+    /// drift through the arguments rather than through the call. (The dumped-script
+    /// cross-check in `tests/smt_script_parity.rs` is what pins the two together for
+    /// the shared fixtures.)
+    ///
+    /// `invariants` is what the encoder conjoins into every rule body (the null-space
+    /// basis, unioned with the semiflows when [VER-007] is enabled); `semiflows` sets
+    /// the colour-slot bound `k` ([NU-053]). They are not the same list.
+    #[allow(clippy::too_many_arguments)]
+    fn coloured_attempt(
+        &self,
+        flat: &FlatNet,
+        property: &SmtProperty,
+        invariants: &[PInvariant],
+        semiflows: &[PInvariant],
+        sink_places: &[String],
+        env_injection: &[(String, Option<usize>)],
+    ) -> Option<(name_coloured_encoder::ColouredPlan, Option<smt_encoder::SmtEncoding>)> {
+        let has_match = self.net.transitions().iter().any(|t| t.match_spec().is_some());
+        let nu_bounded = !self.budget_places.is_empty();
+        if !has_match || !nu_bounded {
+            return None;
+        }
+        let plan = name_coloured_encoder::build_plan(
+            self.net,
+            flat,
+            &self.initial_marking,
+            &self.budget_places,
+            self.fragment_mode,
+            &self.carrier_places,
+            semiflows,
+        )?;
+        let env_inject_idx: Vec<(usize, Option<usize>)> = env_injection
+            .iter()
+            .filter_map(|(name, b)| flat.place_index.get(name).map(|&pid| (pid, *b)))
+            .collect();
+        let encoding = name_coloured_encoder::encode_coloured(
+            &plan,
+            flat,
+            &self.initial_marking,
+            property,
+            invariants,
+            sink_places,
+            &env_inject_idx,
+        );
+        Some((plan, encoding))
     }
 
     /// Certificate phase — the second independent layer, after Phase 3's exact
@@ -1692,6 +1748,112 @@ mod tests {
         PetriNet::builder("loop").transitions([open, step, close]).build()
     }
 
+    /// The scatter-gather ν-net (which puts the verifier on the name-coloured
+    /// encoder) alongside the reset-bearing loop above (which is what makes the
+    /// null-space basis deficient). The two halves share no places; the loop is
+    /// there purely so the semiflow enumeration has a law to contribute.
+    ///
+    /// The reset arc has to sit on the uncoloured half: the coloured encoder rejects
+    /// any transition whose reset or consume-all set touches a coloured place, and
+    /// `build_plan` then returns `None` and the verifier falls back silently to the
+    /// flat encoding — which would make the test pass for the wrong reason. That is
+    /// what the `coloured` assertions guard.
+    fn coloured_loop() -> PetriNet {
+        use libpetri_core::arc::reset;
+        use libpetri_core::match_spec::MatchSpec;
+        use libpetri_core::name::NameId;
+        use libpetri_core::output::and;
+
+        let source = Place::<()>::new("source");
+        let nu_budget = Place::<()>::new("budget");
+        let pending = Place::<()>::new("pending");
+        let a = Place::<String>::new("branchA");
+        let b = Place::<String>::new("branchB");
+        let merged = Place::<String>::new("merged");
+
+        let t_fork = Transition::builder("fork")
+            .input(one(&source))
+            .input(one(&nu_budget))
+            .output(and(vec![out_place(&a), out_place(&b), out_place(&pending)]))
+            .action(fork())
+            .build();
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .input(one(&pending))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |s: &String| NameId::new(s.clone()))
+                    .key(&b, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(and(vec![out_place(&merged), out_place(&nu_budget)]))
+            .action(fork())
+            .build();
+
+        let budget = Place::<i32>::new("loopBudget");
+        let work = Place::<i32>::new("work");
+        let done = Place::<i32>::new("done");
+        let stamp = Place::<i32>::new("stamp");
+        let sink = Place::<i32>::new("sink");
+        let open = Transition::builder("Open")
+            .input(one(&budget))
+            .reset(reset(&stamp))
+            .output(and(vec![out_place(&work), out_place(&stamp)]))
+            .action(fork())
+            .build();
+        let step = Transition::builder("Step")
+            .input(one(&work))
+            .output(out_place(&done))
+            .action(fork())
+            .build();
+        let close = Transition::builder("Close")
+            .input(one(&done))
+            .output(and(vec![out_place(&budget), out_place(&sink)]))
+            .action(fork())
+            .build();
+
+        PetriNet::builder("coloured_loop")
+            .transitions([t_fork, join, open, step, close])
+            .build()
+    }
+
+    fn coloured_scripts(net: &PetriNet, semiflows: bool) -> EncodedScripts {
+        SmtVerifier::for_net(net)
+            .initial_marking(
+                MarkingStateBuilder::new()
+                    .tokens("source", 3)
+                    .tokens("budget", 2)
+                    .tokens("loopBudget", 1)
+                    .build(),
+            )
+            .property(SmtProperty::branch_place_bound("pending", 2))
+            .budget_places(["budget".to_string()])
+            .semiflow_invariants(semiflows)
+            .encode_scripts()
+    }
+
+    /// [VER-007]: the strengthened list reaches the *name-coloured* encoder, not only
+    /// the flat one. Solver-free — `encode_scripts` returns the script a verification
+    /// would send, so this needs no z3.
+    ///
+    /// This is the case that catches the coloured encoder being handed the semiflows
+    /// where it wants the strengthened invariants: they are separate lists, and every
+    /// other test is blind to the swap.
+    #[test]
+    fn semiflows_reach_the_coloured_encoder() {
+        let net = coloured_loop();
+        let off = coloured_scripts(&net, false);
+        let on = coloured_scripts(&net, true);
+
+        assert!(off.coloured, "fixture must take the name-coloured path, not fall back to flat");
+        assert!(on.coloured, "fixture must take the name-coloured path, not fall back to flat");
+        assert_ne!(
+            off.horn, on.horn,
+            "the semiflows must change the coloured HORN script when the option is on"
+        );
+    }
+
     /// [VER-007] AC2/AC3: the validated P-semiflows reach the encoder as extra
     /// invariants, and only when asked for.
     #[test]
@@ -2235,6 +2397,63 @@ mod tests {
         assert!(
             matches!(result.verdict, Verdict::Unknown { .. }),
             "ignore mode with env places must not silently prove, got {:?}\n{}",
+            result.verdict,
+            result.report
+        );
+    }
+
+    /// [VER-006] binds Route B too. An unbudgeted ν-net takes the name-partition
+    /// state-class graph, which returns its verdict without passing the solver path's
+    /// vacuity guard; under `Ignore` the graph treats the environment place as an
+    /// ordinary empty one, so `accepted` is unreachable and the bound holds for a
+    /// reason that says nothing about the real system.
+    ///
+    /// Solver-free: Route B is structural, so no z3 gate is needed.
+    #[test]
+    fn ver006_ignore_mode_on_route_b_downgrades_to_unknown() {
+        use libpetri_core::match_spec::MatchSpec;
+        use libpetri_core::name::NameId;
+        use libpetri_core::output::and;
+
+        let in_p = Place::<String>::new("IN");
+        let branch_a = Place::<String>::new("branchA");
+        let branch_b = Place::<String>::new("branchB");
+        let accepted = Place::<String>::new("accepted");
+
+        let fork_t = Transition::builder("fork")
+            .input(one(&in_p))
+            .output(and(vec![out_place(&branch_a), out_place(&branch_b)]))
+            .action(fork())
+            .build();
+        // A match transition with no declared budget place: has_match && !nu_bounded,
+        // which is exactly Route B's trigger.
+        let join = Transition::builder("join")
+            .input(one(&branch_a))
+            .input(one(&branch_b))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&branch_a, |s: &String| NameId::new(s.clone()))
+                    .key(&branch_b, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(out_place(&accepted))
+            .action(fork())
+            .build();
+        let net = PetriNet::builder("nu_env_route_b")
+            .transitions([fork_t, join])
+            .build();
+
+        let result = SmtVerifier::for_net(&net)
+            .environment_places(vec!["IN".into()])
+            .environment_mode(EnvironmentAnalysisMode::Ignore)
+            .property(SmtProperty::place_bound("accepted", 0))
+            .timeout(15_000)
+            .verify();
+
+        assert!(
+            matches!(result.verdict, Verdict::Unknown { .. }),
+            "Route B must not certify a bound that holds only because injection was \
+             never modelled, got {:?}\n{}",
             result.verdict,
             result.report
         );

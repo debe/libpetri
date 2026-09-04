@@ -57,6 +57,11 @@ impl Json {
     }
 
     /// Optional string array (`sinkPlaces`): absent -> empty.
+    /// An optional boolean field, `false` when absent or null.
+    pub fn bool_opt(&self, key: &str) -> bool {
+        matches!(self.get(key), Some(Json::Bool(true)))
+    }
+
     pub fn str_arr_opt(&self, key: &str) -> Vec<String> {
         match self.get(key) {
             None | Some(Json::Null) => Vec::new(),

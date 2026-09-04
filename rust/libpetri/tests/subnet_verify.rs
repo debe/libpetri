@@ -211,28 +211,26 @@ fn verify_leaky_bucket_is_k_bounded() {
         return;
     }
 
-    // Property: with no slots tokens seeded, the synthetic
-    // harness_out_accept place is unreachable (bound 0). The harness
-    // doesn't seed initial markings; this checks well-formedness end to
-    // end (matches Java's verify_leakyBucket_isKBounded).
+    // Property: with no slots tokens seeded, the synthetic harness_out_accept
+    // place is unreachable, so the bound holds at 0 however much the
+    // environment injects — [MOD-051]'s test derivation, and it is provable
+    // (matches Java's verify_leakyBucket_isKBounded).
     let bucket = leaky_bucket(2);
     let supplier = token_supplier(|| Token::new(String::from("req")));
 
-    let harness = VerificationHarness::<()> {
-        params: (),
-        port_input_generators: std::collections::HashMap::from([(
-            Arc::<str>::from("request"),
-            supplier,
-        )]),
-        properties: vec![SmtProperty::place_bound("harness_out_accept", 0)],
-    };
+    // Built through the builder rather than a struct literal: the literal form
+    // has to name every field, so it breaks whenever the harness gains one.
+    let harness = VerificationHarness::<()>::new()
+        .input(Arc::<str>::from("request"), supplier)
+        .property(SmtProperty::place_bound("harness_out_accept", 0));
 
     let result = bucket.verify(harness);
 
     assert_eq!(result.per_property.len(), 1);
     let (_, verdict) = &result.per_property[0];
     assert!(
-        !verdict.report.is_empty(),
-        "verifier must produce a non-empty report"
+        verdict.is_proven(),
+        "accept bound must be proven under AlwaysAvailable: {}",
+        verdict.report
     );
 }

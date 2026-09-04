@@ -6,6 +6,7 @@ import org.libpetri.core.Place;
 import org.libpetri.core.SubnetDef;
 import org.libpetri.core.Token;
 import org.libpetri.fixtures.SubnetFixtures;
+import org.libpetri.analysis.EnvironmentAnalysisMode;
 import org.libpetri.smt.SmtProperty;
 
 import java.util.LinkedHashMap;
@@ -35,12 +36,13 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <p><b>Note on integration coverage:</b> the harness constructs a synthetic
  * environment place per input port and passes it through to
- * {@link org.libpetri.smt.SmtVerifier}; the verifier's environment-analysis
- * mode dictates how bounded vs. unbounded inputs are over-approximated
- * (see {@link org.libpetri.analysis.EnvironmentAnalysisMode}). The default
- * {@code ignore()} mode treats the env place as a regular place — adequate
- * for the unit-level harness tests below, where we assert structure rather
- * than verifier verdicts.
+ * {@link org.libpetri.smt.SmtVerifier} together with the harness's
+ * environment-analysis mode, which dictates how input is over-approximated
+ * (see {@link org.libpetri.analysis.EnvironmentAnalysisMode}). The default is
+ * {@code alwaysAvailable()}, so a {@code Proven} verdict from
+ * {@code verify(...)} holds for any environment. Most tests below assert
+ * structure rather than verdicts; {@code verify_leakyBucket_isKBounded}
+ * asserts the proof.
  */
 class SubnetVerifyTest {
 
@@ -208,12 +210,10 @@ class SubnetVerifyTest {
         // when slots > 0, so the cumulative accepted count is structurally
         // bounded by the rate when slots starts seeded with rate tokens.
         //
-        // Note: this test exercises the harness end-to-end, but the
-        // verifier sees a synthetic net where "slots" starts unmarked
-        // (the harness does not seed initial markings). Per MOD-051 the
-        // harness's input-generator semantics bound input behavior; the
-        // structural property tested here is that verify(...) returns a
-        // well-formed result of the same shape as the standard verifier.
+        // The verifier sees a synthetic net where "slots" starts unmarked (the
+        // harness does not seed initial markings), so "accept" is unreachable
+        // and the bound holds at 0 no matter how much the environment injects.
+        // This is MOD-051's own test derivation, and it ends in a proof.
 
         var bucket = SubnetFixtures.leakyBucket(2);
 
@@ -256,11 +256,79 @@ class SubnetVerifyTest {
         assertEquals(1, result.perProperty().size(),
             "result must have one entry per harness property");
         var verdict = result.perProperty().values().iterator().next();
-        // The verifier should produce some verdict (proven, violated, or
-        // unknown). We do not assert isProven specifically because the
-        // outcome depends on environment-analysis mode handling of the
-        // synthetic env place; the structural assertion is that the
-        // verifier ran and produced an SmtVerificationResult.
         assertNotNull(verdict.report(), "verifier must produce a report");
+        // This asserted nothing until the harness carried an environment mode:
+        // verify(...) inherited the verifier's ignore() default, and [VER-006]
+        // downgraded every proof about a net with env places to Unknown, so a
+        // subnet with an input port could not be proven at all.
+        assertTrue(verdict.isProven(),
+            "accept bound must be proven under alwaysAvailable(): " + verdict.report());
+    }
+
+    /**
+     * [VER-006] on the [MOD-051] path: with injection unmodelled the same query is
+     * refused rather than certified. This is the negative control for
+     * {@link #verify_leakyBucket_isKBounded()} — without it, that test would pass
+     * even if the mode never reached the verifier.
+     */
+    @Test
+    @EnabledIf("z3Available")
+    void verify_ignoreMode_cannotProve() {
+        var bucket = SubnetFixtures.leakyBucket(2);
+        Supplier<Token<?>> requestSupplier = () -> Token.of("req");
+
+        var probe = bucket.verify(new VerificationHarness<>(
+            null, Map.of("request", requestSupplier), Set.of()));
+        Place<?> acceptPlace = null;
+        for (var p : probe.syntheticNet().places()) {
+            if ("harness_out_accept".equals(p.name())) {
+                acceptPlace = p;
+                break;
+            }
+        }
+        assertNotNull(acceptPlace);
+
+        var harness = new VerificationHarness<Void>(
+            null, Map.of("request", requestSupplier),
+            new LinkedHashSet<>(Set.of(SmtProperty.placeBound(acceptPlace, 0))));
+
+        var result = bucket.verify(harness, EnvironmentAnalysisMode.ignore());
+
+        var verdict = result.perProperty().values().iterator().next();
+        assertFalse(verdict.isProven(),
+            "ignore() must not certify a bound that holds only because injection was "
+                + "never modelled: " + verdict.report());
+    }
+
+    /**
+     * [MOD-051] AC3: {@code bounded(k)} is the mode that expresses a generator bounding
+     * the input, and it still proves the bucket's unreachable accept bound.
+     */
+    @Test
+    @EnabledIf("z3Available")
+    void verify_boundedMode_proves() {
+        var bucket = SubnetFixtures.leakyBucket(2);
+        Supplier<Token<?>> requestSupplier = () -> Token.of("req");
+
+        var probe = bucket.verify(new VerificationHarness<>(
+            null, Map.of("request", requestSupplier), Set.of()));
+        Place<?> acceptPlace = null;
+        for (var p : probe.syntheticNet().places()) {
+            if ("harness_out_accept".equals(p.name())) {
+                acceptPlace = p;
+                break;
+            }
+        }
+        assertNotNull(acceptPlace);
+
+        var harness = new VerificationHarness<Void>(
+            null, Map.of("request", requestSupplier),
+            new LinkedHashSet<>(Set.of(SmtProperty.placeBound(acceptPlace, 0))));
+
+        var result = bucket.verify(harness, EnvironmentAnalysisMode.bounded(1));
+
+        var verdict = result.perProperty().values().iterator().next();
+        assertTrue(verdict.isProven(),
+            "bounded(1) must prove the accept bound: " + verdict.report());
     }
 }

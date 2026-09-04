@@ -17,7 +17,7 @@ export function bounded(maxTokens: number): EnvironmentAnalysisMode {
   return { type: 'bounded', maxTokens };
 }
 
-/** Treats environment places as regular places (default). */
+/** Treats environment places as regular places. */
 export function ignore(): EnvironmentAnalysisMode {
   return { type: 'ignore' };
 }

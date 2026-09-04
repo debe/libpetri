@@ -48,6 +48,14 @@ import { requireOutputProducingActions } from '../core/internal/output-action-ch
  * 4. SMT encode + query — IC3/PDR via Z3 Spacer
  * 5. Decode result — proof or counterexample trace
  */
+/**
+ * Why a `proven` is refused under `ignore()` (VER-006). Shared by every route that can
+ * return `proven`, so the guards cannot drift apart.
+ */
+const IGNORE_MODE_VACUITY_REASON =
+  'environment places present but not modeled (mode=ignore); a proof would be ' +
+  'vacuous — use alwaysAvailable() or bounded(k) to model external injection';
+
 export class SmtVerifier {
   private _initialMarking: MarkingState = MarkingState.empty();
   private _property: SmtProperty = deadlockFree();
@@ -167,13 +175,26 @@ export class SmtVerifier {
    * into a chain whose other combinations avoid it (dropped by the H1 guard). On a
    * net with a few reset arcs that can lose every law of the chains those arcs
    * touch, and without them IC3 has to rediscover the conservation of each chain —
-   * on a ~100-place net it does not within any practical budget. With the semiflows
-   * in, the same reachability-safety queries close in about a second.
+   * on a ~100-place net it does not within any practical budget.
+   *
+   * **Turn this on if the net has any `all()` / `atLeast(n)` or reset arc on a busy
+   * place** — draining an input queue is the everyday case. Every basis row whose
+   * support touches such a place fails the H1 guard and is dropped, so the encoders
+   * run on a deficient invariant set and nothing in the report says a law is missing
+   * beyond the `Dropped` lines.
+   *
+   * This reaches the **name-coloured** encoder (NU-050) as well as the flat one, and
+   * it matters most there. On a 113-place ν-net, whole-net deadlock-freedom went from
+   * `unknown` after 50 minutes to `proven` in about 15 seconds with this option as the
+   * only change; on the flat path, reachability-safety queries that timed out at 120 s
+   * close in about a second.
    *
    * Soundness is unchanged: the semiflows pass the same exact re-validation as the
    * basis rows, the union is pure strengthening (`Semiflow.lean`,
    * `semiflow_union_sound`), and the certificate check re-proves the strengthened
-   * invariant. Off by default so reports stay byte-equal.
+   * invariant — that check is flat-path only, so a coloured `proven` reports
+   * `Certificate check: not applicable (name-coloured encoding)`. Off by default so
+   * reports stay byte-equal.
    */
   semiflowInvariants(enabled: boolean): this {
     this._semiflowInvariants = enabled;
@@ -239,6 +260,43 @@ export class SmtVerifier {
   }
 
   /**
+   * The name-coloured plan and its encoding, or a null plan when the net is outside
+   * the fragment (NU-050) and a null encoding when the property names a place the net
+   * does not resolve.
+   *
+   * {@link verify} and {@link encodeScripts} share this deliberately. They used to
+   * invoke `buildColouredPlan` and `encodeColoured` separately, so handing the encoder
+   * the wrong one of the two lists changed only one of them — and the script-parity
+   * goldens are generated from `encodeScripts`. Unifying the invocation closes that. It
+   * does not make the two paths identical: each still computes its own invariant and
+   * semiflow lists, so they can still drift through the arguments rather than the call.
+   *
+   * `invariants` is what the encoder conjoins into every rule body (the null-space
+   * basis, unioned with the semiflows when VER-007 is enabled); `semiflows` sets the
+   * colour-slot bound k (NU-053). They are not the same list.
+   */
+  private colouredAttempt(
+    flatNet: FlatNet,
+    invariants: readonly PInvariant[],
+    semiflows: readonly PInvariant[],
+  ): { plan: ColouredPlan | null; encoding: SmtEncoding | null } {
+    const hasMatch = [...this.net.transitions].some(t => t.matchSpec !== null);
+    const nuBounded = this._budgetPlaces.size > 0;
+    if (!hasMatch || !nuBounded) return { plan: null, encoding: null };
+    const plan = buildColouredPlan(
+      this.net, flatNet, this._initialMarking, this._budgetPlaces,
+      this._fragmentMode, this._carrierPlaces, semiflows,
+    );
+    if (plan == null) return { plan: null, encoding: null };
+    return {
+      plan,
+      encoding: encodeColoured(
+        plan, flatNet, this._initialMarking, this._property, invariants, this._sinkPlaces,
+      ),
+    };
+  }
+
+  /**
    * The SMT-LIB2 scripts {@link verify} would send to z3 for this configuration,
    * without running a solver (VER-013 AC1): the HORN query (flat, or name-coloured
    * when a declared budget puts the net on Route A's exact encoding) and, for the
@@ -249,8 +307,6 @@ export class SmtVerifier {
    */
   encodeScripts(): EncodedScripts {
     requireOutputProducingActions(this.net);
-    const hasMatch = [...this.net.transitions].some(t => t.matchSpec !== null);
-    const nuBounded = this._budgetPlaces.size > 0;
     const flatNet = flatten(this.net, this._environmentPlaces, this._environmentMode);
     const matrix = IncidenceMatrix.from(flatNet);
     const { valid: basis } = validateInvariantsExact(
@@ -262,15 +318,9 @@ export class SmtVerifier {
     let invariants: readonly PInvariant[] = basis;
     if (this._semiflowInvariants) invariants = strengthenWithSemiflows(basis, semiflows).invariants;
     invariants = canonicalInvariantOrder(invariants);
-    if (hasMatch && nuBounded) {
-      const plan = buildColouredPlan(
-        this.net, flatNet, this._initialMarking, this._budgetPlaces,
-        this._fragmentMode, this._carrierPlaces, semiflows,
-      );
-      if (plan != null) {
-        const coloured = encodeColoured(plan, flatNet, this._initialMarking, this._property, invariants, this._sinkPlaces);
-        if (coloured != null) return { horn: coloured.smt2, certificate: null, coloured: true };
-      }
+    const attempt = this.colouredAttempt(flatNet, invariants, semiflows);
+    if (attempt.encoding != null) {
+      return { horn: attempt.encoding.smt2, certificate: null, coloured: true };
     }
     const horn = encode(flatNet, this._initialMarking, this._property, invariants, this._sinkPlaces, this._counterexampleReplay).smt2;
     const certificate = vcScript(
@@ -335,8 +385,23 @@ export class SmtVerifier {
         if (outcome.transitions.length > 0) {
           report.push(`  Counterexample trace: ${outcome.trace.length} states, ${outcome.transitions.length} transitions`);
         }
+        // VER-006 binds every route that can return `proven`, not only the SMT
+        // encoding. Under `ignore` the name-partition graph treats an environment
+        // place as an ordinary empty one, so a bound that holds only because
+        // injection never happens is exactly the vacuous proof the guard exists to
+        // refuse — and Route B returns here without passing the guard on the solver
+        // path below.
+        let routeBVerdict = outcome.verdict;
+        if (
+          routeBVerdict.type === 'proven' &&
+          this._environmentPlaces.size > 0 &&
+          this._environmentMode.type === 'ignore'
+        ) {
+          report.push(`  Downgraded to UNKNOWN: ${IGNORE_MODE_VACUITY_REASON}`);
+          routeBVerdict = { type: 'unknown', reason: IGNORE_MODE_VACUITY_REASON };
+        }
         return buildResult(
-          outcome.verdict, report.join('\n'), [], [], outcome.trace, outcome.transitions,
+          routeBVerdict, report.join('\n'), [], [], outcome.trace, outcome.transitions,
           performance.now() - start,
           {
             places: [...this.net.places].length,
@@ -479,20 +544,6 @@ export class SmtVerifier {
     // Phase 4: SMT encode + query via Spacer
     report.push('Phase 4: IC3/PDR verification via Z3 Spacer...');
 
-    // ν-net exact refinement (NU-050 #1, Route A). For a budget-bounded ν-net in
-    // the supported fragment, encode names as a finite colour set (k = the declared
-    // budget) with exact same-colour join matching, instead of the name-blind
-    // over-approximation — this rules out spurious counterexamples that would equate
-    // two distinct names. Reachability-safety AND quiescence (NU-053) properties are
-    // both routed here; a net outside the fragment keeps the flat encoding.
-    const colouredPlan: ColouredPlan | null =
-      hasMatch && nuBounded
-        ? buildColouredPlan(
-            this.net, flatNet, this._initialMarking, this._budgetPlaces,
-            this._fragmentMode, this._carrierPlaces, semiflows,
-          )
-        : null;
-
     // VER-013: one z3 process per query. Resolve the executable before any encoding
     // work so a missing or too-old solver is reported as such.
     const stats: SmtStatistics = {
@@ -515,13 +566,26 @@ export class SmtVerifier {
     }
     report.push(`  Solver: z3 ${formatZ3Version(solver.version)}`);
 
+    // ν-net exact refinement (NU-050 #1, Route A). For a budget-bounded ν-net in
+    // the supported fragment, encode names as a finite colour set (k = the declared
+    // budget) with exact same-colour join matching, instead of the name-blind
+    // over-approximation — this rules out spurious counterexamples that would equate
+    // two distinct names. Reachability-safety AND quiescence (NU-053) properties are
+    // both routed here; a net outside the fragment keeps the flat encoding.
+    //
+    // After the solver resolves, not before: the helper encodes as well as plans, and
+    // encoding for a solver that turns out to be missing is work thrown away. Java and
+    // Rust order it the same way.
+    const colouredAttempt = this.colouredAttempt(flatNet, invariants, semiflows);
+    const colouredPlan: ColouredPlan | null = colouredAttempt.plan;
+
     let encoding: SmtEncoding;
     if (colouredPlan != null) {
       report.push(
         `  ν-encoding: name-coloured (exact within budget k=${colouredPlan.k}; ` +
           `${colouredPlan.coloured.length} coloured place(s))`,
       );
-      const coloured = encodeColoured(colouredPlan, flatNet, this._initialMarking, this._property, invariants, this._sinkPlaces);
+      const coloured = colouredAttempt.encoding;
       if (coloured == null) {
         // The property names a place that does not resolve in the net (e.g. a
         // typo'd bound/pending place). Emitting the encoding anyway would certify
@@ -564,9 +628,7 @@ export class SmtVerifier {
         // fire and ANY safety bound is trivially "proven". Refuse to certify —
         // downgrade to UNKNOWN with actionable guidance.
         if (this._environmentPlaces.size > 0 && this._environmentMode.type === 'ignore') {
-          const reason =
-            'environment places present but not modeled (mode=ignore); a proof would be ' +
-            'vacuous — use alwaysAvailable() or bounded(k) to model external injection';
+          const reason = IGNORE_MODE_VACUITY_REASON;
           report.push(`  Status: UNSAT, but vacuous under ignore mode\n`);
           report.push('=== RESULT ===\n');
           report.push(`UNKNOWN: ${reason}`);
