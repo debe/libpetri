@@ -1,82 +1,16 @@
 # Changelog
 
-## Unreleased
+## Java 4.1.0 / TypeScript 4.1.0 / Rust 4.2.0 / Python 3.2.0 — 2026-09-04
 
-**A subnet can be proven again, VER-006 holds on every route, and the semiflow option says where
-it reaches.** Reported from downstream: `SubnetDef.verify()` could not prove anything about a
-subnet with an input port, and `semiflowInvariants` turned an intractable ν-net proof into a
-15-second one without a word in the docs to say it applies there. Reviewing that fix surfaced a
-soundness hole underneath it.
+**A subnet can be proven again, and [VER-006] now binds every route.** Both reported downstream against the 4.0.0 wave.
 
----
+- **Fixed — `SubnetDef.verify()` can prove a subnet with an input port** ([MOD-051]). It allocates an environment place per input and in-out port but never chose an environment mode, so it inherited `ignore()` — under which [VER-006] refuses every proof. `verify` now takes the mode as a parameter: a Java overload, `verify_subnet_with_mode` in Rust, an optional parameter in TypeScript, `environment_mode=` in Python. `VerificationHarness` is unchanged in all four.
+- **Fixed — [VER-006] binds Route B, not just the solver path.** The ν name-partition state-class graph returned its verdict without passing the vacuity guard, so an unbudgeted ν-net with an environment place under `ignore()` could report `Proven` for exactly the reason the guard exists to refuse. **Such a `Proven` from Java 4.0.0 / TypeScript 4.0.0 / Rust 4.1.0 / Python 3.1.0 was unsound.** Both routes now share one guard; new AC5.
+- **Changed — one environment-mode default across the four.** Java, Rust and Python now default to `alwaysAvailable()`, matching TypeScript, which had defaulted that way alone. Verdicts change for nets with environment places: an `Unknown` becomes a real answer, and a query that returned a fast `Unknown` may now run to its timeout instead. Pass `ignore()` explicitly to keep the old treatment.
+- **Changed — [VER-007] documents its reach and its trigger.** The strengthened invariant list has always reached the name-coloured encoder; only the flat path said so, and Java's javadoc said the opposite. New AC6, and all four API docs name the trigger: one `all()` / `atLeast(n)` or reset arc on a busy place drops every basis row whose support touches it, so draining an input queue is enough to leave IC3 without the net's conservation laws.
+- **Internal** — `verify()` and `encodeScripts()` now reach the coloured encoder through one call site, and a shared fixture pins [VER-007] byte-for-byte across the four implementations.
 
-### Verification
-
-#### Fixed — VER-006 now binds every route, not just the solver path (Java, TypeScript, Rust, Python)
-
-The vacuity guard that refuses to certify a proof holding only because environment injection was
-never modelled sat on the SMT path alone. Route B — the ν name-partition state-class graph of
-[NU-050] — returns its verdict without passing it, and under `ignore()` that graph treats an
-environment place as an ordinary place that simply starts empty. An unbudgeted ν-net with an
-environment place could therefore be reported `Proven` for exactly the reason [VER-006] exists to
-reject. Both routes now apply the same guard and share one reason string. [VER-006] gains AC5
-saying so, because the requirement was written as though the encoding were the only way to reach a
-verdict.
-
-Only `Proven` is refused. A `Violated` under `ignore()` is a real counterexample in a strictly
-smaller reachable set, so it is a counterexample in the injected one too.
-
-#### Fixed — `verify(harness)` can prove a subnet again (Java, TypeScript, Rust, Python)
-
-`SubnetDef.verify()` builds an environment place per input and in-out port, then verified without
-choosing an environment mode — so it inherited `ignore()` and [VER-006] refused every proof. A
-subnet with an input port could not be proven, which is not what [MOD-051] promises; the tests
-conceded it in a comment rather than asserting a verdict.
-
-`verify` now takes the mode as an optional second argument, defaulting to `alwaysAvailable()` —
-under which a `Proven` holds for any environment. `bounded(k)` is the mode that expresses
-[MOD-051] AC3's "the harness's input generators bound the input behavior"; the generators
-themselves are called once and discarded, so they never bounded anything. Java gains an overload,
-Rust `verify_subnet_with_mode` and `SubnetVerifyExt::verify_with_mode`, TypeScript an optional
-parameter, Python an `environment_mode` keyword. **`VerificationHarness` is unchanged in all four**
-— an earlier draft added a member to it, which would have been a breaking change to a record
-component list in Java and to a public struct's fields in Rust.
-
-#### Changed — one environment-mode default across the four implementations (Java, Rust, Python)
-
-The default is now `alwaysAvailable()` everywhere. TypeScript had defaulted that way alone while
-Java, Rust and Python defaulted to `ignore()`: the same net, the same property, a different verdict
-depending on the language, and nothing pinned it because the parity fixtures set the mode
-explicitly whenever environment places exist.
-
-**This changes verdicts** for nets with environment places. With the [VER-006] fix above in place a
-`Proven` is unreachable under `ignore()` on either route, so the flip turns `Unknown` into a real
-answer rather than replacing a proof; `Violated` is monotone under a wider environment, and nets
-with no environment places are untouched. Two things to expect anyway: a query that returned a fast
-`Unknown` may now run to its timeout, and code that relied on the old default will want to pass
-`ignore()` explicitly.
-
-#### Changed — [VER-007] documents its reach and its trigger (all four, spec)
-
-The option's documentation described the flat encoding, and the Java javadoc said so explicitly
-("the flat encoding then sees only the null-space basis") though the strengthened list has always
-reached the name-coloured encoder too. [VER-007] gains AC6 for that, stated existentially since a
-semiflow already in the basis dedups away and leaves the two scripts identical. The API docs in all
-four languages now name the trigger: one `all()` / `atLeast(n)` or reset arc on a busy place drops
-every basis row whose support touches it, so draining an input queue is enough to leave IC3 without
-the net's conservation laws. The option does not rescue those rows — semiflows face the same gate —
-it supplies the minimal laws that avoid the place instead.
-
-[MOD-051] gains an environment-mode item and a fourth criterion; both requirements gain a
-dependency they already had in fact. Requirement count unchanged at 210.
-
-#### Fixed — one call site for the coloured encoding (Java, TypeScript, Rust)
-
-`verify()` and `encodeScripts()` each invoked the coloured plan builder and encoder separately, so
-handing the encoder the wrong one of the two lists changed only one of them — and the script-parity
-goldens are generated from `encodeScripts`. They now share one helper. Found while writing the
-first test to combine `semiflowInvariants` with a declared budget place: with two call sites the
-new test stayed green under exactly the swap it was written to catch.
+Requirement count unchanged at 210.
 
 ---
 

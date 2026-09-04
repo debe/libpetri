@@ -64,8 +64,11 @@ error() { echo "Error: $*" >&2; exit 1; }
 changelog_section() {
     awk -v v="$1" '
         BEGIN { gsub(/\./, "\\.", v); re = " " v " " }
-        /^## / && $0 ~ re { p = 1; next }
-        p && /^## / { exit }
+        # Any heading ends the section we are in — checked before the start rule,
+        # because a version token can appear in more than one coordinated heading
+        # (Rust 4.1.0 and a later Java 4.1.0, say) and matching the second one
+        # would otherwise restart the capture instead of ending it.
+        /^## / { if (p) exit; if ($0 ~ re) { p = 1 } ; next }
         p
     ' "$PROJECT_ROOT/CHANGELOG.md"
 }
