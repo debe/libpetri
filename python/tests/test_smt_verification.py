@@ -87,8 +87,9 @@ def test_bounded_gates_by_multiplicity():
 
 
 def test_ignore_mode_with_env_places_downgrades_to_unknown():
-    # Ignore mode does not model injection; a "proven" here would be vacuous.
-    # The default (no environment_mode) is also Ignore, so both must be unknown.
+    # Ignore mode does not model injection; a "proven" here would be vacuous,
+    # so VER-006 refuses to certify it. The default models injection instead,
+    # and answers the question: an inexhaustible IN drives OUT past the bound.
     _in, out, net = _env_source_net()
 
     explicit = lp.verify(
@@ -106,7 +107,7 @@ def test_ignore_mode_with_env_places_downgrades_to_unknown():
         environment_places=["IN"],
         timeout_ms=15_000,
     )
-    assert default.verdict == "unknown", default.report
+    assert default.verdict == "violated", default.report
 
 
 def test_control_closed_net_place_bound_stays_sound():
@@ -157,6 +158,48 @@ def test_certificate_check_kwarg_toggles_the_second_solver_run():
     assert "  Certificate check: not applicable (disabled)" in off.report
 
 
+def test_ver006_ignore_mode_on_route_b_does_not_silently_prove():
+    """VER-006 binds Route B too. An unbudgeted nu-net takes the name-partition
+    state-class graph, which returns its verdict without passing the solver path's
+    vacuity guard; under ignore() the graph treats the environment place as an ordinary
+    empty one, so ``accepted`` is unreachable and the bound holds for a reason that says
+    nothing about the real system."""
+    in_p = lp.Place("IN")
+    a, b, accepted = lp.Place("branchA"), lp.Place("branchB"), lp.Place("accepted")
+
+    net = (
+        lp.Net("nu_env_route_b")
+        .transition(
+            lp.Transition("fork")
+            .input(lp.one(in_p))
+            .output(lp.and_(a, b))
+            .action(lp.fork)
+            .build()
+        )
+        .transition(
+            # A match transition with no declared budget place: has_match and not
+            # nu_bounded, which is exactly Route B's trigger.
+            lp.Transition("join")
+            .input(lp.one(a))
+            .input(lp.one(b))
+            .match_spec(lp.match_spec([(a, lambda m: m), (b, lambda m: m)]))
+            .output(lp.out(accepted))
+            .action(lp.fork)
+            .build()
+        )
+        .build()
+    )
+
+    result = lp.verify(
+        net,
+        lp.place_bound(accepted, 0),
+        environment_places=["IN"],
+        environment_mode=lp.ignore(),
+        timeout_ms=15_000,
+    )
+    assert result.verdict == "unknown", result.report
+
+
 def _semiflow_loop():
     """VER-007 test derivation: a budgeted work loop with one reset arc on a side
     place. Open: one(Budget), reset(Stamp) -> and(Work, Stamp); Step: one(Work) ->
@@ -187,6 +230,96 @@ def _semiflow_loop():
         .build()
     )
     return work, sink, net
+
+
+def _coloured_loop():
+    """The scatter-gather ν-net (which puts the verifier on the name-coloured encoder)
+    alongside the reset-bearing loop above (which is what makes the null-space basis
+    deficient). The two halves share no places; the loop is there purely so the
+    semiflow enumeration has a law to contribute.
+
+    The reset arc has to sit on the uncoloured half: the coloured encoder rejects any
+    transition whose reset or consume-all set touches a coloured place, and the plan is
+    then refused and the verifier falls back silently to the flat encoding — which would
+    make the test pass for the wrong reason. That is what the ``coloured`` assertions
+    guard.
+    """
+    source, budget, pending = lp.Place("source"), lp.Place("budget"), lp.Place("pending")
+    a, b, merged = lp.Place("branchA"), lp.Place("branchB"), lp.Place("merged")
+    loop_budget, work, done = lp.Place("loopBudget"), lp.Place("Work"), lp.Place("Done")
+    stamp, sink = lp.Place("Stamp"), lp.Place("Sink")
+
+    net = (
+        lp.Net("coloured_loop")
+        .transition(
+            lp.Transition("fork")
+            .input(lp.one(source))
+            .input(lp.one(budget))
+            .output(lp.and_(a, b, pending))
+            .action(lp.fork)
+            .build()
+        )
+        .transition(
+            lp.Transition("join")
+            .input(lp.one(a))
+            .input(lp.one(b))
+            .input(lp.one(pending))
+            .match_spec(lp.match_spec([(a, lambda m: m), (b, lambda m: m)]))
+            .output(lp.and_(merged, budget))
+            .action(lp.fork)
+            .build()
+        )
+        .transition(
+            lp.Transition("Open")
+            .input(lp.one(loop_budget))
+            .reset(lp.reset(stamp))
+            .output(lp.and_(lp.out(work), lp.out(stamp)))
+            .action(lp.fork)
+            .build()
+        )
+        .transition(
+            lp.Transition("Step").input(lp.one(work)).output(lp.out(done)).action(lp.fork).build()
+        )
+        .transition(
+            lp.Transition("Close")
+            .input(lp.one(done))
+            .output(lp.and_(lp.out(loop_budget), lp.out(sink)))
+            .action(lp.fork)
+            .build()
+        )
+        .build()
+    )
+    return pending, net
+
+
+def _coloured_scripts(net, pending, semiflows):
+    return lp.encode_smt_scripts(
+        net,
+        lp.branch_place_bound(pending, 2),
+        initial_marking={"source": 3, "budget": 2, "loopBudget": 1},
+        budget_places=["budget"],
+        semiflow_invariants=semiflows,
+    )
+
+
+def test_semiflows_reach_the_coloured_encoder():
+    """VER-007: the strengthened list reaches the *name-coloured* encoder, not only the
+    flat one. Solver-free — ``encode_smt_scripts`` returns the script a verification
+    would send.
+
+    This is the case that catches the coloured encoder being handed the semiflows where
+    it wants the strengthened invariants: they are separate lists, and every other test
+    is blind to the swap.
+    """
+    pending, net = _coloured_loop()
+    off = _coloured_scripts(net, pending, False)
+    on = _coloured_scripts(net, pending, True)
+
+    assert off["coloured"], "fixture must take the name-coloured path, not fall back to flat"
+    assert on["coloured"], "fixture must take the name-coloured path, not fall back to flat"
+    assert off["horn"] != on["horn"], (
+        "the semiflows must change the coloured HORN script when the option is on"
+    )
 
 
 def test_semiflow_invariants_kwarg_adds_the_report_line():

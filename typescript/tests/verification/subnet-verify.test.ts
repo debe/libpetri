@@ -8,6 +8,7 @@ import {
   type SmtProperty,
 } from '../../src/verification/smt-property.js';
 import type { TokenSupplier } from '../../src/verification/verification-harness.js';
+import { bounded, ignore } from '../../src/verification/analysis/environment-analysis-mode.js';
 import {
   consumer,
   leakyBucket,
@@ -187,14 +188,11 @@ describe('SubnetDef.verify (MOD-051 harness)', () => {
     }
   }, Z3_TIMEOUT);
 
-  it.skipIf(!Z3_AVAILABLE)('verify_leakyBucket_isKBounded — verifier produces a per-property result', async () => {
-    // End-to-end: discover the synthetic accept place from a probe call,
-    // then verify a PlaceBound property against it. We assert the verifier
-    // runs and produces a well-formed SmtVerificationResult; we don't
-    // assert a specific verdict because the over-approximating
-    // environment-analysis mode in net-flattener treats the env place as
-    // unbounded by default, which can change the verdict from a strict
-    // bound test.
+  it.skipIf(!Z3_AVAILABLE)('verify_leakyBucket_isKBounded — the accept bound is proven', async () => {
+    // End-to-end: discover the synthetic accept place from a probe call, then
+    // verify a PlaceBound property against it. With no slots seeded, accept is
+    // unreachable and the bound holds at 0 however much the environment
+    // injects, so this ends in a proof — MOD-051's own test derivation.
     const bucket = leakyBucket(2);
     const requestSupplier: TokenSupplier = () => tokenOf('req');
 
@@ -229,7 +227,59 @@ describe('SubnetDef.verify (MOD-051 harness)', () => {
     const verdict = result.perProperty.get(props[0]!);
     expect(verdict).toBeDefined();
     expect(verdict!.report).toBeDefined();
-    expect(verdict!.verdict.type).toMatch(/proven|violated|unknown/);
+    // Pins the harness's environment mode reaching the verifier: under
+    // ignore() [VER-006] downgrades this to unknown.
+    expect(verdict!.verdict.type, verdict!.report).toBe('proven');
+  }, Z3_TIMEOUT);
+
+  // VER-006 on the MOD-051 path: the negative control for the test above. Without
+  // it, verify_leakyBucket_isKBounded would pass even if the mode never reached the
+  // verifier.
+  it.skipIf(!Z3_AVAILABLE)('verify_ignoreMode_cannotProve', async () => {
+    const bucket = leakyBucket(2);
+    const requestSupplier: TokenSupplier = () => tokenOf('req');
+    const harness = {
+      params: { rate: 2, label: 'lb' },
+      portInputGenerators: { request: requestSupplier },
+      properties: [] as SmtProperty[],
+    };
+
+    const probe = await bucket.verify(harness);
+    let acceptPlace = undefined;
+    for (const p of probe.syntheticNet.places) {
+      if (p.name === 'harness_out_accept') { acceptPlace = p; break; }
+    }
+    expect(acceptPlace).toBeDefined();
+
+    const props: SmtProperty[] = [placeBound(acceptPlace!, 0)];
+    const result = await bucket.verify({ ...harness, properties: props }, ignore());
+
+    const verdict = result.perProperty.get(props[0]!);
+    expect(verdict!.verdict.type, verdict!.report).not.toBe('proven');
+  }, Z3_TIMEOUT);
+
+  // MOD-051 AC3: bounded(k) is the mode that expresses a generator bounding the input.
+  it.skipIf(!Z3_AVAILABLE)('verify_boundedMode_proves', async () => {
+    const bucket = leakyBucket(2);
+    const requestSupplier: TokenSupplier = () => tokenOf('req');
+    const harness = {
+      params: { rate: 2, label: 'lb' },
+      portInputGenerators: { request: requestSupplier },
+      properties: [] as SmtProperty[],
+    };
+
+    const probe = await bucket.verify(harness);
+    let acceptPlace = undefined;
+    for (const p of probe.syntheticNet.places) {
+      if (p.name === 'harness_out_accept') { acceptPlace = p; break; }
+    }
+    expect(acceptPlace).toBeDefined();
+
+    const props: SmtProperty[] = [placeBound(acceptPlace!, 0)];
+    const result = await bucket.verify({ ...harness, properties: props }, bounded(1));
+
+    const verdict = result.perProperty.get(props[0]!);
+    expect(verdict!.verdict.type, verdict!.report).toBe('proven');
   }, Z3_TIMEOUT);
 
   it.skipIf(!Z3_AVAILABLE)('verify_emptyProperties_allProvenIsVacuouslyTrue', async () => {

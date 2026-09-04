@@ -1,5 +1,6 @@
 package org.libpetri.core;
 
+import org.libpetri.analysis.EnvironmentAnalysisMode;
 import org.libpetri.core.internal.SubnetRewriter;
 import org.libpetri.smt.SmtVerificationResult;
 import org.libpetri.smt.SmtVerifier;
@@ -207,7 +208,35 @@ public final class SubnetDef<P> implements Subnet.Open {
      * @throws IllegalStateException when the synthetic net violates [CORE-043]
      */
     public VerificationResult verify(VerificationHarness<P> harness) {
+        return verify(harness, EnvironmentAnalysisMode.alwaysAvailable());
+    }
+
+    /**
+     * As {@link #verify(VerificationHarness)}, with an explicit environment-analysis
+     * mode for the synthetic environment places ([VER-006], [MOD-051] AC3).
+     *
+     * <p>The synthetic net has environment places by construction, so this mode decides
+     * what a verdict means. The default,
+     * {@link EnvironmentAnalysisMode#alwaysAvailable()}, over-approximates: a
+     * {@code Proven} under it holds for any environment. Pass
+     * {@link EnvironmentAnalysisMode#bounded(int)} to prove a property that holds only
+     * when the environment injects at most {@code k} tokens — that is the mode that
+     * expresses a generator bounding the input.
+     *
+     * <p>{@link EnvironmentAnalysisMode#ignore()} is accepted but cannot yield
+     * {@code Proven}: [VER-006] refuses to certify a proof that holds only because
+     * injection was never modelled.
+     *
+     * @param harness the verification harness
+     * @param environmentMode how injection into the synthetic environment places is
+     *                        modeled
+     * @return a {@link VerificationResult} aggregating per-property
+     *         {@link SmtVerificationResult}s
+     */
+    public VerificationResult verify(
+            VerificationHarness<P> harness, EnvironmentAnalysisMode environmentMode) {
         Objects.requireNonNull(harness, "harness");
+        Objects.requireNonNull(environmentMode, "environmentMode");
 
         // Step 1: instantiate this SubnetDef under the "sut" prefix.
         var sut = instantiate("sut", harness.params());
@@ -284,9 +313,16 @@ public final class SubnetDef<P> implements Subnet.Open {
             org.libpetri.smt.SmtProperty, SmtVerificationResult>(
                 harness.properties().size() * 2);
         for (var property : harness.properties()) {
+            // Set explicitly rather than inherited: the synthetic env places are
+            // the harness's own, so how injection is modelled is the harness's
+            // call ([MOD-051] AC3), not the verifier default's. Under
+            // EnvironmentAnalysisMode.ignore() [VER-006] downgrades every proof
+            // about a net with env places to Unknown, so a subnet with an input
+            // port could never be proven.
             var result = SmtVerifier.forNet(syntheticNet)
                 .property(property)
                 .environmentPlaces(envPlaces.toArray(new EnvironmentPlace<?>[0]))
+                .environmentMode(environmentMode)
                 .verify();
             perProperty.put(property, result);
         }

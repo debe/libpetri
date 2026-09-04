@@ -444,6 +444,50 @@ class SmtVerifierTest {
             "ignore mode with env places must not silently prove\n" + result.report());
     }
 
+    /**
+     * [VER-006] binds Route B too. An unbudgeted ν-net takes the name-partition
+     * state-class graph, which returns its verdict without passing the solver path's
+     * vacuity guard; under {@code ignore()} the graph treats the environment place as
+     * an ordinary empty one, so {@code accepted} is unreachable and the bound holds
+     * for a reason that says nothing about the real system.
+     *
+     * <p>Solver-free: Route B is structural, so no {@code @EnabledIf} is needed.
+     */
+    @Test
+    void ver006_ignoreModeOnRouteB_downgradesToUnknown() {
+        var in = EnvironmentPlace.of(Place.of("IN", String.class));
+        var branchA = Place.of("branchA", String.class);
+        var branchB = Place.of("branchB", String.class);
+        var accepted = Place.of("accepted", String.class);
+
+        var fork = Transition.builder("fork")
+            .inputs(In.one(in.place()))
+            .outputs(Out.and(branchA, branchB))
+            .build();
+        // A match transition with no declared budget place: hasMatch && !nuBounded,
+        // which is exactly Route B's trigger.
+        var join = Transition.builder("join")
+            .inputs(In.one(branchA), In.one(branchB))
+            .match(MatchSpec.builder()
+                .key(branchA, (String v) -> NameId.of(v))
+                .key(branchB, (String v) -> NameId.of(v))
+                .build())
+            .outputs(Out.place(accepted))
+            .build();
+        var net = PetriNet.builder("nu-env-routeB").transitions(fork, join).build();
+
+        var result = SmtVerifier.forNet(StructureOnly.bind(net))
+            .environmentPlaces(in)
+            .environmentMode(EnvironmentAnalysisMode.ignore())
+            .property(SmtProperty.placeBound(accepted, 0))
+            .timeout(Duration.ofSeconds(15))
+            .verify();
+
+        assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(),
+            "Route B must not certify a bound that holds only because injection was "
+                + "never modelled\n" + result.report());
+    }
+
     @Test
     @EnabledIf("z3Available")
     void resetArc_correctEncoding() {

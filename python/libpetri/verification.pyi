@@ -55,6 +55,8 @@ def verify(
 def verify_subnet(
     subnet: BuiltSubnetDef,
     harness: VerificationHarness | Iterable[SmtProperty],
+    *,
+    environment_mode: EnvironmentAnalysisMode | None = ...,
 ) -> SubnetVerificationResult: ...
 def encode_smt_scripts(
     net: BuiltNet,

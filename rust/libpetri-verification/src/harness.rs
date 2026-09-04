@@ -30,6 +30,7 @@ use libpetri_core::place::{Place, PlaceRef};
 use libpetri_core::subnet_def::SubnetDef;
 use libpetri_core::token::{ErasedToken, Token};
 
+use crate::environment::EnvironmentAnalysisMode;
 use crate::property::SmtProperty;
 use crate::result::VerificationResult as SmtVerificationResult;
 #[cfg(feature = "z3")]
@@ -114,6 +115,7 @@ impl<P> VerificationHarness<P> {
         self.properties.push(property);
         self
     }
+
 }
 
 impl Default for VerificationHarness<()> {
@@ -188,11 +190,38 @@ pub trait SubnetVerifyExt<P: 'static> {
     /// - Panics if any input or in-out port is missing a supplier in
     ///   `harness.port_input_generators`.
     fn verify(&self, harness: VerificationHarness<P>) -> SubnetVerificationResult;
+
+    /// As [`SubnetVerifyExt::verify`], with an explicit environment-analysis mode
+    /// for the synthetic environment places ([VER-006], [MOD-051] AC3).
+    ///
+    /// The synthetic net has environment places by construction, so this mode decides
+    /// what a verdict means. [`EnvironmentAnalysisMode::AlwaysAvailable`], the default
+    /// used by [`SubnetVerifyExt::verify`], over-approximates: a `Proven` under it
+    /// holds for any environment. [`EnvironmentAnalysisMode::Bounded`] is the mode that
+    /// expresses a generator bounding the input to at most `k` tokens.
+    /// [`EnvironmentAnalysisMode::Ignore`] is accepted but cannot yield `Proven`:
+    /// [VER-006] refuses to certify a proof that holds only because injection was never
+    /// modeled.
+    fn verify_with_mode(
+        &self,
+        harness: VerificationHarness<P>,
+        environment_mode: EnvironmentAnalysisMode,
+    ) -> SubnetVerificationResult;
 }
 
 impl<P: 'static> SubnetVerifyExt<P> for SubnetDef<P> {
     fn verify(&self, harness: VerificationHarness<P>) -> SubnetVerificationResult {
         verify_subnet(self, harness)
+    }
+
+    /// As [`SubnetVerifyExt::verify`], with an explicit environment-analysis mode
+    /// ([VER-006], [MOD-051] AC3).
+    fn verify_with_mode(
+        &self,
+        harness: VerificationHarness<P>,
+        environment_mode: EnvironmentAnalysisMode,
+    ) -> SubnetVerificationResult {
+        verify_subnet_with_mode(self, harness, environment_mode)
     }
 }
 
@@ -201,6 +230,16 @@ impl<P: 'static> SubnetVerifyExt<P> for SubnetDef<P> {
 pub fn verify_subnet<P: 'static>(
     def: &SubnetDef<P>,
     harness: VerificationHarness<P>,
+) -> SubnetVerificationResult {
+    verify_subnet_with_mode(def, harness, EnvironmentAnalysisMode::AlwaysAvailable)
+}
+
+/// As [`verify_subnet`], with an explicit environment-analysis mode ([VER-006],
+/// [MOD-051] AC3). See [`SubnetVerifyExt::verify_with_mode`].
+pub fn verify_subnet_with_mode<P: 'static>(
+    def: &SubnetDef<P>,
+    harness: VerificationHarness<P>,
+    environment_mode: EnvironmentAnalysisMode,
 ) -> SubnetVerificationResult {
     let VerificationHarness {
         params,
@@ -282,7 +321,8 @@ pub fn verify_subnet<P: 'static>(
     // Step 4: invoke the SmtVerifier once per property and aggregate
     // results. Iteration order matches the harness's property collection
     // for deterministic per-property reporting.
-    let per_property = run_per_property(&synthetic_net, &properties, &env_place_names);
+    let per_property =
+        run_per_property(&synthetic_net, &properties, &env_place_names, environment_mode);
 
     SubnetVerificationResult {
         synthetic_net,
@@ -299,12 +339,17 @@ fn run_per_property(
     synthetic_net: &PetriNet,
     properties: &[SmtProperty],
     env_place_names: &[String],
+    environment_mode: EnvironmentAnalysisMode,
 ) -> Vec<(SmtProperty, SmtVerificationResult)> {
     let mut per_property = Vec::with_capacity(properties.len());
     for property in properties {
+        // Set explicitly rather than inherited: the synthetic env places are
+        // the harness's own, so how injection is modelled is the harness's
+        // call ([MOD-051] AC3), not the verifier default's.
         let result = SmtVerifier::for_net(synthetic_net)
             .property(property.clone())
             .environment_places(env_place_names.iter().cloned())
+            .environment_mode(environment_mode.clone())
             .verify();
         per_property.push((property.clone(), result));
     }
@@ -316,6 +361,7 @@ fn run_per_property(
     _synthetic_net: &PetriNet,
     properties: &[SmtProperty],
     _env_place_names: &[String],
+    _environment_mode: EnvironmentAnalysisMode,
 ) -> Vec<(SmtProperty, SmtVerificationResult)> {
     use crate::result::{Verdict, VerificationStatistics};
 
@@ -597,7 +643,7 @@ mod tests {
 
     #[cfg(feature = "z3")]
     #[test]
-    fn verify_leaky_bucket_returns_well_formed_result() {
+    fn verify_leaky_bucket_accept_bound_is_proven() {
         if !z3_binary_available() {
             // No Z3 binary in the sandbox — match Java's @EnabledIf skip.
             return;
@@ -621,11 +667,12 @@ mod tests {
         assert_eq!(result.per_property.len(), 1,
             "result must have one entry per harness property");
         let (_, verdict) = &result.per_property[0];
-        // We do not assert isProven specifically because the outcome
-        // depends on environment-analysis mode; the structural assertion
-        // is that the verifier ran and produced a non-empty report
-        // (matches Java's SubnetVerifyTest.verify_leakyBucket_isKBounded).
-        assert!(!verdict.report.is_empty(),
-            "verifier must produce a non-empty report");
+        // [MOD-051]'s test derivation ends in a proof: no slots are seeded, so
+        // `accept` is unreachable and the bound holds at 0 however much the
+        // environment injects. This asserted nothing until the harness carried
+        // an environment mode — the verifier inherited `Ignore` and [VER-006]
+        // downgraded every proof to `Unknown`.
+        assert!(verdict.is_proven(),
+            "leaky-bucket accept bound must be proven: {}", verdict.report);
     }
 }

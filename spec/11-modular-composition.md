@@ -688,16 +688,20 @@ A subnet definition SHOULD support a local verification operation `verify(harnes
 1. A `params` value of the subnet's parameter type.
 2. For each input port, a token-source description (e.g., a generator over an environment place per [ENV-001]) that bounds the input behavior to be considered.
 3. The set of properties to check (per [VER-002]).
+4. How injection into those environment places is modeled, per [VER-006] — supplied with the harness or defaulted by the implementation.
 
 The implementation MAY realize this by wrapping the subnet in a synthetic enclosing net where each input port is fed by an `EnvironmentPlace` driven by the harness generator and each output port is observed read-only, then invoking the standard verifier per [MOD-050].
+
+Item 4 is what makes AC3 mean anything. The synthetic net has environment places by construction, so the environment mode decides what a verdict is worth: under `Ignore` the verifier models no injection, and [VER-006] refuses to certify any `Proven` that results, so **a subnet with an input port can never be proven** — a `Violated` still comes back, since a counterexample found without injection is a counterexample with it. `verify` therefore SHOULD default to `AlwaysAvailable`, under which a `Proven` holds for every environment, and SHOULD let the caller pass a mode instead; `Bounded(k)` is the mode that expresses a generator bounding the input to at most `k` tokens.
 
 **Acceptance Criteria:**
 1. Where provided, `verify(harness)` returns a verification result of the same shape as the standard verifier per [VER-003].
 2. Invoking `verify` does not require the subnet to be composed into any enclosing net.
 3. The harness's input generators bound the input behavior for the verification.
+4. The environment-analysis mode of [VER-006] is selectable per verification and defaults to one that models injection, so a subnet with an input port is not refused a `Proven` by default.
 
-**Depends on:** [MOD-001], [VER-001], [ENV-001]
-**Test derivation:** Build a leaky-bucket subnet parameterised by rate; supply a harness with a bounded request generator; verify that the bucket's `accepted` place is k-bounded for the specified k.
+**Depends on:** [MOD-001], [VER-001], [VER-006], [ENV-001]
+**Test derivation:** Build a leaky-bucket subnet parameterised by rate; supply a harness with a request generator and leave its permit place unseeded; verify that the bucket's `accepted` place is `0`-bounded — unreachable however much the environment injects — under the default mode and under `Bounded(k)`, and that the same query is refused under `Ignore`.
 
 ---
 

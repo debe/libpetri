@@ -326,6 +326,7 @@ def test_verdict_parity_fixtures():
             # ν budget places (NU-040, Route A's coloured encoding).
             sink_places=fixture.get("sinkPlaces") or None,
             budget_places=fixture.get("budgetPlaces") or None,
+            semiflow_invariants=bool(fixture.get("semiflowInvariants", False)),
             # Both independent validation layers explicitly ON — the point of
             # the parity suite (they are also the defaults).
             certificate_check=True,

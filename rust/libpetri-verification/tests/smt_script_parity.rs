@@ -69,6 +69,8 @@ fn verifier_for<'a>(fixture: &Json, built: &'a nets::FixtureNet) -> SmtVerifier<
     if !budgets.is_empty() {
         verifier = verifier.budget_places(budgets.iter().cloned());
     }
+    // Optional shared-schema field: [VER-007]'s semiflow union.
+    verifier = verifier.semiflow_invariants(fixture.bool_opt("semiflowInvariants"));
     verifier
 }
 

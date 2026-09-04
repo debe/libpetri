@@ -45,6 +45,7 @@ def test_smt_scripts_match_the_committed_goldens():
             initial_marking=marking,
             sink_places=fixture.get("sinkPlaces") or None,
             budget_places=fixture.get("budgetPlaces") or None,
+            semiflow_invariants=bool(fixture.get("semiflowInvariants", False)),
             counterexample_replay=True,
             **env,
         )
