@@ -11,7 +11,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 - Active requirements: **210**
 - Proven in Lean (≥ 1 validated theorem fragment): **24**
 - Referenced in Lean comments only (mention without a validated theorem mapping): **7**
-- Referenced by ≥ 1 test file: java **68**, typescript **65**, rust **73**, python **25**
+- Referenced by ≥ 1 test file: java **68**, typescript **65**, rust **73**, python **26**
 - Untested anywhere (no test-file reference in any language): **130**
 
 ## 01-core-model.md — CORE
@@ -263,7 +263,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | MOD-040 | — | — | ✓ | ✓ | ✓ | — |
 | MOD-041 | — | — | ✓ | ✓ | ✓ | — |
 | MOD-050 | — | — | — | — | — | — |
-| MOD-051 | — | — | ✓ | ✓ | ✓ | — |
+| MOD-051 | — | — | ✓ | ✓ | ✓ | ✓ |
 | MOD-060 | — | — | ✓ | ✓ | ✓ | — |
 | MOD-061 | — | — | ✓ | ✓ | ✓ | — |
 

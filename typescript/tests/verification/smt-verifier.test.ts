@@ -16,7 +16,7 @@ import { matchSpec, matchKey } from '../../src/core/match-spec.js';
 import { nameId } from '../../src/core/name.js';
 import { alwaysAvailable, bounded, ignore } from '../../src/verification/analysis/environment-analysis-mode.js';
 import { bindProducers } from '../fixtures/producing-actions.js';
-import { describeZ3 } from '../fixtures/z3.js';
+import { describeZ3, Z3_AVAILABLE } from '../fixtures/z3.js';
 
 // Solver-backed: every suite here skips without a usable z3 executable (VER-013).
 const Z3_TIMEOUT = 60_000;
@@ -376,6 +376,46 @@ describeZ3('SmtVerifier (Z3 integration)', () => {
         .verify();
       // Ignore mode does not model injection; a "proven" here would be vacuous.
       expect(result.verdict.type).toBe('unknown');
+    }, Z3_TIMEOUT);
+
+    // VER-006 binds Route B too. An unbudgeted ν-net takes the name-partition
+    // state-class graph, which returns its verdict without passing the solver path's
+    // vacuity guard; under `ignore` the graph treats the environment place as an
+    // ordinary empty one, so `accepted` is unreachable and the bound holds for a
+    // reason that says nothing about the real system.
+    //
+    // Route B is structural, so this needs no solver — but it lives in this z3-gated
+    // block beside its sibling, and asserting `unknown` is correct either way.
+    it('ignore mode on Route B does not silently prove (NU-050)', async () => {
+      const inEnv = environmentPlace(place<string>('IN'));
+      const branchA = place<string>('branchA');
+      const branchB = place<string>('branchB');
+      const accepted = place<string>('accepted');
+
+      const fork = Transition.builder('fork')
+        .inputs(one(inEnv.place))
+        .outputs(andPlaces(branchA, branchB))
+        .build();
+      // A match transition with no declared budget place: hasMatch && !nuBounded,
+      // which is exactly Route B's trigger.
+      const join = Transition.builder('join')
+        .inputs(one(branchA), one(branchB))
+        .match(matchSpec(
+          matchKey(branchA, (v: string) => nameId(v)),
+          matchKey(branchB, (v: string) => nameId(v)),
+        ))
+        .outputs(outPlace(accepted))
+        .build();
+      const net = PetriNet.builder('nu-env-routeB').transitions(fork, join).build();
+
+      const result = await SmtVerifier.forNet(bindProducers(net))
+        .environmentPlaces(inEnv)
+        .environmentMode(ignore())
+        .property(placeBound(accepted, 0))
+        .timeout(30_000)
+        .verify();
+
+      expect(result.verdict.type, result.report).toBe('unknown');
     }, Z3_TIMEOUT);
 
     it('control: closed net placeBound stays sound (defect is env-specific)', async () => {
@@ -989,7 +1029,9 @@ describeZ3('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
 // a separate file so their solver run gets its own z3 WASM heap rather than
 // adding to this file's, which already runs close to the 2 GB wasm32 ceiling.
 
-describeZ3('SmtVerifier semiflow invariants (VER-007)', () => {
+// Plain `describe`, not describeZ3: the AC6 case below is solver-free and must run
+// wherever the suite runs. The cases that actually query z3 are gated individually.
+describe('SmtVerifier semiflow invariants (VER-007)', () => {
   // A budgeted work loop with one reset arc on a side place — the shape that makes
   // the null-space basis fold the reset place into the loop's conservation law and
   // lose it to the H1 guard. The semiflow enumeration still finds
@@ -1013,7 +1055,7 @@ describeZ3('SmtVerifier semiflow invariants (VER-007)', () => {
     return bindProducers(PetriNet.builder('loop').transitions(open, step, close).build());
   }
 
-  it('encodes the semiflows only when enabled (AC2/AC3)', async () => {
+  it.skipIf(!Z3_AVAILABLE)('encodes the semiflows only when enabled (AC2/AC3)', async () => {
     const off = await SmtVerifier.forNet(loop())
       .initialMarking(m => m.tokens(BUDGET, 1))
       .property(placeBound(WORK, 1))
@@ -1038,7 +1080,82 @@ describeZ3('SmtVerifier semiflow invariants (VER-007)', () => {
     ).toBe(true);
   }, Z3_TIMEOUT);
 
-  it('never hides a counterexample (AC5)', async () => {
+  // The scatter-gather ν-net (which puts the verifier on the name-coloured encoder)
+  // alongside the reset-bearing loop above (which is what makes the null-space basis
+  // deficient). The two halves share no places; the loop is there purely so the
+  // semiflow enumeration has a law to contribute.
+  //
+  // The reset arc has to sit on the uncoloured half: the coloured encoder rejects any
+  // transition whose reset or consume-all set touches a coloured place, and buildPlan
+  // then returns null and the verifier falls back silently to the flat encoding — which
+  // would make this pass for the wrong reason. That is what the `coloured` assertions
+  // are guarding.
+  // Distinct from the ν budget below: 'Budget' and 'budget' differ only by case.
+  const LOOP_BUDGET = place('loopBudget');
+  const NU_SOURCE = place('source');
+  const NU_BUDGET = place('budget');
+  const NU_PENDING = place('pending');
+  const NU_A = place('branchA');
+  const NU_B = place('branchB');
+  const NU_MERGED = place('merged');
+
+  function colouredLoop(): PetriNet {
+    const fork = Transition.builder('fork')
+      .inputs(one(NU_SOURCE), one(NU_BUDGET))
+      .outputs(andPlaces(NU_A, NU_B, NU_PENDING))
+      .build();
+    const join = Transition.builder('join')
+      .inputs(one(NU_A), one(NU_B), one(NU_PENDING))
+      .match(matchSpec(
+        matchKey(NU_A, (s: string) => nameId(s)),
+        matchKey(NU_B, (s: string) => nameId(s)),
+      ))
+      .outputs(andPlaces(NU_MERGED, NU_BUDGET))
+      .build();
+    const open = Transition.builder('Open')
+      .inputs(one(LOOP_BUDGET))
+      .resets(STAMP)
+      .outputs(andPlaces(WORK, STAMP))
+      .build();
+    const step = Transition.builder('Step').inputs(one(WORK)).outputs(outPlace(DONE)).build();
+    const close = Transition.builder('Close')
+      .inputs(one(DONE))
+      .outputs(andPlaces(LOOP_BUDGET, SINK))
+      .build();
+    return bindProducers(PetriNet.builder('colouredLoop')
+      .transitions(fork, join, open, step, close)
+      .build());
+  }
+
+  function colouredVerifier(semiflows: boolean) {
+    return SmtVerifier.forNet(colouredLoop())
+      .initialMarking(m => { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); m.tokens(LOOP_BUDGET, 1); })
+      .property(branchPlaceBound(NU_PENDING, 2))
+      .budgetPlaces(NU_BUDGET)
+      .semiflowInvariants(semiflows);
+  }
+
+  it('hands the strengthened list to the name-coloured encoder too', () => {
+    // Solver-free: encodeScripts() returns the script a verification would send, so
+    // this needs no z3. It is the case that catches the coloured encoder being handed
+    // the semiflows where it wants the strengthened invariants — the two are separate
+    // lists passed a line apart, and every other test is blind to the swap.
+    const off = colouredVerifier(false).encodeScripts();
+    const on = colouredVerifier(true).encodeScripts();
+
+    expect(off.coloured, 'fixture must take the name-coloured path, not fall back to flat').toBe(true);
+    expect(on.coloured, 'fixture must take the name-coloured path, not fall back to flat').toBe(true);
+    expect(on.horn, 'the semiflows must change the coloured HORN script when the option is on')
+      .not.toBe(off.horn);
+  });
+
+  it.skipIf(!Z3_AVAILABLE)('counts the semiflows on the coloured path', async () => {
+    const result = await colouredVerifier(true).timeout(30_000).verify();
+    expect(result.report).toContain('name-coloured');
+    expect(result.report).toContain('  Semiflows encoded as invariants: ');
+  }, Z3_TIMEOUT);
+
+  it.skipIf(!Z3_AVAILABLE)('never hides a counterexample (AC5)', async () => {
     // Sink accumulates one token per loop iteration: the bound 1 is genuinely violated.
     const result = await SmtVerifier.forNet(loop())
       .initialMarking(m => m.tokens(BUDGET, 1))

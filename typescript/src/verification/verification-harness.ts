@@ -71,6 +71,7 @@ export interface VerificationHarness<P = void> {
    * {@link VerificationResult.perProperty}.
    */
   readonly properties: ReadonlySet<SmtProperty> | readonly SmtProperty[];
+
 }
 
 /**

@@ -142,6 +142,14 @@ environment-gated transitions never fire is vacuous. When environment places are
 the mode does not model injection (`Ignore`), the verifier MUST NOT return `Proven` for such a
 property — it reports `Unknown` (with a reason) instead of silently certifying.
 
+This binds **every route that can return `Proven`**, not only the SMT encoding. An
+implementation that decides some properties structurally — the name-partition state-class graph
+of [NU-050], say — reaches a verdict without ever building an encoding, and a structural
+exploration under `Ignore` treats an environment place as an ordinary place that simply starts
+empty. The bound it certifies then holds for exactly the reason this requirement rejects. Only
+`Proven` is refused: a `Violated` under `Ignore` is a real counterexample in a strictly smaller
+reachable set, so it is a fortiori a counterexample in the injected one.
+
 **Acceptance Criteria:**
 1. Each mode is selectable via the verifier configuration.
 2. `AlwaysAvailable` allows broader reachability (more states): for a net `env IN → T → OUT`,
@@ -149,9 +157,14 @@ property — it reports `Unknown` (with a reason) instead of silently certifying
 3. `Bounded(k)` limits the state space: a transition requiring more than k tokens from an
    environment place per firing is never enabled.
 4. `Ignore` with registered environment places never returns `Proven` (reports `Unknown`).
+5. AC4 holds on every route the implementation offers, including any structural or state-class
+   route that returns a verdict without invoking the solver.
 
 **Test derivation:** Same net (`env IN → T → OUT`) with different environment modes; verify
 `AlwaysAvailable` → `Violated`, `Bounded(k)` gates by per-firing multiplicity, `Ignore` → `Unknown`.
+For AC5, a ν-net with an environment place and no declared budget place (which routes to the
+state-class graph rather than the solver) under `Ignore`: a bound that is unreachable only because
+injection was not modelled reports `Unknown`, not `Proven`.
 
 ---
 
@@ -183,6 +196,20 @@ stay byte-identical across releases. It is pure strengthening (Lean `Semiflow.le
 `semiflow_union_sound`: conjoining any list of gate-validated laws preserves the abstract
 reachable set), so enabling it can never turn a `Violated` into a `Proven`.
 
+"The encoders" is both of them. The strengthened list reaches the **name-coloured** encoder of
+[NU-050] exactly as it reaches the flat one — a coloured place's term becomes the sum over its
+colour slots, its aggregate count, so one law stays one equation — and the option is at its most
+decisive there: a coloured query already carries the
+colour layer's cost, so the laws IC3 would otherwise have to rediscover are the ones it can
+least afford to. The trigger is worth stating plainly, because it is the common shape rather
+than an exotic one: **a net with even one `all()` / `atLeast(n)` or reset arc on a busy place
+loses every basis row whose support touches that place**, so the encoder runs on a deficient
+invariant set with nothing in the report to say a law is missing beyond the `Dropped` lines.
+Draining an input queue is the everyday case. The option does not rescue those rows — semiflows
+face the same gate and a law whose support touches the place is dropped either way. It supplies
+the *other* laws: the minimal ones that avoid the place entirely, which elimination had folded
+away.
+
 **Acceptance Criteria:**
 1. Semiflows are re-validated by the same exact gate as the basis rows before use; a semiflow
    that fails it is dropped with a `Dropped semiflow:` report line and is never encoded.
@@ -195,6 +222,12 @@ reachable set), so enabling it can never turn a `Violated` into a `Proven`.
    receives the strengthened list and re-proves every law's initiation and consecution against
    the unstrengthened step relation before the verdict is reported.
 5. A genuine violation stays `Violated` with the option enabled.
+6. The strengthened list reaches the name-coloured encoder ([NU-050]) as well as the flat one:
+   there is a net on the coloured path whose encoded script differs between the option's two
+   states. (Not every such net — a semiflow already present in the basis dedups away, and AC3
+   admits `N = 0`, in which case the two scripts are identical.) This is about what the encoder
+   receives, not about certification — AC4's certificate check is flat-path only, and a coloured
+   `Proven` reports `  Certificate check: not applicable (name-coloured encoding)`.
 
 **Implementation notes:**
 - Java: `SmtVerifier.semiflowInvariants(boolean)`.
@@ -202,11 +235,16 @@ reachable set), so enabling it can never turn a `Violated` into a `Proven`.
 - Rust: `SmtVerifier::semiflow_invariants(bool)`.
 - Python: `verify(..., semiflow_invariants=True)`.
 
-**Depends on:** [VER-004], [VER-005], [VER-006], [NU-053]
+**Depends on:** [VER-004], [VER-005], [VER-006], [NU-050], [NU-053]
 
 **Test derivation:** a budgeted work loop with one reset arc on a side place, whose null-space
 basis folds the reset place into the loop's law: a `placeBound` on the loop is proven only with
-the option; a bound the loop genuinely exceeds stays `Violated` with it.
+the option; a bound the loop genuinely exceeds stays `Violated` with it. For AC6, the same loop
+beside a budget-declared ν-net, with the reset arc on the uncoloured half (the coloured encoder
+refuses a reset on a coloured place, and the net would silently fall back to the flat encoding):
+the encoded script must report itself coloured and must differ between the option's two states.
+
+---
 
 #### VER-013: Solver Transport
 

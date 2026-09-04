@@ -58,6 +58,8 @@ describe('SMT script parity with the Rust goldens (VER-013 AC1)', () => {
       if (fixture.budgetPlaces != null && fixture.budgetPlaces.length > 0) {
         verifier.budgetPlaces(...fixture.budgetPlaces.map(n => placeOf(built.places, n)));
       }
+      // Optional shared-schema field: [VER-007]'s semiflow union.
+      verifier.semiflowInvariants(fixture.semiflowInvariants === true);
       const scripts = verifier.encodeScripts();
       const dir = join(scriptsDir, fixture.id);
       compare(fixture.id, join(dir, 'horn.smt2'), scripts.horn);

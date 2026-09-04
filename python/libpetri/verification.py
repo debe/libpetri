@@ -189,13 +189,24 @@ def verify(
     laws) to the encoders as invariants, alongside the null-space basis. The
     basis is one basis of many and on a reset-heavy net can lose every law of
     the chains the reset arcs touch, leaving IC3 to rediscover conservation it
-    cannot within any practical budget; the semiflows are those laws. Pure
-    strengthening (Lean ``semiflow_union_sound``): the semiflows pass the same
-    exact gate as the basis rows and the certificate check re-proves the
+    cannot within any practical budget; the semiflows are those laws.
+
+    Turn it on if the net has any ``all()`` / ``at_least(n)`` or reset arc on a
+    busy place -- draining an input queue is the everyday case. Every basis row
+    whose support touches such a place fails the H1 guard and is dropped, so the
+    encoders run on a deficient invariant set and nothing in the report says a
+    law is missing beyond the ``Dropped`` lines. It reaches the name-coloured
+    encoder (NU-050) as well as the flat one, and matters most there: on a
+    113-place nu-net, whole-net deadlock-freedom went from ``unknown`` after 50
+    minutes to ``proven`` in about 15 seconds on this option alone.
+
+    Pure strengthening (Lean ``semiflow_union_sound``): the semiflows pass the
+    same exact gate as the basis rows and the certificate check re-proves the
     strengthened invariant, so a ``violated`` verdict can never become
-    ``proven``. When enabled the report carries
-    ``  Semiflows encoded as invariants: N``; off by default so reports stay
-    byte-identical.
+    ``proven``. That check is flat-path only -- a coloured ``proven`` reports
+    ``Certificate check: not applicable (name-coloured encoding)``. When enabled
+    the report carries ``  Semiflows encoded as invariants: N``; off by default
+    so reports stay byte-identical.
     """
     return _ext.verify_net(
         _coerce_net(net),
@@ -226,8 +237,28 @@ def _coerce_harness(harness):
     return VerificationHarness.from_properties(harness)._inner
 
 
-def verify_subnet(subnet: BuiltSubnetDef, harness) -> SubnetVerificationResult:
-    return _ext.verify_subnet(_coerce_subnet(subnet), _coerce_harness(harness))
+def verify_subnet(
+    subnet: BuiltSubnetDef,
+    harness,
+    *,
+    environment_mode: EnvironmentAnalysisMode | None = None,
+) -> SubnetVerificationResult:
+    """Verifies a subnet in isolation under a harness (MOD-051).
+
+    ``environment_mode`` decides how injection into the synthetic environment places
+    (one per input and in-out port) is modeled, per VER-006. It defaults to
+    :func:`always_available`, under which a ``proven`` verdict holds for any
+    environment. Pass :func:`bounded` to prove a property that holds only when the
+    environment injects at most ``k`` tokens -- that is the mode which expresses a
+    generator bounding the input (MOD-051 AC3). :func:`ignore` is accepted but can
+    never yield ``proven``: VER-006 refuses to certify a proof that holds only because
+    injection was never modeled.
+    """
+    return _ext.verify_subnet(
+        _coerce_subnet(subnet),
+        _coerce_harness(harness),
+        environment_mode=environment_mode,
+    )
 
 
 def encode_smt_scripts(
@@ -252,6 +283,13 @@ def encode_smt_scripts(
     exact encoding) and, for the flat encoding, the certificate-check script built
     around the placeholder certificate. This is what the cross-language golden
     tests diff byte for byte.
+
+    Every option :func:`verify` takes is accepted here and changes the script the
+    same way, ``semiflow_invariants`` included: with it enabled the strengthened
+    invariant list is conjoined into the rule bodies, on the name-coloured encoding
+    as well as the flat one, so the returned ``horn`` differs from the one the same
+    configuration produces with it disabled. See :func:`verify` for when to turn it
+    on.
     """
     return _ext.encode_smt_scripts(
         _coerce_net(net),

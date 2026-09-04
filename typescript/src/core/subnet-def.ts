@@ -8,6 +8,8 @@ import { __createInstance } from './instance.js';
 import { PetriNet as PetriNetClass } from './petri-net.js';
 import { renameNet } from './internal/subnet-rewriter.js';
 import { SmtVerifier } from '../verification/smt-verifier.js';
+import { alwaysAvailable } from '../verification/analysis/environment-analysis-mode.js';
+import type { EnvironmentAnalysisMode } from '../verification/analysis/environment-analysis-mode.js';
 import type { SmtProperty } from '../verification/smt-property.js';
 import type { SmtVerificationResult } from '../verification/smt-verification-result.js';
 import {
@@ -182,7 +184,21 @@ export class SubnetDef<P = void> {
    *          {@link SmtVerificationResult}s
    * @throws when an input or in-out port is missing a harness generator
    */
-  async verify(harness: VerificationHarness<P>): Promise<VerificationResult> {
+  async verify(
+    harness: VerificationHarness<P>,
+    /**
+     * How injection into the synthetic environment places is modeled (VER-006,
+     * MOD-051 AC3).
+     *
+     * The synthetic net has environment places by construction, so this decides what a
+     * verdict means. The default over-approximates: a `proven` under
+     * `alwaysAvailable()` holds for any environment. Pass `bounded(k)` to prove a
+     * property that holds only when the environment injects at most `k` tokens.
+     * `ignore()` is accepted but cannot yield `proven` — VER-006 refuses to certify a
+     * proof that holds only because injection was never modeled.
+     */
+    environmentMode: EnvironmentAnalysisMode = alwaysAvailable(),
+  ): Promise<VerificationResult> {
     if (harness === null || harness === undefined) {
       throw new Error('SubnetDef.verify: harness must not be null/undefined');
     }
@@ -277,9 +293,15 @@ export class SubnetDef<P = void> {
     // for deterministic per-property reporting.
     const perProperty = new Map<SmtProperty, SmtVerificationResult>();
     for (const property of properties) {
+      // Set explicitly rather than inherited: the synthetic env places are the
+      // harness's own, so how injection is modelled is the harness's call
+      // ([MOD-051] AC3), not the verifier default's. Under ignore() [VER-006]
+      // downgrades every proof about a net with env places to Unknown, so a
+      // subnet with an input port could never be proven.
       const verifier = SmtVerifier.forNet(syntheticNet).property(property);
       if (envPlaces.length > 0) {
         verifier.environmentPlaces(...envPlaces);
+        verifier.environmentMode(environmentMode);
       }
       const result = await verifier.verify();
       perProperty.set(property, result);

@@ -41,6 +41,7 @@ export interface Fixture {
   readonly sinkPlaces?: readonly string[];
   /** ν budget places (NU-040): put a reachability-safety query on Route A's coloured encoding. */
   readonly budgetPlaces?: readonly string[];
+  readonly semiflowInvariants?: boolean;
   /** `'B'` = decided by the ν name-aware SCG verifier (NU-050 Route B); absent = Route A. */
   readonly route?: string;
   readonly expected: 'proven' | 'violated' | 'unknown';
@@ -100,6 +101,8 @@ describeZ3('verdict parity (spec/verification-fixtures/fixtures.json)', () => {
       if (fixture.budgetPlaces != null && fixture.budgetPlaces.length > 0) {
         verifier.budgetPlaces(...fixture.budgetPlaces.map(n => placeOf(built.places, n)));
       }
+      // Optional shared-schema field: [VER-007]'s semiflow union.
+      verifier.semiflowInvariants(fixture.semiflowInvariants === true);
       const result = await verifier.verify();
 
       // The route marker is checked FIRST: a `route: 'B'` fixture that silently

@@ -119,6 +119,8 @@ fn verdict_parity_fixtures() {
         if !budgets.is_empty() {
             verifier = verifier.budget_places(budgets.iter().cloned());
         }
+        // Optional shared-schema field: [VER-007]'s semiflow union.
+        verifier = verifier.semiflow_invariants(fixture.bool_opt("semiflowInvariants"));
         let result = verifier.verify();
 
         let got = verdict_word(&result.verdict);
