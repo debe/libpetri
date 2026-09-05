@@ -342,14 +342,14 @@ export class PrecompiledNet {
     } else if (needsIdx >= 0) {
       // Single word
       const m = this.needsSingleWordMask[tid]!;
-      if ((snapshot[needsIdx]! & m) !== m) return false;
+      if (((snapshot[needsIdx]! & m) >>> 0) !== m) return false;
     } else {
       // Multi-word sparse
       const indices = this.needsSparseIndices[tid]!;
       const masks = this.needsSparseMasks[tid]!;
       for (let i = 0; i < indices.length; i++) {
         const m = masks[i]!;
-        if ((snapshot[indices[i]!]! & m) !== m) return false;
+        if (((snapshot[indices[i]!]! & m) >>> 0) !== m) return false;
       }
     }
 
