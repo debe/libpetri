@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Executor
+
+#### Fixed — sparse enablement ignored places at the sign bit (TypeScript)
+
+`PrecompiledNet.canEnableSparse` compared `(snapshot[w] & m)`, a signed int32 in
+JavaScript, against `m` read unsigned from a `Uint32Array`. Any transition whose
+needs-mask included place id 31, 63, 95, … therefore never enabled on
+`PrecompiledNetExecutor`, while `BitmapNetExecutor` ran the same net to completion.
+`containsAll` received the identical `>>> 0` fix in be51666; the sparse path used by the
+production executor had not. Found by n8n-libpetri, where every compiled workflow with
+32 or more places stalled. Rust and Java are unaffected (u64 / long arithmetic).
+Regression test: `tests/runtime/precompiled-net-bit31.test.ts`.
+
+---
+
 ## Java 4.1.0 / TypeScript 4.1.0 / Rust 4.2.0 / Python 3.2.0 — 2026-09-04
 
 **A subnet can be proven again, and [VER-006] now binds every route.** Both reported downstream against the 4.0.0 wave.
