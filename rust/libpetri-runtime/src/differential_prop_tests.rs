@@ -28,6 +28,33 @@
 //! bit-for-bit reproducible. ν-net features (`MatchSpec`, `ForwardInput`)
 //! are an extension point deliberately left out.
 //!
+//! A third pair of properties ([`backends_agree_on_word_boundary_untimed_nets`]
+//! and its timed twin) runs the same oracle over WORD-BOUNDARY nets: 65-72
+//! places, with input / read / inhibitor indices biased hard onto place ids 31
+//! and 63 and their neighbours (30/32/62/64). The 2-8 place fragment can never
+//! reach place id 31, so an entire class of word-boundary arithmetic bugs was
+//! invisible to it. The escape that motivated this was in the TypeScript twin —
+//! `PrecompiledNet.canEnableSparse` compared a SIGNED `snapshot[w] & m` against
+//! an unsigned `m`, so every transition whose needs mask held id 31/63/95/...
+//! was permanently un-enabled on the precompiled backend while the bitmap
+//! backend ran the same net correctly (fixed in b3e97a9). Rust packs the
+//! snapshot into `u64` words and ANDs them unsigned, so it never had that bug —
+//! the mirror is kept here because the two harnesses are meant to generate the
+//! same fragment, because it would catch the bug if the Rust bitmap ever
+//! narrowed its word type, and because 65+ place nets exercise multi-word masks
+//! and wide reverse indexes that the small fragment cannot reach at all.
+//!
+//! ID PIN: "place id 31" is a COMPILED id, not a generator index, so the
+//! boundary generator is worthless unless the two coincide. `CompiledNet`
+//! assigns ids by SORTED PLACE NAME, so [`build_net`] zero-pads every name to a
+//! fixed per-net width (`p00`..`p71` at 65+ places) and lexicographic order
+//! becomes numeric order. Width is 1 for the 2-8 place fragment, so those nets
+//! keep exactly the names they always had. The TypeScript twin needs a
+//! different device for the same guarantee — its ids follow first-reference
+//! order across transitions, so it prepends a dead anchor transition instead —
+//! and [`word_boundary_generator_pins_ids_and_reaches_sign_bit_transitions`]
+//! asserts the pin here rather than assuming it.
+//!
 //! Termination by construction: the runner executes each net to sync
 //! quiescence, so every generated net must be finite-firing. We enforce a
 //! DAG discipline — every output place index of a transition is strictly
@@ -45,10 +72,11 @@
 //! every firing and can fire again — but each re-firing still consumes at
 //! least one token at index <= i_max and deposits only above it, so the same
 //! potential strictly decreases on every firing and total firings stay
-//! bounded regardless of timing. The virtual clock guarantees the harness
-//! *reaches* those firings without wall-clock waiting: a cycle that fires
-//! nothing jumps time to the next `earliest`/deadline boundary, where either
-//! something fires or the enabled set shrinks.
+//! bounded regardless of timing. The word-boundary generator obeys the same
+//! discipline unchanged — only the place-index POOL differs. The virtual clock
+//! guarantees the harness *reaches* those firings without wall-clock waiting: a
+//! cycle that fires nothing jumps time to the next `earliest`/deadline
+//! boundary, where either something fires or the enabled set shrinks.
 
 #![cfg(test)]
 
@@ -274,8 +302,211 @@ fn gen_timed_net() -> impl Strategy<Value = GenNet> {
 }
 
 // ---------------------------------------------------------------------------
+//  Word-boundary generator (32-/64-bit sign-bit coverage)
+// ---------------------------------------------------------------------------
+
+/// Place ids 31 and 63: bit 31 of marking-snapshot words 0 and 1 when the
+/// snapshot is packed into 32-bit words, i.e. the exact positions where a
+/// signed/unsigned mix-up in the enablement AND flips "enabled" to "never
+/// enabled" (see the module docs). Rust uses `u64` words and unsigned ANDs, so
+/// these are ordinary bits here — the pool mirrors the TypeScript twin.
+const SIGN_BIT_INDICES: [usize; 2] = [31, 63];
+
+/// Sign bits plus their immediate neighbours — the full boundary pool.
+const BOUNDARY_INDICES: [usize; 6] = [30, 31, 32, 62, 63, 64];
+
+fn sign_bit_pool(place_count: usize) -> Vec<usize> {
+    SIGN_BIT_INDICES
+        .iter()
+        .copied()
+        .filter(|&i| i < place_count)
+        .collect()
+}
+
+fn boundary_pool(place_count: usize) -> Vec<usize> {
+    BOUNDARY_INDICES
+        .iter()
+        .copied()
+        .filter(|&i| i < place_count)
+        .collect()
+}
+
+/// True iff the transition's NEEDS mask (inputs + reads) contains a sign bit.
+fn touches_sign_bit(t: &GenTrans) -> bool {
+    t.inputs.iter().any(|&(p, _)| SIGN_BIT_INDICES.contains(&p))
+        || t.reads.iter().any(|p| SIGN_BIT_INDICES.contains(p))
+}
+
+/// Boundary twin of [`gen_transition`]. Deliberately a near-copy rather than a
+/// parameterisation of the original: [`gen_transition`] must keep its exact RNG
+/// stream so the committed regression seed replays (see the note above
+/// [`backends_agree_on_untimed_nets`]), and folding a pool draw into it would
+/// re-key that stream.
+///
+/// The one structural difference is that every place-index draw feeding the
+/// NEEDS mask — inputs, reads, inhibitor — comes from a small biased POOL
+/// instead of the full place range. Bias is the whole point: drawn uniformly
+/// over 65+ places a needs mask lands on id 31 about once in 30 draws, so
+/// merely making the net wide would leave the boundary about as uncovered as it
+/// is at 8 places.
+///
+/// - `first` (the net's `t0`) always draws from the sign-bit pool `[31, 63]`,
+///   so EVERY generated net structurally contains a transition whose needs mask
+///   holds a sign bit — a per-case guarantee, not a lucky draw;
+/// - the remaining transitions draw their pool 2:2:1 from sign bits / boundary
+///   neighbours / the full range, so surrounding traffic still varies and masks
+///   land both inside one word and spanning two.
+///
+/// Reset arcs keep drawing uniformly over all places: resets never enter the
+/// needs mask, and pooling them would just drain the boundary places the
+/// property is trying to keep enabled. An inhibitor landing on one of this
+/// transition's own input places is dropped for the same reason — the pool is
+/// small, so self-inhibiting (permanently dead) transitions would otherwise be
+/// common enough to eat the coverage.
+fn gen_boundary_transition(place_count: usize, first: bool) -> impl Strategy<Value = GenTrans> {
+    let pool: BoxedStrategy<Vec<usize>> = if first {
+        Just(sign_bit_pool(place_count)).boxed()
+    } else {
+        prop_oneof![
+            2 => Just(sign_bit_pool(place_count)),
+            2 => Just(boundary_pool(place_count)),
+            1 => Just((0..place_count).collect::<Vec<usize>>()),
+        ]
+        .boxed()
+    };
+    pool.prop_flat_map(move |pool| {
+        let max_inputs = pool.len().min(3);
+        let max_reads = pool.len().min(2);
+        (
+            prop::sample::subsequence(pool.clone(), 1..=max_inputs),
+            prop::collection::vec(gen_card(), max_inputs),
+            // Output shape selector, as in gen_transition.
+            0u8..8,
+            any::<prop::sample::Index>(),
+            any::<prop::sample::Index>(),
+            prop::sample::subsequence(pool.clone(), 0..=max_reads),
+            prop::option::of(prop::sample::select(pool)),
+            prop::option::of(0..place_count),
+            0i32..=2,
+        )
+            .prop_map(
+                move |(ins, cards, out_kind, o1, o2, reads, inhibitor, reset, priority)| {
+                    let inputs: Vec<(usize, GenCard)> =
+                        ins.iter().copied().zip(cards).collect();
+                    // DAG discipline, unchanged: outputs live strictly above
+                    // the highest input index.
+                    let lo = ins.last().copied().unwrap() + 1;
+                    let avail = place_count - lo;
+                    let output = if avail == 0 || out_kind == 0 {
+                        GenOut::None
+                    } else {
+                        let first_out = lo + o1.index(avail);
+                        match out_kind {
+                            1..=3 => GenOut::Single(first_out),
+                            _ if avail < 2 => GenOut::Single(first_out),
+                            k => {
+                                let second =
+                                    lo + (first_out - lo + 1 + o2.index(avail - 1)) % avail;
+                                if k <= 5 {
+                                    GenOut::And(first_out, second)
+                                } else {
+                                    GenOut::Xor(first_out, second)
+                                }
+                            }
+                        }
+                    };
+                    // Drop a self-inhibition: it would make the transition
+                    // permanently dead and cost a boundary sample.
+                    let inhibitor = inhibitor.filter(|i| !ins.contains(i));
+                    GenTrans {
+                        inputs,
+                        output,
+                        reads,
+                        inhibitor,
+                        reset,
+                        priority,
+                        timing: GenTiming::Immediate,
+                    }
+                },
+            )
+    })
+}
+
+/// [`gen_boundary_transition`] plus a drawn timing, layered exactly as
+/// [`gen_timed_transition`] is.
+fn gen_boundary_timed_transition(
+    place_count: usize,
+    first: bool,
+) -> impl Strategy<Value = GenTrans> {
+    (gen_boundary_transition(place_count, first), gen_timing()).prop_map(|(mut t, timing)| {
+        t.timing = timing;
+        t
+    })
+}
+
+/// 65-72 places, so ids 30/31/32 and 62/63/64 all exist and the marking
+/// snapshot spans two `u64` words here (three 32-bit words in the TypeScript
+/// twin, where words 0 and 1 are full and therefore both carry a sign bit).
+/// `t0` is the forced sign-bit transition; up to five more follow.
+///
+/// Initial tokens are 0-2 per place rather than the small fragment's 0-6: these
+/// nets carry nine times the places, and run cost tracks the total token count.
+fn gen_boundary_net() -> impl Strategy<Value = GenNet> {
+    (65usize..=72).prop_flat_map(|place_count| {
+        (
+            prop::collection::vec(prop::collection::vec(0i32..10, 0..=2), place_count),
+            gen_boundary_transition(place_count, true),
+            prop::collection::vec(gen_boundary_transition(place_count, false), 0..=5),
+        )
+            .prop_map(move |(initial, head, rest)| {
+                let mut transitions = vec![head];
+                transitions.extend(rest);
+                GenNet {
+                    place_count,
+                    initial,
+                    transitions,
+                }
+            })
+    })
+}
+
+/// [`gen_boundary_net`] with timed transitions.
+fn gen_boundary_timed_net() -> impl Strategy<Value = GenNet> {
+    (65usize..=72).prop_flat_map(|place_count| {
+        (
+            prop::collection::vec(prop::collection::vec(0i32..10, 0..=2), place_count),
+            gen_boundary_timed_transition(place_count, true),
+            prop::collection::vec(gen_boundary_timed_transition(place_count, false), 0..=5),
+        )
+            .prop_map(move |(initial, head, rest)| {
+                let mut transitions = vec![head];
+                transitions.extend(rest);
+                GenNet {
+                    place_count,
+                    initial,
+                    transitions,
+                }
+            })
+    })
+}
+
+// ---------------------------------------------------------------------------
 //  GenNet -> (PetriNet, Marking)
 // ---------------------------------------------------------------------------
+
+/// Number of decimal digits in the highest place index of a net.
+fn name_width(place_count: usize) -> usize {
+    (place_count - 1).to_string().len()
+}
+
+/// Zero-padded place name. `CompiledNet` assigns place ids by SORTED NAME, so
+/// padding to a fixed per-net width makes lexicographic order numeric order and
+/// pins `id(pI) == I` — the tie the word-boundary generator depends on (see the
+/// module docs). Width is 1 for the 2-8 place fragment, so those nets keep
+/// exactly the names they always had.
+fn place_name(i: usize, width: usize) -> String {
+    format!("p{i:0width$}")
+}
 
 /// Builds the concrete net + initial marking. The output/action pairing is
 /// DERIVED from the generated structure, never generated independently:
@@ -293,8 +524,9 @@ fn gen_timed_net() -> impl Strategy<Value = GenNet> {
 /// divergent spot — while staying total: a read place drained by this very
 /// firing's input consumption simply contributes nothing.
 fn build_net(g: &GenNet) -> (PetriNet, Marking) {
+    let width = name_width(g.place_count);
     let places: Vec<Place<i32>> = (0..g.place_count)
-        .map(|i| Place::new(format!("p{i}")))
+        .map(|i| Place::new(place_name(i, width)))
         .collect();
 
     let mut builder = PetriNet::builder("differential");
@@ -402,9 +634,10 @@ fn build_net(g: &GenNet) -> (PetriNet, Marking) {
 /// order (counts are implied by the lengths). Actions are deterministic and
 /// scheduling is priority-then-FIFO, so both backends must agree exactly.
 fn marking_values(g: &GenNet, marking: &Marking) -> BTreeMap<String, Vec<i32>> {
+    let width = name_width(g.place_count);
     (0..g.place_count)
         .map(|i| {
-            let name = format!("p{i}");
+            let name = place_name(i, width);
             let values = marking
                 .queue(&name)
                 .map(|q| {
@@ -809,6 +1042,163 @@ proptest! {
             "event-sequence projections diverged"
         );
     }
+}
+
+proptest! {
+    // Half the small fragment's case count: each case builds a 65-72 place net,
+    // and the coverage guard below is what certifies the cases are actually
+    // spent on sign-bit transitions rather than merely on wide nets.
+    #![proptest_config(ProptestConfig {
+        cases: 64,
+        ..ProptestConfig::default()
+    })]
+
+    /// Word-boundary twin of [`backends_agree_on_untimed_nets`]: identical
+    /// oracle, nets drawn from [`gen_boundary_net`] so every case carries a
+    /// transition whose needs mask holds place id 31 or 63.
+    #[test]
+    fn backends_agree_on_word_boundary_untimed_nets(g in gen_boundary_net()) {
+        let (net, marking) = build_net(&g);
+        let bitmap = BitmapRunner::run(&net, marking.clone());
+        let precompiled = PrecompiledRunner::run(&net, marking);
+
+        prop_assert_eq!(
+            marking_values(&g, &bitmap.marking),
+            marking_values(&g, &precompiled.marking),
+            "final markings diverged (token values per place, FIFO order)"
+        );
+        prop_assert_eq!(
+            bitmap.quiescent,
+            precompiled.quiescent,
+            "quiescence diverged"
+        );
+        prop_assert_eq!(
+            project_events(&bitmap.events),
+            project_events(&precompiled.events),
+            "event-sequence projections diverged"
+        );
+    }
+
+    /// Word-boundary twin of [`backends_agree_on_timed_nets`], down to the same
+    /// TIME-013 reap allowlist (event projection only; marking and quiescence
+    /// stay unconditional).
+    #[test]
+    fn backends_agree_on_word_boundary_timed_nets(g in gen_boundary_timed_net()) {
+        let (net, marking) = build_net(&g);
+        let bitmap = run_bitmap_timed(&net, marking.clone());
+        let precompiled = run_precompiled_timed(&net, marking);
+
+        let bitmap_proj = project_events(&bitmap.events);
+        let precompiled_proj = project_events(&precompiled.events);
+
+        prop_assert_eq!(
+            marking_values(&g, &bitmap.marking),
+            marking_values(&g, &precompiled.marking),
+            "final markings diverged (token values per place, FIFO order)"
+        );
+        prop_assert_eq!(
+            bitmap.quiescent,
+            precompiled.quiescent,
+            "quiescence diverged"
+        );
+
+        if bitmap_proj != precompiled_proj
+            && is_known_reap_divergence(&bitmap_proj, &precompiled_proj)
+        {
+            let n = REAP_DIVERGENCES_ALLOWLISTED.fetch_add(1, Ordering::Relaxed) + 1;
+            eprintln!(
+                "[differential] allowlisted known divergence #{n}: TIME-013 reap \
+                 asymmetry (lean/Libpetri/TimedCycle.lean `deadline_reap_dirty_diverges`; \
+                 semantics decision pending, plan phase 4)"
+            );
+            return Ok(());
+        }
+
+        prop_assert_eq!(
+            bitmap_proj,
+            precompiled_proj,
+            "event-sequence projections diverged"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+//  Word-boundary coverage guard
+// ---------------------------------------------------------------------------
+
+/// The boundary properties are only worth their runtime while the generator
+/// keeps aiming at the sign bits, and nothing in a green differential run says
+/// that it does — a generator that silently drifted back to uniform draws would
+/// still pass. This test measures the bias on a DETERMINISTIC runner (so the
+/// thresholds cannot flake) and asserts three things:
+///
+/// 1. the zero-padded naming really pins compiled place id == generator index.
+///    Without it "place id 31" would be whichever name sorts 32nd, and the
+///    boundary pool would aim at the wrong places entirely;
+/// 2. every generated net structurally holds a transition whose needs mask
+///    contains id 31 or 63 — guaranteed by `t0`'s sign-bit pool;
+/// 3. a healthy fraction of nets actually FIRE such a transition on the
+///    reference backend, i.e. the sign-bit transitions are reachable and not
+///    merely declared. The rest simply drew no initial token into the sign-bit
+///    place. Measured on this deterministic runner: structural 40/40, fired
+///    20/40. The floor (30%) is loose on purpose so ordinary generator tuning
+///    does not trip it — over a 64-case property run a 50% per-net rate makes
+///    sign-bit firing a certainty.
+#[test]
+fn word_boundary_generator_pins_ids_and_reaches_sign_bit_transitions() {
+    use proptest::strategy::ValueTree;
+    use proptest::test_runner::TestRunner;
+
+    let mut runner = TestRunner::deterministic();
+    let strategy = gen_boundary_net();
+    let samples = 40usize;
+    let mut structural = 0usize;
+    let mut fired = 0usize;
+
+    for _ in 0..samples {
+        let g = strategy
+            .new_tree(&mut runner)
+            .expect("boundary strategy must produce a value")
+            .current();
+        let width = name_width(g.place_count);
+
+        let sign_bit_transitions: Vec<String> = g
+            .transitions
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| touches_sign_bit(t))
+            .map(|(ti, _)| format!("transition-started t{ti}"))
+            .collect();
+        if !sign_bit_transitions.is_empty() {
+            structural += 1;
+        }
+
+        let (net, marking) = build_net(&g);
+        let compiled = CompiledNet::compile(&net);
+        assert_eq!(compiled.place_count, g.place_count);
+        for i in 0..g.place_count {
+            assert_eq!(
+                compiled.place_id(&place_name(i, width)),
+                Some(i),
+                "place id pin broke at index {i}"
+            );
+        }
+
+        let run = BitmapRunner::run(&net, marking);
+        let proj = project_events(&run.events);
+        if proj.iter().any(|e| sign_bit_transitions.contains(e)) {
+            fired += 1;
+        }
+    }
+
+    assert_eq!(
+        structural, samples,
+        "every boundary net must hold a sign-bit transition"
+    );
+    assert!(
+        fired * 10 >= samples * 3,
+        "sign-bit transitions must actually fire: only {fired}/{samples} nets did"
+    );
 }
 
 // ---------------------------------------------------------------------------
