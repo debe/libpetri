@@ -23,6 +23,18 @@
  * seam that a frozen clock cannot reach is pinned deterministically with
  * synthetic timestamps in `executor-shared-semantics.test.ts`.
  *
+ * A THIRD pair of properties runs the same oracle over word-boundary nets:
+ * 65–72 places, with input / read / inhibitor indices biased hard onto the
+ * 32-bit sign bits (place ids 31 and 63) and their neighbours (30/32/62/64).
+ * Small nets can never reach place id 31, so the whole class of sign-bit
+ * arithmetic bugs was invisible to them — `PrecompiledNet.canEnableSparse`
+ * compared a SIGNED `snapshot[w] & m` against an unsigned `m` and therefore
+ * never enabled any transition whose needs mask contained bit 31/63/95/…,
+ * while `BitmapNetExecutor` ran the same net correctly (fixed in b3e97a9,
+ * pinned by `precompiled-net-bit31.test.ts`). See "Word-boundary generator"
+ * below for the index pooling, and `buildNet` for the anchor transition that
+ * pins compiled place ids to generator indices.
+ *
  * Generated fragment (untimed property): 2–8 places (number tokens), 0–4
  * initial tokens per place (values 0–9), 1–6 transitions with 1–3 distinct
  * input places (cardinality one / exactly(2) / all / atLeast(2)), 0–2 read
@@ -41,7 +53,10 @@
  * i_max, so the potential `sum over tokens of 3^(P - place_index)` strictly
  * decreases on every firing (2 * 3^(P - i - 1) < 3^(P - i)). Total firings
  * are therefore bounded and no step budget is needed. Timing cannot restore
- * the potential: it only delays or force-disables firings.
+ * the potential: it only delays or force-disables firings. The word-boundary
+ * generator obeys the same discipline, and its extra `t_anchor` transition is a
+ * never-enabled sink (see `buildNet`), so it consumes nothing, produces nothing
+ * and leaves the argument untouched.
  *
  * Output/action pairing is DERIVED from the generated structure, never
  * generated independently (CORE-043: an output spec must not carry
@@ -75,6 +90,7 @@ import * as fc from 'fast-check';
 import { BitmapNetExecutor } from '../../src/runtime/bitmap-net-executor.js';
 import { PrecompiledNetExecutor } from '../../src/runtime/precompiled-net-executor.js';
 import type { Marking } from '../../src/runtime/marking.js';
+import { CompiledNet } from '../../src/runtime/compiled-net.js';
 import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
@@ -143,6 +159,12 @@ interface GenNet {
   /** Initial token values per place, in FIFO order. */
   readonly initial: ReadonlyArray<readonly number[]>;
   readonly transitions: readonly GenTrans[];
+  /**
+   * Word-boundary nets only: prepend the anchor transition that pins compiled
+   * place id == generator index (see `buildNet`). Absent/false for the small
+   * generators, whose nets are unchanged.
+   */
+  readonly pinIds?: boolean;
 }
 
 const cardArb: fc.Arbitrary<GenCard> = fc.oneof(
@@ -247,6 +269,143 @@ function genNet(timingArb: fc.Arbitrary<GenTiming>): fc.Arbitrary<GenNet> {
 }
 
 // ---------------------------------------------------------------------------
+//  Word-boundary generator (32-/64-bit sign-bit coverage)
+// ---------------------------------------------------------------------------
+
+/**
+ * The 32-bit sign bits: place ids 31 and 63 are bit 31 of marking-snapshot
+ * words 0 and 1. `(snapshot[w] & m)` is a SIGNED int32 in JavaScript while `m`
+ * is read unsigned out of a `Uint32Array`, so these two ids are the exact
+ * positions where a missing `>>> 0` turns "enabled" into "never enabled" on
+ * the precompiled backend only.
+ */
+const SIGN_BIT_INDICES: readonly number[] = [31, 63];
+
+/** Sign bits plus their immediate neighbours — the full boundary pool. */
+const BOUNDARY_INDICES: readonly number[] = [30, 31, 32, 62, 63, 64];
+
+/** True iff the transition's NEEDS mask (inputs + reads) contains a sign bit. */
+function touchesSignBit(t: GenTrans): boolean {
+  return t.inputs.some(i => SIGN_BIT_INDICES.includes(i.place))
+    || t.reads.some(r => SIGN_BIT_INDICES.includes(r));
+}
+
+/**
+ * Boundary twin of {@link genTransition}. Deliberately a near-copy rather than
+ * a parameterisation of the original: the small-net generator is the fast
+ * common case and shrinks well, and its Rust twin must keep its exact RNG
+ * stream so the committed regression seed replays (see the Rust module docs).
+ *
+ * The one structural difference is that every place-index draw that feeds the
+ * NEEDS mask — inputs, reads, inhibitor — comes from a small biased POOL
+ * instead of the full place range. Bias is the whole point: with 65+ places
+ * drawn uniformly, a needs mask lands on id 31 about once in 30 draws, so
+ * merely making the net big would leave the sign-bit class about as invisible
+ * as it was at 8 places.
+ *
+ * - `first` (the net's t0) always draws from the sign-bit pool `[31, 63]`, so
+ *   EVERY generated net structurally contains a transition whose needs mask
+ *   holds a sign bit. That is a per-case guarantee, not a lucky draw.
+ * - the remaining transitions draw the pool 2:2:1 from sign bits / boundary
+ *   neighbours / the full range, so the surrounding traffic still varies and
+ *   masks land in both the single-word and the multi-word sparse branch of
+ *   `canEnableSparse` (inputs inside one 32-bit word vs. spanning two).
+ *
+ * Reset arcs keep drawing uniformly over all places: resets do not enter the
+ * needs mask, and pooling them would just drain the boundary places the
+ * property is trying to keep enabled. An inhibitor that lands on one of this
+ * transition's own input places is dropped for the same reason — the pool is
+ * small, so self-inhibiting (permanently dead) transitions would otherwise be
+ * common enough to eat the coverage.
+ */
+function genBoundaryTransition(
+  placeCount: number,
+  timingArb: fc.Arbitrary<GenTiming>,
+  first: boolean,
+): fc.Arbitrary<GenTrans> {
+  const allIdx = Array.from({ length: placeCount }, (_, i) => i);
+  const signIdx = SIGN_BIT_INDICES.filter(i => i < placeCount);
+  const nearIdx = BOUNDARY_INDICES.filter(i => i < placeCount);
+  const poolArb: fc.Arbitrary<readonly number[]> = first
+    ? fc.constant(signIdx)
+    : fc.oneof(
+      { weight: 2, arbitrary: fc.constant(signIdx) },
+      { weight: 2, arbitrary: fc.constant(nearIdx) },
+      { weight: 1, arbitrary: fc.constant(allIdx) },
+    );
+
+  return poolArb.chain((pool) => {
+    const maxInputs = Math.min(pool.length, 3);
+    return fc
+      .record({
+        // fc.subarray over the pool: distinct AND ascending, as above.
+        ins: fc.subarray([...pool], { minLength: 1, maxLength: maxInputs }),
+        cards: fc.array(cardArb, { minLength: maxInputs, maxLength: maxInputs }),
+        outKind: fc.nat({ max: 7 }),
+        o1: fc.nat({ max: 0xffff }),
+        o2: fc.nat({ max: 0xffff }),
+        reads: fc.subarray([...pool], { maxLength: Math.min(pool.length, 2) }),
+        inhibitor: fc.option(fc.constantFrom(...pool), { nil: undefined, freq: 2 }),
+        reset: fc.option(fc.nat({ max: placeCount - 1 }), { nil: undefined, freq: 2 }),
+        priority: fc.integer({ min: 0, max: 3 }),
+        timing: timingArb,
+      })
+      .map(({ ins, cards, outKind, o1, o2, reads, inhibitor, reset, priority, timing }) => {
+        const inputs = ins.map((p, i) => ({ place: p, card: cards[i]! }));
+        // DAG discipline, unchanged: outputs live strictly above the highest
+        // input index (see file header for the termination argument).
+        const lo = ins[ins.length - 1]! + 1;
+        const avail = placeCount - lo;
+        let out: GenOut;
+        if (avail === 0 || outKind === 0) {
+          out = { kind: 'none' };
+        } else {
+          const firstOut = lo + (o1 % avail);
+          if (outKind <= 3 || avail < 2) {
+            out = { kind: 'single', a: firstOut };
+          } else {
+            const second = lo + (firstOut - lo + 1 + (o2 % (avail - 1))) % avail;
+            out = outKind <= 5
+              ? { kind: 'and', a: firstOut, b: second }
+              : { kind: 'xor', a: firstOut, b: second };
+          }
+        }
+        // Drop a self-inhibition: it would make the transition permanently dead.
+        const inh = inhibitor !== undefined && !ins.includes(inhibitor) ? inhibitor : undefined;
+        return { inputs, out, reads, inhibitor: inh, reset, priority, timing };
+      });
+  });
+}
+
+/**
+ * 65–72 places, so ids 30/31/32 and 62/63/64 all exist and the marking
+ * snapshot spans three 32-bit words (TypeScript) — words 0 and 1 are full, so
+ * both carry a sign bit, and word 2 is partial. `pinIds` makes `buildNet`
+ * prepend the anchor transition that ties generator index to compiled place id.
+ */
+function genBoundaryNet(timingArb: fc.Arbitrary<GenTiming>): fc.Arbitrary<GenNet> {
+  return fc.integer({ min: 65, max: 72 }).chain(placeCount =>
+    fc
+      .record({
+        // maxLength 2 rather than the small generator's 4: these nets carry 9x
+        // the places, and the run cost is driven by the total token count.
+        initial: fc.array(fc.array(fc.integer({ min: 0, max: 9 }), { maxLength: 2, size: 'max' }), {
+          minLength: placeCount,
+          maxLength: placeCount,
+        }),
+        head: genBoundaryTransition(placeCount, timingArb, true),
+        rest: fc.array(genBoundaryTransition(placeCount, timingArb, false), { maxLength: 5, size: 'max' }),
+      })
+      .map(({ initial, head, rest }) => ({
+        placeCount,
+        initial,
+        transitions: [head, ...rest],
+        pinIds: true,
+      })),
+  );
+}
+
+// ---------------------------------------------------------------------------
 //  GenNet -> (PetriNet, initial tokens)
 // ---------------------------------------------------------------------------
 
@@ -270,9 +429,36 @@ function toTiming(t: GenTiming): Timing {
 }
 
 function buildNet(g: GenNet): { net: PetriNet; places: Place<number>[] } {
-  const places = Array.from({ length: g.placeCount }, (_, i) => place<number>(`p${i}`));
+  // Zero-padded to a fixed per-net width so `p10` sorts after `p02` in the
+  // marking-snapshot projection (readable diffs at 70 places). Width is 1 for
+  // the 2-8 place fragment, so those nets keep the exact names they had.
+  const width = String(g.placeCount - 1).length;
+  const places = Array.from(
+    { length: g.placeCount },
+    (_, i) => place<number>(`p${String(i).padStart(width, '0')}`),
+  );
   let builder = PetriNet.builder('differential');
   for (const p of places) builder = builder.place(p);
+  // ID PIN (word-boundary nets only). Compiled place ids follow FIRST-REFERENCE
+  // order across transitions — `CompiledNet` walks inputs, reads, inhibitors,
+  // resets and outputs per transition and only then the declared-place list —
+  // so nothing otherwise ties generator index to compiled place id, and any
+  // place no transition mentions is pushed to the tail of the id space. The
+  // boundary generator needs that tie, because "bit 31 of the needs mask" is a
+  // compiled id, not a generator index. A dead anchor transition placed first
+  // names every place in ascending order and fixes id(pI) == I:
+  //   input one(p0) + inhibitor on p0  =>  never enabled (it would need p0
+  //   simultaneously non-empty and empty), and the inhibitor list p0..p(P-1)
+  //   claims the remaining ids in order.
+  // It fires in NEITHER backend, so it can neither mask nor manufacture a
+  // divergence; and it is a sink, so even if it did fire the DAG termination
+  // argument would still hold. The pin is asserted, not assumed, by the
+  // "word-boundary generator coverage" test at the bottom of this file.
+  if (g.pinIds === true) {
+    let anchor = Transition.builder('t_anchor').inputs(one(places[0]!));
+    for (const p of places) anchor = anchor.inhibitor(p);
+    builder = builder.transition(anchor.action(passthrough()).build());
+  }
 
   g.transitions.forEach((gt, ti) => {
     let tb = Transition.builder(`t${ti}`);
@@ -345,7 +531,7 @@ function initialTokens(g: GenNet, places: Place<number>[]): Map<Place<any>, Toke
 function markingValues(g: GenNet, places: Place<number>[], marking: Marking): Record<string, number[]> {
   const result: Record<string, number[]> = {};
   for (let i = 0; i < g.placeCount; i++) {
-    result[`p${i}`] = marking.peekTokens(places[i]!).map(t => t.value);
+    result[places[i]!.name] = marking.peekTokens(places[i]!).map(t => t.value);
   }
   return result;
 }
@@ -546,4 +732,83 @@ describe('executor differential property', () => {
     },
     120_000,
   );
+
+  // Word-boundary twins. Fewer runs than the small properties because each
+  // case builds a 65-72 place net; the coverage guard below is what certifies
+  // the runs are actually spent on sign-bit transitions.
+  it(
+    'backends agree on generated word-boundary untimed nets',
+    async () => {
+      await fc.assert(
+        fc.asyncProperty(genBoundaryNet(immediateOnlyArb), assertBackendsAgree),
+        { numRuns: 50 },
+      );
+    },
+    120_000,
+  );
+
+  it(
+    'backends agree on generated word-boundary timed nets under the fake clock',
+    async () => {
+      await fc.assert(
+        fc.asyncProperty(genBoundaryNet(timedTimingArb), assertBackendsAgree),
+        { numRuns: 25 },
+      );
+    },
+    180_000,
+  );
+});
+
+// ---------------------------------------------------------------------------
+//  Word-boundary coverage guard
+// ---------------------------------------------------------------------------
+
+/**
+ * The boundary properties are only worth their runtime while the generator
+ * keeps aiming at the sign bits, and nothing in a green differential run says
+ * that it does — a generator that silently drifted back to uniform draws would
+ * still pass. This test measures the bias on a FIXED seed (deterministic, so
+ * the thresholds cannot flake) and asserts three things:
+ *
+ * 1. the anchor really pins compiled place id == generator index (without it
+ *    "bit 31" would be some arbitrary place, and the boundary places would
+ *    mostly be declared-only ones no transition ever needs);
+ * 2. every generated net structurally contains a transition whose needs mask
+ *    holds id 31 or 63 — guaranteed by t0's sign-bit pool;
+ * 3. a healthy fraction of nets actually FIRE such a transition on the
+ *    reference backend, i.e. the sign-bit transitions are reachable, not just
+ *    present. Measured 0.52 at this seed (13 of 25); the assertion floor is
+ *    loose on purpose so ordinary generator tuning does not trip it. The
+ *    remaining nets simply drew no initial token into the sign-bit place —
+ *    over a 50-case property run that makes sign-bit firing a certainty, which
+ *    is what the reverted-fix check confirms (both boundary properties fail
+ *    within the first five cases without `>>> 0`).
+ */
+describe('word-boundary generator coverage', () => {
+  it('pins place ids and reaches sign-bit transitions', async () => {
+    const nets = fc.sample(genBoundaryNet(immediateOnlyArb), { numRuns: 25, seed: 20260906 });
+    let structural = 0;
+    let fired = 0;
+    for (const g of nets) {
+      const signBitTransitions = new Set(
+        g.transitions.flatMap((t, i) => (touchesSignBit(t) ? [`t${i}`] : [])),
+      );
+      if (signBitTransitions.size > 0) structural++;
+
+      const { net, places } = buildNet(g);
+      const compiled = CompiledNet.compile(net);
+      expect(compiled.placeCount).toBe(g.placeCount);
+      for (let i = 0; i < g.placeCount; i++) {
+        expect(compiled.placeId(places[i]!), `place id pin broke at index ${i}`).toBe(i);
+      }
+
+      const run = await runToQuiescence('bitmap', g, net, places);
+      const started = 'transition-started ';
+      if (run.projection.some(e => e.startsWith(started) && signBitTransitions.has(e.slice(started.length)))) {
+        fired++;
+      }
+    }
+    expect(structural, 'every boundary net must hold a sign-bit transition').toBe(nets.length);
+    expect(fired / nets.length, 'sign-bit transitions must actually fire').toBeGreaterThan(0.3);
+  }, 120_000);
 });
