@@ -61,7 +61,17 @@ def ignore() -> EnvironmentAnalysisMode:
 
 
 def deadlock_free() -> SmtProperty:
+    """No reachable quiescent marking strands a token outside the declared sinks
+    ([VER-002]). The empty marking strands nothing and never violates. Pairs with
+    :func:`terminates_at_sink`, which inverts on the empty marking."""
     return _ext.deadlock_free()
+
+
+def terminates_at_sink() -> SmtProperty:
+    """Every reachable quiescent marking has at least one declared sink marked
+    ([VER-002]). Says nothing about tokens left elsewhere. Meaningful only when at
+    least one sink is declared; with none, every quiescent marking violates."""
+    return _ext.terminates_at_sink()
 
 
 def mutual_exclusion(places: Iterable[PlaceLike]) -> SmtProperty:
@@ -334,6 +344,7 @@ __all__ = [
     "bounded",
     "branch_place_bound",
     "deadlock_free",
+    "terminates_at_sink",
     "ignore",
     "joined_or_dead_lettered",
     "mutual_exclusion",
