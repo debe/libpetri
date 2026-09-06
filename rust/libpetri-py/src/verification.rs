@@ -250,10 +250,21 @@ fn py_environment_ignore() -> PyEnvironmentAnalysisMode {
     PyEnvironmentAnalysisMode { inner: EnvironmentAnalysisMode::Ignore }
 }
 
-/// Property: the net has no deadlock states beyond declared sinks.
+/// Property: no reachable quiescent state strands a token outside the declared
+/// sinks (VER-002). The empty marking strands nothing and never violates. For
+/// the weaker "did the net reach a terminal at all", see `terminates_at_sink` —
+/// the two invert on the empty marking.
 #[pyfunction(name = "deadlock_free")]
 fn py_deadlock_free() -> PySmtProperty {
     PySmtProperty { inner: SmtProperty::deadlock_free() }
+}
+
+/// Property: every reachable quiescent state has at least one declared sink
+/// marked (VER-002). Says nothing about tokens left elsewhere; meaningful only
+/// with at least one sink declared.
+#[pyfunction(name = "terminates_at_sink")]
+fn py_terminates_at_sink() -> PySmtProperty {
+    PySmtProperty { inner: SmtProperty::terminates_at_sink() }
 }
 
 /// Property: at most one of `places` is non-empty in any reachable state.
@@ -615,6 +626,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_environment_bounded, m)?)?;
     m.add_function(wrap_pyfunction!(py_environment_ignore, m)?)?;
     m.add_function(wrap_pyfunction!(py_deadlock_free, m)?)?;
+    m.add_function(wrap_pyfunction!(py_terminates_at_sink, m)?)?;
     m.add_function(wrap_pyfunction!(py_mutual_exclusion, m)?)?;
     m.add_function(wrap_pyfunction!(py_place_bound, m)?)?;
     m.add_function(wrap_pyfunction!(py_unreachable, m)?)?;
