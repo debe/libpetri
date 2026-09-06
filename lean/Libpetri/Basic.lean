@@ -177,9 +177,12 @@ removes exactly `consumedAt` tokens, a reset arc drains the place
 (`bitmap_backend.rs` reset handling), and the action's writes add `prod p`
 tokens via `produce_token`.
 
-`prod` is deliberately an arbitrary function: `executor_core/output.rs:37`
+`prod` is deliberately an arbitrary function: `executor_core/output.rs:41`
 `validate_out_spec` checks only *which places* the action wrote to, never how
-many tokens it wrote to each. Constraining it is `UnitOutput` below — and that
+many tokens it wrote to each. ([IO-015] made it an exact-explanation search over
+place SETS — one assignment's claim must equal the produced set — which changed
+which place sets are accepted but not the fact that token counts are invisible
+to it, so `prod` stays arbitrary.) Constraining it is `UnitOutput` below — and that
 constraint turns out to be load-bearing. -/
 def alphaFireC (m : CMarking) (t : Transition) (prod : PlaceId → Nat) : AMarking :=
   fun p =>
@@ -236,9 +239,9 @@ def GuardFreeConsumeAll (t : Transition) : Prop :=
 
 /-- **An action writes at most one token per output place.**
 
-`validate_out_spec` is a set-membership check, so an action may write any number
-of tokens to a place the spec permits, while `post` fixes the abstract gain at
-1 per branch place. Neither paper states this condition; Assumption W1
+`validate_out_spec` compares place SETS and never token counts, so an action may
+write any number of tokens to a place the spec permits, while `post` fixes the
+abstract gain at 1 per branch place. Neither paper states this condition; Assumption W1
 ("observationally pure with respect to the marking") does not imply it. -/
 def UnitOutput (prod : PlaceId → Nat) (br : List PlaceId) : Prop :=
   ∀ p, prod p = post br p

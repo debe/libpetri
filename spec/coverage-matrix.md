@@ -10,9 +10,9 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 
 - Active requirements: **210**
 - Proven in Lean (≥ 1 validated theorem fragment): **24**
-- Referenced in Lean comments only (mention without a validated theorem mapping): **7**
-- Referenced by ≥ 1 test file: java **68**, typescript **65**, rust **73**, python **26**
-- Untested anywhere (no test-file reference in any language): **130**
+- Referenced in Lean comments only (mention without a validated theorem mapping): **9**
+- Referenced by ≥ 1 test file: java **69**, typescript **67**, rust **73**, python **26**
+- Untested anywhere (no test-file reference in any language): **128**
 
 ## 01-core-model.md — CORE
 
@@ -69,7 +69,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | IO-012 | — | — | — | — | — | — |
 | IO-013 | — | — | ✓ | ✓ | ✓ | — |
 | IO-014 | — | — | — | — | — | — |
-| IO-015 | — | — | — | ✓ | ✓ | ✓ |
+| IO-015 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | IO-016 | — | — | — | — | — | — |
 | IO-017 | — | — | — | — | — | — |
 
@@ -123,7 +123,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | CONC-010 | — | — | — | — | — | — |
 | CONC-011 | — | — | — | — | — | — |
 | CONC-012 | — | — | — | — | — | — |
-| CONC-020 | — | — | — | — | — | — |
+| CONC-020 | — | — | — | ✓ | — | — |
 | CONC-021 | `precompiled_refines_bitmap_immediate` — the opcode consume program plus flat pool refine the bitmap reference: identical firing decisions and materialized markings, cycle for cycle — untimed/immediate sync fragment, actions abstracted to a pure emission function with proven-identical inputs/reads bags; u32 opcode encoding not modelled | ✓ | — | — | — | — |
 | CONC-022 | — | — | — | — | — | — |
 | CONC-023 | `collect_ready_general_refines` — the post-fix per-priority-level drain (LevelBlocks, RQ1-RQ4) produces the same list as the reference's stable (priority DESC, enabled_at ASC) sort; queue maintenance beyond the collection phase not modelled | ✓ | ✓ | ✓ | ✓ | — |
@@ -154,7 +154,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | ID | Lean proof (theorem + fragment) | Lean ref | java | typescript | rust | python |
 |----|---------------------------------|----------|------|------------|------|--------|
 | VER-001 | — | — | — | — | — | — |
-| VER-002 | — | — | ✓ | ✓ | ✓ | ✓ |
+| VER-002 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | VER-003 | — | — | — | — | — | — |
 | VER-004 | `proposition_one` — abstraction soundness alpha(R(N)) subset R(N-hat) on the untimed flat fragment, under the GuardFreeConsumeAll (vacuous since the IO-006 guard removal) and UnitOutput side conditions; the CHC encoder is modelled, not extracted<br>`guard_hypothesis_is_necessary` — necessity of the guard-free side condition: concrete counterexample where a guarded consume-all arc made the untimed abstraction unsound (historical evidence; discharged by the IO-006 guard removal)<br>`unit_output_hypothesis_is_necessary` — necessity of the unit-output side condition: validate_out_spec checks place membership, never multiplicity, while the encoder fixes the abstract gain at one token per branch place — the hypothesis remains unchecked by the shipped encoder<br>`bad_rule_nonvacuity` — the flat encoder's unresolvable-property-place fallback (Bad body = false) certifies any net vacuously - the formal argument that refusing to certify is the only sound behavior for that case | ✓ | — | — | ✓ | — |
 | VER-005 | `invariant_strengthening_sound` — weighted-sum conservation over ReachA under H1 (zero weight on consume-all/atLeast/reset places; now enforced by the shipped validators) and H2 (y.C = 0, the exact-validation gate's check); injection-free fragment<br>`strengthened_reach_eq` — under H1+H2, conjoining y.M = y.M0 into CHC rule bodies preserves the abstract reachable set - the strengthening the encoders perform is sound<br>`consume_all_hypothesis_is_necessary` — live-gap witness that forced the H1 guard: an exact-gate-valid invariant on an In::All net prunes a genuine successor - false Proven without the guard | ✓ | — | — | — | — |
@@ -234,7 +234,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | PERF-031 | — | — | — | — | — | — |
 | PERF-040 | — | — | — | — | — | — |
 | PERF-041 | — | — | — | — | — | — |
-| PERF-042 | — | ✓ | — | — | — | — |
+| PERF-042 | — | ✓ | — | ✓ | — | — |
 
 ## 11-modular-composition.md — MOD
 

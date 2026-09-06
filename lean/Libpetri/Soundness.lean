@@ -216,9 +216,12 @@ def mSimple : CMarking := fun p => if p == 0 then [7] else []
 /-- An action that writes *two* tokens to its single output place. -/
 def prodDouble : PlaceId → Nat := fun p => if p == 1 then 2 else 0
 
-/-- **Finding 2.** `validate_out_spec` (`executor_core/output.rs:37`) is a
-set-membership check, so this action is accepted: it wrote to place 1, which is
-what `Out::Place(p₁)` demands. The encoder fixes the gain at one token per
+/-- **Finding 2.** `validate_out_spec` (`executor_core/output.rs:41`) compares
+place SETS and never token counts, so this action is accepted: the produced set
+is `{p₁}`, which is exactly what `Out::Place(p₁)` claims. (The [IO-015]
+exact-explanation rewrite tightened WHICH place sets conform — a claim must now
+equal the produced set — but the two tokens this action writes to place 1 remain
+invisible to it, so the finding stands unchanged.) The encoder fixes the gain at one token per
 branch place (`net_flattener.rs:85-88`). Again the concrete successor escapes
 the abstract relation. -/
 theorem unit_output_hypothesis_is_necessary :

@@ -44,7 +44,7 @@ The model is the per-transition control cell at cycle granularity — token
 presence abstracted to one `Bool` (enough for `can_enable`, which the quiet
 net keeps constant), `Nat` clocks per `Sched.lean`'s convention with `none`
 for `NEG_INFINITY`. A cycle is the executor loop's phase order (`run_sync`,
-`executor_core/executor.rs:199`; async loop Phase 3/4/5): update enablement,
+`executor_core/executor.rs:205`; async loop Phase 3/4/5): update enablement,
 enforce deadlines, then the ready/fire decision — the observable. Firing
 *effects* are outside the fragment: the divergence is observable at the fire
 decision itself, before any consumption happens. `exact()` timing is excluded
@@ -168,7 +168,7 @@ def fires (earliest now : Nat) (s : Cell) : Bool :=
 
 /-! ## One executor cycle, and runs over a schedule
 
-Phase order per the loop (`run_sync`, `executor_core/executor.rs:199`; the
+Phase order per the loop (`run_sync`, `executor_core/executor.rs:205`; the
 async loop's Phase 3/4/5, `:674-729`): update enablement, enforce deadlines,
 collect ready + fire. Advancing time between cycles is the schedule itself:
 a run is driven by the list of cycle timestamps `now`, monotone in every
