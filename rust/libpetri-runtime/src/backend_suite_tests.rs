@@ -881,9 +881,10 @@ fn out_violation_failed(events: &[NetEvent], name: &str) -> bool {
     })
 }
 
-/// \[IO-015\] AC2/AC3: an `Out::Xor` declares "exactly one branch". An
-/// action that writes to *both* branches violates the contract — the
-/// firing fails, no tokens are deposited on either branch, and the
+/// \[IO-015\] AC3/AC4: an `Out::Xor` declares "exactly one branch". An
+/// action that writes to *both* branches is unexplained output — one
+/// branch claims `{a}`, the other `{b}`, and neither claims `{a, b}` — so
+/// the firing fails, no tokens are deposited on either branch, and the
 /// consumed input is NOT restored.
 fn xor_output_both_branches_violates<R: BackendRunner>() {
     let p = Place::<i32>::new("p");
@@ -906,8 +907,8 @@ fn xor_output_both_branches_violates<R: BackendRunner>() {
     marking.add(&p, Token::at(1, 0));
 
     let result = R::run(&net, marking);
-    assert_eq!(result.marking.count("a"), 0, "XOR violation must produce nothing");
-    assert_eq!(result.marking.count("b"), 0, "XOR violation must produce nothing");
+    assert_eq!(result.marking.count("a"), 0, "unexplained output must produce nothing");
+    assert_eq!(result.marking.count("b"), 0, "unexplained output must produce nothing");
     // AC3: consumed input tokens are not restored.
     assert_eq!(result.marking.count("p"), 0);
     assert!(
@@ -917,8 +918,9 @@ fn xor_output_both_branches_violates<R: BackendRunner>() {
     );
 }
 
-/// \[IO-015\] AC2: an `Out::Xor` with *no* branch produced is equally a
-/// violation ("exactly 1 required").
+/// \[IO-015\] AC4: an `Out::Xor` with *no* branch produced is equally a
+/// violation — every assignment claims one place, and the empty write set
+/// is claimed by none of them.
 fn xor_output_no_branch_violates<R: BackendRunner>() {
     let p = Place::<i32>::new("p");
     let a = Place::<i32>::new("a");
@@ -941,9 +943,10 @@ fn xor_output_no_branch_violates<R: BackendRunner>() {
     assert!(out_violation_failed(&result.events, "t1"));
 }
 
-/// \[IO-015\] AC2/AC3: an `Out::And` requires *all* children. Writing to
-/// only one child fails the firing and deposits nothing at all — not
-/// even the child that was written.
+/// \[IO-015\] AC2/AC3: an `Out::And` claims the union of its children, so
+/// the only assignment claims `{a, b}`. Writing to only one child leaves
+/// that claim unmatched: the firing fails and deposits nothing at all —
+/// not even the child that was written.
 fn and_output_partial_violates<R: BackendRunner>() {
     let p = Place::<i32>::new("p");
     let a = Place::<i32>::new("a");
@@ -1066,9 +1069,11 @@ fn conforming_output_still_succeeds<R: BackendRunner>() {
     assert_eq!(result.marking.count("y"), 0);
 }
 
-/// \[IO-015\]: a satisfied XOR branch that *also* writes places belonging
-/// to another branch of a nested AND is resolved by the most-specific
-/// (subsuming) match, matching the Java/TypeScript tie-break.
+/// \[IO-015\] AC5: overlapping XOR branches need no tie-break. With a, b
+/// and c produced, `and(a, b, c)` claims exactly the produced set and
+/// `and(a, b)` claims a strict subset of it, so there is exactly one
+/// *exact* explanation and the firing is accepted. This used to require the
+/// subsumption rule, which the exact-explanation search made redundant.
 fn xor_subsuming_branch_is_accepted<R: BackendRunner>() {
     let p = Place::<i32>::new("p");
     let a = Place::<i32>::new("a");
@@ -1077,8 +1082,8 @@ fn xor_subsuming_branch_is_accepted<R: BackendRunner>() {
 
     let t = Transition::builder("t1")
         .input(one(&p))
-        // xor(and(a,b,c), and(a,b)) — writing a,b,c satisfies both, but
-        // and(a,b,c) subsumes and(a,b), so it is the intended branch.
+        // xor(and(a,b,c), and(a,b)) — writing a,b,c is claimed exactly by
+        // the first branch only; the second claims only {a, b}.
         .output(xor(vec![
             and(vec![out_place(&a), out_place(&b), out_place(&c)]),
             and(vec![out_place(&a), out_place(&b)]),
@@ -1099,12 +1104,52 @@ fn xor_subsuming_branch_is_accepted<R: BackendRunner>() {
     let result = R::run(&net, marking);
     assert!(
         !out_violation_failed(&result.events, "t1"),
-        "subsuming XOR branch must be accepted, got {:?}",
+        "the exactly-matching XOR branch must be accepted, got {:?}",
         result.events
     );
     assert_eq!(result.marking.count("a"), 1);
     assert_eq!(result.marking.count("b"), 1);
     assert_eq!(result.marking.count("c"), 1);
+}
+
+/// \[IO-015\] AC9: a write to a declared place *outside* the selected
+/// branch is a violation, not a silent deposit. Selecting `b` explains the
+/// b token but leaves the c token unexplained, and no assignment claims
+/// `{b, c}` — so the firing fails and neither token lands.
+///
+/// This is the behaviour change the exact-explanation search introduced:
+/// the old walk only asked whether the selected branch's obligations were
+/// met, so `c` used to be deposited alongside `b`.
+fn output_outside_selected_branch_violates<R: BackendRunner>() {
+    let p = Place::<i32>::new("p");
+    let a = Place::<i32>::new("a");
+    let b = Place::<i32>::new("b");
+    let c = Place::<i32>::new("c");
+
+    let t = Transition::builder("t1")
+        .input(one(&p))
+        .output(xor(vec![
+            and(vec![out_place(&a), out_place(&c)]),
+            out_place(&b),
+        ]))
+        .action(sync_action(|ctx| {
+            let v = *ctx.input::<i32>("p")?;
+            ctx.output("b", v)?;
+            ctx.output("c", v)?;
+            Ok(())
+        }))
+        .build();
+    let net = PetriNet::builder("test").transition(t).build();
+
+    let mut marking = Marking::new();
+    marking.add(&p, Token::at(1, 0));
+
+    let result = R::run(&net, marking);
+    assert_eq!(result.marking.count("a"), 0);
+    assert_eq!(result.marking.count("b"), 0, "the selected branch must not land either");
+    assert_eq!(result.marking.count("c"), 0, "the stray write must not be deposited");
+    assert_eq!(result.marking.count("p"), 0);
+    assert!(out_violation_failed(&result.events, "t1"));
 }
 
 fn action_error_does_not_crash<R: BackendRunner>() {
@@ -2805,6 +2850,7 @@ for_each_backend!(
     single_place_output_missing_violates,
     conforming_output_still_succeeds,
     xor_subsuming_branch_is_accepted,
+    output_outside_selected_branch_violates,
     action_error_does_not_crash,
     multiple_tokens_different_types,
     sync_priority_ordering,
