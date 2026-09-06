@@ -4082,7 +4082,7 @@ abstract class AbstractNetExecutorEngineTest {
         }
 
         @Test
-        void xorWithSubsetAndBranches_mostSpecificBranchWins() throws Exception {
+        void xorWithSubsetAndBranches_onlyOneBranchClaimsExactlyWhatWasProduced() throws Exception {
             var input = Place.of("Input", SimpleValue.class);
             var placeA = Place.of("PlaceA", SimpleValue.class);
             var placeB = Place.of("PlaceB", SimpleValue.class);
@@ -4090,7 +4090,10 @@ abstract class AbstractNetExecutorEngineTest {
             var placeD = Place.of("PlaceD", SimpleValue.class);
 
             // XOR with subset AND branches: AND(A,B,C) vs AND(A,B) vs D
-            // Mimics detectIntent pattern where recommendation adds a third place
+            // Mimics detectIntent pattern where recommendation adds a third place.
+            // [IO-015] AC5: with A, B and C produced, AND(A,B) claims only {A, B}, so exactly
+            // one assignment claims the produced set exactly. No subsumption tie-break involved
+            // — the rule the spec used to need and no longer has.
             var t = Transition.builder("xor-subset")
                 .inputs(one(input))
                 .outputs(xor(
@@ -4099,7 +4102,7 @@ abstract class AbstractNetExecutorEngineTest {
                     place(placeD)))
                 .timing(Timing.deadline(Duration.ofMillis(100)))
                 .action(ctx -> {
-                    // Produce to all of A, B, C — most specific branch is AND(A,B,C)
+                    // Produce to all of A, B, C — only AND(A,B,C) claims exactly that set
                     ctx.output(placeA, new SimpleValue("a"));
                     ctx.output(placeB, new SimpleValue("b"));
                     ctx.output(placeC, new SimpleValue("c"));
@@ -4120,6 +4123,56 @@ abstract class AbstractNetExecutorEngineTest {
                 assertTrue(result.hasTokens(placeB), "Place B should have token");
                 assertTrue(result.hasTokens(placeC), "Place C should have token");
                 assertFalse(result.hasTokens(placeD), "Place D should be empty");
+            }
+        }
+
+        @Test
+        void writeOutsideSelectedBranch_emitsFailure() throws Exception {
+            // [IO-015] AC9. xor(and(A, C), B) with B and C produced: selecting B explains B but
+            // leaves C unexplained, and no assignment claims exactly {B, C}. Before the
+            // exact-explanation search this passed — the B branch was "satisfied" — and C was
+            // deposited silently, which is the behaviour change this pins.
+            var input = Place.of("Input", SimpleValue.class);
+            var placeA = Place.of("PlaceA", SimpleValue.class);
+            var placeB = Place.of("PlaceB", SimpleValue.class);
+            var placeC = Place.of("PlaceC", SimpleValue.class);
+
+            var eventStore = EventStore.inMemory();
+
+            var t = Transition.builder("stray-write")
+                .inputs(one(input))
+                .outputs(xor(and(placeA, placeC), place(placeB)))
+                .timing(Timing.deadline(Duration.ofMillis(100)))
+                .action(ctx -> {
+                    ctx.output(placeB, new SimpleValue("b"));
+                    ctx.output(placeC, new SimpleValue("stray"));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+
+            var net = PetriNet.builder("StrayWrite").transitions(t).build();
+
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                input, List.of(Token.of(new SimpleValue("go")))
+            );
+
+            try (var executor = createExecutor(net, initial, eventStore)) {
+                var result = executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
+                Thread.sleep(50); // wait for event processing
+
+                var failEvents = eventStore.events().stream()
+                    .filter(e -> e instanceof NetEvent.TransitionFailed)
+                    .map(e -> (NetEvent.TransitionFailed) e)
+                    .toList();
+                assertFalse(failEvents.isEmpty(), "Should record TransitionFailed for the stray write");
+                assertTrue(failEvents.stream().anyMatch(e ->
+                        e.errorMessage().contains("output does not match the declared spec")
+                            && e.errorMessage().contains("produced {PlaceB, PlaceC}")),
+                    "Failure message should name both written places");
+
+                // Validation runs before the deposit, so neither token reaches the marking.
+                assertFalse(result.hasTokens(placeB), "PlaceB must not be deposited on a violation");
+                assertFalse(result.hasTokens(placeC), "The stray PlaceC token must not be deposited");
             }
         }
 
@@ -4158,9 +4211,12 @@ abstract class AbstractNetExecutorEngineTest {
                     .map(e -> (NetEvent.TransitionFailed) e)
                     .toList();
                 assertFalse(failEvents.isEmpty(), "Should record TransitionFailed event for XOR violation");
+                // [IO-015]: neither branch CLAIMS {BranchA, BranchB} — one claims {BranchA}, the
+                // other {BranchB} — so the write is unexplained, not doubly matched.
                 assertTrue(failEvents.stream().anyMatch(e ->
-                        e.errorMessage().contains("XOR violation") && e.errorMessage().contains("multiple")),
-                    "Failure message should mention XOR violation multiple branches");
+                        e.errorMessage().contains("output does not match the declared spec")
+                            && e.errorMessage().contains("produced {BranchA, BranchB}")),
+                    "Failure message should name the unexplained write");
             }
         }
 
@@ -4197,9 +4253,11 @@ abstract class AbstractNetExecutorEngineTest {
                     .map(e -> (NetEvent.TransitionFailed) e)
                     .toList();
                 assertFalse(failEvents.isEmpty(), "Should record TransitionFailed event for XOR violation");
+                // Nothing was written, so no assignment claims the (empty) produced set.
                 assertTrue(failEvents.stream().anyMatch(e ->
-                        e.errorMessage().contains("XOR violation") && e.errorMessage().contains("no branch")),
-                    "Failure message should mention XOR violation no branch");
+                        e.errorMessage().contains("output does not match the declared spec")
+                            && e.errorMessage().contains("produced {}")),
+                    "Failure message should report an empty unexplained write");
             }
         }
 
@@ -4236,7 +4294,7 @@ abstract class AbstractNetExecutorEngineTest {
                     .toList();
                 assertFalse(failEvents.isEmpty(), "Should record TransitionFailed for missing output");
                 assertTrue(failEvents.stream().anyMatch(e ->
-                        e.errorMessage().contains("does not satisfy declared spec")),
+                        e.errorMessage().contains("output does not match the declared spec")),
                     "Failure message should mention spec violation");
             }
         }
@@ -4277,8 +4335,11 @@ abstract class AbstractNetExecutorEngineTest {
                     .map(e -> (NetEvent.TransitionFailed) e)
                     .toList();
                 assertFalse(failEvents.isEmpty(), "Should record TransitionFailed for missing ForwardInput");
+                // and(Normal, forwardInput(->Forward)) is a complex spec on both backends, so both
+                // run the full [IO-015] search: {Normal} alone is claimed by no assignment.
                 assertTrue(failEvents.stream().anyMatch(e ->
-                        e.errorMessage().contains("does not satisfy declared spec")),
+                        e.errorMessage().contains("output does not match the declared spec")
+                            && e.errorMessage().contains("produced {Normal}")),
                     "Failure message should mention spec violation");
             }
         }

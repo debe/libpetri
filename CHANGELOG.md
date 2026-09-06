@@ -2,6 +2,32 @@
 
 ## Unreleased — BREAKING (all four implementations)
 
+### Output validation
+
+**Output validation ([IO-015]) is now an exact-explanation search, and `And` is genuinely unordered.**
+
+- **Fixed — the same write set could pass or fail depending on declaration order.** `And` short-circuited on its first unsatisfied child while an inner `Xor` with no satisfied child threw immediately, so `And(a, Xor(d, e))` and `And(Xor(d, e), a)` disagreed on identical output, and an enclosing `Xor` could never take a sibling branch even when that sibling matched exactly. [IO-015] has always defined `And` as an unordered predicate, so this was a conformance bug.
+
+  Validation now succeeds iff **exactly one assignment's claimed set equals the produced set** — an assignment picking one child per `Xor` it reaches, with unselected subtrees never evaluated. Order-independence follows by construction (new AC8), and an inner `Xor` can no longer pre-empt an outer one (new AC10).
+
+- **Removed — the `Xor` subsumption tie-break.** It existed to rescue `Xor(And(A, B, C), And(A, B))` when A, B and C were all produced. Under equality that case has exactly one *exact* match — `And(A, B)` claims only `{A, B}` — so the rule is unnecessary. Behaviour for that shape is unchanged (AC5).
+
+- **BREAKING — a write to a declared place outside the selected branch is now a violation.** It used to be deposited silently.
+
+  ```ts
+  // spec: xor(and(A, C), B) — the action writes B and C
+  // before: accepted; C lands in the marking though no branch asked for it
+  // now:    violation — no assignment claims exactly {B, C}
+  ```
+
+  A token in a place the spec never names is unaffected: that stays [CORE-072]'s business, retained and reported rather than rejected.
+
+- **Changed — violation messages.** `'t': output does not match the declared spec - produced {a, b}, which no single branch of the spec claims exactly`, and `ambiguous output` when two branches explain the same write. The precompiled fast path no longer emits a second, shorter wording for the same violation. Rust additionally renders the declared spec, which it has always done.
+
+- **Internal — the search is bounded on the hot path.** Validation runs on every firing, and a naive search is O(2^k) in the number of `Xor` children under an `And`. Claims are pruned to subsets of the produced set, and identical claims collapse at multiplicity two, since validation only needs zero / one / many. At 20 `Xor` children that is 1.9µs in Rust and 30µs in Java, against 4.7ms and 244ms uncapped. The common single-place case is unaffected (~40-100ns), and Rust runs the search in a buffer pooled on the executor so a conforming firing allocates nothing.
+
+### Verification
+
 **`DeadlockFree` now means what its own prose always said: nothing is left stranded.** The permissive predicate it used to carry becomes a separate property. Nets that verify clean today may start reporting violations — every one of them a token stranded outside your declared terminals.
 
 - **Changed — `DeadlockFree` is now strict** ([VER-002] AC3/AC4). The error condition was *(all transitions disabled) ∧ (no sink place has a token)*, so a single token resting in any declared sink excused everything else in the marking. It is now *(all transitions disabled) ∧ (some marked place is not a declared sink)*.

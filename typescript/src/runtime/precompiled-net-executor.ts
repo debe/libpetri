@@ -1137,8 +1137,12 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
           if (simplePid >= 0) {
             const produced = outputs.placesWithTokens();
             if (!produced.has(prog.places[simplePid]!.name)) {
+              // Same wording the general path emits: for a bare `Out.Place` the
+              // spec names one place, so on failure nothing it names was written
+              // and the exact-explanation verdict is identical to this check.
               throw new OutViolationError(
-                `'${t.name}': output does not satisfy declared spec`
+                `'${t.name}': output does not match the declared spec - produced {}, ` +
+                `which no single branch of the spec claims exactly`
               );
             }
           } else if (simplePid === -1) {
