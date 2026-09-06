@@ -876,7 +876,7 @@ describe('Output Spec Tests', () => {
     const fails = failures(eventStore);
     expect(fails.length).toBeGreaterThan(0);
     const failEvent = fails[0] as TransitionFailed;
-    expect(failEvent.errorMessage).toContain('does not satisfy');
+    expect(failEvent.errorMessage).toContain('does not match the declared spec');
   });
 });
 

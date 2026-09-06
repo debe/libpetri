@@ -166,61 +166,184 @@ final class ExecutorSupport {
     static final long MARKING_SNAPSHOT_WAIT_NANOS = 2_000_000_000L; // 2s
 
     /**
-     * Recursively validates that a transition's output satisfies its declared {@link Arc.Out} spec.
+     * [IO-015] output validation as an <b>exact-explanation search</b>.
+     *
+     * <p>An <em>assignment</em> picks exactly one child at each {@code Xor} it reaches;
+     * subtrees under an unselected child are never evaluated. Each assignment claims a set of
+     * places, and validation succeeds iff <b>exactly one</b> assignment's claim <em>equals</em>
+     * the produced set.
+     *
+     * <p>Returns that claim on success and throws {@link OutViolationException} otherwise —
+     * whether nothing explains the write or two or more branches do.
+     *
+     * <p>Equality — rather than "every obligation was satisfied" — is what makes a token
+     * written to a declared place outside the selected branch a violation instead of a silent
+     * deposit. It also removes the need for the old subsumption tie-break:
+     * {@code Xor(And(A,B,C), And(A,B))} with A, B and C produced has exactly one
+     * <em>exact</em> claim.
+     *
+     * <p>Being a search rather than an eager walk is what makes {@code And} genuinely unordered
+     * ([IO-015] AC8): the old version short-circuited on its first unsatisfied child and let an
+     * inner {@code Xor} throw before an enclosing one could try a sibling, so the same write set
+     * could pass or fail depending on declaration order.
      *
      * @param tName transition name for error messages
      * @param spec the output specification to validate
      * @param produced set of places that received tokens
-     * @return the set of claimed places, or empty if not satisfied
-     * @throws OutViolationException if a structural violation is detected
+     * @return the claim of the single assignment that explains {@code produced}
+     * @throws OutViolationException if no assignment explains the write, or more than one does
      */
-    static Optional<Set<Place<?>>> validateOutSpec(String tName, Arc.Out spec, Set<Place<?>> produced) {
+    static Set<Place<?>> validateOutSpec(String tName, Arc.Out spec, Set<Place<?>> produced) {
+        // Equality is tested against the produced places the spec could name at all. A token
+        // produced to a place the spec never mentions is [CORE-072]'s business — retained and
+        // reported, not an [IO-015] violation — so it must not make the claims unmatchable.
+        Set<Place<?>> wrote = declaredAndProduced(spec, produced);
+
+        Set<Place<?>> match = null;
+        boolean ambiguous = false;
+        for (Set<Place<?>> claim : claimsWithin(spec, produced)) {
+            // Every claim is a subset of `wrote` by construction (a leaf claims only a place
+            // that was produced, and only places the spec names), so equal size means equal set.
+            if (claim.size() == wrote.size()) {
+                if (match == null) {
+                    match = claim;
+                } else {
+                    ambiguous = true;
+                    break;
+                }
+            }
+        }
+        if (match == null) {
+            throw new OutViolationException(
+                "'%s': output does not match the declared spec - produced {%s}, which no single branch of the spec claims exactly"
+                    .formatted(tName, renderPlaces(wrote)));
+        }
+        if (ambiguous) {
+            throw new OutViolationException(
+                "'%s': ambiguous output - {%s} is claimed by more than one branch"
+                    .formatted(tName, renderPlaces(wrote)));
+        }
+        return match;
+    }
+
+    /**
+     * The produced places the spec actually names, which is the set every claim is compared
+     * against.
+     *
+     * <p>Computing the intersection directly rather than the spec's full name set is the same
+     * single walk and allocates less: the result doubles as the {@code {a, b}} rendered in a
+     * violation message.
+     */
+    private static Set<Place<?>> declaredAndProduced(Arc.Out spec, Set<Place<?>> produced) {
+        var out = new HashSet<Place<?>>();
+        collectDeclaredAndProduced(spec, produced, out);
+        return out;
+    }
+
+    private static void collectDeclaredAndProduced(Arc.Out spec, Set<Place<?>> produced, Set<Place<?>> out) {
+        switch (spec) {
+            case Arc.Out.Place p -> {
+                if (produced.contains(p.place())) out.add(p.place());
+            }
+            case Arc.Out.ForwardInput f -> {
+                if (produced.contains(f.to())) out.add(f.to());
+            }
+            case Arc.Out.Timeout t -> collectDeclaredAndProduced(t.child(), produced, out);
+            case Arc.Out.And a -> {
+                for (Arc.Out c : a.children()) collectDeclaredAndProduced(c, produced, out);
+            }
+            case Arc.Out.Xor x -> {
+                for (Arc.Out c : x.children()) collectDeclaredAndProduced(c, produced, out);
+            }
+        }
+    }
+
+    /** Renders a place set as the {@code a, b} body of a violation message, name-sorted. */
+    private static String renderPlaces(Set<Place<?>> places) {
+        var names = new ArrayList<String>(places.size());
+        for (Place<?> p : places) names.add(p.name());
+        Collections.sort(names);
+        return String.join(", ", names);
+    }
+
+    /**
+     * Claims of every assignment whose claim is a subset of {@code produced}.
+     *
+     * <p>These are exactly the branches {@link Arc.Out#enumerateBranches()} enumerates for
+     * static analysis, restricted to those consistent with what was written — one runtime
+     * definition of "a branch", one static one, and they agree.
+     *
+     * <p>The subset restriction is the pruning that keeps this linear in practice: a leaf naming
+     * a place that was not produced yields nothing, so a {@code Xor} branch dies as soon as it
+     * claims something unwritten, and an {@code And} dies with any unsatisfiable child. Branching
+     * survives only where several {@code Xor} children are simultaneously consistent with what
+     * was produced — the ambiguous case, which is rejected anyway.
+     */
+    private static List<Set<Place<?>>> claimsWithin(Arc.Out spec, Set<Place<?>> produced) {
         return switch (spec) {
             case Arc.Out.Place p -> produced.contains(p.place())
-                ? Optional.of(Set.of(p.place()))
-                : Optional.empty();
-
-            case Arc.Out.And and -> {
-                var claimed = new HashSet<Place<?>>();
-                for (Arc.Out child : and.children()) {
-                    var result = validateOutSpec(tName, child, produced);
-                    if (result.isEmpty()) yield Optional.<Set<Place<?>>>empty();
-                    claimed.addAll(result.get());
-                }
-                yield Optional.of(claimed);
-            }
-
-            case Arc.Out.Xor xor -> {
-                var satisfied = xor.children().stream()
-                    .flatMap(child -> validateOutSpec(tName, child, produced).stream())
-                    .toList();
-
-                yield switch (satisfied.size()) {
-                    case 0 -> throw new OutViolationException(
-                        "'%s': XOR violation - no branch produced (exactly 1 required)".formatted(tName));
-                    case 1 -> Optional.of(satisfied.getFirst());
-                    default -> {
-                        // When one branch subsumes all others (e.g., AND(A,B,C) vs AND(A,B)),
-                        // select the most specific match.
-                        var subsuming = satisfied.stream()
-                            .filter(candidate -> satisfied.stream()
-                                .allMatch(other -> other == candidate || candidate.containsAll(other)))
-                            .toList();
-                        if (subsuming.size() == 1) {
-                            yield Optional.of(subsuming.getFirst());
-                        }
-                        throw new OutViolationException(
-                            "'%s': XOR violation - multiple branches produced".formatted(tName));
-                    }
-                };
-            }
-
-            case Arc.Out.Timeout timeout -> validateOutSpec(tName, timeout.child(), produced);
+                ? List.<Set<Place<?>>>of(Set.of(p.place()))
+                : List.<Set<Place<?>>>of();
 
             case Arc.Out.ForwardInput f -> produced.contains(f.to())
-                ? Optional.of(Set.of(f.to()))
-                : Optional.empty();
+                ? List.<Set<Place<?>>>of(Set.of(f.to()))
+                : List.<Set<Place<?>>>of();
+
+            case Arc.Out.Timeout t -> claimsWithin(t.child(), produced);
+
+            case Arc.Out.Xor xor -> {
+                var out = new ArrayList<Set<Place<?>>>();
+                for (Arc.Out child : xor.children()) {
+                    out.addAll(claimsWithin(child, produced));
+                }
+                yield capMultiplicity(out);
+            }
+
+            case Arc.Out.And and -> {
+                // Unordered: the children are a set of obligations, so this is a join over their
+                // claim sets and the result cannot depend on their declaration order.
+                List<Set<Place<?>>> acc = List.of(Set.of());
+                for (Arc.Out child : and.children()) {
+                    var childClaims = claimsWithin(child, produced);
+                    if (childClaims.isEmpty()) {
+                        yield List.<Set<Place<?>>>of(); // no assignment can satisfy this And
+                    }
+                    var next = new ArrayList<Set<Place<?>>>(acc.size() * childClaims.size());
+                    for (Set<Place<?>> partial : acc) {
+                        for (Set<Place<?>> claim : childClaims) {
+                            var merged = new HashSet<Place<?>>(partial);
+                            merged.addAll(claim);
+                            next.add(merged);
+                        }
+                    }
+                    acc = capMultiplicity(next);
+                }
+                yield acc;
+            }
         };
+    }
+
+    /**
+     * Collapses identical claims, keeping at most two of each.
+     *
+     * <p>Validation only needs to distinguish "no assignment", "exactly one" and "more than
+     * one", so a third assignment claiming an already-seen set carries no information. Without
+     * this the {@code And} join is O(2^k) in the number of {@code Xor} children — on a path that
+     * runs on every firing. With it the working set is bounded by the number of DISTINCT claim
+     * subsets, which is at most 2^|produced|; the produced set is what the action actually wrote,
+     * and is small.
+     */
+    private static List<Set<Place<?>>> capMultiplicity(List<Set<Place<?>>> claims) {
+        if (claims.size() < 3) return claims;
+        var seen = new HashMap<Set<Place<?>>, Integer>();
+        var out = new ArrayList<Set<Place<?>>>(claims.size());
+        for (Set<Place<?>> claim : claims) {
+            int n = seen.getOrDefault(claim, 0);
+            if (n >= 2) continue;
+            seen.put(claim, n + 1);
+            out.add(claim);
+        }
+        return out;
     }
 
     /**
