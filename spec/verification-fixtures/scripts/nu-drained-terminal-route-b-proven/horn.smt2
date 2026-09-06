@@ -39,7 +39,7 @@
 (assert (forall ((m0 Int) (m1 Int) (m2 Int) (m3 Int))
   (=> (and (Reachable m0 m1 m2 m3) (and (or (< m3 1))
          (or (< m0 1) (< m1 1))
-         (= m2 0)))
+         (or (>= m0 1) (>= m1 1) (>= m3 1))))
       Error)))
 
 (assert (not Error))

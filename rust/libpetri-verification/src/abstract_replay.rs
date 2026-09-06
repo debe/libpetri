@@ -133,7 +133,22 @@ pub fn violates(
     env_inject: &[(usize, Option<usize>)],
 ) -> bool {
     match property {
-        SmtProperty::DeadlockFree => deadlocked(flat, state, sink_places, env_inject),
+        // DeadlockFree ([VER-002]): quiescent AND some marked place is not a
+        // declared sink. Mirrors the encoder's `stranded` disjunction.
+        SmtProperty::DeadlockFree => {
+            if !quiescent(flat, state, env_inject) {
+                return false;
+            }
+            let sinks = sink_indices(flat, sink_places);
+            (0..flat.place_count).any(|pid| !sinks.contains(&pid) && at(state, pid) >= 1)
+        }
+        // TerminatesAtSink ([VER-002]): quiescent AND no declared sink marked.
+        SmtProperty::TerminatesAtSink => {
+            quiescent(flat, state, env_inject)
+                && sink_indices(flat, sink_places)
+                    .iter()
+                    .all(|&pid| at(state, pid) == 0)
+        }
         SmtProperty::MutualExclusion { places } | SmtProperty::Unreachable { places } => {
             let resolved: Vec<usize> = places
                 .iter()
@@ -149,29 +164,36 @@ pub fn violates(
             .place_index
             .get(place)
             .is_some_and(|&pid| at(state, pid) > *bound as i64),
+        // JoinedOrDeadLettered ([NU-040] AC4): quiescent AND `pending` marked.
+        // No sink clause — a marked sink must not excuse a stranded group.
         SmtProperty::JoinedOrDeadLettered { pending } => {
             flat.place_index.get(pending).is_some_and(|&pid| {
-                deadlocked(flat, state, sink_places, env_inject) && at(state, pid) >= 1
+                quiescent(flat, state, env_inject) && at(state, pid) >= 1
             })
         }
     }
 }
 
-/// Concrete evaluation of `smt_encoder::encode_deadlock` at `state`: every
-/// transition is disabled — with the VER-006 relaxation that an input/read on
-/// an injectable env place is satisfiable by injection (AlwaysAvailable
-/// always; Bounded(k) iff the demand is ≤ k) — and, when sinks are declared,
-/// no declared sink place holds a token ([VER-002]).
-fn deadlocked(
-    flat: &FlatNet,
-    state: &[i64],
-    sink_places: &[String],
-    env_inject: &[(usize, Option<usize>)],
-) -> bool {
-    let sink_indices: Vec<usize> = sink_places
+/// Declared sink place names resolved to flat-net indices.
+fn sink_indices(flat: &FlatNet, sink_places: &[String]) -> Vec<usize> {
+    sink_places
         .iter()
         .filter_map(|name| flat.place_index.get(name).copied())
-        .collect();
+        .collect()
+}
+
+/// Concrete evaluation of `smt_encoder::encode_quiescent` at `state`: every
+/// transition is disabled — with the VER-006 relaxation that an input/read on
+/// an injectable env place is satisfiable by injection (AlwaysAvailable
+/// always; Bounded(k) iff the demand is ≤ k).
+///
+/// Carries no sink handling: each property in `violates` conjoins its own
+/// clause, exactly as the encoder does.
+fn quiescent(
+    flat: &FlatNet,
+    state: &[i64],
+    env_inject: &[(usize, Option<usize>)],
+) -> bool {
     let env_bound = |pid: usize| -> Option<Option<usize>> {
         env_inject.iter().find(|&&(p, _)| p == pid).map(|&(_, b)| b)
     };
@@ -233,14 +255,6 @@ fn deadlocked(
         }
     }
 
-    // Declared sinks ([VER-002]): a quiescent marking is a violation only when
-    // NO declared sink holds a token — a token in any sink marks an expected
-    // terminal state. Same predicate as the encoder.
-    for &pid in &sink_indices {
-        if at(state, pid) >= 1 {
-            return false;
-        }
-    }
     true
 }
 
