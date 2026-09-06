@@ -14,12 +14,26 @@ import java.util.Set;
 public sealed interface SmtProperty {
 
     /**
-     * Deadlock-freedom: no reachable marking has all transitions disabled.
+     * No reachable quiescent marking strands a token (VER-002).
      *
-     * <p>This is the primary property for Petri net verification.
-     * A deadlock means the net is stuck with no possible progress.
+     * <p>Violated when a reachable marking is quiescent (every transition
+     * disabled) and holds a token in a place that is not a declared sink. The
+     * empty marking strands nothing and never violates. This is workflow-net
+     * proper completion; for the weaker "did the net reach a terminal at all",
+     * see {@link TerminatesAtSink}, which inverts on the empty marking.
      */
     record DeadlockFree() implements SmtProperty {}
+
+    /**
+     * Every reachable quiescent marking has at least one declared sink marked
+     * (VER-002).
+     *
+     * <p>Violated when a reachable marking is quiescent and no declared sink
+     * holds a token. Says nothing about tokens left elsewhere. Meaningful only
+     * with at least one sink declared; with none, every quiescent marking
+     * violates vacuously.
+     */
+    record TerminatesAtSink() implements SmtProperty {}
 
     /**
      * Mutual exclusion: two places never have tokens simultaneously.
@@ -62,7 +76,10 @@ public sealed interface SmtProperty {
      * still holds a token in {@code pending} (NU-040).
      *
      * <p>Violated when a reachable marking is both quiescent and has
-     * {@code pending >= 1} — a stranded correlation group.
+     * {@code pending >= 1} — a stranded correlation group. Encoded as
+     * quiescence conjoined with {@code pending} non-emptiness, with NO sink
+     * clause: a declared sink holding a token must not excuse a stranded group
+     * (NU-040 AC4).
      */
     record JoinedOrDeadLettered(Place<?> pending) implements SmtProperty {}
 
@@ -70,6 +87,15 @@ public sealed interface SmtProperty {
 
     static DeadlockFree deadlockFree() {
         return new DeadlockFree();
+    }
+
+    /**
+     * Quiescence reaches a declared sink (VER-002).
+     *
+     * @return the {@link TerminatesAtSink} property
+     */
+    static TerminatesAtSink terminatesAtSink() {
+        return new TerminatesAtSink();
     }
 
     static MutualExclusion mutualExclusion(Place<?> p1, Place<?> p2) {

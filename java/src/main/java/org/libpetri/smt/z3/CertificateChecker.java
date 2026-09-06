@@ -107,7 +107,7 @@ public final class CertificateChecker {
      * @param flatNet        the flattened net the CHC system was encoded from
      * @param initialMarking the initial marking (VC1)
      * @param property       the verified property (VC3 uses its violation predicate)
-     * @param sinkPlaces     expected terminal places (part of the deadlock violation predicate)
+     * @param sinkPlaces     expected terminal places (part of the VER-002 violation predicates)
      * @param invariants     validated P-invariants folded into the candidate and re-proven
      * @param solver         the resolved z3 executable
      * @param timeout        per-invocation solver budget

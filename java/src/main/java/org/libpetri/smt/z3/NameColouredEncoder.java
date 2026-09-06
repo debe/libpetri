@@ -742,15 +742,51 @@ public final class NameColouredEncoder {
             case SmtProperty.MutualExclusion me ->
                 anyPlacePresent(plan, lay, flat, List.of(me.p1(), me.p2()));
             case SmtProperty.Unreachable ur -> anyPlacePresent(plan, lay, flat, ur.places());
-            case SmtProperty.DeadlockFree _ ->
-                encodeColouredDeadlock(plan, lay, flat, sinkPlaces, envInj);
+            // DeadlockFree (VER-002): quiescent AND some marked place is not a declared
+            // sink. Mirrors the flat encoder's `stranded` disjunction.
+            case SmtProperty.DeadlockFree _ -> {
+                var conds = encodeColouredQuiescent(plan, lay, flat, envInj);
+                if (conds == null) {
+                    yield "false";
+                }
+                var sinks = Set.copyOf(SmtEncoder.indexOrdered(flat, sinkPlaces));
+                var stranded = new ArrayList<String>();
+                for (int pid = 0; pid < flat.placeCount(); pid++) {
+                    if (!sinks.contains(pid)) {
+                        stranded.add("(>= " + lay.aggregate(pid, plan, lay.cur) + " 1)");
+                    }
+                }
+                if (stranded.isEmpty()) {
+                    // Every place is a declared sink: nothing can ever be stranded.
+                    yield "false";
+                }
+                conds.add("(or " + String.join(" ", stranded) + ")");
+                yield joinColoured(conds);
+            }
+            // TerminatesAtSink (VER-002): quiescent AND no declared sink marked.
+            case SmtProperty.TerminatesAtSink _ -> {
+                var conds = encodeColouredQuiescent(plan, lay, flat, envInj);
+                if (conds == null) {
+                    yield "false";
+                }
+                for (int pid : SmtEncoder.indexOrdered(flat, sinkPlaces)) {
+                    conds.add("(= " + lay.aggregate(pid, plan, lay.cur) + " 0)");
+                }
+                yield joinColoured(conds);
+            }
+            // JoinedOrDeadLettered (NU-040 AC4): quiescent AND `pending` marked, with NO
+            // sink clause.
             case SmtProperty.JoinedOrDeadLettered jdl -> {
                 int pid = flat.indexOf(jdl.pending());
                 if (pid < 0) {
                     yield null;
                 }
-                String deadlock = encodeColouredDeadlock(plan, lay, flat, sinkPlaces, envInj);
-                yield "(and " + deadlock + " (>= " + lay.aggregate(pid, plan, lay.cur) + " 1))";
+                var conds = encodeColouredQuiescent(plan, lay, flat, envInj);
+                if (conds == null) {
+                    yield "false";
+                }
+                conds.add("(>= " + lay.aggregate(pid, plan, lay.cur) + " 1)");
+                yield joinColoured(conds);
             }
         };
     }
@@ -776,15 +812,21 @@ public final class NameColouredEncoder {
         return "(> " + lay.aggregate(pid, plan, lay.cur) + " " + bound + ")";
     }
 
+    /** Joins coloured violation conjuncts. Empty is vacuously true. */
+    private static String joinColoured(List<String> conds) {
+        return conds.isEmpty() ? "true" : "(and " + String.join(" ", conds) + ")";
+    }
+
     /**
-     * Colour-aware deadlock predicate (NU-053): every transition is disabled (no colour
-     * enables it) and no declared sink place holds a token (VER-002). Mirrors
-     * {@link SmtEncoder}'s flat deadlock with the same env-injection relaxation
-     * (VER-006), lifted to the coloured layout.
+     * Colour-aware quiescence predicate (NU-053): every transition is disabled (no colour
+     * enables it). Mirrors {@link SmtEncoder}'s flat quiescence with the same
+     * env-injection relaxation (VER-006), lifted to the coloured layout. Carries no sink
+     * clause — each property conjoins its own.
+     *
+     * <p>{@code null} means some transition is enabled in every marking: never quiescent.
      */
-    private static String encodeColouredDeadlock(
-            ColouredPlan plan, Layout lay, FlatNet flat, Collection<Place<?>> sinkPlaces,
-            Map<Integer, Integer> envInj) {
+    private static List<String> encodeColouredQuiescent(
+            ColouredPlan plan, Layout lay, FlatNet flat, Map<Integer, Integer> envInj) {
         var disabledConditions = new ArrayList<String>();
         for (int ti = 0; ti < plan.classes.size(); ti++) {
             Klass cls = plan.classes.get(ti);
@@ -801,24 +843,15 @@ public final class NameColouredEncoder {
                 reasons.add(term);
             }
             if (reasons.isEmpty()) {
-                // Always enabled (possibly via injection) — no marking is a deadlock.
-                return "false";
+                // Always enabled (possibly via injection) — never quiescent.
+                return null;
             }
             disabledConditions.add(reasons.size() == 1
                 ? reasons.getFirst()
                 : "(or " + String.join(" ", reasons) + ")");
         }
 
-        // Declared sinks (VER-002): quiescence is a violation only when NO declared sink
-        // holds a token, so each declared sink contributes `aggregate(sink) = 0` over its
-        // colour slots. Same predicate as the flat deadlock.
-        for (int pid : SmtEncoder.indexOrdered(flat, sinkPlaces)) {
-            disabledConditions.add("(= " + lay.aggregate(pid, plan, lay.cur) + " 0)");
-        }
-
-        return disabledConditions.isEmpty()
-            ? "true"
-            : "(and " + String.join(" ", disabledConditions) + ")";
+        return disabledConditions;
     }
 
     /**

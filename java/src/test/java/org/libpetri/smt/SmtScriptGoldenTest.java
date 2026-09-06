@@ -96,19 +96,31 @@ class SmtScriptGoldenTest {
         return PetriNet.builder("arcs").transitions(t1, t2).build();
     }
 
+    /**
+     * The {@code arcs-*} goldens were written by Rust for {@code deadlockFree()} with a
+     * declared sink, BEFORE the [VER-002] split. Those exact bytes are now the encoding
+     * of {@link SmtProperty.TerminatesAtSink} — the property that inherited the old
+     * permissive predicate unchanged — so the test is retargeted rather than the goldens
+     * regenerated. Nothing is lost: the arc encoding (inhibitor / read / reset / at-least)
+     * and the VER-006 injection relaxation live in the shared quiescence core, which both
+     * properties conjoin, and strict {@code DeadlockFree} stays pinned byte for byte by
+     * the shared fixture goldens under {@code spec/verification-fixtures/scripts/}.
+     */
     @Test
-    void arcs_deadlockFreeWithSinkAndInjection_matchesRust() {
+    void arcs_terminatesAtSinkWithSinkAndInjection_matchesRust() {
         var flat = NetFlattener.flatten(arcsNet(), Set.of(EnvironmentPlace.of(E)),
             EnvironmentAnalysisMode.alwaysAvailable());
         var m0 = MarkingState.builder().tokens(A, 1).tokens(C, 1).tokens(B, 2).build();
         var invariants = SmtVerifier.encoderInvariants(flat, m0, false);
 
-        var encoding = SmtEncoder.encode(flat, m0, SmtProperty.deadlockFree(), invariants, Set.of(S), true);
+        var encoding = SmtEncoder.encode(
+            flat, m0, SmtProperty.terminatesAtSink(), invariants, Set.of(S), true);
         assertEquals(golden("arcs-horn.smt2"), encoding.smt2());
 
         var certGolden = golden("arcs-certificate.smt2");
         assertEquals(certGolden, CertificateChecker.vcScript(
-            certificateOf(certGolden), flat, m0, SmtProperty.deadlockFree(), Set.of(S), invariants));
+            certificateOf(certGolden), flat, m0, SmtProperty.terminatesAtSink(), Set.of(S),
+            invariants));
     }
 
     @Test
