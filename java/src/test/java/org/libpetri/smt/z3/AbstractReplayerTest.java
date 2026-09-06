@@ -165,6 +165,38 @@ class AbstractReplayerTest {
             "a marking with an enabled transition is not a deadlock");
     }
 
+    /**
+     * [VER-002] AC3–AC6: the two sink-sensitive predicates INVERT on the empty quiescent
+     * marking, so neither subsumes the other. The replayer must decide each arm exactly
+     * as {@code SmtEncoder.encodePropertyViolation} does.
+     */
+    @Test
+    void violates_deadlockFreeAndTerminatesAtSink_invertOnTheEmptyMarking() {
+        // Partial terminal: the only quiescent marking marks the sink B AND strands C.
+        var fork = Transition.builder("t").inputs(In.one(A)).outputs(Out.and(B, C)).build();
+        var partial = flatten(PetriNet.builder("partial").transitions(fork).build());
+        var resting = vec(partial, marking(B, 1, C, 1));
+
+        assertTrue(AbstractReplayer.violates(
+            partial, SmtProperty.deadlockFree(), Set.of(B), resting),
+            "AC3: a quiescent marking that strands C violates DeadlockFree, sink or not");
+        assertFalse(AbstractReplayer.violates(
+            partial, SmtProperty.terminatesAtSink(), Set.of(B), resting),
+            "AC5: the sink B is marked, so TerminatesAtSink is satisfied");
+
+        // Drained terminal: the only quiescent marking is the empty one.
+        var sink = Transition.builder("t").inputs(In.one(A)).build();
+        var drained = flatten(PetriNet.builder("drained").places(B).transitions(sink).build());
+        var empty = vec(drained, marking());
+
+        assertFalse(AbstractReplayer.violates(
+            drained, SmtProperty.deadlockFree(), Set.of(B), empty),
+            "AC4: the empty quiescent marking strands nothing");
+        assertTrue(AbstractReplayer.violates(
+            drained, SmtProperty.terminatesAtSink(), Set.of(B), empty),
+            "AC6: no declared sink was reached");
+    }
+
     @Test
     void violates_deadlock_relaxesInjectableEnvInputs() {
         // A transition waiting only on an injectable env input is NOT deadlocked
@@ -174,14 +206,17 @@ class AbstractReplayerTest {
         var t = Transition.builder("T").inputs(In.one(e)).outputs(Out.place(B)).build();
         var net = PetriNet.builder("env").transitions(t).build();
 
+        // B carries the token: under [VER-002] AC4 the EMPTY quiescent marking strands
+        // nothing and is not a DeadlockFree violation, so the stuck case needs a token
+        // parked in a non-sink place to stay meaningful.
         var injectable = NetFlattener.flatten(net, Set.of(env), EnvironmentAnalysisMode.alwaysAvailable());
         assertFalse(AbstractReplayer.violates(
-            injectable, SmtProperty.deadlockFree(), Set.of(), vec(injectable, marking())),
+            injectable, SmtProperty.deadlockFree(), Set.of(), vec(injectable, marking(B, 1))),
             "waiting for injectable env input is not a deadlock");
 
         var ignored = NetFlattener.flatten(net, Set.of(env), EnvironmentAnalysisMode.ignore());
         assertTrue(AbstractReplayer.violates(
-            ignored, SmtProperty.deadlockFree(), Set.of(), vec(ignored, marking())),
+            ignored, SmtProperty.deadlockFree(), Set.of(), vec(ignored, marking(B, 1))),
             "without injection modeling the same marking is genuinely stuck");
     }
 
