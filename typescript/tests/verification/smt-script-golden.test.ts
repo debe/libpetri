@@ -19,7 +19,7 @@ import {
 } from '../../src/verification/invariant/p-invariant-computer.js';
 import { alwaysAvailable, bounded, ignore } from '../../src/verification/analysis/environment-analysis-mode.js';
 import {
-  branchPlaceBound, deadlockFree, mutualExclusion, placeBound, unreachable,
+  branchPlaceBound, mutualExclusion, placeBound, terminatesAtSink, unreachable,
 } from '../../src/verification/smt-property.js';
 import { encode } from '../../src/verification/z3/smt-encoder.js';
 import { vcScript } from '../../src/verification/z3/certificate-checker.js';
@@ -88,14 +88,18 @@ describe('SMT script parity with the Rust reference (VER-013 AC1)', () => {
     return PetriNet.builder('arcs').transitions(t1, t2).build();
   }
 
-  it('arcs: deadlockFree with a sink and alwaysAvailable injection', () => {
+  // These goldens pin the quiescence-with-no-marked-sink encoding, which after the
+  // [VER-002] split is `terminatesAtSink` (byte-identical to what `deadlockFree`
+  // emitted before it). Strict DeadlockFree is pinned by the shared fixture goldens
+  // under spec/verification-fixtures/scripts/.
+  it('arcs: terminatesAtSink with a sink and alwaysAvailable injection', () => {
     const flat = flatten(arcsNet(), new Set([E]), alwaysAvailable());
     const m0 = MarkingState.builder().tokens(A, 1).tokens(C, 1).tokens(B, 2).build();
     const invariants = encoderInvariants(flat, m0);
     const sinks = new Set<Place<any>>([S]);
-    expect(encode(flat, m0, deadlockFree(), invariants, sinks, true).smt2).toBe(golden('arcs-horn.smt2'));
+    expect(encode(flat, m0, terminatesAtSink(), invariants, sinks, true).smt2).toBe(golden('arcs-horn.smt2'));
     const cert = golden('arcs-certificate.smt2');
-    expect(vcScript(certificateOf(cert), flat, m0, deadlockFree(), sinks, invariants)).toBe(cert);
+    expect(vcScript(certificateOf(cert), flat, m0, terminatesAtSink(), sinks, invariants)).toBe(cert);
   });
 
   it('arcs: unreachable with bounded(2) injection', () => {

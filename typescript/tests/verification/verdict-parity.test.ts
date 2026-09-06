@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { SmtVerifier } from '../../src/verification/smt-verifier.js';
 import {
-  deadlockFree, mutualExclusion, placeBound, unreachable, type SmtProperty,
+  deadlockFree, mutualExclusion, placeBound, terminatesAtSink, unreachable, type SmtProperty,
 } from '../../src/verification/smt-property.js';
 import type { Place } from '../../src/core/place.js';
 import { verificationNets } from '../fixtures/verification-nets.js';
@@ -37,7 +37,11 @@ export interface Fixture {
   readonly net: string;
   readonly netDescription: string;
   readonly property: FixtureProperty;
-  /** Expected terminal places (VER-002 sink semantics); absent for closed nets. */
+  /**
+   * Expected terminal places (VER-002 sink semantics): DeadlockFree is violated by a
+   * quiescent marking that strands a token OUTSIDE them, TerminatesAtSink by one that
+   * marks NONE of them. Absent for closed nets.
+   */
   readonly sinkPlaces?: readonly string[];
   /** ν budget places (NU-040): put a reachability-safety query on Route A's coloured encoding. */
   readonly budgetPlaces?: readonly string[];
@@ -62,6 +66,8 @@ export function toProperty(spec: FixtureProperty, places: ReadonlyMap<string, Pl
   switch (spec.type) {
     case 'deadlock-free':
       return deadlockFree();
+    case 'terminates-at-sink':
+      return terminatesAtSink();
     case 'mutual-exclusion':
       return mutualExclusion(placeOf(places, spec.places![0]!), placeOf(places, spec.places![1]!));
     case 'place-bound':

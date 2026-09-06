@@ -113,8 +113,16 @@ function decide(scg: NameStateClassGraph, property: SmtProperty, sinkPlaces: Rea
         const m = scg.markingOf(i);
         return m.hasTokens(property.p1) && m.hasTokens(property.p2);
       });
+    // DeadlockFree (VER-002): a quiescent class that strands a token — some marked
+    // place is not a declared sink. The empty marking strands nothing (AC4).
     case 'deadlock-free':
       return firstWhere(i => scg.successorsOf(i).length === 0 && !allTokensInSinks(scg.markingOf(i), sinkPlaces));
+    // TerminatesAtSink (VER-002): a quiescent class that marks NO declared sink.
+    // Inverts with DeadlockFree on the empty marking, by design.
+    case 'terminates-at-sink':
+      return firstWhere(i => scg.successorsOf(i).length === 0 && !anySinkMarked(scg.markingOf(i), sinkPlaces));
+    // JoinedOrDeadLettered (NU-040 AC4): a quiescent class still holding a pending
+    // token. No sink clause.
     case 'joined-or-dead-lettered':
       return firstWhere(i => scg.successorsOf(i).length === 0 && scg.markingOf(i).hasTokens(property.pending));
   }
@@ -127,6 +135,16 @@ function allTokensInSinks(m: MarkingState, sinks: ReadonlySet<Place<any>>): bool
     if (!sinkNames.has(p.name)) return false;
   }
   return true;
+}
+
+/** Whether any declared sink place holds a token in `m` ([VER-002]). */
+function anySinkMarked(m: MarkingState, sinks: ReadonlySet<Place<any>>): boolean {
+  const sinkNames = new Set<string>();
+  for (const s of sinks) sinkNames.add(s.name);
+  for (const p of m.placesWithTokens()) {
+    if (sinkNames.has(p.name)) return true;
+  }
+  return false;
 }
 
 /** Shortest firing sequence from the initial class (0) to `target`. */
