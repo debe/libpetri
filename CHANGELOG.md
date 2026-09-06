@@ -1,5 +1,25 @@
 # Changelog
 
+## TypeScript 4.2.0 — 2026-09-06
+
+**A timed-out `run()` no longer has to leave the net running behind you.**
+
+- **Added — `run(timeoutMs, onTimeout)` takes a policy.** `Promise.race` abandons the losing promise; it does not cancel it. So a `run(timeoutMs)` that timed out rejected while the orchestrator loop kept firing transitions and mutating the marking after the caller had given up — actions and all. Java has let callers choose since `PetriNetExecutor.RunTimeoutPolicy`; TypeScript never got the port, and had no opt-out at all.
+
+  ```ts
+  // before: rejects, and the net keeps firing — HTTP calls after you gave up
+  await exec.run(5_000);
+
+  // now: rejects and shuts the executor down (in-flight actions still complete, [ENV-013])
+  await exec.run(5_000, 'close');
+  ```
+
+  `'abandon'` remains the default, so **existing callers are unaffected**. It is the behaviour `run(timeoutMs)` has always had, and it is rarely the one you want — Java's own javadoc says as much. Both executors take the parameter, and the abandoned loop's outcome is now swallowed rather than surfacing as an unhandled rejection.
+
+  Note that Rust and Python have no run-with-timeout at all; callers wrap `run_async` in `tokio::time::timeout`, which drops the future and so genuinely cancels the loop. Nothing in `spec/` covers run-timeout semantics for any implementation.
+
+---
+
 ## TypeScript 4.1.1 — 2026-09-06
 
 **Every net with 32 or more places could silently stall on the production executor.** Reported by n8n-libpetri, where each compiled workflow that crossed that size stopped firing.
