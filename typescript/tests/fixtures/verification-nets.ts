@@ -181,17 +181,18 @@ function sinkDrainedTerminal(): VerificationFixtureNet {
 //
 // ν nets in the BASE mint->matched-join fragment, so the name-aware
 // state-class-graph verifier (NU-050 Route B) decides them and the SMT / Route A
-// encoders never see them. They pin the two markings on which Route B's deadlock
-// predicate — quiescent AND NOT(every marked place is a declared sink) —
-// disagrees with VER-002's, which Route A implements verbatim. The disagreement
-// is recorded deliberately; see each fixture's netDescription.
+// encoders never see them. They pin the two markings that used to separate the
+// two routes' deadlock predicates. VER-002 now mandates Route B's strict reading
+// for DeadlockFree and gives the old permissive one its own property,
+// TerminatesAtSink, so both routes decide the same predicate (VER-002 AC7) and a
+// disagreement here is a parity FINDING, not documentation.
 
 /**
  * ν net: fork co-mints ONE fresh name into branchA+branchB; join correlates them
  * by name equality into done+stuck. The only quiescent marking is
  * {done:1, stuck:1} — a token in the declared sink AND one in the non-sink
- * `stuck`. Route B: violated. Route A on the same shape (see
- * `sinkPartialTerminal`): proven. Non-vacuity guard: a failed ν correlation would
+ * `stuck`. Route B: violated, and Route A agrees on the same shape (see
+ * `sinkPartialTerminal`, also violated). Non-vacuity guard: a failed ν correlation would
  * also quiesce (at {branchA:1, branchB:1}, neither a sink) and also read violated
  * here — `nuDrainedTerminal` below, built on the identical correlation, is what
  * turns violated if that ever happens.
@@ -227,8 +228,8 @@ function nuMixedTerminal(): VerificationFixtureNet {
  * predicate (nothing is marked outside the sinks) but NOT as to the net: the empty
  * marking is reachable only because the ν join really correlates the co-minted
  * pair and drains it; a correlation failure would quiesce at
- * {branchA:1, branchB:1} and turn this fixture violated. Route A on the same
- * shape (see `sinkDrainedTerminal`): violated.
+ * {branchA:1, branchB:1} and turn this fixture violated. Route A agrees on the
+ * same shape (see `sinkDrainedTerminal`, also proven).
  */
 function nuDrainedTerminal(): VerificationFixtureNet {
   const source = place<string>('source');
