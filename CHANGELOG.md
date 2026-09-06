@@ -1,19 +1,20 @@
 # Changelog
 
-## Unreleased
+## TypeScript 4.1.1 — 2026-09-06
 
-### Executor
+**Every net with 32 or more places could silently stall on the production executor.** Reported by n8n-libpetri, where each compiled workflow that crossed that size stopped firing.
 
-#### Fixed — sparse enablement ignored places at the sign bit (TypeScript)
+- **Fixed — sparse enablement ignored places at the sign bit.** `PrecompiledNet.canEnableSparse` compared `(snapshot[w] & m)` — a *signed* int32, because JavaScript's `&` is — against `m` read unsigned from a `Uint32Array`. Any transition whose needs-mask included place id 31, 63, 95, … therefore never enabled on `PrecompiledNetExecutor`, while `BitmapNetExecutor` ran the same net to completion. If you hit this, the symptom was a net that went quiescent with tokens still sitting in front of a ready transition:
 
-`PrecompiledNet.canEnableSparse` compared `(snapshot[w] & m)`, a signed int32 in
-JavaScript, against `m` read unsigned from a `Uint32Array`. Any transition whose
-needs-mask included place id 31, 63, 95, … therefore never enabled on
-`PrecompiledNetExecutor`, while `BitmapNetExecutor` ran the same net to completion.
-`containsAll` received the identical `>>> 0` fix in be51666; the sparse path used by the
-production executor had not. Found by n8n-libpetri, where every compiled workflow with
-32 or more places stalled. Rust and Java are unaffected (u64 / long arithmetic).
-Regression test: `tests/runtime/precompiled-net-bit31.test.ts`.
+  ```ts
+  // 40 places; `t` consumes from p31, the place that compiles to id 31
+  const marking = await new PrecompiledNetExecutor(net, tokens).run(1000);
+  marking.tokenCount(p31);  // 1 — never consumed. BitmapNetExecutor returns 0.
+  ```
+
+  `containsAll` received the identical `>>> 0` fix in be51666; the sparse path used by the production executor had not. **Rust, Java and Python are unaffected** (u64 / long arithmetic). Regression test: `tests/runtime/precompiled-net-bit31.test.ts`.
+
+- **Internal — the differential property suites now reach word-boundary place ids.** Both the TypeScript and Rust harnesses generated 2–8 places, so place id 31 was unreachable and this entire class of bug was invisible to them. A second generator now builds 65–72 place nets with needs-mask draws pooled on ids 31 and 63, alongside the existing small-net generator. Compiled place ids are not generator indices, so the mapping is pinned explicitly — TypeScript assigns ids in first-reference order (pinned by a never-enabled anchor transition naming every place in ascending order), Rust by sorted name (pinned by zero-padded names).
 
 ---
 
