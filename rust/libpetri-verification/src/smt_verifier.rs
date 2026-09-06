@@ -1370,7 +1370,7 @@ fn append_invariant_drop_report(report: &mut String, dropped: &[String], kind: &
 /// is a reachable bad marking (a "∃ reachable state" check). For these the
 /// matched-transition over-approximation is sound for `Proven` (the real net
 /// reaches a subset of states). Quiescence-based properties (deadlock,
-/// joined-or-dead-lettered) are NOT reachability-safety: their violation
+/// terminates-at-sink, joined-or-dead-lettered) are NOT reachability-safety: their violation
 /// involves the *absence* of enabled transitions, which the name-blind
 /// over-approximation distorts unsafely ([NU-050]).
 fn is_reachability_safety(property: &SmtProperty) -> bool {
@@ -1379,7 +1379,9 @@ fn is_reachability_safety(property: &SmtProperty) -> bool {
         | SmtProperty::BranchPlaceBound { .. }
         | SmtProperty::MutualExclusion { .. }
         | SmtProperty::Unreachable { .. } => true,
-        SmtProperty::DeadlockFree | SmtProperty::JoinedOrDeadLettered { .. } => false,
+        SmtProperty::DeadlockFree
+        | SmtProperty::TerminatesAtSink
+        | SmtProperty::JoinedOrDeadLettered { .. } => false,
     }
 }
 
@@ -1526,7 +1528,7 @@ fn canonical_place_order(flat: &FlatNet, names: &[String]) -> Vec<String> {
 /// The first place the property names that is not in the flat net.
 fn unresolved_property_place(flat: &FlatNet, property: &SmtProperty) -> Option<String> {
     let named: Vec<&String> = match property {
-        SmtProperty::DeadlockFree => Vec::new(),
+        SmtProperty::DeadlockFree | SmtProperty::TerminatesAtSink => Vec::new(),
         SmtProperty::MutualExclusion { places } | SmtProperty::Unreachable { places } => {
             places.iter().collect()
         }
