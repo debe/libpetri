@@ -243,23 +243,38 @@ function enabledRelaxEnv(
 }
 
 /**
- * Deadlock predicate (encoder `encodeDeadlock`): no flat transition is enabled
- * under relax-env semantics — a marking an external injection could re-enable
- * is NOT a deadlock (VER-006).
+ * Quiescence predicate (encoder `encodeQuiescent`): no flat transition is enabled
+ * under relax-env semantics — a marking an external injection could re-enable is
+ * NOT quiescent (VER-006).
+ *
+ * Carries no sink handling: each property in {@link satisfiesBad} conjoins its own
+ * clause, exactly as the encoder does.
  */
-function isDeadlockA(index: ReplayIndex, state: AbstractState): boolean {
+function isQuiescent(index: ReplayIndex, state: AbstractState): boolean {
   for (const ft of index.flatNet.transitions) {
     if (enabledRelaxEnv(state, ft, index.envInj)) return false;
   }
   return true;
 }
 
+/** The flat indices of the declared sink places that resolve. */
+function sinkIndices(flatNet: FlatNet, sinkPlaces: ReadonlySet<Place<any>>): Set<number> {
+  const idx = new Set<number>();
+  for (const sink of sinkPlaces) {
+    const i = flatNetIndexOf(flatNet, sink);
+    if (i >= 0) idx.add(i);
+  }
+  return idx;
+}
+
 /**
  * TS evaluator of the property-violation predicate `Bad(M)` — the direct
- * mirror of the encoder's `encodePropertyViolation`, including the declared
- * sink exemption for deadlock-freedom and the "unresolved place" edge cases
- * (unknown pending → never violated; unresolved unreachable places are
- * skipped, exactly as the encoder skips them).
+ * mirror of the encoder's `encodePropertyViolation`, arm for arm: shared
+ * quiescence plus each property's own clause (VER-002 DeadlockFree strands a
+ * token outside the sinks, TerminatesAtSink marks no sink, NU-040
+ * JoinedOrDeadLettered has no sink clause at all), and the "unresolved place"
+ * edge cases (unknown pending → never violated; unresolved unreachable places
+ * are skipped, exactly as the encoder skips them).
  */
 export function satisfiesBad(
   state: AbstractState,
@@ -278,11 +293,21 @@ function satisfiesBadIndexed(
 ): boolean {
   const flatNet = index.flatNet;
   switch (property.type) {
+    // DeadlockFree (VER-002): quiescent AND some marked place is not a declared
+    // sink. Mirrors the encoder's `stranded` disjunction.
     case 'deadlock-free': {
-      if (!isDeadlockA(index, state)) return false;
-      for (const sink of sinkPlaces) {
-        const idx = flatNetIndexOf(flatNet, sink);
-        if (idx >= 0 && state[idx]! > 0) return false; // quiescent at a declared sink
+      if (!isQuiescent(index, state)) return false;
+      const sinks = sinkIndices(flatNet, sinkPlaces);
+      for (let pid = 0; pid < flatNet.places.length; pid++) {
+        if (!sinks.has(pid) && state[pid]! >= 1) return true;
+      }
+      return false;
+    }
+    // TerminatesAtSink (VER-002): quiescent AND no declared sink marked.
+    case 'terminates-at-sink': {
+      if (!isQuiescent(index, state)) return false;
+      for (const pid of sinkIndices(flatNet, sinkPlaces)) {
+        if (state[pid]! !== 0) return false;
       }
       return true;
     }
@@ -298,10 +323,12 @@ function satisfiesBadIndexed(
       if (idx < 0) return false; // encoder would have thrown before replay
       return state[idx]! > property.bound;
     }
+    // JoinedOrDeadLettered (NU-040 AC4): quiescent AND `pending` marked. No sink
+    // clause — a marked sink must not excuse a stranded group.
     case 'joined-or-dead-lettered': {
       const idx = flatNetIndexOf(flatNet, property.pending);
       if (idx < 0) return false; // mirror: unknown pending place is never a violation
-      return isDeadlockA(index, state) && state[idx]! >= 1;
+      return isQuiescent(index, state) && state[idx]! >= 1;
     }
     case 'unreachable': {
       let resolved = 0;

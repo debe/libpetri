@@ -230,8 +230,10 @@ public final class VerificationNets {
     /**
      * {@code p0(1),done,stuck; t: one(p0) -> and(done, stuck)}. The only
      * quiescent marking holds a token in the declared sink {@code done} AND one
-     * in the non-sink {@code stuck}; per [VER-002] the sink token excuses it.
-     * The fixture's {@code sinkPlaces} declares {@code done}.
+     * in the non-sink {@code stuck}. The fixture's {@code sinkPlaces} declares
+     * {@code done}. Two fixtures share this net and genuinely disagree on it:
+     * DeadlockFree is violated ([VER-002] AC3 — {@code stuck} is stranded),
+     * TerminatesAtSink is proven (AC5 — {@code done} was reached).
      */
     public static NamedNet sinkPartialTerminal() {
         var p0 = place("p0");
@@ -248,8 +250,9 @@ public final class VerificationNets {
      * {@code p0(1),done; t: one(p0)} with NO output spec — a sink transition
      * ([CORE-042], [CORE-043] AC4). {@code done} touches no arc, so it is
      * declared explicitly on the builder; after t fires the net holds no tokens
-     * anywhere, so no declared sink has a token and [VER-002]'s error condition
-     * holds.
+     * anywhere. Two fixtures share this net and invert on that empty marking:
+     * DeadlockFree is proven ([VER-002] AC4 — nothing is stranded),
+     * TerminatesAtSink is violated (AC6 — no declared sink was reached).
      */
     public static NamedNet sinkDrainedTerminal() {
         var p0 = place("p0");
@@ -264,10 +267,10 @@ public final class VerificationNets {
     //
     // &nu; nets in the BASE mint&rarr;matched-join fragment, so the name-aware
     // state-class-graph verifier (NU-050 Route B) decides them and the SMT /
-    // Route A encoders never see them. They pin the two markings on which Route
-    // B's deadlock predicate — quiescent AND NOT(every marked place is a declared
-    // sink) — disagrees with [VER-002]'s, which Route A implements verbatim. The
-    // disagreement is recorded deliberately; see each fixture's netDescription.
+    // Route A encoders never see them. They pin Route B deciding the SHARED
+    // quiescence predicate — quiescent AND NOT(every marked place is a declared
+    // sink) — which [VER-002] now mandates for DeadlockFree on both routes
+    // (AC7). A Route A / Route B disagreement here is a parity FINDING.
 
     /** The ν-join correlation used by both Route B fixtures: name equality on the payload. */
     private static MatchSpec branchMatch(Place<String> branchA, Place<String> branchB) {
@@ -281,8 +284,8 @@ public final class VerificationNets {
      * &nu; net: {@code fork} co-mints ONE fresh name into {@code branchA}+{@code branchB};
      * {@code join} correlates them by name equality into {@code done}+{@code stuck}. The only
      * quiescent marking is {@code {done:1, stuck:1}} — a token in the declared sink AND one in
-     * the non-sink {@code stuck}. Route B: violated. Route A on the same shape (see
-     * {@link #sinkPartialTerminal()}): proven. Non-vacuity guard: a failed &nu; correlation
+     * the non-sink {@code stuck}. Route B: violated, and since the [VER-002] split Route A
+     * agrees on the same shape (see {@link #sinkPartialTerminal()}). Non-vacuity guard: a failed &nu; correlation
      * would also quiesce (at {@code {branchA:1, branchB:1}}, neither a sink) and also read
      * violated here — {@link #nuDrainedTerminal()}, built on the identical correlation, is what
      * turns violated if that ever happens.
@@ -316,7 +319,8 @@ public final class VerificationNets {
      * marked outside the sinks) but NOT as to the net: the empty marking is reachable only
      * because the &nu; join really correlates the co-minted pair and drains it; a correlation
      * failure would quiesce at {@code {branchA:1, branchB:1}} and turn this fixture violated.
-     * Route A on the same shape (see {@link #sinkDrainedTerminal()}): violated.
+     * Since the [VER-002] split Route A agrees on the same shape (see
+     * {@link #sinkDrainedTerminal()}).
      *
      * @return the named net
      */

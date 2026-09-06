@@ -39,17 +39,42 @@ The engine supports safety property verification using SMT solvers via the IC3/P
 
 The following safety properties can be verified:
 
-- **DeadlockFree** — no reachable marking exists where no transition is enabled.
-  Optionally, the verifier accepts **sink places**: expected terminal places where
-  deadlock is permitted. The error condition becomes: (all transitions disabled) ∧
-  (no sink place has a token). This models nets that naturally terminate.
+- **DeadlockFree** — no reachable marking exists where no transition is enabled and a
+  token is stranded. Optionally, the verifier accepts **sink places**: expected terminal
+  places where coming to rest is permitted. The error condition is: (all transitions
+  disabled) ∧ (some marked place is not a declared sink). A quiescent marking violates
+  exactly when it leaves a token outside the declared terminals — workflow-net proper
+  completion. With no sinks declared this degenerates to: any quiescent marking still
+  holding a token.
+- **TerminatesAtSink** — every reachable quiescent marking has at least one declared sink
+  marked. The error condition is: (all transitions disabled) ∧ (no sink place has a token).
+  This asks the weaker question "did the net come to rest at a declared terminal at all",
+  and says nothing about tokens left elsewhere. It is meaningful only when at least one
+  sink is declared; with none, every quiescent marking violates vacuously.
 - **MutualExclusion(p1, p2)** — places p1 and p2 never both have tokens simultaneously
 - **PlaceBound(place, k)** — place never has more than k tokens
 - **Unreachable(places)** — the given set of places is never all simultaneously non-empty
 
+The two sink-sensitive properties are not ordered by strength; they **invert on the empty
+marking**. A quiescent `{done:1, stuck:1}` with `done` a sink violates DeadlockFree (it
+strands `stuck`) but satisfies TerminatesAtSink. The fully drained marking `{}` satisfies
+DeadlockFree (nothing is stranded) but violates TerminatesAtSink (no sink was reached).
+Neither subsumes the other, which is why both exist.
+
 **Acceptance Criteria:**
 1. Each property can be constructed and passed to the verifier.
 2. Properties are verified against the net's reachable state space.
+3. **DeadlockFree** reports a violation for a quiescent marking that marks a declared sink
+   while also holding a token in a non-sink place.
+4. **DeadlockFree** reports no violation for the empty quiescent marking, whether or not
+   sinks are declared. A net that drains completely has stranded nothing.
+5. **TerminatesAtSink** reports no violation for a quiescent marking that marks any
+   declared sink, regardless of tokens held elsewhere.
+6. **TerminatesAtSink** reports a violation for the empty quiescent marking when at least
+   one sink is declared.
+7. Every route that decides these properties decides the **same** predicate: the SMT route
+   ([VER-001]) and the ν name-partition state-class graph route ([VER-012]) return the same
+   verdict for every marking both can classify.
 
 **Test derivation:** For each property type: construct net where property holds → Proven; construct net where property is violated → Violated.
 

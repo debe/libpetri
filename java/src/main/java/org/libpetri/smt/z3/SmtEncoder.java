@@ -12,6 +12,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeSet;
 
 /**
@@ -385,7 +386,41 @@ public final class SmtEncoder {
             Collection<Place<?>> sinkPlaces, List<Injection> envInject
     ) {
         return switch (property) {
-            case SmtProperty.DeadlockFree() -> encodeDeadlock(flatNet, mVars, sinkPlaces, envInject);
+            // DeadlockFree (VER-002): a quiescent marking that STRANDS a token — holds
+            // one in a place that is not a declared sink. The empty marking strands
+            // nothing and is therefore not a violation (AC4).
+            case SmtProperty.DeadlockFree() -> {
+                var conditions = encodeQuiescent(flatNet, mVars, envInject);
+                if (conditions == null) {
+                    yield "false";
+                }
+                var sinks = Set.copyOf(indexOrdered(flatNet, sinkPlaces));
+                var stranded = new ArrayList<String>();
+                for (int pid = 0; pid < flatNet.placeCount(); pid++) {
+                    if (!sinks.contains(pid)) {
+                        stranded.add("(>= " + mVars.get(pid) + " 1)");
+                    }
+                }
+                if (stranded.isEmpty()) {
+                    // Every place is a declared sink: nothing can ever be stranded.
+                    yield "false";
+                }
+                conditions.add("(or " + String.join(" ", stranded) + ")");
+                yield joinConditions(conditions);
+            }
+            // TerminatesAtSink (VER-002): a quiescent marking that reached NO declared
+            // sink. This is the predicate DeadlockFree carried before the VER-002 split,
+            // unchanged.
+            case SmtProperty.TerminatesAtSink() -> {
+                var conditions = encodeQuiescent(flatNet, mVars, envInject);
+                if (conditions == null) {
+                    yield "false";
+                }
+                for (int pid : indexOrdered(flatNet, sinkPlaces)) {
+                    conditions.add("(= " + mVars.get(pid) + " 0)");
+                }
+                yield joinConditions(conditions);
+            }
             case SmtProperty.MutualExclusion me -> {
                 int i1 = requireIndex(flatNet, me.p1(), "MutualExclusion");
                 int i2 = requireIndex(flatNet, me.p2(), "MutualExclusion");
@@ -411,26 +446,56 @@ public final class SmtEncoder {
                 }
                 yield conditions.isEmpty() ? "false" : "(and " + String.join(" ", conditions) + ")";
             }
+            // JoinedOrDeadLettered (NU-040 AC4): a quiescent state that still holds a
+            // `pending` token is a stranded correlation group. Carries NO sink clause —
+            // a declared sink must not excuse a stranded group.
             case SmtProperty.JoinedOrDeadLettered jdl -> {
-                // NU-040: a quiescent marking still holding a `pending` token.
-                String deadlock = encodeDeadlock(flatNet, mVars, sinkPlaces, envInject);
                 int idx = flatNet.indexOf(jdl.pending());
-                yield idx < 0 ? "false" : "(and " + deadlock + " (>= " + mVars.get(idx) + " 1))";
+                if (idx < 0) {
+                    // Unknown pending place name: no state can violate.
+                    yield "false";
+                }
+                var conditions = encodeQuiescent(flatNet, mVars, envInject);
+                if (conditions == null) {
+                    yield "false";
+                }
+                conditions.add("(>= " + mVars.get(idx) + " 1)");
+                yield joinConditions(conditions);
             }
         };
     }
 
     /**
-     * Deadlock: every transition is disabled. Environment inputs are treated as
-     * injectable (VER-006): an input/read on an injectable env place is NOT a reason
-     * the transition is disabled (AlwaysAvailable always satisfies it, Bounded(k) iff
-     * the demand is at most k), so a reactive net merely waiting for input is not a
-     * deadlock; only a genuinely stuck marking is. Declared sinks (VER-002) each
-     * contribute {@code M[sink] = 0}.
+     * Joins violation conjuncts into the final {@code Bad(M)} term. An empty conjunction
+     * is vacuously true — a net with no transitions is quiescent everywhere.
      */
-    private static String encodeDeadlock(
-            FlatNet flatNet, List<String> mVars, Collection<Place<?>> sinkPlaces,
-            List<Injection> envInject
+    private static String joinConditions(List<String> conditions) {
+        return conditions.isEmpty()
+            ? "true"
+            : "(and " + String.join("\n         ", conditions) + ")";
+    }
+
+    /**
+     * Quiescence: every transition is disabled.
+     *
+     * <p>Shared core of the three quiescence-sensitive properties (VER-002
+     * {@link SmtProperty.DeadlockFree} and {@link SmtProperty.TerminatesAtSink},
+     * NU-040 {@link SmtProperty.JoinedOrDeadLettered}). Each conjoins its own clause on
+     * top and none is encoded here, so a change to one predicate cannot silently move
+     * the others — which is exactly how the sink clause leaked into
+     * {@code JoinedOrDeadLettered} before NU-040 AC4.
+     *
+     * <p>Returns {@code null} when some transition is enabled in every marking: no
+     * quiescent marking exists, so every property built on this is unviolatable.
+     *
+     * <p>Environment inputs are treated as injectable (VER-006): an input/read on an
+     * injectable env place is NOT a reason the transition is disabled (AlwaysAvailable
+     * always satisfies it, Bounded(k) iff the demand is at most k), so a reactive net
+     * merely waiting for input is not reported as quiescent; only a genuinely stuck
+     * marking is.
+     */
+    private static List<String> encodeQuiescent(
+            FlatNet flatNet, List<String> mVars, List<Injection> envInject
     ) {
         var envBound = new java.util.HashMap<Integer, Integer>();
         for (var inj : envInject) {
@@ -470,16 +535,12 @@ public final class SmtEncoder {
                 continue;
             }
             if (disableReasons.isEmpty()) {
-                return "false";
+                // Transition is always enabled (possibly via injection) — never quiescent.
+                return null;
             }
             disabledConditions.add("(or " + String.join(" ", disableReasons) + ")");
         }
-        for (int pid : indexOrdered(flatNet, sinkPlaces)) {
-            disabledConditions.add("(= " + mVars.get(pid) + " 0)");
-        }
-        return disabledConditions.isEmpty()
-            ? "true"
-            : "(and " + String.join("\n         ", disabledConditions) + ")";
+        return disabledConditions;
     }
 
     /** Env-injectable bound map, index to cap ({@code null} = unbounded), for the coloured encoder. */

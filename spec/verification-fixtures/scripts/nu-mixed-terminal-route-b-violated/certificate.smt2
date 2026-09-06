@@ -44,6 +44,6 @@
 (assert (and (Reachable m0 m1 m2 m3 m4) (= (+ (* -1 m0) (* 1 m1)) 0) (= (+ (* 1 m0) (* 1 m2) (* 1 m3)) 1) (= (+ (* -1 m2) (* 1 m4)) 0)))
 (assert (and (or (< m3 1))
          (or (< m0 1) (< m1 1))
-         (= m2 0)))
+         (or (>= m0 1) (>= m1 1) (>= m3 1) (>= m4 1))))
 (check-sat)
 (pop)

@@ -259,6 +259,11 @@ correlation.
 3. The spec states plainly that without a bounded budget, reachability/liveness
    over unbounded fresh names is undecidable and the verifier returns `Unknown`
    for that case ([NU-050]).
+4. `JoinedOrDeadLettered(pending)` is exactly "no reachable quiescent marking holds
+   a `pending` token". It carries **no sink clause**: declared sink places
+   ([VER-002]) do not weaken it, and a stranded correlation group is a violation
+   whether or not some sink happens to be marked in the same marking. Every route
+   that decides it decides this same predicate.
 
 **Depends on:** [VER-002], [EXEC-040], [NU-010], [NU-020]
 **Test derivation:** Build a scatter-gather net with a `Budget(k)` place; verify

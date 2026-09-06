@@ -709,19 +709,44 @@ fn encode_violation(
         SmtProperty::Unreachable { places } | SmtProperty::MutualExclusion { places } => {
             Some(any_place_present(places))
         }
+        // DeadlockFree ([VER-002]): quiescent AND some marked place is not a
+        // declared sink. Mirrors the flat encoder's `stranded` disjunction.
         SmtProperty::DeadlockFree => {
-            Some(encode_coloured_deadlock(plan, lay, flat, sink_places, env_inject))
-        }
-        SmtProperty::JoinedOrDeadLettered { pending } => match flat.place_index.get(pending) {
-            Some(&pid) => {
-                let deadlock = encode_coloured_deadlock(plan, lay, flat, sink_places, env_inject);
-                Some(format!(
-                    "(and {deadlock} (>= {} 1))",
-                    lay.aggregate(pid, plan, &lay.cur)
-                ))
+            let Some(mut conds) = encode_coloured_quiescent(plan, lay, flat, env_inject) else {
+                return Some("false".to_string());
+            };
+            let sinks = coloured_sink_indices(flat, sink_places);
+            let stranded: Vec<String> = (0..flat.place_count)
+                .filter(|pid| !sinks.contains(pid))
+                .map(|pid| format!("(>= {} 1)", lay.aggregate(pid, plan, &lay.cur)))
+                .collect();
+            if stranded.is_empty() {
+                // Every place is a declared sink: nothing can ever be stranded.
+                return Some("false".to_string());
             }
-            None => None,
-        },
+            conds.push(format!("(or {})", stranded.join(" ")));
+            Some(join_coloured(conds))
+        }
+        // TerminatesAtSink ([VER-002]): quiescent AND no declared sink marked.
+        SmtProperty::TerminatesAtSink => {
+            let Some(mut conds) = encode_coloured_quiescent(plan, lay, flat, env_inject) else {
+                return Some("false".to_string());
+            };
+            for pid in coloured_sink_indices(flat, sink_places) {
+                conds.push(format!("(= {} 0)", lay.aggregate(pid, plan, &lay.cur)));
+            }
+            Some(join_coloured(conds))
+        }
+        // JoinedOrDeadLettered ([NU-040] AC4): quiescent AND `pending` marked,
+        // with NO sink clause.
+        SmtProperty::JoinedOrDeadLettered { pending } => {
+            let &pid = flat.place_index.get(pending)?;
+            let Some(mut conds) = encode_coloured_quiescent(plan, lay, flat, env_inject) else {
+                return Some("false".to_string());
+            };
+            conds.push(format!("(>= {} 1)", lay.aggregate(pid, plan, &lay.cur)));
+            Some(join_coloured(conds))
+        }
     }
 }
 
@@ -826,17 +851,38 @@ fn coloured_disabled_term(cls: &Class, plan: &ColouredPlan, lay: &Layout) -> Opt
     }
 }
 
-/// Colour-aware deadlock predicate ([NU-053]): every transition is disabled (no
-/// colour enables it) and no declared sink place holds a token ([VER-002]). Mirrors
-/// [`crate::smt_encoder`]'s flat `encode_deadlock` with the same env-injection
-/// relaxation (VER-006), lifted to the coloured layout.
-fn encode_coloured_deadlock(
+/// Declared sink place names resolved to flat-net indices, ascending, deduped.
+fn coloured_sink_indices(flat: &FlatNet, sink_places: &[String]) -> Vec<usize> {
+    let mut idx: Vec<usize> = sink_places
+        .iter()
+        .filter_map(|name| flat.place_index.get(name).copied())
+        .collect();
+    idx.sort_unstable();
+    idx.dedup();
+    idx
+}
+
+/// Joins coloured violation conjuncts. Empty is vacuously true.
+fn join_coloured(conds: Vec<String>) -> String {
+    if conds.is_empty() {
+        "true".to_string()
+    } else {
+        format!("(and {})", conds.join(" "))
+    }
+}
+
+/// Colour-aware quiescence predicate ([NU-053]): every transition is disabled (no
+/// colour enables it). Mirrors [`crate::smt_encoder`]'s flat `encode_quiescent`
+/// with the same env-injection relaxation (VER-006), lifted to the coloured
+/// layout. Carries no sink clause — each property conjoins its own.
+///
+/// `None` means some transition is enabled in every marking: never quiescent.
+fn encode_coloured_quiescent(
     plan: &ColouredPlan,
     lay: &Layout,
     flat: &FlatNet,
-    sink_places: &[String],
     env_inject: &[(usize, Option<usize>)],
-) -> String {
+) -> Option<Vec<String>> {
     let mut disabled_conditions = Vec::new();
     for (ti, cls) in plan.classes.iter().enumerate() {
         let ft = &flat.transitions[ti];
@@ -850,8 +896,8 @@ fn encode_coloured_deadlock(
             reasons.push(term);
         }
         if reasons.is_empty() {
-            // Always enabled (possibly via injection) — no marking is a deadlock.
-            return "false".to_string();
+            // Always enabled (possibly via injection) — never quiescent.
+            return None;
         }
         disabled_conditions.push(if reasons.len() == 1 {
             reasons.pop().unwrap()
@@ -860,20 +906,7 @@ fn encode_coloured_deadlock(
         });
     }
 
-    // Declared sinks ([VER-002]): quiescence is a violation only when NO declared
-    // sink holds a token, so each declared sink contributes `aggregate(sink) = 0`
-    // over its colour slots. Same predicate as the flat `encode_deadlock`.
-    for name in sink_places {
-        if let Some(&pid) = flat.place_index.get(name) {
-            disabled_conditions.push(format!("(= {} 0)", lay.aggregate(pid, plan, &lay.cur)));
-        }
-    }
-
-    if disabled_conditions.is_empty() {
-        "true".to_string()
-    } else {
-        format!("(and {})", disabled_conditions.join(" "))
-    }
+    Some(disabled_conditions)
 }
 
 #[cfg(test)]
@@ -1192,6 +1225,68 @@ mod tests {
         // net↔flat rejection so the mint→join fragment is still recognised.
         let net = mint_join_xor_net();
         assert!(plan_for(&net, FragmentMode::Base, &[]).is_some());
+    }
+
+    /// The coloured quiescence arms ([VER-002] DeadlockFree / TerminatesAtSink,
+    /// [NU-040] JoinedOrDeadLettered) had NO test in any language before the
+    /// VER-002 split — a drift in them would have passed every gate, since the
+    /// shared fixtures either route to Route B or use `place-bound`. Pins that
+    /// the three arms emit three genuinely different violation terms.
+    #[test]
+    fn coloured_quiescence_arms_differ_by_property() {
+        let net = mint_join_net(false);
+        let flat = net_flattener::flatten(&net);
+        let initial = MarkingStateBuilder::new().tokens("budget1", 1).build();
+        let plan = plan_for(&net, FragmentMode::Base, &[]).expect("mint→join is in-fragment");
+        let lay = Layout::build(&plan, flat.place_count);
+        let sinks = vec!["a".to_string()];
+
+        let agg = |name: &str| {
+            let pid = flat.place_index[name];
+            lay.aggregate(pid, &plan, &lay.cur)
+        };
+        let sink_is_empty = format!("(= {} 0)", agg("a"));
+        let enc = |prop: &SmtProperty| {
+            encode_coloured(&plan, &flat, &initial, prop, &[], &sinks, &[])
+                .expect("in-fragment net encodes")
+                .smt2
+        };
+
+        // DeadlockFree: some NON-sink place is marked. Must not test the sink.
+        let dl = enc(&SmtProperty::DeadlockFree);
+        assert!(
+            !dl.contains(&sink_is_empty),
+            "strict DeadlockFree must not require the sink to be empty:\n{dl}"
+        );
+        // Every place the flat net actually has, except the declared sink.
+        for (name, &pid) in flat.place_index.iter() {
+            if name.as_str() == "a" {
+                continue;
+            }
+            assert!(
+                dl.contains(&format!("(>= {} 1)", lay.aggregate(pid, &plan, &lay.cur))),
+                "DeadlockFree must be able to strand `{name}`:\n{dl}"
+            );
+        }
+
+        // TerminatesAtSink: the sink is empty. The old DeadlockFree predicate.
+        let tas = enc(&SmtProperty::TerminatesAtSink);
+        assert!(
+            tas.contains(&sink_is_empty),
+            "TerminatesAtSink must require every declared sink empty:\n{tas}"
+        );
+        assert_ne!(dl, tas, "the two VER-002 properties must encode differently");
+
+        // JoinedOrDeadLettered: quiescence + pending, and NO sink clause (NU-040 AC4).
+        let jdl = enc(&SmtProperty::JoinedOrDeadLettered { pending: "b".to_string() });
+        assert!(
+            !jdl.contains(&sink_is_empty),
+            "NU-040 AC4: a declared sink must not excuse a stranded group:\n{jdl}"
+        );
+        assert!(
+            jdl.contains(&format!("(>= {} 1)", agg("b"))),
+            "JoinedOrDeadLettered must test the pending place:\n{jdl}"
+        );
     }
 
     #[test]

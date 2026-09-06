@@ -290,6 +290,8 @@ def _property(spec):
     kind = spec["type"]
     if kind == "deadlock-free":
         return lp.deadlock_free()
+    if kind == "terminates-at-sink":
+        return lp.terminates_at_sink()
     if kind == "mutual-exclusion":
         return lp.mutual_exclusion(spec["places"])
     if kind == "place-bound":

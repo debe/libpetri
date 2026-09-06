@@ -32,6 +32,7 @@ use libpetri_verification::smt_verifier::{SmtVerifier, z3_available};
 fn property_of(prop: &Json) -> SmtProperty {
     match prop.str("type") {
         "deadlock-free" => SmtProperty::DeadlockFree,
+        "terminates-at-sink" => SmtProperty::TerminatesAtSink,
         "mutual-exclusion" => SmtProperty::mutual_exclusion(
             prop.arr("places")
                 .iter()

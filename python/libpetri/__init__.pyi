@@ -88,6 +88,7 @@ from .verification import (
     VerificationResult as VerificationResult,
     branch_place_bound as branch_place_bound,
     deadlock_free as deadlock_free,
+    terminates_at_sink as terminates_at_sink,
     joined_or_dead_lettered as joined_or_dead_lettered,
     mutual_exclusion as mutual_exclusion,
     place_bound as place_bound,

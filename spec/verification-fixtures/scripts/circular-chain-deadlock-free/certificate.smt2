@@ -37,6 +37,7 @@
 (assert (and (Reachable m0 m1 m2) (= (+ (* 1 m0) (* 1 m1) (* 1 m2)) 1)))
 (assert (and (or (< m0 1))
          (or (< m1 1))
-         (or (< m2 1))))
+         (or (< m2 1))
+         (or (>= m0 1) (>= m1 1) (>= m2 1))))
 (check-sat)
 (pop)

@@ -312,8 +312,32 @@ export function encodePropertyViolation(
   envInject: readonly Injection[],
 ): string {
   switch (property.type) {
-    case 'deadlock-free':
-      return encodeDeadlock(flatNet, mVars, sinkPlaces, envInject);
+    // DeadlockFree (VER-002): a quiescent marking that STRANDS a token — holds one
+    // in a place that is not a declared sink. The empty marking strands nothing and
+    // is therefore not a violation (AC4).
+    case 'deadlock-free': {
+      const conditions = encodeQuiescent(flatNet, mVars, envInject);
+      if (conditions == null) return 'false';
+      const sinks = new Set(indexOrdered(flatNet, sinkPlaces));
+      const stranded: string[] = [];
+      for (let pid = 0; pid < flatNet.places.length; pid++) {
+        if (!sinks.has(pid)) stranded.push(`(>= ${mVars[pid]} 1)`);
+      }
+      // Every place is a declared sink: nothing can ever be stranded.
+      if (stranded.length === 0) return 'false';
+      conditions.push(`(or ${stranded.join(' ')})`);
+      return joinConditions(conditions);
+    }
+    // TerminatesAtSink (VER-002): a quiescent marking that reached NO declared sink.
+    // This is the predicate DeadlockFree carried before the VER-002 split, unchanged.
+    case 'terminates-at-sink': {
+      const conditions = encodeQuiescent(flatNet, mVars, envInject);
+      if (conditions == null) return 'false';
+      for (const pid of indexOrdered(flatNet, sinkPlaces)) {
+        conditions.push(`(= ${mVars[pid]} 0)`);
+      }
+      return joinConditions(conditions);
+    }
     case 'mutual-exclusion': {
       const conditions = indexOrdered(flatNet, [property.p1, property.p2]).map((i) => `(>= ${mVars[i]} 1)`);
       return conditions.length === 0 ? 'false' : `(and ${conditions.join(' ')})`;
@@ -329,29 +353,52 @@ export function encodePropertyViolation(
       const conditions = indexOrdered(flatNet, property.places).map((i) => `(>= ${mVars[i]} 1)`);
       return conditions.length === 0 ? 'false' : `(and ${conditions.join(' ')})`;
     }
+    // JoinedOrDeadLettered (NU-040 AC4): a quiescent state that still holds a
+    // `pending` token is a stranded correlation group. Carries NO sink clause — a
+    // declared sink must not excuse a stranded group.
     case 'joined-or-dead-lettered': {
-      // NU-040: a quiescent marking still holding a `pending` token.
-      const deadlock = encodeDeadlock(flatNet, mVars, sinkPlaces, envInject);
       const pid = flatNet.placeIndex.get(property.pending.name);
-      return pid == null ? 'false' : `(and ${deadlock} (>= ${mVars[pid]} 1))`;
+      // Unknown pending place name: no state can violate.
+      if (pid == null) return 'false';
+      const conditions = encodeQuiescent(flatNet, mVars, envInject);
+      if (conditions == null) return 'false';
+      conditions.push(`(>= ${mVars[pid]} 1)`);
+      return joinConditions(conditions);
     }
   }
 }
 
 /**
- * Deadlock: every transition is disabled. Environment inputs are treated as
- * injectable (VER-006): an input/read on an injectable env place is NOT a reason the
- * transition is disabled (AlwaysAvailable always satisfies it, Bounded(k) iff the
- * demand is at most k), so a reactive net merely waiting for input is not a deadlock;
- * only a genuinely stuck marking is. Declared sinks (VER-002) each contribute
- * `M[sink] = 0`.
+ * Joins violation conjuncts into the final `Bad(M)` term. An empty conjunction is
+ * vacuously true — a net with no transitions is quiescent everywhere.
  */
-function encodeDeadlock(
+function joinConditions(conditions: readonly string[]): string {
+  return conditions.length === 0 ? 'true' : `(and ${conditions.join('\n         ')})`;
+}
+
+/**
+ * Quiescence: every transition is disabled.
+ *
+ * Shared core of the three quiescence-sensitive properties (VER-002 DeadlockFree
+ * and TerminatesAtSink, NU-040 JoinedOrDeadLettered). Each conjoins its own clause
+ * on top and none is encoded here, so a change to one predicate cannot silently
+ * move the others — which is exactly how the sink clause leaked into
+ * JoinedOrDeadLettered before NU-040 AC4.
+ *
+ * Returns `null` when some transition is enabled in every marking: no quiescent
+ * marking exists, so every property built on this is unviolatable.
+ *
+ * Environment inputs are treated as injectable (VER-006): an input/read on an
+ * injectable env place is NOT a reason the transition is disabled (AlwaysAvailable
+ * always satisfies it, Bounded(k) iff the demand is at most k), so a reactive net
+ * merely waiting for input is not reported as quiescent; only a genuinely stuck
+ * marking is.
+ */
+function encodeQuiescent(
   flatNet: FlatNet,
   mVars: readonly string[],
-  sinkPlaces: ReadonlySet<Place<any>>,
   envInject: readonly Injection[],
-): string {
+): string[] | null {
   const envBound = new Map<number, number | null>();
   for (const inj of envInject) envBound.set(inj.pid, inj.bound);
   const disabledConditions: string[] = [];
@@ -381,13 +428,11 @@ function encodeDeadlock(
       disabledConditions.push('true');
       continue;
     }
-    if (disableReasons.length === 0) return 'false';
+    // Transition is always enabled (possibly via injection) — never quiescent.
+    if (disableReasons.length === 0) return null;
     disabledConditions.push(`(or ${disableReasons.join(' ')})`);
   }
-  for (const pid of indexOrdered(flatNet, sinkPlaces)) {
-    disabledConditions.push(`(= ${mVars[pid]} 0)`);
-  }
-  return disabledConditions.length === 0 ? 'true' : `(and ${disabledConditions.join('\n         ')})`;
+  return disabledConditions;
 }
 
 /** Env-injectable bound map, index to cap (`null` = unbounded), for the coloured encoder. */

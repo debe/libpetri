@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  deadlockFree, mutualExclusion, placeBound, unreachable,
+  deadlockFree, mutualExclusion, placeBound, terminatesAtSink, unreachable,
   propertyDescription,
 } from '../../src/verification/smt-property.js';
 import { place } from '../../src/core/place.js';
@@ -9,6 +9,11 @@ describe('SmtProperty', () => {
   it('deadlockFree factory', () => {
     const prop = deadlockFree();
     expect(prop.type).toBe('deadlock-free');
+  });
+
+  it('terminatesAtSink factory', () => {
+    const prop = terminatesAtSink();
+    expect(prop.type).toBe('terminates-at-sink');
   });
 
   it('mutualExclusion factory', () => {
@@ -38,6 +43,7 @@ describe('SmtProperty', () => {
 
   it('propertyDescription for each type', () => {
     expect(propertyDescription(deadlockFree())).toBe('Deadlock-freedom');
+    expect(propertyDescription(terminatesAtSink())).toBe('Terminates at a declared sink');
 
     const p1 = place('A');
     const p2 = place('B');

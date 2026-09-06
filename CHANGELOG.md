@@ -1,5 +1,85 @@
 # Changelog
 
+## Unreleased — BREAKING (all four implementations)
+
+### Output validation
+
+**Output validation ([IO-015]) is now an exact-explanation search, and `And` is genuinely unordered.**
+
+- **Fixed — the same write set could pass or fail depending on declaration order.** `And` short-circuited on its first unsatisfied child while an inner `Xor` with no satisfied child threw immediately, so `And(a, Xor(d, e))` and `And(Xor(d, e), a)` disagreed on identical output, and an enclosing `Xor` could never take a sibling branch even when that sibling matched exactly. [IO-015] has always defined `And` as an unordered predicate, so this was a conformance bug.
+
+  Validation now succeeds iff **exactly one assignment's claimed set equals the produced set** — an assignment picking one child per `Xor` it reaches, with unselected subtrees never evaluated. Order-independence follows by construction (new AC8), and an inner `Xor` can no longer pre-empt an outer one (new AC10).
+
+- **Removed — the `Xor` subsumption tie-break.** It existed to rescue `Xor(And(A, B, C), And(A, B))` when A, B and C were all produced. Under equality that case has exactly one *exact* match — `And(A, B)` claims only `{A, B}` — so the rule is unnecessary. Behaviour for that shape is unchanged (AC5).
+
+- **BREAKING — a write to a declared place outside the selected branch is now a violation.** It used to be deposited silently.
+
+  ```ts
+  // spec: xor(and(A, C), B) — the action writes B and C
+  // before: accepted; C lands in the marking though no branch asked for it
+  // now:    violation — no assignment claims exactly {B, C}
+  ```
+
+  A token in a place the spec never names is unaffected: that stays [CORE-072]'s business, retained and reported rather than rejected.
+
+- **Changed — violation messages.** `'t': output does not match the declared spec - produced {a, b}, which no single branch of the spec claims exactly`, and `ambiguous output` when two branches explain the same write. The precompiled fast path no longer emits a second, shorter wording for the same violation. Rust additionally renders the declared spec, which it has always done.
+
+- **Internal — the search is bounded on the hot path.** Validation runs on every firing, and a naive search is O(2^k) in the number of `Xor` children under an `And`. Claims are pruned to subsets of the produced set, and identical claims collapse at multiplicity two, since validation only needs zero / one / many. At 20 `Xor` children that is 1.9µs in Rust and 30µs in Java, against 4.7ms and 244ms uncapped. The common single-place case is unaffected (~40-100ns), and Rust runs the search in a buffer pooled on the executor so a conforming firing allocates nothing.
+
+### Verification
+
+**`DeadlockFree` now means what its own prose always said: nothing is left stranded.** The permissive predicate it used to carry becomes a separate property. Nets that verify clean today may start reporting violations — every one of them a token stranded outside your declared terminals.
+
+- **Changed — `DeadlockFree` is now strict** ([VER-002] AC3/AC4). The error condition was *(all transitions disabled) ∧ (no sink place has a token)*, so a single token resting in any declared sink excused everything else in the marking. It is now *(all transitions disabled) ∧ (some marked place is not a declared sink)*.
+
+  ```ts
+  // net quiesces at { done: 1, stuck: 1 }, with `done` declared a sink
+  const result = await SmtVerifier.forNet(net)
+    .property(deadlockFree())
+    .sinkPlaces(done)
+    .verify();
+  // before: proven  — the token in `done` excused the one stranded in `stuck`
+  // now:    violated — `stuck` is stranded, which is the bug you wanted found
+  ```
+
+  With no sinks declared this degenerates to "any quiescent marking still holding a token", which is what most closed nets already assumed.
+
+- **Added — `TerminatesAtSink`** ([VER-002] AC5/AC6), the old predicate under its own name: *every quiescent marking has at least one declared sink marked*. If you relied on the previous `DeadlockFree` behaviour, this is the drop-in.
+
+  ```ts
+  SmtVerifier.forNet(net).property(terminatesAtSink()).sinkPlaces(done)   // TypeScript
+  ```
+  ```java
+  SmtVerifier.forNet(net).property(SmtProperty.terminatesAtSink())        // Java
+  ```
+  ```rust
+  SmtProperty::terminates_at_sink()                                       // Rust
+  ```
+  ```python
+  lp.terminates_at_sink()                                                 # Python
+  ```
+
+  **The two are not ordered by strength — they invert on the empty marking**, which is why both exist and why neither could be dropped:
+
+  | quiescent marking | `DeadlockFree` | `TerminatesAtSink` |
+  |---|---|---|
+  | `{done:1, stuck:1}`, `done` a sink | violated | proven |
+  | `{}` — fully drained | proven | violated |
+
+  So a net that drains completely is no longer reported as deadlocked. That is the correct reading of "nothing stranded"; if you want the old alarm on a drained net, that is `TerminatesAtSink`.
+
+- **Changed — `JoinedOrDeadLettered` no longer has a sink clause** ([NU-040] AC4). It silently inherited one from the deadlock predicate, so any marked sink excused a stranded correlation group — defeating the property's whole purpose. It is now exactly *quiescent ∧ `pending` ≥ 1*, as NU-040 always defined it.
+
+- **Fixed — the two verification routes agree** ([VER-002] AC7). The SMT route and the ν state-class-graph route implemented different deadlock predicates and could return different verdicts for the same net. The disagreement was pinned in `spec/verification-fixtures/` and frozen pending this decision. Route B's reading won for `DeadlockFree`; the freeze is lifted, and a disagreement between routes is now a parity finding.
+
+- **Fixed — counterexample replay checked a different predicate than the encoder.** In TypeScript and Java, the replayer's deadlock helper had no sink handling while only the `DeadlockFree` arm inlined one, so `JoinedOrDeadLettered` counterexamples were judged against a predicate z3 was never given (Rust applied sinks in both). Each replay arm now mirrors its own encoder arm.
+
+- **Internal** — `encodeDeadlock` splits into a shared quiescence predicate plus a per-property clause across the flat encoder, the coloured encoder and the replayer in every language, so the three predicates can no longer drift into one another. The coloured quiescence arms, previously untested in every language, are now pinned.
+
+Requirement count unchanged at 210 — VER-002 gained a property and five acceptance criteria, no new IDs.
+
+---
+
 ## TypeScript 4.2.0 — 2026-09-06
 
 **A timed-out `run()` no longer has to leave the net running behind you.**

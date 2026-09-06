@@ -1,8 +1,22 @@
 /// Safety properties for SMT verification.
 #[derive(Debug, Clone)]
 pub enum SmtProperty {
-    /// No reachable deadlock state (every reachable state has an enabled transition).
+    /// No reachable quiescent state strands a token ([VER-002]).
+    ///
+    /// Violated when a reachable marking is quiescent and holds a token in a
+    /// place that is not a declared sink. The empty marking strands nothing and
+    /// never violates. This is workflow-net proper completion; for the weaker
+    /// "did the net reach a terminal at all", see
+    /// [`SmtProperty::TerminatesAtSink`], which inverts on the empty marking.
     DeadlockFree,
+    /// Every reachable quiescent state has at least one declared sink marked
+    /// ([VER-002]).
+    ///
+    /// Violated when a reachable marking is quiescent and no declared sink holds
+    /// a token. Says nothing about tokens left elsewhere. Meaningful only with at
+    /// least one sink declared; with none, every quiescent marking violates
+    /// vacuously.
+    TerminatesAtSink,
     /// At most one token across the given places in any reachable state.
     MutualExclusion { places: Vec<String> },
     /// A place has at most `bound` tokens in any reachable state.
@@ -22,14 +36,21 @@ pub enum SmtProperty {
     /// *quiescent* (deadlocked) state still holds a token in `pending` ([NU-040]).
     ///
     /// Violated when a reachable marking is both quiescent and has `pending >= 1`
-    /// — a stranded correlation group. Encoded as the deadlock predicate
-    /// conjoined with `pending` non-emptiness.
+    /// — a stranded correlation group. Encoded as quiescence conjoined with
+    /// `pending` non-emptiness, with NO sink clause: a declared sink holding a
+    /// token must not excuse a stranded group ([NU-040] AC4).
     JoinedOrDeadLettered { pending: String },
 }
 
 impl SmtProperty {
     pub fn deadlock_free() -> Self {
         Self::DeadlockFree
+    }
+
+    /// Quiescence reaches a declared sink (VER-002). See
+    /// [`SmtProperty::TerminatesAtSink`].
+    pub fn terminates_at_sink() -> Self {
+        Self::TerminatesAtSink
     }
 
     pub fn mutual_exclusion(places: Vec<String>) -> Self {
@@ -67,6 +88,7 @@ impl SmtProperty {
     pub fn description(&self) -> String {
         match self {
             Self::DeadlockFree => "Deadlock freedom".into(),
+            Self::TerminatesAtSink => "Terminates at a declared sink".into(),
             Self::MutualExclusion { places } => {
                 format!("Mutual exclusion: {}", places.join(", "))
             }

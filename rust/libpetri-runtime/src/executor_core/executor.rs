@@ -87,6 +87,13 @@ pub struct Executor<S: ExecutorBackend, E: EventStore> {
     /// spec-less transitions never build a set at all.
     reusable_produced: HashSet<Arc<str>>,
 
+    /// Scratch claim buffer for the \[IO-015\] exact-explanation search,
+    /// pooled alongside [`reusable_produced`](Self::reusable_produced). The
+    /// search represents each claimed place set as a bitmask over the
+    /// produced places the spec names, so a conforming firing reuses this
+    /// buffer and allocates nothing.
+    reusable_claims: Vec<u64>,
+
     /// Monotonic source for ν-name minting ([`TransitionContext::fresh_name`],
     /// spec NU-010). One counter per executor run makes minted names
     /// deterministic for a given firing order (replay-stable); combining it
@@ -119,6 +126,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             reusable_inputs: HashMap::new(),
             reusable_reads: HashMap::new(),
             reusable_produced: HashSet::new(),
+            reusable_claims: Vec::new(),
             fresh_name_counter: Arc::new(AtomicU64::new(0)),
             fresh_name_fns: Vec::new(),
         }
@@ -413,8 +421,10 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
     ///   shape) → one linear scan of the output slice, which is 1-3
     ///   entries in practice. No set built, no hashing.
     /// - Composite specs → fills the pooled
-    ///   [`reusable_produced`](Self::reusable_produced) set (no
-    ///   allocation after the first firing) and walks the spec tree.
+    ///   [`reusable_produced`](Self::reusable_produced) set and runs the
+    ///   \[IO-015\] exact-explanation search over the pooled
+    ///   [`reusable_claims`](Self::reusable_claims) buffer (no allocation
+    ///   after the first firing).
     #[inline]
     fn output_conforms(
         &mut self,
@@ -428,6 +438,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         let Self {
             backend,
             reusable_produced,
+            reusable_claims,
             ..
         } = self;
         let Some(spec) = backend.compiled().transition(tid).output_spec() else {
@@ -445,7 +456,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         if !flushed.is_empty() {
             reusable_produced.extend(flushed.iter().map(Arc::clone));
         }
-        validate_out_spec(spec, reusable_produced)
+        validate_out_spec(spec, reusable_produced, reusable_claims)
     }
 
     /// Emits the `TransitionFailed` event for an \[IO-015\] violation.

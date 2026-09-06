@@ -2193,14 +2193,16 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                 Integer epid = program.placeIndex.get(entry.place());
                 if (epid != null && epid == simplePid) return;
             }
+            // Same wording the general path emits: for a bare Out.Place the spec
+            // names one place, so on failure nothing it names was written and the
+            // exact-explanation verdict is identical to this check.
             throw new OutViolationException(
-                "'%s': output does not satisfy declared spec".formatted(t.name()));
+                ("'%s': output does not match the declared spec - produced {}, "
+                 + "which no single branch of the spec claims exactly").formatted(t.name()));
         }
-        // Complex spec: fall back to full validation
-        Set<Place<?>> produced = outputs.placesWithTokens();
-        ExecutorSupport.validateOutSpec(t.name(), t.outputSpec(), produced)
-            .orElseThrow(() -> new OutViolationException(
-                "'%s': output does not satisfy declared spec".formatted(t.name())));
+        // Complex spec: fall back to full validation, which throws on a violation itself
+        // ([IO-015] exact-explanation search).
+        ExecutorSupport.validateOutSpec(t.name(), t.outputSpec(), outputs.placesWithTokens());
     }
 
     // ==================== Dirty Bitmap Helpers ====================
