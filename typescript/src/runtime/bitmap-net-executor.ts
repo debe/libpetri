@@ -27,7 +27,7 @@ import type { Token } from '../core/token.js';
 import type { Transition } from '../core/transition.js';
 import type { EventStore } from '../event/event-store.js';
 import type { NetEvent } from '../event/net-event.js';
-import type { PetriNetExecutor } from './petri-net-executor.js';
+import type { PetriNetExecutor, RunTimeoutPolicy } from './petri-net-executor.js';
 import { tokenOf } from '../core/token.js';
 import { TokenInput } from '../core/token-input.js';
 import { TokenOutput } from '../core/token-output.js';
@@ -315,19 +315,30 @@ export class BitmapNetExecutor implements PetriNetExecutor {
 
   // ======================== Execution ========================
 
-  async run(timeoutMs?: number): Promise<Marking> {
-    if (timeoutMs !== undefined) {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error('Execution timed out')), timeoutMs);
-      });
-      try {
-        return await Promise.race([this.executeLoop(), timeoutPromise]);
-      } finally {
-        if (timer !== undefined) clearTimeout(timer);
+  async run(timeoutMs?: number, onTimeout: RunTimeoutPolicy = 'abandon'): Promise<Marking> {
+    if (timeoutMs === undefined) return this.executeLoop();
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        timedOut = true;
+        reject(new Error('Execution timed out'));
+      }, timeoutMs);
+    });
+    // Held rather than inlined into the race: Promise.race walks away from the
+    // loser, it does not cancel it, so the loop needs handling of its own.
+    const loop = this.executeLoop();
+    try {
+      return await Promise.race([loop, timeoutPromise]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      if (timedOut) {
+        if (onTimeout === 'close') this.close();
+        // Nobody is left to observe the abandoned loop's outcome.
+        loop.catch(() => {});
       }
     }
-    return this.executeLoop();
   }
 
   private async executeLoop(): Promise<Marking> {
