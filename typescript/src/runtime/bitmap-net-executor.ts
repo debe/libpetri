@@ -39,7 +39,6 @@ import { findBinding, IncrementalMatcher } from './match-engine.js';
 import { keyForPlace } from '../core/match-spec.js';
 import { nameId } from '../core/name.js';
 import { validateOutSpec, produceTimeoutOutput, executeAction, swallowEventStoreFailure, DEADLINE_TOLERANCE_MS } from './executor-support.js';
-import { OutViolationError } from './out-violation-error.js';
 import { earliest as timingEarliest, latest as timingLatest, hasDeadline as timingHasDeadline } from '../core/timing.js';
 
 /** Tolerance for JS timer jitter (setTimeout resolution ~1-4ms). */
@@ -948,13 +947,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
 
         // Validate output against spec
         if (t.outputSpec !== null) {
-          const produced = outputs.placesWithTokens();
-          const result = validateOutSpec(t.name, t.outputSpec, produced);
-          if (result === null) {
-            throw new OutViolationError(
-              `'${t.name}': output does not satisfy declared spec`
-            );
-          }
+          validateOutSpec(t.name, t.outputSpec, outputs.placesWithTokens());
         }
 
         // Single pass: add tokens to marking, update bitmap, and emit events

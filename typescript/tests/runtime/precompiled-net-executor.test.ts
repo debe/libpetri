@@ -833,8 +833,9 @@ describe('Output Spec Tests', () => {
     const fails = failures(eventStore);
     expect(fails.length).toBeGreaterThan(0);
     const failEvent = fails[0] as TransitionFailed;
-    expect(failEvent.errorMessage).toContain('XOR violation');
-    expect(failEvent.errorMessage).toContain('multiple branches');
+    // Both branches written: neither CLAIMS {A, B}, so the write is unexplained
+    // rather than doubly-matched ([IO-015] equality rule).
+    expect(failEvent.errorMessage).toContain('does not match the declared spec');
   });
 
   it('XOR violation: no branch emits failure', async () => {
@@ -855,8 +856,7 @@ describe('Output Spec Tests', () => {
     const fails = failures(eventStore);
     expect(fails.length).toBeGreaterThan(0);
     const failEvent = fails[0] as TransitionFailed;
-    expect(failEvent.errorMessage).toContain('XOR violation');
-    expect(failEvent.errorMessage).toContain('no branch');
+    expect(failEvent.errorMessage).toContain('does not match the declared spec');
   });
 
   it('missing required output emits failure', async () => {

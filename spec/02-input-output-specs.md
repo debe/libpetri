@@ -179,7 +179,7 @@ Every input cardinality variant exposes two functions:
 1. Requires at least 2 children.
 2. After action completes, exactly 1 child must have received tokens.
 3. Zero branches satisfied → validation error.
-4. Two or more branches satisfied → validation error, unless exactly one of them subsumes all the others, in which case that branch is selected (the subsumption tie-break of [IO-015]).
+4. Two or more branches whose claims exactly explain the produced set → validation error (genuinely ambiguous). A branch whose claim is a strict subset of what was produced does not satisfy the spec at all, so overlapping branches like `Xor(And(A, B, C), And(A, B))` resolve without a tie-break ([IO-015]).
 
 **Depends on:** [IO-015]
 **Test derivation:** Xor(P1, P2); action produces only to P1 → success. Action produces to both → error. Action produces to neither → error.
@@ -243,22 +243,38 @@ times out; verify P2 receives the original P1 values. Repeat with `all()` and
 
 **Priority:** MUST
 
-After an action completes, the executor validates that produced tokens conform to the declared output specification. Validation walks the spec tree over the set of places that received at least one token, and each node yields the set of places its subtree *claims*:
-- **Place** — satisfied iff the place received tokens; claims that place.
-- **ForwardInput** — satisfied iff the `to` place received tokens; claims `to`.
-- **And** — satisfied iff **all** children are satisfied; claims the union of their claims.
-- **Xor** — satisfied iff **exactly one** child is satisfied; claims that child's claims. Zero satisfied children is a violation, and so is more than one — except under the subsumption tie-break below.
-- **Timeout** — delegates to its child.
+After an action completes, the executor validates that produced tokens conform to the
+declared output specification. Let the **produced set** be the places that received at
+least one token.
 
-**Xor subsumption tie-break.** Overlapping branches are legal, so more than one branch
-can be satisfied by a single conforming write. When two or more children are satisfied
-and exactly one of them **subsumes** every other satisfied child — its claimed place set
-is a superset of each of theirs — that most specific branch is selected and validation
-succeeds. For example `Xor(And(A, B, C), And(A, B))` with A, B and C all produced selects
-`And(A, B, C)`; the `And(A, B)` match is an artifact of it being a strict subset, not a
-second distinct branch. If no single satisfied branch subsumes all the others (e.g. two
-disjoint branches both produced), the output is genuinely ambiguous and the firing is a
-violation.
+Validation is an **exact-explanation search**. An *assignment* selects exactly one child
+at each `Xor` node it reaches; nodes beneath an unselected `Xor` child are never
+evaluated. Each assignment *claims* a set of places:
+
+- **Place** — claims that place.
+- **ForwardInput** — claims `to`.
+- **And** — claims the union of every child's claim. `And` is an **unordered** conjunction:
+  its children are a set of obligations, not a sequence, and a verdict MUST NOT depend on
+  the order they are declared in.
+- **Xor** — claims the selected child's claim.
+- **Timeout** — claims its child's claim.
+
+**Validation succeeds iff exactly one assignment's claimed set is *equal* to the produced
+set.** Zero exact assignments is a violation — nothing explains what was written. Two or
+more is a violation — the write is genuinely ambiguous.
+
+Equality rather than containment is what makes a token written to a declared place
+*outside* the selected branch a violation, instead of being silently deposited.
+
+No subsumption rule is needed: `Xor(And(A, B, C), And(A, B))` with A, B and C produced has
+exactly one *exact* assignment, because `And(A, B)` claims only `{A, B}`.
+
+*Implementation note (non-normative).* This check runs on every firing. A partial claim
+that already contains a place outside the produced set can never extend to an exact match,
+so pruning there keeps the search linear whenever `Xor` branches are distinguishable by
+what was produced; the search need not continue once two exact assignments are found. The
+exponential worst case requires several `Xor` children to be simultaneously consistent with
+the produced set, which is the ambiguous case that is rejected regardless.
 
 Validation failure is treated as a transition failure (error event emitted, tokens not restored).
 
@@ -287,10 +303,19 @@ An action that needs all-or-nothing output must not publish mid-action.
 1. Conforming output → success.
 2. Non-conforming output → failure event emitted.
 3. Consumed input tokens are NOT restored on failure.
-4. `Xor` with zero satisfied branches → violation; with two disjoint satisfied branches → violation.
-5. `Xor(And(A, B, C), And(A, B))` with A, B, C produced → success (the subsuming branch is selected), not a multiple-branch violation.
+4. Zero exact assignments → violation; two or more exact assignments → violation.
+5. `Xor(And(A, B, C), And(A, B))` with A, B, C produced → success, because exactly one
+   assignment claims exactly `{A, B, C}`. No subsumption rule is involved.
 6. A transition declaring an output spec but bound to a hand-written action that produces nothing → validation failure on every firing (the built-in passthrough case is [CORE-043]'s, rejected before execution).
 7. Where mid-action publication exists: an action that publishes to `A` then returns having also written `B`, against `And(A, B)` → success. An action that publishes to `A` then returns without writing `B` → violation, and the published `A` token remains in the marking.
+8. **`And` is unordered.** Permuting the children of any `And` yields the same verdict for
+   the same produced set. In particular `And(A, Xor(D, E))` and `And(Xor(D, E), A)` agree on
+   every produced set, including the empty one.
+9. **A write outside the selected branch is a violation.** `Xor(And(A, C), B)` with B and C
+   produced → violation: no assignment claims exactly `{B, C}`. It is not a success that
+   silently deposits C.
+10. **An inner `Xor` never pre-empts an outer one.** `Xor(And(A, Xor(D, E)), A)` with only A
+    produced → success, selecting the second branch, whose claim is exactly `{A}`.
 
 **Depends on:** [EVT-007], [CORE-051], [CORE-043]
 **Test derivation:** Action produces to wrong place; verify failure event. Nested `Xor`
