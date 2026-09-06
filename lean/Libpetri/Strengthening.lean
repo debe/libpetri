@@ -490,13 +490,19 @@ theorem consume_all_hypothesis_is_necessary :
 
 `encode_property_violation` falls back to a `false` violation condition when
 a property references a place the flattener cannot resolve: the
-`JoinedOrDeadLettered` arm at `smt_encoder.rs:473-474` ("Unknown pending
+`JoinedOrDeadLettered` arm at `smt_encoder.rs:501-502` ("Unknown pending
 place name: no state can violate."), and identically the unresolved
-`PlaceBound` arm at `:450-451` and the empty-condition arms at `:436-437` /
-`:460-461`.
+`PlaceBound` arm and the empty-condition arms.
+The [VER-002] split WIDENED this surface rather than narrowing it: `DeadlockFree`
+also emits `false` when every place is a declared sink (nothing can ever be
+stranded, `:442`), and both it and the new `TerminatesAtSink` emit `false` when
+no quiescent marking exists at all (`:433`, `:452`). The first is a genuine
+vacuity of the same shape this theorem argues against; the latter two are honest,
+since a net with a permanently-enabled transition truly has no violating state.
+The theorem below is indifferent to which is which — that is the point.
 With `Bad ≡ false`, the error rule `Error :- Reachable(M) ∧ Bad(M)` has an
 unsatisfiable body, so Spacer answers `sat` — reported as `Proven`
-(`process_z3_result`, `smt_verifier.rs:1596-1638`) — for EVERY net, marking
+(`process_z3_result`, `smt_verifier.rs:1598-1640`) — for EVERY net, marking
 and semantics. The
 theorem quantifies over an arbitrary reachable-set predicate to make
 "regardless of semantics" literal.
