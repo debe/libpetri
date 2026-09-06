@@ -1142,13 +1142,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
               );
             }
           } else if (simplePid === -1) {
-            const produced = outputs.placesWithTokens();
-            const result = validateOutSpec(t.name, t.outputSpec, produced);
-            if (result === null) {
-              throw new OutViolationError(
-                `'${t.name}': output does not satisfy declared spec`
-              );
-            }
+            validateOutSpec(t.name, t.outputSpec, outputs.placesWithTokens());
           }
         }
 

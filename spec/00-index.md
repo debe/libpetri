@@ -395,8 +395,8 @@ the sole surviving per-token filter ([NU-021]).
 **Output-validation alignment.** [IO-015] is a MUST that Rust did not previously enforce
 (its validation routine had no callers), so Rust and Python fired without checking the
 declared output spec. It is now enforced on both Rust backends, matching Java and
-TypeScript, and all three languages share the same Xor **subsumption tie-break**
-([IO-015]). What remains for the runtime check, now that [CORE-043] rejects the
+TypeScript, and all three languages share the same **exact-explanation** validation
+([IO-015]): exactly one assignment of the spec tree must claim precisely the produced set. What remains for the runtime check, now that [CORE-043] rejects the
 built-in-passthrough case statically, is the case no static check can decide: a
 hand-written action that produces nothing, or produces only on some paths. Rust and
 Python nets relying on the previously unchecked path need their spec or their action
@@ -431,7 +431,7 @@ The Rust column doubles as Python's: `libpetri-py` binds the same engine, so a `
 | IO-001–005, IO-007 | `InTest` | `in.test.ts` | `input::tests` |
 | IO-010–013, IO-016–017 | `OutTest` | `out.test.ts` | `output::tests` |
 | IO-014 (ForwardInput multiplicity) | `AbstractNetExecutorEngineTest#outTimeout_forwardInput_all_forwardsEveryConsumedToken`, `#outTimeout_forwardInput_exactly_forwardsEveryConsumedToken` | `executor-support.test.ts > forwards every consumed input value, in consumption order` | `output::tests` (always forwarded all) |
-| IO-015 (incl. Xor subsumption tie-break) | `AbstractNetExecutorEngineTest` (out-violation cases), `BitmapNetExecutorAsyncOutputTest` | `executor-support.test.ts` (`validateOutSpec`) | `backend_suite_tests::xor_output_both_branches_violates`, `xor_output_no_branch_violates`, `and_output_partial_violates`, `single_place_output_missing_violates`, `conforming_output_still_succeeds`, `xor_subsuming_branch_is_accepted` (both backends) |
+| IO-015 (incl. exact-explanation search) | `AbstractNetExecutorEngineTest` (out-violation cases), `BitmapNetExecutorAsyncOutputTest` | `executor-support.test.ts` (`validateOutSpec`) | `backend_suite_tests::xor_output_both_branches_violates`, `xor_output_no_branch_violates`, `and_output_partial_violates`, `single_place_output_missing_violates`, `conforming_output_still_succeeds`, `xor_subsuming_branch_is_accepted` (both backends) |
 | TIME-001–006 | `TimingTest` | `timing.test.ts` | `timing::tests` |
 | TIME-010–014 | `AbstractNetExecutorEngineTest.TimingTests`, `DeadlineToleranceTest` | `executor-timing.test.ts` | — |
 | EXEC-001–003 | `AbstractNetExecutorEngineTest`, `BackendDivergenceRegressionTest` | `bitmap-net-executor.test.ts`, `executor-shared-semantics.test.ts` | `executor::tests`, `backend_suite_tests::scheduling_order` (covers Python; no binding-level test) |
