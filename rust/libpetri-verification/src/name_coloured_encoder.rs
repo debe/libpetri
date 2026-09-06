@@ -1227,6 +1227,68 @@ mod tests {
         assert!(plan_for(&net, FragmentMode::Base, &[]).is_some());
     }
 
+    /// The coloured quiescence arms ([VER-002] DeadlockFree / TerminatesAtSink,
+    /// [NU-040] JoinedOrDeadLettered) had NO test in any language before the
+    /// VER-002 split — a drift in them would have passed every gate, since the
+    /// shared fixtures either route to Route B or use `place-bound`. Pins that
+    /// the three arms emit three genuinely different violation terms.
+    #[test]
+    fn coloured_quiescence_arms_differ_by_property() {
+        let net = mint_join_net(false);
+        let flat = net_flattener::flatten(&net);
+        let initial = MarkingStateBuilder::new().tokens("budget1", 1).build();
+        let plan = plan_for(&net, FragmentMode::Base, &[]).expect("mint→join is in-fragment");
+        let lay = Layout::build(&plan, flat.place_count);
+        let sinks = vec!["a".to_string()];
+
+        let agg = |name: &str| {
+            let pid = flat.place_index[name];
+            lay.aggregate(pid, &plan, &lay.cur)
+        };
+        let sink_is_empty = format!("(= {} 0)", agg("a"));
+        let enc = |prop: &SmtProperty| {
+            encode_coloured(&plan, &flat, &initial, prop, &[], &sinks, &[])
+                .expect("in-fragment net encodes")
+                .smt2
+        };
+
+        // DeadlockFree: some NON-sink place is marked. Must not test the sink.
+        let dl = enc(&SmtProperty::DeadlockFree);
+        assert!(
+            !dl.contains(&sink_is_empty),
+            "strict DeadlockFree must not require the sink to be empty:\n{dl}"
+        );
+        // Every place the flat net actually has, except the declared sink.
+        for (name, &pid) in flat.place_index.iter() {
+            if name.as_str() == "a" {
+                continue;
+            }
+            assert!(
+                dl.contains(&format!("(>= {} 1)", lay.aggregate(pid, &plan, &lay.cur))),
+                "DeadlockFree must be able to strand `{name}`:\n{dl}"
+            );
+        }
+
+        // TerminatesAtSink: the sink is empty. The old DeadlockFree predicate.
+        let tas = enc(&SmtProperty::TerminatesAtSink);
+        assert!(
+            tas.contains(&sink_is_empty),
+            "TerminatesAtSink must require every declared sink empty:\n{tas}"
+        );
+        assert_ne!(dl, tas, "the two VER-002 properties must encode differently");
+
+        // JoinedOrDeadLettered: quiescence + pending, and NO sink clause (NU-040 AC4).
+        let jdl = enc(&SmtProperty::JoinedOrDeadLettered { pending: "b".to_string() });
+        assert!(
+            !jdl.contains(&sink_is_empty),
+            "NU-040 AC4: a declared sink must not excuse a stranded group:\n{jdl}"
+        );
+        assert!(
+            jdl.contains(&format!("(>= {} 1)", agg("b"))),
+            "JoinedOrDeadLettered must test the pending place:\n{jdl}"
+        );
+    }
+
     #[test]
     fn unresolved_property_place_yields_no_encoding() {
         // Should-fix: a property naming a place absent from the net must NOT
