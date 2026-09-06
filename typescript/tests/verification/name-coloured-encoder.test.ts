@@ -10,7 +10,8 @@ import { MarkingState } from '../../src/verification/marking-state.js';
 import { flatten } from '../../src/verification/encoding/net-flattener.js';
 import { computePSemiflows } from '../../src/verification/invariant/p-invariant-computer.js';
 import { IncidenceMatrix } from '../../src/verification/encoding/incidence-matrix.js';
-import { buildColouredPlan } from '../../src/verification/z3/name-coloured-encoder.js';
+import { buildColouredPlan, encodeColoured } from '../../src/verification/z3/name-coloured-encoder.js';
+import { deadlockFree, terminatesAtSink, joinedOrDeadLettered } from '../../src/verification/smt-property.js';
 import type { FragmentMode } from '../../src/verification/analysis/name-fragment.js';
 
 // Z3-free conformance for the name-coloured fragment gate (buildColouredPlan).
@@ -213,5 +214,105 @@ describe('name-coloured fragment gate (NU-053 EXTENDED + XOR)', () => {
     // net↔flat rejection so the mint→join fragment is still recognised.
     const net = mintJoinXorNet();
     expect(planFor(net, 'base', [])).not.toBeNull();
+  });
+});
+
+// The coloured quiescence arms ([VER-002] DeadlockFree / TerminatesAtSink,
+// [NU-040] JoinedOrDeadLettered) had NO test in any language before the VER-002
+// split — a drift in them would have passed every gate, because the shared
+// fixtures either route to Route B or use `place-bound`. Mirrors Rust's
+// `coloured_quiescence_arms_differ_by_property`.
+describe('coloured quiescence arms (VER-002 / NU-040)', () => {
+  function colouredNet() {
+    const budget1 = place('budget1');
+    const a = place<string>('branchA');
+    const b = place<string>('branchB');
+    const mint = Transition.builder('mint').inputs(one(budget1)).outputs(andPlaces(a, b)).build();
+    const join = Transition.builder('join')
+      .inputs(one(a), one(b))
+      .match(matchSpec(
+        matchKey(a, (s: string) => nameId(s)),
+        matchKey(b, (s: string) => nameId(s)),
+      ))
+      .outputs(outPlace(budget1))
+      .build();
+    const net = PetriNet.builder('colouredQuiescence').transitions(mint, join).build();
+    const flat = flatten(net);
+    const initial = MarkingState.builder().tokens(budget1, 1).build();
+    const semiflows = computePSemiflows(IncidenceMatrix.from(flat), flat, initial);
+    const plan = buildColouredPlan(net, flat, initial, new Set(['budget1']), 'base', new Set(), semiflows);
+    return { flat, initial, plan, a, b };
+  }
+
+  /** Top-level conjuncts of the violation term `(and c1 c2 ... cn)`. */
+  function conjuncts(violation: string): string[] {
+    const inner = violation.startsWith('(and ') ? violation.slice(5, -1) : violation;
+    const out: string[] = [];
+    let depth = 0, cur = '';
+    for (const ch of inner) {
+      if (ch === ' ' && depth === 0) { if (cur) out.push(cur); cur = ''; continue; }
+      if (ch === '(') depth++;
+      if (ch === ')') depth--;
+      cur += ch;
+    }
+    if (cur) out.push(cur);
+    return out;
+  }
+
+  /** The next balanced `(...)` group at or after `from`. */
+  function group(text: string, from: number): { term: string; end: number } {
+    const start = text.indexOf('(', from);
+    let d = 0, i = start;
+    for (; i < text.length; i++) {
+      if (text[i] === '(') d++;
+      else if (text[i] === ')') { d--; if (d === 0) { i++; break; } }
+    }
+    return { term: text.slice(start, i), end: i };
+  }
+
+  /**
+   * The `Bad(M)` term: the second argument of `(and (Reachable …) <violation>)`
+   * in the ERROR rule — the last `(=> (and (Reachable` in the script. Anchoring
+   * on the last one matters: transition rules share that prefix, and their line
+   * ends right after `(Reachable …)`.
+   */
+  function violationTerm(smt2: string): string {
+    const anchor = smt2.lastIndexOf('(=> (and (Reachable');
+    const reachable = group(smt2, smt2.indexOf('(Reachable', anchor));
+    return group(smt2, reachable.end).term.replace(/\s+/g, ' ');
+  }
+
+  it('emits three different violation terms, and only TerminatesAtSink tests the sink', () => {
+    const { flat, initial, plan, a, b } = colouredNet();
+    expect(plan).not.toBeNull();
+    const sinks = new Set([a]);
+    const term = (prop: any) => {
+      const e = encodeColoured(plan!, flat, initial, prop, [], sinks);
+      expect(e).not.toBeNull();
+      return violationTerm(e!.smt2);
+    };
+
+    // Each property's OWN clause is the final conjunct; the ones before it are
+    // the shared quiescence conditions and must be identical across all three.
+    const dl = conjuncts(term(deadlockFree()));
+    const tas = conjuncts(term(terminatesAtSink()));
+    const jdl = conjuncts(term(joinedOrDeadLettered(b)));
+
+    expect(dl.slice(0, -1), 'quiescence conditions must be shared').toEqual(tas.slice(0, -1));
+    expect(jdl.slice(0, -1), 'quiescence conditions must be shared').toEqual(tas.slice(0, -1));
+
+    const [dlClause] = dl.slice(-1);
+    const [tasClause] = tas.slice(-1);
+    const [jdlClause] = jdl.slice(-1);
+    expect(new Set([dlClause, tasClause, jdlClause]).size, 'all three clauses must differ').toBe(3);
+
+    // TerminatesAtSink: the sink aggregate is zero.
+    expect(tasClause, 'TerminatesAtSink tests the sink').toMatch(/^\(= .* 0\)$/);
+    // DeadlockFree: some NON-sink place is marked, and the sink is not tested.
+    expect(dlClause, 'DeadlockFree strands a non-sink token').toMatch(/^\(or \(>= /);
+    expect(dlClause, 'strict DeadlockFree must not require the sink to be empty').not.toBe(tasClause);
+    // NU-040 AC4: quiescence + pending only, no sink clause anywhere.
+    expect(jdlClause, 'JoinedOrDeadLettered tests only the pending place').toMatch(/^\(>= /);
+    expect(jdl.join(' '), 'a declared sink must not excuse a stranded group').not.toContain(tasClause);
   });
 });

@@ -229,17 +229,35 @@ public final class AbstractReplayer {
             Map<Integer, Integer> envInj
     ) {
         return switch (property) {
+            // DeadlockFree (VER-002): quiescent AND some marked place is not a declared
+            // sink. Mirrors the encoder's `stranded` disjunction.
             case SmtProperty.DeadlockFree() -> {
-                if (!isDeadlock(flatNet, m, envInj)) {
+                if (!quiescent(flatNet, m, envInj)) {
                     yield false;
                 }
-                for (var sink : sinkPlaces) {
-                    int idx = flatNet.indexOf(sink);
-                    if (idx >= 0 && m[idx] != 0) {
-                        yield false; // resting at a declared sink is not a violation
+                var sinks = sinkIndices(flatNet, sinkPlaces);
+                boolean stranded = false;
+                for (int pid = 0; pid < flatNet.placeCount(); pid++) {
+                    if (!sinks.contains(pid) && m[pid] >= 1) {
+                        stranded = true;
+                        break;
                     }
                 }
-                yield true;
+                yield stranded;
+            }
+            // TerminatesAtSink (VER-002): quiescent AND no declared sink marked.
+            case SmtProperty.TerminatesAtSink() -> {
+                if (!quiescent(flatNet, m, envInj)) {
+                    yield false;
+                }
+                boolean anySinkMarked = false;
+                for (int pid : sinkIndices(flatNet, sinkPlaces)) {
+                    if (m[pid] != 0) {
+                        anySinkMarked = true;
+                        break;
+                    }
+                }
+                yield !anySinkMarked;
             }
             case SmtProperty.MutualExclusion me -> {
                 int idx1 = requireIndex(flatNet, me.p1(), "MutualExclusion");
@@ -250,12 +268,14 @@ public final class AbstractReplayer {
                 m[requireIndex(flatNet, pb.place(), "PlaceBound")] > pb.bound();
             case SmtProperty.BranchPlaceBound bpb ->
                 m[requireIndex(flatNet, bpb.place(), "BranchPlaceBound")] > bpb.bound();
+            // JoinedOrDeadLettered (NU-040 AC4): quiescent AND `pending` marked. No sink
+            // clause — a marked sink must not excuse a stranded group.
             case SmtProperty.JoinedOrDeadLettered jdl -> {
                 int idx = flatNet.indexOf(jdl.pending());
                 if (idx < 0) {
                     yield false; // unknown pending place: no state can violate
                 }
-                yield isDeadlock(flatNet, m, envInj) && m[idx] >= 1;
+                yield quiescent(flatNet, m, envInj) && m[idx] >= 1;
             }
             case SmtProperty.Unreachable ur -> {
                 // The non-empty guard is load-bearing: with every place unresolved the
@@ -470,12 +490,27 @@ public final class AbstractReplayer {
         return true;
     }
 
+    /** Declared sink place names resolved to flat-net indices. */
+    private static Set<Integer> sinkIndices(FlatNet flatNet, Set<Place<?>> sinkPlaces) {
+        var idx = new HashSet<Integer>();
+        for (var sink : sinkPlaces) {
+            int i = flatNet.indexOf(sink);
+            if (i >= 0) {
+                idx.add(i);
+            }
+        }
+        return idx;
+    }
+
     /**
-     * Deadlock predicate of the Error rule ({@code SmtEncoder.encodeDeadlock}):
-     * no transition is enabled, with input/read requirements on injected
-     * environment places treated as satisfiable by injection (VER-006).
+     * Concrete evaluation of {@code SmtEncoder.encodeQuiescent} at {@code m}: every
+     * transition is disabled, with input/read requirements on injected environment
+     * places treated as satisfiable by injection (VER-006).
+     *
+     * <p>Carries no sink handling: each property in {@link #violates} conjoins its own
+     * clause, exactly as the encoder does.
      */
-    private static boolean isDeadlock(FlatNet flatNet, int[] m, Map<Integer, Integer> envInj) {
+    private static boolean quiescent(FlatNet flatNet, int[] m, Map<Integer, Integer> envInj) {
         for (var ft : flatNet.transitions()) {
             if (enabledRelaxed(m, ft, envInj)) {
                 return false;

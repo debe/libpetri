@@ -43,7 +43,8 @@
  * flat row classified by its own incidence, with `matchSpec` read from its source.
  *
  * **Properties**: reachability-safety properties compare aggregate coloured place
- * counts. Quiescence properties (`deadlock-free`, `joined-or-dead-lettered`) use a
+ * counts. Quiescence properties (`deadlock-free`, `terminates-at-sink`,
+ * `joined-or-dead-lettered`) use a
  * colour-aware deadlock predicate ([NU-053], Part 2): every transition is disabled
  * for every colour (a mint has no globally-fresh colour, a join no shared colour, a
  * consumer no resident colour) and the marking is not a sink state — mirroring the
@@ -547,7 +548,8 @@ function encodeError(
 /**
  * Encodes the property-violation condition over the coloured current marking.
  * Reachability-safety properties compare aggregate place counts; quiescence
- * properties (NU-053) use the colour-aware deadlock predicate.
+ * properties (NU-053) build on the colour-aware quiescence predicate, each
+ * conjoining its own clause.
  *
  * Returns `null` when the property names a place that does not resolve in the net
  * (e.g. a typo'd bound/pending place). A `false` violation term there would make the
@@ -579,13 +581,39 @@ function encodeViolation(
       return anyPlacePresent([property.p1, property.p2]);
     case 'unreachable':
       return anyPlacePresent(property.places);
-    case 'deadlock-free':
-      return encodeColouredDeadlock(plan, lay, flat, sinkPlaces, envInj);
+    // DeadlockFree (VER-002): quiescent AND some marked place is not a declared
+    // sink. Mirrors the flat encoder's `stranded` disjunction.
+    case 'deadlock-free': {
+      const conds = encodeColouredQuiescent(plan, lay, flat, envInj);
+      if (conds == null) return 'false';
+      const sinks = new Set(indexOrdered(flat, sinkPlaces));
+      const stranded: string[] = [];
+      for (let pid = 0; pid < flat.places.length; pid++) {
+        if (!sinks.has(pid)) stranded.push(`(>= ${aggregate(plan, lay, pid, lay.cur)} 1)`);
+      }
+      // Every place is a declared sink: nothing can ever be stranded.
+      if (stranded.length === 0) return 'false';
+      conds.push(`(or ${stranded.join(' ')})`);
+      return joinColoured(conds);
+    }
+    // TerminatesAtSink (VER-002): quiescent AND no declared sink marked.
+    case 'terminates-at-sink': {
+      const conds = encodeColouredQuiescent(plan, lay, flat, envInj);
+      if (conds == null) return 'false';
+      for (const pid of indexOrdered(flat, sinkPlaces)) {
+        conds.push(`(= ${aggregate(plan, lay, pid, lay.cur)} 0)`);
+      }
+      return joinColoured(conds);
+    }
+    // JoinedOrDeadLettered (NU-040 AC4): quiescent AND `pending` marked, with NO
+    // sink clause.
     case 'joined-or-dead-lettered': {
       const pid = flat.placeIndex.get(property.pending.name);
       if (pid == null) return null;
-      const deadlock = encodeColouredDeadlock(plan, lay, flat, sinkPlaces, envInj);
-      return `(and ${deadlock} (>= ${aggregate(plan, lay, pid, lay.cur)} 1))`;
+      const conds = encodeColouredQuiescent(plan, lay, flat, envInj);
+      if (conds == null) return 'false';
+      conds.push(`(>= ${aggregate(plan, lay, pid, lay.cur)} 1)`);
+      return joinColoured(conds);
     }
   }
 }
@@ -670,19 +698,25 @@ function colouredDisabledTerm(cls: Klass, plan: ColouredPlan, lay: Layout): stri
   }
 }
 
+/** Joins coloured violation conjuncts. Empty is vacuously true. */
+function joinColoured(conds: readonly string[]): string {
+  return conds.length === 0 ? 'true' : `(and ${conds.join(' ')})`;
+}
+
 /**
- * Colour-aware deadlock predicate (NU-053): every transition is disabled (no colour
- * enables it) and no declared sink place holds a token (VER-002). Mirrors the flat
- * deadlock with the same env-injection relaxation (VER-006), lifted to the coloured
- * layout.
+ * Colour-aware quiescence predicate (NU-053): every transition is disabled (no
+ * colour enables it). Mirrors the flat `encodeQuiescent` with the same
+ * env-injection relaxation (VER-006), lifted to the coloured layout. Carries no
+ * sink clause — each property conjoins its own.
+ *
+ * `null` means some transition is enabled in every marking: never quiescent.
  */
-function encodeColouredDeadlock(
+function encodeColouredQuiescent(
   plan: ColouredPlan,
   lay: Layout,
   flat: FlatNet,
-  sinkPlaces: ReadonlySet<Place<any>>,
   envInj: ReadonlyMap<number, number | null>,
-): string {
+): string[] | null {
   const disabledConditions: string[] = [];
   for (let ti = 0; ti < plan.classes.length; ti++) {
     const cls = plan.classes[ti]!;
@@ -696,17 +730,10 @@ function encodeColouredDeadlock(
     }
     const term = colouredDisabledTerm(cls, plan, lay);
     if (term != null) reasons.push(term);
-    // Always enabled (possibly via injection) — no marking is a deadlock.
-    if (reasons.length === 0) return 'false';
+    // Always enabled (possibly via injection) — never quiescent.
+    if (reasons.length === 0) return null;
     disabledConditions.push(reasons.length === 1 ? reasons[0]! : `(or ${reasons.join(' ')})`);
   }
 
-  // Declared sinks (VER-002): quiescence is a violation only when NO declared sink
-  // holds a token, so each declared sink contributes `aggregate(sink) = 0` over its
-  // colour slots. Same predicate as the flat deadlock.
-  for (const pid of indexOrdered(flat, sinkPlaces)) {
-    disabledConditions.push(`(= ${aggregate(plan, lay, pid, lay.cur)} 0)`);
-  }
-
-  return disabledConditions.length === 0 ? 'true' : `(and ${disabledConditions.join(' ')})`;
+  return disabledConditions;
 }

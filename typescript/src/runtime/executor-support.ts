@@ -75,80 +75,158 @@ export function swallowEventStoreFailure(when: string, err: unknown): void {
 export const DEADLINE_TOLERANCE_MS = 5;
 
 /**
- * Recursively validates that a transition's output satisfies its declared Out spec.
+ * [IO-015] output validation as an **exact-explanation search**.
  *
- * @returns the set of claimed place names, or null if not satisfied
- * @throws OutViolationError if a structural violation is detected (e.g. XOR with 0 or 2+ branches)
+ * An *assignment* picks exactly one child at each `xor` it reaches; subtrees under
+ * an unselected child are never evaluated. Each assignment claims a set of places,
+ * and validation succeeds iff **exactly one** assignment's claim *equals* the
+ * produced set.
+ *
+ * Returns that claim on success and throws `OutViolationError` otherwise — whether
+ * nothing explains the write or two or more branches do.
+ *
+ * Equality — rather than "every obligation was satisfied" — is what makes a token
+ * written to a declared place outside the selected branch a violation instead of a
+ * silent deposit. It also removes the need for a subsumption tie-break:
+ * `xor(and(A,B,C), and(A,B))` with A, B, C produced has exactly one *exact* claim.
+ *
+ * Being a search rather than an eager walk is what makes `and` genuinely unordered
+ * ([IO-015] AC8): the old version short-circuited on its first unsatisfied child and
+ * let an inner `xor` throw before an enclosing one could try a sibling, so the same
+ * write set could pass or fail depending on declaration order.
  */
 export function validateOutSpec(
   tName: string,
   spec: Out,
   producedPlaceNames: Set<string>,
-): Set<string> | null {
-  switch (spec.type) {
-    case 'place':
-      return producedPlaceNames.has(spec.place.name)
-        ? new Set([spec.place.name])
-        : null;
-
-    case 'forward-input':
-      return producedPlaceNames.has(spec.to.name)
-        ? new Set([spec.to.name])
-        : null;
-
-    case 'and': {
-      const claimed = new Set<string>();
-      for (const child of spec.children) {
-        const result = validateOutSpec(tName, child, producedPlaceNames);
-        if (result === null) return null;
-        for (const p of result) claimed.add(p);
-      }
-      return claimed;
-    }
-
-    case 'xor': {
-      const satisfied: Set<string>[] = [];
-      for (const child of spec.children) {
-        const result = validateOutSpec(tName, child, producedPlaceNames);
-        if (result !== null) satisfied.push(result);
-      }
-      if (satisfied.length === 0) {
-        throw new OutViolationError(
-          `'${tName}': XOR violation - no branch produced (exactly 1 required)`
-        );
-      }
-      if (satisfied.length > 1) {
-        return resolveXorAmbiguity(tName, satisfied);
-      }
-      return satisfied[0]!;
-    }
-
-    case 'timeout':
-      return validateOutSpec(tName, spec.child, producedPlaceNames);
+): Set<string> {
+  // Equality is tested against the produced places the spec could name at all.
+  // A token produced to a place the spec never mentions is [CORE-072]'s business
+  // — retained and reported, not an [IO-015] violation — so it must not make the
+  // claim sets unmatchable.
+  const named = specNames(spec);
+  let relevant = 0;
+  for (const name of producedPlaceNames) {
+    if (named.has(name)) relevant++;
   }
+
+  const exact: Set<string>[] = [];
+  for (const claim of claimsWithin(spec, producedPlaceNames)) {
+    // Every claim is a subset of the produced set by construction (a leaf only
+    // claims a place that was produced), so equal size means equal set.
+    if (claim.size === relevant) {
+      exact.push(claim);
+      if (exact.length > 1) break;
+    }
+  }
+  const wrote = [...producedPlaceNames].filter(n => named.has(n)).sort();
+  if (exact.length === 0) {
+    throw new OutViolationError(
+      `'${tName}': output does not match the declared spec - produced {${wrote.join(', ')}}, ` +
+      `which no single branch of the spec claims exactly`
+    );
+  }
+  if (exact.length > 1) {
+    throw new OutViolationError(
+      `'${tName}': ambiguous output - {${wrote.join(', ')}} is claimed by more than one branch`
+    );
+  }
+  return exact[0]!;
 }
 
 /**
- * Two or more XOR branches matched. When exactly one of them subsumes all the
- * others — as `and(a, b, c)` subsumes `and(a, b)` — it is the intended, most
- * specific branch and the firing is accepted with that branch's claim.
- * Anything else is genuinely ambiguous and violates [IO-015].
+ * Collapses identical claims, keeping at most two of each.
  *
- * Mirrors Java's `ExecutorSupport.validateOutSpec` and Rust's
- * `resolve_xor_ambiguity`; without it, overlapping XOR branches that the other
- * two runtimes accept were rejected here.
+ * Validation only needs to distinguish "no assignment", "exactly one" and "more
+ * than one", so a third assignment claiming an already-seen set carries no
+ * information. Without this the `and` join is O(2^k) in the number of `xor`
+ * children — 21us at k=8, seconds at k=20, on a path that runs every firing.
+ * With it the working set is bounded by the number of DISTINCT claim subsets,
+ * which is at most 2^|produced|; the produced set is what the action actually
+ * wrote, and is small.
  */
-function resolveXorAmbiguity(tName: string, satisfied: Set<string>[]): Set<string> {
-  const subsuming = satisfied.filter((candidate) =>
-    satisfied.every(
-      (other) =>
-        other === candidate || [...other].every((p) => candidate.has(p))
-    )
-  );
-  if (subsuming.length === 1) return subsuming[0]!;
-  throw new OutViolationError(
-    `'${tName}': XOR violation - multiple branches produced`
-  );
+function capMultiplicity(claims: Set<string>[]): Set<string>[] {
+  if (claims.length < 3) return claims;
+  const seen = new Map<string, number>();
+  const out: Set<string>[] = [];
+  for (const claim of claims) {
+    const key = [...claim].sort().join('\u0000');
+    const n = seen.get(key) ?? 0;
+    if (n >= 2) continue;
+    seen.set(key, n + 1);
+    out.push(claim);
+  }
+  return out;
+}
+
+/** Every place named anywhere in the spec tree, memoised per spec object. */
+const specNamesCache = new WeakMap<object, Set<string>>();
+function specNames(spec: Out): Set<string> {
+  const hit = specNamesCache.get(spec as object);
+  if (hit !== undefined) return hit;
+  const names = new Set<string>();
+  const walk = (node: Out): void => {
+    switch (node.type) {
+      case 'place': names.add(node.place.name); break;
+      case 'forward-input': names.add(node.to.name); break;
+      case 'timeout': walk(node.child); break;
+      case 'xor':
+      case 'and': for (const c of node.children) walk(c); break;
+    }
+  };
+  walk(spec);
+  specNamesCache.set(spec as object, names);
+  return names;
+}
+
+/**
+ * Claims of every assignment whose claim is a subset of `produced`.
+ *
+ * The subset restriction is the pruning that keeps this linear in practice: a leaf
+ * naming a place that was not produced yields nothing, so a `xor` branch dies as soon
+ * as it claims something unwritten, and an `and` dies with any unsatisfiable child.
+ * Branching survives only where several `xor` children are simultaneously consistent
+ * with what was produced — the ambiguous case, which is rejected anyway.
+ */
+function claimsWithin(spec: Out, produced: Set<string>): Set<string>[] {
+  switch (spec.type) {
+    case 'place':
+      return produced.has(spec.place.name) ? [new Set([spec.place.name])] : [];
+
+    case 'forward-input':
+      return produced.has(spec.to.name) ? [new Set([spec.to.name])] : [];
+
+    case 'timeout':
+      return claimsWithin(spec.child, produced);
+
+    case 'xor': {
+      const out: Set<string>[] = [];
+      for (const child of spec.children) {
+        for (const claim of claimsWithin(child, produced)) out.push(claim);
+      }
+      return capMultiplicity(out);
+    }
+
+    case 'and': {
+      // Unordered: the children are a set of obligations, so this is a join over
+      // their claim sets and the result cannot depend on their declaration order.
+      let acc: Set<string>[] = [new Set()];
+      for (const child of spec.children) {
+        const childClaims = claimsWithin(child, produced);
+        if (childClaims.length === 0) return []; // no assignment can satisfy this AND
+        const next: Set<string>[] = [];
+        for (const partial of acc) {
+          for (const claim of childClaims) {
+            const merged = new Set(partial);
+            for (const name of claim) merged.add(name);
+            next.push(merged);
+          }
+        }
+        acc = capMultiplicity(next);
+      }
+      return acc;
+    }
+  }
 }
 
 /**

@@ -1631,10 +1631,9 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
 
     private void validateOutput(Transition t, TokenOutput outputs) {
         if (t.outputSpec() == null) return;
-        Set<Place<?>> produced = outputs.placesWithTokens();
-        ExecutorSupport.validateOutSpec(t.name(), t.outputSpec(), produced)
-            .orElseThrow(() -> new OutViolationException(
-                "'%s': output does not satisfy declared spec".formatted(t.name())));
+        // [IO-015]: throws OutViolationException itself when no assignment of the spec tree
+        // claims exactly what was produced, or when more than one does.
+        ExecutorSupport.validateOutSpec(t.name(), t.outputSpec(), outputs.placesWithTokens());
     }
 
     // ======================== CAS Bitmap Helpers ========================

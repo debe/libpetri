@@ -122,8 +122,14 @@ final class NuScgVerifier {
                     var m = scg.markingOf(i);
                     return m.hasTokens(p1) && m.hasTokens(p2);
                 });
+            // DeadlockFree ([VER-002]): a quiescent class that strands a token outside
+            // the declared sinks. The empty marking strands nothing.
             case SmtProperty.DeadlockFree() ->
                 firstWhere(scg, i -> scg.successorsOf(i).isEmpty() && !allTokensInSinks(scg.markingOf(i), sinkPlaces));
+            // TerminatesAtSink ([VER-002]): a quiescent class that marks NO declared
+            // sink. Inverts with DeadlockFree on the empty marking, by design.
+            case SmtProperty.TerminatesAtSink() ->
+                firstWhere(scg, i -> scg.successorsOf(i).isEmpty() && !anySinkMarked(scg.markingOf(i), sinkPlaces));
             case SmtProperty.JoinedOrDeadLettered(var pending) ->
                 firstWhere(scg, i -> scg.successorsOf(i).isEmpty() && scg.markingOf(i).hasTokens(pending));
         };
@@ -134,6 +140,13 @@ final class NuScgVerifier {
             if (!sinks.contains(p)) return false;
         }
         return true;
+    }
+
+    private static boolean anySinkMarked(MarkingState m, Set<Place<?>> sinks) {
+        for (var p : m.placesWithTokens()) {
+            if (sinks.contains(p)) return true;
+        }
+        return false;
     }
 
     private static int firstWhere(NameStateClassGraph scg, IntPredicate pred) {

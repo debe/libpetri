@@ -9,15 +9,36 @@ import type { Place } from '../core/place.js';
  */
 export type SmtProperty =
   | DeadlockFree
+  | TerminatesAtSink
   | MutualExclusion
   | PlaceBound
   | Unreachable
   | BranchPlaceBound
   | JoinedOrDeadLettered;
 
-/** Deadlock-freedom: no reachable marking has all transitions disabled. */
+/**
+ * Deadlock-freedom: no reachable quiescent marking strands a token (VER-002).
+ *
+ * Violated when a reachable marking is quiescent (every transition disabled) and
+ * holds a token in a place that is not a declared sink. The empty marking strands
+ * nothing and never violates. This is workflow-net proper completion; for the
+ * weaker "did the net reach a terminal at all", see {@link TerminatesAtSink},
+ * which inverts on the empty marking.
+ */
 export interface DeadlockFree {
   readonly type: 'deadlock-free';
+}
+
+/**
+ * Termination at a declared sink: every reachable quiescent marking has at least
+ * one declared sink marked (VER-002).
+ *
+ * Violated when a reachable marking is quiescent and no declared sink holds a
+ * token. Says nothing about tokens left elsewhere. Meaningful only with at least
+ * one sink declared; with none, every quiescent marking violates vacuously.
+ */
+export interface TerminatesAtSink {
+  readonly type: 'terminates-at-sink';
 }
 
 /** Mutual exclusion: two places never have tokens simultaneously. */
@@ -73,6 +94,11 @@ export function deadlockFree(): DeadlockFree {
   return { type: 'deadlock-free' };
 }
 
+/** Quiescence reaches a declared sink (VER-002). See {@link TerminatesAtSink}. */
+export function terminatesAtSink(): TerminatesAtSink {
+  return { type: 'terminates-at-sink' };
+}
+
 export function mutualExclusion(p1: Place<any>, p2: Place<any>): MutualExclusion {
   return { type: 'mutual-exclusion', p1, p2 };
 }
@@ -100,6 +126,8 @@ export function propertyDescription(prop: SmtProperty): string {
   switch (prop.type) {
     case 'deadlock-free':
       return 'Deadlock-freedom';
+    case 'terminates-at-sink':
+      return 'Terminates at a declared sink';
     case 'mutual-exclusion':
       return `Mutual exclusion of ${prop.p1.name} and ${prop.p2.name}`;
     case 'place-bound':

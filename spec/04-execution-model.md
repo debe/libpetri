@@ -182,7 +182,7 @@ After depositing tokens, the executor validates that the produced tokens satisfy
 
 **Acceptance Criteria:**
 1. And: all children received tokens → valid.
-2. Xor: exactly one child received tokens → valid; when several overlapping branches match, the subsumption tie-break of [IO-015] resolves them before a violation is raised.
+2. Xor: exactly one child is selected; overlapping branches resolve without a tie-break, because [IO-015] requires the selected assignment's claim to *equal* the produced set, not merely be satisfied by it.
 3. Violation → failure event emitted.
 4. Validation is applied by every executor backend a language ships, not only the reference one.
 

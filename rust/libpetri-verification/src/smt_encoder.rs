@@ -425,7 +425,37 @@ pub(crate) fn encode_property_violation(
     env_inject: &[(usize, Option<usize>)],
 ) -> String {
     match property {
-        SmtProperty::DeadlockFree => encode_deadlock(flat, m_vars, sink_places, env_inject),
+        // DeadlockFree ([VER-002]): a quiescent marking that STRANDS a token —
+        // holds one in a place that is not a declared sink. The empty marking
+        // strands nothing and is therefore not a violation (AC4).
+        SmtProperty::DeadlockFree => {
+            let Some(mut conditions) = encode_quiescent(flat, m_vars, env_inject) else {
+                return "false".to_string();
+            };
+            let sinks = sink_indices(flat, sink_places);
+            let stranded: Vec<String> = (0..flat.place_count)
+                .filter(|pid| !sinks.contains(pid))
+                .map(|pid| format!("(>= {} 1)", m_vars[pid]))
+                .collect();
+            if stranded.is_empty() {
+                // Every place is a declared sink: nothing can ever be stranded.
+                return "false".to_string();
+            }
+            conditions.push(format!("(or {})", stranded.join(" ")));
+            join_conditions(conditions)
+        }
+        // TerminatesAtSink ([VER-002]): a quiescent marking that reached NO
+        // declared sink. This is the predicate DeadlockFree carried before the
+        // VER-002 split, unchanged.
+        SmtProperty::TerminatesAtSink => {
+            let Some(mut conditions) = encode_quiescent(flat, m_vars, env_inject) else {
+                return "false".to_string();
+            };
+            for pid in sink_indices(flat, sink_places) {
+                conditions.push(format!("(= {} 0)", m_vars[pid]));
+            }
+            join_conditions(conditions)
+        }
         SmtProperty::MutualExclusion { places } => {
             // Violation: all specified places simultaneously have tokens
             let conditions: Vec<String> = places
@@ -463,40 +493,68 @@ pub(crate) fn encode_property_violation(
                 format!("(and {})", conditions.join(" "))
             }
         }
-        // JoinedOrDeadLettered (NU-040): a quiescent (deadlocked) state that
-        // still holds a `pending` token is a stranded correlation group. Reuse
-        // the deadlock predicate and conjoin pending non-emptiness.
+        // JoinedOrDeadLettered (NU-040 AC4): a quiescent state that still holds
+        // a `pending` token is a stranded correlation group. Carries NO sink
+        // clause — a declared sink must not excuse a stranded group.
         SmtProperty::JoinedOrDeadLettered { pending } => {
-            let deadlock = encode_deadlock(flat, m_vars, sink_places, env_inject);
-            match flat.place_index.get(pending) {
-                Some(&pid) => format!("(and {deadlock} (>= {} 1))", m_vars[pid]),
+            let Some(&pid) = flat.place_index.get(pending) else {
                 // Unknown pending place name: no state can violate.
-                None => "false".to_string(),
-            }
+                return "false".to_string();
+            };
+            let Some(mut conditions) = encode_quiescent(flat, m_vars, env_inject) else {
+                return "false".to_string();
+            };
+            conditions.push(format!("(>= {} 1)", m_vars[pid]));
+            join_conditions(conditions)
         }
     }
 }
 
+/// Declared sink place names resolved to flat-net indices, ascending, deduped.
+fn sink_indices(flat: &FlatNet, sink_places: &[String]) -> Vec<usize> {
+    let mut idx: Vec<usize> = sink_places
+        .iter()
+        .filter_map(|name| flat.place_index.get(name).copied())
+        .collect();
+    idx.sort_unstable();
+    idx.dedup();
+    idx
+}
+
+/// Joins violation conjuncts into the final `Bad(M)` term. An empty conjunction
+/// is vacuously true — a net with no transitions is quiescent everywhere.
+fn join_conditions(conditions: Vec<String>) -> String {
+    if conditions.is_empty() {
+        "true".to_string()
+    } else {
+        format!("(and {})", conditions.join("\n         "))
+    }
+}
+
 #[allow(clippy::needless_range_loop)]
-/// Encodes deadlock: all transitions are disabled.
+/// Encodes quiescence: every transition is disabled.
+///
+/// Shared core of the three quiescence-sensitive properties ([VER-002]
+/// DeadlockFree and TerminatesAtSink, [NU-040] JoinedOrDeadLettered). Each
+/// conjoins its own clause on top and none is encoded here, so a change to one
+/// predicate cannot silently move the others — which is exactly how the sink
+/// clause leaked into JoinedOrDeadLettered before NU-040 AC4.
+///
+/// Returns `None` when some transition is enabled in every marking: no quiescent
+/// marking exists, so every property built on this is unviolatable.
 ///
 /// Environment inputs are treated as injectable (VER-006): an input/read on an
 /// injectable env place is satisfiable by external injection, so it is NOT a
 /// reason the transition is disabled — AlwaysAvailable always satisfies it,
 /// Bounded(k) satisfies it iff the required cardinality is ≤ k. This mirrors the
 /// state class graph's always-available enablement so a reactive net merely
-/// waiting for input is not reported as a deadlock; only a genuinely stuck
+/// waiting for input is not reported as quiescent; only a genuinely stuck
 /// marking is.
-fn encode_deadlock(
+fn encode_quiescent(
     flat: &FlatNet,
     m_vars: &[String],
-    sink_places: &[String],
     env_inject: &[(usize, Option<usize>)],
-) -> String {
-    let sink_indices: Vec<usize> = sink_places
-        .iter()
-        .filter_map(|name| flat.place_index.get(name).copied())
-        .collect();
+) -> Option<Vec<String>> {
     // Injectable env place index -> bound (None = unbounded).
     let env_bound = |pid: usize| -> Option<Option<usize>> {
         env_inject.iter().find(|&&(p, _)| p == pid).map(|&(_, b)| b)
@@ -544,28 +602,14 @@ fn encode_deadlock(
         }
 
         if disable_reasons.is_empty() {
-            // Transition is always enabled (possibly via injection) — no deadlock.
-            return "false".to_string();
+            // Transition is always enabled (possibly via injection) — never quiescent.
+            return None;
         }
 
         disabled_conditions.push(format!("(or {})", disable_reasons.join(" ")));
     }
 
-    // Declared sinks ([VER-002]): the error condition is
-    // `(all transitions disabled) AND (no sink place has a token)`, so each
-    // declared sink contributes `M[sink] = 0`. A quiescent marking holding a
-    // token in ANY declared sink is an expected terminal state, not a deadlock.
-    // Mirrors Java `SmtEncoder.encodePropertyViolation` and TypeScript
-    // `encodePropertyViolation`.
-    for &pid in &sink_indices {
-        disabled_conditions.push(format!("(= {} 0)", m_vars[pid]));
-    }
-
-    if disabled_conditions.is_empty() {
-        "true".to_string()
-    } else {
-        format!("(and {})", disabled_conditions.join("\n         "))
-    }
+    Some(disabled_conditions)
 }
 
 #[cfg(test)]

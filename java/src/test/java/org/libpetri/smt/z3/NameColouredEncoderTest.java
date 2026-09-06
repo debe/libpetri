@@ -1,10 +1,15 @@
 package org.libpetri.smt.z3;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.Test;
 import org.libpetri.analysis.EnvironmentAnalysisMode;
@@ -16,6 +21,8 @@ import org.libpetri.core.NameId;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
 import org.libpetri.core.Transition;
+import org.libpetri.smt.SmtProperty;
+import org.libpetri.smt.encoding.FlatNet;
 import org.libpetri.smt.encoding.IncidenceMatrix;
 import org.libpetri.smt.encoding.NetFlattener;
 import org.libpetri.smt.invariant.PInvariantComputer;
@@ -269,5 +276,68 @@ class NameColouredEncoderTest {
         // A plain XOR transition expands to two flat rows; NU-053 Part 3 drops the old 1:1
         // net↔flat rejection so the mint→join fragment is still recognised.
         assertNotNull(planFor(mintJoinXorNet(), FragmentMode.BASE));
+    }
+
+    /**
+     * The coloured quiescence arms ([VER-002] DeadlockFree / TerminatesAtSink, [NU-040]
+     * JoinedOrDeadLettered) had NO test in any language before the VER-002 split — a
+     * drift in them would have passed every gate, because the shared fixtures either
+     * route to Route B or use {@code place-bound}. Mirrors Rust's
+     * {@code coloured_quiescence_arms_differ_by_property}.
+     */
+    @Test
+    void colouredQuiescenceArmsDifferByProperty() {
+        var net = mintJoinNet(false);
+        var flat = NetFlattener.flatten(net, Set.of(), EnvironmentAnalysisMode.ignore());
+        var initial = MarkingState.builder()
+            .tokens(Place.of("budget1", Integer.class), 1)
+            .build();
+        var plan = planFor(net, FragmentMode.BASE);
+        assertNotNull(plan, "mint→join is in-fragment");
+
+        var branchA = Place.of("branchA", String.class);
+        var branchB = Place.of("branchB", String.class);
+        Set<Place<?>> sinks = Set.of(branchA);
+
+        String tas = violationTerm(
+            encodeColoured(plan, flat, initial, SmtProperty.terminatesAtSink(), sinks));
+        // Derive the sink-is-empty clause from TerminatesAtSink's own output rather than
+        // reaching into the encoder's private aggregate() helper: it is the clause the
+        // arm appends last, over branchA's colour slots.
+        var m = Pattern.compile("\\(= \\(\\+[^()]*\\) 0\\)").matcher(tas);
+        assertTrue(m.find(), () -> "TerminatesAtSink must emit a sink-is-empty term:\n" + tas);
+        String sinkIsEmpty = m.group();
+        assertTrue(tas.endsWith(sinkIsEmpty + ")"),
+            () -> "the sink clause is the arm's last conjunct:\n" + tas);
+
+        String dl = violationTerm(
+            encodeColoured(plan, flat, initial, SmtProperty.deadlockFree(), sinks));
+        assertNotEquals(tas, dl, "the two VER-002 properties must encode differently");
+        assertFalse(dl.contains(sinkIsEmpty),
+            () -> "strict DeadlockFree must not require the sink to be empty:\n" + dl);
+        assertTrue(dl.contains("(or (>= "),
+            () -> "DeadlockFree must offer a stranded-token disjunction:\n" + dl);
+
+        String jdl = violationTerm(encodeColoured(
+            plan, flat, initial, SmtProperty.joinedOrDeadLettered(branchB), sinks));
+        assertNotEquals(dl, jdl, "the NU-040 arm must not reuse the DeadlockFree clause");
+        assertFalse(jdl.contains(sinkIsEmpty),
+            () -> "NU-040 AC4: a declared sink must not excuse a stranded group:\n" + jdl);
+    }
+
+    private static String encodeColoured(
+            NameColouredEncoder.ColouredPlan plan, FlatNet flat, MarkingState initial,
+            SmtProperty property, Set<Place<?>> sinks) {
+        var encoding = NameColouredEncoder.encode(plan, flat, initial, property, List.of(), sinks);
+        assertNotNull(encoding, "in-fragment net encodes");
+        return encoding.smt2();
+    }
+
+    /** The {@code Bad(M)} term of the script's error rule, without the Reachable guard. */
+    private static String violationTerm(String smt2) {
+        int error = smt2.indexOf(")\n      Error)))");
+        assertTrue(error > 0, "the script carries an error rule");
+        int reachable = smt2.lastIndexOf("(Reachable ", error);
+        return smt2.substring(smt2.indexOf(") ", reachable) + 2, error);
     }
 }

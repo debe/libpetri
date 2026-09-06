@@ -883,6 +883,10 @@ public final class SmtVerifier {
                 ? "Deadlock-freedom"
                 : "Deadlock-freedom (sinks: " + sinkPlaces.stream()
                     .map(Place::name).collect(Collectors.joining(", ")) + ")";
+            case SmtProperty.TerminatesAtSink() -> sinkPlaces.isEmpty()
+                ? "Terminates at a declared sink"
+                : "Terminates at a declared sink (sinks: " + sinkPlaces.stream()
+                    .map(Place::name).collect(Collectors.joining(", ")) + ")";
             case SmtProperty.MutualExclusion me ->
                 "Mutual exclusion of " + me.p1().name() + " and " + me.p2().name();
             case SmtProperty.PlaceBound pb ->
@@ -992,6 +996,7 @@ public final class SmtVerifier {
     private static String unresolvedPropertyPlace(FlatNet flatNet, SmtProperty property) {
         List<Place<?>> named = switch (property) {
             case SmtProperty.DeadlockFree() -> List.of();
+            case SmtProperty.TerminatesAtSink() -> List.of();
             case SmtProperty.MutualExclusion me -> List.of(me.p1(), me.p2());
             case SmtProperty.PlaceBound pb -> List.of(pb.place());
             case SmtProperty.BranchPlaceBound bpb -> List.of(bpb.place());
@@ -1176,7 +1181,8 @@ public final class SmtVerifier {
      * Whether a property is a <em>reachability-safety</em> property — one whose
      * violation is a reachable bad marking. For these the matched-transition
      * over-approximation is sound for {@code Proven}. Quiescence-based
-     * properties (deadlock, joined-or-dead-lettered) are not: their violation
+     * properties (deadlock, terminates-at-sink, joined-or-dead-lettered) are
+     * not: their violation
      * involves the absence of enabled transitions, which the name-blind
      * over-approximation distorts unsafely (NU-050).
      */
@@ -1187,6 +1193,7 @@ public final class SmtVerifier {
             case SmtProperty.MutualExclusion _ -> true;
             case SmtProperty.Unreachable _ -> true;
             case SmtProperty.DeadlockFree _ -> false;
+            case SmtProperty.TerminatesAtSink _ -> false;
             case SmtProperty.JoinedOrDeadLettered _ -> false;
         };
     }

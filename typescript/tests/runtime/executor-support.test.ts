@@ -20,88 +20,122 @@ describe('validateOutSpec', () => {
     const spec = outPlace(pA);
     const produced = new Set(['A']);
     const result = validateOutSpec('T', spec, produced);
-    expect(result).not.toBeNull();
-    expect(result!.has('A')).toBe(true);
+    expect(result.has('A')).toBe(true);
   });
 
   it('place spec not satisfied', () => {
     const spec = outPlace(pA);
     const produced = new Set<string>();
-    const result = validateOutSpec('T', spec, produced);
-    expect(result).toBeNull();
+    expect(() => validateOutSpec('T', spec, produced)).toThrow('does not match the declared spec');
   });
 
   it('AND spec all satisfied', () => {
     const spec = andPlaces(pA, pB);
     const produced = new Set(['A', 'B']);
     const result = validateOutSpec('T', spec, produced);
-    expect(result).not.toBeNull();
-    expect(result!.has('A')).toBe(true);
+    expect(result.has('A')).toBe(true);
     expect(result!.has('B')).toBe(true);
   });
 
-  it('AND spec partially satisfied returns null', () => {
+  it('AND spec partially satisfied is a violation', () => {
     const spec = andPlaces(pA, pB);
     const produced = new Set(['A']);
-    const result = validateOutSpec('T', spec, produced);
-    expect(result).toBeNull();
+    expect(() => validateOutSpec('T', spec, produced)).toThrow('does not match the declared spec');
   });
 
   it('XOR spec exactly one satisfied', () => {
     const spec = xorPlaces(pA, pB);
     const produced = new Set(['B']);
     const result = validateOutSpec('T', spec, produced);
-    expect(result).not.toBeNull();
-    expect(result!.has('B')).toBe(true);
+    expect(result.has('B')).toBe(true);
   });
 
   it('XOR spec no branch throws', () => {
     const spec = xorPlaces(pA, pB);
     const produced = new Set<string>();
-    expect(() => validateOutSpec('T', spec, produced)).toThrow('XOR violation');
-    expect(() => validateOutSpec('T', spec, produced)).toThrow('no branch');
+    expect(() => validateOutSpec('T', spec, produced)).toThrow('does not match the declared spec');
   });
 
-  it('XOR spec multiple branches throws', () => {
+  it('XOR spec with both branches written throws', () => {
+    // Neither branch CLAIMS {A, B}: one claims {A}, the other {B}. Under
+    // [IO-015]'s equality rule that is unexplained output, not two matches.
     const spec = xorPlaces(pA, pB);
     const produced = new Set(['A', 'B']);
-    expect(() => validateOutSpec('T', spec, produced)).toThrow('XOR violation');
-    expect(() => validateOutSpec('T', spec, produced)).toThrow('multiple branches');
+    expect(() => validateOutSpec('T', spec, produced)).toThrow('does not match the declared spec');
   });
 
   it('XOR with nested AND: correct branch produced', () => {
     const spec = xor(andPlaces(pA, pB), andPlaces(pC, pD));
     const produced = new Set(['C', 'D']);
     const result = validateOutSpec('T', spec, produced);
-    expect(result).not.toBeNull();
-    expect(result!.has('C')).toBe(true);
+    expect(result.has('C')).toBe(true);
     expect(result!.has('D')).toBe(true);
   });
 
-  it('XOR with one branch subsuming the other picks the most specific', () => {
-    // and(A,B,C) strictly contains and(A,B): producing A, B and C satisfies
-    // both branches, but only the wider one is the intended match. Java and
-    // Rust both resolve this; TypeScript used to reject it outright.
+  it('XOR with one branch subsuming the other picks the most specific (AC5)', () => {
+    // and(A,B,C) strictly contains and(A,B). With A, B and C produced only the
+    // wider branch claims EXACTLY that set, so this resolves with no subsumption
+    // tie-break — the rule [IO-015] used to need and no longer has.
     const spec = xor(andPlaces(pA, pB, pC), andPlaces(pA, pB));
     const produced = new Set(['A', 'B', 'C']);
     const result = validateOutSpec('T', spec, produced);
-    expect(result).not.toBeNull();
-    expect([...result!].sort()).toEqual(['A', 'B', 'C']);
+    expect([...result].sort()).toEqual(['A', 'B', 'C']);
   });
 
   it('XOR with genuinely overlapping branches still throws', () => {
-    // and(A,B) and and(B,C) both match, neither contains the other.
+    // and(A,B) and and(B,C) each claim a strict subset of {A, B, C}, so neither
+    // explains the write.
     const spec = xor(andPlaces(pA, pB), andPlaces(pB, pC));
     const produced = new Set(['A', 'B', 'C']);
-    expect(() => validateOutSpec('T', spec, produced)).toThrow('multiple branches');
+    expect(() => validateOutSpec('T', spec, produced)).toThrow('does not match the declared spec');
+  });
+
+  // ---- [IO-015] AC8/AC9/AC10: the exact-explanation rules ----
+
+  it('AND is unordered: child order cannot change the verdict (AC8)', () => {
+    const forward = and(outPlace(pA), xorPlaces(pC, pD));
+    const reversed = and(xorPlaces(pC, pD), outPlace(pA));
+    for (const produced of [new Set<string>(), new Set(['A']), new Set(['A', 'C'])]) {
+      const run = (spec: any) => {
+        try { return [...validateOutSpec('T', spec, produced)!].sort().join(','); }
+        catch (e: any) { return `throw:${e.message.includes('ambiguous') ? 'ambiguous' : 'unmatched'}`; }
+      };
+      expect(run(forward), `produced={${[...produced]}}`).toBe(run(reversed));
+    }
+  });
+
+  it('a write outside the selected branch is a violation (AC9)', () => {
+    // Selecting `B` explains B but leaves C unexplained; C used to be deposited
+    // silently because validation only checked that obligations were satisfied.
+    const spec = xor(andPlaces(pA, pC), outPlace(pB));
+    const produced = new Set(['B', 'C']);
+    expect(() => validateOutSpec('T', spec, produced)).toThrow('does not match the declared spec');
+  });
+
+  it('an inner XOR does not pre-empt an outer one (AC10)', () => {
+    // The second branch claims exactly {A}. The old eager walk threw inside the
+    // first branch's inner xor before this one could be tried.
+    const spec = xor(and(outPlace(pA), xorPlaces(pC, pD)), outPlace(pA));
+    const result = validateOutSpec('T', spec, new Set(['A']));
+    expect([...result]).toEqual(['A']);
+  });
+
+  it('two branches claiming the same set are genuinely ambiguous (AC4)', () => {
+    const spec = xor(and(outPlace(pA)), outPlace(pA));
+    expect(() => validateOutSpec('T', spec, new Set(['A']))).toThrow('ambiguous output');
+  });
+
+  it('a token in a place the spec never names is CORE-072, not an IO-015 violation', () => {
+    const spec = outPlace(pA);
+    const result = validateOutSpec('T', spec, new Set(['A', 'UNDECLARED']));
+    expect([...result]).toEqual(['A']);
   });
 
   it('timeout child validated', () => {
     const tOut = place('TIMEOUT');
     const spec = timeout(100, outPlace(tOut));
     const produced = new Set(['TIMEOUT']);
-    const result = validateOutSpec('T', spec, produced);
-    expect(result).not.toBeNull();
+    expect(() => validateOutSpec('T', spec, produced)).not.toThrow();
   });
 
   it('forwardInput satisfied', () => {
@@ -110,8 +144,7 @@ describe('validateOutSpec', () => {
     const spec = forwardInput(from, to);
     const produced = new Set(['TO']);
     const result = validateOutSpec('T', spec, produced);
-    expect(result).not.toBeNull();
-    expect(result!.has('TO')).toBe(true);
+    expect(result.has('TO')).toBe(true);
   });
 });
 

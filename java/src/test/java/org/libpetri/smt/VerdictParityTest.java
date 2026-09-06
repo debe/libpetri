@@ -152,6 +152,7 @@ class VerdictParityTest {
         String type = property.get("type").asText();
         return switch (type) {
             case "deadlock-free" -> SmtProperty.deadlockFree();
+            case "terminates-at-sink" -> SmtProperty.terminatesAtSink();
             case "mutual-exclusion" -> {
                 JsonNode places = property.get("places");
                 yield SmtProperty.mutualExclusion(

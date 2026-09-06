@@ -187,6 +187,21 @@ fn decide(
             }
             (proven(), None)
         }
+        // TerminatesAtSink ([VER-002]): a quiescent class that marks NO declared
+        // sink. Inverts with DeadlockFree on the empty marking, by design.
+        SmtProperty::TerminatesAtSink => {
+            let sinks: HashSet<&str> = sink_places.iter().map(|s| s.as_str()).collect();
+            for i in 0..scg.class_count() {
+                if scg.successors(i).is_empty() {
+                    let marking = &scg.classes[i].base.marking;
+                    let any_sink_marked = marking.places().any(|(p, _)| sinks.contains(p));
+                    if !any_sink_marked {
+                        return (Verdict::Violated, Some(i));
+                    }
+                }
+            }
+            (proven(), None)
+        }
         SmtProperty::JoinedOrDeadLettered { pending } => {
             for i in 0..scg.class_count() {
                 // A quiescent class still holding a pending token is a stranded

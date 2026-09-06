@@ -855,8 +855,9 @@ export class SmtVerifier {
  * Whether a property is a reachability-safety property — one whose violation is
  * a reachable bad marking. For these the matched-transition over-approximation
  * is sound for `proven`. Quiescence-based properties (deadlock,
- * joined-or-dead-lettered) are not: their violation involves the absence of
- * enabled transitions, which the name-blind over-approximation distorts (NU-050).
+ * terminates-at-sink, joined-or-dead-lettered) are not: their violation involves
+ * the absence of enabled transitions, which the name-blind over-approximation
+ * distorts (NU-050).
  */
 function isReachabilitySafety(property: SmtProperty): boolean {
   switch (property.type) {
@@ -866,6 +867,7 @@ function isReachabilitySafety(property: SmtProperty): boolean {
     case 'unreachable':
       return true;
     case 'deadlock-free':
+    case 'terminates-at-sink':
     case 'joined-or-dead-lettered':
       return false;
   }
@@ -1005,6 +1007,7 @@ function unresolvedPropertyPlace(flatNet: FlatNet, property: SmtProperty): strin
   const named: Place<any>[] = (() => {
     switch (property.type) {
       case 'deadlock-free': return [];
+      case 'terminates-at-sink': return [];
       case 'mutual-exclusion': return [property.p1, property.p2];
       case 'place-bound': return [property.place];
       case 'branch-place-bound': return [property.place];

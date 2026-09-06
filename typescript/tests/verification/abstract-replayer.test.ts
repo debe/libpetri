@@ -5,7 +5,9 @@ import {
   vectorize, toMarkingState, stepName,
 } from '../../src/verification/z3/abstract-replayer.js';
 import { MarkingState } from '../../src/verification/marking-state.js';
-import { deadlockFree, mutualExclusion, placeBound, unreachable } from '../../src/verification/smt-property.js';
+import {
+  deadlockFree, mutualExclusion, placeBound, terminatesAtSink, unreachable,
+} from '../../src/verification/smt-property.js';
 import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place, environmentPlace } from '../../src/core/place.js';
@@ -172,24 +174,49 @@ describe('abstract-replayer: satisfiesBad (encodePropertyViolation mirror)', () 
     const t = Transition.builder('T').inputs(one(e.place)).outputs(outPlace(out)).build();
     const net = PetriNet.builder('N').transitions(t).build();
 
+    // A token rests in the non-sink OUT so quiescence is observable under the strict
+    // VER-002 predicate: only a STRANDED token is a DeadlockFree violation.
     // AlwaysAvailable: E=0 is NOT a deadlock — injection could re-enable T.
     const alwaysFlat = flatten(net, new Set([e]), alwaysAvailable());
-    expect(satisfiesBad(state(alwaysFlat, {}), alwaysFlat, deadlockFree(), NO_SINKS)).toBe(false);
+    expect(satisfiesBad(state(alwaysFlat, { OUT: 1 }), alwaysFlat, deadlockFree(), NO_SINKS)).toBe(false);
 
     // Bounded(0): T can never be enabled by injection — genuine deadlock.
     const starvedFlat = flatten(net, new Set([e]), bounded(0));
-    expect(satisfiesBad(state(starvedFlat, {}), starvedFlat, deadlockFree(), NO_SINKS)).toBe(true);
+    expect(satisfiesBad(state(starvedFlat, { OUT: 1 }), starvedFlat, deadlockFree(), NO_SINKS)).toBe(true);
   });
 
-  it('deadlock: a marked declared sink exempts the quiescent marking', () => {
+  it('deadlock: a token outside the declared sinks is stranded (VER-002 AC3)', () => {
     const a = place('A');
     const done = place('DONE');
+    const stuck = place('STUCK');
     const t = Transition.builder('T').inputs(one(a)).outputs(outPlace(done)).build();
-    const flat = flatten(PetriNet.builder('N').transitions(t).build());
+    const u = Transition.builder('U').inputs(one(a)).outputs(outPlace(stuck)).build();
+    const flat = flatten(PetriNet.builder('N').transitions(t, u).build());
 
-    const quiescent = state(flat, { DONE: 1 });
-    expect(satisfiesBad(quiescent, flat, deadlockFree(), NO_SINKS)).toBe(true);
-    expect(satisfiesBad(quiescent, flat, deadlockFree(), new Set([done]))).toBe(false);
+    // Only DONE marked and declared a sink: nothing is stranded.
+    expect(satisfiesBad(state(flat, { DONE: 1 }), flat, deadlockFree(), new Set([done]))).toBe(false);
+    // STUCK is marked and is not a sink: the marked sink does not excuse it (AC3).
+    const mixed = state(flat, { DONE: 1, STUCK: 1 });
+    expect(satisfiesBad(mixed, flat, deadlockFree(), new Set([done]))).toBe(true);
+    // With no sinks declared every marked place strands.
+    expect(satisfiesBad(state(flat, { DONE: 1 }), flat, deadlockFree(), NO_SINKS)).toBe(true);
+  });
+
+  it('deadlock and terminates-at-sink invert on the empty marking (VER-002 AC4/AC6)', () => {
+    const a = place('A');
+    const done = place('DONE');
+    // A sink transition: firing it drains the net completely.
+    const t = Transition.builder('T').inputs(one(a)).build();
+    const flat = flatten(PetriNet.builder('N').places(done).transitions(t).build());
+
+    const drained = state(flat, {});
+    const sinks = new Set<Place<any>>([done]);
+    // AC4: the empty quiescent marking strands nothing.
+    expect(satisfiesBad(drained, flat, deadlockFree(), sinks)).toBe(false);
+    // AC6: ... but it reached no declared sink.
+    expect(satisfiesBad(drained, flat, terminatesAtSink(), sinks)).toBe(true);
+    // AC5: a marked sink satisfies TerminatesAtSink whatever else is marked.
+    expect(satisfiesBad(state(flat, { DONE: 1 }), flat, terminatesAtSink(), sinks)).toBe(false);
   });
 
   it('mutual-exclusion, place-bound, unreachable evaluate on raw counts', () => {
