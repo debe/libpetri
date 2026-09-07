@@ -151,7 +151,7 @@ Two consequences that catch most real bugs:
 Three shapes, all learned from real hangs:
 
 - **Model `Xor` of `And`, not `And` of `Xor`.** Two independent `Xor` outputs can produce a combination your code never produces, and the analysis will find it and treat it as reachable. One `Xor` whose legs are complete output sets makes the structural branches exactly the runtime outcomes.
-- **There is no optional output.** An unconditional `And` for something the action sometimes cannot produce is a runtime violation and a deadlock in the model. Write `xor(realOutput, voidSink)`, and give the sink a drain.
+- **There is no optional output.** An unconditional `And` for something the action sometimes cannot produce is a runtime violation and a deadlock in the model. Write `xor(realOutput, voidSink)`, and give the sink a drain. The reverse is now equally strict: validation succeeds only when **exactly one** branch of the spec claims exactly the set of places the action wrote, so an extra write into a declared place that the selected branch did not ask for is a violation rather than a silent deposit. `And` is genuinely unordered, so declaration order no longer changes the verdict.
 - **An `Xor` leg chosen by hidden action state is unprovable.** If the action decides "is this the last result", the analysis will take the other leg on the last result and strand the batch. The provable encoding of the same idea is a pending-marker place per outstanding job plus an inhibitor arc on it.
 
 And one that looks harmless and is not: **"optionally use X" is not `read(X)`.** A read arc is a precondition. When the place is empty, which is usually the normal case, the transition never becomes enabled, and the channel deadlocks for every user. The correct shape is a pair of transitions: consume X at high priority, inhibited by X at low priority.
@@ -256,7 +256,9 @@ Never design as if a synchronous action's output is available to another transit
 
 Treat properties as tests. Write the first one with the first subnet.
 
-What you can check: deadlock freedom (with sink places declared for legitimate terminal states), mutual exclusion, place bounds, unreachability, and for correlated nets the branch-place bound and the "every fork is eventually joined or dead-lettered" property.
+What you can check: deadlock freedom, termination at a sink, mutual exclusion, place bounds, unreachability, and for correlated nets the branch-place bound and the "every fork is eventually joined or dead-lettered" property.
+
+Two of those are about stopping, and they are not the same claim. `DeadlockFree` is strict: it fails on a quiescent marking that still holds a token **outside** the places you declared as sinks, so it answers "is anything stranded". `TerminatesAtSink` is the permissive one: it fails when a quiescent marking has **no** declared sink marked. They invert on the empty marking, so a fully drained net is deadlock-free and does not terminate at a sink. Declare your sink places either way, and declare all of them: under the strict reading a terminal place you forgot to list reads as a stranded token.
 
 Four facts that shape designs:
 
@@ -322,7 +324,9 @@ The specification in `spec/` is the normative source, 210 requirements across 13
 - Relying on a timeout branch to cancel work.
 - Expecting rollback when an action fails.
 - Draining or reset arcs on the places that carry your invariants.
-- A terminating net verified without sink places, then a day spent chasing a deadlock that is not one.
+- A terminating net verified with an incomplete sink list, so every terminal place left off it reads as a stranded token.
+- Assuming `DeadlockFree` still means "some sink got marked". That is `TerminatesAtSink` now, and the two invert on a drained net.
+- An action that writes to a declared place outside the branch its output spec selected. It used to be deposited silently; it is a violation now.
 - Verifying with environment injection ignored while environment places are registered: it can never return `Proven`.
 - A correlation map in a join action instead of correlation in the firing rule.
 - A read arc used to mean "use this if it happens to be there".
@@ -348,7 +352,7 @@ Run this before calling a net design done.
 - [ ] Repeated structure is a subnet with named ports, instantiated per use, with port names exported rather than duplicated as strings.
 - [ ] Correlation by identity is used only where several groups are live over shared places, and every minting net has a declared budget place.
 - [ ] Draining and reset arcs are kept off the places whose counts a proof depends on.
-- [ ] Sink places are declared for every intended terminal state.
+- [ ] Sink places are declared for every intended terminal state, and the stop-condition property asserted is the one that states the intent (`DeadlockFree` for "nothing stranded", `TerminatesAtSink` for "we reached a terminal").
 - [ ] Environment places are registered with the verifier under a mode that models injection.
 - [ ] At least one property is asserted per subnet and one on the whole composed net, and each test asserts `Proven` rather than merely not throwing.
 - [ ] Every token has an enabled consumer in every reachable state, including every "nothing happened" marker.
