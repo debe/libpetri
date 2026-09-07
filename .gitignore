@@ -63,7 +63,10 @@ jacoco*.html
 .lake/
 lake-packages/
 
-# Agent / harness metadata
+# Agent / harness metadata written by a local tool. Not to be confused with
+# .agents/, which is a SHIPPED artifact: it holds the committed symlink that
+# makes plugins/libpetri/skills/ load in Codex, opencode and oh-my-pi. Do not
+# add .agents/ here.
 .claude/
 .pi/
 .rpiv/

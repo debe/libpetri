@@ -1,6 +1,7 @@
 # ν-nets reference: correlated fork and join by identity
 
-Spec: `spec/12-nu-nets.md` (NU-001..NU-060).
+Spec: `spec/12-nu-nets.md` (NU-001..NU-060) inside a libpetri checkout, otherwise
+https://github.com/debe/libpetri/blob/main/spec/12-nu-nets.md.
 
 ## Contents
 

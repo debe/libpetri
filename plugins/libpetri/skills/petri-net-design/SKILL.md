@@ -1,19 +1,16 @@
 ---
 name: petri-net-design
-description: >
-  How to design, review and debug Coloured Time Petri Nets with libpetri (Java, TypeScript, Rust, Python)
-  so that the net is correct by construction and provable from the first commit. Covers token-carried data
-  flow, typed coloured places, arc and timing semantics, reusable subnets and composition, correlated
-  fork/join by identity (nu-nets), budgets and permits as places, and how to keep SMT and state-class
-  proofs cheap with P-invariants and semiflows. Use this skill whenever the user is modelling a workflow,
-  agent, protocol, pipeline or session lifecycle as a Petri net, adding places or transitions to an
-  existing net, asking why a net deadlocks, stalls, or never fires, asking how to correlate or join
-  parallel work, asking how to bound retries or concurrency, or asking why a verification returns
-  Unknown or a surprising Violated. Also trigger when the user mentions libpetri, places, tokens,
-  transitions, markings, firing, inhibitor or read or reset arcs, subnets, compose, nu-nets, ν-nets,
-  state-class graphs, P-invariants, semiflows, siphons, traps, deadlock freedom, or Z3 proofs of a
-  workflow. Trigger even when the user only says "model this flow" or "orchestrate these steps" in a
-  project that depends on libpetri: the net-shaped answer is almost always the right one there.
+description: >-
+  Design, review and debug Coloured Time Petri Nets with libpetri (Java, TypeScript, Rust,
+  Python) so they stay provable as they grow: data in tokens, decisions in topology, budgets as
+  places, reusable subnets, correlated fork/join. Use when modelling a workflow, agent, protocol,
+  pipeline or session lifecycle as a Petri net, adding places or transitions, debugging a net that
+  deadlocks, stalls or never fires, bounding retries or concurrency, joining parallel work by
+  identity, or explaining a verification that returned Unknown or a surprising Violated. Also for:
+  libpetri, places, tokens, transitions, markings, firing, inhibitor/read/reset arcs, subnets,
+  compose, nu-nets, ν-nets, state-class graphs, P-invariants, semiflows, siphons, traps,
+  deadlock freedom, Z3. In a libpetri project, "model this flow" or "orchestrate these steps"
+  means this skill.
 ---
 
 # Designing provable Petri nets with libpetri
@@ -303,6 +300,8 @@ Read `references/verification.md` before you tune anything: for the route split,
 
 ## Where to read more
 
+The files below sit next to this `SKILL.md`; read them from this skill's own directory.
+
 | Read this | When |
 |---|---|
 | `references/verification.md` | any proof question: what is checkable, why a query is `Unknown`, how to keep proofs cheap, wiring proofs into CI |
@@ -311,7 +310,12 @@ Read `references/verification.md` before you tune anything: for the route split,
 | `references/patterns.md` | worked topologies from a production system: per-session nets, turn handling, barge-in, budgets, queue draining, and the changes that made real nets provably deadlock-free |
 | `references/lang-java.md` and the other `lang-*.md` | the handful of per-language facts that change a design decision |
 
-The specification in `spec/` is the normative source, 210 requirements across 13 files, with `spec/00-index.md` as the registry. Cite requirement IDs when you make a claim about semantics, and check the index rather than trusting a remembered count.
+libpetri's requirement specification is the normative source for semantics, and its registry is
+`spec/00-index.md`: at `<repo-root>/spec/00-index.md` when you are working inside a libpetri
+checkout, otherwise at https://github.com/debe/libpetri/blob/main/spec/00-index.md. Cite
+requirement IDs (`VER-013`, `NU-024`, `MOD-041`) when you make a claim about semantics, and read
+the index for the current set rather than trusting a remembered count. If you can open neither,
+say the claim is unverified rather than inventing an ID.
 
 ## Anti-patterns worth naming out loud
 
