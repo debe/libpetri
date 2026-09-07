@@ -25,8 +25,8 @@ How to make a net provable, which route proves what, and what silently destroys 
 
 | Property | Question it answers |
 |---|---|
-| `DeadlockFree` | can the net reach a marking where nothing can fire? |
-| `DeadlockFree` + sink places | same, but a token in a declared terminal place is a legitimate stop, not a deadlock |
+| `DeadlockFree` | can the net reach a quiescent marking that still holds a token outside the declared sinks? |
+| `TerminatesAtSink` | does every quiescent marking have at least one declared sink marked? |
 | `MutualExclusion(places)` | can two of these places hold tokens at the same time? |
 | `PlaceBound(place, k)` | can this place ever hold more than k tokens? |
 | `Unreachable(places)` | can all of these be non-empty simultaneously? |
@@ -35,7 +35,51 @@ How to make a net provable, which route proves what, and what silently destroys 
 
 A result carries a verdict (`Proven` with proof method and inductive invariant, `Violated` with a counterexample trace of markings and transitions, or `Unknown` with a reason), the discovered P-invariants, and statistics (VER-002, VER-003).
 
-**Always declare sink places for a net that is meant to terminate.** Without them, a net that legitimately finishes reports a deadlock that is not one, and you will spend a day chasing it.
+### The two stop-condition properties (VER-002, changed in the 5.0 wave)
+
+`DeadlockFree` is **strict**: the error condition is *quiescent* and *some marked place is not a
+declared sink*. It answers "is anything stranded". Before the 5.0 wave the condition was
+*quiescent* and *no sink holds a token*, so a single token resting in any one declared sink
+excused every other token in the marking, which is the opposite of what the name promises. That
+older, permissive predicate still exists under its own name, `TerminatesAtSink`: *every quiescent
+marking has at least one declared sink marked*.
+
+**The two are not ordered by strength. They invert on the empty marking**, which is why both
+exist and why neither could be dropped:
+
+| quiescent marking | `DeadlockFree` | `TerminatesAtSink` |
+|---|---|---|
+| `{done:1, stuck:1}`, `done` a sink | violated | proven |
+| `{}`, fully drained | proven | violated |
+
+So a net that drains completely is deadlock-free, and a net that parks one token in a terminal
+place while another sits stranded upstream is not. Pick the one that states your intent, and say
+which. If you are reading an older net or an older set of notes and the claim was "a token in a
+terminal place is a legitimate stop", that claim is `TerminatesAtSink` now, and it is the drop-in
+if you want the previous behaviour:
+
+```java
+SmtVerifier.forNet(net).property(SmtProperty.terminatesAtSink())        // Java
+```
+```ts
+SmtVerifier.forNet(net).property(terminatesAtSink()).sinkPlaces(done)   // TypeScript
+```
+```rust
+SmtProperty::terminates_at_sink()                                       // Rust
+```
+```python
+lp.terminates_at_sink()                                                 # Python
+```
+
+**Declare sink places for a net that is meant to terminate**, and declare *every* intended
+terminal place, not a representative one. Under the strict reading the list is load bearing in
+both directions: a terminal place you forget to declare is reported as stranded, and a place you
+declare that is not really terminal excuses a token that should have moved on. With no sinks
+declared at all, `DeadlockFree` degenerates to "any quiescent marking still holding a token",
+which is what most closed nets already assumed.
+
+Expect the change to surface real bugs on nets that verified clean before. Every new violation is
+a token stranded outside your declared terminals, which is the thing you wanted found.
 
 ## 2. The two routes
 
@@ -96,7 +140,9 @@ Practical consequence: under `AlwaysAvailable`, a bare `env -> T -> OUT` makes `
 5. **Inhibitor-heavy models.** Inhibitor arcs are what make the formalism Turing-complete. Use them where they express the domain, and expect the decidable fragment to shrink as you add more.
 6. **Heavy independent-branch parallelism under Route B.** The name-partition graph has no partial-order reduction and will truncate. Fixes: declare a budget so the coloured Route A encoder can take the query, reduce places shared between parallel branches, or push independent work into separate subnet instances.
 7. **Multi-token production into one output place in one firing.** The proved over-approximation fixes the abstract gain at one token per branch place. Producing several is outside the proof and is a live route to a false `Proven` on `PlaceBound`.
-8. **A terminating net with no declared sink places.** Reports a deadlock that is not one.
+8. **A terminating net with an incomplete sink list.** Under the strict `DeadlockFree` every
+   terminal place you failed to declare reads as a stranded token. The failure is loud and the
+   fix is to finish the list, but it will look like a design bug until you do.
 9. **Priority-dependent safety.** The SMT encoder never encodes priorities and Route B is priority-blind unless you opt into `CONFLICT` semantics (NU-052). If your argument is "the high-priority transition always wins", either opt in or make the exclusion structural.
 
 ## 6. Design choices that keep proofs cheap
@@ -139,7 +185,13 @@ Every one of these changes what a verdict *means*. Set them explicitly, never by
 
 **`semiflowInvariants`.** The single largest lever available. In one production net, the same query with the same encoding went from 50 minutes to `Unknown` to **15 seconds to `Proven`** when it was turned on, and safety queries went from 50 seconds to about 1 second. The reason is mechanical: without it the encoder sees only the null-space basis, and the exact gate had dropped most of the conservation laws because their support touched a consume-all or reset place. Diagnose by grepping the report for lines saying a semiflow was dropped because its support intersects a consume-all or reset place. Off by default so reports stay byte-identical.
 
-**`sinkPlaces`.** This is the design surface of a deadlock-freedom claim: what you list is what you are promising is a legitimate place to stop. Write the list before you write the assertion. It helps to split it into "state that outlives a unit of work" and "terminal outcomes of a unit of work", because the second group is the one that changes when you add a feature.
+**`sinkPlaces`.** This is the design surface of a deadlock-freedom claim: what you list is what
+you are promising is a legitimate place to stop. Write the list before you write the assertion.
+It helps to split it into "state that outlives a unit of work" and "terminal outcomes of a unit
+of work", because the second group is the one that changes when you add a feature. Since the 5.0
+wave the list binds both ways under `DeadlockFree`: an undeclared terminal place is a violation,
+and an over-declared one silently excuses a token. It is read by `TerminatesAtSink` too, with the
+opposite polarity, so never copy a sink list between the two properties without re-reading it.
 
 **`budgetPlaces`.** Name every place whose consumption gates a fresh-name mint. It is **not validated**: a name that fails to resolve silently degrades the verdict to `Unknown`, which is indistinguishable from an honest one unless you check the route.
 

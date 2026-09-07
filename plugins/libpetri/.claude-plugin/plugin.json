@@ -1,6 +1,6 @@
 {
   "name": "libpetri",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Design principles for building provable Coloured Time Petri Nets with libpetri. Teaches token-carried data flow, reusable subnet composition, correlated fork/join by identity, and how to keep a net verifiable with SMT and state-class analysis from the first commit.",
   "author": {
     "name": "libpetri",

@@ -74,7 +74,7 @@ Safety and coverability for the ν fragment are decidable. Full reachability and
 
 - A typed budget place pre-seeded with k tokens. The fork consumes one when it mints. The join, or a dead-letter transition, returns one.
 - "At most k live correlation groups" then *is* the invariant `PlaceBound(budget, k)`, checkable by the ordinary untimed encoder with no name reasoning at all.
-- A pending place (one token per live group, emptied only by join or dead-letter) plus a bound on it and quiescence with pending empty expresses **"every forked name is eventually joined or dead-lettered"**. That is the dedicated `JoinedOrDeadLettered` property.
+- A pending place (one token per live group, emptied only by join or dead-letter) plus a bound on it and quiescence with pending empty expresses **"every forked name is eventually joined or dead-lettered"**. That is the dedicated `JoinedOrDeadLettered` property. It is exactly *quiescent and `pending` at least 1* (NU-040): since the 5.0 wave it no longer inherits a sink clause from the deadlock predicate, which used to let any marked sink excuse a stranded correlation group and defeated the whole point of the property.
 - With the budget bounded and branch places bounded, fresh names come from a finite live pool, the system stays finite, and these properties become provable.
 
 **You must tell the verifier which place gates minting** (`budgetPlaces` / `budget_place(s)`). Declaring it is what asserts the bounded fragment. Without it, a minting net is treated as unbounded and you will get `Unknown`.

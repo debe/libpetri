@@ -16,6 +16,8 @@ Rust (and therefore Python) has mid-action publication. Flushed tokens count tow
 
 So: an action that needs all-or-nothing output must not flush. Use it for genuine streaming, where each chunk is independently meaningful, and never as a convenience for "get this out early".
 
+Since the 5.0 wave this interacts with the tightened output check (IO-015). Validation now succeeds only when exactly one branch of the spec claims exactly the produced set, and flushed tokens are part of that set, so flushing into a declared place and then selecting a branch that does not claim it is a violation. It used to be accepted. Flush only inside the branch you have already committed to.
+
 ## Actions run on Tokio tasks
 
 Real concurrency, which is what you want, and it means an action that blocks a worker thread hurts the whole runtime. Use async I/O inside actions, or `spawn_blocking` for genuinely blocking work.

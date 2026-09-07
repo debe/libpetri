@@ -24,6 +24,19 @@ No `ctx.flush()`, so the mid-action publication rules do not apply. No marking s
 
 Z3 runs as a subprocess. The WASM path was removed in the 4.0 wave, so verification needs a real `z3` binary on `PATH` or named by `LIBPETRI_Z3`, not a bundled artefact. Plan for that in CI images.
 
+## A timed-out `run()` does not cancel the loop by itself
+
+`run(timeoutMs)` is built on `Promise.race`, which abandons the losing promise rather than
+cancelling it, so the rejection reaches you while the orchestrator keeps firing transitions and
+mutating the marking. Since the 5.0 wave `run(timeoutMs, onTimeout)` takes a policy: `'abandon'`
+is the default and the historical behaviour, `'close'` shuts the executor down (in-flight actions
+still complete, ENV-013). Both executors accept it.
+
+Design consequence: if the actions have external effects, a bare `run(timeoutMs)` means those
+effects keep happening after the caller gave up. Rust and Python have no run-with-timeout at all;
+there you wrap `run_async` in `tokio::time::timeout`, which drops the future and genuinely does
+cancel the loop.
+
 ## Async entry points
 
 Use the async entry points for any net with I/O actions. A synchronous driver occupies the calling context with the executor loop and serialises everything the net was supposed to overlap.
