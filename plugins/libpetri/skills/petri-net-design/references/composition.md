@@ -1,6 +1,7 @@
 # Composition reference
 
-Reusing net structure: subnets, ports, channels, instances, fusion. Spec: `spec/11-modular-composition.md` (MOD-001..MOD-061).
+Reusing net structure: subnets, ports, channels, instances, fusion. Spec: `spec/11-modular-composition.md` (MOD-001..MOD-061) inside a libpetri checkout, otherwise
+https://github.com/debe/libpetri/blob/main/spec/11-modular-composition.md.
 
 ## Contents
 

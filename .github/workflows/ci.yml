@@ -279,3 +279,21 @@ jobs:
             rust/libpetri-docgen/resources/petrinet-diagrams.css \
             typescript/src/doclet/resources/petrinet-diagrams.js \
             typescript/src/doclet/resources/petrinet-diagrams.css
+
+  skills:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pyyaml
+      # The skill in plugins/libpetri/skills/ is loaded by Claude Code, Codex,
+      # opencode and oh-my-pi. opencode drops a skill SILENTLY when its
+      # description exceeds 1024 chars or its name does not match its directory,
+      # and `claude plugin validate` passes on both, so this is the only gate
+      # that catches it. Also asserts .agents/skills/ is still a resolving
+      # symlink: a Windows checkout without core.symlinks turns it into a text
+      # file, which stops the skill loading in all three non-Claude harnesses.
+      - run: python scripts/check-agent-skills.py
