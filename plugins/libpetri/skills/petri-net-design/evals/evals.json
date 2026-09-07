@@ -1,0 +1,164 @@
+{
+  "skill_name": "petri-net-design",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I'm building a support-ticket triage service in Java on libpetri. A ticket comes in over HTTP, we classify it with an LLM, then depending on the class we either call the CRM lookup tool or the knowledge-base search tool (sometimes both), then an LLM writes a draft reply, a human approves or rejects it, and on reject we go back and redraft. Max 3 redrafts then we escalate to a human queue. Sketch the net for me: places, transitions, arcs, timing. I want it to be provable later.",
+      "expected_output": "",
+      "files": [],
+      "assertions": [
+        {
+          "id": "budget-as-place",
+          "text": "The 3-redraft limit is modelled as a place seeded with 3 tokens, not as a counter inside an action or a field on a token",
+          "type": "output_quality"
+        },
+        {
+          "id": "inhibitor-fallback",
+          "text": "Escalation on budget exhaustion is reached by an inhibitor arc on the budget place (a fallback transition), not by an if-check in an action",
+          "type": "output_quality"
+        },
+        {
+          "id": "fallback-priority",
+          "text": "The escalation fallback is made to lose against the redraft transition by an explicit mechanism (lower priority, or a structural exclusion), rather than the answer leaving the race unaddressed",
+          "type": "output_quality"
+        },
+        {
+          "id": "no-attempt-integer",
+          "text": "No retry or attempt counter is carried as an integer on a token or held in an action; the count lives only in the marking",
+          "type": "output_quality"
+        },
+        {
+          "id": "env-boundary",
+          "text": "HTTP intake and the human approve/reject decision enter the net through environment places",
+          "type": "output_quality"
+        },
+        {
+          "id": "typed-places",
+          "text": "Places are typed per domain concept (ticket, classification, tool result, draft) rather than one wide payload place threaded through the net",
+          "type": "output_quality"
+        },
+        {
+          "id": "xor-branching",
+          "text": "The classify-then-route decision is expressed as an Xor output spec or competing transitions, not as branching logic hidden inside an action",
+          "type": "output_quality"
+        },
+        {
+          "id": "tools-as-structure",
+          "text": "The CRM and knowledge-base tools are separate transitions or subnets with their own places, including the both-tools case, rather than one dispatch action",
+          "type": "output_quality"
+        },
+        {
+          "id": "exit-emits-marker",
+          "text": "Every exit path including failure, timeout and discard is accounted for, so no join or budget refund can wait forever on a branch that silently ended",
+          "type": "output_quality"
+        },
+        {
+          "id": "proof-plan",
+          "text": "States which properties will be proven (at minimum deadlock freedom and a bound on the budget place) and declares sink places for the terminal outcomes",
+          "type": "output_quality"
+        },
+        {
+          "id": "no-guards",
+          "text": "Does not propose per-token guard predicates or value-based arc filters, which do not exist in the model",
+          "type": "output_quality"
+        },
+        {
+          "id": "timeout-not-cancel",
+          "text": "If a timeout is used anywhere, the answer states that a timeout branch excludes the late output but does not cancel the work, or otherwise avoids relying on a timeout to stop an in-flight call",
+          "type": "output_quality"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Our net hangs in production about once a day. It's a per-session net (TypeScript) that streams LLM chunks to a websocket. When the user interrupts mid-stream we set a cancelled flag in the transition action and the action returns early, but sometimes the net just sits there with tokens in FLIGHT and nothing fires. How do I debug and fix this?",
+      "expected_output": "",
+      "files": [],
+      "assertions": [
+        {
+          "id": "root-cause-flag",
+          "text": "Identifies the cancelled flag as state living outside the marking as the primary root cause, and does not lead with a different competing root cause",
+          "type": "output_quality"
+        },
+        {
+          "id": "stranded-token",
+          "text": "Explains that the FLIGHT token has no enabled consumer after the early return, which is why nothing fires",
+          "type": "output_quality"
+        },
+        {
+          "id": "inhibitor-fix",
+          "text": "Proposes modelling cancellation structurally: a cancel or barge-in place with an inhibitor arc, or a competing consumer, instead of the flag",
+          "type": "output_quality"
+        },
+        {
+          "id": "reset-cleanup",
+          "text": "Proposes reset arcs or an explicit drain transition to clear stale in-flight tokens when new input arrives",
+          "type": "output_quality"
+        },
+        {
+          "id": "drain-or-consumer",
+          "text": "States the general rule that every token needs an enabled consumer in every reachable state, rather than only fixing the one stranded token",
+          "type": "output_quality"
+        },
+        {
+          "id": "proof-followup",
+          "text": "Recommends turning the fix into a proof (deadlock freedom, or a bound on the FLIGHT place) so the bug cannot come back",
+          "type": "output_quality"
+        },
+        {
+          "id": "debug-instrument",
+          "text": "Names a concrete debugging instrument: the event stream or event store, or inspecting the marking at the stall",
+          "type": "output_quality"
+        },
+        {
+          "id": "timeout-not-cancel",
+          "text": "If a timeout is used anywhere, the answer states that a timeout branch excludes the late output but does not cancel the work, or otherwise avoids relying on a timeout to stop an in-flight call",
+          "type": "output_quality"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "We fan out one request to 5 pricing providers and need to join the responses back per request id. Multiple requests are in flight at once. Right now each provider's response token carries a correlationId string and the join transition action looks up a ConcurrentHashMap keyed by that id to see if all 5 arrived. Is there a better way in libpetri?",
+      "expected_output": "",
+      "files": [],
+      "assertions": [
+        {
+          "id": "recommends-nu",
+          "text": "Recommends correlated fork/join by identity (a match spec on the join transition) instead of the ConcurrentHashMap lookup",
+          "type": "output_quality"
+        },
+        {
+          "id": "toctou-reasoning",
+          "text": "Explains why the map is worse: it is a check-then-act gap, whereas the match is part of the firing rule so there is no window",
+          "type": "output_quality"
+        },
+        {
+          "id": "identity-projection",
+          "text": "Explains that identity is a projection of the existing payload (the correlationId field), so no token type has to change",
+          "type": "output_quality"
+        },
+        {
+          "id": "budget-place",
+          "text": "Recommends a budget place bounding the number of live correlation groups AND explains why it matters (it keeps the name pool finite so the net stays verifiable), not merely naming an API call",
+          "type": "output_quality"
+        },
+        {
+          "id": "match-all-inputs",
+          "text": "Says the join must correlate all of its inputs, or otherwise addresses the risk of a straggler joining against the next request's tokens",
+          "type": "output_quality"
+        },
+        {
+          "id": "fragment-limits",
+          "text": "Mentions at least one constraint of the correlated fragment: no read/inhibitor/reset arcs on coloured places, or when plain structure would be cheaper than a match spec",
+          "type": "output_quality"
+        },
+        {
+          "id": "timeout-not-cancel",
+          "text": "If a timeout is used anywhere, the answer states that a timeout branch excludes the late output but does not cancel the work, or otherwise avoids relying on a timeout to stop an in-flight call",
+          "type": "output_quality"
+        }
+      ]
+    }
+  ]
+}

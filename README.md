@@ -148,6 +148,27 @@ The proof boundary is deliberate: the full timed cycle, asynchronous action plum
 
 These are stress tests and design examples, not an argument that every program should be expressed as a Petri net. libpetri is most useful when the graph makes concurrency, timing, resource ownership, or coordination easier to reason about.
 
+## Design help in Claude Code
+
+The repository ships a Claude Code plugin that teaches net design rather than API calls: token-carried
+data flow, decisions as topology, budgets and permits as places, reusable subnets, correlated fork and
+join by identity, and how to keep SMT and state-class proofs cheap as a net grows. It is language
+agnostic, with a short appendix per implementation for the handful of facts that change a design
+decision.
+
+```
+/plugin marketplace add debe/libpetri
+/plugin install libpetri@libpetri
+```
+
+The skill activates on its own when you model a workflow as a net, add places or transitions, debug a
+net that stalls, or ask why a verification returned `Unknown`. Invoke it directly with
+`/libpetri:petri-net-design`.
+
+Source: [`plugins/libpetri/skills/petri-net-design/`](plugins/libpetri/skills/petri-net-design/). The
+principles come from this repository's [specification](spec/00-index.md) and from a production system
+whose two long-lived session nets each carry a whole-net deadlock-freedom proof.
+
 ## Build and test
 
 ```bash
