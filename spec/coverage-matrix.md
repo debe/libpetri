@@ -11,8 +11,8 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 - Active requirements: **214**
 - Proven in Lean (≥ 1 validated theorem fragment): **24**
 - Referenced in Lean comments only (mention without a validated theorem mapping): **12**
-- Referenced by ≥ 1 test file: java **77**, typescript **73**, rust **83**, python **34**
-- Untested anywhere (no test-file reference in any language): **123**
+- Referenced by ≥ 1 test file: java **77**, typescript **73**, rust **84**, python **35**
+- Untested anywhere (no test-file reference in any language): **122**
 
 ## 01-core-model.md — CORE
 
@@ -153,7 +153,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 
 | ID | Lean proof (theorem + fragment) | Lean ref | java | typescript | rust | python |
 |----|---------------------------------|----------|------|------------|------|--------|
-| VER-001 | — | — | — | — | — | — |
+| VER-001 | — | — | — | — | ✓ | ✓ |
 | VER-002 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | VER-003 | — | — | ✓ | — | ✓ | ✓ |
 | VER-004 | `proposition_one` — abstraction soundness alpha(R(N)) subset R(N-hat) on the untimed flat fragment, under the GuardFreeConsumeAll (vacuous since the IO-006 guard removal) and UnitOutput side conditions; the CHC encoder is modelled, not extracted<br>`guard_hypothesis_is_necessary` — necessity of the guard-free side condition: concrete counterexample where a guarded consume-all arc made the untimed abstraction unsound (historical evidence; discharged by the IO-006 guard removal)<br>`unit_output_hypothesis_is_necessary` — necessity of the unit-output side condition: validate_out_spec checks place membership, never multiplicity, while the encoder fixes the abstract gain at one token per branch place — the hypothesis remains unchecked by the shipped encoder<br>`bad_rule_nonvacuity` — the flat encoder's unresolvable-property-place fallback (Bad body = false) certifies any net vacuously - the formal argument that refusing to certify is the only sound behavior for that case | ✓ | — | — | ✓ | ✓ |
