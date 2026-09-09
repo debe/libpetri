@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — Java 5.1.0 / TypeScript 5.1.0 / Rust 5.1.0 / Python 4.1.0
+## Java 5.1.0 / TypeScript 5.1.0 / Rust 5.1.0 / Python 4.1.0 — 2026-09-09
 
 ### Verification — soundness
 
@@ -57,6 +57,8 @@ Where the minimal set is exponential the survivors are an arbitrary truncation, 
 **Added — a warning when an action out-produces its output spec** ([IO-016] AC4). A spec names places, not counts, so writing several tokens to one named place passes validation while every branch-enumerating analysis models one. Both executors now emit one `WARN` log-message per transition.
 
 **Added — a report note when a quiescence property is vacuously true** ([VER-006]). Under modelled injection an environment-gated transition is enabled in every marking, so no marking is quiescent and `deadlockFree` is `proven` whatever the net does.
+
+**Changed — the bundled diagram viewer now renders with Graphviz 16.0.0** (`@viz-js/viz` 3.30.0). Ships in the Java javadoc, Rust docgen and TypeScript doclet resources; no API or layout change.
 
 Requirement count 210 → 214 ([VER-014], [VER-015], [VER-016], [VER-017]); [VER-003], [VER-006], [VER-007], [VER-010], [VER-011], [VER-020] and [IO-016] gained acceptance criteria.
 
