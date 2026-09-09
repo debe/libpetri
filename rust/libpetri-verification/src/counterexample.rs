@@ -44,10 +44,14 @@ impl DecodedTrace {
 /// Applications with non-ground arguments (rule bodies quantify `Reachable`
 /// over variables) or the wrong arity are skipped; a malformed proof simply
 /// yields a smaller (possibly empty) set, never an error.
+///
+/// With the state equation ([VER-016]) a fact carries `counter_count` firing
+/// counters after the places; the marking is the leading `P` arguments.
 #[cfg(feature = "z3")]
 pub fn decode_state_set(
     answer_str: &str,
     flat: &FlatNet,
+    counter_count: usize,
 ) -> std::collections::BTreeSet<Vec<i64>> {
     use crate::smt_verifier::sexpr_end;
 
@@ -71,8 +75,9 @@ pub fn decode_state_set(
             };
             // Interior between the head symbol and the closing paren.
             let inner = &answer_str[start + head.len()..end - 1];
-            if let Some(args) = parse_ground_int_args(inner) {
-                if args.len() == flat.place_count {
+            if let Some(mut args) = parse_ground_int_args(inner) {
+                if args.len() == flat.place_count + counter_count {
+                    args.truncate(flat.place_count);
                     set.insert(args);
                 }
             }
@@ -149,7 +154,7 @@ mod tests {
  (let ((@x9 (|Reachable| 0 2)))
  (mp @x723 (asserted (Reachable (- 1) 3)) false))))))
 "#;
-        let set = decode_state_set(proof, &flat);
+        let set = decode_state_set(proof, &flat, 0);
         let expect: std::collections::BTreeSet<Vec<i64>> = [
             vec![2, 0],
             vec![1, 1],
@@ -175,9 +180,29 @@ mod tests {
         // Wrong arity, variable args, nested exprs, and a different symbol
         // sharing the prefix: all skipped.
         let text = "(Reachable 1) (Reachable 1 2 3) (Reachable A B)                     (Reachable (+ 1 2) 0) (ReachableX 1 2) (Reachable 4 5)";
-        let set = decode_state_set(text, &flat);
+        let set = decode_state_set(text, &flat, 0);
         let expect: std::collections::BTreeSet<Vec<i64>> = [vec![4, 5]].into_iter().collect();
         assert_eq!(set, expect);
+    }
+
+    /// [VER-016]: a fact with `P + T` arguments yields the marking of its leading
+    /// `P`; without the counter count the same fact has the wrong arity.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn decode_state_set_reads_the_leading_places_of_a_counter_carrying_fact() {
+        use std::collections::HashMap;
+
+        let flat = FlatNet {
+            places: vec!["p0".into(), "p1".into()],
+            place_index: HashMap::from([("p0".into(), 0), ("p1".into(), 1)]),
+            place_count: 2,
+            transitions: Vec::new(),
+        };
+        let fact = "(Reachable 1 1 1 0 0)";
+        assert!(decode_state_set(fact, &flat, 0).is_empty());
+        let with_counters = decode_state_set(fact, &flat, 3);
+        let expect: std::collections::BTreeSet<Vec<i64>> = [vec![1, 1]].into_iter().collect();
+        assert_eq!(with_counters, expect);
     }
 
     #[cfg(feature = "z3")]

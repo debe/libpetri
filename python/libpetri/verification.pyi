@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
-from typing import Any, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 from . import _libpetri as _ext
 from .model import BuiltNet, BuiltSubnetDef, PlaceLike
@@ -51,8 +51,24 @@ def verify(
     priority_semantics: str | int | None = ...,
     certificate_check: bool = ...,
     counterexample_replay: bool = ...,
-    semiflow_invariants: bool = ...,
-) -> VerificationResult: ...
+    semiflow_invariants: bool | Literal["auto"] = ...,
+    sink_places_when: Mapping[PlaceLike, Iterable[PlaceLike]] | None = ...,
+    linear_bound: bool = ...,
+    state_equation: bool = ...,
+    enumeration_max_classes: int | None = ...,
+) -> VerificationResult:
+    """``sink_places_when`` declares, in dict order, the places where a token may
+    rest while its marker place holds a token (VER-014). ``linear_bound`` (default
+    on) proves a reachability-safety property from one exactly re-checked linear
+    state-equation bound before any fixpoint query (VER-015). ``state_equation``
+    (default off) adds firing counters and the marking equation to the flat
+    encoding (VER-016). ``enumeration_max_classes`` (``None`` keeps the engine
+    default of 50 000) is the class
+    budget of the bounded state-space enumeration route, which decides an untimed
+    closed net exactly with no solver at all; ``0`` disables it (VER-017).
+    ``semiflow_invariants="auto"`` unions the P-semiflows exactly when the
+    null-space basis lost a law to the H1 guard (VER-007). The result names the
+    deciding route in ``route`` (VER-003)."""
 def verify_subnet(
     subnet: BuiltSubnetDef,
     harness: VerificationHarness | Iterable[SmtProperty],
@@ -71,6 +87,14 @@ def encode_smt_scripts(
     fragment_mode: str | int | None = ...,
     carrier_places: Iterable[PlaceLike] | None = ...,
     counterexample_replay: bool = ...,
-    semiflow_invariants: bool = ...,
-) -> dict[str, str | bool | None]: ...
+    semiflow_invariants: bool | Literal["auto"] = ...,
+    sink_places_when: Mapping[PlaceLike, Iterable[PlaceLike]] | None = ...,
+    linear_bound: bool = ...,
+    state_equation: bool = ...,
+) -> dict[str, str | bool | None]:
+    """Returns ``horn``, ``certificate``, ``coloured`` and ``bound`` -- the linear
+    state-equation bound query, present exactly when :func:`verify` would send it
+    (VER-015). ``sink_places_when`` (VER-014), ``linear_bound`` (VER-015; ``False``
+    returns ``bound: None``) and ``state_equation`` (VER-016) shape the scripts
+    as they do for :func:`verify`."""
 def z3_available() -> bool: ...

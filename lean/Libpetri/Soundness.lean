@@ -139,8 +139,10 @@ inductive ReachC (net : FlatNet) (m0 : CMarking) : CMarking → Prop
       ReachC net m0 m → ft ∈ net → StepC m ft prod m' → ReachC net m0 m'
 
 /-- Abstract reachability `R(N̂)` — the least fixpoint of the CHC rules
-(`smt_encoder.rs:66` seeds it with `M₀`, `:70-73` adds one rule per flat
-transition). -/
+(`encode_net`, the body of `encode`: `smt_encoder.rs:145` seeds it with `M₀`,
+`:156-173` adds one rule per flat transition). This is the options-off path;
+with `EncodeOptions::state_equation` ([VER-016]) `Reachable` also carries one
+firing counter per flat transition, which this model does not cover. -/
 inductive ReachA (net : FlatNet) (a0 : AMarking) : AMarking → Prop
   | init : ReachA net a0 a0
   | step {a ft} :
@@ -190,8 +192,9 @@ theorem guarded_all_is_enabled : enabledC mGuarded tGuardedAll = true := by deci
 
 The executor consumed only the guard-matching token, so place 0 still held one
 token after the firing. The encoder emits `m'_0 = post[0] = 0` for every
-`consume_all` place (`smt_encoder.rs:165-167`), because `net_flattener.rs` never
-inspects the guard. The abstract successor is therefore *smaller* than the
+`consume_all` place (`firing_conditions`, `smt_encoder.rs:364-366`), because
+`net_flattener.rs` never inspects the guard. The abstract successor is
+therefore *smaller* than the
 concrete one — an under-approximation, which is precisely how a
 `PlaceBound(p₀, 0)` query gets a false `Proven`.
 

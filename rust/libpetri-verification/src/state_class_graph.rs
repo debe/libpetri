@@ -240,7 +240,10 @@ pub(crate) fn initial_state_class(
     env_set: &HashSet<&str>,
     env_mode: &EnvironmentAnalysisMode,
 ) -> StateClass {
-    let enabled = find_enabled_transitions(net, initial_marking, env_set, env_mode);
+    let mut enabled = find_enabled_transitions(net, initial_marking, env_set, env_mode);
+    if let Some(order) = canonical_order(&enabled) {
+        enabled = permute(&enabled, &order);
+    }
     let clock_names: Vec<String> = enabled.clone();
     let lower_bounds: Vec<f64> = enabled.iter().map(|name| timing_earliest(net, name)).collect();
     let upper_bounds: Vec<f64> = enabled.iter().map(|name| timing_latest(net, name)).collect();
@@ -268,6 +271,25 @@ pub(crate) fn timing_latest(net: &PetriNet, name: &str) -> f64 {
         .find(|t| t.name() == name)
         .map(|t| t.timing().latest() as f64 / 1000.0)
         .unwrap_or(f64::INFINITY)
+}
+
+/// The canonical clock order of an enabled set ([VER-010] AC1): ascending by
+/// transition name (byte order, which is code-point order for UTF-8), ties
+/// keeping their incoming order. Returns the permutation as indices into
+/// `names`, or `None` when it is already in order — the common case, which then
+/// costs no allocation.
+pub(crate) fn canonical_order(names: &[String]) -> Option<Vec<usize>> {
+    if names.windows(2).all(|w| w[0] <= w[1]) {
+        return None;
+    }
+    let mut order: Vec<usize> = (0..names.len()).collect();
+    // Stable, so equal names keep their incoming order.
+    order.sort_by(|&a, &b| names[a].cmp(&names[b]));
+    Some(order)
+}
+
+fn permute<T: Clone>(items: &[T], order: &[usize]) -> Vec<T> {
+    order.iter().map(|&i| items[i].clone()).collect()
 }
 
 pub(crate) fn find_enabled_transitions(
@@ -426,7 +448,7 @@ pub(crate) fn compute_successor(
         })
         .collect();
 
-    let fired_dbm = current.dbm.fire_transition(
+    let mut fired_dbm = current.dbm.fire_transition(
         fired_clock,
         &newly_enabled,
         &new_lower_bounds,
@@ -434,11 +456,19 @@ pub(crate) fn compute_successor(
         &persistent_indices,
     );
 
-    // Clock order of `fired_dbm` is persistent-then-newly-enabled, matching
-    // `all_enabled`. Capture the class-relative earliest-ready time BEFORE
-    // `let_time_pass()` zeroes the lower bounds ([NU-052] residual-earliest).
+    // `fire_transition` lays the clocks out persistent-then-newly-enabled, which
+    // is path-dependent; put them in canonical order so the class key is
+    // ([VER-010] AC1). The enabled list and the earliest-ready times below are
+    // permuted with them, so index k means the same clock in all three.
     let mut all_enabled = persistent;
     all_enabled.extend(newly_enabled);
+    if let Some(order) = canonical_order(&all_enabled) {
+        all_enabled = permute(&all_enabled, &order);
+        fired_dbm = fired_dbm.permuted(&order);
+    }
+
+    // Capture the class-relative earliest-ready time BEFORE `let_time_pass()`
+    // zeroes the lower bounds ([NU-052] residual-earliest).
     let ready_earliest: Vec<f64> = (0..all_enabled.len())
         .map(|k| fired_dbm.lower_bound(k))
         .collect();
@@ -548,6 +578,56 @@ mod tests {
         let net = PetriNet::builder("chain").transition(t).build();
 
         StateClassGraph::build(&net, &MarkingStateBuilder::new().tokens("p1", 1).build(), 1000);
+    }
+
+    /// A reset arc on a place the SAME transition consumes. Both executors run this
+    /// net, so the graph must too.
+    ///
+    /// The reset clears whatever is LEFT after the input loop rather than removing
+    /// the PRE-firing count: reading the original count would overdraw — the input
+    /// already took its share — which in a builder that removes rather than sets is
+    /// an error, and the whole enumeration route dies on a net that runs fine. This
+    /// implementation states the reset directly (`tokens(place, 0)`), which cannot
+    /// overdraw, and agrees by construction with what the flat encoder emits
+    /// (`m'_p = post[p]` for a reset place). Outputs are produced afterwards, so a
+    /// place that is both reset and an output target ends at its post count
+    /// (\[EXEC-013\] AC4: consume, then read, then drain).
+    #[test]
+    fn reset_on_a_place_the_transition_also_consumes() {
+        for spec in ["one", "all"] {
+            let p = Place::<i32>::new("p");
+            let q = Place::<i32>::new("q");
+            let builder = Transition::builder("t");
+            let builder = if spec == "one" {
+                builder.input(one(&p))
+            } else {
+                builder.input(all(&p))
+            };
+            let t = builder
+                .reset(libpetri_core::arc::reset(&p))
+                .output(out_place(&q))
+                .action(fork())
+                .build();
+            let net = PetriNet::builder("reset-input").transition(t).build();
+
+            let graph = StateClassGraph::build(
+                &net,
+                &MarkingStateBuilder::new().tokens("p", 3).build(),
+                1000,
+            );
+            assert!(graph.is_complete(), "{spec}: the graph must close");
+            // p goes 3 -> 0 (the input takes its share, the reset clears the rest),
+            // q gets exactly one token, and `t` cannot re-enable on a residue.
+            let mut counts: Vec<usize> =
+                graph.classes().iter().map(|c| c.marking.count("p")).collect();
+            counts.sort_unstable();
+            counts.dedup();
+            assert_eq!(counts, vec![0, 3], "{spec}");
+            assert!(
+                graph.classes().iter().all(|c| c.marking.count("q") <= 1),
+                "{spec}: the transition fires once"
+            );
+        }
     }
 
     /// \[IO-007\] regression: `In::All` must drain its place in the analysis, exactly
@@ -1025,5 +1105,95 @@ mod tests {
         // Successor should have predecessors pointing back to 0
         let succ = scg.successors(0)[0];
         assert!(scg.predecessors(succ).contains(&0));
+    }
+
+    // VER-010 AC1: a class is identified by its marking and zone, not by the order
+    // in which its transitions became enabled.
+
+    /// Two independent chains a→c→e and b→d→f. From {c, d} the enabled set is
+    /// {u, v} whichever chain moved first, but `fire_transition` lays clocks out
+    /// persistent-then-new, so the two arrivals used to carry the orders [u, v]
+    /// and [v, u] and count as two classes. Untimed, every zone is `[0, ∞)` per
+    /// clock, so the marking is the whole identity: 3 × 3 = 9 markings, 9 classes.
+    fn two_chains(timed: bool) -> (PetriNet, MarkingState) {
+        let a = Place::<i32>::new("a");
+        let b = Place::<i32>::new("b");
+        let c = Place::<i32>::new("c");
+        let d = Place::<i32>::new("d");
+        let e = Place::<i32>::new("e");
+        let f = Place::<i32>::new("f");
+        let t = |name: &str, from: &Place<i32>, to: &Place<i32>| {
+            let builder = Transition::builder(name)
+                .input(one(from))
+                .output(out_place(to))
+                .action(fork());
+            if timed {
+                builder.timing(libpetri_core::timing::window(0, 2000)).build()
+            } else {
+                builder.build()
+            }
+        };
+        let net = PetriNet::builder("two-chains")
+            .transitions([t("tx", &a, &c), t("ty", &b, &d), t("u", &c, &e), t("v", &d, &f)])
+            .build();
+        let marking = MarkingStateBuilder::new().tokens("a", 1).tokens("b", 1).build();
+        (net, marking)
+    }
+
+    fn classes_at<'a>(scg: &'a StateClassGraph, marking: &MarkingState) -> Vec<&'a StateClass> {
+        scg.classes().iter().filter(|sc| sc.marking == *marking).collect()
+    }
+
+    #[test]
+    fn canonical_order_counts_one_marking_once_whatever_the_enabling_order() {
+        let (net, marking) = two_chains(false);
+        let scg = StateClassGraph::build(&net, &marking, 1000);
+        assert!(scg.is_complete());
+        assert_eq!(scg.reachable_markings().len(), 9);
+        assert_eq!(scg.class_count(), 9);
+        let at_cd = classes_at(&scg, &MarkingStateBuilder::new().tokens("c", 1).tokens("d", 1).build());
+        assert_eq!(at_cd.len(), 1);
+        assert_eq!(at_cd[0].dbm.clock_names(), &["u".to_string(), "v".to_string()]);
+    }
+
+    #[test]
+    fn canonical_order_keeps_clocks_enabled_list_and_ready_earliest_aligned() {
+        let (net, marking) = two_chains(true);
+        let scg = StateClassGraph::build(&net, &marking, 1000);
+        assert!(scg.is_complete());
+        // Same zone from both paths (v and u are each fresh when enabled), so one class.
+        let at_cd = classes_at(&scg, &MarkingStateBuilder::new().tokens("c", 1).tokens("d", 1).build());
+        assert_eq!(at_cd.len(), 1);
+        let sc = at_cd[0];
+        assert_eq!(sc.enabled_transitions, sc.dbm.clock_names());
+        assert_eq!(sc.ready_earliest.len(), sc.enabled_transitions.len());
+        for k in 0..sc.enabled_transitions.len() {
+            assert!(sc.can_fire(k));
+        }
+    }
+
+    #[test]
+    fn canonical_order_applies_to_the_initial_class_too() {
+        let a = Place::<i32>::new("a");
+        let b = Place::<i32>::new("b");
+        let x = Place::<i32>::new("x");
+        // Declared in the order tz, ty — the initial clocks come out ty, tz.
+        let tz = Transition::builder("tz").input(one(&b)).output(out_place(&x)).action(fork()).build();
+        let ty = Transition::builder("ty").input(one(&a)).output(out_place(&x)).action(fork()).build();
+        let net = PetriNet::builder("initial-order").transitions([tz, ty]).build();
+        let marking = MarkingStateBuilder::new().tokens("a", 1).tokens("b", 1).build();
+        let scg = StateClassGraph::build(&net, &marking, 100);
+        let initial = &scg.classes()[0];
+        assert_eq!(initial.dbm.clock_names(), &["ty".to_string(), "tz".to_string()]);
+        assert_eq!(initial.enabled_transitions, vec!["ty".to_string(), "tz".to_string()]);
+    }
+
+    #[test]
+    fn canonical_order_is_none_when_sorted_and_stable_on_ties() {
+        let sorted = vec!["a".to_string(), "b".to_string(), "b".to_string()];
+        assert_eq!(canonical_order(&sorted), None);
+        assert_eq!(canonical_order(&[]), None);
+        let unsorted = vec!["b".to_string(), "a".to_string(), "b".to_string()];
+        assert_eq!(canonical_order(&unsorted), Some(vec![1, 0, 2]));
     }
 }

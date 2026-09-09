@@ -382,7 +382,110 @@ class BackendDivergenceRegressionTest {
         }
     }
 
-    /** The CORE-072 AC4 diagnostics only — never an action's captured log output. */
+    /**
+     * IO-016 AC4: an action that writes two tokens to the one place its spec names is
+     * accepted (IO-015 reads the produced SET) and reported once per transition, not once
+     * per firing, as the EVT-013 log-message event with the canonical message.
+     */
+    @ParameterizedTest
+    @EnumSource(Backend.class)
+    void multiplicity_warnsOncePerTransitionWhenAnActionWritesTwoTokensToAPlaceNamedOnce(Backend backend)
+            throws Exception {
+        var in = Place.of("IN", SimpleValue.class);
+        var out = Place.of("OUT", SimpleValue.class);
+        var t = Transition.builder("T")
+            .inputs(Arc.In.one(in))
+            .outputs(Arc.Out.place(out))
+            .action(ctx -> {
+                var v = ctx.input(in);
+                ctx.output(out, new SimpleValue(v.data() + "-1"));
+                ctx.output(out, new SimpleValue(v.data() + "-2"));
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+        var net = PetriNet.builder("N").transitions(t).build();
+        var initial = Map.<Place<?>, List<Token<?>>>of(
+            in, List.of(Token.of(new SimpleValue("a")), Token.of(new SimpleValue("b")), Token.of(new SimpleValue("c"))));
+
+        var eventStore = EventStore.inMemory();
+        try (var executor = backend.createWithEventStore(net, initial, eventStore)) {
+            var result = executor.run();
+
+            // The firing is accepted: IO-015 reads the produced SET.
+            assertEquals(6, result.tokenCount(out), "both tokens land on every firing");
+            // Three firings, one diagnostic.
+            var warnings = runtimeWarnings(eventStore);
+            assertEquals(1, warnings.size(), "one warning per transition across 3 firings, got: " + warnings);
+            var w = warnings.get(0);
+            assertEquals("WARN", w.level());
+            assertEquals("T", w.transitionName());
+            assertEquals("'T': wrote more than one token to a place its output spec names once (OUT: 2); "
+                + "branch-enumerating analyses model one token per named place, so this firing exceeds "
+                + "what they explore (IO-016)", w.message());
+        }
+    }
+
+    /** IO-016 AC4 through a composite spec: every repeated place is named, in produced order. */
+    @ParameterizedTest
+    @EnumSource(Backend.class)
+    void multiplicity_warnsThroughACompositeSpecNamingEveryRepeatedPlace(Backend backend) throws Exception {
+        var in = Place.of("IN", SimpleValue.class);
+        var a = Place.of("A", SimpleValue.class);
+        var b = Place.of("B", SimpleValue.class);
+        var t = Transition.builder("T")
+            .inputs(Arc.In.one(in))
+            .outputs(Arc.Out.and(Arc.Out.place(a), Arc.Out.place(b)))
+            .action(ctx -> {
+                ctx.input(in);
+                ctx.output(a, new SimpleValue("a1"));
+                ctx.output(a, new SimpleValue("a2"));
+                ctx.output(a, new SimpleValue("a3"));
+                ctx.output(b, new SimpleValue("b1"));
+                ctx.output(b, new SimpleValue("b2"));
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+        var net = PetriNet.builder("N").transitions(t).build();
+        var initial = Map.<Place<?>, List<Token<?>>>of(in, List.of(Token.of(new SimpleValue("x"))));
+
+        var eventStore = EventStore.inMemory();
+        try (var executor = backend.createWithEventStore(net, initial, eventStore)) {
+            executor.run();
+            var warnings = runtimeWarnings(eventStore);
+            assertEquals(1, warnings.size(), warnings.toString());
+            assertTrue(warnings.get(0).message().contains("(A: 3, B: 2)"), warnings.get(0).message());
+        }
+    }
+
+    /** IO-016 AC4: one token per named place is exactly what the analyses model — no event. */
+    @ParameterizedTest
+    @EnumSource(Backend.class)
+    void multiplicity_staysSilentWhenEveryNamedPlaceReceivesExactlyOneToken(Backend backend) throws Exception {
+        var in = Place.of("IN", SimpleValue.class);
+        var a = Place.of("A", SimpleValue.class);
+        var b = Place.of("B", SimpleValue.class);
+        var t = Transition.builder("T")
+            .inputs(Arc.In.one(in))
+            .outputs(Arc.Out.and(Arc.Out.place(a), Arc.Out.place(b)))
+            .action(ctx -> {
+                var v = ctx.input(in);
+                ctx.output(a, v);
+                ctx.output(b, v);
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+        var net = PetriNet.builder("N").transitions(t).build();
+        var initial = Map.<Place<?>, List<Token<?>>>of(
+            in, List.of(Token.of(new SimpleValue("x")), Token.of(new SimpleValue("y"))));
+
+        var eventStore = EventStore.inMemory();
+        try (var executor = backend.createWithEventStore(net, initial, eventStore)) {
+            executor.run();
+            assertEquals(0, runtimeWarnings(eventStore).size());
+        }
+    }
+
+    /** The CORE-072 AC4 / IO-016 AC4 diagnostics only — never an action's captured log output. */
     private static List<NetEvent.LogMessage> runtimeWarnings(EventStore store) {
         return store.eventsOfType(NetEvent.LogMessage.class).stream()
             .filter(e -> "libpetri.runtime".equals(e.loggerName()))

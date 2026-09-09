@@ -32,6 +32,12 @@
 //! where a certificate that is genuinely inductive and safe over the markings
 //! the net can hold still fails.
 //!
+//! With the state equation ([VER-016]) the certificate ranges over `(M, n)` —
+//! the places and one firing counter per flat transition. The candidate then
+//! conjoins the marking equation and `n >= 0` alongside the P-invariants, and
+//! the VCs re-prove them against the raw step relation, whose only counter
+//! knowledge is the increment.
+//!
 //! Polarity cross-check: these are ordinary satisfiability queries with the
 //! standard, unambiguous reading (`unsat` = the VC is valid). That a
 //! Spacer-produced certificate discharges them independently corroborates the
@@ -42,6 +48,7 @@ use crate::marking_state::MarkingState;
 use crate::net_flattener::FlatNet;
 use crate::p_invariant::PInvariant;
 use crate::property::SmtProperty;
+use crate::rest_set::ConditionalSinks;
 use crate::smt_encoder;
 use crate::z3_process::{self, Z3Exit, Z3Solver};
 
@@ -83,6 +90,10 @@ pub enum CertificateCheck {
 /// malformed net/invariant shape, a missing `Reachable`, a z3 error, an
 /// unparseable reply all come back as [`CertificateCheck::Inconclusive`], and
 /// a sat/unknown VC as [`CertificateCheck::Failed`].
+///
+/// `conditional_sinks` are the [VER-014] declarations the deadlock-freedom
+/// safety VC reads; `state_equation` says whether the certificate ranges over
+/// the firing counters too ([VER-016]).
 #[allow(clippy::too_many_arguments)]
 pub fn check_certificate(
     certificate: &str,
@@ -91,8 +102,10 @@ pub fn check_certificate(
     property: &SmtProperty,
     invariants: &[PInvariant],
     sink_places: &[String],
+    conditional_sinks: &[ConditionalSinks],
     env_bounds: &[(String, usize)],
     env_injection: &[(String, Option<usize>)],
+    state_equation: bool,
     timeout_ms: u64,
 ) -> CertificateCheck {
     match Z3Solver::resolve() {
@@ -103,8 +116,10 @@ pub fn check_certificate(
             property,
             invariants,
             sink_places,
+            conditional_sinks,
             env_bounds,
             env_injection,
+            state_equation,
             timeout_ms,
             &solver,
         ),
@@ -123,8 +138,10 @@ pub fn vc_script(
     property: &SmtProperty,
     invariants: &[PInvariant],
     sink_places: &[String],
+    conditional_sinks: &[ConditionalSinks],
     env_bounds: &[(String, usize)],
     env_injection: &[(String, Option<usize>)],
+    state_equation: bool,
 ) -> String {
     VerificationConditions::build(
         certificate,
@@ -133,8 +150,10 @@ pub fn vc_script(
         property,
         invariants,
         sink_places,
+        conditional_sinks,
         env_bounds,
         env_injection,
+        state_equation,
     )
     .script()
 }
@@ -149,8 +168,10 @@ pub(crate) fn check_certificate_with(
     property: &SmtProperty,
     invariants: &[PInvariant],
     sink_places: &[String],
+    conditional_sinks: &[ConditionalSinks],
     env_bounds: &[(String, usize)],
     env_injection: &[(String, Option<usize>)],
+    state_equation: bool,
     timeout_ms: u64,
     solver: &Z3Solver,
 ) -> CertificateCheck {
@@ -176,8 +197,10 @@ pub(crate) fn check_certificate_with(
         property,
         invariants,
         sink_places,
+        conditional_sinks,
         env_bounds,
         env_injection,
+        state_equation,
     );
 
     // One plain z3 run for all three VCs (no fp.engine — this is not HORN).
@@ -283,12 +306,39 @@ impl VerificationConditions {
         property: &SmtProperty,
         invariants: &[PInvariant],
         sink_places: &[String],
+        conditional_sinks: &[ConditionalSinks],
         env_bounds: &[(String, usize)],
         env_injection: &[(String, Option<usize>)],
+        state_equation: bool,
     ) -> Self {
         let p = flat.place_count;
+        // With the state equation ([VER-016]) the certificate ranges over the
+        // places AND one firing counter per flat transition; the candidate then
+        // carries the marking equation and `n >= 0` alongside the P-invariants,
+        // and the VCs re-prove them against the raw step relation, whose only
+        // counter knowledge is the increment.
+        let t_count = if state_equation { flat.transitions.len() } else { 0 };
         let m_vars: Vec<String> = (0..p).map(|i| format!("m{i}")).collect();
         let mp_vars: Vec<String> = (0..p).map(|i| format!("m{i}p")).collect();
+        let n_vars: Vec<String> = (0..t_count).map(|k| format!("n{k}")).collect();
+        let np_vars: Vec<String> = (0..t_count).map(|k| format!("n{k}p")).collect();
+        let env_inject = smt_encoder::resolve_env_injection(flat, env_injection);
+        let candidate_of = |m: &[String], n: &[String]| -> String {
+            let state: Vec<String> = m.iter().chain(n.iter()).cloned().collect();
+            let mut conjuncts = vec![format!("(Reachable {})", state.join(" "))];
+            conjuncts.extend(smt_encoder::invariant_conditions(invariants, m));
+            if t_count > 0 {
+                conjuncts.extend(n.iter().map(|v| format!("(>= {v} 0)")));
+                conjuncts.extend(smt_encoder::state_equation_conditions(
+                    flat,
+                    initial_marking,
+                    &env_inject,
+                    n,
+                    m,
+                ));
+            }
+            smt_encoder::conjoin(&conjuncts)
+        };
 
         let mut prelude = vec![
             "; IC3/PDR certificate check (plain SMT-LIB2, not HORN):".to_string(),
@@ -296,47 +346,52 @@ impl VerificationConditions {
             certificate.to_string(),
             String::new(),
         ];
-        for v in m_vars.iter().chain(mp_vars.iter()) {
+        for v in m_vars.iter().chain(mp_vars.iter()).chain(n_vars.iter()).chain(np_vars.iter()) {
             prelude.push(format!("(declare-const {v} Int)"));
         }
 
-        // VC1 (init): the initial marking satisfies the candidate invariant.
+        // VC1 (init): the initial marking (and zero counters) satisfies the
+        // candidate invariant.
         let m0_values: Vec<String> = (0..p)
             .map(|i| initial_marking.count(&flat.places[i]).to_string())
             .collect();
-        let vc1 = vec![format!("(assert (not {}))", candidate(&m0_values, invariants))];
+        let n0_values: Vec<String> = (0..t_count).map(|_| "0".to_string()).collect();
+        let vc1 = vec![format!("(assert (not {}))", candidate_of(&m0_values, &n0_values))];
 
         // The system lives in ℕ^P, not ℤ^P: without this the VCs run over
         // negative markings the net can never hold, and a certificate that is
         // inductive/safe over ℕ^P alone fails consecution or safety — a
         // correct `Proven` lost to a state the encoding excludes anyway. The
-        // step relation already constrains M' (`m'_i >= 0`); this constrains M.
+        // step relation already constrains M' (`m'_i >= 0`); this constrains M
+        // (and the counters, which are firing counts).
         let non_negative: Vec<String> = m_vars
             .iter()
+            .chain(n_vars.iter())
             .map(|v| format!("(assert (>= {v} 0))"))
             .collect();
 
         // VC2 (consecution): the invariant is closed under the unstrengthened
         // step relation (transition firings + env-injection steps, no
         // P-invariant conjuncts).
-        let step = smt_encoder::encode_step_relation_smt2(flat, env_bounds, env_injection);
+        let step =
+            smt_encoder::encode_step_relation_smt2(flat, env_bounds, env_injection, state_equation);
         let mut vc2 = non_negative.clone();
-        vc2.push(format!("(assert {})", candidate(&m_vars, invariants)));
+        vc2.push(format!("(assert {})", candidate_of(&m_vars, &n_vars)));
         vc2.push(format!("(assert {step})"));
-        vc2.push(format!("(assert (not {}))", candidate(&mp_vars, invariants)));
+        vc2.push(format!("(assert (not {}))", candidate_of(&mp_vars, &np_vars)));
 
         // VC3 (safety): the invariant excludes every property-violating state —
         // exactly the violation the CHC error rule encodes.
-        let env_inject = smt_encoder::resolve_env_injection(flat, env_injection);
         let bad = smt_encoder::encode_property_violation(
             flat,
             property,
             &m_vars,
             sink_places,
             &env_inject,
+            conditional_sinks,
         );
         let mut vc3 = non_negative;
-        vc3.push(format!("(assert {})", candidate(&m_vars, invariants)));
+        vc3.push(format!("(assert {})", candidate_of(&m_vars, &n_vars)));
         vc3.push(format!("(assert {bad})"));
 
         Self {
@@ -430,15 +485,6 @@ fn reason_unknown(reply: &str) -> Option<String> {
     (!reason.is_empty()).then(|| reason.to_string())
 }
 
-/// The candidate invariant applied to a variable (or literal) vector:
-/// `R'(vars) = (Reachable vars) ∧ Inv(vars)`. With no P-invariants this is
-/// the bare `Reachable` application.
-fn candidate(vars: &[String], invariants: &[PInvariant]) -> String {
-    let mut conjuncts = vec![format!("(Reachable {})", vars.join(" "))];
-    conjuncts.extend(smt_encoder::invariant_conditions(invariants, vars));
-    smt_encoder::conjoin(&conjuncts)
-}
-
 /// Parses the three positional `(check-sat)` answers from the z3 reply. Any
 /// `(error …)` line — a certificate that failed to parse, an arity mismatch —
 /// fails the check outright: an errored assert silently vanishes from the
@@ -501,8 +547,10 @@ mod tests {
             property,
             invariants,
             sink_places,
+            &[],
             env_bounds,
             env_injection,
+            false,
         )
         .script()
     }
@@ -562,6 +610,8 @@ mod tests {
             &[],
             &[],
             &[],
+            &[],
+            false,
             5_000,
         );
         match outcome {
@@ -600,6 +650,8 @@ mod tests {
             &[],
             &[],
             &[],
+            &[],
+            false,
             5_000,
         );
         assert_eq!(outcome, CertificateCheck::Passed);
@@ -624,6 +676,8 @@ mod tests {
             &[],
             &[],
             &[],
+            &[],
+            false,
             5_000,
         );
         match outcome {
@@ -654,6 +708,8 @@ mod tests {
             &[],
             &[],
             &[],
+            &[],
+            false,
             5_000,
         );
         match outcome {
@@ -683,6 +739,8 @@ mod tests {
             &[],
             &[],
             &[],
+            &[],
+            false,
             5_000,
         );
         match outcome {
@@ -709,6 +767,8 @@ mod tests {
             &[],
             &[],
             &[],
+            &[],
+            false,
             5_000,
         );
         match outcome {
@@ -790,6 +850,8 @@ mod tests {
                 &[],
                 &[],
                 &[],
+                &[],
+                false,
                 5_000,
             )
         };
@@ -849,6 +911,8 @@ mod tests {
             &[],
             &[],
             &[],
+            &[],
+            false,
             5_000,
         );
         assert_eq!(outcome, CertificateCheck::Passed);
@@ -873,6 +937,8 @@ mod tests {
             &[],
             &[],
             &[],
+            &[],
+            false,
             5_000,
         ) {
             CertificateCheck::Inconclusive { reason } => {
@@ -896,6 +962,8 @@ mod tests {
                 &[],
                 &[],
                 &[],
+                &[],
+                false,
                 5_000,
             ),
             CertificateCheck::Inconclusive { .. }

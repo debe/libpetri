@@ -6,11 +6,14 @@ use std::sync::Arc;
 use libpetri::verification::environment::EnvironmentAnalysisMode;
 use libpetri::verification::harness::{SubnetVerifyExt, VerificationHarness};
 use libpetri::verification::property::SmtProperty;
-use libpetri::verification::result::{Verdict, VerificationResult};
+use libpetri::verification::result::{Verdict, VerificationResult, VerificationRoute};
+#[cfg(feature = "z3")]
+use libpetri::verification::smt_verifier::SemiflowMode;
 use pyo3::exceptions::PyTypeError;
 #[cfg(feature = "z3")]
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use pyo3::wrap_pyfunction;
 
 use crate::error::panic_to_py;
@@ -38,6 +41,7 @@ impl PySmtProperty {
 #[derive(Clone)]
 pub struct PyVerificationResult {
     verdict: String,
+    route: String,
     method: Option<String>,
     reason: Option<String>,
     report: String,
@@ -74,8 +78,20 @@ impl PyVerificationResult {
             })
             .collect();
 
+        // VER-003 AC4: the deciding route, as the string every implementation
+        // reports it under.
+        let route = match result.route {
+            VerificationRoute::Smt => "smt",
+            VerificationRoute::Enumeration => "enumeration",
+            VerificationRoute::NuScg => "nu-scg",
+            VerificationRoute::Structural => "structural",
+            VerificationRoute::Unavailable => "unavailable",
+        }
+        .to_string();
+
         Self {
             verdict,
+            route,
             method,
             reason,
             report: result.report,
@@ -95,6 +111,8 @@ impl PyVerificationResult {
     fn unknown(reason: impl Into<String>) -> Self {
         Self {
             verdict: "unknown".to_string(),
+            // No route ran at all (VER-003): the wheel carries no SMT surface.
+            route: "unavailable".to_string(),
             method: None,
             reason: Some(reason.into()),
             report: String::new(),
@@ -114,6 +132,12 @@ impl PyVerificationResult {
 #[pymethods]
 impl PyVerificationResult {
     #[getter] fn verdict(&self) -> String { self.verdict.clone() }
+    /// Which route decided this verdict (VER-003 AC4): `"smt"`, `"enumeration"`
+    /// (VER-017), `"nu-scg"` (Route B), `"structural"` (Commoner's theorem or the
+    /// VER-015 linear bound), or `"unavailable"` (no route could run). Read it
+    /// before concluding anything from an EMPTY invariant list: off the `"smt"`
+    /// route that means "not computed", never "the net has none".
+    #[getter] fn route(&self) -> String { self.route.clone() }
     #[getter] fn method(&self) -> Option<String> { self.method.clone() }
     #[getter] fn reason(&self) -> Option<String> { self.reason.clone() }
     #[getter] fn report(&self) -> String { self.report.clone() }
@@ -361,10 +385,64 @@ fn parse_priority_semantics(
     }
 }
 
+/// Reads the `sink_places_when` keyword argument (VER-014): a `{marker: [places]}`
+/// dict, kept in insertion order — the order the verifier declares the entries
+/// in and the report's `Property:` line renders them in.
+#[cfg(feature = "z3")]
+fn parse_sink_places_when(
+    declarations: Option<&Bound<'_, PyDict>>,
+) -> PyResult<Vec<(String, Vec<String>)>> {
+    let Some(declarations) = declarations else {
+        return Ok(Vec::new());
+    };
+    let mut entries = Vec::with_capacity(declarations.len());
+    for (marker, places) in declarations.iter() {
+        let marker: String = marker.extract().map_err(|_| {
+            PyTypeError::new_err("sink_places_when keys must be place-name strings")
+        })?;
+        let places: Vec<String> = places.extract().map_err(|_| {
+            PyTypeError::new_err("sink_places_when values must be lists of place-name strings")
+        })?;
+        entries.push((marker, places));
+    }
+    Ok(entries)
+}
+
+/// Reads the `semiflow_invariants` keyword argument (VER-007): `True` / `False`,
+/// or the string `"auto"` — union the gate-validated P-semiflows into the
+/// invariant list exactly when the null-space basis lost a law to the H1 guard,
+/// and skip the (worst-case exponential) enumeration otherwise.
+#[cfg(feature = "z3")]
+fn parse_semiflow_mode(value: Option<&Bound<'_, PyAny>>) -> PyResult<SemiflowMode> {
+    let Some(value) = value else {
+        return Ok(SemiflowMode::Off);
+    };
+    if let Ok(enabled) = value.extract::<bool>() {
+        return Ok(SemiflowMode::from(enabled));
+    }
+    match value.extract::<String>() {
+        Ok(word) if word == "auto" => Ok(SemiflowMode::Auto),
+        Ok(word) => Err(PyValueError::new_err(format!(
+            "semiflow_invariants: unknown mode '{word}' (expected True, False or 'auto')"
+        ))),
+        Err(_) => Err(PyTypeError::new_err(
+            "semiflow_invariants must be a bool or the string 'auto'",
+        )),
+    }
+}
+
 /// Verifies a single property against `net` using SMT (Z3). Without the `z3`
 /// feature, returns `VerificationResult` with verdict `"unknown"`.
+///
+/// `sink_places_when` (`{marker: [places]}`, VER-014) declares where a token may
+/// rest while the marker is marked, in dict order; `linear_bound` (default
+/// `True`, VER-015) runs the linear state-equation bound before any fixpoint
+/// query; `state_equation` (default `False`, VER-016) adds firing counters and
+/// the marking equation to the flat encoding; `enumeration_max_classes`
+/// (VER-017; `None` keeps the engine default of 50 000) is the class budget of
+/// the bounded state-space enumeration route, `0` disabling it.
 #[pyfunction(name = "verify_net")]
-#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 30_000, nu_max_classes = None, fragment_mode = None, carrier_places = None, priority_semantics = None, certificate_check = true, counterexample_replay = true, semiflow_invariants = false))]
+#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 30_000, nu_max_classes = None, fragment_mode = None, carrier_places = None, priority_semantics = None, certificate_check = true, counterexample_replay = true, semiflow_invariants = None, sink_places_when = None, linear_bound = true, state_equation = false, enumeration_max_classes = None))]
 fn py_verify_net(
     py: Python<'_>,
     net: &PyPetriNet,
@@ -381,7 +459,11 @@ fn py_verify_net(
     priority_semantics: Option<Bound<'_, PyAny>>,
     certificate_check: bool,
     counterexample_replay: bool,
-    semiflow_invariants: bool,
+    semiflow_invariants: Option<Bound<'_, PyAny>>,
+    sink_places_when: Option<Bound<'_, PyDict>>,
+    linear_bound: bool,
+    state_equation: bool,
+    enumeration_max_classes: Option<usize>,
 ) -> PyResult<PyVerificationResult> {
     #[cfg(feature = "z3")]
     {
@@ -429,6 +511,11 @@ fn py_verify_net(
             mb = mb.tokens(name, count);
         }
         let marking = mb.build();
+        // VER-014 conditional sinks, read off the dict before detaching (a Bound
+        // cannot cross into the detached region) and in the caller's order.
+        let sink_places_when = parse_sink_places_when(sink_places_when.as_ref())?;
+        // VER-007: bool or "auto", read here for the same reason.
+        let semiflow_invariants = parse_semiflow_mode(semiflow_invariants.as_ref())?;
         // `for_net` panics on a CORE-043 net; a panic must not unwind across the FFI
         // boundary, least of all out of a detached region.
         let result = panic_to_py(|| py.detach(move || {
@@ -450,7 +537,25 @@ fn py_verify_net(
                 // VER-007: hand the gate-validated P-semiflows to the encoders as
                 // extra invariants (off by default, report parity).
                 .semiflow_invariants(semiflow_invariants)
+                // VER-015: the linear state-equation bound phase, on by default;
+                // off forces the IC3/PDR path (for its certificate).
+                .linear_bound(linear_bound)
+                // VER-016: firing-counter state equation in the flat encoding
+                // (off by default, script parity).
+                .state_equation(state_equation)
                 .timeout(timeout_ms);
+            // VER-017: the class budget of the bounded state-space enumeration
+            // route (0 disables it, sending every query to the SMT pipeline).
+            // None keeps the Rust default, as `nu_max_classes` does below, so the
+            // default lives in one place.
+            if let Some(n) = enumeration_max_classes {
+                verifier = verifier.enumeration_max_classes(n);
+            }
+            // VER-014: one declaration per dict entry, in insertion order, so the
+            // report renders them as the caller wrote them.
+            for (marker, places) in sink_places_when {
+                verifier = verifier.sink_places_when(marker, places);
+            }
             // ν name-aware SCG class cap (NU-050, Route B); None keeps the Rust default.
             if let Some(n) = nu_max_classes {
                 verifier = verifier.nu_max_classes(n);
@@ -461,16 +566,19 @@ fn py_verify_net(
     }
     #[cfg(not(feature = "z3"))]
     {
-        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes, fragment_mode, carrier_places, priority_semantics, certificate_check, counterexample_replay, semiflow_invariants);
+        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes, fragment_mode, carrier_places, priority_semantics, certificate_check, counterexample_replay, semiflow_invariants, sink_places_when, linear_bound, state_equation, enumeration_max_classes);
         Ok(PyVerificationResult::unknown("z3 feature not enabled"))
     }
 }
 
 /// The SMT-LIB2 scripts `verify_net` would send to z3 for this configuration,
 /// without running a solver (VER-013 AC1): `{"horn": str, "certificate": str | None,
-/// "coloured": bool}`. What the cross-language golden tests diff.
+/// "coloured": bool, "bound": str | None}` — `bound` is the linear state-equation
+/// query (VER-015), present exactly when `verify_net` would send it. What the
+/// cross-language golden tests diff. `linear_bound` (default `True`) gates that
+/// `bound` script as it gates the phase in `verify_net`.
 #[pyfunction(name = "encode_smt_scripts")]
-#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, fragment_mode = None, carrier_places = None, counterexample_replay = true, semiflow_invariants = false))]
+#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, fragment_mode = None, carrier_places = None, counterexample_replay = true, semiflow_invariants = None, sink_places_when = None, linear_bound = true, state_equation = false))]
 fn py_encode_smt_scripts(
     py: Python<'_>,
     net: &PyPetriNet,
@@ -483,12 +591,14 @@ fn py_encode_smt_scripts(
     fragment_mode: Option<Bound<'_, PyAny>>,
     carrier_places: Option<Vec<String>>,
     counterexample_replay: bool,
-    semiflow_invariants: bool,
-) -> PyResult<Py<pyo3::types::PyDict>> {
+    semiflow_invariants: Option<Bound<'_, PyAny>>,
+    sink_places_when: Option<Bound<'_, PyDict>>,
+    linear_bound: bool,
+    state_equation: bool,
+) -> PyResult<Py<PyDict>> {
     #[cfg(feature = "z3")]
     {
         use libpetri::verification::name_fragment::FragmentMode;
-        use pyo3::types::PyDict;
         let net = net.net().clone();
         let property = property.inner.clone();
         let fragment_mode = match &fragment_mode {
@@ -504,8 +614,10 @@ fn py_encode_smt_scripts(
             mb = mb.tokens(name, count);
         }
         let marking = mb.build();
+        let sink_places_when = parse_sink_places_when(sink_places_when.as_ref())?;
+        let semiflow_invariants = parse_semiflow_mode(semiflow_invariants.as_ref())?;
         let scripts = panic_to_py(|| {
-            libpetri::verification::smt_verifier::SmtVerifier::for_net(&net)
+            let mut verifier = libpetri::verification::smt_verifier::SmtVerifier::for_net(&net)
                 .initial_marking(marking)
                 .property(property)
                 .environment_places(environment_places.unwrap_or_default())
@@ -516,17 +628,26 @@ fn py_encode_smt_scripts(
                 .carrier_places(carrier_places.unwrap_or_default())
                 .counterexample_replay(counterexample_replay)
                 .semiflow_invariants(semiflow_invariants)
-                .encode_scripts()
+                // VER-015: the emitted `bound` script is gated on this exactly as
+                // the phase is in `verify_net`, so `linear_bound = False` returns
+                // `bound: None` rather than a query that would never be sent.
+                .linear_bound(linear_bound)
+                .state_equation(state_equation);
+            for (marker, places) in sink_places_when {
+                verifier = verifier.sink_places_when(marker, places);
+            }
+            verifier.encode_scripts()
         })?;
         let dict = PyDict::new(py);
         dict.set_item("horn", scripts.horn)?;
         dict.set_item("certificate", scripts.certificate)?;
         dict.set_item("coloured", scripts.coloured)?;
+        dict.set_item("bound", scripts.bound)?;
         Ok(dict.unbind())
     }
     #[cfg(not(feature = "z3"))]
     {
-        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, fragment_mode, carrier_places, counterexample_replay, semiflow_invariants);
+        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, fragment_mode, carrier_places, counterexample_replay, semiflow_invariants, sink_places_when, linear_bound, state_equation);
         Err(pyo3::exceptions::PyRuntimeError::new_err("z3 feature not enabled"))
     }
 }

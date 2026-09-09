@@ -204,6 +204,21 @@ public final class PInvariantComputer {
     }
 
     /**
+     * Survivor cap per elimination round — the historical backstop against blow-up. Rows
+     * past it are dropped, so on a branchy net the semiflows that survive are an arbitrary
+     * truncation of the minimal set rather than all of it ([VER-007]).
+     */
+    private static final int MAX_SEMIFLOW_ROWS = 8192;
+
+    /**
+     * Candidate cap per elimination round, applied while the {@code pos x neg} combinations
+     * are being built. Generous relative to {@link #MAX_SEMIFLOW_ROWS} so that any net whose
+     * enumeration completes today is unaffected; it exists to stop a net whose candidate set
+     * is exponential from exhausting the heap before the filter runs.
+     */
+    private static final int MAX_SEMIFLOW_CANDIDATES = 65_536;
+
+    /**
      * Computes the minimal <b>P-semiflows</b> — non-negative place weightings {@code y}
      * with {@code y^T·C = 0} — via the Colom&ndash;Silva / Farkas method. Unlike
      * {@link #compute} (a signed null-space basis), every returned
@@ -254,8 +269,18 @@ public final class PInvariantComputer {
                     neg.add(r);
                 }
             }
+            // Bound the CANDIDATE set, not merely the survivors. `pos x neg` is the term
+            // that explodes — on branchy nets it is quadratic in a row count that is
+            // already exponential in the branching — and materialising it before the
+            // filter is what exhausts the heap, which aborts the process rather than
+            // failing a verdict. The ceiling is well above MAX_SEMIFLOW_ROWS so that every
+            // net small enough to finish keeps exactly the rows it had.
+            outer:
             for (Row rp : pos) {
                 for (Row rn : neg) {
+                    if (next.size() >= MAX_SEMIFLOW_CANDIDATES) {
+                        break outer;
+                    }
                     long cp = -rn.sig[t]; // > 0
                     long cn = rp.sig[t];  // > 0
                     // Checked combination: on long overflow DROP this generator rather
@@ -272,8 +297,8 @@ public final class PInvariantComputer {
                 }
             }
             rows = keepSupportMinimal(next);
-            if (rows.size() > 8192) {
-                rows.subList(8192, rows.size()).clear(); // safety backstop against blow-up
+            if (rows.size() > MAX_SEMIFLOW_ROWS) {
+                rows.subList(MAX_SEMIFLOW_ROWS, rows.size()).clear();
             }
         }
 
@@ -472,6 +497,24 @@ public final class PInvariantComputer {
     }
 
     /**
+     * The flat indices of the places some transition consumes non-linearly — consume-all
+     * inputs ({@code In.All} / {@code In.AtLeast}) and reset places, the H1 arms — in
+     * ascending order. Shared with the linear state-equation bound ([VER-015]) and the
+     * state-equation encoding ([VER-016]), which pin these places' weights to zero and
+     * carry no marking-equation row for them.
+     */
+    public static java.util.Set<Integer> nonlinearPlaces(FlatNet flatNet) {
+        boolean[] flags = nonlinearPlaces(flatNet, flatNet.placeCount());
+        var out = new java.util.TreeSet<Integer>();
+        for (int p = 0; p < flags.length; p++) {
+            if (flags[p]) {
+                out.add(p);
+            }
+        }
+        return out;
+    }
+
+    /**
      * Places some flat transition consumes non-linearly: consume-all inputs
      * ({@code In.All} / {@code In.AtLeast}) and reset places — the H1 arms.
      */
@@ -570,31 +613,65 @@ public final class PInvariantComputer {
      * Drops any row whose weight-support is a strict superset of another's — a
      * non-minimal combination that only inflates the set (and can cause combinatorial
      * blow-up).
+     *
+     * <p>Kept row {@code i} is exactly one with no row {@code j} such that
+     * {@code |supp(j)| < |supp(i)|} and {@code supp(j)} &sube; {@code supp(i)}. (The obvious
+     * sequential reading — skipping a {@code j} that has itself been dropped — computes the
+     * same set: if {@code j} was dropped there is a {@code k} with {@code supp(k)} &sub;
+     * {@code supp(j)} &sube; {@code supp(i)} and {@code |supp(k)| < |supp(i)|}, so {@code k}
+     * drops {@code i} in {@code j}'s place.) The set is therefore order-free, which is what
+     * lets this run as a bitset sweep in ascending support size rather than the quadratic
+     * scan of member sets it replaces: supports become machine words, a subset test is a
+     * handful of AND operations, and candidates are compared only against strictly smaller
+     * ones. Same rows, same order, on a net where the old form was the dominant cost of the
+     * whole pipeline.
      */
     private static ArrayList<Row> keepSupportMinimal(ArrayList<Row> rows) {
         int n = rows.size();
-        var supports = new ArrayList<Set<Integer>>(n);
-        for (Row r : rows) {
-            var s = new HashSet<Integer>();
-            for (int i = 0; i < r.weight.length; i++) {
-                if (r.weight[i] != 0) {
-                    s.add(i);
+        if (n < 2) {
+            return rows;
+        }
+        int words = Math.max(1, (rows.get(0).weight.length + 63) >>> 6);
+        var bits = new long[n * words];
+        var sizes = new int[n];
+        for (int i = 0; i < n; i++) {
+            long[] w = rows.get(i).weight;
+            int size = 0;
+            for (int p = 0; p < w.length; p++) {
+                if (w[p] != 0) {
+                    bits[i * words + (p >>> 6)] |= 1L << (p & 63);
+                    size++;
                 }
             }
-            supports.add(s);
+            sizes[i] = size;
         }
+        // Ascending support size: a row can only be dropped by a strictly smaller one, so
+        // every possible dropper precedes it here and the inner loop can stop early.
+        var order = new Integer[n];
+        for (int i = 0; i < n; i++) {
+            order[i] = i;
+        }
+        Arrays.sort(order, Comparator.comparingInt(i -> sizes[i]));
+
         var keep = new boolean[n];
         Arrays.fill(keep, true);
-        for (int i = 0; i < n; i++) {
-            if (!keep[i]) {
-                continue;
-            }
-            for (int j = 0; j < n; j++) {
-                if (i == j || !keep[j]) {
-                    continue;
+        for (int oi = 0; oi < n; oi++) {
+            int i = order[oi];
+            int base = i * words;
+            for (int oj = 0; oj < oi; oj++) {
+                int j = order[oj];
+                if (sizes[j] >= sizes[i]) {
+                    break; // sorted: no strictly smaller row remains
                 }
-                if (supports.get(j).size() < supports.get(i).size()
-                        && supports.get(i).containsAll(supports.get(j))) {
+                int jbase = j * words;
+                boolean subset = true;
+                for (int w = 0; w < words; w++) {
+                    if ((bits[jbase + w] & ~bits[base + w]) != 0) {
+                        subset = false;
+                        break;
+                    }
+                }
+                if (subset) {
                     keep[i] = false;
                     break;
                 }

@@ -295,6 +295,61 @@ public final class DBM {
     }
 
     /**
+     * The same zone with its clocks reordered: clock {@code k} of the result is clock
+     * {@code order[k]} of this DBM. {@code order} must be a permutation of
+     * {@code 0..clockCount()-1}.
+     *
+     * <p>The state-class graph applies this to put every class's clocks in the one
+     * canonical order ([VER-010] AC1), so two arrivals at the same marking and zone whose
+     * transitions became enabled in a different sequence are one class instead of two.
+     * The reference row and column stay put; the matrix is copied once, O(dim²) against
+     * the O(dim³) canonicalisation every successor already pays.
+     */
+    public DBM permuted(int[] order) {
+        if (empty) return this;
+        int n = clockNames.size();
+        int dim = n + 1;
+        double[][] out = new double[dim][dim];
+        out[0][0] = 0;
+        var names = new java.util.ArrayList<String>(n);
+        for (int i = 0; i < n; i++) {
+            int oi = order[i] + 1;
+            names.add(clockNames.get(order[i]));
+            out[i + 1][0] = bounds[oi][0];
+            out[0][i + 1] = bounds[0][oi];
+            for (int j = 0; j < n; j++) {
+                out[i + 1][j + 1] = bounds[oi][order[j] + 1];
+            }
+        }
+        return new DBM(out, names, false);
+    }
+
+    /**
+     * The zone's identity for state-class dedup ([VER-011] AC4): the clock names and the
+     * FULL canonical matrix, every difference bound included, rendered as the four
+     * implementations render it — names joined by {@code ,}, then every entry row-major,
+     * all joined by {@code |}; {@code DBM[empty]} for an empty zone.
+     *
+     * <p>{@link #toString()} prints only the per-clock projections {@code [lo, hi]}, and two
+     * zones can agree on every projection while disagreeing on a difference constraint
+     * {@code θi - θj <= c} — the class where one transition must fire no later than another
+     * versus the class where either may go first. Keying on the projections merges those,
+     * and since the graph explores only the first arrival's successors, a marking reachable
+     * only from the second is lost: a false {@code Proven}. This key is what
+     * {@link #equals(Object)} compares, rendered.
+     */
+    public String zoneKey() {
+        if (empty) return "DBM[empty]";
+        var sb = new StringBuilder(String.join(",", clockNames));
+        for (double[] row : bounds) {
+            for (double b : row) {
+                sb.append('|').append(formatBound(b));
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
      * Lets time pass: all clocks decrease uniformly.
      * <p>
      * After time δ elapses, each θᵢ becomes θᵢ - δ.

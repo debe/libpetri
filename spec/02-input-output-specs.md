@@ -263,6 +263,11 @@ evaluated. Each assignment *claims* a set of places:
 set.** Zero exact assignments is a violation — nothing explains what was written. Two or
 more is a violation — the write is genuinely ambiguous.
 
+The comparison is over **sets of places**: a spec names places, not counts, so an action
+that deposits several tokens into one claimed place conforms. Every analysis that enumerates
+branches models one token per claimed place ([IO-016]), so such a firing does more than the
+analyses explore; the executor reports it ([IO-016] AC4) rather than reject it.
+
 Equality rather than containment is what makes a token written to a declared place
 *outside* the selected branch a violation, instead of being silently deposited.
 
@@ -337,12 +342,31 @@ The output specification supports static enumeration of all possible output bran
 - **Place**: Single branch containing the place
 - **Timeout**: Delegates to child branches
 
+A branch is a **set** of places: it says which places receive a token when the branch is
+taken, not how many tokens each receives. Every analysis built on the enumeration — the
+state-class graph's virtual transitions ([VER-010]), the flattener's post vectors behind
+the SMT encoding ([VER-001]), the ν fragment check ([NU-051]) — deposits **one** token per
+place of the chosen branch. An action that writes `n > 1` tokens to a place its branch
+names once conforms to [IO-015] (which reads the produced set) but is outside what those
+analyses explore, in the direction that can make a `proven` false. A net meant to be
+verified expresses multiplicity in its topology, and the executor makes the gap visible:
+
 **Acceptance Criteria:**
 1. `And(P1, P2)` → 1 branch: {P1, P2}
 2. `Xor(P1, P2)` → 2 branches: {P1}, {P2}
 3. `Xor(And(P1, P2), P3)` → 2 branches: {P1, P2}, {P3}
+4. When a validated firing deposited more than one token into a place its matched branch
+   names, the executor emits an [EVT-013] log-message event with logger `libpetri.runtime`,
+   level `WARN`, the transition's name, and the message
+   `'<t>': wrote more than one token to a place its output spec names once (<place>: <n>, …); branch-enumerating analyses model one token per named place, so this firing exceeds what they explore (IO-016)`,
+   naming every such place with its count in produced order. The tokens are deposited
+   regardless. The event is emitted at most once per transition per execution, so an action
+   that fans out on every firing does not flood the store.
 
-**Test derivation:** Enumerate branches for nested structures; verify correct sets.
+**Test derivation:** Enumerate branches for nested structures; verify correct sets. An action
+that writes two tokens to the one place its spec names, fired three times: both tokens land
+on every firing and exactly one warning is emitted; a spec `And(A, B)` with three tokens to
+`A` and two to `B`: one warning naming `(A: 3, B: 2)`; one token per named place: no event.
 
 ---
 

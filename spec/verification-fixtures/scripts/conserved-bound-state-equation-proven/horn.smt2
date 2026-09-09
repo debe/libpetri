@@ -1,0 +1,30 @@
+(set-option :produce-proofs true)
+(set-logic HORN)
+
+(declare-fun Reachable (Int Int Int) Bool)
+(declare-fun Error () Bool)
+
+(assert (Reachable 3 0 0))
+
+(assert (forall ((m0 Int) (m1 Int) (m0p Int) (m1p Int) (n0 Int) (n0p Int))
+  (=> (and (Reachable m0 m1 n0)
+            (>= m0 1)
+            (= m0p (- m0 1))
+            (= m1p (+ m1 1))
+            (>= m0p 0)
+            (>= m1p 0)
+            (= (+ (* 1 m0p) (* 1 m1p)) 3)
+            (= n0p (+ n0 1))
+            (>= n0p 0)
+            (= m0p (+ 3 (- n0p)))
+            (= m1p (+ 0 n0p)))
+      (Reachable m0p m1p n0p))))
+
+(assert (forall ((m0 Int) (m1 Int) (n0 Int))
+  (=> (and (Reachable m0 m1 n0) (> m1 3))
+      Error)))
+
+(assert (not Error))
+(check-sat)
+(get-proof)
+(get-model)

@@ -460,4 +460,106 @@ class PInvariantComputerTest {
         assertTrue(reason.contains("consume-all/reset place"), "Reason should name the arm: " + reason);
         assertTrue(reason.contains("Strengthening.lean H1"), "Reason should cite H1: " + reason);
     }
+
+    // === [VER-007] semiflow support-minimality and the enumeration's bounds ===
+    //
+    // The support-minimality filter is the dominant cost of the semiflow enumeration on a
+    // branchy net, so it is a bitset sweep rather than a scan of member sets. It must keep
+    // exactly the rows the definition names, in input order.
+
+    /** src -&gt; fork -&gt; k arms -&gt; join: the minimal semiflows are one per arm. */
+    private static PetriNet diamond(int k, Place<String> src, Place<String> done) {
+        var bs = new java.util.ArrayList<Place<String>>();
+        var ms = new java.util.ArrayList<Place<String>>();
+        for (int i = 0; i < k; i++) {
+            bs.add(Place.of("b" + i, String.class));
+            ms.add(Place.of("m" + i, String.class));
+        }
+        var ts = new java.util.ArrayList<Transition>();
+        ts.add(Transition.builder("fork").inputs(In.one(src))
+            .outputs(Out.and(bs.toArray(new Place<?>[0]))).build());
+        for (int i = 0; i < k; i++) {
+            ts.add(Transition.builder("arm" + i).inputs(In.one(bs.get(i)))
+                .outputs(Out.place(ms.get(i))).build());
+        }
+        var joinInputs = new In[k];
+        for (int i = 0; i < k; i++) {
+            joinInputs[i] = In.one(ms.get(i));
+        }
+        ts.add(Transition.builder("join").inputs(joinInputs).outputs(Out.place(done)).build());
+        return PetriNet.builder("diamond" + k).transitions(ts.toArray(new Transition[0])).build();
+    }
+
+    @Test
+    void semiflows_keepOnlyRowsWithNoStrictlySmallerSubSupport() {
+        var src = Place.of("src", String.class);
+        var done = Place.of("done", String.class);
+        for (int k : new int[] {3, 6, 10}) {
+            var flatNet = NetFlattener.flatten(
+                diamond(k, src, done), Set.of(), EnvironmentAnalysisMode.ignore());
+            var matrix = IncidenceMatrix.from(flatNet);
+            var marking = MarkingState.builder().tokens(src, 1).build();
+            var semiflows = PInvariantComputer.computePSemiflows(matrix, flatNet, marking);
+
+            // Minimality is the defining property: no survivor's support strictly contains
+            // another's.
+            for (var a : semiflows) {
+                for (var b : semiflows) {
+                    if (a == b) {
+                        continue;
+                    }
+                    boolean strictlySmaller = b.support().size() < a.support().size();
+                    boolean subset = a.support().containsAll(b.support());
+                    assertFalse(strictlySmaller && subset,
+                        "support " + a.support() + " contains smaller " + b.support());
+                }
+            }
+            // Every survivor is a real conservation law: y >= 0 and y.C = 0.
+            int[][] inc = matrix.incidence();
+            for (var y : semiflows) {
+                for (int p : y.support()) {
+                    assertTrue(y.weights()[p] > 0, "a semiflow weight must be positive");
+                }
+                for (int t = 0; t < flatNet.transitionCount(); t++) {
+                    long d = 0;
+                    for (int p : y.support()) {
+                        d += (long) y.weights()[p] * inc[t][p];
+                    }
+                    assertEquals(0, d, "semiflow moved under transition " + t);
+                }
+            }
+        }
+    }
+
+    @Test
+    void semiflows_stayBoundedOnAShapeWhoseMinimalSetIsExponential() {
+        // Diamonds in series: 2^layers minimal semiflows. The enumeration must come back
+        // rather than exhaust the heap, which kills the process instead of failing a verdict.
+        var ps = new java.util.ArrayList<Place<String>>();
+        ps.add(Place.of("p0", String.class));
+        var ts = new java.util.ArrayList<Transition>();
+        for (int layer = 0; layer < 14; layer++) {
+            var a = Place.of("a" + layer, String.class);
+            var b = Place.of("b" + layer, String.class);
+            var ma = Place.of("ma" + layer, String.class);
+            var mb = Place.of("mb" + layer, String.class);
+            var next = Place.of("p" + (layer + 1), String.class);
+            ps.add(next);
+            ts.add(Transition.builder("fork" + layer).inputs(In.one(ps.get(layer)))
+                .outputs(Out.and(a, b)).build());
+            ts.add(Transition.builder("armA" + layer).inputs(In.one(a)).outputs(Out.place(ma)).build());
+            ts.add(Transition.builder("armB" + layer).inputs(In.one(b)).outputs(Out.place(mb)).build());
+            ts.add(Transition.builder("join" + layer).inputs(In.one(ma), In.one(mb))
+                .outputs(Out.place(next)).build());
+        }
+        var net = PetriNet.builder("series14").transitions(ts.toArray(new Transition[0])).build();
+        var flatNet = NetFlattener.flatten(net, Set.of(), EnvironmentAnalysisMode.ignore());
+        long started = System.nanoTime();
+        var semiflows = PInvariantComputer.computePSemiflows(
+            IncidenceMatrix.from(flatNet), flatNet,
+            MarkingState.builder().tokens(ps.getFirst(), 1).build());
+        assertFalse(semiflows.isEmpty());
+        assertTrue((System.nanoTime() - started) / 1_000_000 < 20_000,
+            "the bitset sweep keeps this in the low seconds");
+    }
 }

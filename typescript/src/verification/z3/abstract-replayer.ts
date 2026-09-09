@@ -33,6 +33,7 @@ import type { FlatNet } from '../encoding/flat-net.js';
 import type { FlatTransition } from '../encoding/flat-transition.js';
 import type { SmtProperty } from '../smt-property.js';
 import type { Place } from '../../core/place.js';
+import { strandingExcuses, type ConditionalSinks } from '../rest-set.js';
 import { MarkingState } from '../marking-state.js';
 import { flatNetIndexOf } from '../encoding/flat-net.js';
 
@@ -281,8 +282,9 @@ export function satisfiesBad(
   flatNet: FlatNet,
   property: SmtProperty,
   sinkPlaces: ReadonlySet<Place<any>>,
+  conditionalSinks: readonly ConditionalSinks[] = [],
 ): boolean {
-  return satisfiesBadIndexed(buildIndex(flatNet), state, property, sinkPlaces);
+  return satisfiesBadIndexed(buildIndex(flatNet), state, property, sinkPlaces, conditionalSinks);
 }
 
 function satisfiesBadIndexed(
@@ -290,16 +292,20 @@ function satisfiesBadIndexed(
   state: AbstractState,
   property: SmtProperty,
   sinkPlaces: ReadonlySet<Place<any>>,
+  conditionalSinks: readonly ConditionalSinks[],
 ): boolean {
   const flatNet = index.flatNet;
   switch (property.type) {
-    // DeadlockFree (VER-002): quiescent AND some marked place is not a declared
-    // sink. Mirrors the encoder's `stranded` disjunction.
+    // DeadlockFree (VER-002): quiescent AND some marked place is not where resting
+    // is permitted — a conditional sink (VER-014) counts only while every marker
+    // that would excuse it is unmarked. Mirrors the encoder's `stranded` disjunction.
     case 'deadlock-free': {
       if (!isQuiescent(index, state)) return false;
-      const sinks = sinkIndices(flatNet, sinkPlaces);
+      const excuses = strandingExcuses(flatNet, sinkPlaces, conditionalSinks);
       for (let pid = 0; pid < flatNet.places.length; pid++) {
-        if (!sinks.has(pid) && state[pid]! >= 1) return true;
+        const markers = excuses[pid];
+        if (markers == null || state[pid]! < 1) continue;
+        if (markers.every(k => state[k] === 0)) return true;
       }
       return false;
     }
@@ -418,6 +424,7 @@ export function replayCounterexample(
   property: SmtProperty,
   sinkPlaces: ReadonlySet<Place<any>>,
   options: ReplayOptions = {},
+  conditionalSinks: readonly ConditionalSinks[] = [],
 ): ReplayOutcome {
   const segmentBudget = options.segmentBudget ?? 3;
   const nodeBudget = options.nodeBudget ?? 10_000;
@@ -441,7 +448,7 @@ export function replayCounterexample(
   }
 
   const index = buildIndex(flatNet);
-  if (satisfiesBadIndexed(index, initial, property, sinkPlaces)) {
+  if (satisfiesBadIndexed(index, initial, property, sinkPlaces, conditionalSinks)) {
     return { kind: 'confirmed', states: [initial], steps: [], nodesExplored: 1 };
   }
 
@@ -476,7 +483,7 @@ export function replayCounterexample(
       }
       nodes.push({ state: succ.state, step: succ.step, parent: idx, segment });
       const childIdx = nodes.length - 1;
-      if (satisfiesBadIndexed(index, succ.state, property, sinkPlaces)) {
+      if (satisfiesBadIndexed(index, succ.state, property, sinkPlaces, conditionalSinks)) {
         const chain = reconstruct(nodes, childIdx);
         return { kind: 'confirmed', ...chain, nodesExplored: nodes.length };
       }

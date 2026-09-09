@@ -39,18 +39,34 @@ public final class CounterexampleDecoder {
 
     /** Decodes the states of a z3 reply; a note says so when none were found. */
     public static DecodedStates decode(String answer, FlatNet flatNet) {
-        var states = decodeStateSet(answer, flatNet);
+        return decode(answer, flatNet, 0);
+    }
+
+    /**
+     * {@link #decode(String, FlatNet)} for an encoding whose {@code Reachable} facts carry
+     * {@code counterCount} firing counters after the places ([VER-016]).
+     */
+    public static DecodedStates decode(String answer, FlatNet flatNet, int counterCount) {
+        var states = decodeStateSet(answer, flatNet, counterCount);
+
         String note = states.isEmpty()
             ? "no ground Reachable states in the z3 proof"
             : null;
         return new DecodedStates(states, note);
     }
 
+    /** {@link #decodeStateSet(String, FlatNet, int)} for facts that carry no firing counters. */
+    public static Set<MarkingState> decodeStateSet(String answer, FlatNet flatNet) {
+        return decodeStateSet(answer, flatNet, 0);
+    }
+
     /**
      * Collects the ground {@code Reachable(...)} applications from a z3 refutation
-     * proof into a state set, in text order.
+     * proof into a state set, in text order. With the state equation ([VER-016]) a fact
+     * carries {@code counterCount} firing counters after the places; the marking is the
+     * leading {@code P} arguments. Facts of any other arity are skipped.
      */
-    public static Set<MarkingState> decodeStateSet(String answer, FlatNet flatNet) {
+    public static Set<MarkingState> decodeStateSet(String answer, FlatNet flatNet, int counterCount) {
         var set = new LinkedHashSet<MarkingState>();
         if (answer == null) {
             return Collections.unmodifiableSet(set);
@@ -81,8 +97,8 @@ public final class CounterexampleDecoder {
                 }
                 String inner = answer.substring(start + head.length(), end - 1);
                 long[] args = parseGroundIntArgs(inner);
-                if (args != null && args.length == P) {
-                    set.add(toMarking(args, flatNet));
+                if (args != null && args.length == P + counterCount) {
+                    set.add(toMarking(counterCount == 0 ? args : java.util.Arrays.copyOf(args, P), flatNet));
                 }
             }
         }

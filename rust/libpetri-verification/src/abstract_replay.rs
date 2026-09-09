@@ -44,6 +44,7 @@ use std::collections::{BTreeSet, HashMap, VecDeque};
 
 use crate::net_flattener::{FlatNet, FlatTransition};
 use crate::property::SmtProperty;
+use crate::rest_set::{ConditionalSinks, stranding_excuses};
 
 /// Abstract enablement — Lean `enabledA` (`lean/Libpetri/Basic.lean`), the
 /// enablement conjuncts of `smt_encoder::firing_conditions`:
@@ -130,17 +131,23 @@ pub fn violates(
     state: &[i64],
     property: &SmtProperty,
     sink_places: &[String],
+    conditional_sinks: &[ConditionalSinks],
     env_inject: &[(usize, Option<usize>)],
 ) -> bool {
     match property {
-        // DeadlockFree ([VER-002]): quiescent AND some marked place is not a
-        // declared sink. Mirrors the encoder's `stranded` disjunction.
+        // DeadlockFree ([VER-002]): quiescent AND some marked place is not where
+        // resting is permitted — a conditional sink ([VER-014]) counts only while
+        // every marker that would excuse it is unmarked. Mirrors the encoder's
+        // `stranded` disjunction.
         SmtProperty::DeadlockFree => {
             if !quiescent(flat, state, env_inject) {
                 return false;
             }
-            let sinks = sink_indices(flat, sink_places);
-            (0..flat.place_count).any(|pid| !sinks.contains(&pid) && at(state, pid) >= 1)
+            let excuses = stranding_excuses(flat, sink_places, conditional_sinks);
+            (0..flat.place_count).any(|pid| match &excuses[pid] {
+                Some(markers) => at(state, pid) >= 1 && markers.iter().all(|&k| at(state, k) == 0),
+                None => false,
+            })
         }
         // TerminatesAtSink ([VER-002]): quiescent AND no declared sink marked.
         SmtProperty::TerminatesAtSink => {
@@ -321,6 +328,7 @@ pub fn replay(
     decoded: &BTreeSet<Vec<i64>>,
     property: &SmtProperty,
     sink_places: &[String],
+    conditional_sinks: &[ConditionalSinks],
     env_inject: &[(usize, Option<usize>)],
     env_bounds: &[(usize, usize)],
     max_segment_steps: usize,
@@ -370,7 +378,7 @@ pub fn replay(
         label: None,
         seg: 0,
     }];
-    if violates(flat, initial, property, sink_places, env_inject) {
+    if violates(flat, initial, property, sink_places, conditional_sinks, env_inject) {
         return ReplayOutcome::Confirmed(reconstruct(&nodes, 0));
     }
 
@@ -427,7 +435,7 @@ pub fn replay(
                 seg,
             });
             let new_idx = nodes.len() - 1;
-            if violates(flat, &next, property, sink_places, env_inject) {
+            if violates(flat, &next, property, sink_places, conditional_sinks, env_inject) {
                 return ReplayOutcome::Confirmed(reconstruct(&nodes, new_idx));
             }
             queue.push_back(new_idx);
@@ -561,22 +569,23 @@ mod tests {
     fn violates_bounds_and_conjunctions() {
         let flat = flat_of(&["p0", "p1"], vec![ft("t", vec![1, 0], vec![0, 1])]);
         let pb = SmtProperty::place_bound("p1", 1);
-        assert!(!violates(&flat, &[0, 1], &pb, &[], &[]));
-        assert!(violates(&flat, &[0, 2], &pb, &[], &[]));
+        assert!(!violates(&flat, &[0, 1], &pb, &[], &[], &[]));
+        assert!(violates(&flat, &[0, 2], &pb, &[], &[], &[]));
         assert!(!violates(
             &flat,
             &[9, 9],
             &SmtProperty::place_bound("nope", 0),
             &[],
+            &[],
             &[]
         ));
 
         let mx = SmtProperty::mutual_exclusion(vec!["p0".into(), "p1".into()]);
-        assert!(violates(&flat, &[1, 1], &mx, &[], &[]));
-        assert!(!violates(&flat, &[1, 0], &mx, &[], &[]));
+        assert!(violates(&flat, &[1, 1], &mx, &[], &[], &[]));
+        assert!(!violates(&flat, &[1, 0], &mx, &[], &[], &[]));
         // All names unresolved -> encoder emits `false`: never violated.
         let mx_unresolved = SmtProperty::mutual_exclusion(vec!["x".into(), "y".into()]);
-        assert!(!violates(&flat, &[1, 1], &mx_unresolved, &[], &[]));
+        assert!(!violates(&flat, &[1, 1], &mx_unresolved, &[], &[], &[]));
     }
 
     /// Deadlock Bad(M): the dead-end chain quiesces at p2; sinks and env
@@ -591,16 +600,45 @@ mod tests {
             ],
         );
         let dl = SmtProperty::DeadlockFree;
-        assert!(!violates(&flat, &[1, 0, 0], &dl, &[], &[]));
-        assert!(violates(&flat, &[0, 0, 1], &dl, &[], &[]));
+        assert!(!violates(&flat, &[1, 0, 0], &dl, &[], &[], &[]));
+        assert!(violates(&flat, &[0, 0, 1], &dl, &[], &[], &[]));
         // Declaring p2 a sink excuses the quiescent {p2} marking.
-        assert!(!violates(&flat, &[0, 0, 1], &dl, &["p2".to_string()], &[]));
+        assert!(!violates(&flat, &[0, 0, 1], &dl, &["p2".to_string()], &[], &[]));
         // An injectable p0 (AlwaysAvailable) makes t01 satisfiable by
         // injection: no marking is ever a deadlock.
-        assert!(!violates(&flat, &[0, 0, 1], &dl, &[], &[(0, None)]));
+        assert!(!violates(&flat, &[0, 0, 1], &dl, &[], &[], &[(0, None)]));
         // Bounded(0) can never supply t01's demand: permanently disabled, so
         // the deadlock stands.
-        assert!(violates(&flat, &[0, 0, 1], &dl, &[], &[(0, Some(0))]));
+        assert!(violates(&flat, &[0, 0, 1], &dl, &[], &[], &[(0, Some(0))]));
+    }
+
+    /// [VER-014]: a conditional sink is excused only while its marker is marked,
+    /// exactly as the encoder's `(and (>= m_p 1) (= m_k 0))` disjunct reads.
+    #[test]
+    fn violates_deadlock_with_conditional_sinks() {
+        // p0 → t → p1, and p1 → u → p2 unless `halt` is marked; places sorted:
+        // halt=0, p0=1, p1=2, p2=3.
+        let mut u = ft("u", vec![0, 0, 1, 0], vec![0, 0, 0, 1]);
+        u.inhibitor_places = vec![0];
+        let flat = flat_of(
+            &["halt", "p0", "p1", "p2"],
+            vec![ft("t", vec![0, 1, 0, 0], vec![0, 0, 1, 0]), u],
+        );
+        let dl = SmtProperty::DeadlockFree;
+        let sinks = vec!["p2".to_string()];
+        let cond = vec![ConditionalSinks {
+            marker: "halt".to_string(),
+            places: vec!["p1".to_string()],
+        }];
+        // {halt:1, p1:1} is quiescent (u is inhibited): stranded without the
+        // excuse, at rest with it.
+        assert!(violates(&flat, &[1, 0, 1, 0], &dl, &sinks, &[], &[]));
+        assert!(!violates(&flat, &[1, 0, 1, 0], &dl, &sinks, &cond, &[]));
+        // The marker alone is at rest; a token elsewhere is still stranded.
+        assert!(!violates(&flat, &[1, 0, 0, 0], &dl, &sinks, &cond, &[]));
+        assert!(violates(&flat, &[1, 0, 0, 0], &dl, &sinks, &[], &[]));
+        // TerminatesAtSink ignores the conditional declaration: no sink marked.
+        assert!(violates(&flat, &[1, 0, 1, 0], &SmtProperty::TerminatesAtSink, &sinks, &cond, &[]));
     }
 
     /// Unwraps a `Confirmed` outcome, reporting the other arms.
@@ -631,6 +669,7 @@ mod tests {
             &[],
             &[],
             &[],
+            &[],
             3,
             10_000,
         ));
@@ -655,6 +694,7 @@ mod tests {
             &[6, 0],
             &decoded,
             &SmtProperty::place_bound("p1", 5),
+            &[],
             &[],
             &[],
             &[],
@@ -687,6 +727,7 @@ mod tests {
                 &[],
                 &[],
                 &[],
+                &[],
                 3,
                 10_000,
             ),
@@ -705,6 +746,7 @@ mod tests {
             &[0, 0],
             &decoded,
             &SmtProperty::place_bound("p1", 0),
+            &[],
             &[],
             &[(0, None)],
             &[],
@@ -745,12 +787,12 @@ mod tests {
         let property = SmtProperty::place_bound("p1", 0);
         // Without the post-cap the chain inject(e) -> feed -> drain confirms.
         assert!(matches!(
-            replay(&flat, &m0, &decoded, &property, &[], &[(0, Some(1))], &[], 3, 10_000),
+            replay(&flat, &m0, &decoded, &property, &[], &[], &[(0, Some(1))], &[], 3, 10_000),
             ReplayOutcome::Confirmed(_)
         ));
         // With it, e never reaches 2 and the space is covered in full.
         assert!(matches!(
-            replay(&flat, &m0, &decoded, &property, &[], &[(0, Some(1))], &[(0, 1)], 3, 10_000),
+            replay(&flat, &m0, &decoded, &property, &[], &[], &[(0, Some(1))], &[(0, 1)], 3, 10_000),
             ReplayOutcome::NoChain
         ));
     }
@@ -769,6 +811,7 @@ mod tests {
             &[0, 0],
             &decoded,
             &SmtProperty::place_bound("nope", 0),
+            &[],
             &[],
             &[(0, None)],
             &[],
@@ -796,7 +839,7 @@ mod tests {
         let decoded: BTreeSet<Vec<i64>> = BTreeSet::from([vec![1, 0]]);
         let unreachable_bad = SmtProperty::place_bound("b", 9);
         let run = |budget: usize| {
-            replay(&flat, &[1, 0], &decoded, &unreachable_bad, &[], &[], &[], 3, budget)
+            replay(&flat, &[1, 0], &decoded, &unreachable_bad, &[], &[], &[], &[], 3, budget)
         };
 
         // Budget 1: the anchor alone fills it, so admitting the first
@@ -826,13 +869,14 @@ mod tests {
         assert!(!enabled_a(&flat, &[], t));
         assert_eq!(fire_a(&flat, &[], t), vec![-1, 1]);
         assert_eq!(inject_a(&[], 3, None), None);
-        assert!(!violates(&flat, &[], &SmtProperty::place_bound("p1", 0), &[], &[]));
+        assert!(!violates(&flat, &[], &SmtProperty::place_bound("p1", 0), &[], &[], &[]));
         assert!(matches!(
             replay(
                 &flat,
                 &[0],
                 &BTreeSet::new(),
                 &SmtProperty::place_bound("p1", 0),
+                &[],
                 &[],
                 &[],
                 &[],

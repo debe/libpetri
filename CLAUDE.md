@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-libpetri is a multi-language **Coloured Time Petri Net** (CTPN) engine with formal verification. Four implementations conform to one language-agnostic specification (`spec/`, **210 active requirements across 13 files** — `spec/00-index.md` is the canonical count):
+libpetri is a multi-language **Coloured Time Petri Net** (CTPN) engine with formal verification. Four implementations conform to one language-agnostic specification (`spec/`, **214 active requirements across 13 files** — `spec/00-index.md` is the canonical count):
 
 | Implementation | Language | Runtime | Status |
 |---|---|---|---|
@@ -51,6 +51,9 @@ TypeScript 6.0, ESM-only, strict mode. Built with tsup (multi-entry: `index`, `e
 cd rust
 cargo build --workspace --exclude libpetri-py --all-features   # build (libpetri-py needs Python-extension linkage)
 cargo test  --workspace --exclude libpetri-py --all-features   # THE real CI gate
+cargo check --workspace --exclude libpetri-py                   # default features — the `z3`
+    # feature gates whole modules, so the gate above never compiles the fallback arms a consumer
+    # taking the crate with default features gets. Run both, or that arm breaks silently.
 cargo test -p libpetri-runtime                                  # single crate
 cargo test -p libpetri-runtime precompiled                      # filter tests by name
 cargo bench                                                     # Criterion benchmarks
@@ -200,7 +203,7 @@ contents change, and they're identical across the three destinations.
 
 ## Specification
 
-`spec/` contains 13 spec files (`00-index.md` … `12-nu-nets.md`), **210 active requirements**. Prefixes: CORE, IO, TIME, EXEC, CONC, ENV, VER, EVT, EXP, PERF, plus **MOD** (modular composition, `11-`) and **NU** (ν-nets / correlated fork-join by ID, `12-`). Requirements use MUST/SHOULD/MAY priority with testable acceptance criteria; cross-references use `[PREFIX-NNN]`. `spec/00-index.md` is the canonical registry — it tracks active vs removed/tombstoned IDs (e.g. IO-006), so trust the index count over any prose figure elsewhere.
+`spec/` contains 13 spec files (`00-index.md` … `12-nu-nets.md`), **214 active requirements**. Prefixes: CORE, IO, TIME, EXEC, CONC, ENV, VER, EVT, EXP, PERF, plus **MOD** (modular composition, `11-`) and **NU** (ν-nets / correlated fork-join by ID, `12-`). Requirements use MUST/SHOULD/MAY priority with testable acceptance criteria; cross-references use `[PREFIX-NNN]`. `spec/00-index.md` is the canonical registry — it tracks active vs removed/tombstoned IDs (e.g. IO-006), so trust the index count over any prose figure elsewhere.
 
 ## Release
 

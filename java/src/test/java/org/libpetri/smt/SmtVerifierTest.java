@@ -84,6 +84,10 @@ class SmtVerifierTest {
         var net = PetriNet.builder("cycle").transitions(t1, t2).build();
 
         var result = SmtVerifier.forNet(StructureOnly.bind(net))
+            // Explicit opt-out, not an oversight: [VER-017]'s enumeration route closes this
+            // small untimed net and would decide it with no solver at all, leaving the
+            // encoding path this test pins unexercised.
+            .enumerationMaxClasses(0)
             .initialMarking(m -> m.tokens(p1, 1))
             .property(SmtProperty.deadlockFree())
             .timeout(Duration.ofSeconds(5))
@@ -93,6 +97,8 @@ class SmtVerifierTest {
         assertTrue(result.report().contains("PROVEN (structural)"), result.report());
         assertTrue(result.report().contains(
             "  Certificate check: not applicable (structural proof)"), result.report());
+        // [VER-003] AC4: the deciding route is on the result, not only in the report.
+        assertEquals(SmtVerificationResult.Route.STRUCTURAL, result.route(), result.report());
         assertNull(result.counterexampleConfirmed(),
             "a proven verdict never carries a replay outcome\n" + result.report());
     }
@@ -139,8 +145,14 @@ class SmtVerifierTest {
         var net = PetriNet.builder("MutualExclusion").transitions(t1, t2).build();
 
         var result = SmtVerifier.forNet(StructureOnly.bind(net))
+            // Explicit opt-out, not an oversight: [VER-017]'s enumeration route closes this
+            // small untimed net and would decide it with no solver at all, leaving the
+            // encoding path this test pins unexercised.
+            .enumerationMaxClasses(0)
             .initialMarking(m -> m.tokens(p1, 1))
             .property(SmtProperty.mutualExclusion(p1, p2))
+            // The linear bound (VER-015) would prove this structurally; this test pins the IC3 path.
+            .linearBound(false)
             .timeout(Duration.ofSeconds(10))
             .verify();
 
@@ -202,8 +214,14 @@ class SmtVerifierTest {
         var net = PetriNet.builder("Bounded").transitions(t1, t2).build();
 
         var result = SmtVerifier.forNet(StructureOnly.bind(net))
+            // Explicit opt-out, not an oversight: [VER-017]'s enumeration route closes this
+            // small untimed net and would decide it with no solver at all, leaving the
+            // encoding path this test pins unexercised.
+            .enumerationMaxClasses(0)
             .initialMarking(m -> m.tokens(p1, 1))
             .property(SmtProperty.placeBound(p2, 1))
+            // The linear bound (VER-015) would prove this structurally; this test pins the IC3 path.
+            .linearBound(false)
             .timeout(Duration.ofSeconds(10))
             .verify();
 
@@ -244,8 +262,14 @@ class SmtVerifierTest {
         var net = PetriNet.builder("Unreachable").transitions(t1, t2, t3).build();
 
         var result = SmtVerifier.forNet(StructureOnly.bind(net))
+            // Explicit opt-out, not an oversight: [VER-017]'s enumeration route closes this
+            // small untimed net and would decide it with no solver at all, leaving the
+            // encoding path this test pins unexercised.
+            .enumerationMaxClasses(0)
             .initialMarking(m -> m.tokens(pA, 1))
             .property(SmtProperty.unreachable(Set.of(pA, pC)))
+            // The linear bound (VER-015) would prove this structurally; this test pins the IC3 path.
+            .linearBound(false)
             .timeout(Duration.ofSeconds(10))
             .verify();
 
@@ -408,6 +432,8 @@ class SmtVerifierTest {
             .environmentPlaces(in)
             .environmentMode(EnvironmentAnalysisMode.bounded(1))
             .property(SmtProperty.placeBound(out, 0))
+            // The linear bound (VER-015) would prove this structurally; this test pins the IC3 path.
+            .linearBound(false)
             .timeout(Duration.ofSeconds(15))
             .verify();
         assertTrue(bounded1.isProven(),
@@ -513,8 +539,14 @@ class SmtVerifierTest {
         // Then T2 fires -> A=1, B=0, C=0
         // B should be bounded by 5 (initial value, never increases)
         var result = SmtVerifier.forNet(StructureOnly.bind(net))
+            // Explicit opt-out, not an oversight: [VER-017]'s enumeration route closes this
+            // small untimed net and would decide it with no solver at all, leaving the
+            // encoding path this test pins unexercised.
+            .enumerationMaxClasses(0)
             .initialMarking(m -> { m.tokens(pA, 1); m.tokens(pB, 5); })
             .property(SmtProperty.placeBound(pB, 5))
+            // The linear bound (VER-015) would prove this structurally; this test pins the IC3 path.
+            .linearBound(false)
             .timeout(Duration.ofSeconds(10))
             .verify();
 
@@ -672,6 +704,49 @@ class SmtVerifierTest {
     }
 
     @Test
+    void unresolvedPropertyPlace_refusedAboveRouteB() {
+        // The refusal used to live inside the flat encoding branch, which Route B returns
+        // before ever reaching: on this net (a ν-net with NO declared budget) the
+        // name-partition graph finds no class marking a place the net does not have and
+        // certifies the bound. A property naming an absent place is not a question about
+        // the net, so the guard has to sit above every route.
+        var typo = Place.of("pnding", Integer.class); // typo of "pending"
+        var result = SmtVerifier.forNet(StructureOnly.bind(nuScatterGatherNet()))
+            .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); })
+            .property(SmtProperty.branchPlaceBound(typo, 2))
+            .verify();
+        assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(),
+            "a property naming an unresolved place must be Unknown, not a vacuous Proven\n"
+                + result.report());
+        assertEquals(SmtVerificationResult.Route.UNAVAILABLE, result.route(), result.report());
+        assertTrue(((SmtVerificationResult.Verdict.Unknown) result.verdict()).reason()
+            .contains("does not resolve in the net ('pnding')"), result.report());
+        assertFalse(result.report().contains("Route B"),
+            "the refusal must come before any route runs\n" + result.report());
+    }
+
+    @Test
+    void unresolvedPropertyPlace_refusedAboveTheEnumerationRoute() {
+        // Same guard, the other early-returning route: the state-class graph decides a
+        // bound over markings, and no class ever marks a place the net does not declare,
+        // so `ghost <= 0` would hold trivially and report PROVEN with no solver at all.
+        var start = Place.of("start", Integer.class);
+        var done = Place.of("done", Integer.class);
+        var ghost = Place.of("ghost", Integer.class);
+        var t = Transition.builder("t").inputs(Arc.In.one(start)).outputs(Arc.Out.place(done)).build();
+        var net = StructureOnly.bind(PetriNet.builder("ghost-bound").transitions(t).build());
+        var result = SmtVerifier.forNet(net)
+            .initialMarking(m -> m.tokens(start, 1))
+            .property(SmtProperty.placeBound(ghost, 0))
+            .timeout(Duration.ofSeconds(30))
+            .verify();
+        assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(), result.report());
+        assertEquals(SmtVerificationResult.Route.UNAVAILABLE, result.route(), result.report());
+        assertFalse(result.report().contains("Bounded state-space enumeration"),
+            "the refusal must come before any route runs\n" + result.report());
+    }
+
+    @Test
     void nuJoinedOrDeadLettered_provenByRouteB() {
         // NU-050 Route B: quiescence on a ν-net is decided exactly by the name-aware
         // SCG. Same-mint siblings always join, so no quiescent state strands
@@ -714,6 +789,10 @@ class SmtVerifierTest {
         var net = PetriNet.builder("pendingDrains").transitions(produce, fin).build();
 
         var result = SmtVerifier.forNet(StructureOnly.bind(net))
+            // Explicit opt-out, not an oversight: [VER-017]'s enumeration route closes this
+            // small untimed net and would decide it with no solver at all, leaving the
+            // encoding path this test pins unexercised.
+            .enumerationMaxClasses(0)
             .initialMarking(m -> m.tokens(start, 1))
             .property(SmtProperty.joinedOrDeadLettered(pending))
             .timeout(Duration.ofSeconds(15))
@@ -1049,6 +1128,10 @@ class SmtVerifierTest {
         var net = PetriNet.builder("Poisoned").transitions(t1, t2).build();
 
         var result = SmtVerifier.forNet(StructureOnly.bind(net))
+            // Explicit opt-out, not an oversight: [VER-017]'s enumeration route closes this
+            // small untimed net and would decide it with no solver at all, leaving the
+            // encoding path this test pins unexercised.
+            .enumerationMaxClasses(0)
             .initialMarking(m -> m.tokens(pA, 1))
             .property(SmtProperty.deadlockFree())
             .timeout(Duration.ofSeconds(30))
@@ -1151,10 +1234,16 @@ class SmtVerifierTest {
         var p2 = Place.of("B", String.class);
 
         var result = SmtVerifier.forNet(StructureOnly.bind(mutexNet(p1, p2)))
+            // Explicit opt-out, not an oversight: [VER-017]'s enumeration route closes this
+            // small untimed net and would decide it with no solver at all, leaving the
+            // encoding path this test pins unexercised.
+            .enumerationMaxClasses(0)
             .initialMarking(m -> m.tokens(p1, 1))
             .property(SmtProperty.mutualExclusion(p1, p2))
+            // The linear bound (VER-015) would prove this structurally; this test pins the IC3 path.
+            .linearBound(false)
             .timeout(Duration.ofSeconds(10))
-            .certificateChecker((_, _, _, _, _, _, _, _) ->
+            .certificateChecker((_, _, _, _, _, _, _, _, _, _) ->
                 new CertificateChecker.Result.Failed(
                     CertificateChecker.Vc.SAFETY, "injected corrupt certificate"))
             .verify();
@@ -1175,10 +1264,16 @@ class SmtVerifierTest {
         var p2 = Place.of("B", String.class);
 
         var result = SmtVerifier.forNet(StructureOnly.bind(mutexNet(p1, p2)))
+            // Explicit opt-out, not an oversight: [VER-017]'s enumeration route closes this
+            // small untimed net and would decide it with no solver at all, leaving the
+            // encoding path this test pins unexercised.
+            .enumerationMaxClasses(0)
             .initialMarking(m -> m.tokens(p1, 1))
             .property(SmtProperty.mutualExclusion(p1, p2))
+            // The linear bound (VER-015) would prove this structurally; this test pins the IC3 path.
+            .linearBound(false)
             .timeout(Duration.ofSeconds(10))
-            .certificateChecker((_, _, _, _, _, _, _, _) -> {
+            .certificateChecker((_, _, _, _, _, _, _, _, _, _) -> {
                 throw new RuntimeException("simulated solver failure");
             })
             .verify();
@@ -1194,8 +1289,14 @@ class SmtVerifierTest {
         var p2 = Place.of("B", String.class);
 
         var result = SmtVerifier.forNet(StructureOnly.bind(mutexNet(p1, p2)))
+            // Explicit opt-out, not an oversight: [VER-017]'s enumeration route closes this
+            // small untimed net and would decide it with no solver at all, leaving the
+            // encoding path this test pins unexercised.
+            .enumerationMaxClasses(0)
             .initialMarking(m -> m.tokens(p1, 1))
             .property(SmtProperty.mutualExclusion(p1, p2))
+            // The linear bound (VER-015) would prove this structurally; this test pins the IC3 path.
+            .linearBound(false)
             .timeout(Duration.ofSeconds(10))
             .certificateCheck(false)
             .verify();
@@ -1216,16 +1317,26 @@ class SmtVerifierTest {
         var p2 = Place.of("B", String.class);
 
         var result = SmtVerifier.forNet(StructureOnly.bind(mutexNet(p1, p2)))
+            // Explicit opt-out, not an oversight: [VER-017]'s enumeration route closes this
+            // small untimed net and would decide it with no solver at all, leaving the
+            // encoding path this test pins unexercised.
+            .enumerationMaxClasses(0)
             .initialMarking(m -> m.tokens(p1, 1))
             .property(SmtProperty.mutualExclusion(p1, p2))
+            // The linear bound (VER-015) would prove this structurally; this test pins the IC3 path.
+            .linearBound(false)
             .timeout(Duration.ofSeconds(10))
             .certificateCheck(false)
-            .certificateChecker((_, _, _, _, _, _, _, _) -> {
+            .certificateChecker((_, _, _, _, _, _, _, _, _, _) -> {
                 throw new AssertionError("checker must not run when opted out");
             })
             .verify();
 
         assertTrue(result.isProven(), result.report());
+        // The Phase 4 line proves the check was REACHED and skipped, so the test cannot go
+        // vacuous again by a faster route answering before the seam is consulted.
+        assertTrue(result.report().contains("  Certificate check: not applicable (disabled)"),
+            "Opt-out must say the check did not run\n" + result.report());
     }
 
     // === H1 linearity guard (lean/Libpetri/Strengthening.lean) ===
@@ -1248,6 +1359,10 @@ class SmtVerifierTest {
         var net = PetriNet.builder("h1-witness").transitions(t).build();
 
         var result = SmtVerifier.forNet(StructureOnly.bind(net))
+            // Explicit opt-out, not an oversight: [VER-017]'s enumeration route closes this
+            // small untimed net and would decide it with no solver at all, leaving the
+            // encoding path this test pins unexercised.
+            .enumerationMaxClasses(0)
             .initialMarking(m -> m.tokens(p0, 2))
             .property(SmtProperty.placeBound(p1, 0))
             .timeout(Duration.ofSeconds(15))
@@ -1345,6 +1460,10 @@ class SmtVerifierTest {
         var net = PetriNet.builder("DeadlockNet").transitions(t1, t2).build();
 
         var result = SmtVerifier.forNet(StructureOnly.bind(net))
+            // Explicit opt-out, not an oversight: [VER-017]'s enumeration route closes this
+            // small untimed net and would decide it with no solver at all, leaving the
+            // encoding path this test pins unexercised.
+            .enumerationMaxClasses(0)
             .initialMarking(m -> m.tokens(p1, 1))
             .property(SmtProperty.deadlockFree())
             .timeout(Duration.ofSeconds(10))
@@ -1373,6 +1492,10 @@ class SmtVerifierTest {
         var net = PetriNet.builder("DeadlockNet").transitions(t1, t2).build();
 
         var result = SmtVerifier.forNet(StructureOnly.bind(net))
+            // Explicit opt-out, not an oversight: [VER-017]'s enumeration route closes this
+            // small untimed net and would decide it with no solver at all, leaving the
+            // encoding path this test pins unexercised.
+            .enumerationMaxClasses(0)
             .initialMarking(m -> m.tokens(p1, 1))
             .property(SmtProperty.deadlockFree())
             .timeout(Duration.ofSeconds(10))
@@ -1422,6 +1545,10 @@ class SmtVerifierTest {
         // the net — the verdict must survive it.
         var places = chainPlaces(6);
         var result = SmtVerifier.forNet(StructureOnly.bind(longChainNet(places)))
+            // Explicit opt-out, not an oversight: [VER-017]'s enumeration route closes this
+            // small untimed net and would decide it with no solver at all, leaving the
+            // encoding path this test pins unexercised.
+            .enumerationMaxClasses(0)
             .initialMarking(m -> m.tokens(places.getFirst(), 1))
             .property(SmtProperty.placeBound(places.getLast(), 0))
             .replayStateSetOverride(java.util.Set.of(mk(places.getFirst(), 1)))
@@ -1442,6 +1569,10 @@ class SmtVerifierTest {
         // Budget 1 is spent by the root node, so not one successor is admitted.
         var places = chainPlaces(4);
         var result = SmtVerifier.forNet(StructureOnly.bind(longChainNet(places)))
+            // Explicit opt-out, not an oversight: [VER-017]'s enumeration route closes this
+            // small untimed net and would decide it with no solver at all, leaving the
+            // encoding path this test pins unexercised.
+            .enumerationMaxClasses(0)
             .initialMarking(m -> m.tokens(places.getFirst(), 1))
             .property(SmtProperty.placeBound(places.getLast(), 0))
             .replayNodeBudget(1)
@@ -1461,6 +1592,10 @@ class SmtVerifierTest {
         // Nothing to anchor on is a property of the proof text, not of the net.
         var places = chainPlaces(4);
         var result = SmtVerifier.forNet(StructureOnly.bind(longChainNet(places)))
+            // Explicit opt-out, not an oversight: [VER-017]'s enumeration route closes this
+            // small untimed net and would decide it with no solver at all, leaving the
+            // encoding path this test pins unexercised.
+            .enumerationMaxClasses(0)
             .initialMarking(m -> m.tokens(places.getFirst(), 1))
             .property(SmtProperty.placeBound(places.getLast(), 0))
             .replayStateSetOverride(java.util.Set.of(mk(places.get(1), 1), mk(places.get(2), 1)))
@@ -1481,6 +1616,10 @@ class SmtVerifierTest {
         // decoder that degraded gracefully would be the worse failure.
         var places = chainPlaces(4);
         var result = SmtVerifier.forNet(StructureOnly.bind(longChainNet(places)))
+            // Explicit opt-out, not an oversight: [VER-017]'s enumeration route closes this
+            // small untimed net and would decide it with no solver at all, leaving the
+            // encoding path this test pins unexercised.
+            .enumerationMaxClasses(0)
             .initialMarking(m -> m.tokens(places.getFirst(), 1))
             .property(SmtProperty.placeBound(places.getLast(), 0))
             .replayStateSetOverride(java.util.Set.of())
@@ -1503,6 +1642,11 @@ class SmtVerifierTest {
         // the problem, on the flat path exactly as on the coloured one. (The end-to-end
         // no-chain replay downgrade this scenario used to drive is covered by
         // StubZ3Test.c4 against a scripted solver reply.)
+        //
+        // Run with the DEFAULT settings on purpose: the graph routes evaluate the property
+        // over markings, where a ghost place is simply always empty, so [VER-017]'s
+        // enumeration would close this two-class graph and hand back PROVEN. The refusal
+        // has to be reached before a route is picked, not only inside the encoder.
         var pA = Place.of("A", String.class);
         var pB = Place.of("B", String.class);
         var ghost = Place.of("Ghost", String.class); // never declared by a transition
@@ -1518,6 +1662,11 @@ class SmtVerifierTest {
         var unknown = assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(),
             "a property over a place outside the net must not certify\n" + result.report());
         assertTrue(unknown.reason().contains("does not resolve in the net"), unknown.reason());
+        // [VER-003] AC4: no route could run, and the result says so.
+        assertEquals(SmtVerificationResult.Route.UNAVAILABLE, result.route(), result.report());
         assertNull(result.counterexampleConfirmed(), result.report());
+        assertFalse(result.report().contains("Bounded state-space enumeration"),
+            "the enumeration route must decline an unresolved place rather than certify it\n"
+                + result.report());
     }
 }

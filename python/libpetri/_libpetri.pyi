@@ -11,7 +11,7 @@ import builtins
 import os
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 # ---------------------------------------------------------------------------
 # Exception hierarchy
@@ -363,6 +363,8 @@ class VerificationResult:
     @property
     def verdict(self) -> str: ...
     @property
+    def route(self) -> str: ...
+    @property
     def method(self) -> str | None: ...
     @property
     def reason(self) -> str | None: ...
@@ -374,6 +376,8 @@ class VerificationResult:
     def counterexample_transitions(self) -> list[str]: ...
     @property
     def counterexample_trace(self) -> list[dict[str, int]]: ...
+    @property
+    def counterexample_confirmed(self) -> bool | None: ...
     @property
     def elapsed_ms(self) -> int: ...
     @property
@@ -437,8 +441,23 @@ def verify_net(
     priority_semantics: str | int | None = ...,
     certificate_check: bool = ...,
     counterexample_replay: bool = ...,
-    semiflow_invariants: bool = ...,
-) -> VerificationResult: ...
+    semiflow_invariants: bool | Literal["auto"] = ...,
+    sink_places_when: dict[str, list[str]] | None = ...,
+    linear_bound: bool = ...,
+    state_equation: bool = ...,
+    enumeration_max_classes: int | None = ...,
+) -> VerificationResult:
+    """``sink_places_when`` maps a marker place name to the place names where a
+    token may rest while the marker holds a token, declared in dict order
+    (VER-014). ``linear_bound`` (default ``True``) proves a reachability-safety
+    property from one exactly re-checked linear state-equation bound before any
+    fixpoint query (VER-015). ``state_equation`` (default ``False``) adds firing
+    counters and the marking equation to the flat encoding (VER-016).
+    ``enumeration_max_classes`` (``None`` keeps the engine
+    default of 50 000) is the class budget of the
+    bounded state-space enumeration route; ``0`` disables it (VER-017).
+    ``semiflow_invariants`` also takes ``"auto"``: union the P-semiflows exactly
+    when the null-space basis lost a law to the H1 guard (VER-007)."""
 def verify_subnet(
     subnet: SubnetDef,
     harness: VerificationHarness,
@@ -457,8 +476,16 @@ def encode_smt_scripts(
     fragment_mode: str | int | None = ...,
     carrier_places: list[str] | None = ...,
     counterexample_replay: bool = ...,
-    semiflow_invariants: bool = ...,
-) -> dict[str, str | bool | None]: ...
+    semiflow_invariants: bool | Literal["auto"] = ...,
+    sink_places_when: dict[str, list[str]] | None = ...,
+    linear_bound: bool = ...,
+    state_equation: bool = ...,
+) -> dict[str, str | bool | None]:
+    """Returns ``horn``, ``certificate``, ``coloured`` and ``bound`` -- the linear
+    state-equation bound query, present exactly when ``verify_net`` would send it
+    (VER-015). ``sink_places_when`` (VER-014), ``linear_bound`` (VER-015; ``False``
+    returns ``bound: None``) and ``state_equation`` (VER-016) shape the scripts
+    as they do for ``verify_net``."""
 def z3_available() -> bool: ...
 
 # ---------------------------------------------------------------------------

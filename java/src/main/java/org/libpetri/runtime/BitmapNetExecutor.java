@@ -237,6 +237,8 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
 
     /** Unknown places already reported (CORE-072 AC4) — one diagnostic per place, not per token. */
     private Set<Place<?>> warnedUnknownPlaces;
+    /** Transitions already warned for writing several tokens to a place their spec names once (IO-016 AC4). */
+    private Set<String> warnedMultiplicity;
 
     /** Incremented by a foreign-thread {@link #marking()} to request a fresh {@link #publishedMarking}. */
     private final AtomicLong markingRequestSeq = new AtomicLong();
@@ -1633,7 +1635,40 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
         if (t.outputSpec() == null) return;
         // [IO-015]: throws OutViolationException itself when no assignment of the spec tree
         // claims exactly what was produced, or when more than one does.
-        ExecutorSupport.validateOutSpec(t.name(), t.outputSpec(), outputs.placesWithTokens());
+        Set<Place<?>> produced = outputs.placesWithTokens();
+        Set<Place<?>> claim = ExecutorSupport.validateOutSpec(t.name(), t.outputSpec(), produced);
+        // IO-016 AC4: a spec names a place once; several tokens into a named place pass
+        // validation (IO-015 reads the produced SET) but exceed what every
+        // branch-enumerating analysis models. Cheap test first: a repeat exists iff
+        // there are more entries than distinct places.
+        if (outputs.entries().size() > produced.size()) warnMultiplicity(t.name(), outputs, claim);
+    }
+
+    /**
+     * Reports, once per transition, a firing that wrote more than one token to a place
+     * its output spec names once (IO-016 AC4), as the EVT-013 log-message event. The
+     * tokens are deposited regardless: the diagnostic makes the under-approximation
+     * every branch-enumerating analysis makes of this transition visible. Mirrors the
+     * precompiled executor word for word.
+     */
+    private void warnMultiplicity(String transitionName, TokenOutput outputs, Set<Place<?>> claim) {
+        if (!eventStoreEnabled) return;
+        if (warnedMultiplicity != null && warnedMultiplicity.contains(transitionName)) return;
+        var counts = new LinkedHashMap<Place<?>, Integer>();
+        for (var entry : outputs.entries()) {
+            if (claim.contains(entry.place())) counts.merge(entry.place(), 1, Integer::sum);
+        }
+        var repeated = new ArrayList<String>();
+        for (var e : counts.entrySet()) {
+            if (e.getValue() > 1) repeated.add(e.getKey().name() + ": " + e.getValue());
+        }
+        if (repeated.isEmpty()) return;
+        if (warnedMultiplicity == null) warnedMultiplicity = new HashSet<>();
+        warnedMultiplicity.add(transitionName);
+        emitEvent(new NetEvent.LogMessage(Instant.now(), transitionName, "libpetri.runtime", "WARN",
+            "'" + transitionName + "': wrote more than one token to a place its output spec names once ("
+                + String.join(", ", repeated) + "); branch-enumerating analyses model one token per "
+                + "named place, so this firing exceeds what they explore (IO-016)", null, null));
     }
 
     // ======================== CAS Bitmap Helpers ========================

@@ -5,7 +5,7 @@ How to make a net provable, which route proves what, and what silently destroys 
 ## Contents
 
 1. [What is checkable](#1-what-is-checkable)
-2. [The two routes](#2-the-two-routes)
+2. [The three routes](#2-the-three-routes)
 3. [P-invariants and semiflows: why proofs scale](#3-p-invariants-and-semiflows-why-proofs-scale)
 4. [Environment modes and the vacuity guard](#4-environment-modes-and-the-vacuity-guard)
 5. [What makes a net unprovable](#5-what-makes-a-net-unprovable)
@@ -17,6 +17,7 @@ How to make a net provable, which route proves what, and what silently destroys 
 11. [When a query does not close](#11-when-a-query-does-not-close)
 12. [Whole net versus slices](#12-whole-net-versus-slices)
 13. [State-class analysis: what is sound under a cap](#13-state-class-analysis-what-is-sound-under-a-cap)
+13a. [`verify()` throws on a bug, and that is deliberate](#13a-verify-throws-on-a-bug-and-that-is-deliberate)
 14. [Proofs do not test action code](#14-proofs-do-not-test-action-code)
 
 ---
@@ -81,7 +82,7 @@ which is what most closed nets already assumed.
 Expect the change to surface real bugs on nets that verified clean before. Every new violation is
 a token stranded outside your declared terminals, which is the thing you wanted found.
 
-## 2. The two routes
+## 2. The three routes
 
 ### Route A: SMT, IC3/PDR over an untimed abstraction (VER-001, VER-004)
 
@@ -100,9 +101,45 @@ State classes are (marking, DBM zone over firing clocks). Solver-free, no Z3.
 - For ν-nets it is the name-partition quotient (NU-050 Route B): correlation tokens carry interchangeable abstract name symbols, quotiented under name-permutation symmetry, which is what keeps the graph finite even without a budget. Exact over name and time, and it is the route that decides quiescence.
 - Undecidability surfaces as truncation into `Unknown`, never as an unsound verdict.
 
+### The enumeration route: bounded state-space enumeration (VER-017)
+
+(Route A and Route B are the [NU-050] names and appear throughout the spec; this third route has
+no letter, so it is named for what it does.)
+
+Since the 5.1 wave there is a third route, and for an ordinary workflow net it is usually the one
+that answers. It builds the plain state-class graph up to a class budget and, if the graph closes,
+reads the verdict straight off it. No solver runs at all.
+
+It exists because IC3 and workflow nets are a bad match. The fixpoint engine is built for state
+spaces that are wide and shallow; a pipeline is narrow and deep. A forty-node workflow has under
+two thousand reachable states, but its *diameter* is the length of the pipeline, so the search
+needs a frame per stage and its cost climbs with roughly the cube of the length. Enumeration is
+linear in the state space. Measured on a compiled forty-node linear workflow: **410 s on the
+fixpoint path, 0.11 s here**; a 62-place diamond went 53.9 s to 0.0 s.
+
+- The verdict is **exact** — sound *and* complete — so a `Violated` carries a real firing
+  sequence rather than a possibly-spurious one, and reports `counterexampleConfirmed: true`.
+- It applies only to an **untimed** net (every transition `immediate`) with no ν-join and no
+  environment place. The timed case is excluded deliberately: the graph carries firing domains,
+  so there its `Proven` would be the weaker *timed* claim, and a route must not quietly hand back
+  less than the one it replaced.
+- Past its budget it **declines** and the SMT pipeline runs unchanged. It can only add verdicts,
+  never remove them, which is why it is on by default. `enumerationMaxClasses(0)` turns it off.
+
 ### Which route runs
 
-A ν-net asking about quiescence, or one with no declared budget place, goes to Route B first. If Route B truncates on a bounded quiescence query, the verifier defers to the scalable coloured Route A encoder (NU-053). Budget-declared untimed safety stays on Route A, where IC3 scales.
+For an ordinary untimed net with no environment places, **the enumeration route is tried first**
+and usually ends it. Past its budget it declines and the query continues to the SMT pipeline exactly as
+before. A timed net, or one with environment places, skips it entirely.
+
+A ν-net asking about quiescence, or one with no declared budget place, goes to Route B. If Route B
+truncates on a bounded quiescence query, the verifier defers to the scalable coloured Route A
+encoder (NU-053). Budget-declared untimed safety stays on Route A, where IC3 scales.
+
+Read `result.route` rather than inferring it — it is one of `enumeration`, `nu-scg`, `structural`,
+`smt`, `unavailable`. It matters for more than curiosity: **only the `smt` route computes
+P-invariants**, so an empty `result.invariants` off any other route means "not computed", never
+"this net has none". A non-empty list is real whatever the route says.
 
 ## 3. P-invariants and semiflows: why proofs scale
 
@@ -117,6 +154,16 @@ The consequence in plain terms: one draining arc or reset arc on a busy place ki
 **Turn it on when a `PlaceBound` or deadlock query on a loop containing a reset or draining arc comes back `Unknown`.** That is exactly the shape it was built for.
 
 **Siphons and traps (VER-020).** A siphon is a place set that stays empty once empty; a trap stays marked once marked. Commoner's condition (every minimal siphon contains a marked trap) is a cheap structural deadlock pre-check, run for nets up to roughly 50 places, that can settle deadlock-freedom before any solver starts. When it fires, you get an answer in milliseconds. A siphon reported by the analysis is also the best debugging artefact you will get: it names the exact set of places that can drain and never refill, which is usually the bug.
+
+**It applies to ORDINARY nets only, and since the 5.1 wave libpetri enforces that.** The siphon and trap fixpoints are computed from the pre/post vectors, so they model a net where the only reason a transition is disabled is an input place holding too few tokens. A read arc, an inhibitor arc, a reset arc, a consume-all input or an arc weight above one is a disablement they do not see, and dropping it yields a strictly *more permissive* net — the wrong direction for a deadlock proof. Before the restriction, all three of these were reported deadlock-free while being dead at their initial marking on both executors:
+
+```
+t1: one(a) read(g) -> g ;  t2: one(g) -> a      M0 = {a:1}
+t:  exactly(2, a) -> a                           M0 = {a:1}
+t:  one(a) inhibitor(b) -> a                     M0 = {a:1, b:1}
+```
+
+If your net carries any of those you will no longer see `method: 'structural'`, and the query costs a route that models what disables it. That is the correct trade, and it is worth knowing why your fast answer went away.
 
 ## 4. Environment modes and the vacuity guard (VER-006)
 
@@ -164,9 +211,13 @@ Practical consequence: under `AlwaysAvailable`, a bare `env -> T -> OUT` makes `
 
 **`Violated`** on Route A may be spurious, because the abstraction is value-blind. Read the counterexample trace before believing it. Ask: does this trace require an action to route somewhere it never routes? If yes, the model is under-specified. Fix the model (usually by making the choice structural), do not argue with the verifier.
 
+A `Violated` from the enumeration route is a different animal: the graph path *is* a firing sequence, so the trace is ordered and real, and it reports `counterexampleConfirmed: true`. Check `result.route` before deciding how much to doubt a counterexample.
+
 And say which of the three you have. A property you did not run is "not checked", not "fine". A net nobody proved anything about is unverified, however carefully it was read: that is the whole reason this machinery exists.
 
-**`Unknown`** is information, not failure. Read the reason. The three common ones map to fixes: truncation (bound something, split the net, or declare a budget), vacuity (`Ignore` mode with env places registered), and a lost invariant (turn on semiflows, or move the draining arc).
+**`Unknown`** is information, not failure. Read the reason. The common ones map to fixes: truncation (bound something, split the net, or declare a budget), vacuity (`Ignore` mode with env places registered), and a lost invariant (turn on semiflows, or move the draining arc).
+
+**But rule out the clock first, because it looks exactly like the others.** A proof that needs four minutes reports the same `Unknown` as one that needs forever. One team read a monotone, reproducible wall between 16 and 20 nodes across three fixtures as a capability limit; a larger budget walked straight through it, and every one of those nets proved — at 35 s, 277 s and 410 s. Three consecutive `Unknown`s are no evidence at all when they share a timeout. Vary the budget before characterising anything, and when you record a limit, record which budget produced it.
 
 ## 8. Wiring proofs into the build
 
@@ -183,7 +234,44 @@ Treat a property as a test, from the first commit, not as a milestone at the end
 
 Every one of these changes what a verdict *means*. Set them explicitly, never by inheriting a default.
 
-**`semiflowInvariants`.** The single largest lever available. In one production net, the same query with the same encoding went from 50 minutes to `Unknown` to **15 seconds to `Proven`** when it was turned on, and safety queries went from 50 seconds to about 1 second. The reason is mechanical: without it the encoder sees only the null-space basis, and the exact gate had dropped most of the conservation laws because their support touched a consume-all or reset place. Diagnose by grepping the report for lines saying a semiflow was dropped because its support intersects a consume-all or reset place. Off by default so reports stay byte-identical.
+**`semiflowInvariants`.** Decisive on one shape and pure cost on another, so decide by shape
+rather than by habit. It is off by default; turn it on deliberately.
+
+*The setting to reach for first is `'auto'`,* which applies the rule below for you in a single
+pass: it computes and unions the semiflows exactly when the basis lost a law to the H1 guard,
+and skips them otherwise. Prefer it to deciding by hand — the fact it keys on is one the
+pipeline already has, and reading it yourself means running the pipeline twice.
+
+*One exception, and it bites reporting rather than proving.* `'auto'` decides whether the
+semiflows would strengthen the **encoding**, not whether they would show up in the invariant list
+you read back. A complete basis spans every conservation law, but it is the *signed* basis, and a
+law it spans need not appear in it **non-negatively** — only the Farkas enumeration gives you
+that form. So if you harvest invariants and search them by shape ("a non-negative law weighting
+the budget place and every running place"), `'auto'` can leave you empty-handed on a net that
+plainly has the law. Ask for the union explicitly on that run. `'auto'` for verification,
+explicit `true` for harvesting.
+
+*When it is the biggest lever you have.* If the null-space basis is **deficient**, the encoder is
+working with most of the net's conservation laws missing, and IC3 has to rediscover them. That
+happens when a consume-all / `atLeast(n)` / reset arc sits on a busy place: the exact gate drops
+every basis row whose support touches it. On one production net the same query went from 50
+minutes to `Unknown` to **15 seconds to `Proven`** with this flag as the only change. Diagnose it
+from the report: `Dropped invariant:` / `Dropped semiflow:` lines naming a consume-all or reset
+place mean your basis is deficient and this option is worth trying.
+
+*When it is the whole bill and buys nothing.* If the basis is already complete and the net is
+**branchy**, the minimal semiflows are exponential in the branching — `k` independent diamonds in
+series have `2^k` of them. Measured on a join-heavy workflow of 81 nodes and 870 places: the
+option accounted for **130 seconds of a 132-second run**, against 2.6 seconds with it off, and
+what it added was **one invariant** that moved no verdict on any fixture in that suite. Before
+that cost was bounded it exhausted the heap outright and aborted the process, which is how it
+came to look mandatory. If your net has many parallel branches and no dropped-law lines in the
+report, leave it off.
+
+*What it never promises.* Where the minimal set is exponential the survivors are an arbitrary
+truncation of it, so enabling the option means "try harder", not "this answer is now
+trustworthy". A `Proven` is equally sound either way, and an `Unknown` with the option on is not
+evidence that no such law exists.
 
 **`sinkPlaces`.** This is the design surface of a deadlock-freedom claim: what you list is what
 you are promising is a legitimate place to stop. Write the list before you write the assertion.
@@ -192,6 +280,44 @@ of work", because the second group is the one that changes when you add a featur
 wave the list binds both ways under `DeadlockFree`: an undeclared terminal place is a violation,
 and an over-declared one silently excuses a token. It is read by `TerminatesAtSink` too, with the
 opposite polarity, so never copy a sink list between the two properties without re-reading it.
+
+**`sinkPlacesWhen(marker, ...places)`.** The conditional half of the sink list ([VER-014]): the
+named places may hold a token *while the marker holds one*. Use it for designed terminals — a
+halt or pause marker under which the work it interrupted legitimately stays where it was
+delivered. The marker itself is at rest whenever it is marked; declarations for one marker
+accumulate, and for several markers they union, so a place excused by both `halt` and `pause`
+is stranded only when both are unmarked. Without it, every workflow that can halt mid-flight
+reports a "violation" at the halt, and the solver is right about the question as asked. Read
+by every route that decides `DeadlockFree`; `TerminatesAtSink` ignores it.
+
+```ts
+SmtVerifier.forNet(net).property(deadlockFree())
+  .sinkPlaces(...rest)                     // may always rest
+  .sinkPlacesWhen(halt, ...haltRest)       // may rest once the run halted
+  .sinkPlacesWhen(pause, ...pauseRest)     // may rest while paused
+```
+
+**`stateEquation`.** The lever for *quiescence* proofs on pipeline-shaped nets ([VER-016]). The
+encoding carries one firing counter per transition and states the marking equation
+`M = M0 + C·n` in every rule, so every linear consequence of it — the equality laws, the
+decreasing laws, and the mixed-sign *ordering* laws ("both join slots armed means every upstream
+stage has run") — is a fact Spacer reads rather than a lemma it must invent. A `deadlockFree`
+under conditional sinks on a 50-place agent net went from `Unknown` at 120 s to `Proven` in 1.5 s
+with this flag alone. Off by default: it grows the state and slows the search for a genuine
+counterexample by about 1.5×, so turn it on for the proofs and leave it off for witness hunting.
+
+**The linear state-equation bound** ([VER-015]) needs no knob: for `placeBound`, `mutualExclusion`
+and `unreachable` the verifier first asks one linear query whether a weighting `y ≥ 0, y·C ≤ 0`
+puts the violating markings above `y·M0`, and if so reports `PROVEN (structural)` with the bound
+spelled out, re-checked in exact integer arithmetic. It is the proof IC3 does not find on a
+pipeline one stage before a join. `linearBound(false)` forces the fixpoint path when you want its
+certificate.
+
+**`enumerationMaxClasses`.** The enumeration route's budget, default 50 000, `0` to disable. It is a
+performance knob and not a semantic one — past it the route declines and the SMT pipeline answers,
+so it cannot cost you a verdict. Set it to `0` if you enumerate the state space yourself before
+calling libpetri, or if you specifically want to exercise the solver path (which is why the
+library's own solver tests set it).
 
 **`budgetPlaces`.** Name every place whose consumption gates a fresh-name mint. It is **not validated**: a name that fails to resolve silently degrades the verdict to `Unknown`, which is indistinguishable from an honest one unless you check the route.
 
@@ -246,6 +372,29 @@ Slices are fast, local signal. Build them from the *same* subnet composition cal
 - A goal place list is a **disjunction**. A conjunctive claim needs you to walk the graph yourself.
 - The state-class graph is priority-blind and name-blind. On a correlated net, the name-blind graph is a sound instrument for boundedness (it over-approximates, so boundedness there implies boundedness in reality), but name-blind deadlock freedom on a correlated net is **not** sound.
 - Its environment handling never consumes environment tokens, so it cannot prove that an environment cell clears. Use the SMT route with a bounded environment mode for that.
+- **The enumeration budget behaves differently from `nuMaxClasses`, and the difference is the point.**
+  Exceeding `nuMaxClasses` yields `Unknown`; exceeding `enumerationMaxClasses` yields nothing at
+  all — the route declines and the SMT pipeline answers. So a small enumeration budget costs you
+  the fast path, never a verdict. If you already enumerate the state space yourself before calling
+  libpetri, set it to `0`: a second enumeration under a smaller budget can only re-explore and
+  decline, which one consumer measured at 17 s to 101 s across their suite.
+
+## 13a. `verify()` throws on a bug, and that is deliberate
+
+A verification failure — a dead solver, an exhausted budget, a truncated search — becomes an
+`Unknown` verdict with a reason. A **programming** failure does not: since the 5.1 wave a
+`TypeError` or `ReferenceError` propagates out of `verify()` instead of being laundered into a
+verdict. A `RangeError` still becomes a verdict, because a deep net overflowing the stack is
+exactly the capacity limit `Unknown` exists to report.
+
+This matters if you wrap `verify()` in a broad `catch`. One consumer's `catch` was written for
+"the solver died" and quietly acquired "any bug in this module" as a second meaning; once both
+arrived as `Unknown`, a stale dependency turned into a suite of silently missing proofs with a
+well-formed report. Catch the failure you mean. A bug should reach you as a bug.
+
+The same reasoning fixed a related trap: a property naming a place the net does not declare is now
+refused with `Unknown` **before any route runs**. Every route answers such a property vacuously in
+its own way, so a refusal placed inside one of them was not a refusal at all.
 
 ## 14. Proofs do not test action code
 

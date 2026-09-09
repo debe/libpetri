@@ -1,8 +1,10 @@
 """Cross-language SMT script parity (VER-013 AC1).
 
 For every fixture in ``spec/verification-fixtures/fixtures.json`` the scripts the
-binding would send to z3 (``libpetri.encode_smt_scripts``) must equal the committed
-goldens under ``spec/verification-fixtures/scripts/<id>/``, byte for byte. The
+binding would send to z3 (``libpetri.encode_smt_scripts``: ``horn.smt2``,
+``certificate.smt2`` and, for a property with a linear demand, the VER-015
+``bound.smt2``) must equal the committed goldens under
+``spec/verification-fixtures/scripts/<id>/``, byte for byte. The
 goldens are written by the Rust verifier (``scripts/smt-script-parity.py
 --update``); the Java and TypeScript suites diff them too. A diff is a parity
 FINDING in whichever emitter drifted, never a reason to edit a golden by hand.
@@ -46,10 +48,18 @@ def test_smt_scripts_match_the_committed_goldens():
             sink_places=fixture.get("sinkPlaces") or None,
             budget_places=fixture.get("budgetPlaces") or None,
             semiflow_invariants=bool(fixture.get("semiflowInvariants", False)),
+            sink_places_when=fixture.get("sinkPlacesWhen") or None,
+            state_equation=bool(fixture.get("stateEquation", False)),
             counterexample_replay=True,
             **env,
         )
-        for name, actual in (("horn.smt2", scripts["horn"]), ("certificate.smt2", scripts["certificate"])):
+        # `bound.smt2` (VER-015) is pinned exactly like `certificate.smt2`: a golden
+        # without an emitted script, or a script without a golden, is a finding.
+        for name, actual in (
+            ("horn.smt2", scripts["horn"]),
+            ("certificate.smt2", scripts["certificate"]),
+            ("bound.smt2", scripts["bound"]),
+        ):
             golden = SCRIPTS / fid / name
             if not golden.is_file():
                 if actual is not None:

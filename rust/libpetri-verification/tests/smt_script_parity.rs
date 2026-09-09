@@ -3,7 +3,8 @@
 //! For every fixture in `spec/verification-fixtures/fixtures.json` the scripts the
 //! verifier would send to z3 ([`SmtVerifier::encode_scripts`]) must equal the
 //! committed goldens under `spec/verification-fixtures/scripts/<id>/`, byte for
-//! byte. The goldens are written by THIS test with `LIBPETRI_SMT_SCRIPT_UPDATE=1`
+//! byte: `horn.smt2`, `certificate.smt2` (flat encoding) and `bound.smt2` (the
+//! [VER-015] query, for a reachability-safety property on the flat path). The goldens are written by THIS test with `LIBPETRI_SMT_SCRIPT_UPDATE=1`
 //! (`scripts/smt-script-parity.py --update`) and diffed by the Java, TypeScript
 //! and Python script-parity tests too, so the four implementations emit the same
 //! text. A diff is a parity finding in whichever emitter drifted, never a reason
@@ -52,6 +53,10 @@ fn property_of(prop: &Json) -> SmtProperty {
 fn verifier_for<'a>(fixture: &Json, built: &'a nets::FixtureNet) -> SmtVerifier<'a> {
     let property = property_of(fixture.get("property").expect("fixture without property"));
     let mut verifier = SmtVerifier::for_net(&built.net)
+        // Explicit [VER-017] opt-out: these fixtures pin the scripts verify()
+        // SENDS, and the enumeration route would decide several of them before a
+        // solver ran, leaving nothing dumped to compare.
+        .enumeration_max_classes(0)
         .initial_marking(built.initial.clone())
         .property(property)
         .certificate_check(true)
@@ -72,6 +77,13 @@ fn verifier_for<'a>(fixture: &Json, built: &'a nets::FixtureNet) -> SmtVerifier<
     }
     // Optional shared-schema field: [VER-007]'s semiflow union.
     verifier = verifier.semiflow_invariants(fixture.bool_opt("semiflowInvariants"));
+    // Optional shared-schema field: [VER-014]'s conditional sinks, declared in the
+    // object's order (the report renders declarations in that order).
+    for (marker, places) in fixture.str_arr_obj_opt("sinkPlacesWhen") {
+        verifier = verifier.sink_places_when(marker, places);
+    }
+    // Optional shared-schema field: [VER-016]'s firing-counter state equation.
+    verifier = verifier.state_equation(fixture.bool_opt("stateEquation"));
     verifier
 }
 
@@ -131,6 +143,7 @@ fn smt_scripts_match_the_committed_goldens() {
         let dir = root.join("scripts").join(id);
         let horn = dir.join("horn.smt2");
         let certificate = dir.join("certificate.smt2");
+        let bound = dir.join("bound.smt2");
         if update {
             fs::create_dir_all(&dir).expect("create golden dir");
             fs::write(&horn, &scripts.horn).expect("write horn golden");
@@ -140,17 +153,25 @@ fn smt_scripts_match_the_committed_goldens() {
                     let _ = fs::remove_file(&certificate);
                 }
             }
+            match &scripts.bound {
+                Some(text) => fs::write(&bound, text).expect("write bound golden"),
+                None => {
+                    let _ = fs::remove_file(&bound);
+                }
+            }
             eprintln!("[script-parity] wrote {}", dir.display());
         } else {
             compare(&mut findings, id, &horn, Some(&scripts.horn));
             compare(&mut findings, id, &certificate, scripts.certificate.as_deref());
+            compare(&mut findings, id, &bound, scripts.bound.as_deref());
         }
         encoded.push((id.to_string(), scripts));
     }
 
-    // API ↔ pipeline: the HORN script verify() sends is the one encode_scripts()
-    // reports. Route B fixtures never reach the solver; a structural early proof
-    // leaves no dump either, and both are skipped.
+    // API ↔ pipeline: the HORN and bound scripts verify() sends are the ones
+    // encode_scripts() reports. Route B fixtures never reach the solver; a
+    // structural early proof leaves no HORN dump (a [VER-015] proof still leaves
+    // the bound dump), and whatever was not sent is skipped.
     if z3_available() {
         let scratch = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../target/smt-parity")
@@ -167,27 +188,41 @@ fn smt_scripts_match_the_committed_goldens() {
             let _ = verifier_for(fixture, &built).verify();
             // SAFETY: as above.
             unsafe { std::env::remove_var("LIBPETRI_SMT_DUMP") };
-            let sent = fs::read_dir(&dump)
-                .ok()
-                .into_iter()
-                .flatten()
-                .filter_map(|e| e.ok())
-                .map(|e| e.path())
-                .filter(|p| {
-                    let name = p.file_name().unwrap_or_default().to_string_lossy().into_owned();
-                    name.contains("-horn") && name.ends_with(".smt2")
-                })
-                .min();
-            if let Some(path) = sent {
+            let sent = |phase: &str| {
+                fs::read_dir(&dump)
+                    .ok()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|e| e.ok())
+                    .map(|e| e.path())
+                    .filter(|p| {
+                        let name = p.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                        name.contains(phase) && name.ends_with(".smt2")
+                    })
+                    .min()
+            };
+            let reported = &encoded.iter().find(|(f, _)| f == id).expect("encoded").1;
+            for (phase, label, expected) in [
+                ("-horn", "HORN", Some(reported.horn.as_str())),
+                ("-bound", "bound", reported.bound.as_deref()),
+            ] {
+                let Some(path) = sent(phase) else {
+                    continue;
+                };
                 let actual = fs::read_to_string(&path).expect("read dumped script");
-                let reported = &encoded.iter().find(|(f, _)| f == id).expect("encoded").1.horn;
-                if &actual != reported {
-                    findings.push(format!(
-                        "SCRIPT PARITY FINDING [{id}]: the HORN script verify() sent ({}) differs \
+                match expected {
+                    Some(text) if actual == text => {}
+                    Some(text) => findings.push(format!(
+                        "SCRIPT PARITY FINDING [{id}]: the {label} script verify() sent ({}) differs \
                          from encode_scripts() at {}",
                         path.display(),
-                        first_difference(reported, &actual)
-                    ));
+                        first_difference(text, &actual)
+                    )),
+                    None => findings.push(format!(
+                        "SCRIPT PARITY FINDING [{id}]: verify() sent a {label} script ({}) that \
+                         encode_scripts() does not report",
+                        path.display()
+                    )),
                 }
             }
         }

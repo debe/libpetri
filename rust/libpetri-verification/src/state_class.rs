@@ -52,13 +52,12 @@ impl StateClass {
         self.enabled_transitions.iter().position(|n| n == name)
     }
 
-    /// Generates a canonical key for deduplication.
+    /// The dedup key of a class: its marking and the full zone
+    /// ([`Dbm::zone_key`], [VER-010] AC1). Clocks are in canonical order by
+    /// construction (`state_class_graph::canonical_order`), so the sequence in
+    /// which transitions became enabled is not part of a class's identity.
     pub fn canonical_key(&self) -> String {
-        format!(
-            "{}|{}",
-            self.marking.canonical_key(),
-            self.dbm.canonical_string()
-        )
+        format!("{}|{}", self.marking.canonical_key(), self.dbm.zone_key())
     }
 }
 

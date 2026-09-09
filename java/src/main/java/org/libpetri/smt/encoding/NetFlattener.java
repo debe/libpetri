@@ -27,6 +27,35 @@ public final class NetFlattener {
     private NetFlattener() {}
 
     /**
+     * Every place the net mentions, in a stable insertion order: {@link PetriNet#places()}
+     * plus the places declared only by an arc — the builder auto-adds input, output,
+     * inhibitor and read places, but a reset arc's place reaches the net only through the
+     * transition, so {@code net.places()} alone under-reports.
+     *
+     * <p>This is the set {@link #flatten} indexes, exposed so a caller that has not
+     * flattened yet can ask whether a place resolves in the net — {@code SmtVerifier}
+     * reads it to refuse a property over an undeclared place before it picks a route.
+     *
+     * @param net the net to read
+     * @return every declared place, insertion-ordered
+     */
+    public static LinkedHashSet<Place<?>> declaredPlaces(PetriNet net) {
+        var allPlaces = new LinkedHashSet<Place<?>>(net.places());
+        for (var t : net.transitions()) {
+            for (var in : t.inputSpecs()) {
+                allPlaces.add(in.place());
+            }
+            if (t.outputSpec() != null) {
+                allPlaces.addAll(t.outputSpec().allPlaces());
+            }
+            t.inhibitors().forEach(arc -> allPlaces.add(arc.place()));
+            t.reads().forEach(arc -> allPlaces.add(arc.place()));
+            t.resets().forEach(arc -> allPlaces.add(arc.place()));
+        }
+        return allPlaces;
+    }
+
+    /**
      * Flattens a PetriNet into a FlatNet.
      *
      * @param net              the Petri net to flatten
@@ -40,18 +69,7 @@ public final class NetFlattener {
             EnvironmentAnalysisMode environmentMode
     ) {
         // 1. Collect ALL places (net.places() may miss new-API-declared places)
-        var allPlaces = new LinkedHashSet<>(net.places());
-        for (var t : net.transitions()) {
-            for (var in : t.inputSpecs()) {
-                allPlaces.add(in.place());
-            }
-            if (t.outputSpec() != null) {
-                allPlaces.addAll(t.outputSpec().allPlaces());
-            }
-            t.inhibitors().forEach(arc -> allPlaces.add(arc.place()));
-            t.reads().forEach(arc -> allPlaces.add(arc.place()));
-            t.resets().forEach(arc -> allPlaces.add(arc.place()));
-        }
+        var allPlaces = declaredPlaces(net);
 
         // Sort by name for stable indexing. Unicode code-point order, not UTF-16
         // code-unit order, so the index agrees with the Rust and TypeScript

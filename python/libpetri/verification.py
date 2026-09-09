@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
-from typing import Any
+from typing import Any, Literal
 
 from . import _libpetri as _ext
 from .model import (
@@ -101,6 +101,20 @@ def joined_or_dead_lettered(pending: PlaceLike) -> SmtProperty:
     return _ext.joined_or_dead_lettered(_coerce_place_name(pending))
 
 
+def _coerce_sink_places_when(
+    declarations: Mapping[PlaceLike, Iterable[PlaceLike]] | None,
+) -> dict[str, list[str]]:
+    """``{marker: places}`` with every place coerced to its name, in declaration
+    order. A marker named twice (say as a ``Place`` and as its name) accumulates,
+    as the Rust builder does."""
+    coerced: dict[str, list[str]] = {}
+    for marker, places in (declarations or {}).items():
+        coerced.setdefault(_coerce_place_name(marker), []).extend(
+            _coerce_place_name(p) for p in places
+        )
+    return coerced
+
+
 def verify(
     net: BuiltNet,
     property: SmtProperty,
@@ -117,7 +131,11 @@ def verify(
     priority_semantics: str | int | None = None,
     certificate_check: bool = True,
     counterexample_replay: bool = True,
-    semiflow_invariants: bool = False,
+    semiflow_invariants: bool | Literal["auto"] = False,
+    sink_places_when: Mapping[PlaceLike, Iterable[PlaceLike]] | None = None,
+    linear_bound: bool = True,
+    state_equation: bool = False,
+    enumeration_max_classes: int | None = None,
 ) -> VerificationResult:
     """Verify ``property`` against ``net`` via SMT (Z3).
 
@@ -217,6 +235,58 @@ def verify(
     ``Certificate check: not applicable (name-coloured encoding)``. When enabled
     the report carries ``  Semiflows encoded as invariants: N``; off by default
     so reports stay byte-identical.
+
+    ``semiflow_invariants="auto"`` applies that condition for you: the union
+    happens exactly when the basis lost a law to the H1 guard -- the case the
+    option exists for -- and the enumeration, worst-case exponential in the net's
+    branching, is skipped otherwise. It is decided in one pass (the drops are
+    known before the semiflows are needed) and the report says which way it went.
+    Prefer it **for verification**: it answers whether the semiflows would
+    strengthen the *encoding*, which is not the same question as whether they
+    appear in the invariant list a caller inspects -- a law the signed null-space
+    basis spans need not appear in it in non-negative form, and only the Farkas
+    enumeration produces that form. A caller harvesting laws by shape must ask
+    for the union explicitly with ``True``.
+
+    ``sink_places_when`` (VER-014) maps a marker place to the places where a
+    token may rest *while that marker holds a token* -- a designed terminal such
+    as a halt, under which the work it interrupted legitimately stays where it
+    was delivered. :func:`deadlock_free` then strands a token only when neither
+    a sink, a marker, nor a marked marker's set excuses it; the marker itself is
+    at rest whenever marked, so ``{halt: []}`` excuses exactly the halt token.
+    Entries are declared in dict order, which is how the report's ``Property:``
+    line renders them (``Deadlock freedom (sinks: done; when halt: b)``);
+    :func:`terminates_at_sink` ignores them.
+
+    ``linear_bound`` (default ``True``, VER-015) proves a reachability-safety
+    property structurally, from one linear query re-checked in exact integer
+    arithmetic, whenever the violating markings exceed a bound ``y.M <= y.M0``
+    with ``y >= 0``, ``y.C <= 0`` -- before any fixpoint search, with
+    ``result.method == "structural"`` and no certificate to check. Turn it off
+    to force the IC3/PDR path, for its certificate.
+
+    ``state_equation`` (default ``False``, VER-016) adds one firing counter per
+    flat transition and the marking equation ``M' = M0 + C.n'`` to the flat
+    encoding, so every linear consequence of the state equation is a fact the
+    solver need not rediscover; the report says ``State equation: encoded over
+    T firing counters (VER-016)``, or ``not applied`` on the name-coloured
+    encoding. Larger state and a slower witness search, so opt-in.
+
+    ``enumeration_max_classes`` (``None`` keeps the engine default of 50 000,
+    VER-017) is the class budget of
+    the bounded state-space enumeration route, which runs BEFORE the SMT
+    pipeline: when the state-class graph closes within the budget the property is
+    decided exactly -- sound and complete -- and no solver runs at all. That is
+    what makes a long pipeline tractable (a forty-node chain: 410 s on the
+    fixpoint path, 0.11 s here). The route is skipped for ν-nets, for nets with
+    environment places and for timed nets, and on truncation it declines and the
+    SMT pipeline runs unchanged; pass ``0`` to disable it, which is what a test
+    pinning the encoders' own answer wants.
+
+    ``result.route`` (VER-003 AC4) names which route decided: ``"smt"``,
+    ``"enumeration"``, ``"nu-scg"``, ``"structural"`` or ``"unavailable"``. Read
+    it before concluding anything from an EMPTY invariant list -- off the
+    ``"smt"`` route that means "not computed", never "the net has none".
     """
     return _ext.verify_net(
         _coerce_net(net),
@@ -238,6 +308,10 @@ def verify(
         certificate_check=certificate_check,
         counterexample_replay=counterexample_replay,
         semiflow_invariants=semiflow_invariants,
+        sink_places_when=_coerce_sink_places_when(sink_places_when),
+        linear_bound=linear_bound,
+        state_equation=state_equation,
+        enumeration_max_classes=enumeration_max_classes,
     )
 
 
@@ -283,23 +357,37 @@ def encode_smt_scripts(
     fragment_mode: str | int | None = None,
     carrier_places: Iterable[PlaceLike] | None = None,
     counterexample_replay: bool = True,
-    semiflow_invariants: bool = False,
+    semiflow_invariants: bool | Literal["auto"] = False,
+    sink_places_when: Mapping[PlaceLike, Iterable[PlaceLike]] | None = None,
+    linear_bound: bool = True,
+    state_equation: bool = False,
 ) -> dict:
     """The SMT-LIB2 scripts :func:`verify` would send to z3 for this configuration,
     without running a solver (VER-013 AC1).
 
-    Returns ``{"horn": str, "certificate": str | None, "coloured": bool}``: the HORN
-    query (flat, or name-coloured when a declared budget puts the net on Route A's
-    exact encoding) and, for the flat encoding, the certificate-check script built
-    around the placeholder certificate. This is what the cross-language golden
-    tests diff byte for byte.
+    Returns ``{"horn": str, "certificate": str | None, "coloured": bool, "bound":
+    str | None}``: the HORN query (flat, or name-coloured when a declared budget
+    puts the net on Route A's exact encoding), for the flat encoding the
+    certificate-check script built around the placeholder certificate, and the
+    linear state-equation bound query (VER-015) exactly when :func:`verify` would
+    send it -- a reachability-safety property on the flat path; ``None`` for a
+    quiescence property and on the name-coloured path. This is what the
+    cross-language golden tests diff byte for byte.
 
-    Every option :func:`verify` takes is accepted here and changes the script the
-    same way, ``semiflow_invariants`` included: with it enabled the strengthened
-    invariant list is conjoined into the rule bodies, on the name-coloured encoding
-    as well as the flat one, so the returned ``horn`` differs from the one the same
-    configuration produces with it disabled. See :func:`verify` for when to turn it
-    on.
+    Every option :func:`verify` takes that shapes a script is accepted here and
+    changes it the same way. ``semiflow_invariants`` conjoins the strengthened
+    invariant list into the rule bodies, on the name-coloured encoding as well as
+    the flat one, and takes ``"auto"`` here too -- the union then happens exactly
+    when the basis lost a law to the H1 guard, so the script matches the one
+    :func:`verify` would send under the same setting; ``sink_places_when``
+    (VER-014) adds the marker-unmarked conjuncts to the stranded disjunction of a
+    :func:`deadlock_free` query;
+    ``linear_bound`` (VER-015, default ``True``) gates the ``bound`` script the
+    same way it gates the phase in :func:`verify` -- ``False`` returns ``bound:
+    None``;
+    ``state_equation`` (VER-016) adds the firing counters and marking equation to
+    the flat ``horn`` and widens the placeholder certificate to ``P + T``
+    arguments. See :func:`verify` for when to turn each on.
     """
     return _ext.encode_smt_scripts(
         _coerce_net(net),
@@ -317,6 +405,9 @@ def encode_smt_scripts(
         carrier_places=[_coerce_place_name(p) for p in (carrier_places or ())],
         counterexample_replay=counterexample_replay,
         semiflow_invariants=semiflow_invariants,
+        sink_places_when=_coerce_sink_places_when(sink_places_when),
+        linear_bound=linear_bound,
+        state_equation=state_equation,
     )
 
 

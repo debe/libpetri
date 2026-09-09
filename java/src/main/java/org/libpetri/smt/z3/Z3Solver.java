@@ -136,7 +136,7 @@ public record Z3Solver(String program, Z3Version version, Path dumpDir) {
     }
 
     /** The soft budget in milliseconds: at least one, so {@code -t:0} never means "forever". */
-    static long timeoutMs(Duration timeout) {
+    public static long timeoutMs(Duration timeout) {
         if (timeout == null) {
             return 1;
         }
@@ -157,6 +157,9 @@ public record Z3Solver(String program, Z3Version version, Path dumpDir) {
         try {
             Files.createDirectories(dumpDir);
         } catch (IOException _) {
+            // Deliberately EXEMPT from the ProgrammingError discipline: the dump is a
+            // diagnostic, and a diagnostic that can fail the verification it observes is
+            // worse than one that quietly does not appear.
             return null;
         }
         Path base = dumpDir.resolve(String.format("%03d-%s", n, phase));
@@ -168,7 +171,9 @@ public record Z3Solver(String program, Z3Version version, Path dumpDir) {
         try {
             Files.writeString(file, text, StandardCharsets.UTF_8);
         } catch (IOException _) {
-            // Dump failures are ignored: the dump is a diagnostic, never the pipeline.
+            // Dump failures are ignored: the dump is a diagnostic, never the pipeline —
+            // the second of the two catches deliberately exempt from the
+            // ProgrammingError discipline.
         }
     }
 }

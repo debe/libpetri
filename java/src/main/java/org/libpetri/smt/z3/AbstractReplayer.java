@@ -2,6 +2,7 @@ package org.libpetri.smt.z3;
 
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.core.Place;
+import org.libpetri.smt.RestSet;
 import org.libpetri.smt.SmtProperty;
 import org.libpetri.smt.encoding.FlatNet;
 import org.libpetri.smt.encoding.FlatTransition;
@@ -217,7 +218,18 @@ public final class AbstractReplayer {
     public static boolean violates(
             FlatNet flatNet, SmtProperty property, Set<Place<?>> sinkPlaces, int[] m
     ) {
-        return violates(flatNet, property, sinkPlaces, m, injectedEnvIndices(flatNet));
+        return violates(flatNet, property, sinkPlaces, List.of(), m, injectedEnvIndices(flatNet));
+    }
+
+    /**
+     * {@link #violates(FlatNet, SmtProperty, Set, int[])} with conditional sink
+     * declarations ([VER-014]), read by the {@code DeadlockFree} arm only.
+     */
+    public static boolean violates(
+            FlatNet flatNet, SmtProperty property, Set<Place<?>> sinkPlaces,
+            List<RestSet.ConditionalSinks> conditionalSinks, int[] m
+    ) {
+        return violates(flatNet, property, sinkPlaces, conditionalSinks, m, injectedEnvIndices(flatNet));
     }
 
     /**
@@ -225,25 +237,37 @@ public final class AbstractReplayer {
      * replay search uses, so the map is built once per replay instead of per state.
      */
     static boolean violates(
-            FlatNet flatNet, SmtProperty property, Set<Place<?>> sinkPlaces, int[] m,
+            FlatNet flatNet, SmtProperty property, Set<Place<?>> sinkPlaces,
+            List<RestSet.ConditionalSinks> conditionalSinks, int[] m,
             Map<Integer, Integer> envInj
     ) {
         return switch (property) {
-            // DeadlockFree (VER-002): quiescent AND some marked place is not a declared
-            // sink. Mirrors the encoder's `stranded` disjunction.
+            // DeadlockFree (VER-002): quiescent AND some marked place is not where
+            // resting is permitted — a conditional sink (VER-014) counts only while
+            // every marker that would excuse it is unmarked. Mirrors the encoder's
+            // `stranded` disjunction.
             case SmtProperty.DeadlockFree() -> {
                 if (!quiescent(flatNet, m, envInj)) {
                     yield false;
                 }
-                var sinks = sinkIndices(flatNet, sinkPlaces);
-                boolean stranded = false;
+                int[][] excuses = RestSet.strandingExcuses(flatNet, sinkPlaces, conditionalSinks);
                 for (int pid = 0; pid < flatNet.placeCount(); pid++) {
-                    if (!sinks.contains(pid) && m[pid] >= 1) {
-                        stranded = true;
-                        break;
+                    int[] markers = excuses[pid];
+                    if (markers == null || m[pid] < 1) {
+                        continue;
+                    }
+                    boolean allUnmarked = true;
+                    for (int k : markers) {
+                        if (m[k] != 0) {
+                            allUnmarked = false;
+                            break;
+                        }
+                    }
+                    if (allUnmarked) {
+                        yield true;
                     }
                 }
-                yield stranded;
+                yield false;
             }
             // TerminatesAtSink (VER-002): quiescent AND no declared sink marked.
             case SmtProperty.TerminatesAtSink() -> {
@@ -348,6 +372,20 @@ public final class AbstractReplayer {
             SmtProperty property, Set<Place<?>> sinkPlaces,
             int maxSegmentSteps, int budget
     ) {
+        return replay(flatNet, initialMarking, decodedStates, property, sinkPlaces, List.of(),
+            maxSegmentSteps, budget);
+    }
+
+    /**
+     * {@link #replay(FlatNet, MarkingState, Set, SmtProperty, Set, int, int)} with the
+     * conditional sink declarations ([VER-014]) the violation predicate reads.
+     */
+    public static ReplayOutcome replay(
+            FlatNet flatNet, MarkingState initialMarking, Set<MarkingState> decodedStates,
+            SmtProperty property, Set<Place<?>> sinkPlaces,
+            List<RestSet.ConditionalSinks> conditionalSinks,
+            int maxSegmentSteps, int budget
+    ) {
         if (decodedStates.isEmpty()) {
             return new ReplayOutcome.Exhausted("no decoded states to replay");
         }
@@ -364,7 +402,7 @@ public final class AbstractReplayer {
 
         // Built once, then shared by every violates() call in the search.
         Map<Integer, Integer> envInj = injectedEnvIndices(flatNet);
-        if (violates(flatNet, property, sinkPlaces, m0.counts(), envInj)) {
+        if (violates(flatNet, property, sinkPlaces, conditionalSinks, m0.counts(), envInj)) {
             return new ReplayOutcome.Confirmed(
                 List.of(toMarking(flatNet, m0.counts())), List.of());
         }
@@ -401,7 +439,7 @@ public final class AbstractReplayer {
                 }
                 admitted++;
                 var child = new Node(succ, segment, node, step.firing());
-                if (violates(flatNet, property, sinkPlaces, succ.counts(), envInj)) {
+                if (violates(flatNet, property, sinkPlaces, conditionalSinks, succ.counts(), envInj)) {
                     return chained(flatNet, child);
                 }
                 frontier.add(child);

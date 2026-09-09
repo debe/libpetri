@@ -31,7 +31,11 @@ export class NameStateClass {
   }
 }
 
-/** The base layer's identity for dedup: marking + DBM zone (what `StateClass.equals` compares). */
+/**
+ * The base layer's identity for dedup: marking + the full DBM zone (what
+ * `StateClass.equals` compares). The zone is keyed in full, not by its per-clock
+ * projections — see {@link DBM.zoneKey} for the over-merge the projections allow.
+ */
 export function baseKeyOf(base: StateClass): string {
-  return `${base.marking.toString()}|${base.firingDomain.toString()}`;
+  return `${base.marking.toString()}|${base.firingDomain.zoneKey()}`;
 }

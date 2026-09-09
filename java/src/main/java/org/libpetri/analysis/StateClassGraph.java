@@ -254,7 +254,9 @@ public final class StateClassGraph {
             EnvironmentAnalysisMode environmentMode
     ) {
         OutputActionCheck.requireOutputProducingActions(net);
-        var enabledTransitions = findEnabledTransitions(net, initialMarking, environmentPlaces, environmentMode);
+        var found = findEnabledTransitions(net, initialMarking, environmentPlaces, environmentMode);
+        int[] order = canonicalOrder(found);
+        var enabledTransitions = order == null ? found : permute(found, order);
         var clockNames = enabledTransitions.stream().map(Transition::name).toList();
         var lowerBounds = new double[enabledTransitions.size()];
         var upperBounds = new double[enabledTransitions.size()];
@@ -272,6 +274,37 @@ public final class StateClassGraph {
         }
         var initialDBM = baseDBM.letTimePass();
         return new StateClass(initialMarking, initialDBM, enabledTransitions, readyEarliest);
+    }
+
+    /**
+     * The canonical clock order of an enabled set ([VER-010] AC1): ascending by
+     * transition name (UTF-16 code-unit order, as the other implementations compare),
+     * ties keeping their incoming order. Returns the permutation as indices into
+     * {@code transitions}, or {@code null} when the list is already in order — the
+     * common case, which then costs no allocation.
+     */
+    static int[] canonicalOrder(List<Transition> transitions) {
+        boolean sorted = true;
+        for (int i = 1; i < transitions.size(); i++) {
+            if (transitions.get(i).name().compareTo(transitions.get(i - 1).name()) < 0) {
+                sorted = false;
+                break;
+            }
+        }
+        if (sorted) return null;
+        Integer[] order = new Integer[transitions.size()];
+        for (int i = 0; i < order.length; i++) order[i] = i;
+        // Arrays.sort on objects is stable, so equal names keep their incoming order.
+        Arrays.sort(order, (a, b) -> transitions.get(a).name().compareTo(transitions.get(b).name()));
+        int[] out = new int[order.length];
+        for (int i = 0; i < out.length; i++) out[i] = order[i];
+        return out;
+    }
+
+    private static <T> List<T> permute(List<T> items, int[] order) {
+        var out = new ArrayList<T>(items.size());
+        for (int idx : order) out.add(items.get(idx));
+        return out;
     }
 
     /**
@@ -369,10 +402,18 @@ public final class StateClassGraph {
         );
 
         // 4. Build new enabled list (persistent + newly enabled). Its order matches
-        // firedDBM's clock order (persistent-then-newly-enabled).
-        var allEnabled = new ArrayList<Transition>();
+        // firedDBM's clock order (persistent-then-newly-enabled), which is
+        // path-dependent; put both in canonical order so the class identity is
+        // ([VER-010] AC1). The earliest-ready times below are read from the permuted
+        // DBM, so index k means the same clock in all three.
+        List<Transition> allEnabled = new ArrayList<Transition>();
         allEnabled.addAll(persistent);
         allEnabled.addAll(newlyEnabled);
+        int[] order = canonicalOrder(allEnabled);
+        if (order != null) {
+            allEnabled = permute(allEnabled, order);
+            firedDBM = firedDBM.permuted(order);
+        }
 
         // Capture the class-relative earliest-ready time of each clock BEFORE
         // letTimePass() zeroes the DBM lower bounds (NU-052 residual-earliest).
@@ -558,12 +599,18 @@ public final class StateClassGraph {
             consumeFromPlace(builder, place, toConsume, environmentPlaces, environmentMode);
         }
 
-        // Reset places — remove all tokens
+        // Reset places: clear whatever is LEFT after the input loop, not what the
+        // pre-firing marking held. Reading the original count overdraws whenever the reset
+        // place is also an input — the inputs already took their share — and
+        // {@code removeTokens} throws on the overdraw rather than mis-computing, so the
+        // whole route died on a net both executors run happily. Setting the count states
+        // the reset directly and cannot overdraw; it is also what the flat encoder emits
+        // ({@code m'_p = postVector[p]} for a reset place), so the two agree by
+        // construction. Outputs are produced after this, so a place that is both reset and
+        // an output target ends at its post count ([EXEC-013] AC4: consume, then read,
+        // then drain).
         for (var arc : transition.resets()) {
-            int current = marking.tokens(arc.place());
-            if (current > 0) {
-                builder.removeTokens(arc.place(), current);
-            }
+            builder.tokens(arc.place(), 0);
         }
 
         // Produce to outputs

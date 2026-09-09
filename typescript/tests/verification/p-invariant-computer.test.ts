@@ -1,4 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { describeZ3 } from '../fixtures/z3.js';
+import { SmtVerifier } from '../../src/verification/smt-verifier.js';
+import { placeBound } from '../../src/verification/smt-property.js';
+import { andPlaces as andPl } from '../../src/core/out.js';
 import { computePInvariants, computePSemiflows, isCoveredByInvariants, validateInvariantsExact } from '../../src/verification/invariant/p-invariant-computer.js';
 import { pInvariant } from '../../src/verification/invariant/p-invariant.js';
 import { IncidenceMatrix } from '../../src/verification/encoding/incidence-matrix.js';
@@ -8,7 +12,10 @@ import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
 import { all, atLeast, exactly, one } from '../../src/core/in.js';
-import { outPlace } from '../../src/core/out.js';
+import { andPlaces, outPlace } from '../../src/core/out.js';
+import type { Place } from '../../src/core/place.js';
+import { ignore } from '../../src/verification/analysis/environment-analysis-mode.js';
+import { produces } from '../fixtures/producing-actions.js';
 
 describe('PInvariantComputer', () => {
   it('circular net finds conservation invariant', () => {
@@ -452,5 +459,157 @@ describe('computePInvariants f64 extraction guard', () => {
       "weight overflow at place 'P2' (exact value outside this implementation's " +
       'integer extraction range)',
     );
+  });
+});
+
+// The support-minimality filter is the dominant cost of the semiflow enumeration
+// on a branchy net, so it is a bitset sweep rather than a scan of member lists.
+// It must keep exactly the rows the definition names, in input order.
+describe('semiflow support-minimality (VER-007)', () => {
+  /** src -> fork -> k arms -> join: the minimal semiflows are one per arm. */
+  function diamond(k: number) {
+    const src = place('src'), done = place('done');
+    const bs: Place<any>[] = [], ms: Place<any>[] = [];
+    for (let i = 0; i < k; i++) { bs.push(place(`b${i}`)); ms.push(place(`m${i}`)); }
+    const ts = [Transition.builder('fork').inputs(one(src)).outputs(andPlaces(...bs))
+      .action(produces()).build()];
+    for (let i = 0; i < k; i++) {
+      ts.push(Transition.builder(`arm${i}`).inputs(one(bs[i]!)).outputs(outPlace(ms[i]!))
+        .action(produces()).build());
+    }
+    ts.push(Transition.builder('join').inputs(...ms.map(m => one(m))).outputs(outPlace(done))
+      .action(produces()).build());
+    return { net: PetriNet.builder(`diamond${k}`).transitions(...ts).build(),
+             m0: MarkingState.builder().tokens(src, 1).build() };
+  }
+
+  it('keeps only rows with no strictly smaller sub-support, in input order', () => {
+    for (const k of [3, 6, 10]) {
+      const { net, m0 } = diamond(k);
+      const flat = flatten(net, new Set(), ignore());
+      const semiflows = computePSemiflows(IncidenceMatrix.from(flat), flat, m0);
+      // Minimality is the defining property: no survivor's support strictly
+      // contains another's.
+      for (const a of semiflows) {
+        for (const b of semiflows) {
+          if (a === b) continue;
+          const strictlySmaller = b.support.size < a.support.size;
+          const subset = [...b.support].every(p => a.support.has(p));
+          expect(strictlySmaller && subset,
+            `a support ${[...a.support]} contains smaller ${[...b.support]}`).toBe(false);
+        }
+      }
+      // Every survivor is a real conservation law: y >= 0 and y.C = 0.
+      const inc = IncidenceMatrix.from(flat).incidence();
+      for (const y of semiflows) {
+        expect([...y.support].every(p => y.weights[p]! > 0)).toBe(true);
+        for (let t = 0; t < flat.transitions.length; t++) {
+          let d = 0;
+          for (const p of y.support) d += y.weights[p]! * inc[t]![p]!;
+          expect(d, `semiflow moved under transition ${t}`).toBe(0);
+        }
+      }
+    }
+  });
+
+  it('stays bounded on a shape whose minimal set is exponential', () => {
+    // Diamonds in series: 2^layers minimal semiflows. The enumeration must come
+    // back rather than exhaust the heap, which aborts the process.
+    const ps = [place('p0')]; const ts = [];
+    for (let L = 0; L < 14; L++) {
+      const a = place(`a${L}`), b = place(`b${L}`), ma = place(`ma${L}`), mb = place(`mb${L}`), next = place(`p${L + 1}`);
+      ps.push(next);
+      ts.push(Transition.builder(`fork${L}`).inputs(one(ps[L]!)).outputs(andPlaces(a, b)).action(produces()).build());
+      ts.push(Transition.builder(`armA${L}`).inputs(one(a)).outputs(outPlace(ma)).action(produces()).build());
+      ts.push(Transition.builder(`armB${L}`).inputs(one(b)).outputs(outPlace(mb)).action(produces()).build());
+      ts.push(Transition.builder(`join${L}`).inputs(one(ma), one(mb)).outputs(outPlace(next)).action(produces()).build());
+    }
+    const net = PetriNet.builder('series14').transitions(...ts).build();
+    const flat = flatten(net, new Set(), ignore());
+    const started = Date.now();
+    const semiflows = computePSemiflows(IncidenceMatrix.from(flat), flat,
+      MarkingState.builder().tokens(ps[0]!, 1).build());
+    expect(semiflows.length).toBeGreaterThan(0);
+    expect(Date.now() - started, 'the bitset sweep keeps this in the low seconds').toBeLessThan(20_000);
+  });
+});
+
+// VER-007 `'auto'`: compute the semiflows exactly when the basis lost a law to
+// the H1 guard, which is the condition the option exists for. One pass — the
+// drops are known before the decision is made.
+describeZ3('semiflow union in auto mode (VER-007)', () => {
+  /** A draining `all()` arc on a busy place: the H1 guard drops laws touching it. */
+  function drainingLoop() {
+    const budget = place('budget'), queue = place('queue'), work = place('work'), sink = place('sink');
+    const take = Transition.builder('take').inputs(one(budget), all(queue))
+      .outputs(outPlace(work)).action(produces()).build();
+    const done = Transition.builder('done').inputs(one(work))
+      .outputs(andPl(budget, sink)).action(produces()).build();
+    return { net: PetriNet.builder('drain').transitions(take, done).build(),
+             m0: MarkingState.builder().tokens(budget, 1).tokens(queue, 2).build(), budget, sink };
+  }
+  /** A clean pipeline: nothing is dropped, so the union would add only cost. */
+  function clean() {
+    const a = place('a'), b = place('b'), c = place('c');
+    const t1 = Transition.builder('t1').inputs(one(a)).outputs(outPlace(b)).action(produces()).build();
+    const t2 = Transition.builder('t2').inputs(one(b)).outputs(outPlace(c)).action(produces()).build();
+    return { net: PetriNet.builder('clean').transitions(t1, t2).build(),
+             m0: MarkingState.builder().tokens(a, 1).build(), c };
+  }
+
+  it('turns the union ON when the basis lost a law, and says why', async () => {
+    const f = drainingLoop();
+    const r = await SmtVerifier.forNet(f.net).initialMarking(f.m0)
+      .property(placeBound(f.sink, 2)).semiflowInvariants('auto')
+      .enumerationMaxClasses(0).timeout(30_000).verify();
+    expect(r.report).toContain('Strengthening.lean H1');
+    expect(r.report).toContain('  Semiflow union: ON (auto — the basis lost a law to the H1 guard)');
+    expect(r.report).toContain('  Semiflows encoded as invariants: ');
+  });
+
+  it('leaves the union off when the basis is complete, and says why', async () => {
+    const f = clean();
+    const r = await SmtVerifier.forNet(f.net).initialMarking(f.m0)
+      .property(placeBound(f.c, 1)).semiflowInvariants('auto')
+      .enumerationMaxClasses(0).timeout(30_000).verify();
+    expect(r.report).not.toContain('Strengthening.lean H1');
+    expect(r.report).toContain('  Semiflow union: off (auto — the basis is complete, so the semiflows would add no constraint the encoding does not already have; they may still differ in FORM)');
+    expect(r.report).not.toContain('Semiflows encoded as invariants:');
+  });
+
+  it('encodeScripts() honours auto, so the goldens pin what the pipeline sends', () => {
+    // A deficient basis: auto unions, so the script must carry the extra laws.
+    const f = drainingLoop();
+    const on = SmtVerifier.forNet(f.net).initialMarking(f.m0)
+      .property(placeBound(f.sink, 2)).semiflowInvariants('auto').encodeScripts();
+    const forced = SmtVerifier.forNet(f.net).initialMarking(f.m0)
+      .property(placeBound(f.sink, 2)).semiflowInvariants(true).encodeScripts();
+    // The claim is that auto emits what the setting it CHOSE would emit — not that
+    // the two settings differ. On this net every semiflow fails the same H1 gate
+    // that dropped the basis row, so the union adds nothing and both scripts agree;
+    // that is the union being honest about a net it cannot help, not auto failing.
+    expect(on.horn).toBe(forced.horn);
+
+    // A complete basis: auto declines, so the script matches the off case.
+    const c = clean();
+    const cleanAuto = SmtVerifier.forNet(c.net).initialMarking(c.m0)
+      .property(placeBound(c.c, 1)).semiflowInvariants('auto').encodeScripts();
+    const cleanOff = SmtVerifier.forNet(c.net).initialMarking(c.m0)
+      .property(placeBound(c.c, 1)).semiflowInvariants(false).encodeScripts();
+    expect(cleanAuto.horn).toBe(cleanOff.horn);
+  });
+
+  it('auto never weakens a verdict against the explicit settings', async () => {
+    for (const f of [drainingLoop(), { ...clean(), sink: (clean() as any).c }] as any[]) {
+      const target = f.sink ?? f.c;
+      const verdicts = [];
+      for (const mode of [true, false, 'auto'] as const) {
+        const r = await SmtVerifier.forNet(f.net).initialMarking(f.m0)
+          .property(placeBound(target, 2)).semiflowInvariants(mode)
+          .enumerationMaxClasses(0).timeout(30_000).verify();
+        verdicts.push(r.verdict.type);
+      }
+      expect(new Set(verdicts).size, `verdicts differed across modes: ${verdicts.join(', ')}`).toBe(1);
+    }
   });
 });

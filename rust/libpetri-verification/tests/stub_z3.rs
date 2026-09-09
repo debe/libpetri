@@ -107,6 +107,10 @@ fn verify_with(
         marking = marking.tokens(*place, *count);
     }
     SmtVerifier::for_net(net)
+        // Explicit [VER-017] opt-out: every scenario here is about what the SOLVER
+        // does with a reply, and the enumeration route would decide these small
+        // nets before a z3 process was ever started.
+        .enumeration_max_classes(0)
         .initial_marking(marking.build())
         .property(property)
         .environment_mode(EnvironmentAnalysisMode::Ignore)
@@ -393,15 +397,32 @@ echo '(proof (asserted (Reachable 1 0)) (asserted (Reachable 0 1)))'
     use_stub(&on_path);
     let result = verify(&chain_net(), &[("p0", 1)], SmtProperty::place_bound("p1", 0));
     assert!(result.is_violated(), "{}", result.report);
-    let script = fs::read_to_string(dump.join("001-horn.smt2")).expect("dumped HORN script");
+    // The linear state-equation bound ([VER-015]) is the first query of a
+    // reachability-safety property, so the counter starts at `001-bound`; the
+    // stub's `unsat` hands over to the HORN query at `002-horn`.
+    let bound = fs::read_to_string(dump.join("001-bound.smt2")).expect("dumped bound script");
+    assert!(
+        bound.contains("(set-logic QF_LIA)") && bound.ends_with("(get-model)"),
+        "the bound dump is the script as sent:\n{bound}"
+    );
+    let bound_reply = fs::read_to_string(dump.join("001-bound.out")).expect("dumped bound reply");
+    assert!(bound_reply.contains("\nunsat\n"), "{bound_reply}");
+    assert!(
+        result
+            .report
+            .contains("  Linear state-equation bound: none separates the violation\n"),
+        "{}",
+        result.report
+    );
+    let script = fs::read_to_string(dump.join("002-horn.smt2")).expect("dumped HORN script");
     assert!(
         script.contains("(set-logic HORN)") && script.ends_with("(get-model)"),
         "the dump is the script as sent:\n{script}"
     );
-    let reply = fs::read_to_string(dump.join("001-horn.out")).expect("dumped reply");
+    let reply = fs::read_to_string(dump.join("002-horn.out")).expect("dumped reply");
     assert!(reply.contains("\nunsat\n"), "the dump is the reply as received:\n{reply}");
     assert!(
-        !dump.join("001-horn.err").exists(),
+        !dump.join("001-bound.err").exists() && !dump.join("002-horn.err").exists(),
         "no .err file when stderr was empty"
     );
     // SAFETY: as above.

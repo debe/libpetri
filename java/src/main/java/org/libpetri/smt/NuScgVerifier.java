@@ -16,7 +16,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
-import java.util.function.IntPredicate;
 
 /**
  * &nu;-net exact verification via the name-aware state-class-graph name-partition
@@ -57,7 +56,8 @@ final class NuScgVerifier {
             int maxClasses,
             FragmentMode fragmentMode,
             Set<String> carrierPlaces,
-            PrioritySemantics prioritySemantics
+            PrioritySemantics prioritySemantics,
+            List<RestSet.ConditionalSinks> conditionalSinks
     ) {
         var fragment = NameFragment.classify(net, fragmentMode, carrierPlaces);
         if (fragment == null) {
@@ -83,7 +83,7 @@ final class NuScgVerifier {
                 new SmtVerificationResult.Verdict.Unknown(reason), List.of(), List.of(), "", scg.classCount());
         }
 
-        int violating = decide(scg, property, sinkPlaces);
+        int violating = decide(scg, property, sinkPlaces, conditionalSinks);
         // The trace below is an explicit path of the name-aware state-class graph —
         // a genuine run of Route B's semantics by construction. The flat abstract
         // replay does not apply to these state shapes, so the result reports
@@ -102,58 +102,34 @@ final class NuScgVerifier {
         return new Outcome(verdict, trace, transitions, NOTE_EXACT, scg.classCount());
     }
 
-    /** Returns a witnessing class index for a violation, or -1 if the property holds. */
-    private static int decide(NameStateClassGraph scg, SmtProperty property, Set<Place<?>> sinkPlaces) {
-        return switch (property) {
-            case SmtProperty.PlaceBound(var place, var bound) ->
-                firstWhere(scg, i -> scg.markingOf(i).tokens(place) > bound);
-            case SmtProperty.BranchPlaceBound(var place, var bound) ->
-                firstWhere(scg, i -> scg.markingOf(i).tokens(place) > bound);
-            case SmtProperty.Unreachable(var places) ->
-                firstWhere(scg, i -> {
-                    var m = scg.markingOf(i);
-                    for (var p : places) {
-                        if (!m.hasTokens(p)) return false;
-                    }
-                    return true;
-                });
-            case SmtProperty.MutualExclusion(var p1, var p2) ->
-                firstWhere(scg, i -> {
-                    var m = scg.markingOf(i);
-                    return m.hasTokens(p1) && m.hasTokens(p2);
-                });
-            // DeadlockFree ([VER-002]): a quiescent class that strands a token outside
-            // the declared sinks. The empty marking strands nothing.
-            case SmtProperty.DeadlockFree() ->
-                firstWhere(scg, i -> scg.successorsOf(i).isEmpty() && !allTokensInSinks(scg.markingOf(i), sinkPlaces));
-            // TerminatesAtSink ([VER-002]): a quiescent class that marks NO declared
-            // sink. Inverts with DeadlockFree on the empty marking, by design.
-            case SmtProperty.TerminatesAtSink() ->
-                firstWhere(scg, i -> scg.successorsOf(i).isEmpty() && !anySinkMarked(scg.markingOf(i), sinkPlaces));
-            case SmtProperty.JoinedOrDeadLettered(var pending) ->
-                firstWhere(scg, i -> scg.successorsOf(i).isEmpty() && scg.markingOf(i).hasTokens(pending));
-        };
-    }
+    /**
+     * Returns a witnessing class index for a violation, or -1 if the property holds.
+     *
+     * <p>The predicate itself lives in {@link GraphDecision#decideOverClasses}, shared with
+     * the plain enumeration route of [VER-017] so the two cannot drift ([VER-002] AC7).
+     */
+    private static int decide(
+            NameStateClassGraph scg, SmtProperty property, Set<Place<?>> sinkPlaces,
+            List<RestSet.ConditionalSinks> conditionalSinks
+    ) {
+        return GraphDecision.decideOverClasses(
+            new GraphDecision.ClassView() {
+                @Override
+                public int count() {
+                    return scg.classCount();
+                }
 
-    private static boolean allTokensInSinks(MarkingState m, Set<Place<?>> sinks) {
-        for (var p : m.placesWithTokens()) {
-            if (!sinks.contains(p)) return false;
-        }
-        return true;
-    }
+                @Override
+                public MarkingState markingOf(int i) {
+                    return scg.markingOf(i);
+                }
 
-    private static boolean anySinkMarked(MarkingState m, Set<Place<?>> sinks) {
-        for (var p : m.placesWithTokens()) {
-            if (sinks.contains(p)) return true;
-        }
-        return false;
-    }
-
-    private static int firstWhere(NameStateClassGraph scg, IntPredicate pred) {
-        for (int i = 0; i < scg.classCount(); i++) {
-            if (pred.test(i)) return i;
-        }
-        return -1;
+                @Override
+                public boolean isQuiescent(int i) {
+                    return scg.successorsOf(i).isEmpty();
+                }
+            },
+            property, sinkPlaces, conditionalSinks);
     }
 
     private record Path(List<MarkingState> markings, List<String> transitions) {}

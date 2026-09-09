@@ -236,9 +236,13 @@ describe('certificate reply parsing (no solver)', () => {
 
 describeZ3('SmtVerifier certificate check wiring', () => {
   it('IC3-proven verdict carries the certificate PASSED line (default on)', async () => {
+    // The bound is a plain conservation law, which the linear state-equation bound
+    // (VER-015) would prove structurally first; this test is about the IC3 path.
     const result = await SmtVerifier.forNet(bindProducers(circularNet()))
+      .enumerationMaxClasses(0)
       .initialMarking(m => m.tokens(pA, 1))
       .property(placeBound(pB, 1))
+      .linearBound(false)
       .timeout(30_000)
       .verify();
 
@@ -248,8 +252,10 @@ describeZ3('SmtVerifier certificate check wiring', () => {
 
   it('certificateCheck(false) skips the check and says so', async () => {
     const result = await SmtVerifier.forNet(bindProducers(circularNet()))
+      .enumerationMaxClasses(0)
       .initialMarking(m => m.tokens(pA, 1))
       .property(placeBound(pB, 1))
+      .linearBound(false)
       .certificateCheck(false)
       .timeout(30_000)
       .verify();

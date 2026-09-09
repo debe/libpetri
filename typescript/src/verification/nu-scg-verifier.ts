@@ -10,6 +10,8 @@
  */
 import type { PetriNet } from '../core/petri-net.js';
 import type { Place } from '../core/place.js';
+import type { ConditionalSinks } from './rest-set.js';
+import { decideOverClasses } from './graph-decision.js';
 import type { EnvironmentPlace } from '../core/place.js';
 import type { MarkingState } from './marking-state.js';
 import type { EnvironmentAnalysisMode } from './analysis/environment-analysis-mode.js';
@@ -44,6 +46,7 @@ export function verifyViaNameScg(
   fragmentMode: FragmentMode,
   carrierPlaces: ReadonlySet<string>,
   prioritySemantics: PrioritySemantics,
+  conditionalSinks: readonly ConditionalSinks[] = [],
 ): NuScgOutcome | null {
   const fragment = classify(net, fragmentMode, carrierPlaces);
   if (fragment === null) return null;
@@ -73,7 +76,7 @@ export function verifyViaNameScg(
     };
   }
 
-  const violating = decide(scg, property, sinkPlaces);
+  const violating = decide(scg, property, sinkPlaces, conditionalSinks);
   if (violating >= 0) {
     const [trace, transitions] = counterexamplePath(scg, violating);
     return { verdict: { type: 'violated' }, trace, transitions, note: NOTE_EXACT, classCount: scg.classCount() };
@@ -87,64 +90,28 @@ export function verifyViaNameScg(
   };
 }
 
-/** Returns a witnessing class index for a violation, or -1 if the property holds. */
-function decide(scg: NameStateClassGraph, property: SmtProperty, sinkPlaces: ReadonlySet<Place<any>>): number {
-  const firstWhere = (pred: (i: number) => boolean): number => {
-    for (let i = 0; i < scg.classCount(); i++) {
-      if (pred(i)) return i;
-    }
-    return -1;
-  };
-
-  switch (property.type) {
-    case 'place-bound':
-    case 'branch-place-bound':
-      return firstWhere(i => scg.markingOf(i).tokens(property.place) > property.bound);
-    case 'unreachable':
-      return firstWhere(i => {
-        const m = scg.markingOf(i);
-        for (const p of property.places) {
-          if (!m.hasTokens(p)) return false;
-        }
-        return true;
-      });
-    case 'mutual-exclusion':
-      return firstWhere(i => {
-        const m = scg.markingOf(i);
-        return m.hasTokens(property.p1) && m.hasTokens(property.p2);
-      });
-    // DeadlockFree (VER-002): a quiescent class that strands a token — some marked
-    // place is not a declared sink. The empty marking strands nothing (AC4).
-    case 'deadlock-free':
-      return firstWhere(i => scg.successorsOf(i).length === 0 && !allTokensInSinks(scg.markingOf(i), sinkPlaces));
-    // TerminatesAtSink (VER-002): a quiescent class that marks NO declared sink.
-    // Inverts with DeadlockFree on the empty marking, by design.
-    case 'terminates-at-sink':
-      return firstWhere(i => scg.successorsOf(i).length === 0 && !anySinkMarked(scg.markingOf(i), sinkPlaces));
-    // JoinedOrDeadLettered (NU-040 AC4): a quiescent class still holding a pending
-    // token. No sink clause.
-    case 'joined-or-dead-lettered':
-      return firstWhere(i => scg.successorsOf(i).length === 0 && scg.markingOf(i).hasTokens(property.pending));
-  }
-}
-
-function allTokensInSinks(m: MarkingState, sinks: ReadonlySet<Place<any>>): boolean {
-  const sinkNames = new Set<string>();
-  for (const s of sinks) sinkNames.add(s.name);
-  for (const p of m.placesWithTokens()) {
-    if (!sinkNames.has(p.name)) return false;
-  }
-  return true;
-}
-
-/** Whether any declared sink place holds a token in `m` ([VER-002]). */
-function anySinkMarked(m: MarkingState, sinks: ReadonlySet<Place<any>>): boolean {
-  const sinkNames = new Set<string>();
-  for (const s of sinks) sinkNames.add(s.name);
-  for (const p of m.placesWithTokens()) {
-    if (sinkNames.has(p.name)) return true;
-  }
-  return false;
+/**
+ * A witnessing class index for a violation, or -1 if the property holds.
+ *
+ * The predicate itself lives in {@link decideOverClasses}, shared with the plain
+ * enumeration route of [VER-017] so the two cannot drift ([VER-002] AC7).
+ */
+function decide(
+  scg: NameStateClassGraph,
+  property: SmtProperty,
+  sinkPlaces: ReadonlySet<Place<any>>,
+  conditionalSinks: readonly ConditionalSinks[],
+): number {
+  return decideOverClasses(
+    {
+      count: scg.classCount(),
+      markingOf: i => scg.markingOf(i),
+      isQuiescent: i => scg.successorsOf(i).length === 0,
+    },
+    property,
+    sinkPlaces,
+    conditionalSinks,
+  );
 }
 
 /** Shortest firing sequence from the initial class (0) to `target`. */

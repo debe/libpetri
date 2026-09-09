@@ -10,6 +10,9 @@ import java.util.List;
  * Result of SMT-based verification.
  *
  * @param verdict                  proven, violated, or unknown
+ * @param route                    which route decided this verdict ([VER-003]). Read it before
+ *     concluding anything from an <b>empty</b> {@code invariants}: off {@link Route#SMT} that
+ *     means "not computed", never "none exist". A non-empty list is real whatever the route says.
  * @param report                   human-readable analysis report
  * @param invariants               P-invariants found during analysis
  * @param discoveredInvariants     IC3-synthesized inductive invariants (empty if not proven by IC3)
@@ -45,6 +48,7 @@ import java.util.List;
  */
 public record SmtVerificationResult(
     Verdict verdict,
+    Route route,
     String report,
     List<PInvariant> invariants,
     List<String> discoveredInvariants,
@@ -54,6 +58,33 @@ public record SmtVerificationResult(
     Duration elapsed,
     SmtStatistics statistics
 ) {
+
+    /**
+     * Which route decided a verdict ([VER-003]).
+     *
+     * <p>The routes do equivalent work by different means, and a consumer reading the
+     * result's fields rather than its report needs to know which one answered:
+     * {@link #ENUMERATION} and {@link #NU_SCG} decide by exploring a finite graph and
+     * compute no P-invariants at all.
+     *
+     * <p>The rule for {@link SmtVerificationResult#invariants()} is about the <em>empty</em>
+     * case only: an empty list from a route other than {@link #SMT} means "not computed",
+     * not "the net has none". A non-empty list is always real — {@link #UNAVAILABLE} in
+     * particular still carries the invariants the pipeline computed before it found no
+     * usable solver, and {@link #STRUCTURAL} carries whatever the proof rested on.
+     */
+    public enum Route {
+        /** The IC3/PDR pipeline: flatten, invariants, encode, solve ([VER-001]). */
+        SMT,
+        /** Bounded state-space enumeration ([VER-017]). */
+        ENUMERATION,
+        /** The &nu; name-partition state-class graph ([VER-012], Route B). */
+        NU_SCG,
+        /** A structural proof — Commoner's theorem, or the linear bound of [VER-015]. */
+        STRUCTURAL,
+        /** No route could run (no solver, an unresolved property place). */
+        UNAVAILABLE
+    }
 
     /**
      * Verification verdict.

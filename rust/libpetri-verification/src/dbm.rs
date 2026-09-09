@@ -237,7 +237,65 @@ impl Dbm {
         result
     }
 
-    /// Generates a canonical string representation for deduplication.
+    /// The same zone with its clocks reordered: clock `k` of the result is clock
+    /// `order[k]` of this DBM. `order` must be a permutation of
+    /// `0..clock_names.len()`.
+    ///
+    /// The state-class graph applies this to put every class's clocks in the one
+    /// canonical order ([VER-010] AC1), so two arrivals at the same marking and
+    /// zone whose transitions became enabled in a different sequence share a key
+    /// instead of being counted as two classes. The reference row and column stay
+    /// put; the matrix is copied once, O(dim²) against the O(dim³)
+    /// canonicalisation every successor already pays. A permutation of a
+    /// canonical matrix is canonical, so nothing is re-closed.
+    pub fn permuted(&self, order: &[usize]) -> Dbm {
+        if self.empty {
+            return self.clone();
+        }
+        let n = self.clock_names.len();
+        let dim = self.dim;
+        let mut out = vec![f64::INFINITY; dim * dim];
+        out[0] = 0.0;
+        let mut names = Vec::with_capacity(n);
+        for i in 0..n {
+            let oi = order[i] + 1;
+            names.push(self.clock_names[order[i]].clone());
+            out[(i + 1) * dim] = self.data[oi * dim];
+            out[i + 1] = self.data[oi];
+            for j in 0..n {
+                out[(i + 1) * dim + (j + 1)] = self.data[oi * dim + (order[j] + 1)];
+            }
+        }
+        Dbm {
+            dim,
+            data: out,
+            clock_names: names,
+            empty: false,
+        }
+    }
+
+    /// The zone's identity for state-class dedup ([VER-011] AC4): the clock
+    /// names and the FULL canonical matrix, every difference bound included.
+    ///
+    /// [`Dbm::canonical_string`] prints only the per-clock projections
+    /// `[lo, hi]`, and two zones can agree on every projection while
+    /// disagreeing on a difference constraint `θi - θj <= c` — the class where
+    /// one transition must fire no later than another versus the class where
+    /// either may go first. Keying on the projections merges those, and since
+    /// the graph explores only the first arrival's successors, a marking
+    /// reachable only from the second is lost: a false `proven`. This key is
+    /// what `PartialEq` compares, rendered.
+    pub fn zone_key(&self) -> String {
+        if self.empty {
+            return "DBM[empty]".to_string();
+        }
+        let mut parts = vec![self.clock_names.join(",")];
+        parts.extend(self.data.iter().map(|&b| format_bound(b)));
+        parts.join("|")
+    }
+
+    /// Generates the per-clock projection string (`DBM{t1:[0,∞], …}`), the
+    /// human-readable form. Not a dedup key — see [`Dbm::zone_key`].
     pub fn canonical_string(&self) -> String {
         if self.empty {
             return "DBM[empty]".to_string();
@@ -550,5 +608,57 @@ mod tests {
         assert_eq!(passed.lower_bound(1), 0.0);
         assert_eq!(passed.upper_bound(0), 10.0);
         assert_eq!(passed.upper_bound(1), 15.0);
+    }
+
+    // VER-010/011: the zone key is the FULL canonical matrix, and clock order is a
+    // presentation detail the graph normalises away.
+
+    /// f ∈ [0,1] fires first; u ∈ [2,4] and v ∈ [0,1] persist, w is newly enabled.
+    fn zone_uvw() -> Dbm {
+        Dbm::create(vec!["f".into(), "u".into(), "v".into()], &[0.0, 2.0, 0.0], &[1.0, 4.0, 1.0])
+            .fire_transition(0, &["w".into()], &[0.0], &[1.0], &[1, 2])
+            .let_time_pass()
+    }
+
+    #[test]
+    fn permuted_reorders_clocks_without_changing_the_zone() {
+        let a = zone_uvw(); // clocks u, v, w
+        let b = a.permuted(&[2, 0, 1]); // clocks w, u, v
+        assert_eq!(b.clock_names(), &["w".to_string(), "u".to_string(), "v".to_string()]);
+        assert_eq!(b.lower_bound(1), a.lower_bound(0));
+        assert_eq!(b.upper_bound(1), a.upper_bound(0));
+        assert_eq!(b.upper_bound(0), a.upper_bound(2));
+        // Permuting back restores the exact matrix.
+        assert_eq!(b.permuted(&[1, 2, 0]), a);
+        assert_eq!(b.permuted(&[1, 2, 0]).zone_key(), a.zone_key());
+        // The projection string follows the clock order; the zone did not change.
+        assert_ne!(b.canonical_string(), a.canonical_string());
+    }
+
+    #[test]
+    fn zone_key_separates_zones_that_share_every_per_clock_projection() {
+        // Zone A: u − v ≥ 1 (u and v aged together under f), w fresh and unrelated.
+        let a = zone_uvw();
+        // Zone B: u − w ≥ 1, v fresh and unrelated — built with the roles of v and w
+        // swapped, then permuted into the same clock order.
+        let b = Dbm::create(vec!["f".into(), "u".into(), "w".into()], &[0.0, 2.0, 0.0], &[1.0, 4.0, 1.0])
+            .fire_transition(0, &["v".into()], &[0.0], &[1.0], &[1, 2])
+            .let_time_pass()
+            .permuted(&[0, 2, 1]);
+        assert_eq!(a.clock_names(), &["u".to_string(), "v".to_string(), "w".to_string()]);
+        assert_eq!(b.clock_names(), a.clock_names());
+        // Identical projections: the old key would have merged these two classes.
+        assert_eq!(a.canonical_string(), b.canonical_string());
+        // Different zones: the difference constraint sits between different clocks.
+        assert_ne!(a, b);
+        assert_ne!(a.zone_key(), b.zone_key());
+    }
+
+    #[test]
+    fn zone_key_of_an_empty_zone_is_stable() {
+        assert_eq!(Dbm::empty_dbm().zone_key(), "DBM[empty]");
+        // Shape: names, then every matrix entry row-major.
+        let one = Dbm::create(vec!["t1".into()], &[5.0], &[10.0]);
+        assert_eq!(one.zone_key(), "t1|0|-5|10|0");
     }
 }

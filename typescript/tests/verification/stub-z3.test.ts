@@ -78,6 +78,7 @@ describe.skipIf(process.platform === 'win32')('stub z3 (VER-013 transport contra
 
   function verify(net: PetriNet, property: SmtProperty, timeoutMs = 5_000, tokens: Array<[typeof p0, number]> = [[p0, 1]]) {
     return SmtVerifier.forNet(net)
+      .enumerationMaxClasses(0)
       .initialMarking(m => { for (const [p, n] of tokens) m.tokens(p, n); })
       .property(property)
       .environmentMode(ignore())
@@ -225,11 +226,16 @@ echo '(proof (asserted (Reachable 1 0)) (asserted (Reachable 0 1)))'
     delete process.env[DUMP_ENV];
     expect(result.verdict.type, result.report).toBe('violated');
     const names = readdirSync(dump).sort();
-    expect(names, 'one script and one reply').toHaveLength(2);
-    expect(names[0]!.endsWith('-horn.out') && names[1]!.endsWith('-horn.smt2')).toBe(true);
-    const script = readFileSync(join(dump, names[1]!), 'utf8');
+    // The linear state-equation bound query (VER-015, phase `bound`) runs first for a
+    // reachability-safety property; the stub's `unsat` says no bound separates, so the
+    // HORN query follows. Two scripts, two replies, in phase order.
+    expect(names, 'two scripts and two replies').toEqual([
+      '001-bound.out', '001-bound.smt2', '002-horn.out', '002-horn.smt2',
+    ]);
+    expect(readFileSync(join(dump, names[1]!), 'utf8')).toContain('(set-logic QF_LIA)');
+    const script = readFileSync(join(dump, names[3]!), 'utf8');
     expect(script).toContain('(set-logic HORN)');
     expect(script.endsWith('(get-model)')).toBe(true);
-    expect(readFileSync(join(dump, names[0]!), 'utf8')).toContain('\nunsat\n');
+    expect(readFileSync(join(dump, names[2]!), 'utf8')).toContain('\nunsat\n');
   });
 });

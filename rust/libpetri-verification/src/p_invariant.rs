@@ -120,6 +120,18 @@ pub fn compute_p_invariants(
     invariants
 }
 
+/// Survivor cap per elimination round — the historical backstop against blow-up.
+/// Rows past it are dropped, so on a branchy net the semiflows that survive are
+/// an arbitrary truncation of the minimal set rather than all of it ([VER-007]).
+const MAX_SEMIFLOW_ROWS: usize = 8192;
+
+/// Candidate cap per elimination round, applied while the `pos x neg`
+/// combinations are being built. Generous relative to [`MAX_SEMIFLOW_ROWS`] so
+/// that any net whose enumeration completes today is unaffected; it exists to
+/// stop a net whose candidate set is exponential from exhausting the heap before
+/// the filter runs.
+const MAX_SEMIFLOW_CANDIDATES: usize = 65_536;
+
 /// Computes the minimal **P-semiflows** — non-negative place weightings `y` with
 /// `y·C = 0` — via the Colom–Silva / Farkas method. Unlike [`compute_p_invariants`]
 /// (a signed null-space basis), every returned `PInvariant.weights` is non-negative, a
@@ -155,8 +167,18 @@ pub fn compute_p_semiflows(
             rows.iter().filter(|r| r.0[t] == 0).cloned().collect();
         let pos: Vec<&(Vec<i64>, Vec<i64>)> = rows.iter().filter(|r| r.0[t] > 0).collect();
         let neg: Vec<&(Vec<i64>, Vec<i64>)> = rows.iter().filter(|r| r.0[t] < 0).collect();
-        for rp in &pos {
+        // Bound the CANDIDATE set, not merely the survivors. `pos x neg` is the
+        // term that explodes — on branchy nets it is quadratic in a row count
+        // that is already exponential in the branching — and materialising it
+        // before the filter is what exhausts the heap, which aborts the process
+        // rather than failing a verdict. The ceiling is well above
+        // `MAX_SEMIFLOW_ROWS` so that every net small enough to finish keeps
+        // exactly the rows it had.
+        'candidates: for rp in &pos {
             for rn in &neg {
+                if next.len() >= MAX_SEMIFLOW_CANDIDATES {
+                    break 'candidates;
+                }
                 let cp = -rn.0[t]; // > 0
                 let cn = rp.0[t]; // > 0
                 // Checked combination: on i64 overflow, DROP this generator rather than
@@ -173,7 +195,7 @@ pub fn compute_p_semiflows(
             }
         }
         rows = keep_support_minimal(next);
-        rows.truncate(8192); // safety backstop against a combinatorial blow-up
+        rows.truncate(MAX_SEMIFLOW_ROWS); // safety backstop against a combinatorial blow-up
     }
 
     rows.into_iter()
@@ -202,6 +224,23 @@ pub fn compute_p_semiflows(
 pub struct InvariantValidation {
     pub valid: Vec<PInvariant>,
     pub dropped: Vec<String>,
+}
+
+/// Per flat place, whether some flat transition consumes it non-linearly — a
+/// consume-all (`In::All` / `In::AtLeast`) input or a reset arc: the H1 set of
+/// `Strengthening.lean`. The linearised incidence column lies about the real
+/// firing there, so a conservation law ([VER-005]), a decreasing bound
+/// ([VER-015]) or a marking-equation row ([VER-016]) may carry no weight on it.
+pub fn nonlinear_places(flat: &FlatNet) -> Vec<bool> {
+    let mut nonlinear = vec![false; flat.place_count];
+    for ft in &flat.transitions {
+        for &p in ft.consume_all.iter().chain(&ft.reset_places) {
+            if p < nonlinear.len() {
+                nonlinear[p] = true;
+            }
+        }
+    }
+    nonlinear
 }
 
 /// Exact re-validation pass between invariant computation and SMT encoding.
@@ -250,14 +289,8 @@ pub fn validate_invariants_exact(
     // Places with non-linear consumption on some flat transition (H1's
     // reset/consume-all arms). Computed once; the matrix may carry extra injector
     // columns beyond `flat.transitions`, which are linear and need no entry here.
-    let mut nonlinear = vec![false; matrix.place_count];
-    for ft in &flat.transitions {
-        for &p in ft.consume_all.iter().chain(&ft.reset_places) {
-            if p < nonlinear.len() {
-                nonlinear[p] = true;
-            }
-        }
-    }
+    let mut nonlinear = nonlinear_places(flat);
+    nonlinear.resize(matrix.place_count, false);
 
     let mut valid = Vec::with_capacity(invariants.len());
     let mut dropped = Vec::new();
@@ -420,23 +453,52 @@ fn reduce_gcd(sig: &mut [i64], weight: &mut [i64]) {
 
 /// Drops any row whose weight-support is a strict superset of another's — a non-minimal
 /// combination that only inflates the set (and can cause combinatorial blow-up).
+///
+/// Kept row `i` is exactly one with no row `j` such that `|supp(j)| < |supp(i)|`
+/// and `supp(j) ⊆ supp(i)`. (The obvious sequential reading — skipping a `j` that
+/// has itself been dropped — computes the same set: if `j` was dropped there is a
+/// `k` with `supp(k) ⊂ supp(j) ⊆ supp(i)` and `|supp(k)| < |supp(i)|`, so `k`
+/// drops `i` in `j`'s place.) The set is therefore order-free, which is what lets
+/// this run as a bitset sweep in ascending support size rather than the quadratic
+/// scan of member lists it replaces: supports become machine words, a subset test
+/// is a handful of AND operations, and candidates are compared only against
+/// strictly smaller ones. Same rows, same order, on a net where the old form was
+/// the dominant cost of the whole pipeline.
 fn keep_support_minimal(rows: Vec<(Vec<i64>, Vec<i64>)>) -> Vec<(Vec<i64>, Vec<i64>)> {
-    let supports: Vec<Vec<usize>> = rows
-        .iter()
-        .map(|(_, w)| (0..w.len()).filter(|&i| w[i] != 0).collect())
-        .collect();
-    let mut keep = vec![true; rows.len()];
-    for i in 0..rows.len() {
-        if !keep[i] {
-            continue;
-        }
-        for j in 0..rows.len() {
-            if i == j || !keep[j] {
-                continue;
+    let n = rows.len();
+    if n < 2 {
+        return rows;
+    }
+    let words = rows[0].1.len().div_ceil(64).max(1);
+    let mut bits = vec![0u64; n * words];
+    let mut sizes = vec![0usize; n];
+    for (i, (_, w)) in rows.iter().enumerate() {
+        let mut size = 0;
+        for (p, &v) in w.iter().enumerate() {
+            if v != 0 {
+                bits[i * words + (p >> 6)] |= 1u64 << (p & 63);
+                size += 1;
             }
-            if supports[j].len() < supports[i].len()
-                && supports[j].iter().all(|p| supports[i].contains(p))
-            {
+        }
+        sizes[i] = size;
+    }
+    // Ascending support size: a row can only be dropped by a strictly smaller
+    // one, so every possible dropper precedes it here and the inner loop can stop
+    // early. `sort_by_key` is stable, so equal sizes keep input order.
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by_key(|&i| sizes[i]);
+
+    let mut keep = vec![true; n];
+    for oi in 0..n {
+        let i = order[oi];
+        let base = i * words;
+        for &j in order.iter().take(oi) {
+            if sizes[j] >= sizes[i] {
+                break; // sorted: no strictly smaller row remains
+            }
+            let jbase = j * words;
+            let subset = (0..words).all(|w| bits[jbase + w] & !bits[base + w] == 0);
+            if subset {
                 keep[i] = false;
                 break;
             }
@@ -537,11 +599,12 @@ mod tests {
     }
     use super::*;
     use crate::incidence_matrix::IncidenceMatrix;
+    use crate::marking_state::MarkingStateBuilder;
     use crate::net_flattener::flatten;
     use libpetri_core::action::fork;
     use libpetri_core::arc::reset;
     use libpetri_core::input::{all, at_least, exactly, one};
-    use libpetri_core::output::out_place;
+    use libpetri_core::output::{and, out_place};
     use libpetri_core::petri_net::PetriNet;
     use libpetri_core::place::Place;
     use libpetri_core::transition::Transition;
@@ -1112,5 +1175,140 @@ mod tests {
         // A transition with no output is a sink — it violates conservation
         // so no positive invariant covering p1 alone
         assert!(invariants.is_empty() || !is_covered_by_invariants(&invariants, flat.place_count));
+    }
+
+    // ---- [VER-007]: the support-minimality filter and the candidate ceiling ----
+    //
+    // The filter is the dominant cost of the semiflow enumeration on a branchy
+    // net, so it is a bitset sweep rather than a scan of member lists. It must
+    // keep exactly the rows the definition names, in input order.
+
+    /// `src -> fork -> k arms -> join`: the minimal semiflows are one per arm.
+    fn diamond(k: usize) -> (PetriNet, MarkingState) {
+        let src = Place::<i32>::new("src");
+        let done = Place::<i32>::new("done");
+        let bs: Vec<Place<i32>> = (0..k).map(|i| Place::new(format!("b{i}"))).collect();
+        let ms: Vec<Place<i32>> = (0..k).map(|i| Place::new(format!("m{i}"))).collect();
+        let mut builder = PetriNet::builder(format!("diamond{k}")).transition(
+            Transition::builder("fork")
+                .input(one(&src))
+                .output(and(bs.iter().map(out_place).collect::<Vec<_>>()))
+                .action(fork())
+                .build(),
+        );
+        for i in 0..k {
+            builder = builder.transition(
+                Transition::builder(format!("arm{i}"))
+                    .input(one(&bs[i]))
+                    .output(out_place(&ms[i]))
+                    .action(fork())
+                    .build(),
+            );
+        }
+        let mut join = Transition::builder("join");
+        for m in &ms {
+            join = join.input(one(m));
+        }
+        let net = builder
+            .transition(join.output(out_place(&done)).action(fork()).build())
+            .build();
+        (net, MarkingStateBuilder::new().tokens("src", 1).build())
+    }
+
+    #[test]
+    fn keeps_only_rows_with_no_strictly_smaller_sub_support() {
+        for k in [3usize, 6, 10] {
+            let (net, m0) = diamond(k);
+            let flat = flatten(&net);
+            let matrix = IncidenceMatrix::from_flat_net(&flat, &[]);
+            let semiflows = compute_p_semiflows(&matrix, &m0, &flat.places);
+            // Minimality is the defining property: no survivor's support strictly
+            // contains another's.
+            for a in &semiflows {
+                for b in &semiflows {
+                    if std::ptr::eq(a, b) {
+                        continue;
+                    }
+                    let strictly_smaller = b.support.len() < a.support.len();
+                    let subset = b.support.iter().all(|p| a.support.contains(p));
+                    assert!(
+                        !(strictly_smaller && subset),
+                        "support {:?} contains smaller {:?}",
+                        a.support,
+                        b.support
+                    );
+                }
+            }
+            // Every survivor is a real conservation law: y >= 0 and y·C = 0.
+            for y in &semiflows {
+                assert!(y.support.iter().all(|&p| y.weights[p] > 0));
+                for t in 0..matrix.transition_count {
+                    let d: i64 = y
+                        .support
+                        .iter()
+                        .map(|&p| y.weights[p] * matrix.incidence[t][p])
+                        .sum();
+                    assert_eq!(d, 0, "semiflow moved under transition {t}");
+                }
+            }
+        }
+    }
+
+    /// Diamonds in series: `2^layers` minimal semiflows. The enumeration must come
+    /// back rather than exhaust the heap, which aborts the process instead of
+    /// failing a verdict — which is why the CANDIDATE set is capped as it is built
+    /// and not merely the survivors.
+    #[test]
+    fn stays_bounded_on_a_shape_whose_minimal_set_is_exponential() {
+        let mut builder = PetriNet::builder("series14");
+        for l in 0..14usize {
+            let from = Place::<i32>::new(format!("p{l}"));
+            let a = Place::<i32>::new(format!("a{l}"));
+            let b = Place::<i32>::new(format!("b{l}"));
+            let ma = Place::<i32>::new(format!("ma{l}"));
+            let mb = Place::<i32>::new(format!("mb{l}"));
+            let next = Place::<i32>::new(format!("p{}", l + 1));
+            builder = builder
+                .transition(
+                    Transition::builder(format!("fork{l}"))
+                        .input(one(&from))
+                        .output(and(vec![out_place(&a), out_place(&b)]))
+                        .action(fork())
+                        .build(),
+                )
+                .transition(
+                    Transition::builder(format!("armA{l}"))
+                        .input(one(&a))
+                        .output(out_place(&ma))
+                        .action(fork())
+                        .build(),
+                )
+                .transition(
+                    Transition::builder(format!("armB{l}"))
+                        .input(one(&b))
+                        .output(out_place(&mb))
+                        .action(fork())
+                        .build(),
+                )
+                .transition(
+                    Transition::builder(format!("join{l}"))
+                        .input(one(&ma))
+                        .input(one(&mb))
+                        .output(out_place(&next))
+                        .action(fork())
+                        .build(),
+                );
+        }
+        let net = builder.build();
+        let flat = flatten(&net);
+        let matrix = IncidenceMatrix::from_flat_net(&flat, &[]);
+        let m0 = MarkingStateBuilder::new().tokens("p0", 1).build();
+        let started = std::time::Instant::now();
+        let semiflows = compute_p_semiflows(&matrix, &m0, &flat.places);
+        assert!(!semiflows.is_empty());
+        assert!(
+            started.elapsed().as_secs() < 60,
+            "the bitset sweep keeps this well inside the budget"
+        );
     }
 }

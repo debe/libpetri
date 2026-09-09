@@ -5,8 +5,12 @@ export {
   parseZ3Version, formatZ3Version, MIN_Z3_VERSION, Z3_ENV, DUMP_ENV,
 } from './z3-process.js';
 export type { Z3Solver, Z3Version, Z3Reply, Z3Exit } from './z3-process.js';
-export { encode, encodeStepRelationSmt2 } from './smt-encoder.js';
-export type { SmtEncoding } from './smt-encoder.js';
+export { encode, encodeNet, encodeStepRelationSmt2 } from './smt-encoder.js';
+export type { SmtEncoding, EncodeOptions } from './smt-encoder.js';
+export {
+  encodeLinearBound, decodeLinearBound, checkLinearBoundExact, formatLinearBound, formatLinearDemand, violationDemand,
+} from './linear-bound.js';
+export type { LinearBound } from './linear-bound.js';
 export { checkCertificate, vcScript } from './certificate-checker.js';
 export type { CertificateCheckOutcome, CertificateVc } from './certificate-checker.js';
 export { decode, decodeStateSet } from './counterexample-decoder.js';
