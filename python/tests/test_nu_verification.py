@@ -140,6 +140,11 @@ def test_structurally_bounded_without_declared_budget_decided_by_route_b():
     )
     assert result.verdict == "proven", result.report
     assert "Route B" in result.report
+    # VER-003 AC4: Route B names itself in the result, not only in the report, and
+    # like the enumeration route it computes no P-invariants -- an empty list here
+    # means "not computed".
+    assert result.route == "nu-scg", result.report
+    assert result.invariants_found == 0
 
 
 def test_joined_or_dead_lettered_proven_by_route_b():
@@ -186,6 +191,10 @@ def test_joined_or_dead_lettered_proven_on_non_nu_net():
         net,
         lp.joined_or_dead_lettered(pending),
         initial_marking={start: 1},
+        # Explicit VER-017 opt-out: this three-class untimed graph would be closed
+        # by the enumeration route first, and the quiescence ENCODING this test
+        # calls exact would never be built.
+        enumeration_max_classes=0,
         timeout_ms=15_000,
     )
     assert result.verdict == "proven", result.report
@@ -205,6 +214,9 @@ def test_joined_or_dead_lettered_violated_on_non_nu_net():
         net,
         lp.joined_or_dead_lettered(pending),
         initial_marking={start: 1},
+        # Explicit VER-017 opt-out, as above: the quiescence encoding is what must
+        # expose the stranded token, so the enumeration route is turned off.
+        enumeration_max_classes=0,
         timeout_ms=15_000,
     )
     assert result.verdict == "violated", result.report

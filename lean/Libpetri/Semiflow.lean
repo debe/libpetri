@@ -11,8 +11,16 @@ returns mixed-sign rows and rows that fold a reset place into a chain whose
 other combinations avoid it — both lost to the exact gate
 (`validate_invariants_exact`, `p_invariant.rs`), on a reset-heavy net every law
 of the chains those arcs touch. The Farkas / Colom–Silva enumeration
-(`compute_p_semiflows`, `p_invariant.rs`) returns the *minimal* semi-positive
-laws instead. [VER-007] lets the verifier union the gate-validated semiflows
+(`compute_p_semiflows`, `p_invariant.rs`) returns *minimal* semi-positive laws
+instead — minimal, but **not necessarily all of them**: the implementation caps
+both the candidate set it builds and the rows that survive each elimination
+round, because the minimal set is exponential in a net's branching (`k`
+independent diamonds in series have `2^k`). On such a net what reaches the
+encoders is an arbitrary subset of the minimal laws ([VER-007]). Nothing below
+depends on getting all of them: `semiflow_union_sound` quantifies over an
+*arbitrary* list of gate-validated laws, so it holds for any subset, and a law
+that is never enumerated is a proof the encoder does not get rather than a
+proof it gets wrong. Completeness would buy strength, never soundness. [VER-007] lets the verifier union the gate-validated semiflows
 into the list the encoders receive (`strengthen_with_semiflows`,
 `p_invariant.rs`; Java `SmtVerifier.semiflowInvariants` and the TypeScript
 `strengthenWithSemiflows` mirror it), off by default.

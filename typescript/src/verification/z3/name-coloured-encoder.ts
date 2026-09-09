@@ -55,13 +55,14 @@
  */
 import type { PetriNet } from '../../core/petri-net.js';
 import type { Place } from '../../core/place.js';
+import { strandingExcuses, type ConditionalSinks } from '../rest-set.js';
 import type { FlatNet } from '../encoding/flat-net.js';
 import type { FlatTransition } from '../encoding/flat-transition.js';
 import type { MarkingState } from '../marking-state.js';
 import type { SmtProperty } from '../smt-property.js';
 import type { PInvariant } from '../invariant/p-invariant.js';
 import type { FragmentMode } from '../analysis/name-fragment.js';
-import { indexOrdered, injectionMap, type SmtEncoding } from './smt-encoder.js';
+import { indexOrdered, injectionMap, type SmtEncoding, strandedConditions } from './smt-encoder.js';
 
 /** How a transition relates to the coloured (correlation-carrying) places. */
 type Klass =
@@ -345,6 +346,7 @@ export function encodeColoured(
   property: SmtProperty,
   invariants: readonly PInvariant[],
   sinkPlaces: ReadonlySet<Place<any>>,
+  conditionalSinks: readonly ConditionalSinks[] = [],
 ): SmtEncoding | null {
   const P = flat.places.length;
   const k = plan.k;
@@ -426,14 +428,14 @@ export function encodeColoured(
 
   // Error rule. `null` ⇒ the property names an unresolved place; refuse to build a
   // vacuously-provable encoding and let the verifier report Unknown.
-  const error = encodeError(plan, lay, flat, property, sinkPlaces, injectionMap(flat));
+  const error = encodeError(plan, lay, flat, property, sinkPlaces, injectionMap(flat), conditionalSinks);
   if (error == null) return null;
   lines.push(error);
   lines.push('');
   lines.push('(assert (not Error))');
   lines.push('(check-sat)');
 
-  return { smt2: lines.join('\n'), placeCount: P };
+  return { smt2: lines.join('\n'), placeCount: P, counterCount: 0 };
 }
 
 /**
@@ -539,8 +541,9 @@ function encodeError(
   property: SmtProperty,
   sinkPlaces: ReadonlySet<Place<any>>,
   envInj: ReadonlyMap<number, number | null>,
+  conditionalSinks: readonly ConditionalSinks[],
 ): string | null {
-  const violation = encodeViolation(plan, lay, flat, property, sinkPlaces, envInj);
+  const violation = encodeViolation(plan, lay, flat, property, sinkPlaces, envInj, conditionalSinks);
   if (violation == null) return null;
   return `(assert (forall (${quantified(lay.cur)})\n  (=> (and (Reachable ${lay.cur.join(' ')}) ${violation})\n      Error)))`;
 }
@@ -563,6 +566,7 @@ function encodeViolation(
   property: SmtProperty,
   sinkPlaces: ReadonlySet<Place<any>>,
   envInj: ReadonlyMap<number, number | null>,
+  conditionalSinks: readonly ConditionalSinks[],
 ): string | null {
   const anyPlacePresent = (places: Iterable<Place<any>>): string => {
     const conds = indexOrdered(flat, places).map((pid) => `(>= ${aggregate(plan, lay, pid, lay.cur)} 1)`);
@@ -581,16 +585,15 @@ function encodeViolation(
       return anyPlacePresent([property.p1, property.p2]);
     case 'unreachable':
       return anyPlacePresent(property.places);
-    // DeadlockFree (VER-002): quiescent AND some marked place is not a declared
-    // sink. Mirrors the flat encoder's `stranded` disjunction.
+    // DeadlockFree (VER-002): quiescent AND some marked place is not where resting
+    // is permitted (VER-014). Mirrors the flat encoder's `stranded` disjunction over
+    // the aggregate (all-colour) count of each place.
     case 'deadlock-free': {
       const conds = encodeColouredQuiescent(plan, lay, flat, envInj);
       if (conds == null) return 'false';
-      const sinks = new Set(indexOrdered(flat, sinkPlaces));
-      const stranded: string[] = [];
-      for (let pid = 0; pid < flat.places.length; pid++) {
-        if (!sinks.has(pid)) stranded.push(`(>= ${aggregate(plan, lay, pid, lay.cur)} 1)`);
-      }
+      const counts: string[] = [];
+      for (let pid = 0; pid < flat.places.length; pid++) counts.push(aggregate(plan, lay, pid, lay.cur));
+      const stranded = strandedConditions(strandingExcuses(flat, sinkPlaces, conditionalSinks), counts);
       // Every place is a declared sink: nothing can ever be stranded.
       if (stranded.length === 0) return 'false';
       conds.push(`(or ${stranded.join(' ')})`);

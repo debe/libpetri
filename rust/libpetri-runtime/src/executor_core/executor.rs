@@ -20,7 +20,7 @@ use std::time::Instant;
 
 use libpetri_core::context::{FreshNameFn, OutputEntry, TransitionContext};
 use libpetri_core::name::NameId;
-use libpetri_core::output::Out;
+use libpetri_core::output::{Out, all_places};
 use libpetri_core::token::ErasedToken;
 use libpetri_event::event_store::EventStore;
 use libpetri_event::net_event::NetEvent;
@@ -94,6 +94,12 @@ pub struct Executor<S: ExecutorBackend, E: EventStore> {
     /// buffer and allocates nothing.
     reusable_claims: Vec<u64>,
 
+    /// Transitions that already raised the \[IO-016\] AC4 multiplicity
+    /// diagnostic this execution. The event is emitted at most once per
+    /// transition, so an action that fans out on every firing does not flood
+    /// the store; see [`warn_multiplicity`](Self::warn_multiplicity).
+    warned_multiplicity: HashSet<Arc<str>>,
+
     /// Monotonic source for ν-name minting ([`TransitionContext::fresh_name`],
     /// spec NU-010). One counter per executor run makes minted names
     /// deterministic for a given firing order (replay-stable); combining it
@@ -127,6 +133,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             reusable_reads: HashMap::new(),
             reusable_produced: HashSet::new(),
             reusable_claims: Vec::new(),
+            warned_multiplicity: HashSet::new(),
             fresh_name_counter: Arc::new(AtomicU64::new(0)),
             fresh_name_fns: Vec::new(),
         }
@@ -459,6 +466,86 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         validate_out_spec(spec, reusable_produced, reusable_claims)
     }
 
+    /// \[IO-016\] AC4: a validated firing deposited more than one token into a
+    /// place its output spec names. Validation (\[IO-015\]) reads the produced
+    /// SET, so the firing conforms, but every branch-enumerating analysis (the
+    /// state-class graph, the flattener's post vectors behind the SMT encoding,
+    /// the ν fragment check) models exactly one token per named place — the
+    /// firing does more than they explore, in the direction that can make a
+    /// `proven` false. Emitted once per transition per execution as the
+    /// EVT-013 log-message (`WARN`); the tokens are deposited regardless. The
+    /// wording matches Java and TypeScript.
+    ///
+    /// Cheap test first: a repeat exists iff the completion holds more entries
+    /// than distinct places. Tokens published mid-action (`ctx.flush()`) are
+    /// already in the marking and are not counted here.
+    #[inline]
+    fn warn_multiplicity(&mut self, tid: usize, transition_name: &Arc<str>, outputs: &[OutputEntry]) {
+        if !E::ENABLED
+            || self.skip_output_validation
+            || outputs.len() < 2
+            || self.warned_multiplicity.contains(transition_name)
+        {
+            return;
+        }
+        self.reusable_produced.clear();
+        self.reusable_produced
+            .extend(outputs.iter().map(|e| Arc::clone(&e.place_name)));
+        if self.reusable_produced.len() == outputs.len() {
+            return;
+        }
+        self.emit_multiplicity_warning(tid, transition_name, outputs);
+    }
+
+    /// Cold half of [`warn_multiplicity`](Self::warn_multiplicity): counts the
+    /// tokens per place the spec names, in produced (first-write) order, and
+    /// emits the diagnostic naming every place that received more than one.
+    #[cold]
+    #[inline(never)]
+    fn emit_multiplicity_warning(
+        &mut self,
+        tid: usize,
+        transition_name: &Arc<str>,
+        outputs: &[OutputEntry],
+    ) {
+        let Some(spec) = self.backend.compiled().transition(tid).output_spec() else {
+            return;
+        };
+        let named = all_places(spec);
+        let mut counts: Vec<(&str, usize)> = Vec::new();
+        for entry in outputs {
+            let name: &str = &entry.place_name;
+            // A place the spec never names is \[CORE-072\]'s business, not this.
+            if !named.iter().any(|p| p.name() == name) {
+                continue;
+            }
+            match counts.iter_mut().find(|(n, _)| *n == name) {
+                Some((_, count)) => *count += 1,
+                None => counts.push((name, 1)),
+            }
+        }
+        let repeated: Vec<String> = counts
+            .iter()
+            .filter(|(_, n)| *n > 1)
+            .map(|(name, n)| format!("{name}: {n}"))
+            .collect();
+        if repeated.is_empty() {
+            return;
+        }
+        self.warned_multiplicity.insert(Arc::clone(transition_name));
+        self.event_store.append(NetEvent::LogMessage {
+            transition_name: Arc::clone(transition_name),
+            level: "WARN".to_string(),
+            message: format!(
+                "'{transition_name}': wrote more than one token to a place its output spec \
+                 names once ({}); branch-enumerating analyses model one token per named \
+                 place, so this firing exceeds what they explore (IO-016)",
+                repeated.join(", ")
+            ),
+            timestamp: now_millis(),
+        });
+    }
+
     /// Emits the `TransitionFailed` event for an \[IO-015\] violation.
     /// Cold: re-walks the spec to render a diagnostic naming the
     /// transition, the declared spec, and what was actually produced.
@@ -544,6 +631,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 // violating firing deposits no tokens and does not
                 // restore the consumed inputs (AC3).
                 if self.output_conforms(tid, &outputs, ctx.flushed_places()) {
+                    self.warn_multiplicity(tid, &transition_name, &outputs);
                     for entry in outputs {
                         let event = if E::ENABLED {
                             Some(token_added_event::<E>(
@@ -833,6 +921,13 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                     }
                     return;
                 }
+                if completion.timed_out.is_none() {
+                    self.warn_multiplicity(
+                        completion.tid,
+                        &completion.transition_name,
+                        &outputs,
+                    );
+                }
                 for entry in outputs {
                     let event = if E::ENABLED {
                         Some(token_added_event::<E>(
@@ -1025,6 +1120,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                     // [IO-015]: validate before producing (AC3 — inputs
                     // stay consumed on violation).
                     if self.output_conforms(tid, &outputs, ctx.flushed_places()) {
+                        self.warn_multiplicity(tid, &transition_name, &outputs);
                         for entry in outputs {
                             let event = if E::ENABLED {
                                 Some(token_added_event::<E>(

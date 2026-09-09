@@ -324,11 +324,20 @@ def test_verdict_parity_fixtures():
             net,
             _property(fixture["property"]),
             initial_marking=marking,
+            # Explicit VER-017 opt-out: these fixtures pin what the ENCODERS
+            # decide, and the enumeration route would answer several of them
+            # before a script was ever built. The route's own agreement with the
+            # pipeline is pinned by test_smt_verification.py instead.
+            enumeration_max_classes=0,
             # Optional shared-schema fields: expected terminal places (VER-002) and
             # ν budget places (NU-040, Route A's coloured encoding).
             sink_places=fixture.get("sinkPlaces") or None,
             budget_places=fixture.get("budgetPlaces") or None,
             semiflow_invariants=bool(fixture.get("semiflowInvariants", False)),
+            # Conditional sinks (VER-014), declared in the object's order, and the
+            # firing-counter state equation (VER-016); both off when absent.
+            sink_places_when=fixture.get("sinkPlacesWhen") or None,
+            state_equation=bool(fixture.get("stateEquation", False)),
             # Both independent validation layers explicitly ON — the point of
             # the parity suite (they are also the defaults).
             certificate_check=True,

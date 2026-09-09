@@ -226,6 +226,16 @@ public sealed interface Arc permits Arc.In, Arc.Inhibitor, Arc.Read, Arc.Reset {
      *   <li>{@link Timeout} - Timeout branch that activates if action exceeds duration</li>
      * </ul>
      *
+     * <p>A spec names <b>places, not counts</b>. Validation ([IO-015]) compares the SET of
+     * places an action wrote against the branches' claims, so an action that deposits
+     * several tokens into one named place is accepted — and every analysis that enumerates
+     * branches ({@link #enumerateBranches()}: the state-class graph, the SMT encoding, the
+     * ν fragment check) models exactly one token per named place. Such a firing therefore
+     * does more than the analyses explore, in the direction that can make a {@code Proven}
+     * false. The executors report it once per transition as a {@code WARN} log-message
+     * ([IO-016] AC4); a net meant to be verified should produce one token per named place
+     * and express multiplicity in its topology.
+     *
      * <h3>Usage Examples</h3>
      * <pre>{@code
      * // Simple XOR (flat)
@@ -482,6 +492,15 @@ public sealed interface Arc permits Arc.In, Arc.Inhibitor, Arc.Read, Arc.Reset {
          * <p>This method is used by the {@code StateClassGraph} analyzer to expand
          * XOR outputs into virtual transitions (one per branch). Each branch represents
          * a distinct possible outcome of firing the transition.
+         *
+         * <p>A branch is a <b>set</b> of places ([IO-016]): it says which places receive a
+         * token when the branch is taken, not how many tokens each receives. Every analysis
+         * built on the enumeration — the state-class graph's virtual transitions, the
+         * flattener's post vectors behind the SMT encoding, the ν fragment check — deposits
+         * one token per place of the chosen branch. An action that writes {@code n > 1}
+         * tokens to a place its branch names once still conforms to [IO-015] (which reads
+         * the produced set) but is outside what those analyses explore; the executors emit
+         * the [IO-016] AC4 log-message when that happens.
          *
          * <ul>
          *   <li>AND = single branch containing all child places (Cartesian product)</li>

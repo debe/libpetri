@@ -43,9 +43,17 @@ export interface Fixture {
    * marks NONE of them. Absent for closed nets.
    */
   readonly sinkPlaces?: readonly string[];
+  /**
+   * Conditional sinks (VER-014): marker place name -> places where a token may rest
+   * while the marker holds a token; the marker itself is at rest when marked.
+   * Declared in object order. Absent = no conditional declarations.
+   */
+  readonly sinkPlacesWhen?: Readonly<Record<string, readonly string[]>>;
   /** ν budget places (NU-040): put a reachability-safety query on Route A's coloured encoding. */
   readonly budgetPlaces?: readonly string[];
   readonly semiflowInvariants?: boolean;
+  /** VER-016: encode the state equation with firing counters (default off). */
+  readonly stateEquation?: boolean;
   /** `'B'` = decided by the ν name-aware SCG verifier (NU-050 Route B); absent = Route A. */
   readonly route?: string;
   readonly expected: 'proven' | 'violated' | 'unknown';
@@ -60,6 +68,17 @@ export function placeOf(places: ReadonlyMap<string, Place<any>>, name: string): 
   const p = places.get(name);
   if (p == null) throw new Error(`fixture references unknown place '${name}'`);
   return p;
+}
+
+/** Declares the fixture's `sinkPlacesWhen` entries (VER-014) on `verifier`, in object order. */
+export function applySinkPlacesWhen(
+  verifier: SmtVerifier,
+  fixture: Fixture,
+  places: ReadonlyMap<string, Place<any>>,
+): void {
+  for (const [marker, rest] of Object.entries(fixture.sinkPlacesWhen ?? {})) {
+    verifier.sinkPlacesWhen(placeOf(places, marker), ...rest.map(n => placeOf(places, n)));
+  }
 }
 
 export function toProperty(spec: FixtureProperty, places: ReadonlyMap<string, Place<any>>): SmtProperty {
@@ -91,6 +110,7 @@ describeZ3('verdict parity (spec/verification-fixtures/fixtures.json)', () => {
     it(`${fixture.id} -> ${fixture.expected}`, async () => {
       const built = verificationNets[fixture.net]!();
       const verifier = SmtVerifier.forNet(built.net)
+      .enumerationMaxClasses(0)
         .initialMarking(built.initialMarking)
         .property(toProperty(fixture.property, built.places))
         .certificateCheck(true) // independent IC3-certificate layer ON
@@ -104,11 +124,13 @@ describeZ3('verdict parity (spec/verification-fixtures/fixtures.json)', () => {
       if (fixture.sinkPlaces != null && fixture.sinkPlaces.length > 0) {
         verifier.sinkPlaces(...fixture.sinkPlaces.map(n => placeOf(built.places, n)));
       }
+      applySinkPlacesWhen(verifier, fixture, built.places);
       if (fixture.budgetPlaces != null && fixture.budgetPlaces.length > 0) {
         verifier.budgetPlaces(...fixture.budgetPlaces.map(n => placeOf(built.places, n)));
       }
-      // Optional shared-schema field: [VER-007]'s semiflow union.
+      // Optional shared-schema fields: [VER-007]'s semiflow union, [VER-016]'s state equation.
       verifier.semiflowInvariants(fixture.semiflowInvariants === true);
+      verifier.stateEquation(fixture.stateEquation === true);
       const result = await verifier.verify();
 
       // The route marker is checked FIRST: a `route: 'B'` fixture that silently

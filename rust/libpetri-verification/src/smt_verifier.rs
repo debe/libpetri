@@ -8,6 +8,7 @@ use crate::certificate_check::{self, CertificateCheck};
 use crate::counterexample::{self, DecodedTrace};
 use crate::environment::EnvironmentAnalysisMode;
 use crate::incidence_matrix::IncidenceMatrix;
+use crate::linear_bound;
 use crate::marking_state::{MarkingState, MarkingStateBuilder};
 use crate::name_coloured_encoder;
 use crate::name_fragment::FragmentMode;
@@ -16,10 +17,37 @@ use crate::nu_scg_verifier;
 use crate::p_invariant::{self, PInvariant};
 use crate::priority_semantics::PrioritySemantics;
 use crate::property::SmtProperty;
-use crate::result::{Verdict, VerificationResult, VerificationStatistics};
+use crate::rest_set::{ConditionalSinks, describe_sinks};
+use crate::scg_verifier::{self, ScgOutcome};
+use crate::result::{Verdict, VerificationResult, VerificationRoute, VerificationStatistics};
 use crate::smt_encoder;
 use crate::structural_check::{self, StructuralCheckResult};
 use crate::z3_process::{self, Z3Solver};
+
+/// How the gate-validated P-semiflows reach the encoders ([VER-007]).
+///
+/// `bool` converts (`false` → [`Off`](SemiflowMode::Off), `true` →
+/// [`On`](SemiflowMode::On)), so `semiflow_invariants(true)` keeps working;
+/// [`Auto`](SemiflowMode::Auto) is the setting to prefer for verification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SemiflowMode {
+    /// The encoders see only the null-space basis (the default). The semiflows
+    /// are not computed at all unless a coloured plan needs the slot bound.
+    Off,
+    /// Union the validated semiflows into the invariant list the encoders receive.
+    On,
+    /// Union them exactly when the basis lost a law to the H1 guard — the
+    /// condition the option exists for — and skip the (worst-case exponential)
+    /// enumeration otherwise. Decided in one pass: the drops are known before the
+    /// semiflows are needed.
+    Auto,
+}
+
+impl From<bool> for SemiflowMode {
+    fn from(enabled: bool) -> Self {
+        if enabled { Self::On } else { Self::Off }
+    }
+}
 
 /// Builder for SMT verification of Petri net properties.
 ///
@@ -36,6 +64,9 @@ pub struct SmtVerifier<'a> {
     env_places: BTreeSet<String>,
     env_mode: EnvironmentAnalysisMode,
     sink_places: Vec<String>,
+    /// Conditional sinks ([VER-014]): places where a token may rest while a marker
+    /// holds a token, in declaration order. See [`SmtVerifier::sink_places_when`].
+    conditional_sinks: Vec<ConditionalSinks>,
     /// ν-net budget places ([NU-040]): places whose token count bounds the live
     /// correlation pool (they gate fresh-name minting). Declaring at least one
     /// places the net in the decidable bounded fragment; without it a net that
@@ -69,10 +100,21 @@ pub struct SmtVerifier<'a> {
     /// Whether a flat-path `Violated` is re-validated by [`crate::abstract_replay`]
     /// (default `true`). See [`SmtVerifier::replay_phase`].
     counterexample_replay: bool,
-    /// Whether the gate-validated P-semiflows are handed to the encoders alongside
-    /// the null-space basis ([VER-007], default `false`). See
+    /// How the gate-validated P-semiflows reach the encoders alongside the
+    /// null-space basis ([VER-007], default [`SemiflowMode::Off`]). See
     /// [`SmtVerifier::semiflow_invariants`].
-    semiflow_invariants: bool,
+    semiflow_invariants: SemiflowMode,
+    /// Class budget for the bounded state-space enumeration route ([VER-017],
+    /// default 50 000; `0` disables it). See
+    /// [`SmtVerifier::enumeration_max_classes`].
+    enumeration_max_classes: usize,
+    /// Whether the flat CHC encoding carries the state equation with firing
+    /// counters ([VER-016], default `false`). See [`SmtVerifier::state_equation`].
+    state_equation: bool,
+    /// Whether a reachability-safety property is first tried against the linear
+    /// state-equation bound ([VER-015], default `true`). See
+    /// [`SmtVerifier::linear_bound`].
+    linear_bound: bool,
     /// Test seam: replaces the extracted certificate fed to the certificate
     /// check, so tests can prove end-to-end that a corrupt certificate
     /// downgrades the verdict.
@@ -111,6 +153,7 @@ impl<'a> SmtVerifier<'a> {
             env_places: BTreeSet::new(),
             env_mode: EnvironmentAnalysisMode::AlwaysAvailable,
             sink_places: Vec::new(),
+            conditional_sinks: Vec::new(),
             budget_places: HashSet::new(),
             timeout_ms: 30_000,
             nu_max_classes: 100_000,
@@ -119,7 +162,10 @@ impl<'a> SmtVerifier<'a> {
             priority_semantics: PrioritySemantics::None,
             certificate_check: true,
             counterexample_replay: true,
-            semiflow_invariants: false,
+            semiflow_invariants: SemiflowMode::Off,
+            enumeration_max_classes: 50_000,
+            state_equation: false,
+            linear_bound: true,
             #[cfg(test)]
             certificate_override: None,
             #[cfg(test)]
@@ -153,9 +199,57 @@ impl<'a> SmtVerifier<'a> {
         self
     }
 
-    /// Sets sink places (excluded from deadlock detection).
+    /// Declares expected sink (terminal) places for deadlock-freedom analysis
+    /// ([VER-002]): a token resting in one is never stranded, and
+    /// `TerminatesAtSink` asks whether one of them was reached.
     pub fn sink_places(mut self, places: impl IntoIterator<Item = String>) -> Self {
         self.sink_places.extend(places);
+        self
+    }
+
+    /// Declares places where a token may rest **while `marker` holds a token**
+    /// ([VER-014]) — a designed terminal such as a halt or pause marker, under
+    /// which the work it interrupted legitimately stays where it was delivered.
+    ///
+    /// `DeadlockFree` then reads a quiescent marking against the union of the
+    /// declared sinks, the markers, and every conditional set whose marker is
+    /// marked: a token in `p` is stranded only when none of those excuse it. The
+    /// marker itself is at rest whenever it is marked, so `sink_places_when(halt,
+    /// [])` excuses exactly the halt token. Repeated calls for one marker
+    /// accumulate; declarations for several markers union. `TerminatesAtSink` is
+    /// unaffected and reads only [`SmtVerifier::sink_places`].
+    ///
+    /// ```ignore
+    /// SmtVerifier::for_net(&net)
+    ///     .property(SmtProperty::DeadlockFree)
+    ///     .sink_places(["done".to_string()])                          // may always rest
+    ///     .sink_places_when("halt", ["inbox".to_string(), "pending".to_string()]) // once halted
+    ///     .sink_places_when("pause", ["inbox".to_string()])           // while paused
+    /// ```
+    ///
+    /// An unresolved marker or place contributes nothing, as an unresolved sink
+    /// does: a mistyped marker makes the property stricter, never laxer.
+    pub fn sink_places_when(
+        mut self,
+        marker: impl Into<String>,
+        places: impl IntoIterator<Item = String>,
+    ) -> Self {
+        let marker = marker.into();
+        let entry = match self.conditional_sinks.iter_mut().find(|c| c.marker == marker) {
+            Some(entry) => entry,
+            None => {
+                self.conditional_sinks.push(ConditionalSinks {
+                    marker,
+                    places: Vec::new(),
+                });
+                self.conditional_sinks.last_mut().unwrap()
+            }
+        };
+        for place in places {
+            if !entry.places.contains(&place) {
+                entry.places.push(place);
+            }
+        }
         self
     }
 
@@ -279,8 +373,85 @@ impl<'a> SmtVerifier<'a> {
     /// invariant — that check is flat-path only, so a coloured `Proven` reports
     /// `Certificate check: not applicable (name-coloured encoding)`. Off by default so
     /// reports stay byte-equal.
-    pub fn semiflow_invariants(mut self, enabled: bool) -> Self {
-        self.semiflow_invariants = enabled;
+    ///
+    /// [`SemiflowMode::Auto`] decides whether the semiflows would add
+    /// **information to the encoding**, which is not the same question as whether
+    /// they would appear in [`VerificationResult::invariants`] for a caller who
+    /// reads them. A complete basis spans every conservation law of the net, so a
+    /// semiflow it spans constrains nothing further and IC3 gains nothing from it
+    /// — that is why `Auto` skips the enumeration there. But the basis is the
+    /// *signed* null-space, and a law it spans need not appear in it in
+    /// **non-negative** form; only the Farkas enumeration produces that. A caller
+    /// inspecting the invariant list for a law of a given shape — "a non-negative
+    /// law weighting the budget place and every running place positively" — can
+    /// therefore find nothing on a net that plainly has one. Such a caller should
+    /// ask for the union explicitly: `Auto` is the setting to prefer for
+    /// verification, not for harvesting.
+    pub fn semiflow_invariants(mut self, enabled: impl Into<SemiflowMode>) -> Self {
+        self.semiflow_invariants = enabled.into();
+        self
+    }
+
+    /// Sets the class budget for the bounded state-space enumeration route
+    /// ([VER-017]; default 50 000). `0` disables the route, so every query goes
+    /// to the SMT pipeline.
+    ///
+    /// When the state-class graph closes within the budget the property is
+    /// decided exactly — sound and complete — and no solver runs. This is what
+    /// makes a long pipeline tractable: IC3 needs a frame per stage and its cost
+    /// climbs with the cube of the length, while enumeration is linear in the
+    /// reachable state space. A forty-node chain (370 places, 1 967 classes)
+    /// takes 410 s on the fixpoint path and 0.11 s here.
+    ///
+    /// The route declines when the graph exceeds the budget, and the SMT pipeline
+    /// then runs unchanged — it can only add verdicts, never remove them. It is
+    /// skipped for ν-nets, which have their own exact route ([NU-050], Route B),
+    /// for nets with environment places, whose injection the graph does not
+    /// model, and for **timed** nets, where its verdict would be the weaker timed
+    /// claim rather than the untimed one the encoders make ([VER-004]).
+    pub fn enumeration_max_classes(mut self, max: usize) -> Self {
+        self.enumeration_max_classes = max;
+        self
+    }
+
+    /// Enables or disables the linear state-equation bound phase ([VER-015];
+    /// default: enabled). A reachability-safety property whose violating markings
+    /// exceed some `y·M <= y·M0` with `y >= 0`, `y·C <= 0` is then proven
+    /// structurally, from one linear query re-checked in exact integer arithmetic,
+    /// before any fixpoint search. Disable it to force the IC3/PDR path — for its
+    /// certificate, or to exercise the fixpoint engine itself.
+    pub fn linear_bound(mut self, enabled: bool) -> Self {
+        self.linear_bound = enabled;
+        self
+    }
+
+    /// Encodes the **state equation** with firing counters ([VER-016]; default:
+    /// disabled — the encoding then carries places only).
+    ///
+    /// The flat encoding gains one counter `n_t` per flat transition and every
+    /// transition rule conjoins the marking equation `M' = M0 + C·n'` for each
+    /// place whose column is exact (no consume-all / reset arc, not injected).
+    /// Every linear consequence of the marking equation — the equality laws of
+    /// [VER-005]/[VER-007] **and** the inequality laws `y·M ≤ y·M0` (`y ≥ 0,
+    /// y·C ≤ 0`) and their mixed-sign kin, which are what an *ordering* argument
+    /// ("both join slots armed means every upstream stage has run, so nothing can
+    /// still halt") looks like in linear arithmetic — is then available to Spacer
+    /// as a fact rather than a lemma it has to invent. On a 50-place
+    /// agent-dispatch workflow, proper completion under conditional sinks went
+    /// from `Unknown` after 120 s to `Proven` in 1.5 s with this as the only
+    /// change; a 53-place pipeline stage before a join, `Unknown` at 300 s, proves
+    /// in under a second.
+    ///
+    /// The cost is a larger state (places + transitions) and a slower witness
+    /// search on genuinely violated properties (about 1.5× on the nets above), so
+    /// it is opt-in. Soundness is unchanged: the counters are exact bookkeeping,
+    /// the equation holds on every reachable state by construction
+    /// (`Strengthening.lean`, the same shape as the equality laws), and the
+    /// certificate check re-proves it against the raw step relation, whose only
+    /// counter knowledge is the increment. Not applied to the name-coloured
+    /// encoding or Route B, which the report says when it applies.
+    pub fn state_equation(mut self, enabled: bool) -> Self {
+        self.state_equation = enabled;
         self
     }
 
@@ -319,6 +490,34 @@ impl<'a> SmtVerifier<'a> {
         let start = Instant::now();
         let mut report = String::new();
 
+        // Before ANY route. Each of them answers a property naming an absent place
+        // vacuously — the ν name-partition graph and the enumeration graph find no
+        // class marking a place that cannot be marked, the linear bound drops the
+        // conjunct and separates a strictly stronger demand — and each returns
+        // before the flat encoder's own refusal below could fire, so the guard has
+        // to sit above all of them or it guards nothing.
+        if let Some(name) = unresolved_property_place_in_net(self.net, &self.property) {
+            let reason = format!(
+                "property names a place that does not resolve in the net ('{name}'); \
+                 refusing to certify (the encoding would be vacuously proven)"
+            );
+            report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
+            let elapsed_ms = start.elapsed().as_millis() as u64;
+            return build_result(
+                Verdict::Unknown { reason },
+                VerificationRoute::Unavailable,
+                report,
+                elapsed_ms,
+                VerificationStatistics {
+                    places: self.net.places().len(),
+                    transitions: self.net.transitions().len(),
+                    invariants_found: 0,
+                    structural_result: "n/a (unresolved property place)".into(),
+                },
+                Diagnostics::none(),
+            );
+        }
+
         // ν-net awareness ([NU-040], [NU-050]). A transition with a match spec
         // joins by name equality; the untimed encoder over-approximates that
         // (name equality assumed satisfiable). The over-approximation is sound
@@ -328,6 +527,13 @@ impl<'a> SmtVerifier<'a> {
         // distorts. The end-of-pipeline guard turns those cases into `Unknown`.
         let has_match = self.net.transitions().iter().any(|t| t.match_spec().is_some());
         let nu_bounded = !self.budget_places.is_empty();
+        // The `Property:` line carries the sink declarations ([VER-002], [VER-014])
+        // in declaration order: `<description> (sinks: a, b; when h: c)`.
+        let sink_desc = describe_sinks(&self.sink_places, &self.conditional_sinks);
+        let describe = |desc: String| match &sink_desc {
+            Some(sinks) => format!("{desc} ({sinks})"),
+            None => desc,
+        };
 
         // ν-net Route B ([NU-050]): the name-aware state-class-graph name-partition
         // quotient decides ν-join correlation EXACTLY — including name×time and
@@ -352,6 +558,7 @@ impl<'a> SmtVerifier<'a> {
                 self.fragment_mode,
                 &carrier_set,
                 self.priority_semantics,
+                &self.conditional_sinks,
             );
             // Route B truncating to Unknown on a bounded quiescence ν-net is not the
             // final word: defer to the scalable Route A coloured IC3/PDR encoder
@@ -364,7 +571,7 @@ impl<'a> SmtVerifier<'a> {
             if let Some(outcome) = scg_outcome.filter(|_| !defer_to_route_a) {
                 let elapsed_ms = start.elapsed().as_millis() as u64;
                 report.push_str("=== ν-net Route B: name-aware state-class graph (NU-050) ===\n");
-                report.push_str(&format!("Property: {}\n", self.property.description()));
+                report.push_str(&format!("Property: {}\n", describe(self.property.description())));
                 report.push_str(&format!(
                     "Name-partition state classes: {}\n",
                     outcome.class_count
@@ -395,6 +602,7 @@ impl<'a> SmtVerifier<'a> {
                 report.push_str(&format!("\nElapsed: {elapsed_ms}ms\n"));
                 return build_result(
                     route_b_verdict,
+                    VerificationRoute::NuScg,
                     report,
                     elapsed_ms,
                     VerificationStatistics {
@@ -428,6 +636,81 @@ impl<'a> SmtVerifier<'a> {
                      reset/read/inhibitor arc, or a join re-mints a coloured place); verified via \
                      sound over-approximation instead.\n",
                 );
+            }
+        }
+
+        // Bounded state-space enumeration ([VER-017]): when the state-class graph
+        // closes within the budget it decides the property exactly, with no solver
+        // at all — the answer for the narrow, deep state spaces a workflow net
+        // produces, where IC3 needs a frame per pipeline stage. Skipped for ν-nets
+        // (Route B above is their exact route) and for nets with environment
+        // places, whose injection the graph does not model; on truncation the SMT
+        // pipeline below runs unchanged.
+        if !has_match
+            && self.env_places.is_empty()
+            && self.enumeration_max_classes > 0
+            && scg_verifier::is_untimed(self.net)
+        {
+            let enumerated = scg_verifier::verify_via_state_class_graph(
+                self.net,
+                &self.initial_marking,
+                &self.property,
+                &self.sink_places,
+                self.enumeration_max_classes,
+                &self.conditional_sinks,
+            );
+            match enumerated {
+                ScgOutcome::Decided {
+                    verdict,
+                    trace,
+                    transitions,
+                    class_count,
+                } => {
+                    let elapsed_ms = start.elapsed().as_millis() as u64;
+                    report.push_str("=== Bounded state-space enumeration (VER-017) ===\n");
+                    report.push_str(&format!("Property: {}\n", describe(self.property.description())));
+                    report.push_str(&format!("State classes: {class_count}\n"));
+                    report.push_str(
+                        "P-invariants: not computed (no encoding is built on this route)\n",
+                    );
+                    report.push_str(scg_verifier::NOTE_ENUMERATED);
+                    if !transitions.is_empty() {
+                        report.push_str(&format!(
+                            "Counterexample trace: {} states, {} transitions\n",
+                            trace.len(),
+                            transitions.len()
+                        ));
+                    }
+                    report.push_str(&format!("\nElapsed: {elapsed_ms}ms\n"));
+                    // The graph path IS a firing sequence, so a violation is
+                    // ordered and confirmed by construction; there is nothing left
+                    // to replay.
+                    let confirmed = verdict.is_violated().then_some(true);
+                    return build_result(
+                        verdict,
+                        VerificationRoute::Enumeration,
+                        report,
+                        elapsed_ms,
+                        VerificationStatistics {
+                            places: self.net.places().len(),
+                            transitions: self.net.transitions().len(),
+                            invariants_found: 0,
+                            structural_result: "n/a (state-space enumeration)".into(),
+                        },
+                        Diagnostics {
+                            trace: DecodedTrace { trace, transitions },
+                            confirmed,
+                            ..Diagnostics::none()
+                        },
+                    );
+                }
+                ScgOutcome::Truncated { .. } => {
+                    report.push_str(&format!(
+                        "Bounded state-space enumeration truncated at {} classes (VER-017); \
+                         verifying via the SMT pipeline.\n",
+                        self.enumeration_max_classes
+                    ));
+                }
             }
         }
 
@@ -490,10 +773,14 @@ impl<'a> SmtVerifier<'a> {
         // we can return early. Skipped when environment places are registered: the
         // siphon/trap analysis runs on the closed net and is blind to env injection
         // (VER-006), so its early proof could be unsound — fall through to the
-        // (injection-aware) SMT encoding instead.
+        // (injection-aware) SMT encoding instead. Skipped too on any net Commoner's
+        // theorem does not govern (`commoner_applies`) — that guard is what makes
+        // this a proof rather than a guess, and it was missing.
         if matches!(property, SmtProperty::DeadlockFree)
             && !has_match
+            && commoner_applies(&flat)
             && sink_places.is_empty()
+            && self.conditional_sinks.is_empty()
             && self.env_places.is_empty()
             && structural_result == StructuralCheckResult::NoPotentialDeadlock
         {
@@ -505,6 +792,7 @@ impl<'a> SmtVerifier<'a> {
                     method: "structural".into(),
                     inductive_invariant: None,
                 },
+                VerificationRoute::Structural,
                 report,
                 elapsed_ms,
                 flat_statistics(&flat, 0, structural_str),
@@ -532,18 +820,60 @@ impl<'a> SmtVerifier<'a> {
         // colour count that sets the name-coloured encoder's slot count `k`
         // (see build_plan / colour_slot_bound) — validated the same way before they
         // can set that bound.
-        let semiflow_validation = p_invariant::validate_invariants_exact(
-            p_invariant::compute_p_semiflows(&matrix, &self.initial_marking, &flat.places),
-            &matrix,
-            &self.initial_marking,
-            &flat,
-        );
+        //
+        // Computed ONLY when something will read them ([VER-007]): the union, or
+        // the coloured plan's slot bound. The enumeration is worst-case
+        // exponential — the minimal semiflows of `k` independent diamonds in
+        // series number 2^k — so running it for a caller who asked for neither is
+        // a large cost, and on a wide net an uncatchable one: the heap it exhausts
+        // aborts the process rather than returning a verdict. Skipping it is
+        // invisible to every other phase.
+        //
+        // `Auto`: compute them exactly when the basis LOST a law to the H1 guard,
+        // which is the condition the option exists for — a consume-all / reset arc
+        // on a busy place drops every basis row whose support touches it, and the
+        // semiflows are the minimal laws that avoid it. On a net with a complete
+        // basis they add nothing and cost the enumeration, so `Auto` skips them
+        // there. The drops are already known at this point, so this decides in ONE
+        // pass rather than running the pipeline twice to read its own report.
+        let basis_lost_a_law = validation
+            .dropped
+            .iter()
+            .any(|d| d.contains("Strengthening.lean H1"));
+        let semiflows_wanted = self.semiflow_invariants == SemiflowMode::On
+            || (self.semiflow_invariants == SemiflowMode::Auto && basis_lost_a_law)
+            || (has_match && nu_bounded);
+        let semiflow_validation = if semiflows_wanted {
+            p_invariant::validate_invariants_exact(
+                p_invariant::compute_p_semiflows(&matrix, &self.initial_marking, &flat.places),
+                &matrix,
+                &self.initial_marking,
+                &flat,
+            )
+        } else {
+            p_invariant::InvariantValidation {
+                valid: Vec::new(),
+                dropped: Vec::new(),
+            }
+        };
         let semiflows = semiflow_validation.valid;
         report.push_str(&format!("Found {} P-invariant(s)\n", invariants.len()));
         // [VER-007]: the minimal conservation laws, as extra invariants for the
         // encoders. The report line is emitted only when enabled so default reports
         // stay byte-identical (AC2/AC3).
-        let invariants = if self.semiflow_invariants {
+        if self.semiflow_invariants == SemiflowMode::Auto {
+            report.push_str(if basis_lost_a_law {
+                "  Semiflow union: ON (auto — the basis lost a law to the H1 guard)\n"
+            } else {
+                "  Semiflow union: off (auto — the basis is complete, so the semiflows would add \
+no constraint the encoding does not already have; they may still differ in FORM)\n"
+            });
+        }
+        // The UNION is a separate decision from computing them: a coloured plan
+        // needs the slot bound without wanting the laws conjoined.
+        let union_wanted = self.semiflow_invariants == SemiflowMode::On
+            || (self.semiflow_invariants == SemiflowMode::Auto && basis_lost_a_law);
+        let invariants = if union_wanted {
             let (strengthened, added) =
                 p_invariant::strengthen_with_semiflows(invariants, &semiflows);
             report.push_str(&format!("  Semiflows encoded as invariants: {added}\n"));
@@ -589,11 +919,29 @@ impl<'a> SmtVerifier<'a> {
         if is_covered {
             report.push_str("All places covered by invariants (structurally bounded)\n");
         }
+
+        // A quiescence property on a net that can never come to rest is vacuously
+        // true: the verdict would be `Proven` whatever the net does. Say so
+        // ([VER-006] AC6), or the caller reads an empty claim as a guarantee about
+        // their workflow.
+        if !is_reachability_safety(&property)
+            && smt_encoder::quiescence_unreachable(
+                &flat,
+                &smt_encoder::resolve_env_injection(&flat, &env_injection),
+            )
+        {
+            report.push_str(
+                "NOTE: no marking of this net can be quiescent — a transition is enabled in every \
+                 marking (an environment-gated one under modelled injection, VER-006). Every \
+                 quiescence property is therefore vacuously true here, and a `proven` says \
+                 nothing about the net.\n",
+            );
+        }
         report.push('\n');
 
         // Phase 4: SMT Encode + Query
         report.push_str("=== Phase 4: SMT Verification ===\n");
-        report.push_str(&format!("Property: {}\n", property.description()));
+        report.push_str(&format!("Property: {}\n", describe(property.description())));
 
         // [VER-013] One z3 process per query. Resolve the executable before any
         // encoding work so a missing or too-old solver is reported as such.
@@ -608,6 +956,7 @@ impl<'a> SmtVerifier<'a> {
                 let elapsed_ms = start.elapsed().as_millis() as u64;
                 return build_result(
                     Verdict::Unknown { reason },
+                    VerificationRoute::Unavailable,
                     report,
                     elapsed_ms,
                     flat_statistics(&flat, invariants.len(), structural_str),
@@ -638,6 +987,82 @@ impl<'a> SmtVerifier<'a> {
             None => (None, None),
         };
 
+        // Flat path: a property naming a place outside the net would encode to a
+        // vacuous violation predicate (`false` proves anything), and its linear
+        // demand ([VER-015]) would be that of a stricter property. Refuse before any
+        // query, as the coloured path does, so a mis-named place never silently
+        // certifies.
+        if coloured_plan.is_none() {
+            if let Some(name) = unresolved_property_place(&flat, &property) {
+                let reason = format!(
+                    "property names a place that does not resolve in the net ('{name}'); \
+                     refusing to certify (the encoding would be vacuously proven)"
+                );
+                report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
+                let elapsed_ms = start.elapsed().as_millis() as u64;
+                return build_result(
+                    Verdict::Unknown { reason },
+                    VerificationRoute::Unavailable,
+                    report,
+                    elapsed_ms,
+                    flat_statistics(&flat, invariants.len(), structural_str),
+                    Diagnostics {
+                        invariants,
+                        ..Diagnostics::none()
+                    },
+                );
+            }
+        }
+
+        // Linear state-equation bound ([VER-015]): a reachability-safety property
+        // whose violating markings exceed some `y·M <= y·M0` with `y >= 0`,
+        // `y·C <= 0` is proven structurally, without the fixpoint search — the
+        // ordering arguments IC3 does not invent on pipeline-shaped nets. Flat path
+        // only: a net on the exact name-coloured encoding keeps that route's verdict
+        // and notes. Skipped under `Ignore` with environment places, where VER-006
+        // refuses every `Proven`.
+        if self.linear_bound
+            && coloured_plan.is_none()
+            && is_reachability_safety(&property)
+            && !(!self.env_places.is_empty() && self.env_mode == EnvironmentAnalysisMode::Ignore)
+        {
+            if let Some(rendered) =
+                self.linear_bound_proof(&flat, &property, &env_injection, &solver, &mut report)
+            {
+                report.push_str(&cert_not_applicable("structural proof"));
+                report.push_str("Result: property proven structurally (linear state-equation bound)\n");
+                report.push_str(
+                    "  Linear state-equation bound: y >= 0 with y.C <= 0 gives y.M <= y.M0 on every\n",
+                );
+                report.push_str("  reachable marking, and the violating markings exceed it (VER-015).\n");
+                report.push_str(&format!("  {rendered}\n"));
+                let verdict = apply_nu_guard(
+                    Verdict::Proven {
+                        method: "structural".into(),
+                        inductive_invariant: None,
+                    },
+                    has_match,
+                    nu_bounded,
+                    false,
+                    &property,
+                    &mut report,
+                );
+                let elapsed_ms = start.elapsed().as_millis() as u64;
+                report.push_str(&format!("\nElapsed: {}ms\n", elapsed_ms));
+                return build_result(
+                    verdict,
+                    VerificationRoute::Structural,
+                    report,
+                    elapsed_ms,
+                    flat_statistics(&flat, invariants.len(), structural_str),
+                    Diagnostics {
+                        invariants,
+                        ..Diagnostics::none()
+                    },
+                );
+            }
+        }
+
         let encoding = if let Some(plan) = &coloured_plan {
             report.push_str(&format!(
                 "ν-encoding: name-coloured (exact within budget k={}; {} coloured place(s))\n",
@@ -658,6 +1083,7 @@ impl<'a> SmtVerifier<'a> {
                     let elapsed_ms = start.elapsed().as_millis() as u64;
                     return build_result(
                         Verdict::Unknown { reason },
+                        VerificationRoute::Unavailable,
                         report,
                         elapsed_ms,
                         flat_statistics(&flat, invariants.len(), structural_str),
@@ -669,28 +1095,7 @@ impl<'a> SmtVerifier<'a> {
                 }
             }
         } else {
-            // A property naming a place outside the net would encode to a vacuous
-            // violation predicate (`false` proves anything). Refuse, as the coloured
-            // path does, so a mis-named place never silently certifies.
-            if let Some(name) = unresolved_property_place(&flat, &property) {
-                let reason = format!(
-                    "property names a place that does not resolve in the net ('{name}'); \
-                     refusing to certify (the encoding would be vacuously proven)"
-                );
-                report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
-                let elapsed_ms = start.elapsed().as_millis() as u64;
-                return build_result(
-                    Verdict::Unknown { reason },
-                    report,
-                    elapsed_ms,
-                    flat_statistics(&flat, invariants.len(), structural_str),
-                    Diagnostics {
-                        invariants,
-                        ..Diagnostics::none()
-                    },
-                );
-            }
-            smt_encoder::encode(
+            let encoding = smt_encoder::encode_net(
                 &flat,
                 &self.initial_marking,
                 &property,
@@ -698,10 +1103,24 @@ impl<'a> SmtVerifier<'a> {
                 &sink_places,
                 &env_bounds,
                 &env_injection,
-                // C3: request the refutation proof the replay decoder reads.
-                self.counterexample_replay,
-            )
+                &smt_encoder::EncodeOptions {
+                    // C3: request the refutation proof the replay decoder reads.
+                    produce_proofs: self.counterexample_replay,
+                    conditional_sinks: &self.conditional_sinks,
+                    state_equation: self.state_equation,
+                },
+            );
+            if self.state_equation {
+                report.push_str(&format!(
+                    "  State equation: encoded over {} firing counters (VER-016)\n",
+                    encoding.counter_count
+                ));
+            }
+            encoding
         };
+        if self.state_equation && coloured_plan.is_some() {
+            report.push_str("  State equation: not applied (name-coloured encoding)\n");
+        }
 
         // Run Z3 Spacer
         let phase = if coloured_plan.is_some() { "horn-coloured" } else { "horn" };
@@ -722,61 +1141,16 @@ impl<'a> SmtVerifier<'a> {
             verdict = Verdict::Unknown { reason };
         }
 
-        // ν-net soundness guard ([NU-040], [NU-050]). Applied only when the net
-        // contains match (ν-join) transitions, and only to a Proven/Violated
-        // verdict (an existing Unknown is left as-is).
-        if has_match && !matches!(verdict, Verdict::Unknown { .. }) {
-            if coloured_plan.is_some() {
-                // Exact path (NU-050 #1 / NU-053, Route A): name equality is encoded
-                // exactly via bounded name-colouring, so the verdict is sound AND
-                // complete within the budget bound — no spurious different-name
-                // counterexample. This holds for reachability-safety AND quiescence
-                // (deadlock / joined-or-dead-lettered), so the quiescence downgrade
-                // below does NOT apply when an exact coloured plan was used — the
-                // colour-aware deadlock encoding does not over-fire joins.
-                report.push_str(
-                    "Note: ν-join name equality is encoded exactly via bounded name-colouring \
-                     (k = budget); the verdict is sound and complete within the budget bound — \
-                     no spurious different-name counterexample (NU-050 #1 / NU-053).\n",
-                );
-            } else if !is_reachability_safety(&property) {
-                // Quiescence-based properties, name-blind (no coloured plan): the
-                // over-approximation over-fires joins, so it sees fewer quiescent
-                // states and may miss a real stranded marking. Refuse to certify —
-                // exact quiescence reasoning over names is deferred to the SCG
-                // name-partition quotient (NU-050 #1).
-                let reason = "ν-matching transitions present and the property depends on \
-                    quiescence (deadlock / joined-or-dead-lettered); the name-blind \
-                    over-approximation cannot decide it soundly — deferred to the exact \
-                    ν-analysis (NU-050)"
-                    .to_string();
-                report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
-                verdict = Verdict::Unknown { reason };
-            } else if !nu_bounded {
-                // Unbounded fresh names: outside the decidable bounded fragment.
-                // Reachability/liveness over unbounded fresh names is undecidable
-                // (ν-PN reachability); a budget place restores a finite WSTS.
-                let reason = "ν-matching transitions present with unbounded fresh names (no \
-                    budget place declared via .budget_place(...)); reachability over unbounded \
-                    fresh names is undecidable (NU-040) — declare the budget place(s) that gate \
-                    minting to verify within the bounded fragment"
-                    .to_string();
-                report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
-                verdict = Verdict::Unknown { reason };
-            } else {
-                // Bounded reachability-safety, but outside the name-coloured
-                // fragment: `Proven` is sound. A `Violated` counterexample may be
-                // spurious (it could require joining two distinct names), which
-                // the exact ν-analysis would rule out.
-                report.push_str(
-                    "Note: matched (ν-join) transitions are over-approximated (name equality \
-                     assumed satisfiable). 'Proven' is sound; a 'Violated' counterexample may \
-                     be spurious pending the exact ν-analysis (NU-050).\n",
-                );
-            }
-        }
+        let verdict = apply_nu_guard(
+            verdict,
+            has_match,
+            nu_bounded,
+            coloured_plan.is_some(),
+            &property,
+            &mut report,
+        );
 
-        verdict = self.certificate_phase(
+        let verdict = self.certificate_phase(
             verdict,
             &flat,
             &property,
@@ -798,6 +1172,7 @@ impl<'a> SmtVerifier<'a> {
             &env_bounds,
             &env_injection,
             coloured_plan.is_some(),
+            encoding.counter_count,
             decoded_trace,
             &mut report,
         );
@@ -808,6 +1183,7 @@ impl<'a> SmtVerifier<'a> {
 
         build_result(
             verdict,
+            VerificationRoute::Smt,
             report,
             elapsed_ms,
             flat_statistics(&flat, invariants.len(), structural_str),
@@ -826,7 +1202,16 @@ impl<'a> SmtVerifier<'a> {
     /// exact encoding) and, for the flat encoding, the certificate-check script
     /// built around [`placeholder_certificate`]. This is what the cross-language
     /// golden tests diff byte for byte. Route B, the structural pre-check and the
-    /// unresolved-place refusal are bypassed: it is what Route A encodes.
+    /// unresolved-place refusal are bypassed: it is what Route A encodes. `bound`
+    /// is the linear state-equation query ([VER-015]) exactly when `verify()` would
+    /// send it: flat path, enabled, not refused by [VER-006], and a property with
+    /// a linear demand (else `None`).
+    ///
+    /// [`SemiflowMode::Auto`] is honoured here exactly as `verify()` honours it —
+    /// the union happens when the basis lost a law to the H1 guard — so the script
+    /// this reports is the script the pipeline would send. It used to be read as
+    /// [`SemiflowMode::Off`], which made the parity goldens able to pin something
+    /// `verify()` never emits.
     pub fn encode_scripts(self) -> EncodedScripts {
         let flat = net_flattener::flatten(self.net);
         let sink_places = canonical_place_order(&flat, &self.sink_places);
@@ -857,21 +1242,37 @@ impl<'a> SmtVerifier<'a> {
             .collect();
 
         let matrix = IncidenceMatrix::from_flat_net(&flat, &env_inject_indices);
-        let invariants = p_invariant::validate_invariants_exact(
+        let basis = p_invariant::validate_invariants_exact(
             p_invariant::compute_p_invariants(&matrix, &self.initial_marking, &flat.places),
             &matrix,
             &self.initial_marking,
             &flat,
-        )
-        .valid;
-        let semiflows = p_invariant::validate_invariants_exact(
-            p_invariant::compute_p_semiflows(&matrix, &self.initial_marking, &flat.places),
-            &matrix,
-            &self.initial_marking,
-            &flat,
-        )
-        .valid;
-        let mut invariants = if self.semiflow_invariants {
+        );
+        // `Auto` decides from the same fact here as in verify() — whether the basis
+        // lost a law to the H1 guard — so the script this reports is the script that
+        // would be sent. Deciding it differently would let the parity goldens pin
+        // something the pipeline never emits ([VER-013] AC1).
+        let basis_lost_a_law = basis
+            .dropped
+            .iter()
+            .any(|d| d.contains("Strengthening.lean H1"));
+        let invariants = basis.valid;
+        // Same gate as verify(): only compute what something will read (see there).
+        let scripts_has_match = self.net.transitions().iter().any(|t| t.match_spec().is_some());
+        let union_wanted = self.semiflow_invariants == SemiflowMode::On
+            || (self.semiflow_invariants == SemiflowMode::Auto && basis_lost_a_law);
+        let semiflows = if union_wanted || (scripts_has_match && !self.budget_places.is_empty()) {
+            p_invariant::validate_invariants_exact(
+                p_invariant::compute_p_semiflows(&matrix, &self.initial_marking, &flat.places),
+                &matrix,
+                &self.initial_marking,
+                &flat,
+            )
+            .valid
+        } else {
+            Vec::new()
+        };
+        let mut invariants = if union_wanted {
             p_invariant::strengthen_with_semiflows(invariants, &semiflows).0
         } else {
             invariants
@@ -883,22 +1284,33 @@ impl<'a> SmtVerifier<'a> {
                 .then_with(|| a.constant.cmp(&b.constant))
         });
 
-        if let Some((_, Some(enc))) = self.coloured_attempt(
+        let attempt = self.coloured_attempt(
             &flat,
             &property,
             &invariants,
             &semiflows,
             &sink_places,
             &env_injection,
-        ) {
+        );
+        let bound = if attempt.is_none()
+            && self.linear_bound
+            && !(!self.env_places.is_empty() && self.env_mode == EnvironmentAnalysisMode::Ignore)
+        {
+            let env_inject = smt_encoder::resolve_env_injection(&flat, &env_injection);
+            linear_bound::encode_linear_bound(&flat, &self.initial_marking, &property, &env_inject)
+        } else {
+            None
+        };
+        if let Some((_, Some(enc))) = attempt {
             return EncodedScripts {
                 horn: enc.smt2,
                 certificate: None,
                 coloured: true,
+                bound,
             };
         }
 
-        let horn = smt_encoder::encode(
+        let flat_encoding = smt_encoder::encode_net(
             &flat,
             &self.initial_marking,
             &property,
@@ -906,23 +1318,29 @@ impl<'a> SmtVerifier<'a> {
             &sink_places,
             &env_bounds,
             &env_injection,
-            self.counterexample_replay,
-        )
-        .smt2;
+            &smt_encoder::EncodeOptions {
+                produce_proofs: self.counterexample_replay,
+                conditional_sinks: &self.conditional_sinks,
+                state_equation: self.state_equation,
+            },
+        );
         let certificate = certificate_check::vc_script(
-            &placeholder_certificate(flat.place_count),
+            &placeholder_certificate(flat.place_count + flat_encoding.counter_count),
             &flat,
             &self.initial_marking,
             &property,
             &invariants,
             &sink_places,
+            &self.conditional_sinks,
             &env_bounds,
             &env_injection,
+            self.state_equation,
         );
         EncodedScripts {
-            horn,
+            horn: flat_encoding.smt2,
             certificate: Some(certificate),
             coloured: false,
+            bound,
         }
     }
 
@@ -978,9 +1396,80 @@ impl<'a> SmtVerifier<'a> {
             property,
             invariants,
             sink_places,
+            &self.conditional_sinks,
             &env_inject_idx,
         );
         Some((plan, encoding))
+    }
+
+    /// Runs the linear state-equation bound query ([VER-015]) and re-checks its
+    /// answer in exact integer arithmetic. Returns the bound as the report prints
+    /// it when one separates the violation, `None` otherwise (no bound, solver
+    /// inconclusive, or a model that failed the re-check — each named in the
+    /// report). Never the last word: `None` hands over to the fixpoint query.
+    fn linear_bound_proof(
+        &self,
+        flat: &FlatNet,
+        property: &SmtProperty,
+        env_injection: &[(String, Option<usize>)],
+        solver: &Z3Solver,
+        report: &mut String,
+    ) -> Option<String> {
+        let env_inject = smt_encoder::resolve_env_injection(flat, env_injection);
+        let script =
+            linear_bound::encode_linear_bound(flat, &self.initial_marking, property, &env_inject)?;
+        let reply = match solver.run(&script, "bound", self.timeout_ms, &[]) {
+            Ok(reply) => reply,
+            Err(reason) => {
+                report.push_str(&format!("  Linear state-equation bound: inconclusive ({reason})\n"));
+                return None;
+            }
+        };
+        let stdout = reply.stdout.trim();
+        match z3_process::classify_first_line(stdout) {
+            Some("sat") => {
+                let bound = linear_bound::decode_linear_bound(stdout, flat.place_count).and_then(|y| {
+                    linear_bound::check_linear_bound_exact(
+                        flat,
+                        &self.initial_marking,
+                        property,
+                        &env_inject,
+                        &y,
+                    )
+                });
+                let Some(bound) = bound else {
+                    report.push_str(
+                        "  Linear state-equation bound: inconclusive (solver model failed the exact re-check)\n",
+                    );
+                    return None;
+                };
+                let rendered = format!(
+                    "{}; violation needs {}",
+                    linear_bound::format_linear_bound(flat, &bound),
+                    linear_bound::format_linear_demand(flat, property, &bound)
+                );
+                report.push_str(&format!("  Linear state-equation bound: {rendered}\n"));
+                report.push_str(
+                    "  Status: bound excludes every violating marking (re-checked in exact integer arithmetic)\n",
+                );
+                Some(rendered)
+            }
+            Some("unsat") => {
+                report.push_str("  Linear state-equation bound: none separates the violation\n");
+                None
+            }
+            Some(_) => {
+                report.push_str("  Linear state-equation bound: inconclusive (Z3 answered unknown)\n");
+                None
+            }
+            None => {
+                report.push_str(&format!(
+                    "  Linear state-equation bound: inconclusive ({})\n",
+                    z3_process::failure_reason(&reply, self.timeout_ms)
+                ));
+                None
+            }
+        }
     }
 
     /// Certificate phase — the second independent layer, after Phase 3's exact
@@ -1041,8 +1530,10 @@ impl<'a> SmtVerifier<'a> {
             property,
             invariants,
             sink_places,
+            &self.conditional_sinks,
             env_bounds,
             env_injection,
+            self.state_equation,
             self.timeout_ms,
             solver,
         ) {
@@ -1085,6 +1576,7 @@ impl<'a> SmtVerifier<'a> {
         env_bounds: &[(String, usize)],
         env_injection: &[(String, Option<usize>)],
         coloured: bool,
+        counter_count: usize,
         decoded_trace: DecodedTrace,
         report: &mut String,
     ) -> (Verdict, DecodedTrace, Option<bool>) {
@@ -1095,7 +1587,9 @@ impl<'a> SmtVerifier<'a> {
             return (verdict, decoded_trace, None);
         };
 
-        let decoded_set = counterexample::decode_state_set(answer, flat);
+        // A fact of the counter-carrying encoding ([VER-016]) yields the marking of
+        // its leading `P` arguments.
+        let decoded_set = counterexample::decode_state_set(answer, flat, counter_count);
         #[cfg(test)]
         let decoded_set: BTreeSet<Vec<i64>> = self
             .replay_state_set_override
@@ -1142,6 +1636,7 @@ impl<'a> SmtVerifier<'a> {
             &decoded_set,
             property,
             sink_places,
+            &self.conditional_sinks,
             &env_inject,
             &env_caps,
             REPLAY_MAX_SEGMENT_STEPS,
@@ -1214,6 +1709,10 @@ pub struct EncodedScripts {
     pub certificate: Option<String>,
     /// Whether `horn` is the name-coloured encoding.
     pub coloured: bool,
+    /// The linear state-equation bound query ([VER-015]), or `None` for a
+    /// property with no linear demand (the quiescence properties) and on the
+    /// name-coloured path.
+    pub bound: Option<String>,
 }
 
 /// `(define-fun Reachable ((x!0 Int) …) Bool true)`: the certificate stand-in
@@ -1250,6 +1749,7 @@ impl Diagnostics {
 /// default rather than four.
 fn build_result(
     verdict: Verdict,
+    route: VerificationRoute,
     report: String,
     elapsed_ms: u64,
     statistics: VerificationStatistics,
@@ -1257,6 +1757,7 @@ fn build_result(
 ) -> VerificationResult {
     VerificationResult {
         verdict,
+        route,
         report,
         invariants: diagnostics.invariants,
         discovered_invariants: diagnostics.discovered,
@@ -1385,6 +1886,74 @@ fn is_reachability_safety(property: &SmtProperty) -> bool {
     }
 }
 
+/// ν-net soundness guard ([NU-040], [NU-050]). Applied only when the net
+/// contains match (ν-join) transitions, and only to a Proven/Violated verdict
+/// (an existing Unknown is left as-is). `coloured` says whether the verdict came
+/// from the exact name-coloured encoding; a structural proof ([VER-015]) passes
+/// `false` and is treated as any other flat proof.
+fn apply_nu_guard(
+    verdict: Verdict,
+    has_match: bool,
+    nu_bounded: bool,
+    coloured: bool,
+    property: &SmtProperty,
+    report: &mut String,
+) -> Verdict {
+    if !has_match || matches!(verdict, Verdict::Unknown { .. }) {
+        return verdict;
+    }
+    if coloured {
+        // Exact path (NU-050 #1 / NU-053, Route A): name equality is encoded
+        // exactly via bounded name-colouring, so the verdict is sound AND
+        // complete within the budget bound — no spurious different-name
+        // counterexample. This holds for reachability-safety AND quiescence
+        // (deadlock / joined-or-dead-lettered), so the quiescence downgrade
+        // below does NOT apply when an exact coloured plan was used — the
+        // colour-aware deadlock encoding does not over-fire joins.
+        report.push_str(
+            "Note: ν-join name equality is encoded exactly via bounded name-colouring \
+             (k = budget); the verdict is sound and complete within the budget bound — \
+             no spurious different-name counterexample (NU-050 #1 / NU-053).\n",
+        );
+        verdict
+    } else if !is_reachability_safety(property) {
+        // Quiescence-based properties, name-blind (no coloured plan): the
+        // over-approximation over-fires joins, so it sees fewer quiescent
+        // states and may miss a real stranded marking. Refuse to certify —
+        // exact quiescence reasoning over names is deferred to the SCG
+        // name-partition quotient (NU-050 #1).
+        let reason = "ν-matching transitions present and the property depends on \
+            quiescence (deadlock / joined-or-dead-lettered); the name-blind \
+            over-approximation cannot decide it soundly — deferred to the exact \
+            ν-analysis (NU-050)"
+            .to_string();
+        report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
+        Verdict::Unknown { reason }
+    } else if !nu_bounded {
+        // Unbounded fresh names: outside the decidable bounded fragment.
+        // Reachability/liveness over unbounded fresh names is undecidable
+        // (ν-PN reachability); a budget place restores a finite WSTS.
+        let reason = "ν-matching transitions present with unbounded fresh names (no \
+            budget place declared via .budget_place(...)); reachability over unbounded \
+            fresh names is undecidable (NU-040) — declare the budget place(s) that gate \
+            minting to verify within the bounded fragment"
+            .to_string();
+        report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
+        Verdict::Unknown { reason }
+    } else {
+        // Bounded reachability-safety, but outside the name-coloured
+        // fragment: `Proven` is sound. A `Violated` counterexample may be
+        // spurious (it could require joining two distinct names), which
+        // the exact ν-analysis would rule out.
+        report.push_str(
+            "Note: matched (ν-join) transitions are over-approximated (name equality \
+             assumed satisfiable). 'Proven' is sound; a 'Violated' counterexample may \
+             be spurious pending the exact ν-analysis (NU-050).\n",
+        );
+        verdict
+    }
+}
+
 /// Outcome of a Z3 Spacer run, in verdict terms.
 ///
 /// Note the HORN/Spacer convention (verified empirically): with the query
@@ -1454,7 +2023,7 @@ fn extract_invariant_from_output(output: &str) -> Option<String> {
 /// (`"…"`, with `""` escapes) and quoted symbols (`|…|`) — Spacer model
 /// output has neither today, but the scanner does not rely on that. A
 /// truncated (unbalanced) definition is dropped rather than half-captured.
-fn extract_define_funs(output: &str) -> Vec<String> {
+pub(crate) fn extract_define_funs(output: &str) -> Vec<String> {
     let mut defs = Vec::new();
     let mut from = 0;
     while let Some(pos) = output[from..].find("(define-fun") {
@@ -1525,9 +2094,41 @@ fn canonical_place_order(flat: &FlatNet, names: &[String]) -> Vec<String> {
     named.into_iter().cloned().collect()
 }
 
-/// The first place the property names that is not in the flat net.
-fn unresolved_property_place(flat: &FlatNet, property: &SmtProperty) -> Option<String> {
-    let named: Vec<&String> = match property {
+/// Whether Commoner's theorem governs this net, so a siphon/trap answer may be
+/// turned into a `Proven`.
+///
+/// The theorem — every siphon contains an initially marked trap implies
+/// deadlock-freedom — is about an **ordinary** net, one where the only reason a
+/// transition is disabled is an input place holding too few tokens. The siphon and
+/// trap fixpoints in [`structural_check`] are computed from the pre/post vectors
+/// alone and never read `read_places`, `inhibitor_places`, `reset_places` or
+/// `consume_all`, so on a net carrying any of those the analysis answers a question
+/// about a DIFFERENT, strictly more permissive net: dropping a read or inhibitor arc
+/// can only add firings, which is the wrong direction for a deadlock proof. An arc
+/// weight above one is the same problem — a place holding one token satisfies
+/// `m >= 1` but not `exactly(2)`.
+///
+/// Each of these was demonstrated to produce a `Proven` for a net both executors run
+/// to a dead marking: `t1: one(a) read(g) -> g` with `t2: one(g) -> a` from `{a:1}`;
+/// `t: exactly(2, a) -> a` from `{a:1}`; `t: one(a) inhibitor(b) -> a` from
+/// `{a:1, b:1}`. Refusing the shortcut costs a fixpoint query and sends those nets to
+/// a route that models what disables them.
+///
+/// Modelling these features in the fixpoints instead is real work needing its own
+/// proof; this only declines to claim what has not been proved.
+fn commoner_applies(flat: &FlatNet) -> bool {
+    flat.transitions.iter().all(|ft| {
+        ft.read_places.is_empty()
+            && ft.inhibitor_places.is_empty()
+            && ft.reset_places.is_empty()
+            && ft.consume_all.is_empty()
+            && ft.pre.iter().all(|&w| w <= 1)
+    })
+}
+
+/// The place names a property refers to, whichever kind it is.
+fn property_place_names(property: &SmtProperty) -> Vec<&String> {
+    match property {
         SmtProperty::DeadlockFree | SmtProperty::TerminatesAtSink => Vec::new(),
         SmtProperty::MutualExclusion { places } | SmtProperty::Unreachable { places } => {
             places.iter().collect()
@@ -1536,8 +2137,29 @@ fn unresolved_property_place(flat: &FlatNet, property: &SmtProperty) -> Option<S
             vec![place]
         }
         SmtProperty::JoinedOrDeadLettered { pending } => vec![pending],
-    };
-    named
+    }
+}
+
+/// The first place the property names that the NET does not declare, or `None`.
+///
+/// The flat-path refusal below is the same check against the flattened net, but it
+/// is reached only after Route B, the bounded enumeration route and the linear bound
+/// have each had their chance to answer — and each of them answers a property naming
+/// an absent place vacuously, in the `Proven` direction: no reachable class marks a
+/// place the net has not got, and the bound's demand for it drops out of the
+/// conjunction. Refusing once, before any route runs, is the only place the refusal
+/// cannot be routed around.
+fn unresolved_property_place_in_net(net: &PetriNet, property: &SmtProperty) -> Option<String> {
+    let declared: HashSet<&str> = net.places().iter().map(|p| p.name()).collect();
+    property_place_names(property)
+        .into_iter()
+        .find(|name| !declared.contains(name.as_str()))
+        .cloned()
+}
+
+/// The first place the property names that is not in the flat net.
+fn unresolved_property_place(flat: &FlatNet, property: &SmtProperty) -> Option<String> {
+    property_place_names(property)
         .into_iter()
         .find(|name| !flat.place_index.contains_key(*name))
         .cloned()
@@ -1645,7 +2267,7 @@ mod tests {
     use crate::marking_state::MarkingStateBuilder;
     use libpetri_core::action::fork;
     use libpetri_core::input::{all, exactly, one};
-    use libpetri_core::output::out_place;
+    use libpetri_core::output::{and, out_place};
     use libpetri_core::place::Place;
     use libpetri_core::transition::Transition;
 
@@ -1662,6 +2284,211 @@ mod tests {
         let net = PetriNet::builder("test").transition(t).build();
 
         SmtVerifier::for_net(&net);
+    }
+
+    // === Commoner's theorem governs ORDINARY nets only ([VER-001]) ===
+
+    /// Every net below is genuinely DEAD at its initial marking — both executors
+    /// confirm it — and the structural shortcut used to answer `Proven` for each,
+    /// because the siphon/trap fixpoints read the pre/post vectors alone and so
+    /// answer about a strictly more permissive net.
+    mod commoner_shortcut {
+        use super::*;
+        use libpetri_core::arc::{inhibitor, read};
+
+        fn deadlock_free(net: &PetriNet, m0: MarkingState) -> VerificationResult {
+            // Explicit [VER-017] opt-out: the enumeration route would decide these
+            // nets exactly, and the subject here is the structural shortcut above it.
+            SmtVerifier::for_net(net)
+                .enumeration_max_classes(0)
+                .initial_marking(m0)
+                .property(SmtProperty::DeadlockFree)
+                .timeout(30_000)
+                .verify()
+        }
+
+        // These three need NO solver, unlike most tests here, and are deliberately
+        // ungated because of what they are. Their assertion is that the structural
+        // shortcut did not fire, and that gate returns before z3 is ever consulted:
+        // without a solver the verdict is `Unknown`, which satisfies the assertion
+        // just as `Violated` does. Skipping them without z3 would leave the
+        // witnesses for the one SOUNDNESS defect in this set inert on exactly the
+        // machine where a reintroduction would go unnoticed.
+        fn proven_structurally(result: &VerificationResult) -> bool {
+            matches!(&result.verdict, Verdict::Proven { method, .. } if method == "structural")
+                && result.route == VerificationRoute::Structural
+        }
+
+        /// `t1: one(a) read(g) -> g` and `t2: one(g) -> a` from `{a:1}`. t1 needs a
+        /// token in `g` to fire and only t2 can put one there, but t2 needs `g` too:
+        /// nothing is enabled. The fixpoints never see the read arc.
+        #[test]
+        fn a_read_arc_is_not_governed() {
+            let a = Place::<i32>::new("a");
+            let g = Place::<i32>::new("g");
+            let t1 = Transition::builder("t1")
+                .input(one(&a))
+                .read(read(&g))
+                .output(out_place(&g))
+                .action(fork())
+                .build();
+            let t2 = Transition::builder("t2")
+                .input(one(&g))
+                .output(out_place(&a))
+                .action(fork())
+                .build();
+            let net = PetriNet::builder("read-gate").transition(t1).transition(t2).build();
+            let r = deadlock_free(&net, MarkingStateBuilder::new().tokens("a", 1).build());
+            assert!(
+                !proven_structurally(&r),
+                "a dead net was proven deadlock-free structurally:\n{}",
+                r.report
+            );
+        }
+
+        /// `t: exactly(2, a) -> a` from `{a:1}`. One token satisfies `m >= 1` but not
+        /// the weight-2 demand, so the net is dead; the fixpoints read the support of
+        /// the pre-vector, not its weights.
+        #[test]
+        fn an_arc_weight_above_one_is_not_governed() {
+            let a = Place::<i32>::new("a");
+            let t = Transition::builder("t")
+                .input(exactly(2, &a))
+                .output(out_place(&a))
+                .action(fork())
+                .build();
+            let net = PetriNet::builder("weighted").transition(t).build();
+            let r = deadlock_free(&net, MarkingStateBuilder::new().tokens("a", 1).build());
+            assert!(!proven_structurally(&r), "{}", r.report);
+        }
+
+        /// `t: one(a) inhibitor(b) -> a` from `{a:1, b:1}`. The marked inhibitor place
+        /// blocks the only transition; the fixpoints do not read `inhibitor_places`.
+        #[test]
+        fn an_inhibitor_arc_is_not_governed() {
+            let a = Place::<i32>::new("a");
+            let b = Place::<i32>::new("b");
+            let t = Transition::builder("t")
+                .input(one(&a))
+                .inhibitor(inhibitor(&b))
+                .output(out_place(&a))
+                .action(fork())
+                .build();
+            let net = PetriNet::builder("inhibited").transition(t).build();
+            let r = deadlock_free(
+                &net,
+                MarkingStateBuilder::new().tokens("a", 1).tokens("b", 1).build(),
+            );
+            assert!(!proven_structurally(&r), "{}", r.report);
+        }
+
+        /// The shortcut still fires where the theorem does hold: a token circulating
+        /// a ring, every siphon holding a marked trap, nothing outside what the
+        /// fixpoints model. Without this the guard could pass by refusing everything.
+        #[test]
+        fn an_ordinary_net_still_takes_the_shortcut() {
+            let a = Place::<i32>::new("a");
+            let b = Place::<i32>::new("b");
+            let t1 = Transition::builder("t1")
+                .input(one(&a))
+                .output(out_place(&b))
+                .action(fork())
+                .build();
+            let t2 = Transition::builder("t2")
+                .input(one(&b))
+                .output(out_place(&a))
+                .action(fork())
+                .build();
+            let net = PetriNet::builder("ring").transition(t1).transition(t2).build();
+            let r = deadlock_free(&net, MarkingStateBuilder::new().tokens("a", 1).build());
+            assert!(proven_structurally(&r), "{}", r.report);
+        }
+
+        /// The predicate itself, on the flat net, so the reason a net is refused is
+        /// pinned rather than inferred from a verdict.
+        #[test]
+        fn the_predicate_names_each_feature() {
+            let a = Place::<i32>::new("a");
+            let b = Place::<i32>::new("b");
+            let ordinary = Transition::builder("ordinary")
+                .input(one(&a))
+                .output(out_place(&b))
+                .action(fork())
+                .build();
+            let plain = PetriNet::builder("plain").transition(ordinary).build();
+            assert!(commoner_applies(&net_flattener::flatten(&plain)));
+
+            let with_reset = PetriNet::builder("reset")
+                .transition(
+                    Transition::builder("t")
+                        .input(one(&a))
+                        .reset(libpetri_core::arc::reset(&b))
+                        .output(out_place(&b))
+                        .action(fork())
+                        .build(),
+                )
+                .build();
+            assert!(!commoner_applies(&net_flattener::flatten(&with_reset)));
+
+            let with_all = PetriNet::builder("consume-all")
+                .transition(
+                    Transition::builder("t")
+                        .input(all(&a))
+                        .output(out_place(&b))
+                        .action(fork())
+                        .build(),
+                )
+                .build();
+            assert!(!commoner_applies(&net_flattener::flatten(&with_all)));
+        }
+    }
+
+    /// [VER-006]/[VER-002]: a property naming a place the NET does not declare is
+    /// refused before ANY route runs. The enumeration route ([VER-017]) is the
+    /// witness: it returns before the flat encoder's own refusal, and it answers
+    /// such a property vacuously — no reachable class marks a place the net has not
+    /// got — so a typo used to certify `Proven` there.
+    #[test]
+    fn an_absent_property_place_is_refused_before_every_route() {
+        let p1 = Place::<i32>::new("p1");
+        let p2 = Place::<i32>::new("p2");
+        let net = PetriNet::builder("tiny")
+            .transition(
+                Transition::builder("t1")
+                    .input(one(&p1))
+                    .output(out_place(&p2))
+                    .action(fork())
+                    .build(),
+            )
+            .build();
+        let m0 = MarkingStateBuilder::new().tokens("p1", 1).build();
+        // The enumeration route is ON (the default), so this is the route that would
+        // have answered — and it needs no solver, hence no z3 gate on this test.
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(m0.clone())
+            .property(SmtProperty::unreachable(vec!["Ghost".into()]))
+            .verify();
+        match &result.verdict {
+            Verdict::Unknown { reason } => assert_eq!(
+                reason,
+                "property names a place that does not resolve in the net ('Ghost'); refusing to \
+                 certify (the encoding would be vacuously proven)"
+            ),
+            other => panic!("expected the refusal, got {other:?}\n{}", result.report),
+        }
+        assert_eq!(result.route, VerificationRoute::Unavailable);
+        // The same refusal on the linear-bound route, which also returns early.
+        let bound = SmtVerifier::for_net(&net)
+            .initial_marking(m0)
+            .property(SmtProperty::place_bound("Ghost", 0))
+            .verify();
+        assert!(matches!(bound.verdict, Verdict::Unknown { .. }), "{}", bound.report);
+        // And a property naming only declared places still runs.
+        let ok = SmtVerifier::for_net(&net)
+            .initial_marking(MarkingStateBuilder::new().tokens("p1", 1).build())
+            .property(SmtProperty::place_bound("p2", 1))
+            .verify();
+        assert!(!matches!(ok.verdict, Verdict::Unknown { .. }), "{}", ok.report);
     }
 
     #[test]
@@ -1681,7 +2508,10 @@ mod tests {
             .action(fork())
             .build();
         let net = PetriNet::builder("tiny").transition(t).build();
+        // Explicit [VER-017] opt-out: this test exercises the SMT pipeline, which the
+        // enumeration route would otherwise short-circuit before a solver ran.
         let result = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
             .initial_marking(MarkingStateBuilder::new().tokens("p1", 1).build())
             .property(SmtProperty::unreachable(vec!["Ghost".into()]))
             .verify();
@@ -1714,7 +2544,13 @@ mod tests {
 
         assert_eq!(verifier.timeout_ms, 5000);
         // [VER-007] AC2: the semiflow union is opt-in.
-        assert!(!verifier.semiflow_invariants);
+        assert_eq!(verifier.semiflow_invariants, SemiflowMode::Off);
+        // [VER-017] runs before the pipeline by default.
+        assert_eq!(verifier.enumeration_max_classes, 50_000);
+        // [VER-016] is opt-in; [VER-015] is on by default.
+        assert!(!verifier.state_equation);
+        assert!(verifier.linear_bound);
+        assert!(verifier.conditional_sinks.is_empty());
     }
 
     /// [VER-007] test derivation: a budgeted work loop with one reset arc on a side
@@ -1820,7 +2656,7 @@ mod tests {
             .build()
     }
 
-    fn coloured_scripts(net: &PetriNet, semiflows: bool) -> EncodedScripts {
+    fn coloured_scripts(net: &PetriNet, semiflows: impl Into<SemiflowMode>) -> EncodedScripts {
         SmtVerifier::for_net(net)
             .initial_marking(
                 MarkingStateBuilder::new()
@@ -1933,7 +2769,10 @@ mod tests {
             .build();
         let net = PetriNet::builder("cycle").transitions([t1, t2]).build();
 
+        // Explicit [VER-017] opt-out: this test exercises the SMT pipeline, which the
+        // enumeration route would otherwise short-circuit before a solver ran.
         let result = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
             .initial_marking(MarkingStateBuilder::new().tokens("p1", 1).build())
             .property(SmtProperty::DeadlockFree)
             .verify();
@@ -2083,10 +2922,17 @@ mod tests {
             eprintln!("skipping certificate_check_passes_*: z3 binary not on PATH");
             return;
         }
+        // The bound is a plain conservation law, which the linear state-equation
+        // bound ([VER-015]) would prove structurally first; this test is about the
+        // IC3 path.
         let net = cert_cycle_net();
+        // Explicit [VER-017] opt-out: this test exercises the SMT pipeline, which the
+        // enumeration route would otherwise short-circuit before a solver ran.
         let result = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
             .initial_marking(MarkingStateBuilder::new().tokens("p1", 3).build())
             .property(SmtProperty::place_bound("p2", 3))
+            .linear_bound(false)
             .timeout(15_000)
             .verify();
         assert!(result.is_proven(), "{}", result.report);
@@ -2127,7 +2973,10 @@ mod tests {
             .build();
         let net = PetriNet::builder("h1_witness").transition(t).build();
 
+        // Explicit [VER-017] opt-out: this test exercises the SMT pipeline, which the
+        // enumeration route would otherwise short-circuit before a solver ran.
         let result = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
             .initial_marking(MarkingStateBuilder::new().tokens("p0", 2).build())
             .property(SmtProperty::place_bound("p1", 0))
             .timeout(15_000)
@@ -2233,9 +3082,13 @@ mod tests {
             return;
         }
         let net = cert_cycle_net();
+        // Explicit [VER-017] opt-out: this test exercises the SMT pipeline, which the
+        // enumeration route would otherwise short-circuit before a solver ran.
         let result = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
             .initial_marking(MarkingStateBuilder::new().tokens("p1", 3).build())
             .property(SmtProperty::place_bound("p2", 3))
+            .linear_bound(false)
             .certificate_check(false)
             .timeout(15_000)
             .verify();
@@ -2248,9 +3101,13 @@ mod tests {
             result.report
         );
         // Even a corrupt certificate is ignored when the check is off.
+        // Explicit [VER-017] opt-out: this test exercises the SMT pipeline, which the
+        // enumeration route would otherwise short-circuit before a solver ran.
         let result = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
             .initial_marking(MarkingStateBuilder::new().tokens("p1", 3).build())
             .property(SmtProperty::place_bound("p2", 3))
+            .linear_bound(false)
             .certificate_check(false)
             .certificate_override("(define-fun Reachable ((x!0 Int) (x!1 Int)) Bool true)")
             .timeout(15_000)
@@ -2278,7 +3135,10 @@ mod tests {
             .build();
         let net = PetriNet::builder("cycle").transitions([t1, t2]).build();
 
+        // Explicit [VER-017] opt-out: this test exercises the SMT pipeline, which the
+        // enumeration route would otherwise short-circuit before a solver ran.
         let result = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
             .initial_marking(MarkingStateBuilder::new().tokens("p1", 3).build())
             .property(SmtProperty::place_bound("p2", 3))
             .verify();
@@ -2888,7 +3748,10 @@ mod tests {
             .transitions([produce, fin])
             .build();
 
+        // Explicit [VER-017] opt-out: this test exercises the SMT pipeline, which the
+        // enumeration route would otherwise short-circuit before a solver ran.
         let result = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
             .initial_marking(MarkingStateBuilder::new().tokens("start", 1).build())
             .property(SmtProperty::joined_or_dead_lettered("pending"))
             .timeout(15_000)
@@ -2918,7 +3781,10 @@ mod tests {
             .build();
         let net = PetriNet::builder("pending_strands").transition(leak).build();
 
+        // Explicit [VER-017] opt-out: this test exercises the SMT pipeline, which the
+        // enumeration route would otherwise short-circuit before a solver ran.
         let result = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
             .initial_marking(MarkingStateBuilder::new().tokens("start", 1).build())
             .property(SmtProperty::joined_or_dead_lettered("pending"))
             .timeout(15_000)
@@ -3174,7 +4040,10 @@ mod tests {
             return;
         }
         let net = cert_cycle_net();
+        // Explicit [VER-017] opt-out: this test exercises the SMT pipeline, which the
+        // enumeration route would otherwise short-circuit before a solver ran.
         let result = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
             .initial_marking(MarkingStateBuilder::new().tokens("p1", 3).build())
             .property(SmtProperty::place_bound("p2", 2))
             .timeout(15_000)
@@ -3216,7 +4085,10 @@ mod tests {
             return;
         }
         let net = cert_cycle_net();
+        // Explicit [VER-017] opt-out: this test exercises the SMT pipeline, which the
+        // enumeration route would otherwise short-circuit before a solver ran.
         let result = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
             .initial_marking(MarkingStateBuilder::new().tokens("p1", 6).build())
             .property(SmtProperty::place_bound("p2", 5))
             // flat place order is sorted: [p1, p2] — this is M0 and nothing else.
@@ -3241,7 +4113,10 @@ mod tests {
             return;
         }
         let net = cert_cycle_net();
+        // Explicit [VER-017] opt-out: this test exercises the SMT pipeline, which the
+        // enumeration route would otherwise short-circuit before a solver ran.
         let result = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
             .initial_marking(MarkingStateBuilder::new().tokens("p1", 3).build())
             .property(SmtProperty::place_bound("p2", 2))
             .replay_node_budget(1)
@@ -3267,7 +4142,10 @@ mod tests {
             return;
         }
         let net = cert_cycle_net();
+        // Explicit [VER-017] opt-out: this test exercises the SMT pipeline, which the
+        // enumeration route would otherwise short-circuit before a solver ran.
         let result = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
             .initial_marking(MarkingStateBuilder::new().tokens("p1", 3).build())
             .property(SmtProperty::place_bound("p2", 2))
             .replay_state_set_override(vec![vec![2, 1], vec![0, 3]])
@@ -3293,7 +4171,10 @@ mod tests {
             return;
         }
         let net = cert_cycle_net();
+        // Explicit [VER-017] opt-out: this test exercises the SMT pipeline, which the
+        // enumeration route would otherwise short-circuit before a solver ran.
         let result = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
             .initial_marking(MarkingStateBuilder::new().tokens("p1", 3).build())
             .property(SmtProperty::place_bound("p2", 2))
             .replay_state_set_override(Vec::new())
@@ -3319,7 +4200,10 @@ mod tests {
             return;
         }
         let net = cert_cycle_net();
+        // Explicit [VER-017] opt-out: this test exercises the SMT pipeline, which the
+        // enumeration route would otherwise short-circuit before a solver ran.
         let result = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
             .initial_marking(MarkingStateBuilder::new().tokens("p1", 3).build())
             .property(SmtProperty::place_bound("p2", 2))
             .counterexample_replay(false)
@@ -3430,7 +4314,10 @@ mod tests {
             .action(fork())
             .build();
         let net = PetriNet::builder("cycle").transitions([t1, t2]).build();
+        // Explicit [VER-017] opt-out: this test exercises the SMT pipeline, which the
+        // enumeration route would otherwise short-circuit before a solver ran.
         let result = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
             .initial_marking(MarkingStateBuilder::new().tokens("p1", 1).build())
             .property(SmtProperty::DeadlockFree)
             .verify();
@@ -3443,5 +4330,854 @@ mod tests {
             result.report
         );
         assert_eq!(result.counterexample_confirmed, None);
+    }
+
+    // === Conditional sinks ([VER-014]) ===
+
+    /// p0(1) → t → AND(a, b); a → ta → XOR(done | halt); b → tb → done unless
+    /// `halt` is marked. Reachable quiescent markings: {done:2}, {halt:1, done:1},
+    /// {halt:1, b:1} — the last is the designed terminal a plain sink declaration
+    /// cannot excuse: `b` holds pending work the halt legitimately stopped.
+    fn halt_net() -> PetriNet {
+        use libpetri_core::arc::inhibitor;
+        use libpetri_core::output::{and, xor};
+        let p0 = Place::<i32>::new("p0");
+        let a = Place::<i32>::new("a");
+        let b = Place::<i32>::new("b");
+        let done = Place::<i32>::new("done");
+        let halt = Place::<i32>::new("halt");
+        let t = Transition::builder("t")
+            .input(one(&p0))
+            .output(and(vec![out_place(&a), out_place(&b)]))
+            .action(fork())
+            .build();
+        let ta = Transition::builder("ta")
+            .input(one(&a))
+            .output(xor(vec![out_place(&done), out_place(&halt)]))
+            .action(fork())
+            .build();
+        let tb = Transition::builder("tb")
+            .input(one(&b))
+            .inhibitor(inhibitor(&halt))
+            .output(out_place(&done))
+            .action(fork())
+            .build();
+        PetriNet::builder("haltNet").transitions([t, ta, tb]).build()
+    }
+
+    /// p0(1) → t01 → p1 → t12 → p2: quiescent at {p2:1}, with `p0` consumed.
+    fn dead_end_chain_net() -> PetriNet {
+        let p0 = Place::<i32>::new("p0");
+        let p1 = Place::<i32>::new("p1");
+        let p2 = Place::<i32>::new("p2");
+        let t01 = Transition::builder("t01").input(one(&p0)).output(out_place(&p1)).action(fork()).build();
+        let t12 = Transition::builder("t12").input(one(&p1)).output(out_place(&p2)).action(fork()).build();
+        PetriNet::builder("deadEndChain").transitions([t01, t12]).build()
+    }
+
+    /// The `nuMixedTerminal` fixture: `fork` co-mints one fresh name into
+    /// `branchA` + `branchB`; the matched `join` produces `done` + `stuck`, so the
+    /// only quiescent marking is {done:1, stuck:1}.
+    fn nu_mixed_terminal_net() -> PetriNet {
+        use libpetri_core::match_spec::MatchSpec;
+        use libpetri_core::name::NameId;
+        use libpetri_core::output::and;
+        let source = Place::<()>::new("source");
+        let a = Place::<String>::new("branchA");
+        let b = Place::<String>::new("branchB");
+        let done = Place::<i32>::new("done");
+        let stuck = Place::<i32>::new("stuck");
+        let t_fork = Transition::builder("fork")
+            .input(one(&source))
+            .output(and(vec![out_place(&a), out_place(&b)]))
+            .action(fork())
+            .build();
+        let t_join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |s: &String| NameId::new(s.clone()))
+                    .key(&b, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(and(vec![out_place(&done), out_place(&stuck)]))
+            .action(fork())
+            .build();
+        PetriNet::builder("nuMixedTerminal").transitions([t_fork, t_join]).build()
+    }
+
+    /// Declarations accumulate per marker, dedupe places, and keep declaration
+    /// order — the order the `Property:` line renders.
+    #[test]
+    fn conditional_sinks_accumulate_per_marker_in_declaration_order() {
+        let net = halt_net();
+        let verifier = SmtVerifier::for_net(&net)
+            .sink_places(["done".to_string()])
+            .sink_places_when("halt", ["b".to_string()])
+            .sink_places_when("pause", Vec::new())
+            .sink_places_when("halt", ["a".to_string(), "b".to_string()]);
+        assert_eq!(
+            verifier.conditional_sinks,
+            vec![
+                ConditionalSinks {
+                    marker: "halt".to_string(),
+                    places: vec!["b".to_string(), "a".to_string()],
+                },
+                ConditionalSinks {
+                    marker: "pause".to_string(),
+                    places: Vec::new(),
+                },
+            ]
+        );
+        assert_eq!(
+            describe_sinks(&verifier.sink_places, &verifier.conditional_sinks).as_deref(),
+            Some("sinks: done; when halt: b, a; when pause")
+        );
+    }
+
+    /// [VER-014] test derivation: a halt that strands pending work is a violation
+    /// until the work is excused under the halt; `TerminatesAtSink` ignores the
+    /// declaration.
+    #[test]
+    fn conditional_sinks_excuse_pending_work_under_the_halt_marker() {
+        if !z3_available() {
+            eprintln!("skipping conditional_sinks_excuse_*: z3 binary not on PATH");
+            return;
+        }
+        let net = halt_net();
+        // Explicit [VER-017] opt-out: this test exercises the SMT pipeline, which the
+        // enumeration route would otherwise short-circuit before a solver ran.
+        let base = || {
+            SmtVerifier::for_net(&net)
+                .enumeration_max_classes(0)
+                .initial_marking(MarkingStateBuilder::new().tokens("p0", 1).build())
+                .property(SmtProperty::DeadlockFree)
+                .sink_places(["done".to_string()])
+                .timeout(30_000)
+        };
+
+        let plain = base().verify();
+        assert!(plain.is_violated(), "{}", plain.report);
+        assert_eq!(plain.counterexample_confirmed, Some(true), "{}", plain.report);
+        let witness = plain.counterexample_trace.last().expect("a replayed trace");
+        assert_eq!(witness.count("halt"), 1, "{}", plain.report);
+
+        // The marker alone: halt is at rest, b is still stranded under it.
+        let marker_only = base().sink_places_when("halt", Vec::new()).verify();
+        assert!(marker_only.is_violated(), "{}", marker_only.report);
+        let witness = marker_only.counterexample_trace.last().expect("a replayed trace");
+        assert_eq!(witness.count("b"), 1, "{}", marker_only.report);
+
+        // b may rest while halted: nothing is stranded in any quiescent marking.
+        let excused = base().sink_places_when("halt", ["b".to_string()]).verify();
+        assert!(excused.is_proven(), "{}", excused.report);
+        assert!(
+            excused.report.contains("Property: Deadlock freedom (sinks: done; when halt: b)\n"),
+            "{}",
+            excused.report
+        );
+
+        // TerminatesAtSink reads only the unconditional sinks: {halt:1, b:1} marks none.
+        let reaches = base()
+            .property(SmtProperty::TerminatesAtSink)
+            .sink_places_when("halt", ["b".to_string()])
+            .verify();
+        assert!(reaches.is_violated(), "{}", reaches.report);
+    }
+
+    /// [VER-014] AC2 / AC3 on the dead-end chain: a marker that is unmarked at
+    /// quiescence excuses nothing; a place as its own marker is a designed terminal.
+    #[test]
+    fn conditional_sinks_unmarked_marker_excuses_nothing() {
+        if !z3_available() {
+            eprintln!("skipping conditional_sinks_unmarked_*: z3 binary not on PATH");
+            return;
+        }
+        let net = dead_end_chain_net();
+        // Explicit [VER-017] opt-out: this test exercises the SMT pipeline, which the
+        // enumeration route would otherwise short-circuit before a solver ran.
+        let base = || {
+            SmtVerifier::for_net(&net)
+                .enumeration_max_classes(0)
+                .initial_marking(MarkingStateBuilder::new().tokens("p0", 1).build())
+                .property(SmtProperty::DeadlockFree)
+                .timeout(30_000)
+        };
+        // p0 is empty by the time the chain quiesces at {p2:1}.
+        let unmarked = base().sink_places_when("p0", ["p2".to_string()]).verify();
+        assert!(unmarked.is_violated(), "{}", unmarked.report);
+        assert_eq!(unmarked.counterexample_confirmed, Some(true), "{}", unmarked.report);
+        // p2 as its own marker: the resting token is the designed terminal.
+        let marker = base().sink_places_when("p2", Vec::new()).verify();
+        assert!(marker.is_proven(), "{}", marker.report);
+        assert!(
+            marker.report.contains("Property: Deadlock freedom (when p2)\n"),
+            "{}",
+            marker.report
+        );
+    }
+
+    /// [VER-014] AC5: Route B decides the same rest set as the encoders. No solver
+    /// is involved — the name-partition graph answers before Phase 4.
+    #[test]
+    fn conditional_sinks_route_b_reads_the_same_rest_set() {
+        let net = nu_mixed_terminal_net();
+        let base = || {
+            SmtVerifier::for_net(&net)
+                .initial_marking(MarkingStateBuilder::new().tokens("source", 1).build())
+                .property(SmtProperty::DeadlockFree)
+                .sink_places(["done".to_string()])
+        };
+        let route_b = "ν-net Route B: name-aware state-class graph (NU-050)";
+        // {done:1, stuck:1} strands `stuck` with `done` a plain sink.
+        let plain = base().verify();
+        assert!(plain.report.contains(route_b), "{}", plain.report);
+        assert!(plain.is_violated(), "{}", plain.report);
+        // ... and rests once `stuck` may rest while `done` is marked.
+        let excused = base().sink_places_when("done", ["stuck".to_string()]).verify();
+        assert!(excused.report.contains(route_b), "{}", excused.report);
+        assert!(excused.is_proven(), "{}", excused.report);
+        assert!(
+            excused
+                .report
+                .contains("Property: Deadlock freedom (sinks: done; when done: stuck)\n"),
+            "{}",
+            excused.report
+        );
+    }
+
+    // === Linear state-equation bound ([VER-015]) ===
+
+    /// A fork that may halt instead: p0(1) → f → AND(a, b) | halt; a → ga → ra;
+    /// b → gb → rb; join: ra + rb → done. `{ra, rb, halt}` is unreachable — a halt
+    /// consumes the token that would have fed both arms — and no EQUALITY law says
+    /// so (the halt branch turns 2 units into 1), so the null-space basis cannot
+    /// exclude it. The decreasing law 2·p0 + a + b + ra + rb + halt + 2·done ≤ 2
+    /// does: the target needs 3.
+    fn fork_or_halt_net() -> PetriNet {
+        use libpetri_core::output::{and, xor};
+        let p0 = Place::<i32>::new("p0");
+        let a = Place::<i32>::new("a");
+        let b = Place::<i32>::new("b");
+        let ra = Place::<i32>::new("ra");
+        let rb = Place::<i32>::new("rb");
+        let halt = Place::<i32>::new("halt");
+        let done = Place::<i32>::new("done");
+        let f = Transition::builder("f")
+            .input(one(&p0))
+            .output(xor(vec![and(vec![out_place(&a), out_place(&b)]), out_place(&halt)]))
+            .action(fork())
+            .build();
+        let ga = Transition::builder("ga").input(one(&a)).output(out_place(&ra)).action(fork()).build();
+        let gb = Transition::builder("gb").input(one(&b)).output(out_place(&rb)).action(fork()).build();
+        let join = Transition::builder("join")
+            .input(one(&ra))
+            .input(one(&rb))
+            .output(out_place(&done))
+            .action(fork())
+            .build();
+        PetriNet::builder("forkOrHalt").transitions([f, ga, gb, join]).build()
+    }
+
+    fn fork_or_halt_marking() -> MarkingState {
+        MarkingStateBuilder::new().tokens("p0", 1).build()
+    }
+
+    fn fork_or_halt_targets() -> SmtProperty {
+        SmtProperty::unreachable(vec!["halt".into(), "ra".into(), "rb".into()])
+    }
+
+    const BOUND_STATUS_LINE: &str =
+        "  Status: bound excludes every violating marking (re-checked in exact integer arithmetic)\n";
+
+    /// [VER-015] AC1: proven with method `structural`, without a fixpoint query,
+    /// and the report names the bound and the demand.
+    #[test]
+    fn linear_bound_proves_an_unreachable_marking_structurally() {
+        if !z3_available() {
+            eprintln!("skipping linear_bound_proves_*: z3 binary not on PATH");
+            return;
+        }
+        let net = fork_or_halt_net();
+        // Explicit [VER-017] opt-out: this test exercises the SMT pipeline, which the
+        // enumeration route would otherwise short-circuit before a solver ran.
+        let result = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
+            .initial_marking(fork_or_halt_marking())
+            .property(fork_or_halt_targets())
+            .timeout(30_000)
+            .verify();
+        match &result.verdict {
+            Verdict::Proven { method, inductive_invariant } => {
+                assert_eq!(method, "structural", "{}", result.report);
+                assert!(inductive_invariant.is_none());
+            }
+            other => panic!("expected a structural proof, got {other:?}\n{}", result.report),
+        }
+        // The solver is free to pick any separating weighting; the report names it
+        // and the exact re-check vouched for it.
+        let line = result
+            .report
+            .lines()
+            .find(|l| l.starts_with("  Linear state-equation bound: ") && l.contains(" <= "))
+            .unwrap_or_else(|| panic!("no bound line\n{}", result.report));
+        assert!(
+            line.contains("; violation needs ") && line.contains(" >= "),
+            "{line}\n{}",
+            result.report
+        );
+        assert!(result.report.contains(BOUND_STATUS_LINE), "{}", result.report);
+        assert!(
+            result.report.contains("  Certificate check: not applicable (structural proof)\n"),
+            "{}",
+            result.report
+        );
+        assert!(
+            result.report.contains(
+                "  Linear state-equation bound: y >= 0 with y.C <= 0 gives y.M <= y.M0 on every\n  \
+                 reachable marking, and the violating markings exceed it (VER-015).\n"
+            ),
+            "{}",
+            result.report
+        );
+        // No fixpoint query ran.
+        assert!(!result.report.contains("Spacer SAT"), "{}", result.report);
+        assert!(result.discovered_invariants.is_empty());
+        assert_eq!(result.counterexample_confirmed, None);
+    }
+
+    /// [VER-015] AC2 / AC5: a reachable target hands over to the fixpoint query,
+    /// which finds and replays the genuine violation.
+    #[test]
+    fn linear_bound_hands_over_when_no_bound_separates_a_reachable_target() {
+        if !z3_available() {
+            eprintln!("skipping linear_bound_hands_over_*: z3 binary not on PATH");
+            return;
+        }
+        let net = fork_or_halt_net();
+        // Explicit [VER-017] opt-out: this test exercises the SMT pipeline, which the
+        // enumeration route would otherwise short-circuit before a solver ran.
+        let result = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
+            .initial_marking(fork_or_halt_marking())
+            .property(SmtProperty::mutual_exclusion(vec!["ra".into(), "rb".into()]))
+            .timeout(30_000)
+            .verify();
+        assert!(result.is_violated(), "{}", result.report);
+        assert!(
+            result
+                .report
+                .contains("  Linear state-equation bound: none separates the violation\n"),
+            "{}",
+            result.report
+        );
+        assert!(!result.report.contains(BOUND_STATUS_LINE));
+        assert_eq!(result.counterexample_confirmed, Some(true), "{}", result.report);
+    }
+
+    /// `linear_bound(false)` forces the IC3/PDR path — for its certificate.
+    #[test]
+    fn linear_bound_disabled_forces_the_fixpoint_path() {
+        if !z3_available() {
+            eprintln!("skipping linear_bound_disabled_*: z3 binary not on PATH");
+            return;
+        }
+        let net = fork_or_halt_net();
+        // Explicit [VER-017] opt-out: this test exercises the SMT pipeline, which the
+        // enumeration route would otherwise short-circuit before a solver ran.
+        let result = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
+            .initial_marking(fork_or_halt_marking())
+            .property(fork_or_halt_targets())
+            .linear_bound(false)
+            .timeout(30_000)
+            .verify();
+        match &result.verdict {
+            Verdict::Proven { method, .. } => assert_eq!(method, "IC3/PDR", "{}", result.report),
+            other => panic!("expected an IC3 proof, got {other:?}\n{}", result.report),
+        }
+        assert!(!result.report.contains("Linear state-equation bound"), "{}", result.report);
+        assert!(result.report.contains(CERT_PASSED_LINE), "{}", result.report);
+    }
+
+    /// [VER-015] AC4: `encode_scripts()` reports the bound query exactly when
+    /// `verify()` would send it.
+    #[test]
+    fn encode_scripts_reports_the_bound_query_for_reachability_safety_only() {
+        let net = fork_or_halt_net();
+        let scripts = SmtVerifier::for_net(&net)
+            .initial_marking(fork_or_halt_marking())
+            .property(fork_or_halt_targets())
+            .encode_scripts();
+        let bound = scripts.bound.expect("a reachability-safety property has a linear demand");
+        assert!(bound.contains("(set-logic QF_LIA)"), "{bound}");
+        assert_eq!(
+            bound,
+            linear_bound::encode_linear_bound(
+                &net_flattener::flatten(&net),
+                &fork_or_halt_marking(),
+                &fork_or_halt_targets(),
+                &[]
+            )
+            .unwrap()
+        );
+        assert!(!scripts.coloured);
+        assert!(scripts.certificate.is_some());
+        // A quiescence property has no linear demand.
+        let none = SmtVerifier::for_net(&net)
+            .initial_marking(fork_or_halt_marking())
+            .property(SmtProperty::DeadlockFree)
+            .encode_scripts();
+        assert!(none.bound.is_none());
+        // Disabled: verify() would not send it either.
+        let disabled = SmtVerifier::for_net(&net)
+            .initial_marking(fork_or_halt_marking())
+            .property(fork_or_halt_targets())
+            .linear_bound(false)
+            .encode_scripts();
+        assert!(disabled.bound.is_none());
+    }
+
+    // === State equation ([VER-016]) ===
+
+    /// [VER-016] AC3 / AC4: a proven quiescence property keeps its verdict, passes
+    /// the certificate check with the equation in the candidate, and the report
+    /// names the counters.
+    #[test]
+    fn state_equation_proven_deadlock_freedom_passes_the_certificate_check() {
+        if !z3_available() {
+            eprintln!("skipping state_equation_proven_*: z3 binary not on PATH");
+            return;
+        }
+        let net = fork_or_halt_net();
+        // Explicit [VER-017] opt-out: this test exercises the SMT pipeline, which the
+        // enumeration route would otherwise short-circuit before a solver ran.
+        let result = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
+            .initial_marking(fork_or_halt_marking())
+            .property(SmtProperty::DeadlockFree)
+            .sink_places(["done".to_string(), "halt".to_string()])
+            .state_equation(true)
+            .timeout(30_000)
+            .verify();
+        assert!(result.is_proven(), "{}", result.report);
+        assert!(
+            result
+                .report
+                .contains("  State equation: encoded over 5 firing counters (VER-016)\n"),
+            "{}",
+            result.report
+        );
+        assert!(result.report.contains(CERT_PASSED_LINE), "{}", result.report);
+    }
+
+    /// [VER-016] AC3: a genuine violation stays violated and its counterexample —
+    /// decoded from the leading `P` arguments of each fact — replays.
+    #[test]
+    fn state_equation_violation_stays_violated_and_replays() {
+        if !z3_available() {
+            eprintln!("skipping state_equation_violation_*: z3 binary not on PATH");
+            return;
+        }
+        let net = fork_or_halt_net();
+        // Explicit [VER-017] opt-out: this test exercises the SMT pipeline, which the
+        // enumeration route would otherwise short-circuit before a solver ran.
+        let result = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
+            .initial_marking(fork_or_halt_marking())
+            .property(SmtProperty::DeadlockFree)
+            .sink_places(["done".to_string()])
+            .state_equation(true)
+            .timeout(30_000)
+            .verify();
+        assert!(result.is_violated(), "{}", result.report);
+        assert_eq!(result.counterexample_confirmed, Some(true), "{}", result.report);
+        let last = result.counterexample_trace.last().expect("a replayed trace");
+        assert_eq!(last.count("halt"), 1, "{}", result.report);
+    }
+
+    /// [VER-016] AC4: requested on the name-coloured path, the option does not
+    /// apply and the report says so.
+    #[test]
+    fn state_equation_not_applied_on_the_name_coloured_path() {
+        if !z3_available() {
+            eprintln!("skipping state_equation_not_applied_*: z3 binary not on PATH");
+            return;
+        }
+        let net = nu_scatter_gather_net();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(nu_initial_marking(2))
+            .property(SmtProperty::branch_place_bound("pending", 2))
+            .budget_place("budget")
+            .state_equation(true)
+            .timeout(15_000)
+            .verify();
+        assert!(result.is_proven(), "{}", result.report);
+        assert!(result.report.contains("name-coloured"), "{}", result.report);
+        assert!(
+            result
+                .report
+                .contains("  State equation: not applied (name-coloured encoding)\n"),
+            "{}",
+            result.report
+        );
+        assert!(!result.report.contains("Linear state-equation bound"), "{}", result.report);
+    }
+
+    /// [VER-016] AC1 / AC5: `encode_scripts()` reflects the option — counters in
+    /// the HORN script, a `P + T` placeholder in the certificate script.
+    #[test]
+    fn state_equation_encode_scripts_reflects_the_option() {
+        let net = fork_or_halt_net();
+        let scripts = |on: bool| {
+            SmtVerifier::for_net(&net)
+                .initial_marking(fork_or_halt_marking())
+                .property(SmtProperty::DeadlockFree)
+                .sink_places(["done".to_string()])
+                .state_equation(on)
+                .encode_scripts()
+        };
+        let off = scripts(false);
+        let on = scripts(true);
+        assert!(!off.horn.contains("n0p"));
+        assert!(on.horn.contains("n0p"));
+        // 7 places + 5 flat transitions: the placeholder gains `x!7 .. x!11`.
+        assert!(on.certificate.as_deref().unwrap().contains("(x!7 Int)"));
+        assert!(!off.certificate.as_deref().unwrap().contains("(x!7 Int)"));
+        assert!(on.certificate.as_deref().unwrap().contains("(declare-const n4p Int)"));
+        assert!(on.bound.is_none() && off.bound.is_none());
+    }
+
+    // ---- [VER-007] semiflow computation and the `auto` setting ----
+
+    /// A draining `all()` arc on a busy place: the H1 guard drops every law whose
+    /// support touches it, which is the condition `Auto` exists for.
+    fn draining_loop() -> (PetriNet, MarkingState) {
+        let budget = Place::<i32>::new("budget");
+        let queue = Place::<i32>::new("queue");
+        let work = Place::<i32>::new("work");
+        let sink = Place::<i32>::new("sink");
+        let take = Transition::builder("take")
+            .input(one(&budget))
+            .input(all(&queue))
+            .output(out_place(&work))
+            .action(fork())
+            .build();
+        let done = Transition::builder("done")
+            .input(one(&work))
+            .output(and(vec![out_place(&budget), out_place(&sink)]))
+            .action(fork())
+            .build();
+        let net = PetriNet::builder("drain")
+            .transition(take)
+            .transition(done)
+            .build();
+        let m0 = MarkingStateBuilder::new()
+            .tokens("budget", 1)
+            .tokens("queue", 2)
+            .build();
+        (net, m0)
+    }
+
+    /// A clean pipeline: nothing is dropped, so the union would add only cost.
+    fn clean_chain() -> (PetriNet, MarkingState) {
+        let a = Place::<i32>::new("a");
+        let b = Place::<i32>::new("b");
+        let c = Place::<i32>::new("c");
+        let net = PetriNet::builder("clean")
+            .transition(
+                Transition::builder("t1")
+                    .input(one(&a))
+                    .output(out_place(&b))
+                    .action(fork())
+                    .build(),
+            )
+            .transition(
+                Transition::builder("t2")
+                    .input(one(&b))
+                    .output(out_place(&c))
+                    .action(fork())
+                    .build(),
+            )
+            .build();
+        (net, MarkingStateBuilder::new().tokens("a", 1).build())
+    }
+
+    /// [VER-007] AC2: with the option off the semiflows are not computed at all —
+    /// observable because a net whose semiflows fail the H1 gate reports no
+    /// `Dropped semiflow:` line until something asks for them.
+    #[test]
+    fn semiflows_are_not_computed_when_nothing_reads_them() {
+        let (net, m0) = draining_loop();
+        // Explicit [VER-017] opt-out: this test reads the Phase-3 report of the SMT
+        // pipeline, which the enumeration route would short-circuit past.
+        let build = |mode: SemiflowMode| {
+            SmtVerifier::for_net(&net)
+                .enumeration_max_classes(0)
+                .initial_marking(m0.clone())
+                .property(SmtProperty::place_bound("sink", 2))
+                .semiflow_invariants(mode)
+                .verify()
+        };
+        let off = build(SemiflowMode::Off);
+        assert!(
+            !off.report.contains("Dropped semiflow:"),
+            "the enumeration must not run with the option off\n{}",
+            off.report
+        );
+        let on = build(SemiflowMode::On);
+        assert!(
+            on.report.contains("Dropped semiflow:"),
+            "the enumeration must run with the option on\n{}",
+            on.report
+        );
+    }
+
+    /// [VER-007] AC3: `Auto` says which way it went and why, and the union happens
+    /// only when a law was dropped.
+    #[test]
+    fn semiflow_auto_unions_when_the_basis_lost_a_law() {
+        let (net, m0) = draining_loop();
+        // Explicit [VER-017] opt-out: as above, the Phase-3 report is the subject.
+        let r = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
+            .initial_marking(m0)
+            .property(SmtProperty::place_bound("sink", 2))
+            .semiflow_invariants(SemiflowMode::Auto)
+            .verify();
+        assert!(r.report.contains("Strengthening.lean H1"), "{}", r.report);
+        assert!(
+            r.report
+                .contains("  Semiflow union: ON (auto — the basis lost a law to the H1 guard)"),
+            "{}",
+            r.report
+        );
+        assert!(
+            r.report.contains("  Semiflows encoded as invariants: "),
+            "{}",
+            r.report
+        );
+    }
+
+    /// The other half of AC3: the "off" wording must say the skipped semiflows add
+    /// no *constraint*, not that they would add nothing.
+    #[test]
+    fn semiflow_auto_skips_when_the_basis_is_complete() {
+        let (net, m0) = clean_chain();
+        // Explicit [VER-017] opt-out: as above.
+        let r = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
+            .initial_marking(m0)
+            .property(SmtProperty::place_bound("c", 1))
+            .semiflow_invariants(SemiflowMode::Auto)
+            .verify();
+        assert!(!r.report.contains("Strengthening.lean H1"), "{}", r.report);
+        assert!(
+            r.report.contains(
+                "  Semiflow union: off (auto — the basis is complete, so the semiflows would \
+                 add no constraint the encoding does not already have; they may still differ \
+                 in FORM)"
+            ),
+            "{}",
+            r.report
+        );
+        assert!(
+            !r.report.contains("Semiflows encoded as invariants:"),
+            "{}",
+            r.report
+        );
+    }
+
+    /// [VER-013] AC1: `encode_scripts()` honours `Auto`, so the parity goldens pin
+    /// the script the pipeline would actually send. It used to read `Auto` as `Off`,
+    /// which under-reported the query on every net whose basis lost a law.
+    ///
+    /// `coloured_loop` is the net that makes the difference observable: its reset arc
+    /// costs the basis a law to the H1 guard (so `Auto` under `verify()` DOES union —
+    /// see `semiflow_auto_unions_when_the_basis_lost_a_law` for the report side) and
+    /// the union changes the emitted script (`semiflows_reach_the_coloured_encoder`).
+    /// `clean_chain` is the other half: a complete basis, where `Auto` declines and
+    /// the script must match the `Off` one.
+    #[test]
+    fn encode_scripts_honours_semiflow_auto() {
+        let net = coloured_loop();
+        let off = coloured_scripts(&net, SemiflowMode::Off);
+        let auto = coloured_scripts(&net, SemiflowMode::Auto);
+        let on = coloured_scripts(&net, SemiflowMode::On);
+        // A deficient basis: auto unions, so the script must be the strengthened one.
+        assert_eq!(
+            auto.horn, on.horn,
+            "Auto must emit what the setting it CHOSE (On) emits"
+        );
+        assert_eq!(auto.certificate, on.certificate);
+        assert_eq!(auto.bound, on.bound);
+        // ... and this is a net where the option genuinely bites, so the equality
+        // above is a decision rather than a coincidence.
+        assert_ne!(
+            on.horn, off.horn,
+            "coloured_loop must be a net whose semiflow union changes the script"
+        );
+
+        // A complete basis: auto declines, so the script matches the off case.
+        let (clean, m0) = clean_chain();
+        let scripts = |mode: SemiflowMode| {
+            SmtVerifier::for_net(&clean)
+                .initial_marking(m0.clone())
+                .property(SmtProperty::place_bound("c", 1))
+                .semiflow_invariants(mode)
+                .encode_scripts()
+        };
+        let clean_auto = scripts(SemiflowMode::Auto);
+        let clean_off = scripts(SemiflowMode::Off);
+        assert_eq!(clean_auto.horn, clean_off.horn);
+        assert_eq!(clean_auto.certificate, clean_off.certificate);
+        assert_eq!(clean_auto.bound, clean_off.bound);
+    }
+
+    /// AC3's last clause: the verdict never differs from whichever explicit
+    /// setting `auto` chose.
+    #[test]
+    fn semiflow_auto_never_differs_from_the_explicit_settings() {
+        if !z3_available() {
+            eprintln!("skipping semiflow_auto_never_differs_*: z3 binary not on PATH");
+            return;
+        }
+        for (net, m0, target) in [
+            (draining_loop().0, draining_loop().1, "sink"),
+            (clean_chain().0, clean_chain().1, "c"),
+        ] {
+            let mut seen: Vec<String> = Vec::new();
+            for mode in [SemiflowMode::On, SemiflowMode::Off, SemiflowMode::Auto] {
+                // Explicit [VER-017] opt-out: the point is that the three SEMIFLOW
+                // settings agree on the solver path, so the route must not answer
+                // all three before the option can matter.
+                let r = SmtVerifier::for_net(&net)
+                    .enumeration_max_classes(0)
+                    .initial_marking(m0.clone())
+                    .property(SmtProperty::place_bound(target, 2))
+                    .semiflow_invariants(mode)
+                    .timeout(30_000)
+                    .verify();
+                seen.push(format!("{:?}", std::mem::discriminant(&r.verdict)));
+            }
+            assert!(
+                seen.windows(2).all(|w| w[0] == w[1]),
+                "verdicts differed across semiflow modes on {}: {seen:?}",
+                net.name()
+            );
+        }
+    }
+
+    // ---- [VER-006] AC6: a quiescence property on a net that never rests ----
+
+    /// An open net never comes to rest, so a quiescence property there is
+    /// vacuously true. The verdict is correct and says nothing; the report must
+    /// say which.
+    #[test]
+    fn vacuous_quiescence_is_named_in_the_report() {
+        let src = Place::<i32>::new("src");
+        let inp = Place::<i32>::new("in");
+        let done = Place::<i32>::new("done");
+        let net = PetriNet::builder("open")
+            .transition(
+                Transition::builder("trigger")
+                    .input(one(&src))
+                    .output(out_place(&inp))
+                    .action(fork())
+                    .build(),
+            )
+            .transition(
+                Transition::builder("step")
+                    .input(one(&inp))
+                    .output(out_place(&done))
+                    .action(fork())
+                    .build(),
+            )
+            .build();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(MarkingStateBuilder::new().build())
+            .property(SmtProperty::DeadlockFree)
+            .sink_places(vec!["done".to_string()])
+            .environment_places(vec!["src".to_string()])
+            .environment_mode(EnvironmentAnalysisMode::AlwaysAvailable)
+            .verify();
+        assert!(
+            result
+                .report
+                .contains("NOTE: no marking of this net can be quiescent"),
+            "{}",
+            result.report
+        );
+    }
+
+    /// ... and says nothing of the kind for a closed net, whose quiescence is real.
+    #[test]
+    fn a_closed_net_carries_no_vacuity_note() {
+        let (net, m0) = clean_chain();
+        // Explicit [VER-017] opt-out: the note is a Phase-3 line of the SMT
+        // pipeline, which the enumeration route would skip entirely.
+        let result = SmtVerifier::for_net(&net)
+            .enumeration_max_classes(0)
+            .initial_marking(m0)
+            .property(SmtProperty::DeadlockFree)
+            .sink_places(vec!["c".to_string()])
+            .verify();
+        assert!(
+            !result
+                .report
+                .contains("no marking of this net can be quiescent"),
+            "{}",
+            result.report
+        );
+    }
+
+    /// A catch that degrades a result must not launder a defect into a verdict:
+    /// once a bug and a real limitation arrive as the same `Unknown`, the bug is
+    /// invisible. TypeScript needs an explicit `rethrowIfProgrammingError` at every
+    /// such catch because a `TypeError` and a dead solver arrive as the same
+    /// `catch (e)`. Rust separates them in the type system — a failure the pipeline
+    /// is written for is an `Err(String)`, a defect is a panic — so the only way to
+    /// re-merge them is to catch the unwind. This crate must never do that —
+    /// tests included, where a caught panic is a review question either way.
+    #[test]
+    fn the_verification_crate_never_catches_a_panic() {
+        // Both needles are split so this test does not match itself. The second
+        // one is the unwind-safety assertion wrapper: catching an unwind around a
+        // closure that captures the pipeline's state needs it, so it flags a
+        // wrapper that reached the catch through an alias the first needle misses.
+        let needles = [concat!("catch_", "unwind"), concat!("Assert", "UnwindSafe")];
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        // Recursive, and over `tests/` as well as `src/`: the rule is about the
+        // crate, and a subdirectory added later must not become a blind spot.
+        fn rust_files(dir: &std::path::Path, into: &mut Vec<std::path::PathBuf>) {
+            let Ok(entries) = std::fs::read_dir(dir) else { return };
+            let mut paths: Vec<_> = entries.map(|e| e.expect("dir entry").path()).collect();
+            paths.sort();
+            for path in paths {
+                if path.is_dir() {
+                    rust_files(&path, into);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    into.push(path);
+                }
+            }
+        }
+        let mut files = Vec::new();
+        rust_files(&root.join("src"), &mut files);
+        rust_files(&root.join("tests"), &mut files);
+        assert!(files.len() > 1, "the source walk found nothing to check");
+        let mut offenders = Vec::new();
+        for path in files {
+            let text = std::fs::read_to_string(&path).expect("read source");
+            for needle in needles {
+                if text.contains(needle) {
+                    offenders.push(format!("{} ({needle})", path.display()));
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "a caught panic would arrive as the same Unknown a dead solver does: {offenders:?}"
+        );
     }
 }

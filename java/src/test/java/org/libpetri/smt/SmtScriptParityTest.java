@@ -68,11 +68,16 @@ class SmtScriptParityTest {
         if (!budgets.isEmpty()) {
             verifier.budgetPlaces(budgets.toArray(new Place<?>[0]));
         }
+        VerdictParityTest.sinkPlacesWhen(fixture).forEach((marker, places) ->
+            verifier.sinkPlacesWhen(marker, places.toArray(new Place<?>[0])));
         verifier.semiflowInvariants(VerdictParityTest.semiflowInvariants(fixture));
+        verifier.stateEquation(VerdictParityTest.stateEquation(fixture));
         var scripts = verifier.encodeScripts();
 
         compare(id, goldenDir.resolve("horn.smt2"), scripts.horn());
         compare(id, goldenDir.resolve("certificate.smt2"), scripts.certificate());
+        // The linear state-equation bound query ([VER-015]); absent for a quiescence property.
+        compare(id, goldenDir.resolve("bound.smt2"), scripts.bound());
     }
 
     private static void compare(String id, Path golden, String actual) throws IOException {

@@ -21,6 +21,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
@@ -98,6 +99,10 @@ class StubZ3Test {
     private static SmtVerificationResult verify(PetriNet net, Z3Solver solver, SmtProperty property,
                                                 Duration timeout, Map<Place<?>, Integer> tokens) {
         return SmtVerifier.forNet(net)
+            // Explicit opt-out, not an oversight: this suite drives the SOLVER transport
+            // through a stub, and [VER-017]'s enumeration route would decide these tiny
+            // untimed nets before the stub is ever invoked.
+            .enumerationMaxClasses(0)
             .initialMarking(m -> tokens.forEach(m::tokens))
             .property(property)
             .environmentMode(EnvironmentAnalysisMode.ignore())
@@ -293,13 +298,18 @@ class StubZ3Test {
         var result = verify(solver, SmtProperty.placeBound(P1, 0));
         assertInstanceOf(SmtVerificationResult.Verdict.Violated.class, result.verdict(), result.report());
         try (Stream<Path> files = Files.list(dump)) {
+            // A reachability-safety property runs the linear bound (VER-015) before the
+            // HORN query, so the counter gives 001-bound then 002-horn; the stub answers
+            // `unsat` to both (no bound separates; then the violation).
             var names = files.map(p -> p.getFileName().toString()).sorted().toList();
-            assertEquals(2, names.size(), "one script and one reply: " + names);
-            assertTrue(names.get(0).endsWith("-horn.out") && names.get(1).endsWith("-horn.smt2"), names.toString());
-            String script = Files.readString(dump.resolve(names.get(1)));
+            assertEquals(4, names.size(), "two scripts and two replies: " + names);
+            assertEquals(List.of("001-bound.out", "001-bound.smt2", "002-horn.out", "002-horn.smt2"), names);
+            String bound = Files.readString(dump.resolve(names.get(1)));
+            assertTrue(bound.contains("(set-logic QF_LIA)"), "the bound dump is the QF_LIA script:\n" + bound);
+            String script = Files.readString(dump.resolve(names.get(3)));
             assertTrue(script.contains("(set-logic HORN)") && script.endsWith("(get-model)"),
                 "the dump is the script as sent:\n" + script);
-            String reply = Files.readString(dump.resolve(names.get(0)));
+            String reply = Files.readString(dump.resolve(names.get(2)));
             assertTrue(reply.contains("\nunsat\n"), "the dump is the reply as received:\n" + reply);
         }
     }

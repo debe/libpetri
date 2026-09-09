@@ -75,6 +75,12 @@ jobs:
       # here; the dedicated `python` job builds the wheel via maturin.
       - run: cargo build --workspace --exclude libpetri-py --all-features
       - run: cargo test --workspace --exclude libpetri-py --all-features
+      # DEFAULT features too, and not as a formality. The `z3` feature gates whole
+      # modules and swaps in fallback arms, so an --all-features build never
+      # compiles the code a consumer taking the crate off crates.io compiles. A
+      # field added to a shared struct once broke that arm alone and shipped green
+      # through every gate above, because none of them builds it.
+      - run: cargo check --workspace --exclude libpetri-py
       # The TIME-013 reap witness is `#[ignore]`d (real clock + thread::sleep,
       # ~2.5s) and nothing else runs `--ignored`, so without this step the
       # allowlist in the timed differential property has no executed check

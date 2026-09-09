@@ -257,6 +257,15 @@ file = "rust/libpetri-verification/src/smt_encoder.rs"
 fn = "encode"
 lean = ["Libpetri/Soundness.lean", "Libpetri/Retrodict.lean"]
 
+# `encode` is the positional wrapper; its body is `encode_net`, whose
+# options-off path (no conditional sinks, no state equation — the scripts are
+# byte-identical) is what the models cite line by line. The [VER-014] /
+# [VER-016] options are outside every Lean model.
+[[pin]]
+file = "rust/libpetri-verification/src/smt_encoder.rs"
+fn = "encode_net"
+lean = ["Libpetri/Basic.lean", "Libpetri/Soundness.lean", "Libpetri/Retrodict.lean", "Libpetri/Strengthening.lean"]
+
 [[pin]]
 file = "rust/libpetri-verification/src/smt_encoder.rs"
 fn = "encode_transition_rule"

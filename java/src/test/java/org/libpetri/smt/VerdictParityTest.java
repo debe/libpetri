@@ -14,7 +14,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -71,6 +73,10 @@ class VerdictParityTest {
         var property = parseProperty(fixture.get("property"));
 
         var verifier = SmtVerifier.forNet(named.net())
+            // Explicit opt-out, not an oversight: these fixtures pin what the ENCODERS
+            // decide, and [VER-017]'s enumeration route would answer many of them first
+            // with no solver at all — leaving the encoder path unexercised.
+            .enumerationMaxClasses(0)
             .initialMarking(named.initialMarking())
             .property(property)
             .certificateCheck(true)
@@ -92,8 +98,14 @@ class VerdictParityTest {
         if (!budgets.isEmpty()) {
             verifier.budgetPlaces(budgets.toArray(new Place<?>[0]));
         }
+        // Optional shared-schema field: conditional sinks ([VER-014]), marker -> places,
+        // declared in the object's own order.
+        sinkPlacesWhen(fixture).forEach((marker, places) ->
+            verifier.sinkPlacesWhen(marker, places.toArray(new Place<?>[0])));
         // Optional shared-schema field: [VER-007]'s semiflow union.
         verifier.semiflowInvariants(semiflowInvariants(fixture));
+        // Optional shared-schema field: [VER-016]'s firing-counter state equation.
+        verifier.stateEquation(stateEquation(fixture));
         var result = verifier.verify();
 
         // The route marker is checked FIRST: a `route: "B"` fixture that
@@ -105,6 +117,10 @@ class VerdictParityTest {
                 "ROUTE FINDING [" + id + "]: fixture declares route \"B\" but the report does not "
                 + "name the \u03bd name-aware state-class graph — the query fell back to Route A, "
                 + "so the Route B deadlock predicate was never exercised\n" + result.report());
+            // [VER-003] AC4: the same claim in the result's own field, so a consumer reading
+            // fields rather than the report can tell why `invariants` is empty here.
+            assertEquals(SmtVerificationResult.Route.NU_SCG, result.route(), result::report);
+            assertEquals(List.of(), result.invariants(), result::report);
         }
 
         switch (expected) {
@@ -127,13 +143,38 @@ class VerdictParityTest {
         return placeList(fixture, "sinkPlaces");
     }
 
-    /** The fixture's optional {@code budgetPlaces} array, resolved to places. */
     /** Optional shared-schema field: [VER-007]'s semiflow union, off when absent. */
     static boolean semiflowInvariants(JsonNode fixture) {
         var node = fixture.get("semiflowInvariants");
         return node != null && node.asBoolean(false);
     }
 
+    /** Optional shared-schema field: [VER-016]'s state equation, off when absent. */
+    static boolean stateEquation(JsonNode fixture) {
+        var node = fixture.get("stateEquation");
+        return node != null && node.asBoolean(false);
+    }
+
+    /**
+     * The fixture's optional {@code sinkPlacesWhen} object ([VER-014]): marker name to
+     * place names, in the object's own order (Jackson's {@code ObjectNode} keeps insertion
+     * order, so declaration order survives the round trip).
+     */
+    static Map<Place<?>, List<Place<?>>> sinkPlacesWhen(JsonNode fixture) {
+        var out = new LinkedHashMap<Place<?>, List<Place<?>>>();
+        if (fixture.hasNonNull("sinkPlacesWhen")) {
+            for (var entry : fixture.get("sinkPlacesWhen").properties()) {
+                var places = new ArrayList<Place<?>>();
+                for (JsonNode name : entry.getValue()) {
+                    places.add(place(name.asText()));
+                }
+                out.put(place(entry.getKey()), places);
+            }
+        }
+        return out;
+    }
+
+    /** The fixture's optional {@code budgetPlaces} array, resolved to places. */
     static List<Place<?>> budgetPlaces(JsonNode fixture) {
         return placeList(fixture, "budgetPlaces");
     }

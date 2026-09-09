@@ -9,6 +9,16 @@ import type { Place } from './place.js';
  * - Place: Leaf node representing a single output place
  * - Timeout: Timeout branch that activates if action exceeds duration
  * - ForwardInput: Forward consumed input to output on timeout
+ *
+ * A spec names **places, not counts**. Validation ([IO-015]) compares the SET of
+ * places an action wrote against the branches' claims, so an action that deposits
+ * several tokens into one named place is accepted — and every analysis that
+ * enumerates branches ({@link enumerateBranches}: the state-class graph, the SMT
+ * encoding, the ν fragment check) models exactly one token per named place. Such a
+ * firing therefore does more than the analyses explore, in the direction that can
+ * make a `proven` false. The executors report it once per transition as a `WARN`
+ * log-message ([IO-016]); a net meant to be verified should produce one token per
+ * named place and express multiplicity in its topology.
  */
 export type Out = OutAnd | OutXor | OutPlace | OutTimeout | OutForwardInput;
 
@@ -132,11 +142,19 @@ function collectPlaces(out: Out, result: Set<Place<any>>): void {
 }
 
 /**
- * Enumerates all possible output branches for structural analysis.
+ * Enumerates all possible output branches for structural analysis ([IO-016]).
  *
  * - AND = single branch containing all child places (Cartesian product)
  * - XOR = one branch per alternative child
  * - Nested = Cartesian product for AND, union for XOR
+ *
+ * A branch is a **set** of places: it says which places receive a token, not how
+ * many tokens each receives. Analyses built on it (the state-class graph's virtual
+ * transitions, the flattener's post vectors, the ν fragment check) deposit one token
+ * per place of the chosen branch. An action that writes `n > 1` tokens to a place
+ * its branch names once is accepted by [IO-015] but is outside what those analyses
+ * explore — a sound under-approximation for safety only when it never happens, which
+ * is why the executors warn about it ([IO-016] AC4).
  */
 export function enumerateBranches(out: Out): ReadonlyArray<ReadonlySet<Place<any>>> {
   switch (out.type) {

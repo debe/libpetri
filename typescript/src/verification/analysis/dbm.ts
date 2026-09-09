@@ -150,6 +150,36 @@ export class DBM {
     return new DBM(newBounds, newDim, allNames, false).canonicalize();
   }
 
+  /**
+   * The same zone with its clocks reordered: clock `k` of the result is clock
+   * `order[k]` of this DBM. `order` must be a permutation of `0..clockCount()-1`.
+   *
+   * The state-class graph applies this to put every class's clocks in the one
+   * canonical order (VER-010), so two arrivals at the same marking and zone whose
+   * transitions became enabled in a different sequence share a key instead of
+   * being counted as two classes. The reference row and column stay put; the
+   * matrix is copied once, O(dim²) against the O(dim³) canonicalisation every
+   * successor already pays.
+   */
+  permuted(order: readonly number[]): DBM {
+    if (this._empty) return this;
+    const n = this.clockNames.length;
+    const dim = this.dim;
+    const out = new Float64Array(dim * dim);
+    out[0] = 0;
+    const names: string[] = new Array<string>(n);
+    for (let i = 0; i < n; i++) {
+      const oi = order[i]! + 1;
+      names[i] = this.clockNames[order[i]!]!;
+      out[(i + 1) * dim] = this.bounds[oi * dim]!;
+      out[i + 1] = this.bounds[oi]!;
+      for (let j = 0; j < n; j++) {
+        out[(i + 1) * dim + (j + 1)] = this.bounds[oi * dim + (order[j]! + 1)]!;
+      }
+    }
+    return new DBM(out, dim, names, false);
+  }
+
   /** Lets time pass: set all lower bounds to 0. */
   letTimePass(): DBM {
     if (this._empty) return this;
@@ -185,6 +215,25 @@ export class DBM {
       if (Math.abs(this.bounds[i]! - other.bounds[i]!) > EPSILON) return false;
     }
     return true;
+  }
+
+  /**
+   * The zone's identity for state-class dedup: the clock names and the FULL
+   * canonical matrix, every difference bound included.
+   *
+   * {@link toString} prints only the per-clock projections `[lo, hi]`, and two
+   * zones can agree on every projection while disagreeing on a difference
+   * constraint `θi - θj <= c` — the class where one transition must fire no later
+   * than another versus the class where either may go first. Keying on the
+   * projections merges those, and since the graph explores only the first
+   * arrival's successors, a marking reachable only from the second is lost: a
+   * false `proven`. This key is what {@link equals} compares, rendered.
+   */
+  zoneKey(): string {
+    if (this._empty) return 'DBM[empty]';
+    const parts: string[] = [this.clockNames.join(',')];
+    for (let i = 0; i < this.bounds.length; i++) parts.push(formatBound(this.bounds[i]!));
+    return parts.join('|');
   }
 
   toString(): string {

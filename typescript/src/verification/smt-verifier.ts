@@ -1,9 +1,11 @@
 import type { PetriNet } from '../core/petri-net.js';
+import { rethrowIfProgrammingError } from './programming-error.js';
 import type { EnvironmentPlace, Place } from '../core/place.js';
 import { MarkingState, MarkingStateBuilder } from './marking-state.js';
 import type { SmtProperty } from './smt-property.js';
 import { deadlockFree, propertyDescription } from './smt-property.js';
-import type { SmtVerificationResult, SmtStatistics, Verdict } from './smt-verification-result.js';
+import { describeSinks, type ConditionalSinks } from './rest-set.js';
+import type { SmtVerificationResult, SmtStatistics, Verdict, VerificationRoute } from './smt-verification-result.js';
 import type { PInvariant } from './invariant/p-invariant.js';
 import type { FlatNet } from './encoding/flat-net.js';
 import { flatten } from './encoding/net-flattener.js';
@@ -13,10 +15,15 @@ import { canonicalInvariantOrder, computePInvariants, computePSemiflows, isCover
 import { structuralCheck } from './invariant/structural-check.js';
 import { runZ3Spacer } from './z3/spacer-runner.js';
 import { checkCertificate, vcScript, type CertificateCheckOutcome } from './z3/certificate-checker.js';
-import { encode, type SmtEncoding } from './z3/smt-encoder.js';
-import { formatZ3Version, resolveZ3, Z3Unavailable, type Z3Solver } from './z3/z3-process.js';
+import { encodeNet, quiescenceUnreachable, resolveEnvInjection, type SmtEncoding } from './z3/smt-encoder.js';
+import {
+  checkLinearBoundExact, decodeLinearBound, encodeLinearBound, formatLinearBound, formatLinearDemand,
+} from './z3/linear-bound.js';
+import { classifyFirstLine } from './z3/smt-text.js';
+import { failureReason, formatZ3Version, resolveZ3, runZ3Text, timeoutBudget, Z3Unavailable, type Z3Solver } from './z3/z3-process.js';
 import { buildColouredPlan, encodeColoured, type ColouredPlan } from './z3/name-coloured-encoder.js';
 import { verifyViaNameScg } from './nu-scg-verifier.js';
+import { verifyViaStateClassGraph, isUntimed, NOTE_ENUMERATED } from './scg-verifier.js';
 import type { FragmentMode } from './analysis/name-fragment.js';
 import type { PrioritySemantics } from './analysis/priority-semantics.js';
 import { decode } from './z3/counterexample-decoder.js';
@@ -61,13 +68,17 @@ export class SmtVerifier {
   private _property: SmtProperty = deadlockFree();
   private readonly _environmentPlaces = new Set<EnvironmentPlace<any>>();
   private readonly _sinkPlaces = new Set<Place<any>>();
+  private readonly _conditionalSinks: { marker: Place<any>; places: Set<Place<any>> }[] = [];
   private readonly _budgetPlaces = new Set<string>();
   private _environmentMode: EnvironmentAnalysisMode = alwaysAvailable();
   private _timeoutMs: number = 60_000;
   private _certificateCheck: boolean = true;
   private _counterexampleReplay: boolean = true;
-  private _semiflowInvariants: boolean = false;
+  private _semiflowInvariants: boolean | 'auto' = false;
+  private _stateEquation: boolean = false;
+  private _linearBound: boolean = true;
   private _nuMaxClasses: number = 100_000;
+  private _enumerationMaxClasses: number = 50_000;
   private _fragmentMode: FragmentMode = 'base';
   private readonly _carrierPlaces = new Set<string>();
   private _prioritySemantics: PrioritySemantics = 'none';
@@ -107,11 +118,46 @@ export class SmtVerifier {
   }
 
   /**
-   * Declares expected sink (terminal) places for deadlock-freedom analysis.
-   * Markings where any sink place has a token are not considered deadlocks.
+   * Declares expected sink (terminal) places for deadlock-freedom analysis
+   * (VER-002): a token resting in one is never stranded, and `TerminatesAtSink`
+   * asks whether one of them was reached.
    */
   sinkPlaces(...places: Place<any>[]): this {
     for (const p of places) this._sinkPlaces.add(p);
+    return this;
+  }
+
+  /**
+   * Declares places where a token may rest **while `marker` holds a token**
+   * (VER-014) — a designed terminal such as a halt or pause marker, under which
+   * the work it interrupted legitimately stays where it was delivered.
+   *
+   * `DeadlockFree` then reads a quiescent marking against the union of the
+   * declared sinks, the markers, and every conditional set whose marker is marked:
+   * a token in `p` is stranded only when none of those excuse it. The marker
+   * itself is at rest whenever it is marked, so `sinkPlacesWhen(halt)` with no
+   * further places excuses exactly the halt token. Repeated calls for one marker
+   * accumulate; declarations for several markers union. `TerminatesAtSink` is
+   * unaffected and reads only {@link sinkPlaces}.
+   *
+   * ```ts
+   * SmtVerifier.forNet(net)
+   *   .property(deadlockFree())
+   *   .sinkPlaces(done)                       // may always rest
+   *   .sinkPlacesWhen(halt, inbox, pending)   // may rest once the run halted
+   *   .sinkPlacesWhen(pause, inbox)           // may rest while paused
+   * ```
+   *
+   * An unresolved marker or place contributes nothing, as an unresolved sink
+   * does: a mistyped marker makes the property stricter, never laxer.
+   */
+  sinkPlacesWhen(marker: Place<any>, ...places: Place<any>[]): this {
+    let entry = this._conditionalSinks.find(c => c.marker.name === marker.name);
+    if (entry == null) {
+      entry = { marker, places: new Set<Place<any>>() };
+      this._conditionalSinks.push(entry);
+    }
+    for (const p of places) entry.places.add(p);
     return this;
   }
 
@@ -196,8 +242,67 @@ export class SmtVerifier {
    * `Certificate check: not applicable (name-coloured encoding)`. Off by default so
    * reports stay byte-equal.
    */
-  semiflowInvariants(enabled: boolean): this {
+  /**
+   * `'auto'` decides whether the semiflows would add **information to the
+   * encoding**, which is not the same question as whether they would appear in
+   * {@link SmtVerificationResult.invariants} for a caller who reads them.
+   *
+   * A complete basis spans every conservation law of the net, so a semiflow it
+   * spans constrains nothing further and IC3 gains nothing from it — that is why
+   * `'auto'` skips the enumeration there. But the basis is the *signed*
+   * null-space, and a law it spans need not appear in it in **non-negative**
+   * form; only the Farkas enumeration produces that. A caller inspecting the
+   * invariant list for a law of a given shape — "a non-negative law weighting the
+   * budget place and every running place positively" — can therefore find nothing
+   * on a net that plainly has one. Such a caller should ask for the union
+   * explicitly: `'auto'` is the setting to prefer for verification, not for
+   * harvesting.
+   */
+  semiflowInvariants(enabled: boolean | 'auto'): this {
     this._semiflowInvariants = enabled;
+    return this;
+  }
+
+  /**
+   * Enables/disables the linear state-equation bound phase (VER-015; default:
+   * enabled). A reachability-safety property whose violating markings exceed some
+   * `y·M <= y·M0` with `y >= 0`, `y·C <= 0` is then proven structurally, from one
+   * linear query re-checked in exact integer arithmetic, before any fixpoint search.
+   * Disable it to force the IC3/PDR path — for its certificate, or to exercise the
+   * fixpoint engine itself.
+   */
+  linearBound(enabled: boolean): this {
+    this._linearBound = enabled;
+    return this;
+  }
+
+  /**
+   * Encodes the **state equation** with firing counters (VER-016; default:
+   * disabled — the encoding then carries places only).
+   *
+   * The flat encoding gains one counter `n_t` per flat transition and every
+   * transition rule conjoins the marking equation `M' = M0 + C·n'` for each place
+   * whose column is exact (no consume-all / reset arc, not injected). Every linear
+   * consequence of the marking equation — the equality laws of VER-005/VER-007
+   * **and** the inequality laws `y·M ≤ y·M0` (`y ≥ 0, y·C ≤ 0`) and their mixed-sign
+   * kin, which are what an *ordering* argument ("both join slots armed means every
+   * upstream stage has run, so nothing can still halt") looks like in linear
+   * arithmetic — is then available to Spacer as a fact rather than a lemma it has to
+   * invent. On a 50-place agent-dispatch workflow, proper completion under conditional
+   * sinks went from `unknown` after 120 s to `proven` in 1.5 s with this as the only
+   * change; a 53-place pipeline stage before a join, `unknown` at 300 s, proves in
+   * under a second.
+   *
+   * The cost is a larger state (places + transitions) and a slower witness search
+   * on genuinely violated properties (about 1.5× on the nets above), so it is opt-in.
+   * Soundness is unchanged: the counters are exact bookkeeping, the equation holds
+   * on every reachable state by construction (`Strengthening.lean`, the same shape
+   * as the equality laws), and the certificate check re-proves it against the raw
+   * step relation, whose only counter knowledge is the increment. Not applied to the
+   * name-coloured encoding or Route B, which the report says when it applies.
+   */
+  stateEquation(enabled: boolean): this {
+    this._stateEquation = enabled;
     return this;
   }
 
@@ -209,6 +314,30 @@ export class SmtVerifier {
    */
   nuMaxClasses(max: number): this {
     this._nuMaxClasses = max;
+    return this;
+  }
+
+  /**
+   * Sets the class budget for the bounded state-space enumeration route
+   * (VER-017; default 50 000). `0` disables the route, so every query goes to
+   * the SMT pipeline.
+   *
+   * When the state-class graph closes within the budget the property is decided
+   * exactly — sound and complete over the timed semantics — and no solver runs.
+   * This is what makes a long pipeline tractable: IC3 needs a frame per stage and
+   * its cost climbs with the cube of the length, while enumeration is linear in
+   * the reachable state space. A forty-node chain (370 places, 1 967 classes)
+   * takes 410 s on the fixpoint path and 0.11 s here.
+   *
+   * The route declines when the graph exceeds the budget, and the SMT pipeline
+   * then runs unchanged — it can only add verdicts, never remove them. It is
+   * skipped for ν-nets, which have their own exact route (NU-050, Route B), for
+   * nets with environment places, whose injection the graph does not model, and
+   * for **timed** nets, where its verdict would be the weaker timed claim rather
+   * than the untimed one the encoders make (VER-004).
+   */
+  enumerationMaxClasses(max: number): this {
+    this._enumerationMaxClasses = max;
     return this;
   }
 
@@ -292,6 +421,7 @@ export class SmtVerifier {
       plan,
       encoding: encodeColoured(
         plan, flatNet, this._initialMarking, this._property, invariants, this._sinkPlaces,
+        this._conditionalSinks,
       ),
     };
   }
@@ -309,25 +439,48 @@ export class SmtVerifier {
     requireOutputProducingActions(this.net);
     const flatNet = flatten(this.net, this._environmentPlaces, this._environmentMode);
     const matrix = IncidenceMatrix.from(flatNet);
-    const { valid: basis } = validateInvariantsExact(
+    const { valid: basis, dropped: basisDropped } = validateInvariantsExact(
       matrix, computePInvariants(matrix, flatNet, this._initialMarking), flatNet, this._initialMarking,
     );
-    const { valid: semiflows } = validateInvariantsExact(
-      matrix, computePSemiflows(matrix, flatNet, this._initialMarking), flatNet, this._initialMarking,
-    );
+    // `'auto'` decides from the same fact here as in verify() — whether the basis
+    // lost a law to the H1 guard — so the script this reports is the script that
+    // would be sent. Deciding it differently would make the parity goldens pin
+    // something the pipeline never emits.
+    const autoUnion = this._semiflowInvariants === 'auto'
+      && basisDropped.some(d => d.reason.includes('Strengthening.lean H1'));
+    // Same gate as verify(): only compute what something will read (see there).
+    const scriptsHasMatch = [...this.net.transitions].some(t => t.matchSpec !== null);
+    const { valid: semiflows } = this._semiflowInvariants === true || autoUnion || (scriptsHasMatch && this._budgetPlaces.size > 0)
+      ? validateInvariantsExact(
+          matrix, computePSemiflows(matrix, flatNet, this._initialMarking), flatNet, this._initialMarking,
+        )
+      : { valid: [] as PInvariant[] };
     let invariants: readonly PInvariant[] = basis;
-    if (this._semiflowInvariants) invariants = strengthenWithSemiflows(basis, semiflows).invariants;
+    if (this._semiflowInvariants === true || autoUnion) invariants = strengthenWithSemiflows(basis, semiflows).invariants;
     invariants = canonicalInvariantOrder(invariants);
     const attempt = this.colouredAttempt(flatNet, invariants, semiflows);
+    // The bound query (VER-015) exactly when verify() would send it: flat path, enabled,
+    // not refused by VER-006, and a property with a linear demand (else null).
+    const bound =
+      attempt.plan == null &&
+      this._linearBound &&
+      !(this._environmentPlaces.size > 0 && this._environmentMode.type === 'ignore')
+        ? encodeLinearBound(flatNet, this._initialMarking, this._property)
+        : null;
     if (attempt.encoding != null) {
-      return { horn: attempt.encoding.smt2, certificate: null, coloured: true };
+      return { horn: attempt.encoding.smt2, certificate: null, coloured: true, bound };
     }
-    const horn = encode(flatNet, this._initialMarking, this._property, invariants, this._sinkPlaces, this._counterexampleReplay).smt2;
+    const flat = encodeNet(flatNet, this._initialMarking, this._property, invariants, {
+      sinkPlaces: this._sinkPlaces,
+      produceProofs: this._counterexampleReplay,
+      conditionalSinks: this._conditionalSinks,
+      stateEquation: this._stateEquation,
+    });
     const certificate = vcScript(
-      placeholderCertificate(flatNet.places.length), flatNet, this._initialMarking,
-      this._property, this._sinkPlaces, invariants,
+      placeholderCertificate(flatNet.places.length + flat.counterCount), flatNet, this._initialMarking,
+      this._property, this._sinkPlaces, invariants, this._conditionalSinks, this._stateEquation,
     );
-    return { horn, certificate, coloured: false };
+    return { horn: flat.smt2, certificate, coloured: false, bound };
   }
 
   /**
@@ -341,11 +494,36 @@ export class SmtVerifier {
     const report: string[] = [];
     report.push('=== IC3/PDR SAFETY VERIFICATION ===\n');
     report.push(`Net: ${this.net.name}`);
-    const propDesc = this._sinkPlaces.size === 0
+    const sinkDesc = describeSinks(this._sinkPlaces, this._conditionalSinks);
+    const propDesc = sinkDesc === null
       ? propertyDescription(this._property)
-      : `${propertyDescription(this._property)} (sinks: ${[...this._sinkPlaces].map(p => p.name).join(', ')})`;
+      : `${propertyDescription(this._property)} (${sinkDesc})`;
     report.push(`Property: ${propDesc}`);
     report.push(`Timeout: ${(this._timeoutMs / 1000).toFixed(0)}s\n`);
+
+    // Before ANY route. Each of them answers a property naming an absent place
+    // vacuously, and each returns before the flat encoder's own refusal could
+    // fire, so the guard has to sit above all of them or it guards nothing.
+    const absent = unresolvedPropertyPlaceInNet(this.net, this._property);
+    if (absent != null) {
+      const reason =
+        `property names a place that does not resolve in the net ('${absent}'); ` +
+        'refusing to certify (the encoding would be vacuously proven)';
+      report.push('=== RESULT ===\n');
+      report.push(`UNKNOWN: ${reason}`);
+      return buildResult(
+        { type: 'unknown', reason }, report.join('\n'), [], [], [], [],
+        performance.now() - start,
+        {
+          places: [...this.net.places].length,
+          transitions: [...this.net.transitions].length,
+          invariantsFound: 0,
+          structuralResult: 'n/a (unresolved property place)',
+        },
+        null,
+        'unavailable',
+      );
+    }
 
     // ν-net awareness (NU-040, NU-050). A transition with a match spec joins by
     // name equality; the untimed encoder over-approximates that (name equality
@@ -369,6 +547,7 @@ export class SmtVerifier {
         this.net, this._initialMarking, this._property, this._sinkPlaces,
         this._environmentPlaces, this._environmentMode, this._nuMaxClasses,
         this._fragmentMode, this._carrierPlaces, this._prioritySemantics,
+        this._conditionalSinks,
       );
       // Route B truncating to unknown on a bounded quiescence ν-net is not the
       // final word: defer to the scalable Route A coloured IC3/PDR encoder
@@ -409,6 +588,8 @@ export class SmtVerifier {
             invariantsFound: 0,
             structuralResult: 'n/a (ν name-partition SCG)',
           },
+          null,
+          'nu-scg',
         );
       } else if (deferToRouteA) {
         report.push(
@@ -428,6 +609,51 @@ export class SmtVerifier {
           'sound over-approximation instead.',
         );
       }
+    }
+
+    // Bounded state-space enumeration (VER-017): when the state-class graph closes
+    // within the budget it decides the property exactly, with no solver at all —
+    // the answer for the narrow, deep state spaces a workflow net produces, where
+    // IC3 needs a frame per pipeline stage. Skipped for ν-nets (Route B above is
+    // their exact route) and for nets with environment places, whose injection the
+    // graph does not model; on truncation the SMT pipeline below runs unchanged.
+    if (
+      !hasMatch &&
+      this._environmentPlaces.size === 0 &&
+      this._enumerationMaxClasses > 0 &&
+      isUntimed(this.net)
+    ) {
+      const enumerated = verifyViaStateClassGraph(
+        this.net, this._initialMarking, this._property, this._sinkPlaces,
+        this._enumerationMaxClasses, this._conditionalSinks,
+      );
+      if (enumerated.kind === 'decided') {
+        report.push('=== Bounded state-space enumeration (VER-017) ===');
+        report.push(`  State classes: ${enumerated.classCount}`);
+        report.push('  P-invariants: not computed (no encoding is built on this route)');
+        report.push(NOTE_ENUMERATED);
+        if (enumerated.transitions.length > 0) {
+          report.push(`  Counterexample trace: ${enumerated.trace.length} states, ${enumerated.transitions.length} transitions`);
+        }
+        return buildResult(
+          enumerated.verdict, report.join('\n'), [], [], enumerated.trace, enumerated.transitions,
+          performance.now() - start,
+          {
+            places: [...this.net.places].length,
+            transitions: [...this.net.transitions].length,
+            invariantsFound: 0,
+            structuralResult: 'n/a (state-space enumeration)',
+          },
+          // The graph path IS a firing sequence, so a violation is ordered and
+          // confirmed by construction; there is nothing left to replay.
+          enumerated.verdict.type === 'violated' ? true : null,
+          'enumeration',
+        );
+      }
+      report.push(
+        `Bounded state-space enumeration truncated at ${this._enumerationMaxClasses} classes ` +
+        '(VER-017); verifying via the SMT pipeline.',
+      );
     }
 
     // Phase 1: Flatten
@@ -462,10 +688,15 @@ export class SmtVerifier {
     // Skipped when environment places are registered: the siphon/trap analysis runs
     // on the closed net and is blind to env injection (VER-006), so its early proof
     // could be unsound — fall through to the (injection-aware) SMT encoding instead.
+    // Skipped too for any net Commoner's theorem does not govern: see
+    // {@link commonerApplies}. That guard is what makes this a proof rather than a
+    // guess, and it was missing.
     if (
       this._property.type === 'deadlock-free' &&
       !hasMatch &&
+      commonerApplies(flatNet) &&
       this._sinkPlaces.size === 0 &&
+      this._conditionalSinks.length === 0 &&
       structResult.type === 'no-potential-deadlock' &&
       this._environmentPlaces.size === 0
     ) {
@@ -478,6 +709,8 @@ export class SmtVerifier {
         report.join('\n'), [], [], [], [],
         performance.now() - start,
         { places: flatNet.places.length, transitions: flatNet.transitions.length, invariantsFound: 0, structuralResult: structResultStr },
+        null,
+        'structural',
       );
     }
 
@@ -498,18 +731,50 @@ export class SmtVerifier {
     // colour count that sets the name-coloured encoder's slot count `k` (see
     // buildColouredPlan / colourSlotBound) — validated the same way (incl. the H1
     // linearity guard) before they can set that bound, mirroring the Rust verifier.
-    const { valid: semiflows, dropped: droppedSemiflows } = validateInvariantsExact(
-      matrix,
-      computePSemiflows(matrix, flatNet, this._initialMarking),
-      flatNet,
-      this._initialMarking,
-    );
+    //
+    // Computed ONLY when something will read them: the [VER-007] union, or the
+    // coloured plan's slot bound. The enumeration is worst-case exponential — the
+    // minimal semiflows of `k` independent diamonds in series number 2^k, measured
+    // at 2 048 for eleven and 8 189 (the backstop) beyond thirteen — so running it
+    // for a caller who asked for neither is a large cost, and on a wide net an
+    // uncatchable one: the heap it exhausts aborts the process rather than
+    // returning a verdict. Skipping it is invisible to every other phase.
+    // `'auto'` (VER-007): compute them exactly when the basis LOST a law to the H1
+    // guard, which is the condition the option exists for — a consume-all / reset
+    // arc on a busy place drops every basis row whose support touches it, and the
+    // semiflows are the minimal laws that avoid it. On a net with a complete basis
+    // they add nothing and cost the enumeration, so `'auto'` skips them there. The
+    // drops are already known at this point, so this decides in ONE pass rather
+    // than running the pipeline twice to read its own report.
+    const basisLostALaw = droppedInvariants.some(d => d.reason.includes('Strengthening.lean H1'));
+    const semiflowsWanted =
+      this._semiflowInvariants === true ||
+      (this._semiflowInvariants === 'auto' && basisLostALaw) ||
+      (hasMatch && nuBounded);
+    const { valid: semiflows, dropped: droppedSemiflows } = semiflowsWanted
+      ? validateInvariantsExact(
+          matrix,
+          computePSemiflows(matrix, flatNet, this._initialMarking),
+          flatNet,
+          this._initialMarking,
+        )
+      : { valid: [] as PInvariant[], dropped: [] as { invariant: PInvariant; reason: string }[] };
     report.push(`  Found: ${basisInvariants.length} P-invariant(s)`);
     // VER-007: the minimal conservation laws, as extra invariants for the encoders.
     // The report line is emitted only when enabled so default reports stay
     // byte-identical (AC2/AC3).
+    if (this._semiflowInvariants === 'auto') {
+      report.push(basisLostALaw
+        ? '  Semiflow union: ON (auto — the basis lost a law to the H1 guard)'
+        : '  Semiflow union: off (auto — the basis is complete, so the semiflows would add no ' +
+          'constraint the encoding does not already have; they may still differ in FORM)');
+    }
+    // The UNION is a separate decision from computing them: a coloured plan needs
+    // the slot bound without wanting the laws conjoined.
+    const unionWanted =
+      this._semiflowInvariants === true || (this._semiflowInvariants === 'auto' && basisLostALaw);
     let invariants: readonly PInvariant[] = basisInvariants;
-    if (this._semiflowInvariants) {
+    if (unionWanted) {
       const { invariants: strengthened, added } = strengthenWithSemiflows(basisInvariants, semiflows);
       invariants = strengthened;
       report.push(`  Semiflows encoded as invariants: ${added}`);
@@ -541,6 +806,17 @@ export class SmtVerifier {
     }
     report.push('');
 
+    // A quiescence property on a net that can never come to rest is vacuously
+    // true: the verdict would be `proven` whatever the net does. Say so, or the
+    // caller reads an empty claim as a guarantee about their workflow.
+    if (!isReachabilitySafety(this._property) && quiescenceUnreachable(flatNet, resolveEnvInjection(flatNet))) {
+      report.push(
+        '  NOTE: no marking of this net can be quiescent — a transition is enabled in every ' +
+        'marking (an environment-gated one under modelled injection, VER-006). Every quiescence ' +
+        'property is therefore vacuously true here, and a `proven` says nothing about the net.',
+      );
+    }
+
     // Phase 4: SMT encode + query via Spacer
     report.push('Phase 4: IC3/PDR verification via Z3 Spacer...');
 
@@ -556,13 +832,14 @@ export class SmtVerifier {
     try {
       solver = resolveZ3();
     } catch (e: any) {
+      rethrowIfProgrammingError(e);
       const reason = e instanceof Z3Unavailable ? e.message : String(e?.message ?? e);
       report.push(`  Solver: z3 unavailable (${reason})`);
       report.push(`  Status: UNKNOWN (${reason})\n`);
       report.push('=== RESULT ===\n');
       report.push(`UNKNOWN: Could not determine ${propDesc}`);
       report.push(`  Reason: ${reason}`);
-      return buildResult({ type: 'unknown', reason }, report.join('\n'), invariants, [], [], [], performance.now() - start, stats);
+      return buildResult({ type: 'unknown', reason }, report.join('\n'), invariants, [], [], [], performance.now() - start, stats, null, 'unavailable');
     }
     report.push(`  Solver: z3 ${formatZ3Version(solver.version)}`);
 
@@ -578,6 +855,38 @@ export class SmtVerifier {
     // Rust order it the same way.
     const colouredAttempt = this.colouredAttempt(flatNet, invariants, semiflows);
     const colouredPlan: ColouredPlan | null = colouredAttempt.plan;
+
+    // Linear state-equation bound (VER-015): a reachability-safety property whose
+    // violating markings exceed some `y·M <= y·M0` with `y >= 0`, `y·C <= 0` is
+    // proven structurally, without the fixpoint search — the ordering arguments
+    // IC3 does not invent on pipeline-shaped nets. Flat path only: a net on the exact
+    // name-coloured encoding keeps that route's verdict and notes. Skipped under
+    // `ignore` with environment places, where VER-006 refuses every `proven`.
+    if (
+      this._linearBound &&
+      colouredPlan == null &&
+      isReachabilitySafety(this._property) &&
+      !(this._environmentPlaces.size > 0 && this._environmentMode.type === 'ignore')
+    ) {
+      const proof = await this.linearBoundProof(flatNet, solver, report);
+      if (proof != null) {
+        report.push('  Certificate check: not applicable (structural proof)');
+        report.push('');
+        report.push('=== RESULT ===\n');
+        report.push(`PROVEN (structural): ${propDesc}`);
+        report.push('  Linear state-equation bound: y >= 0 with y.C <= 0 gives y.M <= y.M0 on every');
+        report.push('  reachable marking, and the violating markings exceed it (VER-015).');
+        report.push(`  ${proof}`);
+        return this.applyNuGuard(buildResult(
+          { type: 'proven', method: 'structural', inductiveInvariant: null },
+          report.join('\n'), invariants, [], [], [],
+          performance.now() - start,
+          stats,
+          null,
+          'structural',
+        ), hasMatch, nuBounded, false);
+      }
+    }
 
     let encoding: SmtEncoding;
     if (colouredPlan != null) {
@@ -597,7 +906,7 @@ export class SmtVerifier {
         report.push('  Status: UNKNOWN (unresolved property place)\n');
         report.push('=== RESULT ===\n');
         report.push(`UNKNOWN: ${reason}`);
-        return buildResult({ type: 'unknown', reason }, report.join('\n'), invariants, [], [], [], performance.now() - start, stats);
+        return buildResult({ type: 'unknown', reason }, report.join('\n'), invariants, [], [], [], performance.now() - start, stats, null, 'unavailable');
       }
       encoding = coloured;
     } else {
@@ -612,10 +921,21 @@ export class SmtVerifier {
         report.push('  Status: UNKNOWN (unresolved property place)\n');
         report.push('=== RESULT ===\n');
         report.push(`UNKNOWN: ${reason}`);
-        return buildResult({ type: 'unknown', reason }, report.join('\n'), invariants, [], [], [], performance.now() - start, stats);
+        return buildResult({ type: 'unknown', reason }, report.join('\n'), invariants, [], [], [], performance.now() - start, stats, null, 'unavailable');
       }
       // C3: request the refutation proof the replay decoder reads.
-      encoding = encode(flatNet, this._initialMarking, this._property, invariants, this._sinkPlaces, this._counterexampleReplay);
+      encoding = encodeNet(flatNet, this._initialMarking, this._property, invariants, {
+        sinkPlaces: this._sinkPlaces,
+        produceProofs: this._counterexampleReplay,
+        conditionalSinks: this._conditionalSinks,
+        stateEquation: this._stateEquation,
+      });
+      if (this._stateEquation) {
+        report.push(`  State equation: encoded over ${encoding.counterCount} firing counters (VER-016)`);
+      }
+    }
+    if (this._stateEquation && colouredPlan != null) {
+      report.push('  State equation: not applied (name-coloured encoding)');
     }
     const queryResult = await runZ3Spacer(
       solver, this._timeoutMs, encoding.smt2, colouredPlan != null ? 'horn-coloured' : 'horn',
@@ -651,6 +971,7 @@ export class SmtVerifier {
           const certificate = await checkCertificate(
             queryResult.invariantFormula, flatNet, this._initialMarking,
             this._property, invariants, this._sinkPlaces, solver, this._timeoutMs,
+            this._conditionalSinks, this._stateEquation,
           );
           const reason = certificateDowngradeReason(certificate);
           if (reason != null) {
@@ -699,7 +1020,7 @@ export class SmtVerifier {
       case 'violated': {
         report.push('  Status: SAT (counterexample found)\n');
 
-        const decoded = decode(queryResult.answer, flatNet);
+        const decoded = decode(queryResult.answer, flatNet, encoding.counterCount);
         if (decoded.note != null) report.push(`  Counterexample decoding: ${decoded.note}`);
 
         // C3/C4: abstract counterexample replay (flat count encoding only — the
@@ -713,6 +1034,7 @@ export class SmtVerifier {
         if (colouredPlan == null && this._counterexampleReplay) {
           const assessment = assessCounterexample(
             flatNet, this._initialMarking, decoded.states, this._property, this._sinkPlaces,
+            this._conditionalSinks,
           );
           if (assessment.kind === 'confirmed') {
             confirmed = true;
@@ -782,6 +1104,50 @@ export class SmtVerifier {
           stats,
         );
       }
+    }
+  }
+
+  /**
+   * Runs the linear state-equation bound query (VER-015) and re-checks its answer in
+   * exact integer arithmetic. Returns the bound as the report prints it when one
+   * separates the violation, `null` otherwise (no bound, solver inconclusive, or a
+   * model that failed the re-check — each named in the report). Never the last word:
+   * `null` hands over to the fixpoint query.
+   */
+  private async linearBoundProof(flatNet: FlatNet, solver: Z3Solver, report: string[]): Promise<string | null> {
+    const script = encodeLinearBound(flatNet, this._initialMarking, this._property);
+    if (script == null) return null;
+    let reply;
+    try {
+      reply = await runZ3Text(solver, script, 'bound', this._timeoutMs, []);
+    } catch (e: any) {
+      rethrowIfProgrammingError(e);
+      report.push(`  Linear state-equation bound: inconclusive (${String(e?.message ?? e)})`);
+      return null;
+    }
+    const stdout = reply.stdout.trim();
+    switch (classifyFirstLine(stdout)) {
+      case 'sat': {
+        const y = decodeLinearBound(stdout, flatNet.places.length);
+        const bound = y == null ? null : checkLinearBoundExact(flatNet, this._initialMarking, this._property, y);
+        if (bound == null) {
+          report.push('  Linear state-equation bound: inconclusive (solver model failed the exact re-check)');
+          return null;
+        }
+        const rendered = `${formatLinearBound(flatNet, bound)}; violation needs ${formatLinearDemand(flatNet, this._property, bound)}`;
+        report.push(`  Linear state-equation bound: ${rendered}`);
+        report.push('  Status: bound excludes every violating marking (re-checked in exact integer arithmetic)');
+        return rendered;
+      }
+      case 'unsat':
+        report.push('  Linear state-equation bound: none separates the violation');
+        return null;
+      case 'unknown':
+        report.push('  Linear state-equation bound: inconclusive (Z3 answered unknown)');
+        return null;
+      default:
+        report.push(`  Linear state-equation bound: inconclusive (${failureReason(reply, timeoutBudget(this._timeoutMs))})`);
+        return null;
     }
   }
 
@@ -903,6 +1269,7 @@ export function assessCounterexample(
   decodedStates: ReadonlySet<MarkingState>,
   property: SmtProperty,
   sinkPlaces: ReadonlySet<Place<any>>,
+  conditionalSinks: readonly ConditionalSinks[] = [],
 ): ReplayAssessment {
   if (decodedStates.size === 0) {
     return {
@@ -920,10 +1287,16 @@ export function assessCounterexample(
       [...decodedStates].map(m => vectorize(m, flatNet)),
       property,
       sinkPlaces,
+      {},
+      conditionalSinks,
     );
   } catch (e: any) {
-    // A replayer bug must degrade like a truncated search — never crash the
-    // verifier, and never withdraw a verdict on its own.
+    // A replay that ran out of room degrades like a truncated search — it never
+    // withdraws a verdict on its own. A replayer *defect* is not that: it would be
+    // indistinguishable from an exhausted search and so invisible forever, which
+    // is why a TypeError propagates and a RangeError (a deep net overflowing the
+    // stack) stays the capacity verdict it really is.
+    rethrowIfProgrammingError(e);
     outcome = { kind: 'exhausted', reason: `replay threw: ${e?.message ?? e}`, nodesExplored: 0 };
   }
 
@@ -972,6 +1345,11 @@ export interface EncodedScripts {
   readonly certificate: string | null;
   /** Whether `horn` is the name-coloured encoding. */
   readonly coloured: boolean;
+  /**
+   * The linear state-equation bound query (VER-015), or `null` for a property with
+   * no linear demand (the quiescence properties).
+   */
+  readonly bound: string | null;
 }
 
 /**
@@ -1000,6 +1378,71 @@ function downgradeToUnknown(result: SmtVerificationResult, reason: string): SmtV
 /** Truncates long raw solver output for the report. */
 function truncate(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max)}… (${s.length - max} chars truncated)`;
+}
+
+/**
+ * The name of the first place the property names that the NET does not declare,
+ * or `null`. The flat-net twin below answers the same question after flattening;
+ * this one can be asked before any route runs, which is where it has to be.
+ *
+ * A property naming a place the net does not have is not a question about the
+ * net: every route answers it vacuously and each in its own way — the flat
+ * encoder would emit a `false` violation term that proves anything, the linear
+ * bound would drop the conjunct and separate a strictly stronger demand, the
+ * enumeration route would find no class marking a place that cannot be marked.
+ * All three then report `proven`. Refusing once, before any of them, is the only
+ * way the refusal cannot be routed around.
+ */
+function unresolvedPropertyPlaceInNet(net: PetriNet, property: SmtProperty): string | null {
+  const declared = new Set<string>();
+  for (const p of net.places) declared.add(p.name);
+  for (const place of propertyPlaces(property)) {
+    if (!declared.has(place.name)) return place.name;
+  }
+  return null;
+}
+
+/**
+ * Whether Commoner's theorem governs this net, so a siphon/trap answer may be
+ * turned into a `proven`.
+ *
+ * The theorem — every siphon contains an initially marked trap implies
+ * deadlock-freedom — is about an **ordinary** net, one where the only reason a
+ * transition is disabled is an input place with too few tokens. The siphon and
+ * trap fixpoints are computed from the pre/post vectors alone and never read
+ * `readPlaces`, `inhibitorPlaces`, `resetPlaces` or `consumeAll`, so on a net
+ * carrying any of those the analysis answers a question about a DIFFERENT,
+ * strictly more permissive net: dropping a read or inhibitor arc can only add
+ * firings, which is the wrong direction for a deadlock proof. An arc weight above
+ * one is the same problem — a place holding one token satisfies `m >= 1` but not
+ * `exactly(2)`.
+ *
+ * Each of these was demonstrated to produce a `proven` for a net both executors
+ * run to a dead marking: `t1: one(a) read(g) -> g` with `t2: one(g) -> a` from
+ * `{a:1}`; `t: exactly(2, a) -> a` from `{a:1}`; `t: one(a) inhibitor(b) -> a`
+ * from `{a:1, b:1}`. Refusing the shortcut costs a fixpoint query and sends those
+ * nets to a route that models what disables them.
+ */
+function commonerApplies(flatNet: FlatNet): boolean {
+  for (const ft of flatNet.transitions) {
+    if (ft.readPlaces.length > 0 || ft.inhibitorPlaces.length > 0 || ft.resetPlaces.length > 0) return false;
+    if (ft.consumeAll.some(Boolean)) return false;
+    if (ft.preVector.some(w => w > 1)) return false;
+  }
+  return true;
+}
+
+/** The places a property names, whichever kind it is. */
+function propertyPlaces(property: SmtProperty): Place<any>[] {
+  switch (property.type) {
+    case 'deadlock-free': return [];
+    case 'terminates-at-sink': return [];
+    case 'mutual-exclusion': return [property.p1, property.p2];
+    case 'place-bound': return [property.place];
+    case 'branch-place-bound': return [property.place];
+    case 'unreachable': return [...property.places];
+    case 'joined-or-dead-lettered': return [property.pending];
+  }
 }
 
 /** The name of the first place the property names that is not in the flat net, or `null`. */
@@ -1044,6 +1487,7 @@ function buildResult(
   elapsedMs: number,
   statistics: SmtStatistics,
   counterexampleConfirmed: boolean | null = null,
+  route: VerificationRoute = 'smt',
 ): SmtVerificationResult {
-  return { verdict, report, invariants, discoveredInvariants, counterexampleTrace: trace, counterexampleTransitions: transitions, counterexampleConfirmed, elapsedMs, statistics };
+  return { verdict, route, report, invariants, discoveredInvariants, counterexampleTrace: trace, counterexampleTransitions: transitions, counterexampleConfirmed, elapsedMs, statistics };
 }

@@ -27,7 +27,10 @@ Models `libpetri-runtime/src/marking.rs` (`HashMap<Arc<str>, VecDeque<ErasedToke
 abbrev CMarking := PlaceId → List Colour
 
 /-- Abstract marking: one token *count* per place. Models the `m_i` integer
-variables of the CHC encoding (`encode`, `smt_encoder.rs:65-66`). -/
+variables of the CHC encoding (`encode_net`, the body of `encode`,
+`smt_encoder.rs:132-133`). The firing counters `n_k` that
+`EncodeOptions::state_equation` ([VER-016]) appends after the places are
+outside this model, which covers the options-off path. -/
 abbrev AMarking := PlaceId → Nat
 
 /-- The colour-erasure abstraction `α(M)[p] = |M(p)|`
@@ -192,19 +195,19 @@ def alphaFireC (m : CMarking) (t : Transition) (prod : PlaceId → Nat) : AMarki
 /-!
 ## Abstract semantics — the CHC encoding
 
-Models `firing_conditions` (`smt_encoder.rs:151-209`) exactly.
+Models `firing_conditions` (`smt_encoder.rs:331-389`) exactly.
 -/
 
 /-- Abstract enablement: `m_i >= pre[i]` (`firing_conditions`,
-`smt_encoder.rs:160-165`), `m_i = 0` for inhibitors (`:167-170`), `m_i >= 1`
-for reads (`:172-175`). -/
+`smt_encoder.rs:340-345`), `m_i = 0` for inhibitors (`:347-350`), `m_i >= 1`
+for reads (`:352-355`). -/
 def enabledA (m : AMarking) (t : Transition) : Bool :=
   t.inputs.all (fun s => s.card.required ≤ m s.place)
     && t.inhibitors.all (fun p => m p == 0)
     && t.reads.all (fun p => 1 ≤ m p)
 
 /-- The abstract fire relation (`firing_conditions`,
-`smt_encoder.rs:177-201`):
+`smt_encoder.rs:357-381`):
 
 * reset place      → `m'_i = post[i]`
 * `consume_all` place → `m'_i = post[i]`

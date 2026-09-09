@@ -372,6 +372,8 @@ fn run_per_property(
                 verdict: Verdict::Unknown {
                     reason: "z3 feature not enabled".into(),
                 },
+                // No route ran at all: the crate was built without the solver.
+                route: crate::result::VerificationRoute::Unavailable,
                 report: format!(
                     "verify (subnet harness): SMT verification disabled — \
                      enable the `z3` feature on libpetri-verification to run \

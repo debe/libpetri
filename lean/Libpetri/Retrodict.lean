@@ -3,10 +3,14 @@
 
 Commit `98b9297` fixed a false `Proven`: environment places were never injected
 into the CHC encoding, so the reachable set froze at `M₀` and every safety bound
-held vacuously. `smt_encoder.rs:75-83` now emits, per injectable env place,
+held vacuously. `encode_net` (the body of `encode`, `smt_encoder.rs:175-184`)
+now emits, per injectable env place,
 
     Reachable(M') :- Reachable(M) [AND m_p < bound] AND m'_p = m_p + 1
                      AND (for q != p) m'_q = m_q
+
+(the options-off form; with `EncodeOptions::state_equation` ([VER-016]) the
+rule also copies every firing counter, which this model does not cover).
 
 The net below is the smallest witness: one environment place feeding one
 transition. Without the injection rule nothing is ever enabled, so
@@ -53,7 +57,9 @@ theorem false_proven_without_injection :
 
 /-! ## Post-fix: injection restores the missing steps -/
 
-/-- `R(N̂)` with the environment-injection rule of `smt_encoder.rs:81-83`.
+/-- `R(N̂)` with the environment-injection rule (`encode_injection_rule`,
+`smt_encoder.rs:521-545`, one per injectable place from `encode_net`'s loop at
+`:182-184`; the conjuncts are `injection_conditions`, `:433-452`).
 `AlwaysAvailable` (unbounded) is modelled; the `Bounded k` variant adds the
 `m_p < bound` guard. -/
 inductive ReachAInj (net : FlatNet) (envs : List PlaceId) (a0 : AMarking) : AMarking → Prop

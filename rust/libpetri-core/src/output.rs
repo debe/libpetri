@@ -5,6 +5,17 @@ use crate::place::{Place, PlaceRef};
 /// Output specification with explicit split semantics.
 ///
 /// Supports composite structures (XOR of ANDs, AND of XORs, etc.)
+///
+/// A spec names **places, not counts**. Validation (\[IO-015\]) compares the
+/// SET of places an action wrote against the branches' claims, so an action
+/// that deposits several tokens into one named place is accepted — and every
+/// analysis that enumerates branches ([`enumerate_branches`]: the state-class
+/// graph, the SMT encoding, the ν fragment check) models exactly one token per
+/// named place. Such a firing therefore does more than the analyses explore,
+/// in the direction that can make a `proven` false. The executors report it
+/// once per transition as a `WARN` log-message (\[IO-016\] AC4); a net meant
+/// to be verified should produce one token per named place and express
+/// multiplicity in its topology.
 #[derive(Debug, Clone)]
 pub enum Out {
     /// Leaf node: single output place.
@@ -112,6 +123,12 @@ fn collect_places(out: &Out, result: &mut HashSet<PlaceRef>) {
 /// - AND = single branch containing all child places (Cartesian product)
 /// - XOR = one branch per alternative child
 /// - Nested = Cartesian product for AND, union for XOR
+///
+/// A branch is a **set** of places: it says which places receive a token when
+/// the branch is taken, not how many tokens each receives. Every analysis built
+/// on this enumeration deposits one token per place of the chosen branch
+/// (\[IO-016\]); an action that writes more is reported by the executor, not
+/// modelled here.
 pub fn enumerate_branches(out: &Out) -> Vec<HashSet<PlaceRef>> {
     match out {
         Out::Place(p) => {

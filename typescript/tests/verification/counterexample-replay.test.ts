@@ -27,6 +27,7 @@ describeZ3('counterexample replay (Z3 integration)', () => {
   it('confirms a genuine deadlock counterexample and re-emits the trace in firing order', async () => {
     const { pA, pB, net } = deadlockNet();
     const result = await SmtVerifier.forNet(bindProducers(net))
+      .enumerationMaxClasses(0)
       .initialMarking(m => m.tokens(pA, 1))
       .property(deadlockFree())
       .timeout(30_000)
@@ -63,6 +64,7 @@ describeZ3('counterexample replay (Z3 integration)', () => {
     const net = PetriNet.builder('MutexUnlocked').transitions(enter1, exit1, enter2, exit2).build();
 
     const result = await SmtVerifier.forNet(bindProducers(net))
+      .enumerationMaxClasses(0)
       .initialMarking(m => m.tokens(idle1, 1).tokens(idle2, 1))
       .property(mutualExclusion(crit1, crit2))
       .timeout(30_000)
@@ -81,6 +83,7 @@ describeZ3('counterexample replay (Z3 integration)', () => {
     // solver's answer alone.
     const { pA, net } = deadlockNet();
     const result = await SmtVerifier.forNet(bindProducers(net))
+      .enumerationMaxClasses(0)
       .initialMarking(m => m.tokens(pA, 1))
       .property(deadlockFree())
       .counterexampleReplay(false)
@@ -101,6 +104,7 @@ describeZ3('counterexample replay (Z3 integration)', () => {
     const net = PetriNet.builder('Cycle').transitions(t1, t2).build();
 
     const result = await SmtVerifier.forNet(bindProducers(net))
+      .enumerationMaxClasses(0)
       .initialMarking(m => m.tokens(pA, 1))
       .property(placeBound(pB, 1))
       .timeout(30_000)
@@ -118,6 +122,7 @@ describeZ3('counterexample replay (Z3 integration)', () => {
     const net = PetriNet.builder('ConservedPair').transitions(t).build();
 
     const result = await SmtVerifier.forNet(bindProducers(net))
+      .enumerationMaxClasses(0)
       .initialMarking(m => m.tokens(p0, 3))
       .property(placeBound(p1, 2))
       .timeout(30_000)

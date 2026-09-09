@@ -222,8 +222,48 @@ export class StateClassGraph {
   }
 }
 
+/**
+ * The dedup key of a class: its marking and the full zone ({@link DBM.zoneKey}).
+ *
+ * Clocks are in canonical order by construction ({@link canonicalOrder}), so the
+ * sequence in which transitions became enabled is not part of a class's identity —
+ * it used to be, and on a workflow-shaped untimed net (every zone `[0, ∞)`) that
+ * counted one marking once per interleaving of its enabling path: a measured
+ * 1.5× class inflation, one marking held by fourteen classes.
+ */
 function classKey(sc: StateClass): string {
-  return `${sc.marking.toString()}|${sc.firingDomain.toString()}`;
+  return `${sc.marking.toString()}|${sc.firingDomain.zoneKey()}`;
+}
+
+/**
+ * The canonical clock order of an enabled set: ascending by transition name
+ * (code-point order), ties keeping their incoming order. Returns the permutation
+ * as indices into `transitions`, or `null` when it is already in order — the
+ * common case, which then costs no allocation.
+ */
+export function canonicalOrder(transitions: readonly Transition[]): number[] | null {
+  let sorted = true;
+  for (let i = 1; i < transitions.length; i++) {
+    if (transitions[i]!.name < transitions[i - 1]!.name) {
+      sorted = false;
+      break;
+    }
+  }
+  if (sorted) return null;
+  const order: number[] = new Array<number>(transitions.length);
+  for (let i = 0; i < order.length; i++) order[i] = i;
+  order.sort((a, b) => {
+    const na = transitions[a]!.name;
+    const nb = transitions[b]!.name;
+    return na < nb ? -1 : na > nb ? 1 : a - b;
+  });
+  return order;
+}
+
+function permute<T>(items: readonly T[], order: readonly number[]): T[] {
+  const out: T[] = new Array<T>(items.length);
+  for (let i = 0; i < order.length; i++) out[i] = items[order[i]!]!;
+  return out;
 }
 
 /**
@@ -237,7 +277,9 @@ export function initialStateClass(
   envPlaces: Set<Place<any>>,
   envMode: EnvironmentAnalysisMode,
 ): StateClass {
-  const enabledTransitions = findEnabledTransitions(net, initialMarking, envPlaces, envMode);
+  const found = findEnabledTransitions(net, initialMarking, envPlaces, envMode);
+  const order = canonicalOrder(found);
+  const enabledTransitions = order === null ? found : permute(found, order);
   const clockNames = enabledTransitions.map(t => t.name);
   const lowerBounds = enabledTransitions.map(t => earliest(t.timing) / 1000);
   const upperBounds = enabledTransitions.map(t => latest(t.timing) / 1000);
@@ -303,7 +345,7 @@ export function computeSuccessor(
   const newLowerBounds = newlyEnabled.map(t => earliest(t.timing) / 1000);
   const newUpperBounds = newlyEnabled.map(t => latest(t.timing) / 1000);
 
-  const firedDBM = current.firingDomain.fireTransition(
+  let firedDBM = current.firingDomain.fireTransition(
     firedIdx,
     newClockNames,
     newLowerBounds,
@@ -311,10 +353,19 @@ export function computeSuccessor(
     persistentIndices,
   );
 
-  // allEnabled order matches firedDBM's clock order (persistent-then-newly-enabled).
+  // fireTransition lays the clocks out persistent-then-newly-enabled, which is
+  // path-dependent; put them in canonical order so the class key is (VER-010).
+  // The enabled list and the earliest-ready times below are permuted with them,
+  // so index k means the same clock in all three.
+  let allEnabled: Transition[] = [...persistent, ...newlyEnabled];
+  const order = canonicalOrder(allEnabled);
+  if (order !== null) {
+    allEnabled = permute(allEnabled, order);
+    firedDBM = firedDBM.permuted(order);
+  }
+
   // Capture the class-relative earliest-ready time of each clock BEFORE
   // letTimePass() zeroes the DBM lower bounds (NU-052 residual-earliest).
-  const allEnabled = [...persistent, ...newlyEnabled];
   const readyEarliest = allEnabled.map((_, k) => firedDBM.getLowerBound(k));
 
   const newDBM = firedDBM.letTimePass();
@@ -447,12 +498,18 @@ function fireTransition(
     consumeFromPlace(builder, spec.place, toConsume, environmentPlaces, environmentMode);
   }
 
-  // Reset places
+  // Reset places: clear whatever is LEFT after the input loop, not what the
+  // pre-firing marking held. Reading the original count overdraws whenever the
+  // reset place is also an input — the inputs already took their share — and
+  // `removeTokens` throws on the overdraw rather than mis-computing, so the whole
+  // route died on a net both executors run happily. Setting the count states the
+  // reset directly and cannot overdraw; it is also what the flat encoder emits
+  // (`m'_p = postVector[p]` for a reset place, `firingConditions`), so the two
+  // agree by construction. Outputs are produced after this, so a place that is
+  // both reset and an output target ends at its post count ([EXEC-013] AC4:
+  // consume, then read, then drain).
   for (const arc of transition.resets) {
-    const current = marking.tokens(arc.place);
-    if (current > 0) {
-      builder.removeTokens(arc.place, current);
-    }
+    builder.tokens(arc.place, 0);
   }
 
   // Produce to outputs

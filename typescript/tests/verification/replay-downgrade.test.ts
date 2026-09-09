@@ -54,10 +54,14 @@ describeZ3('SmtVerifier replay downgrade (unchainable counterexample seam)', () 
   it('a counterexample with no firing chain downgrades the violated verdict to unknown', async () => {
     const { pA, pB, net } = twoStepNet();
 
-    // placeBound(B, 5) is unreachable in this net, so the search completes.
+    // placeBound(B, 5) is unreachable in this net, so the search completes. The linear
+    // state-equation bound (VER-015) would prove it structurally before the mocked
+    // fixpoint query is reached; this test is about the replay seam behind that query.
     const result = await SmtVerifier.forNet(bindProducers(net))
+      .enumerationMaxClasses(0)
       .initialMarking(m => m.tokens(pA, 1))
       .property(placeBound(pB, 5))
+      .linearBound(false)
       .timeout(30_000)
       .verify();
 
@@ -96,6 +100,7 @@ describeZ3('SmtVerifier replay downgrade (unchainable counterexample seam)', () 
     const net = PetriNet.builder('LongChain').transitions(...transitions).build();
 
     const result = await SmtVerifier.forNet(bindProducers(net))
+      .enumerationMaxClasses(0)
       .initialMarking(m => m.tokens(places[0]!, 1))
       .property(placeBound(places[4]!, 0))
       .timeout(30_000)
@@ -111,6 +116,7 @@ describeZ3('SmtVerifier replay downgrade (unchainable counterexample seam)', () 
     const { pA, pB, net } = twoStepNet();
 
     const result = await SmtVerifier.forNet(bindProducers(net))
+      .enumerationMaxClasses(0)
       .initialMarking(m => m.tokens(pA, 1))
       .property(placeBound(pB, 0))
       .counterexampleReplay(false)

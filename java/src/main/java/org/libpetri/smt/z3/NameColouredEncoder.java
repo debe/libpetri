@@ -4,6 +4,7 @@ import org.libpetri.analysis.FragmentMode;
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
+import org.libpetri.smt.RestSet;
 import org.libpetri.smt.SmtProperty;
 import org.libpetri.smt.encoding.FlatNet;
 import org.libpetri.smt.encoding.FlatTransition;
@@ -503,6 +504,18 @@ public final class NameColouredEncoder {
     public static SmtEncoder.SmtEncoding encode(
             ColouredPlan plan, FlatNet flat, MarkingState initial, SmtProperty property,
             List<PInvariant> invariants, Collection<Place<?>> sinkPlaces) {
+        return encode(plan, flat, initial, property, invariants, sinkPlaces, List.of());
+    }
+
+    /**
+     * {@link #encode(ColouredPlan, FlatNet, MarkingState, SmtProperty, List, Collection)}
+     * with conditional sink declarations ([VER-014]), read by the colour-aware
+     * {@code DeadlockFree} predicate over each place's aggregate count.
+     */
+    public static SmtEncoder.SmtEncoding encode(
+            ColouredPlan plan, FlatNet flat, MarkingState initial, SmtProperty property,
+            List<PInvariant> invariants, Collection<Place<?>> sinkPlaces,
+            List<RestSet.ConditionalSinks> conditionalSinks) {
         int p = flat.placeCount();
         int k = plan.k;
         Layout lay = new Layout(plan, p);
@@ -593,7 +606,9 @@ public final class NameColouredEncoder {
 
         // Error rule. `null` ⇒ the property names an unresolved place; refuse to build a
         // vacuously-provable encoding and let the verifier report Unknown.
-        String error = encodeError(plan, lay, flat, property, sinkPlaces, injectedEnvIndices(flat));
+        String error = encodeError(
+            plan, lay, flat, property, sinkPlaces, injectedEnvIndices(flat), conditionalSinks);
+
         if (error == null) {
             return null;
         }
@@ -713,8 +728,11 @@ public final class NameColouredEncoder {
      */
     private static String encodeError(
             ColouredPlan plan, Layout lay, FlatNet flat, SmtProperty property,
-            Collection<Place<?>> sinkPlaces, Map<Integer, Integer> envInj) {
-        String violation = encodeViolation(plan, lay, flat, property, sinkPlaces, envInj);
+            Collection<Place<?>> sinkPlaces, Map<Integer, Integer> envInj,
+            List<RestSet.ConditionalSinks> conditionalSinks) {
+        String violation = encodeViolation(
+            plan, lay, flat, property, sinkPlaces, envInj, conditionalSinks);
+
         if (violation == null) {
             return null;
         }
@@ -735,27 +753,29 @@ public final class NameColouredEncoder {
      */
     private static String encodeViolation(
             ColouredPlan plan, Layout lay, FlatNet flat, SmtProperty property,
-            Collection<Place<?>> sinkPlaces, Map<Integer, Integer> envInj) {
+            Collection<Place<?>> sinkPlaces, Map<Integer, Integer> envInj,
+            List<RestSet.ConditionalSinks> conditionalSinks) {
+
         return switch (property) {
             case SmtProperty.PlaceBound pb -> boundViolation(plan, lay, flat, pb.place(), pb.bound());
             case SmtProperty.BranchPlaceBound bpb -> boundViolation(plan, lay, flat, bpb.place(), bpb.bound());
             case SmtProperty.MutualExclusion me ->
                 anyPlacePresent(plan, lay, flat, List.of(me.p1(), me.p2()));
             case SmtProperty.Unreachable ur -> anyPlacePresent(plan, lay, flat, ur.places());
-            // DeadlockFree (VER-002): quiescent AND some marked place is not a declared
-            // sink. Mirrors the flat encoder's `stranded` disjunction.
+            // DeadlockFree (VER-002): quiescent AND some marked place is not where
+            // resting is permitted (VER-014). Mirrors the flat encoder's `stranded`
+            // disjunction over the aggregate (all-colour) count of each place.
             case SmtProperty.DeadlockFree _ -> {
                 var conds = encodeColouredQuiescent(plan, lay, flat, envInj);
                 if (conds == null) {
                     yield "false";
                 }
-                var sinks = Set.copyOf(SmtEncoder.indexOrdered(flat, sinkPlaces));
-                var stranded = new ArrayList<String>();
+                var counts = new ArrayList<String>(flat.placeCount());
                 for (int pid = 0; pid < flat.placeCount(); pid++) {
-                    if (!sinks.contains(pid)) {
-                        stranded.add("(>= " + lay.aggregate(pid, plan, lay.cur) + " 1)");
-                    }
+                    counts.add(lay.aggregate(pid, plan, lay.cur));
                 }
+                var stranded = SmtEncoder.strandedConditions(
+                    RestSet.strandingExcuses(flat, sinkPlaces, conditionalSinks), counts);
                 if (stranded.isEmpty()) {
                     // Every place is a declared sink: nothing can ever be stranded.
                     yield "false";

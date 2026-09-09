@@ -746,3 +746,94 @@ describe('a same-pass deposit defers a correlated ν-join (EXEC-003 AC4)', () =>
     });
   }
 });
+
+// ==================== IO-016 AC4: several tokens into a place the spec names once ====================
+
+for (const backendName of ['BitmapNetExecutor', 'PrecompiledNetExecutor'] as const) {
+  describe(`branch multiplicity diagnostic (${backendName})`, () => {
+    const build = (net: PetriNet, tokens: Map<Place<any>, Token<any>[]>, store: InMemoryEventStore) =>
+      backendName === 'BitmapNetExecutor'
+        ? new BitmapNetExecutor(net, tokens, { eventStore: store })
+        : new PrecompiledNetExecutor(net, tokens, { eventStore: store });
+
+    it('warns once per transition when an action writes two tokens to a place named once', async () => {
+      const input = place<string>('IN');
+      const out = place<string>('OUT');
+      const t = Transition.builder('T')
+        .inputs(one(input))
+        .outputs(outPlace(out))
+        .action(async (ctx) => {
+          const v = ctx.input(input);
+          ctx.output(out, `${v}-1`);
+          ctx.output(out, `${v}-2`);
+        })
+        .build();
+      const net = PetriNet.builder('N').transition(t).build();
+      const store = new InMemoryEventStore();
+      const tokens = initialTokens([input, [tokenOf('a'), tokenOf('b'), tokenOf('c')]]);
+
+      const marking = await build(net, tokens, store).run(5000);
+
+      // The firing is accepted: IO-015 reads the produced SET.
+      expect(marking.peekTokens(out).length).toBe(6);
+      // Three firings, one diagnostic.
+      const warnings = eventsOfType(store, 'log-message');
+      expect(warnings.length).toBe(1);
+      expect(warnings[0]!.logger).toBe('libpetri.runtime');
+      expect(warnings[0]!.level).toBe('WARN');
+      expect(warnings[0]!.transitionName).toBe('T');
+      expect(warnings[0]!.message).toBe(
+        "'T': wrote more than one token to a place its output spec names once (OUT: 2); "
+        + 'branch-enumerating analyses model one token per named place, so this firing exceeds '
+        + 'what they explore (IO-016)',
+      );
+    });
+
+    it('warns through a composite spec too, naming every repeated place', async () => {
+      const input = place<string>('IN');
+      const a = place<string>('A');
+      const b = place<string>('B');
+      const t = Transition.builder('T')
+        .inputs(one(input))
+        .outputs(and(outPlace(a), outPlace(b)))
+        .action(async (ctx) => {
+          ctx.input(input);
+          ctx.output(a, 'a1');
+          ctx.output(a, 'a2');
+          ctx.output(a, 'a3');
+          ctx.output(b, 'b1');
+          ctx.output(b, 'b2');
+        })
+        .build();
+      const net = PetriNet.builder('N').transition(t).build();
+      const store = new InMemoryEventStore();
+
+      await build(net, initialTokens([input, [tokenOf('x')]]), store).run(5000);
+
+      const warnings = eventsOfType(store, 'log-message');
+      expect(warnings.length).toBe(1);
+      expect(warnings[0]!.message).toContain('(A: 3, B: 2)');
+    });
+
+    it('stays silent when every named place receives exactly one token', async () => {
+      const input = place<string>('IN');
+      const a = place<string>('A');
+      const b = place<string>('B');
+      const t = Transition.builder('T')
+        .inputs(one(input))
+        .outputs(and(outPlace(a), outPlace(b)))
+        .action(async (ctx) => {
+          const v = ctx.input(input);
+          ctx.output(a, v);
+          ctx.output(b, v);
+        })
+        .build();
+      const net = PetriNet.builder('N').transition(t).build();
+      const store = new InMemoryEventStore();
+
+      await build(net, initialTokens([input, [tokenOf('x'), tokenOf('y')]]), store).run(5000);
+
+      expect(eventsOfType(store, 'log-message').length).toBe(0);
+    });
+  });
+}

@@ -269,6 +269,68 @@ describe('StateClassGraph', () => {
   });
 });
 
+// VER-010: a class is identified by its marking and zone, not by the order in
+// which its transitions became enabled.
+describe('StateClassGraph — canonical class identity', () => {
+  /**
+   * Two independent chains a→c→e and b→d→f. From {c, d} the enabled set is {u, v}
+   * whichever chain moved first, but fireTransition lays clocks out
+   * persistent-then-new, so the two arrivals used to carry the orders [u, v] and
+   * [v, u] and count as two classes. Untimed, every zone is `[0, ∞)` per clock, so
+   * the marking is the whole identity: 3 × 3 = 9 markings, 9 classes.
+   */
+  function twoChains(timed: boolean) {
+    const a = place('a'), b = place('b'), c = place('c'), d = place('d'), e = place('e'), f = place('f');
+    const t = (name: string, from: ReturnType<typeof place>, to: ReturnType<typeof place>) => {
+      const builder = Transition.builder(name).inputs(one(from)).outputs(outPlace(to)).action(produces());
+      return (timed ? builder.timing(window(0, 2000)) : builder).build();
+    };
+    const net = PetriNet.builder('two-chains')
+      .transitions(t('tx', a, c), t('ty', b, d), t('u', c, e), t('v', d, f))
+      .build();
+    const marking = MarkingState.builder().tokens(a, 1).tokens(b, 1).build();
+    return { net, marking, c, d };
+  }
+
+  it('counts one marking once, whatever the enabling order (untimed)', () => {
+    const { net, marking, c, d } = twoChains(false);
+    const scg = StateClassGraph.build(net, marking, 1000);
+    expect(scg.isComplete()).toBe(true);
+    expect(scg.reachableMarkings().size).toBe(9);
+    expect(scg.size()).toBe(9);
+    const atCD = scg.classesWithMarking(MarkingState.builder().tokens(c, 1).tokens(d, 1).build());
+    expect(atCD).toHaveLength(1);
+    expect(atCD[0]!.firingDomain.clockNames).toEqual(['u', 'v']);
+  });
+
+  it('keeps clocks, enabled list and earliest-ready times aligned after reordering', () => {
+    const { net, marking, c, d } = twoChains(true);
+    const scg = StateClassGraph.build(net, marking, 1000);
+    expect(scg.isComplete()).toBe(true);
+    // Same zone from both paths (v and u are each fresh when enabled), so one class.
+    const atCD = scg.classesWithMarking(MarkingState.builder().tokens(c, 1).tokens(d, 1).build());
+    expect(atCD).toHaveLength(1);
+    const sc = atCD[0]!;
+    expect(sc.enabledTransitions.map(t => t.name)).toEqual(sc.firingDomain.clockNames);
+    expect(sc.readyEarliest).toHaveLength(sc.enabledTransitions.length);
+    for (const t of sc.enabledTransitions) {
+      expect(sc.canFire(t)).toBe(true);
+    }
+  });
+
+  it('orders the initial class canonically too', () => {
+    const b = place('b'), a = place('a'), x = place('x');
+    // Declared in the order tz, ty — the initial clocks come out ty, tz.
+    const tz = Transition.builder('tz').inputs(one(b)).outputs(outPlace(x)).action(produces()).build();
+    const ty = Transition.builder('ty').inputs(one(a)).outputs(outPlace(x)).action(produces()).build();
+    const net = PetriNet.builder('initial-order').transitions(tz, ty).build();
+    const marking = MarkingState.builder().tokens(a, 1).tokens(b, 1).build();
+    const scg = StateClassGraph.build(net, marking, 100);
+    expect(scg.initialClass.firingDomain.clockNames).toEqual(['ty', 'tz']);
+    expect(scg.initialClass.enabledTransitions.map(t => t.name)).toEqual(['ty', 'tz']);
+  });
+});
+
 // CORE-043: the state-class graph reads token production from the Out spec, so a net whose
 // action produces nothing would be analysed as something it cannot be at run time.
 describe('StateClassGraph — CORE-043', () => {

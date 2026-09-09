@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { SmtVerifier } from '../../src/verification/smt-verifier.js';
 import { verificationNets } from '../fixtures/verification-nets.js';
-import { fixtures, fixturesPath, placeOf, toProperty } from './verdict-parity.test.js';
+import { applySinkPlacesWhen, fixtures, fixturesPath, placeOf, toProperty } from './verdict-parity.test.js';
 
 /**
  * Cross-language SMT script parity (VER-013 AC1). For every fixture the scripts
@@ -44,6 +44,7 @@ describe('SMT script parity with the Rust goldens (VER-013 AC1)', () => {
     it(fixture.id, () => {
       const built = verificationNets[fixture.net]!();
       const verifier = SmtVerifier.forNet(built.net)
+      .enumerationMaxClasses(0)
         .initialMarking(built.initialMarking)
         .property(toProperty(fixture.property, built.places))
         .certificateCheck(true)
@@ -55,15 +56,20 @@ describe('SMT script parity with the Rust goldens (VER-013 AC1)', () => {
       if (fixture.sinkPlaces != null && fixture.sinkPlaces.length > 0) {
         verifier.sinkPlaces(...fixture.sinkPlaces.map(n => placeOf(built.places, n)));
       }
+      applySinkPlacesWhen(verifier, fixture, built.places);
       if (fixture.budgetPlaces != null && fixture.budgetPlaces.length > 0) {
         verifier.budgetPlaces(...fixture.budgetPlaces.map(n => placeOf(built.places, n)));
       }
-      // Optional shared-schema field: [VER-007]'s semiflow union.
+      // Optional shared-schema fields: [VER-007]'s semiflow union, [VER-016]'s state equation.
       verifier.semiflowInvariants(fixture.semiflowInvariants === true);
+      verifier.stateEquation(fixture.stateEquation === true);
       const scripts = verifier.encodeScripts();
       const dir = join(scriptsDir, fixture.id);
       compare(fixture.id, join(dir, 'horn.smt2'), scripts.horn);
       compare(fixture.id, join(dir, 'certificate.smt2'), scripts.certificate);
+      // VER-015 AC4: the linear state-equation bound query, pinned wherever the property
+      // has a linear demand on the flat path.
+      compare(fixture.id, join(dir, 'bound.smt2'), scripts.bound);
     });
   }
 });

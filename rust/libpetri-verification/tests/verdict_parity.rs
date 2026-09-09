@@ -97,6 +97,11 @@ fn verdict_parity_fixtures() {
         let property = property_of(fixture.get("property").expect("fixture without property"));
 
         let mut verifier = SmtVerifier::for_net(&built.net)
+            // Explicit [VER-017] opt-out: these fixtures pin what the ENCODERS
+            // decide, and the enumeration route would answer several of them
+            // before a script was ever built. The route's own agreement with the
+            // pipeline is pinned by `scg_verifier::tests` instead.
+            .enumeration_max_classes(0)
             .initial_marking(built.initial.clone())
             .property(property)
             // Both independent validation layers explicitly ON — the point of
@@ -122,6 +127,13 @@ fn verdict_parity_fixtures() {
         }
         // Optional shared-schema field: [VER-007]'s semiflow union.
         verifier = verifier.semiflow_invariants(fixture.bool_opt("semiflowInvariants"));
+        // Optional shared-schema field: [VER-014]'s conditional sinks, declared in
+        // the object's order (the report renders declarations in that order).
+        for (marker, places) in fixture.str_arr_obj_opt("sinkPlacesWhen") {
+            verifier = verifier.sink_places_when(marker, places);
+        }
+        // Optional shared-schema field: [VER-016]'s firing-counter state equation.
+        verifier = verifier.state_equation(fixture.bool_opt("stateEquation"));
         let result = verifier.verify();
 
         let got = verdict_word(&result.verdict);

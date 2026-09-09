@@ -2,6 +2,8 @@ package org.libpetri.smt.z3;
 
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.core.Place;
+import org.libpetri.smt.ProgrammingError;
+import org.libpetri.smt.RestSet;
 import org.libpetri.smt.SmtProperty;
 import org.libpetri.smt.encoding.FlatNet;
 import org.libpetri.smt.invariant.PInvariant;
@@ -123,10 +125,39 @@ public final class CertificateChecker {
             Z3Solver solver,
             Duration timeout
     ) {
+        return check(certificate, flatNet, initialMarking, property, sinkPlaces, invariants,
+            solver, timeout, List.of(), false);
+    }
+
+    /**
+     * {@link #check(String, FlatNet, MarkingState, SmtProperty, Collection, List, Z3Solver, Duration)}
+     * with the conditional sink declarations ([VER-014], part of the deadlock-freedom
+     * safety VC) and the state-equation option ([VER-016]): with it the certificate ranges
+     * over the places AND one firing counter per flat transition, the candidate conjoins
+     * {@code n >= 0} and the marking equation alongside the P-invariants, and the VCs
+     * re-prove them against the raw step relation, whose only counter knowledge is the
+     * increment.
+     */
+    public static Result check(
+            String certificate,
+            FlatNet flatNet,
+            MarkingState initialMarking,
+            SmtProperty property,
+            Collection<Place<?>> sinkPlaces,
+            List<PInvariant> invariants,
+            Z3Solver solver,
+            Duration timeout,
+            List<RestSet.ConditionalSinks> conditionalSinks,
+            boolean stateEquation
+    ) {
         try {
             return doCheck(certificate, flatNet, initialMarking, property, sinkPlaces,
-                invariants, solver, timeout);
+                invariants, solver, timeout, conditionalSinks, stateEquation);
         } catch (RuntimeException e) {
+            // A defect here is not a verification outcome: reporting it as "certificate
+            // unavailable" would downgrade a PROVEN on the strength of a bug, and the bug
+            // would never be seen again (see org.libpetri.smt.ProgrammingError).
+            ProgrammingError.rethrowIfProgrammingError(e);
             return new Result.Unavailable("unexpected error during certificate check: " + e);
         }
     }
@@ -134,7 +165,8 @@ public final class CertificateChecker {
     private static Result doCheck(
             String certificate, FlatNet flatNet, MarkingState initialMarking,
             SmtProperty property, Collection<Place<?>> sinkPlaces, List<PInvariant> invariants,
-            Z3Solver solver, Duration timeout
+            Z3Solver solver, Duration timeout,
+            List<RestSet.ConditionalSinks> conditionalSinks, boolean stateEquation
     ) {
         if (certificate == null) {
             return new Result.Unavailable(
@@ -150,7 +182,8 @@ public final class CertificateChecker {
         }
 
         var vcs = VerificationConditions.build(
-            certificate, flatNet, initialMarking, property, sinkPlaces, invariants);
+            certificate, flatNet, initialMarking, property, sinkPlaces, invariants,
+            conditionalSinks, stateEquation);
 
         List<String> results;
         try {
@@ -176,8 +209,22 @@ public final class CertificateChecker {
             String certificate, FlatNet flatNet, MarkingState initialMarking,
             SmtProperty property, Collection<Place<?>> sinkPlaces, List<PInvariant> invariants
     ) {
+        return vcScript(certificate, flatNet, initialMarking, property, sinkPlaces, invariants,
+            List.of(), false);
+    }
+
+    /**
+     * {@link #vcScript(String, FlatNet, MarkingState, SmtProperty, Collection, List)} with
+     * conditional sinks ([VER-014]) and the state-equation option ([VER-016]).
+     */
+    public static String vcScript(
+            String certificate, FlatNet flatNet, MarkingState initialMarking,
+            SmtProperty property, Collection<Place<?>> sinkPlaces, List<PInvariant> invariants,
+            List<RestSet.ConditionalSinks> conditionalSinks, boolean stateEquation
+    ) {
         return VerificationConditions.build(
-            certificate, flatNet, initialMarking, property, sinkPlaces, invariants).script();
+            certificate, flatNet, initialMarking, property, sinkPlaces, invariants,
+            conditionalSinks, stateEquation).script();
     }
 
     /** Why the net and invariants cannot be indexed safely, or {@code null}. */
@@ -268,15 +315,29 @@ public final class CertificateChecker {
 
         static VerificationConditions build(
                 String certificate, FlatNet flatNet, MarkingState initialMarking,
-                SmtProperty property, Collection<Place<?>> sinkPlaces, List<PInvariant> invariants
+                SmtProperty property, Collection<Place<?>> sinkPlaces, List<PInvariant> invariants,
+                List<RestSet.ConditionalSinks> conditionalSinks, boolean stateEquation
         ) {
             int p = flatNet.placeCount();
+            // With the state equation (VER-016) the certificate ranges over the places AND
+            // one firing counter per flat transition; the candidate then carries the
+            // marking equation and `n >= 0` alongside the P-invariants, and the VCs
+            // re-prove them against the raw step relation, whose only counter knowledge
+            // is the increment.
+            int t = stateEquation ? flatNet.transitionCount() : 0;
             var mVars = new ArrayList<String>(p);
             var mpVars = new ArrayList<String>(p);
             for (int i = 0; i < p; i++) {
                 mVars.add("m" + i);
                 mpVars.add("m" + i + "p");
             }
+            var nVars = new ArrayList<String>(t);
+            var npVars = new ArrayList<String>(t);
+            for (int k = 0; k < t; k++) {
+                nVars.add("n" + k);
+                npVars.add("n" + k + "p");
+            }
+            var candidate = new Candidate(flatNet, initialMarking, invariants, t > 0);
 
             var prelude = new ArrayList<String>();
             prelude.add("; IC3/PDR certificate check (plain SMT-LIB2, not HORN):");
@@ -289,14 +350,25 @@ public final class CertificateChecker {
             for (var v : mpVars) {
                 prelude.add("(declare-const " + v + " Int)");
             }
+            for (var v : nVars) {
+                prelude.add("(declare-const " + v + " Int)");
+            }
+            for (var v : npVars) {
+                prelude.add("(declare-const " + v + " Int)");
+            }
 
-            // VC1 (init): the initial marking satisfies the candidate invariant.
+            // VC1 (init): the initial marking (and zero counters) satisfies the candidate
+            // invariant.
             var m0 = new ArrayList<String>(p);
             for (int i = 0; i < p; i++) {
                 m0.add(Integer.toString(initialMarking.tokens(flatNet.places().get(i))));
             }
+            var n0 = new ArrayList<String>(t);
+            for (int k = 0; k < t; k++) {
+                n0.add("0");
+            }
             var vc1 = new ArrayList<String>();
-            vc1.add("(assert (not " + candidate(m0, invariants) + "))");
+            vc1.add("(assert (not " + candidate.of(m0, n0) + "))");
 
             // The system lives in N^P, not Z^P: without this the VCs run over
             // negative markings the net can never hold.
@@ -304,20 +376,24 @@ public final class CertificateChecker {
             for (var v : mVars) {
                 nonNegative.add("(assert (>= " + v + " 0))");
             }
+            for (var v : nVars) {
+                nonNegative.add("(assert (>= " + v + " 0))");
+            }
 
             // VC2 (consecution): closed under the unstrengthened step relation.
-            String step = SmtEncoder.encodeStepRelationSmt2(flatNet);
+            String step = SmtEncoder.encodeStepRelationSmt2(flatNet, stateEquation);
             var vc2 = new ArrayList<>(nonNegative);
-            vc2.add("(assert " + candidate(mVars, invariants) + ")");
+            vc2.add("(assert " + candidate.of(mVars, nVars) + ")");
             vc2.add("(assert " + step + ")");
-            vc2.add("(assert (not " + candidate(mpVars, invariants) + "))");
+            vc2.add("(assert (not " + candidate.of(mpVars, npVars) + "))");
 
             // VC3 (safety): excludes every property-violating state, exactly the
             // violation the CHC error rule encodes.
             String bad = SmtEncoder.encodePropertyViolation(
-                flatNet, property, mVars, sinkPlaces, SmtEncoder.resolveEnvInjection(flatNet));
+                flatNet, property, mVars, sinkPlaces, SmtEncoder.resolveEnvInjection(flatNet),
+                conditionalSinks);
             var vc3 = new ArrayList<>(nonNegative);
-            vc3.add("(assert " + candidate(mVars, invariants) + ")");
+            vc3.add("(assert " + candidate.of(mVars, nVars) + ")");
             vc3.add("(assert " + bad + ")");
 
             return new VerificationConditions(prelude, List.of(vc1, vc2, vc3));
@@ -426,13 +502,28 @@ public final class CertificateChecker {
     }
 
     /**
-     * The candidate invariant applied to a variable (or literal) vector:
-     * {@code R'(vars) = (Reachable vars) AND Inv(vars)}.
+     * The candidate invariant applied to a marking and counter vector (variables or
+     * literals): {@code R'(m, n) = (Reachable m n) AND Inv(m)}, and with the state
+     * equation ([VER-016]) also {@code n >= 0} and the marking equation over
+     * {@code (m, n)}.
      */
-    private static String candidate(List<String> vars, List<PInvariant> invariants) {
-        var conjuncts = new ArrayList<String>();
-        conjuncts.add("(Reachable " + String.join(" ", vars) + ")");
-        conjuncts.addAll(SmtEncoder.invariantConditions(invariants, vars));
-        return SmtEncoder.conjoin(conjuncts);
+    private record Candidate(
+            FlatNet flatNet, MarkingState initialMarking, List<PInvariant> invariants,
+            boolean stateEquation
+    ) {
+        String of(List<String> m, List<String> n) {
+            var conjuncts = new ArrayList<String>();
+            var state = new ArrayList<>(m);
+            state.addAll(n);
+            conjuncts.add("(Reachable " + String.join(" ", state) + ")");
+            conjuncts.addAll(SmtEncoder.invariantConditions(invariants, m));
+            if (stateEquation) {
+                for (var v : n) {
+                    conjuncts.add("(>= " + v + " 0)");
+                }
+                conjuncts.addAll(SmtEncoder.stateEquationConditions(flatNet, initialMarking, n, m));
+            }
+            return SmtEncoder.conjoin(conjuncts);
+        }
     }
 }

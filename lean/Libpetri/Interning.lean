@@ -35,9 +35,13 @@ the single hypothesis it rests on.
     renaming orbit, so equal keys *are* renamings;
   - for the base layer the representative is not a renaming but an equal
     value — provided the intern key carries **everything the successor step
-    reads**. `StateClass` equality (`state_class.rs`) is marking + zone, yet
-    `priority_dominated` also reads `ready_earliest`, which two arrivals at one
-    zone may disagree on; that is why the shipped intern key includes it.
+    reads**. `StateClass` equality (`state_class.rs`) is marking + zone, and
+    since [VER-011] AC4 `StateClass::canonical_key` renders exactly that
+    (`Dbm::zone_key`, the full canonical matrix; the earlier per-clock
+    projections hid the difference constraints the step reads — the
+    `equivariance_is_necessary` shape). `priority_dominated` also reads
+    `ready_earliest`, which two arrivals at one zone may disagree on; that is
+    why the shipped intern key (`intern_base`) includes it.
 * `interned_keys_eq` / `interned_edges_eq` — under `Equivariant`, exploring
   from any key-preserving representative map reaches exactly the same keys and
   the same `(key, label, key)` edges as exploring from the states themselves.

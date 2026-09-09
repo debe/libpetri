@@ -40,13 +40,14 @@
  * throws.
  */
 import type { FlatNet } from '../encoding/flat-net.js';
+import { rethrowIfProgrammingError } from '../programming-error.js';
 import type { MarkingState } from '../marking-state.js';
 import type { SmtProperty } from '../smt-property.js';
+import type { ConditionalSinks } from '../rest-set.js';
 import type { PInvariant } from '../invariant/p-invariant.js';
 import type { Place } from '../../core/place.js';
 import {
-  conjoin, encodePropertyViolation, encodeStepRelationSmt2, invariantConditions, resolveEnvInjection,
-} from './smt-encoder.js';
+  conjoin, encodePropertyViolation, encodeStepRelationSmt2, invariantConditions, resolveEnvInjection, stateEquationConditions } from './smt-encoder.js';
 import { errorLine, sexprEnd, timeoutLine } from './smt-text.js';
 import {
   hardTimeoutSecs, replySucceeded, runZ3Text, timeoutBudget, watchdogMs, type Z3Solver,
@@ -93,6 +94,7 @@ export type CertificateCheckOutcome =
  * @param sinkPlaces declared sink places (deadlock-freedom VC3)
  * @param solver the resolved z3 executable
  * @param timeoutMs per-invocation solver budget in milliseconds
+ * @param conditionalSinks conditional sink declarations (VER-014, deadlock-freedom VC3)
  */
 export async function checkCertificate(
   certificate: string | null,
@@ -103,6 +105,8 @@ export async function checkCertificate(
   sinkPlaces: ReadonlySet<Place<any>>,
   solver: Z3Solver,
   timeoutMs: number,
+  conditionalSinks: readonly ConditionalSinks[] = [],
+  stateEquation = false,
 ): Promise<CertificateCheckOutcome> {
   if (certificate == null) {
     return {
@@ -117,11 +121,12 @@ export async function checkCertificate(
     return { type: 'unavailable', reason: 'certificate does not define Reachable', invariant: certificate };
   }
 
-  const vcs = buildVerificationConditions(certificate, flatNet, initialMarking, property, sinkPlaces, invariants);
+  const vcs = buildVerificationConditions(certificate, flatNet, initialMarking, property, sinkPlaces, invariants, conditionalSinks, stateEquation);
   let results: string[];
   try {
     results = await runVcScript(script(vcs), timeoutMs, solver);
   } catch (e: any) {
+    rethrowIfProgrammingError(e);
     return { type: 'unavailable', reason: String(e?.message ?? e), invariant: certificate };
   }
   for (let i = 0; i < results.length; i++) {
@@ -145,8 +150,10 @@ export function vcScript(
   property: SmtProperty,
   sinkPlaces: ReadonlySet<Place<any>>,
   invariants: readonly PInvariant[],
+  conditionalSinks: readonly ConditionalSinks[] = [],
+  stateEquation = false,
 ): string {
-  return script(buildVerificationConditions(certificate, flatNet, initialMarking, property, sinkPlaces, invariants));
+  return script(buildVerificationConditions(certificate, flatNet, initialMarking, property, sinkPlaces, invariants, conditionalSinks, stateEquation));
 }
 
 /** Why the net and invariants cannot be indexed safely, or `null`. */
@@ -225,14 +232,35 @@ function buildVerificationConditions(
   property: SmtProperty,
   sinkPlaces: ReadonlySet<Place<any>>,
   invariants: readonly PInvariant[],
+  conditionalSinks: readonly ConditionalSinks[],
+  stateEquation: boolean,
 ): VerificationConditions {
   const P = flatNet.places.length;
+  // With the state equation (VER-016) the certificate ranges over the places AND
+  // one firing counter per flat transition; the candidate then carries the marking
+  // equation and `n >= 0` alongside the P-invariants, and the VCs re-prove them
+  // against the raw step relation, whose only counter knowledge is the increment.
+  const T = stateEquation ? flatNet.transitions.length : 0;
   const mVars: string[] = [];
   const mpVars: string[] = [];
   for (let i = 0; i < P; i++) {
     mVars.push(`m${i}`);
     mpVars.push(`m${i}p`);
   }
+  const nVars: string[] = [];
+  const npVars: string[] = [];
+  for (let k = 0; k < T; k++) {
+    nVars.push(`n${k}`);
+    npVars.push(`n${k}p`);
+  }
+  const candidateOf = (m: readonly string[], n: readonly string[]): string => {
+    const parts = [`(Reachable ${[...m, ...n].join(' ')})`, ...invariantConditions(invariants, m)];
+    if (T > 0) {
+      for (const v of n) parts.push(`(>= ${v} 0)`);
+      parts.push(...stateEquationConditions(flatNet, initialMarking, n, m));
+    }
+    return conjoin(parts);
+  };
 
   const prelude: string[] = [
     '; IC3/PDR certificate check (plain SMT-LIB2, not HORN):',
@@ -242,28 +270,31 @@ function buildVerificationConditions(
   ];
   for (const v of mVars) prelude.push(`(declare-const ${v} Int)`);
   for (const v of mpVars) prelude.push(`(declare-const ${v} Int)`);
+  for (const v of nVars) prelude.push(`(declare-const ${v} Int)`);
+  for (const v of npVars) prelude.push(`(declare-const ${v} Int)`);
 
-  // VC1 (init): the initial marking satisfies the candidate invariant.
+  // VC1 (init): the initial marking (and zero counters) satisfies the candidate invariant.
   const m0: string[] = [];
   for (let i = 0; i < P; i++) m0.push(String(initialMarking.tokens(flatNet.places[i]!)));
-  const vc1 = [`(assert (not ${candidate(m0, invariants)}))`];
+  const n0: string[] = new Array<string>(T).fill('0');
+  const vc1 = [`(assert (not ${candidateOf(m0, n0)}))`];
 
   // The system lives in N^P, not Z^P.
-  const nonNegative = mVars.map((v) => `(assert (>= ${v} 0))`);
+  const nonNegative = [...mVars, ...nVars].map((v) => `(assert (>= ${v} 0))`);
 
   // VC2 (consecution): closed under the unstrengthened step relation.
-  const step = encodeStepRelationSmt2(flatNet);
+  const step = encodeStepRelationSmt2(flatNet, stateEquation);
   const vc2 = [
     ...nonNegative,
-    `(assert ${candidate(mVars, invariants)})`,
+    `(assert ${candidateOf(mVars, nVars)})`,
     `(assert ${step})`,
-    `(assert (not ${candidate(mpVars, invariants)}))`,
+    `(assert (not ${candidateOf(mpVars, npVars)}))`,
   ];
 
   // VC3 (safety): excludes every property-violating state, exactly the violation
   // the CHC error rule encodes.
-  const bad = encodePropertyViolation(flatNet, property, mVars, sinkPlaces, resolveEnvInjection(flatNet));
-  const vc3 = [...nonNegative, `(assert ${candidate(mVars, invariants)})`, `(assert ${bad})`];
+  const bad = encodePropertyViolation(flatNet, property, mVars, sinkPlaces, resolveEnvInjection(flatNet), conditionalSinks);
+  const vc3 = [...nonNegative, `(assert ${candidateOf(mVars, nVars)})`, `(assert ${bad})`];
 
   return { prelude, asserts: [vc1, vc2, vc3] };
 }
@@ -356,6 +387,4 @@ export function reasonUnknown(reply: string): string | null {
  * The candidate invariant applied to a variable (or literal) vector:
  * `R'(vars) = (Reachable vars) ∧ Inv(vars)`.
  */
-function candidate(names: readonly string[], invariants: readonly PInvariant[]): string {
-  return conjoin([`(Reachable ${names.join(' ')})`, ...invariantConditions(invariants, names)]);
-}
+

@@ -3,14 +3,18 @@
 
 All three language verifiers conjoin every computed P-invariant `y·M = y·M₀`
 into the CHC transition-rule *bodies* (`invariant_conditions`,
-`smt_encoder.rs:216-234`, spliced by `encode_transition_rule` at `:307`; the
-TypeScript and Java encoders mirror it). A
+`smt_encoder.rs:396-414`, heading the `strengthening` list `encode_net` builds
+at `:157` and `encode_transition_rule` splices at `:487`; the
+TypeScript and Java encoders mirror it). With `EncodeOptions::state_equation`
+([VER-016]) that list also carries the firing-counter update and the
+marking-equation rows `m'_p = M0_p + Σ_t C[p][t]·n'_t`; this file models the
+options-off path only. A
 conjunct in a rule body does not annotate the encoding — it *removes*
 successors from the least fixpoint. A wrong invariant therefore shrinks
 `Reachable` below the true reachable set and can certify a false `Proven`,
 the failure mode this development exists to close.
 
-The C2 runtime gate (`validate_invariants_exact`, `p_invariant.rs:207-344`,
+The C2 runtime gate (`validate_invariants_exact`, `p_invariant.rs:246-377`,
 which now takes the whole `&FlatNet` so the H1 guard below cannot be
 disabled by handing it an empty transition list; TS
 `validateInvariantsExact` in `p-invariant-computer.ts`) re-validates
@@ -19,7 +23,7 @@ matrix (`IncidenceMatrix::from_flat_net`, `incidence_matrix.rs:23-60`), whose
 column is `post − pre` with `pre = required_count`
 (`net_flattener.rs:50-54`). Consume-all and reset semantics are not linear —
 they are the two `m'_i = post[i]` arms of the encoder's fire relation
-(`firing_conditions`, `smt_encoder.rs:180-187`, modelled by `fireA`) — so
+(`firing_conditions`, `smt_encoder.rs:360-367`, modelled by `fireA`) — so
 passing the gate is
 necessary but not sufficient. This file proves, at the `fireA` level
 ([VER-004]'s untimed count abstraction, where the encoders operate), exactly
@@ -43,7 +47,7 @@ what *is* sufficient:
   reachable violating state: the false-`Proven` shape, checked by
   `decide`/`omega`, not asserted.
 * `bad_rule_nonvacuity` — `encode_property_violation`'s unresolvable-place
-  fallback (`smt_encoder.rs:473-474`: unknown `pending` place ⇒ error-rule body
+  fallback (`smt_encoder.rs:727-728`: unknown `pending` place ⇒ error-rule body
   `false`) proves every net vacuously; refusing to certify is the only
   sound behaviour.
 -/
@@ -56,10 +60,10 @@ namespace Libpetri
 
 `PInvariant` (`p_invariant.rs:9-13`) carries `weights: Vec<i64>` over the
 dense place index plus a `support` that `validate_invariants_exact` pins to
-exactly the nonzero weights (`p_invariant.rs:277-288`). A weight vector is
+exactly the nonzero weights (`p_invariant.rs:288-299`). A weight vector is
 modelled total over `PlaceId` with its support below `place_count`; sums are
 hand-rolled over the first `n` places (`RingArith.lean` style — no Mathlib),
-which is the sum `invariant_conditions` emits (`smt_encoder.rs:216-234`),
+which is the sum `invariant_conditions` emits (`smt_encoder.rs:396-414`),
 since the dense index of `flatten` (`net_flattener.rs:31-40`) keeps every
 place id below `place_count`.
 -/
@@ -80,7 +84,7 @@ def isum (f : PlaceId → Int) : Nat → Int
 
 /-- The weighted token sum `y·M` over the first `n` places — the equality the
 encoder conjoins on the successor variables `m'_i` (`invariant_conditions`,
-`smt_encoder.rs:216-234`). -/
+`smt_encoder.rs:396-414`). -/
 def dot (y : Weight) (m : AMarking) (n : Nat) : Int :=
   isum (fun p => y p * (m p : Int)) n
 
@@ -90,7 +94,7 @@ transition's **incidence column exactly as the shipped matrix builds it** —
 (`incidence_matrix.rs:45-51` from `net_flattener.rs:50-54`; TS
 `incidence-matrix.ts` from `net-flattener.ts`). `dotInc y ft n = 0` is
 therefore *verbatim* the condition `validate_invariants_exact` re-validates in
-exact arithmetic (`p_invariant.rs:302-320`; TS `p-invariant-computer.ts`).
+exact arithmetic (`p_invariant.rs:313-331`; TS `p-invariant-computer.ts`).
 Note what the column does **not** say: nothing about `consume_all` or
 `reset_places` — that omission is H1 below. -/
 def dotInc (y : Weight) (ft : FlatTransition) (n : Nat) : Int :=
@@ -114,7 +118,7 @@ theorem isum_add (f g : PlaceId → Int) :
 
 /-- A weight vector supported below `n` sums identically under any wider
 truncation — the encoder's support-indexed sum (`invariant_conditions`,
-`smt_encoder.rs:219-223`, iterates `inv.support` only) loses nothing against
+`smt_encoder.rs:399-403`, iterates `inv.support` only) loses nothing against
 the full `y·M`. -/
 theorem dot_stable_of_support_below {y : Weight} {n : Nat}
     (hy : SupportBelow n y) (m : AMarking) :
@@ -135,8 +139,8 @@ theorem dot_two (y : Weight) (m : AMarking) :
 ## The hypotheses the proof forces
 
 The abstract fire relation (`fireA`, modelling `firing_conditions`,
-`smt_encoder.rs:177-201`) has exactly two non-linear arms: a reset place and a
-consume-all place both get `m'_i = post[i]` (`smt_encoder.rs:180-187`), erasing
+`smt_encoder.rs:357-381`) has exactly two non-linear arms: a reset place and a
+consume-all place both get `m'_i = post[i]` (`smt_encoder.rs:360-367`), erasing
 however many tokens the
 place actually held. A weighted sum survives such an arm only where the
 weight is zero — that is H1, and `consume_all_hypothesis_is_necessary` is the
@@ -217,18 +221,18 @@ Hypotheses, exactly as the proof forces them:
 
 * **H1** (`ZeroOnNonlinear`): per flat transition, `y` is zero below `n` on
   its reset and consume-all places — the arms where `firing_conditions`
-  (`smt_encoder.rs:180-187`) emits `m'_i = post[i]` and the marking's history
+  (`smt_encoder.rs:360-367`) emits `m'_i = post[i]` and the marking's history
   is erased. The C2 gate
   enforces it by *dropping* any invariant whose support meets such a place
   (see `consume_all_hypothesis_is_necessary`, the witness that forced it).
 * **H2** (`dotInc y ft n = 0`): `y` annihilates every flat transition's
   incidence column — verbatim the exact-arithmetic check of the C2 gate
-  (`validate_invariants_exact`, `p_invariant.rs:302-320`).
+  (`validate_invariants_exact`, `p_invariant.rs:313-331`).
 * **H3** (env-freedom): implicit in `ReachA`, which has no injection rule;
   `invariant_strengthening_sound_inj` is the env-aware variant.
 
 Conclusion: `y·M = y·M₀` on every reachable abstract marking — the conjunct
-of `invariant_conditions` (`smt_encoder.rs:216-234`) really is invariant
+of `invariant_conditions` (`smt_encoder.rs:396-414`) really is invariant
 ([VER-005] AC2). -/
 theorem invariant_strengthening_sound {net : FlatNet} {a0 a : AMarking}
     {y : Weight} {n : Nat}
@@ -243,8 +247,9 @@ theorem invariant_strengthening_sound {net : FlatNet} {a0 a : AMarking}
 
 /-- `ReachA` with the invariant conjunct `y·M' = y·M₀` added to every
 transition-rule body — the shape `encode_transition_rule` actually emits
-(`smt_encoder.rs:307` conjoins `invariant_conditions` over the successor
-variables `m'_i` inside the rule body, so a violating successor is pruned,
+(`smt_encoder.rs:487` conjoins the `strengthening` list, which `encode_net`
+opens with `invariant_conditions` over the successor variables `m'_i` at
+`:157`, inside the rule body, so a violating successor is pruned,
 not flagged). -/
 inductive ReachAStr (net : FlatNet) (y : Weight) (n : Nat) (a0 : AMarking) :
     AMarking → Prop
@@ -282,12 +287,13 @@ theorem strengthened_reach_eq {net : FlatNet} {a0 : AMarking} {y : Weight} {n : 
 -/
 
 /-- H3′-aware conservation: with injection rules present (`ReachAInj`,
-modelling `encode`'s injection loop, `smt_encoder.rs:84-92`), `y·M = y·M₀`
+modelling the injection loop of `encode_net`, `encode`'s body,
+`smt_encoder.rs:175-184`), `y·M = y·M₀`
 additionally needs `y` to
 vanish on every injectable place — an injection mints a token nothing
 consumed, so a nonzero weight there breaks conservation (the encoder knows:
 "No P-invariant strengthening — injection deliberately breaks conservation",
-`smt_encoder.rs:89`).
+`smt_encoder.rs:180`).
 
 H3′ is exactly what the shipped env-aware matrix enforces mechanically: each
 injectable place contributes an injector column `+e_p`
@@ -322,8 +328,10 @@ theorem invariant_strengthening_sound_inj {net : FlatNet} {envs : List PlaceId}
 
 /-- The shipped strengthened shape with env injection: the invariant conjunct
 sits in *transition*-rule bodies only (`encode_transition_rule`,
-`smt_encoder.rs:302-310`); injection rules carry no conjunct
-(`encode_injection_rule`, `smt_encoder.rs:321-344`). -/
+`smt_encoder.rs:482-490`); injection rules carry no invariant conjunct
+(`encode_injection_rule`, `smt_encoder.rs:521-545` — with
+`EncodeOptions::state_equation` they copy the firing counters, `:535-538`,
+which is outside this model). -/
 inductive ReachAInjStr (net : FlatNet) (envs : List PlaceId) (y : Weight)
     (n : Nat) (a0 : AMarking) : AMarking → Prop
   | init : ReachAInjStr net envs y n a0 a0
@@ -469,7 +477,7 @@ built from `required_count` and never consults `consume_all`
 computation and the C2 gate's `y·C = 0` recheck accept `yUnit` in exact
 arithmetic — which is precisely why the gate needed a *separate* H1 guard on
 top of it. The real firing drains BOTH tokens (`fireA`'s consume-all
-arm, `firing_conditions`, `smt_encoder.rs:184-186`), dropping `y·M` from `2`
+arm, `firing_conditions`, `smt_encoder.rs:364-366`), dropping `y·M` from `2`
 to `1`: the true
 relation reaches `p₁ = 1` (second conjunct) while the strengthened relation
 freezes `p₁` at `0` (third conjunct) — a false `Proven` for
@@ -490,19 +498,21 @@ theorem consume_all_hypothesis_is_necessary :
 
 `encode_property_violation` falls back to a `false` violation condition when
 a property references a place the flattener cannot resolve: the
-`JoinedOrDeadLettered` arm at `smt_encoder.rs:501-502` ("Unknown pending
+`JoinedOrDeadLettered` arm at `smt_encoder.rs:727-728` ("Unknown pending
 place name: no state can violate."), and identically the unresolved
 `PlaceBound` arm and the empty-condition arms.
 The [VER-002] split WIDENED this surface rather than narrowing it: `DeadlockFree`
-also emits `false` when every place is a declared sink (nothing can ever be
-stranded, `:442`), and both it and the new `TerminatesAtSink` emit `false` when
-no quiescent marking exists at all (`:433`, `:452`). The first is a genuine
+also emits `false` when every place is a declared sink — or, since [VER-014], a
+conditional-sink marker — (nothing can ever be stranded, `:668`), and both it
+and the new `TerminatesAtSink` emit `false` when no quiescent marking exists at
+all (`:660`, `:678`). The [VER-014] conditional-sink disjuncts themselves
+(`stranded_conditions`, `:744-758`) are not modelled here. The first is a genuine
 vacuity of the same shape this theorem argues against; the latter two are honest,
 since a net with a permanently-enabled transition truly has no violating state.
 The theorem below is indifferent to which is which — that is the point.
 With `Bad ≡ false`, the error rule `Error :- Reachable(M) ∧ Bad(M)` has an
 unsatisfiable body, so Spacer answers `sat` — reported as `Proven`
-(`process_z3_result`, `smt_verifier.rs:1598-1640`) — for EVERY net, marking
+(`process_z3_result`, `smt_verifier.rs:2220-2262`) — for EVERY net, marking
 and semantics. The
 theorem quantifies over an arbitrary reachable-set predicate to make
 "regardless of semantics" literal.
@@ -518,7 +528,7 @@ information — it holds for any reachable set whatsoever, so it certifies a
 net about which the encoder resolved nothing. The only sound behaviour for
 an unresolvable property place is to refuse to certify (surface an error
 instead of an error rule), which is the formal argument against
-`encode_property_violation`'s `smt_encoder.rs:473-474` fallback. -/
+`encode_property_violation`'s `smt_encoder.rs:727-728` fallback. -/
 theorem bad_rule_nonvacuity (Reach : AMarking → Prop) :
     ProvenFor Reach (fun _ => False) :=
   fun _ _ hbad => hbad

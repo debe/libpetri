@@ -268,7 +268,7 @@ export function validateInvariantsExact(
  * reset/consume-all arms of H1. The matrix may carry extra injector columns beyond
  * `flatNet.transitions`; injections are linear (`+e_p`) and need no entry here.
  */
-function nonlinearPlaces(flatNet: FlatNet): ReadonlySet<number> {
+export function nonlinearPlaces(flatNet: FlatNet): ReadonlySet<number> {
   const nonlinear = new Set<number>();
   for (const ft of flatNet.transitions) {
     for (let p = 0; p < ft.consumeAll.length; p++) {
@@ -428,6 +428,21 @@ export function strengthenWithSemiflows(
   return { invariants: strengthened, added };
 }
 
+/**
+ * Survivor cap per elimination round — the historical backstop against blow-up.
+ * Rows past it are dropped, so on a branchy net the semiflows that survive are an
+ * arbitrary truncation of the minimal set rather than all of it ([VER-007]).
+ */
+const MAX_SEMIFLOW_ROWS = 8192;
+
+/**
+ * Candidate cap per elimination round, applied while the `pos x neg` combinations
+ * are being built. Generous relative to {@link MAX_SEMIFLOW_ROWS} so that any net
+ * whose enumeration completes today is unaffected; it exists to stop a net whose
+ * candidate set is exponential from exhausting the heap before the filter runs.
+ */
+const MAX_SEMIFLOW_CANDIDATES = 65_536;
+
 export function computePSemiflows(
   matrix: IncidenceMatrix,
   flatNet: FlatNet,
@@ -455,8 +470,16 @@ export function computePSemiflows(
     const next: SemiflowRow[] = rows.filter((r) => r.sig[t] === 0);
     const pos = rows.filter((r) => r.sig[t]! > 0);
     const neg = rows.filter((r) => r.sig[t]! < 0);
+    // Bound the CANDIDATE set, not merely the survivors. `pos x neg` is the term
+    // that explodes — on branchy nets it is quadratic in a row count that is
+    // already exponential in the branching — and materialising it before the
+    // filter is what exhausts the heap, which aborts the process rather than
+    // failing a verdict. The ceiling is well above `MAX_SEMIFLOW_ROWS` so that
+    // every net small enough to finish keeps exactly the rows it had.
+    outer:
     for (const rp of pos) {
       for (const rn of neg) {
+        if (next.length >= MAX_SEMIFLOW_CANDIDATES) break outer;
         const cp = -rn.sig[t]!; // > 0
         const cn = rp.sig[t]!; // > 0
         // Checked combination: `number` is f64 and loses integer precision above 2^53,
@@ -471,7 +494,7 @@ export function computePSemiflows(
       }
     }
     rows = keepSupportMinimal(next);
-    if (rows.length > 8192) rows.length = 8192; // safety backstop against blow-up
+    if (rows.length > MAX_SEMIFLOW_ROWS) rows.length = MAX_SEMIFLOW_ROWS;
   }
 
   const semiflows: PInvariant[] = [];
@@ -531,22 +554,56 @@ function reduceGcd(sig: number[], weight: number[]): void {
  * Drops any row whose weight-support is a strict superset of another's — a
  * non-minimal combination only inflates the set (and can cause combinatorial
  * blow-up). Mirrors the Rust reference `keep_support_minimal`.
+ *
+ * Kept row `i` is exactly one with no row `j` such that `|supp(j)| < |supp(i)|`
+ * and `supp(j) ⊆ supp(i)`. (The obvious sequential reading — skipping a `j` that
+ * has itself been dropped — computes the same set: if `j` was dropped there is a
+ * `k` with `supp(k) ⊂ supp(j) ⊆ supp(i)` and `|supp(k)| < |supp(i)|`, so `k`
+ * drops `i` in `j`'s place.) The set is therefore order-free, which is what lets
+ * this run as a bitset sweep in ascending support size rather than the quadratic
+ * scan of member lists it replaces: supports become machine words, a subset test
+ * is a handful of AND operations, and candidates are compared only against
+ * strictly smaller ones. Same rows, same order, on a net where the old form was
+ * the dominant cost of the whole pipeline.
  */
 function keepSupportMinimal(rows: SemiflowRow[]): SemiflowRow[] {
-  const supports: number[][] = rows.map((r) => {
-    const s: number[] = [];
-    for (let i = 0; i < r.weight.length; i++) if (r.weight[i] !== 0) s.push(i);
-    return s;
-  });
-  const keep = new Array<boolean>(rows.length).fill(true);
-  for (let i = 0; i < rows.length; i++) {
-    if (!keep[i]) continue;
-    for (let j = 0; j < rows.length; j++) {
-      if (i === j || !keep[j]) continue;
-      if (supports[j]!.length < supports[i]!.length && supports[j]!.every((p) => supports[i]!.includes(p))) {
-        keep[i] = false;
-        break;
+  const n = rows.length;
+  if (n < 2) return rows;
+  const words = ((rows[0]!.weight.length + 31) >>> 5) || 1;
+  const bits = new Uint32Array(n * words);
+  const sizes = new Int32Array(n);
+  for (let i = 0; i < n; i++) {
+    const w = rows[i]!.weight;
+    let size = 0;
+    for (let p = 0; p < w.length; p++) {
+      if (w[p] !== 0) {
+        const idx = i * words + (p >>> 5);
+        bits[idx] = bits[idx]! | (1 << (p & 31));
+        size++;
       }
+    }
+    sizes[i] = size;
+  }
+  // Ascending support size: a row can only be dropped by a strictly smaller one,
+  // so every possible dropper precedes it here and the inner loop can stop early.
+  const order = new Int32Array(n);
+  for (let i = 0; i < n; i++) order[i] = i;
+  order.sort((a, b) => sizes[a]! - sizes[b]!);
+
+  const keep = new Array<boolean>(n).fill(true);
+  for (let oi = 0; oi < n; oi++) {
+    const i = order[oi]!;
+    const base = i * words;
+    for (let oj = 0; oj < oi; oj++) {
+      const j = order[oj]!;
+      if (sizes[j]! >= sizes[i]!) break; // sorted: no strictly smaller row remains
+      const jbase = j * words;
+      let subset = true;
+      for (let w = 0; w < words; w++) {
+        const jb = bits[jbase + w]!;
+        if ((jb & ~bits[base + w]!) !== 0) { subset = false; break; }
+      }
+      if (subset) { keep[i] = false; break; }
     }
   }
   return rows.filter((_, i) => keep[i]);

@@ -11,6 +11,7 @@
  * proof carries the counterexample states).
  */
 import { failureReason, runZ3Text, timeoutBudget, type Z3Solver } from './z3-process.js';
+import { rethrowIfProgrammingError } from '../programming-error.js';
 import { classifyFirstLine, extractInvariant } from './smt-text.js';
 
 /** Result of a Spacer query. */
@@ -53,6 +54,7 @@ export async function runZ3Spacer(
   try {
     reply = await runZ3Text(solver, smt2, phase, timeoutMs, ['fp.engine=spacer']);
   } catch (e: any) {
+    rethrowIfProgrammingError(e);
     return { type: 'unknown', reason: String(e?.message ?? e) };
   }
   const stdout = reply.stdout.trim();

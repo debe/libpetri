@@ -20,11 +20,13 @@ use std::collections::{BTreeSet, HashSet, VecDeque};
 use libpetri_core::petri_net::PetriNet;
 
 use crate::environment::EnvironmentAnalysisMode;
+use crate::graph_decision::{ClassView, decide_over_classes};
 use crate::marking_state::MarkingState;
 use crate::name_fragment::{self, FragmentMode};
 use crate::name_state_class_graph::NameStateClassGraph;
 use crate::priority_semantics::PrioritySemantics;
 use crate::property::SmtProperty;
+use crate::rest_set::ConditionalSinks;
 use crate::result::Verdict;
 
 /// Outcome of the name-aware ν-partition analysis.
@@ -58,6 +60,7 @@ pub fn verify_via_name_scg(
     fragment_mode: FragmentMode,
     carrier_places: &BTreeSet<String>,
     priority_semantics: PrioritySemantics,
+    conditional_sinks: &[ConditionalSinks],
 ) -> Option<NuScgOutcome> {
     // CORE-043: this is a public entry that reaches the ν-SCG without going through
     // `StateClassGraph::build_with_env`, where the check otherwise sits.
@@ -119,7 +122,7 @@ pub fn verify_via_name_scg(
         });
     }
 
-    let (verdict, violating) = decide(&scg, property, sink_places);
+    let (verdict, violating) = decide(&scg, property, sink_places, conditional_sinks);
     let (trace, transitions) = match violating {
         Some(idx) => counterexample_path(&scg, idx),
         None => (Vec::new(), Vec::new()),
@@ -135,83 +138,39 @@ pub fn verify_via_name_scg(
 
 /// Decides the property over the (complete) name-aware SCG. Returns the verdict
 /// and, for a violation, the index of a witnessing class.
+///
+/// The predicate itself lives in [`decide_over_classes`], shared with the plain
+/// enumeration route of [VER-017] so the two cannot drift ([VER-002] AC7).
 fn decide(
     scg: &NameStateClassGraph,
     property: &SmtProperty,
     sink_places: &[String],
+    conditional_sinks: &[ConditionalSinks],
 ) -> (Verdict, Option<usize>) {
-    let proven = || Verdict::Proven {
-        method: "ν name-partition SCG (NU-050, Route B)".into(),
-        inductive_invariant: None,
-    };
+    match decide_over_classes(&NameClasses(scg), property, sink_places, conditional_sinks) {
+        Some(idx) => (Verdict::Violated, Some(idx)),
+        None => (
+            Verdict::Proven {
+                method: "ν name-partition SCG (NU-050, Route B)".into(),
+                inductive_invariant: None,
+            },
+            None,
+        ),
+    }
+}
 
-    match property {
-        SmtProperty::PlaceBound { place, bound }
-        | SmtProperty::BranchPlaceBound { place, bound } => {
-            for (i, c) in scg.classes.iter().enumerate() {
-                if c.base.marking.count(place) > *bound {
-                    return (Verdict::Violated, Some(i));
-                }
-            }
-            (proven(), None)
-        }
-        SmtProperty::Unreachable { places } => {
-            for (i, c) in scg.classes.iter().enumerate() {
-                if places.iter().all(|p| c.base.marking.count(p) >= 1) {
-                    return (Verdict::Violated, Some(i));
-                }
-            }
-            (proven(), None)
-        }
-        SmtProperty::MutualExclusion { places } => {
-            for (i, c) in scg.classes.iter().enumerate() {
-                let marked = places.iter().filter(|p| c.base.marking.count(p) >= 1).count();
-                if marked >= 2 {
-                    return (Verdict::Violated, Some(i));
-                }
-            }
-            (proven(), None)
-        }
-        SmtProperty::DeadlockFree => {
-            let sinks: HashSet<&str> = sink_places.iter().map(|s| s.as_str()).collect();
-            for i in 0..scg.class_count() {
-                // A quiescent (no successor) class is a deadlock, unless every
-                // marked place is a declared sink (an intended final state).
-                if scg.successors(i).is_empty() {
-                    let marking = &scg.classes[i].base.marking;
-                    let all_in_sinks = marking.places().all(|(p, _)| sinks.contains(p));
-                    if !all_in_sinks {
-                        return (Verdict::Violated, Some(i));
-                    }
-                }
-            }
-            (proven(), None)
-        }
-        // TerminatesAtSink ([VER-002]): a quiescent class that marks NO declared
-        // sink. Inverts with DeadlockFree on the empty marking, by design.
-        SmtProperty::TerminatesAtSink => {
-            let sinks: HashSet<&str> = sink_places.iter().map(|s| s.as_str()).collect();
-            for i in 0..scg.class_count() {
-                if scg.successors(i).is_empty() {
-                    let marking = &scg.classes[i].base.marking;
-                    let any_sink_marked = marking.places().any(|(p, _)| sinks.contains(p));
-                    if !any_sink_marked {
-                        return (Verdict::Violated, Some(i));
-                    }
-                }
-            }
-            (proven(), None)
-        }
-        SmtProperty::JoinedOrDeadLettered { pending } => {
-            for i in 0..scg.class_count() {
-                // A quiescent class still holding a pending token is a stranded
-                // correlation group (name-aware: the join is genuinely disabled).
-                if scg.successors(i).is_empty() && scg.classes[i].base.marking.count(pending) >= 1 {
-                    return (Verdict::Violated, Some(i));
-                }
-            }
-            (proven(), None)
-        }
+/// The name-partition graph's classes as the shared predicate reads them.
+struct NameClasses<'g>(&'g NameStateClassGraph);
+
+impl ClassView for NameClasses<'_> {
+    fn count(&self) -> usize {
+        self.0.class_count()
+    }
+    fn marking_of(&self, i: usize) -> &MarkingState {
+        &self.0.classes[i].base.marking
+    }
+    fn is_quiescent(&self, i: usize) -> bool {
+        self.0.successors(i).is_empty()
     }
 }
 
@@ -283,6 +242,7 @@ mod tests {
             FragmentMode::Base,
             &BTreeSet::new(),
             PrioritySemantics::None,
+            &[],
         )
         .expect("net should be in the ν name-fragment")
     }
@@ -555,6 +515,7 @@ mod tests {
             FragmentMode::Base,
             &BTreeSet::new(),
             PrioritySemantics::None,
+            &[],
         )
         .expect("in fragment");
         match &out.verdict {
@@ -588,6 +549,7 @@ mod tests {
             FragmentMode::Base,
             &BTreeSet::new(),
             PrioritySemantics::None,
+            &[],
         )
         .is_none());
     }
@@ -653,6 +615,7 @@ mod tests {
             FragmentMode::Extended,
             &carriers,
             PrioritySemantics::None,
+            &[],
         );
         assert!(out.is_some(), "EXTENDED must admit the carrier-co-mint + drain net");
     }
@@ -674,6 +637,7 @@ mod tests {
             FragmentMode::Extended,
             &carriers,
             PrioritySemantics::None,
+            &[],
         )
         .expect("carrier validation must surface an outcome, not fall back");
         match &out.verdict {
@@ -752,6 +716,7 @@ mod tests {
             FragmentMode::Extended,
             &BTreeSet::new(),
             ps,
+            &[],
         )
         .expect("EXTENDED must admit the priority fixture")
     }

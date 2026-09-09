@@ -60,7 +60,8 @@ use crate::name_fragment::FragmentMode;
 use crate::net_flattener::{FlatNet, FlatTransition};
 use crate::p_invariant::PInvariant;
 use crate::property::SmtProperty;
-use crate::smt_encoder::SmtEncoding;
+use crate::rest_set::{ConditionalSinks, stranding_excuses};
+use crate::smt_encoder::{SmtEncoding, stranded_conditions};
 
 /// How a transition relates to the coloured (correlation-carrying) places.
 enum Class {
@@ -406,6 +407,7 @@ impl Layout {
 /// Returns `None` when the property names a place that does not resolve in the
 /// net (see [`encode_violation`]); the verifier reports `Unknown` rather than
 /// certify a vacuous `Proven`.
+#[allow(clippy::too_many_arguments)]
 pub fn encode_coloured(
     plan: &ColouredPlan,
     flat: &FlatNet,
@@ -413,6 +415,7 @@ pub fn encode_coloured(
     property: &SmtProperty,
     invariants: &[PInvariant],
     sink_places: &[String],
+    conditional_sinks: &[ConditionalSinks],
     env_inject: &[(usize, Option<usize>)],
 ) -> Option<SmtEncoding> {
     let p = flat.place_count;
@@ -505,7 +508,15 @@ pub fn encode_coloured(
 
     // Error rule. `None` ⇒ the property names an unresolved place; refuse to
     // build a vacuously-provable encoding and let the verifier report Unknown.
-    lines.push(encode_error(plan, &lay, flat, property, sink_places, env_inject)?);
+    lines.push(encode_error(
+        plan,
+        &lay,
+        flat,
+        property,
+        sink_places,
+        conditional_sinks,
+        env_inject,
+    )?);
     lines.push(String::new());
     lines.push("(assert (not Error))".to_string());
     lines.push("(check-sat)".to_string());
@@ -513,6 +524,7 @@ pub fn encode_coloured(
     Some(SmtEncoding {
         smt2: lines.join("\n"),
         place_count: p,
+        counter_count: 0,
     })
 }
 
@@ -649,12 +661,14 @@ fn lifted_invariant(
 /// Returns `None` when the property names an unresolved place (see
 /// [`encode_violation`]) — the caller must then report `Unknown` rather than
 /// build a vacuously-satisfiable encoding.
+#[allow(clippy::too_many_arguments)]
 fn encode_error(
     plan: &ColouredPlan,
     lay: &Layout,
     flat: &FlatNet,
     property: &SmtProperty,
     sink_places: &[String],
+    conditional_sinks: &[ConditionalSinks],
     env_inject: &[(usize, Option<usize>)],
 ) -> Option<String> {
     let all_vars: String = lay
@@ -663,7 +677,15 @@ fn encode_error(
         .map(|v| format!("({v} Int)"))
         .collect::<Vec<_>>()
         .join(" ");
-    let violation = encode_violation(plan, lay, flat, property, sink_places, env_inject)?;
+    let violation = encode_violation(
+        plan,
+        lay,
+        flat,
+        property,
+        sink_places,
+        conditional_sinks,
+        env_inject,
+    )?;
     Some(format!(
         "(assert (forall ({all_vars})\n  (=> (and (Reachable {}) {violation})\n      Error)))",
         lay.cur.join(" ")
@@ -679,12 +701,14 @@ fn encode_error(
 /// there would make the Error rule unsatisfiable and yield a **vacuous**
 /// `Proven` — a mis-named place would silently certify. `None` propagates up so
 /// the verifier reports `Unknown` instead of certifying nothing.
+#[allow(clippy::too_many_arguments)]
 fn encode_violation(
     plan: &ColouredPlan,
     lay: &Layout,
     flat: &FlatNet,
     property: &SmtProperty,
     sink_places: &[String],
+    conditional_sinks: &[ConditionalSinks],
     env_inject: &[(usize, Option<usize>)],
 ) -> Option<String> {
     let any_place_present = |names: &[String]| -> String {
@@ -709,17 +733,20 @@ fn encode_violation(
         SmtProperty::Unreachable { places } | SmtProperty::MutualExclusion { places } => {
             Some(any_place_present(places))
         }
-        // DeadlockFree ([VER-002]): quiescent AND some marked place is not a
-        // declared sink. Mirrors the flat encoder's `stranded` disjunction.
+        // DeadlockFree ([VER-002]): quiescent AND some marked place is not where
+        // resting is permitted ([VER-014]). Mirrors the flat encoder's `stranded`
+        // disjunction over the aggregate (all-colour) count of each place.
         SmtProperty::DeadlockFree => {
             let Some(mut conds) = encode_coloured_quiescent(plan, lay, flat, env_inject) else {
                 return Some("false".to_string());
             };
-            let sinks = coloured_sink_indices(flat, sink_places);
-            let stranded: Vec<String> = (0..flat.place_count)
-                .filter(|pid| !sinks.contains(pid))
-                .map(|pid| format!("(>= {} 1)", lay.aggregate(pid, plan, &lay.cur)))
+            let counts: Vec<String> = (0..flat.place_count)
+                .map(|pid| lay.aggregate(pid, plan, &lay.cur))
                 .collect();
+            let stranded = stranded_conditions(
+                &stranding_excuses(flat, sink_places, conditional_sinks),
+                &counts,
+            );
             if stranded.is_empty() {
                 // Every place is a declared sink: nothing can ever be stranded.
                 return Some("false".to_string());
@@ -1247,7 +1274,7 @@ mod tests {
         };
         let sink_is_empty = format!("(= {} 0)", agg("a"));
         let enc = |prop: &SmtProperty| {
-            encode_coloured(&plan, &flat, &initial, prop, &[], &sinks, &[])
+            encode_coloured(&plan, &flat, &initial, prop, &[], &sinks, &[], &[])
                 .expect("in-fragment net encodes")
                 .smt2
         };
@@ -1304,7 +1331,7 @@ mod tests {
             pending: "typo_pending".to_string(),
         };
         assert!(
-            encode_coloured(&plan, &flat, &initial, &bad, &[], &[], &[]).is_none(),
+            encode_coloured(&plan, &flat, &initial, &bad, &[], &[], &[], &[]).is_none(),
             "unresolved pending place must not produce an encoding (would be vacuously Proven)"
         );
 
@@ -1313,7 +1340,7 @@ mod tests {
             pending: "a".to_string(),
         };
         assert!(
-            encode_coloured(&plan, &flat, &initial, &good, &[], &[], &[]).is_some(),
+            encode_coloured(&plan, &flat, &initial, &good, &[], &[], &[], &[]).is_some(),
             "a resolvable pending place must still encode"
         );
     }

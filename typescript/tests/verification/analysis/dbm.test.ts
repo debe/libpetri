@@ -113,3 +113,47 @@ describe('DBM', () => {
     expect(dbm.getUpperBound(1)).toBe(5);
   });
 });
+
+// VER-010/011: the zone key is the FULL canonical matrix, and clock order is a
+// presentation detail the graph normalises away.
+describe('DBM zone identity', () => {
+  it('permuted() reorders clocks without changing the zone', () => {
+    // f ∈ [0,1] fires first; u ∈ [2,4] and v ∈ [0,1] persist, w is newly enabled.
+    const base = DBM.create(['f', 'u', 'v'], [0, 2, 0], [1, 4, 1]);
+    const a = base.fireTransition(0, ['w'], [0], [1], [1, 2]).letTimePass(); // clocks u, v, w
+    const b = a.permuted([2, 0, 1]); // clocks w, u, v
+    expect(b.clockNames).toEqual(['w', 'u', 'v']);
+    expect(b.getLowerBound(1)).toBe(a.getLowerBound(0));
+    expect(b.getUpperBound(1)).toBe(a.getUpperBound(0));
+    expect(b.getUpperBound(0)).toBe(a.getUpperBound(2));
+    // Permuting back restores the exact matrix.
+    expect(b.permuted([1, 2, 0]).equals(a)).toBe(true);
+    expect(b.permuted([1, 2, 0]).zoneKey()).toBe(a.zoneKey());
+    // The projection string follows the clock order; the zone did not change.
+    expect(b.toString()).not.toBe(a.toString());
+  });
+
+  it('zoneKey() separates zones that share every per-clock projection', () => {
+    // Zone A: u − v ≥ 1 (u and v aged together under f), w fresh and unrelated.
+    const a = DBM.create(['f', 'u', 'v'], [0, 2, 0], [1, 4, 1])
+      .fireTransition(0, ['w'], [0], [1], [1, 2])
+      .letTimePass();
+    // Zone B: u − w ≥ 1, v fresh and unrelated — built with the roles of v and w
+    // swapped, then permuted into the same clock order.
+    const b = DBM.create(['f', 'u', 'w'], [0, 2, 0], [1, 4, 1])
+      .fireTransition(0, ['v'], [0], [1], [1, 2])
+      .letTimePass()
+      .permuted([0, 2, 1]);
+    expect(a.clockNames).toEqual(['u', 'v', 'w']);
+    expect(b.clockNames).toEqual(['u', 'v', 'w']);
+    // Identical projections: the old key would have merged these two classes.
+    expect(a.toString()).toBe(b.toString());
+    // Different zones: the difference constraint sits between different clocks.
+    expect(a.equals(b)).toBe(false);
+    expect(a.zoneKey()).not.toBe(b.zoneKey());
+  });
+
+  it('zoneKey() of an empty zone is stable', () => {
+    expect(DBM.empty(['t1']).zoneKey()).toBe('DBM[empty]');
+  });
+});

@@ -26,6 +26,7 @@
  * byte-identical argument lists and classify replies identically.
  */
 import { spawn, spawnSync } from 'node:child_process';
+import { rethrowIfProgrammingError } from '../programming-error.js';
 import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { errorLine, timeoutLine } from './smt-text.js';
@@ -158,7 +159,12 @@ export function locateZ3(program: string, env: NodeJS.ProcessEnv = process.env):
   const isFile = (p: string): boolean => {
     try {
       return existsSync(p) && statSync(p).isFile();
-    } catch {
+    } catch (e) {
+      // A filesystem refusal means "not a usable file"; a defect here would make a
+      // solver that IS installed look absent, and "your z3 isn't set up" is a story
+      // users believe, so it is the most convincingly disguised failure this module
+      // can produce. It must not be one.
+      rethrowIfProgrammingError(e);
       return false;
     }
   };
@@ -232,7 +238,11 @@ export function z3Available(env: NodeJS.ProcessEnv = process.env): boolean {
   try {
     resolveZ3(env);
     return true;
-  } catch {
+  } catch (e) {
+    // Same disguise as `locateZ3`, and worse in one way: the suites skip on a
+    // `false` here, so a defect would take every solver-backed test out of the run
+    // while the run stayed green. Only a genuine absence may answer `false`.
+    rethrowIfProgrammingError(e);
     return false;
   }
 }
@@ -249,6 +259,10 @@ function dumpSlot(solver: Z3Solver, phase: string, script: string): string | nul
     writeFileSync(`${base}.smt2`, script);
     return base;
   } catch {
+    // Deliberately exempt from the programming-error rule, unlike the two above:
+    // a dump is a diagnostic that no verdict depends on, so nothing it does can
+    // make a report weaker or a solver look absent. Failing a verification because
+    // a debug directory was unwritable would be the worse trade.
     return null;
   }
 }
@@ -257,7 +271,8 @@ function dumpWrite(file: string, text: string): void {
   try {
     writeFileSync(file, text);
   } catch {
-    // Dump failures are ignored: the dump is a diagnostic, never the pipeline.
+    // Ignored for the reason given in `dumpSlot`: the dump is a diagnostic, never
+    // the pipeline.
   }
 }
 

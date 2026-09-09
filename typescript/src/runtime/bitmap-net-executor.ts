@@ -157,6 +157,8 @@ export class BitmapNetExecutor implements PetriNetExecutor {
    * Place identity is name-based — so a hot loop warns once, not per token.
    */
   private readonly warnedUnknownPlaces = new Set<string>();
+  /** Transitions already warned for writing several tokens to a place their spec names once (IO-016 AC4). */
+  private readonly warnedMultiplicity = new Set<string>();
   private readonly transitionInputPlaceNames: Map<Transition, Set<string>>;
 
   private running = false;
@@ -958,7 +960,13 @@ export class BitmapNetExecutor implements PetriNetExecutor {
 
         // Validate output against spec
         if (t.outputSpec !== null) {
-          validateOutSpec(t.name, t.outputSpec, outputs.placesWithTokens());
+          const produced = outputs.placesWithTokens();
+          const claim = validateOutSpec(t.name, t.outputSpec, produced);
+          // IO-016 AC4: a spec names a place once; several tokens into a named place
+          // pass validation (IO-015 reads the produced SET) but exceed what every
+          // branch-enumerating analysis models. Cheap test first: a repeat exists
+          // iff there are more entries than distinct places.
+          if (outputs.entries().length > produced.size) this.warnMultiplicity(t.name, outputs, claim);
         }
 
         // Single pass: add tokens to marking, update bitmap, and emit events
@@ -1219,6 +1227,36 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       level: 'WARN',
       message: `unknown place '${place.name}': tokens are retained in the marking but inert `
         + '(the net declares no arc on it)',
+      error: null,
+      errorMessage: null,
+    });
+  }
+
+  /**
+   * Reports, once per transition, a firing that wrote more than one token to a place
+   * its output spec names once (IO-016 AC4), as the EVT-013 log-message event. The
+   * tokens are deposited regardless: the diagnostic makes the under-approximation
+   * every branch-enumerating analysis makes of this transition visible.
+   */
+  private warnMultiplicity(transitionName: string, outputs: TokenOutput, claim: ReadonlySet<string>): void {
+    if (this.warnedMultiplicity.has(transitionName)) return;
+    const counts = new Map<string, number>();
+    for (const entry of outputs.entries()) {
+      if (claim.has(entry.place.name)) counts.set(entry.place.name, (counts.get(entry.place.name) ?? 0) + 1);
+    }
+    const repeated: string[] = [];
+    for (const [name, n] of counts) if (n > 1) repeated.push(`${name}: ${n}`);
+    if (repeated.length === 0) return;
+    this.warnedMultiplicity.add(transitionName);
+    this.emitEvent({
+      type: 'log-message',
+      timestamp: Date.now(),
+      transitionName,
+      logger: 'libpetri.runtime',
+      level: 'WARN',
+      message: `'${transitionName}': wrote more than one token to a place its output spec names once `
+        + `(${repeated.join(', ')}); branch-enumerating analyses model one token per named place, `
+        + 'so this firing exceeds what they explore (IO-016)',
       error: null,
       errorMessage: null,
     });

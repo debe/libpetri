@@ -2121,6 +2121,118 @@ fn unknown_place_warns_once_per_place<R: BackendRunner>() {
     assert_eq!(result.marking.count("ghost"), 3);
 }
 
+// ================= [IO-016] AC4: several tokens into a place the spec names once =================
+
+/// Every `LogMessage` event of a run (the unknown-place and the multiplicity
+/// diagnostics both ride it; the nets below declare every place they write).
+fn log_messages(result: &RunResult) -> Vec<&NetEvent> {
+    result
+        .events
+        .iter()
+        .filter(|e| matches!(e, NetEvent::LogMessage { .. }))
+        .collect()
+}
+
+/// An action that writes two tokens to the one place its spec names conforms
+/// ([IO-015] reads the produced SET) and both tokens land on every firing; the
+/// executor emits exactly one diagnostic per transition, not one per firing.
+fn multiplicity_warns_once_per_transition<R: BackendRunner>() {
+    let input = Place::<i32>::new("IN");
+    let out = Place::<i32>::new("OUT");
+    let t = Transition::builder("T")
+        .input(one(&input))
+        .output(out_place(&out))
+        .action(sync_action(|ctx| {
+            let v = *ctx.input::<i32>("IN")?;
+            ctx.output("OUT", v * 10 + 1)?;
+            ctx.output("OUT", v * 10 + 2)?;
+            Ok(())
+        }))
+        .build();
+    let net = PetriNet::builder("N").transition(t).build();
+    let mut marking = Marking::new();
+    marking.add(&input, Token::at(1, 0));
+    marking.add(&input, Token::at(2, 0));
+    marking.add(&input, Token::at(3, 0));
+
+    let result = R::run(&net, marking);
+    assert_eq!(result.marking.count("IN"), 0);
+    assert_eq!(result.marking.count("OUT"), 6, "both tokens land on every firing");
+    let warnings = log_messages(&result);
+    assert_eq!(warnings.len(), 1, "three firings, one diagnostic");
+    let NetEvent::LogMessage { transition_name, level, message, .. } = warnings[0] else {
+        unreachable!()
+    };
+    assert_eq!(&**transition_name, "T");
+    assert_eq!(level, "WARN");
+    assert_eq!(
+        message,
+        "'T': wrote more than one token to a place its output spec names once (OUT: 2); \
+         branch-enumerating analyses model one token per named place, so this firing \
+         exceeds what they explore (IO-016)"
+    );
+}
+
+/// Through a composite spec every repeated place is named with its count, in
+/// produced order.
+fn multiplicity_names_every_repeated_place<R: BackendRunner>() {
+    let input = Place::<i32>::new("IN");
+    let a = Place::<i32>::new("A");
+    let b = Place::<i32>::new("B");
+    let t = Transition::builder("T")
+        .input(one(&input))
+        .output(and(vec![out_place(&a), out_place(&b)]))
+        .action(sync_action(|ctx| {
+            ctx.input::<i32>("IN")?;
+            ctx.output("A", 1)?;
+            ctx.output("A", 2)?;
+            ctx.output("A", 3)?;
+            ctx.output("B", 1)?;
+            ctx.output("B", 2)?;
+            Ok(())
+        }))
+        .build();
+    let net = PetriNet::builder("N").transition(t).build();
+    let mut marking = Marking::new();
+    marking.add(&input, Token::at(0, 0));
+
+    let result = R::run(&net, marking);
+    assert_eq!(result.marking.count("A"), 3);
+    assert_eq!(result.marking.count("B"), 2);
+    let warnings = log_messages(&result);
+    assert_eq!(warnings.len(), 1);
+    let NetEvent::LogMessage { message, .. } = warnings[0] else {
+        unreachable!()
+    };
+    assert!(message.contains("(A: 3, B: 2)"), "unexpected message: {message}");
+}
+
+/// One token per named place is exactly what the analyses model: no event.
+fn multiplicity_silent_for_one_token_per_place<R: BackendRunner>() {
+    let input = Place::<i32>::new("IN");
+    let a = Place::<i32>::new("A");
+    let b = Place::<i32>::new("B");
+    let t = Transition::builder("T")
+        .input(one(&input))
+        .output(and(vec![out_place(&a), out_place(&b)]))
+        .action(sync_action(|ctx| {
+            let v = *ctx.input::<i32>("IN")?;
+            ctx.output("A", v)?;
+            ctx.output("B", v)?;
+            Ok(())
+        }))
+        .build();
+    let net = PetriNet::builder("N").transition(t).build();
+    let mut marking = Marking::new();
+    marking.add(&input, Token::at(1, 0));
+    marking.add(&input, Token::at(2, 0));
+
+    let result = R::run(&net, marking);
+    assert_eq!(result.marking.count("A"), 2);
+    assert_eq!(result.marking.count("B"), 2);
+    assert!(log_messages(&result).is_empty());
+}
+
 /// Divergence #5 — same-pass refill (the four from "align precompiled
 /// executor with the bitmap reference" being #1–4): tokens a firing's sync
 /// action deposits must be INVISIBLE to the EXEC-003 recheck of later
@@ -2875,6 +2987,9 @@ for_each_backend!(
     duplicate_input_place_rejected_at_compile,
     unknown_place_initial_tokens_retained,
     unknown_place_warns_once_per_place,
+    multiplicity_warns_once_per_transition,
+    multiplicity_names_every_repeated_place,
+    multiplicity_silent_for_one_token_per_place,
     same_pass_refill_invisible_to_recheck,
     same_pass_deposit_invisible_after_unrelated_firing,
     same_pass_deposit_invisible_to_cardinality,

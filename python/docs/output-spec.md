@@ -4,7 +4,8 @@ The output spec attached to a transition (`lp.out`, `lp.and_`, `lp.xor`,
 `lp.timeout`, `lp.forward_input`) declares the *shape* of outputs the
 action may produce. Since [IO-015] the Rust runtime the binding rides on
 enforces that shape at runtime; per-place multiplicity remains a
-declaration for documentation, visualization, and formal verification.
+declaration for documentation, visualization, and formal verification —
+one the runtime warns about when a firing exceeds it ([IO-016] AC4).
 
 ## What is enforced at runtime
 
@@ -79,6 +80,18 @@ declaration for documentation, visualization, and formal verification.
    This is intentional for streaming actions. Note that SMT verification
    models each output place as gaining exactly one token per firing, so a
    multi-token action is outside what the verifier proves about the net.
+
+   The runtime says so rather than leaving you to notice ([IO-016] AC4):
+   the first firing that writes more than one token to a place its spec
+   names emits one `LogMessage` at `WARN` for that transition, naming the
+   places and their counts. The tokens are deposited either way — it is a
+   diagnostic, not a rule:
+
+   ```python
+   # 't': wrote more than one token to a place its output spec names once
+   #      (out_p: 2); branch-enumerating analyses model one token per named
+   #      place, so this firing exceeds what they explore (IO-016)
+   ```
 
 ## Where the output spec *also* matters
 

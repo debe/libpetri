@@ -7,7 +7,10 @@ As of [IO-015] the *shape* rules — AND completeness and XOR exclusivity —
 are enforced by the Rust runtime the binding rides on. A violating firing
 deposits nothing and does not restore its consumed inputs; it surfaces as
 a `TransitionFailed` event whose error names `[IO-015]`. Per-place
-*multiplicity* is still unchecked.
+*multiplicity* is not a rule: writing several tokens to a place the spec
+names once conforms and every token lands, but the firing exceeds what the
+branch-enumerating analyses model, so [IO-016] AC4 has the runtime emit one
+`LogMessage` diagnostic per transition saying so.
 """
 
 from __future__ import annotations
@@ -175,3 +178,92 @@ def test_skip_output_validation_bypasses_the_check() -> None:
     assert lax.count(a) == 1
     assert lax.count(b) == 1
     assert not _io_015_failures(lax_events)
+
+
+# ---------- [IO-016] AC4: several tokens into a place named once -----------
+
+
+def _run_with(net, incoming_tokens):
+    """Runs `net` with `incoming_tokens` in `incoming`, returning (marking, events)."""
+    store = lp.InMemoryEventStore()
+    marking = lp.run_sync(
+        net,
+        initial={lp.Place("incoming"): incoming_tokens},
+        event_store=store,
+    )
+    return marking, list(store.events())
+
+
+def _log_messages(events):
+    return [e for e in events if e.type == "LogMessage"]
+
+
+def test_multiplicity_warns_once_per_transition() -> None:
+    """Writing two tokens to the one place the spec names conforms — [IO-015]
+    reads the produced SET — and both land on every firing. The diagnostic is
+    emitted once per transition, not once per firing."""
+    out_p = lp.Place("out_p")
+
+    def emit_two(ctx: lp.TransitionContext) -> None:
+        v = ctx.input("incoming")
+        ctx.output("out_p", v * 10 + 1)
+        ctx.output("out_p", v * 10 + 2)
+
+    marking, events = _run_with(_net_with_output(lp.out(out_p), emit_two), [1, 2, 3])
+    assert marking.count(out_p) == 6, "both tokens land on every firing"
+    assert not _io_015_failures(events)
+
+    warnings = _log_messages(events)
+    assert len(warnings) == 1, "three firings, one diagnostic"
+    payload = warnings[0].payload()
+    # KNOWN GAP against [IO-016] AC4: the clause also requires logger
+    # `libpetri.runtime`, which TypeScript pins. `NetEvent::LogMessage` in
+    # rust/libpetri-event carries no `logger` field, so neither Rust nor this
+    # binding can expose one; the other three clauses are pinned below.
+    assert payload["level"] == "WARN"
+    assert payload["transition_name"] == "t"
+    assert payload["message"] == (
+        "'t': wrote more than one token to a place its output spec names once "
+        "(out_p: 2); branch-enumerating analyses model one token per named place, "
+        "so this firing exceeds what they explore (IO-016)"
+    )
+
+
+def test_multiplicity_names_every_repeated_place() -> None:
+    """Through a composite spec every repeated place is named with its count, in
+    produced (first-write) order."""
+    a = lp.Place("a")
+    b = lp.Place("b")
+
+    def emit_several(ctx: lp.TransitionContext) -> None:
+        _ = ctx.input("incoming")
+        ctx.output("a", 1)
+        ctx.output("a", 2)
+        ctx.output("a", 3)
+        ctx.output("b", 1)
+        ctx.output("b", 2)
+
+    marking, events = _run_with(
+        _net_with_output(lp.and_(lp.out(a), lp.out(b)), emit_several), [{"v": 1}]
+    )
+    assert marking.count(a) == 3
+    assert marking.count(b) == 2
+    warnings = _log_messages(events)
+    assert len(warnings) == 1
+    assert "(a: 3, b: 2)" in warnings[0].payload()["message"]
+
+
+def test_multiplicity_is_silent_for_one_token_per_named_place() -> None:
+    """One token per named place is exactly what the analyses model: no event."""
+    a = lp.Place("a")
+    b = lp.Place("b")
+
+    def emit_one_each(ctx: lp.TransitionContext) -> None:
+        v = ctx.input("incoming")
+        ctx.output("a", v)
+        ctx.output("b", v)
+
+    marking, events = _run_with(_net_with_output(lp.and_(lp.out(a), lp.out(b)), emit_one_each), [1, 2])
+    assert marking.count(a) == 2
+    assert marking.count(b) == 2
+    assert _log_messages(events) == []

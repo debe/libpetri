@@ -2,10 +2,12 @@ package org.libpetri.smt.z3;
 
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.core.Place;
+import org.libpetri.smt.RestSet;
 import org.libpetri.smt.SmtProperty;
 import org.libpetri.smt.encoding.FlatNet;
 import org.libpetri.smt.encoding.FlatTransition;
 import org.libpetri.smt.invariant.PInvariant;
+import org.libpetri.smt.invariant.PInvariantComputer;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -30,6 +32,13 @@ import java.util.TreeSet;
  *   <li>{@code (assert (not Error))}: {@code sat} is PROVEN, {@code unsat} is VIOLATED</li>
  * </ul>
  *
+ * <p>With the state equation ([VER-016], the {@code stateEquation} option of
+ * {@link #encode(FlatNet, MarkingState, SmtProperty, List, Collection, boolean, List, boolean)})
+ * the state is {@code (M, n)} — one firing counter per flat transition — and every
+ * transition rule also conjoins {@code M' = M0 + C·n'}, which hands Spacer every linear
+ * consequence of the marking equation (the inequality conservation laws it cannot invent)
+ * at no enumeration cost.
+ *
  * <p>The emitted script is byte-identical to the Rust reference
  * ({@code smt_encoder.rs}) and the TypeScript port for the same input: places are in
  * code-point order of their names, the property's places, sinks, env bounds and
@@ -42,17 +51,26 @@ public final class SmtEncoder {
     /**
      * An encoded SMT-LIB2 script.
      *
-     * @param smt2       the script text
-     * @param placeCount the number of flat places (the arity of {@code Reachable} in the
-     *                   flat encoding)
+     * @param smt2         the script text
+     * @param placeCount   the number of flat places (the leading arguments of
+     *                     {@code Reachable} in the flat encoding)
+     * @param counterCount the number of firing counters that follow the places in
+     *                     {@code Reachable} ([VER-016]): one per flat transition when the
+     *                     state equation is encoded, else 0
      */
-    public record SmtEncoding(String smt2, int placeCount) {}
+    public record SmtEncoding(String smt2, int placeCount, int counterCount) {
+        /** An encoding without firing counters. */
+        public SmtEncoding(String smt2, int placeCount) {
+            this(smt2, placeCount, 0);
+        }
+    }
 
     /** An injected environment place: its flat index and its cap ({@code null} = unbounded). */
     record Injection(int pid, Integer bound) {}
 
     /**
-     * Encodes the net and property as a HORN script.
+     * Encodes the net and property as a HORN script, without conditional sinks or the
+     * state equation.
      *
      * @param flatNet        the flattened net (carries the env bounds and injection map)
      * @param initialMarking the initial marking
@@ -70,7 +88,38 @@ public final class SmtEncoder {
             Collection<Place<?>> sinkPlaces,
             boolean produceProofs
     ) {
+        return encode(flatNet, initialMarking, property, invariants, sinkPlaces, produceProofs,
+            List.of(), false);
+    }
+
+    /**
+     * Encodes the net and property as a HORN script.
+     *
+     * <p>With {@code stateEquation} ([VER-016]) the state carries one firing counter per
+     * flat transition after the places: {@code Reachable(M, n)}, the initial fact has
+     * {@code n = 0}, transition {@code k}'s rule increments {@code n_k} and copies the
+     * others, an injection rule copies them all, and every transition rule's body conjoins
+     * {@code m'_p = M0_p + Σ_t C[p][t]·n'_t} for each place whose column is exact (no
+     * consume-all / reset arc, not injected) together with {@code n' >= 0}. The error rule
+     * quantifies the counters and constrains only the marking.
+     *
+     * @param conditionalSinks places where a token may rest while a marker is marked
+     *                         ([VER-014]); read by {@code DeadlockFree} only
+     * @param stateEquation    carry one firing counter per flat transition and conjoin the
+     *                         marking equation into every rule body ([VER-016])
+     */
+    public static SmtEncoding encode(
+            FlatNet flatNet,
+            MarkingState initialMarking,
+            SmtProperty property,
+            List<PInvariant> invariants,
+            Collection<Place<?>> sinkPlaces,
+            boolean produceProofs,
+            List<RestSet.ConditionalSinks> conditionalSinks,
+            boolean stateEquation
+    ) {
         int p = flatNet.placeCount();
+        int t = stateEquation ? flatNet.transitionCount() : 0;
         var lines = new ArrayList<String>();
         List<Injection> envInject = resolveEnvInjection(flatNet);
 
@@ -80,32 +129,46 @@ public final class SmtEncoder {
         lines.add("(set-logic HORN)");
         lines.add("");
 
-        lines.add("(declare-fun Reachable (" + String.join(" ", ints(p)) + ") Bool)");
+        lines.add("(declare-fun Reachable (" + String.join(" ", ints(p + t)) + ") Bool)");
         lines.add("(declare-fun Error () Bool)");
         lines.add("");
 
         List<String> mVars = vars(p, "");
         List<String> mpVars = vars(p, "p");
+        List<String> nVars = counterVars(t, "");
+        List<String> npVars = counterVars(t, "p");
 
-        var m0 = new ArrayList<String>(p);
+        var m0 = new ArrayList<String>(p + t);
         for (int i = 0; i < p; i++) {
             m0.add(Integer.toString(initialMarking.tokens(flatNet.places().get(i))));
+        }
+        for (int k = 0; k < t; k++) {
+            m0.add("0");
         }
         lines.add("(assert (Reachable " + String.join(" ", m0) + "))");
         lines.add("");
 
-        for (var ft : flatNet.transitions()) {
-            lines.add(encodeTransitionRule(flatNet, ft, mVars, mpVars, invariants));
+        List<String> equation = t > 0
+            ? stateEquationConditions(flatNet, initialMarking, npVars, mpVars)
+            : List.of();
+        for (int k = 0; k < flatNet.transitionCount(); k++) {
+            var ft = flatNet.transitions().get(k);
+            var strengthening = new ArrayList<>(invariantConditions(invariants, mpVars));
+            if (t > 0) {
+                strengthening.addAll(counterConditions(k, nVars, npVars));
+                strengthening.addAll(equation);
+            }
+            lines.add(encodeTransitionRule(flatNet, ft, mVars, mpVars, nVars, npVars, strengthening));
         }
         // Environment-injection rules (VER-006): NOT flat transitions, so the deadlock
         // encoding never sees them; no P-invariant strengthening, injection breaks
-        // conservation on purpose.
+        // conservation on purpose. The counters are carried unchanged (VER-016).
         for (var inj : envInject) {
-            lines.add(encodeInjectionRule(p, inj.pid(), inj.bound(), mVars, mpVars));
+            lines.add(encodeInjectionRule(p, inj.pid(), inj.bound(), mVars, mpVars, nVars, npVars));
         }
         lines.add("");
 
-        lines.add(encodeErrorRule(flatNet, property, mVars, sinkPlaces, envInject));
+        lines.add(encodeErrorRule(flatNet, property, mVars, nVars, sinkPlaces, envInject, conditionalSinks));
         lines.add("");
 
         // Under HORN/Spacer this is SAT when an inductive invariant excludes every
@@ -117,7 +180,7 @@ public final class SmtEncoder {
         }
         lines.add("(get-model)");
 
-        return new SmtEncoding(String.join("\n", lines), p);
+        return new SmtEncoding(String.join("\n", lines), p, t);
     }
 
     /** The injected environment places in place-index order. */
@@ -162,12 +225,28 @@ public final class SmtEncoder {
         return out;
     }
 
+    /** {@code n0..n{T-1}} ({@code suffix} = {@code "p"} for the primed counters), empty when {@code T} is 0. */
+    private static List<String> counterVars(int t, String suffix) {
+        var out = new ArrayList<String>(t);
+        for (int k = 0; k < t; k++) {
+            out.add("n" + k + suffix);
+        }
+        return out;
+    }
+
     private static String quantified(List<String> vars) {
         var parts = new ArrayList<String>(vars.size());
         for (var v : vars) {
             parts.add("(" + v + " Int)");
         }
         return String.join(" ", parts);
+    }
+
+    private static List<String> concat(List<String> a, List<String> b) {
+        var out = new ArrayList<String>(a.size() + b.size());
+        out.addAll(a);
+        out.addAll(b);
+        return out;
     }
 
     private static boolean contains(int[] arr, int v) {
@@ -177,6 +256,78 @@ public final class SmtEncoder {
             }
         }
         return false;
+    }
+
+    // === State equation (VER-016) ===
+
+    /**
+     * The places whose column of the incidence matrix is exact in every step: no
+     * consume-all / reset arc on them (H1) and not injected (H3'). Only these carry a
+     * marking-equation row; the others are unconstrained by it.
+     */
+    public static List<Integer> equationPlaces(FlatNet flatNet) {
+        var excluded = new java.util.HashSet<>(PInvariantComputer.nonlinearPlaces(flatNet));
+        for (var inj : resolveEnvInjection(flatNet)) {
+            excluded.add(inj.pid());
+        }
+        var out = new ArrayList<Integer>();
+        for (int p = 0; p < flatNet.placeCount(); p++) {
+            if (!excluded.contains(p)) {
+                out.add(p);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * The counter update of transition {@code fired} ({@code -1} for an injection step,
+     * which fires no counted transition): {@code n'_k = n_k + 1} for the fired one,
+     * {@code n'_j = n_j} for the rest, then {@code n' >= 0}.
+     */
+    static List<String> counterConditions(int fired, List<String> nVars, List<String> npVars) {
+        var conditions = new ArrayList<String>();
+        for (int k = 0; k < nVars.size(); k++) {
+            conditions.add(k == fired
+                ? "(= " + npVars.get(k) + " (+ " + nVars.get(k) + " 1))"
+                : "(= " + npVars.get(k) + " " + nVars.get(k) + ")");
+        }
+        for (var np : npVars) {
+            conditions.add("(>= " + np + " 0)");
+        }
+        return conditions;
+    }
+
+    /**
+     * The marking equation over the given marking and counter variables: for every place
+     * of {@link #equationPlaces}, {@code m_p = M0_p + Σ_t C[p][t]·n_t} over the flat
+     * transitions with a non-zero effect on {@code p}, in transition order. A coefficient
+     * of 1 is the bare counter, −1 is {@code (- n)}, any other {@code (* c n)} with a
+     * negative {@code c} written {@code (- k)}.
+     */
+    public static List<String> stateEquationConditions(
+            FlatNet flatNet, MarkingState initialMarking, List<String> nVars, List<String> mVars
+    ) {
+        var conditions = new ArrayList<String>();
+        for (int p : equationPlaces(flatNet)) {
+            var terms = new ArrayList<String>();
+            for (int t = 0; t < flatNet.transitionCount(); t++) {
+                var ft = flatNet.transitions().get(t);
+                int c = ft.postVector()[p] - ft.preVector()[p];
+                if (c == 0) {
+                    continue;
+                }
+                String n = nVars.get(t);
+                terms.add(c == 1 ? n
+                    : c == -1 ? "(- " + n + ")"
+                    : c > 0 ? "(* " + c + " " + n + ")"
+                    : "(* (- " + (-c) + ") " + n + ")");
+            }
+            int m0 = initialMarking.tokens(flatNet.places().get(p));
+            conditions.add(terms.isEmpty()
+                ? "(= " + mVars.get(p) + " " + m0 + ")"
+                : "(= " + mVars.get(p) + " (+ " + m0 + " " + String.join(" ", terms) + "))");
+        }
+        return conditions;
     }
 
     // === Shared condition emitters ===
@@ -279,31 +430,39 @@ public final class SmtEncoder {
 
     private static String encodeTransitionRule(
             FlatNet flatNet, FlatTransition ft, List<String> mVars, List<String> mpVars,
-            List<PInvariant> invariants
+            List<String> nVars, List<String> npVars, List<String> strengthening
     ) {
-        var all = new ArrayList<>(mVars);
-        all.addAll(mpVars);
         var conditions = new ArrayList<String>();
-        conditions.add("(Reachable " + String.join(" ", mVars) + ")");
+        conditions.add("(Reachable " + String.join(" ", concat(mVars, nVars)) + ")");
         conditions.addAll(firingConditions(flatNet, ft, mVars, mpVars));
-        conditions.addAll(invariantConditions(invariants, mpVars));
+        conditions.addAll(strengthening);
         conditions.addAll(envBoundConditions(flatNet, mpVars));
         String body = "(and " + String.join("\n            ", conditions) + ")";
+        var all = new ArrayList<>(mVars);
+        all.addAll(mpVars);
+        all.addAll(nVars);
+        all.addAll(npVars);
         return "(assert (forall (" + quantified(all) + ")\n  (=> " + body
-            + "\n      (Reachable " + String.join(" ", mpVars) + "))))";
+            + "\n      (Reachable " + String.join(" ", concat(mpVars, npVars)) + "))))";
     }
 
     private static String encodeInjectionRule(
-            int p, int pid, Integer bound, List<String> mVars, List<String> mpVars
+            int p, int pid, Integer bound, List<String> mVars, List<String> mpVars,
+            List<String> nVars, List<String> npVars
     ) {
+        var conditions = new ArrayList<String>();
+        conditions.add("(Reachable " + String.join(" ", concat(mVars, nVars)) + ")");
+        conditions.addAll(injectionConditions(p, pid, bound, mVars, mpVars));
+        if (!nVars.isEmpty()) {
+            conditions.addAll(counterConditions(-1, nVars, npVars));
+        }
+        String body = "(and " + String.join("\n            ", conditions) + ")";
         var all = new ArrayList<>(mVars);
         all.addAll(mpVars);
-        var conditions = new ArrayList<String>();
-        conditions.add("(Reachable " + String.join(" ", mVars) + ")");
-        conditions.addAll(injectionConditions(p, pid, bound, mVars, mpVars));
-        String body = "(and " + String.join("\n            ", conditions) + ")";
+        all.addAll(nVars);
+        all.addAll(npVars);
         return "(assert (forall (" + quantified(all) + ")\n  (=> " + body
-            + "\n      (Reachable " + String.join(" ", mpVars) + "))))";
+            + "\n      (Reachable " + String.join(" ", concat(mpVars, npVars)) + "))))";
     }
 
     /**
@@ -318,6 +477,11 @@ public final class SmtEncoder {
         };
     }
 
+    /** {@link #encodeStepRelationSmt2(FlatNet, boolean)} without firing counters. */
+    public static String encodeStepRelationSmt2(FlatNet flatNet) {
+        return encodeStepRelationSmt2(flatNet, false);
+    }
+
     /**
      * The net's one-step relation {@code T(M, M')} as one plain SMT-LIB2 formula over
      * the free variables {@code m0..} / {@code m0p..}: the disjunction of every flat
@@ -325,19 +489,34 @@ public final class SmtEncoder {
      * UNSTRENGTHENED relation the certificate check validates against: it shares the
      * condition emitters with the CHC path but omits the P-invariant conjuncts, so a
      * certificate poisoned by a wrong invariant cannot re-certify itself.
+     *
+     * <p>With {@code stateEquation} the counters move with the step ([VER-016]); the
+     * marking equation itself is strengthening and stays out — the candidate carries it
+     * and the VCs re-prove it.
      */
-    static String encodeStepRelationSmt2(FlatNet flatNet) {
+    public static String encodeStepRelationSmt2(FlatNet flatNet, boolean stateEquation) {
         int p = flatNet.placeCount();
+        int t = stateEquation ? flatNet.transitionCount() : 0;
         List<String> mVars = vars(p, "");
         List<String> mpVars = vars(p, "p");
+        List<String> nVars = counterVars(t, "");
+        List<String> npVars = counterVars(t, "p");
         var disjuncts = new ArrayList<String>();
-        for (var ft : flatNet.transitions()) {
+        for (int k = 0; k < flatNet.transitionCount(); k++) {
+            var ft = flatNet.transitions().get(k);
             var conditions = firingConditions(flatNet, ft, mVars, mpVars);
+            if (t > 0) {
+                conditions.addAll(counterConditions(k, nVars, npVars));
+            }
             conditions.addAll(envBoundConditions(flatNet, mpVars));
             disjuncts.add(conjoin(conditions));
         }
         for (var inj : resolveEnvInjection(flatNet)) {
-            disjuncts.add(conjoin(injectionConditions(p, inj.pid(), inj.bound(), mVars, mpVars)));
+            var conditions = injectionConditions(p, inj.pid(), inj.bound(), mVars, mpVars);
+            if (t > 0) {
+                conditions.addAll(counterConditions(-1, nVars, npVars));
+            }
+            disjuncts.add(conjoin(conditions));
         }
         return switch (disjuncts.size()) {
             case 0 -> "false";
@@ -347,12 +526,15 @@ public final class SmtEncoder {
     }
 
     private static String encodeErrorRule(
-            FlatNet flatNet, SmtProperty property, List<String> mVars,
-            Collection<Place<?>> sinkPlaces, List<Injection> envInject
+            FlatNet flatNet, SmtProperty property, List<String> mVars, List<String> nVars,
+            Collection<Place<?>> sinkPlaces, List<Injection> envInject,
+            List<RestSet.ConditionalSinks> conditionalSinks
     ) {
-        String violation = encodePropertyViolation(flatNet, property, mVars, sinkPlaces, envInject);
-        return "(assert (forall (" + quantified(mVars) + ")\n  (=> (and (Reachable "
-            + String.join(" ", mVars) + ") " + violation + ")\n      Error)))";
+        String violation = encodePropertyViolation(
+            flatNet, property, mVars, sinkPlaces, envInject, conditionalSinks);
+        List<String> state = concat(mVars, nVars);
+        return "(assert (forall (" + quantified(state) + ")\n  (=> (and (Reachable "
+            + String.join(" ", state) + ") " + violation + ")\n      Error)))";
     }
 
     /** The flat indices of the given places that resolve, ascending. */
@@ -376,6 +558,14 @@ public final class SmtEncoder {
         return idx;
     }
 
+    /** {@link #encodePropertyViolation(FlatNet, SmtProperty, List, Collection, List, List)} without conditional sinks. */
+    static String encodePropertyViolation(
+            FlatNet flatNet, SmtProperty property, List<String> mVars,
+            Collection<Place<?>> sinkPlaces, List<Injection> envInject
+    ) {
+        return encodePropertyViolation(flatNet, property, mVars, sinkPlaces, envInject, List.of());
+    }
+
     /**
      * The property-violation condition {@code Bad(M)} over {@code mVars}. Also used by
      * the certificate check's safety VC, which must test against exactly the violation
@@ -383,24 +573,22 @@ public final class SmtEncoder {
      */
     static String encodePropertyViolation(
             FlatNet flatNet, SmtProperty property, List<String> mVars,
-            Collection<Place<?>> sinkPlaces, List<Injection> envInject
+            Collection<Place<?>> sinkPlaces, List<Injection> envInject,
+            List<RestSet.ConditionalSinks> conditionalSinks
     ) {
         return switch (property) {
             // DeadlockFree (VER-002): a quiescent marking that STRANDS a token — holds
-            // one in a place that is not a declared sink. The empty marking strands
-            // nothing and is therefore not a violation (AC4).
+            // one in a place where resting is not permitted. The empty marking strands
+            // nothing and is therefore not a violation (AC4). A conditional sink
+            // (VER-014) is stranded only while every marker that would excuse it is
+            // unmarked.
             case SmtProperty.DeadlockFree() -> {
                 var conditions = encodeQuiescent(flatNet, mVars, envInject);
                 if (conditions == null) {
                     yield "false";
                 }
-                var sinks = Set.copyOf(indexOrdered(flatNet, sinkPlaces));
-                var stranded = new ArrayList<String>();
-                for (int pid = 0; pid < flatNet.placeCount(); pid++) {
-                    if (!sinks.contains(pid)) {
-                        stranded.add("(>= " + mVars.get(pid) + " 1)");
-                    }
-                }
+                var stranded = strandedConditions(
+                    RestSet.strandingExcuses(flatNet, sinkPlaces, conditionalSinks), mVars);
                 if (stranded.isEmpty()) {
                     // Every place is a declared sink: nothing can ever be stranded.
                     yield "false";
@@ -463,6 +651,33 @@ public final class SmtEncoder {
                 yield joinConditions(conditions);
             }
         };
+    }
+
+    /**
+     * One "a token is stranded here" disjunct per place where resting is not always
+     * permitted: {@code (>= m 1)}, conjoined with {@code (= marker 0)} for every marker
+     * whose presence would excuse it ([VER-014]), markers in place-index order. Shared
+     * with the name-coloured encoder through {@code counts}, which renders a place's
+     * count term.
+     */
+    static List<String> strandedConditions(int[][] excuses, List<String> counts) {
+        var stranded = new ArrayList<String>();
+        for (int pid = 0; pid < excuses.length; pid++) {
+            int[] markers = excuses[pid];
+            if (markers == null) {
+                continue;
+            }
+            if (markers.length == 0) {
+                stranded.add("(>= " + counts.get(pid) + " 1)");
+            } else {
+                var unmarked = new ArrayList<String>(markers.length);
+                for (int k : markers) {
+                    unmarked.add("(= " + counts.get(k) + " 0)");
+                }
+                stranded.add("(and (>= " + counts.get(pid) + " 1) " + String.join(" ", unmarked) + ")");
+            }
+        }
+        return stranded;
     }
 
     /**
@@ -541,6 +756,23 @@ public final class SmtEncoder {
             disabledConditions.add("(or " + String.join(" ", disableReasons) + ")");
         }
         return disabledConditions;
+    }
+
+    /**
+     * Whether NO marking of this net can be quiescent, because some transition is enabled in
+     * every marking — an environment-gated one whose input injection can always satisfy
+     * ([VER-006]).
+     *
+     * <p>Every quiescence property is then unviolatable and comes back {@code Proven} for a
+     * reason that has nothing to do with the net's own behaviour: an open net with an
+     * always-available source never comes to rest, so "no reachable quiescent marking strands
+     * a token" is vacuously true. The verdict is correct and says nothing, and a caller
+     * reading it as "this workflow completes properly" is misreading it, so the verifier says
+     * so in the report.
+     */
+    public static boolean quiescenceUnreachable(FlatNet flatNet) {
+        return encodeQuiescent(flatNet, vars(flatNet.placeCount(), ""), resolveEnvInjection(flatNet))
+            == null;
     }
 
     /** Env-injectable bound map, index to cap ({@code null} = unbounded), for the coloured encoder. */

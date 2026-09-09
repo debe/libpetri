@@ -29,8 +29,8 @@ export interface DecodedTrace {
 }
 
 /** Decodes the states of a z3 reply; a note says so when none were found. */
-export function decode(answer: string, flatNet: FlatNet): DecodedTrace {
-  const states = decodeStateSet(answer, flatNet);
+export function decode(answer: string, flatNet: FlatNet, counterCount = 0): DecodedTrace {
+  const states = decodeStateSet(answer, flatNet, counterCount);
   return { states, note: states.size === 0 ? 'no ground Reachable states in the z3 proof' : null };
 }
 
@@ -38,9 +38,11 @@ export function decode(answer: string, flatNet: FlatNet): DecodedTrace {
  * Collects the ground `Reachable(...)` applications from a z3 refutation proof into
  * a state set, in text order.
  */
-export function decodeStateSet(answer: string, flatNet: FlatNet): ReadonlySet<MarkingState> {
+export function decodeStateSet(answer: string, flatNet: FlatNet, counterCount = 0): ReadonlySet<MarkingState> {
   const byKey = new Map<string, MarkingState>();
   const P = flatNet.places.length;
+  // With the state equation (VER-016) a fact carries `counterCount` firing counters
+  // after the places; the marking is the leading P arguments.
   for (const head of ['(Reachable', '(|Reachable|']) {
     let from = 0;
     for (;;) {
@@ -56,8 +58,8 @@ export function decodeStateSet(answer: string, flatNet: FlatNet): ReadonlySet<Ma
       if (end < 0) break;
       const inner = answer.slice(start + head.length, end - 1);
       const args = parseGroundIntArgs(inner);
-      if (args != null && args.length === P) {
-        const marking = toMarking(args, flatNet);
+      if (args != null && args.length === P + counterCount) {
+        const marking = toMarking(counterCount === 0 ? args : args.slice(0, P), flatNet);
         const key = marking.toString();
         if (!byKey.has(key)) byKey.set(key, marking);
       }

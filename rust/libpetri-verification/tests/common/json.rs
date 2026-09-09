@@ -56,12 +56,27 @@ impl Json {
         }
     }
 
-    /// Optional string array (`sinkPlaces`): absent -> empty.
     /// An optional boolean field, `false` when absent or null.
     pub fn bool_opt(&self, key: &str) -> bool {
         matches!(self.get(key), Some(Json::Bool(true)))
     }
 
+    /// Optional object of string arrays (`sinkPlacesWhen`), in the object's
+    /// declaration order: absent -> empty. `Json::Obj` keeps its entries in
+    /// source order, which the fixture schema makes significant (the report
+    /// renders the declarations in that order).
+    pub fn str_arr_obj_opt(&self, key: &str) -> Vec<(String, Vec<String>)> {
+        match self.get(key) {
+            None | Some(Json::Null) => Vec::new(),
+            Some(obj @ Json::Obj(entries)) => entries
+                .iter()
+                .map(|(marker, _)| (marker.clone(), obj.str_arr_opt(marker)))
+                .collect(),
+            other => panic!("expected object at key '{key}', got {other:?}"),
+        }
+    }
+
+    /// Optional string array (`sinkPlaces`): absent -> empty.
     pub fn str_arr_opt(&self, key: &str) -> Vec<String> {
         match self.get(key) {
             None | Some(Json::Null) => Vec::new(),

@@ -63,6 +63,23 @@ One orchestrator owns the marking. Completed stages, external events, and timers
 
 The verifier (`org.libpetri.smt.SmtVerifier`) does not bundle a solver. It runs the `z3` executable found on `PATH` (or named by `LIBPETRI_Z3`), version 4.8.0 or newer, one process per query; `SmtVerifier.z3Available()` tells you whether one resolves, and without it every verification returns `Unknown` with a reason naming the command. Set `LIBPETRI_SMT_DUMP` to a directory to keep every SMT-LIB2 script and solver reply. The timeout is per solver invocation.
 
+Not every query reaches the solver. On an untimed net with no ν-joins and no environment places, `SmtVerifier` first enumerates the state-class graph up to `enumerationMaxClasses(int)` (default 50 000, `0` disables) and reads the verdict off it — exact, and far cheaper than a fixpoint search on a long pipeline ([VER-017]). A reachability-safety property is then tried against the linear state-equation bound (`linearBound(boolean)`, on by default, [VER-015]) before IC3/PDR runs.
+
+Options that change what the encoders see:
+
+| Method | Default | What it does |
+|---|---|---|
+| `sinkPlaces(Place…)` | none | Places where a token may always rest, for `deadlockFree()` / `terminatesAtSink()` |
+| `sinkPlacesWhen(marker, Place…)` | none | Places where a token may rest **while `marker` is marked** — a halt or pause terminal ([VER-014]) |
+| `linearBound(boolean)` | `true` | The structural `y·M ≤ y·M0` pre-proof for reachability-safety properties ([VER-015]) |
+| `stateEquation(boolean)` | `false` | Carries the marking equation over firing counters into the flat encoding ([VER-016]) |
+| `semiflowInvariants(boolean)` / `semiflowInvariants(SemiflowMode)` | `OFF` | Unions the gate-validated P-semiflows into the encoders' invariant list; `AUTO` does it exactly when the null-space basis lost a law to the H1 guard ([VER-007]) |
+| `enumerationMaxClasses(int)` | `50_000` | Class budget for the enumeration route; `0` sends every query to the SMT pipeline ([VER-017]) |
+
+`SmtVerificationResult.route()` names which route decided the verdict. Read it before concluding anything from an **empty** `invariants()`: off the `SMT` route that means "not computed", never "the net has none" ([VER-003]).
+
+> **Breaking:** `route` is a new *record component* of `SmtVerificationResult`, inserted after `verdict`. Reading the result is unaffected — every existing accessor keeps its name and type — but the canonical constructor gained a parameter, so downstream code that calls `new SmtVerificationResult(…)` (a hand-built test double, say) or deconstructs the record in a pattern (`case SmtVerificationResult(var verdict, var report, …)`) must be updated. A Java record has no way to add a component without this; the field is on the result rather than only in the report because a consumer reading fields cannot otherwise tell an empty `invariants()` apart from a net with none.
+
 ## Main packages
 
 | Package | Purpose |

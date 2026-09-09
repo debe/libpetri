@@ -105,6 +105,8 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
    * materializing a Marking has one to hand.
    */
   private readonly unknownPlaceTokens = new Map<string, UnknownPlaceTokens>();
+  /** Transitions already warned for writing several tokens to a place their spec names once (IO-016 AC4). */
+  private readonly warnedMultiplicity = new Set<string>();
   /** Monotonic source for ν-name minting (ctx.freshName(), NU-010). */
   private freshNameCounter = 0;
   /**
@@ -1147,7 +1149,8 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
           const simplePid = prog.simpleOutputPlaceId[tid]!;
           if (simplePid >= 0) {
             const produced = outputs.placesWithTokens();
-            if (!produced.has(prog.places[simplePid]!.name)) {
+            const named = prog.places[simplePid]!.name;
+            if (!produced.has(named)) {
               // Same wording the general path emits: for a bare `Out.Place` the
               // spec names one place, so on failure nothing it names was written
               // and the exact-explanation verdict is identical to this check.
@@ -1156,8 +1159,16 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
                 `which no single branch of the spec claims exactly`
               );
             }
+            // IO-016 AC4 (see the general path below); the claim is the one named place.
+            if (outputs.entries().length > produced.size) this.warnMultiplicity(t.name, outputs, new Set([named]));
           } else if (simplePid === -1) {
-            validateOutSpec(t.name, t.outputSpec, outputs.placesWithTokens());
+            const produced = outputs.placesWithTokens();
+            const claim = validateOutSpec(t.name, t.outputSpec, produced);
+            // IO-016 AC4: a spec names a place once; several tokens into a named place
+            // pass validation (IO-015 reads the produced SET) but exceed what every
+            // branch-enumerating analysis models. Cheap test first: a repeat exists
+            // iff there are more entries than distinct places.
+            if (outputs.entries().length > produced.size) this.warnMultiplicity(t.name, outputs, claim);
           }
         }
 
@@ -1429,6 +1440,37 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
   }
 
   // ======================== Event Emission ========================
+
+  /**
+   * Reports, once per transition, a firing that wrote more than one token to a place
+   * its output spec names once (IO-016 AC4), as the EVT-013 log-message event. The
+   * tokens are deposited regardless: the diagnostic makes the under-approximation
+   * every branch-enumerating analysis makes of this transition visible. Mirrors the
+   * bitmap executor word for word.
+   */
+  private warnMultiplicity(transitionName: string, outputs: TokenOutput, claim: ReadonlySet<string>): void {
+    if (this.warnedMultiplicity.has(transitionName)) return;
+    const counts = new Map<string, number>();
+    for (const entry of outputs.entries()) {
+      if (claim.has(entry.place.name)) counts.set(entry.place.name, (counts.get(entry.place.name) ?? 0) + 1);
+    }
+    const repeated: string[] = [];
+    for (const [name, n] of counts) if (n > 1) repeated.push(`${name}: ${n}`);
+    if (repeated.length === 0) return;
+    this.warnedMultiplicity.add(transitionName);
+    this.emitEvent({
+      type: 'log-message',
+      timestamp: Date.now(),
+      transitionName,
+      logger: 'libpetri.runtime',
+      level: 'WARN',
+      message: `'${transitionName}': wrote more than one token to a place its output spec names once `
+        + `(${repeated.join(', ')}); branch-enumerating analyses model one token per named place, `
+        + 'so this firing exceeds what they explore (IO-016)',
+      error: null,
+      errorMessage: null,
+    });
+  }
 
   private emitEvent(event: NetEvent): void {
     if (this.eventStoreEnabled) {

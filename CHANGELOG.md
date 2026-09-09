@@ -1,5 +1,67 @@
 # Changelog
 
+## Unreleased — Java 5.1.0 / TypeScript 5.1.0 / Rust 5.1.0 / Python 4.1.0
+
+### Verification — soundness
+
+**Fixed — the structural deadlock-freedom shortcut could return `Proven` for a net that is dead at its initial marking.** Commoner's theorem governs *ordinary* nets, but the siphon and trap fixpoints read only the pre/post vectors — never a read arc, inhibitor arc, reset arc, consume-all input or arc weight — so on a net carrying one of those they answer about a strictly more permissive net. Three witnesses, each confirmed dead on both executors and each previously reported deadlock-free:
+
+```
+t1: one(a) read(g) -> g ;  t2: one(g) -> a     M0 = {a:1}
+t:  exactly(2, a) -> a                          M0 = {a:1}
+t:  one(a) inhibitor(b) -> a                    M0 = {a:1, b:1}
+```
+
+The shortcut now refuses those nets, as it already refused declared sinks and environment places ([VER-020] AC3).
+
+**Fixed — a property naming a place the net does not declare could certify `Proven`.** The refusal that exists to stop that lived inside the flat-encoding branch, and three routes return before it. It now runs before every route ([VER-003] AC5).
+
+**Fixed — a defect inside the verifier could read as a weaker verdict instead of failing.** Seven `catch` blocks turned any failure into `Unknown` or a degraded result, including bugs in the code they guarded; once both arrive as the same verdict they cannot be told apart. `TypeError` and `ReferenceError` now propagate. `RangeError` stays a verdict, because a deep net overflowing the stack is the capacity limit `Unknown` exists to report.
+
+### Verification — new
+
+**Bounded state-space enumeration** ([VER-017]), on by default. Before the solver runs, the state-class graph is built to a class budget; if it closes, the verdict is read off it and no solver runs. IC3 is built for wide, shallow state spaces and a pipeline is narrow and deep — its diameter forces a frame per stage — while enumeration is linear in the state space:
+
+| compiled 40-node linear workflow | 370 places, 1 967 classes |
+|---|---|
+| fixpoint path | 410 s |
+| enumeration | **0.11 s** |
+
+The verdict is exact, so a `Violated` carries a real firing sequence. It applies to untimed nets with no ν-join and no environment places; past its budget it declines and the SMT pipeline runs unchanged, so it can only add verdicts. `enumerationMaxClasses(0)` disables it.
+
+**Conditional sinks: `sinkPlacesWhen(marker, ...places)`** ([VER-014]). A token may rest in the named places while the marker holds one — a halt, a pause, a cancelled batch — so a designed terminal is no longer read as a stranding. Every route that decides `DeadlockFree` reads one shared rest set. `TerminatesAtSink` is unaffected.
+
+**Linear state-equation bound** ([VER-015]), on by default. A reachability-safety property whose violating markings exceed some `y·M ≤ y·M0` with `y ≥ 0`, `y·C ≤ 0` is proven structurally from one linear query, re-checked in exact integer arithmetic. This is the ordering argument IC3 does not invent on pipeline-shaped nets: a 53-place net that was `unknown` after 300 s proves in under a second. `linearBound(false)` forces the fixpoint path.
+
+**State equation with firing counters: `stateEquation(true)`** ([VER-016]), off by default. The flat encoding carries one counter per transition and conjoins `M' = M0 + C·n'`, so every linear consequence of the state equation is a fact rather than a lemma Spacer must invent. A `deadlockFree` on a 50-place agent net went from `unknown` at 120 s to `proven` in 1.6 s. It grows the state and slows the search for a genuine counterexample.
+
+**`semiflowInvariants('auto')`** ([VER-007]). The union is decisive when the null-space basis lost a law to the H1 guard and pure cost otherwise, and the pipeline already knows which: `'auto'` reads that and decides in the same pass.
+
+**`result.route`** ([VER-003]) names the deciding route. Only the `smt` route computes P-invariants, so an empty invariant list elsewhere means "not computed", never "none exist".
+
+### Verification — performance
+
+**Fixed — the P-semiflow enumeration ran on every verification, whether or not anything read it,** and exhausted the heap on branchy nets. It is exponential in branching (`k` diamonds in series have `2^k` minimal semiflows), the `pos × neg` candidate set was materialised before the minimality filter rather than bounded, and that filter compared support member lists pairwise. It is now computed only when the union is wanted or a coloured plan needs the slot bound, the candidates are bounded as they are built, and the filter is a bitset sweep. Output is identical — same rows, same order:
+
+| | before | after |
+|---|---|---|
+| 24 diamonds in series | 25.3 s | 1.04 s |
+| 49-node workflow, 526 places | **aborted the process** | 33.9 s |
+
+Where the minimal set is exponential the survivors are an arbitrary truncation, so enabling the union means "try harder", never "this answer is now trustworthy".
+
+**Fixed — the state-class graph counted one class once per enabling order** ([VER-010] AC1, [VER-011] AC4). Clocks are now in canonical order and the class key is the full difference-bound matrix rather than the per-clock projections, which can agree on two zones that differ in a difference constraint. Measured on a workflow net: 1.52× class inflation became 1.00×. Class counts in your own tests may drop; verdicts do not change.
+
+### Other
+
+**Added — a warning when an action out-produces its output spec** ([IO-016] AC4). A spec names places, not counts, so writing several tokens to one named place passes validation while every branch-enumerating analysis models one. Both executors now emit one `WARN` log-message per transition.
+
+**Added — a report note when a quiescence property is vacuously true** ([VER-006]). Under modelled injection an environment-gated transition is enabled in every marking, so no marking is quiescent and `deadlockFree` is `proven` whatever the net does.
+
+Requirement count 210 → 214 ([VER-014], [VER-015], [VER-016], [VER-017]); [VER-003], [VER-006], [VER-007], [VER-010], [VER-011], [VER-020] and [IO-016] gained acceptance criteria.
+
+---
+
 ## Java 5.0.0 / TypeScript 5.0.0 / Rust 5.0.0 / Python 4.0.0 — 2026-09-07
 
 ### Output validation
@@ -80,7 +142,7 @@ Requirement count unchanged at 210 — VER-002 gained a property and five accept
 
 ### TypeScript runtime
 
-**Every net with 32 or more places could silently stall on the production executor.** Reported by n8n-libpetri, where each compiled workflow that crossed that size stopped firing.
+**Every net with 32 or more places could silently stall on the production executor.** Every compiled net that crossed that size stopped firing.
 
 - **Fixed — sparse enablement ignored places at the sign bit.** `PrecompiledNet.canEnableSparse` compared `(snapshot[w] & m)` — a *signed* int32, because JavaScript's `&` is — against `m` read unsigned from a `Uint32Array`. Any transition whose needs-mask included place id 31, 63, 95, … therefore never enabled on `PrecompiledNetExecutor`, while `BitmapNetExecutor` ran the same net to completion. If you hit this, the symptom was a net that went quiescent with tokens still sitting in front of a ready transition:
 
