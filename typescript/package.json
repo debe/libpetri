@@ -80,7 +80,7 @@
     "typedoc": "^0.28.19",
     "typescript": "^6.0.3",
     "vite": "^8.0.13",
-    "vitest": "^4.1.6"
+    "vitest": "^5.0.0"
   },
   "peerDependencies": {
     "@viz-js/viz": ">=3.0.0",
