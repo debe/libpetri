@@ -14,7 +14,7 @@ For the motivation and a workflow using every arc type, concurrency, and timeout
 <dependency>
   <groupId>org.libpetri</groupId>
   <artifactId>libpetri</artifactId>
-  <version>5.0.0</version>
+  <version>5.1.0</version>
 </dependency>
 ```
 
