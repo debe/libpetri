@@ -268,7 +268,16 @@ jobs:
         with:
           node-version: '22'
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      # `--with-deps` runs `apt-get update`, which on the runner image also hits
+      # Google's chrome-stable repo. That repo intermittently serves a
+      # Packages.gz whose digest does not match its Release file, and apt then
+      # exits 100 and fails the job. Nothing here installs from it (Chromium
+      # comes from Playwright's own CDN), so drop the source list first.
+      - name: Install Chromium for the headless render smoke test
+        run: |
+          lists=$(grep -rl 'dl\.google\.com' /etc/apt/sources.list.d/ 2>/dev/null || true)
+          if [ -n "$lists" ]; then sudo rm -f $lists; fi
+          npx playwright install --with-deps chromium
       # Builds the viewer IIFE, validates the embedded WASM (check-viewer-wasm),
       # and distributes the byte-identical bundle to all three resource dirs.
       - run: bash ../scripts/build-viewer.sh
