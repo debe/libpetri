@@ -553,6 +553,95 @@ fn precompiled_mixed_chain(c: &mut Criterion) {
     }
 }
 
+// ==================== Hub place (TIME-012 clock-restart check) ====================
+//
+// k transitions share one hub place: T_i takes a `pool` token plus its own
+// `go_i` token, and its sync action returns the pool token. The pool starts with
+// k tokens, so one pass fires all k and no firing takes the pool below what a
+// sibling needs. Every firing consumes from the pool, so this is the shape where
+// the clock-restart check after each consumption could look at every
+// still-enabled sibling.
+
+fn build_hub_place(k: usize) -> (PetriNet, Place<i32>, Vec<Place<i32>>) {
+    let pool = Place::<i32>::new("pool");
+    let gos: Vec<Place<i32>> = (0..k).map(|i| Place::new(format!("go{i}"))).collect();
+    let transitions: Vec<Transition> = gos
+        .iter()
+        .enumerate()
+        .map(|(i, go)| {
+            Transition::builder(format!("t{i}"))
+                .input(one(&pool))
+                .input(one(go))
+                .output(out_place(&pool))
+                .action(sync_action(|ctx| {
+                    let v = *ctx.input::<i32>("pool")?;
+                    ctx.output("pool", v)?;
+                    Ok(())
+                }))
+                .build()
+        })
+        .collect();
+    let net = PetriNet::builder("hub_place").transitions(transitions).build();
+    (net, pool, gos)
+}
+
+fn seed_hub_marking(pool: &Place<i32>, gos: &[Place<i32>]) -> Marking {
+    let mut marking = Marking::new();
+    for (i, go) in gos.iter().enumerate() {
+        marking.add(pool, Token::at(i as i32, 0));
+        marking.add(go, Token::at(0, 0));
+    }
+    marking
+}
+
+/// One pass at k = 2000 takes long enough that the default 100 samples would
+/// dominate the whole suite; 10 samples keep it short and still stable.
+fn hub_group<'a>(
+    c: &'a mut Criterion,
+    name: &str,
+) -> criterion::BenchmarkGroup<'a, criterion::measurement::WallTime> {
+    let mut group = c.benchmark_group(name);
+    group
+        .sample_size(10)
+        .warm_up_time(std::time::Duration::from_secs(1))
+        .measurement_time(std::time::Duration::from_secs(3));
+    group
+}
+
+fn hub_place(c: &mut Criterion) {
+    let mut group = hub_group(c, "hub_place");
+    for &k in &[250, 1000, 2000] {
+        let (net, pool, gos) = build_hub_place(k);
+        group.bench_function(k.to_string(), |b| {
+            b.iter(|| {
+                let marking = seed_hub_marking(&pool, &gos);
+                let mut executor =
+                    BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
+                executor.run_sync();
+                black_box(executor.marking().count("pool"));
+            })
+        });
+    }
+    group.finish();
+}
+
+fn precompiled_hub_place(c: &mut Criterion) {
+    let mut group = hub_group(c, "precompiled_hub_place");
+    for &k in &[250, 1000, 2000] {
+        let (net, pool, gos) = build_hub_place(k);
+        let prog = PrecompiledNet::from_compiled(CompiledNet::compile(&net));
+        group.bench_function(k.to_string(), |b| {
+            b.iter(|| {
+                let marking = seed_hub_marking(&pool, &gos);
+                let mut executor = PrecompiledNetExecutor::<NoopEventStore>::new(&prog, marking);
+                let result = executor.run_sync();
+                black_box(result.count("pool"));
+            })
+        });
+    }
+    group.finish();
+}
+
 // ==================== ν-net Benchmarks (spec NU-020/021/040) ====================
 //
 // A transition carrying a `MatchSpec` is enabled only when a single correlation
@@ -910,6 +999,8 @@ criterion_group!(
     precompiled_complex_workflow,
     precompiled_async_linear_chain,
     precompiled_mixed_chain,
+    hub_place,
+    precompiled_hub_place,
     nu_join_drain,
     plain_join_drain,
     nu_scatter_gather,

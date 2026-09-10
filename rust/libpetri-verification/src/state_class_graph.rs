@@ -397,22 +397,43 @@ pub(crate) fn compute_successor(
         .find(|t| t.name() == fired_name)
         .unwrap();
 
-    // 1. Compute new marking
-    let new_marking = fire_transition_marking(
-        &current.marking,
-        transition,
-        output_places,
-        env_places,
-        env_mode,
-    );
+    // 1. The intermediate marking (inputs taken, resets drained, nothing
+    //    produced yet), then the new marking.
+    let intermediate = consume_marking(&current.marking, transition, env_places, env_mode);
+    let new_marking = produce_marking(&intermediate, output_places);
 
-    // 2. Determine persistent and newly enabled transitions
+    // 2. Determine persistent and newly enabled transitions. A clock survives
+    //    the firing only if the firing never disabled its transition: enabled
+    //    before, in the intermediate marking, and after (TIME-012,
+    //    Berthomieu-Diaz). A transition whose token the fired one takes and
+    //    puts back is newly enabled with a fresh interval, exactly as the
+    //    executors restart its clock.
     let new_enabled_all = find_enabled_transitions(net, &new_marking, env_places, env_mode);
+
+    // One pass over the net judges the intermediate marking for the clocks
+    // that can persist at all: enabled before and after, other than the fired
+    // one. A name leaves the candidates when its first transition is judged,
+    // so it resolves to that transition, as a lookup by name does.
+    let mut candidates: HashSet<&str> = {
+        let enabled_after: HashSet<&str> = new_enabled_all.iter().map(String::as_str).collect();
+        current
+            .enabled_transitions
+            .iter()
+            .map(String::as_str)
+            .filter(|name| *name != fired_name && enabled_after.contains(name))
+            .collect()
+    };
+    let mut survivors: HashSet<&str> = HashSet::with_capacity(candidates.len());
+    for t in net.transitions() {
+        if candidates.remove(t.name()) && is_enabled(t, &intermediate, env_places, env_mode) {
+            survivors.insert(t.name());
+        }
+    }
 
     let mut persistent = Vec::new();
     let mut persistent_indices = Vec::new();
     for (i, name) in current.enabled_transitions.iter().enumerate() {
-        if name != fired_name && new_enabled_all.contains(name) {
+        if survivors.contains(name.as_str()) {
             persistent.push(name.clone());
             persistent_indices.push(i);
         }
@@ -478,10 +499,14 @@ pub(crate) fn compute_successor(
     StateClass::new(new_marking, new_dbm, all_enabled, ready_earliest)
 }
 
-fn fire_transition_marking(
+/// The intermediate marking of a firing: `marking` after `transition` has taken
+/// its inputs and drained its reset places, before any output lands. Every other
+/// transition enabled before the firing but not here gets a fresh clock
+/// (TIME-012). Environment places are not consumed under `AlwaysAvailable` /
+/// `Bounded`, matching [`is_enabled`], which treats them as supplied.
+fn consume_marking(
     marking: &MarkingState,
     transition: &libpetri_core::transition::Transition,
-    output_places: &HashSet<String>,
     env_places: &HashSet<&str>,
     env_mode: &EnvironmentAnalysisMode,
 ) -> MarkingState {
@@ -513,15 +538,18 @@ fn fire_transition_marking(
         builder = builder.tokens(arc.place.name(), 0);
     }
 
-    let result = builder.build();
+    builder.build()
+}
 
-    // Produce to outputs
+/// `intermediate` with one token deposited into each output place of the fired
+/// branch.
+fn produce_marking(intermediate: &MarkingState, output_places: &HashSet<String>) -> MarkingState {
     let mut output_builder = MarkingStateBuilder::new();
-    for (place, count) in result.places() {
+    for (place, count) in intermediate.places() {
         output_builder = output_builder.tokens(place, count);
     }
     for place in output_places {
-        let current = result.count(place);
+        let current = intermediate.count(place);
         output_builder = output_builder.tokens(place.as_str(), current + 1);
     }
 
@@ -1195,5 +1223,139 @@ mod tests {
         assert_eq!(canonical_order(&[]), None);
         let unsorted = vec!["b".to_string(), "a".to_string(), "b".to_string()];
         assert_eq!(canonical_order(&unsorted), Some(vec![1, 0, 2]));
+    }
+
+    // TIME-012: a clock survives a firing only if the firing never disabled its
+    // transition. `Refresh` (exact 100 ms) fires first and does something to
+    // `timer`; `CloseSession` (delayed 200 ms) depends on `timer`. Entering the
+    // successor class, a persistent CloseSession clock has 100 ms left, a fresh
+    // one the full 200 ms.
+
+    const FRESH_S: f64 = 0.2;
+    const PERSISTENT_S: f64 = 0.1;
+
+    /// The class-relative earliest time of `CloseSession` right after the one
+    /// `Refresh` firing out of the initial class.
+    fn close_session_earliest_after_refresh(
+        refresh: Transition,
+        close_session: Transition,
+        initial: MarkingState,
+    ) -> f64 {
+        let net = PetriNet::builder("session")
+            .transitions([refresh, close_session])
+            .build();
+        let scg = StateClassGraph::build(&net, &initial, 1000);
+        assert!(scg.is_complete());
+        let edge = scg
+            .edges()
+            .iter()
+            .find(|e| e.from == 0 && e.transition_name == "Refresh")
+            .expect("Refresh fires out of the initial class");
+        let class = &scg.classes()[edge.to];
+        let k = class
+            .transition_index("CloseSession")
+            .expect("CloseSession is enabled after the refresh");
+        class.ready_earliest[k]
+    }
+
+    /// `Refresh` takes the activity and the timer token and puts the timer back.
+    fn refresh_taking_timer() -> Transition {
+        let activity = Place::<i32>::new("activity");
+        let timer = Place::<i32>::new("timer");
+        Transition::builder("Refresh")
+            .input(one(&activity))
+            .input(one(&timer))
+            .output(out_place(&timer))
+            .timing(libpetri_core::timing::exact(100))
+            .action(fork())
+            .build()
+    }
+
+    fn close_session_taking_timer() -> Transition {
+        let timer = Place::<i32>::new("timer");
+        let closed = Place::<i32>::new("closed");
+        Transition::builder("CloseSession")
+            .input(one(&timer))
+            .output(out_place(&closed))
+            .timing(libpetri_core::timing::delayed(200))
+            .action(fork())
+            .build()
+    }
+
+    fn assert_seconds(actual: f64, expected: f64, what: &str) {
+        assert!(
+            (actual - expected).abs() < 1e-9,
+            "{what}: expected CloseSession to enter the successor with earliest {expected}s, got {actual}s"
+        );
+    }
+
+    #[test]
+    fn conserved_input_refresh_gives_a_fresh_interval() {
+        let initial = MarkingStateBuilder::new()
+            .tokens("activity", 1)
+            .tokens("timer", 1)
+            .build();
+        let earliest = close_session_earliest_after_refresh(
+            refresh_taking_timer(),
+            close_session_taking_timer(),
+            initial,
+        );
+        assert_seconds(earliest, FRESH_S, "the refresh empties timer before refilling it");
+    }
+
+    #[test]
+    fn surplus_token_keeps_the_interval() {
+        let initial = MarkingStateBuilder::new()
+            .tokens("activity", 1)
+            .tokens("timer", 2)
+            .build();
+        let earliest = close_session_earliest_after_refresh(
+            refresh_taking_timer(),
+            close_session_taking_timer(),
+            initial,
+        );
+        assert_seconds(earliest, PERSISTENT_S, "one timer token stays through the refresh");
+    }
+
+    #[test]
+    fn reset_refresh_gives_a_fresh_interval() {
+        let activity = Place::<i32>::new("activity");
+        let timer = Place::<i32>::new("timer");
+        let refresh = Transition::builder("Refresh")
+            .input(one(&activity))
+            .reset(libpetri_core::arc::reset(&timer))
+            .output(out_place(&timer))
+            .timing(libpetri_core::timing::exact(100))
+            .action(fork())
+            .build();
+        let initial = MarkingStateBuilder::new()
+            .tokens("activity", 1)
+            .tokens("timer", 1)
+            .build();
+        let earliest =
+            close_session_earliest_after_refresh(refresh, close_session_taking_timer(), initial);
+        assert_seconds(earliest, FRESH_S, "the reset drains timer before the refill");
+    }
+
+    #[test]
+    fn read_arc_dependent_gets_a_fresh_interval() {
+        let timer = Place::<i32>::new("timer");
+        let armed = Place::<i32>::new("armed");
+        let closed = Place::<i32>::new("closed");
+        let close_session = Transition::builder("CloseSession")
+            .read(libpetri_core::arc::read(&timer))
+            .input(one(&armed))
+            .output(out_place(&closed))
+            .timing(libpetri_core::timing::delayed(200))
+            .action(fork())
+            .build();
+        let initial = MarkingStateBuilder::new()
+            .tokens("activity", 1)
+            .tokens("timer", 1)
+            .tokens("armed", 1)
+            .build();
+        let earliest =
+            close_session_earliest_after_refresh(refresh_taking_timer(), close_session, initial);
+        assert_seconds(earliest, FRESH_S, "the read place is empty between consume and produce");
     }
 }

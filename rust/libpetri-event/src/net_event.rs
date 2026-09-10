@@ -17,7 +17,9 @@ pub enum NetEvent {
         transition_name: Arc<str>,
         timestamp: u64,
     },
-    /// Transition's enabling clock restarted (input place tokens changed while enabled).
+    /// Transition's clock restarted while it stayed marked enabled: another firing
+    /// took tokens it needed and refilled its places before the executor
+    /// re-evaluated it (TIME-012).
     TransitionClockRestarted {
         transition_name: Arc<str>,
         timestamp: u64,

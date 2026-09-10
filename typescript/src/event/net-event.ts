@@ -44,6 +44,12 @@ export interface TransitionEnabled {
   readonly transitionName: string;
 }
 
+/**
+ * A transition's clock restarted while it stayed marked enabled: another firing took tokens
+ * it needed and its places were refilled before the executor re-evaluated it (TIME-012).
+ * This executor re-evaluates between a firing and its deposit, so it reports such a restart
+ * as `transition-enabled`.
+ */
 export interface TransitionClockRestarted {
   readonly type: 'transition-clock-restarted';
   readonly timestamp: number;

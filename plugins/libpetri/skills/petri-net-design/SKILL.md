@@ -222,7 +222,7 @@ Prefer `one()` and `exactly(n)` over `all()` and `at_least(n)`. Draining arcs ar
 | `window(e, l)` | `[e, l]` | **hard**, same reaping |
 | `exact(at)` | `[at, at]` | **soft**: never force-disabled, fires at the first opportunity at or after the target |
 
-The clock starts at enablement and restarts on re-enablement; partial elapsed time is discarded. A reset arc on a place another transition depends on restarts that transition's clock, which is a feature for cancel semantics and a trap for deadline modelling.
+The clock starts at enablement and restarts on re-enablement; partial elapsed time is discarded. That includes the gap inside one firing: when another transition takes a token this transition consumes or reads and puts one back, or drains the place through a reset arc, the clock restarts, unless the place kept enough tokens for this transition. This is a feature for refresh and cancel semantics and a trap for deadline modelling. To keep a clock running while another transition uses a shared token, let that transition read the token instead of consuming it.
 
 `exact()` is a logical instant for simulation and proof, not a real-time guarantee. For a wall-clock lower bound use `delayed`; for a hard bounded window use `window`.
 

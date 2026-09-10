@@ -331,6 +331,73 @@ describe('StateClassGraph — canonical class identity', () => {
   });
 });
 
+// TIME-012 / VER-010 AC4: clock persistence is decided on the intermediate marking M - Pre(t).
+// Refresh takes the timer token and puts one back, which leaves CloseSession disabled in
+// between, so CloseSession starts a fresh interval in the successor class. A surplus token
+// keeps it enabled throughout, and its clock persists.
+describe('StateClassGraph — intermediate-marking clock persistence (TIME-012)', () => {
+  /** CloseSession's earliest-ready time on a fresh clock: `delayed(200)`, in seconds. */
+  const FRESH = 0.2;
+
+  function refreshNet(shape: 'input' | 'read' | 'reset' | 'surplus') {
+    const activity = place('activity');
+    const timer = place('timer');
+    const armed = place('armed');
+    const closed = place('closed');
+    const refreshBuilder = Transition.builder('Refresh').outputs(outPlace(timer)).action(produces());
+    const refresh = (shape === 'reset'
+      ? refreshBuilder.inputs(one(activity)).reset(timer)
+      : refreshBuilder.inputs(one(activity), one(timer))
+    ).build();
+    const closeBuilder = Transition.builder('CloseSession')
+      .outputs(outPlace(closed)).action(produces()).timing(delayed(200));
+    const close = (shape === 'read'
+      ? closeBuilder.inputs(one(armed)).read(timer)
+      : closeBuilder.inputs(one(timer))
+    ).build();
+    const net = PetriNet.builder(`refresh-${shape}`).transitions(refresh, close).build();
+    const marking = MarkingState.builder()
+      .tokens(activity, 1)
+      .tokens(timer, shape === 'surplus' ? 2 : 1)
+      .tokens(armed, shape === 'read' ? 1 : 0)
+      .build();
+    return { net, marking, refresh, close };
+  }
+
+  /** CloseSession's earliest-ready time in the class Refresh leads to from the initial class. */
+  function closeReadyAfterRefresh(shape: 'input' | 'read' | 'reset' | 'surplus'): number {
+    const { net, marking, refresh, close } = refreshNet(shape);
+    const scg = StateClassGraph.build(net, marking, 100);
+    expect(scg.isComplete()).toBe(true);
+    const initial = scg.initialClass;
+    expect(initial.readyEarliest[initial.enabledTransitions.indexOf(close)]).toBeCloseTo(FRESH, 9);
+
+    const edges = scg.branchEdges(initial, refresh);
+    expect(edges).toHaveLength(1);
+    const successor = edges[0]!.target;
+    const k = successor.enabledTransitions.indexOf(close);
+    expect(k).toBeGreaterThanOrEqual(0);
+    return successor.readyEarliest[k]!;
+  }
+
+  it('consume-and-redeposit: the input-arc dependent is newly enabled with a fresh interval', () => {
+    expect(closeReadyAfterRefresh('input')).toBeCloseTo(FRESH, 9);
+  });
+
+  it('consume-and-redeposit: the read-arc dependent is newly enabled with a fresh interval', () => {
+    expect(closeReadyAfterRefresh('read')).toBeCloseTo(FRESH, 9);
+  });
+
+  it('reset refilled by the outputs: the dependent is newly enabled with a fresh interval', () => {
+    expect(closeReadyAfterRefresh('reset')).toBeCloseTo(FRESH, 9);
+  });
+
+  it('surplus token: the dependent stays enabled throughout, so its clock persists', () => {
+    // Refresh may fire at any time before CloseSession's, so the persistent clock may be ready at once.
+    expect(closeReadyAfterRefresh('surplus')).toBe(0);
+  });
+});
+
 // CORE-043: the state-class graph reads token production from the Out spec, so a net whose
 // action produces nothing would be analysed as something it cannot be at run time.
 describe('StateClassGraph — CORE-043', () => {

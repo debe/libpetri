@@ -163,11 +163,17 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
     /** Lock-free completion signaling queue. */
     private final Queue<Transition> completionQueue = new ConcurrentLinkedQueue<>();
 
-    /** Places reset since last updateDirtyTransitions call. */
-    private final Set<Place<?>> pendingResetPlaces = new HashSet<>();
-
-    /** Precomputed input places per transition for reset-clock detection. */
-    private final Map<Transition, Set<Place<?>>> transitionInputPlaces;
+    /**
+     * Transitions whose clock restarts at the next dirty scan (TIME-012). A transition lands
+     * here when another transition's firing leaves it disabled in that firing's intermediate
+     * marking (after consumption and reset draining, before any output): it counts as newly
+     * enabled once the outputs arrive, even when a synchronous action refills the place before
+     * a scan could observe the gap. Set by {@link #flagClockRestarts}, consumed and cleared by
+     * {@link #updateDirtyTransitions}; {@link #hasRestartPending} lets a scan with nothing
+     * flagged skip the clear.
+     */
+    private final long[] restartPendingBitmap;
+    private boolean hasRestartPending;
 
     /** Lock-free queue for external token injections. */
     private final Queue<ExternalEvent<?>> externalEventQueue = new ConcurrentLinkedQueue<>();
@@ -291,6 +297,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
         this.inFlightBitmap = new long[transitionWords];
         this.dirtyBitmap = new long[transitionWords];
         this.dirtyScanBuffer = new long[transitionWords];
+        this.restartPendingBitmap = new long[transitionWords];
         Arrays.fill(enabledAtNanos, Long.MIN_VALUE); // sentinel: not enabled
 
         this.eventStoreEnabled = eventStore.isEnabled();
@@ -316,8 +323,6 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
             }
         }
         this.allSamePriority = samePrio;
-
-        this.transitionInputPlaces = precomputeInputPlaces(compiled.net());
 
         initMatchCaches();
     }
@@ -432,16 +437,6 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
         }
     }
 
-    private static Map<Transition, Set<Place<?>>> precomputeInputPlaces(PetriNet net) {
-        var result = new HashMap<Transition, Set<Place<?>>>();
-        for (var t : net.transitions()) {
-            var places = new HashSet<Place<?>>();
-            for (var in : t.inputSpecs()) places.add(in.place());
-            result.put(t, Set.copyOf(places));
-        }
-        return Map.copyOf(result);
-    }
-
     // ======================== Bitmap Helpers ========================
 
     private void setEnabledBit(int tid) {
@@ -466,6 +461,10 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
 
     private boolean isInFlight(int tid) {
         return (inFlightBitmap[tid >>> WORD_SHIFT] & (1L << (tid & BIT_MASK))) != 0;
+    }
+
+    private boolean isRestartPending(int tid) {
+        return (restartPendingBitmap[tid >>> WORD_SHIFT] & (1L << (tid & BIT_MASK))) != 0;
     }
 
     private void setMarkingBit(int pid) {
@@ -899,7 +898,9 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
                     clearEnabledBit(tid);
                     enabledTransitionCount--;
                     enabledAtNanos[tid] = Long.MIN_VALUE;
-                } else if (canNow && wasEnabled && hasInputFromResetPlace(compiled.transition(tid))) {
+                } else if (canNow && wasEnabled && isRestartPending(tid)) {
+                    // Disabled by another firing's intermediate marking and refilled before
+                    // this scan: re-enabled, so a fresh clock (TIME-012).
                     enabledAtNanos[tid] = nowNanos;
                     if (eventStoreEnabled) emitEvent(new NetEvent.TransitionClockRestarted(
                         Instant.now(), compiled.transition(tid).name()));
@@ -907,7 +908,10 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
             }
         }
 
-        pendingResetPlaces.clear();
+        if (hasRestartPending) {
+            Arrays.fill(restartPendingBitmap, 0);
+            hasRestartPending = false;
+        }
         assert enabledTransitionCount == countEnabledFlags();
     }
 
@@ -922,10 +926,11 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
 
     /**
      * Enablement check combining bitmap masks and cardinality checks. {@code markingSnap}
-     * carries presence — the live {@link #markingBitmap} for dirty re-evaluation, the
-     * {@link #fireScanBitmap} for an intra-pass recheck — and {@code preDeposit} puts the
-     * counting checks on that same view: tokens a same-pass sync action deposited are
-     * discounted, so they satisfy neither a cardinality gate nor a ν-join (EXEC-003 AC4).
+     * carries presence (the live {@link #markingBitmap} for dirty re-evaluation and the
+     * clock-restart walk, the {@link #fireScanBitmap} for an intra-pass recheck), and
+     * {@code preDeposit} puts the counting checks on that same view: tokens a same-pass sync
+     * action deposited are discounted, so they satisfy neither a cardinality gate nor a ν-join
+     * (EXEC-003 AC4).
      */
     private boolean canEnable(int tid, long[] markingSnap, boolean preDeposit) {
         // 1. Fast bitmap check
@@ -1011,11 +1016,6 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
         if (!hasDeposits) return live;
         int pid = compiled.placeIdOrMissing(place);
         return pid < 0 ? live : live - Math.min(depositDelta[pid], live);
-    }
-
-    private boolean hasInputFromResetPlace(Transition t) {
-        if (pendingResetPlaces.isEmpty()) return false;
-        return !Collections.disjoint(pendingResetPlaces, transitionInputPlaces.get(t));
     }
 
     // ======================== Deadline Enforcement ========================
@@ -1294,10 +1294,10 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
                         Instant.now(), arc.place().name(), token));
                 }
             }
-            pendingResetPlaces.add(arc.place());
         }
 
-        // Update bitmap for consumed/reset places
+        // Update bitmap for consumed/reset places and flag the clocks this consumption
+        // disabled, before the action can refill anything (TIME-012)
         updateBitmapAfterConsumption(tid);
 
         if (eventStoreEnabled) emitEvent(new NetEvent.TransitionStarted(Instant.now(), t.name(), consumed));
@@ -1405,6 +1405,14 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
      * this firing emptied of the tokens it held when the pass started stops being present
      * for the rest of the pass. Only a clear, and only for the pids this firing touched —
      * a wholesale refresh would republish deposits from earlier firings in the pass.
+     *
+     * <p>The same loop flags the clocks the consumption disabled (TIME-012): a place still
+     * holding the largest count any arc requires of it disabled no one, so only a place whose
+     * live count is below that threshold is walked by {@link #flagClockRestarts}, which gives
+     * why the count includes same-pass deposits. A transition disabled through another
+     * consumed place is caught when that place comes up, since bits not yet reconciled only
+     * make {@link #canEnable} more permissive. A ν binding can break at any count, so a join's
+     * correlated inputs are always walked.
      */
     private void updateBitmapAfterConsumption(int tid) {
         int[] pids = compiled.consumptionPlaceIds(tid);
@@ -1418,6 +1426,32 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
                 clearFireScanBit(pid);
             }
             markDirty(pid);
+            if (compiled.restartAlwaysCheck(pid) || live < compiled.restartThreshold(pid)) {
+                flagClockRestarts(tid, pid);
+            }
+        }
+    }
+
+    /**
+     * Flags the clock restart of every other enabled transition that {@code tid}'s
+     * consumption disabled through {@code pid} (TIME-012). The firing re-enables such a
+     * transition once its outputs land, so its clock starts over whether the action deposits
+     * before the next dirty scan (synchronous) or after it (asynchronous). Removing tokens
+     * never trips an inhibitor, so the bit tests reject every other kind of neighbour.
+     *
+     * <p>The check runs on the live marking, with none of the in-pass recheck's same-pass
+     * discount, because the intermediate marking is taken from the marking {@code tid} fires
+     * from. Tokens an earlier firing already deposited are really there, so a transition they
+     * keep enabled, a ν-join with its binding intact included, was never disabled. An earlier
+     * firing whose action is asynchronous has not deposited yet, so the gap it left is seen.
+     */
+    private void flagClockRestarts(int tid, int pid) {
+        for (int other : compiled.affectedTransitions(pid)) {
+            if (other == tid || !isEnabled(other) || isInFlight(other) || isRestartPending(other)) continue;
+            if (!canEnable(other, markingBitmap, false)) {
+                restartPendingBitmap[other >>> WORD_SHIFT] |= 1L << (other & BIT_MASK);
+                hasRestartPending = true;
+            }
         }
     }
 

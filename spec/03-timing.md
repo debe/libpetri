@@ -160,18 +160,29 @@ If a transition becomes disabled and then re-enabled, the clock restarts from ze
 
 ---
 
-#### TIME-012: Clock Restart on Reset Arc
+#### TIME-012: Clock Restart on Intermediate Disablement
 
 **Priority:** MUST
 
-If a transition is enabled and a reset arc fires on one of its input places (removing tokens, then new tokens arrive), the transition's clock restarts. A `TransitionClockRestarted` event is emitted.
+A firing of transition `t` has two halves: its inputs are consumed and its reset places drained, then its outputs are deposited. The marking between the halves is the intermediate marking `M - Pre(t)` of Berthomieu and Diaz. Any other transition that was enabled before `t` fired and is not enabled in the intermediate marking is newly enabled when it is enabled again afterwards, so its clock restarts from zero ([TIME-011]). This holds even when `t`'s own outputs refill the place, and it holds whether `t`'s action completes synchronously or asynchronously: a synchronous action MUST NOT hide the gap. The intermediate marking comes from the marking `t` fires from, so tokens an earlier firing already deposited count, while outputs of an asynchronous action still in flight do not.
+
+- Removing tokens disables a transition only through input arcs, read arcs, cardinality requirements and ν-join bindings, never through inhibitor arcs.
+- A reset arc is a consumption that drains its place, so every enabled transition that consumes or reads from a reset place starts a fresh clock when it is enabled again.
+- Surplus tokens keep the clock. If `P` holds two tokens, `t` takes one and `t'` needs one, `t'` stays enabled in the intermediate marking and its clock continues.
+- The fired transition itself always starts a fresh clock when it is enabled again.
+
+The state class graph applies the same rule to persistence ([VER-010]). A transition that stays marked enabled across the firing announces its fresh clock with `TransitionClockRestarted` ([EVT-005]). If the executor observed it disabled in between, for example while an asynchronous action was in flight, its re-enablement emits `TransitionEnabled` instead ([EVT-004]).
 
 **Acceptance Criteria:**
-1. Transition T reads/inputs from place P; T is enabled; another transition resets P; new token arrives in P; T's clock restarts.
-2. TransitionClockRestarted event emitted.
+1. T consumes from place P and is enabled. Another transition consumes P's token and deposits a token into P in one firing, with a synchronous action. T's clock restarts: with `delayed(d)`, T fires no earlier than `d` after the refill.
+2. As AC1, but T only reads P. T's clock restarts.
+3. As AC1, but the other transition drains P through a reset arc and deposits a new token. T's clock restarts.
+4. As AC1, but P holds two tokens and the other transition takes one and returns it. T's clock continues, and neither `TransitionClockRestarted` nor `TransitionEnabled` is emitted for T after the refresh.
+5. AC1 with an asynchronous action restarts T's clock as well.
+6. Each restart emits exactly one of `TransitionClockRestarted` or `TransitionEnabled`.
 
-**Depends on:** [CORE-034], [EVT-004]
-**Test derivation:** Setup two transitions sharing a place via reset arc; verify clock restart event.
+**Depends on:** [TIME-011], [CORE-034], [EXEC-013], [EVT-004]
+**Test derivation:** A timer place P feeds a delayed transition T. An injected activity token fires a refresh transition that takes P's token and puts one back: through an input arc, with T only reading P, through a reset arc, and with a surplus token in P. Repeat the input-arc case with an asynchronous action. Assert a lower bound on T's firing time and the fresh-clock event, or its absence in the surplus case.
 
 ---
 

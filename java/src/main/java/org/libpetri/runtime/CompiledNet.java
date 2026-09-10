@@ -64,6 +64,10 @@ public final class CompiledNet {
     // Precomputed consumption place IDs per transition (input + reset places)
     private final int[][] consumptionPlaceIds;
 
+    // Clock-restart screen per place (TIME-012)
+    private final int[] restartThreshold;
+    private final boolean[] restartAlwaysCheck;
+
     // Cardinality flags
     private final CardinalityCheck[] cardinalityChecks;
 
@@ -234,6 +238,44 @@ public final class CompiledNet {
                 .toArray();
             placeToTransitions[pid] = tids;
         }
+
+        // Clock-restart screen (TIME-012): per place, the largest count an input or read arc
+        // requires of it, and whether it is a correlated input of a ν-join
+        this.restartThreshold = new int[placeCount];
+        this.restartAlwaysCheck = new boolean[placeCount];
+        int[] requirer = new int[placeCount]; // 0 none, tid + 1 the only requiring transition, -1 several
+        boolean[] drained = new boolean[placeCount];
+        int tid = 0;
+        for (var t : transitionsById) {
+            for (var in : t.inputSpecs()) {
+                int pid = placeIndex.get(in.place());
+                restartThreshold[pid] = Math.max(restartThreshold[pid], in.requiredCount());
+                requirer[pid] = requirer[pid] == 0 || requirer[pid] == tid + 1 ? tid + 1 : -1;
+            }
+            for (var arc : t.reads()) {
+                int pid = placeIndex.get(arc.place());
+                restartThreshold[pid] = Math.max(restartThreshold[pid], 1);
+                requirer[pid] = requirer[pid] == 0 || requirer[pid] == tid + 1 ? tid + 1 : -1;
+            }
+            for (var arc : t.resets()) {
+                drained[placeIndex.get(arc.place())] = true;
+            }
+            if (t.matchSpec() != null) {
+                for (var key : t.matchSpec().keys()) {
+                    restartAlwaysCheck[placeIndex.get(key.place())] = true;
+                }
+            }
+            tid++;
+        }
+        // A place only one transition requires and no reset arc drains is taken from by that
+        // transition alone, so the walk could only reach the transition that fired. Skipping it
+        // keeps a linear chain's hot path at one comparison per consumed place.
+        for (int pid = 0; pid < placeCount; pid++) {
+            if (requirer[pid] != -1 && !drained[pid]) {
+                restartThreshold[pid] = 0;
+                restartAlwaysCheck[pid] = false;
+            }
+        }
     }
 
     // ==================== Accessors ====================
@@ -276,6 +318,23 @@ public final class CompiledNet {
 
     public int[] consumptionPlaceIds(int tid) { return consumptionPlaceIds[tid]; }
     public CardinalityCheck cardinalityCheck(int tid) { return cardinalityChecks[tid]; }
+
+    /**
+     * The largest token count any input or read arc requires of {@code pid}: n for
+     * {@code exactly(n)} and {@code atLeast(n)}, 1 for any other input and for a read, 0 when
+     * no arc requires tokens there or one transition alone takes from it. A firing that leaves at least this many tokens in the place
+     * cannot have disabled anyone through it (TIME-012); inhibitor and reset arcs contribute
+     * nothing, since removing tokens never disables through them.
+     */
+    int restartThreshold(int pid) { return restartThreshold[pid]; }
+
+    /**
+     * True when {@code pid} is a correlated input of a ν-join. The join's binding can break at
+     * any count there, so consumption from it always gets the full clock-restart check
+     * (TIME-012). A place the join touches through another arc is screened like any other:
+     * holding its threshold leaves the binding unchanged.
+     */
+    boolean restartAlwaysCheck(int pid) { return restartAlwaysCheck[pid]; }
 
     // ==================== Enablement Check ====================
 

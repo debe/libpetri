@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Timing: clock restarts follow the intermediate marking ([TIME-012])
+
+When a firing takes a transition's input or read token and puts one back, the transition is disabled between the firing's two halves, so its clock restarts. All executors and state-class graphs now agree on this.
+
+- **Fixed (Java, Rust, Python):** a synchronous action kept the old clock, because its outputs landed before the executor looked; an asynchronous one restarted it. TypeScript already restarted.
+- **Fixed (all verifiers):** the state-class graph kept a clock whenever the transition was enabled before and after a firing, and ignored reset-arc restarts. Persistence now also requires enablement in `M - Pre(t)` ([VER-010] AC4). Verdicts on timed nets with a consume-and-return or reset refresh can change.
+- Read arcs count. Surplus tokens keep the clock: a place that still satisfies the transition restarts nothing.
+- **Behaviour change:** to keep a clock running while another transition uses a shared token, have that transition read the token. Immediate transitions follow the rule too, so they move later in FIFO order within their priority, and Java, Rust and Python emit more `TransitionClockRestarted` events.
+
 ## Java 5.1.0 / TypeScript 5.1.0 / Rust 5.1.0 / Python 4.1.0 — 2026-09-09
 
 ### Verification — soundness

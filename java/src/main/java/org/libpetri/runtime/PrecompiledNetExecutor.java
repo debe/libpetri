@@ -171,10 +171,16 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
     private final long[] enabledWordSummary;
     private final int summaryWords;
 
-    // ==================== Reset-Clock Detection ====================
+    // ==================== Clock-Restart Detection ====================
 
-    private final long[] pendingResetWords;
-    private boolean hasPendingResets; // set during fireTransition (RESET opcode), cleared at end of updateDirtyTransitions
+    /**
+     * Transitions whose clock restarts at the next dirty scan (TIME-012): each was left
+     * disabled by another firing's intermediate marking. See {@link BitmapNetExecutor}'s field
+     * of the same name. Set by {@link #flagClockRestarts}, consumed and cleared by
+     * {@link #updateDirtyTransitions}.
+     */
+    private final long[] restartPendingBitmap;
+    private boolean hasRestartPending;
 
     // ==================== Cached Flags ====================
 
@@ -364,8 +370,8 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         this.inFlightConsumed = new List[program.transitionCount];
         this.inFlightStartNanos = new long[program.transitionCount];
 
-        // Reset detection
-        this.pendingResetWords = new long[program.wordCount];
+        // Clock-restart detection
+        this.restartPendingBitmap = new long[transitionWords];
 
         initMatchCaches();
     }
@@ -774,6 +780,10 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
 
     private boolean isInFlight(int tid) {
         return (inFlightBitmap[tid >>> WORD_SHIFT] & (1L << (tid & BIT_MASK))) != 0;
+    }
+
+    private boolean isRestartPending(int tid) {
+        return (restartPendingBitmap[tid >>> WORD_SHIFT] & (1L << (tid & BIT_MASK))) != 0;
     }
 
     private void setMarkingBit(int pid) {
@@ -1468,7 +1478,9 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                     clearEnabledBit(tid);
                     enabledTransitionCount--;
                     enabledAtNanos[tid] = Long.MIN_VALUE;
-                } else if (canNow && wasEnabled && hasInputFromResetPlace(tid)) {
+                } else if (canNow && wasEnabled && isRestartPending(tid)) {
+                    // Disabled by another firing's intermediate marking and refilled before
+                    // this scan: re-enabled, so a fresh clock (TIME-012).
                     enabledAtNanos[tid] = nowNanos;
                     if (eventStoreEnabled) emitEvent(new NetEvent.TransitionClockRestarted(
                         Instant.now(), program.transitionsById[tid].name()));
@@ -1476,15 +1488,19 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
             }
         }
 
-        clearPendingResets();
+        if (hasRestartPending) {
+            Arrays.fill(restartPendingBitmap, 0);
+            hasRestartPending = false;
+        }
     }
 
     /**
      * Enablement check combining bitmap masks and cardinality checks. The presence bitmap is
      * a parameter so the firing pass can recheck against {@link #fireScanBitmap} (same-pass
-     * deposits invisible, divergence #5) while dirty re-evaluation uses the live
-     * {@link #markingBitmap}; {@code preDeposit} puts the cardinality and ν checks on that
-     * same view (EXEC-003 AC4), matching the {@link BitmapNetExecutor} reference.
+     * deposits invisible, divergence #5) while dirty re-evaluation and the clock-restart walk
+     * use the live {@link #markingBitmap}; {@code preDeposit} puts the cardinality and ν
+     * checks on that same view (EXEC-003 AC4), matching the {@link BitmapNetExecutor}
+     * reference.
      */
     private boolean canEnable(int tid, long[] markingSnap, boolean preDeposit) {
         if (!program.canEnableBitmap(tid, markingSnap)) return false;
@@ -1517,25 +1533,6 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
             }
         }
         return true;
-    }
-
-    private boolean hasInputFromResetPlace(int tid) {
-        if (!hasPendingResets) return false;
-        long[] inputMask = program.inputPlaceMaskWords[tid];
-        int len = Math.min(inputMask.length, pendingResetWords.length);
-        for (int i = 0; i < len; i++) {
-            if ((inputMask[i] & pendingResetWords[i]) != 0) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void clearPendingResets() {
-        if (hasPendingResets) {
-            Arrays.fill(pendingResetWords, 0);
-            hasPendingResets = false;
-        }
     }
 
     // ==================== Deadline Enforcement ====================
@@ -1776,7 +1773,8 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         // Drain reset arcs (empty segment for transitions without resets)
         executeConsumeOps(tid, resetStart, program.consumeOps[tid].length, inputs, consumed);
 
-        // Update bitmap for consumed/reset places
+        // Update bitmap for consumed/reset places and flag the clocks this consumption
+        // disabled, before the action can refill anything (TIME-012)
         updateBitmapAfterConsumption(tid);
 
         if (eventStoreEnabled) emitEvent(new NetEvent.TransitionStarted(
@@ -1890,8 +1888,6 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                         if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
                             Instant.now(), program.placesById[pid].name(), token));
                     }
-                    pendingResetWords[pid >>> WORD_SHIFT] |= 1L << (pid & BIT_MASK);
-                    hasPendingResets = true;
                 }
                 default -> throw new IllegalStateException("Unknown opcode: " + opcode);
             }
@@ -1904,6 +1900,10 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
      * firing emptied of the tokens it held when the pass started stops being present for
      * the rest of the pass. Only a clear, and only for the pids this firing touched — a
      * wholesale refresh would republish deposits from earlier firings in the pass.
+     *
+     * <p>The same loop flags the clocks the consumption disabled (TIME-012), walking only a
+     * place whose live count is below its restart threshold; {@link BitmapNetExecutor}'s
+     * method of the same name gives why that misses no one.
      */
     private void updateBitmapAfterConsumption(int tid) {
         int[] pids = program.consumptionPlaceIds[tid];
@@ -1916,6 +1916,24 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                 clearFireScanBit(pid);
             }
             markDirty(pid);
+            if (program.restartAlwaysCheck[pid] || live < program.restartThreshold[pid]) {
+                flagClockRestarts(tid, pid);
+            }
+        }
+    }
+
+    /**
+     * Flags the clock restart of every other enabled transition that {@code tid}'s
+     * consumption disabled through {@code pid} (TIME-012), judged on the live marking.
+     * Mirrors {@link BitmapNetExecutor}'s method of the same name, which gives the rationale.
+     */
+    private void flagClockRestarts(int tid, int pid) {
+        for (int other : program.placeToTransitions[pid]) {
+            if (other == tid || !isEnabled(other) || isInFlight(other) || isRestartPending(other)) continue;
+            if (!canEnable(other, markingBitmap, false)) {
+                restartPendingBitmap[other >>> WORD_SHIFT] |= 1L << (other & BIT_MASK);
+                hasRestartPending = true;
+            }
         }
     }
 

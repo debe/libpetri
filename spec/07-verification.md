@@ -724,8 +724,18 @@ The engine may support state class graph construction using the Berthomieu-Diaz 
    and not the enablement threshold `requiredCount()`. In particular `All` and
    `AtLeast(m)` drain the place.
 3. XOR outputs are expanded into virtual transitions for branch analysis.
+4. Clock persistence uses the intermediate marking of Berthomieu and Diaz. After `t` fires
+   from marking `M`, a transition `t' ≠ t` keeps its clock only if it is enabled in `M`, in
+   the successor marking `M'`, and in the intermediate marking `M - Pre(t)`: inputs
+   consumed, reset places drained, outputs not yet deposited. Every other transition
+   enabled in `M'` gets a fresh firing interval. This is the executor's rule ([TIME-012]).
+   A successor that keeps a clock the executor restarts under-approximates the executor's
+   behaviors. Two limits follow from the graph's abstractions: firings are atomic, so
+   overlapping asynchronous actions that leave a place empty longer than one firing are
+   not modelled; and under `alwaysAvailable` / `bounded` environment modes an environment
+   input never disables a transition.
 
-**Depends on:** [IO-007], [EXEC-010]
+**Depends on:** [IO-007], [EXEC-010], [TIME-012]
 
 **Implementation notes:**
 - Java: Full implementation
@@ -735,7 +745,10 @@ The engine may support state class graph construction using the Berthomieu-Diaz 
 **Test derivation:** Small timed net; construct state class graph; verify reachable
 classes match expected. Regression: a transition with an `all(p)` input followed by a
 transition inhibited on `p` — the inhibited successor MUST be reachable, since `p` is
-drained; an `atLeast(2, p)` input over 5 tokens MUST leave `p` empty.
+drained; an `atLeast(2, p)` input over 5 tokens MUST leave `p` empty. For AC4, a timer
+place `p` feeds a delayed transition `d`, and a refresh transition consumes `p` and deposits
+into it again: `d` MUST be newly enabled in the successor class. With a second token in
+`p` it MUST be persistent; with a reset arc on `p` it MUST be newly enabled.
 
 ---
 

@@ -141,12 +141,12 @@ When a transition fires, read arc values are provided to the action without cons
 
 **Priority:** MUST
 
-When a transition fires, all tokens are removed from each reset place. This happens during the firing step, before the action executes. The removal is tracked for clock restart detection (see [TIME-012]).
+When a transition fires, all tokens are removed from each reset place. This happens during the firing step, before the action executes. Like input consumption, the drain lands in the intermediate marking, so it restarts the clocks of transitions it disables there (see [TIME-012]).
 
 **Acceptance Criteria:**
 1. Reset place with 5 tokens → all removed.
 2. Reset place empty → no error.
-3. If the reset place is also an input place for another enabled transition, that transition's clock restarts.
+3. If the reset place is also an input or read place of another enabled transition, that transition's clock restarts ([TIME-012]).
 4. Reset draining occurs **after** read-arc peeking within the same firing: a
    transition with a read arc and a reset arc on the same place observes the
    pre-reset front token via `ctx.read()` (see [EXEC-012], [CORE-032]). The

@@ -33,7 +33,7 @@ import { TokenInput } from '../core/token-input.js';
 import { TokenOutput } from '../core/token-output.js';
 import { TransitionContext } from '../core/transition-context.js';
 import { noopEventStore } from '../event/event-store.js';
-import { CompiledNet, WORD_SHIFT, BIT_MASK, setBit, clearBit } from './compiled-net.js';
+import { CompiledNet, WORD_SHIFT, BIT_MASK, setBit, clearBit, restartThresholds } from './compiled-net.js';
 import { Marking, type PredicateSpec } from './marking.js';
 import { findBinding, IncrementalMatcher } from './match-engine.js';
 import { keyForPlace } from '../core/match-spec.js';
@@ -150,8 +150,16 @@ export class BitmapNetExecutor implements PetriNetExecutor {
   // Pre-allocated buffer for fireReadyTransitions() to avoid per-cycle allocation
   private readonly readyBuffer: { tid: number; priority: number; enabledAtMs: number }[] = [];
 
-  // Pending reset places for clock-restart detection
-  private readonly pendingResetPlaces = new Set<string>();
+  /**
+   * Per transition, one bit: a firing left it disabled in the intermediate marking while it
+   * was marked enabled (TIME-012), so the next dirty scan that finds it enabled restarts its
+   * clock. Set at fire time, cleared at the end of every scan; `anyRestartPending` lets the
+   * scan skip the clear when nothing was flagged.
+   */
+  private readonly restartPendingWords: Uint32Array;
+  private anyRestartPending = false;
+  /** Per place, the count a firing must leave it at to have disabled nothing through it. */
+  private readonly restartThresholds: Float64Array;
   /**
    * Undeclared place names already reported (CORE-072 AC4). Keyed by name — TS
    * Place identity is name-based — so a hot loop warns once, not per token.
@@ -159,7 +167,6 @@ export class BitmapNetExecutor implements PetriNetExecutor {
   private readonly warnedUnknownPlaces = new Set<string>();
   /** Transitions already warned for writing several tokens to a place their spec names once (IO-016 AC4). */
   private readonly warnedMultiplicity = new Set<string>();
-  private readonly transitionInputPlaceNames: Map<Transition, Set<string>>;
 
   private running = false;
   private draining = false;
@@ -191,6 +198,8 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     const dirtyWords = (this.compiled.transitionCount + BIT_MASK) >>> WORD_SHIFT;
     this.dirtySet = new Uint32Array(dirtyWords);
     this.dirtySnapBuffer = new Uint32Array(dirtyWords);
+    this.restartPendingWords = new Uint32Array(dirtyWords);
+    this.restartThresholds = restartThresholds(this.compiled);
 
     this.enabledAtMs = new Float64Array(this.compiled.transitionCount);
     this.enabledAtMs.fill(-Infinity);
@@ -217,14 +226,6 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     this.allImmediate = allImm;
     this.allSamePriority = samePrio;
     this.eventStoreEnabled = this.eventStore.isEnabled();
-
-    // Precompute input place names per transition
-    this.transitionInputPlaceNames = new Map();
-    for (const t of net.transitions) {
-      const names = new Set<string>();
-      for (const spec of t.inputSpecs) names.add(spec.place.name);
-      this.transitionInputPlaceNames.set(t, names);
-    }
 
     // CORE-072: the Marking keeps tokens on places the net never declared;
     // report each such place once, matching the precompiled backend's seam.
@@ -515,7 +516,13 @@ export class BitmapNetExecutor implements PetriNetExecutor {
           this.enabledFlags[tid] = 0;
           this.enabledTransitionCount--;
           this.enabledAtMs[tid] = -Infinity;
-        } else if (canNow && wasEnabled && this.hasInputFromResetPlace(this.compiled.transition(tid))) {
+        } else if (canNow && wasEnabled && this.anyRestartPending
+          && (this.restartPendingWords[w]! & (1 << bit)) !== 0) {
+          // A firing disabled it in its intermediate marking and it is enabled again, yet it
+          // is still marked enabled: this scan never saw the gap, so restart the clock here
+          // (TIME-012). The loop scans between a firing and any deposit, so it normally sees
+          // the gap and the fresh clock arrives as transition-enabled above; the flag keeps
+          // the rule independent of that ordering.
           this.enabledAtMs[tid] = nowMs;
           this.emitEvent({
             type: 'transition-clock-restarted',
@@ -526,7 +533,10 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       }
     }
 
-    this.pendingResetPlaces.clear();
+    if (this.anyRestartPending) {
+      this.restartPendingWords.fill(0);
+      this.anyRestartPending = false;
+    }
   }
 
   /**
@@ -595,14 +605,26 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     return true;
   }
 
-  private hasInputFromResetPlace(t: Transition): boolean {
-    if (this.pendingResetPlaces.size === 0) return false;
-    const inputNames = this.transitionInputPlaceNames.get(t);
-    if (!inputNames) return false;
-    for (const name of this.pendingResetPlaces) {
-      if (inputNames.has(name)) return true;
+  /**
+   * Flags each other transition that firing `tid` has just disabled through `pid`
+   * (TIME-012). Called from {@link updateBitmapAfterConsumption} on the intermediate marking
+   * M - Pre(t) (inputs consumed and resets drained, outputs not yet deposited), and only for
+   * a place the firing left below its restart threshold. Removing tokens never trips an
+   * inhibitor arc, so the bit tests reject every other kind of neighbour cheaply.
+   */
+  private flagIntermediateDisablements(tid: number, pid: number): void {
+    const affected = this.compiled.affectedTransitions(pid);
+    for (let j = 0; j < affected.length; j++) {
+      const other = affected[j]!;
+      if (other === tid || !this.enabledFlags[other] || this.inFlightFlags[other]) continue;
+      const w = other >>> WORD_SHIFT;
+      const mask = 1 << (other & BIT_MASK);
+      if ((this.restartPendingWords[w]! & mask) !== 0) continue;
+      if (!this.canEnable(other, this.markingBitmap)) {
+        this.restartPendingWords[w]! |= mask;
+        this.anyRestartPending = true;
+      }
     }
-    return false;
   }
 
   // ======================== Firing ========================
@@ -657,7 +679,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     // Sort: higher priority first, then earlier enablement (FIFO).
     // This defines the deterministic scheduling contract for conflict resolution.
     // We re-sort each cycle rather than maintaining a sorted invariant because
-    // enablement times change on clock-restarts (reset arcs), which would require
+    // enablement times change on clock restarts (TIME-012), which would require
     // expensive re-insertion. Sorting ≤T entries per cycle is fast enough.
     ready.sort((a, b) => {
       const prioCmp = b.priority - a.priority;
@@ -802,7 +824,6 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     // Reset arcs
     for (const arc of t.resets) {
       const removed = this.marking.removeAll(arc.place);
-      this.pendingResetPlaces.add(arc.place.name);
       for (const token of removed) {
         consumed.push(token);
         this.emitEvent({
@@ -814,7 +835,8 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       }
     }
 
-    // Update bitmap for consumed/reset places
+    // Update bitmap for consumed/reset places and flag the clocks this consumption
+    // disabled, before any output lands (TIME-012)
     this.updateBitmapAfterConsumption(tid);
 
     this.emitEvent({
@@ -916,10 +938,17 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     const pids = this.compiled.consumptionPlaceIds(tid);
     for (const pid of pids) {
       const place = this.compiled.place(pid);
-      if (!this.marking.hasTokens(place)) {
+      const left = this.marking.tokenCount(place);
+      if (left === 0) {
         clearBit(this.markingBitmap, pid);
       }
       this.markDirty(pid);
+      // TIME-012. At or above its restart threshold the place still meets every requirement
+      // on it, so no transition lost enablement through it; one disabled through another
+      // consumed place is caught when that place comes up (bits not yet reconciled only make
+      // canEnable more permissive). A ν-matched place's threshold is Infinity: a binding can
+      // break at any count.
+      if (left < this.restartThresholds[pid]!) this.flagIntermediateDisablements(tid, pid);
     }
   }
 

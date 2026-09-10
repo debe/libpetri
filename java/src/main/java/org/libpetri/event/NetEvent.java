@@ -126,10 +126,13 @@ public sealed interface NetEvent {
     /**
      * Emitted when a timed transition's clock is restarted.
      *
-     * <p>This occurs when a transition was already enabled, remains enabled,
-     * but one of its input places was reset (cleared and refilled via a reset arc).
-     * The transition's enablement timestamp is reset to the current time,
-     * effectively restarting its countdown timer.
+     * <p>This occurs when a transition was enabled, another transition's firing took
+     * tokens it needed (through that firing's input or reset arcs, leaving it disabled
+     * once the tokens were gone), and the firing's outputs refilled its places before the
+     * executor next re-evaluated it. The firing re-enables it, so its enablement timestamp
+     * is reset to the current time and its countdown starts over (TIME-011, TIME-012).
+     * When the executor observes the transition disabled in between, as with an
+     * asynchronous action, the re-enablement is reported as {@link TransitionEnabled}.
      *
      * @param timestamp when the clock was restarted
      * @param transitionName name of the transition whose clock was restarted

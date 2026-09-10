@@ -11,8 +11,8 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 - Active requirements: **214**
 - Proven in Lean (≥ 1 validated theorem fragment): **24**
 - Referenced in Lean comments only (mention without a validated theorem mapping): **12**
-- Referenced by ≥ 1 test file: java **77**, typescript **73**, rust **84**, python **35**
-- Untested anywhere (no test-file reference in any language): **122**
+- Referenced by ≥ 1 test file: java **78**, typescript **74**, rust **85**, python **36**
+- Untested anywhere (no test-file reference in any language): **121**
 
 ## 01-core-model.md — CORE
 
@@ -85,7 +85,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | TIME-006 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | TIME-010 | `collect_ready_general_refines` — ready-collection fragment only: readiness reads the enablement clock as the lower bound earliest <= now - clock; clock start/restart semantics and deadline enforcement are explicitly out of scope (see lean/README.md) | ✓ | — | — | — | — |
 | TIME-011 | `pb_update_reenables` — the precompiled post-reap re-enablement takes the shared newly-enabled path with a restarted clock (enabled_at = now) - restart-from-zero on re-enablement, on the control-cell fragment | ✓ | — | — | — | — |
-| TIME-012 | — | ✓ | — | — | — | — |
+| TIME-012 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | TIME-013 | `deadline_reap_dirty_diverges` — witness that the two shipped enforce_deadlines diverge observably after a reap (precompiled re-dirties, bitmap does not) on a one-transition quiet-net control-cell model - establishes the behaviors differ, does not rule which is spec-correct (post-reap re-enablement is unaddressed by TIME-013)<br>`bb_never_fires_after_reap` — the bitmap side of the divergence: with no token mutation after a reap, the transition stays disabled over every schedule (no re-dirty route exists) - quiet-net fragment only<br>`bb_reaped_stays_disabled` — induction backbone for bb_never_fires_after_reap: a disabled, clean control cell is a fixed point of the bitmap cycle over any schedule | ✓ | ✓ | ✓ | ✓ | ✓ |
 | TIME-014 | — | — | — | — | — | — |
 

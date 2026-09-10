@@ -145,6 +145,7 @@ This is also the answer to the classic stall: a cancellation flag checked inside
 | Operation | Structure |
 |---|---|
 | start or restart | `reset(TIMER)` plus an output to `TIMER` on one transition |
+| restart a running timer | `In.one(TIMER)` plus an output to `TIMER`: the token is conserved, so the P-invariant survives |
 | cancel | `reset(TIMER)` alone |
 | expire | the timed transition consuming `TIMER` fires |
 
@@ -152,6 +153,8 @@ This is also the answer to the classic stall: a cancellation flag checked inside
 ResetInactivityTimer:  In.one(USER_ACTIVITY), reset(TIMER_PENDING) --> TIMER_PENDING
 CloseOnInactivity:     In.one(TIMER_PENDING), exact(45s)           --> CLOSED_INACTIVITY
 ```
+
+Both restart forms work because a firing that takes the timer token restarts the clock even when it puts one back in the same step. A transition that only reads `TIMER` leaves the clock running.
 
 **Funnel all activity sources into one activity place.** Several producers write it, only the timer reads it. Adding a new activity source is then a one-arc change and the timer subnet never grows.
 

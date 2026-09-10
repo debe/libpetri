@@ -60,6 +60,11 @@ pub(crate) trait BackendRunner {
     /// outcome is independent of the event store, so this also serves
     /// the marking-only tests.
     fn run(net: &PetriNet, marking: Marking) -> RunResult;
+
+    /// [`run`](Self::run) on the executor's test-only virtual clock:
+    /// `run_sync` jumps straight to each timed boundary, so a timed net
+    /// finishes instantly and every transition fires at its exact instant.
+    fn run_virtual_clock(net: &PetriNet, marking: Marking) -> RunResult;
 }
 
 /// Executable twin of the Lean `token_conservation` theorem (FR2): the final
@@ -118,9 +123,22 @@ pub(crate) struct BitmapRunner;
 
 impl BackendRunner for BitmapRunner {
     fn run(net: &PetriNet, marking: Marking) -> RunResult {
+        Self::run_with(net, marking, false)
+    }
+
+    fn run_virtual_clock(net: &PetriNet, marking: Marking) -> RunResult {
+        Self::run_with(net, marking, true)
+    }
+}
+
+impl BitmapRunner {
+    fn run_with(net: &PetriNet, marking: Marking, virtual_clock: bool) -> RunResult {
         let initial_counts = marking.token_counts();
         let mut executor =
             BitmapNetExecutor::<InMemoryEventStore>::new(net, marking, ExecutorOptions::default());
+        if virtual_clock {
+            executor.enable_virtual_clock();
+        }
         let final_marking = executor.run_sync().into_owned();
         let result = RunResult {
             marking: final_marking,
@@ -136,11 +154,24 @@ pub(crate) struct PrecompiledRunner;
 
 impl BackendRunner for PrecompiledRunner {
     fn run(net: &PetriNet, marking: Marking) -> RunResult {
+        Self::run_with(net, marking, false)
+    }
+
+    fn run_virtual_clock(net: &PetriNet, marking: Marking) -> RunResult {
+        Self::run_with(net, marking, true)
+    }
+}
+
+impl PrecompiledRunner {
+    fn run_with(net: &PetriNet, marking: Marking, virtual_clock: bool) -> RunResult {
         let initial_counts = marking.token_counts();
         let prog = PrecompiledNet::from_compiled(CompiledNet::compile(net));
         let mut executor = PrecompiledNetExecutor::<InMemoryEventStore>::builder(&prog, marking)
             .event_store(InMemoryEventStore::new())
             .build();
+        if virtual_clock {
+            executor.enable_virtual_clock();
+        }
         let final_marking = executor.run_sync().into_owned();
         let result = RunResult {
             marking: final_marking,
@@ -2727,6 +2758,387 @@ fn same_pass_deposit_survives_reset_arc<R: BackendRunner>() {
     assert_eq!(*result.marking.peek(&p).unwrap(), 99);
 }
 
+// ========================= Clock restart (TIME-012) =========================
+
+/// How `Refresh` treats `timer` in [`session_net`].
+#[derive(Clone, Copy)]
+enum RefreshTimer {
+    /// `in(timer)` + `out(timer)`: the action forwards the consumed token.
+    Conserve,
+    /// `reset(timer)` + `out(timer)`: the action deposits a new token.
+    Reset,
+}
+
+/// How `CloseSession` depends on `timer` in [`session_net`].
+#[derive(Clone, Copy)]
+enum CloseTimer {
+    /// `in(timer)`.
+    Consume,
+    /// `read(timer)` + `in(armed)`.
+    Read,
+    /// `in(exactly(2, timer))`.
+    ConsumeTwo,
+}
+
+/// A session timeout. `Refresh` (delayed 100 ms, sync action) takes the
+/// `activity` token and refreshes `timer`; `CloseSession` (delayed 200 ms)
+/// depends on `timer`; `Probe` (delayed 250 ms) is an independent witness.
+/// All three are enabled at 0, so on the virtual clock the firing order
+/// shows which clock CloseSession ran on: its first one fires it at 200 ms,
+/// before Probe; a clock the refresh restarted at 100 ms fires it at 300 ms,
+/// after Probe.
+fn session_net(refresh_timer: RefreshTimer, close_timer: CloseTimer) -> PetriNet {
+    let activity = Place::<i32>::new("activity");
+    let timer = Place::<i32>::new("timer");
+    let armed = Place::<i32>::new("armed");
+    let probe = Place::<i32>::new("probe");
+
+    let refresh = Transition::builder("Refresh")
+        .input(one(&activity))
+        .output(out_place(&timer))
+        .timing(libpetri_core::timing::delayed(100));
+    let refresh = match refresh_timer {
+        RefreshTimer::Conserve => refresh.input(one(&timer)).action(sync_action(|ctx| {
+            let vals = ctx.inputs::<i32>("timer")?;
+            let v = vals.first().map(|t| **t).unwrap_or(0);
+            ctx.output("timer", v)?;
+            Ok(())
+        })),
+        RefreshTimer::Reset => refresh.reset(reset(&timer)).action(sync_action(|ctx| {
+            ctx.output("timer", 0)?;
+            Ok(())
+        })),
+    };
+
+    let close_session = Transition::builder("CloseSession")
+        .timing(libpetri_core::timing::delayed(200))
+        .action(passthrough());
+    let close_session = match close_timer {
+        CloseTimer::Consume => close_session.input(one(&timer)),
+        CloseTimer::Read => close_session.read(read(&timer)).input(one(&armed)),
+        CloseTimer::ConsumeTwo => close_session.input(exactly(2, &timer)),
+    };
+
+    let probe = Transition::builder("Probe")
+        .input(one(&probe))
+        .timing(libpetri_core::timing::delayed(250))
+        .action(passthrough());
+
+    PetriNet::builder("session")
+        .transitions([refresh.build(), close_session.build(), probe.build()])
+        .build()
+}
+
+/// Runs [`session_net`] on the virtual clock with `timer_tokens` timer tokens.
+fn run_session<R: BackendRunner>(
+    refresh_timer: RefreshTimer,
+    close_timer: CloseTimer,
+    timer_tokens: i32,
+) -> RunResult {
+    let mut marking = Marking::new();
+    marking.add(&Place::<i32>::new("activity"), Token::at(1, 0));
+    for v in 0..timer_tokens {
+        marking.add(&Place::<i32>::new("timer"), Token::at(v, 0));
+    }
+    marking.add(&Place::<i32>::new("probe"), Token::at(0, 0));
+    if matches!(close_timer, CloseTimer::Read) {
+        marking.add(&Place::<i32>::new("armed"), Token::at(0, 0));
+    }
+    R::run_virtual_clock(&session_net(refresh_timer, close_timer), marking)
+}
+
+/// Positions in the event log of the events `pick` selects.
+fn event_positions(result: &RunResult, pick: impl Fn(&NetEvent) -> bool) -> Vec<usize> {
+    result
+        .events
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| pick(e))
+        .map(|(i, _)| i)
+        .collect()
+}
+
+fn started_positions(result: &RunResult, name: &str) -> Vec<usize> {
+    event_positions(result, |e| {
+        matches!(e, NetEvent::TransitionStarted { transition_name, .. } if &**transition_name == name)
+    })
+}
+
+fn enabled_positions(result: &RunResult, name: &str) -> Vec<usize> {
+    event_positions(result, |e| {
+        matches!(e, NetEvent::TransitionEnabled { transition_name, .. } if &**transition_name == name)
+    })
+}
+
+fn restart_positions(result: &RunResult, name: &str) -> Vec<usize> {
+    event_positions(result, |e| {
+        matches!(e, NetEvent::TransitionClockRestarted { transition_name, .. } if &**transition_name == name)
+    })
+}
+
+/// The refresh left CloseSession disabled in the marking between its
+/// consumption and its output, so CloseSession runs on a clock started at
+/// the refresh. The sync refill lands before any scan could see the gap, so
+/// the fresh clock is announced as one `TransitionClockRestarted`, not as a
+/// second `TransitionEnabled`.
+fn assert_refresh_restarted_close_session(result: &RunResult) {
+    assert!(result.quiescent);
+    assert_eq!(
+        firing_order(result),
+        ["Refresh", "Probe", "CloseSession"],
+        "CloseSession must run on the clock the refresh restarted at 100 ms (fires at 300 ms, \
+         after Probe), not on its first one (200 ms, before Probe)"
+    );
+    let restarts = restart_positions(result, "CloseSession");
+    assert_eq!(restarts.len(), 1, "exactly one clock restart for CloseSession");
+    assert!(
+        started_positions(result, "Refresh")[0] < restarts[0]
+            && restarts[0] < started_positions(result, "CloseSession")[0],
+        "the restart follows the refresh and precedes CloseSession's firing"
+    );
+    assert_eq!(
+        enabled_positions(result, "CloseSession").len(),
+        1,
+        "CloseSession is enabled once, at the start; the refresh restarts it in place"
+    );
+}
+
+/// TIME-012, conserved input: Refresh takes the only timer token and its sync
+/// action puts it back.
+fn clock_restarts_on_conserved_input_refresh<R: BackendRunner>() {
+    let result = run_session::<R>(RefreshTimer::Conserve, CloseTimer::Consume, 1);
+    assert_refresh_restarted_close_session(&result);
+}
+
+/// TIME-012, read arc: CloseSession only reads the timer, and a read place
+/// emptied between consumption and output disables it all the same.
+fn clock_restarts_for_read_arc_dependent<R: BackendRunner>() {
+    let result = run_session::<R>(RefreshTimer::Conserve, CloseTimer::Read, 1);
+    assert_refresh_restarted_close_session(&result);
+}
+
+/// TIME-012, reset arc: Refresh drains the timer by reset and refills it.
+fn clock_restarts_on_reset_arc_refresh<R: BackendRunner>() {
+    let result = run_session::<R>(RefreshTimer::Reset, CloseTimer::Consume, 1);
+    assert_refresh_restarted_close_session(&result);
+}
+
+/// TIME-012, surplus: with two timer tokens CloseSession stays enabled while
+/// Refresh holds one, so its clock persists and it fires at 200 ms, before
+/// Probe. It fires again at 400 ms on the clock its own firing started.
+fn clock_persists_with_surplus_token<R: BackendRunner>() {
+    let result = run_session::<R>(RefreshTimer::Conserve, CloseTimer::Consume, 2);
+    assert!(result.quiescent);
+    assert_eq!(
+        firing_order(&result),
+        ["Refresh", "CloseSession", "Probe", "CloseSession"],
+        "the surplus token keeps CloseSession's first clock"
+    );
+    assert!(
+        restart_positions(&result, "CloseSession").is_empty(),
+        "no clock restart while a timer token survives the refresh"
+    );
+    let refresh_started = started_positions(&result, "Refresh")[0];
+    let close_started = started_positions(&result, "CloseSession")[0];
+    assert!(
+        enabled_positions(&result, "CloseSession")
+            .iter()
+            .all(|&i| i < refresh_started || i > close_started),
+        "CloseSession is not re-enabled between the refresh and its first firing"
+    );
+}
+
+/// TIME-012 at the cardinality threshold: CloseSession takes two timer tokens
+/// and three are present, so Refresh's consumption leaves exactly the two it
+/// needs. CloseSession never stops being enabled and fires at 200 ms on its
+/// first clock, before Probe.
+fn clock_persists_at_cardinality_threshold<R: BackendRunner>() {
+    let result = run_session::<R>(RefreshTimer::Conserve, CloseTimer::ConsumeTwo, 3);
+    assert!(result.quiescent);
+    assert_eq!(
+        firing_order(&result),
+        ["Refresh", "CloseSession", "Probe"],
+        "two timer tokens survive the refresh, so CloseSession keeps its first clock"
+    );
+    assert!(
+        restart_positions(&result, "CloseSession").is_empty(),
+        "no clock restart while the refresh leaves CloseSession the two tokens it needs"
+    );
+    let refresh_started = started_positions(&result, "Refresh")[0];
+    let close_started = started_positions(&result, "CloseSession")[0];
+    assert!(
+        enabled_positions(&result, "CloseSession")
+            .iter()
+            .all(|&i| i < refresh_started || i > close_started),
+        "CloseSession is not re-enabled between the refresh and its firing"
+    );
+}
+
+/// TIME-012 one token below the threshold: with two timer tokens Refresh's
+/// consumption leaves one, fewer than CloseSession needs, so its clock
+/// restarts at the refresh.
+fn clock_restarts_below_cardinality_threshold<R: BackendRunner>() {
+    let result = run_session::<R>(RefreshTimer::Conserve, CloseTimer::ConsumeTwo, 2);
+    assert_refresh_restarted_close_session(&result);
+}
+
+/// TIME-012, two refills in one pass: `R1` and `R2` (both delayed 100 ms, so
+/// they share one ready list) each take one `timer` token plus their own
+/// trigger and put the timer token back synchronously. The timer holds two
+/// tokens, so when R2 takes its token R1's refill is already in the place and
+/// one token is left: CloseSession (`one(timer)`, delayed 200 ms) is never
+/// disabled. It keeps its first clock and fires at 200 ms, before Probe, then
+/// at 400 ms on the clock its own firing started.
+fn clock_persists_across_same_pass_refills<R: BackendRunner>() {
+    fn refresh(name: &str, trigger: &Place<i32>, timer: &Place<i32>) -> Transition {
+        Transition::builder(name)
+            .input(one(trigger))
+            .input(one(timer))
+            .output(out_place(timer))
+            .timing(libpetri_core::timing::delayed(100))
+            .action(sync_action(|ctx| {
+                let vals = ctx.inputs::<i32>("timer")?;
+                let v = vals.first().map(|t| **t).unwrap_or(0);
+                ctx.output("timer", v)?;
+                Ok(())
+            }))
+            .build()
+    }
+
+    let trigger1 = Place::<i32>::new("trigger1");
+    let trigger2 = Place::<i32>::new("trigger2");
+    let timer = Place::<i32>::new("timer");
+    let probe = Place::<i32>::new("probe");
+    let close_session = Transition::builder("CloseSession")
+        .input(one(&timer))
+        .timing(libpetri_core::timing::delayed(200))
+        .action(passthrough())
+        .build();
+    let probe_t = Transition::builder("Probe")
+        .input(one(&probe))
+        .timing(libpetri_core::timing::delayed(250))
+        .action(passthrough())
+        .build();
+    let net = PetriNet::builder("same_pass_refills")
+        .transitions([
+            refresh("R1", &trigger1, &timer),
+            refresh("R2", &trigger2, &timer),
+            close_session,
+            probe_t,
+        ])
+        .build();
+
+    let mut marking = Marking::new();
+    marking.add(&trigger1, Token::at(1, 0));
+    marking.add(&trigger2, Token::at(2, 0));
+    marking.add(&timer, Token::at(0, 0));
+    marking.add(&timer, Token::at(1, 0));
+    marking.add(&probe, Token::at(0, 0));
+
+    let result = R::run_virtual_clock(&net, marking);
+    assert!(result.quiescent);
+    assert_eq!(
+        firing_order(&result),
+        ["R1", "R2", "CloseSession", "Probe", "CloseSession"],
+        "CloseSession keeps its first clock through both refills (fires at 200 ms, before Probe)"
+    );
+    assert!(
+        restart_positions(&result, "CloseSession").is_empty(),
+        "no clock restart: the timer never empties"
+    );
+    let r1_started = started_positions(&result, "R1")[0];
+    let close_started = started_positions(&result, "CloseSession")[0];
+    assert!(
+        enabled_positions(&result, "CloseSession")
+            .iter()
+            .all(|&i| i < r1_started || i > close_started),
+        "CloseSession is not re-enabled between the refills and its first firing"
+    );
+}
+
+/// TIME-012, the ν form of two refills in one pass: `Touch1` and `Touch2`
+/// (both delayed 100 ms) each take the head of `a` plus their own trigger and
+/// put the token back synchronously. `a` holds `c2, c3, c1` and `b` holds
+/// `c1`, so `Join` (delayed 200 ms, correlated on `a` and `b`) binds `c1`.
+/// Touch1 takes `c2` and Touch2 takes `c3`, so `c1` stays in both places and
+/// the binding is never broken, although Touch1's refill sits in `a` when
+/// Touch2 consumes. The join keeps its first clock and fires at 200 ms, before Probe.
+fn nu_join_clock_persists_across_same_pass_refills<R: BackendRunner>() {
+    fn touch(name: &str, trigger: &Place<i32>, a: &Place<NuMsg>) -> Transition {
+        Transition::builder(name)
+            .input(one(trigger))
+            .input(one(a))
+            .output(out_place(a))
+            .timing(libpetri_core::timing::delayed(100))
+            .action(sync_action(|ctx| {
+                let m = ctx.input::<NuMsg>("a")?;
+                ctx.output("a", NuMsg { cid: m.cid.clone() })?;
+                Ok(())
+            }))
+            .build()
+    }
+
+    let trigger1 = Place::<i32>::new("trigger1");
+    let trigger2 = Place::<i32>::new("trigger2");
+    let a = Place::<NuMsg>::new("a");
+    let b = Place::<NuMsg>::new("b");
+    let probe = Place::<i32>::new("probe");
+    let join = Transition::builder("Join")
+        .input(one(&a))
+        .input(one(&b))
+        .match_spec(
+            MatchSpec::builder()
+                .key(&a, |m: &NuMsg| NameId::new(m.cid.clone()))
+                .key(&b, |m: &NuMsg| NameId::new(m.cid.clone()))
+                .build(),
+        )
+        .timing(libpetri_core::timing::delayed(200))
+        .action(passthrough())
+        .build();
+    let probe_t = Transition::builder("Probe")
+        .input(one(&probe))
+        .timing(libpetri_core::timing::delayed(250))
+        .action(passthrough())
+        .build();
+    let net = PetriNet::builder("nu_same_pass_refills")
+        .transitions([
+            touch("Touch1", &trigger1, &a),
+            touch("Touch2", &trigger2, &a),
+            join,
+            probe_t,
+        ])
+        .build();
+
+    let mut marking = Marking::new();
+    marking.add(&trigger1, Token::at(1, 0));
+    marking.add(&trigger2, Token::at(2, 0));
+    for cid in ["c2", "c3", "c1"] {
+        marking.add(&a, Token::at(NuMsg { cid: cid.into() }, 0));
+    }
+    marking.add(&b, Token::at(NuMsg { cid: "c1".into() }, 0));
+    marking.add(&probe, Token::at(0, 0));
+
+    let result = R::run_virtual_clock(&net, marking);
+    assert!(result.quiescent);
+    assert_eq!(
+        firing_order(&result),
+        ["Touch1", "Touch2", "Join", "Probe"],
+        "Join keeps its first clock through both refills (fires at 200 ms, before Probe)"
+    );
+    assert!(
+        restart_positions(&result, "Join").is_empty(),
+        "no clock restart: the c1 binding is never broken"
+    );
+    let touch1_started = started_positions(&result, "Touch1")[0];
+    let join_started = started_positions(&result, "Join")[0];
+    assert!(
+        enabled_positions(&result, "Join")
+            .iter()
+            .all(|&i| i < touch1_started || i > join_started),
+        "Join is not re-enabled between the refills and its firing"
+    );
+}
+
 /// Deterministic differential tests for the general (timed / multi-priority)
 /// ready path, driving the backends directly with synthetic timestamps —
 /// `collect_ready_general` was never reachable from the wall-clock-free suite
@@ -2911,6 +3323,194 @@ mod unknown_places {
     }
 }
 
+/// TIME-012 on the real clock through `run_async`, where a sync action runs
+/// inline and an async one is spawned: either way CloseSession runs its full
+/// delay from the refresh. Lower bounds only; the restart itself is pinned by
+/// events.
+#[cfg(feature = "tokio")]
+mod clock_restart_async {
+    use super::*;
+    use std::collections::HashSet;
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+
+    use libpetri_core::action::async_action;
+    use libpetri_core::timing::delayed;
+    use libpetri_core::token::ErasedToken;
+
+    use crate::environment::{ExecutorSignal, ExternalEvent};
+
+    #[derive(Clone, Copy)]
+    enum Backend {
+        Bitmap,
+        Precompiled,
+    }
+
+    /// `Refresh` (immediate) takes the injected `activity` and the `timer`
+    /// token and forwards the timer, inline or after a tokio sleep.
+    /// `CloseSession` (delayed 200 ms) consumes the timer and records when it
+    /// fires.
+    fn session_net(async_refresh: bool, closed_at: Arc<Mutex<Option<Instant>>>) -> PetriNet {
+        let activity = Place::<i32>::new("activity");
+        let timer = Place::<i32>::new("timer");
+
+        let refresh = Transition::builder("Refresh")
+            .input(one(&activity))
+            .input(one(&timer))
+            .output(out_place(&timer));
+        let refresh = if async_refresh {
+            refresh.action(async_action(|mut ctx| async move {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                let vals = ctx.inputs::<i32>("timer")?;
+                let v = vals.first().map(|t| **t).unwrap_or(0);
+                ctx.output("timer", v)?;
+                Ok(ctx)
+            }))
+        } else {
+            refresh.action(sync_action(|ctx| {
+                let vals = ctx.inputs::<i32>("timer")?;
+                let v = vals.first().map(|t| **t).unwrap_or(0);
+                ctx.output("timer", v)?;
+                Ok(())
+            }))
+        };
+
+        let close_session = Transition::builder("CloseSession")
+            .input(one(&timer))
+            .timing(delayed(200))
+            .action(sync_action(move |_ctx| {
+                *closed_at.lock().unwrap() = Some(Instant::now());
+                Ok(())
+            }))
+            .build();
+
+        PetriNet::builder("session")
+            .transitions([refresh.build(), close_session])
+            .build()
+    }
+
+    struct Outcome {
+        events: Vec<NetEvent>,
+        injected_at: Instant,
+        closed_at: Instant,
+    }
+
+    /// Runs [`session_net`] on `backend`: the timer is armed from the start,
+    /// the activity arrives through the environment place about 100 ms in.
+    async fn run_session(backend: Backend, async_refresh: bool) -> Outcome {
+        let closed_at = Arc::new(Mutex::new(None));
+        let net = session_net(async_refresh, Arc::clone(&closed_at));
+        let mut marking = Marking::new();
+        marking.add(&Place::<i32>::new("timer"), Token::at(7, 0));
+        let env: HashSet<Arc<str>> = [Arc::from("activity")].into_iter().collect();
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+        let injected_at = Arc::new(Mutex::new(None));
+        let injector = {
+            let injected_at = Arc::clone(&injected_at);
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                *injected_at.lock().unwrap() = Some(Instant::now());
+                tx.send(ExecutorSignal::Event(ExternalEvent {
+                    place_name: Arc::from("activity"),
+                    token: ErasedToken::from_typed(&Token::at(1i32, 0)),
+                }))
+                .unwrap();
+                // Dropping `tx` closes the channel, so the executor stops
+                // once CloseSession has fired.
+            })
+        };
+
+        let events = match backend {
+            Backend::Bitmap => {
+                let mut executor = BitmapNetExecutor::<InMemoryEventStore>::new(
+                    &net,
+                    marking,
+                    ExecutorOptions {
+                        environment_places: env,
+                        ..Default::default()
+                    },
+                );
+                executor.run_async(rx).await;
+                executor.event_store().events().to_vec()
+            }
+            Backend::Precompiled => {
+                let prog = PrecompiledNet::from_compiled(CompiledNet::compile(&net));
+                let mut executor =
+                    PrecompiledNetExecutor::<InMemoryEventStore>::builder(&prog, marking)
+                        .event_store(InMemoryEventStore::new())
+                        .environment_places(env)
+                        .build();
+                executor.run_async(rx).await;
+                executor.event_store().events().to_vec()
+            }
+        };
+        injector.await.unwrap();
+
+        let injected_at = *injected_at.lock().unwrap();
+        let closed_at = *closed_at.lock().unwrap();
+        Outcome {
+            events,
+            injected_at: injected_at.expect("the activity was injected"),
+            closed_at: closed_at.expect("CloseSession fired"),
+        }
+    }
+
+    fn assert_full_delay_after_injection(outcome: &Outcome) {
+        let waited = outcome.closed_at.duration_since(outcome.injected_at);
+        assert!(
+            waited >= Duration::from_millis(200),
+            "CloseSession must wait its full 200 ms from the refresh, fired {waited:?} after \
+             the activity arrived"
+        );
+    }
+
+    /// A sync refresh empties the timer and refills it before the next scan:
+    /// CloseSession's clock restarts, announced by exactly one
+    /// `TransitionClockRestarted`.
+    async fn sync_refresh_restarts_clock(backend: Backend) {
+        let outcome = run_session(backend, false).await;
+        assert_full_delay_after_injection(&outcome);
+        let restarts = outcome
+            .events
+            .iter()
+            .filter(|e| {
+                matches!(e, NetEvent::TransitionClockRestarted { transition_name, .. }
+                    if &**transition_name == "CloseSession")
+            })
+            .count();
+        assert_eq!(restarts, 1, "exactly one clock restart for CloseSession");
+    }
+
+    /// An async refresh leaves the timer empty while in flight: the scan sees
+    /// CloseSession disabled and re-enables it with a fresh clock once the
+    /// token returns (or restarts it, when the completion beats that scan).
+    async fn async_refresh_restarts_clock(backend: Backend) {
+        let outcome = run_session(backend, true).await;
+        assert_full_delay_after_injection(&outcome);
+    }
+
+    #[tokio::test]
+    async fn sync_refresh_restarts_clock_bitmap() {
+        sync_refresh_restarts_clock(Backend::Bitmap).await;
+    }
+
+    #[tokio::test]
+    async fn sync_refresh_restarts_clock_precompiled() {
+        sync_refresh_restarts_clock(Backend::Precompiled).await;
+    }
+
+    #[tokio::test]
+    async fn async_refresh_restarts_clock_bitmap() {
+        async_refresh_restarts_clock(Backend::Bitmap).await;
+    }
+
+    #[tokio::test]
+    async fn async_refresh_restarts_clock_precompiled() {
+        async_refresh_restarts_clock(Backend::Precompiled).await;
+    }
+}
+
 /// Generates one `#[test]` per backend for each generic test fn above,
 /// so every semantic runs against both `BitmapNetExecutor` and
 /// `PrecompiledNetExecutor`.
@@ -2996,4 +3596,12 @@ for_each_backend!(
     same_pass_deposit_defers_nu_join,
     same_pass_deposit_survives_all_drain,
     same_pass_deposit_survives_reset_arc,
+    clock_restarts_on_conserved_input_refresh,
+    clock_restarts_for_read_arc_dependent,
+    clock_restarts_on_reset_arc_refresh,
+    clock_persists_with_surplus_token,
+    clock_persists_at_cardinality_threshold,
+    clock_restarts_below_cardinality_threshold,
+    clock_persists_across_same_pass_refills,
+    nu_join_clock_persists_across_same_pass_refills,
 );
