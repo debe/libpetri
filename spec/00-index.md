@@ -293,7 +293,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | TIME-006 | Exact Timing | MUST | — |
 | TIME-010 | Clock Starts on Enablement | MUST | — |
 | TIME-011 | Clock Restarts on Re-enablement | MUST | — |
-| TIME-012 | Clock Restart on Reset Arc | MUST | CORE-034, EVT-004 |
+| TIME-012 | Clock Restart on Intermediate Disablement | MUST | TIME-011, CORE-034, EXEC-013, EVT-004 |
 | TIME-013 | Deadline Enforcement | MUST | EVT-008 |
 | TIME-014 | Competitive Scheduling with Timing | MUST | EXEC-003 |
 
@@ -307,7 +307,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | VER-005 | P-Invariant Computation | SHOULD | — |
 | VER-006 | Environment Analysis Mode | SHOULD | — |
 | VER-007 | Invariant Strengthening from P-Semiflows | SHOULD | VER-004, 005, 006, NU-050, NU-053 |
-| VER-010 | State Class Graph Analysis | MAY | IO-007, EXEC-010 |
+| VER-010 | State Class Graph Analysis | MAY | IO-007, EXEC-010, TIME-012 |
 | VER-011 | DBM Zone Representation | MAY | — |
 | VER-012 | Name-Aware State Class Graph (ν-Partition Quotient) | MAY | VER-010, 011, NU-020, NU-050, IO-007 |
 | VER-013 | Solver Transport | SHOULD | VER-001, 003, 007, IO-016 |
@@ -438,6 +438,7 @@ The Rust column doubles as Python's: `libpetri-py` binds the same engine, so a `
 | IO-015 (incl. exact-explanation search) | `ExecutorSupportOutSpecTest`, `AbstractNetExecutorEngineTest` (out-violation cases), `BitmapNetExecutorAsyncOutputTest` | `executor-support.test.ts` (`validateOutSpec`) | `backend_suite_tests::xor_output_both_branches_violates`, `xor_output_no_branch_violates`, `and_output_partial_violates`, `single_place_output_missing_violates`, `conforming_output_still_succeeds`, `xor_subsuming_branch_is_accepted` (both backends) |
 | TIME-001–006 | `TimingTest` | `timing.test.ts` | `timing::tests` |
 | TIME-010–014 | `AbstractNetExecutorEngineTest.TimingTests`, `DeadlineToleranceTest` | `executor-timing.test.ts` | — |
+| TIME-012 (intermediate marking) | `AbstractNetExecutorEngineTest.TimingTests` (`consumeAndRedeposit*`, `surplusTokenShouldKeepTimedTransitionClock`, `exactlyTwoInputShouldRestartClockOnlyBelowTwoTokens`, `samePassRefreshesShouldKeepTimedTransitionClock`) | `bitmap-net-executor.test.ts`, `precompiled-net-executor.test.ts > Intermediate Marking Clock Restart Tests` (6 cases each) | `backend_suite_tests::clock_restarts_on_conserved_input_refresh`, `clock_restarts_for_read_arc_dependent`, `clock_restarts_on_reset_arc_refresh`, `clock_persists_with_surplus_token`, `clock_persists_at_cardinality_threshold`, `clock_restarts_below_cardinality_threshold`, `clock_persists_across_same_pass_refills`, `nu_join_clock_persists_across_same_pass_refills`, `sync_refresh_restarts_clock_*`, `async_refresh_restarts_clock_*`; Python `test_timing.py` (`*_restarts_timed_transition_clock`, surplus) |
 | EXEC-001–003 | `AbstractNetExecutorEngineTest`, `BackendDivergenceRegressionTest` | `bitmap-net-executor.test.ts`, `executor-shared-semantics.test.ts` | `executor::tests`, `backend_suite_tests::scheduling_order` (covers Python; no binding-level test) |
 | EXEC-010, 012–013 | `AbstractNetExecutorEngineTest`, `BackendDivergenceRegressionTest` | `bitmap-net-executor.test.ts`, `executor-shared-semantics.test.ts` | `executor::tests`, `backend_suite_tests` |
 | EXEC-020–022 | `AbstractNetExecutorEngineTest.CompletionWakeupTests`, `ActionTimeoutCompositionTest` | `executor-support.test.ts` | `executor::tests` |
@@ -452,6 +453,7 @@ The Rust column doubles as Python's: `libpetri-py` binds the same engine, so a `
 | VER-007 | `SemiflowInvariantsTest` (incl. `semiflowsReachTheColouredEncoder`, AC6) | `smt-verifier.test.ts` (semiflow invariants, incl. the coloured encoder) | `smt_verifier::tests` (semiflow invariants, incl. `semiflows_reach_the_coloured_encoder`); Python `test_smt_verification.py` |
 | VER-010–011 | `StateClassGraphTest` | `analysis/*.test.ts` | `state_class_graph::tests` |
 | VER-010 AC2 (executor-faithful consumption, [IO-007]) | `StateClassGraphConsumptionTest#allInputDrainsPlaceSoInhibitedSuccessorIsReachable`, `#atLeastInputDrainsPlaceLeavingNoResidue` | `state-class-graph.test.ts > draining input semantics (IO-007)` (2 cases) | `state_class_graph::tests::all_input_drains_place_so_inhibited_successor_is_reachable`, `at_least_input_drains_place` |
+| VER-010 AC4 (intermediate-marking persistence, [TIME-012]) | `StateClassGraphTest.IntermediateMarkingPersistence` (4 cases) | `state-class-graph.test.ts > intermediate-marking clock persistence (TIME-012)` (4 cases) | `state_class_graph::tests::conserved_input_refresh_gives_a_fresh_interval`, `surplus_token_keeps_the_interval`, `reset_refresh_gives_a_fresh_interval`, `read_arc_dependent_gets_a_fresh_interval` |
 | VER-012 | `SmtVerifierTest` (Route B) | `smt-verifier.test.ts` (Route B) | `nu_scg_verifier::tests` |
 | VER-014 | `ConditionalSinksTest`, `VerdictParityTest` (`sinkPlacesWhen` fixtures) | `conditional-sinks.test.ts`, `verdict-parity.test.ts` | `smt_verifier::tests` (conditional sinks), `tests/verdict_parity.rs`; Python `test_verdict_parity.py` |
 | VER-015 | `LinearBoundTest` | `linear-bound.test.ts` | `linear_bound::tests`, `smt_verifier::tests` (linear bound); Python `test_smt_verification.py` |

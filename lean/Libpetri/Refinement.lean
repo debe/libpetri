@@ -39,7 +39,7 @@ Here, by contrast, `pcFire` / `bbFire` append `emit`'s outputs into the very
 marking the rest of the fold reads, so a same-pass deposit can re-enable a
 later transition in this model where the shipped executor will not fire it
 until the next cycle. Both backends implement the snapshot and the delta in
-lockstep (`bitmap_backend.rs:657-662` and its precompiled twin call the same
+lockstep (`bitmap_backend.rs:683-688` and its precompiled twin call the same
 `can_enable` shape), so the idealization is *equal* on the two sides and the
 refinement statement below stands as a statement about their agreement — but
 it is precisely why divergence #5 (a wholesale snapshot refresh on one side

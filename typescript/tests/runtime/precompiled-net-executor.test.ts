@@ -1981,6 +1981,237 @@ describe('Reset Arc Timer Restart Tests', () => {
   });
 });
 
+// ============ INTERMEDIATE-MARKING CLOCK RESTART TESTS (TIME-012) ============
+//
+// A firing that takes a token and puts one back leaves every transition depending on that
+// token disabled in the intermediate marking M - Pre(t), so their clocks restart once the
+// outputs land. A surplus token keeps them enabled throughout, and their clocks continue.
+// This loop runs a dirty scan between a firing and its deposit, so it observes the gap and
+// announces each fresh clock with transition-enabled, not transition-clock-restarted.
+
+describe('Intermediate Marking Clock Restart Tests', { timeout: 15_000 }, () => {
+  /**
+   * Runs `net`, injects one activity token after `injectAfterMs`, drains, and returns the
+   * moment the injection started. A restarted clock starts no earlier than the refill, so a
+   * restarted `delayed(200)` fires at least 200 ms after this moment.
+   */
+  async function runWithActivity(
+    net: PetriNet,
+    tokens: Map<Place<any>, Token<any>[]>,
+    activity: EnvironmentPlace<string>,
+    eventStore: InMemoryEventStore,
+    injectAfterMs = 100,
+  ): Promise<number> {
+    const executor = new PrecompiledNetExecutor(net, tokens, {
+      eventStore,
+      environmentPlaces: new Set([activity]),
+    });
+    const run = executor.run(5000);
+    await sleep(injectAfterMs);
+    const injectedAt = performance.now();
+    await executor.inject(activity, tokenOf('activity'));
+    executor.drain();
+    await run;
+    return injectedAt;
+  }
+
+  /** The clock events `dependent` receives after `fired` starts and before `dependent` first starts. */
+  function clockEventsBetween(store: InMemoryEventStore, fired: string, dependent: string): string[] {
+    const events = store.events();
+    const from = events.findIndex(e => e.type === 'transition-started' && e.transitionName === fired);
+    const to = events.findIndex(e => e.type === 'transition-started' && e.transitionName === dependent);
+    expect(from).toBeGreaterThanOrEqual(0);
+    expect(to).toBeGreaterThan(from);
+    return events.slice(from + 1, to)
+      .filter(e => (e.type === 'transition-enabled' || e.type === 'transition-clock-restarted')
+        && e.transitionName === dependent)
+      .map(e => e.type);
+  }
+
+  it('a synchronous consume-and-redeposit restarts the clock of an input-arc dependent', async () => {
+    const activity = environmentPlace<string>('UserActivity');
+    const timer = place<string>('TimerPending');
+    const closed = place<string>('SessionClosed');
+    let closeFiredAt = 0;
+
+    const refresh = Transition.builder('Refresh')
+      .inputs(one(activity.place), one(timer))
+      .outputs(outPlace(timer))
+      .action(async (ctx) => { ctx.output(timer, ctx.input(timer)); })
+      .build();
+    const closeSession = Transition.builder('CloseSession')
+      .inputs(one(timer))
+      .outputs(outPlace(closed))
+      .timing(delayed(200))
+      .action(async (ctx) => { closeFiredAt = performance.now(); ctx.output(closed, 'closed'); })
+      .build();
+    const net = PetriNet.builder('ConservedTimerRefresh').transitions(refresh, closeSession).build();
+    const eventStore = new InMemoryEventStore();
+
+    const injectedAt = await runWithActivity(
+      net, initialTokens([timer, [tokenOf('initial')]]), activity, eventStore);
+
+    expect(closeFiredAt).toBeGreaterThan(0);
+    expect(closeFiredAt - injectedAt).toBeGreaterThanOrEqual(200);
+    expect(clockEventsBetween(eventStore, 'Refresh', 'CloseSession')).toEqual(['transition-enabled']);
+  });
+
+  it('a synchronous consume-and-redeposit restarts the clock of a read-arc dependent', async () => {
+    const activity = environmentPlace<string>('UserActivity');
+    const timer = place<string>('TimerPending');
+    const armed = place<string>('Armed');
+    const closed = place<string>('SessionClosed');
+    let closeFiredAt = 0;
+
+    const refresh = Transition.builder('Refresh')
+      .inputs(one(activity.place), one(timer))
+      .outputs(outPlace(timer))
+      .action(async (ctx) => { ctx.output(timer, ctx.input(timer)); })
+      .build();
+    // A read arc needs the token present just as an input arc does.
+    const closeSession = Transition.builder('CloseSession')
+      .inputs(one(armed))
+      .read(timer)
+      .outputs(outPlace(closed))
+      .timing(delayed(200))
+      .action(async (ctx) => { closeFiredAt = performance.now(); ctx.output(closed, 'closed'); })
+      .build();
+    const net = PetriNet.builder('ConservedTimerRefreshRead').transitions(refresh, closeSession).build();
+    const eventStore = new InMemoryEventStore();
+
+    const injectedAt = await runWithActivity(
+      net,
+      initialTokens([timer, [tokenOf('initial')]], [armed, [tokenOf('armed')]]),
+      activity,
+      eventStore,
+    );
+
+    expect(closeFiredAt).toBeGreaterThan(0);
+    expect(closeFiredAt - injectedAt).toBeGreaterThanOrEqual(200);
+    expect(clockEventsBetween(eventStore, 'Refresh', 'CloseSession')).toEqual(['transition-enabled']);
+  });
+
+  it('a synchronous reset-and-refill restarts the clock of an input-arc dependent', async () => {
+    const activity = environmentPlace<string>('UserActivity');
+    const timer = place<string>('TimerPending');
+    const closed = place<string>('SessionClosed');
+    let closeFiredAt = 0;
+
+    const refresh = Transition.builder('Refresh')
+      .inputs(one(activity.place))
+      .reset(timer)
+      .outputs(outPlace(timer))
+      .action(async (ctx) => { ctx.output(timer, 'fresh'); })
+      .build();
+    const closeSession = Transition.builder('CloseSession')
+      .inputs(one(timer))
+      .outputs(outPlace(closed))
+      .timing(delayed(200))
+      .action(async (ctx) => { closeFiredAt = performance.now(); ctx.output(closed, 'closed'); })
+      .build();
+    const net = PetriNet.builder('ResetTimerRefresh').transitions(refresh, closeSession).build();
+    const eventStore = new InMemoryEventStore();
+
+    const injectedAt = await runWithActivity(
+      net, initialTokens([timer, [tokenOf('initial')]]), activity, eventStore);
+
+    expect(closeFiredAt).toBeGreaterThan(0);
+    expect(closeFiredAt - injectedAt).toBeGreaterThanOrEqual(200);
+    expect(clockEventsBetween(eventStore, 'Refresh', 'CloseSession')).toEqual(['transition-enabled']);
+  });
+
+  it('a surplus token keeps the dependent enabled, so its clock continues', async () => {
+    const activity = environmentPlace<string>('UserActivity');
+    const timer = place<string>('TimerPending');
+    const closed = place<string>('SessionClosed');
+
+    const refresh = Transition.builder('Refresh')
+      .inputs(one(activity.place), one(timer))
+      .outputs(outPlace(timer))
+      .action(async (ctx) => { ctx.output(timer, ctx.input(timer)); })
+      .build();
+    const closeSession = Transition.builder('CloseSession')
+      .inputs(one(timer))
+      .outputs(outPlace(closed))
+      .timing(delayed(200))
+      .action(async (ctx) => { ctx.output(closed, 'closed'); })
+      .build();
+    const net = PetriNet.builder('SurplusTimerRefresh').transitions(refresh, closeSession).build();
+    const eventStore = new InMemoryEventStore();
+
+    // Injected at once: the check is on events, so there is no timing window to leave room for.
+    await runWithActivity(
+      net, initialTokens([timer, [tokenOf('first'), tokenOf('second')]]), activity, eventStore, 0);
+
+    expect(clockEventsBetween(eventStore, 'Refresh', 'CloseSession')).toEqual([]);
+  });
+
+  it('a firing restarts the clock only when it leaves the place below the requirement', async () => {
+    /** CloseSession's clock events once Refresh takes one of `timerTokens` and puts it back. */
+    async function closeSessionClockEvents(timerTokens: number): Promise<string[]> {
+      const activity = environmentPlace<string>('UserActivity');
+      const timer = place<string>('TimerPending');
+      const closed = place<string>('SessionClosed');
+
+      const refresh = Transition.builder('Refresh')
+        .inputs(one(activity.place), one(timer))
+        .outputs(outPlace(timer))
+        .action(async (ctx) => { ctx.output(timer, ctx.input(timer)); })
+        .build();
+      const closeSession = Transition.builder('CloseSession')
+        .inputs(exactly(2, timer))
+        .outputs(outPlace(closed))
+        .timing(delayed(200))
+        .action(async (ctx) => { ctx.output(closed, 'closed'); })
+        .build();
+      const net = PetriNet.builder('BatchTimerRefresh').transitions(refresh, closeSession).build();
+      const eventStore = new InMemoryEventStore();
+      const timers = Array.from({ length: timerTokens }, (_, i) => tokenOf(`timer-${i}`));
+
+      await runWithActivity(net, initialTokens([timer, timers]), activity, eventStore, 0);
+      return clockEventsBetween(eventStore, 'Refresh', 'CloseSession');
+    }
+
+    // Three tokens leave two, which still meets exactly(2): the clock continues.
+    expect(await closeSessionClockEvents(3)).toEqual([]);
+    // Two tokens leave one: CloseSession is disabled in between and gets a fresh clock.
+    expect(await closeSessionClockEvents(2)).toEqual(['transition-enabled']);
+  });
+
+  it('an asynchronous consume-and-redeposit restarts the clock from the deposit', async () => {
+    const activity = environmentPlace<string>('UserActivity');
+    const timer = place<string>('TimerPending');
+    const closed = place<string>('SessionClosed');
+    let depositAt = 0;
+    let closeFiredAt = 0;
+
+    const refresh = Transition.builder('Refresh')
+      .inputs(one(activity.place), one(timer))
+      .outputs(outPlace(timer))
+      .action(async (ctx) => {
+        const token = ctx.input(timer);
+        await sleep(20);
+        depositAt = performance.now();
+        ctx.output(timer, token);
+      })
+      .build();
+    const closeSession = Transition.builder('CloseSession')
+      .inputs(one(timer))
+      .outputs(outPlace(closed))
+      .timing(delayed(200))
+      .action(async (ctx) => { closeFiredAt = performance.now(); ctx.output(closed, 'closed'); })
+      .build();
+    const net = PetriNet.builder('AsyncTimerRefresh').transitions(refresh, closeSession).build();
+    const eventStore = new InMemoryEventStore();
+
+    await runWithActivity(net, initialTokens([timer, [tokenOf('initial')]]), activity, eventStore);
+
+    expect(depositAt).toBeGreaterThan(0);
+    expect(closeFiredAt - depositAt).toBeGreaterThanOrEqual(200);
+    expect(clockEventsBetween(eventStore, 'Refresh', 'CloseSession')).toEqual(['transition-enabled']);
+  });
+});
+
 // ============ CONDITIONAL TOKEN SELECTION TESTS (IO-006 replacement) ============
 //
 // Input specifications are purely structural — there is no per-arc predicate

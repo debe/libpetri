@@ -1660,6 +1660,65 @@ public class BitmapNetExecutorBenchmark {
         runNuCompiled(s.net, s.program, seedScatter(s.source, s.budget, s.groups), bh);
     }
 
+    // ==================== Hub Place: Clock-Restart Screen (TIME-012) ====================
+    //
+    // k transitions share one POOL place holding a token for each of them, and a single
+    // firing pass fires all k. Every firing consumes from POOL, so a clock-restart check that
+    // re-examined each still-enabled sibling after every consumption would cost ≈ k²/2
+    // enablement checks per pass. POOL keeps a surplus until the last firing, so no sibling
+    // actually loses enablement: this shape measures what the check costs when nothing restarts.
+
+    record HubNet(PetriNet net, Map<Place<?>, List<Token<?>>> initial) {}
+
+    /** k transitions T_i taking {@code one(POOL) + one(GO_i)} and returning the POOL token. */
+    private static HubNet buildHubPool(int k) {
+        var pool = Place.of("pool", BenchToken.class);
+        var builder = PetriNet.builder("HubPool" + k);
+        var initial = new HashMap<Place<?>, List<Token<?>>>();
+        var poolTokens = new ArrayList<Token<?>>(k);
+        for (int i = 0; i < k; i++) {
+            var go = Place.of("go" + i, BenchToken.class);
+            builder.transition(
+                Transition.builder("hub_t" + i)
+                    .inputs(In.one(pool), In.one(go))
+                    .outputs(Out.place(pool))
+                    .action(ctx -> {
+                        ctx.output(pool, ctx.input(pool));
+                        return CompletableFuture.completedFuture(null);
+                    })
+                    .build()
+            );
+            initial.put(go, List.of(Token.of(new BenchToken("go"))));
+            poolTokens.add(Token.of(new BenchToken("pool")));
+        }
+        initial.put(pool, List.copyOf(poolTokens));
+        return new HubNet(builder.build(), Map.copyOf(initial));
+    }
+
+    @State(Scope.Benchmark)
+    public static class HubState {
+        @Param({"250", "1000", "2000"})
+        public int k;
+        HubNet hub;
+        org.libpetri.runtime.PrecompiledNet program;
+
+        @Setup(Level.Trial)
+        public void setup() {
+            hub = buildHubPool(k);
+            program = org.libpetri.runtime.PrecompiledNet.compile(hub.net());
+        }
+    }
+
+    @Benchmark
+    public void hub_pool_bitmap(HubState s, Blackhole bh) {
+        runNuBitmap(s.hub.net(), s.hub.initial(), bh);
+    }
+
+    @Benchmark
+    public void hub_pool_compiled(HubState s, Blackhole bh) {
+        runNuCompiled(s.hub.net(), s.program, s.hub.initial(), bh);
+    }
+
     // ==================== MAIN ====================
 
     public static void main(String[] args) throws RunnerException {

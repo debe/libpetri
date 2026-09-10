@@ -25,7 +25,7 @@ use crate::precompiled_net::PrecompiledNet;
 /// by [`PrecompiledBackend`]. The 6-phase loop, event emission, and
 /// action execution live in `Executor`; the ring buffer token pool,
 /// presence / enablement / dirty bitmaps, priority-partitioned ready
-/// queues, opcode-based consume dispatch, and reset-clock detection
+/// queues, opcode-based consume dispatch, and clock-restart detection
 /// live in the backend.
 pub type PrecompiledNetExecutor<'a, E> = Executor<PrecompiledBackend<'a>, E>;
 

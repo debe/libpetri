@@ -259,6 +259,55 @@ export class CompiledNet {
   }
 }
 
+// ==================== Clock-Restart Thresholds ====================
+
+/**
+ * Per place, the fewest tokens it can hold after a firing takes from it and still have
+ * disabled no transition through it (TIME-012). The executors re-check the transitions a
+ * consumed place feeds only once it falls below this, so a hub with surplus tokens costs
+ * one comparison per firing, not a re-check of every sibling.
+ *
+ * The threshold is the largest requirement an input or read arc places on the place:
+ * `exactly(n)` and `atLeast(n)` need n; `one`, `all` and a read need 1. A place with no
+ * such arc gets 0, since removing tokens never disables through an inhibitor or reset arc.
+ * A correlated input of a ν-join gets Infinity: a removal can break its binding at any
+ * count, so no count makes the re-check unnecessary.
+ *
+ * A place that only one transition requires and no reset arc drains gets 0: only that
+ * transition ever takes from it, so the re-check could only reach the transition that fired.
+ * This keeps a linear chain's hot path at one comparison per consumed place.
+ */
+export function restartThresholds(compiled: CompiledNet): Float64Array {
+  const thresholds = new Float64Array(compiled.placeCount);
+  // The one transition requiring each place: -1 none yet, -2 several.
+  const requirer = new Int32Array(compiled.placeCount).fill(-1);
+  const drained = new Uint8Array(compiled.placeCount);
+  for (let tid = 0; tid < compiled.transitionCount; tid++) {
+    const t = compiled.transition(tid);
+    const requires = (pid: number) => {
+      requirer[pid] = requirer[pid] === -1 || requirer[pid] === tid ? tid : -2;
+    };
+    for (const spec of t.inputSpecs) {
+      const pid = compiled.placeId(spec.place);
+      thresholds[pid] = Math.max(thresholds[pid]!, requiredCount(spec));
+      requires(pid);
+    }
+    for (const arc of t.reads) {
+      const pid = compiled.placeId(arc.place);
+      thresholds[pid] = Math.max(thresholds[pid]!, 1);
+      requires(pid);
+    }
+    for (const arc of t.resets) drained[compiled.placeId(arc.place)] = 1;
+    if (t.matchSpec !== null) {
+      for (const key of t.matchSpec.keys) thresholds[compiled.placeId(key.place)] = Infinity;
+    }
+  }
+  for (let pid = 0; pid < compiled.placeCount; pid++) {
+    if (requirer[pid] !== -2 && !drained[pid]) thresholds[pid] = 0;
+  }
+  return thresholds;
+}
+
 // ==================== Bitmap Helpers ====================
 
 export function setBit(arr: Uint32Array, bit: number): void {

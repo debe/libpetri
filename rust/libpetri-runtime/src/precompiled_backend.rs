@@ -105,9 +105,15 @@ pub struct PrecompiledBackend<'a> {
     ready_queue_tail: Vec<usize>,
     ready_queue_size: Vec<usize>,
 
-    // ==================== Reset-clock detection ====================
-    pending_reset_words: Vec<u64>,
-    has_pending_resets: bool,
+    // ==================== Clock-restart detection (TIME-012) ====================
+    /// One bit per transition: its clock restarts at the next enablement scan
+    /// even if that scan still finds it enabled. Set by
+    /// [`flag_clock_restarts`](Self::flag_clock_restarts) for every other
+    /// enabled transition a firing's consumption disabled; read and cleared by
+    /// `update_enablement`. `has_restart_pending` keeps a scan with no bit
+    /// set at one branch.
+    restart_pending_words: Vec<u64>,
+    has_restart_pending: bool,
 
     // ==================== ν-net incremental match caches (NU-020) ====================
     /// Per matched transition: an [`IncrementalMatcher`] when the transition is
@@ -219,8 +225,8 @@ impl<'a> PrecompiledBackend<'a> {
             ready_queue_head: vec![0usize; prio_count],
             ready_queue_tail: vec![0usize; prio_count],
             ready_queue_size: vec![0usize; prio_count],
-            pending_reset_words: vec![0u64; wc],
-            has_pending_resets: false,
+            restart_pending_words: vec![0u64; transition_words],
+            has_restart_pending: false,
             match_caches: Vec::new(),
             place_match_targets: vec![Vec::new(); pc],
             match_input_pids: Vec::new(),
@@ -674,10 +680,11 @@ impl<'a> PrecompiledBackend<'a> {
     // ==================== Enablement ====================
 
     /// True when the transition has all required input/read tokens available
-    /// and no inhibitor blocks it. `marking_bits` carries presence — the live
-    /// half of `marking_bitmap` from `update_enablement`, the snapshot half
-    /// from `recheck_can_fire` — and `pre_deposit` puts the counting checks on
-    /// that same view: an intra-pass recheck discounts tokens a same-pass
+    /// and no inhibitor blocks it. `marking_bits` carries presence (the live
+    /// half of `marking_bitmap` from `update_enablement` and
+    /// `flag_clock_restarts`, the snapshot half from `recheck_can_fire`) and
+    /// `pre_deposit` puts the counting checks on that same view: an intra-pass
+    /// recheck discounts tokens a same-pass
     /// synchronous action deposited, so neither a cardinality gate nor a ν-join
     /// can be satisfied by them (EXEC-003 AC4). Mirrored exactly by the bitmap
     /// reference's `can_enable`.
@@ -775,29 +782,36 @@ impl<'a> PrecompiledBackend<'a> {
     /// Number of matched transitions that got a fast-path incremental matcher
     /// (the rest fall back to [`find_match_binding`](Self::find_match_binding)).
     /// Diagnostic for tests.
+    #[cfg(test)]
     pub(crate) fn fast_path_match_count(&self) -> usize {
         self.match_caches.iter().filter(|c| c.is_some()).count()
     }
 
-    fn has_input_from_reset_place(&self, tid: usize) -> bool {
-        if !self.has_pending_resets {
-            return false;
-        }
-        let input_mask = &self.program.input_place_mask_words[tid];
-        for (im, pr) in input_mask.iter().zip(self.pending_reset_words.iter()) {
-            if (im & pr) != 0 {
-                return true;
-            }
-        }
-        false
+    #[inline]
+    fn is_restart_pending(&self, tid: usize) -> bool {
+        (self.restart_pending_words[tid >> bitmap::WORD_SHIFT] & (1u64 << (tid & bitmap::WORD_MASK)))
+            != 0
     }
 
-    fn clear_pending_resets(&mut self) {
-        if self.has_pending_resets {
-            for w in &mut self.pending_reset_words {
-                *w = 0;
+    /// Flags the clock of every other enabled transition that `tid`'s
+    /// consumption just disabled through `pid` (TIME-012). Called from
+    /// `update_bitmap_after_consumption`, before the action, only for a place
+    /// left below its [`restart_threshold`](CompiledNet::restart_threshold),
+    /// and judged on the live marking (the live half of `marking_bitmap`),
+    /// same-pass deposits included. Mirrored by the bitmap reference, which
+    /// gives the rationale.
+    fn flag_clock_restarts(&mut self, tid: usize, pid: usize) {
+        let prog = self.program; // Copy the shared reference; no borrow of self.
+        let wc = prog.word_count();
+        for &other in prog.compiled().affected_transitions(pid) {
+            if other == tid || !self.is_enabled(other) || self.is_restart_pending(other) {
+                continue;
             }
-            self.has_pending_resets = false;
+            if !self.can_enable(other, &self.marking_bitmap[..wc], false) {
+                self.restart_pending_words[other >> bitmap::WORD_SHIFT] |=
+                    1u64 << (other & bitmap::WORD_MASK);
+                self.has_restart_pending = true;
+            }
         }
     }
 
@@ -820,6 +834,13 @@ impl<'a> PrecompiledBackend<'a> {
                 self.clear_firing_snapshot_bit(pid);
             }
             self.mark_place_dirty(pid);
+            // TIME-012: only a place whose live count, same-pass deposits
+            // included, fell below its restart threshold can have disabled
+            // anyone; the bitmap backend's `update_bitmap_after_consumption`
+            // and `flag_clock_restarts` give why.
+            if live < self.program.compiled().restart_threshold(pid) {
+                self.flag_clock_restarts(tid, pid);
+            }
         }
     }
 
@@ -942,14 +963,25 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
                     self.clear_enabled_bit(tid);
                     self.enabled_transition_count -= 1;
                     self.enabled_at_ms[tid] = f64::NEG_INFINITY;
-                } else if can_now && was_enabled && self.has_input_from_reset_place(tid) {
+                } else if can_now
+                    && was_enabled
+                    && self.has_restart_pending
+                    && self.is_restart_pending(tid)
+                {
                     self.enabled_at_ms[tid] = now_ms;
                     tracker.clock_restarted(tid);
                 }
             }
         }
 
-        self.clear_pending_resets();
+        // Every flagged transition is dirty (its consumed place marked it),
+        // so this scan has consumed each bit; none may leak into the next.
+        if self.has_restart_pending {
+            for w in &mut self.restart_pending_words {
+                *w = 0;
+            }
+            self.has_restart_pending = false;
+        }
     }
 
     fn has_any_deadlines(&self) -> bool {
@@ -1170,9 +1202,6 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
                     let token = self.ring_remove_first(pid);
                     emit_removed(arc.place.name_arc(), &token);
                 }
-                self.pending_reset_words[pid >> bitmap::WORD_SHIFT] |=
-                    1u64 << (pid & bitmap::WORD_MASK);
-                self.has_pending_resets = true;
             }
         } else {
             // Fast path: opcode-based consumption. Input opcodes occupy
@@ -1242,9 +1271,6 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
                             let token = self.ring_remove_first(pid);
                             emit_removed(&self.program.place_name_arcs[pid], &token);
                         }
-                        self.pending_reset_words[pid >> bitmap::WORD_SHIFT] |=
-                            1u64 << (pid & bitmap::WORD_MASK);
-                        self.has_pending_resets = true;
                     }
                     _ => unreachable!("Unknown reset opcode: {opcode}"),
                 }
@@ -1253,7 +1279,8 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
 
         // Narrows the fire-pass snapshot for the places this firing drained,
         // so the next `recheck_can_fire` sees this consumption — and nothing
-        // else (EXEC-001 step ordering, EXEC-003).
+        // else (EXEC-001 step ordering, EXEC-003) — and flags the clocks it
+        // disabled (TIME-012).
         self.update_bitmap_after_consumption(tid);
     }
 

@@ -8,7 +8,6 @@ import org.libpetri.core.Transition;
 import org.libpetri.core.internal.OutputActionCheck;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * State Class Graph for Time Petri Net analysis.
@@ -335,9 +334,13 @@ public final class StateClassGraph {
     /**
      * Computes the successor state class after firing a virtual transition.
      * <p>
-     * This implements the Berthomieu-Diaz successor formula correctly,
-     * with the extension that the output places come from the virtual transition
-     * (which may be a specific XOR branch).
+     * This implements the Berthomieu-Diaz successor formula with its intermediate-marking
+     * persistence rule: a transition other than the fired one keeps its clock only when it
+     * is enabled in the current marking, in the intermediate marking {@code M - Pre(t_f)}
+     * (inputs consumed, resets drained) and in the new marking. Every other transition
+     * enabled in the new marking is newly enabled, with a fresh interval ([TIME-012]); the
+     * executors restart clocks by the same rule. The output places come from the virtual
+     * transition (which may be a specific XOR branch).
      */
     static StateClass computeSuccessor(
             PetriNet net,
@@ -348,33 +351,36 @@ public final class StateClassGraph {
     ) {
         var transition = fired.transition();
 
-        // 1. Compute new marking (with environment place handling)
-        // The VirtualTransition specifies which output places to use (for XOR branches)
-        var newMarking = fireTransition(current.marking(), transition, fired.outputPlaces(), environmentPlaces, environmentMode);
+        // 1. Compute the intermediate marking (inputs consumed, resets drained) and the new
+        // marking, with environment place handling. The VirtualTransition specifies which
+        // output places to use (for XOR branches).
+        var intermediate = consume(current.marking(), transition, environmentPlaces, environmentMode);
+        var newMarking = produce(intermediate, fired.outputPlaces());
 
         // 2. Determine persistent and newly enabled transitions
         var newEnabledAll = findEnabledTransitions(net, newMarking, environmentPlaces, environmentMode);
 
-        // Persistent: enabled before AND after (excluding fired transition)
+        // Persistent (Berthomieu-Diaz intermediate semantics, [TIME-012]): enabled before,
+        // enabled in the intermediate marking, and enabled after, excluding the fired
+        // transition. A transition the firing's consumption disables is re-enabled by the
+        // outputs, so its clock starts over even when they refill the very places it needs;
+        // surplus tokens keep it enabled throughout, and its clock persists.
         var persistent = new ArrayList<Transition>();
         var persistentIndices = new ArrayList<Integer>();
         for (int i = 0; i < current.enabledTransitions().size(); i++) {
             var t = current.enabledTransitions().get(i);
-            if (t != transition && newEnabledAll.contains(t)) {
+            if (t != transition && newEnabledAll.contains(t)
+                    && isEnabled(t, intermediate, environmentPlaces, environmentMode)) {
                 persistent.add(t);
                 persistentIndices.add(i);
             }
         }
 
-        // Newly enabled: enabled now but wasn't before, OR is the fired transition re-enabled
-        // Per Berthomieu-Diaz: a transition is "newly enabled" if firing made it enabled
-        // (it wasn't enabled before, or it's the same transition that just fired)
+        // Newly enabled: everything enabled now that is not persistent. That is a transition
+        // disabled before, one disabled by the intermediate marking, or the fired transition
+        // re-enabled.
         var newlyEnabled = new ArrayList<Transition>();
         for (var t : newEnabledAll) {
-            // Newly enabled if: not persistent
-            // A transition t is newly enabled iff:
-            //   - t was not enabled in the old marking, OR
-            //   - t == fired (re-enabled after firing)
             if (!persistent.contains(t)) {
                 newlyEnabled.add(t);
             }
@@ -429,13 +435,6 @@ public final class StateClassGraph {
     }
 
     /**
-     * Finds all structurally enabled transitions for a marking.
-     */
-    private static List<Transition> findEnabledTransitions(PetriNet net, MarkingState marking) {
-        return findEnabledTransitions(net, marking, Set.of(), EnvironmentAnalysisMode.ignore());
-    }
-
-    /**
      * Finds all structurally enabled transitions for a marking with environment place support.
      */
     static List<Transition> findEnabledTransitions(
@@ -451,13 +450,6 @@ public final class StateClassGraph {
             }
         }
         return enabled;
-    }
-
-    /**
-     * Checks if a transition is structurally enabled (ignoring time).
-     */
-    private static boolean isEnabled(Transition transition, MarkingState marking) {
-        return isEnabled(transition, marking, Set.of(), EnvironmentAnalysisMode.ignore());
     }
 
     /**
@@ -546,45 +538,23 @@ public final class StateClassGraph {
     }
 
     /**
-     * Fires a transition, returning the new marking.
-     */
-    private static MarkingState fireTransition(MarkingState marking, Transition transition) {
-        return fireTransition(marking, transition, Set.of(), EnvironmentAnalysisMode.ignore());
-    }
-
-    /**
-     * Fires a transition with environment place support, returning the new marking.
+     * The first half of a firing: the intermediate marking, {@code marking} with the
+     * transition's inputs consumed and its reset places drained, before any output is
+     * produced ({@link #produce} is the second half). Persistence is judged against it
+     * ([TIME-012]).
      *
      * <p>For environment places in ALWAYS_AVAILABLE or BOUNDED mode, tokens are not
      * actually removed since they are assumed to be provided by the environment.
-     */
-    private static MarkingState fireTransition(
-            MarkingState marking,
-            Transition transition,
-            Set<Place<?>> environmentPlaces,
-            EnvironmentAnalysisMode environmentMode
-    ) {
-        // Delegate to the overload that uses the transition's own output places
-        return fireTransition(marking, transition, null, environmentPlaces, environmentMode);
-    }
-
-    /**
-     * Fires a transition with specific output places (for XOR branch analysis).
-     *
-     * <p>This overload allows specifying exactly which output places receive tokens,
-     * supporting the virtual transition expansion for XOR branch analysis.
      *
      * @param marking the current marking
      * @param transition the transition to fire
-     * @param outputPlaces specific output places to use (null = use transition's outputs)
      * @param environmentPlaces places treated as environment
      * @param environmentMode how to handle environment places
-     * @return the new marking after firing
+     * @return the intermediate marking
      */
-    private static MarkingState fireTransition(
+    private static MarkingState consume(
             MarkingState marking,
             Transition transition,
-            Set<Place<?>> outputPlaces,
             Set<Place<?>> environmentPlaces,
             EnvironmentAnalysisMode environmentMode
     ) {
@@ -606,26 +576,30 @@ public final class StateClassGraph {
         // whole route died on a net both executors run happily. Setting the count states
         // the reset directly and cannot overdraw; it is also what the flat encoder emits
         // ({@code m'_p = postVector[p]} for a reset place), so the two agree by
-        // construction. Outputs are produced after this, so a place that is both reset and
-        // an output target ends at its post count ([EXEC-013] AC4: consume, then read,
-        // then drain).
+        // construction. {@link #produce} adds the outputs afterwards, so a place that is both
+        // reset and an output target ends at its post count ([EXEC-013] AC4: consume, then
+        // read, then drain).
         for (var arc : transition.resets()) {
             builder.tokens(arc.place(), 0);
         }
 
-        // Produce to outputs
-        if (outputPlaces != null) {
-            // Use specific output places (XOR branch)
-            for (var place : outputPlaces) {
-                builder.addTokens(place, 1);
-            }
-        } else if (transition.outputSpec() != null) {
-            // Use all places from outputSpec (AND semantics for analysis)
-            for (var place : transition.outputSpec().allPlaces()) {
-                builder.addTokens(place, 1);
-            }
-        }
+        return builder.build();
+    }
 
+    /**
+     * The second half of a firing: one token into each output place of the branch taken,
+     * on top of the intermediate marking {@link #consume} returned.
+     *
+     * @param intermediate the firing's intermediate marking
+     * @param outputPlaces the output places of the branch taken (one XOR branch, or the
+     *     whole AND set)
+     * @return the new marking after firing
+     */
+    private static MarkingState produce(MarkingState intermediate, Set<Place<?>> outputPlaces) {
+        var builder = MarkingState.builder().copyFrom(intermediate);
+        for (var place : outputPlaces) {
+            builder.addTokens(place, 1);
+        }
         return builder.build();
     }
 

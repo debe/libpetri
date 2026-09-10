@@ -7,6 +7,7 @@ import org.libpetri.core.Place;
 import org.libpetri.core.Timing;
 import org.libpetri.core.Transition;
 import org.libpetri.core.TransitionAction;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -96,5 +97,80 @@ class StateClassGraphTest {
         assertEquals(List.of("ty", "tz"), scg.initialClass().firingDomain().clockNames());
         assertEquals(List.of("ty", "tz"),
             scg.initialClass().enabledTransitions().stream().map(Transition::name).toList());
+    }
+
+    /**
+     * [TIME-012] Berthomieu-Diaz intermediate semantics: a transition keeps its clock across
+     * another firing only if the intermediate marking (inputs consumed, resets drained) still
+     * enables it. Refresh fires within [50, 100] ms and CloseSession within [200, 300] ms, so
+     * after Refresh a newly enabled CloseSession carries the fresh interval [0.2, 0.3] s and a
+     * persistent one the residual [0.1, 0.25] s (reported as its earliest-ready time and upper
+     * bound).
+     */
+    @Nested
+    class IntermediateMarkingPersistence {
+
+        private final Place<String> timer = Place.of("timer", String.class);
+        private final Place<String> activity = Place.of("activity", String.class);
+        private final Place<String> armed = Place.of("armed", String.class);
+        private final Place<String> closed = Place.of("closed", String.class);
+
+        private final Timing refreshWindow = new Timing.Window(Duration.ofMillis(50), Duration.ofMillis(100));
+        private final Timing closeWindow = new Timing.Window(Duration.ofMillis(200), Duration.ofMillis(300));
+
+        /** Takes the activity token and the timer token, and puts the timer token back. */
+        private Transition refresh() {
+            return Transition.builder("Refresh").inputs(In.one(activity), In.one(timer))
+                .outputs(Out.place(timer)).timing(refreshWindow).action(TransitionAction.fork()).build();
+        }
+
+        private Transition closeSession() {
+            return Transition.builder("CloseSession").inputs(In.one(timer))
+                .outputs(Out.place(closed)).timing(closeWindow).action(TransitionAction.fork()).build();
+        }
+
+        /** CloseSession's {earliest-ready, upper bound} in the class Refresh leads to. */
+        private double[] closeSessionAfter(Transition refresh, Transition closeSession, MarkingState initial) {
+            var net = PetriNet.builder("refresh").transitions(refresh, closeSession).build();
+            var scg = StateClassGraph.build(net, initial, 100);
+            var edges = scg.branchEdges(scg.initialClass(), refresh);
+            assertEquals(1, edges.size(), "Refresh fires first from the initial class");
+            var after = edges.getFirst().target();
+            int idx = after.transitionIndex(closeSession);
+            assertTrue(idx >= 0, "CloseSession is enabled after Refresh");
+            return new double[] {after.readyEarliest()[idx], after.firingDomain().getUpperBound(idx)};
+        }
+
+        @Test
+        void conservedRefresh_restartsTheDependentClock() {
+            var bounds = closeSessionAfter(refresh(), closeSession(),
+                MarkingState.builder().tokens(timer, 1).tokens(activity, 1).build());
+            assertArrayEquals(new double[] {0.2, 0.3}, bounds, 1e-9);
+        }
+
+        @Test
+        void surplusToken_keepsTheDependentClock() {
+            var bounds = closeSessionAfter(refresh(), closeSession(),
+                MarkingState.builder().tokens(timer, 2).tokens(activity, 1).build());
+            assertArrayEquals(new double[] {0.1, 0.25}, bounds, 1e-9);
+        }
+
+        @Test
+        void resetArcRefresh_restartsTheDependentClock() {
+            var resetRefresh = Transition.builder("Refresh").inputs(In.one(activity)).reset(timer)
+                .outputs(Out.place(timer)).timing(refreshWindow).action(TransitionAction.fork()).build();
+            var bounds = closeSessionAfter(resetRefresh, closeSession(),
+                MarkingState.builder().tokens(timer, 1).tokens(activity, 1).build());
+            assertArrayEquals(new double[] {0.2, 0.3}, bounds, 1e-9);
+        }
+
+        @Test
+        void readArcDependent_restartsTheClockToo() {
+            var readingClose = Transition.builder("CloseSession").inputs(In.one(armed)).read(timer)
+                .outputs(Out.place(closed)).timing(closeWindow).action(TransitionAction.fork()).build();
+            var bounds = closeSessionAfter(refresh(), readingClose,
+                MarkingState.builder().tokens(timer, 1).tokens(activity, 1).tokens(armed, 1).build());
+            assertArrayEquals(new double[] {0.2, 0.3}, bounds, 1e-9);
+        }
     }
 }

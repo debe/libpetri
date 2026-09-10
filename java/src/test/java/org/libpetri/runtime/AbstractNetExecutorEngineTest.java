@@ -2174,6 +2174,398 @@ abstract class AbstractNetExecutorEngineTest {
         }
 
         @Test
+        void consumeAndRedepositShouldRestartTimedTransitionClock() throws Exception {
+            // Refresh takes the timer token and puts it back, with no reset arc. CloseSession
+            // is not enabled in the intermediate marking M - Pre(Refresh), so the firing
+            // re-enables it and its clock starts over (TIME-012). A synchronous action must
+            // behave like an asynchronous one, whose in-flight window makes the gap visible.
+            var timerPending = Place.of("TimerPending", SimpleValue.class);
+            var userActivity = Place.of("UserActivity", SimpleValue.class);
+            var sessionClosed = Place.of("SessionClosed", SimpleValue.class);
+            AtomicLong closeFiredAt = new AtomicLong();
+
+            var refresh = Transition.builder("Refresh")
+                .inputs(Arc.In.one(userActivity), Arc.In.one(timerPending))
+                .outputs(Arc.Out.and(timerPending))
+                .action(ctx -> {
+                    ctx.output(timerPending, ctx.input(timerPending));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+
+            var closeSession = Transition.builder("CloseSession")
+                .inputs(Arc.In.one(timerPending))
+                .outputs(Arc.Out.and(sessionClosed))
+                .timing(Timing.delayed(Duration.ofMillis(200)))
+                .action(ctx -> {
+                    closeFiredAt.set(System.nanoTime());
+                    ctx.output(sessionClosed, new SimpleValue("closed"));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+
+            var net = PetriNet.builder("ConservedTimerRefresh").transitions(refresh, closeSession).build();
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                timerPending, List.of(Token.of(new SimpleValue("initial"))));
+
+            long millis = activityToFireMillis(net, initial, EnvironmentPlace.of(userActivity), closeFiredAt);
+            assertTrue(millis >= 200,
+                "CloseSession fired " + millis + " ms after the refresh: its clock did not restart");
+        }
+
+        @Test
+        void consumeAndRedepositShouldRestartClockOfReadArcDependent() throws Exception {
+            // As above, but CloseSession only reads the timer token. A read arc needs the token
+            // present just as an input arc does, so the intermediate marking disables it too.
+            var timerPending = Place.of("TimerPending", SimpleValue.class);
+            var armed = Place.of("Armed", SimpleValue.class);
+            var userActivity = Place.of("UserActivity", SimpleValue.class);
+            var sessionClosed = Place.of("SessionClosed", SimpleValue.class);
+            AtomicLong closeFiredAt = new AtomicLong();
+
+            var refresh = Transition.builder("Refresh")
+                .inputs(Arc.In.one(userActivity), Arc.In.one(timerPending))
+                .outputs(Arc.Out.and(timerPending))
+                .action(ctx -> {
+                    ctx.output(timerPending, ctx.input(timerPending));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+
+            var closeSession = Transition.builder("CloseSession")
+                .inputs(Arc.In.one(armed))
+                .reads(timerPending)
+                .outputs(Arc.Out.and(sessionClosed))
+                .timing(Timing.delayed(Duration.ofMillis(200)))
+                .action(ctx -> {
+                    closeFiredAt.set(System.nanoTime());
+                    ctx.output(sessionClosed, new SimpleValue("closed"));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+
+            var net = PetriNet.builder("ConservedTimerRefreshRead").transitions(refresh, closeSession).build();
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                timerPending, List.of(Token.of(new SimpleValue("initial"))),
+                armed, List.of(Token.of(new SimpleValue("armed"))));
+
+            long millis = activityToFireMillis(net, initial, EnvironmentPlace.of(userActivity), closeFiredAt);
+            assertTrue(millis >= 200,
+                "CloseSession fired " + millis + " ms after the refresh: its clock did not restart");
+        }
+
+        /**
+         * Runs {@code net}, injects one activity token 100 ms in, and returns how long after the
+         * injection started the transition recording {@code firedAt} fired. The clock can only
+         * restart once the token exists, so a restarted 200 ms delay yields at least 200 ms.
+         */
+        private long activityToFireMillis(PetriNet net, Map<Place<?>, List<Token<?>>> initial,
+                                          EnvironmentPlace<SimpleValue> activityEnv,
+                                          AtomicLong firedAt) throws Exception {
+            AtomicLong injectedAt = new AtomicLong();
+            try (var virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
+                 var executor = createExecutorWithEnv(net, initial, EventStore.inMemory(), Set.of(activityEnv))) {
+                var injection = virtualThreadExecutor.submit(() -> {
+                    try {
+                        Thread.sleep(100);
+                        injectedAt.set(System.nanoTime());
+                        executor.inject(activityEnv, Token.of(new SimpleValue("activity"))).join();
+                        executor.drain();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                });
+                executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
+                injection.get(1, TimeUnit.SECONDS);
+            }
+            assertNotEquals(0, firedAt.get(), "timed transition never fired");
+            return (firedAt.get() - injectedAt.get()) / 1_000_000;
+        }
+
+        @Test
+        void consumeAndRedepositByAsyncActionShouldRestartClock() throws Exception {
+            // consumeAndRedepositShouldRestartTimedTransitionClock with Refresh's action
+            // completing on another thread. The executor re-evaluates CloseSession while the
+            // action is in flight and sees the gap; the synchronous case must restart the same
+            // clock without seeing it.
+            var timerPending = Place.of("TimerPending", SimpleValue.class);
+            var userActivity = Place.of("UserActivity", SimpleValue.class);
+            var sessionClosed = Place.of("SessionClosed", SimpleValue.class);
+            AtomicLong closeFiredAt = new AtomicLong();
+
+            var closeSession = Transition.builder("CloseSession")
+                .inputs(Arc.In.one(timerPending))
+                .outputs(Arc.Out.and(sessionClosed))
+                .timing(Timing.delayed(Duration.ofMillis(200)))
+                .action(ctx -> {
+                    closeFiredAt.set(System.nanoTime());
+                    ctx.output(sessionClosed, new SimpleValue("closed"));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+
+            var net = PetriNet.builder("ConservedTimerRefreshAsync")
+                .transitions(conservingRefresh(userActivity, timerPending, true), closeSession)
+                .build();
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                timerPending, List.of(Token.of(new SimpleValue("initial"))));
+
+            long millis = activityToFireMillis(net, initial, EnvironmentPlace.of(userActivity), closeFiredAt);
+            assertTrue(millis >= 200,
+                "CloseSession fired " + millis + " ms after the refresh: its clock did not restart");
+        }
+
+        @Test
+        void consumeAndRedepositShouldAnnounceOneClockRestart() throws Exception {
+            // The refresh seen through events, with no timing race: both tokens are there from
+            // the start, so Refresh fires at once while CloseSession waits 200 ms. The
+            // synchronous action refills TimerPending before the executor re-evaluates
+            // CloseSession, which stays marked enabled and announces its fresh clock with one
+            // TransitionClockRestarted, never with a second TransitionEnabled.
+            var timerPending = Place.of("TimerPending", SimpleValue.class);
+            var userActivity = Place.of("UserActivity", SimpleValue.class);
+            var sessionClosed = Place.of("SessionClosed", SimpleValue.class);
+
+            var closeSession = Transition.builder("CloseSession")
+                .inputs(Arc.In.one(timerPending))
+                .outputs(Arc.Out.and(sessionClosed))
+                .timing(Timing.delayed(Duration.ofMillis(200)))
+                .action(TransitionAction.produce(sessionClosed, new SimpleValue("closed")))
+                .build();
+
+            var net = PetriNet.builder("ConservedTimerRefreshEvents")
+                .transitions(conservingRefresh(userActivity, timerPending, false), closeSession)
+                .build();
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                timerPending, List.of(Token.of(new SimpleValue("initial"))),
+                userActivity, List.of(Token.of(new SimpleValue("activity"))));
+
+            var store = EventStore.inMemory();
+            try (var executor = createExecutor(net, initial, store)) {
+                var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
+                assertTrue(result.hasTokens(sessionClosed), "CloseSession never fired");
+            }
+
+            var events = store.events();
+            int refreshStarted = firstIndex(events, e ->
+                e instanceof NetEvent.TransitionStarted s && s.transitionName().equals("Refresh"));
+            var restarts = store.eventsOfType(NetEvent.TransitionClockRestarted.class).stream()
+                .filter(e -> e.transitionName().equals("CloseSession"))
+                .toList();
+            assertEquals(1, restarts.size(), "one clock restart for CloseSession: " + events);
+            assertTrue(events.indexOf(restarts.getFirst()) > refreshStarted,
+                "the restart follows Refresh's firing: " + events);
+            assertEquals(1, store.eventsOfType(NetEvent.TransitionEnabled.class).stream()
+                    .filter(e -> e.transitionName().equals("CloseSession"))
+                    .count(),
+                "CloseSession is enabled once, at the start: " + events);
+        }
+
+        @Test
+        void surplusTokenShouldKeepTimedTransitionClock() throws Exception {
+            // TimerPending holds two tokens and Refresh returns the one it takes, so the
+            // intermediate marking still enables CloseSession and its clock runs on: no restart
+            // and no re-enablement once Refresh has started. The Armed token lets CloseSession
+            // fire only once, so its own firing cannot re-enable it either.
+            var timerPending = Place.of("TimerPending", SimpleValue.class);
+            var userActivity = Place.of("UserActivity", SimpleValue.class);
+            var armed = Place.of("Armed", SimpleValue.class);
+            var sessionClosed = Place.of("SessionClosed", SimpleValue.class);
+
+            var closeSession = Transition.builder("CloseSession")
+                .inputs(Arc.In.one(timerPending), Arc.In.one(armed))
+                .outputs(Arc.Out.and(sessionClosed))
+                .timing(Timing.delayed(Duration.ofMillis(200)))
+                .action(TransitionAction.produce(sessionClosed, new SimpleValue("closed")))
+                .build();
+
+            var net = PetriNet.builder("SurplusTimerRefresh")
+                .transitions(conservingRefresh(userActivity, timerPending, false), closeSession)
+                .build();
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                timerPending, List.of(Token.of(new SimpleValue("t1")), Token.of(new SimpleValue("t2"))),
+                userActivity, List.of(Token.of(new SimpleValue("activity"))),
+                armed, List.of(Token.of(new SimpleValue("armed"))));
+
+            var store = EventStore.inMemory();
+            try (var executor = createExecutor(net, initial, store)) {
+                var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
+                assertTrue(result.hasTokens(sessionClosed), "CloseSession never fired");
+            }
+
+            var events = store.events();
+            int refreshStarted = firstIndex(events, e ->
+                e instanceof NetEvent.TransitionStarted s && s.transitionName().equals("Refresh"));
+            assertTrue(refreshStarted >= 0, "Refresh never fired: " + events);
+            assertTrue(store.eventsOfType(NetEvent.TransitionClockRestarted.class).isEmpty(),
+                "a surplus token keeps CloseSession enabled, so nothing restarts: " + events);
+            assertTrue(events.subList(refreshStarted, events.size()).stream().noneMatch(e ->
+                    e instanceof NetEvent.TransitionEnabled en && en.transitionName().equals("CloseSession")),
+                "CloseSession stays enabled across the refresh: " + events);
+        }
+
+        @Test
+        void samePassRefreshesShouldKeepTimedTransitionClock() throws Exception {
+            // TimerPending holds two tokens, and Refresh1 and Refresh2 each take one and return it
+            // with a synchronous action, both in the first firing pass. The second refresh takes
+            // the last token the pass began with, but the first one's returned token is really
+            // there: the marking never drops below one timer token, so CloseSession's clock runs
+            // on. No restart and no re-enablement once the refreshes have started.
+            assertClockKeptAcrossRefreshes(samePassRefreshEvents(false));
+            // Sweep takes exactly(2) timer tokens and is never enabled, but it lifts the place's
+            // restart threshold to two, so each refresh walks CloseSession and the walk itself
+            // must see the returned token.
+            assertClockKeptAcrossRefreshes(samePassRefreshEvents(true));
+        }
+
+        private static void assertClockKeptAcrossRefreshes(List<NetEvent> events) {
+            int refreshStarted = firstIndex(events, e ->
+                e instanceof NetEvent.TransitionStarted s && s.transitionName().startsWith("Refresh"));
+            assertEquals(2, events.stream().filter(e ->
+                    e instanceof NetEvent.TransitionStarted s && s.transitionName().startsWith("Refresh"))
+                    .count(),
+                "both refreshes fire: " + events);
+            assertTrue(events.stream().noneMatch(e ->
+                    e instanceof NetEvent.TransitionClockRestarted r && r.transitionName().equals("CloseSession")),
+                "the timer place never empties, so CloseSession's clock runs on: " + events);
+            assertTrue(events.subList(refreshStarted, events.size()).stream().noneMatch(e ->
+                    e instanceof NetEvent.TransitionEnabled en && en.transitionName().equals("CloseSession")),
+                "CloseSession stays enabled across the refreshes: " + events);
+        }
+
+        /**
+         * Runs Refresh1 and Refresh2 against two timer tokens beside a CloseSession that takes one
+         * of them after 200 ms, and returns the events. Both activity tokens are there from the
+         * start, so both refreshes fire in the first pass; the Armed token lets CloseSession fire
+         * only once. {@code withSweep} adds a transition that takes exactly(2) timer tokens and is
+         * never enabled, since its Sweeping input stays empty.
+         */
+        private List<NetEvent> samePassRefreshEvents(boolean withSweep) throws Exception {
+            var timerPending = Place.of("TimerPending", SimpleValue.class);
+            var activity1 = Place.of("Activity1", SimpleValue.class);
+            var activity2 = Place.of("Activity2", SimpleValue.class);
+            var armed = Place.of("Armed", SimpleValue.class);
+            var sessionClosed = Place.of("SessionClosed", SimpleValue.class);
+
+            var closeSession = Transition.builder("CloseSession")
+                .inputs(Arc.In.one(timerPending), Arc.In.one(armed))
+                .outputs(Arc.Out.and(sessionClosed))
+                .timing(Timing.delayed(Duration.ofMillis(200)))
+                .action(TransitionAction.produce(sessionClosed, new SimpleValue("closed")))
+                .build();
+
+            var builder = PetriNet.builder("SamePassTimerRefreshes").transitions(
+                conservingRefresh("Refresh1", activity1, timerPending, false),
+                conservingRefresh("Refresh2", activity2, timerPending, false),
+                closeSession);
+            if (withSweep) {
+                builder.transition(Transition.builder("Sweep")
+                    .inputs(Arc.In.exactly(2, timerPending),
+                        Arc.In.one(Place.of("Sweeping", SimpleValue.class)))
+                    .build());
+            }
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                timerPending, List.of(Token.of(new SimpleValue("t1")), Token.of(new SimpleValue("t2"))),
+                activity1, List.of(Token.of(new SimpleValue("activity1"))),
+                activity2, List.of(Token.of(new SimpleValue("activity2"))),
+                armed, List.of(Token.of(new SimpleValue("armed"))));
+
+            var store = EventStore.inMemory();
+            try (var executor = createExecutor(builder.build(), initial, store)) {
+                var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
+                assertTrue(result.hasTokens(sessionClosed), "CloseSession never fired");
+            }
+            return store.events();
+        }
+
+        @Test
+        void exactlyTwoInputShouldRestartClockOnlyBelowTwoTokens() throws Exception {
+            // CloseSession takes exactly(2) timer tokens, so Refresh's intermediate marking
+            // disables it only when fewer than two remain. Three tokens leave two: no restart and
+            // no re-enablement once Refresh has started. Two tokens leave one: one restart.
+            var surplus = exactlyTwoRefreshEvents(3);
+            int refreshStarted = firstIndex(surplus, e ->
+                e instanceof NetEvent.TransitionStarted s && s.transitionName().equals("Refresh"));
+            assertTrue(refreshStarted >= 0, "Refresh never fired: " + surplus);
+            assertTrue(surplus.stream().noneMatch(e -> e instanceof NetEvent.TransitionClockRestarted),
+                "two tokens still satisfy exactly(2), so nothing restarts: " + surplus);
+            assertTrue(surplus.subList(refreshStarted, surplus.size()).stream().noneMatch(e ->
+                    e instanceof NetEvent.TransitionEnabled en && en.transitionName().equals("CloseSession")),
+                "CloseSession stays enabled across the refresh: " + surplus);
+
+            var shortfall = exactlyTwoRefreshEvents(2);
+            assertEquals(1, shortfall.stream().filter(e ->
+                    e instanceof NetEvent.TransitionClockRestarted r && r.transitionName().equals("CloseSession"))
+                    .count(),
+                "one token is below exactly(2), so CloseSession's clock restarts once: " + shortfall);
+        }
+
+        /**
+         * Runs the conserving Refresh beside a CloseSession that takes {@code exactly(2)} timer
+         * tokens after 200 ms, starting from {@code timerTokens} of them, and returns the events.
+         */
+        private List<NetEvent> exactlyTwoRefreshEvents(int timerTokens) throws Exception {
+            var timerPending = Place.of("TimerPending", SimpleValue.class);
+            var userActivity = Place.of("UserActivity", SimpleValue.class);
+            var sessionClosed = Place.of("SessionClosed", SimpleValue.class);
+
+            var closeSession = Transition.builder("CloseSession")
+                .inputs(Arc.In.exactly(2, timerPending))
+                .outputs(Arc.Out.and(sessionClosed))
+                .timing(Timing.delayed(Duration.ofMillis(200)))
+                .action(TransitionAction.produce(sessionClosed, new SimpleValue("closed")))
+                .build();
+
+            var net = PetriNet.builder("ExactlyTwoTimerRefresh")
+                .transitions(conservingRefresh(userActivity, timerPending, false), closeSession)
+                .build();
+            var timers = List.<Token<?>>of(Token.of(new SimpleValue("t1")),
+                Token.of(new SimpleValue("t2")), Token.of(new SimpleValue("t3")));
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                timerPending, timers.subList(0, timerTokens),
+                userActivity, List.of(Token.of(new SimpleValue("activity"))));
+
+            var store = EventStore.inMemory();
+            try (var executor = createExecutor(net, initial, store)) {
+                var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
+                assertTrue(result.hasTokens(sessionClosed), "CloseSession never fired");
+            }
+            return store.events();
+        }
+
+        /**
+         * Refresh: takes one activity token and one timer token, and puts the timer token back.
+         * {@code async} completes the action on another thread, 20 ms after it returns.
+         */
+        private Transition conservingRefresh(Place<SimpleValue> activity, Place<SimpleValue> timer, boolean async) {
+            return conservingRefresh("Refresh", activity, timer, async);
+        }
+
+        /** {@link #conservingRefresh(Place, Place, boolean)} under another name. */
+        private Transition conservingRefresh(String name, Place<SimpleValue> activity,
+                                             Place<SimpleValue> timer, boolean async) {
+            return Transition.builder(name)
+                .inputs(Arc.In.one(activity), Arc.In.one(timer))
+                .outputs(Arc.Out.and(timer))
+                .action(ctx -> {
+                    ctx.output(timer, ctx.input(timer));
+                    if (async) {
+                        return CompletableFuture.runAsync(() -> {},
+                            CompletableFuture.delayedExecutor(20, TimeUnit.MILLISECONDS));
+                    }
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+        }
+
+        private static int firstIndex(List<NetEvent> events, java.util.function.Predicate<NetEvent> match) {
+            for (int i = 0; i < events.size(); i++) {
+                if (match.test(events.get(i))) return i;
+            }
+            return -1;
+        }
+
+        @Test
         void resetArcWithOutputToSamePlaceShouldRestartTimedTransitionClock() throws Exception {
             // Test for timer reset bug: after reset arc fires and puts new token in same place,
             // the timed transition's clock should restart from zero, not continue from old timestamp.

@@ -73,14 +73,14 @@ Emitted when a transition becomes enabled (all preconditions met for the first t
 
 **Priority:** MUST
 
-Emitted when a transition's timing clock is restarted because one of its input/read places was affected by a reset arc, while the transition remains enabled (see [TIME-012]).
+Emitted when a transition's timing clock restarts while the transition stays marked enabled: another transition's firing left it disabled in the intermediate marking, and the marking enabled it again before the executor observed the gap (see [TIME-012]).
 
 **Acceptance Criteria:**
-1. Emitted only when transition remains enabled but clock restarts.
-2. Not emitted on initial enablement (that's TransitionEnabled).
+1. Emitted only when the transition stays marked enabled but its clock restarts.
+2. Not emitted on initial enablement, nor on re-enablement after an observed disablement (both are `TransitionEnabled`).
 
 **Depends on:** [TIME-012]
-**Test derivation:** Transition T enabled; reset arc clears its input place; new token arrives; verify TransitionClockRestarted for T.
+**Test derivation:** Transition T enabled; another transition consumes T's input token, and a synchronous action deposits a new one before the executor re-evaluates T; verify TransitionClockRestarted for T. An executor that re-evaluates between consumption and deposit reports TransitionEnabled instead ([TIME-012] AC6).
 
 ---
 

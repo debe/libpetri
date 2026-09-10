@@ -316,17 +316,28 @@ export function computeSuccessor(
 ): StateClass | null {
   const transition = fired.transition;
 
-  // 1. Compute new marking
-  const newMarking = fireTransition(current.marking, transition, fired.outputPlaces, environmentPlaces, environmentMode);
+  // 1. Fire in two halves: the intermediate marking M - Pre(t) (inputs consumed, resets
+  //    drained, nothing produced yet), then the new marking.
+  const intermediate = consumeInputs(current.marking, transition, environmentPlaces, environmentMode);
+  const newMarking = produceOutputs(intermediate, fired.outputPlaces);
 
-  // 2. Determine persistent and newly enabled transitions
+  // 2. Determine persistent and newly enabled transitions. A clock persists only when its
+  //    transition is not the fired one and stays enabled across the whole firing: in this
+  //    class, in the intermediate marking and in the new marking. A transition the firing
+  //    disables and re-enables (its token taken and put back, or a reset place refilled by
+  //    the outputs) is newly enabled with a fresh interval, as the executors restart its
+  //    clock (TIME-012). Surplus tokens keep it enabled throughout, so it stays persistent.
   const newEnabledAll = findEnabledTransitions(net, newMarking, environmentPlaces, environmentMode);
 
   const persistent: Transition[] = [];
   const persistentIndices: number[] = [];
   for (let i = 0; i < current.enabledTransitions.length; i++) {
     const t = current.enabledTransitions[i]!;
-    if (t !== transition && newEnabledAll.includes(t)) {
+    if (
+      t !== transition
+      && newEnabledAll.includes(t)
+      && isEnabled(t, intermediate, environmentPlaces, environmentMode)
+    ) {
       persistent.push(t);
       persistentIndices.push(i);
     }
@@ -431,9 +442,9 @@ function inputRequiredCount(spec: In): number {
  *
  * Delegates to {@link consumptionCount} — the canonical IO-007 definition in
  * `core/in.ts`. The executors do not call it: `BitmapNetExecutor` fuses the
- * same rule into its consume loop (`bitmap-net-executor.ts:745`) and
+ * same rule into its consume loop (`bitmap-net-executor.ts:788`) and
  * `PrecompiledNetExecutor` compiles it to a CONSUME_ALL / CONSUME_ATLEAST
- * opcode resolved at run time (`precompiled-net.ts:423`). Three encodings of
+ * opcode resolved at run time (`precompiled-net.ts:440`). Three encodings of
  * one rule, which must stay in agreement.
  *
  * The analysis MUST NOT add a fourth: a divergent local definition here is
@@ -475,10 +486,14 @@ function checkPlaceEnabled(
   }
 }
 
-function fireTransition(
+/**
+ * The first half of a firing: inputs consumed and reset places drained, nothing produced
+ * yet. The result is the intermediate marking M - Pre(t) of Berthomieu and Diaz, on which
+ * clock persistence is decided (TIME-012); {@link produceOutputs} completes the firing.
+ */
+function consumeInputs(
   marking: MarkingState,
   transition: Transition,
-  outputPlaces: ReadonlySet<Place<any>>,
   environmentPlaces: Set<Place<any>>,
   environmentMode: EnvironmentAnalysisMode,
 ): MarkingState {
@@ -505,18 +520,25 @@ function fireTransition(
   // route died on a net both executors run happily. Setting the count states the
   // reset directly and cannot overdraw; it is also what the flat encoder emits
   // (`m'_p = postVector[p]` for a reset place, `firingConditions`), so the two
-  // agree by construction. Outputs are produced after this, so a place that is
-  // both reset and an output target ends at its post count ([EXEC-013] AC4:
-  // consume, then read, then drain).
+  // agree by construction. Outputs are produced after this, by produceOutputs,
+  // so a place that is both reset and an output target ends at its post count
+  // ([EXEC-013] AC4: consume, then read, then drain).
   for (const arc of transition.resets) {
     builder.tokens(arc.place, 0);
   }
 
-  // Produce to outputs
+  return builder.build();
+}
+
+/** The second half of a firing: one token into each output place of the fired branch. */
+function produceOutputs(
+  intermediate: MarkingState,
+  outputPlaces: ReadonlySet<Place<any>>,
+): MarkingState {
+  const builder = MarkingState.builder().copyFrom(intermediate);
   for (const place of outputPlaces) {
     builder.addTokens(place, 1);
   }
-
   return builder.build();
 }
 

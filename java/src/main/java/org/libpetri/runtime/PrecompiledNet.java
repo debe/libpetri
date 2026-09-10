@@ -70,6 +70,10 @@ public final class PrecompiledNet {
     // Consumption place IDs per transition (input + reset places, deduplicated)
     final int[][] consumptionPlaceIds;
 
+    // Clock-restart screen per place (TIME-012, reused from CompiledNet)
+    final int[] restartThreshold;
+    final boolean[] restartAlwaysCheck;
+
     // Timing (precomputed)
     final long[] earliestNanos;
     final long[] latestNanos;
@@ -108,9 +112,6 @@ public final class PrecompiledNet {
 
     // Input place count per transition (for pre-sizing TokenInput)
     final int[] inputPlaceCount;
-
-    // Input place masks for reset-clock detection (bitmask per transition)
-    final long[][] inputPlaceMaskWords;
 
     // Sparse enablement: precomputed for O(1) single-input checks
     // -2 = empty (no inputs), -1 = multi-word, >= 0 = single word index
@@ -156,10 +157,14 @@ public final class PrecompiledNet {
             cardinalityChecks[tid] = compiled.cardinalityCheck(tid);
         }
 
-        // Reuse reverse index and consumption IDs
+        // Reuse reverse index, clock-restart screen and consumption IDs
         this.placeToTransitions = new int[placeCount][];
+        this.restartThreshold = new int[placeCount];
+        this.restartAlwaysCheck = new boolean[placeCount];
         for (int pid = 0; pid < placeCount; pid++) {
             placeToTransitions[pid] = compiled.affectedTransitions(pid);
+            restartThreshold[pid] = compiled.restartThreshold(pid);
+            restartAlwaysCheck[pid] = compiled.restartAlwaysCheck(pid);
         }
 
         this.consumptionPlaceIds = new int[transitionCount][];
@@ -188,7 +193,6 @@ public final class PrecompiledNet {
         this.consumeOps = new int[transitionCount][];
         this.readOps = new int[transitionCount][];
         this.resetOpsStart = new int[transitionCount];
-        this.inputPlaceMaskWords = new long[transitionCount][];
 
         this.simpleOutputPlaceId = new int[transitionCount];
         this.inputPlaceCount = new int[transitionCount];
@@ -199,7 +203,6 @@ public final class PrecompiledNet {
             consumeOps[tid] = fire.ops();
             resetOpsStart[tid] = fire.resetOpsStart();
             readOps[tid] = compileReadProgram(t);
-            inputPlaceMaskWords[tid] = compileInputMask(t);
 
             // Precompute input place count (for TokenInput pre-sizing)
             inputPlaceCount[tid] = t.inputSpecs().size() + t.reads().size();
@@ -349,14 +352,6 @@ public final class PrecompiledNet {
             result[i] = placeIndex.get(reads.get(i).place());
         }
         return result;
-    }
-
-    private long[] compileInputMask(Transition t) {
-        var bits = new BitSet(placeCount);
-        for (var in : t.inputSpecs()) {
-            bits.set(placeIndex.get(in.place()));
-        }
-        return bits.toLongArray();
     }
 
     // ==================== Sparse Mask Compilation ====================

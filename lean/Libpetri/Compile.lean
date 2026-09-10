@@ -19,7 +19,7 @@ import Libpetri.Ring
 
 namespace Libpetri
 
-/-- One decoded consume opcode (`precompiled_net.rs:14-18`, spec CONC-021):
+/-- One decoded consume opcode (`precompiled_net.rs:13-17`, spec CONC-021):
 `CONSUME_ONE`, `CONSUME_N`, `CONSUME_ALL`, `CONSUME_ATLEAST`, `RESET`.
 The `atLeast` minimum operand is carried by the encoding but *skipped* at run
 time (`precompiled_backend.rs` — `if opcode == CONSUME_ATLEAST { pc += 1 }`);
@@ -32,7 +32,7 @@ inductive ConsumeOp where
   | reset (p : PlaceId)
   deriving DecidableEq, Repr
 
-/-- The input-spec half of `compile_consume_ops` (`precompiled_net.rs:364-386`). -/
+/-- The input-spec half of `compile_consume_ops` (`precompiled_net.rs:356-378`). -/
 def opOfSpec (sp : InSpec) : ConsumeOp :=
   match sp.card with
   | .one => .one sp.place
@@ -40,7 +40,7 @@ def opOfSpec (sp : InSpec) : ConsumeOp :=
   | .all => .all sp.place
   | .atLeast m => .atLeast sp.place m
 
-/-- `compile_consume_ops` (`precompiled_net.rs:361-396`): all input specs in
+/-- `compile_consume_ops` (`precompiled_net.rs:353-388`): all input specs in
 declaration order, then all reset arcs in declaration order. The boundary
 between the two halves is the shipped `reset_ops_start`. -/
 def compileConsumeOps (t : Transition) : List ConsumeOp :=

@@ -120,8 +120,8 @@ impl UnknownPlaceLog {
 ///
 /// **Stability:** every backend must yield the same observable
 /// behaviour for the same net + initial marking. Firing order under
-/// priority + FIFO, deadline enforcement, reset-arc clock-restart
-/// semantics, and environment-place injection are pinned by the loop,
+/// priority + FIFO, deadline enforcement, clock-restart semantics
+/// (TIME-012), and environment-place injection are pinned by the loop,
 /// not by the backend.
 ///
 /// **Hot path:** monomorphised. The loop is generic over `S:
@@ -175,8 +175,10 @@ pub trait ExecutorBackend {
     /// Re-evaluate every dirty transition and update the enabled set.
     /// Reports newly-enabled transitions (for `TransitionEnabled`
     /// events) and transitions whose enabled-time clock just restarted
-    /// because a reset arc drained one of their input places (for
-    /// `TransitionClockRestarted` events).
+    /// although they are still enabled (for `TransitionClockRestarted`
+    /// events): another firing's consumption, reset arcs included,
+    /// disabled them before its outputs or a same-pass deposit enabled
+    /// them again (TIME-012).
     ///
     /// Generic over [`ChangeTracker`] so [`NoopChangeTracker`] elides
     /// the per-cycle push entirely on `NoopEventStore` paths.
@@ -222,8 +224,10 @@ pub trait ExecutorBackend {
 
     /// Consume inputs (per arc spec), gather read-arc tokens, drain
     /// reset arcs, update presence bitmaps and mark dirty for the
-    /// affected places. The loop emits `TokenRemoved` events from the
-    /// consumed tokens in spec-declaration order via `emit_removed`.
+    /// affected places, and flag for a clock restart every other enabled
+    /// transition this consumption disabled (TIME-012). The loop emits
+    /// `TokenRemoved` events from the consumed tokens in spec-declaration
+    /// order via `emit_removed`.
     ///
     /// Both `inputs` and `reads` are passed in already-cleared by the
     /// loop and filled in place by the backend — keeps the hot path

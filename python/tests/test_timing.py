@@ -301,3 +301,195 @@ async def test_immediate_timing_fires_eagerly() -> None:
 
     assert result.count(done) == 1
     assert elapsed_ms < 50.0, f"immediate should be near-zero, got {elapsed_ms:.1f}"
+
+
+@pytest.mark.asyncio
+async def test_sync_refresh_restarts_timed_transition_clock() -> None:
+    """TIME-012: `Refresh` takes the only `timer` token and its synchronous
+    Python action puts it back. Between the consumption and the output
+    `CloseSession` is disabled, so its clock restarts at the refresh even
+    though no enablement scan sees the gap: it waits its full 200 ms from the
+    refresh, and the restart is reported as one `TransitionClockRestarted`.
+    Mirrors the Rust `backend_suite_tests` session nets."""
+    activity = lp.Place("activity")
+    timer = lp.Place("timer")
+    closed_at: list[float] = []
+
+    def refresh(ctx: lp.TransitionContext) -> None:
+        ctx.output("timer", ctx.input("timer"))
+
+    def close_session(ctx: lp.TransitionContext) -> None:
+        closed_at.append(time.monotonic())
+
+    net = (
+        lp.Net("session")
+        .transition(
+            lp.Transition("Refresh")
+            .input(lp.one(activity))
+            .input(lp.one(timer))
+            .output(lp.out(timer))
+            .action(refresh)
+            .build()
+        )
+        .transition(
+            lp.Transition("CloseSession")
+            .input(lp.one(timer))
+            .timing(lp.delayed(200))
+            .action(close_session)
+            .build()
+        )
+        .build()
+    )
+
+    store = lp.InMemoryEventStore()
+    handle, awaitable = lp.start_async(
+        net,
+        initial={timer: [{"session": 1}]},
+        options=lp.ExecutorOptions(environment_places=(activity,)),
+        event_store=store,
+    )
+
+    # The timer is armed from the start; the activity arrives about 100 ms in.
+    await asyncio.sleep(0.1)
+    injected_at = time.monotonic()
+    assert handle.inject(activity, {"seen": True}) is True
+    assert handle.drain() is True
+    await awaitable
+
+    assert len(closed_at) == 1, "CloseSession fires once"
+    waited_ms = (closed_at[0] - injected_at) * 1000.0
+    assert waited_ms >= 195.0, (
+        f"CloseSession must wait its full 200 ms from the refresh, fired {waited_ms:.1f} ms "
+        "after the activity arrived"
+    )
+    restarts = store.events(types={"TransitionClockRestarted"}, transitions={"CloseSession"})
+    assert len(restarts) == 1, "the synchronous refill restarts the clock in place"
+
+
+@pytest.mark.asyncio
+async def test_async_refresh_restarts_timed_transition_clock() -> None:
+    """TIME-012 with an asynchronous Python action: `Refresh` takes the only
+    `timer` token and puts it back after a real 20 ms await. The timer stays
+    empty while the action runs, so `CloseSession` gets a fresh clock once the
+    token returns and waits its full 200 ms from the refresh's completion. The
+    fresh clock shows as a second `TransitionEnabled`, or as a
+    `TransitionClockRestarted` when the completion lands before the executor
+    re-evaluates `CloseSession`."""
+    activity = lp.Place("activity")
+    timer = lp.Place("timer")
+    closed_at: list[float] = []
+
+    async def refresh(ctx: lp.TransitionContext) -> None:
+        token = ctx.input("timer")
+        # The action runs on a tokio thread with no running asyncio loop, so the
+        # delay goes through the captured loop instead of asyncio.sleep.
+        await lp.action_to_thread(time.sleep, 0.02)
+        ctx.output("timer", token)
+
+    def close_session(ctx: lp.TransitionContext) -> None:
+        closed_at.append(time.monotonic())
+
+    net = (
+        lp.Net("session")
+        .transition(
+            lp.Transition("Refresh")
+            .input(lp.one(activity))
+            .input(lp.one(timer))
+            .output(lp.out(timer))
+            .action(refresh)
+            .build()
+        )
+        .transition(
+            lp.Transition("CloseSession")
+            .input(lp.one(timer))
+            .timing(lp.delayed(200))
+            .action(close_session)
+            .build()
+        )
+        .build()
+    )
+
+    store = lp.InMemoryEventStore()
+    handle, awaitable = lp.start_async(
+        net,
+        initial={timer: [{"session": 1}]},
+        options=lp.ExecutorOptions(environment_places=(activity,)),
+        event_store=store,
+    )
+
+    # The timer is armed from the start; the activity arrives about 100 ms in.
+    await asyncio.sleep(0.1)
+    injected_at = time.monotonic()
+    assert handle.inject(activity, {"seen": True}) is True
+    assert handle.drain() is True
+    await awaitable
+
+    assert len(closed_at) == 1, "CloseSession fires once"
+    waited_ms = (closed_at[0] - injected_at) * 1000.0
+    assert waited_ms >= 215.0, (
+        "CloseSession must wait its full 200 ms from the refresh's completion (20 ms in), "
+        f"fired {waited_ms:.1f} ms after the activity arrived"
+    )
+    fresh_clocks = store.events(
+        types={"TransitionEnabled", "TransitionClockRestarted"},
+        transitions={"CloseSession"},
+    )
+    assert len(fresh_clocks) == 2, "one clock at the start, one fresh clock from the refresh"
+
+
+@pytest.mark.asyncio
+async def test_surplus_timer_token_keeps_timed_transition_clock() -> None:
+    """TIME-012 with a surplus token: `timer` holds two tokens, so `Refresh`
+    leaves one behind and `CloseSession` is never disabled. No clock restart
+    is reported: `CloseSession` fires on the clock it started with, then once
+    more on the clock its own firing started. Mirrors the Rust
+    `clock_persists_with_surplus_token`."""
+    activity = lp.Place("activity")
+    timer = lp.Place("timer")
+    closed_at: list[float] = []
+
+    def refresh(ctx: lp.TransitionContext) -> None:
+        ctx.output("timer", ctx.input("timer"))
+
+    def close_session(ctx: lp.TransitionContext) -> None:
+        closed_at.append(time.monotonic())
+
+    net = (
+        lp.Net("session")
+        .transition(
+            lp.Transition("Refresh")
+            .input(lp.one(activity))
+            .input(lp.one(timer))
+            .output(lp.out(timer))
+            .action(refresh)
+            .build()
+        )
+        .transition(
+            lp.Transition("CloseSession")
+            .input(lp.one(timer))
+            .timing(lp.delayed(200))
+            .action(close_session)
+            .build()
+        )
+        .build()
+    )
+
+    store = lp.InMemoryEventStore()
+    started_at = time.monotonic()
+    # The activity is there from the start, so `Refresh` fires in the first
+    # pass, long before `CloseSession` can.
+    await lp.run_async(
+        net,
+        initial={activity: [{"seen": True}], timer: [{"session": 1}, {"session": 2}]},
+        event_store=store,
+    )
+
+    assert len(closed_at) == 2, "CloseSession fires once per timer token"
+    first_ms = (closed_at[0] - started_at) * 1000.0
+    assert first_ms >= 195.0, f"CloseSession waits its 200 ms, fired at {first_ms:.1f} ms"
+    restarts = store.events(types={"TransitionClockRestarted"}, transitions={"CloseSession"})
+    assert restarts == [], "no clock restart while a timer token survives the refresh"
+    enabled = store.events(types={"TransitionEnabled"}, transitions={"CloseSession"})
+    assert len(enabled) == 2, (
+        "CloseSession is enabled at the start and after its first firing, never by the refresh"
+    )

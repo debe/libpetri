@@ -115,13 +115,13 @@ def post (br : List PlaceId) (p : PlaceId) : Nat :=
 /-!
 ## Concrete semantics
 
-Models `bitmap_backend.rs:327 can_enable` (enablement) and
-`bitmap_backend.rs:664 consume_for_firing` + `:815 produce_token` (effect).
+Models `bitmap_backend.rs:320 can_enable` (enablement) and
+`bitmap_backend.rs:690 consume_for_firing` + `:840 produce_token` (effect).
 -/
 
 /-- Tokens at `s.place` satisfying `s`'s guard. Models the guard-matching
 tally a draining arc computes inside `consume_for_firing`
-(`bitmap_backend.rs:723-729`). That arm called `Marking::count_matching`
+(`bitmap_backend.rs:749-755`). That arm called `Marking::count_matching`
 (`marking.rs`), which counts over the *whole* queue, until the EXEC-003 AC5
 work replaced it with the same count bounded to the drainable prefix; the
 bound is the scope note on `consumeCount` below. -/
@@ -132,7 +132,7 @@ def matchCount (m : CMarking) (s : InSpec) : Nat :=
 
 /-- Tokens actually removed from `s.place` by one firing.
 
-`consume_for_firing` (`bitmap_backend.rs:714-731`): `One => 1`,
+`consume_for_firing` (`bitmap_backend.rs:740-757`): `One => 1`,
 `Exactly{n} => n`, and
 `All`/`AtLeast` => the guard-matching count, i.e. **all guard-matching
 tokens** — tokens failing the guard are left behind by `remove_matching`.
@@ -159,7 +159,7 @@ def consumedAt (m : CMarking) (t : Transition) (p : PlaceId) : Nat :=
   | none => 0
   | some s => consumeCount m s
 
-/-- Concrete enablement (`can_enable`, `bitmap_backend.rs:327`, minus timing
+/-- Concrete enablement (`can_enable`, `bitmap_backend.rs:320`, minus timing
 and ν): every input arc has enough *matching* tokens, every inhibited place is
 empty, every read place is non-empty. Reset arcs deliberately do not gate
 (CORE-034).

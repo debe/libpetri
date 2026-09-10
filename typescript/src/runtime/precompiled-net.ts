@@ -111,6 +111,10 @@ export class PrecompiledNet {
 
   // ==================== Input Precomputation ====================
   readonly inputPlaceCount: Uint32Array;
+  /**
+   * @deprecated Not read by the executor. Kept so the exported shape of `PrecompiledNet`
+   * stays stable; scheduled for removal in the next major release.
+   */
   readonly inputPlaceMaskWords: readonly Uint32Array[];
 
   // ==================== Reverse Index ====================

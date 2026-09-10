@@ -73,10 +73,13 @@ pub struct BitmapBackend {
     /// Grace band (ms) before a hard deadline force-disables (TIME-013).
     deadline_tolerance_ms: f64,
 
-    // Clock-restart detection: places drained by reset arcs this cycle
-    // and per-transition input-place-name set for fast intersection.
-    pending_reset_places: HashSet<Arc<str>>,
-    transition_input_place_names: Vec<HashSet<Arc<str>>>,
+    /// Per transition: its clock restarts at the next enablement scan even
+    /// if that scan still finds it enabled (TIME-012). A firing sets the bit
+    /// for every other enabled transition its consumption disabled (see
+    /// `flag_clock_restarts`); `update_enablement` reads and clears it.
+    /// `has_restart_pending` keeps a scan with no bit set at one branch.
+    restart_pending: Vec<u64>,
+    has_restart_pending: bool,
 
     // ν-net incremental match caches (NU-020) — see the precompiled backend for
     // the rationale. `match_caches[tid]` is `Some` only for fast-path-eligible
@@ -133,17 +136,6 @@ impl BitmapBackend {
             }
         }
 
-        let mut transition_input_place_names = Vec::with_capacity(tc);
-        for tid in 0..tc {
-            let t = compiled.transition(tid);
-            let names: HashSet<Arc<str>> = t
-                .input_specs()
-                .iter()
-                .map(|s| Arc::clone(s.place().name_arc()))
-                .collect();
-            transition_input_place_names.push(names);
-        }
-
         let pc = compiled.place_count;
         let mut this = Self {
             compiled,
@@ -167,8 +159,8 @@ impl BitmapBackend {
             all_same_priority,
             has_any_deadlines,
             deadline_tolerance_ms: DEADLINE_TOLERANCE_MS,
-            pending_reset_places: HashSet::new(),
-            transition_input_place_names,
+            restart_pending: vec![0u64; dirty_word_count],
+            has_restart_pending: false,
             match_caches: Vec::new(),
             place_match_targets: vec![Vec::new(); pc],
             match_input_pids: Vec::new(),
@@ -319,9 +311,10 @@ impl BitmapBackend {
 
     /// True when the transition has all required input/read tokens
     /// available and no inhibitor blocks it. `marking_snap` carries presence
-    /// (the per-cycle snapshot from `update_enablement`, the fire-pass
-    /// snapshot from `recheck_can_fire`) and `pre_deposit` puts the counting
-    /// checks on the same view: an intra-pass recheck discounts tokens a
+    /// (the per-cycle snapshot from `update_enablement`, the live bits from
+    /// `flag_clock_restarts`, the fire-pass snapshot from `recheck_can_fire`)
+    /// and `pre_deposit` puts the counting checks on the same view: an
+    /// intra-pass recheck discounts tokens a
     /// same-pass synchronous action deposited, so neither a cardinality gate
     /// nor a ν-join can be satisfied by them (EXEC-003 AC4).
     fn can_enable(&self, tid: usize, marking_snap: &[u64], pre_deposit: bool) -> bool {
@@ -409,17 +402,32 @@ impl BitmapBackend {
         select_match_name(&per_place, &requireds)
     }
 
-    fn has_input_from_reset_place(&self, tid: usize) -> bool {
-        if self.pending_reset_places.is_empty() {
-            return false;
-        }
-        let input_names = &self.transition_input_place_names[tid];
-        for name in &self.pending_reset_places {
-            if input_names.contains(name) {
-                return true;
+    /// Flags the clock of every other enabled transition that `tid`'s
+    /// consumption just disabled through `pid` (TIME-012, the Berthomieu-Diaz
+    /// intermediate marking). Called from `update_bitmap_after_consumption`,
+    /// before the action, only for a place left below its
+    /// [`restart_threshold`](CompiledNet::restart_threshold), and judges
+    /// enablement on the live marking. The intermediate marking is taken from
+    /// the marking `tid` fires from: tokens an earlier firing of the pass
+    /// already deposited are really there, so a transition they keep enabled
+    /// was never disabled. An asynchronous action's outputs are not there
+    /// yet, so its gap is seen. Removing tokens never disables through an
+    /// inhibitor, so the bit tests reject every other neighbour.
+    fn flag_clock_restarts(&mut self, tid: usize, pid: usize) {
+        let affected = self.compiled.affected_transitions(pid).len();
+        for j in 0..affected {
+            let other = self.compiled.affected_transitions(pid)[j];
+            if other == tid
+                || !self.enabled_flags[other]
+                || bitmap::test_bit(&self.restart_pending, other)
+            {
+                continue;
+            }
+            if !self.can_enable(other, &self.marked_places, false) {
+                bitmap::set_bit(&mut self.restart_pending, other);
+                self.has_restart_pending = true;
             }
         }
-        false
     }
 
     /// Start a firing pass: refresh the presence snapshot from live and drop
@@ -494,6 +502,15 @@ impl BitmapBackend {
                 bitmap::clear_bit(&mut self.firing_snap_buffer, pid);
             }
             self.mark_place_dirty(pid);
+            // TIME-012: every arc on pid still holds while its live count,
+            // same-pass deposits included, keeps the restart threshold, so
+            // nothing lost enablement through it (`flag_clock_restarts` gives
+            // why deposits count). A transition disabled through another
+            // consumed place is caught when that place comes up: bits not yet
+            // cleared only make `can_enable` more permissive.
+            if live < self.compiled.restart_threshold(pid) {
+                self.flag_clock_restarts(tid, pid);
+            }
         }
     }
 }
@@ -579,13 +596,22 @@ impl ExecutorBackend for BitmapBackend {
                 self.enabled_flags[tid] = false;
                 self.enabled_transition_count -= 1;
                 self.enabled_at_ms[tid] = f64::NEG_INFINITY;
-            } else if can_now && was_enabled && self.has_input_from_reset_place(tid) {
+            } else if can_now
+                && was_enabled
+                && self.has_restart_pending
+                && bitmap::test_bit(&self.restart_pending, tid)
+            {
                 self.enabled_at_ms[tid] = now_ms;
                 tracker.clock_restarted(tid);
             }
         }
 
-        self.pending_reset_places.clear();
+        // Every flagged transition is dirty (its consumed place marked it),
+        // so this scan has consumed each bit; none may leak into the next.
+        if self.has_restart_pending {
+            bitmap::clear_all(&mut self.restart_pending);
+            self.has_restart_pending = false;
+        }
     }
 
     fn has_any_deadlines(&self) -> bool {
@@ -802,13 +828,12 @@ impl ExecutorBackend for BitmapBackend {
                     emit_removed(arc.place.name_arc(), &tok);
                 }
             }
-            self.pending_reset_places
-                .insert(Arc::clone(arc.place.name_arc()));
         }
 
         // Narrows the fire-pass snapshot for the places this firing drained,
         // so the next `recheck_can_fire` sees this consumption — and nothing
-        // else (EXEC-001 step ordering, EXEC-003).
+        // else (EXEC-001 step ordering, EXEC-003) — and flags the clocks it
+        // disabled (TIME-012).
         self.update_bitmap_after_consumption(tid);
     }
 

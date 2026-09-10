@@ -7,7 +7,6 @@ use libpetri_core::petri_net::PetriNet;
 use libpetri_core::place::PlaceRef;
 use libpetri_core::transition::Transition;
 
-use crate::bitmap;
 use crate::compiled_net::CompiledNet;
 
 /// Consume operation opcodes.
@@ -81,9 +80,6 @@ pub struct PrecompiledNet {
     #[allow(dead_code)]
     pub(crate) input_place_count: Vec<usize>,
 
-    /// Input place masks per transition (for reset-clock detection).
-    pub(crate) input_place_mask_words: Vec<Vec<u64>>,
-
     /// Precomputed place name Arcs (indexed by place ID).
     pub(crate) place_name_arcs: Vec<Arc<str>>,
     /// Precomputed transition name Arcs (indexed by transition ID).
@@ -105,7 +101,6 @@ impl PrecompiledNet {
     /// [`super::owned_precompiled::OwnedPrecompiledNet`].
     pub fn from_arc(compiled: Arc<CompiledNet>) -> Self {
         let tc = compiled.transition_count;
-        let wc = compiled.word_count;
 
         // Compile sparse enablement masks
         let mut needs_sparse = Vec::with_capacity(tc);
@@ -120,7 +115,6 @@ impl PrecompiledNet {
         let mut consume_ops = Vec::with_capacity(tc);
         let mut reset_ops_start = Vec::with_capacity(tc);
         let mut read_ops = Vec::with_capacity(tc);
-        let mut input_place_mask_words = Vec::with_capacity(tc);
         let mut simple_output_place_id = Vec::with_capacity(tc);
         let mut input_place_count = Vec::with_capacity(tc);
 
@@ -130,7 +124,6 @@ impl PrecompiledNet {
             consume_ops.push(ops);
             reset_ops_start.push(reset_start);
             read_ops.push(compile_read_ops(t, &compiled));
-            input_place_mask_words.push(compile_input_mask(t, &compiled, wc));
 
             input_place_count.push(t.input_specs().len() + t.reads().len());
 
@@ -228,7 +221,6 @@ impl PrecompiledNet {
             all_same_priority,
             simple_output_place_id,
             input_place_count,
-            input_place_mask_words,
             place_name_arcs,
             transition_name_arcs,
             output_place_name_sets,
@@ -402,18 +394,10 @@ fn compile_read_ops(t: &Transition, compiled: &CompiledNet) -> Vec<usize> {
         .collect()
 }
 
-fn compile_input_mask(t: &Transition, compiled: &CompiledNet, word_count: usize) -> Vec<u64> {
-    let mut mask = vec![0u64; word_count];
-    for in_spec in t.input_specs() {
-        let pid = compiled.place_id(in_spec.place_name()).unwrap();
-        bitmap::set_bit(&mut mask, pid);
-    }
-    mask
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bitmap;
     use libpetri_core::action::fork;
     use libpetri_core::input::one;
     use libpetri_core::output::out_place;

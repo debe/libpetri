@@ -36,7 +36,7 @@ import { TokenInput } from '../core/token-input.js';
 import { TokenOutput } from '../core/token-output.js';
 import { TransitionContext } from '../core/transition-context.js';
 import { noopEventStore } from '../event/event-store.js';
-import { WORD_SHIFT, BIT_MASK } from './compiled-net.js';
+import { WORD_SHIFT, BIT_MASK, restartThresholds } from './compiled-net.js';
 import { Marking } from './marking.js';
 import { PrecompiledNet, CONSUME_ONE, CONSUME_N, CONSUME_ALL, CONSUME_ATLEAST, RESET } from './precompiled-net.js';
 import { validateOutSpec, produceTimeoutOutput, executeAction, swallowEventStoreFailure, DEADLINE_TOLERANCE_MS } from './executor-support.js';
@@ -154,9 +154,17 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
   private readonly inFlightErrors: (unknown | null)[];
   private inFlightCount = 0;
 
-  // ==================== Reset-Clock Detection ====================
-  private readonly pendingResetWords: Uint32Array;
-  private hasPendingResets = false;
+  // ==================== Intermediate-Disablement Clock Restart ====================
+  /**
+   * Per transition, one bit: a firing left it disabled in the intermediate marking while it
+   * was marked enabled (TIME-012), so the next dirty scan that finds it enabled restarts its
+   * clock. Set at fire time, cleared at the end of every scan; `anyRestartPending` lets the
+   * scan skip the clear when nothing was flagged.
+   */
+  private readonly restartPendingWords: Uint32Array;
+  private anyRestartPending = false;
+  /** Per place, the count a firing must leave it at to have disabled nothing through it. */
+  private readonly restartThresholds: Float64Array;
 
   // ==================== Queues ====================
   private readonly completionQueue: number[] = [];
@@ -248,8 +256,9 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     this.inFlightResolves = new Array(tc).fill(null);
     this.inFlightErrors = new Array(tc).fill(null);
 
-    // ==================== Reset Detection ====================
-    this.pendingResetWords = new Uint32Array(wc);
+    // ==================== Intermediate-Disablement Flags ====================
+    this.restartPendingWords = new Uint32Array(this.transitionWords);
+    this.restartThresholds = restartThresholds(prog.compiled);
 
     // ==================== Snapshot Buffers ====================
     this.markingSnapBuffer = new Uint32Array(wc);
@@ -551,7 +560,13 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
           this.enabledFlags[tid] = 0;
           this.enabledTransitionCount--;
           this.enabledAtMs[tid] = -Infinity;
-        } else if (canNow && wasEnabled && this.hasInputFromResetPlace(tid)) {
+        } else if (canNow && wasEnabled && this.anyRestartPending
+          && (this.restartPendingWords[w]! & (1 << bit)) !== 0) {
+          // A firing disabled it in its intermediate marking and it is enabled again, yet it
+          // is still marked enabled: this scan never saw the gap, so restart the clock here
+          // (TIME-012). The loop scans between a firing and any deposit, so it normally sees
+          // the gap and the fresh clock arrives as transition-enabled above; the flag keeps
+          // the rule independent of that ordering.
           this.enabledAtMs[tid] = nowMs;
           this.emitEvent({
             type: 'transition-clock-restarted',
@@ -562,9 +577,9 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       }
     }
 
-    if (this.hasPendingResets) {
-      this.pendingResetWords.fill(0);
-      this.hasPendingResets = false;
+    if (this.anyRestartPending) {
+      this.restartPendingWords.fill(0);
+      this.anyRestartPending = false;
     }
   }
 
@@ -650,13 +665,25 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     return null;
   }
 
-  private hasInputFromResetPlace(tid: number): boolean {
-    if (!this.hasPendingResets) return false;
-    const inputMask = this.program.inputPlaceMaskWords[tid]!;
-    for (let w = 0; w < inputMask.length; w++) {
-      if ((inputMask[w]! & this.pendingResetWords[w]!) !== 0) return true;
+  /**
+   * Flags each other transition that firing `tid` has just disabled through `pid`
+   * (TIME-012). Called from {@link updateBitmapAfterConsumption} on the intermediate marking,
+   * only for a place the firing left below its restart threshold. Mirrors the bitmap
+   * executor, which gives the rationale.
+   */
+  private flagIntermediateDisablements(tid: number, pid: number): void {
+    const affected = this.program.placeToTransitions[pid]!;
+    for (let j = 0; j < affected.length; j++) {
+      const other = affected[j]!;
+      if (other === tid || !this.enabledFlags[other] || this.inFlightFlags[other]) continue;
+      const w = other >>> WORD_SHIFT;
+      const mask = 1 << (other & BIT_MASK);
+      if ((this.restartPendingWords[w]! & mask) !== 0) continue;
+      if (!this.canEnable(other, this.markingBitmap)) {
+        this.restartPendingWords[w]! |= mask;
+        this.anyRestartPending = true;
+      }
     }
-    return false;
   }
 
   // ======================== Firing ========================
@@ -888,8 +915,6 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
         const pid = ops[pc++]!;
         const place = prog.places[pid]!;
         const tokens = this.tokenQueues[pid]!.splice(0);
-        this.pendingResetWords[pid >>> WORD_SHIFT]! |= (1 << (pid & BIT_MASK));
-        this.hasPendingResets = true;
         for (const token of tokens) {
           consumed.push(token);
           this.emitEvent({
@@ -902,7 +927,8 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       }
     }
 
-    // Update bitmap after consumption
+    // Update bitmap after consumption and flag the clocks this consumption disabled,
+    // before any output lands (TIME-012)
     this.updateBitmapAfterConsumption(tid);
 
     this.emitEvent({
@@ -1062,8 +1088,6 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     for (const arc of t.resets) {
       const pid = prog.compiled.placeId(arc.place);
       const tokens = this.tokenQueues[pid]!.splice(0);
-      this.pendingResetWords[pid >>> WORD_SHIFT]! |= (1 << (pid & BIT_MASK));
-      this.hasPendingResets = true;
       for (const token of tokens) {
         consumed.push(token);
         this.emitEvent({
@@ -1097,10 +1121,14 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     const pids = this.program.consumptionPlaceIds[tid]!;
     for (let i = 0; i < pids.length; i++) {
       const pid = pids[i]!;
-      if (this.tokenQueues[pid]!.length === 0) {
+      const left = this.tokenQueues[pid]!.length;
+      if (left === 0) {
         this.clearMarkingBit(pid);
       }
       this.markDirty(pid);
+      // TIME-012: only a place left below its restart threshold can have disabled anyone
+      // (see the bitmap executor's updateBitmapAfterConsumption for why).
+      if (left < this.restartThresholds[pid]!) this.flagIntermediateDisablements(tid, pid);
     }
   }
 

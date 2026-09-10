@@ -43,6 +43,9 @@ pub struct CompiledNet {
     // Consumption place IDs per transition (input + reset places)
     consumption_place_ids: Vec<Vec<usize>>,
 
+    // Clock-restart walk threshold per place (TIME-012), see `restart_threshold`
+    restart_thresholds: Vec<usize>,
+
     // Cardinality flags
     cardinality_checks: Vec<Option<CardinalityCheck>>,
     // ν-net join correlation flag per transition (spec NU-020).
@@ -86,6 +89,18 @@ impl CompiledNet {
         let mut consumption_place_ids = Vec::with_capacity(transition_count);
         let mut cardinality_checks: Vec<Option<CardinalityCheck>> = vec![None; transition_count];
         let mut has_match = vec![false; transition_count];
+        let mut restart_thresholds = vec![0usize; place_count];
+        // The one transition requiring each place, whether several do, and
+        // whether a reset drains it: a place only its own consumer can take
+        // from needs no restart check (see `restart_threshold`).
+        let mut requirer: Vec<Option<usize>> = vec![None; place_count];
+        let mut shared = vec![false; place_count];
+        let mut drained = vec![false; place_count];
+        let mut note_requirer = |pid: usize, tid: usize| match requirer[pid] {
+            None => requirer[pid] = Some(tid),
+            Some(r) if r != tid => shared[pid] = true,
+            Some(_) => {}
+        };
 
         let mut place_to_transitions_tmp: Vec<HashSet<usize>> = vec![HashSet::new(); place_count];
 
@@ -117,6 +132,8 @@ impl CompiledNet {
                     bitmap::set_bit(&mut needs_masks[mask_base..mask_base + word_count], pid);
                 }
                 place_to_transitions_tmp[pid].insert(tid);
+                restart_thresholds[pid] = restart_thresholds[pid].max(required_count(in_spec));
+                note_requirer(pid, tid);
 
                 if !matches!(in_spec, In::One { .. }) {
                     needs_cardinality = true;
@@ -144,6 +161,18 @@ impl CompiledNet {
                     bitmap::set_bit(&mut needs_masks[mask_base..mask_base + word_count], pid);
                 }
                 place_to_transitions_tmp[pid].insert(tid);
+                restart_thresholds[pid] = restart_thresholds[pid].max(1);
+                note_requirer(pid, tid);
+            }
+
+            // A removal from a correlated input can break a ν-join's binding
+            // at any count, so the restart check always walks it.
+            if let Some(ms) = t.match_spec() {
+                for mk in ms.keys() {
+                    if let Some(&pid) = place_index.get(mk.place_name()) {
+                        restart_thresholds[pid] = usize::MAX;
+                    }
+                }
             }
 
             // Inhibitor arcs
@@ -159,6 +188,7 @@ impl CompiledNet {
             for r in t.resets() {
                 let pid = place_index[r.place.name_arc()];
                 place_to_transitions_tmp[pid].insert(tid);
+                drained[pid] = true;
             }
 
             // Consumption place IDs (input + reset, deduplicated)
@@ -170,6 +200,12 @@ impl CompiledNet {
                 consumption_set.insert(place_index[r.place.name_arc()]);
             }
             consumption_place_ids.push(consumption_set.into_iter().collect());
+        }
+
+        for pid in 0..place_count {
+            if !shared[pid] && !drained[pid] {
+                restart_thresholds[pid] = 0;
+            }
         }
 
         let place_to_transitions: Vec<Vec<usize>> = place_to_transitions_tmp
@@ -190,6 +226,7 @@ impl CompiledNet {
             inhibitor_masks,
             place_to_transitions,
             consumption_place_ids,
+            restart_thresholds,
             cardinality_checks,
             has_match,
         }
@@ -233,6 +270,23 @@ impl CompiledNet {
     /// Returns consumption place IDs for a transition.
     pub fn consumption_place_ids(&self, tid: usize) -> &[usize] {
         &self.consumption_place_ids[tid]
+    }
+
+    /// The fewest tokens `pid` can hold in the live marking, same-pass
+    /// deposits included, and still satisfy every input and read arc on it:
+    /// `exactly(n)` and `at_least(n)` need n, `one`, `all` and a read need 1.
+    /// A firing that leaves at least this many disabled nothing through `pid`,
+    /// so the clock-restart check (TIME-012) skips its fan-out. Inhibitor and
+    /// reset arcs add nothing, since removing tokens never disables through
+    /// them. `usize::MAX` for a correlated input of a ν-join, whose binding a
+    /// removal can break at any count. The join's other places need no such
+    /// care: its binding reads only the correlated inputs, so a removal that
+    /// leaves them their threshold cannot disable it. 0 for a place only one
+    /// transition requires and no reset drains: only that transition takes
+    /// from it, so the check could only reach the transition that fired, and
+    /// a linear chain's hot path stays at one comparison per consumed place.
+    pub(crate) fn restart_threshold(&self, pid: usize) -> usize {
+        self.restart_thresholds[pid]
     }
 
     /// Returns the cardinality check for a transition, if any.
