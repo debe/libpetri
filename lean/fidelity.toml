@@ -87,7 +87,7 @@ lean = ["Libpetri/Ring.lean", "Libpetri/Refinement.lean", "Libpetri/RetrodictExe
 [[pin]]
 file = "rust/libpetri-runtime/src/precompiled_backend.rs"
 fn = "update_enablement"
-lean = ["Libpetri/Enablement.lean", "Libpetri/Refinement.lean"]
+lean = ["Libpetri/Enablement.lean", "Libpetri/Refinement.lean", "Libpetri/TimedCycle.lean"]
 
 [[pin]]
 file = "rust/libpetri-runtime/src/precompiled_backend.rs"
@@ -315,7 +315,7 @@ lean = ["Libpetri/TimedCycle.lean"]
 
 [[pin]]
 file = "rust/libpetri-runtime/src/precompiled_backend.rs"
-fn = "has_input_from_reset_place"
+fn = "flag_clock_restarts"
 lean = ["Libpetri/TimedCycle.lean"]
 
 [[pin]]
@@ -340,7 +340,7 @@ lean = ["Libpetri/TimedCycle.lean"]
 
 [[pin]]
 file = "rust/libpetri-runtime/src/bitmap_backend.rs"
-fn = "has_input_from_reset_place"
+fn = "flag_clock_restarts"
 lean = ["Libpetri/TimedCycle.lean"]
 
 [[pin]]
