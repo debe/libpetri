@@ -61,6 +61,19 @@ The following safety properties can be verified:
   ([VER-014]) makes a count conditional: a halted run need not refund its budget, but it
   never holds more than there is.
 
+  `max` MAY be unbounded, and **how an implementation represents that is its own choice** — a
+  non-finite number, an absent optional, or a documented maximum — because the representation
+  is not observable. An unbounded `max` MUST contribute no upper-bound clause to the encoding
+  and MUST render without an upper bound in the report, so two implementations agree on the
+  emitted script and on the verdict whatever they store internally. `min` MUST be a
+  non-negative integer and `max` MUST be at least `min`; a construction breaking either MUST
+  be rejected where it is constructed, in the way the language reports a caller's error, rather
+  than yielding a verdict.
+
+  A clause of `min = 0` with `max` unbounded is satisfied by every marking. An implementation
+  MAY skip its query, and SHOULD then say so where it reports the other clauses, so that a
+  clause nobody asked about is distinguishable from one that passed.
+
 The two sink-sensitive properties are not ordered by strength; they **invert on the empty
 marking**. A quiescent `{done:1, stuck:1}` with `done` a sink violates DeadlockFree (it
 strands `stuck`) but satisfies TerminatesAtSink. The fully drained marking `{}` satisfies
@@ -84,10 +97,20 @@ Neither subsumes the other, which is why both exist.
 8. **QuiescentCount** reports a violation for a quiescent marking below `min` while no
    `waivedBy` place is marked, and for one above `max` whether or not one is. A marking below
    `min` with a `waivedBy` place marked is not a violation.
+9. **QuiescentCount** with a negative or non-integral `min`, or a `max` below `min`, is
+   rejected at construction. Two implementations given the same unbounded `max` emit the same
+   script, whatever each stores for it.
 
 **Implementation notes:**
-- QuiescentCount: TypeScript only so far (`quiescentCount(places, min, max, waivedBy)`). No
-  shared fixtures until Java, Rust and Python implement it.
+- QuiescentCount: TypeScript (`quiescentCount(places, min, max, waivedBy)`), Rust
+  (`SmtProperty::quiescent_count(places, min, max, waived_by)`, panicking on `max < min`) and
+  Python (`quiescent_count(places, min, max, waived_by=None)`, raising `ValueError` on a
+  negative or fractional bound or `max < min`). Java: not yet implemented. No shared fixtures
+  until all four implement it.
+- Unbounded `max` is `Infinity` in TypeScript and `math.inf` in Python, matching how both
+  already spell an unbounded threshold; Java and Rust SHOULD use an absent optional
+  (`OptionalInt` in Java, `Option<usize>` in Rust, matching its other bounds) rather than a
+  sentinel, so that no legitimate count can collide with it. Rust does.
 
 **Test derivation:** For each property type: construct net where property holds → Proven; construct net where property is violated → Violated.
 
@@ -626,9 +649,10 @@ are requested.
 - TypeScript: `SmtVerifier.stateEquation(enabled)`; `encodeNet(…, { stateEquation })`.
 - Rust: `SmtVerifier::state_equation(bool)`.
 - Python: `verify(..., state_equation=True)`.
-- The upper-bound rows on cleared places are TypeScript-only so far. Java, Rust and Python still
-  emit no row for such a place, which is weaker but sound; their scripts for a net with a
-  consume-all or reset arc differ from TypeScript's until they follow (AC5).
+- The upper-bound rows on cleared places are in TypeScript and Rust, byte-identical. Java and
+  Python still emit no row for such a place, which is weaker but sound; their scripts for a net
+  with a consume-all or reset arc differ until they follow (AC5). Python follows Rust once its
+  binding is rebuilt against this runtime.
 
 **Depends on:** [VER-001], [VER-004], [VER-005], [VER-013], [VER-015]
 
@@ -808,12 +832,31 @@ with its run in 0.3 s; one left to the next phase.
 5. With the phase disabled, verdicts and reports are those of the pipeline without it.
 6. `LIBPETRI_SMT_DUMP` records the phase's scripts under the phases `state-equation` and
    `invariant` ([VER-013]).
+7. The phase's first query is exposed with the other encoded scripts and pinned as a golden of
+   [VER-013] AC1, so every implementation's text for it is diffed against the same reference.
+   A script kind no golden covers is a script kind on which the implementations can diverge
+   silently, which is the one thing [VER-013] exists to prevent.
 
 **Implementation notes:**
 - TypeScript: `verification/z3/state-equation-query`, `trap-refinement`, `invariant-synthesis`,
   `parikh-search`, `state-equation-phase`; `SmtVerifier.stateEquationPhase(enabled)`;
   `encodeScripts().stateEquation` (the first query).
-- Java, Rust, Python: not yet implemented.
+- Rust: behind the `z3` feature, `state_equation_query`, `trap_refinement`,
+  `invariant_synthesis`, `parikh_search`, `state_equation_phase`;
+  `SmtVerifier::state_equation_phase(bool)`; `encode_scripts().state_equation` (the first
+  query).
+- Python: `verify(..., state_equation_phase=True)`; `encode_smt_scripts(...)["state_equation"]`
+  (the first query, gated by `state_equation_phase=`; the `state_equation=` keyword is
+  [VER-016]'s).
+- Java: not yet implemented.
+- Naming, so the four surfaces do not each invent one: the three pre-fixpoint phases are
+  `linearBound` ([VER-015]), `stateEquationPhase` ([VER-018]) and `firingBound` ([VER-019]),
+  each a single boolean toggle in the verifier's builder, spelled the way the language spells
+  its other toggles. `stateEquationPhase` carries the suffix because `stateEquation`
+  ([VER-016]) is a different switch on the same verifier — it adds firing counters *inside* the
+  fixpoint encoding and is off by default, where this phase can decide the property instead of
+  the fixpoint query and is on. An implementation SHOULD cross-reference the two wherever it
+  documents either.
 
 **Depends on:** [VER-001], [VER-003], [VER-004], [VER-006], [VER-013], [VER-015], [VER-016]
 
@@ -861,7 +904,13 @@ A proof from this phase carries no inductive invariant, so the certificate check
 it rests on the exactly re-checked ranking and on the solver's `unsat`. The phase runs within
 half the timeout, because short counterexamples are found in seconds while a proof to a deep
 bound on a wide net can outlast any budget. It does not run on a net with injected environment
-places: an injection is not a firing, and no weighting bounds it.
+places: an injection is not a firing, and no weighting bounds it. On by default, as [VER-018]
+is; MAY be disabled to force the fixpoint path.
+
+Every implementation MUST default this phase and [VER-018]'s the same way. A verdict from a
+pre-fixpoint phase carries a different `method` and a different report from the same verdict
+reached by the fixpoint query, so implementations that disagree on the defaults disagree on the
+verdict-parity fixtures without disagreeing on any property.
 
 Measured on the same 23 workflow nets: the violated net that [VER-018] leaves open has `K = 25`
 and a 22-step counterexample at depth 25 in about 11 s; the four agent nets and two loop nets have
@@ -889,7 +938,11 @@ longest run exactly (38, 41, 50 and 70 firings).
 - TypeScript: `verification/z3/bounded-run` (`encodeRankingQuery`, `checkRankingExact`,
   `encodeRepeatableVectorQuery`, `encodeBoundedRun`, `replayRun`, `runFiringBoundPhase`);
   `SmtVerifier.firingBound(enabled)`.
-- Java, Rust, Python: not yet implemented.
+- Rust: behind the `z3` feature, `bounded_run` (`encode_ranking_query`, `check_ranking_exact`,
+  `encode_repeatable_vector_query`, `encode_bounded_run`, `replay_run`,
+  `run_firing_bound_phase`); `SmtVerifier::firing_bound(bool)`.
+- Python: `verify(..., firing_bound=True)`.
+- Java: not yet implemented.
 
 **Depends on:** [VER-001], [VER-003], [VER-004], [VER-013], [VER-018]
 
@@ -1263,7 +1316,21 @@ It is the fallback for a graph that will not close, not an alternative to one.
   `closeOpenNet`.
   Supporting APIs: `StateClassGraph.build(…, { untimed: true })` and `rest-set`
   `strandedPlaces`.
-- Java, Rust, Python: not implemented.
+- Rust: behind the `z3` feature, `open_net`: `verify_open_net(&net, &contract, &options)` with
+  `OpenNetOptions { max_classes, smt, configure_smt, termination_timeout_ms }`;
+  `OpenNetContract::builder()` (`initial_marking`, `initial_tokens`, `arrive`,
+  `arrive_at_most`, `arrive_between`, `expect`, `expect_between` with `max: Option<usize>`,
+  `rest`, `terminal`, `environment`, `require_termination`); `close_open_net`. Supporting APIs:
+  `StateClassGraph::build_with_options(…, StateClassGraphOptions { untimed: true })` and
+  `rest_set::stranded_places`. The report is byte-identical to TypeScript's.
+- Python: `verify_open_net(net, contract, *, max_classes=50_000, smt=True,
+  termination_timeout_ms=60_000, ...)`, whose remaining keywords (`timeout_ms`,
+  `linear_bound`, `state_equation`, `state_equation_phase`, `firing_bound`,
+  `semiflow_invariants`) configure each SMT query as they configure `verify`;
+  `OpenNetContract.builder()` with the Rust builder's methods, places as varargs and an
+  unbounded `max` as `math.inf`. Results are `OpenNetResult`, `ContractViolation` and
+  `PortStep`, with the Rust report.
+- Java: not yet implemented.
 
 **Depends on:** [VER-002], [VER-004], [VER-006], [VER-010], [VER-014], [VER-017], [VER-019]
 

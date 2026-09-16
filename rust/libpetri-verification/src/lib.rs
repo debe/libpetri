@@ -59,6 +59,15 @@
 //! counter per transition and the marking equation in every rule body, which is
 //! what a quiescence proof on a pipeline-shaped net needs.
 //!
+//! After the linear bound and before the fixpoint query, two phases can decide any
+//! property on the flat path (both on by default, as in every implementation). The
+//! [`state_equation_phase`] of [VER-018] (`state_equation_phase(true)`) asks one
+//! `QF_LIA` query over the marking equation and refines its spurious candidates with
+//! traps and linear inequalities until `unsat` proves the property — re-proven by the
+//! certificate check — or a run within a candidate's firing counts violates it. The
+//! firing bound of [VER-019] (`firing_bound(true)`, [`bounded_run`]) finds weights
+//! every firing lowers, which bound every run, and model-checks runs of that length.
+//!
 //! Before any of that, an untimed net with no ν-joins and no environment places
 //! is tried against the [`scg_verifier`] route of [VER-017]: when the
 //! state-class graph closes within `enumeration_max_classes` (default 50 000,
@@ -110,8 +119,22 @@ pub mod state_class_graph;
 pub mod structural_check;
 
 #[cfg(feature = "z3")]
+pub mod bounded_run;
+#[cfg(feature = "z3")]
+pub mod invariant_synthesis;
+#[cfg(feature = "z3")]
 pub mod linear_bound;
 #[cfg(feature = "z3")]
+pub mod open_net;
+#[cfg(feature = "z3")]
+pub mod parikh_search;
+#[cfg(feature = "z3")]
 pub mod smt_verifier;
+#[cfg(feature = "z3")]
+pub mod state_equation_phase;
+#[cfg(feature = "z3")]
+pub mod state_equation_query;
+#[cfg(feature = "z3")]
+pub mod trap_refinement;
 #[cfg(feature = "z3")]
 pub mod z3_process;

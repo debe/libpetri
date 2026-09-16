@@ -71,7 +71,8 @@ pub fn violation_demand(flat: &FlatNet, property: &SmtProperty) -> Option<BTreeM
         }
         SmtProperty::DeadlockFree
         | SmtProperty::TerminatesAtSink
-        | SmtProperty::JoinedOrDeadLettered { .. } => return None,
+        | SmtProperty::JoinedOrDeadLettered { .. }
+        | SmtProperty::QuiescentCount { .. } => return None,
     }
     if demand.is_empty() { None } else { Some(demand) }
 }

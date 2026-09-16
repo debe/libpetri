@@ -14,6 +14,8 @@ pub mod export;
 #[cfg(feature = "archive")]
 pub mod marking_cache;
 pub mod model;
+#[cfg(feature = "z3")]
+pub mod open_net;
 pub mod value;
 pub mod verification;
 
@@ -26,6 +28,8 @@ fn _libpetri(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     executor::register(py, m)?;
     export::register(m)?;
     verification::register(m)?;
+    #[cfg(feature = "z3")]
+    open_net::register(m)?;
     #[cfg(feature = "debug")]
     debug::register(py, m)?;
     #[cfg(feature = "archive")]

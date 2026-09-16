@@ -3,8 +3,10 @@
 //! For every fixture in `spec/verification-fixtures/fixtures.json` the scripts the
 //! verifier would send to z3 ([`SmtVerifier::encode_scripts`]) must equal the
 //! committed goldens under `spec/verification-fixtures/scripts/<id>/`, byte for
-//! byte: `horn.smt2`, `certificate.smt2` (flat encoding) and `bound.smt2` (the
-//! [VER-015] query, for a reachability-safety property on the flat path). The goldens are written by THIS test with `LIBPETRI_SMT_SCRIPT_UPDATE=1`
+//! byte: `horn.smt2`, `certificate.smt2` (flat encoding), `bound.smt2` (the
+//! [VER-015] query, for a reachability-safety property on the flat path) and
+//! `state-equation.smt2` (the first query of the [VER-018] phase, wherever that
+//! phase runs — [VER-018] AC7). The goldens are written by THIS test with `LIBPETRI_SMT_SCRIPT_UPDATE=1`
 //! (`scripts/smt-script-parity.py --update`) and diffed by the Java, TypeScript
 //! and Python script-parity tests too, so the four implementations emit the same
 //! text. A diff is a parity finding in whichever emitter drifted, never a reason
@@ -12,7 +14,10 @@
 //!
 //! With a z3 on the machine the test also ties the API to the pipeline: what
 //! `verify()` actually sends (captured through `LIBPETRI_SMT_DUMP`) is what
-//! `encode_scripts()` reports. The environment is process-global, so this file
+//! `encode_scripts()` reports. Each fixture is verified twice for that: with the
+//! defaults, where the phases of [VER-018]/[VER-019] run and send the state-equation
+//! query, and with both phases off, where the fixpoint path sends the HORN query they
+//! would otherwise decide before. The environment is process-global, so this file
 //! holds exactly ONE `#[test]`.
 
 #![cfg(feature = "z3")]
@@ -144,6 +149,7 @@ fn smt_scripts_match_the_committed_goldens() {
         let horn = dir.join("horn.smt2");
         let certificate = dir.join("certificate.smt2");
         let bound = dir.join("bound.smt2");
+        let state_equation = dir.join("state-equation.smt2");
         if update {
             fs::create_dir_all(&dir).expect("create golden dir");
             fs::write(&horn, &scripts.horn).expect("write horn golden");
@@ -159,74 +165,122 @@ fn smt_scripts_match_the_committed_goldens() {
                     let _ = fs::remove_file(&bound);
                 }
             }
+            match &scripts.state_equation {
+                Some(text) => {
+                    fs::write(&state_equation, text).expect("write state-equation golden")
+                }
+                None => {
+                    let _ = fs::remove_file(&state_equation);
+                }
+            }
             eprintln!("[script-parity] wrote {}", dir.display());
         } else {
             compare(&mut findings, id, &horn, Some(&scripts.horn));
             compare(&mut findings, id, &certificate, scripts.certificate.as_deref());
             compare(&mut findings, id, &bound, scripts.bound.as_deref());
+            compare(&mut findings, id, &state_equation, scripts.state_equation.as_deref());
         }
         encoded.push((id.to_string(), scripts));
     }
 
-    // API ↔ pipeline: the HORN and bound scripts verify() sends are the ones
-    // encode_scripts() reports. Route B fixtures never reach the solver; a
-    // structural early proof leaves no HORN dump (a [VER-015] proof still leaves
-    // the bound dump), and whatever was not sent is skipped.
+    // API ↔ pipeline: the scripts verify() sends are the ones encode_scripts()
+    // reports. Route B fixtures never reach the solver; a structural early proof
+    // leaves no HORN dump (a [VER-015] proof still leaves the bound dump), a phase
+    // that decides leaves none either, and whatever was not sent is skipped. The
+    // first dump of a phase is compared: the state-equation phase's later queries
+    // carry refinements, and only its first is exposed.
     if z3_available() {
         let scratch = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../target/smt-parity")
             .join(format!("{}", std::process::id()));
+        // Which scripts were compared at all: a cross-check that skipped every fixture
+        // would pass while checking nothing.
+        let mut compared: Vec<&str> = Vec::new();
         for fixture in fixtures {
             if fixture.str_opt("route") == Some("B") {
                 continue;
             }
             let id = fixture.str("id");
-            let dump = scratch.join(id);
-            // SAFETY: this binary runs one test; no other thread reads the environment.
-            unsafe { std::env::set_var("LIBPETRI_SMT_DUMP", &dump) };
             let built = nets::build(fixture.str("net"));
-            let _ = verifier_for(fixture, &built).verify();
-            // SAFETY: as above.
-            unsafe { std::env::remove_var("LIBPETRI_SMT_DUMP") };
-            let sent = |phase: &str| {
-                fs::read_dir(&dump)
-                    .ok()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|e| e.ok())
-                    .map(|e| e.path())
-                    .filter(|p| {
-                        let name = p.file_name().unwrap_or_default().to_string_lossy().into_owned();
-                        name.contains(phase) && name.ends_with(".smt2")
-                    })
-                    .min()
-            };
             let reported = &encoded.iter().find(|(f, _)| f == id).expect("encoded").1;
-            for (phase, label, expected) in [
-                ("-horn", "HORN", Some(reported.horn.as_str())),
-                ("-bound", "bound", reported.bound.as_deref()),
-            ] {
-                let Some(path) = sent(phase) else {
-                    continue;
+            // With the defaults the phases of [VER-018]/[VER-019] run before the fixpoint
+            // query and, on most fixtures, decide; with both off, the HORN query is sent.
+            // encode_scripts() reports the same HORN script either way, since neither
+            // toggle changes the encoding.
+            let runs: [(&str, bool, Vec<(&str, &str, Option<&str>)>); 2] = [
+                (
+                    "phases",
+                    true,
+                    vec![
+                        ("-bound", "bound", reported.bound.as_deref()),
+                        ("-state-equation", "state-equation", reported.state_equation.as_deref()),
+                        ("-horn", "HORN", Some(reported.horn.as_str())),
+                    ],
+                ),
+                (
+                    "fixpoint",
+                    false,
+                    vec![
+                        ("-bound", "bound", reported.bound.as_deref()),
+                        ("-horn", "HORN", Some(reported.horn.as_str())),
+                    ],
+                ),
+            ];
+            for (run, phases, checks) in runs {
+                let dump = scratch.join(id).join(run);
+                // SAFETY: this binary runs one test; no other thread reads the environment.
+                unsafe { std::env::set_var("LIBPETRI_SMT_DUMP", &dump) };
+                let _ = verifier_for(fixture, &built)
+                    .state_equation_phase(phases)
+                    .firing_bound(phases)
+                    .verify();
+                // SAFETY: as above.
+                unsafe { std::env::remove_var("LIBPETRI_SMT_DUMP") };
+                let sent = |phase: &str| {
+                    fs::read_dir(&dump)
+                        .ok()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|e| e.ok())
+                        .map(|e| e.path())
+                        .filter(|p| {
+                            let name = p.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                            name.contains(phase) && name.ends_with(".smt2")
+                        })
+                        .min()
                 };
-                let actual = fs::read_to_string(&path).expect("read dumped script");
-                match expected {
-                    Some(text) if actual == text => {}
-                    Some(text) => findings.push(format!(
-                        "SCRIPT PARITY FINDING [{id}]: the {label} script verify() sent ({}) differs \
-                         from encode_scripts() at {}",
-                        path.display(),
-                        first_difference(text, &actual)
-                    )),
-                    None => findings.push(format!(
-                        "SCRIPT PARITY FINDING [{id}]: verify() sent a {label} script ({}) that \
-                         encode_scripts() does not report",
-                        path.display()
-                    )),
+                for (phase, label, expected) in checks {
+                    let Some(path) = sent(phase) else {
+                        continue;
+                    };
+                    let actual = fs::read_to_string(&path).expect("read dumped script");
+                    if !compared.contains(&label) {
+                        compared.push(label);
+                    }
+                    match expected {
+                        Some(text) if actual == text => {}
+                        Some(text) => findings.push(format!(
+                            "SCRIPT PARITY FINDING [{id}]: the {label} script verify() sent ({}) differs \
+                             from encode_scripts() at {}",
+                            path.display(),
+                            first_difference(text, &actual)
+                        )),
+                        None => findings.push(format!(
+                            "SCRIPT PARITY FINDING [{id}]: verify() sent a {label} script ({}) that \
+                             encode_scripts() does not report",
+                            path.display()
+                        )),
+                    }
                 }
             }
         }
         let _ = fs::remove_dir_all(&scratch);
+        for label in ["bound", "state-equation", "HORN"] {
+            assert!(
+                compared.contains(&label),
+                "the verify() dump cross-check compared no {label} script on any fixture"
+            );
+        }
     } else {
         eprintln!("skipping the verify() dump cross-check: no usable z3");
     }

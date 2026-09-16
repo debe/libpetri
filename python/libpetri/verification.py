@@ -9,6 +9,7 @@ from . import _libpetri as _ext
 from .model import (
     BuiltNet,
     BuiltSubnetDef,
+    BuiltTransition,
     PlaceLike,
     _coerce_net,
     _coerce_place_name,
@@ -101,6 +102,34 @@ def joined_or_dead_lettered(pending: PlaceLike) -> SmtProperty:
     return _ext.joined_or_dead_lettered(_coerce_place_name(pending))
 
 
+def quiescent_count(
+    places: Iterable[PlaceLike],
+    min: int,
+    max: int | float,
+    waived_by: Iterable[PlaceLike] | None = None,
+) -> SmtProperty:
+    """Every reachable quiescent marking holds between ``min`` and ``max`` tokens
+    across ``places``, and the lower bound is waived while any ``waived_by`` place
+    holds a token ([VER-002]).
+
+    ``max`` is ``math.inf`` for no upper bound, which contributes no clause to the
+    encoding and renders without one in the report. This is how a designed
+    terminal ([VER-014]) makes a count conditional: a halted run need not refund
+    its budget, but it never holds more than there is::
+
+        quiescent_count([budget], k, k, waived_by=[halt])
+
+    A negative or fractional bound, or a ``max`` below ``min``, raises
+    ``ValueError`` here instead of coming back as a verdict about the net.
+    """
+    return _ext.quiescent_count(
+        [_coerce_place_name(p) for p in places],
+        min,
+        max,
+        [_coerce_place_name(p) for p in (waived_by or ())],
+    )
+
+
 def _coerce_sink_places_when(
     declarations: Mapping[PlaceLike, Iterable[PlaceLike]] | None,
 ) -> dict[str, list[str]]:
@@ -124,7 +153,7 @@ def verify(
     environment_mode: EnvironmentAnalysisMode | None = None,
     sink_places: Iterable[PlaceLike] | None = None,
     budget_places: Iterable[PlaceLike] | None = None,
-    timeout_ms: int = 30_000,
+    timeout_ms: int = 60_000,
     nu_max_classes: int | None = None,
     fragment_mode: str | int | None = None,
     carrier_places: Iterable[PlaceLike] | None = None,
@@ -136,6 +165,8 @@ def verify(
     linear_bound: bool = True,
     state_equation: bool = False,
     enumeration_max_classes: int | None = None,
+    state_equation_phase: bool = True,
+    firing_bound: bool = True,
 ) -> VerificationResult:
     """Verify ``property`` against ``net`` via SMT (Z3).
 
@@ -283,6 +314,24 @@ def verify(
     SMT pipeline runs unchanged; pass ``0`` to disable it, which is what a test
     pinning the encoders' own answer wants.
 
+    ``state_equation_phase`` (default ``True``, VER-018) asks, after the linear
+    bound and before the fixpoint query, whether a marking the marking equation
+    admits can violate the property. ``unsat`` proves it, with ``result.method ==
+    "state-equation"`` and a certificate that passed the check; a spurious
+    candidate is refined by a trap or an inductive inequality, which the report
+    prints (``Refinement (inductive): hasdata <= ready0 + ready1``) and
+    ``result.discovered_invariants`` lists; a run within the candidate's firing
+    counts is a confirmed violation. Not ``state_equation``, which adds counters
+    inside the fixpoint encoding and is off by default -- this phase can decide
+    the property instead of that query, and is on.
+
+    ``firing_bound`` (default ``True``, VER-019) looks for place weights every
+    firing lowers, which bound every run, and model-checks runs of that length:
+    ``result.method == "bounded-model-check"`` on a proof, a replayed run on a
+    violation, and a report line naming the transitions that can repeat when no
+    bound exists. Turn either phase off to force the fixpoint path, for its
+    certificate or to pin a test to it.
+
     ``result.route`` (VER-003 AC4) names which route decided: ``"smt"``,
     ``"enumeration"``, ``"nu-scg"``, ``"structural"`` or ``"unavailable"``. Read
     it before concluding anything from an EMPTY invariant list -- off the
@@ -312,6 +361,8 @@ def verify(
         linear_bound=linear_bound,
         state_equation=state_equation,
         enumeration_max_classes=enumeration_max_classes,
+        state_equation_phase=state_equation_phase,
+        firing_bound=firing_bound,
     )
 
 
@@ -361,18 +412,23 @@ def encode_smt_scripts(
     sink_places_when: Mapping[PlaceLike, Iterable[PlaceLike]] | None = None,
     linear_bound: bool = True,
     state_equation: bool = False,
+    state_equation_phase: bool = True,
 ) -> dict:
     """The SMT-LIB2 scripts :func:`verify` would send to z3 for this configuration,
     without running a solver (VER-013 AC1).
 
     Returns ``{"horn": str, "certificate": str | None, "coloured": bool, "bound":
-    str | None}``: the HORN query (flat, or name-coloured when a declared budget
-    puts the net on Route A's exact encoding), for the flat encoding the
-    certificate-check script built around the placeholder certificate, and the
-    linear state-equation bound query (VER-015) exactly when :func:`verify` would
-    send it -- a reachability-safety property on the flat path; ``None`` for a
-    quiescence property and on the name-coloured path. This is what the
-    cross-language golden tests diff byte for byte.
+    str | None, "state_equation": str | None}``: the HORN query (flat, or
+    name-coloured when a declared budget puts the net on Route A's exact
+    encoding), for the flat encoding the certificate-check script built around the
+    placeholder certificate, the linear state-equation bound query (VER-015)
+    exactly when :func:`verify` would send it -- a reachability-safety property on
+    the flat path; ``None`` for a quiescence property and on the name-coloured
+    path -- and the first query of the state-equation phase (VER-018 AC7), before
+    any refinement, exactly where that phase runs; ``None`` on the name-coloured
+    path, for a ν-net, under ``ignore()`` with environment places, or with
+    ``state_equation_phase=False``. This is what the cross-language golden tests
+    diff byte for byte.
 
     Every option :func:`verify` takes that shapes a script is accepted here and
     changes it the same way. ``semiflow_invariants`` conjoins the strengthened
@@ -387,7 +443,10 @@ def encode_smt_scripts(
     None``;
     ``state_equation`` (VER-016) adds the firing counters and marking equation to
     the flat ``horn`` and widens the placeholder certificate to ``P + T``
-    arguments. See :func:`verify` for when to turn each on.
+    arguments. The ``state_equation`` KEYWORD is that option; the
+    ``"state_equation"`` KEY is the VER-018 phase's query, gated by
+    ``state_equation_phase``. The two share a name because the Rust verifier's
+    field and builder method do. See :func:`verify` for when to turn each on.
     """
     return _ext.encode_smt_scripts(
         _coerce_net(net),
@@ -408,6 +467,7 @@ def encode_smt_scripts(
         sink_places_when=_coerce_sink_places_when(sink_places_when),
         linear_bound=linear_bound,
         state_equation=state_equation,
+        state_equation_phase=state_equation_phase,
     )
 
 
@@ -424,7 +484,242 @@ def z3_available() -> bool:
     return bool(_ext.z3_available())
 
 
+# ---------- VER-022 open-net verification --------------------------------
+
+# The Rust open-net module is gated on the `z3` feature, like the rest of the SMT
+# surface, so a wheel built without it has none of these classes.
+_HAS_OPEN_NET = bool(_ext.HAS_Z3)
+
+
+def _require_open_net() -> None:
+    if not _HAS_OPEN_NET:
+        raise RuntimeError("z3 feature not enabled")
+
+
+if _HAS_OPEN_NET:
+    OpenNetResult = _ext.OpenNetResult
+    ContractViolation = _ext.ContractViolation
+    PortStep = _ext.PortStep
+else:
+
+    class OpenNetResult:  # type: ignore[no-redef]
+        def __init__(self, *_args, **_kwargs) -> None:
+            _require_open_net()
+
+    class ContractViolation:  # type: ignore[no-redef]
+        def __init__(self, *_args, **_kwargs) -> None:
+            _require_open_net()
+
+    class PortStep:  # type: ignore[no-redef]
+        def __init__(self, *_args, **_kwargs) -> None:
+            _require_open_net()
+
+
+def _place_names(places: Iterable[PlaceLike]) -> list[str]:
+    return [_coerce_place_name(p) for p in places]
+
+
+class OpenNetContract:
+    """A subnet's contract: the environment it assumes and what it guarantees at
+    quiescence ([VER-022]). Build one with :meth:`builder`; check it with
+    :func:`verify_open_net`::
+
+        contract = (
+            OpenNetContract.builder()
+            .initial_marking({idle: 1, budget: k})
+            .arrive(1, in_data, in_empty)        # exactly one arrival on the input edge
+            .arrive_at_most(1, halt)             # never or once
+            .expect("e3", 1, e3_data, e3_empty)  # one of data / empty per outgoing edge
+            .expect("idle", 1, idle)
+            .expect("budget", k, budget)
+            .terminal(halt, in_data, in_empty)   # a halted run leaves the arrival where it was delivered
+            .build()
+        )
+
+    A place the contract does not name is internal to the subnet and must be empty
+    at quiescence, and every run must come to rest unless
+    :meth:`OpenNetContractBuilder.require_termination` turns that off.
+
+    A node that can skip needs its edge clauses conditional: name the place that
+    marks a skip as a :meth:`OpenNetContractBuilder.terminal`, which waives the
+    clauses' lower bounds while it is marked and keeps every upper bound. A subnet
+    that asks something of its neighbours needs an environment: give the contract
+    the transitions they would fire (:meth:`OpenNetContractBuilder.environment`).
+    """
+
+    def __init__(self, inner) -> None:
+        # Built by OpenNetContractBuilder.build(); not constructed directly.
+        self._inner = inner
+
+    @classmethod
+    def builder(cls) -> "OpenNetContractBuilder":
+        return OpenNetContractBuilder()
+
+    def places(self) -> list[str]:
+        """Every place the contract names, in first-mention order: the places a
+        port trace reports token changes on."""
+        return self._inner.places()
+
+    def describe(self) -> list[str]:
+        """The contract as the report prints it, one line per part."""
+        return self._inner.describe()
+
+    @property
+    def requires_termination(self) -> bool:
+        return self._inner.requires_termination
+
+    def __repr__(self) -> str:
+        return repr(self._inner)
+
+
+class OpenNetContractBuilder:
+    """Builds an :class:`OpenNetContract`. Places are ``Place`` objects or names.
+
+    Every method validates as it goes: a contract that cannot mean anything -- a
+    group or clause over no place, a ``max`` below ``min``, a duplicate clause name
+    -- raises ``ValueError`` (``StructureError`` where the Rust builder refuses it)
+    where it is built, never a verdict about the net.
+    """
+
+    def __init__(self) -> None:
+        _require_open_net()
+        self._inner = _ext.OpenNetContractBuilder()
+
+    def initial_marking(self, marking: Mapping[PlaceLike, int]) -> "OpenNetContractBuilder":
+        """Replaces the tokens the subnet holds before anything arrives: its own
+        resources and any shared pool it borrows from. Dict order is the order a
+        port trace lists them in."""
+        self._inner = self._inner.initial_marking(
+            [(_coerce_place_name(p), n) for p, n in marking.items()]
+        )
+        return self
+
+    def initial_tokens(self, place: PlaceLike, count: int) -> "OpenNetContractBuilder":
+        """Sets the tokens ``place`` holds before anything arrives; ``0`` removes it."""
+        self._inner = self._inner.initial_tokens(_coerce_place_name(place), count)
+        return self
+
+    def arrive(self, count: int, *places: PlaceLike) -> "OpenNetContractBuilder":
+        """The environment delivers exactly ``count`` tokens, each onto one of
+        ``places``, at any point of the run."""
+        return self.arrive_between(count, count, *places)
+
+    def arrive_at_most(self, max: int, *places: PlaceLike) -> "OpenNetContractBuilder":
+        """The environment delivers at most ``max`` tokens, possibly none.
+        ``arrive_at_most(1, halt)`` is "never or once"."""
+        return self.arrive_between(0, max, *places)
+
+    def arrive_between(self, min: int, max: int, *places: PlaceLike) -> "OpenNetContractBuilder":
+        """The environment delivers between ``min`` and ``max`` tokens in total.
+        Both bounds are finite: a bound is both the runtime cap and the width of
+        the claim, so an environment that delivers without limit is not something
+        a contract can assume."""
+        self._inner = self._inner.arrive_between(min, max, _place_names(places))
+        return self
+
+    def expect(self, name: str, count: int, *places: PlaceLike) -> "OpenNetContractBuilder":
+        """At every quiescent marking, exactly ``count`` tokens across ``places``."""
+        return self.expect_between(name, count, count, *places)
+
+    def expect_between(
+        self, name: str, min: int, max: int | float, *places: PlaceLike
+    ) -> "OpenNetContractBuilder":
+        """At every quiescent marking, between ``min`` and ``max`` tokens across
+        ``places``; ``max`` may be ``math.inf``. A marked terminal waives ``min``,
+        never ``max``."""
+        self._inner = self._inner.expect_between(name, min, max, _place_names(places))
+        return self
+
+    def rest(self, *places: PlaceLike) -> "OpenNetContractBuilder":
+        """Places that may hold any number of tokens at quiescence."""
+        self._inner = self._inner.rest(_place_names(places))
+        return self
+
+    def terminal(self, marker: PlaceLike, *excused: PlaceLike) -> "OpenNetContractBuilder":
+        """A designed terminal: while ``marker`` holds a token, lower bounds are
+        waived and tokens may rest on ``excused``. Repeated calls for one marker
+        accumulate."""
+        self._inner = self._inner.terminal(_coerce_place_name(marker), _place_names(excused))
+        return self
+
+    def environment(self, *transitions: BuiltTransition) -> "OpenNetContractBuilder":
+        """Transitions the environment fires: a neighbour that reacts to what the
+        subnet sends. They join the closed net unchanged and are marked as
+        environment steps in the port trace; a place only they touch is the
+        environment's own and is never reported stranded. Their actions never run."""
+        self._inner = self._inner.environment(list(transitions))
+        return self
+
+    def require_termination(self, required: bool) -> "OpenNetContractBuilder":
+        """Whether every run must come to rest (default ``True``)."""
+        self._inner = self._inner.require_termination(required)
+        return self
+
+    def build(self) -> OpenNetContract:
+        return OpenNetContract(self._inner.build())
+
+
+def verify_open_net(
+    net: BuiltNet,
+    contract: OpenNetContract,
+    *,
+    max_classes: int = 50_000,
+    smt: bool = True,
+    termination_timeout_ms: int = 60_000,
+    timeout_ms: int = 60_000,
+    linear_bound: bool = True,
+    state_equation: bool = False,
+    state_equation_phase: bool = True,
+    firing_bound: bool = True,
+    semiflow_invariants: bool | Literal["auto"] = False,
+) -> OpenNetResult:
+    """Verifies ``net`` in isolation against ``contract`` ([VER-022]).
+
+    The subnet is closed with the environment the contract describes, and the
+    closed net's untimed state-class graph is enumerated within ``max_classes``
+    (``0`` skips it). When the graph closes the verdict is exact. When it does not,
+    a violation among the explored classes is still real, and the rest goes to the
+    SMT pipeline unless ``smt`` is ``False``: one query per part of the contract,
+    and termination by the firing bound of VER-019 within
+    ``termination_timeout_ms``. ``timeout_ms`` and the phase toggles configure each
+    of those queries exactly as they configure :func:`verify`.
+
+    ``result.verdict`` is ``"proven"`` when, in every run of the environment the
+    contract assumes, every quiescent marking meets the contract and (unless
+    termination is waived) every run comes to rest. The claim is untimed,
+    priority-blind and value-blind. ``"violated"`` lists every broken part in
+    ``result.violations``, each with a firing sequence and a port trace;
+    ``"unknown"`` says in ``result.reason`` which parts neither route decided.
+    ``result.report`` is the full text, byte-identical to the other
+    implementations'.
+
+    Raises ``StructureError`` when the net violates CORE-043 or the closure's names
+    collide with the net's.
+    """
+    _require_open_net()
+    if not isinstance(contract, OpenNetContract):
+        raise TypeError("expected an OpenNetContract; call .build() on the builder first")
+    return _ext.verify_open_net(
+        _coerce_net(net),
+        contract._inner,
+        max_classes=max_classes,
+        smt=smt,
+        termination_timeout_ms=termination_timeout_ms,
+        timeout_ms=timeout_ms,
+        linear_bound=linear_bound,
+        state_equation=state_equation,
+        state_equation_phase=state_equation_phase,
+        firing_bound=firing_bound,
+        semiflow_invariants=semiflow_invariants,
+    )
+
+
 __all__ = [
+    "ContractViolation",
+    "OpenNetContract",
+    "OpenNetContractBuilder",
+    "OpenNetResult",
+    "PortStep",
     "EnvironmentAnalysisMode",
     "PropertyResult",
     "SmtProperty",
@@ -440,8 +735,10 @@ __all__ = [
     "joined_or_dead_lettered",
     "mutual_exclusion",
     "place_bound",
+    "quiescent_count",
     "unreachable",
     "verify",
+    "verify_open_net",
     "verify_subnet",
     "encode_smt_scripts",
     "z3_available",

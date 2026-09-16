@@ -58,7 +58,7 @@ impl NameStateClassGraph {
         priority_semantics: PrioritySemantics,
     ) -> Self {
         let env_set: HashSet<&str> = env_places.iter().copied().collect();
-        let base0 = initial_state_class(net, initial_marking, &env_set, env_mode);
+        let base0 = initial_state_class(net, initial_marking, &env_set, env_mode, false);
 
         let mut graph = NameStateClassGraph {
             classes: Vec::new(),
@@ -142,6 +142,7 @@ impl NameStateClassGraph {
                         &output_places,
                         &env_set,
                         env_mode,
+                        false,
                     );
                     if base_succ.is_empty() {
                         continue; // DBM zone infeasible

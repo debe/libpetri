@@ -6,13 +6,16 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Any, Literal, TypeAlias
 
 from . import _libpetri as _ext
-from .model import BuiltNet, BuiltSubnetDef, PlaceLike
+from .model import BuiltNet, BuiltSubnetDef, BuiltTransition, PlaceLike
 
 SmtProperty: TypeAlias = _ext.SmtProperty
 VerificationResult: TypeAlias = _ext.VerificationResult
 PropertyResult: TypeAlias = _ext.PropertyResult
 SubnetVerificationResult: TypeAlias = _ext.SubnetVerificationResult
 EnvironmentAnalysisMode: TypeAlias = _ext.EnvironmentAnalysisMode
+OpenNetResult: TypeAlias = _ext.OpenNetResult
+ContractViolation: TypeAlias = _ext.ContractViolation
+PortStep: TypeAlias = _ext.PortStep
 
 class VerificationHarness:
     def __init__(self) -> None: ...
@@ -35,6 +38,15 @@ def place_bound(place: PlaceLike, bound: int) -> SmtProperty: ...
 def unreachable(places: Iterable[PlaceLike]) -> SmtProperty: ...
 def branch_place_bound(place: PlaceLike, bound: int) -> SmtProperty: ...
 def joined_or_dead_lettered(pending: PlaceLike) -> SmtProperty: ...
+def quiescent_count(
+    places: Iterable[PlaceLike],
+    min: int,
+    max: int | float,
+    waived_by: Iterable[PlaceLike] | None = ...,
+) -> SmtProperty:
+    """Every quiescent marking holds between ``min`` and ``max`` tokens across
+    ``places``, the lower bound waived while a ``waived_by`` place is marked
+    (VER-002). ``max`` is ``math.inf`` for no upper bound."""
 def verify(
     net: BuiltNet,
     property: SmtProperty,
@@ -56,6 +68,8 @@ def verify(
     linear_bound: bool = ...,
     state_equation: bool = ...,
     enumeration_max_classes: int | None = ...,
+    state_equation_phase: bool = ...,
+    firing_bound: bool = ...,
 ) -> VerificationResult:
     """``sink_places_when`` declares, in dict order, the places where a token may
     rest while its marker place holds a token (VER-014). ``linear_bound`` (default
@@ -67,8 +81,10 @@ def verify(
     budget of the bounded state-space enumeration route, which decides an untimed
     closed net exactly with no solver at all; ``0`` disables it (VER-017).
     ``semiflow_invariants="auto"`` unions the P-semiflows exactly when the
-    null-space basis lost a law to the H1 guard (VER-007). The result names the
-    deciding route in ``route`` (VER-003)."""
+    null-space basis lost a law to the H1 guard (VER-007). ``state_equation_phase``
+    (VER-018) and ``firing_bound`` (VER-019), both on by default, can decide the
+    property before the fixpoint query; ``False`` forces the fixpoint path. The
+    result names the deciding route in ``route`` (VER-003)."""
 def verify_subnet(
     subnet: BuiltSubnetDef,
     harness: VerificationHarness | Iterable[SmtProperty],
@@ -91,10 +107,58 @@ def encode_smt_scripts(
     sink_places_when: Mapping[PlaceLike, Iterable[PlaceLike]] | None = ...,
     linear_bound: bool = ...,
     state_equation: bool = ...,
+    state_equation_phase: bool = ...,
 ) -> dict[str, str | bool | None]:
-    """Returns ``horn``, ``certificate``, ``coloured`` and ``bound`` -- the linear
+    """Returns ``horn``, ``certificate``, ``coloured``, ``bound`` -- the linear
     state-equation bound query, present exactly when :func:`verify` would send it
-    (VER-015). ``sink_places_when`` (VER-014), ``linear_bound`` (VER-015; ``False``
-    returns ``bound: None``) and ``state_equation`` (VER-016) shape the scripts
-    as they do for :func:`verify`."""
+    (VER-015) -- and ``state_equation``, the first query of the VER-018 phase,
+    present exactly where that phase runs. ``sink_places_when`` (VER-014),
+    ``linear_bound`` (VER-015; ``False`` returns ``bound: None``),
+    ``state_equation`` (VER-016's counters in ``horn``) and ``state_equation_phase``
+    (VER-018; ``False`` returns ``state_equation: None``) shape the scripts as they
+    do for :func:`verify`."""
 def z3_available() -> bool: ...
+
+class OpenNetContract:
+    @classmethod
+    def builder(cls) -> OpenNetContractBuilder: ...
+    def places(self) -> list[str]: ...
+    def describe(self) -> list[str]: ...
+    @property
+    def requires_termination(self) -> bool: ...
+
+class OpenNetContractBuilder:
+    def __init__(self) -> None: ...
+    def initial_marking(self, marking: Mapping[PlaceLike, int]) -> OpenNetContractBuilder: ...
+    def initial_tokens(self, place: PlaceLike, count: int) -> OpenNetContractBuilder: ...
+    def arrive(self, count: int, *places: PlaceLike) -> OpenNetContractBuilder: ...
+    def arrive_at_most(self, max: int, *places: PlaceLike) -> OpenNetContractBuilder: ...
+    def arrive_between(self, min: int, max: int, *places: PlaceLike) -> OpenNetContractBuilder: ...
+    def expect(self, name: str, count: int, *places: PlaceLike) -> OpenNetContractBuilder: ...
+    def expect_between(
+        self, name: str, min: int, max: int | float, *places: PlaceLike
+    ) -> OpenNetContractBuilder: ...
+    def rest(self, *places: PlaceLike) -> OpenNetContractBuilder: ...
+    def terminal(self, marker: PlaceLike, *excused: PlaceLike) -> OpenNetContractBuilder: ...
+    def environment(self, *transitions: BuiltTransition) -> OpenNetContractBuilder: ...
+    def require_termination(self, required: bool) -> OpenNetContractBuilder: ...
+    def build(self) -> OpenNetContract: ...
+
+def verify_open_net(
+    net: BuiltNet,
+    contract: OpenNetContract,
+    *,
+    max_classes: int = ...,
+    smt: bool = ...,
+    termination_timeout_ms: int = ...,
+    timeout_ms: int = ...,
+    linear_bound: bool = ...,
+    state_equation: bool = ...,
+    state_equation_phase: bool = ...,
+    firing_bound: bool = ...,
+    semiflow_invariants: bool | Literal["auto"] = ...,
+) -> OpenNetResult:
+    """Verifies ``net`` in isolation against ``contract`` (VER-022): the closed
+    net's untimed state-class graph within ``max_classes``, then, unless ``smt`` is
+    ``False``, one SMT query per part of the contract, configured by the remaining
+    keywords as :func:`verify` is."""

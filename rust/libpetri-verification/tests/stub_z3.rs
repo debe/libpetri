@@ -114,6 +114,10 @@ fn verify_with(
         .initial_marking(marking.build())
         .property(property)
         .environment_mode(EnvironmentAnalysisMode::Ignore)
+        // The contract under test is the HORN and certificate scripts' transport. The
+        // phases of VER-018/019 run first and would consume the stub's canned replies.
+        .state_equation_phase(false)
+        .firing_bound(false)
         .timeout(timeout_ms)
         .verify()
 }

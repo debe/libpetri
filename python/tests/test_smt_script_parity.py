@@ -2,8 +2,9 @@
 
 For every fixture in ``spec/verification-fixtures/fixtures.json`` the scripts the
 binding would send to z3 (``libpetri.encode_smt_scripts``: ``horn.smt2``,
-``certificate.smt2`` and, for a property with a linear demand, the VER-015
-``bound.smt2``) must equal the committed goldens under
+``certificate.smt2``, for a property with a linear demand the VER-015
+``bound.smt2``, and wherever the VER-018 phase runs its first query,
+``state-equation.smt2``) must equal the committed goldens under
 ``spec/verification-fixtures/scripts/<id>/``, byte for byte. The
 goldens are written by the Rust verifier (``scripts/smt-script-parity.py
 --update``); the Java and TypeScript suites diff them too. A diff is a parity
@@ -53,12 +54,14 @@ def test_smt_scripts_match_the_committed_goldens():
             counterexample_replay=True,
             **env,
         )
-        # `bound.smt2` (VER-015) is pinned exactly like `certificate.smt2`: a golden
-        # without an emitted script, or a script without a golden, is a finding.
+        # `bound.smt2` (VER-015) and `state-equation.smt2` (VER-018 AC7) are pinned
+        # exactly like `certificate.smt2`: a golden without an emitted script, or a
+        # script without a golden, is a finding.
         for name, actual in (
             ("horn.smt2", scripts["horn"]),
             ("certificate.smt2", scripts["certificate"]),
             ("bound.smt2", scripts["bound"]),
+            ("state-equation.smt2", scripts["state_equation"]),
         ):
             golden = SCRIPTS / fid / name
             if not golden.is_file():

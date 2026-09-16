@@ -134,6 +134,89 @@ pub fn violates(
     conditional_sinks: &[ConditionalSinks],
     env_inject: &[(usize, Option<usize>)],
 ) -> bool {
+    let index = PropertyIndex::of(flat, property, sink_places, conditional_sinks);
+    violates_indexed(flat, state, property, env_inject, &index)
+}
+
+/// [`violates`] with the net and the declarations resolved once, for a search that
+/// tests many states — the witness search of the state-equation phase ([VER-018])
+/// and the bounded run of the firing bound ([VER-019]).
+///
+/// It is the same predicate, not a second statement of it: [`violates`] resolves and
+/// evaluates through the one evaluator this closure calls, so a search and the
+/// replay cannot disagree about a state. Environment injection is threaded as the
+/// replay threads it, the resolved `(place index, bound)` list
+/// (`smt_encoder::resolve_env_injection`), and quiescence keeps the relax-env
+/// enablement: a marking an injection could re-enable is not quiescent, which is
+/// what keeps an open net merely waiting for input from reading as stuck.
+///
+/// The closure borrows the net, the property and the injection list, and owns what
+/// it resolved from `sink_places` and `conditional_sinks`, so those need not outlive
+/// it (`use<'a>`).
+pub fn violation_predicate<'a>(
+    flat: &'a FlatNet,
+    property: &'a SmtProperty,
+    sink_places: &[String],
+    conditional_sinks: &[ConditionalSinks],
+    env_inject: &'a [(usize, Option<usize>)],
+) -> impl Fn(&[i64]) -> bool + use<'a> {
+    let index = PropertyIndex::of(flat, property, sink_places, conditional_sinks);
+    move |state| violates_indexed(flat, state, property, env_inject, &index)
+}
+
+/// What `Bad(M)` reads from the net and the declarations before it reads a state:
+/// each list allocates, and none depends on the state. A list the property does not
+/// read is left empty.
+struct PropertyIndex {
+    /// `DeadlockFree`: [`stranding_excuses`], one entry per flat place.
+    excuses: Vec<Option<Vec<usize>>>,
+    /// `TerminatesAtSink`: the declared sinks that resolve.
+    sinks: Vec<usize>,
+    /// `QuiescentCount`: the counted places that resolve, each once — the encoder's
+    /// `index_ordered`, so a place named twice is not counted twice.
+    counted: Vec<usize>,
+    /// `QuiescentCount`: the waivers that resolve. A waiver the net does not declare
+    /// is dropped, which makes the property stricter, never laxer.
+    waivers: Vec<usize>,
+}
+
+impl PropertyIndex {
+    fn of(
+        flat: &FlatNet,
+        property: &SmtProperty,
+        sink_places: &[String],
+        conditional_sinks: &[ConditionalSinks],
+    ) -> Self {
+        let mut index = PropertyIndex {
+            excuses: Vec::new(),
+            sinks: Vec::new(),
+            counted: Vec::new(),
+            waivers: Vec::new(),
+        };
+        match property {
+            SmtProperty::DeadlockFree => {
+                index.excuses = stranding_excuses(flat, sink_places, conditional_sinks);
+            }
+            SmtProperty::TerminatesAtSink => index.sinks = sink_indices(flat, sink_places),
+            SmtProperty::QuiescentCount {
+                places, waived_by, ..
+            } => {
+                index.counted = distinct_indices(flat, places);
+                index.waivers = distinct_indices(flat, waived_by);
+            }
+            _ => {}
+        }
+        index
+    }
+}
+
+fn violates_indexed(
+    flat: &FlatNet,
+    state: &[i64],
+    property: &SmtProperty,
+    env_inject: &[(usize, Option<usize>)],
+    index: &PropertyIndex,
+) -> bool {
     match property {
         // DeadlockFree ([VER-002]): quiescent AND some marked place is not where
         // resting is permitted — a conditional sink ([VER-014]) counts only while
@@ -143,7 +226,7 @@ pub fn violates(
             if !quiescent(flat, state, env_inject) {
                 return false;
             }
-            let excuses = stranding_excuses(flat, sink_places, conditional_sinks);
+            let excuses = &index.excuses;
             (0..flat.place_count).any(|pid| match &excuses[pid] {
                 Some(markers) => at(state, pid) >= 1 && markers.iter().all(|&k| at(state, k) == 0),
                 None => false,
@@ -152,9 +235,7 @@ pub fn violates(
         // TerminatesAtSink ([VER-002]): quiescent AND no declared sink marked.
         SmtProperty::TerminatesAtSink => {
             quiescent(flat, state, env_inject)
-                && sink_indices(flat, sink_places)
-                    .iter()
-                    .all(|&pid| at(state, pid) == 0)
+                && index.sinks.iter().all(|&pid| at(state, pid) == 0)
         }
         SmtProperty::MutualExclusion { places } | SmtProperty::Unreachable { places } => {
             let resolved: Vec<usize> = places
@@ -178,7 +259,36 @@ pub fn violates(
                 quiescent(flat, state, env_inject) && at(state, pid) >= 1
             })
         }
+        // QuiescentCount ([VER-002]): quiescent AND the count across the resolved
+        // places is below `min` with every resolved waiver empty, or above `max`.
+        // Mirrors the encoder's `count_violation_condition`, which needs a `min > 0`
+        // guard only because it decides whether a clause is emitted at all: a count
+        // is never below zero, so the comparison decides it alone here.
+        SmtProperty::QuiescentCount { min, max, .. } => {
+            if !quiescent(flat, state, env_inject) {
+                return false;
+            }
+            // i128, saturating: a malformed vector of huge `i64` entries must not
+            // overflow into a count that reads as within bounds.
+            let count = index
+                .counted
+                .iter()
+                .fold(0i128, |sum, &pid| sum.saturating_add(i128::from(at(state, pid))));
+            if max.is_some_and(|max| count > max as i128) {
+                return true;
+            }
+            count < *min as i128 && index.waivers.iter().all(|&pid| at(state, pid) == 0)
+        }
     }
+}
+
+/// The flat indices of the named places that resolve, ascending, each once.
+fn distinct_indices(flat: &FlatNet, names: &[String]) -> Vec<usize> {
+    let set: BTreeSet<usize> = names
+        .iter()
+        .filter_map(|name| flat.place_index.get(name).copied())
+        .collect();
+    set.into_iter().collect()
 }
 
 /// Declared sink place names resolved to flat-net indices.
@@ -311,13 +421,14 @@ pub enum ReplayOutcome {
 /// `node_budget` caps the nodes ADMITTED TO THE SEARCH — the reference
 /// definition the sibling implementations conform to. A node is *admitted*
 /// when it is pushed onto the search's node arena, i.e. only after it survived
-/// both filters: the segment budget and domination (a state already reached at
-/// the same or a lower segment depth is dropped, never admitted). The anchor
+/// domination (a state already reached at the same or a lower segment depth is
+/// dropped, never admitted). The segment budget filters nothing at admission: a
+/// node at the budget is admitted and checked, then left unexpanded. The anchor
 /// node counts as one, and the budget trips on `>=`: a search that has already
 /// admitted `node_budget` nodes refuses the next one and returns
 /// [`ReplayOutcome::Exhausted`], so at most `node_budget` nodes ever exist.
-/// Successors that were generated and then dropped as dominated or over the
-/// segment budget do NOT count against it.
+/// Successors that were generated and then dropped as dominated do NOT count
+/// against it.
 ///
 /// The caller anchors the search: `initial` should be a member of `decoded`
 /// (the verifier requires `M₀ ∈ set` before calling).
@@ -387,13 +498,25 @@ pub fn replay(
     let mut best_seg: HashMap<Vec<i64>, usize> = HashMap::new();
     best_seg.insert(initial.to_vec(), 0);
     let mut queue: VecDeque<usize> = VecDeque::from([0]);
-    // Set when a successor was dropped for running past the segment budget:
-    // the space was then NOT covered in full, so an empty queue afterwards is
+    // Set when a node was left unexpanded for sitting at the segment budget: the
+    // space was then NOT covered in full, so an empty queue afterwards is
     // exhaustion, not proof that no chain exists.
     let mut segment_pruned = false;
 
     while let Some(idx) = queue.pop_front() {
         let (cur_state, cur_seg) = (nodes[idx].state.clone(), nodes[idx].seg);
+        // The budget is enforced on the node about to step, not on the step's target.
+        // A node `max_segment_steps` past its anchor is still admitted and checked
+        // against the property, but any further step would be one more unanchored
+        // step, even onto a decoded state — so it is not expanded. Pruning the target
+        // instead (`seg > max_segment_steps`) would let that node step onto an anchor,
+        // one step more than the budget allows, and flag truncation only where a
+        // successor exists, so a dead end at the budget would read as `NoChain` and
+        // downgrade the verdict. This matches the TypeScript and Java replayers.
+        if cur_seg >= max_segment_steps {
+            segment_pruned = true;
+            continue;
+        }
 
         let mut successors: Vec<(Vec<i64>, String)> = Vec::new();
         for ft in &flat.transitions {
@@ -415,10 +538,6 @@ pub fn replay(
 
         for (next, label) in successors {
             let seg = if decoded.contains(&next) { 0 } else { cur_seg + 1 };
-            if seg > max_segment_steps {
-                segment_pruned = true;
-                continue;
-            }
             if best_seg.get(&next).is_some_and(|&d| d <= seg) {
                 continue;
             }
@@ -641,6 +760,96 @@ mod tests {
         assert!(violates(&flat, &[1, 0, 1, 0], &SmtProperty::TerminatesAtSink, &sinks, &cond, &[]));
     }
 
+    /// Two jobs share a budget of two: `start` takes a unit (inhibited by `halt`),
+    /// `finish` refunds it, `abort` stops a running job keeping its unit. Places:
+    /// budget=0, done=1, halt=2, jobs=3, running=4 — the TypeScript
+    /// `quiescent-count` net.
+    fn jobs_flat() -> FlatNet {
+        let mut start = ft("start", vec![1, 0, 0, 1, 0], vec![0, 0, 0, 0, 1]);
+        start.inhibitor_places = vec![2];
+        flat_of(
+            &["budget", "done", "halt", "jobs", "running"],
+            vec![
+                start,
+                ft("finish", vec![0, 0, 0, 0, 1], vec![1, 1, 0, 0, 0]),
+                ft("abort", vec![0, 0, 0, 0, 1], vec![0, 0, 1, 0, 0]),
+            ],
+        )
+    }
+
+    /// [VER-002] QuiescentCount is decided by the replay exactly as the encoder
+    /// states it: below `min` only with no waiver marked, above `max` always, and
+    /// only at quiescence.
+    #[test]
+    fn violates_quiescent_count_as_the_encoder_states_it() {
+        let flat = jobs_flat();
+        let bad = |state: &[i64], min: usize, max: Option<usize>, waived_by: &[&str]| {
+            let prop = SmtProperty::quiescent_count(
+                vec!["budget".into()],
+                min,
+                max,
+                waived_by.iter().map(|w| w.to_string()).collect(),
+            );
+            violates(&flat, state, &prop, &[], &[], &[])
+        };
+        assert!(bad(&[0, 2, 0, 0, 0], 2, Some(2), &["halt"])); // quiescent, below, no waiver
+        assert!(!bad(&[1, 1, 1, 0, 0], 2, Some(2), &["halt"])); // below, but halt waives it
+        assert!(bad(&[1, 1, 1, 0, 0], 2, Some(2), &[])); // below, nothing waives it
+        assert!(bad(&[3, 0, 0, 0, 0], 2, Some(2), &["halt"])); // above: never waived
+        assert!(bad(&[3, 0, 1, 0, 0], 2, Some(2), &["halt"])); // ... not even while halt is marked
+        assert!(!bad(&[2, 0, 0, 1, 0], 0, Some(1), &["halt"])); // not quiescent: start is enabled
+        assert!(!bad(&[2, 2, 0, 0, 0], 2, Some(2), &["halt"])); // meets it
+        assert!(!bad(&[9, 0, 0, 0, 0], 2, None, &[])); // an unbounded max has no upper bound
+        // A place named twice is counted once, as the encoder's index order reads it.
+        let twice = SmtProperty::quiescent_count(
+            vec!["budget".into(), "budget".into()],
+            2,
+            Some(2),
+            Vec::new(),
+        );
+        assert!(violates(&flat, &[1, 0, 0, 0, 0], &twice, &[], &[], &[]));
+    }
+
+    /// The predicate is [`violates`] with the resolution hoisted: it agrees on every
+    /// state of a box, for every property shape, with env injection threaded in.
+    #[test]
+    fn violation_predicate_agrees_with_violates() {
+        let flat = jobs_flat();
+        let sinks = vec!["done".to_string()];
+        let cond = vec![ConditionalSinks {
+            marker: "halt".to_string(),
+            places: vec!["budget".to_string()],
+        }];
+        let properties = [
+            SmtProperty::DeadlockFree,
+            SmtProperty::TerminatesAtSink,
+            SmtProperty::place_bound("budget", 1),
+            SmtProperty::unreachable(vec!["done".into(), "halt".into()]),
+            SmtProperty::joined_or_dead_lettered("running"),
+            SmtProperty::quiescent_count(vec!["budget".into(), "done".into()], 2, Some(3), vec!["halt".into()]),
+            SmtProperty::quiescent_count(vec!["budget".into()], 1, None, Vec::new()),
+        ];
+        let injections: [&[(usize, Option<usize>)]; 3] = [&[], &[(3, None)], &[(3, Some(0))]];
+        for property in &properties {
+            for env_inject in injections {
+                let predicate = violation_predicate(&flat, property, &sinks, &cond, env_inject);
+                for code in 0..3i64.pow(5) {
+                    let state: Vec<i64> = (0..5).map(|i| (code / 3i64.pow(i)) % 3).collect();
+                    assert_eq!(
+                        predicate(&state),
+                        violates(&flat, &state, property, &sinks, &cond, env_inject),
+                        "{property:?} at {state:?} with injection {env_inject:?}"
+                    );
+                }
+            }
+        }
+        // Relax-env quiescence survives the hoisting: an injectable `jobs` keeps
+        // `start` enabled while a budget unit is left, so {budget:1} is not at rest.
+        let count = SmtProperty::quiescent_count(vec!["budget".into()], 2, Some(2), Vec::new());
+        assert!(violation_predicate(&flat, &count, &[], &[], &[])(&[1, 0, 0, 0, 0]));
+        assert!(!violation_predicate(&flat, &count, &[], &[], &[(3, None)])(&[1, 0, 0, 0, 0]));
+    }
+
     /// Unwraps a `Confirmed` outcome, reporting the other arms.
     fn confirmed(outcome: ReplayOutcome) -> Replay {
         match outcome {
@@ -706,6 +915,49 @@ mod tests {
             }
             other => panic!("expected Exhausted(segment), got {other:?}"),
         }
+    }
+
+    /// The segment budget counts every step between anchors, including the one that
+    /// lands on the next anchor: with a budget of 3, `M0 -> M4` in four steps does not
+    /// chain even though `M4` was decoded, and a dead end three steps out is a
+    /// truncated search, not a covered one. Both as in the TypeScript and Java
+    /// replayers.
+    #[test]
+    fn replay_segment_budget_bounds_the_step_onto_an_anchor() {
+        let transitions = (0..4)
+            .map(|i| {
+                let mut pre = vec![0; 5];
+                let mut post = vec![0; 5];
+                pre[i] = 1;
+                post[i + 1] = 1;
+                ft(&format!("t{i}"), pre, post)
+            })
+            .collect();
+        let flat = flat_of(&["p0", "p1", "p2", "p3", "p4"], transitions);
+        let unit = |i: usize| -> Vec<i64> { (0..5).map(|p| i64::from(p == i)).collect() };
+        let run = |decoded: &[Vec<i64>], property: &SmtProperty| {
+            let decoded: BTreeSet<Vec<i64>> = decoded.iter().cloned().collect();
+            replay(&flat, &unit(0), &decoded, property, &[], &[], &[], &[], 3, 10_000)
+        };
+        let reach_p4 = SmtProperty::unreachable(vec!["p4".into()]);
+        assert!(matches!(run(&[unit(0), unit(4)], &reach_p4), ReplayOutcome::Exhausted { .. }));
+        let replayed = confirmed(run(&[unit(0), unit(3)], &reach_p4));
+        assert_eq!(replayed.transitions, vec!["t0", "t1", "t2", "t3"]);
+        // Nothing violates `p0 <= 1`, and M3 is a dead end at the budget.
+        let chain3 = flat_of(
+            &["p0", "p1", "p2", "p3"],
+            vec![
+                ft("t0", vec![1, 0, 0, 0], vec![0, 1, 0, 0]),
+                ft("t1", vec![0, 1, 0, 0], vec![0, 0, 1, 0]),
+                ft("t2", vec![0, 0, 1, 0], vec![0, 0, 0, 1]),
+            ],
+        );
+        let m0 = vec![1, 0, 0, 0];
+        let decoded: BTreeSet<Vec<i64>> = [m0.clone()].into_iter().collect();
+        assert!(matches!(
+            replay(&chain3, &m0, &decoded, &SmtProperty::place_bound("p0", 1), &[], &[], &[], &[], 3, 10_000),
+            ReplayOutcome::Exhausted { .. }
+        ));
     }
 
     /// A fully covered successor space with no violating state is the only

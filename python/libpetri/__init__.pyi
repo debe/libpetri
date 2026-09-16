@@ -81,6 +81,11 @@ from .runtime import (
     start_async as start_async,
 )
 from .verification import (
+    ContractViolation as ContractViolation,
+    OpenNetContract as OpenNetContract,
+    OpenNetContractBuilder as OpenNetContractBuilder,
+    OpenNetResult as OpenNetResult,
+    PortStep as PortStep,
     PropertyResult as PropertyResult,
     SmtProperty as SmtProperty,
     SubnetVerificationResult as SubnetVerificationResult,
@@ -92,9 +97,11 @@ from .verification import (
     joined_or_dead_lettered as joined_or_dead_lettered,
     mutual_exclusion as mutual_exclusion,
     place_bound as place_bound,
+    quiescent_count as quiescent_count,
     unreachable as unreachable,
     encode_smt_scripts as encode_smt_scripts,
     verify as verify,
+    verify_open_net as verify_open_net,
     verify_subnet as verify_subnet,
     z3_available as z3_available,
 )

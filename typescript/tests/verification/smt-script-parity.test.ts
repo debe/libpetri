@@ -70,6 +70,8 @@ describe('SMT script parity with the Rust goldens (VER-013 AC1)', () => {
       // VER-015 AC4: the linear state-equation bound query, pinned wherever the property
       // has a linear demand on the flat path.
       compare(fixture.id, join(dir, 'bound.smt2'), scripts.bound);
+      // VER-018 AC7: the state-equation phase's first query, pinned wherever the phase runs.
+      compare(fixture.id, join(dir, 'state-equation.smt2'), scripts.stateEquation);
     });
   }
 });

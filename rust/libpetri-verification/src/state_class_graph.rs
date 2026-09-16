@@ -3,6 +3,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use libpetri_core::input::{self, In};
 use libpetri_core::output::enumerate_branches;
 use libpetri_core::petri_net::{PetriNet, require_output_producing_actions};
+use libpetri_core::timing::Timing;
+use libpetri_core::transition::Transition;
 
 use crate::dbm::Dbm;
 use crate::environment::EnvironmentAnalysisMode;
@@ -16,6 +18,26 @@ pub struct StateClassEdge {
     pub to: usize,
     pub transition_name: String,
     pub branch_index: usize,
+}
+
+/// Options for [`StateClassGraph::build_with_options`]. The default is the timed
+/// graph every other constructor builds.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StateClassGraphOptions {
+    /// Explore the **untimed** reachable set: every clock gets the interval of
+    /// `immediate()`, `[0, ∞)`, whatever its transition declares, so any enabled
+    /// transition may fire next and the graph holds exactly the markings the untimed
+    /// encoders reason about ([VER-004]). Its verdicts are then the stronger untimed
+    /// claim, not the timed one — what a route standing in for the encoders on a net
+    /// with timed transitions needs ([VER-022]). On a net whose transitions are all
+    /// immediate this changes nothing.
+    pub untimed: bool,
+}
+
+/// The timing a clock is given: the transition's own, or `immediate()` when exploring
+/// untimed.
+fn clock_timing(t: &Transition, untimed: bool) -> Timing {
+    if untimed { Timing::Immediate } else { *t.timing() }
 }
 
 /// State Class Graph implementing the Berthomieu-Diaz (1991) algorithm.
@@ -65,10 +87,34 @@ impl StateClassGraph {
         env_places: &[&str],
         env_mode: &EnvironmentAnalysisMode,
     ) -> Self {
+        Self::build_with_options(
+            net,
+            initial_marking,
+            max_classes,
+            env_places,
+            env_mode,
+            StateClassGraphOptions::default(),
+        )
+    }
+
+    /// [`StateClassGraph::build_with_env`] with [`StateClassGraphOptions`], e.g. the
+    /// untimed exploration.
+    ///
+    /// # Panics
+    /// Panics per **CORE-043**, as [`StateClassGraph::build_with_env`] does.
+    pub fn build_with_options(
+        net: &PetriNet,
+        initial_marking: &MarkingState,
+        max_classes: usize,
+        env_places: &[&str],
+        env_mode: &EnvironmentAnalysisMode,
+        options: StateClassGraphOptions,
+    ) -> Self {
         require_output_producing_actions(net);
 
         let env_set: HashSet<&str> = env_places.iter().copied().collect();
-        let initial_class = initial_state_class(net, initial_marking, &env_set, env_mode);
+        let untimed = options.untimed;
+        let initial_class = initial_state_class(net, initial_marking, &env_set, env_mode, untimed);
 
         let mut graph = StateClassGraph::new();
         let initial_key = initial_class.canonical_key();
@@ -109,6 +155,7 @@ impl StateClassGraph {
                         &output_places,
                         &env_set,
                         env_mode,
+                        untimed,
                     );
 
                     if successor.is_empty() {
@@ -233,20 +280,22 @@ impl Default for StateClassGraph {
 
 /// Builds the initial state class (enabled set + firing-domain DBM after letting
 /// time pass) for a net and marking. Shared by the plain SCG and the name-aware
-/// ν-partition SCG ([`crate::name_state_class_graph`]).
+/// ν-partition SCG ([`crate::name_state_class_graph`]). `untimed` gives every clock
+/// the `immediate()` interval ([`StateClassGraphOptions::untimed`]).
 pub(crate) fn initial_state_class(
     net: &PetriNet,
     initial_marking: &MarkingState,
     env_set: &HashSet<&str>,
     env_mode: &EnvironmentAnalysisMode,
+    untimed: bool,
 ) -> StateClass {
     let mut enabled = find_enabled_transitions(net, initial_marking, env_set, env_mode);
     if let Some(order) = canonical_order(&enabled) {
         enabled = permute(&enabled, &order);
     }
     let clock_names: Vec<String> = enabled.clone();
-    let lower_bounds: Vec<f64> = enabled.iter().map(|name| timing_earliest(net, name)).collect();
-    let upper_bounds: Vec<f64> = enabled.iter().map(|name| timing_latest(net, name)).collect();
+    let lower_bounds: Vec<f64> = enabled.iter().map(|name| timing_earliest(net, name, untimed)).collect();
+    let upper_bounds: Vec<f64> = enabled.iter().map(|name| timing_latest(net, name, untimed)).collect();
     let base_dbm = Dbm::create(clock_names, &lower_bounds, &upper_bounds);
     // Class-relative earliest-ready time of each enabled clock, captured BEFORE
     // `let_time_pass()` zeroes the DBM lower bounds ([NU-052] residual-earliest).
@@ -255,21 +304,21 @@ pub(crate) fn initial_state_class(
     StateClass::new(initial_marking.clone(), initial_dbm, enabled, ready_earliest)
 }
 
-/// Earliest firing time (seconds) of the named transition.
-pub(crate) fn timing_earliest(net: &PetriNet, name: &str) -> f64 {
+/// Earliest firing time (seconds) of the named transition's clock.
+pub(crate) fn timing_earliest(net: &PetriNet, name: &str, untimed: bool) -> f64 {
     net.transitions()
         .iter()
         .find(|t| t.name() == name)
-        .map(|t| t.timing().earliest() as f64 / 1000.0)
+        .map(|t| clock_timing(t, untimed).earliest() as f64 / 1000.0)
         .unwrap_or(0.0)
 }
 
-/// Latest firing time (seconds) of the named transition.
-pub(crate) fn timing_latest(net: &PetriNet, name: &str) -> f64 {
+/// Latest firing time (seconds) of the named transition's clock.
+pub(crate) fn timing_latest(net: &PetriNet, name: &str, untimed: bool) -> f64 {
     net.transitions()
         .iter()
         .find(|t| t.name() == name)
-        .map(|t| t.timing().latest() as f64 / 1000.0)
+        .map(|t| clock_timing(t, untimed).latest() as f64 / 1000.0)
         .unwrap_or(f64::INFINITY)
 }
 
@@ -390,6 +439,7 @@ pub(crate) fn compute_successor(
     output_places: &HashSet<String>,
     env_places: &HashSet<&str>,
     env_mode: &EnvironmentAnalysisMode,
+    untimed: bool,
 ) -> StateClass {
     let transition = net
         .transitions()
@@ -454,7 +504,7 @@ pub(crate) fn compute_successor(
                 .iter()
                 .find(|t| t.name() == name.as_str())
                 .unwrap();
-            t.timing().earliest() as f64 / 1000.0
+            clock_timing(t, untimed).earliest() as f64 / 1000.0
         })
         .collect();
     let new_upper_bounds: Vec<f64> = newly_enabled
@@ -465,7 +515,7 @@ pub(crate) fn compute_successor(
                 .iter()
                 .find(|t| t.name() == name.as_str())
                 .unwrap();
-            t.timing().latest() as f64 / 1000.0
+            clock_timing(t, untimed).latest() as f64 / 1000.0
         })
         .collect();
 
@@ -1166,6 +1216,53 @@ mod tests {
             .build();
         let marking = MarkingStateBuilder::new().tokens("a", 1).tokens("b", 1).build();
         (net, marking)
+    }
+
+    /// [VER-004], used by [VER-022]: `t1` must fire within 5 ms and `t2` waits 10 ms,
+    /// so the timed graph never fires `t2`; the untimed one reaches the marking the
+    /// timing excludes. The TypeScript `untimed exploration` test.
+    #[test]
+    fn untimed_exploration_reaches_a_marking_the_timing_excludes() {
+        let p = Place::<i32>::new("p");
+        let a = Place::<i32>::new("a");
+        let b = Place::<i32>::new("b");
+        let t1 = Transition::builder("t1")
+            .input(one(&p))
+            .output(out_place(&a))
+            .timing(libpetri_core::timing::deadline(5))
+            .action(fork())
+            .build();
+        let t2 = Transition::builder("t2")
+            .input(one(&p))
+            .output(out_place(&b))
+            .timing(libpetri_core::timing::delayed(10))
+            .action(fork())
+            .build();
+        let net = PetriNet::builder("race").transitions([t1, t2]).build();
+        let m0 = MarkingStateBuilder::new().tokens("p", 1).build();
+        let marks_b = |scg: &StateClassGraph| scg.classes().iter().any(|sc| sc.marking.count("b") > 0);
+        let timed = StateClassGraph::build(&net, &m0, 100);
+        let untimed = StateClassGraph::build_with_options(
+            &net,
+            &m0,
+            100,
+            &[],
+            &EnvironmentAnalysisMode::Ignore,
+            StateClassGraphOptions { untimed: true },
+        );
+        assert!(!marks_b(&timed));
+        assert!(marks_b(&untimed));
+        // The default options are the timed graph.
+        let default = StateClassGraph::build_with_options(
+            &net,
+            &m0,
+            100,
+            &[],
+            &EnvironmentAnalysisMode::Ignore,
+            StateClassGraphOptions::default(),
+        );
+        assert_eq!(default.class_count(), timed.class_count());
+        assert!(!marks_b(&default));
     }
 
     fn classes_at<'a>(scg: &'a StateClassGraph, marking: &MarkingState) -> Vec<&'a StateClass> {

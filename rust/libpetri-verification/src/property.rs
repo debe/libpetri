@@ -40,6 +40,28 @@ pub enum SmtProperty {
     /// `pending` non-emptiness, with NO sink clause: a declared sink holding a
     /// token must not excuse a stranded group ([NU-040] AC4).
     JoinedOrDeadLettered { pending: String },
+    /// A token count at quiescence: every reachable *quiescent* marking holds
+    /// between `min` and `max` tokens across `places`, and the lower bound is
+    /// waived while any `waived_by` place holds a token ([VER-002]).
+    ///
+    /// Violated by a reachable quiescent marking that holds fewer than `min`
+    /// while every `waived_by` place is empty, or more than `max` whatever the
+    /// waivers hold. This is the count a designed terminal ([VER-014]) makes
+    /// conditional: a halted run need not refund its budget, but it never holds
+    /// more than there is.
+    ///
+    /// `max` of `None` is unbounded and contributes no upper-bound clause. It is
+    /// an absent optional rather than a sentinel such as `usize::MAX`, so no
+    /// legitimate count can collide with it; the spec leaves the representation
+    /// to each implementation because it is not observable in the script or the
+    /// report. Build it with [`SmtProperty::quiescent_count`], which rejects
+    /// `max < min`; a place named twice in `places` is counted once.
+    QuiescentCount {
+        places: Vec<String>,
+        min: usize,
+        max: Option<usize>,
+        waived_by: Vec<String>,
+    },
 }
 
 impl SmtProperty {
@@ -85,6 +107,44 @@ impl SmtProperty {
         }
     }
 
+    /// A token count at quiescence ([VER-002]). See [`SmtProperty::QuiescentCount`].
+    ///
+    /// ```
+    /// use libpetri_verification::property::SmtProperty;
+    /// // The budget is back at 2 whenever the net comes to rest, unless it halted.
+    /// let refunded = SmtProperty::quiescent_count(vec!["budget".into()], 2, Some(2), vec!["halt".into()]);
+    /// assert_eq!(
+    ///     refunded.description(),
+    ///     "Quiescent count: exactly 2 across {budget}; lower bound waived while {halt} is marked"
+    /// );
+    /// ```
+    ///
+    /// # Panics
+    /// Panics if `max` is below `min`. That is a caller's error, reported where the
+    /// property is built rather than as a verdict ([VER-002] AC9): a range no count
+    /// can satisfy would otherwise come back `Violated` at the first quiescent
+    /// marking and read as a finding about the net. `min` cannot be negative or
+    /// fractional here, as the type already rules both out.
+    pub fn quiescent_count(
+        places: Vec<String>,
+        min: usize,
+        max: Option<usize>,
+        waived_by: Vec<String>,
+    ) -> Self {
+        if let Some(max) = max {
+            assert!(
+                max >= min,
+                "quiescent_count needs whole bounds with 0 <= min <= max, got {min}..{max}"
+            );
+        }
+        Self::QuiescentCount {
+            places,
+            min,
+            max,
+            waived_by,
+        }
+    }
+
     pub fn description(&self) -> String {
         match self {
             Self::DeadlockFree => "Deadlock freedom".into(),
@@ -102,8 +162,49 @@ impl SmtProperty {
             Self::JoinedOrDeadLettered { pending } => {
                 format!("Joined-or-dead-lettered: {pending} = 0 at quiescence")
             }
+            Self::QuiescentCount {
+                places,
+                min,
+                max,
+                waived_by,
+            } => {
+                let count = format!("Quiescent count: {}", count_across(*min, *max, places));
+                if waived_by.is_empty() {
+                    count
+                } else {
+                    format!(
+                        "{count}; lower bound waived while {{{}}} is marked",
+                        waived_by.join(", ")
+                    )
+                }
+            }
         }
     }
+}
+
+/// `exactly 1`, `at most 1`, `at least 2`, `between 1 and 3`, `any number`: a count's
+/// bounds in words, `max` of `None` being unbounded.
+///
+/// Every implementation renders a count this way, so an unbounded `max` reads the
+/// same in every report whatever each stores for it ([VER-002]).
+pub fn count_phrase(min: usize, max: Option<usize>) -> String {
+    match max {
+        Some(max) if max == min => format!("exactly {min}"),
+        None if min == 0 => "any number".to_string(),
+        None => format!("at least {min}"),
+        Some(max) if min == 0 => format!("at most {max}"),
+        Some(max) => format!("between {min} and {max}"),
+    }
+}
+
+/// `exactly 1 across {a, b}`: a count and the places it is taken over, in the order
+/// given.
+///
+/// The property description and the open-net contract of [VER-022] must say this the
+/// same way about the same clause, so the phrase is built here once rather than at
+/// each call site.
+pub fn count_across(min: usize, max: Option<usize>, places: &[String]) -> String {
+    format!("{} across {{{}}}", count_phrase(min, max), places.join(", "))
 }
 
 #[cfg(test)]
@@ -136,5 +237,45 @@ mod tests {
             SmtProperty::joined_or_dead_lettered("pending").description(),
             "Joined-or-dead-lettered: pending = 0 at quiescence"
         );
+    }
+
+    fn s(v: &[&str]) -> Vec<String> {
+        v.iter().map(|x| x.to_string()).collect()
+    }
+
+    /// [VER-002] QuiescentCount: the description the TypeScript port pins, and
+    /// every wording of a count's bounds.
+    #[test]
+    fn quiescent_count_describes_itself() {
+        assert_eq!(
+            SmtProperty::quiescent_count(s(&["budget"]), 2, Some(2), s(&["halt"])).description(),
+            "Quiescent count: exactly 2 across {budget}; lower bound waived while {halt} is marked"
+        );
+        assert_eq!(
+            SmtProperty::quiescent_count(s(&["budget", "done"]), 1, None, Vec::new()).description(),
+            "Quiescent count: at least 1 across {budget, done}"
+        );
+        assert_eq!(
+            SmtProperty::quiescent_count(s(&["a"]), 0, Some(3), s(&["h", "k"])).description(),
+            "Quiescent count: at most 3 across {a}; lower bound waived while {h, k} is marked"
+        );
+        assert_eq!(count_phrase(1, Some(3)), "between 1 and 3");
+        assert_eq!(count_phrase(0, None), "any number");
+        assert_eq!(count_phrase(0, Some(0)), "exactly 0");
+        assert_eq!(count_across(1, Some(1), &s(&["a", "b"])), "exactly 1 across {a, b}");
+    }
+
+    /// [VER-002] AC9: a `max` below `min` is rejected where it is built.
+    #[test]
+    #[should_panic(expected = "0 <= min <= max, got 2..1")]
+    fn quiescent_count_rejects_max_below_min() {
+        SmtProperty::quiescent_count(s(&["budget"]), 2, Some(1), Vec::new());
+    }
+
+    /// An unbounded `max` never conflicts with `min`, however large.
+    #[test]
+    fn quiescent_count_accepts_an_unbounded_max() {
+        let prop = SmtProperty::quiescent_count(s(&["budget"]), usize::MAX, None, Vec::new());
+        assert!(matches!(prop, SmtProperty::QuiescentCount { max: None, .. }));
     }
 }

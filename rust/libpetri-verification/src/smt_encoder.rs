@@ -232,9 +232,12 @@ fn counter_vars(t_count: usize, suffix: &str) -> Vec<String> {
 // === State equation ([VER-016]) ===
 
 /// The places whose column of the incidence matrix is exact in every step: no
-/// consume-all / reset arc on them (H1) and not injected (H3'). Only these carry
-/// a marking-equation row; the others are unconstrained by it. `env_inject` is
+/// consume-all / reset arc on them (H1) and not injected (H3'). `env_inject` is
 /// the resolved injection list ([`resolve_env_injection`]).
+///
+/// Only these carry an *equality* row. A place a consume-all or reset arc clears
+/// carries the upper-bound row of [`state_equation_conditions`] instead
+/// ([VER-016] AC2), and an injected place carries none.
 pub fn equation_places(flat: &FlatNet, env_inject: &[(usize, Option<usize>)]) -> Vec<usize> {
     let mut excluded = nonlinear_places(flat);
     for &(pid, _) in env_inject {
@@ -263,11 +266,17 @@ pub fn counter_conditions(fired: Option<usize>, n_vars: &[String], np_vars: &[St
     conditions
 }
 
-/// The marking equation over the given marking and counter variables: for every
-/// place of [`equation_places`], `m_p = M0_p + Σ_t C[p][t]·n_t` over the flat
-/// transitions with a non-zero effect on `p`, in transition order. A coefficient
-/// of 1 is the bare counter, −1 is `(- n)`, any other `(* c n)` with a negative
-/// `c` written `(- k)`.
+/// The marking equation over the given marking and counter variables, in place
+/// order: `m_p = M0_p + Σ_t C[p][t]·n_t` for every place of [`equation_places`],
+/// over the flat transitions with a non-zero effect on `p`, in transition order;
+/// and `m_p ≤ M0_p + Σ_t C[p][t]·n_t` for a place a consume-all or reset arc
+/// clears ([VER-016] AC2). A clearing firing removes at least its arc weight, so
+/// the linear count bounds such a place from above, and the row stays inductive
+/// over `(M, n)`: a clearing step needs `m_p ≥ pre`, which the row turns into
+/// `post ≤ M0_p + C_p·n'`. Emitting no row there would be sound but weaker, and
+/// would leave the script different from the other implementations'. An injected
+/// place carries no row. A coefficient of 1 is the bare counter, −1 is
+/// `(- n)`, any other `(* c n)` with a negative `c` written `(- k)`.
 pub fn state_equation_conditions(
     flat: &FlatNet,
     initial_marking: &MarkingState,
@@ -276,7 +285,11 @@ pub fn state_equation_conditions(
     m_vars: &[String],
 ) -> Vec<String> {
     let mut conditions = Vec::new();
-    for p in equation_places(flat, env_inject) {
+    let cleared = nonlinear_places(flat);
+    for p in 0..flat.place_count {
+        if env_inject.iter().any(|&(pid, _)| pid == p) {
+            continue;
+        }
         let mut terms: Vec<String> = Vec::new();
         for (t, ft) in flat.transitions.iter().enumerate() {
             let c = ft.post[p] - ft.pre[p];
@@ -294,11 +307,13 @@ pub fn state_equation_conditions(
             });
         }
         let m0 = initial_marking.count(&flat.places[p]);
-        conditions.push(if terms.is_empty() {
-            format!("(= {} {m0})", m_vars[p])
+        let rhs = if terms.is_empty() {
+            m0.to_string()
         } else {
-            format!("(= {} (+ {m0} {}))", m_vars[p], terms.join(" "))
-        });
+            format!("(+ {m0} {})", terms.join(" "))
+        };
+        let relation = if cleared.get(p).copied().unwrap_or(false) { "<=" } else { "=" };
+        conditions.push(format!("({relation} {} {rhs})", m_vars[p]));
     }
     conditions
 }
@@ -677,7 +692,7 @@ pub(crate) fn encode_property_violation(
             let Some(mut conditions) = encode_quiescent(flat, m_vars, env_inject) else {
                 return "false".to_string();
             };
-            for pid in sink_indices(flat, sink_places) {
+            for pid in index_ordered(flat, sink_places) {
                 conditions.push(format!("(= {} 0)", m_vars[pid]));
             }
             join_conditions(conditions)
@@ -733,6 +748,71 @@ pub(crate) fn encode_property_violation(
             conditions.push(format!("(>= {} 1)", m_vars[pid]));
             join_conditions(conditions)
         }
+        // QuiescentCount ([VER-002]): a quiescent marking whose count across the
+        // places is below `min` with every waiver empty, or above `max`.
+        SmtProperty::QuiescentCount {
+            places,
+            min,
+            max,
+            waived_by,
+        } => {
+            let counts: Vec<String> =
+                index_ordered(flat, places).into_iter().map(|i| m_vars[i].clone()).collect();
+            let waivers: Vec<String> =
+                index_ordered(flat, waived_by).into_iter().map(|i| m_vars[i].clone()).collect();
+            let Some(bad) = count_violation_condition(&counts, &waivers, *min, *max) else {
+                return "false".to_string();
+            };
+            let Some(mut conditions) = encode_quiescent(flat, m_vars, env_inject) else {
+                return "false".to_string();
+            };
+            conditions.push(bad);
+            join_conditions(conditions)
+        }
+    }
+}
+
+/// The count clause of a [`SmtProperty::QuiescentCount`] over rendered count terms,
+/// places and waivers each in place-index order: `(and (< Σ min) (= w 0) …)` when
+/// `min > 0`, `(> Σ max)` when `max` is bounded, their `or` when both apply, and
+/// `None` when neither does — a count of `[0, ∞)` no marking violates. `Σ` is `0`
+/// for no term, the term itself for one, `(+ …)` otherwise.
+///
+/// The upper bound is never waived: a halted run may keep what it took, but it can
+/// never hold more than there is. An unbounded `max` contributes no clause at all,
+/// which is what keeps the script identical across implementations that store it
+/// differently ([VER-002]). Shared with the name-coloured encoder, which renders
+/// aggregate counts, and mirrored by the abstract replay's [`violates`].
+///
+/// [`violates`]: crate::abstract_replay::violates
+pub(crate) fn count_violation_condition(
+    counts: &[String],
+    waivers: &[String],
+    min: usize,
+    max: Option<usize>,
+) -> Option<String> {
+    let sum = match counts {
+        [] => "0".to_string(),
+        [single] => single.clone(),
+        _ => format!("(+ {})", counts.join(" ")),
+    };
+    let mut parts: Vec<String> = Vec::new();
+    if min > 0 {
+        let below = format!("(< {sum} {min})");
+        parts.push(if waivers.is_empty() {
+            below
+        } else {
+            let empty: Vec<String> = waivers.iter().map(|w| format!("(= {w} 0)")).collect();
+            format!("(and {below} {})", empty.join(" "))
+        });
+    }
+    if let Some(max) = max {
+        parts.push(format!("(> {sum} {max})"));
+    }
+    match parts.as_slice() {
+        [] => None,
+        [single] => Some(single.clone()),
+        _ => Some(format!("(or {})", parts.join(" "))),
     }
 }
 
@@ -757,9 +837,11 @@ pub(crate) fn stranded_conditions(excuses: &[Option<Vec<usize>>], counts: &[Stri
     stranded
 }
 
-/// Declared sink place names resolved to flat-net indices, ascending, deduped.
-fn sink_indices(flat: &FlatNet, sink_places: &[String]) -> Vec<usize> {
-    let mut idx: Vec<usize> = sink_places
+/// The flat indices of the named places that resolve, ascending and deduplicated.
+/// A name the net does not declare contributes nothing; the verifier refuses such a
+/// property before encoding.
+pub(crate) fn index_ordered(flat: &FlatNet, names: &[String]) -> Vec<usize> {
+    let mut idx: Vec<usize> = names
         .iter()
         .filter_map(|name| flat.place_index.get(name).copied())
         .collect();
@@ -1164,8 +1246,10 @@ mod tests {
         assert_eq!(enc.smt2.matches("(= m4p (+ 1 (- n0p) (- n1p)))").count(), 5);
     }
 
+    /// [VER-016] AC2: `all(q)` removes at least one token per firing, so the linear
+    /// count bounds `q` from above; the injected `env` carries no row at all.
     #[test]
-    fn state_equation_leaves_consume_all_and_injected_places_out() {
+    fn state_equation_bounds_a_consume_all_place_and_leaves_an_injected_place_out() {
         use libpetri_core::input::all;
         let q = Place::<i32>::new("q");
         let r = Place::<i32>::new("r");
@@ -1195,7 +1279,12 @@ mod tests {
             },
         );
         assert!(!enc.smt2.contains(&format!("(= m{}p (+ 2", flat.place_index["q"])));
-        assert!(!enc.smt2.contains(&format!("(= m{}p (+ 0", flat.place_index["env"])));
+        assert!(
+            enc.smt2.contains(&format!("(<= m{}p (+ 2 (- n0p)))", flat.place_index["q"])),
+            "{}",
+            enc.smt2
+        );
+        assert!(!enc.smt2.contains(&format!("m{}p (+ 0", flat.place_index["env"])));
         // The injection rule carries the counters unchanged.
         assert!(enc.smt2.contains("(= n0p n0)\n            (= n1p n1)"), "{}", enc.smt2);
     }
@@ -1207,6 +1296,100 @@ mod tests {
         assert!(step.contains("(= n2p (+ n2 1))"));
         assert!(!step.contains("(+ 1 (- n0p) (- n1p))"));
         assert!(!encode_step_relation_smt2(&flat, &[], &[], false).contains("n0"));
+    }
+
+    /// The upper-bound row sits in place order among the equality rows, not after
+    /// them, and a reset arc clears a place exactly as a consume-all input does.
+    #[test]
+    fn state_equation_rows_stay_in_place_order_with_upper_bounds_in_line() {
+        use libpetri_core::arc::reset;
+        use libpetri_core::input::all;
+        let a = Place::<i32>::new("a");
+        let b = Place::<i32>::new("b");
+        let c = Place::<i32>::new("c");
+        let drain = Transition::builder("drain").input(all(&a)).output(out_place(&b)).action(fork()).build();
+        let wipe = Transition::builder("wipe").input(one(&b)).reset(reset(&c)).output(out_place(&c)).action(fork()).build();
+        let flat = flatten(&PetriNet::builder("clears").transitions([drain, wipe]).build());
+        let m0 = MarkingStateBuilder::new().tokens("a", 3).build();
+        let n_vars: Vec<String> = (0..2).map(|k| format!("n{k}")).collect();
+        let m_vars: Vec<String> = (0..3).map(|i| format!("m{i}")).collect();
+        assert_eq!(
+            state_equation_conditions(&flat, &m0, &[], &n_vars, &m_vars),
+            vec![
+                "(<= m0 (+ 3 (- n0)))".to_string(),
+                "(= m1 (+ 0 n0 (- n1)))".to_string(),
+                "(<= m2 (+ 0 n1))".to_string(),
+            ]
+        );
+    }
+
+    // === QuiescentCount ([VER-002]) ===
+
+    /// Two jobs share a budget of two: `start` takes a unit, `finish` refunds it,
+    /// and `abort` stops a running job, keeping its unit; `start` is inhibited by
+    /// `halt`. Flat place order: budget, done, halt, jobs, running. The net of the
+    /// TypeScript `quiescent-count` tests.
+    fn jobs_net() -> FlatNet {
+        use libpetri_core::arc::inhibitor;
+        use libpetri_core::output::and;
+        let budget = Place::<i32>::new("budget");
+        let done = Place::<i32>::new("done");
+        let halt = Place::<i32>::new("halt");
+        let jobs = Place::<i32>::new("jobs");
+        let running = Place::<i32>::new("running");
+        let start = Transition::builder("start")
+            .input(one(&jobs))
+            .input(one(&budget))
+            .inhibitor(inhibitor(&halt))
+            .output(out_place(&running))
+            .action(fork())
+            .build();
+        let finish = Transition::builder("finish")
+            .input(one(&running))
+            .output(and(vec![out_place(&budget), out_place(&done)]))
+            .action(fork())
+            .build();
+        let abort = Transition::builder("abort").input(one(&running)).output(out_place(&halt)).action(fork()).build();
+        flatten(&PetriNet::builder("jobs").transitions([start, finish, abort]).build())
+    }
+
+    /// The count clause sits on top of quiescence, places and waivers in index
+    /// order whatever order they were named in; an unbounded `max` adds no clause,
+    /// and a count nothing can violate encodes to `false`.
+    #[test]
+    fn quiescent_count_encodes_the_count_clause_on_top_of_quiescence() {
+        let flat = jobs_net();
+        let m_vars: Vec<String> = (0..flat.place_count).map(|i| format!("m{i}")).collect();
+        let encode = |min: usize, max: Option<usize>, waived_by: &[&str]| {
+            let prop = SmtProperty::quiescent_count(
+                vec!["done".into(), "budget".into()],
+                min,
+                max,
+                waived_by.iter().map(|w| w.to_string()).collect(),
+            );
+            encode_property_violation(&flat, &prop, &m_vars, &[], &[], &[])
+        };
+        let both = encode(1, Some(3), &["halt"]);
+        assert!(both.contains("(or (and (< (+ m0 m1) 1) (= m2 0)) (> (+ m0 m1) 3))"), "{both}");
+        // Quiescence first: the inhibitor on `start` is a reason it is disabled.
+        assert!(both.starts_with("(and (or (< m0 1) (< m3 1) (> m2 0))"), "{both}");
+        let lower = encode(2, None, &[]);
+        assert!(lower.ends_with("\n         (< (+ m0 m1) 2))"), "{lower}");
+        assert!(!lower.contains("(> (+ m0 m1)"), "an unbounded max has no upper clause: {lower}");
+        assert!(encode(0, Some(2), &["halt"]).ends_with("\n         (> (+ m0 m1) 2))"));
+        assert_eq!(encode(0, None, &["halt"]), "false");
+    }
+
+    #[test]
+    fn count_violation_condition_renders_every_shape() {
+        let v = |xs: &[&str]| xs.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert_eq!(count_violation_condition(&[], &[], 1, None).as_deref(), Some("(< 0 1)"));
+        assert_eq!(count_violation_condition(&v(&["a"]), &[], 0, Some(4)).as_deref(), Some("(> a 4)"));
+        assert_eq!(
+            count_violation_condition(&v(&["a", "b"]), &v(&["h", "k"]), 2, Some(2)).as_deref(),
+            Some("(or (and (< (+ a b) 2) (= h 0) (= k 0)) (> (+ a b) 2))")
+        );
+        assert_eq!(count_violation_condition(&v(&["a"]), &v(&["h"]), 0, None), None);
     }
 
     // === Conditional sinks ([VER-014]) ===

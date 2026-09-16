@@ -11,7 +11,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 - Active requirements: **217**
 - Proven in Lean (≥ 1 validated theorem fragment): **24**
 - Referenced in Lean comments only (mention without a validated theorem mapping): **12**
-- Referenced by ≥ 1 test file: java **78**, typescript **78**, rust **85**, python **36**
+- Referenced by ≥ 1 test file: java **78**, typescript **78**, rust **88**, python **39**
 - Untested anywhere (no test-file reference in any language): **121**
 
 ## 01-core-model.md — CORE
@@ -168,11 +168,11 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | VER-015 | — | — | ✓ | ✓ | ✓ | ✓ |
 | VER-016 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | VER-017 | — | — | ✓ | ✓ | ✓ | ✓ |
-| VER-018 | — | — | — | ✓ | — | — |
-| VER-019 | — | — | — | ✓ | — | — |
+| VER-018 | — | — | — | ✓ | ✓ | ✓ |
+| VER-019 | — | — | — | ✓ | ✓ | ✓ |
 | VER-020 | — | — | — | — | — | — |
 | VER-021 | — | — | — | — | — | — |
-| VER-022 | — | — | — | ✓ | — | — |
+| VER-022 | — | — | — | ✓ | ✓ | ✓ |
 
 ## 08-events-observability.md — EVT
 

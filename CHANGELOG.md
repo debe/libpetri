@@ -11,7 +11,7 @@ When a firing takes a transition's input or read token and puts one back, the tr
 - Read arcs count. Surplus tokens keep the clock: a place that still satisfies the transition restarts nothing.
 - **Behaviour change:** to keep a clock running while another transition uses a shared token, have that transition read the token. Immediate transitions follow the rule too, so they move later in FIFO order within their priority, and Java, Rust and Python emit more `TransitionClockRestarted` events.
 
-### Verification: the state equation proves most workflow nets before Spacer starts (TypeScript)
+### Verification: the state equation proves most workflow nets before Spacer starts (TypeScript, Rust, Python)
 
 `SmtVerifier` now asks one linear question before the fixpoint query: can a marking that satisfies the marking equation violate the property? When it cannot, the property is proven, usually in tens of milliseconds. On 23 compiled workflow nets (28 to 370 places, deadlock freedom with conditional sinks), 21 prove this way in 10–220 ms, among them two the fixpoint query needed 277 s and 410 s for.
 
@@ -47,9 +47,30 @@ Both phases run on the flat encoding only, are on by default, and hand over to t
 - **Changed:** with `stateEquation(true)`, a place drained by `all()` / `atLeast()` or cleared by a reset arc now carries an upper bound in the HORN encoding instead of nothing.
 - **Behaviour change:** a property that went through Spacer may now be proven by one of the new phases, with a different method and report. A test that inspects the Spacer certificate or its counterexample replay should pass `.stateEquationPhase(false).firingBound(false)`.
 
-Java, Rust and Python do not have the phases yet. Specified in spec/07-verification.md (VER-016 amendment, VER-018, VER-019).
+Rust and Python run the same two phases, on by default, with the same reports, verdict methods and scripts:
 
-### Verification: prove a subnet on its own, against a contract (TypeScript)
+```rust
+let result = SmtVerifier::for_net(&net)
+    .property(SmtProperty::deadlock_free())
+    .sink_places(["done".to_string()])
+    .verify();
+// Verdict::Proven { method: "state-equation", .. }; result.discovered_invariants holds the refinements
+```
+
+```python
+result = lp.verify(net, lp.deadlock_free(), sink_places=[done])
+result.method                 # 'state-equation'
+result.discovered_invariants  # ['Merge/hasdata <= Merge/ready_0 + Merge/ready_1']
+```
+
+- **New (Rust):** `SmtVerifier::state_equation_phase(bool)` and `SmtVerifier::firing_bound(bool)`; `encode_scripts().state_equation`.
+- **New (Python):** `verify(..., state_equation_phase=True, firing_bound=True)`; `encode_smt_scripts(...)["state_equation"]`, which `state_equation_phase=False` turns off. The `state_equation=` keyword is still the firing counters inside the HORN query, not this phase.
+- **Changed (Rust, Python):** with `state_equation(true)` / `state_equation=True`, a drained or reset place carries the same upper bound as in TypeScript.
+- **Behaviour change (Rust, Python):** as in TypeScript, a property Spacer used to decide may now come back from a phase. Pin a test to the fixpoint path with `.state_equation_phase(false).firing_bound(false)` or `state_equation_phase=False, firing_bound=False`.
+
+Java does not have the phases yet. Specified in spec/07-verification.md (VER-016 amendment, VER-018, VER-019).
+
+### Verification: prove a subnet on its own, against a contract (TypeScript, Rust, Python)
 
 A net built from a fixed set of reusable subnets can now be proven one subnet at a time. `verifyOpenNet` closes the subnet with the environment its contract describes, enumerates the result, and checks every quiescent marking against the contract. Each proof costs what one subnet costs, not what the interleavings of the whole net cost. Arguing that the composed net is correct once every subnet meets its contract remains the caller's job.
 
@@ -83,9 +104,45 @@ const result = await verifyOpenNet(gadget, contract);
 - A count clause of `[0, ∞]` is satisfied by every marking, so no query is run for it. The report now says so on its own line rather than omitting it.
 - **Cost:** the class count is set by reachable combinations, not size — 30 classes from 11 places to 59 on a compiled node shape, about a millisecond throughout, because a node's outgoing edges route together. Edges that route *independently* multiply (30, 42, 66, 114, 210, 402, 1554 for one to eight). The concurrency budget is visible only while a subnet can activate more often than the budget allows, because an arrival is not budget-gated but starting work is: a join, whose inputs must all arrive, runs once whatever the budget and never sees it — though it is far from cheap, costing 30, 42, 66 and 210 classes at arities two, three, four and six. An OR over several producer edges activates once per arrival *that starts work*, so it does see the budget until the budget stops being the cap; an arrival routed to a skip path spends none. Report cost by input arity, not by place count. Measure your own shapes with `typescript/scripts/bench-open-net.ts`.
 
-Java, Rust and Python do not have this yet. Specified in spec/07-verification.md (VER-022).
+Rust and Python have the same contract builder and entry point, and print the same report, byte for byte:
 
-### Verification: a token count at quiescence (TypeScript)
+```rust
+use libpetri::verification::open_net::{OpenNetContract, OpenNetOptions, verify_open_net};
+
+let contract = OpenNetContract::builder()
+    .initial_tokens("idle", 1)
+    .initial_tokens("budget", 1)
+    .arrive(1, ["in/data", "in/empty"])
+    .arrive_at_most(1, ["halt"])
+    .expect("e1", 1, ["e1/data", "e1/empty"])
+    .expect_between("history", 0, None, ["done", "skipped"])  // None: no upper bound
+    .terminal("halt", ["in/data", "in/empty"])
+    .build();
+let result = verify_open_net(&gadget, &contract, &OpenNetOptions::default());
+```
+
+```python
+contract = (
+    lp.OpenNetContract.builder()
+    .initial_marking({idle: 1, budget: 1})
+    .arrive(1, in_data, in_empty)
+    .arrive_at_most(1, halt)
+    .expect("e1", 1, e1_data, e1_empty)
+    .expect_between("history", 0, math.inf, done, skipped)
+    .terminal(halt, in_data, in_empty)
+    .build()
+)
+result = lp.verify_open_net(gadget, contract)
+result.verdict                   # 'proven', 'violated' or 'unknown'
+result.violations[0].port_trace  # PortSteps: .step, .transition, .environment, .changes
+```
+
+- **Rust:** behind the `z3` feature, in `libpetri::verification::open_net`. `OpenNetOptions::configure_smt` configures each verifier the SMT route builds. `StateClassGraph::build_with_options` takes `StateClassGraphOptions { untimed: true }`.
+- **Python:** `verify_open_net` takes `max_classes`, `smt` and `termination_timeout_ms`. The rest of its keywords (`timeout_ms`, `linear_bound`, `state_equation`, `state_equation_phase`, `firing_bound`, `semiflow_invariants`) configure each SMT query as they do for `verify`. A malformed contract raises `ValueError` where it is built.
+
+Java does not have this yet. Specified in spec/07-verification.md (VER-022).
+
+### Verification: a token count at quiescence (TypeScript, Rust, Python)
 
 `quiescentCount(places, min, max, waivedBy)` checks a count at every quiescent marking, and every route decides it. Its lower bound is waived while a designed-terminal marker holds a token, so "the budget is back whenever the net comes to rest, unless it halted" is one property:
 
@@ -95,7 +152,22 @@ SmtVerifier.forNet(net)
   .verify();
 ```
 
-Java, Rust and Python do not have it yet. Specified in spec/07-verification.md (VER-002).
+Rust and Python have it too. Rust spells an unbounded `max` as `None`, Python as `math.inf`:
+
+```rust
+SmtVerifier::for_net(&net)
+    .property(SmtProperty::quiescent_count(vec!["budget".into()], k, Some(k), vec!["halt".into()]))
+    .verify();
+```
+
+```python
+lp.verify(net, lp.quiescent_count([budget], k, k, waived_by=[halt]))
+lp.quiescent_count([budget, done], 1, math.inf)  # at least 1, no upper bound
+```
+
+A `max` below `min` panics in Rust. In Python it raises `ValueError`, and so does a negative or fractional bound.
+
+Java does not have it yet. Specified in spec/07-verification.md (VER-002).
 
 ## Java 5.1.0 / TypeScript 5.1.0 / Rust 5.1.0 / Python 4.1.0 — 2026-09-09
 

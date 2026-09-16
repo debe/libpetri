@@ -20,6 +20,8 @@
 //! `TerminatesAtSink` is untouched by conditional declarations: it asks whether
 //! a declared sink was reached and reads only the unconditional set.
 
+use std::collections::HashSet;
+
 use crate::marking_state::MarkingState;
 use crate::net_flattener::FlatNet;
 
@@ -80,14 +82,51 @@ pub fn strands_token(
     sink_places: &[String],
     conditional: &[ConditionalSinks],
 ) -> bool {
-    let mut resting: Vec<&str> = sink_places.iter().map(String::as_str).collect();
+    let resting = resting_names(m, sink_places, conditional);
+    m.places().any(|(p, _)| !resting.contains(p))
+}
+
+/// The places of `m` that hold a stranded token — marked **and** unexcused — by name,
+/// in code-point order: empty exactly when [`strands_token`] is false.
+///
+/// "Unexcused" applies the [VER-014] widening: a token on a place a *marked* marker
+/// excuses is designed residue, not stranded work, and the marker itself always rests.
+/// A caller that asks only "is this place marked?" names a stranding that the other
+/// routes prove cannot happen; the open-net contract of [VER-022] reads this to name
+/// the places a quiescent marking leaves work on, so the predicate is stated here once.
+///
+/// Code-point order rather than the marking's own: `MarkingState` is a hash map with
+/// no order of its own, and the names reach a report.
+pub fn stranded_places(
+    m: &MarkingState,
+    sink_places: &[String],
+    conditional: &[ConditionalSinks],
+) -> Vec<String> {
+    let resting = resting_names(m, sink_places, conditional);
+    let mut stranded: Vec<String> = m
+        .places()
+        .filter(|(p, _)| !resting.contains(p))
+        .map(|(p, _)| p.to_string())
+        .collect();
+    stranded.sort_unstable();
+    stranded
+}
+
+/// The names of the places where a token may rest in `m`: the declared sinks, every
+/// marker, and the places of every marker `m` marks.
+fn resting_names<'a>(
+    m: &MarkingState,
+    sink_places: &'a [String],
+    conditional: &'a [ConditionalSinks],
+) -> HashSet<&'a str> {
+    let mut resting: HashSet<&str> = sink_places.iter().map(String::as_str).collect();
     for entry in conditional {
-        resting.push(entry.marker.as_str());
+        resting.insert(entry.marker.as_str());
         if m.count(&entry.marker) > 0 {
             resting.extend(entry.places.iter().map(String::as_str));
         }
     }
-    m.places().any(|(p, _)| !resting.contains(&p))
+    resting
 }
 
 /// The declarations as the report prints them after the property description:
@@ -220,6 +259,38 @@ mod tests {
         assert!(!strands_token(&m(&[("halt", 1)]), &sinks, &cond));
         assert!(!strands_token(&m(&[("done", 2)]), &sinks, &cond));
         assert!(!strands_token(&MarkingState::new(), &sinks, &cond));
+    }
+
+    /// [VER-014]: stranded means marked AND unexcused. `b` is excused while `halt`
+    /// is marked, `halt` always rests, and a sink never strands.
+    #[test]
+    fn stranded_places_applies_the_conditional_widening() {
+        let cond = [when("halt", &["b"])];
+        let sinks = s(&["done"]);
+        let m = |pairs: &[(&str, usize)]| {
+            let mut b = MarkingStateBuilder::new();
+            for (p, n) in pairs {
+                b = b.tokens(*p, *n);
+            }
+            b.build()
+        };
+        assert_eq!(stranded_places(&m(&[("halt", 1), ("b", 1)]), &sinks, &cond), Vec::<String>::new());
+        assert_eq!(stranded_places(&m(&[("b", 1)]), &sinks, &cond), s(&["b"]));
+        assert_eq!(
+            stranded_places(&m(&[("halt", 1), ("b", 2), ("p0", 1), ("a", 1), ("done", 1)]), &sinks, &cond),
+            s(&["a", "p0"])
+        );
+        assert_eq!(stranded_places(&m(&[("z", 1), ("b", 1), ("a", 3)]), &sinks, &cond), s(&["a", "b", "z"]));
+        assert!(stranded_places(&MarkingState::new(), &sinks, &cond).is_empty());
+        // Empty exactly when strands_token is false.
+        for pairs in [&[("halt", 1), ("b", 1)][..], &[("b", 1)], &[("done", 3)], &[("halt", 1), ("a", 1)]] {
+            let marking = m(pairs);
+            assert_eq!(
+                stranded_places(&marking, &sinks, &cond).is_empty(),
+                !strands_token(&marking, &sinks, &cond),
+                "{pairs:?}"
+            );
+        }
     }
 
     #[test]

@@ -61,7 +61,7 @@ use crate::net_flattener::{FlatNet, FlatTransition};
 use crate::p_invariant::PInvariant;
 use crate::property::SmtProperty;
 use crate::rest_set::{ConditionalSinks, stranding_excuses};
-use crate::smt_encoder::{SmtEncoding, stranded_conditions};
+use crate::smt_encoder::{SmtEncoding, count_violation_condition, index_ordered, stranded_conditions};
 
 /// How a transition relates to the coloured (correlation-carrying) places.
 enum Class {
@@ -774,6 +774,33 @@ fn encode_violation(
             conds.push(format!("(>= {} 1)", lay.aggregate(pid, plan, &lay.cur)));
             Some(join_coloured(conds))
         }
+        // QuiescentCount ([VER-002]): the flat encoder's count clause over the
+        // aggregate (all-colour) counts, on top of the colour-aware quiescence. The
+        // clause is the flat encoder's own `count_violation_condition`, so the two
+        // encodings cannot phrase a count differently.
+        SmtProperty::QuiescentCount {
+            places,
+            min,
+            max,
+            waived_by,
+        } => {
+            let aggregates = |names: &[String]| -> Vec<String> {
+                index_ordered(flat, names)
+                    .into_iter()
+                    .map(|pid| lay.aggregate(pid, plan, &lay.cur))
+                    .collect()
+            };
+            let Some(bad) =
+                count_violation_condition(&aggregates(places), &aggregates(waived_by), *min, *max)
+            else {
+                return Some("false".to_string());
+            };
+            let Some(mut conds) = encode_coloured_quiescent(plan, lay, flat, env_inject) else {
+                return Some("false".to_string());
+            };
+            conds.push(bad);
+            Some(join_coloured(conds))
+        }
     }
 }
 
@@ -1314,6 +1341,21 @@ mod tests {
             jdl.contains(&format!("(>= {} 1)", agg("b"))),
             "JoinedOrDeadLettered must test the pending place:\n{jdl}"
         );
+
+        // QuiescentCount ([VER-002]): the flat count clause over aggregate counts,
+        // places and waivers in index order whatever order they were named in.
+        let count = enc(&SmtProperty::quiescent_count(
+            vec!["budget1".into(), "b".into()],
+            1,
+            Some(1),
+            vec!["a".into()],
+        ));
+        let sum = format!("(+ {} {})", agg("b"), agg("budget1"));
+        let clause = format!("(or (and (< {sum} 1) (= {} 0)) (> {sum} 1))", agg("a"));
+        assert!(count.contains(&clause), "QuiescentCount must carry the count clause:\n{count}");
+        // A count of [0, ∞) no marking violates encodes no violation at all.
+        let anything = enc(&SmtProperty::quiescent_count(vec!["b".into()], 0, None, Vec::new()));
+        assert!(anything.contains(") false)\n      Error)))"), "{anything}");
     }
 
     #[test]

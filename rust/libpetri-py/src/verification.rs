@@ -9,9 +9,7 @@ use libpetri::verification::property::SmtProperty;
 use libpetri::verification::result::{Verdict, VerificationResult, VerificationRoute};
 #[cfg(feature = "z3")]
 use libpetri::verification::smt_verifier::SemiflowMode;
-use pyo3::exceptions::PyTypeError;
-#[cfg(feature = "z3")]
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::wrap_pyfunction;
@@ -325,6 +323,55 @@ fn py_joined_or_dead_lettered(pending: String) -> PySmtProperty {
     PySmtProperty { inner: SmtProperty::joined_or_dead_lettered(pending) }
 }
 
+/// Reads one bound of a count (VER-002): a whole number `>= 0`, or, where
+/// `unbounded` allows it, `math.inf`, which is how Python spells an unbounded
+/// threshold. `Some(None)` is infinity; `None` is anything else — a negative or
+/// fractional number, a non-number, or infinity where it is not allowed — which the
+/// caller rejects with its own message, the one the Rust constructor panics with.
+pub(crate) fn parse_count_bound(value: &Bound<'_, PyAny>, unbounded: bool) -> Option<Option<usize>> {
+    if let Ok(n) = value.extract::<i64>() {
+        return usize::try_from(n).ok().map(Some);
+    }
+    match value.extract::<f64>() {
+        Ok(f) if unbounded && f == f64::INFINITY => Some(None),
+        _ => None,
+    }
+}
+
+/// Renders a bound as the caller wrote it, for an error message: `str()` of the
+/// Python object, so `math.inf` reads `inf` and `-1` reads `-1`.
+pub(crate) fn bound_text(value: &Bound<'_, PyAny>) -> String {
+    value.str().map(|s| s.to_string()).unwrap_or_else(|_| "?".to_string())
+}
+
+/// Property: every reachable quiescent marking holds between `min` and `max`
+/// tokens across `places`, the lower bound waived while any `waived_by` place is
+/// marked (VER-002). `max` is a whole number or `math.inf` for no upper bound,
+/// which then contributes no clause to the encoding. A bound that is negative,
+/// fractional, or a `max` below `min` raises `ValueError` here rather than coming
+/// back as a verdict about the net.
+#[pyfunction(name = "quiescent_count")]
+#[pyo3(signature = (places, min, max, waived_by = None))]
+fn py_quiescent_count(
+    places: Vec<String>,
+    min: Bound<'_, PyAny>,
+    max: Bound<'_, PyAny>,
+    waived_by: Option<Vec<String>>,
+) -> PyResult<PySmtProperty> {
+    let lower = parse_count_bound(&min, false).flatten();
+    let upper = parse_count_bound(&max, true);
+    match (lower, upper) {
+        (Some(lo), Some(hi)) if hi.is_none_or(|hi| hi >= lo) => Ok(PySmtProperty {
+            inner: SmtProperty::quiescent_count(places, lo, hi, waived_by.unwrap_or_default()),
+        }),
+        _ => Err(PyValueError::new_err(format!(
+            "quiescent_count needs whole bounds with 0 <= min <= max, got {}..{}",
+            bound_text(&min),
+            bound_text(&max)
+        ))),
+    }
+}
+
 /// Parses the `fragment_mode` keyword argument (NU-051). Accepts a string
 /// `"base"`/`"extended"` (case-insensitive) or an int `0`/`1`.
 #[cfg(feature = "z3")]
@@ -413,7 +460,7 @@ fn parse_sink_places_when(
 /// invariant list exactly when the null-space basis lost a law to the H1 guard,
 /// and skip the (worst-case exponential) enumeration otherwise.
 #[cfg(feature = "z3")]
-fn parse_semiflow_mode(value: Option<&Bound<'_, PyAny>>) -> PyResult<SemiflowMode> {
+pub(crate) fn parse_semiflow_mode(value: Option<&Bound<'_, PyAny>>) -> PyResult<SemiflowMode> {
     let Some(value) = value else {
         return Ok(SemiflowMode::Off);
     };
@@ -440,9 +487,13 @@ fn parse_semiflow_mode(value: Option<&Bound<'_, PyAny>>) -> PyResult<SemiflowMod
 /// query; `state_equation` (default `False`, VER-016) adds firing counters and
 /// the marking equation to the flat encoding; `enumeration_max_classes`
 /// (VER-017; `None` keeps the engine default of 50 000) is the class budget of
-/// the bounded state-space enumeration route, `0` disabling it.
+/// the bounded state-space enumeration route, `0` disabling it;
+/// `state_equation_phase` (default `True`, VER-018) and `firing_bound` (default
+/// `True`, VER-019) are the two pre-fixpoint phases, `False` forcing the fixpoint
+/// path. `state_equation_phase` is not `state_equation`: that one adds counters
+/// INSIDE the fixpoint encoding, this one can decide the property before it.
 #[pyfunction(name = "verify_net")]
-#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 30_000, nu_max_classes = None, fragment_mode = None, carrier_places = None, priority_semantics = None, certificate_check = true, counterexample_replay = true, semiflow_invariants = None, sink_places_when = None, linear_bound = true, state_equation = false, enumeration_max_classes = None))]
+#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 60_000, nu_max_classes = None, fragment_mode = None, carrier_places = None, priority_semantics = None, certificate_check = true, counterexample_replay = true, semiflow_invariants = None, sink_places_when = None, linear_bound = true, state_equation = false, enumeration_max_classes = None, state_equation_phase = true, firing_bound = true))]
 fn py_verify_net(
     py: Python<'_>,
     net: &PyPetriNet,
@@ -464,6 +515,8 @@ fn py_verify_net(
     linear_bound: bool,
     state_equation: bool,
     enumeration_max_classes: Option<usize>,
+    state_equation_phase: bool,
+    firing_bound: bool,
 ) -> PyResult<PyVerificationResult> {
     #[cfg(feature = "z3")]
     {
@@ -543,6 +596,11 @@ fn py_verify_net(
                 // VER-016: firing-counter state equation in the flat encoding
                 // (off by default, script parity).
                 .state_equation(state_equation)
+                // VER-018 / VER-019: the pre-fixpoint phases, both on by default in
+                // every implementation, since a verdict from a phase carries its own
+                // method and report.
+                .state_equation_phase(state_equation_phase)
+                .firing_bound(firing_bound)
                 .timeout(timeout_ms);
             // VER-017: the class budget of the bounded state-space enumeration
             // route (0 disables it, sending every query to the SMT pipeline).
@@ -566,19 +624,24 @@ fn py_verify_net(
     }
     #[cfg(not(feature = "z3"))]
     {
-        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes, fragment_mode, carrier_places, priority_semantics, certificate_check, counterexample_replay, semiflow_invariants, sink_places_when, linear_bound, state_equation, enumeration_max_classes);
+        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes, fragment_mode, carrier_places, priority_semantics, certificate_check, counterexample_replay, semiflow_invariants, sink_places_when, linear_bound, state_equation, enumeration_max_classes, state_equation_phase, firing_bound);
         Ok(PyVerificationResult::unknown("z3 feature not enabled"))
     }
 }
 
 /// The SMT-LIB2 scripts `verify_net` would send to z3 for this configuration,
 /// without running a solver (VER-013 AC1): `{"horn": str, "certificate": str | None,
-/// "coloured": bool, "bound": str | None}` — `bound` is the linear state-equation
-/// query (VER-015), present exactly when `verify_net` would send it. What the
-/// cross-language golden tests diff. `linear_bound` (default `True`) gates that
-/// `bound` script as it gates the phase in `verify_net`.
+/// "coloured": bool, "bound": str | None, "state_equation": str | None}` — `bound` is
+/// the linear state-equation query (VER-015), present exactly when `verify_net` would
+/// send it, and `state_equation` the first query of the state-equation phase
+/// (VER-018 AC7), present exactly where that phase runs. What the cross-language
+/// golden tests diff. `linear_bound` (default `True`) gates the `bound` script and
+/// `state_equation_phase` (default `True`) the `state_equation` script, as each gates
+/// its phase in `verify_net`. The `state_equation` KEYWORD is VER-016's counters in the
+/// HORN query, not the phase: the key and the keyword share a name because the Rust
+/// field and builder method do.
 #[pyfunction(name = "encode_smt_scripts")]
-#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, fragment_mode = None, carrier_places = None, counterexample_replay = true, semiflow_invariants = None, sink_places_when = None, linear_bound = true, state_equation = false))]
+#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, fragment_mode = None, carrier_places = None, counterexample_replay = true, semiflow_invariants = None, sink_places_when = None, linear_bound = true, state_equation = false, state_equation_phase = true))]
 fn py_encode_smt_scripts(
     py: Python<'_>,
     net: &PyPetriNet,
@@ -595,6 +658,7 @@ fn py_encode_smt_scripts(
     sink_places_when: Option<Bound<'_, PyDict>>,
     linear_bound: bool,
     state_equation: bool,
+    state_equation_phase: bool,
 ) -> PyResult<Py<PyDict>> {
     #[cfg(feature = "z3")]
     {
@@ -632,7 +696,10 @@ fn py_encode_smt_scripts(
                 // the phase is in `verify_net`, so `linear_bound = False` returns
                 // `bound: None` rather than a query that would never be sent.
                 .linear_bound(linear_bound)
-                .state_equation(state_equation);
+                .state_equation(state_equation)
+                // VER-018 AC7: the `state_equation` script is gated on the phase
+                // exactly as `verify_net` gates the phase itself.
+                .state_equation_phase(state_equation_phase);
             for (marker, places) in sink_places_when {
                 verifier = verifier.sink_places_when(marker, places);
             }
@@ -643,11 +710,12 @@ fn py_encode_smt_scripts(
         dict.set_item("certificate", scripts.certificate)?;
         dict.set_item("coloured", scripts.coloured)?;
         dict.set_item("bound", scripts.bound)?;
+        dict.set_item("state_equation", scripts.state_equation)?;
         Ok(dict.unbind())
     }
     #[cfg(not(feature = "z3"))]
     {
-        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, fragment_mode, carrier_places, counterexample_replay, semiflow_invariants, sink_places_when, linear_bound, state_equation);
+        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, fragment_mode, carrier_places, counterexample_replay, semiflow_invariants, sink_places_when, linear_bound, state_equation, state_equation_phase);
         Err(pyo3::exceptions::PyRuntimeError::new_err("z3 feature not enabled"))
     }
 }
@@ -753,6 +821,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_unreachable, m)?)?;
     m.add_function(wrap_pyfunction!(py_branch_place_bound, m)?)?;
     m.add_function(wrap_pyfunction!(py_joined_or_dead_lettered, m)?)?;
+    m.add_function(wrap_pyfunction!(py_quiescent_count, m)?)?;
     m.add_function(wrap_pyfunction!(py_verify_net, m)?)?;
     m.add_function(wrap_pyfunction!(py_verify_subnet, m)?)?;
     m.add_function(wrap_pyfunction!(py_z3_available, m)?)?;
