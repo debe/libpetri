@@ -21,4 +21,5 @@ export { SmtVerifier, placeholderCertificate } from './smt-verifier.js';
 export type { EncodedScripts } from './smt-verifier.js';
 export * from './z3/index.js';
 export * from './analysis/index.js';
+export * from './open-net/index.js';
 export type { VerificationHarness, VerificationResult, TokenSupplier } from './verification-harness.js';

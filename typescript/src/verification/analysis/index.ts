@@ -2,7 +2,7 @@ export { DBM } from './dbm.js';
 export { StateClass } from './state-class.js';
 export { computeSCCs, findTerminalSCCs } from './scc-analyzer.js';
 export { StateClassGraph } from './state-class-graph.js';
-export type { BranchEdge } from './state-class-graph.js';
+export type { BranchEdge, StateClassGraphOptions } from './state-class-graph.js';
 export {
   TimePetriNetAnalyzer,
   TimePetriNetAnalyzerBuilder,

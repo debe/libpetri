@@ -54,6 +54,12 @@ The following safety properties can be verified:
 - **MutualExclusion(p1, p2)** — places p1 and p2 never both have tokens simultaneously
 - **PlaceBound(place, k)** — place never has more than k tokens
 - **Unreachable(places)** — the given set of places is never all simultaneously non-empty
+- **QuiescentCount(places, min, max, waivedBy)** — every reachable quiescent marking holds
+  between `min` and `max` tokens across `places`, and the lower bound is waived while any
+  `waivedBy` place holds a token. The error condition is: (all transitions disabled) ∧
+  ((Σ < min ∧ every `waivedBy` place empty) ∨ Σ > max). This is how a designed terminal
+  ([VER-014]) makes a count conditional: a halted run need not refund its budget, but it
+  never holds more than there is.
 
 The two sink-sensitive properties are not ordered by strength; they **invert on the empty
 marking**. A quiescent `{done:1, stuck:1}` with `done` a sink violates DeadlockFree (it
@@ -75,6 +81,13 @@ Neither subsumes the other, which is why both exist.
 7. Every route that decides these properties decides the **same** predicate: the SMT route
    ([VER-001]) and the ν name-partition state-class graph route ([VER-012]) return the same
    verdict for every marking both can classify.
+8. **QuiescentCount** reports a violation for a quiescent marking below `min` while no
+   `waivedBy` place is marked, and for one above `max` whether or not one is. A marking below
+   `min` with a `waivedBy` place marked is not a violation.
+
+**Implementation notes:**
+- QuiescentCount: TypeScript only so far (`quiescentCount(places, min, max, waivedBy)`). No
+  shared fixtures until Java, Rust and Python implement it.
 
 **Test derivation:** For each property type: construct net where property holds → Proven; construct net where property is violated → Violated.
 
@@ -363,8 +376,8 @@ The executable is `z3` on `PATH` unless the environment variable `LIBPETRI_Z3` n
 one. It is probed once per verification with `--version` and refused below **4.8.0**. Setting
 `LIBPETRI_SMT_DUMP` to a directory keeps every script and reply there as `NNN-<phase>.smt2`,
 `NNN-<phase>.out` and, when stderr was not empty, `NNN-<phase>.err`, with `NNN` a zero-padded
-counter and the phase one of `bound` ([VER-015]), `horn`, `horn-coloured`, `certificate`,
-`certificate-detail`.
+counter and the phase one of `bound` ([VER-015]), `state-equation`, `invariant` ([VER-018]),
+`ranking`, `bmc` ([VER-019]), `horn`, `horn-coloured`, `certificate`, `certificate-detail`.
 
 **Reply classification.** The verdict is the first stdout line equal to `sat`, `unsat` or
 `unknown`, wherever it appears: a build may print a warning first, and the HORN script's paired
@@ -564,7 +577,11 @@ places — the initial fact has `n = 0`, transition `t`'s rule sets `n'_t = n_t 
 every other counter, an environment-injection rule copies them all, and every transition
 rule's body conjoins `n' ≥ 0` and, for each place `p` whose column is exact (no
 consume-all / reset arc on `p`, `p` not injected), `m'_p = M0_p + Σ_t C[p][t]·n'_t` over the
-transitions with a non-zero effect on `p`, in transition order. The error rule quantifies the
+transitions with a non-zero effect on `p`, in transition order. A place that a consume-all or
+reset arc clears, and that is not injected, carries the upper bound
+`m'_p ≤ M0_p + Σ_t C[p][t]·n'_t` in the same position instead: a clearing firing removes at
+least its arc weight, so the linear count bounds the place from above, and the row stays
+inductive because the clearing step needs `m_p ≥ pre`. The error rule quantifies the
 counters and constrains the marking only.
 
 Every linear consequence of the marking equation — the equality laws of [VER-005] and
@@ -593,7 +610,8 @@ are requested.
 2. With the option enabled `Reachable` has arity `P + T`, the initial fact ends in `T` zeros,
    transition `t`'s rule contains `(= n_tp (+ n_t 1))` and `(= n_jp n_j)` for every `j ≠ t`,
    and every transition rule contains the marking equation of every exact place over the
-   primed variables; consume-all, reset and injected places carry none.
+   primed variables; a consume-all or reset place carries the upper bound `(<= m_pp …)`
+   instead, and an injected place carries none.
 3. A `Proven` verdict passes the certificate check (`init, consecution, safety`) with the
    equation in the candidate; a genuine violation stays `Violated` and its counterexample
    replays.
@@ -608,6 +626,9 @@ are requested.
 - TypeScript: `SmtVerifier.stateEquation(enabled)`; `encodeNet(…, { stateEquation })`.
 - Rust: `SmtVerifier::state_equation(bool)`.
 - Python: `verify(..., state_equation=True)`.
+- The upper-bound rows on cleared places are TypeScript-only so far. Java, Rust and Python still
+  emit no row for such a place, which is weaker but sound; their scripts for a net with a
+  consume-all or reset arc differ from TypeScript's until they follow (AC5).
 
 **Depends on:** [VER-001], [VER-004], [VER-005], [VER-013], [VER-015]
 
@@ -615,7 +636,8 @@ are requested.
 `done` and `halt` as sinks: proven, certificate check passed, report names five counters;
 with `halt` not a sink: violated with a confirmed replay ending in a halted marking. The
 `unreachable{ra, rb, halt}` script has arity `7 + 5`, `(= m4p (+ 1 (- n0p) (- n1p)))` in each
-of its five rules, and no equation for a consume-all place on a net that has one.
+of its five rules, and an upper bound rather than an equation for a consume-all place on a
+net that has one.
 
 ---
 
@@ -695,6 +717,186 @@ with the firing sequence `t0 … t(n-1)`. The same net with a class budget below
 reports truncation and is answered by the SMT pipeline; with the budget `0` the route never runs.
 A `delayed` variant of the same net is skipped as timed. For AC5, the same query with and without
 the route returns the same verdict.
+
+---
+
+#### VER-018: State-Equation Phase with Refinement
+
+**Priority:** SHOULD
+
+Before the fixpoint query, the verifier asks one `QF_LIA` query through the solver transport of
+[VER-013] (phase `state-equation`): can a marking that satisfies the marking equation of
+[VER-016] violate the property? The equation is `m = M0 + C·n` over firing counts `n ≥ 0`, with
+the upper bound on a place a consume-all or reset arc clears, and the violation is encoded
+exactly as the error rule of [VER-001] encodes it. Every reachable marking satisfies the equation
+for the counts of its run, so `unsat` proves the property. Unlike [VER-015], the phase applies to
+every property, the quiescence properties included, because the query asks the question directly
+rather than through its dual, and a violation that is a disjunction costs nothing.
+
+A `sat` model is a **candidate**: a marking the equation admits, which the net need not reach.
+The equation knows how often each transition fired, never in what order, and it ignores the guards
+that impose the order. On a compiled workflow net the typical spurious candidate is a join that
+*skipped* — a transition inhibited by the join's data place — after the data arrived. The phase
+settles a candidate in this order:
+
+1. **Witness.** A breadth-first search from `M0` under the exact abstract semantics ([VER-004]:
+   consume-all and reset clearing, inhibitor and read guards) that fires each flat transition at
+   most as often as the candidate's counts allow and stops at the first violating marking. A run
+   found is reported `violated`, confirmed ([VER-003]).
+
+   An injection is not a counted firing, so injected environment places are never searched.
+   That bears on the two answers differently, and an implementation MUST distinguish them. A
+   run the search finds stays valid: it fires only counted transitions, a run in which the
+   environment injects nothing is a run of the net, and the quiescence half of the violation
+   predicate already holds against an environment free to inject ([VER-014] relax-env
+   enablement), so the marking is stuck whatever the environment does. A *completed* search
+   proves nothing on such a net, because an injected token could enable a run it never
+   considered: on a net with injected environment places the search MUST report that it is
+   inconclusive rather than that no violating run exists. Implementations MUST NOT skip the
+   search itself on those nets — on a net whose environment injects, it is the only leg of this
+   phase that can produce a witness at all.
+2. **Trap.** An initially marked trap the candidate leaves empty (Esparza, Ledesma-Garza,
+   Majumdar, Meyer and Niksic, CAV 2014), with the definition generalised: a transition with a
+   consume-all input or a reset arc on a place of the trap removes tokens from it, so it must also
+   put one into it. `Σ_{q∈Q} m_q ≥ 1` is added.
+3. **Inductive inequality.** A linear inequality `a·M ≤ b` that holds at `M0`, is kept by every
+   step of the exact step relation, and excludes the candidate. One `QF_LIA` query (phase
+   `invariant`) encodes Farkas consecution with the invariant's multiplier restricted to `{0, 1}`
+   per transition (Colón, Sankaranarayanan and Sipma, CAV 2003): each step either keeps the bound
+   or re-establishes it from its guard alone. The weights are integers of least total magnitude and
+   are re-checked in exact integer arithmetic before use. When no such inequality exists, the same
+   query is asked with the marking equation as a premise of every step (one Farkas weighting of the
+   equation per transition). On the join above the result is `hasdata ≤ ready_0 + ready_1`; on a
+   queue that is bundled once a signal arrives, `N·out + q ≤ N`, which holds relative to the
+   equation's `q + budget ≤ N`.
+
+The refinement is added and the query is asked again. Every refinement holds in every reachable
+marking, so a later `unsat` is still a proof. The phase steps aside, and the pipeline continues
+exactly as without it, when nothing settles a candidate, after 32 refinements, on a transport
+failure, or when the timeout runs out.
+
+**Certificate.** A proof is the inductive invariant `SE(M, n) ∧ ⋀ refinements(M)` over the places
+and one counter per flat transition. It goes to the certificate check of [VER-016] as the
+`Reachable` interpretation, which re-proves initiation, consecution and safety against the raw
+step relation before `Proven` is reported with method `state-equation`. The report prints each
+refinement, and the result lists them as its discovered invariants. A failed or inconclusive
+check withholds the phase's `Proven`, says so in the report, and the pipeline continues. The phase
+does not offer the Farkas dual of the final `unsat` as its certificate: for a quiescence property
+the violation is a disjunction, and one inequality per disjunct is exponential in the net.
+
+**Where it runs.** On the flat path, after [VER-015] and before the fixpoint query. Not on a net
+with match transitions (the flat encoding is name-blind there, and [VER-012] and [NU-053] are its
+exact routes), not on the name-coloured encoding, and not under `Ignore` with environment places
+registered ([VER-006]). On by default; MAY be disabled to force the fixpoint path.
+
+Measured on 23 compiled workflow nets of 28–370 places under `DeadlockFree` with conditional
+sinks ([VER-014]): 21 proven in 10–220 ms, four of them after one refinement each, including a
+41-node chain and a twenty-way switch that took 410 s and 277 s on the fixpoint path; one violated
+with its run in 0.3 s; one left to the next phase.
+
+**Acceptance Criteria:**
+1. A property whose violating markings the marking equation excludes is `Proven` with method
+   `state-equation`, without a fixpoint query, and the report carries
+   `  Certificate check: PASSED (init, consecution, safety)`.
+2. The join-with-skip net below is proven with the report line
+   `    Refinement (inductive): hasdata <= ready0 + ready1`, and the result's discovered
+   invariants are the refinements as printed.
+3. A candidate that a run within its counts realises is reported `violated`, with that run as the
+   confirmed counterexample.
+4. The phase's `Proven` is withheld unless the certificate check passes. A genuine violation is
+   never masked: the phase returns `Violated` only for a replayed run.
+5. With the phase disabled, verdicts and reports are those of the pipeline without it.
+6. `LIBPETRI_SMT_DUMP` records the phase's scripts under the phases `state-equation` and
+   `invariant` ([VER-013]).
+
+**Implementation notes:**
+- TypeScript: `verification/z3/state-equation-query`, `trap-refinement`, `invariant-synthesis`,
+  `parikh-search`, `state-equation-phase`; `SmtVerifier.stateEquationPhase(enabled)`;
+  `encodeScripts().stateEquation` (the first query).
+- Java, Rust, Python: not yet implemented.
+
+**Depends on:** [VER-001], [VER-003], [VER-004], [VER-006], [VER-013], [VER-015], [VER-016]
+
+**Test derivation:** the join of a compiled workflow net — `route: start → AND(aData, bEmpty) |
+AND(aEmpty, bData)`, a data arm writing `hasdata` with its `ready`, an empty arm its `ready`
+alone, `mergeStart: ready0 + ready1 + all(hasdata) → done`, `mergeSkip: ready0 + ready1,
+inhibitor(hasdata) → skipped` — under `deadlockFree` with `done` and `skipped` as sinks: the first
+candidate skips after the data arrived, one inductive inequality excludes it, and the proof passes
+the certificate check. The queue-and-bundle net (`produce: budget → q` inhibited by `s` and by
+`out`, `signal: src → s`, `bundle: all(q) + s → out`, `bundleEmpty: s, inhibitor(q) → out`,
+`M0 = {budget: 3, src: 1}`) with `out` and `budget` as sinks: proven with `3*out + q <= 3`,
+relative to the equation. With a `cancel: src → cancelled` alternative and `cancelled` a sink:
+violated, with the run `produce, produce, produce, cancel`.
+
+---
+
+#### VER-019: Firing-Bound Phase
+
+**Priority:** SHOULD
+
+After [VER-018] and before the fixpoint query, the verifier tries to bound the length of every
+run. A **ranking** is a weighting `r ≥ 0` of the places that every firing lowers by at least one:
+`r·C_t ≤ −1` for every flat transition `t` that can fire (one that inhibits a place it needs
+cannot). A consume-all or reset arc removes at least its weight, so the column `C_t = post − pre`
+bounds its effect from above and the condition is unchanged. With a ranking, `r·M` drops by at
+least one per firing and never goes below zero, so every run from `M0` has at most `K = r·M0`
+firings. The ranking with the least `K` is found by one `QF_LIA` optimisation query (phase
+`ranking`) and re-checked in exact integer arithmetic.
+
+With the bound, a **bounded model check** decides the property. One `QF_LIA` script (phase `bmc`)
+unrolls `d` steps of the exact step relation from `M0`: a selector per step names the transition
+fired or an idle step, an idle step is followed only by idle steps, the environment post-caps
+apply, and the violation is asked of the last marking. The depths are 8, 16, 32, … up to `K`.
+`sat` is a run; it is replayed firing by firing under the exact abstract semantics and reported
+`violated`, confirmed. `unsat` at depth `K` is `Proven` with method `bounded-model-check`, and
+the claim covers every run, since none is longer.
+
+When no ranking exists, the net has no firing bound, and Farkas gives firing counts `y ≥ 0,
+y ≠ 0` with `C·y ≥ 0` that the marking equation lets repeat forever. The report names their
+transitions (a second query) and the pipeline continues. That is the intended answer for an
+unbounded loop: a bound is both the runtime cap and the width of the claim, and the phase makes no
+claim about runs it cannot bound.
+
+A proof from this phase carries no inductive invariant, so the certificate check does not apply;
+it rests on the exactly re-checked ranking and on the solver's `unsat`. The phase runs within
+half the timeout, because short counterexamples are found in seconds while a proof to a deep
+bound on a wide net can outlast any budget. It does not run on a net with injected environment
+places: an injection is not a firing, and no weighting bounds it.
+
+Measured on the same 23 workflow nets: the violated net that [VER-018] leaves open has `K = 25`
+and a 22-step counterexample at depth 25 in about 11 s; the four agent nets and two loop nets have
+no ranking and are reported so; proofs to `K ≤ 22` take 0.1–70 s, while `K = 86` on the twenty-way
+switch does not finish depth 16 within 120 s. A ranking cannot see a round that only an inhibitor
+stops: after the agent gadget's livelock was fixed with an inhibitor, every run of those nets
+terminates (their reachable graphs are acyclic), yet the round still nets `+1` on the inhibiting
+place, and the phase still reports no firing bound. Once the re-entry was routed through a place of
+its own instead, every agent net has a ranking, and on the four whose graphs close, `K` equals the
+longest run exactly (38, 41, 50 and 70 firings).
+
+**Acceptance Criteria:**
+1. The ranking is re-checked in exact integer arithmetic before its bound is used; the report
+   names it with the bound, e.g. `    Bound: 5 firings (budget + s + 2*src drops on every firing)`.
+2. A violating run found by the bounded model check is replayed and reported `violated`,
+   confirmed.
+3. `unsat` at depth `K` is `Proven` with method `bounded-model-check`, and the report carries
+   `  Certificate check: not applicable (bounded model check to the firing bound)`.
+4. A net without a ranking is reported with the transitions of a repeatable firing vector
+   (`    Status: no firing bound — the marking equation lets t0, t1, t2 repeat; not attempted`),
+   and the fixpoint query runs.
+5. With the phase disabled, verdicts and reports are those of the pipeline without it.
+
+**Implementation notes:**
+- TypeScript: `verification/z3/bounded-run` (`encodeRankingQuery`, `checkRankingExact`,
+  `encodeRepeatableVectorQuery`, `encodeBoundedRun`, `replayRun`, `runFiringBoundPhase`);
+  `SmtVerifier.firingBound(enabled)`.
+- Java, Rust, Python: not yet implemented.
+
+**Depends on:** [VER-001], [VER-003], [VER-004], [VER-013], [VER-018]
+
+**Test derivation:** the queue-and-bundle net of [VER-018] with that phase disabled: the ranking
+`budget + s + 2*src` gives the bound 5, and the bounded model check at depth 5 proves the property;
+with the cancel alternative, a replayed run violates it. A ring `p0 → t0 → p1 → t1 → p2 → t2 → p0`
+has no ranking: the report names `t0, t1, t2`, and the fixpoint query proves `placeBound(p0, 1)`.
 
 ---
 
@@ -889,3 +1091,192 @@ The verifier supports analysis of XOR output branches to identify unreachable br
 
 **Depends on:** [IO-012], [IO-016]
 **Test derivation:** Net with XOR output where one branch is structurally unreachable; verify identification.
+
+---
+
+## Open-Net Verification
+
+#### VER-022: Open-Net Verification Against a Contract
+
+**Priority:** MAY
+
+An implementation MAY verify a subnet **in isolation**, with its ports played by the
+environment, against a **contract** that states what the environment does and what the
+subnet guarantees. A caller that builds its nets from a fixed vocabulary of subnets can then
+prove each subnet once. A proof costs what the subnet costs, not what the interleavings of
+the composed net cost, and the caller carries the composition argument itself. Unlike
+[MOD-051], which wraps a subnet in environment places and hands each property to the
+verifier separately, the contract is judged whole, over a closed net whose environment runs
+dry.
+
+**The contract.**
+- *Initial marking*: the tokens the subnet holds before anything arrives, i.e. its own
+  resources and any shared pool it borrows from.
+- *Arrival groups*: each delivers between `min` and `max` tokens in total, each onto one of
+  its places, each at any point of the run. Both bounds are finite, because a bound is both
+  the runtime cap and the width of the claim.
+- *Count clauses*, each named: at every quiescent marking, the tokens across the clause's
+  places number between `min` and `max`.
+- *Rest places*: may hold any number of tokens at quiescence.
+- *Designed terminals*: while a terminal's marker holds a token, clause lower bounds are
+  waived (upper bounds are not), and the terminal's excused places may hold tokens. The
+  marker itself may always rest, as in [VER-014].
+- *Environment transitions*: transitions the environment fires, for a neighbour that reacts
+  to what the subnet sends. Examples are a tool that answers a request, or a loop body that
+  sends an item back at most as often as a budget of its own allows. An arrival group cannot
+  express this, because its tokens do not wait for a request. A place only environment
+  transitions touch is an **environment place**: the environment's own state. A place they
+  share with the subnet is a port.
+- *Termination*: every run comes to rest, unless the contract waives it.
+
+A quiescent marking **meets** the contract when two conditions hold. First, every clause
+holds, with lower bounds applying only while no terminal marker is marked. Second, every
+token lies on a clause place, a rest place, an environment place, a terminal marker, or an
+excused place of a marked terminal. The second condition is the rest set of [VER-014], with
+the clause, rest and environment places as sinks and each terminal as a conditional sink,
+and implementations MUST decide it through that same predicate. Any other place is internal
+to the subnet and must be empty.
+
+**Closure.** The subnet is verified as a closed net. Arrival group `i` contributes:
+- a source place holding `min` tokens, and a source place holding `max − min`;
+- one transition per target place, moving a token from either source onto it;
+- a transition with no output that consumes a token of the second source, i.e. declines
+  the optional arrival.
+
+The contract's environment transitions join the closed net unchanged. Their actions never
+run, so one that declares outputs needs no action that produces them: the closure binds a
+placeholder rather than refuse it under [CORE-043].
+
+A run of the closed net is quiescent only once every arrival that must happen has happened,
+and every optional one has been delivered or declined. The closure uses ordinary places, not
+the environment places of [VER-006]: those never run dry, so a quiescence property over them
+holds vacuously. Contract places that no arc touches join the closed net as places of their
+own, and the report lists them. A clause over a place nothing writes therefore counts zero
+there, which is a finding, never a refusal. The closure's names (`env:arrivals[i]`,
+`env:optional[i]`, `env:arrive[i]:<place>`, `env:arrive?[i]:<place>`, `env:decline[i]`) and
+the environment transitions' own names MUST NOT collide with the subnet's, and a collision is
+refused.
+
+**Routes.**
+1. *Graph.* The closed net's state-class graph is built **untimed**: every clock gets the
+   interval of `immediate()`. The graph then holds exactly the markings the encoders reason
+   about, and the verdict is the untimed claim of [VER-004], even for a subnet with timed
+   transitions. When the graph closes within the class budget the verdict is exact: every
+   class with no enabled transition is judged, and a reachable cycle is a run that never
+   comes to rest. When it does not close, a violation among the explored classes is still
+   real. A class with no enabled transition is quiescent whether or not it was expanded, and
+   a cycle among explored edges is a real cycle. Only the absence of violations needs the
+   graph to have closed.
+2. *SMT.* When the graph does not close, each part of the contract becomes one query on the
+   closed net, deciding exactly the predicate the graph route reads:
+   - stranding: `DeadlockFree`, with the clause, rest and environment places as sinks and
+     the terminals as conditional sinks;
+   - each count clause: `QuiescentCount` ([VER-002]) over the clause's places and bounds,
+     with every terminal marker as a waiver;
+   - termination: the firing-bound ranking of [VER-019] on the closed net. Weights that
+     every firing lowers bound every run by what they give the initial marking, so no run
+     goes on forever.
+
+   Termination is undecided when no ranking exists, and the report then names the firings
+   the marking equation lets repeat.
+
+**Verdict.**
+- `Proven`: every reachable quiescent marking of the closed net meets the contract and,
+  where termination is required, the graph has no reachable cycle.
+- `Violated`: lists every broken part (each clause by name, each stranded place by name, and
+  termination), each with a shortest witness. A witness carries the firing sequence from the
+  initial marking, environment steps included, the markings along it, and the **port
+  trace**. The port trace is the firings that touch a port or are environment steps
+  (arrivals, declines and environment transitions), each marked as such, with the token
+  changes on contract places and on the places environment transitions touch. A termination
+  witness is a lasso that marks where its cycle starts.
+- `Unknown`: says which parts no route decided, and why.
+
+**Acceptance Criteria:**
+1. A subnet that meets its contract is `Proven`. The same subnet with an edge that receives
+   neither of its two places is `Violated`: the violation names that edge's clause and
+   carries a port trace ending in the quiescent marking.
+2. A clause whose upper bound is exceeded is violated whether or not a terminal is marked. A
+   lower bound is waived while one is.
+3. A token on a place the contract does not name is reported as stranded, and the report
+   names the place.
+4. A reachable cycle is a `termination` violation with a lasso witness when termination is
+   required, and no violation when it is waived.
+5. An arrival group that must deliver `n` tokens reaches quiescence only after all `n`; a
+   group that may deliver at most `n` also reaches quiescence after fewer.
+6. A timed subnet gets the untimed verdict: its class count equals that of the same subnet
+   with every transition immediate.
+7. When the graph does not close, the SMT route decides. The result is `Unknown`, naming
+   the reason, when that route is disabled or leaves a part undecided.
+8. An environment transition's firings are marked as environment steps in the port trace. A
+   token left on an environment place is never reported stranded; a place environment
+   transitions share with the subnet is judged like any other.
+
+**Cost.** The contract is decided on the closed net's untimed state-class graph, so its cost is
+the graph's, and what that costs is *reachable combinations* rather than size. Measured on a
+node gadget of the shape a compiled workflow produces
+(`typescript/scripts/bench-open-net.ts`), the class count is independent of the subnet's size:
+30 classes from 11 places to 59, one outgoing edge to 25, about a millisecond throughout. A
+node's outgoing edges route together, and correlated edges add places without adding
+combinations. Edges that route independently multiply instead — 30, 42, 66, 114, 210, 402,
+1554 classes for one to eight — so size is free only for correlated routing, not in general.
+Across a corpus of 502 compiled node gadgets the class count is non-monotonic in place count
+and monotonic in input arity, so an implementation SHOULD report cost to a user in terms of
+arity rather than size.
+
+The class count grows with the number of **concurrent activations** a subnet admits, and with
+the tokens in a budget place only while that number exceeds the budget. An arrival is not
+budget-gated while an activation is: the environment delivers when it likes, and only starting
+work spends a budget token. So what decides the cost is how the subnet's inputs combine, not
+how many places or ports it has:
+
+- A **join**, whose distinct inputs must all arrive before it fires, runs once however large
+  the budget, and is budget-blind outright — 30 classes at arity two and 42 at arity three,
+  identical at budgets one, two, four and eight, and 464 of 464 join gadgets in a corpus of
+  502 compiled nodes with no movers. Being budget-blind does not make it cheap: a join's cost
+  grows combinatorially in its arity — 30, 42, 66 and 210 classes for arities two, three, four
+  and six — because its inputs are pending together whatever the budget is.
+- An **OR**, where several producer edges feed one input, activates once per arrival *that
+  starts work*; an arrival routed to a skip path spends no budget and starts none. The budget
+  binds while two or more activations can be in flight: on a three-arrival OR whose producers
+  can all deliver data the graph is 402, 516, 546, 546, 546 classes for budgets one to eight,
+  while the same subnet in which only one producer can deliver data is 228 classes at every
+  budget in that range. No gadget of the 502 moves between budget 4 and 8.
+
+Which *real* subnets are budget-sensitive is not settled: over 31 OR-shaped gadgets neither
+producer exclusivity nor a loop-back edge predicts it, both having been tested and refuted.
+The bounds above are structural and hold regardless; the classification is open.
+
+An implementation SHOULD describe the claim that way — blind to the budget above the subnet's
+concurrent-activation count — rather than as unconditional budget-independence. An internal
+1-safe mutex serialising activations is a 6–13% constant on the class count and does not move
+that saturation point.
+
+The SMT route costs two to four hundred times as much on the same subnets (193 ms to 418 ms
+from one edge to eight, against about a millisecond) and, unlike the graph, grows with size.
+It is the fallback for a graph that will not close, not an alternative to one.
+
+**Implementation notes:**
+- TypeScript: `verification/open-net`: `verifyOpenNet(net, contract, options)`;
+  `OpenNetContract.builder()` (`initialMarking`, `arrive`, `arriveAtMost`, `arriveBetween`,
+  `expect`, `expectBetween`, `rest`, `terminal`, `environment`, `requireTermination`);
+  `closeOpenNet`.
+  Supporting APIs: `StateClassGraph.build(…, { untimed: true })` and `rest-set`
+  `strandedPlaces`.
+- Java, Rust, Python: not implemented.
+
+**Depends on:** [VER-002], [VER-004], [VER-006], [VER-010], [VER-014], [VER-017], [VER-019]
+
+**Test derivation:** Use a node gadget: one input edge carrying data or empty, one output with
+two edges, a shared budget, and a halt that inhibits start and skip. Its contract is proven.
+Then check that each defect breaks the named part:
+- a skip that writes only the first edge's empty violates the second edge's clause;
+- a run that writes both data and empty on one edge violates that clause's upper bound;
+- a done that keeps the budget violates the budget clause;
+- a transition that re-marks its own input is a termination violation;
+- without the terminal, a halt strands the arrival.
+
+For environment transitions, use a node that sends a request and runs again on each answer.
+Its environment answers at most twice, from a budget of its own, or ends the exchange. The
+contract is proven with termination required, the budget the environment leaves unspent is
+not stranded, and the environment's firings are marked in the port trace.

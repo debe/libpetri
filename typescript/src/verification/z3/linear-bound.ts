@@ -73,6 +73,7 @@ export function violationDemand(flatNet: FlatNet, property: SmtProperty): Map<nu
     case 'deadlock-free':
     case 'terminates-at-sink':
     case 'joined-or-dead-lettered':
+    case 'quiescent-count':
       return null;
   }
   return demand.size === 0 ? null : demand;

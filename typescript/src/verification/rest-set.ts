@@ -76,6 +76,33 @@ export function strandsToken(
   sinkPlaces: ReadonlySet<Place<any>>,
   conditional: readonly ConditionalSinks[],
 ): boolean {
+  const resting = restingNames(m, sinkPlaces, conditional);
+  for (const p of m.placesWithTokens()) {
+    if (!resting.has(p.name)) return true;
+  }
+  return false;
+}
+
+/**
+ * The places of `m` that hold a stranded token, in `m`'s own order: empty exactly when
+ * {@link strandsToken} is false. The open-net contract of [VER-022] reads it to name the
+ * places a quiescent marking leaves work on.
+ */
+export function strandedPlaces(
+  m: MarkingState,
+  sinkPlaces: ReadonlySet<Place<any>>,
+  conditional: readonly ConditionalSinks[],
+): Place<any>[] {
+  const resting = restingNames(m, sinkPlaces, conditional);
+  return m.placesWithTokens().filter(p => !resting.has(p.name));
+}
+
+/** The names of the places where a token may rest in `m`: sinks, markers, and the places of every marked marker. */
+function restingNames(
+  m: MarkingState,
+  sinkPlaces: ReadonlySet<Place<any>>,
+  conditional: readonly ConditionalSinks[],
+): Set<string> {
   const resting = new Set<string>();
   for (const s of sinkPlaces) resting.add(s.name);
   for (const { marker, places } of conditional) {
@@ -84,10 +111,7 @@ export function strandsToken(
       for (const p of places) resting.add(p.name);
     }
   }
-  for (const p of m.placesWithTokens()) {
-    if (!resting.has(p.name)) return true;
-  }
-  return false;
+  return resting;
 }
 
 /**

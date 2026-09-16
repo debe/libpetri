@@ -1108,6 +1108,9 @@ describe('SmtVerifier semiflow invariants (VER-007)', () => {
       .initialMarking(m => m.tokens(BUDGET, 1))
       .property(placeBound(WORK, 1))
       .semiflowInvariants(true)
+      // The semiflow-strengthened HORN encoding is under test; VER-018/019 would decide first.
+      .stateEquationPhase(false)
+      .firingBound(false)
       .timeout(30_000)
       .verify();
     expect(on.verdict.type, on.report).toBe('proven');
@@ -1204,6 +1207,9 @@ describe('SmtVerifier semiflow invariants (VER-007)', () => {
       .initialMarking(m => m.tokens(BUDGET, 1))
       .property(placeBound(SINK, 1))
       .semiflowInvariants(true)
+      // The semiflow-strengthened HORN encoding is under test; VER-018/019 would decide first.
+      .stateEquationPhase(false)
+      .firingBound(false)
       .timeout(30_000)
       .verify();
     expect(result.verdict.type, result.report).toBe('violated');

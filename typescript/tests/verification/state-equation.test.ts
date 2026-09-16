@@ -88,7 +88,7 @@ describe('state equation (VER-016) — encoding', () => {
     expect(enc.smt2.split(`(= m${idx('p0')}p (+ 1 (- n0p) (- n1p)))`).length - 1).toBe(5);
   });
 
-  it('leaves consume-all and injected places out of the equation', () => {
+  it('bounds a consume-all place from above and leaves an injected place out of the equation', () => {
     const q = place('q'), r = place('r'), s = place('s');
     const env = environmentPlace('env');
     const t = Transition.builder('t').inputs(all(q)).outputs(outPlace(r)).action(produces()).build();
@@ -98,8 +98,10 @@ describe('state equation (VER-016) — encoding', () => {
     const exact = equationPlaces(flat).map(p => flat.places[p]!.name);
     expect(exact).toEqual(['r', 's']);
     const enc = encodeNet(flat, MarkingState.builder().tokens(q, 2).build(), mutualExclusion(r, s), [], { stateEquation: true });
+    // all(q) removes at least one token per firing, so the linear count bounds q from above.
     expect(enc.smt2).not.toContain(`(= m${flat.placeIndex.get('q')}p (+ 2`);
-    expect(enc.smt2).not.toContain(`(= m${flat.placeIndex.get('env')}p (+ 0`);
+    expect(enc.smt2).toContain(`(<= m${flat.placeIndex.get('q')}p (+ 2 (- n0p)))`);
+    expect(enc.smt2).not.toContain(`m${flat.placeIndex.get('env')}p (+ 0`);
     // The injection rule carries the counters unchanged.
     expect(enc.smt2).toContain('(= n0p n0)\n            (= n1p n1)');
   });
@@ -146,7 +148,9 @@ describeZ3('state equation (VER-016) — end to end', () => {
     const { net, m0, done, halt, ra, rb } = forkOrHalt();
     const result = await SmtVerifier.forNet(net)
       .enumerationMaxClasses(0).initialMarking(m0)
-      .property(deadlockFree()).sinkPlaces(done, halt).stateEquation(true).timeout(30_000).verify();
+      .property(deadlockFree()).sinkPlaces(done, halt).stateEquation(true)
+      // The HORN encoding under test; the state-equation phase (VER-018) would decide first.
+      .stateEquationPhase(false).firingBound(false).timeout(30_000).verify();
     expect(result.verdict.type, result.report).toBe('proven');
     expect(result.report).toContain('State equation: encoded over 5 firing counters (VER-016)');
     expect(result.report).toContain('Certificate check: PASSED (init, consecution, safety)');
@@ -157,7 +161,8 @@ describeZ3('state equation (VER-016) — end to end', () => {
     const { net, m0, done } = forkOrHalt();
     const result = await SmtVerifier.forNet(net)
       .enumerationMaxClasses(0).initialMarking(m0)
-      .property(deadlockFree()).sinkPlaces(done).stateEquation(true).timeout(30_000).verify();
+      .property(deadlockFree()).sinkPlaces(done).stateEquation(true)
+      .stateEquationPhase(false).firingBound(false).timeout(30_000).verify();
     expect(result.verdict.type, result.report).toBe('violated');
     expect(result.counterexampleConfirmed).toBe(true);
     expect(result.counterexampleTrace.at(-1)!.tokens(place('halt'))).toBe(1);

@@ -4,7 +4,7 @@ import type { In } from '../../core/in.js';
 import { consumptionCount } from '../../core/in.js';
 import type { Transition } from '../../core/transition.js';
 import type { PetriNet } from '../../core/petri-net.js';
-import { earliest, latest } from '../../core/timing.js';
+import { earliest, immediate, latest, type Timing } from '../../core/timing.js';
 import { enumerateBranches } from '../../core/out.js';
 import { MarkingState } from '../marking-state.js';
 import { DBM } from './dbm.js';
@@ -23,6 +23,25 @@ export interface VirtualTransition {
   readonly transition: Transition;
   readonly branchIndex: number;
   readonly outputPlaces: ReadonlySet<Place<any>>;
+}
+
+/** Options for {@link StateClassGraph.build}. */
+export interface StateClassGraphOptions {
+  /**
+   * Explore the **untimed** reachable set: every clock gets the interval of `immediate()`,
+   * `[0, ∞)`, whatever its transition declares, so any enabled transition may fire next and
+   * the graph holds exactly the markings the untimed encoders reason about ([VER-004]). Its
+   * verdicts are then the stronger untimed claim, not the timed one. On a net whose
+   * transitions are all immediate this changes nothing.
+   */
+  readonly untimed?: boolean;
+}
+
+const IMMEDIATE: Timing = immediate();
+
+/** The timing a clock is given: the transition's own, or `immediate()` when exploring untimed. */
+function clockTiming(t: Transition, untimed: boolean): Timing {
+  return untimed ? IMMEDIATE : t.timing;
 }
 
 /**
@@ -81,6 +100,7 @@ export class StateClassGraph {
     maxClasses: number,
     environmentPlaces?: Set<EnvironmentPlace<any>>,
     environmentMode?: EnvironmentAnalysisMode,
+    options: StateClassGraphOptions = {},
   ): StateClassGraph {
     requireOutputProducingActions(net);
 
@@ -91,8 +111,9 @@ export class StateClassGraph {
         envPlaces.add(ep.place);
       }
     }
+    const untimed = options.untimed === true;
 
-    const initialClass = initialStateClass(net, initialMarking, envPlaces, envMode);
+    const initialClass = initialStateClass(net, initialMarking, envPlaces, envMode, untimed);
 
     // BFS exploration
     const stateClasses: StateClass[] = [initialClass];
@@ -115,7 +136,7 @@ export class StateClassGraph {
         const virtualTransitions = expandTransition(transition);
 
         for (const vt of virtualTransitions) {
-          const successor = computeSuccessor(net, current, vt, envPlaces, envMode);
+          const successor = computeSuccessor(net, current, vt, envPlaces, envMode, untimed);
           if (successor === null || successor.isEmpty()) continue;
 
           // Add edge with branch index
@@ -276,13 +297,14 @@ export function initialStateClass(
   initialMarking: MarkingState,
   envPlaces: Set<Place<any>>,
   envMode: EnvironmentAnalysisMode,
+  untimed = false,
 ): StateClass {
   const found = findEnabledTransitions(net, initialMarking, envPlaces, envMode);
   const order = canonicalOrder(found);
   const enabledTransitions = order === null ? found : permute(found, order);
   const clockNames = enabledTransitions.map(t => t.name);
-  const lowerBounds = enabledTransitions.map(t => earliest(t.timing) / 1000);
-  const upperBounds = enabledTransitions.map(t => latest(t.timing) / 1000);
+  const lowerBounds = enabledTransitions.map(t => earliest(clockTiming(t, untimed)) / 1000);
+  const upperBounds = enabledTransitions.map(t => latest(clockTiming(t, untimed)) / 1000);
   const baseDBM = DBM.create(clockNames, lowerBounds, upperBounds);
   // Class-relative earliest-ready time of each enabled clock, captured BEFORE
   // letTimePass() zeroes the DBM lower bounds (NU-052 residual-earliest).
@@ -313,6 +335,7 @@ export function computeSuccessor(
   fired: VirtualTransition,
   environmentPlaces: Set<Place<any>>,
   environmentMode: EnvironmentAnalysisMode,
+  untimed = false,
 ): StateClass | null {
   const transition = fired.transition;
 
@@ -353,8 +376,8 @@ export function computeSuccessor(
   // 3. Compute successor DBM
   const firedIdx = current.transitionIndex(transition);
   const newClockNames = newlyEnabled.map(t => t.name);
-  const newLowerBounds = newlyEnabled.map(t => earliest(t.timing) / 1000);
-  const newUpperBounds = newlyEnabled.map(t => latest(t.timing) / 1000);
+  const newLowerBounds = newlyEnabled.map(t => earliest(clockTiming(t, untimed)) / 1000);
+  const newUpperBounds = newlyEnabled.map(t => latest(clockTiming(t, untimed)) / 1000);
 
   let firedDBM = current.firingDomain.fireTransition(
     firedIdx,

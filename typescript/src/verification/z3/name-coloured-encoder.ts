@@ -62,7 +62,9 @@ import type { MarkingState } from '../marking-state.js';
 import type { SmtProperty } from '../smt-property.js';
 import type { PInvariant } from '../invariant/p-invariant.js';
 import type { FragmentMode } from '../analysis/name-fragment.js';
-import { indexOrdered, injectionMap, type SmtEncoding, strandedConditions } from './smt-encoder.js';
+import {
+  countViolationCondition, indexOrdered, injectionMap, type SmtEncoding, strandedConditions,
+} from './smt-encoder.js';
 
 /** How a transition relates to the coloured (correlation-carrying) places. */
 type Klass =
@@ -616,6 +618,20 @@ function encodeViolation(
       const conds = encodeColouredQuiescent(plan, lay, flat, envInj);
       if (conds == null) return 'false';
       conds.push(`(>= ${aggregate(plan, lay, pid, lay.cur)} 1)`);
+      return joinColoured(conds);
+    }
+    // QuiescentCount (VER-002): the flat encoder's count clause over aggregate counts.
+    case 'quiescent-count': {
+      const bad = countViolationCondition(
+        indexOrdered(flat, property.places).map((pid) => aggregate(plan, lay, pid, lay.cur)),
+        indexOrdered(flat, property.waivedBy).map((pid) => aggregate(plan, lay, pid, lay.cur)),
+        property.min,
+        property.max,
+      );
+      if (bad == null) return 'false';
+      const conds = encodeColouredQuiescent(plan, lay, flat, envInj);
+      if (conds == null) return 'false';
+      conds.push(bad);
       return joinColoured(conds);
     }
   }

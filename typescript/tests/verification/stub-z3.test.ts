@@ -82,6 +82,10 @@ describe.skipIf(process.platform === 'win32')('stub z3 (VER-013 transport contra
       .initialMarking(m => { for (const [p, n] of tokens) m.tokens(p, n); })
       .property(property)
       .environmentMode(ignore())
+      // The contract under test is the HORN and certificate scripts' transport. The
+      // phases of VER-018/019 run first and would consume the stub's canned replies.
+      .stateEquationPhase(false)
+      .firingBound(false)
       .timeout(timeoutMs)
       .verify();
   }

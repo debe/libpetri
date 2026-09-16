@@ -11,6 +11,92 @@ When a firing takes a transition's input or read token and puts one back, the tr
 - Read arcs count. Surplus tokens keep the clock: a place that still satisfies the transition restarts nothing.
 - **Behaviour change:** to keep a clock running while another transition uses a shared token, have that transition read the token. Immediate transitions follow the rule too, so they move later in FIFO order within their priority, and Java, Rust and Python emit more `TransitionClockRestarted` events.
 
+### Verification: the state equation proves most workflow nets before Spacer starts (TypeScript)
+
+`SmtVerifier` now asks one linear question before the fixpoint query: can a marking that satisfies the marking equation violate the property? When it cannot, the property is proven, usually in tens of milliseconds. On 23 compiled workflow nets (28 to 370 places, deadlock freedom with conditional sinks), 21 prove this way in 10–220 ms, among them two the fixpoint query needed 277 s and 410 s for.
+
+When the equation admits a violation the net cannot actually reach, the phase refines it away instead of giving up. On a workflow join that is usually a skip that fired after the data arrived, and the refinement is the inequality the skip's inhibitor makes true. The report prints it, and the proof goes through the same certificate check as an IC3 proof:
+
+```text
+  State-equation phase (VER-018):
+    Refinement (inductive): Merge/hasdata <= Merge/ready_0 + Merge/ready_1
+    Queries: 3
+    Status: no marking the equation admits violates the property
+  Certificate check: PASSED (init, consecution, safety)
+```
+
+The refinements are on the result too:
+
+```ts
+const result = await SmtVerifier.forNet(net).property(deadlockFree()).sinkPlaces(done).verify();
+result.verdict;              // { type: 'proven', method: 'state-equation', ... }
+result.discoveredInvariants; // ['Merge/hasdata <= Merge/ready_0 + Merge/ready_1']
+```
+
+A second phase bounds the length of every run. If some weighting of the places drops with every firing, no run is longer than its initial value, and a bounded model check to that depth either finds a counterexample or proves the property. It finds counterexamples deep in a workflow net that the fixpoint query does not produce. A net whose loops are unbounded is reported as such, with the transitions that can repeat:
+
+```text
+  Firing bound (VER-019):
+    Status: no firing bound — the marking equation lets Agent/run_b5, Agent/done_req_b0, Agent/calls_out repeat; not attempted
+```
+
+Both phases run on the flat encoding only, are on by default, and hand over to the fixpoint query unchanged when they cannot decide.
+
+- The witness search now runs on a net whose environment injects tokens, which is most compiled nets — before, it stopped at the door and the phase could only ever prove, never explain. It fires only the net's own transitions, so a run it finds is a real run and is reported `violated` with its firing sequence. It still cannot show that *no* violating run exists on such a net, because an injected token could enable one it never tried, and it reports that it could not tell rather than a clean search.
+- **New:** `SmtVerifier.stateEquationPhase(enabled)` and `.firingBound(enabled)`; verdict methods `'state-equation'` and `'bounded-model-check'`; `encodeScripts().stateEquation`.
+- **Changed:** with `stateEquation(true)`, a place drained by `all()` / `atLeast()` or cleared by a reset arc now carries an upper bound in the HORN encoding instead of nothing.
+- **Behaviour change:** a property that went through Spacer may now be proven by one of the new phases, with a different method and report. A test that inspects the Spacer certificate or its counterexample replay should pass `.stateEquationPhase(false).firingBound(false)`.
+
+Java, Rust and Python do not have the phases yet. Specified in spec/07-verification.md (VER-016 amendment, VER-018, VER-019).
+
+### Verification: prove a subnet on its own, against a contract (TypeScript)
+
+A net built from a fixed set of reusable subnets can now be proven one subnet at a time. `verifyOpenNet` closes the subnet with the environment its contract describes, enumerates the result, and checks every quiescent marking against the contract. Each proof costs what one subnet costs, not what the interleavings of the whole net cost. Arguing that the composed net is correct once every subnet meets its contract remains the caller's job.
+
+```ts
+import { OpenNetContract, verifyOpenNet } from 'libpetri/verification';
+
+const contract = OpenNetContract.builder()
+  .initialMarking(m => m.tokens(idle, 1).tokens(budget, 1))
+  .arrive(1, inData, inEmpty)          // exactly one arrival, onto one of these, at any point
+  .arriveAtMost(1, halt)               // never or once
+  .expect('e1', 1, e1Data, e1Empty)    // at quiescence: exactly one of data / empty on the edge
+  .expect('idle', 1, idle)
+  .expect('budget', 1, budget)
+  .terminal(halt, inData, inEmpty)     // a halted run may leave its arrival where it was delivered
+  .build();
+
+const result = await verifyOpenNet(gadget, contract);
+// proven, or violated: result.violations names each broken clause, with a shortest
+// firing sequence and its port trace
+```
+
+- Places the contract does not name are internal and must be empty at quiescence; a token left on one is reported by place name.
+- **A subnet that can legitimately skip needs its output clauses conditional.** `expect('e1', 1, …)` says every quiescent marking writes that edge exactly once, and a node that skips comes to rest having written it zero times — which the clause reports. Name the place that marks a skip as a `terminal(skipped)`: that waives the lower bounds while it is marked and leaves every upper bound in force, so a run that writes an edge twice is still caught.
+- **A subnet that asks something of its neighbours needs an `environment(...)`.** Alone, a node that dispatches a request and waits has nobody to answer it, so it quiesces with the request outstanding. That is the right answer for an open net whose environment does nothing, and rarely the one that was meant.
+- Every run must come to rest, unless you call `requireTermination(false)`. A reachable cycle is reported as a lasso.
+- Neighbours that react to what the subnet sends, such as a tool answering a request or a loop body sending an item back within a bound, are declared with `environment(...transitions)`. Their firings are marked as environment steps in the port trace, and a place only they touch is never reported as stranded.
+- The graph is explored untimed, so a subnet with delayed transitions gets the same untimed verdict the SMT route gives.
+- When the graph does not close within its class budget, the contract goes to the SMT pipeline clause by clause, and termination goes to the firing-bound ranking.
+- `StateClassGraph.build` takes a new options argument; `{ untimed: true }` explores the untimed reachable set. The option type is exported as `StateClassGraphOptions`.
+- A `proven` verdict now carries the invariants its queries returned, labelled by the part of the contract each proves, instead of discarding them. A part proven by enumeration or by a bound has none to give, and the field stays `null` then.
+- A count clause of `[0, ∞]` is satisfied by every marking, so no query is run for it. The report now says so on its own line rather than omitting it.
+- **Cost:** the class count is set by reachable combinations, not size — 30 classes from 11 places to 59 on a compiled node shape, about a millisecond throughout, because a node's outgoing edges route together. Edges that route *independently* multiply (30, 42, 66, 114, 210, 402, 1554 for one to eight). The concurrency budget is visible only while a subnet can activate more often than the budget allows, because an arrival is not budget-gated but starting work is: a join, whose inputs must all arrive, runs once whatever the budget and never sees it — though it is far from cheap, costing 30, 42, 66 and 210 classes at arities two, three, four and six. An OR over several producer edges activates once per arrival *that starts work*, so it does see the budget until the budget stops being the cap; an arrival routed to a skip path spends none. Report cost by input arity, not by place count. Measure your own shapes with `typescript/scripts/bench-open-net.ts`.
+
+Java, Rust and Python do not have this yet. Specified in spec/07-verification.md (VER-022).
+
+### Verification: a token count at quiescence (TypeScript)
+
+`quiescentCount(places, min, max, waivedBy)` checks a count at every quiescent marking, and every route decides it. Its lower bound is waived while a designed-terminal marker holds a token, so "the budget is back whenever the net comes to rest, unless it halted" is one property:
+
+```ts
+SmtVerifier.forNet(net)
+  .property(quiescentCount([budget], k, k, [halt]))
+  .verify();
+```
+
+Java, Rust and Python do not have it yet. Specified in spec/07-verification.md (VER-002).
+
 ## Java 5.1.0 / TypeScript 5.1.0 / Rust 5.1.0 / Python 4.1.0 — 2026-09-09
 
 ### Verification — soundness

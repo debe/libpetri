@@ -19,7 +19,10 @@ import { encodeNet, quiescenceUnreachable, resolveEnvInjection, type SmtEncoding
 import {
   checkLinearBoundExact, decodeLinearBound, encodeLinearBound, formatLinearBound, formatLinearDemand,
 } from './z3/linear-bound.js';
-import { classifyFirstLine } from './z3/smt-text.js';
+import { classifyFirstLine, errorLine } from './z3/smt-text.js';
+import { encodeStateEquationQuery, formatInequality, refinementCertificate } from './z3/state-equation-query.js';
+import { describeCandidate, runStateEquationPhase } from './z3/state-equation-phase.js';
+import { formatRanking, runFiringBoundPhase, type DepthStep, type FiringBound } from './z3/bounded-run.js';
 import { failureReason, formatZ3Version, resolveZ3, runZ3Text, timeoutBudget, Z3Unavailable, type Z3Solver } from './z3/z3-process.js';
 import { buildColouredPlan, encodeColoured, type ColouredPlan } from './z3/name-coloured-encoder.js';
 import { verifyViaNameScg } from './nu-scg-verifier.js';
@@ -28,7 +31,7 @@ import type { FragmentMode } from './analysis/name-fragment.js';
 import type { PrioritySemantics } from './analysis/priority-semantics.js';
 import { decode } from './z3/counterexample-decoder.js';
 import {
-  replayCounterexample, vectorize, toMarkingState, stepName, type ReplayOutcome,
+  replayCounterexample, vectorize, toMarkingState, stepName, type AbstractState, type ReplayOutcome,
 } from './z3/abstract-replayer.js';
 import { requireOutputProducingActions } from '../core/internal/output-action-check.js';
 
@@ -77,6 +80,8 @@ export class SmtVerifier {
   private _semiflowInvariants: boolean | 'auto' = false;
   private _stateEquation: boolean = false;
   private _linearBound: boolean = true;
+  private _stateEquationPhase: boolean = true;
+  private _firingBound: boolean = true;
   private _nuMaxClasses: number = 100_000;
   private _enumerationMaxClasses: number = 50_000;
   private _fragmentMode: FragmentMode = 'base';
@@ -300,9 +305,65 @@ export class SmtVerifier {
    * as the equality laws), and the certificate check re-proves it against the raw
    * step relation, whose only counter knowledge is the increment. Not applied to the
    * name-coloured encoding or Route B, which the report says when it applies.
+   *
+   * Not {@link stateEquationPhase}, which is the separate VER-018 pre-phase that can
+   * decide the property outright instead of the fixpoint query, and is on by default.
    */
   stateEquation(enabled: boolean): this {
     this._stateEquation = enabled;
+    return this;
+  }
+
+  /**
+   * Enables/disables the state-equation phase (VER-018; default: enabled).
+   *
+   * Before the fixpoint query, one linear query asks whether a marking the marking
+   * equation admits can violate the property: `M = M0 + C·n` over firing counts
+   * `n ≥ 0`, with an upper bound on a place a consume-all or reset arc clears. `unsat`
+   * proves the property. A `sat` candidate is settled cheapest first: a real run within
+   * its firing counts that reaches a violation (violated, with that run as the
+   * counterexample); an initially marked trap it leaves empty; or a linear inequality
+   * `a·M ≤ b`, kept by every step of the exact step relation, guards and clearing
+   * included, that excludes it. The refinement is added and the query asked again.
+   *
+   * The proof is `SE ∧ refinements`, re-proven by the certificate check against the
+   * raw step relation before it is reported, and the report prints each refinement —
+   * on a workflow join, `Merge/hasdata <= Merge/ready_0 + Merge/ready_1`: a data token
+   * never outlives its input's ready token, because the skip is inhibited by it. On
+   * compiled workflow nets of 30–370 places this takes tens of milliseconds where the
+   * fixpoint query took minutes.
+   *
+   * When nothing settles a candidate, the phase steps aside and the pipeline continues
+   * unchanged. Flat path only: skipped for a ν-net and under `ignore` with environment
+   * places. Disable it to force the fixpoint path.
+   *
+   * Runs within the full {@link timeout}, and its certificate check gets its own, as on
+   * the fixpoint path. Not {@link stateEquation}, which adds firing counters *inside* the
+   * fixpoint encoding and is off by default.
+   */
+  stateEquationPhase(enabled: boolean): this {
+    this._stateEquationPhase = enabled;
+    return this;
+  }
+
+  /**
+   * Enables/disables the firing-bound phase (VER-019; default: enabled).
+   *
+   * When weights `r ≥ 0` exist that every firing lowers by at least one, no run has
+   * more than `K = r·M0` firings, and a bounded model check of `K` exact steps decides
+   * the property: a violating run is the counterexample, and none at depth `K` is a
+   * proof for every run. The depth doubles from 8, so a short counterexample is found
+   * early — the case the fixpoint query handles worst, a quiescence violation deep in
+   * a workflow net. A net without such weights is reported as unbounded, naming the
+   * transitions the marking equation lets repeat, and left to the fixpoint query.
+   *
+   * A proof from this phase carries no inductive invariant for the certificate check;
+   * the ranking is re-checked in exact integer arithmetic and the counterexample is
+   * replayed. Runs after the state-equation phase, on the same nets, within half the
+   * timeout. Disable it to force the fixpoint path.
+   */
+  firingBound(enabled: boolean): this {
+    this._firingBound = enabled;
     return this;
   }
 
@@ -464,11 +525,21 @@ export class SmtVerifier {
     const bound =
       attempt.plan == null &&
       this._linearBound &&
-      !(this._environmentPlaces.size > 0 && this._environmentMode.type === 'ignore')
+      !this.ignoresEnvironment
         ? encodeLinearBound(flatNet, this._initialMarking, this._property)
         : null;
+    // The state-equation query (VER-018) exactly when verify() would send it, so this
+    // mirrors `flatPhases` there — no plan conjunct, since `!hasMatch` already implies one.
+    const stateEquation =
+      !scriptsHasMatch &&
+      this._stateEquationPhase &&
+      !this.ignoresEnvironment
+        ? encodeStateEquationQuery(
+            flatNet, this._initialMarking, this._property, this._sinkPlaces, this._conditionalSinks, [],
+          )
+        : null;
     if (attempt.encoding != null) {
-      return { horn: attempt.encoding.smt2, certificate: null, coloured: true, bound };
+      return { horn: attempt.encoding.smt2, certificate: null, coloured: true, bound, stateEquation };
     }
     const flat = encodeNet(flatNet, this._initialMarking, this._property, invariants, {
       sinkPlaces: this._sinkPlaces,
@@ -480,7 +551,7 @@ export class SmtVerifier {
       placeholderCertificate(flatNet.places.length + flat.counterCount), flatNet, this._initialMarking,
       this._property, this._sinkPlaces, invariants, this._conditionalSinks, this._stateEquation,
     );
-    return { horn: flat.smt2, certificate, coloured: false, bound };
+    return { horn: flat.smt2, certificate, coloured: false, bound, stateEquation };
   }
 
   /**
@@ -572,9 +643,7 @@ export class SmtVerifier {
         // path below.
         let routeBVerdict = outcome.verdict;
         if (
-          routeBVerdict.type === 'proven' &&
-          this._environmentPlaces.size > 0 &&
-          this._environmentMode.type === 'ignore'
+          routeBVerdict.type === 'proven' && this.ignoresEnvironment
         ) {
           report.push(`  Downgraded to UNKNOWN: ${IGNORE_MODE_VACUITY_REASON}`);
           routeBVerdict = { type: 'unknown', reason: IGNORE_MODE_VACUITY_REASON };
@@ -866,7 +935,7 @@ export class SmtVerifier {
       this._linearBound &&
       colouredPlan == null &&
       isReachabilitySafety(this._property) &&
-      !(this._environmentPlaces.size > 0 && this._environmentMode.type === 'ignore')
+      !this.ignoresEnvironment
     ) {
       const proof = await this.linearBoundProof(flatNet, solver, report);
       if (proof != null) {
@@ -886,6 +955,24 @@ export class SmtVerifier {
           'structural',
         ), hasMatch, nuBounded, false);
       }
+    }
+
+    // State-equation phase (VER-018), then the firing bound (VER-019): flat path only.
+    // Not on a ν-net, whose matched transitions the flat encoding treats name-blind and
+    // which has exact routes of its own, and not under `ignore` with environment places,
+    // where VER-006 refuses every `proven`.
+    // Neither phase returns through `applyNuGuard`, which is safe only because this
+    // requires `!hasMatch`, where that guard is the identity.
+    const flatPhases =
+      !hasMatch &&
+      !this.ignoresEnvironment;
+    if (flatPhases && this._stateEquationPhase) {
+      const decided = await this.stateEquationDecision(flatNet, solver, report, propDesc, invariants, stats, start);
+      if (decided != null) return decided;
+    }
+    if (flatPhases && this._firingBound) {
+      const decided = await this.firingBoundDecision(flatNet, solver, report, propDesc, invariants, stats, start);
+      if (decided != null) return decided;
     }
 
     let encoding: SmtEncoding;
@@ -947,7 +1034,7 @@ export class SmtVerifier {
         // encoding does not model env injection, so env-gated transitions never
         // fire and ANY safety bound is trivially "proven". Refuse to certify —
         // downgrade to UNKNOWN with actionable guidance.
-        if (this._environmentPlaces.size > 0 && this._environmentMode.type === 'ignore') {
+        if (this.ignoresEnvironment) {
           const reason = IGNORE_MODE_VACUITY_REASON;
           report.push(`  Status: UNSAT, but vacuous under ignore mode\n`);
           report.push('=== RESULT ===\n');
@@ -1152,6 +1239,199 @@ export class SmtVerifier {
   }
 
   /**
+   * Whether the net has environment places the analysis is not modelling ([VER-006]
+   * `ignore`). Every route that can return `proven` has to refuse one here — a proof over
+   * a frozen environment is vacuous — so the rule is named once rather than spelled out
+   * at each guard. See {@link IGNORE_MODE_VACUITY_REASON}.
+   */
+  private get ignoresEnvironment(): boolean {
+    return this._environmentPlaces.size > 0 && this._environmentMode.type === 'ignore';
+  }
+
+  /**
+   * The solver as the phases of VER-018/019 ask it: one script through the transport,
+   * resolving with stdout. Rejects when the reply has no verdict line, and when z3
+   * reported an error other than the `model is not available` a `(get-model)` after
+   * `unsat` always draws — an errored assert silently drops out of the query.
+   */
+  private solverRun(solver: Z3Solver): (script: string, phase: string, timeoutMs: number) => Promise<string> {
+    return async (script, phase, timeoutMs) => {
+      const reply = await runZ3Text(solver, script, phase, timeoutMs, []);
+      const unexpected = [reply.stdout, reply.stderr]
+        .flatMap((text) => text.split('\n'))
+        .map((line) => errorLine(line))
+        .find((line) => line != null && !line.includes('model is not available'));
+      if (unexpected != null) throw new Error(`z3 reported an error: ${unexpected}`);
+      if (classifyFirstLine(reply.stdout) == null) throw new Error(failureReason(reply, timeoutBudget(timeoutMs)));
+      return reply.stdout;
+    };
+  }
+
+  /**
+   * Runs the state-equation phase (VER-018). Returns the final result when it decided
+   * the property — a `proven` only once the certificate check passed — and `null` when
+   * it stepped aside, with the reason in the report.
+   */
+  private async stateEquationDecision(
+    flatNet: FlatNet,
+    solver: Z3Solver,
+    report: string[],
+    propDesc: string,
+    invariants: readonly PInvariant[],
+    stats: SmtStatistics,
+    start: number,
+  ): Promise<SmtVerificationResult | null> {
+    report.push('  State-equation phase (VER-018):');
+    const outcome = await runStateEquationPhase(
+      flatNet, this._initialMarking, this._property, this._sinkPlaces, this._conditionalSinks,
+      this.solverRun(solver),
+      { budgetMs: this._timeoutMs },
+    );
+    for (const r of outcome.refinements) report.push(`    Refinement (${r.origin}): ${formatInequality(flatNet, r)}`);
+    report.push(`    Queries: ${outcome.queries}`);
+    switch (outcome.kind) {
+      case 'inconclusive':
+        report.push(`    Status: inconclusive (${outcome.reason})`);
+        if (outcome.candidate != null) report.push(`    Unsettled candidate: ${describeCandidate(flatNet, outcome.candidate)}`);
+        return null;
+      case 'violated':
+        report.push("    Status: a run within the candidate's firing counts reaches a violation");
+        return this.witnessResult(flatNet, outcome.states, outcome.steps, report, propDesc, invariants, stats, start);
+      case 'proven': {
+        report.push('    Status: no marking the equation admits violates the property');
+        const certificate = refinementCertificate(flatNet.places.length, flatNet.transitions.length, outcome.refinements);
+        if (this._certificateCheck) {
+          // No P-invariants in slot 5 and the counter-augmented step relation forced in the
+          // last: the refinement certificate has to stand on its own, and its arity is
+          // places + transitions, so the VC needs the relation that carries the counters.
+          const checked = await checkCertificate(
+            certificate, flatNet, this._initialMarking, this._property, [], this._sinkPlaces, solver,
+            this._timeoutMs, this._conditionalSinks, true,
+          );
+          const reason = certificateDowngradeReason(checked);
+          if (reason != null) {
+            // Never a verdict: the fixpoint query still runs, and the failure stays in
+            // the report where a test over the fixtures can see it.
+            report.push(`    Certificate check: FAILED (${reason})`);
+            return null;
+          }
+          // Two spaces, not four: this line is pinned verbatim by VER-018 AC1 and matches
+          // the fixpoint path. The FAILED line above is nested under the phase instead.
+          report.push('  Certificate check: PASSED (init, consecution, safety)');
+        } else {
+          report.push('  Certificate check: not applicable (disabled)');
+        }
+        report.push('');
+        report.push('=== RESULT ===\n');
+        report.push(`PROVEN (state equation): ${propDesc}`);
+        report.push(
+          `  Every reachable marking satisfies the marking equation over ${flatNet.transitions.length} firing ` +
+          `counters${outcome.refinements.length > 0 ? ' and the refinements above' : ''}, and none of those ` +
+          'markings violates the property (VER-018).',
+        );
+        report.push('  NOTE: Verification ignores timing constraints.');
+        const readable = outcome.refinements.map((r) => formatInequality(flatNet, r));
+        return buildResult(
+          { type: 'proven', method: 'state-equation', inductiveInvariant: certificate },
+          report.join('\n'), invariants, readable, [], [], performance.now() - start, stats,
+        );
+      }
+    }
+  }
+
+  /**
+   * Runs the firing-bound phase (VER-019). Returns the final result when it decided the
+   * property and `null` when it stepped aside, with the reason in the report.
+   */
+  private async firingBoundDecision(
+    flatNet: FlatNet,
+    solver: Z3Solver,
+    report: string[],
+    propDesc: string,
+    invariants: readonly PInvariant[],
+    stats: SmtStatistics,
+    start: number,
+  ): Promise<SmtVerificationResult | null> {
+    report.push('  Firing bound (VER-019):');
+    // Half the timeout: a short counterexample is found in seconds, while a proof to a
+    // deep bound on a wide net can outlast any budget, and the fixpoint query after
+    // this phase still gets its full one.
+    const outcome = await runFiringBoundPhase(
+      flatNet, this._initialMarking, this._property, this._sinkPlaces, this._conditionalSinks,
+      this.solverRun(solver), { budgetMs: Math.max(1, Math.floor(this._timeoutMs / 2)) },
+    );
+    const formatDepths = (steps: readonly DepthStep[]): string =>
+      steps.map((d) => `${d.depth} ${d.answer === 'sat' ? 'violation' : 'none'}`).join(', ');
+    const pushBound = (b: FiringBound): void => {
+      report.push(`    Bound: ${b.bound} firings (${formatRanking(flatNet, b)} drops on every firing)`);
+    };
+    switch (outcome.kind) {
+      case 'unbounded':
+        report.push(
+          outcome.repeatable == null
+            ? '    Status: no firing bound (no weights decrease on every firing); not attempted'
+            : '    Status: no firing bound — the marking equation lets ' +
+              `${outcome.repeatable.map((t) => flatNet.transitions[t]!.name).join(', ')} repeat; not attempted`,
+        );
+        return null;
+      case 'inconclusive':
+        if (outcome.bound != null) pushBound(outcome.bound);
+        if (outcome.depths.length > 0) report.push(`    Depths: ${formatDepths(outcome.depths)}`);
+        report.push(`    Status: inconclusive (${outcome.reason})`);
+        return null;
+      case 'violated':
+        pushBound(outcome.bound);
+        report.push(`    Depths: ${formatDepths(outcome.depths)}`);
+        report.push('    Status: a bounded run reaches a violation (replayed)');
+        return this.witnessResult(flatNet, outcome.states, outcome.steps, report, propDesc, invariants, stats, start);
+      case 'proven':
+        pushBound(outcome.bound);
+        report.push(`    Depths: ${formatDepths(outcome.depths)}`);
+        report.push('    Status: no run of at most the bound reaches a violation, and no run is longer');
+        report.push('  Certificate check: not applicable (bounded model check to the firing bound)');
+        report.push('');
+        report.push('=== RESULT ===\n');
+        report.push(`PROVEN (bounded model check): ${propDesc}`);
+        report.push(
+          `  No run has more than ${outcome.bound.bound} firings, and none of at most that many reaches a ` +
+          'violation (VER-019).',
+        );
+        report.push('  NOTE: Verification ignores timing constraints.');
+        return buildResult(
+          { type: 'proven', method: 'bounded-model-check', inductiveInvariant: null },
+          report.join('\n'), invariants, [], [], [], performance.now() - start, stats,
+        );
+    }
+  }
+
+  /** A `violated` result for a run the phases of VER-018/019 found and replayed. */
+  private witnessResult(
+    flatNet: FlatNet,
+    states: readonly AbstractState[],
+    steps: readonly string[],
+    report: string[],
+    propDesc: string,
+    invariants: readonly PInvariant[],
+    stats: SmtStatistics,
+    start: number,
+  ): SmtVerificationResult {
+    const trace = states.map((s) => toMarkingState(s, flatNet));
+    report.push('');
+    report.push('=== RESULT ===\n');
+    report.push(`VIOLATED: ${propDesc}`);
+    report.push(`  Counterexample trace (replay order, ${trace.length} states):`);
+    for (let i = 0; i < trace.length; i++) report.push(`    ${i}: ${trace[i]}`);
+    if (steps.length > 0) report.push(`  Firing sequence: ${steps.join(' -> ')}`);
+    report.push('\n  WARNING: This counterexample is in UNTIMED semantics.');
+    report.push('  It may be spurious if timing constraints prevent this sequence.');
+    // A firing sequence re-executed under the exact abstract semantics: confirmed.
+    return buildResult(
+      { type: 'violated' }, report.join('\n'), invariants, [], trace, [...steps],
+      performance.now() - start, stats, true,
+    );
+  }
+
+  /**
    * ν-net soundness guard (NU-040, NU-050). Applied only when the net contains
    * match (ν-join) transitions, and only to a proven/violated verdict (an
    * existing unknown is left as-is).
@@ -1235,6 +1515,7 @@ function isReachabilitySafety(property: SmtProperty): boolean {
     case 'deadlock-free':
     case 'terminates-at-sink':
     case 'joined-or-dead-lettered':
+    case 'quiescent-count':
       return false;
   }
 }
@@ -1350,6 +1631,12 @@ export interface EncodedScripts {
    * no linear demand (the quiescence properties).
    */
   readonly bound: string | null;
+  /**
+   * The first query of the state-equation phase (VER-018), before any refinement, or
+   * `null` where the phase does not run (the name-coloured encoding, a ν-net, `ignore`
+   * with environment places, or the phase disabled).
+   */
+  readonly stateEquation: string | null;
 }
 
 /**
@@ -1442,23 +1729,13 @@ function propertyPlaces(property: SmtProperty): Place<any>[] {
     case 'branch-place-bound': return [property.place];
     case 'unreachable': return [...property.places];
     case 'joined-or-dead-lettered': return [property.pending];
+    case 'quiescent-count': return [...property.places, ...property.waivedBy];
   }
 }
 
 /** The name of the first place the property names that is not in the flat net, or `null`. */
 function unresolvedPropertyPlace(flatNet: FlatNet, property: SmtProperty): string | null {
-  const named: Place<any>[] = (() => {
-    switch (property.type) {
-      case 'deadlock-free': return [];
-      case 'terminates-at-sink': return [];
-      case 'mutual-exclusion': return [property.p1, property.p2];
-      case 'place-bound': return [property.place];
-      case 'branch-place-bound': return [property.place];
-      case 'unreachable': return [...property.places];
-      case 'joined-or-dead-lettered': return [property.pending];
-    }
-  })();
-  for (const place of named) {
+  for (const place of propertyPlaces(property)) {
     if (!flatNet.placeIndex.has(place.name)) return place.name;
   }
   return null;

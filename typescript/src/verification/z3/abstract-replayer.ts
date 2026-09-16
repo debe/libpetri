@@ -258,11 +258,14 @@ function isQuiescent(index: ReplayIndex, state: AbstractState): boolean {
   return true;
 }
 
-/** The flat indices of the declared sink places that resolve. */
-function sinkIndices(flatNet: FlatNet, sinkPlaces: ReadonlySet<Place<any>>): Set<number> {
+/**
+ * The flat indices of `places` that resolve, mirroring the encoder's `indexOrdered`. A
+ * place the net does not declare is dropped, which makes a property stricter, never laxer.
+ */
+function resolvedIndices(flatNet: FlatNet, places: Iterable<Place<any>>): Set<number> {
   const idx = new Set<number>();
-  for (const sink of sinkPlaces) {
-    const i = flatNetIndexOf(flatNet, sink);
+  for (const place of places) {
+    const i = flatNetIndexOf(flatNet, place);
     if (i >= 0) idx.add(i);
   }
   return idx;
@@ -285,6 +288,20 @@ export function satisfiesBad(
   conditionalSinks: readonly ConditionalSinks[] = [],
 ): boolean {
   return satisfiesBadIndexed(buildIndex(flatNet), state, property, sinkPlaces, conditionalSinks);
+}
+
+/**
+ * {@link satisfiesBad} with the net indexed once, for a search that tests many
+ * states (the state-equation phase's witness search, VER-018).
+ */
+export function violationPredicate(
+  flatNet: FlatNet,
+  property: SmtProperty,
+  sinkPlaces: ReadonlySet<Place<any>>,
+  conditionalSinks: readonly ConditionalSinks[] = [],
+): (state: AbstractState) => boolean {
+  const index = buildIndex(flatNet);
+  return (state) => satisfiesBadIndexed(index, state, property, sinkPlaces, conditionalSinks);
 }
 
 function satisfiesBadIndexed(
@@ -312,7 +329,7 @@ function satisfiesBadIndexed(
     // TerminatesAtSink (VER-002): quiescent AND no declared sink marked.
     case 'terminates-at-sink': {
       if (!isQuiescent(index, state)) return false;
-      for (const pid of sinkIndices(flatNet, sinkPlaces)) {
+      for (const pid of resolvedIndices(flatNet, sinkPlaces)) {
         if (state[pid]! !== 0) return false;
       }
       return true;
@@ -347,6 +364,23 @@ function satisfiesBadIndexed(
       // With nothing resolved the conjunction would be vacuously true and EVERY
       // marking would violate — replay would then "confirm" at M0.
       return resolved > 0;
+    }
+    // QuiescentCount (VER-002): quiescent AND the count across the resolved places,
+    // each counted once, is below `min` with every resolved waiver empty, or above
+    // `max`. Mirrors the encoder's `countViolationCondition`.
+    case 'quiescent-count': {
+      if (!isQuiescent(index, state)) return false;
+      let count = 0;
+      for (const i of resolvedIndices(flatNet, property.places)) count += state[i]!;
+      // No `max !== Infinity` / `min > 0` guards: a count is never above `Infinity` nor
+      // below zero, so the comparisons decide it alone, as `countViolation` does. The
+      // encoder needs those guards because they decide whether it emits a clause at all.
+      if (count > property.max) return true;
+      if (count < property.min) {
+        for (const k of resolvedIndices(flatNet, property.waivedBy)) if (state[k]! !== 0) return false;
+        return true;
+      }
+      return false;
     }
   }
 }

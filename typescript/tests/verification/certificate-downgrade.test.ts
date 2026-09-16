@@ -46,6 +46,9 @@ describeZ3('SmtVerifier certificate downgrade (corrupted answer seam)', () => {
       .environmentPlaces(pIn)
       .environmentMode(bounded(2))
       .property(placeBound(pIn.place, 2))
+      // The seam sits behind the fixpoint query; the phases of VER-018/019 run first.
+      .stateEquationPhase(false)
+      .firingBound(false)
       .timeout(30_000)
       .verify();
 

@@ -206,8 +206,11 @@ function quantified(names: readonly string[]): string {
 
 /**
  * The places whose column of the incidence matrix is exact in every step: no
- * consume-all / reset arc on them (H1) and not injected (H3'). Only these carry a
- * marking-equation row; the others are unconstrained by it.
+ * consume-all / reset arc on them (H1) and not injected (H3').
+ *
+ * Only these carry an *equality* row. A place a consume-all or reset arc clears carries
+ * the upper-bound row of {@link stateEquationConditions} instead ([VER-016] AC2), and an
+ * injected place carries none.
  */
 export function equationPlaces(flatNet: FlatNet): number[] {
   const excluded = new Set<number>(nonlinearPlaces(flatNet));
@@ -232,11 +235,15 @@ export function counterConditions(fired: number, nVars: readonly string[], npVar
 }
 
 /**
- * The marking equation over the given marking and counter variables: for every
- * place of {@link equationPlaces}, `m_p = M0_p + Σ_t C[p][t]·n_t` over the flat
- * transitions with a non-zero effect on `p`, in transition order. A coefficient of
- * 1 is the bare counter, −1 is `(- n)`, any other `(* c n)` with a negative `c`
- * written `(- k)`.
+ * The marking equation over the given marking and counter variables, in place
+ * order: `m_p = M0_p + Σ_t C[p][t]·n_t` for every place of {@link equationPlaces},
+ * over the flat transitions with a non-zero effect on `p`, in transition order; and
+ * `m_p ≤ M0_p + Σ_t C[p][t]·n_t` for a place a consume-all or reset arc clears. A
+ * clearing firing removes at least its arc weight, so the linear count bounds such a
+ * place from above, and the row stays inductive over `(M, n)`: a clearing step needs
+ * `m_p ≥ pre`, which the row turns into `post ≤ M0_p + C_p·n'`. An injected place
+ * carries no row. A coefficient of 1 is the bare counter, −1 is `(- n)`, any other
+ * `(* c n)` with a negative `c` written `(- k)`.
  */
 export function stateEquationConditions(
   flatNet: FlatNet,
@@ -245,7 +252,10 @@ export function stateEquationConditions(
   mVars: readonly string[] = vars(flatNet.places.length, 'p'),
 ): string[] {
   const conditions: string[] = [];
-  for (const p of equationPlaces(flatNet)) {
+  const cleared = nonlinearPlaces(flatNet);
+  const injected = new Set(resolveEnvInjection(flatNet).map((inj) => inj.pid));
+  for (let p = 0; p < flatNet.places.length; p++) {
+    if (injected.has(p)) continue;
     const terms: string[] = [];
     for (let t = 0; t < flatNet.transitions.length; t++) {
       const ft = flatNet.transitions[t]!;
@@ -254,7 +264,8 @@ export function stateEquationConditions(
       terms.push(c === 1 ? nVars[t]! : c === -1 ? `(- ${nVars[t]})` : c > 0 ? `(* ${c} ${nVars[t]})` : `(* (- ${-c}) ${nVars[t]})`);
     }
     const m0 = initialMarking.tokens(flatNet.places[p]!);
-    conditions.push(terms.length === 0 ? `(= ${mVars[p]} ${m0})` : `(= ${mVars[p]} (+ ${m0} ${terms.join(' ')}))`);
+    const rhs = terms.length === 0 ? `${m0}` : `(+ ${m0} ${terms.join(' ')})`;
+    conditions.push(`(${cleared.has(p) ? '<=' : '='} ${mVars[p]} ${rhs})`);
   }
   return conditions;
 }
@@ -507,7 +518,47 @@ export function encodePropertyViolation(
       conditions.push(`(>= ${mVars[pid]} 1)`);
       return joinConditions(conditions);
     }
+    // QuiescentCount (VER-002): a quiescent marking whose count across the places is
+    // below `min` with every waiver empty, or above `max`.
+    case 'quiescent-count': {
+      const bad = countViolationCondition(
+        indexOrdered(flatNet, property.places).map((i) => mVars[i]!),
+        indexOrdered(flatNet, property.waivedBy).map((i) => mVars[i]!),
+        property.min,
+        property.max,
+      );
+      if (bad == null) return 'false';
+      const conditions = encodeQuiescent(flatNet, mVars, envInject);
+      if (conditions == null) return 'false';
+      conditions.push(bad);
+      return joinConditions(conditions);
+    }
   }
+}
+
+/**
+ * The count clause of a `QuiescentCount` over rendered count terms, places and waivers
+ * each in place-index order: `(and (< Σ min) (= w 0) …)` when `min > 0`, `(> Σ max)` when
+ * `max` is finite, their `or` when both apply, and `null` when neither does. `Σ` is `0`
+ * for no term, the term itself for one, `(+ …)` otherwise. Shared with the name-coloured
+ * encoder, which renders aggregate counts, and mirrored by the abstract replayer's
+ * `satisfiesBad`.
+ */
+export function countViolationCondition(
+  counts: readonly string[],
+  waivers: readonly string[],
+  min: number,
+  max: number,
+): string | null {
+  const sum = counts.length === 0 ? '0' : counts.length === 1 ? counts[0]! : `(+ ${counts.join(' ')})`;
+  const parts: string[] = [];
+  if (min > 0) {
+    const below = `(< ${sum} ${min})`;
+    parts.push(waivers.length === 0 ? below : `(and ${below} ${waivers.map((w) => `(= ${w} 0)`).join(' ')})`);
+  }
+  if (max !== Infinity) parts.push(`(> ${sum} ${max})`);
+  if (parts.length === 0) return null;
+  return parts.length === 1 ? parts[0]! : `(or ${parts.join(' ')})`;
 }
 
 /**

@@ -14,7 +14,8 @@ export type SmtProperty =
   | PlaceBound
   | Unreachable
   | BranchPlaceBound
-  | JoinedOrDeadLettered;
+  | JoinedOrDeadLettered
+  | QuiescentCount;
 
 /**
  * Deadlock-freedom: no reachable quiescent marking strands a token (VER-002).
@@ -88,6 +89,24 @@ export interface JoinedOrDeadLettered {
   readonly pending: Place<any>;
 }
 
+/**
+ * A token count at quiescence: every reachable quiescent marking holds between `min` and
+ * `max` tokens across `places`, and the lower bound is waived while any `waivedBy` place
+ * holds a token (VER-002).
+ *
+ * Violated by a reachable quiescent marking that holds fewer than `min` while every
+ * `waivedBy` place is empty, or more than `max`. `max` may be `Infinity`. This is the
+ * count a designed terminal ([VER-014]) makes conditional: a halted run need not refund
+ * its budget, but it never holds more than there is.
+ */
+export interface QuiescentCount {
+  readonly type: 'quiescent-count';
+  readonly places: readonly Place<any>[];
+  readonly min: number;
+  readonly max: number;
+  readonly waivedBy: readonly Place<any>[];
+}
+
 // Factory functions
 
 export function deadlockFree(): DeadlockFree {
@@ -121,6 +140,43 @@ export function joinedOrDeadLettered(pending: Place<any>): JoinedOrDeadLettered 
   return { type: 'joined-or-dead-lettered', pending };
 }
 
+/**
+ * A token count at quiescence (VER-002). See {@link QuiescentCount}.
+ *
+ * ```ts
+ * quiescentCount([budget], k, k, [halt])   // the budget is back at k whenever the net comes to rest, unless it halted
+ * ```
+ */
+export function quiescentCount(
+  places: Iterable<Place<any>>,
+  min: number,
+  max: number,
+  waivedBy: Iterable<Place<any>> = [],
+): QuiescentCount {
+  if (!Number.isInteger(min) || min < 0 || !(max === Infinity || Number.isInteger(max)) || max < min) {
+    throw new Error(`quiescentCount needs whole bounds with 0 <= min <= max, got ${min}..${max}`);
+  }
+  return { type: 'quiescent-count', places: [...places], min, max, waivedBy: [...waivedBy] };
+}
+
+/** `exactly 1`, `at most 1`, `at least 2`, `between 1 and 3`, `any number`. */
+export function countPhrase(min: number, max: number): string {
+  if (min === max) return `exactly ${min}`;
+  if (max === Infinity) return min === 0 ? 'any number' : `at least ${min}`;
+  if (min === 0) return `at most ${max}`;
+  return `between ${min} and ${max}`;
+}
+
+/**
+ * `exactly 1 across {a, b}` — a count and the places it is taken over.
+ *
+ * Both open-net routes and {@link propertyDescription} must say this the same way about the
+ * same clause, so the phrase is built here rather than at each of the three call sites.
+ */
+export function countAcross(min: number, max: number, places: Iterable<Place<any>>): string {
+  return `${countPhrase(min, max)} across {${[...places].map(p => p.name).join(', ')}}`;
+}
+
 /** Human-readable description of a property. */
 export function propertyDescription(prop: SmtProperty): string {
   switch (prop.type) {
@@ -138,5 +194,11 @@ export function propertyDescription(prop: SmtProperty): string {
       return `Branch place bound (ν-budget): ${prop.place.name} <= ${prop.bound}`;
     case 'joined-or-dead-lettered':
       return `Joined-or-dead-lettered: ${prop.pending.name} = 0 at quiescence`;
+    case 'quiescent-count': {
+      const count = `Quiescent count: ${countAcross(prop.min, prop.max, prop.places)}`;
+      return prop.waivedBy.length === 0
+        ? count
+        : `${count}; lower bound waived while {${prop.waivedBy.map(p => p.name).join(', ')}} is marked`;
+    }
   }
 }

@@ -243,6 +243,8 @@ describeZ3('SmtVerifier certificate check wiring', () => {
       .initialMarking(m => m.tokens(pA, 1))
       .property(placeBound(pB, 1))
       .linearBound(false)
+      .stateEquationPhase(false)
+      .firingBound(false)
       .timeout(30_000)
       .verify();
 
@@ -256,6 +258,8 @@ describeZ3('SmtVerifier certificate check wiring', () => {
       .initialMarking(m => m.tokens(pA, 1))
       .property(placeBound(pB, 1))
       .linearBound(false)
+      .stateEquationPhase(false)
+      .firingBound(false)
       .certificateCheck(false)
       .timeout(30_000)
       .verify();

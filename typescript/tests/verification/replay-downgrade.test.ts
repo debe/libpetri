@@ -55,10 +55,13 @@ describeZ3('SmtVerifier replay downgrade (unchainable counterexample seam)', () 
     const { pA, pB, net } = twoStepNet();
 
     // placeBound(B, 5) is unreachable in this net, so the search completes. The linear
-    // state-equation bound (VER-015) would prove it structurally before the mocked
-    // fixpoint query is reached; this test is about the replay seam behind that query.
+    // state-equation bound (VER-015) and the state-equation phase (VER-018) would prove
+    // it before the mocked fixpoint query is reached; this test is about the replay
+    // seam behind that query, so every test here runs with those phases off.
     const result = await SmtVerifier.forNet(bindProducers(net))
       .enumerationMaxClasses(0)
+      .stateEquationPhase(false)
+      .firingBound(false)
       .initialMarking(m => m.tokens(pA, 1))
       .property(placeBound(pB, 5))
       .linearBound(false)
@@ -101,6 +104,8 @@ describeZ3('SmtVerifier replay downgrade (unchainable counterexample seam)', () 
 
     const result = await SmtVerifier.forNet(bindProducers(net))
       .enumerationMaxClasses(0)
+      .stateEquationPhase(false)
+      .firingBound(false)
       .initialMarking(m => m.tokens(places[0]!, 1))
       .property(placeBound(places[4]!, 0))
       .timeout(30_000)
@@ -117,6 +122,8 @@ describeZ3('SmtVerifier replay downgrade (unchainable counterexample seam)', () 
 
     const result = await SmtVerifier.forNet(bindProducers(net))
       .enumerationMaxClasses(0)
+      .stateEquationPhase(false)
+      .firingBound(false)
       .initialMarking(m => m.tokens(pA, 1))
       .property(placeBound(pB, 0))
       .counterexampleReplay(false)
