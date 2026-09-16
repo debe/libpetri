@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-libpetri is a multi-language **Coloured Time Petri Net** (CTPN) engine with formal verification. Four implementations conform to one language-agnostic specification (`spec/`, **214 active requirements across 13 files** — `spec/00-index.md` is the canonical count):
+libpetri is a multi-language **Coloured Time Petri Net** (CTPN) engine with formal verification. Four implementations conform to one language-agnostic specification (`spec/`, **217 active requirements across 13 files** — `spec/00-index.md` is the canonical count):
 
 | Implementation | Language | Runtime | Status |
 |---|---|---|---|
@@ -203,7 +203,7 @@ contents change, and they're identical across the three destinations.
 
 ## Specification
 
-`spec/` contains 13 spec files (`00-index.md` … `12-nu-nets.md`), **214 active requirements**. Prefixes: CORE, IO, TIME, EXEC, CONC, ENV, VER, EVT, EXP, PERF, plus **MOD** (modular composition, `11-`) and **NU** (ν-nets / correlated fork-join by ID, `12-`). Requirements use MUST/SHOULD/MAY priority with testable acceptance criteria; cross-references use `[PREFIX-NNN]`. `spec/00-index.md` is the canonical registry — it tracks active vs removed/tombstoned IDs (e.g. IO-006), so trust the index count over any prose figure elsewhere.
+`spec/` contains 13 spec files (`00-index.md` … `12-nu-nets.md`), **217 active requirements**. Prefixes: CORE, IO, TIME, EXEC, CONC, ENV, VER, EVT, EXP, PERF, plus **MOD** (modular composition, `11-`) and **NU** (ν-nets / correlated fork-join by ID, `12-`). Requirements use MUST/SHOULD/MAY priority with testable acceptance criteria; cross-references use `[PREFIX-NNN]`. `spec/00-index.md` is the canonical registry — it tracks active vs removed/tombstoned IDs (e.g. IO-006), so trust the index count over any prose figure elsewhere.
 
 ## Release
 
@@ -242,3 +242,25 @@ languages are on 2.3.x with the additive MOD-024 overload.
 - Java uses records extensively (sealed interfaces, pattern matching, unnamed patterns, ScopedValue — all finalized in Java 25, no `--enable-preview` needed).
 - TypeScript uses readonly properties and discriminated unions.
 - `PaperNetworks` fixture class provides canonical reference nets used across test suites.
+
+<!-- code-graph-mcp:begin v2 -->
+## Code Graph (repo-wide AST index)
+
+AST + FTS + vector index of the whole repo — prefer over multi-round Grep/Read for
+structural queries (LSP only sees open files; this sees everything). Fastest path = Bash CLI:
+
+| Intent | Command |
+|--------|---------|
+| Who calls X / what X calls | `code-graph-mcp callgraph X` |
+| Impact before editing a fn | `code-graph-mcp impact X` |
+| Unfamiliar dir / module | `code-graph-mcp overview <dir>` |
+| Symbol source / signature | `code-graph-mcp show X` |
+| Concept search (no exact name) | `code-graph-mcp search "…"` (vector: MCP `semantic_code_search`) |
+| grep + AST context | `code-graph-mcp grep "pat" [paths] [-t lang] [-g glob] [-c]` |
+
+Not on PATH? A plugin-only install keeps its own copy — same commands, run
+`~/.cache/code-graph/bin/code-graph-mcp` (or `npm i -g @sdsrs/code-graph` once).
+
+Still use Grep for literal strings/regex in non-code files; still Read files you'll edit.
+Full command + MCP-tool table: `.claude/plugin_code_graph_mcp.md`
+<!-- code-graph-mcp:end -->
