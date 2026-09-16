@@ -236,3 +236,48 @@ def test_smt_route_leaves_termination_undecided_when_no_firing_bound_exists():
     r = lp.verify_open_net(_gadget(spin=True), _contract(), max_classes=0)
     assert r.verdict == "unknown", r.report
     assert "termination: no firing bound: the marking equation lets X/spin repeat" in r.reason
+
+
+# ---------- a ν-net skips the name-blind graph (VER-022 AC9) -----------------
+
+
+def _two_mints():
+    """Two independent mints give ``COL_A`` and ``COL_B`` different names, so the ν-join can
+    never fire and both strand. The state-class graph ignores the match, fires the join anyway,
+    and used to report this contract proven by enumeration — a false proof."""
+    seed_a, seed_b = lp.Place("SEED_A"), lp.Place("SEED_B")
+    col_a, col_b, out = lp.Place("COL_A"), lp.Place("COL_B"), lp.Place("OUT")
+    mint_a = lp.Transition("MINT_A").input(lp.one(seed_a)).output(lp.out(col_a)).action(lp.fork).build()
+    mint_b = lp.Transition("MINT_B").input(lp.one(seed_b)).output(lp.out(col_b)).action(lp.fork).build()
+    join = (
+        lp.Transition("JOIN")
+        .input(lp.one(col_a))
+        .input(lp.one(col_b))
+        .match_spec(lp.match_spec([(col_a, lambda m: m), (col_b, lambda m: m)]))
+        .output(lp.out(out))
+        .action(lp.fork)
+        .build()
+    )
+    net = lp.Net("twoMints").transition(mint_a).transition(mint_b).transition(join).build()
+    contract = lp.OpenNetContract.builder().initial_marking({seed_a: 1, seed_b: 1}).rest(out).build()
+    return net, contract
+
+
+@needs_z3
+def test_a_nu_net_is_not_proven_by_the_name_blind_graph():
+    net, contract = _two_mints()
+    r = lp.verify_open_net(net, contract)
+    assert r.verdict == "violated", r.report
+    assert r.route == "smt"
+    assert r.class_count == 0
+    assert (
+        "State-class graph: skipped (the closed net declares match (ν-join) transitions, which the graph does not model)"
+        in r.report
+    )
+
+
+def test_a_nu_net_with_the_smt_route_disabled_is_unknown_and_says_why():
+    net, contract = _two_mints()
+    r = lp.verify_open_net(net, contract, smt=False)
+    assert r.verdict == "unknown"
+    assert "the state-class graph was skipped: the closed net declares match (ν-join) transitions" in r.reason

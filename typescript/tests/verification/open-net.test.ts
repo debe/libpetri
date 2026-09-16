@@ -11,6 +11,8 @@ import { MarkingState } from '../../src/verification/marking-state.js';
 import { StateClassGraph } from '../../src/verification/analysis/state-class-graph.js';
 import { OpenNetContract, closeOpenNet, verifyOpenNet } from '../../src/verification/open-net/index.js';
 import { countPhrase } from '../../src/verification/smt-property.js';
+import { matchKey, matchSpec } from '../../src/core/match-spec.js';
+import { nameId } from '../../src/core/name.js';
 
 /**
  * VER-022 open-net verification against a contract.
@@ -361,6 +363,43 @@ describe('untimed exploration (VER-004, used by VER-022)', () => {
     const untimed = StateClassGraph.build(net, m0, 100, undefined, undefined, { untimed: true });
     expect(timed.stateClasses().some(sc => sc.marking.hasTokens(b))).toBe(false);
     expect(untimed.stateClasses().some(sc => sc.marking.hasTokens(b))).toBe(true);
+  });
+});
+
+describeZ3('open-net verification (VER-022): a ν-net skips the name-blind graph', () => {
+  // Two independent mints give COL_A and COL_B different names, so the ν-join can never fire and
+  // both strand. The state-class graph ignores the match, fires the join anyway, and used to
+  // report this contract `proven` by enumeration — a false proof. `SmtVerifier` says violated.
+  const SEED_A = place('SEED_A'), SEED_B = place('SEED_B');
+  const COL_A = place<string>('COL_A'), COL_B = place<string>('COL_B'), OUT = place<string>('OUT');
+  const twoMints = PetriNet.builder('twoMints').transitions(
+    Transition.builder('MINT_A').inputs(one(SEED_A)).outputs(outPlace(COL_A)).action(produces()).build(),
+    Transition.builder('MINT_B').inputs(one(SEED_B)).outputs(outPlace(COL_B)).action(produces()).build(),
+    Transition.builder('JOIN').inputs(one(COL_A), one(COL_B))
+      .match(matchSpec(matchKey(COL_A, (s: string) => nameId(s)), matchKey(COL_B, (s: string) => nameId(s))))
+      .outputs(outPlace(OUT)).action(produces()).build(),
+  ).build();
+  const contract = () => OpenNetContract.builder()
+    .initialMarking(m => m.tokens(SEED_A, 1).tokens(SEED_B, 1))
+    .rest(OUT)
+    .build();
+
+  it('does not prove a join that can never match, and says why it skipped the graph', async () => {
+    const r = await verifyOpenNet(twoMints, contract());
+    expect(r.verdict.type, r.report).toBe('violated');
+    expect(r.route).toBe('smt');
+    expect(r.classCount).toBe(0);
+    expect(r.report).toContain(
+      'State-class graph: skipped (the closed net declares match (ν-join) transitions, which the graph does not model)',
+    );
+  }, 180_000);
+
+  it('is unknown, naming the reason, when the SMT route is disabled', async () => {
+    const r = await verifyOpenNet(twoMints, contract(), { smt: false });
+    expect(r.verdict.type).toBe('unknown');
+    expect(r.verdict.type === 'unknown' && r.verdict.reason).toContain(
+      'the state-class graph was skipped: the closed net declares match (ν-join) transitions',
+    );
   });
 });
 

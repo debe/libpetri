@@ -845,3 +845,73 @@ fn smt_reports_the_count_a_broken_gadget_leaves_found_by_the_solver() {
     let budget = r.violations.iter().find(|v| v.subject == "budget").unwrap();
     assert!(budget.detail.starts_with("exactly 1 across {_budget} at quiescence"), "{}", budget.detail);
 }
+
+/// Two independent mints give `COL_A` and `COL_B` different names, so the ν-join can never fire
+/// and both strand. The state-class graph ignores the match, fires the join anyway, and used to
+/// report this contract proven by enumeration — a false proof. [VER-022] AC9.
+fn two_mints() -> PetriNet {
+    use libpetri_core::match_spec::MatchSpec;
+    use libpetri_core::name::NameId;
+    let seed_a = place("SEED_A");
+    let seed_b = place("SEED_B");
+    let col_a = Place::<String>::new("COL_A");
+    let col_b = Place::<String>::new("COL_B");
+    let out = Place::<String>::new("OUT");
+    PetriNet::builder("twoMints")
+        .transitions([
+            Transition::builder("MINT_A").input(one(&seed_a)).output(out_place(&col_a)).action(fork()).build(),
+            Transition::builder("MINT_B").input(one(&seed_b)).output(out_place(&col_b)).action(fork()).build(),
+            Transition::builder("JOIN")
+                .input(one(&col_a))
+                .input(one(&col_b))
+                .match_spec(
+                    MatchSpec::builder()
+                        .key(&col_a, |s: &String| NameId::new(s.clone()))
+                        .key(&col_b, |s: &String| NameId::new(s.clone()))
+                        .build(),
+                )
+                .output(out_place(&out))
+                .action(fork())
+                .build(),
+        ])
+        .build()
+}
+
+fn two_mints_contract() -> OpenNetContract {
+    OpenNetContract::builder()
+        .initial_tokens("SEED_A", 1)
+        .initial_tokens("SEED_B", 1)
+        .rest(["OUT"])
+        .build()
+}
+
+#[test]
+fn a_nu_net_is_not_proven_by_the_name_blind_graph() {
+    if skip_without_z3("a_nu_net_is_not_proven_by_the_name_blind_graph") {
+        return;
+    }
+    let r = verify_open_net(&two_mints(), &two_mints_contract(), &OpenNetOptions::default());
+    assert!(matches!(r.verdict, Verdict::Violated), "{}", r.report);
+    assert_eq!(r.route, OpenNetRoute::Smt);
+    assert_eq!(r.class_count, 0);
+    assert!(
+        r.report.contains(
+            "State-class graph: skipped (the closed net declares match (ν-join) transitions, which the graph does not model)"
+        ),
+        "{}",
+        r.report
+    );
+}
+
+#[test]
+fn a_nu_net_with_the_smt_route_disabled_is_unknown_and_says_why() {
+    let options = OpenNetOptions { smt: false, ..Default::default() };
+    let r = verify_open_net(&two_mints(), &two_mints_contract(), &options);
+    match &r.verdict {
+        Verdict::Unknown { reason } => assert!(
+            reason.contains("the state-class graph was skipped: the closed net declares match (ν-join) transitions"),
+            "{reason}"
+        ),
+        other => panic!("expected unknown, got {other:?}\n{}", r.report),
+    }
+}

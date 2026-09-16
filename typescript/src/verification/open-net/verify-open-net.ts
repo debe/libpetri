@@ -64,7 +64,15 @@ export async function verifyOpenNet(
   // Every place a port trace may mention: the contract's own, plus the closure's. [VER-022]
   // reserves "port" for a place the environment shares with the subnet, which is narrower.
   const tracedPlaces = contract.places();
-  const graph = maxClasses > 0 ? decideOnGraph(closed, contract, maxClasses, tracedPlaces) : null;
+  // The graph is name-blind: it fires a ν-join on any two tokens, whether or not their names
+  // match. For a quiescence contract that is no approximation in either direction — it reaches
+  // markings the net cannot (the join's output) and misses ones it does (the inputs a join that
+  // cannot match leaves stranded), so neither its `proven` nor its `violated` can stand. The same
+  // exclusion as [VER-017] condition 1; the SMT pipeline has exact routes for a ν-net.
+  const graphSkipped = [...closed.net.transitions].some(t => t.matchSpec !== null)
+    ? 'the closed net declares match (ν-join) transitions, which the graph does not model'
+    : maxClasses > 0 ? null : 'class budget 0';
+  const graph = graphSkipped === null ? decideOnGraph(closed, contract, maxClasses, tracedPlaces) : null;
 
   const result = (
     verdict: Verdict,
@@ -77,7 +85,7 @@ export async function verifyOpenNet(
     route,
     classCount: graph?.classCount ?? 0,
     graphComplete: graph?.complete ?? false,
-    report: renderReport({ net, closed, contract, maxClasses, graph, smtLines, verdict, violations }),
+    report: renderReport({ net, closed, contract, maxClasses, graph, graphSkipped, smtLines, verdict, violations }),
     closedNet: closed.net,
     closedMarking: closed.initialMarking,
     elapsedMs: performance.now() - start,
@@ -93,9 +101,11 @@ export async function verifyOpenNet(
       return result({ type: 'proven', method: METHOD_ENUMERATION, inductiveInvariant: null }, 'enumeration', [], null);
     }
   }
-  const why = graph === null
-    ? 'the state-class graph was skipped'
-    : `the state-class graph did not close within ${maxClasses} classes`;
+  const why = graph !== null
+    ? `the state-class graph did not close within ${maxClasses} classes`
+    : graphSkipped === 'class budget 0'
+      ? 'the state-class graph was skipped'
+      : `the state-class graph was skipped: ${graphSkipped}`;
   if (!useSmt) {
     return result({ type: 'unknown', reason: `${why}, and the SMT route is disabled` }, 'enumeration', [], null);
   }

@@ -22,13 +22,15 @@ pub(super) struct ReportInput<'a> {
     pub contract: &'a OpenNetContract,
     pub max_classes: usize,
     pub graph: Option<&'a GraphRouteOutcome>,
+    /// Why the graph was not built, when [`ReportInput::graph`] is `None`.
+    pub graph_skipped: Option<&'a str>,
     pub smt_lines: Option<&'a [String]>,
     pub verdict: &'a Verdict,
     pub violations: &'a [ContractViolation],
 }
 
 pub(super) fn render_report(input: &ReportInput<'_>) -> String {
-    let ReportInput { net, closed, contract, graph, smt_lines, verdict, violations, .. } = input;
+    let ReportInput { net, closed, contract, graph, graph_skipped, smt_lines, verdict, violations, .. } = input;
     let mut lines: Vec<String> =
         vec!["=== OPEN-NET CONTRACT VERIFICATION (VER-022) ===".to_string(), String::new()];
     lines.push(format!(
@@ -48,7 +50,7 @@ pub(super) fn render_report(input: &ReportInput<'_>) -> String {
     lines.push(String::new());
 
     match graph {
-        None => lines.push("State-class graph: skipped (class budget 0)".to_string()),
+        None => lines.push(format!("State-class graph: skipped ({})", graph_skipped.unwrap_or("class budget 0"))),
         Some(graph) => {
             lines.push("=== State-class graph (untimed, priority-blind) ===".to_string());
             lines.push(if graph.complete {

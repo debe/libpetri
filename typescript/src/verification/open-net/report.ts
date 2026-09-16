@@ -16,6 +16,8 @@ export interface ReportInput {
   readonly contract: OpenNetContract;
   readonly maxClasses: number;
   readonly graph: GraphRouteOutcome | null;
+  /** Why the graph was not built, when {@link graph} is `null`. */
+  readonly graphSkipped: string | null;
   readonly smtLines: readonly string[] | null;
   readonly verdict: Verdict;
   readonly violations: readonly ContractViolation[];
@@ -33,7 +35,7 @@ export function renderReport(input: ReportInput): string {
   lines.push('');
 
   if (graph === null) {
-    lines.push('State-class graph: skipped (class budget 0)');
+    lines.push(`State-class graph: skipped (${input.graphSkipped ?? 'class budget 0'})`);
   } else {
     lines.push('=== State-class graph (untimed, priority-blind) ===');
     lines.push(graph.complete

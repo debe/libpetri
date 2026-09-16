@@ -65,6 +65,12 @@ const DEFAULT_MAX_CLASSES: usize = 50_000;
 const METHOD_ENUMERATION: &str = "open-net contract by state-space enumeration (VER-022)";
 const METHOD_SMT: &str = "open-net contract by the SMT pipeline (VER-022)";
 
+/// Why the graph was not built on a net with match transitions. Report text, so identical to
+/// TypeScript's.
+const GRAPH_SKIPPED_MATCH: &str = "the closed net declares match (ν-join) transitions, which the graph does not model";
+/// Why the graph was not built when the class budget is zero.
+const GRAPH_SKIPPED_BUDGET: &str = "class budget 0";
+
 /// Verifies `net` in isolation against `contract` ([VER-022]).
 ///
 /// `Proven` means that, in every run of the environment the contract assumes, every
@@ -88,7 +94,21 @@ pub fn verify_open_net(net: &PetriNet, contract: &OpenNetContract, options: &Ope
     // Every place a port trace may mention: the contract's own, plus the closure's. [VER-022]
     // reserves "port" for a place the environment shares with the subnet, which is narrower.
     let traced_places = contract.places();
-    let graph = (max_classes > 0).then(|| decide_on_graph(&closed, contract, max_classes, &traced_places));
+    // The graph is name-blind: it fires a ν-join on any two tokens, whether or not their names
+    // match. For a quiescence contract that is no approximation in either direction — it reaches
+    // markings the net cannot (the join's output) and misses ones it does (the inputs a join that
+    // cannot match leaves stranded), so neither its `proven` nor its `violated` can stand. The
+    // same exclusion as [VER-017] condition 1; the SMT pipeline has exact routes for a ν-net.
+    let graph_skipped: Option<&'static str> = if closed.net.transitions().iter().any(|t| t.match_spec().is_some()) {
+        Some(GRAPH_SKIPPED_MATCH)
+    } else if max_classes > 0 {
+        None
+    } else {
+        Some(GRAPH_SKIPPED_BUDGET)
+    };
+    let graph = graph_skipped
+        .is_none()
+        .then(|| decide_on_graph(&closed, contract, max_classes, &traced_places));
 
     let result = |verdict: Verdict,
                   route: OpenNetRoute,
@@ -100,6 +120,7 @@ pub fn verify_open_net(net: &PetriNet, contract: &OpenNetContract, options: &Ope
             contract,
             max_classes,
             graph: graph.as_ref(),
+            graph_skipped,
             smt_lines,
             verdict: &verdict,
             violations: &violations,
@@ -129,9 +150,10 @@ pub fn verify_open_net(net: &PetriNet, contract: &OpenNetContract, options: &Ope
             return result(verdict, OpenNetRoute::Enumeration, Vec::new(), None);
         }
     }
-    let why = match &graph {
-        None => "the state-class graph was skipped".to_string(),
-        Some(_) => format!("the state-class graph did not close within {max_classes} classes"),
+    let why = match (&graph, graph_skipped) {
+        (Some(_), _) => format!("the state-class graph did not close within {max_classes} classes"),
+        (None, Some(GRAPH_SKIPPED_MATCH)) => format!("the state-class graph was skipped: {GRAPH_SKIPPED_MATCH}"),
+        (None, _) => "the state-class graph was skipped".to_string(),
     };
     if !options.smt {
         let verdict = Verdict::Unknown { reason: format!("{why}, and the SMT route is disabled") };

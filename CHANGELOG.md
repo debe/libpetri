@@ -97,6 +97,7 @@ const result = await verifyOpenNet(gadget, contract);
 - **A subnet that asks something of its neighbours needs an `environment(...)`.** Alone, a node that dispatches a request and waits has nobody to answer it, so it quiesces with the request outstanding. That is the right answer for an open net whose environment does nothing, and rarely the one that was meant.
 - Every run must come to rest, unless you call `requireTermination(false)`. A reachable cycle is reported as a lasso.
 - Neighbours that react to what the subnet sends, such as a tool answering a request or a loop body sending an item back within a bound, are declared with `environment(...transitions)`. Their firings are marked as environment steps in the port trace, and a place only they touch is never reported as stranded.
+- A subnet with ν-joins (match transitions) is never decided by enumeration. The graph fires a join on any two tokens whether or not their names match, so on such a net it could prove a contract a join that can never fire actually breaks. The contract goes to the SMT route instead, and the report says why the graph was skipped.
 - The graph is explored untimed, so a subnet with delayed transitions gets the same untimed verdict the SMT route gives.
 - When the graph does not close within its class budget, the contract goes to the SMT pipeline clause by clause, and termination goes to the firing-bound ranking.
 - `StateClassGraph.build` takes a new options argument; `{ untimed: true }` explores the untimed reachable set. The option type is exported as `StateClassGraphOptions`.

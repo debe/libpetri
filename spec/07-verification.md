@@ -1220,6 +1220,14 @@ refused.
    real. A class with no enabled transition is quiescent whether or not it was expanded, and
    a cycle among explored edges is a real cycle. Only the absence of violations needs the
    graph to have closed.
+
+   The graph route MUST NOT run on a closed net that declares **match (ν-join) transitions**,
+   the exclusion of [VER-017] condition 1. The graph is name-blind: it fires a join on any two
+   tokens whether or not their names match. For a quiescence contract that approximates in
+   neither direction — it reaches markings the net cannot (a join's output) and misses markings
+   it does (the inputs of a join that can never match, left stranded) — so neither its `proven`
+   nor its `violated` may stand. Such a net goes to the SMT route, whose pipeline has exact
+   routes for a ν-net ([VER-012]), and the report says why the graph was skipped.
 2. *SMT.* When the graph does not close, each part of the contract becomes one query on the
    closed net, deciding exactly the predicate the graph route reads:
    - stranding: `DeadlockFree`, with the clause, rest and environment places as sinks and
@@ -1264,6 +1272,10 @@ refused.
 8. An environment transition's firings are marked as environment steps in the port trace. A
    token left on an environment place is never reported stranded; a place environment
    transitions share with the subnet is judged like any other.
+9. A closed net with match transitions is not decided by the graph. On two independently
+   minted names reaching a join that requires them equal, the join can never fire and both
+   inputs strand: the result is `Violated` on the SMT route, never `Proven` by enumeration, and
+   `Unknown` naming the skipped graph when the SMT route is disabled.
 
 **Cost.** The contract is decided on the closed net's untimed state-class graph, so its cost is
 the graph's, and what that costs is *reachable combinations* rather than size. Measured on a
