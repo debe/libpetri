@@ -892,6 +892,34 @@ class OpenNetVerificationTest {
             assertTrue(reason(r).contains(
                 "the state-class graph was skipped: the closed net declares match (ν-join) transitions"), reason(r));
         }
+
+        // Timed, `fast` always wins the race; untimed, `slow` fires and strands `stuck`. The ν-join
+        // sends the stranding query to the name-aware graph (NU-050), which keeps timing unless the
+        // route erases it.
+        @Test
+        @EnabledIf("org.libpetri.smt.opennet.OpenNetVerificationTest#z3Available")
+        void makesTheUntimedClaimADeadlineThatKeepsSlowFromFiringDoesNotHideItsStranding() {
+            var in = place("in");
+            var race = PetriNet.builder("race")
+                .transitions(
+                    Transition.builder("fast").inputs(In.one(in)).outputs(Out.place(place("done")))
+                        .timing(Timing.deadline(Duration.ofMillis(5))).action(PRODUCES).build(),
+                    Transition.builder("slow").inputs(In.one(in)).outputs(Out.place(place("stuck")))
+                        .timing(Timing.delayed(Duration.ofMillis(10))).action(PRODUCES).build())
+                .transitions(twoMints().transitions().toArray(new Transition[0]))
+                .build();
+            var c = OpenNetContract.builder()
+                .initialMarking(m -> m.tokens(SEED_A, 1).tokens(SEED_B, 1))
+                .arrive(1, in)
+                .rest(place("done"), COL_A, COL_B, OUT)
+                .build();
+            var r = verify(race, c);
+            assertTrue(r.isViolated(), r.report());
+            assertEquals(OpenNetResult.Route.SMT, r.route());
+            assertEquals(List.of(ContractViolation.Kind.STRANDED),
+                r.violations().stream().map(ContractViolation::kind).toList(), r.report());
+            assertTrue(r.violations().getFirst().transitions().contains("slow"), r.report());
+        }
     }
 
     // ==================== SMT route ====================

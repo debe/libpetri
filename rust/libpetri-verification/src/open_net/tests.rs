@@ -939,3 +939,33 @@ fn a_nu_net_with_the_smt_route_disabled_is_unknown_and_says_why() {
         other => panic!("expected unknown, got {other:?}\n{}", r.report),
     }
 }
+
+/// Timed, `fast` always wins the race; untimed, `slow` fires and strands `stuck`. The ν-join
+/// sends the stranding query to the name-aware graph (NU-050), which keeps timing unless the
+/// route erases it. [VER-022] AC6.
+#[test]
+fn a_nu_net_gets_the_untimed_verdict_a_deadline_that_keeps_slow_from_firing_does_not_hide_its_stranding() {
+    if skip_without_z3("a_nu_net_gets_the_untimed_verdict_a_deadline_that_keeps_slow_from_firing_does_not_hide_its_stranding") {
+        return;
+    }
+    let in_ = place("in");
+    let done = place("done");
+    let stuck = place("stuck");
+    let race = PetriNet::builder("race")
+        .transition(Transition::builder("fast").input(one(&in_)).output(out_place(&done)).timing(deadline(5)).action(fork()).build())
+        .transition(Transition::builder("slow").input(one(&in_)).output(out_place(&stuck)).timing(delayed(10)).action(fork()).build())
+        .transitions(two_mints().transitions().iter().cloned())
+        .build();
+    let c = OpenNetContract::builder()
+        .initial_tokens("SEED_A", 1)
+        .initial_tokens("SEED_B", 1)
+        .arrive(1, ["in"])
+        .rest(["done", "COL_A", "COL_B", "OUT"])
+        .build();
+    let r = verify(&race, &c);
+    assert!(matches!(r.verdict, Verdict::Violated), "{}", r.report);
+    assert_eq!(r.route, OpenNetRoute::Smt);
+    let kinds: Vec<_> = r.violations.iter().map(|v| v.kind).collect();
+    assert_eq!(kinds, [ContractViolationKind::Stranded], "{}", r.report);
+    assert!(r.violations[0].transitions.iter().any(|t| t == "slow"), "{}", r.report);
+}

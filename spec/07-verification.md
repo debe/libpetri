@@ -1208,7 +1208,7 @@ collision is refused.
    its `violated` can stand. Such a net goes to the SMT route, whose pipeline has exact routes for a
    ν-net ([VER-012]), and the report says why the graph was skipped.
 2. *SMT.* When the graph does not close, each part of the contract becomes one query on the closed
-   net, deciding the predicate the graph route reads:
+   net with every transition `immediate()`, deciding the predicate the graph route reads:
    - stranding: `DeadlockFree`, with the clause, rest and environment places as sinks and the
      terminals as conditional sinks;
    - each count clause: `QuiescentCount` ([VER-002]) over the clause's places and bounds, with
@@ -1216,6 +1216,9 @@ collision is refused.
    - termination: the ranking of [VER-019] on the closed net, which bounds every run by `r·M0`
      firings. Without a ranking termination is undecided, and the report names the firings the
      marking equation lets repeat.
+
+   The flat encoders ignore timing; a ν-net's exact route ([VER-012]) does not, and on the timed
+   net would decide the weaker timed claim.
 
 **Verdict.**
 - `Proven`: every reachable quiescent marking of the closed net meets the contract and, where
@@ -1248,7 +1251,8 @@ order), and the stranded places an SMT stranding violation names.
 5. An arrival group that must deliver `n` tokens reaches quiescence only after all `n`; a
    group that may deliver at most `n` also reaches quiescence after fewer.
 6. A timed subnet gets the untimed verdict: its class count equals that of the same subnet
-   with every transition immediate.
+   with every transition immediate. On the SMT route, a ν-net whose timing keeps a transition
+   from firing is judged as if it could: a stranding only that transition causes is `Violated`.
 7. When the graph does not close, the SMT route decides. The result is `Unknown`, naming
    the reason, when that route is disabled or leaves a part undecided.
 8. An environment transition's firings are marked as environment steps in the port trace. A

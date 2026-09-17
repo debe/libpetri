@@ -11,11 +11,14 @@
  * - **termination**: the firing-bound ranking of [VER-019]; without one the part is undecided,
  *   naming the firings the marking equation lets repeat.
  */
+import { PetriNet } from '../../core/petri-net.js';
 import type { Place } from '../../core/place.js';
+import { Transition } from '../../core/transition.js';
 import { flatten } from '../encoding/net-flattener.js';
 import { tokensAcross } from '../graph-decision.js';
 import { rethrowIfProgrammingError } from '../programming-error.js';
 import type { ConditionalSinks } from '../rest-set.js';
+import { isUntimed } from '../scg-verifier.js';
 import {
   countAcross, deadlockFree, propertyDescription, quiescentCount, type SmtProperty,
 } from '../smt-property.js';
@@ -77,13 +80,14 @@ export async function decideViaSmt(
   const undecided: string[] = [];
   const lines: string[] = [];
   const certificates: SubjectCertificate[] = [];
+  const net = untimed(closed.net);
   for (const part of partsFor(closed, contract)) {
     if (part.kind === 'vacuous') {
       lines.push(`  [${part.subject}] ${part.detail}: proven (no query needed)`);
       continue;
     }
     const q = part.query;
-    let verifier = SmtVerifier.forNet(closed.net)
+    let verifier = SmtVerifier.forNet(net)
       .initialMarking(closed.initialMarking)
       .property(q.property)
       .sinkPlaces(...q.sinks)
@@ -111,6 +115,26 @@ export async function decideViaSmt(
     }
   }
   return { violations, undecided, lines, certificates };
+}
+
+/**
+ * `net` with every transition `immediate`, so each query decides the untimed claim ([VER-004]).
+ * The flat encoders ignore timing, but a ν-net's quiescence query goes to the name-aware graph
+ * (NU-050), which keeps it and would prove the weaker timed claim.
+ */
+function untimed(net: PetriNet): PetriNet {
+  if (isUntimed(net)) return net;
+  const transitions = [...net.transitions].map(t => {
+    if (t.timing.type === 'immediate') return t;
+    const b = Transition.builder(t.name).inputs(...t.inputSpecs).priority(t.priority).action(t.action);
+    if (t.outputSpec !== null) b.outputs(t.outputSpec);
+    for (const arc of t.inhibitors) b.inhibitor(arc.place);
+    for (const arc of t.reads) b.read(arc.place);
+    for (const arc of t.resets) b.reset(arc.place);
+    if (t.matchSpec !== null) b.match(t.matchSpec);
+    return b.build();
+  });
+  return PetriNet.builder(net.name).places(...net.places).transitions(...transitions).build();
 }
 
 function partsFor(closed: ClosedNet, contract: OpenNetContract): Part[] {

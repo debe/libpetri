@@ -2,9 +2,14 @@ package org.libpetri.smt.opennet;
 
 import org.libpetri.analysis.EnvironmentAnalysisMode;
 import org.libpetri.analysis.MarkingState;
+import org.libpetri.core.Arc;
+import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
+import org.libpetri.core.Timing;
+import org.libpetri.core.Transition;
 import org.libpetri.smt.GraphDecision;
 import org.libpetri.smt.RestSet;
+import org.libpetri.smt.ScgVerifier;
 import org.libpetri.smt.SmtProperty;
 import org.libpetri.smt.SmtVerificationResult;
 import org.libpetri.smt.SmtVerificationResult.Verdict;
@@ -113,12 +118,13 @@ final class SmtRoute {
         var undecided = new ArrayList<String>();
         var lines = new ArrayList<String>();
         var certificates = new ArrayList<SubjectCertificate>();
+        var net = untimed(closed.net());
         for (var part : partsFor(closed, contract)) {
             switch (part) {
                 case Part.Vacuous(var subject, var detail) ->
                     lines.add("  [" + subject + "] " + detail + ": proven (no query needed)");
                 case Part.Ask(var q) -> {
-                    var verifier = SmtVerifier.forNet(closed.net())
+                    var verifier = SmtVerifier.forNet(net)
                         .initialMarking(closed.initialMarking())
                         .property(q.property())
                         .sinkPlaces(q.sinks().toArray(new Place<?>[0]))
@@ -161,6 +167,38 @@ final class SmtRoute {
             }
         }
         return new Outcome(violations, undecided, lines, certificates);
+    }
+
+    /**
+     * {@code net} with every transition {@code immediate}, so each query decides the untimed claim
+     * ([VER-004]). The flat encoders ignore timing, but a ν-net's quiescence query goes to the
+     * name-aware graph (NU-050), which keeps it and would prove the weaker timed claim.
+     */
+    private static PetriNet untimed(PetriNet net) {
+        if (ScgVerifier.isUntimed(net)) {
+            return net;
+        }
+        var transitions = new ArrayList<Transition>(net.transitions().size());
+        for (var t : net.transitions()) {
+            if (t.timing() instanceof Timing.Immediate) {
+                transitions.add(t);
+                continue;
+            }
+            var b = Transition.builder(t.name())
+                .inputs(t.inputSpecs().toArray(new Arc.In[0]))
+                .outputs(t.outputSpec())
+                .match(t.matchSpec())
+                .priority(t.priority())
+                .action(t.action());
+            t.inhibitors().forEach(b::inhibitorArc);
+            t.reads().forEach(b::readArc);
+            t.resets().forEach(b::resetArc);
+            transitions.add(b.build());
+        }
+        return PetriNet.builder(net.name())
+            .places(net.places().toArray(new Place<?>[0]))
+            .transitions(transitions.toArray(new Transition[0]))
+            .build();
     }
 
     private static List<Part> partsFor(ClosedNet closed, OpenNetContract contract) {

@@ -13,6 +13,10 @@
 //!   marking, so no run goes on forever. When there are none, the part is undecided and the
 //!   reason names the firings the marking equation lets repeat.
 
+use libpetri_core::petri_net::PetriNet;
+use libpetri_core::timing::{Timing, immediate};
+use libpetri_core::transition::Transition;
+
 use crate::bounded_run::{
     check_ranking_exact, decode_ranking, decode_repeatable_vector, encode_ranking_query,
     encode_repeatable_vector_query, format_ranking,
@@ -22,6 +26,7 @@ use crate::net_flattener::flatten;
 use crate::property::{SmtProperty, count_across};
 use crate::result::{Verdict, VerificationResult};
 use crate::rest_set::ConditionalSinks;
+use crate::scg_verifier::is_untimed;
 use crate::smt_verifier::SmtVerifier;
 use crate::z3_process::{Z3Solver, failure_reason};
 
@@ -88,6 +93,8 @@ pub(super) fn decide_via_smt(
     // Derived once: the stranding query's sinks and the attribution of its witness must be
     // the same declaration, and the graph route reads that one too.
     let rest = rest_declaration_of(contract, closed);
+    let untimed_net = untimed(&closed.net);
+    let net = untimed_net.as_ref().unwrap_or(&closed.net);
     for part in parts_for(contract, &rest) {
         let q = match part {
             Part::Vacuous { subject, detail } => {
@@ -96,7 +103,7 @@ pub(super) fn decide_via_smt(
             }
             Part::Query(q) => q,
         };
-        let mut verifier = SmtVerifier::for_net(&closed.net)
+        let mut verifier = SmtVerifier::for_net(net)
             .initial_marking(closed.initial_marking.clone())
             .property(q.property.clone())
             .sink_places(q.sinks.iter().cloned())
@@ -139,6 +146,37 @@ pub(super) fn decide_via_smt(
         }
     }
     SmtRouteOutcome { violations, undecided, lines, certificates }
+}
+
+/// `net` with every transition `immediate`, so each query decides the untimed claim
+/// ([VER-004]); `None` when it already is. The flat encoders ignore timing, but a ν-net's
+/// quiescence query goes to the name-aware graph (NU-050), which keeps it and would prove the
+/// weaker timed claim.
+fn untimed(net: &PetriNet) -> Option<PetriNet> {
+    if is_untimed(net) {
+        return None;
+    }
+    let transitions = net.transitions().iter().map(|t| {
+        if matches!(t.timing(), Timing::Immediate) {
+            return t.clone();
+        }
+        let mut b = Transition::builder(t.name_arc().clone())
+            .timing(immediate())
+            .priority(t.priority())
+            .action(t.action().clone())
+            .inputs(t.input_specs().to_vec())
+            .inhibitors(t.inhibitors().to_vec())
+            .reads(t.reads().to_vec())
+            .resets(t.resets().to_vec());
+        if let Some(out) = t.output_spec() {
+            b = b.output(out.clone());
+        }
+        if let Some(ms) = t.match_spec() {
+            b = b.match_spec(ms.clone());
+        }
+        b.build()
+    });
+    Some(PetriNet::builder(net.name()).places(net.places().iter().cloned()).transitions(transitions).build())
 }
 
 fn parts_for<'c>(contract: &'c OpenNetContract, rest: &RestDeclaration) -> Vec<Part<'c>> {

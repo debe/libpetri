@@ -425,6 +425,28 @@ describeZ3('open-net verification (VER-022): a ν-net skips the name-blind graph
       'the state-class graph was skipped: the closed net declares match (ν-join) transitions',
     );
   });
+
+  it('makes the untimed claim: a deadline that keeps `slow` from firing does not hide its stranding', async () => {
+    // Timed, `fast` always wins the race; untimed, `slow` fires and strands `stuck`. The ν-join
+    // sends the stranding query to the name-aware graph (NU-050), which keeps timing unless the
+    // route erases it.
+    const IN = place('in'), DONE = place('done'), STUCK = place('stuck');
+    const race = PetriNet.builder('race').transitions(
+      Transition.builder('fast').inputs(one(IN)).outputs(outPlace(DONE)).timing(deadline(5)).action(produces()).build(),
+      Transition.builder('slow').inputs(one(IN)).outputs(outPlace(STUCK)).timing(delayed(10)).action(produces()).build(),
+      ...twoMints.transitions,
+    ).build();
+    const c = OpenNetContract.builder()
+      .initialMarking(m => m.tokens(SEED_A, 1).tokens(SEED_B, 1))
+      .arrive(1, IN)
+      .rest(DONE, COL_A, COL_B, OUT)
+      .build();
+    const r = await verifyOpenNet(race, c);
+    expect(r.verdict.type, r.report).toBe('violated');
+    expect(r.route).toBe('smt');
+    expect(r.violations.map(v => v.kind), r.report).toEqual(['stranded']);
+    expect(r.violations[0]!.transitions).toContain('slow');
+  }, 180_000);
 });
 
 describeZ3('open-net verification (VER-022): SMT route', () => {

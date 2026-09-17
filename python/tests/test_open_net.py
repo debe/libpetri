@@ -323,10 +323,7 @@ def test_smt_route_leaves_termination_undecided_when_no_firing_bound_exists():
 # ---------- a ν-net skips the name-blind graph (VER-022 AC9) -----------------
 
 
-def _two_mints():
-    """Two independent mints give ``COL_A`` and ``COL_B`` different names, so the ν-join can
-    never fire and both strand. The state-class graph ignores the match, fires the join anyway,
-    and used to report this contract proven by enumeration — a false proof."""
+def _mints_and_join():
     seed_a, seed_b = lp.Place("SEED_A"), lp.Place("SEED_B")
     col_a, col_b, out = lp.Place("COL_A"), lp.Place("COL_B"), lp.Place("OUT")
     mint_a = lp.Transition("MINT_A").input(lp.one(seed_a)).output(lp.out(col_a)).action(lp.fork).build()
@@ -340,8 +337,18 @@ def _two_mints():
         .action(lp.fork)
         .build()
     )
+    return mint_a, mint_b, join
+
+
+def _two_mints():
+    """Two independent mints give ``COL_A`` and ``COL_B`` different names, so the ν-join can
+    never fire and both strand. The state-class graph ignores the match, fires the join anyway,
+    and used to report this contract proven by enumeration — a false proof."""
+    mint_a, mint_b, join = _mints_and_join()
     net = lp.Net("twoMints").transition(mint_a).transition(mint_b).transition(join).build()
-    contract = lp.OpenNetContract.builder().initial_marking({seed_a: 1, seed_b: 1}).rest(out).build()
+    contract = (
+        lp.OpenNetContract.builder().initial_marking({lp.Place("SEED_A"): 1, lp.Place("SEED_B"): 1}).rest(lp.Place("OUT")).build()
+    )
     return net, contract
 
 
@@ -363,3 +370,29 @@ def test_a_nu_net_with_the_smt_route_disabled_is_unknown_and_says_why():
     r = lp.verify_open_net(net, contract, smt=False)
     assert r.verdict == "unknown"
     assert "the state-class graph was skipped: the closed net declares match (ν-join) transitions" in str(r.reason)
+
+
+@needs_z3
+def test_a_nu_net_gets_the_untimed_verdict_a_deadline_that_keeps_slow_from_firing_does_not_hide_its_stranding():
+    """Timed, ``fast`` always wins the race; untimed, ``slow`` fires and strands ``stuck``. The
+    ν-join sends the stranding query to the name-aware graph (NU-050), which keeps timing unless
+    the route erases it."""
+    in_, done, stuck = lp.Place("in"), lp.Place("done"), lp.Place("stuck")
+    fast = lp.Transition("fast").input(lp.one(in_)).output(lp.out(done)).timing(lp.deadline(5)).action(lp.fork).build()
+    slow = lp.Transition("slow").input(lp.one(in_)).output(lp.out(stuck)).timing(lp.delayed(10)).action(lp.fork).build()
+    builder = lp.Net("race").transition(fast).transition(slow)
+    for t in _mints_and_join():
+        builder = builder.transition(t)
+    net = builder.build()
+    contract = (
+        lp.OpenNetContract.builder()
+        .initial_marking({"SEED_A": 1, "SEED_B": 1})
+        .arrive(1, in_)
+        .rest(done, "COL_A", "COL_B", "OUT")
+        .build()
+    )
+    r = lp.verify_open_net(net, contract)
+    assert r.verdict == "violated", r.report
+    assert r.route == "smt"
+    assert [v.kind for v in r.violations] == ["stranded"], r.report
+    assert "slow" in r.violations[0].transitions, r.report
