@@ -7,6 +7,7 @@ graphs close, so it would decide them before any phase ran.
 """
 
 import math
+from typing import TypedDict
 
 import libpetri as lp
 import pytest
@@ -15,7 +16,15 @@ pytestmark = pytest.mark.skipif(not lp.HAS_Z3, reason="z3 feature not enabled")
 
 needs_z3 = pytest.mark.skipif(not lp.z3_available(), reason="no usable z3 executable")
 
-SOLVER = dict(enumeration_max_classes=0, timeout_ms=30_000)
+
+class _Solver(TypedDict):
+    """Spread into ``verify``; a TypedDict lets a type checker match each key to its keyword."""
+
+    enumeration_max_classes: int
+    timeout_ms: int
+
+
+SOLVER: _Solver = {"enumeration_max_classes": 0, "timeout_ms": 30_000}
 
 
 def _t(name):
@@ -123,12 +132,15 @@ def test_state_equation_phase_finds_the_queue_the_cancelled_signal_strands():
 
 def test_encode_smt_scripts_reports_the_phase_query_and_none_when_the_phase_is_off():
     p, net, m0 = _join_with_skip()
-    args = dict(initial_marking=m0, sink_places=[p["done"], p["skipped"]])
-    on = lp.encode_smt_scripts(net, lp.deadlock_free(), **args)
-    assert "; State-equation phase (VER-018)" in on["state_equation"]
-    off = lp.encode_smt_scripts(net, lp.deadlock_free(), state_equation_phase=False, **args)
+    sinks = [p["done"], p["skipped"]]
+    on = lp.encode_smt_scripts(net, lp.deadlock_free(), initial_marking=m0, sink_places=sinks)
+    query = on["state_equation"]
+    assert isinstance(query, str) and "; State-equation phase (VER-018)" in query
+    off = lp.encode_smt_scripts(
+        net, lp.deadlock_free(), initial_marking=m0, sink_places=sinks, state_equation_phase=False
+    )
     assert off["state_equation"] is None
-    # The VER-016 keyword of the same name shapes the HORN query, not this script.
+    # The phase leaves the HORN query alone; only the VER-016 `state_equation` keyword shapes it.
     assert off["horn"] == on["horn"]
 
 
@@ -207,7 +219,7 @@ def test_quiescent_count_validates_its_bounds_and_describes_itself():
         lp.quiescent_count(["budget"], 0, 1.5)
     # math.inf is a max, never a min.
     with pytest.raises(ValueError):
-        lp.quiescent_count(["budget"], math.inf, math.inf)
+        lp.quiescent_count(["budget"], math.inf, math.inf)  # pyright: ignore[reportArgumentType]
     assert (
         lp.quiescent_count([lp.Place("budget")], 2, 2, waived_by=[lp.Place("halt")]).description()
         == "Quiescent count: exactly 2 across {budget}; lower bound waived while {halt} is marked"
@@ -255,16 +267,21 @@ def test_quiescent_count_is_decided_by_the_state_equation_phase_proof_and_witnes
 @needs_z3
 def test_quiescent_count_is_decided_by_ic3_too_when_the_phases_are_off():
     count = lp.quiescent_count(["budget"], 2, 2, waived_by=["halt"])
-    pinned = dict(SOLVER, state_equation_phase=False, firing_bound=False)
-    proven = lp.verify(_jobs_net(abort=True), count, initial_marking=JOBS_M0, **pinned)
+
+    def verify(net):
+        return lp.verify(
+            net, count, initial_marking=JOBS_M0, state_equation_phase=False, firing_bound=False, **SOLVER
+        )
+
+    proven = verify(_jobs_net(abort=True))
     assert proven.verdict == "proven", proven.report
     assert proven.method == "IC3/PDR"
 
-    kept = lp.verify(_jobs_net(refund=False), count, initial_marking=JOBS_M0, **pinned)
+    kept = verify(_jobs_net(refund=False))
     assert kept.verdict == "violated", kept.report
 
 
 def test_quiescent_count_over_a_place_the_net_does_not_declare_is_refused():
     result = lp.verify(_jobs_net(), lp.quiescent_count(["ghost"], 1, 1), initial_marking=JOBS_M0)
     assert result.verdict == "unknown"
-    assert "'ghost'" in result.reason
+    assert "'ghost'" in str(result.reason)

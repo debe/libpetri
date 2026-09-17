@@ -8,7 +8,7 @@
 //! Places are names here, as in the Rust contract; the facade coerces `Place` objects and
 //! spreads its variadic arguments into the lists these methods take.
 
-use libpetri::verification::marking_state::{MarkingState, MarkingStateBuilder};
+use libpetri::verification::marking_state::MarkingStateBuilder;
 use libpetri::verification::open_net::{
     ContractViolation, OpenNetContract, OpenNetContractBuilder, OpenNetOptions, OpenNetResult, PortStep,
     SmtConfigurator, verify_open_net,
@@ -21,22 +21,7 @@ use pyo3::wrap_pyfunction;
 
 use crate::error::panic_to_py;
 use crate::model::{PyPetriNet, PyTransition};
-use crate::verification::{bound_text, parse_count_bound, parse_semiflow_mode};
-
-/// A marking's places with their counts, in the order the marking lists them: for the
-/// closed marking, the order its builder first saw them, as a TypeScript `Map` keeps it.
-fn marking_entries(marking: &MarkingState) -> Vec<(String, usize)> {
-    marking.places().map(|(name, count)| (name.to_string(), count)).collect()
-}
-
-/// A dict in the order of `entries`, which a `HashMap` would not keep.
-fn marking_dict<'py>(py: Python<'py>, entries: &[(String, usize)]) -> PyResult<Py<PyDict>> {
-    let d = PyDict::new(py);
-    for (name, count) in entries {
-        d.set_item(name, count)?;
-    }
-    Ok(d.unbind())
-}
+use crate::verification::{bound_text, marking_dict, marking_entries, parse_count_bound, parse_semiflow_mode};
 
 /// Builds an `OpenNetContract`. Each method returns the builder, and a contract that
 /// cannot mean anything raises `StructureError` (a `ValueError`) where it is built, with
@@ -383,9 +368,8 @@ fn py_verify_open_net(
     let net = net.net().clone();
     let contract = contract.inner.clone();
     let semiflow_invariants = parse_semiflow_mode(semiflow_invariants.as_ref())?;
-    // Every setting is applied, defaults included, as `verify_net` applies its own: the
-    // values are the verifier's defaults, so a caller who passes nothing gets the verifier
-    // the Rust entry point builds with no configurator at all.
+    // Applied unconditionally, as `verify_net` does: the keyword defaults are the
+    // verifier's own, so passing nothing builds what Rust builds without a configurator.
     let configure: SmtConfigurator = Box::new(move |v| {
         v.timeout(timeout_ms)
             .linear_bound(linear_bound)

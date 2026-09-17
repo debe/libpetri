@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Any, Literal, TypeAlias
 
 from . import _libpetri as _ext
-from .model import BuiltNet, BuiltSubnetDef, BuiltTransition, PlaceLike
+from .model import BuiltNet, BuiltSubnetDef, BuiltTransition, Place, PlaceLike
 
 SmtProperty: TypeAlias = _ext.SmtProperty
 VerificationResult: TypeAlias = _ext.VerificationResult
@@ -16,6 +16,15 @@ EnvironmentAnalysisMode: TypeAlias = _ext.EnvironmentAnalysisMode
 OpenNetResult: TypeAlias = _ext.OpenNetResult
 ContractViolation: TypeAlias = _ext.ContractViolation
 PortStep: TypeAlias = _ext.PortStep
+
+# `Mapping` is invariant in its key, so `Mapping[PlaceLike, V]` alone would reject a
+# `dict[str, V]` or `dict[Place, V]` held in a variable.
+_PlaceCounts: TypeAlias = Mapping[str, int] | Mapping[Place, int] | Mapping[PlaceLike, int]
+_PlaceSets: TypeAlias = (
+    Mapping[str, Iterable[PlaceLike]]
+    | Mapping[Place, Iterable[PlaceLike]]
+    | Mapping[PlaceLike, Iterable[PlaceLike]]
+)
 
 class VerificationHarness:
     def __init__(self) -> None: ...
@@ -51,7 +60,7 @@ def verify(
     net: BuiltNet,
     property: SmtProperty,
     *,
-    initial_marking: Mapping[PlaceLike, int] | None = ...,
+    initial_marking: _PlaceCounts | None = ...,
     environment_places: Iterable[PlaceLike] | None = ...,
     environment_mode: EnvironmentAnalysisMode | None = ...,
     sink_places: Iterable[PlaceLike] | None = ...,
@@ -64,7 +73,7 @@ def verify(
     certificate_check: bool = ...,
     counterexample_replay: bool = ...,
     semiflow_invariants: bool | Literal["auto"] = ...,
-    sink_places_when: Mapping[PlaceLike, Iterable[PlaceLike]] | None = ...,
+    sink_places_when: _PlaceSets | None = ...,
     linear_bound: bool = ...,
     state_equation: bool = ...,
     enumeration_max_classes: int | None = ...,
@@ -95,7 +104,7 @@ def encode_smt_scripts(
     net: BuiltNet,
     property: SmtProperty,
     *,
-    initial_marking: Mapping[PlaceLike, int] | None = ...,
+    initial_marking: _PlaceCounts | None = ...,
     environment_places: Iterable[PlaceLike] | None = ...,
     environment_mode: EnvironmentAnalysisMode | None = ...,
     sink_places: Iterable[PlaceLike] | None = ...,
@@ -104,7 +113,7 @@ def encode_smt_scripts(
     carrier_places: Iterable[PlaceLike] | None = ...,
     counterexample_replay: bool = ...,
     semiflow_invariants: bool | Literal["auto"] = ...,
-    sink_places_when: Mapping[PlaceLike, Iterable[PlaceLike]] | None = ...,
+    sink_places_when: _PlaceSets | None = ...,
     linear_bound: bool = ...,
     state_equation: bool = ...,
     state_equation_phase: bool = ...,
@@ -120,6 +129,7 @@ def encode_smt_scripts(
 def z3_available() -> bool: ...
 
 class OpenNetContract:
+    def __init__(self, inner: _ext.OpenNetContract) -> None: ...
     @classmethod
     def builder(cls) -> OpenNetContractBuilder: ...
     def places(self) -> list[str]: ...
@@ -129,7 +139,7 @@ class OpenNetContract:
 
 class OpenNetContractBuilder:
     def __init__(self) -> None: ...
-    def initial_marking(self, marking: Mapping[PlaceLike, int]) -> OpenNetContractBuilder: ...
+    def initial_marking(self, marking: _PlaceCounts) -> OpenNetContractBuilder: ...
     def initial_tokens(self, place: PlaceLike, count: int) -> OpenNetContractBuilder: ...
     def arrive(self, count: int, *places: PlaceLike) -> OpenNetContractBuilder: ...
     def arrive_at_most(self, max: int, *places: PlaceLike) -> OpenNetContractBuilder: ...

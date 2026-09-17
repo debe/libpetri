@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use libpetri::verification::environment::EnvironmentAnalysisMode;
 use libpetri::verification::harness::{SubnetVerifyExt, VerificationHarness};
+use libpetri::verification::marking_state::MarkingState;
 use libpetri::verification::property::SmtProperty;
 use libpetri::verification::result::{Verdict, VerificationResult, VerificationRoute};
 #[cfg(feature = "z3")]
@@ -18,6 +19,21 @@ use crate::error::panic_to_py;
 use crate::model::{PyPetriNet, PySubnetDef};
 #[cfg(feature = "z3")]
 use crate::value::erased_from_py;
+
+/// A marking's places with their counts, in the order `MarkingState::places` lists them:
+/// first-mention order for a built marking, code-point order for a derived one.
+pub(crate) fn marking_entries(marking: &MarkingState) -> Vec<(String, usize)> {
+    marking.places().map(|(name, count)| (name.to_string(), count)).collect()
+}
+
+/// A dict in the order of `entries`, which a `HashMap` would not keep.
+pub(crate) fn marking_dict(py: Python<'_>, entries: &[(String, usize)]) -> PyResult<Py<PyDict>> {
+    let d = PyDict::new(py);
+    for (name, count) in entries {
+        d.set_item(name, count)?;
+    }
+    Ok(d.unbind())
+}
 
 /// An SMT property to verify against a net. Build via `deadlock_free`, `mutual_exclusion`, `place_bound`, `unreachable`.
 #[pyclass(module = "_libpetri", name = "SmtProperty", from_py_object)]
@@ -45,7 +61,7 @@ pub struct PyVerificationResult {
     report: String,
     discovered_invariants: Vec<String>,
     counterexample_transitions: Vec<String>,
-    counterexample_trace: Vec<HashMap<String, usize>>,
+    counterexample_trace: Vec<Vec<(String, usize)>>,
     counterexample_confirmed: Option<bool>,
     elapsed_ms: u64,
     places: usize,
@@ -65,16 +81,7 @@ impl PyVerificationResult {
             Verdict::Unknown { reason } => ("unknown".to_string(), None, Some(reason)),
         };
 
-        let counterexample_trace = result
-            .counterexample_trace
-            .iter()
-            .map(|state| {
-                state
-                    .places()
-                    .map(|(name, count)| (name.to_string(), count))
-                    .collect::<HashMap<_, _>>()
-            })
-            .collect();
+        let counterexample_trace = result.counterexample_trace.iter().map(marking_entries).collect();
 
         // VER-003 AC4: the deciding route, as the string every implementation
         // reports it under.
@@ -141,7 +148,11 @@ impl PyVerificationResult {
     #[getter] fn report(&self) -> String { self.report.clone() }
     #[getter] fn discovered_invariants(&self) -> Vec<String> { self.discovered_invariants.clone() }
     #[getter] fn counterexample_transitions(&self) -> Vec<String> { self.counterexample_transitions.clone() }
-    #[getter] fn counterexample_trace(&self) -> Vec<HashMap<String, usize>> { self.counterexample_trace.clone() }
+    /// Each marking as a dict in the order the Rust marking lists its places.
+    #[getter]
+    fn counterexample_trace(&self, py: Python<'_>) -> PyResult<Vec<Py<PyDict>>> {
+        self.counterexample_trace.iter().map(|m| marking_dict(py, m)).collect()
+    }
     /// Tri-state outcome of the abstract counterexample replay: `None` when it
     /// did not apply (disabled, a non-violated verdict, or a coloured / Route B
     /// / structural path), `False` when it applied without confirming — either
@@ -488,10 +499,9 @@ pub(crate) fn parse_semiflow_mode(value: Option<&Bound<'_, PyAny>>) -> PyResult<
 /// the marking equation to the flat encoding; `enumeration_max_classes`
 /// (VER-017; `None` keeps the engine default of 50 000) is the class budget of
 /// the bounded state-space enumeration route, `0` disabling it;
-/// `state_equation_phase` (default `True`, VER-018) and `firing_bound` (default
-/// `True`, VER-019) are the two pre-fixpoint phases, `False` forcing the fixpoint
-/// path. `state_equation_phase` is not `state_equation`: that one adds counters
-/// INSIDE the fixpoint encoding, this one can decide the property before it.
+/// `state_equation_phase` (VER-018) and `firing_bound` (VER-019), both default
+/// `True`, are the pre-fixpoint phases, `False` forcing the fixpoint path. Unlike
+/// `state_equation`, neither changes the fixpoint encoding.
 #[pyfunction(name = "verify_net")]
 #[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 60_000, nu_max_classes = None, fragment_mode = None, carrier_places = None, priority_semantics = None, certificate_check = true, counterexample_replay = true, semiflow_invariants = None, sink_places_when = None, linear_bound = true, state_equation = false, enumeration_max_classes = None, state_equation_phase = true, firing_bound = true))]
 fn py_verify_net(
@@ -596,9 +606,8 @@ fn py_verify_net(
                 // VER-016: firing-counter state equation in the flat encoding
                 // (off by default, script parity).
                 .state_equation(state_equation)
-                // VER-018 / VER-019: the pre-fixpoint phases, both on by default in
-                // every implementation, since a verdict from a phase carries its own
-                // method and report.
+                // VER-018 / VER-019: on by default in every implementation, since a
+                // phase's verdict carries its own method and report.
                 .state_equation_phase(state_equation_phase)
                 .firing_bound(firing_bound)
                 .timeout(timeout_ms);
@@ -629,17 +638,13 @@ fn py_verify_net(
     }
 }
 
-/// The SMT-LIB2 scripts `verify_net` would send to z3 for this configuration,
-/// without running a solver (VER-013 AC1): `{"horn": str, "certificate": str | None,
-/// "coloured": bool, "bound": str | None, "state_equation": str | None}` — `bound` is
-/// the linear state-equation query (VER-015), present exactly when `verify_net` would
-/// send it, and `state_equation` the first query of the state-equation phase
-/// (VER-018 AC7), present exactly where that phase runs. What the cross-language
-/// golden tests diff. `linear_bound` (default `True`) gates the `bound` script and
-/// `state_equation_phase` (default `True`) the `state_equation` script, as each gates
-/// its phase in `verify_net`. The `state_equation` KEYWORD is VER-016's counters in the
-/// HORN query, not the phase: the key and the keyword share a name because the Rust
-/// field and builder method do.
+/// The SMT-LIB2 scripts `verify_net` would send to z3 for this configuration, without
+/// running a solver (VER-013 AC1), as the cross-language golden tests diff them:
+/// `{"horn": str, "certificate": str | None, "coloured": bool, "bound": str | None,
+/// "state_equation": str | None}`. `bound` (VER-015) and `state_equation` (VER-018
+/// AC7, the phase's first query) are `None` exactly when `verify_net` would not send
+/// them, so `linear_bound = False` and `state_equation_phase = False` null them. The
+/// `state_equation` keyword is VER-016's counters in `horn`, not that key.
 #[pyfunction(name = "encode_smt_scripts")]
 #[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, fragment_mode = None, carrier_places = None, counterexample_replay = true, semiflow_invariants = None, sink_places_when = None, linear_bound = true, state_equation = false, state_equation_phase = true))]
 fn py_encode_smt_scripts(

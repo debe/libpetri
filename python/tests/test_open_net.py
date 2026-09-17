@@ -101,7 +101,7 @@ def test_the_contract_is_validated_as_it_is_built():
         lp.OpenNetContract.builder().expect_between("a", 2, 1, "p")
     # An arrival bound is finite: it is the runtime cap and the width of the claim.
     with pytest.raises(ValueError, match="so it is finite"):
-        lp.OpenNetContract.builder().arrive_between(0, math.inf, "p")
+        lp.OpenNetContract.builder().arrive_between(0, math.inf, "p")  # pyright: ignore[reportArgumentType]
     # A refused step leaves what was declared before it in place.
     builder = lp.OpenNetContract.builder().expect("kept", 1, "p")
     with pytest.raises(ValueError):
@@ -183,6 +183,73 @@ def test_a_graph_that_does_not_close_is_unknown_without_the_smt_route_and_says_w
     assert r.reason == "the state-class graph did not close within 3 classes, and the SMT route is disabled"
 
 
+# ---------- environment transitions -----------------------------------------
+
+
+N = {key: lp.Place(key) for key in ("N/in", "N/running", "N/request", "N/reply", "N/done", "env/rounds", "env/ended")}
+
+
+def _asking_node():
+    """A node that asks its environment and runs again on every answer: ``N/run``
+    finishes or sends a request; the environment answers at most twice, from a
+    budget of its own, or ends the exchange."""
+    def t(name):
+        return lp.Transition(name).action(lp.fork)
+
+    return (
+        lp.Net("N")
+        .transition(t("N/start").input(lp.one(N["N/in"])).output(lp.out(N["N/running"])).build())
+        .transition(t("N/resume").input(lp.one(N["N/reply"])).output(lp.out(N["N/running"])).build())
+        .transition(t("N/run").input(lp.one(N["N/running"])).output(lp.xor(N["N/request"], N["N/done"])).build())
+        .build()
+    )
+
+
+# No actions: an environment transition never runs, so passthrough is fine even with outputs.
+AGAIN = lp.Transition("env/again").input(lp.one(N["N/request"])).input(lp.one(N["env/rounds"])).output(
+    lp.out(N["N/reply"])
+).build()
+END = lp.Transition("env/end").input(lp.one(N["N/request"])).output(lp.out(N["env/ended"])).build()
+
+
+def _asking_contract(done_at_least):
+    return (
+        lp.OpenNetContract.builder()
+        .initial_marking({N["env/rounds"]: 2})
+        .arrive(1, N["N/in"])
+        .expect_between("done", done_at_least, 1, N["N/done"])
+        .environment(AGAIN, END)
+        .build()
+    )
+
+
+def test_an_environment_that_answers_is_part_of_the_proof_and_keeps_its_own_places():
+    r = lp.verify_open_net(_asking_node(), _asking_contract(0))
+    # env/rounds and env/ended are the environment's own places, so neither is stranded.
+    assert r.verdict == "proven", r.report
+    assert "  Environment transitions: env/again, env/end" in r.report
+
+
+def test_the_port_trace_marks_an_environment_transition():
+    r = lp.verify_open_net(_asking_node(), _asking_contract(1))
+    assert [v.subject for v in r.violations] == ["done"], r.report
+    end = next(s for s in r.violations[0].port_trace if s.transition == "env/end")
+    assert end.environment == "transition"
+    assert end.changes == [("N/request", -1), ("env/ended", 1)]
+
+
+def test_an_environment_transition_declared_twice_or_named_like_the_nets_is_refused():
+    builder = lp.OpenNetContract.builder()
+    with pytest.raises(lp.StructureError, match="duplicate environment transition 'env/end'"):
+        builder.environment(END, END)
+    # The refused call adds neither copy.
+    assert not any(line.startswith("  Environment transitions") for line in builder.build().describe())
+    clash = lp.Transition("N/run").input(lp.one(N["N/request"])).build()
+    contract = lp.OpenNetContract.builder().arrive(1, N["N/in"]).environment(clash).build()
+    with pytest.raises(lp.StructureError, match="already declares"):
+        lp.verify_open_net(_asking_node(), contract)
+
+
 # ---------- SMT route -------------------------------------------------------
 
 
@@ -250,7 +317,7 @@ def test_smt_route_skips_a_count_clause_no_marking_can_fail_and_says_so():
 def test_smt_route_leaves_termination_undecided_when_no_firing_bound_exists():
     r = lp.verify_open_net(_gadget(spin=True), _contract(), max_classes=0)
     assert r.verdict == "unknown", r.report
-    assert "termination: no firing bound: the marking equation lets X/spin repeat" in r.reason
+    assert "termination: no firing bound: the marking equation lets X/spin repeat" in str(r.reason)
 
 
 # ---------- a ν-net skips the name-blind graph (VER-022 AC9) -----------------
@@ -295,4 +362,4 @@ def test_a_nu_net_with_the_smt_route_disabled_is_unknown_and_says_why():
     net, contract = _two_mints()
     r = lp.verify_open_net(net, contract, smt=False)
     assert r.verdict == "unknown"
-    assert "the state-class graph was skipped: the closed net declares match (ν-join) transitions" in r.reason
+    assert "the state-class graph was skipped: the closed net declares match (ν-join) transitions" in str(r.reason)

@@ -810,6 +810,18 @@ def test_enumeration_violation_is_a_real_firing_sequence():
     assert result.counterexample_confirmed is True, result.report
 
 
+def test_counterexample_trace_keeps_the_marking_order():
+    """A trace marking is a dict in the order the Rust marking lists its places:
+    code-point order for one a firing derives, never a hash map's arbitrary order."""
+    outs = [lp.Place(name) for name in "hgfedcba"]
+    fan = lp.Transition("fan").input(lp.one(lp.Place("start"))).output(lp.and_(*outs)).action(lp.fork)
+    net = lp.Net("fan").transition(fan.build()).build()
+    result = lp.verify(net, lp.deadlock_free(), initial_marking={"start": 1})
+    assert result.route == "enumeration", result.report
+    assert result.verdict == "violated", result.report
+    assert list(result.counterexample_trace[-1]) == list("abcdefgh")
+
+
 def test_enumeration_truncation_hands_over_to_the_smt_pipeline():
     """VER-017 AC4: over budget the route declines, names the budget, and the SMT
     pipeline runs unchanged -- same verdict, by the other means."""

@@ -102,6 +102,10 @@ def joined_or_dead_lettered(pending: PlaceLike) -> SmtProperty:
     return _ext.joined_or_dead_lettered(_coerce_place_name(pending))
 
 
+def _place_names(places: Iterable[PlaceLike]) -> list[str]:
+    return [_coerce_place_name(p) for p in places]
+
+
 def quiescent_count(
     places: Iterable[PlaceLike],
     min: int,
@@ -122,12 +126,7 @@ def quiescent_count(
     A negative or fractional bound, or a ``max`` below ``min``, raises
     ``ValueError`` here instead of coming back as a verdict about the net.
     """
-    return _ext.quiescent_count(
-        [_coerce_place_name(p) for p in places],
-        min,
-        max,
-        [_coerce_place_name(p) for p in (waived_by or ())],
-    )
+    return _ext.quiescent_count(_place_names(places), min, max, _place_names(waived_by or ()))
 
 
 def _coerce_sink_places_when(
@@ -175,9 +174,9 @@ def verify(
     ``environment_places`` + ``environment_mode``.
 
     ``environment_mode`` (VER-006) controls how registered ``environment_places``
-    are modeled: :func:`always_available` (unbounded injection), :func:`bounded`,
-    or :func:`ignore` (default). With env places present but no mode (i.e. Ignore),
-    a would-be vacuous ``proven`` is downgraded to ``unknown``.
+    are modeled: :func:`always_available` (the default; unbounded injection),
+    :func:`bounded`, or :func:`ignore`, under which a would-be vacuous ``proven``
+    is downgraded to ``unknown``.
 
     ``budget_places`` (NU-040) declares the places whose token count bounds the
     live correlation pool of a ν-net (they gate fresh-name minting). For a
@@ -314,23 +313,20 @@ def verify(
     SMT pipeline runs unchanged; pass ``0`` to disable it, which is what a test
     pinning the encoders' own answer wants.
 
-    ``state_equation_phase`` (default ``True``, VER-018) asks, after the linear
-    bound and before the fixpoint query, whether a marking the marking equation
-    admits can violate the property. ``unsat`` proves it, with ``result.method ==
-    "state-equation"`` and a certificate that passed the check; a spurious
-    candidate is refined by a trap or an inductive inequality, which the report
-    prints (``Refinement (inductive): hasdata <= ready0 + ready1``) and
+    ``state_equation_phase`` (default ``True``, VER-018) runs after the linear
+    bound and before the fixpoint query: can a marking the marking equation
+    admits violate the property? ``unsat`` proves it (``result.method ==
+    "state-equation"``, certificate checked); a spurious candidate is refined by
+    a trap or an inductive inequality, which the report prints and
     ``result.discovered_invariants`` lists; a run within the candidate's firing
-    counts is a confirmed violation. Not ``state_equation``, which adds counters
-    inside the fixpoint encoding and is off by default -- this phase can decide
-    the property instead of that query, and is on.
+    counts is a confirmed violation. Not to be confused with ``state_equation``,
+    which adds counters inside the fixpoint encoding.
 
     ``firing_bound`` (default ``True``, VER-019) looks for place weights every
-    firing lowers, which bound every run, and model-checks runs of that length:
-    ``result.method == "bounded-model-check"`` on a proof, a replayed run on a
-    violation, and a report line naming the transitions that can repeat when no
-    bound exists. Turn either phase off to force the fixpoint path, for its
-    certificate or to pin a test to it.
+    firing lowers and model-checks runs up to the bound they give
+    (``result.method == "bounded-model-check"``); without one, the report names
+    the transitions that can repeat. Turn either phase off to force the fixpoint
+    path, for its certificate or to pin a test to it.
 
     ``result.route`` (VER-003 AC4) names which route decided: ``"smt"``,
     ``"enumeration"``, ``"nu-scg"``, ``"structural"`` or ``"unavailable"``. Read
@@ -415,38 +411,28 @@ def encode_smt_scripts(
     state_equation_phase: bool = True,
 ) -> dict:
     """The SMT-LIB2 scripts :func:`verify` would send to z3 for this configuration,
-    without running a solver (VER-013 AC1).
+    without running a solver (VER-013 AC1); the cross-language golden tests diff
+    them byte for byte. ``None`` marks a query :func:`verify` would not send:
 
-    Returns ``{"horn": str, "certificate": str | None, "coloured": bool, "bound":
-    str | None, "state_equation": str | None}``: the HORN query (flat, or
-    name-coloured when a declared budget puts the net on Route A's exact
-    encoding), for the flat encoding the certificate-check script built around the
-    placeholder certificate, the linear state-equation bound query (VER-015)
-    exactly when :func:`verify` would send it -- a reachability-safety property on
-    the flat path; ``None`` for a quiescence property and on the name-coloured
-    path -- and the first query of the state-equation phase (VER-018 AC7), before
-    any refinement, exactly where that phase runs; ``None`` on the name-coloured
-    path, for a ν-net, under ``ignore()`` with environment places, or with
-    ``state_equation_phase=False``. This is what the cross-language golden tests
-    diff byte for byte.
+    * ``"horn"`` -- the fixpoint query: flat, or name-coloured (``"coloured":
+      True``) when a declared budget puts the net on Route A's exact encoding;
+    * ``"certificate"`` -- the certificate check around a placeholder
+      certificate; ``None`` on the name-coloured encoding;
+    * ``"bound"`` -- the VER-015 linear bound query; ``None`` for a quiescence
+      property, on the name-coloured encoding, under ``ignore()`` with environment
+      places, or with ``linear_bound=False``;
+    * ``"state_equation"`` -- the first query of the VER-018 phase, before any
+      refinement; ``None`` for a ν-net, under ``ignore()`` with environment
+      places, or with ``state_equation_phase=False``. The ``state_equation``
+      *keyword* is VER-016's counters in ``"horn"``, not this query.
 
-    Every option :func:`verify` takes that shapes a script is accepted here and
-    changes it the same way. ``semiflow_invariants`` conjoins the strengthened
-    invariant list into the rule bodies, on the name-coloured encoding as well as
-    the flat one, and takes ``"auto"`` here too -- the union then happens exactly
-    when the basis lost a law to the H1 guard, so the script matches the one
-    :func:`verify` would send under the same setting; ``sink_places_when``
-    (VER-014) adds the marker-unmarked conjuncts to the stranded disjunction of a
-    :func:`deadlock_free` query;
-    ``linear_bound`` (VER-015, default ``True``) gates the ``bound`` script the
-    same way it gates the phase in :func:`verify` -- ``False`` returns ``bound:
-    None``;
+    Every option :func:`verify` takes that shapes a script changes it the same way
+    here: ``semiflow_invariants`` (``"auto"`` included) conjoins the strengthened
+    invariants into either encoding's rule bodies; ``sink_places_when`` (VER-014)
+    adds the marker-unmarked conjuncts to a :func:`deadlock_free` query;
     ``state_equation`` (VER-016) adds the firing counters and marking equation to
-    the flat ``horn`` and widens the placeholder certificate to ``P + T``
-    arguments. The ``state_equation`` KEYWORD is that option; the
-    ``"state_equation"`` KEY is the VER-018 phase's query, gated by
-    ``state_equation_phase``. The two share a name because the Rust verifier's
-    field and builder method do. See :func:`verify` for when to turn each on.
+    the flat ``"horn"`` and widens the placeholder certificate to ``P + T``
+    arguments.
     """
     return _ext.encode_smt_scripts(
         _coerce_net(net),
@@ -502,21 +488,18 @@ if _HAS_OPEN_NET:
     PortStep = _ext.PortStep
 else:
 
-    class OpenNetResult:  # type: ignore[no-redef]
+    class _Unavailable:
         def __init__(self, *_args, **_kwargs) -> None:
             _require_open_net()
 
-    class ContractViolation:  # type: ignore[no-redef]
-        def __init__(self, *_args, **_kwargs) -> None:
-            _require_open_net()
+    class OpenNetResult(_Unavailable):  # type: ignore[no-redef]
+        pass
 
-    class PortStep:  # type: ignore[no-redef]
-        def __init__(self, *_args, **_kwargs) -> None:
-            _require_open_net()
+    class ContractViolation(_Unavailable):  # type: ignore[no-redef]
+        pass
 
-
-def _place_names(places: Iterable[PlaceLike]) -> list[str]:
-    return [_coerce_place_name(p) for p in places]
+    class PortStep(_Unavailable):  # type: ignore[no-redef]
+        pass
 
 
 class OpenNetContract:
@@ -547,7 +530,7 @@ class OpenNetContract:
     the transitions they would fire (:meth:`OpenNetContractBuilder.environment`).
     """
 
-    def __init__(self, inner) -> None:
+    def __init__(self, inner: _ext.OpenNetContract) -> None:
         # Built by OpenNetContractBuilder.build(); not constructed directly.
         self._inner = inner
 
@@ -611,9 +594,8 @@ class OpenNetContractBuilder:
 
     def arrive_between(self, min: int, max: int, *places: PlaceLike) -> "OpenNetContractBuilder":
         """The environment delivers between ``min`` and ``max`` tokens in total.
-        Both bounds are finite: a bound is both the runtime cap and the width of
-        the claim, so an environment that delivers without limit is not something
-        a contract can assume."""
+        Both bounds are finite: each is the runtime cap as well as the width of the
+        claim."""
         self._inner = self._inner.arrive_between(min, max, _place_names(places))
         return self
 
