@@ -151,6 +151,37 @@ class StateClassGraphTest {
     }
 
     /**
+     * The ranked clock order is the name order, permutation for permutation: shared prefixes,
+     * supplementary characters, two transitions with one name (whose tie keeps the incoming
+     * order), and a list holding a transition of another net, which falls back to names.
+     */
+    @Test
+    void clockOrder_permutesExactlyAsTheNameOrder() {
+        var x = Place.of("x", String.class);
+        var names = List.of("flow/stage/a", "flow/stage/b", "flow/stage", "flow/stage/Ａ",
+            "flow/stage/𝐀", "flow/stage/b", "", "z");
+        var transitions = new ArrayList<Transition>();
+        for (var name : names) {
+            transitions.add(chain(name, A, x, false));
+        }
+        var order = StateClassGraph.ClockOrder.of(
+            PetriNet.builder("ranks").transitions(transitions.toArray(new Transition[0])).build());
+        var foreign = chain("flow/stage/a", A, x, false);
+        var random = new java.util.Random(17);
+        for (int round = 0; round < 2000; round++) {
+            var list = new ArrayList<Transition>();
+            int size = random.nextInt(names.size() + 1);
+            for (int i = 0; i < size; i++) {
+                list.add(transitions.get(random.nextInt(transitions.size())));
+            }
+            if (round % 5 == 0 && !list.isEmpty()) {
+                list.set(random.nextInt(list.size()), foreign);
+            }
+            assertArrayEquals(StateClassGraph.canonicalOrder(list), order.canonicalOrder(list), list.toString());
+        }
+    }
+
+    /**
      * The graph lists everything in the order the build found it, as the reference's
      * {@code Map} and {@code Set} do: classes breadth-first, a class's edges by transition in
      * enabled order and branch order, successors and predecessors by first edge. The witness a

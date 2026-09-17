@@ -130,16 +130,12 @@ public final class RestSet {
      * ordered by name: empty exactly when {@link #strandsToken} is false.
      *
      * <p>"Unexcused" applies the [VER-014] widening: a token on a place a <em>marked</em>
-     * marker excuses is designed residue, not stranded work, and the marker itself always
-     * rests. A caller that asks only "is this place marked?" names a stranding that the
-     * other routes prove cannot happen; the open-net contract of [VER-022] reads this to
-     * name the places a quiescent marking leaves work on, so the predicate is stated here
-     * once.
+     * marker excuses is designed residue, and the marker itself always rests. Asking only
+     * "is this place marked?" would name a stranding the other routes prove impossible. The
+     * open-net contract of [VER-022] names stranded places through this.
      *
-     * <p>Ordered by name in code-point order ({@link CodePointOrder}, as the other
-     * implementations compare names), then by token type name for two places sharing a
-     * name, rather than in the marking's own order: the names reach a report, and the order
-     * a marking was built in is not part of what it says.
+     * <p>Ordered by name in {@link CodePointOrder}, then by token type name, not in the
+     * marking's own order: the names reach a report.
      */
     public static List<Place<?>> strandedPlaces(
             MarkingState m, Collection<Place<?>> sinkPlaces, List<ConditionalSinks> conditional

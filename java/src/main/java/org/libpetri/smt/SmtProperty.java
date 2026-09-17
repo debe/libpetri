@@ -124,16 +124,16 @@ public sealed interface SmtProperty {
      * @param max      the most a quiescent marking may hold, never waived; empty when
      *                 unbounded
      * @param waivedBy the markers whose presence waives the lower bound
-     * @throws IllegalArgumentException when {@code min} is negative or {@code max} is below
-     *     {@code min}: a range no count can satisfy is a caller's error, reported where the
-     *     property is built rather than as a verdict ([VER-002] AC9), because it would
-     *     otherwise come back violated at the first quiescent marking and read as a finding
-     *     about the net
      */
     record QuiescentCount(List<Place<?>> places, int min, OptionalInt max, List<Place<?>> waivedBy)
             implements SmtProperty {
+        /**
+         * @throws IllegalArgumentException when {@code min} is negative or {@code max} is below
+         *     {@code min}: a range no count can satisfy is a caller's error, reported here rather
+         *     than as a violation at the first quiescent marking ([VER-002] AC9)
+         */
         public QuiescentCount {
-            java.util.Objects.requireNonNull(max, "max");
+            Objects.requireNonNull(max, "max");
             if (min < 0 || (max.isPresent() && max.getAsInt() < min)) {
                 throw new IllegalArgumentException(
                     "quiescentCount needs whole bounds with 0 <= min <= max, got " + min + ".."

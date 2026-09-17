@@ -626,12 +626,10 @@ public final class BoundedRun {
      * violation predicate itself ({@link AbstractReplayer#violationPredicate}), so the two
      * phases cannot be handed inconsistent ones.
      *
-     * <p>A net with declared environment places the analysis injects into is refused before any
-     * query: an injection is not a firing, so no weighting bounds the runs it extends. The gate
-     * reads {@link FlatNet#environmentInjection()} — every declared place the mode models as
-     * injected, whether or not the net resolves it — rather than the injections that resolve,
-     * so a declaration the net happens not to use still refuses the phase, as it does in
-     * TypeScript.
+     * <p>A net with environment places the analysis injects into is refused before any query:
+     * an injection is not a firing, so no weighting bounds the runs it extends. The gate reads
+     * every declared injection ({@link FlatNet#environmentInjection()}), resolved or not, as the
+     * reference does.
      *
      * @param sinkPlaces       places where a token may rest ([VER-002])
      * @param conditionalSinks places where a token may rest while a marker is marked ([VER-014])

@@ -25,18 +25,15 @@ import java.util.StringJoiner;
  * (using Place identity, not name-based comparison).
  *
  * <h3>Order</h3>
- * {@link #placesWithTokens()} lists the places in the order the builder first saw them, as the
- * TypeScript reference's marking does, and so does every marking derived from another through
- * {@link Builder#copyFrom}. Equality ignores that order. It matters where a marking is shown to a
- * person: an open-net contract's port trace lists its initial-marking places in that order
- * ([VER-022]), and a hash map's order would change with every JVM run.
+ * {@link #placesWithTokens()} lists places in the order the builder first saw them, as the
+ * TypeScript reference does; a marking derived through {@link Builder#copyFrom} keeps its
+ * source's order. Equality ignores the order, reports read it ([VER-022] port traces).
  *
  * <h3>Representation</h3>
- * The places in that order, their counts in a parallel {@code int[]}, and an open-addressing
- * index from a place's hash to its position, one byte per slot for up to 127 places at a load of
- * at most one half. The state-class graph keeps a marking per class, so this is a per-class
- * cost. Lookup is O(1) expected, iteration O(n) and building O(n) for {@code n} marked places,
- * and a marking whose builder only changed counts shares its source's place array and index.
+ * The places in that order, a parallel {@code int[]} of counts, and an open-addressing index from
+ * hash to position ({@code byte}, {@code char} or {@code int} slots as the place count needs, load
+ * at most one half): one per state class. Lookup is O(1) expected, building O(n); a marking whose
+ * builder only changed counts shares its source's place array and index.
  *
  * <h3>Example</h3>
  * <pre>{@code

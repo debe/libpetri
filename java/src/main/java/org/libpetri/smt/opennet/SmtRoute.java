@@ -89,14 +89,11 @@ final class SmtRoute {
     /**
      * A part of the contract: a query to run, or a clause no marking can fail.
      *
-     * <p>A count clause of {@code [0, ∞]} is the second kind. {@link GraphDecision#countViolation}
-     * reports an upper bound only above {@code max} and a lower one only below {@code min}, so
-     * every marking satisfies it and both routes agree without asking anything — the graph
-     * route's findings hold nothing for it either. Its places still carry their weight through
-     * {@link QuiescencePredicate#restDeclarationOf}, which makes every clause place a sink of the
-     * stranding query. Running the query anyway would be strictly worse than skipping it: the
-     * answer is {@code Proven} on a solver that has time and {@code Unknown} on one that does
-     * not. It gets a report line so that skipping it is visible rather than silent.
+     * <p>A count clause of {@code [0, ∞]} is the second kind: {@link GraphDecision#countViolation}
+     * never reports it, so neither route can find it broken. Its places still act as sinks of the
+     * stranding query ({@link QuiescencePredicate#restDeclarationOf}). Asking anyway could only
+     * turn {@code Proven} into {@code Unknown} on a slow solver; the report line keeps the skip
+     * visible.
      */
     private sealed interface Part {
         record Ask(Query query) implements Part {}

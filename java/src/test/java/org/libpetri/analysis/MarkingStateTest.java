@@ -379,6 +379,63 @@ class MarkingStateTest {
         }
     }
 
+    /**
+     * Places whose hashes are equal ({@code "Aa"} and {@code "BB"} share a {@link String} hash)
+     * share a probe chain in the index, in the byte and the char table alike. Each is still found,
+     * a removal from the source leaves the other findable, and a same-named place of another
+     * token type is a different place.
+     */
+    @Test
+    void collidingHashes_shareAProbeChain_andEachPlaceIsStillFound() {
+        var colliding = List.of("AaAa", "AaBB", "BBAa", "BBBB");
+        for (int filler : new int[] {0, 200}) {
+            var builder = MarkingState.builder();
+            for (int i = 0; i < filler; i++) {
+                builder.tokens(Place.of("f" + i, TestValue.class), 1);
+            }
+            for (int i = 0; i < colliding.size(); i++) {
+                builder.tokens(Place.of(colliding.get(i), TestValue.class), i + 1);
+            }
+            var marking = builder.build();
+            assertEquals(Place.of("AaAa", TestValue.class).hashCode(), Place.of("BBBB", TestValue.class).hashCode());
+            for (int i = 0; i < colliding.size(); i++) {
+                assertEquals(i + 1, marking.tokens(Place.of(colliding.get(i), TestValue.class)));
+            }
+            assertEquals(0, marking.tokens(Place.of("AaAa", String.class)), "another token type");
+            assertEquals(0, marking.tokens(Place.of("BBBa", TestValue.class)));
+
+            var derived = MarkingState.builder().copyFrom(marking)
+                .tokens(Place.of("AaAa", TestValue.class), 0)
+                .addTokens(Place.of("BBBB", TestValue.class), 1)
+                .build();
+            assertEquals(0, derived.tokens(Place.of("AaAa", TestValue.class)));
+            assertEquals(2, derived.tokens(Place.of("AaBB", TestValue.class)));
+            assertEquals(5, derived.tokens(Place.of("BBBB", TestValue.class)));
+            assertEquals(filler + 3, derived.placesWithTokens().size());
+
+            var reordered = MarkingState.builder();
+            for (var place : List.copyOf(derived.placesWithTokens()).reversed()) {
+                reordered.tokens(place, derived.tokens(place));
+            }
+            assertEquals(derived, reordered.build());
+            assertNotEquals(marking, derived);
+        }
+    }
+
+    /** A builder keeps building after {@link MarkingState.Builder#build}: what it built never changes. */
+    @Test
+    void builder_reusedAfterBuild_leavesEarlierMarkingsUnchanged() {
+        var source = MarkingState.builder().tokens(p1, 1).tokens(p2, 2).build();
+        var builder = MarkingState.builder().copyFrom(source);
+        var countsOnly = builder.addTokens(p1, 1).build();
+        var appended = builder.tokens(p3, 3).build();
+        var removed = builder.removeTokens(p2, 2).build();
+        assertEquals(Map.of(p1, 1, p2, 2), source.asMap());
+        assertEquals(Map.of(p1, 2, p2, 2), countsOnly.asMap());
+        assertEquals(Map.of(p1, 2, p2, 2, p3, 3), appended.asMap());
+        assertEquals(Map.of(p1, 2, p3, 3), removed.asMap());
+    }
+
     @Test
     void derivedMarking_keepsItsSourcesOrder_movesARefilledPlaceToTheEnd() {
         var source = MarkingState.builder().tokens(p3, 1).tokens(p1, 2).tokens(p2, 1).build();

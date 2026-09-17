@@ -12,10 +12,10 @@ import org.libpetri.smt.invariant.PInvariantComputer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalInt;
-import java.util.Set;
 import java.util.TreeSet;
 
 /**
@@ -274,7 +274,7 @@ public final class SmtEncoder {
      * ([VER-016] AC2), and an injected place carries none.
      */
     public static List<Integer> equationPlaces(FlatNet flatNet) {
-        var excluded = new java.util.HashSet<>(PInvariantComputer.nonlinearPlaces(flatNet));
+        var excluded = new HashSet<>(PInvariantComputer.nonlinearPlaces(flatNet));
         for (var inj : resolveEnvInjection(flatNet)) {
             excluded.add(inj.pid());
         }
@@ -323,7 +323,7 @@ public final class SmtEncoder {
     ) {
         var conditions = new ArrayList<String>();
         var cleared = PInvariantComputer.nonlinearPlaces(flatNet);
-        var injected = new java.util.HashSet<Integer>();
+        var injected = new HashSet<Integer>();
         for (var inj : resolveEnvInjection(flatNet)) {
             injected.add(inj.pid());
         }

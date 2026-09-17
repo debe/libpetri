@@ -12,6 +12,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.OptionalInt;
@@ -134,7 +135,10 @@ final class GraphRoute {
 
         static Explored of(StateClassGraph graph) {
             var e = new Explored();
-            var index = new HashMap<StateClass, Integer>();
+            // By identity: every edge target is the graph's own instance of its class, and a
+            // StateClass hash reads its whole firing domain. A copy would add a class and trip
+            // the size check below.
+            var index = new IdentityHashMap<StateClass, Integer>();
             var parents = new ArrayList<Integer>();
             var parentVias = new ArrayList<String>();
             e.classes.add(graph.initialClass());

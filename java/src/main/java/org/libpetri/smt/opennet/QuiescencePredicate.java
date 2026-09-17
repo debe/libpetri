@@ -21,12 +21,10 @@ import java.util.List;
  * environment's own places are sinks, and each designed terminal is a conditional sink. That
  * is what lets the SMT route ask for it with {@code deadlockFree()} and mean the same thing.
  *
- * <p>Everything both routes judge by is derived here once — the rest declaration, the waiver
- * markers and the stranding attribution — and neither route rebuilds any of it: when two call
- * sites each assembled their own copy, they drifted, and one route reported a stranding the
- * other proved impossible. Every place is resolved through {@link ClosedNet#canonical} first,
- * so a contract place and the closed net's place of that name are one place, as they are in
- * the name-keyed reference.
+ * <p>The rest declaration, the waiver markers and the stranding attribution are derived here
+ * only, so the two routes cannot judge different sets. Every place is resolved through
+ * {@link ClosedNet#canonical} first, so a contract place and the closed net's place of that name
+ * are one place, as in the name-keyed reference.
  */
 final class QuiescencePredicate {
 
@@ -136,21 +134,11 @@ final class QuiescencePredicate {
     }
 
     /**
-     * The places {@code m} strands, by name in code-point order ({@link CodePointOrder}), as
-     * every implementation lists them.
-     *
-     * <p>This is the predicate both routes must attribute a stranding with, and the reason it
-     * lives here rather than at each call site: it asks whether a place is marked <b>and
-     * unexcused</b>, applying the [VER-014] widening that a token on a place excused by a
-     * marked terminal marker is designed residue. A caller that asks only "is this place
-     * marked?" reports a stranding the other route proves cannot happen.
+     * The places {@code m} strands, marked <b>and</b> unexcused ([VER-014]), by name in
+     * {@link CodePointOrder}: the one attribution both routes use ({@link RestSet#strandedPlaces}).
      */
     static List<Place<?>> strandedNames(MarkingState m, RestDeclaration rest) {
-        // RestSet already orders by name; the order is restated here because it reaches the
-        // report, and the reference sorts at this point too.
-        var stranded = new ArrayList<Place<?>>(RestSet.strandedPlaces(m, rest.sinks(), rest.conditional()));
-        stranded.sort((a, b) -> CodePointOrder.compare(a.name(), b.name()));
-        return stranded;
+        return RestSet.strandedPlaces(m, rest.sinks(), rest.conditional());
     }
 
     /** The clause's places as the closed net resolves them. */

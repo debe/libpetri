@@ -8,8 +8,9 @@ import org.libpetri.smt.z3.StateEquationQuery.Origin;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.List;
-import java.util.TreeSet;
+import java.util.stream.IntStream;
 
 /**
  * Trap refinement for the state-equation phase ([VER-018]), after Esparza, Ledesma-Garza,
@@ -47,24 +48,25 @@ public final class TrapRefinement {
             drains.add(drainedPlaces(ft));
             feeds.add(fedPlaces(ft));
         }
-        var empty = new TreeSet<Integer>();
+        var empty = new BitSet(placeCount);
         for (int p = 0; p < Math.min(candidate.length, placeCount); p++) {
             if (candidate[p] == 0) {
-                empty.add(p);
+                empty.set(p);
             }
         }
         var trap = maximalTrap(empty, drains, feeds);
         if (!markedIn(trap, initial)) {
             return null;
         }
-        // A snapshot of the trap we started from, while `trap` shrinks underneath: a place an
-        // earlier round already dropped is no longer a candidate for dropping.
-        for (int p : new ArrayList<>(trap)) {
-            if (!trap.contains(p)) {
+        // Over a snapshot, ascending, while `trap` shrinks: a place an earlier round already
+        // dropped is no longer a candidate for dropping.
+        var snapshot = (BitSet) trap.clone();
+        for (int p = snapshot.nextSetBit(0); p >= 0; p = snapshot.nextSetBit(p + 1)) {
+            if (!trap.get(p)) {
                 continue;
             }
-            var without = new TreeSet<>(trap);
-            without.remove(p);
+            var without = (BitSet) trap.clone();
+            without.clear(p);
             var smaller = maximalTrap(without, drains, feeds);
             if (markedIn(smaller, initial)) {
                 trap = smaller;
@@ -72,7 +74,7 @@ public final class TrapRefinement {
         }
         var weights = new BigInteger[placeCount];
         Arrays.fill(weights, BigInteger.ZERO);
-        for (int p : trap) {
+        for (int p = trap.nextSetBit(0); p >= 0; p = trap.nextSetBit(p + 1)) {
             weights[p] = BigInteger.ONE.negate();
         }
         return new MarkingInequality(Arrays.asList(weights), BigInteger.ONE.negate(), Origin.TRAP);
@@ -83,8 +85,8 @@ public final class TrapRefinement {
      * transition drains when it feeds nothing back into what is left. Traps are closed under
      * union, so the result contains every trap inside {@code within}.
      */
-    private static TreeSet<Integer> maximalTrap(TreeSet<Integer> within, List<int[]> drains, List<int[]> feeds) {
-        var trap = new TreeSet<>(within);
+    private static BitSet maximalTrap(BitSet within, List<int[]> drains, List<int[]> feeds) {
+        var trap = (BitSet) within.clone();
         boolean changed = true;
         while (changed) {
             changed = false;
@@ -93,7 +95,8 @@ public final class TrapRefinement {
                     continue;
                 }
                 for (int p : drains.get(t)) {
-                    if (trap.remove(p)) {
+                    if (trap.get(p)) {
+                        trap.clear(p);
                         changed = true;
                     }
                 }
@@ -107,41 +110,36 @@ public final class TrapRefinement {
      * and reset places, ascending.
      */
     private static int[] drainedPlaces(FlatTransition ft) {
-        var out = new TreeSet<Integer>();
+        var out = new BitSet(ft.preVector().length);
         for (int p : ft.resetPlaces()) {
-            out.add(p);
+            out.set(p);
         }
         for (int p = 0; p < ft.preVector().length; p++) {
             if (ft.preVector()[p] > 0 || ft.consumeAll()[p]) {
-                out.add(p);
+                out.set(p);
             }
         }
-        return out.stream().mapToInt(Integer::intValue).toArray();
+        return out.stream().toArray();
     }
 
     /** The places a firing of {@code ft} puts at least one token into, ascending. */
     private static int[] fedPlaces(FlatTransition ft) {
-        var out = new ArrayList<Integer>();
-        for (int p = 0; p < ft.postVector().length; p++) {
-            if (ft.postVector()[p] > 0) {
-                out.add(p);
-            }
-        }
-        return out.stream().mapToInt(Integer::intValue).toArray();
+        int[] post = ft.postVector();
+        return IntStream.range(0, post.length).filter(p -> post[p] > 0).toArray();
     }
 
-    private static boolean anyIn(int[] places, TreeSet<Integer> set) {
+    private static boolean anyIn(int[] places, BitSet set) {
         for (int p : places) {
-            if (set.contains(p)) {
+            if (set.get(p)) {
                 return true;
             }
         }
         return false;
     }
 
-    private static boolean markedIn(TreeSet<Integer> places, int[] marking) {
-        for (int p : places) {
-            if (p < marking.length && marking[p] > 0) {
+    private static boolean markedIn(BitSet places, int[] marking) {
+        for (int p = places.nextSetBit(0); p >= 0 && p < marking.length; p = places.nextSetBit(p + 1)) {
+            if (marking[p] > 0) {
                 return true;
             }
         }

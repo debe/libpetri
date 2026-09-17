@@ -85,7 +85,8 @@ public final class NameStateClassGraph {
         }
 
         var graph = new NameStateClassGraph();
-        var base0 = StateClassGraph.initialStateClass(net, initialMarking, envPlaces, environmentMode);
+        var clockOrder = StateClassGraph.ClockOrder.of(net);
+        var base0 = StateClassGraph.initialStateClass(net, initialMarking, envPlaces, environmentMode, false, clockOrder);
         // Coloured places start empty in the supported fragment (the verifier
         // guards this), so the initial name partition is empty.
         var initial = new NameStateClass(base0, new NameMarking(), fragment.colouredOrder);
@@ -137,7 +138,8 @@ public final class NameStateClassGraph {
                 }
                 var role = fragment.role(transition.name());
                 for (var vt : StateClassGraph.expandTransition(transition)) {
-                    var baseSucc = StateClassGraph.computeSuccessor(net, current.base, vt, envPlaces, environmentMode);
+                    var baseSucc = StateClassGraph.computeSuccessor(
+                        net, current.base, vt, envPlaces, environmentMode, false, clockOrder);
                     if (baseSucc == null || baseSucc.isEmpty()) {
                         continue; // DBM zone infeasible
                     }

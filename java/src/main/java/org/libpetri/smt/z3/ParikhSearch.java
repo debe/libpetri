@@ -23,21 +23,16 @@ import java.util.function.Predicate;
  * completed search: no run whose firing counts stay within the candidate's reaches a
  * violation. {@link WitnessOutcome.Exhausted} says nothing either way.
  *
- * <p><b>Environment injection splits those three</b>, because an injection is not a counted
- * firing and so is never searched. {@code Found} survives it: the search fires only counted
- * transitions, a run in which the environment injects nothing is still a run of the net, and
- * the quiescence half of {@code Bad(M)} is judged with relax-env enablement
- * ({@link AbstractReplayer#violates}) — a marking it accepts is stuck even against an
- * environment free to inject. {@code None} does not survive it: its claim is that no run
- * reaches a violation, and an injected token could enable a run the search never considered.
- * So under injection the completed search reports {@code Exhausted}, which says nothing either
- * way, rather than a negative it cannot support. The guard sits on that terminal answer and
- * nowhere else: on a net whose environment injects, this search is the only leg of the phase
- * that can produce a witness at all, so it must still run there.
+ * <p><b>Environment injection</b> is not a counted firing, so it is never searched.
+ * {@code Found} stays sound under it: a run without injections is still a run, and quiescence
+ * in {@code Bad(M)} uses relax-env enablement ({@link AbstractReplayer#violates}), so an
+ * accepted marking is stuck even against an injecting environment. {@code None} does not: an
+ * injected token could enable a run the search never considered, so a completed search on such
+ * a net reports {@code Exhausted}. Only that terminal answer is downgraded; the search still
+ * runs, as the phase's only source of witnesses there.
  *
- * <p>Nothing here spawns or parses z3, and nothing is emitted: parity with the TypeScript
- * {@code parikh-search} is behavioural — the same run found, the same node counts, the same
- * reasons.
+ * <p>No z3 and no script: parity with the TypeScript {@code parikh-search} is behavioural (same
+ * run, node counts and reasons).
  */
 public final class ParikhSearch {
 
@@ -94,12 +89,9 @@ public final class ParikhSearch {
      * future and the second is dropped. The search is breadth-first and tries transitions in
      * flat order, so the run found is a shortest one and the same run every port finds.
      *
-     * <p>The bounded-environment caps ({@link FlatNet#environmentBounds()}) are the post-cap
-     * every step of the encoded system carries: a firing that leaves an env place above its
-     * cap is not a step, so it is not searched. Injection itself is not searched, so a
-     * completed search on a net with injected places reports {@link WitnessOutcome.Exhausted}
-     * rather than {@link WitnessOutcome.None} — see the class note for why a
-     * {@link WitnessOutcome.Found} run is still reported there.
+     * <p>A firing that leaves an environment place above its cap
+     * ({@link FlatNet#environmentBounds()}) is not a step of the encoded system, so it is not
+     * searched. Injection is not searched either (see the class note).
      *
      * @param initial    {@code M0}, one count per flat place ({@link AbstractReplayer#toVector})
      * @param counts     the candidate's firing counts, one per flat transition; an entry past

@@ -90,12 +90,9 @@ public final class OpenNetClosure {
         }
 
         // Every place the contract names joins the closed net, a terminal's excused places
-        // included — `contract.places()` leaves those out. This is also what keeps the two routes
-        // deciding the same rest set: the SMT encoder resolves each sink and marker through the
-        // flat net's place index and silently drops what does not resolve, while the graph route
-        // reads markings and drops nothing. An arc-less excused place that never got registered
-        // here would therefore lose its excuse on the SMT route alone, and that route would
-        // report a stranding the graph route proves cannot happen.
+        // included (`contract.places()` leaves those out). The SMT encoder silently drops a sink
+        // or marker the flat net cannot resolve, while the graph route drops nothing, so an
+        // unregistered excused place would lose its excuse on the SMT route alone.
         var undeclared = new ArrayList<String>();
         var extra = new ArrayList<Place<?>>();
         var named = new ArrayList<Place<?>>(contract.places());

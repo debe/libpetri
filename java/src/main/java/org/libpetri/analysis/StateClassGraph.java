@@ -168,12 +168,10 @@ public final class StateClassGraph {
      * One class and its edges, every list in the order the build found it, as the reference's
      * {@code Map} and {@code Set} keep it. The order is part of a result: the first class to show
      * a violation is the witness, and the first edge to reach a class is the path to it
-     * ([VER-017], [VER-022]), so a hash order here made the counterexample change from one JVM
-     * run to the next.
+     * ([VER-017], [VER-022]).
      *
-     * <p>Every edge target is the graph's own instance of its class, as in the reference, so the
-     * graph holds each class once rather than once per edge that reaches it, and the lists
-     * deduplicate by identity.
+     * <p>Every edge target is the graph's own instance of its class, so the graph holds each
+     * class once and the lists deduplicate by identity.
      */
     private static final class Node {
         final StateClass stateClass;
@@ -500,8 +498,9 @@ public final class StateClassGraph {
             envPlaces.add(ep.place());
         }
         boolean untimed = options.untimed();
+        var order = ClockOrder.of(net);
 
-        var initialClass = initialStateClass(net, initialMarking, envPlaces, environmentMode, untimed);
+        var initialClass = initialStateClass(net, initialMarking, envPlaces, environmentMode, untimed, order);
 
         // BFS exploration
         var nodes = new LinkedHashMap<StateClass, Node>();
@@ -529,7 +528,7 @@ public final class StateClassGraph {
                 var virtualTransitions = expandTransition(transition);
 
                 for (var vt : virtualTransitions) {
-                    var successor = computeSuccessor(net, current, vt, envPlaces, environmentMode, untimed);
+                    var successor = computeSuccessor(net, current, vt, envPlaces, environmentMode, untimed, order);
 
                     // Empty DBM = temporally infeasible firing
                     if (successor == null || successor.isEmpty()) continue;
@@ -557,6 +556,8 @@ public final class StateClassGraph {
      * SCG ({@link NameStateClassGraph}), and so the single point every graph
      * construction passes through.
      *
+     * @param untimed    give every clock the {@code immediate()} interval ({@link Options#untimed()})
+     * @param clockOrder {@code net}'s canonical clock order ({@link ClockOrder#of})
      * @throws IllegalStateException per [CORE-043] — token production is read from the
      *     {@code Arc.Out} spec, never from the bound action, so a net that could not
      *     produce at run time would otherwise verify green
@@ -565,26 +566,13 @@ public final class StateClassGraph {
             PetriNet net,
             MarkingState initialMarking,
             Set<Place<?>> environmentPlaces,
-            EnvironmentAnalysisMode environmentMode
-    ) {
-        return initialStateClass(net, initialMarking, environmentPlaces, environmentMode, false);
-    }
-
-    /**
-     * {@link #initialStateClass(PetriNet, MarkingState, Set, EnvironmentAnalysisMode)} with
-     * every clock given the {@code immediate()} interval when {@code untimed}
-     * ({@link Options#untimed()}).
-     */
-    static StateClass initialStateClass(
-            PetriNet net,
-            MarkingState initialMarking,
-            Set<Place<?>> environmentPlaces,
             EnvironmentAnalysisMode environmentMode,
-            boolean untimed
+            boolean untimed,
+            ClockOrder clockOrder
     ) {
         OutputActionCheck.requireOutputProducingActions(net);
         var found = findEnabledTransitions(net, initialMarking, environmentPlaces, environmentMode);
-        int[] order = canonicalOrder(found);
+        int[] order = clockOrder.canonicalOrder(found);
         var enabledTransitions = order == null ? found : permute(found, order);
         var clockNames = enabledTransitions.stream().map(Transition::name).toList();
         var lowerBounds = new double[enabledTransitions.size()];
@@ -630,6 +618,70 @@ public final class StateClassGraph {
         return out;
     }
 
+    /**
+     * {@link #canonicalOrder(List)} for one net, by rank: ranks ascend in {@link CodePointOrder}
+     * of the names and equal names share one, so the permutation is identical. Ranking once per
+     * graph turns each successor's O(k·L) name compares ({@code k} clocks, names of length
+     * {@code L}) into O(k) identity lookups and an integer sort.
+     */
+    static final class ClockOrder {
+        private final IdentityHashMap<Transition, Integer> ranks;
+
+        private ClockOrder(IdentityHashMap<Transition, Integer> ranks) {
+            this.ranks = ranks;
+        }
+
+        /** Ranks every transition of {@code net}. */
+        static ClockOrder of(PetriNet net) {
+            var sorted = new ArrayList<>(net.transitions());
+            sorted.sort(Comparator.comparing(Transition::name, CodePointOrder.COMPARATOR));
+            var ranks = new IdentityHashMap<Transition, Integer>(sorted.size());
+            int rank = -1;
+            String previous = null;
+            for (var t : sorted) {
+                if (!t.name().equals(previous)) {
+                    rank++;
+                    previous = t.name();
+                }
+                ranks.put(t, rank);
+            }
+            return new ClockOrder(ranks);
+        }
+
+        /**
+         * {@link StateClassGraph#canonicalOrder(List)}; a list holding a transition of another
+         * net is ordered by name.
+         */
+        int[] canonicalOrder(List<Transition> transitions) {
+            int n = transitions.size();
+            if (n < 2) {
+                return null;
+            }
+            // (rank << 32) | index: keys are distinct, so their plain sort is the stable sort by rank.
+            long[] keys = new long[n];
+            boolean sorted = true;
+            for (int i = 0; i < n; i++) {
+                Integer rank = ranks.get(transitions.get(i));
+                if (rank == null) {
+                    return StateClassGraph.canonicalOrder(transitions);
+                }
+                keys[i] = ((long) rank << 32) | i;
+                if (i > 0 && keys[i] < keys[i - 1]) {
+                    sorted = false;
+                }
+            }
+            if (sorted) {
+                return null;
+            }
+            Arrays.sort(keys);
+            int[] out = new int[n];
+            for (int i = 0; i < n; i++) {
+                out[i] = (int) keys[i];
+            }
+            return out;
+        }
+    }
+
     private static <T> List<T> permute(List<T> items, int[] order) {
         var out = new ArrayList<T>(items.size());
         for (int idx : order) out.add(items.get(idx));
@@ -671,21 +723,10 @@ public final class StateClassGraph {
      * enabled in the new marking is newly enabled, with a fresh interval ([TIME-012]); the
      * executors restart clocks by the same rule. The output places come from the virtual
      * transition (which may be a specific XOR branch).
-     */
-    static StateClass computeSuccessor(
-            PetriNet net,
-            StateClass current,
-            VirtualTransition fired,
-            Set<Place<?>> environmentPlaces,
-            EnvironmentAnalysisMode environmentMode
-    ) {
-        return computeSuccessor(net, current, fired, environmentPlaces, environmentMode, false);
-    }
-
-    /**
-     * {@link #computeSuccessor(PetriNet, StateClass, VirtualTransition, Set,
-     * EnvironmentAnalysisMode)} with every newly enabled clock given the
-     * {@code immediate()} interval when {@code untimed} ({@link Options#untimed()}).
+     *
+     * @param untimed    give every newly enabled clock the {@code immediate()} interval
+     *                   ({@link Options#untimed()})
+     * @param clockOrder {@code net}'s canonical clock order ({@link ClockOrder#of})
      */
     static StateClass computeSuccessor(
             PetriNet net,
@@ -693,7 +734,8 @@ public final class StateClassGraph {
             VirtualTransition fired,
             Set<Place<?>> environmentPlaces,
             EnvironmentAnalysisMode environmentMode,
-            boolean untimed
+            boolean untimed,
+            ClockOrder clockOrder
     ) {
         var transition = fired.transition();
 
@@ -761,7 +803,7 @@ public final class StateClassGraph {
         List<Transition> allEnabled = new ArrayList<Transition>();
         allEnabled.addAll(persistent);
         allEnabled.addAll(newlyEnabled);
-        int[] order = canonicalOrder(allEnabled);
+        int[] order = clockOrder.canonicalOrder(allEnabled);
         if (order != null) {
             allEnabled = permute(allEnabled, order);
             firedDBM = firedDBM.permuted(order);
