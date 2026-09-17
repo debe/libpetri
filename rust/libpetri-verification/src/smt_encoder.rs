@@ -91,9 +91,9 @@ pub fn encode(
 /// carries one firing counter per flat transition after the places:
 /// `Reachable(M, n)`, the initial fact has `n = 0`, transition `k`'s rule
 /// increments `n_k` and copies the others, an injection rule copies them all,
-/// and every transition rule's body conjoins `m'_p = M0_p + Σ_t C[p][t]·n'_t`
-/// for each place whose column is exact (no consume-all / reset arc, not
-/// injected) together with `n' ≥ 0`. The error rule quantifies the counters and
+/// and every transition rule's body conjoins the rows of
+/// [`state_equation_conditions`] (`=` on an exact place, `≤` on one a consume-all
+/// or reset arc clears, none on an injected place) together with `n' ≥ 0`. The error rule quantifies the counters and
 /// constrains only the marking.
 #[allow(clippy::too_many_arguments)]
 pub fn encode_net(

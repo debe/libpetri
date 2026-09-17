@@ -60,9 +60,9 @@ and the record of what the abstraction could *not* have been made sound against.
 
 `net_flattener.rs` never inspects an input arc's guard, so the encoder emits
 `m'_i = post[i]` — place emptied — for every `In::All` / `In::AtLeast` place
-(`smt_encoder.rs:165-167`). The executor consumes only guard-*matching* tokens
-(`bitmap_backend.rs:590-600`, `count_matching` + `remove_matching`), so
-guard-failing tokens survive the firing.
+(`firing_conditions`, `smt_encoder.rs:379-381`). The executor consumes only
+guard-*matching* tokens (`bitmap_backend.rs:590-600`, `count_matching` +
+`remove_matching`), so guard-failing tokens survive the firing.
 
 Concretely: place holds `[1, 2]`, guard accepts only `1`. The executor leaves
 one token; the abstraction says zero. The abstract successor is *smaller* than
@@ -139,6 +139,21 @@ is covered.
 
 ## What is proved — the verifier's strengthening and the ν graph's interning
 
+`Libpetri/StateEquation.lean` — [VER-016]. **`rows_hold`**: with one firing
+counter per flat transition, every non-injected place satisfies its row on
+every reachable `(M, n)`: `m_p = M0_p + C_p·n` where no consume-all or reset arc
+clears `p`, and `m_p ≤ M0_p + C_p·n` where one does (AC2), because a clearing
+firing's guard needs `m_p ≥ pre`. **`state_equation_reach_eq`**: conjoining
+those rows and every gate-validated P-invariant into the transition rules
+reaches the same augmented states. `equality_row_is_unsound_on_a_clearing_place`
+is why the clearing row is `≤`. The certificate check over `(M, n)` (AC3) is
+not modelled.
+
+`Libpetri/Strengthening.lean` also proves **`quiescent_count_clause_exact`**
+([VER-002] AC8): the `QuiescentCount` arm's `Bad` is exactly quiescence ∧
+((Σ < min ∧ every waiver empty) ∨ Σ > max), so its `false` fallbacks hide no
+violation. Quiescence itself (`encode_quiescent`) is a parameter, not a model.
+
 `Libpetri/Semiflow.lean` — two corollaries of `Strengthening.lean`.
 **`semiflow_union_sound`** ([VER-007]): conjoining the gate-validated
 P-semiflows alongside the null-space basis preserves the abstract reachable
@@ -179,7 +194,7 @@ the executor really does perform.
 `envless_reach_is_trivial` proves that without the injection rule the reachable
 set is exactly `{M₀}`, so `false_proven_without_injection` establishes
 `PlaceBound(p₁, 0)` vacuously; `injection_reaches_violation` shows the bound is
-violated once `smt_encoder.rs:81-83`'s injection rule is present.
+violated once `encode_injection_rule`'s injection rule is present.
 
 `Libpetri/RetrodictExec.lean` — **the four backend divergences** (pre-fix
 commit `1bdf586`), each with a concrete minimal witness:
@@ -197,7 +212,7 @@ suite before the fixes' new tests.
 flattening, environment places, conflict-priority pruning; and (axis 2) the
 flat ring-buffer pool at full fidelity, the consume opcode program, the
 presence/dirty bit machinery, the immediate-fragment backend refinement, and
-the general-path ready ordering with abstract `Nat` clocks. Five later
+the general-path ready ordering with abstract `Nat` clocks. Six later
 modules extend both axes:
 
 - `TimedCycle.lean` — `deadline_reap_dirty_diverges`: the two shipped
@@ -205,6 +220,9 @@ modules extend both axes:
   TIME-013 mandates is a pending semantics decision.
 - `MatchCache.lean` — `match_cache_lockstep` at queue-contents granularity
   under the fast-path eligibility gate, plus a necessity witness per conjunct.
+- `StateEquation.lean` — the [VER-016] rows hold on every reachable
+  augmented state, so conjoining them is sound; the clearing-place row must
+  be `≤`.
 - `Strengthening.lean` — P-invariant strengthening preserves the abstract
   reachable set under H1/H2/H3′. H1 is what shipped the consume-all/reset
   guard now in all three validators.

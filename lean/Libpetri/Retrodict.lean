@@ -10,7 +10,7 @@ now emits, per injectable env place,
                      AND (for q != p) m'_q = m_q
 
 (the options-off form; with `EncodeOptions::state_equation` ([VER-016]) the
-rule also copies every firing counter, which this model does not cover).
+rule also copies every firing counter, modelled in `StateEquation.lean`).
 
 The net below is the smallest witness: one environment place feeding one
 transition. Without the injection rule nothing is ever enabled, so
@@ -58,8 +58,8 @@ theorem false_proven_without_injection :
 /-! ## Post-fix: injection restores the missing steps -/
 
 /-- `R(N̂)` with the environment-injection rule (`encode_injection_rule`,
-`smt_encoder.rs:521-545`, one per injectable place from `encode_net`'s loop at
-`:182-184`; the conjuncts are `injection_conditions`, `:433-452`).
+`smt_encoder.rs:532-560`, one per injectable place from `encode_net`'s loop at
+`:182-184`; the conjuncts are `injection_conditions`, `:446-467`).
 `AlwaysAvailable` (unbounded) is modelled; the `Bounded k` variant adds the
 `m_p < bound` guard. -/
 inductive ReachAInj (net : FlatNet) (envs : List PlaceId) (a0 : AMarking) : AMarking → Prop

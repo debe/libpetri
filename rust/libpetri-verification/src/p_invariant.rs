@@ -229,8 +229,9 @@ pub struct InvariantValidation {
 /// Per flat place, whether some flat transition consumes it non-linearly — a
 /// consume-all (`In::All` / `In::AtLeast`) input or a reset arc: the H1 set of
 /// `Strengthening.lean`. The linearised incidence column lies about the real
-/// firing there, so a conservation law ([VER-005]), a decreasing bound
-/// ([VER-015]) or a marking-equation row ([VER-016]) may carry no weight on it.
+/// firing there, so a conservation law ([VER-005]) or a decreasing bound
+/// ([VER-015]) may carry no weight on it, and its marking-equation row ([VER-016])
+/// is an upper bound, not an equality.
 pub fn nonlinear_places(flat: &FlatNet) -> Vec<bool> {
     let mut nonlinear = vec![false; flat.place_count];
     for ft in &flat.transitions {

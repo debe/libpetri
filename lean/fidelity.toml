@@ -257,14 +257,13 @@ file = "rust/libpetri-verification/src/smt_encoder.rs"
 fn = "encode"
 lean = ["Libpetri/Soundness.lean", "Libpetri/Retrodict.lean"]
 
-# `encode` is the positional wrapper; its body is `encode_net`, whose
-# options-off path (no conditional sinks, no state equation — the scripts are
-# byte-identical) is what the models cite line by line. The [VER-014] /
-# [VER-016] options are outside every Lean model.
+# `encode` is the positional wrapper; its body is `encode_net`. The models cite
+# its options-off path line by line; StateEquation.lean models the [VER-016]
+# option. The [VER-014] option is outside every Lean model.
 [[pin]]
 file = "rust/libpetri-verification/src/smt_encoder.rs"
 fn = "encode_net"
-lean = ["Libpetri/Basic.lean", "Libpetri/Soundness.lean", "Libpetri/Retrodict.lean", "Libpetri/Strengthening.lean"]
+lean = ["Libpetri/Basic.lean", "Libpetri/Soundness.lean", "Libpetri/Retrodict.lean", "Libpetri/Strengthening.lean", "Libpetri/StateEquation.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/smt_encoder.rs"
@@ -274,7 +273,7 @@ lean = ["Libpetri/Basic.lean", "Libpetri/Soundness.lean"]
 [[pin]]
 file = "rust/libpetri-verification/src/smt_encoder.rs"
 fn = "encode_injection_rule"
-lean = ["Libpetri/Retrodict.lean"]
+lean = ["Libpetri/Retrodict.lean", "Libpetri/StateEquation.lean"]
 
 # ---- rust/libpetri-verification/src/net_flattener.rs ----
 
@@ -401,6 +400,34 @@ lean = ["Libpetri/Strengthening.lean"]
 file = "rust/libpetri-verification/src/smt_encoder.rs"
 fn = "encode_property_violation"
 lean = ["Libpetri/Strengthening.lean"]
+
+# `countClause` / `quiescentCountBad` model the QuiescentCount arm's clause and
+# the place resolution it sums over.
+[[pin]]
+file = "rust/libpetri-verification/src/smt_encoder.rs"
+fn = "count_violation_condition"
+lean = ["Libpetri/Strengthening.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_encoder.rs"
+fn = "index_ordered"
+lean = ["Libpetri/Strengthening.lean"]
+
+# ---- StateEquation.lean ([VER-016] firing counters and rows) ----
+[[pin]]
+file = "rust/libpetri-verification/src/smt_encoder.rs"
+fn = "state_equation_conditions"
+lean = ["Libpetri/StateEquation.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_encoder.rs"
+fn = "counter_conditions"
+lean = ["Libpetri/StateEquation.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/p_invariant.rs"
+fn = "nonlinear_places"
+lean = ["Libpetri/StateEquation.lean"]
 
 # ---- MatchCache.lean (nu-match cache lockstep) ----
 [[pin]]

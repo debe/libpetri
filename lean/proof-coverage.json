@@ -47,7 +47,7 @@
       "specIds": [
         {
           "id": "VER-006",
-          "fragment": "with the injection rule of smt_encoder.rs:81-83 encoded, the vacuous bound above is refuted (p1 reaches 1) \u2014 witnesses the fix on the minimal net, not full environment-analysis-mode soundness"
+          "fragment": "with the injection rule (encode_injection_rule) encoded, the vacuous bound above is refuted (p1 reaches 1) \u2014 witnesses the fix on the minimal net, not full environment-analysis-mode soundness"
         }
       ]
     },
@@ -348,6 +348,16 @@
       ]
     },
     {
+      "name": "quiescent_count_clause_exact",
+      "module": "Libpetri/Strengthening.lean",
+      "specIds": [
+        {
+          "id": "VER-002",
+          "fragment": "AC8: the flat encoder's QuiescentCount Bad is exactly quiescent and ((count < min and every waiver empty) or count > max), so its false fallbacks ([0, inf), no quiescent marking) hide no violation - quiescence encoding taken as a parameter; counted places assumed resolved and duplicate-free as index_ordered returns them"
+        }
+      ]
+    },
+    {
       "name": "match_cache_lockstep",
       "module": "Libpetri/MatchCache.lean",
       "specIds": [
@@ -464,6 +474,36 @@
         {
           "id": "NU-053",
           "fragment": "AC6, the rule side: every flat transition consuming from or producing into a covered place is dead on the reachable set, so any sub-net keeping the untouched rows (what the zero-slot coloured encoding emits) reaches exactly the same markings - the k = 0 plan is exact; coloured encoder modelled, not extracted; injection-free fragment (vacuous_colour_layer_inj is the env-aware twin)"
+        }
+      ]
+    },
+    {
+      "name": "rows_hold",
+      "module": "Libpetri/StateEquation.lean",
+      "specIds": [
+        {
+          "id": "VER-016",
+          "fragment": "AC2: on every reachable augmented state (M, n) of the untimed abstraction with injection, every non-injected place satisfies its row - equality where no consume-all/reset arc clears it, the upper bound where one does; encoder modelled, not extracted"
+        }
+      ]
+    },
+    {
+      "name": "state_equation_reach_eq",
+      "module": "Libpetri/StateEquation.lean",
+      "specIds": [
+        {
+          "id": "VER-016",
+          "fragment": "conjoining the rows and gate-validated P-invariants (H1, H2, H3') into the transition-rule bodies preserves the reachable augmented set - the option is pure strengthening; certificate check (AC3) and script identity (AC5) not covered"
+        }
+      ]
+    },
+    {
+      "name": "equality_row_is_unsound_on_a_clearing_place",
+      "module": "Libpetri/StateEquation.lean",
+      "specIds": [
+        {
+          "id": "VER-016",
+          "fragment": "AC2 necessity: on an In::All place a reachable augmented state violates the equality row while satisfying the upper bound - why a clearing place carries <= instead of ="
         }
       ]
     },

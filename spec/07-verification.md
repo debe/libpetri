@@ -626,9 +626,9 @@ linear demand): proper completion of a 50-place agent-dispatch net under conditi
 ([VER-014]) went from `unknown` at 120 s to `proven` in 1.5 s with this as the only change.
 
 The option is **off by default** so scripts and reports stay byte-identical; a genuinely
-violated property is still found, about 1.5× slower on the nets above. Soundness follows
-the shape of [VER-005]'s strengthening (Lean `Strengthening.lean`): the counters are exact
-bookkeeping, so the equation holds on every reachable augmented state and conjoining it
+violated property is still found, about 1.5× slower on the nets above. Soundness is proven in
+Lean (`StateEquation.lean`: `rows_hold`, `state_equation_reach_eq`): the counters are exact
+bookkeeping, so every row holds on every reachable augmented state and conjoining them
 removes none. The **certificate check** ranges over `(M, n)`: the candidate conjoins the
 P-invariants, `n ≥ 0` and the marking equation, and re-proves them against the raw step
 relation, whose only counter knowledge is the increment. The counterexample decoder reads a

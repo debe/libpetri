@@ -3,18 +3,18 @@
 
 All three language verifiers conjoin every computed P-invariant `y·M = y·M₀`
 into the CHC transition-rule *bodies* (`invariant_conditions`,
-`smt_encoder.rs:396-414`, heading the `strengthening` list `encode_net` builds
-at `:157` and `encode_transition_rule` splices at `:487`; the
+`smt_encoder.rs:406-429`, heading the `strengthening` list `encode_net` builds
+at `:157` and `encode_transition_rule` splices at `:502`; the
 TypeScript and Java encoders mirror it). With `EncodeOptions::state_equation`
 ([VER-016]) that list also carries the firing-counter update and the
-marking-equation rows `m'_p = M0_p + Σ_t C[p][t]·n'_t`; this file models the
-options-off path only. A
+state-equation rows, which `StateEquation.lean` models; this file models the
+options-off path. A
 conjunct in a rule body does not annotate the encoding — it *removes*
 successors from the least fixpoint. A wrong invariant therefore shrinks
 `Reachable` below the true reachable set and can certify a false `Proven`,
 the failure mode this development exists to close.
 
-The C2 runtime gate (`validate_invariants_exact`, `p_invariant.rs:246-377`,
+The C2 runtime gate (`validate_invariants_exact`, `p_invariant.rs:247-378`,
 which now takes the whole `&FlatNet` so the H1 guard below cannot be
 disabled by handing it an empty transition list; TS
 `validateInvariantsExact` in `p-invariant-computer.ts`) re-validates
@@ -23,7 +23,7 @@ matrix (`IncidenceMatrix::from_flat_net`, `incidence_matrix.rs:23-60`), whose
 column is `post − pre` with `pre = required_count`
 (`net_flattener.rs:50-54`). Consume-all and reset semantics are not linear —
 they are the two `m'_i = post[i]` arms of the encoder's fire relation
-(`firing_conditions`, `smt_encoder.rs:360-367`, modelled by `fireA`) — so
+(`firing_conditions`, `smt_encoder.rs:376-381`, modelled by `fireA`) — so
 passing the gate is
 necessary but not sufficient. This file proves, at the `fireA` level
 ([VER-004]'s untimed count abstraction, where the encoders operate), exactly
@@ -47,9 +47,11 @@ what *is* sufficient:
   reachable violating state: the false-`Proven` shape, checked by
   `decide`/`omega`, not asserted.
 * `bad_rule_nonvacuity` — `encode_property_violation`'s unresolvable-place
-  fallback (`smt_encoder.rs:727-728`: unknown `pending` place ⇒ error-rule body
+  fallback (`smt_encoder.rs:741-744`: unknown `pending` place ⇒ error-rule body
   `false`) proves every net vacuously; refusing to certify is the only
   sound behaviour.
+* `quiescent_count_clause_exact` — the `QuiescentCount` arm's `Bad` is exactly
+  [VER-002]'s error condition, so its two `false` fallbacks hide no violation.
 -/
 import Libpetri.Retrodict
 
@@ -63,7 +65,7 @@ dense place index plus a `support` that `validate_invariants_exact` pins to
 exactly the nonzero weights (`p_invariant.rs:288-299`). A weight vector is
 modelled total over `PlaceId` with its support below `place_count`; sums are
 hand-rolled over the first `n` places (`RingArith.lean` style — no Mathlib),
-which is the sum `invariant_conditions` emits (`smt_encoder.rs:396-414`),
+which is the sum `invariant_conditions` emits (`smt_encoder.rs:406-429`),
 since the dense index of `flatten` (`net_flattener.rs:31-40`) keeps every
 place id below `place_count`.
 -/
@@ -84,7 +86,7 @@ def isum (f : PlaceId → Int) : Nat → Int
 
 /-- The weighted token sum `y·M` over the first `n` places — the equality the
 encoder conjoins on the successor variables `m'_i` (`invariant_conditions`,
-`smt_encoder.rs:396-414`). -/
+`smt_encoder.rs:406-429`). -/
 def dot (y : Weight) (m : AMarking) (n : Nat) : Int :=
   isum (fun p => y p * (m p : Int)) n
 
@@ -118,7 +120,7 @@ theorem isum_add (f g : PlaceId → Int) :
 
 /-- A weight vector supported below `n` sums identically under any wider
 truncation — the encoder's support-indexed sum (`invariant_conditions`,
-`smt_encoder.rs:399-403`, iterates `inv.support` only) loses nothing against
+`smt_encoder.rs:414-418`, iterates `inv.support` only) loses nothing against
 the full `y·M`. -/
 theorem dot_stable_of_support_below {y : Weight} {n : Nat}
     (hy : SupportBelow n y) (m : AMarking) :
@@ -139,8 +141,8 @@ theorem dot_two (y : Weight) (m : AMarking) :
 ## The hypotheses the proof forces
 
 The abstract fire relation (`fireA`, modelling `firing_conditions`,
-`smt_encoder.rs:357-381`) has exactly two non-linear arms: a reset place and a
-consume-all place both get `m'_i = post[i]` (`smt_encoder.rs:360-367`), erasing
+`smt_encoder.rs:372-396`) has exactly two non-linear arms: a reset place and a
+consume-all place both get `m'_i = post[i]` (`smt_encoder.rs:376-381`), erasing
 however many tokens the
 place actually held. A weighted sum survives such an arm only where the
 weight is zero — that is H1, and `consume_all_hypothesis_is_necessary` is the
@@ -221,7 +223,7 @@ Hypotheses, exactly as the proof forces them:
 
 * **H1** (`ZeroOnNonlinear`): per flat transition, `y` is zero below `n` on
   its reset and consume-all places — the arms where `firing_conditions`
-  (`smt_encoder.rs:360-367`) emits `m'_i = post[i]` and the marking's history
+  (`smt_encoder.rs:376-381`) emits `m'_i = post[i]` and the marking's history
   is erased. The C2 gate
   enforces it by *dropping* any invariant whose support meets such a place
   (see `consume_all_hypothesis_is_necessary`, the witness that forced it).
@@ -232,7 +234,7 @@ Hypotheses, exactly as the proof forces them:
   `invariant_strengthening_sound_inj` is the env-aware variant.
 
 Conclusion: `y·M = y·M₀` on every reachable abstract marking — the conjunct
-of `invariant_conditions` (`smt_encoder.rs:396-414`) really is invariant
+of `invariant_conditions` (`smt_encoder.rs:406-429`) really is invariant
 ([VER-005] AC2). -/
 theorem invariant_strengthening_sound {net : FlatNet} {a0 a : AMarking}
     {y : Weight} {n : Nat}
@@ -247,7 +249,7 @@ theorem invariant_strengthening_sound {net : FlatNet} {a0 a : AMarking}
 
 /-- `ReachA` with the invariant conjunct `y·M' = y·M₀` added to every
 transition-rule body — the shape `encode_transition_rule` actually emits
-(`smt_encoder.rs:487` conjoins the `strengthening` list, which `encode_net`
+(`smt_encoder.rs:502` conjoins the `strengthening` list, which `encode_net`
 opens with `invariant_conditions` over the successor variables `m'_i` at
 `:157`, inside the rule body, so a violating successor is pruned,
 not flagged). -/
@@ -328,10 +330,10 @@ theorem invariant_strengthening_sound_inj {net : FlatNet} {envs : List PlaceId}
 
 /-- The shipped strengthened shape with env injection: the invariant conjunct
 sits in *transition*-rule bodies only (`encode_transition_rule`,
-`smt_encoder.rs:482-490`); injection rules carry no invariant conjunct
-(`encode_injection_rule`, `smt_encoder.rs:521-545` — with
-`EncodeOptions::state_equation` they copy the firing counters, `:535-538`,
-which is outside this model). -/
+`smt_encoder.rs:485-511`); injection rules carry no invariant conjunct
+(`encode_injection_rule`, `smt_encoder.rs:532-560` — with
+`EncodeOptions::state_equation` they copy the firing counters, `:550-553`,
+modelled in `StateEquation.lean`). -/
 inductive ReachAInjStr (net : FlatNet) (envs : List PlaceId) (y : Weight)
     (n : Nat) (a0 : AMarking) : AMarking → Prop
   | init : ReachAInjStr net envs y n a0 a0
@@ -477,7 +479,7 @@ built from `required_count` and never consults `consume_all`
 computation and the C2 gate's `y·C = 0` recheck accept `yUnit` in exact
 arithmetic — which is precisely why the gate needed a *separate* H1 guard on
 top of it. The real firing drains BOTH tokens (`fireA`'s consume-all
-arm, `firing_conditions`, `smt_encoder.rs:364-366`), dropping `y·M` from `2`
+arm, `firing_conditions`, `smt_encoder.rs:379-381`), dropping `y·M` from `2`
 to `1`: the true
 relation reaches `p₁ = 1` (second conjunct) while the strengthened relation
 freezes `p₁` at `0` (third conjunct) — a false `Proven` for
@@ -496,26 +498,27 @@ theorem consume_all_hypothesis_is_necessary :
 /-!
 ## The error-rule `false` fallback
 
-`encode_property_violation` falls back to a `false` violation condition when
-a property references a place the flattener cannot resolve: the
-`JoinedOrDeadLettered` arm at `smt_encoder.rs:727-728` ("Unknown pending
-place name: no state can violate."), and identically the unresolved
-`PlaceBound` arm and the empty-condition arms.
-The [VER-002] split WIDENED this surface rather than narrowing it: `DeadlockFree`
-also emits `false` when every place is a declared sink — or, since [VER-014], a
-conditional-sink marker — (nothing can ever be stranded, `:668`), and both it
-and the new `TerminatesAtSink` emit `false` when no quiescent marking exists at
-all (`:660`, `:678`). The [VER-014] conditional-sink disjuncts themselves
-(`stranded_conditions`, `:744-758`) are not modelled here. The first is a genuine
-vacuity of the same shape this theorem argues against; the latter two are honest,
-since a net with a permanently-enabled transition truly has no violating state.
-The theorem below is indifferent to which is which — that is the point.
-With `Bad ≡ false`, the error rule `Error :- Reachable(M) ∧ Bad(M)` has an
-unsatisfiable body, so Spacer answers `sat` — reported as `Proven`
-(`process_z3_result`, `smt_verifier.rs:2220-2262`) — for EVERY net, marking
-and semantics. The
-theorem quantifies over an arbitrary reachable-set predicate to make
-"regardless of semantics" literal.
+`encode_property_violation` (`smt_encoder.rs:656-773`) emits `Bad ≡ false` in
+two kinds of case.
+
+* **Unresolved place.** `PlaceBound` and `JoinedOrDeadLettered` (`:741-744`)
+  fall back to `false` for a place the flat net lacks, and `MutualExclusion` and
+  `Unreachable` do so when none resolves. The verifier refuses such a property
+  before any route runs (`unresolved_property_place_in_net`), so no verdict
+  reaches this fallback.
+* **Unviolatable predicate.** No marking is quiescent (`encode_quiescent`
+  returns `None`, in every quiescence arm), no place can strand a token under
+  `DeadlockFree` (`:681-684`), or `QuiescentCount` asks for `[0, ∞)`
+  (`count_violation_condition` returns `None`). These are exact:
+  `quiescent_count_clause_exact` proves it for the count clause.
+
+With `Bad ≡ false` the error rule `Error :- Reachable(M) ∧ Bad(M)` has an
+unsatisfiable body, so Spacer answers `sat`, reported as `Proven`
+(`process_z3_result`, `smt_verifier.rs:2729-2771`), for every net, marking and
+semantics. `bad_rule_nonvacuity` quantifies over an arbitrary reachable-set
+predicate to make "regardless of semantics" literal, so it cannot tell the two
+kinds apart; only an exactness proof can. The [VER-014] conditional-sink
+disjuncts (`stranded_conditions`) and quiescence itself are not modelled.
 -/
 
 /-- The `Proven` verdict shape for a violation predicate `Bad` over a
@@ -528,7 +531,7 @@ information — it holds for any reachable set whatsoever, so it certifies a
 net about which the encoder resolved nothing. The only sound behaviour for
 an unresolvable property place is to refuse to certify (surface an error
 instead of an error rule), which is the formal argument against
-`encode_property_violation`'s `smt_encoder.rs:727-728` fallback. -/
+`encode_property_violation`'s `smt_encoder.rs:741-744` fallback. -/
 theorem bad_rule_nonvacuity (Reach : AMarking → Prop) :
     ProvenFor Reach (fun _ => False) :=
   fun _ _ hbad => hbad
@@ -538,5 +541,60 @@ theorem bad_rule_nonvacuity (Reach : AMarking → Prop) :
 theorem bad_rule_proves_every_net (net : FlatNet) (a0 : AMarking) :
     ProvenFor (ReachA net a0) (fun _ => False) :=
   bad_rule_nonvacuity _
+
+/-!
+## `QuiescentCount`'s count clause is exact ([VER-002])
+-/
+
+/-- `count_violation_condition` (`smt_encoder.rs:775-804`) over the count
+`total` and whether every waiver is empty: the lower part when `min > 0`, the
+upper part when `max` is bounded, `none` when neither applies. -/
+def countClause (total : Nat) (waiversEmpty : Bool) (min : Nat) (max : Option Nat) :
+    Option Bool :=
+  match (if 0 < min then [decide (total < min) && waiversEmpty] else [])
+      ++ (max.map fun k => decide (k < total)).toList with
+  | [] => none
+  | [b] => some b
+  | parts => some (parts.any id)
+
+/-- The `QuiescentCount` arm of `encode_property_violation`
+(`smt_encoder.rs:751-771`) at one marking. `quiescent` stands for
+`encode_quiescent`, unmodelled (`none`: no marking is quiescent). `counted` and
+`waivers` are what `index_ordered` (`smt_encoder.rs:827-838`) returns: each
+resolved place once, so the list sum is the count over the place set. -/
+def quiescentCountBad (quiescent : Option (AMarking → Bool))
+    (counted waivers : List PlaceId) (min : Nat) (max : Option Nat) (a : AMarking) :
+    Bool :=
+  match countClause (counted.map a).sum (waivers.all fun w => a w == 0) min max with
+  | none => false
+  | some bad =>
+    match quiescent with
+    | none => false
+    | some q => q a && bad
+
+/-- **The count clause is exact** ([VER-002] AC8): the emitted `Bad` holds iff
+the marking is quiescent and its count is below `min` with every waiver empty,
+or above `max`. A `Bad` weaker than this would certify a false `Proven`; the
+arm's `false` fallbacks are the cases where the condition is unsatisfiable. -/
+theorem quiescent_count_clause_exact (quiescent : Option (AMarking → Bool))
+    (counted waivers : List PlaceId) (min : Nat) (max : Option Nat) (a : AMarking) :
+    quiescentCountBad quiescent counted waivers min max a = true ↔
+      (∃ q, quiescent = some q ∧ q a = true)
+      ∧ (((counted.map a).sum < min ∧ ∀ w ∈ waivers, a w = 0)
+        ∨ ∃ k, max = some k ∧ k < (counted.map a).sum) := by
+  have hw : (waivers.all fun w => a w == 0) = true ↔ ∀ w ∈ waivers, a w = 0 := by
+    simp
+  have hclause : ∀ e : Bool, (e = true ↔ ∀ w ∈ waivers, a w = 0) →
+      ((countClause (counted.map a).sum e min max).getD false = true ↔
+        (((counted.map a).sum < min ∧ ∀ w ∈ waivers, a w = 0)
+          ∨ ∃ k, max = some k ∧ k < (counted.map a).sum)) := by
+    intro e he
+    rw [← he]
+    unfold countClause
+    cases max <;> by_cases hmin : 0 < min <;> simp [hmin] <;> omega
+  rw [← hclause _ hw]
+  unfold quiescentCountBad
+  cases countClause (counted.map a).sum (waivers.all fun w => a w == 0) min max <;>
+    cases quiescent <;> simp
 
 end Libpetri

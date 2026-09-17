@@ -141,8 +141,8 @@ inductive ReachC (net : FlatNet) (m0 : CMarking) : CMarking → Prop
 /-- Abstract reachability `R(N̂)` — the least fixpoint of the CHC rules
 (`encode_net`, the body of `encode`: `smt_encoder.rs:145` seeds it with `M₀`,
 `:156-173` adds one rule per flat transition). This is the options-off path;
-with `EncodeOptions::state_equation` ([VER-016]) `Reachable` also carries one
-firing counter per flat transition, which this model does not cover. -/
+the firing counters of `EncodeOptions::state_equation` ([VER-016]) are
+`StateEquation.lean`'s. -/
 inductive ReachA (net : FlatNet) (a0 : AMarking) : AMarking → Prop
   | init : ReachA net a0 a0
   | step {a ft} :
@@ -192,7 +192,7 @@ theorem guarded_all_is_enabled : enabledC mGuarded tGuardedAll = true := by deci
 
 The executor consumed only the guard-matching token, so place 0 still held one
 token after the firing. The encoder emits `m'_0 = post[0] = 0` for every
-`consume_all` place (`firing_conditions`, `smt_encoder.rs:364-366`), because
+`consume_all` place (`firing_conditions`, `smt_encoder.rs:379-381`), because
 `net_flattener.rs` never inspects the guard. The abstract successor is
 therefore *smaller* than the
 concrete one — an under-approximation, which is precisely how a

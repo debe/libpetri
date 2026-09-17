@@ -222,6 +222,10 @@ jobs:
           #print axioms Libpetri.Explorer.interned_keys_eq
           #print axioms Libpetri.Explorer.interned_edges_eq
           #print axioms Libpetri.equivariance_is_necessary
+          #print axioms Libpetri.quiescent_count_clause_exact
+          #print axioms Libpetri.rows_hold
+          #print axioms Libpetri.state_equation_reach_eq
+          #print axioms Libpetri.equality_row_is_unsound_on_a_clearing_place
           EOF
           if ! lake env lean /tmp/axioms.lean > /tmp/axioms.out 2>&1; then
             cat /tmp/axioms.out
