@@ -6106,7 +6106,8 @@ mod tests {
             result.report
         );
         assert!(result.report.contains(CERT_PASSED_LINE), "{}", result.report);
-        assert_eq!(result.discovered_invariants, vec!["3*out + q <= 3"]);
+        // The refinements before it depend on the models z3 returns (4.11 also adds `out + q <= 3`).
+        assert!(result.discovered_invariants.iter().any(|i| i == "3*out + q <= 3"), "{}", result.report);
     }
 
     /// [VER-018] AC3: a candidate a run within its counts realises is `Violated`, with

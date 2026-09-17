@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Deque;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -353,9 +354,10 @@ class StateEquationPhaseTest {
         var queue = queueAndBundle(3, false);
         var queueProof = as(StateEquationOutcome.Proven.class, StateEquationPhase.runStateEquationPhase(queue.flat(),
             queue.m0(), property, queue.sinks(false), List.of(), z3(), options));
-        assertEquals(List.of("3*out + q <= 3"),
-            queueProof.refinements().stream().map(r -> StateEquationQuery.formatInequality(queue.flat(), r)).toList());
-        assertEquals(Origin.RELATIVE, queueProof.refinements().getFirst().origin());
+        // The refinements before it depend on the models z3 returns (4.11 also adds `out + q <= 3`).
+        assertEquals(Optional.of(Origin.RELATIVE), queueProof.refinements().stream()
+            .filter(r -> StateEquationQuery.formatInequality(queue.flat(), r).equals("3*out + q <= 3"))
+            .findFirst().map(r -> r.origin()));
 
         var cancellable = queueAndBundle(3, true);
         var flat = cancellable.flat();

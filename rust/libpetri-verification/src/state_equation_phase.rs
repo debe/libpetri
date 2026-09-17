@@ -868,9 +868,9 @@ mod tests {
         let (flat, m0, sinks) = queue_and_bundle(3, false);
         match run_state_equation_phase(&flat, &m0, &property, &sinks, &[], &[], z3(), options) {
             StateEquationOutcome::Proven { refinements, .. } => {
-                let printed: Vec<String> = refinements.iter().map(|r| format_inequality(&flat, r)).collect();
-                assert_eq!(printed, vec!["3*out + q <= 3"]);
-                assert_eq!(refinements[0].origin, InequalityOrigin::Relative);
+            // The refinements before it depend on the models z3 returns (4.11 also adds `out + q <= 3`).
+                let decisive = refinements.iter().find(|r| format_inequality(&flat, r) == "3*out + q <= 3");
+                assert_eq!(decisive.map(|r| r.origin), Some(InequalityOrigin::Relative), "{refinements:?}");
             }
             other => panic!("expected a proof, got {other:?}"),
         }

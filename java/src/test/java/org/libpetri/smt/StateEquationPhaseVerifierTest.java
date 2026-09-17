@@ -126,7 +126,8 @@ class StateEquationPhaseVerifierTest {
         assertEquals("state-equation", method(result), result.report());
         assertTrue(result.report().contains("    Refinement (relative): 3*out + q <= 3\n"), result.report());
         assertTrue(result.report().contains("  Certificate check: PASSED (init, consecution, safety)\n"), result.report());
-        assertEquals(List.of("3*out + q <= 3"), result.discoveredInvariants());
+        // The refinements before it depend on the models z3 returns (4.11 also adds `out + q <= 3`).
+        assertTrue(result.discoveredInvariants().contains("3*out + q <= 3"), result.report());
     }
 
     /** [VER-018] AC3: a candidate a run within its counts realises is violated, with that run, confirmed. */
