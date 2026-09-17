@@ -2,23 +2,20 @@ use std::collections::HashMap;
 use std::fmt::{self, Write as _};
 use std::sync::Arc;
 
-/// Immutable snapshot of a Petri net marking for state space analysis.
+/// Immutable snapshot of a Petri net marking for state space analysis: token counts by
+/// place name, non-zero counts only.
 ///
-/// Maps places by name to integer token counts. Only stores places with count > 0.
-///
-/// A marking built with [`MarkingStateBuilder`] remembers the order its builder first saw
-/// each place, and [`MarkingState::places`] lists them in that order, as a TypeScript
-/// `MarkingState` (a JS `Map`) does. It is the order an open-net contract's port trace
-/// names places in ([VER-022]). Any other marking, one from [`MarkingState::from_map`] or
-/// one a state-space exploration derives by firing, lists its places in Unicode
-/// code-point order. The order is never part of a marking's identity: two markings with
-/// the same counts are equal and have the same [`MarkingState::canonical_key`].
+/// [`MarkingState::places`] lists a [`MarkingStateBuilder`] marking in the builder's
+/// first-mention order, as the reference's `Map`-backed marking does (the order an
+/// open-net port trace names places in, [VER-022]), and any other marking in code-point
+/// order. The order is not part of identity: equal counts make equal markings with the
+/// same [`MarkingState::canonical_key`].
 ///
 /// # Representation
 ///
-/// The entries are a vector sorted by name, each name an `Arc<str>` shared with every
-/// marking derived from this one. The state-class graph clones a marking per successor
-/// and keys every class by its marking, so the operations it repeats are the cheap ones:
+/// A name-sorted vector whose `Arc<str>` names are shared with every marking derived from
+/// this one. The state-class graph clones a marking per successor and keys every class by
+/// it, so those operations are the cheap ones:
 ///
 /// | operation            | cost (k places, names of length L)                        |
 /// |----------------------|-----------------------------------------------------------|
@@ -27,9 +24,6 @@ use std::sync::Arc;
 /// | `places`             | O(k)                                                      |
 /// | `clone`              | O(k), one allocation, no string copied                    |
 /// | `canonical_key`      | O(k L), already in key order, no sort                     |
-///
-/// An entry is 24 bytes, against a hash map's bucket, control byte, spare capacity and
-/// owned string per place.
 #[derive(Clone)]
 pub struct MarkingState {
     /// Places with a non-zero count, sorted by name (code-point order).
@@ -65,24 +59,23 @@ impl MarkingState {
     /// A marking whose places are listed in the order given; `first_seen` holds distinct
     /// names with non-zero counts.
     fn from_first_seen(first_seen: Vec<(String, usize)>) -> Self {
-        let mut ranked: Vec<u32> = (0..first_seen.len() as u32).collect();
-        ranked.sort_unstable_by(|&a, &b| first_seen[a as usize].0.cmp(&first_seen[b as usize].0));
-        let in_order = ranked.iter().enumerate().all(|(at, &i)| at as u32 == i);
-        let mut order = vec![0u32; first_seen.len()];
+        let named: Vec<(Arc<str>, usize)> =
+            first_seen.into_iter().map(|(p, c)| (Arc::from(p), c)).collect();
+        let mut ranked: Vec<u32> = (0..named.len() as u32).collect();
+        ranked.sort_unstable_by(|&a, &b| named[a as usize].0.cmp(&named[b as usize].0));
+        if ranked.iter().enumerate().all(|(at, &i)| at as u32 == i) {
+            return Self {
+                entries: named,
+                order: None,
+            };
+        }
+        let mut order = vec![0u32; named.len()];
         for (at, &i) in ranked.iter().enumerate() {
             order[i as usize] = at as u32;
         }
-        let mut slots: Vec<Option<(String, usize)>> = first_seen.into_iter().map(Some).collect();
-        let entries = ranked
-            .iter()
-            .map(|&i| {
-                let (p, c) = slots[i as usize].take().expect("each index is ranked once");
-                (Arc::from(p), c)
-            })
-            .collect();
         Self {
-            entries,
-            order: (!in_order).then(|| Arc::from(order)),
+            entries: ranked.iter().map(|&i| named[i as usize].clone()).collect(),
+            order: Some(Arc::from(order)),
         }
     }
 
@@ -212,14 +205,14 @@ impl MarkingStateBuilder {
 
     pub fn tokens(mut self, place: impl Into<String>, count: usize) -> Self {
         let place = place.into();
-        match self.index.get(&place) {
-            Some(&i) if count > 0 => self.first_seen[i].1 = count,
-            Some(_) => {
-                let i = self.index.remove(&place).expect("present");
+        if count == 0 {
+            if let Some(i) = self.index.remove(&place) {
                 self.first_seen[i].1 = 0;
             }
-            None if count > 0 => self.push(place, count),
-            None => {}
+        } else if let Some(&i) = self.index.get(&place) {
+            self.first_seen[i].1 = count;
+        } else {
+            self.push(place, count);
         }
         self
     }

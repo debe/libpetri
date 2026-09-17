@@ -138,21 +138,10 @@ pub fn violates(
     violates_indexed(flat, state, property, env_inject, &index)
 }
 
-/// [`violates`] with the net and the declarations resolved once, for a search that
-/// tests many states — the witness search of the state-equation phase ([VER-018])
-/// and the bounded run of the firing bound ([VER-019]).
-///
-/// It is the same predicate, not a second statement of it: [`violates`] resolves and
-/// evaluates through the one evaluator this closure calls, so a search and the
-/// replay cannot disagree about a state. Environment injection is threaded as the
-/// replay threads it, the resolved `(place index, bound)` list
-/// (`smt_encoder::resolve_env_injection`), and quiescence keeps the relax-env
-/// enablement: a marking an injection could re-enable is not quiescent, which is
-/// what keeps an open net merely waiting for input from reading as stuck.
-///
-/// The closure borrows the net, the property and the injection list, and owns what
-/// it resolved from `sink_places` and `conditional_sinks`, so those need not outlive
-/// it (`use<'a>`).
+/// [`violates`] with the declarations resolved once, for the searches that test many
+/// states ([VER-018] witness search, [VER-019] bounded run). Both evaluate through one
+/// function, so a search and the replay cannot disagree about a state. Quiescence keeps
+/// relax-env enablement: a marking an injection could re-enable is not stuck.
 pub fn violation_predicate<'a>(
     flat: &'a FlatNet,
     property: &'a SmtProperty,
@@ -164,19 +153,18 @@ pub fn violation_predicate<'a>(
     move |state| violates_indexed(flat, state, property, env_inject, &index)
 }
 
-/// What `Bad(M)` reads from the net and the declarations before it reads a state:
-/// each list allocates, and none depends on the state. A list the property does not
-/// read is left empty.
+/// The state-independent part of `Bad(M)`, resolved once. A list the property does not
+/// read stays empty.
 struct PropertyIndex {
     /// `DeadlockFree`: [`stranding_excuses`], one entry per flat place.
     excuses: Vec<Option<Vec<usize>>>,
     /// `TerminatesAtSink`: the declared sinks that resolve.
     sinks: Vec<usize>,
-    /// `QuiescentCount`: the counted places that resolve, each once — the encoder's
-    /// `index_ordered`, so a place named twice is not counted twice.
+    /// `QuiescentCount`: the counted places that resolve, each once, as the encoder's
+    /// `index_ordered` reads them.
     counted: Vec<usize>,
-    /// `QuiescentCount`: the waivers that resolve. A waiver the net does not declare
-    /// is dropped, which makes the property stricter, never laxer.
+    /// `QuiescentCount`: the waivers that resolve; dropping an undeclared one makes the
+    /// property stricter, never laxer.
     waivers: Vec<usize>,
 }
 
@@ -259,17 +247,14 @@ fn violates_indexed(
                 quiescent(flat, state, env_inject) && at(state, pid) >= 1
             })
         }
-        // QuiescentCount ([VER-002]): quiescent AND the count across the resolved
-        // places is below `min` with every resolved waiver empty, or above `max`.
-        // Mirrors the encoder's `count_violation_condition`, which needs a `min > 0`
-        // guard only because it decides whether a clause is emitted at all: a count
-        // is never below zero, so the comparison decides it alone here.
+        // QuiescentCount ([VER-002]): quiescent AND the count is below `min` with every
+        // waiver empty, or above `max` — `count_violation_condition` evaluated (its
+        // `min > 0` guard only decides whether a clause is emitted).
         SmtProperty::QuiescentCount { min, max, .. } => {
             if !quiescent(flat, state, env_inject) {
                 return false;
             }
-            // i128, saturating: a malformed vector of huge `i64` entries must not
-            // overflow into a count that reads as within bounds.
+            // Saturating i128: huge entries must not wrap into an in-bounds count.
             let count = index
                 .counted
                 .iter()
@@ -505,14 +490,11 @@ pub fn replay(
 
     while let Some(idx) = queue.pop_front() {
         let (cur_state, cur_seg) = (nodes[idx].state.clone(), nodes[idx].seg);
-        // The budget is enforced on the node about to step, not on the step's target.
-        // A node `max_segment_steps` past its anchor is still admitted and checked
-        // against the property, but any further step would be one more unanchored
-        // step, even onto a decoded state — so it is not expanded. Pruning the target
-        // instead (`seg > max_segment_steps`) would let that node step onto an anchor,
-        // one step more than the budget allows, and flag truncation only where a
-        // successor exists, so a dead end at the budget would read as `NoChain` and
-        // downgrade the verdict. This matches the TypeScript and Java replayers.
+        // The budget bounds the node about to step, not the step's target: a node
+        // `max_segment_steps` past its anchor is admitted and checked but not expanded,
+        // as any further step, even onto an anchor, exceeds the budget. Pruning targets
+        // instead allows that extra step and misses a dead end at the budget, reading it
+        // as `NoChain` (a downgrade). As in the TypeScript and Java replayers.
         if cur_seg >= max_segment_steps {
             segment_pruned = true;
             continue;

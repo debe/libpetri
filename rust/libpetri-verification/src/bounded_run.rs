@@ -20,15 +20,11 @@
 //! run, decoded and replayed firing by firing before it is believed ([`replay_run`]);
 //! `unsat` at `d = K` covers every run of the net.
 //!
-//! Environment injection is passed in resolved (`env_inject`, as
-//! `smt_encoder::resolve_env_injection` returns it) rather than read off the flat net,
-//! as in [`crate::state_equation_query`]. The TypeScript flat net carries the bounded
-//! mode's post-caps as a map of their own; they are exactly the injections with a
-//! bound, so they are read off `env_inject` here. Every emitted script is
-//! byte-identical to the TypeScript port for the same input ([VER-013] AC1).
+//! `env_inject` is the resolved injection list (`smt_encoder::resolve_env_injection`);
+//! the bounded mode's post-caps are its entries with a bound. Every emitted script is
+//! byte-identical to the TypeScript port's ([VER-013] AC1).
 
 use std::collections::BTreeMap;
-use std::time::{Duration, Instant};
 
 use crate::abstract_replay::{enabled_a, fire_a, violation_predicate, within_env_bounds};
 use crate::marking_state::MarkingState;
@@ -36,8 +32,9 @@ use crate::net_flattener::{FlatNet, FlatTransition};
 use crate::property::SmtProperty;
 use crate::rest_set::ConditionalSinks;
 use crate::smt_encoder::{conjoin, encode_property_violation};
+use crate::smt_text::{MAX_SAFE_INTEGER, indexed, int_definition, sum, term};
 use crate::smt_verifier::extract_define_funs;
-use crate::z3_process::classify_first_line;
+use crate::z3_process::{QueryBudget, classify_first_line};
 
 /// A ranking and the firing bound it gives: `weights·C_t ≤ −1` on every transition
 /// that can fire.
@@ -49,11 +46,10 @@ pub struct FiringBound {
     pub bound: i128,
 }
 
-/// The largest firing bound the phase model-checks to. It is JavaScript's
-/// `Number.MAX_SAFE_INTEGER`, the largest bound the TypeScript port counts depths in
-/// exactly; refusing the same bounds keeps the ports' reasons identical. No depth
-/// limit comes near it, so it never turns a decidable bound away in practice.
-const LARGEST_BOUND: i128 = (1 << 53) - 1;
+/// The largest firing bound the phase model-checks to: the largest the TypeScript port
+/// counts depths in exactly, so the ports refuse the same bounds with the same reason. No
+/// depth limit comes near it.
+const LARGEST_BOUND: i128 = MAX_SAFE_INTEGER as i128;
 
 /// Whether `ft` can ever fire: it does not inhibit a place it needs.
 fn can_fire(ft: &FlatTransition) -> bool {
@@ -89,7 +85,7 @@ pub fn encode_ranking_query(flat: &FlatNet, initial: &[i64]) -> String {
                 (c != 0).then(|| term(c, &format!("r{p}")))
             })
             .collect();
-        lines.push(format!("(assert (<= {} (- 1)))", sum(&terms)));
+        lines.push(format!("(assert (<= {} (- 1)))", sum(&terms, "0")));
     }
     let objective: Vec<String> = (0..place_count)
         .filter_map(|p| {
@@ -97,7 +93,7 @@ pub fn encode_ranking_query(flat: &FlatNet, initial: &[i64]) -> String {
             (m0 != 0).then(|| term(m0, &format!("r{p}")))
         })
         .collect();
-    lines.push(format!("(minimize {})", sum(&objective)));
+    lines.push(format!("(minimize {})", sum(&objective, "0")));
     lines.push("(check-sat)".to_string());
     lines.push("(get-model)".to_string());
     lines.join("\n")
@@ -184,7 +180,7 @@ pub fn encode_repeatable_vector_query(flat: &FlatNet) -> String {
     for y in &counts {
         lines.push(format!("(assert (>= {y} 0))"));
     }
-    lines.push(format!("(assert (>= {} 1))", sum(&counts)));
+    lines.push(format!("(assert (>= {} 1))", sum(&counts, "0")));
     for p in 0..flat.place_count {
         let terms: Vec<String> = live
             .iter()
@@ -194,10 +190,10 @@ pub fn encode_repeatable_vector_query(flat: &FlatNet) -> String {
             })
             .collect();
         if !terms.is_empty() {
-            lines.push(format!("(assert (>= {} 0))", sum(&terms)));
+            lines.push(format!("(assert (>= {} 0))", sum(&terms, "0")));
         }
     }
-    lines.push(format!("(minimize {})", sum(&counts)));
+    lines.push(format!("(minimize {})", sum(&counts, "0")));
     lines.push("(check-sat)".to_string());
     lines.push("(get-model)".to_string());
     lines.join("\n")
@@ -243,13 +239,10 @@ pub fn encode_bounded_run(
             format!("m{i}_{p}")
         }
     };
-    // Vacuous as the phase stands: only a bounded injection carries a cap, and
-    // `run_firing_bound_phase` refuses injection outright. Kept because it is the
-    // encoder's `envBounds(M')` conjunct — parity, and load-bearing the moment that
-    // guard is relaxed.
+    // Empty while `run_firing_bound_phase` refuses injection; kept as the encoder's
+    // `envBounds(M')` conjunct, load-bearing once that guard is relaxed.
     let caps = environment_caps(env_inject, place_count);
-    // Each place's touchers reversed once, here: the `ite` chain below nests from the
-    // last toucher inward, and the order must not change from one step to the next.
+    // Each place's touchers, reversed: the `ite` chain nests from the last one inward.
     let nesting: Vec<Vec<usize>> = (0..place_count)
         .map(|p| {
             let mut touching: Vec<usize> = flat
@@ -497,9 +490,8 @@ impl Default for FiringBoundOptions {
 /// query), then the bounded model check at depths 8, 16, 32, … up to the firing bound.
 /// A violating run is replayed before it is reported; `unsat` at the bound is a proof.
 ///
-/// Takes the same arguments as the state-equation phase ([VER-018]) and builds the
-/// violation predicate itself (`abstract_replay::violation_predicate`), so the two
-/// phases cannot be handed inconsistent ones.
+/// Builds the violation predicate itself, as the state-equation phase ([VER-018]) does,
+/// so the two phases cannot be handed inconsistent ones.
 ///
 /// `solver(script, phase, timeout_ms)` runs one script — `phase` is `ranking` or `bmc`,
 /// the dump name of [VER-013] — within `timeout_ms` and returns its stdout, or the
@@ -515,10 +507,8 @@ pub fn run_firing_bound_phase(
     solver: impl Fn(&str, &str, u64) -> Result<String, String>,
     options: FiringBoundOptions,
 ) -> FiringBoundOutcome {
-    let budget_ms = options.budget_ms;
+    let budget = QueryBudget::start(options.budget_ms);
     let max_depth = options.max_depth;
-    // `None` when the budget reaches past what an `Instant` holds: nothing then runs out.
-    let deadline = Instant::now().checked_add(Duration::from_millis(budget_ms));
     let initial: Vec<i64> = flat
         .places
         .iter()
@@ -535,17 +525,7 @@ pub fn run_firing_bound_phase(
         };
     }
     let ask = |script: &str, phase: &str| -> Result<String, String> {
-        let left = match deadline {
-            Some(deadline) => {
-                let left = deadline.saturating_duration_since(Instant::now()).as_millis();
-                u64::try_from(left).unwrap_or(u64::MAX)
-            }
-            None => budget_ms,
-        };
-        if left == 0 {
-            return Err(format!("time budget of {budget_ms} ms exhausted"));
-        }
-        solver(script, phase, left)
+        solver(script, phase, budget.left()?)
     };
 
     let ranking = match ask(&encode_ranking_query(flat, &initial), "ranking") {
@@ -653,10 +633,9 @@ pub fn run_firing_bound_phase(
     }
 }
 
-/// The bounded injections' post-caps, `place index → cap`, in place-index order: the
-/// order the verifier's own environment bounds take, since its environment places are
-/// a name-ordered set. An index past the net is dropped rather than emitted as a
-/// variable no script declares.
+/// The bounded injections' post-caps, `place index → cap`, in place-index order (the
+/// verifier's own environment-bound order). An index past the net is dropped rather
+/// than emitted as an undeclared variable.
 fn environment_caps(
     env_inject: &[(usize, Option<usize>)],
     place_count: usize,
@@ -713,98 +692,6 @@ fn column(ft: &FlatTransition, p: usize) -> i128 {
 
 fn arc(vector: &[i64], p: usize) -> i128 {
     i128::from(vector.get(p).copied().unwrap_or(0))
-}
-
-/// An integer literal of a model definition, kept as its text: each decoder needs a
-/// different reading of it, and two of the three are exact for any magnitude.
-struct IntLiteral<'a> {
-    negative: bool,
-    digits: &'a str,
-}
-
-impl IntLiteral<'_> {
-    /// The value, or `None` when it does not fit `i128`.
-    fn value(&self) -> Option<i128> {
-        let magnitude: i128 = self.digits.parse().ok()?;
-        Some(if self.negative { -magnitude } else { magnitude })
-    }
-
-    fn is_zero(&self) -> bool {
-        self.digits.bytes().all(|b| b == b'0')
-    }
-
-    fn is_positive(&self) -> bool {
-        !self.negative && !self.is_zero()
-    }
-
-    /// The value as an index below `count`; `None` when it is negative or not below.
-    fn index_below(&self, count: usize) -> Option<usize> {
-        if self.negative && !self.is_zero() {
-            return None;
-        }
-        self.digits.parse::<usize>().ok().filter(|&v| v < count)
-    }
-}
-
-/// Reads `(define-fun <name> () Int <lit>)`, `<lit>` a natural literal `k` or the
-/// negation form `(- k)`, with whitespace wherever z3 may put it (it breaks the line
-/// before the literal). The shape is exactly the one the TypeScript port matches:
-/// `None` for anything else, a `Real` definition included.
-fn int_definition(def: &str) -> Option<(&str, IntLiteral<'_>)> {
-    let rest = spaced(def.strip_prefix("(define-fun")?)?;
-    let name_end = rest.find(char::is_whitespace)?;
-    let (name, rest) = rest.split_at(name_end);
-    let rest = spaced(rest)?.strip_prefix("()")?;
-    let rest = spaced(rest)?.strip_prefix("Int")?;
-    let lit = spaced(rest)?.strip_suffix(')')?.trim_end();
-    let (negative, digits) = match lit.strip_prefix("(-") {
-        Some(inner) => (true, inner.strip_suffix(')')?.trim()),
-        None => (false, lit),
-    };
-    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    Some((name, IntLiteral { negative, digits }))
-}
-
-/// `s` after the whitespace it must start with; `None` when it starts with none.
-fn spaced(s: &str) -> Option<&str> {
-    let rest = s.trim_start();
-    if rest.len() < s.len() { Some(rest) } else { None }
-}
-
-/// The index of a name `<prefix><digits>`; `None` for any other name, and for an index
-/// too large to hold, which no net has.
-fn indexed(name: &str, prefix: char) -> Option<usize> {
-    let digits = name.strip_prefix(prefix)?;
-    // `parse` would take `r+3`; the index is digits only, as z3 prints it.
-    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    digits.parse().ok()
-}
-
-fn term(c: i128, v: &str) -> String {
-    if c == 1 {
-        return v.to_string();
-    }
-    if c == -1 {
-        return format!("(- {v})");
-    }
-    if c > 0 {
-        format!("(* {c} {v})")
-    } else {
-        format!("(* (- {}) {v})", -c)
-    }
-}
-
-/// A lone term unwrapped, otherwise `(+ t1 t2 …)`; `0` when there are none.
-fn sum(terms: &[String]) -> String {
-    match terms {
-        [] => "0".to_string(),
-        [single] => single.clone(),
-        _ => format!("(+ {})", terms.join(" ")),
-    }
 }
 
 #[cfg(test)]

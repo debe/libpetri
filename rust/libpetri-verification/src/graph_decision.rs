@@ -98,8 +98,8 @@ pub enum CountBound {
     Upper,
 }
 
-/// The tokens `m` holds across `places`, each place counted once: a place named
-/// twice is still one place, as the encoders read it.
+/// The tokens `m` holds across `places`, a place named twice counted once, as the
+/// encoders read it.
 pub fn tokens_across(m: &MarkingState, places: &[String]) -> usize {
     let mut seen: HashSet<&str> = HashSet::with_capacity(places.len());
     places
@@ -109,15 +109,11 @@ pub fn tokens_across(m: &MarkingState, places: &[String]) -> usize {
         .sum()
 }
 
-/// Which bound of a count `m` breaks: [`CountBound::Lower`] when it holds fewer than
-/// `min` across `places` while no `waived_by` place is marked, [`CountBound::Upper`]
-/// when it holds more than `max` (`None` is unbounded) whatever the waivers hold,
-/// else `None`. The upper bound is checked first, so a marking that could read as
-/// both reports the one no waiver excuses.
-///
-/// The one reading of a count clause, shared by [VER-002]'s
-/// [`SmtProperty::QuiescentCount`] on the graph routes and by the open-net contract of
-/// [VER-022], so the two cannot drift.
+/// Which bound of a count `m` breaks: [`CountBound::Upper`] above `max` (`None` is
+/// unbounded) whatever the waivers hold, checked first; [`CountBound::Lower`] below `min`
+/// while no `waived_by` place is marked; else `None`. The one reading of a count clause,
+/// shared by [VER-002]'s [`SmtProperty::QuiescentCount`] on the graph routes and the
+/// [VER-022] open-net contract.
 pub fn count_violation(
     m: &MarkingState,
     places: &[String],

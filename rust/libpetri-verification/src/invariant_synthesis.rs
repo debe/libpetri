@@ -40,17 +40,16 @@
 //! certificate check, which re-proves the whole refinement against the raw step relation
 //! before any verdict rests on it.
 //!
-//! Environment injection is passed in resolved (`env_inject`, as
-//! [`crate::smt_encoder::resolve_env_injection`] returns it) rather than read off the
-//! flat net, as in [`crate::state_equation_query`]. The injected places are emitted in
-//! place-index order whatever order that list has, so the scripts stay byte-identical
-//! to the TypeScript, Java and Python ports ([VER-013] AC1).
+//! `env_inject` is the resolved injection list (`smt_encoder::resolve_env_injection`).
+//! Injected places are emitted in place-index order whatever its order, keeping the
+//! scripts byte-identical across implementations ([VER-013] AC1).
 
 use std::collections::BTreeSet;
 
 use crate::net_flattener::{FlatNet, FlatTransition};
 use crate::p_invariant::nonlinear_places;
 use crate::smt_encoder::conjoin;
+use crate::smt_text::{indexed, int_definition, sum, term};
 use crate::smt_verifier::extract_define_funs;
 use crate::state_equation_query::{InequalityOrigin, MarkingInequality};
 
@@ -356,9 +355,8 @@ fn magnitude_objective(place_count: usize) -> String {
     sum(&terms, "0")
 }
 
-/// The injected places in place-index order, once each. TypeScript sorts its resolved
-/// injection list by index; a `BTreeSet` gives the same order whatever order the caller's
-/// list has.
+/// The injected places in place-index order, once each, as TypeScript's index-sorted
+/// injection list gives them.
 fn injected_places(env_inject: &[(usize, Option<usize>)]) -> BTreeSet<usize> {
     env_inject.iter().map(|&(pid, _)| pid).collect()
 }
@@ -379,21 +377,21 @@ fn scaled(c: i128, x: &str) -> String {
 }
 
 /// The inequality in a `sat` reply's model; `None` when the model defines no bound `b`,
-/// or when a literal does not fit `i128` (the phase then reports the model undecodable
-/// rather than refine against a truncated inequality). A place the model is silent on
-/// weighs `0`. The origin is always [`InequalityOrigin::Inductive`]: both queries share
-/// this decoder, and the phase relabels the relative one.
+/// or when `b` or an in-range `a<p>` does not fit `i128` (the phase then reports the model
+/// undecodable rather than refine against a truncated inequality). A place the model is
+/// silent on weighs `0`. The origin is always [`InequalityOrigin::Inductive`]: both
+/// queries share this decoder, and the phase relabels the relative one.
 pub fn decode_inductive_inequality(stdout: &str, place_count: usize) -> Option<MarkingInequality> {
     let mut weights = vec![0i128; place_count];
     let mut constant: Option<i128> = None;
     for def in extract_define_funs(stdout) {
-        let Some((name, value)) = parse_inequality_definition(def.trim()) else {
+        let Some((name, literal)) = int_definition(def.trim()) else {
             continue;
         };
-        match name {
-            InequalityVar::Bound => constant = Some(value?),
-            InequalityVar::Weight(p) if p < place_count => weights[p] = value?,
-            InequalityVar::Weight(_) => continue,
+        if name == "b" {
+            constant = Some(literal.value()?);
+        } else if let Some(p) = indexed(name, 'a').filter(|&p| p < place_count) {
+            weights[p] = literal.value()?;
         }
     }
     constant.map(|constant| MarkingInequality {
@@ -401,51 +399,6 @@ pub fn decode_inductive_inequality(stdout: &str, place_count: usize) -> Option<M
         constant,
         origin: InequalityOrigin::Inductive,
     })
-}
-
-/// Which variable of the query a model definition assigns.
-enum InequalityVar {
-    Weight(usize),
-    Bound,
-}
-
-/// Reads `(define-fun a<p> () Int <lit>)` or `(define-fun b () Int <lit>)` with `<lit>`
-/// a natural literal `k` or the negation form `(- k)` (z3 may break the line before the
-/// literal). `None` when the definition is neither — `u<p>`, `w<p>`, `upos` and the real
-/// weightings `e<t>_<p>` included; `Some((_, None))` when the literal overflows `i128`.
-fn parse_inequality_definition(def: &str) -> Option<(InequalityVar, Option<i128>)> {
-    let body = def.strip_prefix("(define-fun")?.strip_suffix(')')?;
-    let body = body.trim_start();
-    let name_end = body.find(char::is_whitespace)?;
-    let (name, rest) = body.split_at(name_end);
-    let var = if name == "b" {
-        InequalityVar::Bound
-    } else {
-        let digits = name.strip_prefix('a')?;
-        // `parse` would take `a+3`; the index is digits only, as z3 prints it.
-        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-            return None;
-        }
-        InequalityVar::Weight(digits.parse().ok()?)
-    };
-    let rest = rest.trim_start().strip_prefix("()")?;
-    let rest = rest.trim_start().strip_prefix("Int")?;
-    let lit = rest.trim();
-    if lit.is_empty() {
-        return None;
-    }
-    let (negative, digits) = match lit.strip_prefix('(') {
-        Some(inner) => {
-            let inner = inner.strip_suffix(')')?.trim();
-            (true, inner.strip_prefix('-')?.trim())
-        }
-        None => (false, lit),
-    };
-    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    let magnitude: Option<i128> = digits.parse().ok();
-    Some((var, magnitude.map(|k| if negative { -k } else { k })))
 }
 
 /// Re-proves conditions 1 and 2 of the module description in exact integer
@@ -511,33 +464,15 @@ fn dot(weights: &[i128], values: &[i128]) -> Option<i128> {
 
 /// `Σ coeffs[p]·var(p)` over the non-zero coefficients, `0` when there are none.
 fn linear<C: Copy + Into<i128>>(coeffs: &[C], var: impl Fn(usize) -> String) -> String {
-    let mut terms: Vec<String> = Vec::new();
-    for (p, &c) in coeffs.iter().enumerate() {
-        let c: i128 = c.into();
-        if c == 0 {
-            continue;
-        }
-        let v = var(p);
-        terms.push(if c == 1 {
-            v
-        } else if c == -1 {
-            format!("(- {v})")
-        } else if c > 0 {
-            format!("(* {c} {v})")
-        } else {
-            format!("(* (- {}) {v})", -c)
-        });
-    }
+    let terms: Vec<String> = coeffs
+        .iter()
+        .enumerate()
+        .filter_map(|(p, &c)| {
+            let c: i128 = c.into();
+            (c != 0).then(|| term(c, &var(p)))
+        })
+        .collect();
     sum(&terms, "0")
-}
-
-/// A lone term unwrapped, otherwise `(+ t1 t2 …)`; `zero` when there are none.
-fn sum(terms: &[String], zero: &str) -> String {
-    match terms {
-        [] => zero.to_string(),
-        [single] => single.clone(),
-        _ => format!("(+ {})", terms.join(" ")),
-    }
 }
 
 fn mask(places: &[usize], place_count: usize) -> Vec<bool> {
@@ -924,6 +859,9 @@ mod tests {
         assert_eq!(decode_inductive_inequality(&reply, 2), None);
         let reply = format!("sat\n((define-fun a0 () Int 1) (define-fun b () Int (- {huge})))");
         assert_eq!(decode_inductive_inequality(&reply, 2), None);
+        // `()Int` is outside the grammar every implementation reads.
+        let reply = "sat\n((define-fun a1 ()Int 5) (define-fun b () Int 0))";
+        assert_eq!(decode_inductive_inequality(reply, 2).map(|i| i.weights), Some(vec![0, 0]));
         // …but not one on a place the net does not have.
         let reply = format!("sat\n((define-fun a5 () Int {huge}) (define-fun b () Int 0))");
         assert!(decode_inductive_inequality(&reply, 2).is_some());

@@ -86,17 +86,9 @@ pub fn strands_token(
     m.places().any(|(p, _)| !resting.contains(p))
 }
 
-/// The places of `m` that hold a stranded token — marked **and** unexcused — by name,
-/// in code-point order: empty exactly when [`strands_token`] is false.
-///
-/// "Unexcused" applies the [VER-014] widening: a token on a place a *marked* marker
-/// excuses is designed residue, not stranded work, and the marker itself always rests.
-/// A caller that asks only "is this place marked?" names a stranding that the other
-/// routes prove cannot happen; the open-net contract of [VER-022] reads this to name
-/// the places a quiescent marking leaves work on, so the predicate is stated here once.
-///
-/// Code-point order rather than the marking's own, which is the order it was built in:
-/// the names reach a report.
+/// The places of `m` holding a stranded token — marked **and** unexcused under the
+/// [VER-014] widening — in code-point order, since the names reach a report ([VER-022]).
+/// Empty exactly when [`strands_token`] is false.
 pub fn stranded_places(
     m: &MarkingState,
     sink_places: &[String],

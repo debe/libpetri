@@ -38,9 +38,7 @@ pub(super) struct SmtRouteOutcome {
     pub undecided: Vec<String>,
     /// One report line per query.
     pub lines: Vec<String>,
-    /// The inductive invariant each proven query returned, in query order. These are the
-    /// route's proof evidence: a `Proven` open-net verdict is their conjunction, one
-    /// certificate per part of the contract.
+    /// The inductive invariant of each proven query that returned one, in query order.
     pub certificates: Vec<SubjectCertificate>,
 }
 
@@ -66,16 +64,10 @@ struct Query<'c> {
     reading: Reading<'c>,
 }
 
-/// A part of the contract: a query to run, or a clause no marking can fail.
-///
-/// A count clause of `[0, ∞]` is the second kind. `count_violation` reports an upper bound
-/// only above `max` and a lower one only below `min`, so every marking satisfies it and both
-/// routes agree without asking anything — the graph route's `quiescence_findings` finds
-/// nothing for it either. Its places still carry their weight through
-/// `rest_declaration_of`, which makes every clause place a sink of the stranding query.
-/// Running the query anyway would be strictly worse than skipping it: the answer is
-/// `Proven` on a solver that has time and `Unknown` on one that does not. It gets a report
-/// line so that skipping it is visible rather than silent.
+/// A part of the contract: a query to run, or a `[0, ∞)` clause no marking can fail. That
+/// clause is skipped with a report line (its places still sink the stranding query): the
+/// graph route finds nothing for it either, and asking could only turn `Proven` into a
+/// timeout's `Unknown`.
 enum Part<'c> {
     Query(Query<'c>),
     Vacuous { subject: String, detail: String },
@@ -130,9 +122,7 @@ pub(super) fn decide_via_smt(
             }
             Verdict::Proven { inductive_invariant, .. } => {
                 lines.push(format!("  [{}] {}: {word}", q.subject, q.property.description()));
-                // A proven part may or may not come with a certificate: the enumeration and
-                // bound phases prove without one. Keep the ones that do rather than dropping
-                // the evidence.
+                // The enumeration and bound phases prove without a certificate.
                 if let Some(invariant) = inductive_invariant {
                     certificates.push(SubjectCertificate { subject: q.subject.clone(), invariant: invariant.clone() });
                 }
@@ -185,10 +175,8 @@ fn read_violation(q: &Query<'_>, result: &VerificationResult, rest: &RestDeclara
     let quiescent = if confirmed { result.counterexample_trace.last() } else { None };
     let (kind, subject, detail) = match q.reading {
         Reading::Stranding => {
-            // The verdict does not depend on the replay — the solver's `sat` is the
-            // violation. The attribution does: without a confirmed quiescent marking there
-            // is nothing to read the stranded places off, so the finding names the query
-            // rather than guessing a place.
+            // The verdict is the solver's `sat`; only the attribution needs a confirmed
+            // quiescent marking, so without one the finding names the query, not a place.
             let names = quiescent.map(|m| stranded_names(m, rest)).unwrap_or_default();
             if names.is_empty() {
                 (

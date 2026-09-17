@@ -1,31 +1,21 @@
-//! The witness search of the state-equation phase ([VER-018]): a breadth-first search
-//! from `M0` under the exact abstract semantics ([`enabled_a`] / [`fire_a`] —
-//! consume-all and reset clearing, inhibitor and read guards) that fires each flat
-//! transition at most as often as a candidate's firing counts allow, and stops at the
-//! first marking that violates the property. This is the cheap first level of directed
-//! reachability (Blondin, Haase and Offtermatt, TACAS 2021): the counts bound the depth
-//! by their sum, which on a workflow net is small.
+//! The witness search of the state-equation phase ([VER-018]): breadth-first from `M0`
+//! under the exact abstract semantics ([`enabled_a`] / [`fire_a`]), firing each flat
+//! transition at most as often as a candidate's counts allow, until a marking violates
+//! the property. The counts bound the depth by their sum: the cheap first level of
+//! directed reachability (Blondin, Haase and Offtermatt, TACAS 2021).
 //!
-//! [`WitnessOutcome::Found`] is a real firing sequence of the untimed net, so the
-//! violation it witnesses is confirmed by construction. [`WitnessOutcome::None`] is a
-//! completed search: no run whose firing counts stay within the candidate's reaches a
-//! violation. [`WitnessOutcome::Exhausted`] says nothing either way.
+//! [`WitnessOutcome::Found`] is a real firing sequence of the untimed net.
+//! [`WitnessOutcome::None`] is a completed search: no run within the counts reaches a
+//! violation. [`WitnessOutcome::Exhausted`] says nothing.
 //!
-//! Environment injection splits those three, because an injection is not a counted
-//! firing and so is never searched. `Found` survives it: the search fires only counted
-//! transitions, a run in which the environment injects nothing is still a run of the
-//! net, and the quiescence half of `Bad(M)` is judged with relax-env enablement
-//! ([`violation_predicate`](crate::abstract_replay::violation_predicate)) — a marking it
-//! accepts is stuck even against an environment free to inject. `None` does not survive
-//! it: its claim is that no run reaches a violation, and an injected token could enable
-//! a run the search never considered. So under injection the completed search reports
-//! `Exhausted`, which says nothing either way, rather than a negative it cannot support.
-//! The guard sits on that terminal answer and nowhere else: on a net whose environment
-//! injects, this search is the only leg of the phase that can produce a witness at all,
-//! so it must still run there.
+//! Injection is not a counted firing, so it is never searched. `Found` survives that: a
+//! run injecting nothing is still a run, and `Bad(M)` judges quiescence with relax-env
+//! enablement ([`violation_predicate`](crate::abstract_replay::violation_predicate)).
+//! `None` does not, since an injected token could enable a run never searched, so under
+//! injection a completed search reports `Exhausted`. The guard sits on that answer only:
+//! on an injected net this search is the phase's only source of witnesses.
 //!
-//! Nothing here spawns or parses z3, and nothing is emitted: parity with the TypeScript
-//! `parikh-search` is behavioural, pinned by the tests below.
+//! Parity with the TypeScript `parikh-search` is behavioural, pinned by the tests below.
 
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -56,11 +46,8 @@ pub enum WitnessOutcome {
     Exhausted { reason: String, nodes: usize },
 }
 
-/// A node's marking and the firing counts it has left. Two runs meeting at the same
-/// pair have the same future, so the pair is the deduplication key. It is also what
-/// the expansion and the reconstruction read, so the node and the seen-set share one
-/// allocation: the budget admits 100 000 nodes of `P + T` entries each, and a second
-/// copy of every one would double the search's footprint for nothing.
+/// A node's marking and unspent counts: runs meeting there share a future, so it is the
+/// deduplication key, held once (`Rc`) by the node and the seen-set.
 type Key = (Vec<i64>, Vec<i64>);
 
 struct SearchNode {
@@ -70,25 +57,16 @@ struct SearchNode {
 }
 
 /// Searches the runs from `initial` that fire each flat transition `t` at most
-/// `counts[t]` times for one that reaches a marking `is_bad` accepts. A node is a
-/// marking together with the counts still unspent, so two runs meeting there have the
-/// same future and the second is dropped. The search is breadth-first, and transitions
-/// are tried in flat order, so the run found is a shortest one and the same run the
-/// TypeScript search finds.
+/// `counts[t]` times (a missing entry reads as `0`) for one reaching a marking `is_bad`
+/// accepts. Breadth-first with transitions in flat order, so the run found is a shortest
+/// one and the one the TypeScript search finds.
 ///
-/// `counts` is read against the flat transitions: an entry past its end reads as `0`,
-/// so a short vector never lets a transition fire more often than the candidate says.
+/// `env_inject` is the resolved injection list. A firing that leaves a `Bounded(k)`
+/// place above its cap is not a step of the encoded system, so it is not searched; see
+/// the module note for injection itself.
 ///
-/// `env_inject` is the resolved injection list (`smt_encoder::resolve_env_injection`).
-/// Its `Bounded(k)` entries are the post-cap every step of the encoded system carries
-/// (`smt_encoder::env_bound_conditions`): a firing that leaves an env place above its
-/// cap is not a step, so it is not searched. Injection itself is not searched, so a
-/// completed search on a net with injected places reports
-/// [`WitnessOutcome::Exhausted`] rather than [`WitnessOutcome::None`] — see the module
-/// note for why a `Found` run is still reported there.
-///
-/// `node_budget` caps the nodes admitted, the root included; the budget trips on `>=`,
-/// when a new node would be admitted. [`DEFAULT_NODE_BUDGET`] is the phase's default.
+/// `node_budget` caps the nodes admitted, root included, tripping on `>=` when a new
+/// node would be admitted.
 pub fn search_within_counts(
     flat: &FlatNet,
     initial: &[i64],
@@ -163,10 +141,7 @@ pub fn search_within_counts(
         head += 1;
     }
 
-    // The search ran out of counted runs, not out of budget. That settles `None` only
-    // when nothing outside the counted firings can extend a run, so injection downgrades
-    // it — here, at the terminal answer, and not at the entry, where it would also
-    // discard the witnesses the search can still find.
+    // Completed within budget: `None` only when no injection could extend a run.
     if env_inject.is_empty() {
         WitnessOutcome::None { nodes: nodes.len() }
     } else {

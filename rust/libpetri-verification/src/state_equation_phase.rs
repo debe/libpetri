@@ -18,18 +18,16 @@
 //!    equation and its refinements is what re-proves it.
 //!
 //! Every refinement holds in every reachable marking, so an `unsat` after refinement is
-//! still a proof, and the refinements it used are its certificate. When none of the
-//! three settles a candidate, or the refinement budget or the deadline runs out, the
-//! phase is inconclusive and the verifier falls through to the fixpoint query exactly as
-//! before; the phase can add verdicts, never remove them.
+//! still a proof, with the refinements as its certificate. When nothing settles a
+//! candidate, or the refinement budget or the deadline runs out, the phase is
+//! inconclusive and the verifier falls through to the fixpoint query: the phase can add
+//! verdicts, never remove them.
 //!
-//! Environment injection is passed in resolved (`env_inject`, as
-//! `smt_encoder::resolve_env_injection` returns it), as everywhere in this phase's
-//! modules. Every reason string and [`describe_candidate`] read exactly as the
-//! TypeScript port's, because the verifier prints them in its report.
+//! `env_inject` is the resolved injection list (`smt_encoder::resolve_env_injection`).
+//! Reason strings and [`describe_candidate`] are report text, identical to the
+//! TypeScript port's.
 
 use std::cell::Cell;
-use std::time::{Duration, Instant};
 
 use crate::abstract_replay::violation_predicate;
 use crate::invariant_synthesis::{
@@ -46,7 +44,7 @@ use crate::state_equation_query::{
     encode_state_equation_query, holds_at,
 };
 use crate::trap_refinement::refuting_trap;
-use crate::z3_process::classify_first_line;
+use crate::z3_process::{QueryBudget, classify_first_line};
 
 /// Options of [`run_state_equation_phase`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -144,10 +142,8 @@ pub fn run_state_equation_phase(
     solver: impl Fn(&str, &str, u64) -> Result<String, String>,
     options: StateEquationPhaseOptions,
 ) -> StateEquationOutcome {
-    let budget_ms = options.budget_ms;
+    let budget = QueryBudget::start(options.budget_ms);
     let max_refinements = options.max_refinements;
-    // `None` when the budget reaches past what an `Instant` holds: nothing then runs out.
-    let deadline = Instant::now().checked_add(Duration::from_millis(budget_ms));
     let place_count = flat.place_count;
     let transition_count = flat.transitions.len();
     let initial: Vec<i64> = flat
@@ -165,16 +161,7 @@ pub fn run_state_equation_phase(
     let queries = Cell::new(0usize);
 
     let ask = |script: &str, phase: &str| -> Result<String, String> {
-        let left = match deadline {
-            Some(deadline) => {
-                let left = deadline.saturating_duration_since(Instant::now()).as_millis();
-                u64::try_from(left).unwrap_or(u64::MAX)
-            }
-            None => budget_ms,
-        };
-        if left == 0 {
-            return Err(format!("time budget of {budget_ms} ms exhausted"));
-        }
+        let left = budget.left()?;
         // Counted once the budget lets it go out, whether or not the transport then
         // delivers a reply: a query the solver timed out on was still sent.
         queries.set(queries.get() + 1);

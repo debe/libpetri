@@ -773,16 +773,11 @@ pub(crate) fn encode_property_violation(
 }
 
 /// The count clause of a [`SmtProperty::QuiescentCount`] over rendered count terms,
-/// places and waivers each in place-index order: `(and (< Σ min) (= w 0) …)` when
-/// `min > 0`, `(> Σ max)` when `max` is bounded, their `or` when both apply, and
-/// `None` when neither does — a count of `[0, ∞)` no marking violates. `Σ` is `0`
-/// for no term, the term itself for one, `(+ …)` otherwise.
-///
-/// The upper bound is never waived: a halted run may keep what it took, but it can
-/// never hold more than there is. An unbounded `max` contributes no clause at all,
-/// which is what keeps the script identical across implementations that store it
-/// differently ([VER-002]). Shared with the name-coloured encoder, which renders
-/// aggregate counts, and mirrored by the abstract replay's [`violates`].
+/// places and waivers in place-index order: `(and (< Σ min) (= w 0) …)` when `min > 0`,
+/// `(> Σ max)` when `max` is bounded, their `or` when both apply, and `None` for
+/// `[0, ∞)`. The upper bound is never waived, and an unbounded `max` emits nothing, so
+/// the script does not depend on how an implementation stores it ([VER-002]). Shared
+/// with the name-coloured encoder; evaluated by [`violates`].
 ///
 /// [`violates`]: crate::abstract_replay::violates
 pub(crate) fn count_violation_condition(
@@ -791,23 +786,15 @@ pub(crate) fn count_violation_condition(
     min: usize,
     max: Option<usize>,
 ) -> Option<String> {
-    let sum = match counts {
-        [] => "0".to_string(),
-        [single] => single.clone(),
-        _ => format!("(+ {})", counts.join(" ")),
-    };
+    let total = crate::smt_text::sum(counts, "0");
     let mut parts: Vec<String> = Vec::new();
     if min > 0 {
-        let below = format!("(< {sum} {min})");
-        parts.push(if waivers.is_empty() {
-            below
-        } else {
-            let empty: Vec<String> = waivers.iter().map(|w| format!("(= {w} 0)")).collect();
-            format!("(and {below} {})", empty.join(" "))
-        });
+        let mut below = vec![format!("(< {total} {min})")];
+        below.extend(waivers.iter().map(|w| format!("(= {w} 0)")));
+        parts.push(conjoin(&below));
     }
     if let Some(max) = max {
-        parts.push(format!("(> {sum} {max})"));
+        parts.push(format!("(> {total} {max})"));
     }
     match parts.as_slice() {
         [] => None,

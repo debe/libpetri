@@ -24,6 +24,7 @@ use crate::net_flattener::FlatNet;
 use crate::property::SmtProperty;
 use crate::rest_set::ConditionalSinks;
 use crate::smt_encoder::{encode_property_violation, state_equation_conditions};
+use crate::smt_text::{indexed, int_definition, sum, term};
 use crate::smt_verifier::extract_define_funs;
 
 /// Which of the phase's three legs produced a refinement. The report names it.
@@ -114,8 +115,8 @@ pub fn encode_state_equation_query(
 }
 
 /// The candidate in a `sat` reply's model; `None` when the model defines no marking or
-/// counter, or when a literal does not fit (the phase then reports the model
-/// undecodable rather than proceeding on a truncated one).
+/// counter, or when any `m`/`n` literal lies beyond ±(2^53 − 1), the range the reference
+/// holds exactly: half a candidate would be refined against as though it were whole.
 pub fn decode_candidate(
     stdout: &str,
     place_count: usize,
@@ -125,63 +126,22 @@ pub fn decode_candidate(
     let mut counts = vec![0i64; transition_count];
     let mut seen = false;
     for def in extract_define_funs(stdout) {
-        let Some((kind, index, value)) = parse_candidate_definition(def.trim()) else {
+        let Some((name, literal)) = int_definition(def.trim()) else {
             continue;
         };
-        // A literal too large to hold is the whole decode's failure, as in the other
-        // ports: half a candidate would be refined against as though it were whole.
-        let value = value?;
-        match kind {
-            'm' if index < place_count => marking[index] = value,
-            'n' if index < transition_count => counts[index] = value,
+        let (slots, index) = match (indexed(name, 'm'), indexed(name, 'n')) {
+            (Some(p), _) => (&mut marking, p),
+            (_, Some(t)) => (&mut counts, t),
             _ => continue,
+        };
+        // Read before the index is checked, as in the reference.
+        let value = literal.safe_integer()?;
+        if let Some(slot) = slots.get_mut(index) {
+            *slot = value;
+            seen = true;
         }
-        seen = true;
     }
-    if seen {
-        Some(Candidate { marking, counts })
-    } else {
-        None
-    }
-}
-
-/// Reads `(define-fun m<p> () Int <lit>)` or `(define-fun n<t> () Int <lit>)` with
-/// `<lit>` a natural literal `k` or the negation form `(- k)` (z3 may break the line
-/// before the literal). `None` when the definition is neither; `Some((_, _, None))`
-/// when the literal overflows `i64`.
-fn parse_candidate_definition(def: &str) -> Option<(char, usize, Option<i64>)> {
-    let body = def.strip_prefix("(define-fun")?.strip_suffix(')')?;
-    let body = body.trim_start();
-    let name_end = body.find(char::is_whitespace)?;
-    let (name, rest) = body.split_at(name_end);
-    let mut chars = name.chars();
-    let kind = chars.next()?;
-    if kind != 'm' && kind != 'n' {
-        return None;
-    }
-    let index: usize = chars.as_str().parse().ok()?;
-    let rest = rest.trim_start().strip_prefix("()")?;
-    let rest = rest.trim_start().strip_prefix("Int")?;
-    let lit = rest.trim();
-    if lit.is_empty() {
-        return None;
-    }
-    let (negative, digits) = match lit.strip_prefix('(') {
-        Some(inner) => {
-            let inner = inner.strip_suffix(')')?.trim();
-            (true, inner.strip_prefix('-')?.trim())
-        }
-        None => (false, lit),
-    };
-    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    let magnitude: Option<i64> = digits.parse().ok();
-    Some((
-        kind,
-        index,
-        magnitude.map(|k| if negative { -k } else { k }),
-    ))
+    seen.then_some(Candidate { marking, counts })
 }
 
 /// Whether the inequality holds at a marking, in exact integer arithmetic.
@@ -218,11 +178,7 @@ fn inequality_term(inequality: &MarkingInequality, vars: &[String]) -> String {
             terms.push(term(w, &vars[p]));
         }
     }
-    let lhs = match terms.len() {
-        0 => "0".to_string(),
-        1 => terms[0].clone(),
-        _ => format!("(+ {})", terms.join(" ")),
-    };
+    let lhs = sum(&terms, "0");
     if flip {
         format!("(>= {lhs} {})", literal(-inequality.constant))
     } else {
@@ -297,24 +253,32 @@ pub fn format_inequality(flat: &FlatNet, inequality: &MarkingInequality) -> Stri
     format!("{} <= {rhs}", left.join(" + "))
 }
 
-fn term(c: i128, v: &str) -> String {
-    if c == 1 {
-        return v.to_string();
-    }
-    if c == -1 {
-        return format!("(- {v})");
-    }
-    if c > 0 {
-        format!("(* {c} {v})")
-    } else {
-        format!("(* (- {}) {v})", -c)
-    }
-}
-
 fn literal(c: i128) -> String {
     if c < 0 {
         format!("(- {})", -c)
     } else {
         c.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// As the TypeScript and Java decoders read a model: `m<digits>` and `n<digits>` in the
+    /// shared grammar only, and a literal beyond ±(2^53 − 1) fails the whole decode, even on
+    /// an index past the net.
+    #[test]
+    fn decodes_a_candidate_as_the_reference_does() {
+        let reply = "sat\n((define-fun m1 () Int\n    2) (define-fun n0 () Int (- 0)) (define-fun m+0 () Int 5) \
+                     (define-fun n1 ()Int 4) (define-fun m9 () Int 1))";
+        let candidate = Candidate { marking: vec![0, 2], counts: vec![0, 0] };
+        assert_eq!(decode_candidate(reply, 2, 2), Some(candidate));
+        assert_eq!(decode_candidate("sat\n((define-fun m+0 () Int 5))", 2, 2), None);
+        let at = "sat\n((define-fun m0 () Int (- 9007199254740991)))";
+        assert_eq!(decode_candidate(at, 1, 0).map(|c| c.marking), Some(vec![-9007199254740991]));
+        assert_eq!(decode_candidate("sat\n((define-fun m0 () Int 9007199254740992))", 1, 0), None);
+        let past_the_net = "sat\n((define-fun m7 () Int 9007199254740992) (define-fun m0 () Int 1))";
+        assert_eq!(decode_candidate(past_the_net, 1, 0), None);
     }
 }

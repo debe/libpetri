@@ -37,6 +37,7 @@ use crate::marking_state::MarkingState;
 use crate::net_flattener::FlatNet;
 use crate::p_invariant::nonlinear_places;
 use crate::property::SmtProperty;
+use crate::smt_text::{indexed, int_definition, sum, term};
 use crate::smt_verifier::extract_define_funs;
 
 /// One linear bound `Σ weights[p]·m_p ≤ constant`, with the demand it separates.
@@ -120,100 +121,47 @@ pub fn encode_linear_bound(
         let terms: Vec<String> = (0..p)
             .filter_map(|i| {
                 let c = ft.post[i] - ft.pre[i];
-                (c != 0).then(|| term(c, &format!("y{i}")))
+                (c != 0).then(|| term(i128::from(c), &format!("y{i}")))
             })
             .collect();
         if !terms.is_empty() {
-            lines.push(format!("(assert (<= {} 0))", sum(&terms)));
+            lines.push(format!("(assert (<= {} 0))", sum(&terms, "0")));
         }
     }
     let demand_terms: Vec<String> = demand
         .iter()
-        .map(|(&i, &d)| term(d as i64, &format!("y{i}")))
+        .map(|(&i, &d)| term(d as i128, &format!("y{i}")))
         .collect();
     let mut init_terms = vec!["1".to_string()];
     for i in 0..p {
         let m0 = initial_marking.count(&flat.places[i]);
         if m0 > 0 {
-            init_terms.push(term(m0 as i64, &format!("y{i}")));
+            init_terms.push(term(m0 as i128, &format!("y{i}")));
         }
     }
-    lines.push(format!("(assert (>= {} {}))", sum(&demand_terms), sum(&init_terms)));
+    lines.push(format!("(assert (>= {} {}))", sum(&demand_terms, "0"), sum(&init_terms, "0")));
     lines.push("(check-sat)".to_string());
     lines.push("(get-model)".to_string());
     Some(lines.join("\n"))
 }
 
-/// `c·v` as SMT-LIB text: a unit coefficient is the bare variable, `-1` is
-/// `(- v)`, and a negative literal is written `(- k)`.
-fn term(c: i64, v: &str) -> String {
-    if c == 1 {
-        v.to_string()
-    } else if c == -1 {
-        format!("(- {v})")
-    } else if c > 0 {
-        format!("(* {c} {v})")
-    } else {
-        format!("(* (- {}) {v})", -c)
-    }
-}
-
-/// A lone term unwrapped, otherwise `(+ t1 t2 …)`.
-fn sum(terms: &[String]) -> String {
-    if terms.len() == 1 {
-        terms[0].clone()
-    } else {
-        format!("(+ {})", terms.join(" "))
-    }
-}
-
 /// The weighting in a `sat` reply's model: `y_p` per flat place, zero where the
-/// model is silent. `None` when the reply defines no `y`, or a literal does not
-/// fit `i128`.
+/// model is silent. `None` when the reply defines no `y`, or an in-range literal does
+/// not fit `i128`.
 pub fn decode_linear_bound(stdout: &str, place_count: usize) -> Option<Vec<i128>> {
     let mut y = vec![0i128; place_count];
     let mut seen = false;
     for def in extract_define_funs(stdout) {
-        let Some((pid, value)) = parse_weight_definition(def.trim()) else {
+        let Some((name, literal)) = int_definition(def.trim()) else {
             continue;
         };
-        if pid >= place_count {
+        let Some(pid) = indexed(name, 'y').filter(|&pid| pid < place_count) else {
             continue;
-        }
-        y[pid] = value?;
+        };
+        y[pid] = literal.value()?;
         seen = true;
     }
-    if seen { Some(y) } else { None }
-}
-
-/// Reads `(define-fun y<p> () Int <lit>)` with `<lit>` a natural literal `k` or
-/// the negation form `(- k)` (z3 may break the line before the literal).
-/// `None` when the definition is not a weight; `Some((p, None))` when it is one
-/// whose literal overflows `i128`.
-fn parse_weight_definition(def: &str) -> Option<(usize, Option<i128>)> {
-    let body = def.strip_prefix("(define-fun")?.strip_suffix(')')?;
-    let body = body.trim_start();
-    let name_end = body.find(char::is_whitespace)?;
-    let (name, rest) = body.split_at(name_end);
-    let pid: usize = name.strip_prefix('y')?.parse().ok()?;
-    let rest = rest.trim_start().strip_prefix("()")?;
-    let rest = rest.trim_start().strip_prefix("Int")?;
-    let lit = rest.trim();
-    if lit.is_empty() {
-        return None;
-    }
-    let (negative, digits) = match lit.strip_prefix('(') {
-        Some(inner) => {
-            let inner = inner.strip_suffix(')')?.trim();
-            (true, inner.strip_prefix('-')?.trim())
-        }
-        None => (false, lit),
-    };
-    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    let magnitude: Option<i128> = digits.parse().ok();
-    Some((pid, magnitude.map(|k| if negative { -k } else { k })))
+    seen.then_some(y)
 }
 
 /// Re-proves the bound in exact integer arithmetic: `y ≥ 0`, zero on every
@@ -454,6 +402,16 @@ mod tests {
         assert_eq!(
             decode_linear_bound("sat\n(\n  (define-fun z0 () Int 4)\n  (define-fun y9 () Int 4)\n  (define-fun y0 () Int 7)\n)", 2),
             Some(vec![7, 0])
+        );
+    }
+
+    /// Only `y<digits>` in the grammar every implementation reads is a weight.
+    #[test]
+    fn decodes_the_reference_grammar_only() {
+        assert_eq!(decode_linear_bound("sat\n((define-fun y+1 () Int 5))", 2), None);
+        assert_eq!(
+            decode_linear_bound("sat\n((define-fun y1 ()Int 5) (define-fun y0 () Int 2))", 2),
+            Some(vec![2, 0])
         );
     }
 

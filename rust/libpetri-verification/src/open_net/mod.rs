@@ -21,13 +21,9 @@
 //! println!("{}", result.report);
 //! ```
 //!
-//! The module is split the way the TypeScript reference is, so the two can be read side
-//! by side: the contract and its builder, the closure that turns the contract's
-//! environment into net structure, the one predicate both routes judge a quiescent
-//! marking by, the graph route, the SMT route, the result types and the report. Only the
-//! contract, the closure, the options, the entry point and the result types are public;
-//! the routes and the predicate are internal, because a second caller of them is exactly
-//! how the two routes would stop judging the same sets.
+//! Split as the TypeScript reference is: contract, closure, the one predicate both routes
+//! judge quiescence by, graph route, SMT route, results and report. The routes and the
+//! predicate stay private, so both routes keep judging the same sets.
 
 mod closure;
 mod contract;

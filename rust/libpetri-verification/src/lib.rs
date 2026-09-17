@@ -129,6 +129,8 @@ pub mod open_net;
 #[cfg(feature = "z3")]
 pub mod parikh_search;
 #[cfg(feature = "z3")]
+mod smt_text;
+#[cfg(feature = "z3")]
 pub mod smt_verifier;
 #[cfg(feature = "z3")]
 pub mod state_equation_phase;

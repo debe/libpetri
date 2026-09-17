@@ -40,22 +40,14 @@ pub enum SmtProperty {
     /// `pending` non-emptiness, with NO sink clause: a declared sink holding a
     /// token must not excuse a stranded group ([NU-040] AC4).
     JoinedOrDeadLettered { pending: String },
-    /// A token count at quiescence: every reachable *quiescent* marking holds
-    /// between `min` and `max` tokens across `places`, and the lower bound is
-    /// waived while any `waived_by` place holds a token ([VER-002]).
+    /// A token count at quiescence ([VER-002]): every reachable quiescent marking holds
+    /// between `min` and `max` tokens across `places` (a place named twice counts once).
     ///
-    /// Violated by a reachable quiescent marking that holds fewer than `min`
-    /// while every `waived_by` place is empty, or more than `max` whatever the
-    /// waivers hold. This is the count a designed terminal ([VER-014]) makes
-    /// conditional: a halted run need not refund its budget, but it never holds
-    /// more than there is.
-    ///
-    /// `max` of `None` is unbounded and contributes no upper-bound clause. It is
-    /// an absent optional rather than a sentinel such as `usize::MAX`, so no
-    /// legitimate count can collide with it; the spec leaves the representation
-    /// to each implementation because it is not observable in the script or the
-    /// report. Build it with [`SmtProperty::quiescent_count`], which rejects
-    /// `max < min`; a place named twice in `places` is counted once.
+    /// Violated by a quiescent marking below `min` while every `waived_by` place is
+    /// empty, or above `max` whatever the waivers hold: a halted run ([VER-014]) need not
+    /// refund its budget, but never holds more than there is. `max: None` is unbounded
+    /// and adds no upper clause. Build it with [`SmtProperty::quiescent_count`], which
+    /// rejects `max < min`.
     QuiescentCount {
         places: Vec<String>,
         min: usize,
@@ -120,11 +112,8 @@ impl SmtProperty {
     /// ```
     ///
     /// # Panics
-    /// Panics if `max` is below `min`. That is a caller's error, reported where the
-    /// property is built rather than as a verdict ([VER-002] AC9): a range no count
-    /// can satisfy would otherwise come back `Violated` at the first quiescent
-    /// marking and read as a finding about the net. `min` cannot be negative or
-    /// fractional here, as the type already rules both out.
+    /// If `max < min`: a caller's error, reported where the property is built rather
+    /// than as a `Violated` verdict about the net ([VER-002] AC9).
     pub fn quiescent_count(
         places: Vec<String>,
         min: usize,
@@ -194,10 +183,7 @@ impl SmtProperty {
 }
 
 /// `exactly 1`, `at most 1`, `at least 2`, `between 1 and 3`, `any number`: a count's
-/// bounds in words, `max` of `None` being unbounded.
-///
-/// Every implementation renders a count this way, so an unbounded `max` reads the
-/// same in every report whatever each stores for it ([VER-002]).
+/// bounds (`max: None` unbounded) as every implementation's report words them.
 pub fn count_phrase(min: usize, max: Option<usize>) -> String {
     match max {
         Some(max) if max == min => format!("exactly {min}"),
@@ -208,12 +194,8 @@ pub fn count_phrase(min: usize, max: Option<usize>) -> String {
     }
 }
 
-/// `exactly 1 across {a, b}`: a count and the places it is taken over, in the order
-/// given.
-///
-/// The property description and the open-net contract of [VER-022] must say this the
-/// same way about the same clause, so the phrase is built here once rather than at
-/// each call site.
+/// `exactly 1 across {a, b}`, places in the order given: the one phrasing of a count
+/// clause, for the property description and the [VER-022] contract report.
 pub fn count_across(min: usize, max: Option<usize>, places: &[String]) -> String {
     format!("{} across {{{}}}", count_phrase(min, max), places.join(", "))
 }

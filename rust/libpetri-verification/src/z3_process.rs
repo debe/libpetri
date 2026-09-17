@@ -247,6 +247,36 @@ pub fn failure_reason(reply: &Z3Reply, timeout_ms: u64) -> String {
     format!("Unexpected Z3 output: {}", reply.stdout.trim())
 }
 
+/// The wall-clock budget the queries of one phase share ([VER-018], [VER-019]): each
+/// query gets what is left.
+pub(crate) struct QueryBudget {
+    budget_ms: u64,
+    /// `None` when the budget reaches past what an `Instant` holds: it never runs out.
+    deadline: Option<Instant>,
+}
+
+impl QueryBudget {
+    pub(crate) fn start(budget_ms: u64) -> Self {
+        let deadline = Instant::now().checked_add(Duration::from_millis(budget_ms));
+        Self { budget_ms, deadline }
+    }
+
+    /// The milliseconds left for the next query, or the report's reason when none are.
+    pub(crate) fn left(&self) -> Result<u64, String> {
+        let left = match self.deadline {
+            Some(deadline) => {
+                let left = deadline.saturating_duration_since(Instant::now()).as_millis();
+                u64::try_from(left).unwrap_or(u64::MAX)
+            }
+            None => self.budget_ms,
+        };
+        if left == 0 {
+            return Err(format!("time budget of {} ms exhausted", self.budget_ms));
+        }
+        Ok(left)
+    }
+}
+
 /// Kills and reaps the child when dropped early (an error return, a panic).
 struct ChildGuard(Child);
 

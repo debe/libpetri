@@ -24,13 +24,10 @@ pub struct StateClassEdge {
 /// graph every other constructor builds.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct StateClassGraphOptions {
-    /// Explore the **untimed** reachable set: every clock gets the interval of
-    /// `immediate()`, `[0, ∞)`, whatever its transition declares, so any enabled
-    /// transition may fire next and the graph holds exactly the markings the untimed
-    /// encoders reason about ([VER-004]). Its verdicts are then the stronger untimed
-    /// claim, not the timed one — what a route standing in for the encoders on a net
-    /// with timed transitions needs ([VER-022]). On a net whose transitions are all
-    /// immediate this changes nothing.
+    /// Explore the **untimed** reachable set: every clock gets `immediate()`'s `[0, ∞)`,
+    /// so the graph holds exactly the markings the untimed encoders reason about
+    /// ([VER-004]) and its verdicts are the untimed claim ([VER-022]). A no-op on a net
+    /// of immediate transitions.
     pub untimed: bool,
 }
 

@@ -178,10 +178,9 @@ impl<'a> SmtVerifier<'a> {
             enumeration_max_classes: 50_000,
             state_equation: false,
             linear_bound: true,
-            // Both on, as in every implementation: a verdict from a pre-fixpoint phase
-            // carries its own `method` and report, so differing defaults would split the
-            // verdict-parity fixtures without any property being decided differently
-            // ([VER-019]).
+            // Both on, as in every implementation: a phase verdict carries its own
+            // `method` and report, so differing defaults would split the verdict-parity
+            // fixtures ([VER-019]).
             state_equation_phase: true,
             firing_bound: true,
             #[cfg(test)]
@@ -470,9 +469,7 @@ impl<'a> SmtVerifier<'a> {
     /// counter knowledge is the increment. Not applied to the name-coloured
     /// encoding or Route B, which the report says when it applies.
     ///
-    /// Not [`SmtVerifier::state_equation_phase`], which is the separate [VER-018]
-    /// pre-phase that can decide the property outright instead of the fixpoint query,
-    /// and is on by default.
+    /// Not [`SmtVerifier::state_equation_phase`], the [VER-018] pre-phase.
     pub fn state_equation(mut self, enabled: bool) -> Self {
         self.state_equation = enabled;
         self
@@ -480,31 +477,21 @@ impl<'a> SmtVerifier<'a> {
 
     /// Enables or disables the **state-equation phase** ([VER-018]; default: enabled).
     ///
-    /// Before the fixpoint query, one linear query asks whether a marking the marking
-    /// equation admits can violate the property: `M = M0 + C·n` over firing counts
-    /// `n ≥ 0`, with an upper bound on a place a consume-all or reset arc clears.
-    /// `unsat` proves the property. A `sat` candidate is settled cheapest first: a real
-    /// run within its firing counts that reaches a violation (`Violated`, with that run
-    /// as the confirmed counterexample); an initially marked trap it leaves empty; or a
-    /// linear inequality `a·M ≤ b`, kept by every step of the exact step relation,
-    /// guards and clearing included, that excludes it. The refinement is added and the
-    /// query asked again.
+    /// Before the fixpoint query, one `QF_LIA` query asks whether a marking the marking
+    /// equation admits (`M = M0 + C·n`, `n ≥ 0`, an upper bound on a place a consume-all
+    /// or reset arc clears) violates the property; `unsat` proves it. A `sat` candidate
+    /// is settled cheapest first: a real run within its firing counts (`Violated`,
+    /// confirmed), an initially marked trap it leaves empty, or an inequality `a·M ≤ b`
+    /// kept by the exact step relation that excludes it, added before asking again.
     ///
-    /// The proof is `SE ∧ refinements`, re-proven by the certificate check against the
-    /// raw step relation before it is reported with method `state-equation`, and the
-    /// report prints each refinement — on a workflow join,
-    /// `Merge/hasdata <= Merge/ready_0 + Merge/ready_1`: a data token never outlives
-    /// its input's ready token, because the skip is inhibited by it. The refinements
-    /// are the result's discovered invariants. On compiled workflow nets of 30–370
-    /// places this takes tens of milliseconds where the fixpoint query took minutes.
-    ///
-    /// When nothing settles a candidate, the phase steps aside and the pipeline
-    /// continues unchanged. Flat path only: skipped for a ν-net and under `Ignore` with
-    /// environment places. Disable it to force the fixpoint path.
-    ///
-    /// Runs within the full [`SmtVerifier::timeout`], and its certificate check gets
-    /// its own, as on the fixpoint path. Not [`SmtVerifier::state_equation`], which
-    /// adds firing counters *inside* the fixpoint encoding and is off by default.
+    /// A proof is `SE ∧ refinements`, re-proven by the certificate check and reported
+    /// with method `state-equation`; the refinements are the result's discovered
+    /// invariants (on a workflow join, `Merge/hasdata <= Merge/ready_0 + Merge/ready_1`).
+    /// When nothing settles a candidate the phase steps aside. Flat path only: skipped
+    /// for a ν-net and under `Ignore` with environment places. Runs within the full
+    /// [`SmtVerifier::timeout`], its certificate check within another. Not
+    /// [`SmtVerifier::state_equation`], which adds firing counters inside the fixpoint
+    /// encoding.
     pub fn state_equation_phase(mut self, enabled: bool) -> Self {
         self.state_equation_phase = enabled;
         self
@@ -512,19 +499,13 @@ impl<'a> SmtVerifier<'a> {
 
     /// Enables or disables the **firing-bound phase** ([VER-019]; default: enabled).
     ///
-    /// When weights `r ≥ 0` exist that every firing lowers by at least one, no run has
-    /// more than `K = r·M0` firings, and a bounded model check of `K` exact steps
-    /// decides the property: a violating run is the counterexample, and none at depth
-    /// `K` is a proof for every run, reported with method `bounded-model-check`. The
-    /// depth doubles from 8, so a short counterexample is found early — the case the
-    /// fixpoint query handles worst, a quiescence violation deep in a workflow net. A
-    /// net without such weights is reported as unbounded, naming the transitions the
-    /// marking equation lets repeat, and left to the fixpoint query.
-    ///
-    /// A proof from this phase carries no inductive invariant for the certificate
-    /// check; the ranking is re-checked in exact integer arithmetic and the
-    /// counterexample is replayed. Runs after the state-equation phase, on the same
-    /// nets, within half the timeout. Disable it to force the fixpoint path.
+    /// Weights `r ≥ 0` that every firing lowers by at least one bound every run by
+    /// `K = r·M0` firings, so a bounded model check to depth `K` (doubling from 8)
+    /// decides the property: a violating run is the replayed counterexample, and none is
+    /// a proof with method `bounded-model-check`, which carries no certificate (the
+    /// ranking is re-checked exactly). Without such weights the report names the
+    /// transitions the marking equation lets repeat, and the fixpoint query decides.
+    /// Runs after the state-equation phase, on the same nets, within half the timeout.
     pub fn firing_bound(mut self, enabled: bool) -> Self {
         self.firing_bound = enabled;
         self
@@ -1745,15 +1726,12 @@ no constraint the encoding does not already have; they may still differ in FORM)
         let flat = cx.flat;
         report.push_str("  Firing bound (VER-019):\n");
         let env_inject = smt_encoder::resolve_env_injection(flat, cx.env_injection);
-        // The gate reads the DECLARED injection list, not the resolved one. Resolution
-        // drops an environment place no arc touches, and TypeScript's gate reads the flat
-        // net's injection map, which keeps it — so gating on the resolved list alone
-        // would run the phase (and could prove by bounded model check) on a net that
-        // TypeScript hands to IC3/PDR ([VER-019]).
+        // Gate on the DECLARED injection list: resolution drops an environment place no
+        // arc touches, which TypeScript's gate keeps, so the resolved list would run the
+        // phase on a net TypeScript hands to IC3/PDR ([VER-019]).
         let outcome = if cx.env_injection.is_empty() {
-            // Half the timeout: a short counterexample is found in seconds, while a proof
-            // to a deep bound on a wide net can outlast any budget, and the fixpoint query
-            // after this phase still gets its full one.
+            // Half the timeout: a short counterexample is found in seconds, a deep bound
+            // can outlast any budget, and the fixpoint query still gets its full one.
             bounded_run::run_firing_bound_phase(
                 flat,
                 &self.initial_marking,

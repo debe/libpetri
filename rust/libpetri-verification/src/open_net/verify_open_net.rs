@@ -79,11 +79,6 @@ const GRAPH_SKIPPED_BUDGET: &str = "class budget 0";
 /// ([VER-004]). `Violated` lists every broken part with a shortest witness, and `Unknown`
 /// says why neither route decided.
 ///
-/// A caller that builds its nets from a fixed vocabulary of subnets gets one proof per
-/// subnet, and each proof costs what the subnet costs rather than what the interleavings of
-/// the whole net cost. Turning those proofs into a claim about the composed net is the
-/// caller's own theorem; this entry proves the pieces.
-///
 /// # Panics
 /// When the net violates CORE-043, as every verifier does, or when the closure's names
 /// collide with the net's ([`close_open_net`](super::close_open_net)).
@@ -94,11 +89,10 @@ pub fn verify_open_net(net: &PetriNet, contract: &OpenNetContract, options: &Ope
     // Every place a port trace may mention: the contract's own, plus the closure's. [VER-022]
     // reserves "port" for a place the environment shares with the subnet, which is narrower.
     let traced_places = contract.places();
-    // The graph is name-blind: it fires a ν-join on any two tokens, whether or not their names
-    // match. For a quiescence contract that is no approximation in either direction — it reaches
-    // markings the net cannot (the join's output) and misses ones it does (the inputs a join that
-    // cannot match leaves stranded), so neither its `proven` nor its `violated` can stand. The
-    // same exclusion as [VER-017] condition 1; the SMT pipeline has exact routes for a ν-net.
+    // The graph is name-blind: it fires a ν-join on any two tokens, so for a quiescence
+    // contract it errs both ways (it reaches the join's output and misses the inputs a
+    // non-matching join strands) and neither verdict could stand. As [VER-017] condition 1;
+    // the SMT pipeline has exact ν routes.
     let graph_skipped: Option<&'static str> = if closed.net.transitions().iter().any(|t| t.match_spec().is_some()) {
         Some(GRAPH_SKIPPED_MATCH)
     } else if max_classes > 0 {
@@ -143,9 +137,7 @@ pub fn verify_open_net(net: &PetriNet, contract: &OpenNetContract, options: &Ope
             return result(Verdict::Violated, OpenNetRoute::Enumeration, g.violations.clone(), None);
         }
         if g.complete {
-            // No invariant: the closed graph proves the contract by exhausting its classes,
-            // and the classes themselves are the evidence. There is no certificate here to
-            // lose.
+            // No invariant: the exhausted graph is the evidence.
             let verdict = Verdict::Proven { method: METHOD_ENUMERATION.to_string(), inductive_invariant: None };
             return result(verdict, OpenNetRoute::Enumeration, Vec::new(), None);
         }
@@ -183,12 +175,8 @@ pub fn verify_open_net(net: &PetriNet, contract: &OpenNetContract, options: &Ope
     result(verdict, OpenNetRoute::Smt, Vec::new(), Some(&smt.lines))
 }
 
-/// The route's certificates as one invariant, each labelled with the part of the contract
-/// it proves. The whole verdict is their conjunction, so keeping them apart keeps them
-/// readable.
-///
-/// `None` when no query returned one. That is weaker evidence, not a weaker verdict: a part
-/// proven by a bound or by enumeration has no invariant to give.
+/// The route's certificates, each labelled with the part it proves; the verdict is their
+/// conjunction. `None` when no query returned one (a bound or enumeration proves without).
 fn combine_certificates(certificates: &[SubjectCertificate]) -> Option<String> {
     if certificates.is_empty() {
         return None;

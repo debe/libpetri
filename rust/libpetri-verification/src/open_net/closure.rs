@@ -141,13 +141,10 @@ pub fn close_open_net(net: &PetriNet, contract: &OpenNetContract) -> ClosedNet {
         declared.insert(p.clone());
     }
 
-    // Every place the contract names joins the closed net, a terminal's excused places
-    // included — `OpenNetContract::places` leaves those out. This is also what keeps the
-    // two routes deciding the same rest set: the SMT encoder resolves each sink and marker
-    // through the flat net's place index and silently drops what does not resolve, while
-    // the graph route matches by name and drops nothing. An arc-less excused place that
-    // never got registered here would therefore lose its excuse on the SMT route alone, and
-    // that route would report a stranding the graph route proves cannot happen.
+    // Every place the contract names joins the closed net, terminals' excused places
+    // included (`OpenNetContract::places` omits them): the SMT encoder drops a sink or
+    // marker that does not resolve while the graph route matches by name, so an
+    // unregistered excuse would strand a token on the SMT route alone.
     let mut undeclared: Vec<String> = Vec::new();
     let mut named = contract.places();
     named.extend(contract.terminals().iter().flat_map(|t| t.excused.iter().cloned()));

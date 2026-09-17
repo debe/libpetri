@@ -7,10 +7,8 @@
 //! sink. That is what lets the SMT route ask for it with `DeadlockFree` and mean the same
 //! thing.
 //!
-//! Everything both routes judge by is derived here once — the rest declaration, the waiver
-//! markers and the stranding attribution — and neither route rebuilds any of it: when two
-//! call sites each assembled their own copy, they drifted, and one route reported a
-//! stranding the other proved impossible.
+//! The rest declaration, the waiver markers and the stranding attribution are derived here
+//! once, so the two routes cannot drift apart on them.
 
 use std::collections::HashSet;
 
@@ -55,21 +53,12 @@ pub(super) fn rest_declaration_of(contract: &OpenNetContract, closed: &ClosedNet
 }
 
 /// The clause lower bounds' waivers: every designed terminal's marker ([VER-002]).
-///
-/// Both routes must waive by the same set in the same order — the graph route reads it
-/// through [`count_violation`] and the encoder through its index order — so it is derived
-/// here once rather than at each call site.
 pub(super) fn waiver_markers(contract: &OpenNetContract) -> Vec<String> {
     contract.terminals().iter().map(|t| t.marker.clone()).collect()
 }
 
-/// The places `m` strands, by name, in code-point order.
-///
-/// This is the predicate both routes must attribute a stranding with, and the reason it
-/// lives here rather than at each call site: it asks whether a place is marked **and
-/// unexcused**, applying the [VER-014] widening that a token on a place excused by a marked
-/// terminal marker is designed residue. A caller that asks only "is this place marked?"
-/// reports a stranding the other route proves cannot happen.
+/// The places `m` strands — marked **and** unexcused under [VER-014] — by name, in
+/// code-point order. Both routes attribute a stranding with it.
 pub(super) fn stranded_names(m: &MarkingState, rest: &RestDeclaration) -> Vec<String> {
     stranded_places(m, &rest.sinks, &rest.conditional)
 }
