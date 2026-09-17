@@ -130,8 +130,9 @@ class StateEquationTest {
         assertEquals(5, count(enc.smt2(), "(= m" + flat.indexOf(P0) + "p (+ 1 (- n0p) (- n1p)))"));
     }
 
+    /** [VER-016] AC2: {@code all(q)} removes at least one token per firing, so the linear count bounds q from above. */
     @Test
-    void leavesConsumeAllAndInjectedPlacesOutOfTheEquation() {
+    void boundsAConsumeAllPlaceFromAbove_andLeavesAnInjectedPlaceOutOfTheEquation() {
         var q = Place.of("q", String.class);
         var r = Place.of("r", String.class);
         var s = Place.of("s", String.class);
@@ -146,9 +147,28 @@ class StateEquationTest {
         var enc = SmtEncoder.encode(flat, MarkingState.builder().tokens(q, 2).build(),
             SmtProperty.mutualExclusion(r, s), List.of(), Set.of(), false, List.of(), true);
         assertFalse(enc.smt2().contains("(= m" + flat.indexOf(q) + "p (+ 2"), enc.smt2());
-        assertFalse(enc.smt2().contains("(= m" + flat.indexOf(envPlace) + "p (+ 0"), enc.smt2());
+        assertTrue(enc.smt2().contains("(<= m" + flat.indexOf(q) + "p (+ 2 (- n0p)))"), enc.smt2());
+        assertFalse(enc.smt2().contains("m" + flat.indexOf(envPlace) + "p (+ 0"), enc.smt2());
         // The injection rule carries the counters unchanged.
         assertTrue(enc.smt2().contains("(= n0p n0)\n            (= n1p n1)"), enc.smt2());
+    }
+
+    /**
+     * The upper-bound row sits in place order among the equality rows, not after them, and a
+     * reset arc clears a place exactly as a consume-all input does.
+     */
+    @Test
+    void upperBoundRowsStayInPlaceOrder_andAResetArcClearsAPlaceAsConsumeAllDoes() {
+        var a = Place.of("a", String.class);
+        var b = Place.of("b", String.class);
+        var c = Place.of("c", String.class);
+        var drain = Transition.builder("drain").inputs(In.all(a)).outputs(Out.place(b)).build();
+        var wipe = Transition.builder("wipe").inputs(In.one(b)).resets(c).outputs(Out.place(c)).build();
+        var flat = flat(StructureOnly.bind(PetriNet.builder("clears").transitions(drain, wipe).build()));
+        var m0 = MarkingState.builder().tokens(a, 3).build();
+        assertEquals(
+            List.of("(<= m0 (+ 3 (- n0)))", "(= m1 (+ 0 n0 (- n1)))", "(<= m2 (+ 0 n1))"),
+            SmtEncoder.stateEquationConditions(flat, m0, List.of("n0", "n1"), List.of("m0", "m1", "m2")));
     }
 
     @Test
@@ -201,6 +221,8 @@ class StateEquationTest {
         var result = SmtVerifier.forNet(forkOrHalt()).initialMarking(m0())
             .enumerationMaxClasses(0)
             .property(SmtProperty.deadlockFree()).sinkPlaces(DONE, HALT).stateEquation(true)
+            // The HORN encoding under test; the state-equation phase (VER-018) would decide first.
+            .stateEquationPhase(false).firingBound(false)
             .timeout(Duration.ofSeconds(30)).verify();
         assertTrue(result.isProven(), result.report());
         assertTrue(result.report().contains("State equation: encoded over 5 firing counters (VER-016)"), result.report());
@@ -215,10 +237,41 @@ class StateEquationTest {
         var result = SmtVerifier.forNet(forkOrHalt()).initialMarking(m0())
             .enumerationMaxClasses(0)
             .property(SmtProperty.deadlockFree()).sinkPlaces(DONE).stateEquation(true)
+            // The HORN encoding under test; the phases of VER-018/019 would find the run first.
+            .stateEquationPhase(false).firingBound(false)
             .timeout(Duration.ofSeconds(30)).verify();
         assertTrue(result.isViolated(), result.report());
         assertEquals(Boolean.TRUE, result.counterexampleConfirmed(), result.report());
         assertEquals(1, result.counterexampleTrace().getLast().tokens(HALT), result.report());
+    }
+
+    /**
+     * [VER-016] AC2/AC3: with the state equation on a net whose place a consume-all input
+     * clears, that place carries an upper-bound row in the candidate, and the certificate
+     * check still passes against the raw step relation.
+     */
+    @Test
+    @EnabledIf("z3Available")
+    void aConsumeAllPlace_keepsTheCertificateCheckPassing() {
+        var src = Place.of("src", String.class);
+        var q = Place.of("q", String.class);
+        var done = Place.of("done", String.class);
+        var net = StructureOnly.bind(PetriNet.builder("fill-drain").transitions(
+            Transition.builder("fill").inputs(In.one(src)).outputs(Out.place(q)).build(),
+            Transition.builder("drain").inputs(In.all(q)).outputs(Out.place(done)).build()).build());
+        var m0 = MarkingState.builder().tokens(src, 3).build();
+        // Explicit opt-outs: enumeration and the linear bound would each decide this before
+        // the fixpoint query whose certificate is under test.
+        var result = SmtVerifier.forNet(net).initialMarking(m0).enumerationMaxClasses(0).linearBound(false)
+            .property(SmtProperty.placeBound(done, 3)).stateEquation(true)
+            .timeout(Duration.ofSeconds(30)).verify();
+        assertTrue(result.isProven(), result.report());
+        assertTrue(result.report().contains("  Certificate check: PASSED (init, consecution, safety)"), result.report());
+        var scripts = SmtVerifier.forNet(net).initialMarking(m0).property(SmtProperty.placeBound(done, 3))
+            .stateEquation(true).encodeScripts();
+        // Places: done=0, q=1, src=2; transitions fill=0, drain=1.
+        assertTrue(scripts.horn().contains("(<= m1p (+ 0 n0p (- n1p)))"), scripts.horn());
+        assertTrue(scripts.certificate().contains("(<= m1 (+ 0 n0 (- n1)))"), scripts.certificate());
     }
 
     @Test

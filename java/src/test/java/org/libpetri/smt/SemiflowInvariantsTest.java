@@ -67,6 +67,9 @@ class SemiflowInvariantsTest {
             .initialMarking(m -> m.tokens(BUDGET, 1))
             .property(SmtProperty.placeBound(WORK, 1))
             .semiflowInvariants(true)
+            // The semiflow-strengthened HORN encoding is under test; VER-018/019 would decide first.
+            .stateEquationPhase(false)
+            .firingBound(false)
             .timeout(Duration.ofSeconds(30))
             .verify();
         assertTrue(on.isProven(), on.report());
@@ -86,6 +89,9 @@ class SemiflowInvariantsTest {
             .initialMarking(m -> m.tokens(BUDGET, 1))
             .property(SmtProperty.placeBound(SINK, 1))
             .semiflowInvariants(true)
+            // The semiflow-strengthened HORN encoding is under test; VER-018/019 would decide first.
+            .stateEquationPhase(false)
+            .firingBound(false)
             .timeout(Duration.ofSeconds(30))
             .verify();
         assertTrue(result.isViolated(), result.report());

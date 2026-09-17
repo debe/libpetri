@@ -59,6 +59,36 @@ class StateClassGraphTest {
         return MarkingState.builder().tokens(C, 1).tokens(D, 1).build();
     }
 
+    /**
+     * [VER-004], used by [VER-022]: {@code t1} must fire within 5 ms and {@code t2} waits
+     * 10 ms, so the timed graph never fires {@code t2}; the untimed one reaches the marking the
+     * timing excludes. Mirrors the TypeScript {@code untimed exploration} test.
+     */
+    @Test
+    void untimedExploration_reachesAMarkingTheTimingExcludes() {
+        var p = Place.of("p", String.class);
+        var a = Place.of("a", String.class);
+        var b = Place.of("b", String.class);
+        var t1 = Transition.builder("t1").inputs(In.one(p)).outputs(Out.place(a))
+            .timing(Timing.deadline(Duration.ofMillis(5))).action(TransitionAction.fork()).build();
+        var t2 = Transition.builder("t2").inputs(In.one(p)).outputs(Out.place(b))
+            .timing(Timing.delayed(Duration.ofMillis(10))).action(TransitionAction.fork()).build();
+        var net = PetriNet.builder("race").transitions(t1, t2).build();
+        var m0 = MarkingState.builder().tokens(p, 1).build();
+        java.util.function.Predicate<StateClassGraph> marksB =
+            g -> g.stateClasses().stream().anyMatch(sc -> sc.marking().hasTokens(b));
+        var timed = StateClassGraph.build(net, m0, 100);
+        var untimed = StateClassGraph.build(net, m0, 100, java.util.Set.of(), EnvironmentAnalysisMode.ignore(),
+            StateClassGraph.Options.UNTIMED);
+        assertFalse(marksB.test(timed));
+        assertTrue(marksB.test(untimed));
+        // The timed options are the graph every other overload builds.
+        var byOptions = StateClassGraph.build(net, m0, 100, java.util.Set.of(), EnvironmentAnalysisMode.ignore(),
+            StateClassGraph.Options.TIMED);
+        assertEquals(timed.stateClasses().size(), byOptions.stateClasses().size());
+        assertFalse(marksB.test(byOptions));
+    }
+
     @Test
     void countsOneMarkingOnce_whateverTheEnablingOrder_untimed() {
         var scg = StateClassGraph.build(twoChains(false), initial(), 1000);

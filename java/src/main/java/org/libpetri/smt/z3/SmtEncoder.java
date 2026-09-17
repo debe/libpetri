@@ -14,6 +14,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -196,8 +197,12 @@ public final class SmtEncoder {
         return out;
     }
 
-    /** The bounded environment places (legacy post-cap) in place-index order. */
-    private static List<int[]> envBounds(FlatNet flatNet) {
+    /**
+     * The bounded environment places (legacy post-cap) in place-index order, as
+     * {@code {index, cap}} pairs. Shared with the bounded run of [VER-019], whose unrolled
+     * steps carry the same post-cap.
+     */
+    static List<int[]> envBounds(FlatNet flatNet) {
         var out = new ArrayList<int[]>();
         for (var entry : flatNet.environmentBounds().entrySet()) {
             int idx = flatNet.indexOf(entry.getKey());
@@ -262,8 +267,11 @@ public final class SmtEncoder {
 
     /**
      * The places whose column of the incidence matrix is exact in every step: no
-     * consume-all / reset arc on them (H1) and not injected (H3'). Only these carry a
-     * marking-equation row; the others are unconstrained by it.
+     * consume-all / reset arc on them (H1) and not injected (H3').
+     *
+     * <p>Only these carry an <em>equality</em> row. A place a consume-all or reset arc
+     * clears carries the upper-bound row of {@link #stateEquationConditions} instead
+     * ([VER-016] AC2), and an injected place carries none.
      */
     public static List<Integer> equationPlaces(FlatNet flatNet) {
         var excluded = new java.util.HashSet<>(PInvariantComputer.nonlinearPlaces(flatNet));
@@ -298,17 +306,31 @@ public final class SmtEncoder {
     }
 
     /**
-     * The marking equation over the given marking and counter variables: for every place
-     * of {@link #equationPlaces}, {@code m_p = M0_p + Σ_t C[p][t]·n_t} over the flat
-     * transitions with a non-zero effect on {@code p}, in transition order. A coefficient
-     * of 1 is the bare counter, −1 is {@code (- n)}, any other {@code (* c n)} with a
-     * negative {@code c} written {@code (- k)}.
+     * The marking equation over the given marking and counter variables, in place order:
+     * {@code m_p = M0_p + Σ_t C[p][t]·n_t} for every place of {@link #equationPlaces}, over
+     * the flat transitions with a non-zero effect on {@code p}, in transition order; and
+     * {@code m_p <= M0_p + Σ_t C[p][t]·n_t} for a place a consume-all or reset arc clears
+     * ([VER-016] AC2). A clearing firing removes at least its arc weight, so the linear
+     * count bounds such a place from above, and the row stays inductive over
+     * {@code (M, n)}: a clearing step needs {@code m_p >= pre}, which the row turns into
+     * {@code post <= M0_p + C_p·n'}. Emitting no row there would be sound but weaker, and
+     * would leave the script different from the other implementations'. An injected place
+     * carries no row. A coefficient of 1 is the bare counter, −1 is {@code (- n)}, any
+     * other {@code (* c n)} with a negative {@code c} written {@code (- k)}.
      */
     public static List<String> stateEquationConditions(
             FlatNet flatNet, MarkingState initialMarking, List<String> nVars, List<String> mVars
     ) {
         var conditions = new ArrayList<String>();
-        for (int p : equationPlaces(flatNet)) {
+        var cleared = PInvariantComputer.nonlinearPlaces(flatNet);
+        var injected = new java.util.HashSet<Integer>();
+        for (var inj : resolveEnvInjection(flatNet)) {
+            injected.add(inj.pid());
+        }
+        for (int p = 0; p < flatNet.placeCount(); p++) {
+            if (injected.contains(p)) {
+                continue;
+            }
             var terms = new ArrayList<String>();
             for (int t = 0; t < flatNet.transitionCount(); t++) {
                 var ft = flatNet.transitions().get(t);
@@ -323,9 +345,8 @@ public final class SmtEncoder {
                     : "(* (- " + (-c) + ") " + n + ")");
             }
             int m0 = initialMarking.tokens(flatNet.places().get(p));
-            conditions.add(terms.isEmpty()
-                ? "(= " + mVars.get(p) + " " + m0 + ")"
-                : "(= " + mVars.get(p) + " (+ " + m0 + " " + String.join(" ", terms) + "))");
+            String rhs = terms.isEmpty() ? Integer.toString(m0) : "(+ " + m0 + " " + String.join(" ", terms) + ")";
+            conditions.add("(" + (cleared.contains(p) ? "<=" : "=") + " " + mVars.get(p) + " " + rhs + ")");
         }
         return conditions;
     }
@@ -650,6 +671,77 @@ public final class SmtEncoder {
                 conditions.add("(>= " + mVars.get(idx) + " 1)");
                 yield joinConditions(conditions);
             }
+            // QuiescentCount (VER-002): a quiescent marking whose count across the places is
+            // below `min` with every waiver empty, or above `max`.
+            case SmtProperty.QuiescentCount qc -> {
+                String bad = countViolationCondition(
+                    rendered(indexOrdered(flatNet, qc.places()), mVars),
+                    rendered(indexOrdered(flatNet, qc.waivedBy()), mVars),
+                    qc.min(), qc.max());
+                if (bad == null) {
+                    yield "false";
+                }
+                var conditions = encodeQuiescent(flatNet, mVars, envInject);
+                if (conditions == null) {
+                    yield "false";
+                }
+                conditions.add(bad);
+                yield joinConditions(conditions);
+            }
+        };
+    }
+
+    /** The terms of {@code terms} at {@code indices}, in that order. */
+    private static List<String> rendered(List<Integer> indices, List<String> terms) {
+        var out = new ArrayList<String>(indices.size());
+        for (int i : indices) {
+            out.add(terms.get(i));
+        }
+        return out;
+    }
+
+    /**
+     * The count clause of a {@link SmtProperty.QuiescentCount} over rendered count terms,
+     * places and waivers each in place-index order: {@code (and (< Σ min) (= w 0) …)} when
+     * {@code min > 0}, {@code (> Σ max)} when {@code max} is bounded, their {@code or} when
+     * both apply, and {@code null} when neither does — a count of {@code [0, ∞)} that no
+     * marking violates. {@code Σ} is {@code 0} for no term, the term itself for one,
+     * {@code (+ …)} otherwise.
+     *
+     * <p>The upper bound is never waived: a halted run may keep what it took, but it can
+     * never hold more than there is. An unbounded {@code max} contributes no clause at all,
+     * which is what keeps the script identical across implementations that store it
+     * differently ([VER-002] AC9). Shared with the name-coloured encoder, which renders
+     * aggregate counts, and mirrored by {@link AbstractReplayer}'s violation predicate.
+     */
+    static String countViolationCondition(
+            List<String> counts, List<String> waivers, int min, OptionalInt max
+    ) {
+        String sum = switch (counts.size()) {
+            case 0 -> "0";
+            case 1 -> counts.getFirst();
+            default -> "(+ " + String.join(" ", counts) + ")";
+        };
+        var parts = new ArrayList<String>(2);
+        if (min > 0) {
+            String below = "(< " + sum + " " + min + ")";
+            if (waivers.isEmpty()) {
+                parts.add(below);
+            } else {
+                var empty = new ArrayList<String>(waivers.size());
+                for (var w : waivers) {
+                    empty.add("(= " + w + " 0)");
+                }
+                parts.add("(and " + below + " " + String.join(" ", empty) + ")");
+            }
+        }
+        if (max.isPresent()) {
+            parts.add("(> " + sum + " " + max.getAsInt() + ")");
+        }
+        return switch (parts.size()) {
+            case 0 -> null;
+            case 1 -> parts.getFirst();
+            default -> "(or " + String.join(" ", parts) + ")";
         };
     }
 
@@ -693,12 +785,12 @@ public final class SmtEncoder {
     /**
      * Quiescence: every transition is disabled.
      *
-     * <p>Shared core of the three quiescence-sensitive properties (VER-002
-     * {@link SmtProperty.DeadlockFree} and {@link SmtProperty.TerminatesAtSink},
-     * NU-040 {@link SmtProperty.JoinedOrDeadLettered}). Each conjoins its own clause on
-     * top and none is encoded here, so a change to one predicate cannot silently move
-     * the others — which is exactly how the sink clause leaked into
-     * {@code JoinedOrDeadLettered} before NU-040 AC4.
+     * <p>Shared core of the quiescence-sensitive properties (VER-002
+     * {@link SmtProperty.DeadlockFree}, {@link SmtProperty.TerminatesAtSink} and
+     * {@link SmtProperty.QuiescentCount}, NU-040 {@link SmtProperty.JoinedOrDeadLettered}).
+     * Each conjoins its own clause on top and none is encoded here, so a change to one
+     * predicate cannot silently move the others — which is exactly how the sink clause
+     * leaked into {@code JoinedOrDeadLettered} before NU-040 AC4.
      *
      * <p>Returns {@code null} when some transition is enabled in every marking: no
      * quiescent marking exists, so every property built on this is unviolatable.

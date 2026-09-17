@@ -4,6 +4,7 @@ import org.libpetri.core.Arc;
 import org.libpetri.core.EnvironmentPlace;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
+import org.libpetri.core.Timing;
 import org.libpetri.core.Transition;
 import org.libpetri.core.internal.OutputActionCheck;
 
@@ -85,6 +86,33 @@ public final class StateClassGraph {
      * Enables XOR branch reachability analysis.
      */
     public record BranchEdge(int branchIndex, StateClass target) {}
+
+    /**
+     * Options for {@link StateClassGraph#build(PetriNet, MarkingState, int, Set,
+     * EnvironmentAnalysisMode, Options)}.
+     *
+     * @param untimed explore the <b>untimed</b> reachable set: every clock gets the interval
+     *                of {@link Timing#immediate()}, {@code [0, ∞)}, whatever its transition
+     *                declares, so any enabled transition may fire next and the graph holds
+     *                exactly the markings the untimed encoders reason about ([VER-004]). Its
+     *                verdicts are then the stronger untimed claim, not the timed one — what a
+     *                route standing in for the encoders on a net with timed transitions needs
+     *                ([VER-022]). On a net whose transitions are all immediate this changes
+     *                nothing.
+     */
+    public record Options(boolean untimed) {
+        /** The timed graph every other {@code build} overload explores. */
+        public static final Options TIMED = new Options(false);
+        /** The untimed graph: every clock gets the {@code immediate()} interval. */
+        public static final Options UNTIMED = new Options(true);
+    }
+
+    private static final Timing IMMEDIATE = Timing.immediate();
+
+    /** The timing a clock is given: the transition's own, or {@code immediate()} when exploring untimed. */
+    private static Timing clockTiming(Transition t, boolean untimed) {
+        return untimed ? IMMEDIATE : t.timing();
+    }
 
     // ==================== Fields ====================
 
@@ -179,13 +207,37 @@ public final class StateClassGraph {
             Set<EnvironmentPlace<?>> environmentPlaces,
             EnvironmentAnalysisMode environmentMode
     ) {
+        return build(net, initialMarking, maxClasses, environmentPlaces, environmentMode, Options.TIMED);
+    }
+
+    /**
+     * Builds the state class graph with {@link Options}, e.g. the untimed exploration.
+     *
+     * @param net the Time Petri Net
+     * @param initialMarking the initial marking
+     * @param maxClasses maximum number of state classes (for boundedness check)
+     * @param environmentPlaces places that receive tokens from the environment
+     * @param environmentMode how to treat environment places in enablement checks
+     * @param options how clocks are read; {@link Options#TIMED} is the graph the other
+     *                overloads build
+     * @return the computed state class graph
+     */
+    public static StateClassGraph build(
+            PetriNet net,
+            MarkingState initialMarking,
+            int maxClasses,
+            Set<EnvironmentPlace<?>> environmentPlaces,
+            EnvironmentAnalysisMode environmentMode,
+            Options options
+    ) {
         // Extract underlying places from EnvironmentPlace wrappers
         var envPlaces = new HashSet<Place<?>>();
         for (var ep : environmentPlaces) {
             envPlaces.add(ep.place());
         }
+        boolean untimed = options.untimed();
 
-        var initialClass = initialStateClass(net, initialMarking, envPlaces, environmentMode);
+        var initialClass = initialStateClass(net, initialMarking, envPlaces, environmentMode, untimed);
 
         // BFS exploration
         var stateClasses = new LinkedHashSet<StateClass>();
@@ -214,7 +266,7 @@ public final class StateClassGraph {
                 var virtualTransitions = expandTransition(transition);
 
                 for (var vt : virtualTransitions) {
-                    var successor = computeSuccessor(net, current, vt, envPlaces, environmentMode);
+                    var successor = computeSuccessor(net, current, vt, envPlaces, environmentMode, untimed);
 
                     // Empty DBM = temporally infeasible firing
                     if (successor == null || successor.isEmpty()) continue;
@@ -252,6 +304,21 @@ public final class StateClassGraph {
             Set<Place<?>> environmentPlaces,
             EnvironmentAnalysisMode environmentMode
     ) {
+        return initialStateClass(net, initialMarking, environmentPlaces, environmentMode, false);
+    }
+
+    /**
+     * {@link #initialStateClass(PetriNet, MarkingState, Set, EnvironmentAnalysisMode)} with
+     * every clock given the {@code immediate()} interval when {@code untimed}
+     * ({@link Options#untimed()}).
+     */
+    static StateClass initialStateClass(
+            PetriNet net,
+            MarkingState initialMarking,
+            Set<Place<?>> environmentPlaces,
+            EnvironmentAnalysisMode environmentMode,
+            boolean untimed
+    ) {
         OutputActionCheck.requireOutputProducingActions(net);
         var found = findEnabledTransitions(net, initialMarking, environmentPlaces, environmentMode);
         int[] order = canonicalOrder(found);
@@ -260,7 +327,7 @@ public final class StateClassGraph {
         var lowerBounds = new double[enabledTransitions.size()];
         var upperBounds = new double[enabledTransitions.size()];
         for (int i = 0; i < enabledTransitions.size(); i++) {
-            var timing = enabledTransitions.get(i).timing();
+            var timing = clockTiming(enabledTransitions.get(i), untimed);
             lowerBounds[i] = timing.earliest().toMillis() / 1000.0;
             upperBounds[i] = timing.latest().toMillis() / 1000.0;
         }
@@ -349,6 +416,22 @@ public final class StateClassGraph {
             Set<Place<?>> environmentPlaces,
             EnvironmentAnalysisMode environmentMode
     ) {
+        return computeSuccessor(net, current, fired, environmentPlaces, environmentMode, false);
+    }
+
+    /**
+     * {@link #computeSuccessor(PetriNet, StateClass, VirtualTransition, Set,
+     * EnvironmentAnalysisMode)} with every newly enabled clock given the
+     * {@code immediate()} interval when {@code untimed} ({@link Options#untimed()}).
+     */
+    static StateClass computeSuccessor(
+            PetriNet net,
+            StateClass current,
+            VirtualTransition fired,
+            Set<Place<?>> environmentPlaces,
+            EnvironmentAnalysisMode environmentMode,
+            boolean untimed
+    ) {
         var transition = fired.transition();
 
         // 1. Compute the intermediate marking (inputs consumed, resets drained) and the new
@@ -393,7 +476,7 @@ public final class StateClassGraph {
         var newUpperBounds = new double[newlyEnabled.size()];
 
         for (int i = 0; i < newlyEnabled.size(); i++) {
-            var timing = newlyEnabled.get(i).timing();
+            var timing = clockTiming(newlyEnabled.get(i), untimed);
             newLowerBounds[i] = timing.earliest().toMillis() / 1000.0;
             newUpperBounds[i] = timing.latest().toMillis() / 1000.0;
         }

@@ -64,8 +64,8 @@ import java.util.TreeSet;
  * row classified by its own incidence, with {@code matchSpec} read from its source.
  *
  * <p><b>Properties.</b> Reachability-safety properties compare aggregate coloured place
- * counts. Quiescence properties ({@code DeadlockFree}, {@code JoinedOrDeadLettered})
- * use a colour-aware deadlock predicate (NU-053, Part 2): every transition is disabled
+ * counts. Quiescence properties ({@code DeadlockFree}, {@code JoinedOrDeadLettered},
+ * {@code QuiescentCount}) use a colour-aware deadlock predicate (NU-053, Part 2): every transition is disabled
  * for every colour (a mint has no globally-fresh colour, a join no shared colour, a
  * consumer no resident colour) and the marking is not a sink state — mirroring the flat
  * {@link SmtEncoder} deadlock with the same env-injection relaxation.
@@ -808,7 +808,36 @@ public final class NameColouredEncoder {
                 conds.add("(>= " + lay.aggregate(pid, plan, lay.cur) + " 1)");
                 yield joinColoured(conds);
             }
+            // QuiescentCount (VER-002): the flat encoder's count clause over the aggregate
+            // (all-colour) counts, on top of the colour-aware quiescence. The clause is the
+            // flat encoder's own countViolationCondition, so the two encodings cannot phrase
+            // a count differently.
+            case SmtProperty.QuiescentCount qc -> {
+                String bad = SmtEncoder.countViolationCondition(
+                    aggregates(plan, lay, flat, qc.places()),
+                    aggregates(plan, lay, flat, qc.waivedBy()),
+                    qc.min(), qc.max());
+                if (bad == null) {
+                    yield "false";
+                }
+                var conds = encodeColouredQuiescent(plan, lay, flat, envInj);
+                if (conds == null) {
+                    yield "false";
+                }
+                conds.add(bad);
+                yield joinColoured(conds);
+            }
         };
+    }
+
+    /** The aggregate (all-colour) count term of each given place that resolves, in index order. */
+    private static List<String> aggregates(
+            ColouredPlan plan, Layout lay, FlatNet flat, Collection<Place<?>> places) {
+        var out = new ArrayList<String>();
+        for (int pid : SmtEncoder.indexOrdered(flat, places)) {
+            out.add(lay.aggregate(pid, plan, lay.cur));
+        }
+        return out;
     }
 
     /** All the given places (that resolve) hold a token; {@code false} when none resolves. */

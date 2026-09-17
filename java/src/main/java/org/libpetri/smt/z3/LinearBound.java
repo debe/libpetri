@@ -97,7 +97,7 @@ public final class LinearBound {
                 }
             }
             case SmtProperty.DeadlockFree _, SmtProperty.TerminatesAtSink _,
-                 SmtProperty.JoinedOrDeadLettered _ -> {
+                 SmtProperty.JoinedOrDeadLettered _, SmtProperty.QuiescentCount _ -> {
                 return null;
             }
         }

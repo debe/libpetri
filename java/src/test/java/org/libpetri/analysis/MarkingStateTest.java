@@ -3,6 +3,7 @@ package org.libpetri.analysis;
 import org.libpetri.core.Place;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -71,6 +72,24 @@ class MarkingStateTest {
         assertTrue(places.contains(p1));
         assertTrue(places.contains(p2));
         assertFalse(places.contains(p3));
+    }
+
+    @Test
+    void placesWithTokens_listsPlacesInInsertionOrder() {
+        // A place set again keeps its position; one removed and set again moves to the end.
+        var state = MarkingState.builder()
+            .tokens(p3, 1)
+            .tokens(p1, 1)
+            .tokens(p2, 1)
+            .addTokens(p3, 2)
+            .tokens(p1, 0)
+            .tokens(p1, 4)
+            .build();
+
+        assertEquals(List.of(p3, p2, p1), List.copyOf(state.placesWithTokens()));
+        assertEquals(List.of(p3, p2, p1),
+            List.copyOf(MarkingState.builder().copyFrom(state).build().placesWithTokens()));
+        assertEquals(MarkingState.builder().tokens(p1, 4).tokens(p2, 1).tokens(p3, 3).build(), state);
     }
 
     @Test

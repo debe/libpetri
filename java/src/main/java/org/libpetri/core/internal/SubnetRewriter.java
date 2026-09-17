@@ -403,7 +403,9 @@ public final class SubnetRewriter {
      * {@code Reset<T>}). The unchecked cast is safe at runtime: the remap is
      * populated by {@link #renamePlace}, which preserves {@code tokenType};
      * future callers that put non-rename mappings in must preserve the same
-     * invariant.
+     * invariant. The one exception is the open-net closure
+     * ({@code OpenNetClosure}), which rebinds a transition that never executes
+     * to a same-named place of another token type.
      */
     @SuppressWarnings("unchecked")
     private static <T> Place<T> resolveTyped(Place<T> p, Map<Place<?>, Place<?>> remap) {

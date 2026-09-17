@@ -325,6 +325,43 @@ class NameColouredEncoderTest {
             () -> "NU-040 AC4: a declared sink must not excuse a stranded group:\n" + jdl);
     }
 
+    /**
+     * [VER-002] QuiescentCount on the coloured encoding: the flat encoder's count clause over
+     * aggregate (all-colour) counts, places and waivers in index order whatever order they
+     * were named in, on top of the colour-aware quiescence; a count of {@code [0, ∞)} encodes
+     * no violation at all. Mirrors Rust's {@code coloured_quiescence_arms_differ_by_property}.
+     */
+    @Test
+    void colouredQuiescentCountCarriesTheFlatCountClauseOverAggregates() {
+        var net = mintJoinNet(false);
+        var flat = NetFlattener.flatten(net, Set.of(), EnvironmentAnalysisMode.ignore());
+        var budget1 = Place.of("budget1", Integer.class);
+        var initial = MarkingState.builder().tokens(budget1, 1).build();
+        var plan = planFor(net, FragmentMode.BASE);
+        assertNotNull(plan, "mint→join is in-fragment");
+        var branchA = Place.of("branchA", String.class);
+        var branchB = Place.of("branchB", String.class);
+
+        // A place's aggregate count term, read off PlaceBound's own `(> AGG 7)`.
+        java.util.function.Function<Place<?>, String> agg = place -> {
+            String bound = violationTerm(encodeColoured(plan, flat, initial, SmtProperty.placeBound(place, 7), Set.of()));
+            assertTrue(bound.startsWith("(> ") && bound.endsWith(" 7)"), bound);
+            return bound.substring(3, bound.length() - 3);
+        };
+        String count = violationTerm(encodeColoured(plan, flat, initial, SmtProperty.quiescentCount(
+            List.of(budget1, branchB), 1, java.util.OptionalInt.of(1), List.of(branchA)), Set.of()));
+        String sum = "(+ " + agg.apply(branchB) + " " + agg.apply(budget1) + ")";
+        String clause = "(or (and (< " + sum + " 1) (= " + agg.apply(branchA) + " 0)) (> " + sum + " 1))";
+        assertTrue(count.endsWith(" " + clause + ")"), () -> "QuiescentCount must carry the count clause last:\n" + count);
+        String deadlock = violationTerm(encodeColoured(plan, flat, initial, SmtProperty.deadlockFree(), Set.of()));
+        assertTrue(count.startsWith(deadlock.substring(0, deadlock.indexOf(" (or (>= "))),
+            () -> "the count clause sits on the colour-aware quiescence:\n" + count + "\n" + deadlock);
+
+        String anything = violationTerm(encodeColoured(plan, flat, initial, SmtProperty.quiescentCount(
+            List.of(branchB), 0, java.util.OptionalInt.empty()), Set.of()));
+        assertEquals("false", anything);
+    }
+
     private static String encodeColoured(
             NameColouredEncoder.ColouredPlan plan, FlatNet flat, MarkingState initial,
             SmtProperty property, Set<Place<?>> sinks) {

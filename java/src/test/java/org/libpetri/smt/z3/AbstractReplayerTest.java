@@ -426,4 +426,80 @@ class AbstractReplayerTest {
         var confirmed = assertInstanceOf(AbstractReplayer.ReplayOutcome.Confirmed.class, outcome);
         assertEquals(marking(C, 1), confirmed.trace().getLast());
     }
+    // === violationPredicate: violates with the resolution hoisted ===
+
+    /**
+     * Two jobs share a budget of two: {@code start} takes a unit (inhibited by {@code halt}),
+     * {@code finish} refunds it, {@code abort} stops a running job keeping its unit.
+     * {@code jobs} is an environment place, so the same net flattens with and without
+     * injection. Places: budget=0, done=1, halt=2, jobs=3, running=4.
+     */
+    private static FlatNet jobsFlat(EnvironmentAnalysisMode mode) {
+        var budget = Place.of("budget", String.class);
+        var done = Place.of("done", String.class);
+        var halt = Place.of("halt", String.class);
+        var jobs = Place.of("jobs", String.class);
+        var running = Place.of("running", String.class);
+        var net = PetriNet.builder("jobs").transitions(
+            Transition.builder("start").inputs(In.one(jobs), In.one(budget)).inhibitors(halt)
+                .outputs(Out.place(running)).build(),
+            Transition.builder("finish").inputs(In.one(running)).outputs(Out.and(budget, done)).build(),
+            Transition.builder("abort").inputs(In.one(running)).outputs(Out.place(halt)).build()).build();
+        return NetFlattener.flatten(net, Set.of(EnvironmentPlace.of(jobs)), mode);
+    }
+
+    /**
+     * The predicate is {@code violates} with the resolution hoisted: it agrees on every state
+     * of a box, for every property shape, under every injection mode.
+     */
+    @Test
+    void violationPredicate_agreesWithViolates_onEveryStateOfABox() {
+        var budget = Place.of("budget", String.class);
+        var done = Place.of("done", String.class);
+        var halt = Place.of("halt", String.class);
+        var running = Place.of("running", String.class);
+        Set<Place<?>> sinks = Set.of(done);
+        var cond = List.of(new org.libpetri.smt.RestSet.ConditionalSinks(halt, Set.of(budget)));
+        var properties = List.<SmtProperty>of(
+            SmtProperty.deadlockFree(),
+            SmtProperty.terminatesAtSink(),
+            SmtProperty.placeBound(budget, 1),
+            SmtProperty.unreachable(Set.of(done, halt)),
+            SmtProperty.joinedOrDeadLettered(running),
+            SmtProperty.quiescentCount(List.of(budget, done), 2, java.util.OptionalInt.of(3), List.of(halt)),
+            SmtProperty.quiescentCount(List.of(budget), 1, java.util.OptionalInt.empty()));
+        for (var mode : List.of(EnvironmentAnalysisMode.ignore(), EnvironmentAnalysisMode.alwaysAvailable(),
+                EnvironmentAnalysisMode.bounded(0))) {
+            var flat = jobsFlat(mode);
+            assertEquals(List.of("budget", "done", "halt", "jobs", "running"),
+                flat.places().stream().map(Place::name).toList());
+            for (var property : properties) {
+                var predicate = AbstractReplayer.violationPredicate(flat, property, sinks, cond);
+                for (int code = 0; code < 243; code++) {
+                    int[] state = new int[5];
+                    for (int i = 0, c = code; i < 5; i++, c /= 3) {
+                        state[i] = c % 3;
+                    }
+                    assertEquals(AbstractReplayer.violates(flat, property, sinks, cond, state), predicate.test(state),
+                        property + " at " + java.util.Arrays.toString(state) + " under " + mode);
+                }
+            }
+        }
+    }
+
+    /**
+     * Relax-env quiescence survives the hoisting: an injectable {@code jobs} keeps
+     * {@code start} enabled while a budget unit is left, so {@code {budget:1}} is not at rest
+     * and cannot witness a count below two.
+     */
+    @Test
+    void violationPredicate_keepsTheInjectionAwareQuiescence() {
+        var budget = Place.of("budget", String.class);
+        var count = SmtProperty.quiescentCount(List.of(budget), 2, java.util.OptionalInt.of(2));
+        int[] oneLeft = {1, 0, 0, 0, 0};
+        assertTrue(AbstractReplayer.violationPredicate(
+            jobsFlat(EnvironmentAnalysisMode.ignore()), count, Set.of(), List.of()).test(oneLeft));
+        assertFalse(AbstractReplayer.violationPredicate(
+            jobsFlat(EnvironmentAnalysisMode.alwaysAvailable()), count, Set.of(), List.of()).test(oneLeft));
+    }
 }

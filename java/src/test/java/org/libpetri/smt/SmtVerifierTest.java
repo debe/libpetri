@@ -153,6 +153,9 @@ class SmtVerifierTest {
             .property(SmtProperty.mutualExclusion(p1, p2))
             // The linear bound (VER-015) would prove this structurally; this test pins the IC3 path.
             .linearBound(false)
+            // The IC3/PDR path is under test; the phases of VER-018/019 would decide first.
+            .stateEquationPhase(false)
+            .firingBound(false)
             .timeout(Duration.ofSeconds(10))
             .verify();
 
@@ -222,6 +225,9 @@ class SmtVerifierTest {
             .property(SmtProperty.placeBound(p2, 1))
             // The linear bound (VER-015) would prove this structurally; this test pins the IC3 path.
             .linearBound(false)
+            // The IC3/PDR path is under test; the phases of VER-018/019 would decide first.
+            .stateEquationPhase(false)
+            .firingBound(false)
             .timeout(Duration.ofSeconds(10))
             .verify();
 
@@ -270,6 +276,9 @@ class SmtVerifierTest {
             .property(SmtProperty.unreachable(Set.of(pA, pC)))
             // The linear bound (VER-015) would prove this structurally; this test pins the IC3 path.
             .linearBound(false)
+            // The IC3/PDR path is under test; the phases of VER-018/019 would decide first.
+            .stateEquationPhase(false)
+            .firingBound(false)
             .timeout(Duration.ofSeconds(10))
             .verify();
 
@@ -434,6 +443,9 @@ class SmtVerifierTest {
             .property(SmtProperty.placeBound(out, 0))
             // The linear bound (VER-015) would prove this structurally; this test pins the IC3 path.
             .linearBound(false)
+            // The IC3/PDR path is under test; the phases of VER-018/019 would decide first.
+            .stateEquationPhase(false)
+            .firingBound(false)
             .timeout(Duration.ofSeconds(15))
             .verify();
         assertTrue(bounded1.isProven(),
@@ -547,6 +559,9 @@ class SmtVerifierTest {
             .property(SmtProperty.placeBound(pB, 5))
             // The linear bound (VER-015) would prove this structurally; this test pins the IC3 path.
             .linearBound(false)
+            // The IC3/PDR path is under test; the phases of VER-018/019 would decide first.
+            .stateEquationPhase(false)
+            .firingBound(false)
             .timeout(Duration.ofSeconds(10))
             .verify();
 
@@ -1242,6 +1257,10 @@ class SmtVerifierTest {
             .property(SmtProperty.mutualExclusion(p1, p2))
             // The linear bound (VER-015) would prove this structurally; this test pins the IC3 path.
             .linearBound(false)
+            // The fixpoint path's certificate is under test; the phases of VER-018/019 would
+            // decide first.
+            .stateEquationPhase(false)
+            .firingBound(false)
             .timeout(Duration.ofSeconds(10))
             .certificateChecker((_, _, _, _, _, _, _, _, _, _) ->
                 new CertificateChecker.Result.Failed(
@@ -1272,6 +1291,10 @@ class SmtVerifierTest {
             .property(SmtProperty.mutualExclusion(p1, p2))
             // The linear bound (VER-015) would prove this structurally; this test pins the IC3 path.
             .linearBound(false)
+            // The fixpoint path's certificate is under test; the phases of VER-018/019 would
+            // decide first.
+            .stateEquationPhase(false)
+            .firingBound(false)
             .timeout(Duration.ofSeconds(10))
             .certificateChecker((_, _, _, _, _, _, _, _, _, _) -> {
                 throw new RuntimeException("simulated solver failure");
@@ -1297,6 +1320,9 @@ class SmtVerifierTest {
             .property(SmtProperty.mutualExclusion(p1, p2))
             // The linear bound (VER-015) would prove this structurally; this test pins the IC3 path.
             .linearBound(false)
+            // The IC3/PDR path is under test; the phases of VER-018/019 would decide first.
+            .stateEquationPhase(false)
+            .firingBound(false)
             .timeout(Duration.ofSeconds(10))
             .certificateCheck(false)
             .verify();
@@ -1325,6 +1351,9 @@ class SmtVerifierTest {
             .property(SmtProperty.mutualExclusion(p1, p2))
             // The linear bound (VER-015) would prove this structurally; this test pins the IC3 path.
             .linearBound(false)
+            // The IC3/PDR path is under test; the phases of VER-018/019 would decide first.
+            .stateEquationPhase(false)
+            .firingBound(false)
             .timeout(Duration.ofSeconds(10))
             .certificateCheck(false)
             .certificateChecker((_, _, _, _, _, _, _, _, _, _) -> {
@@ -1464,6 +1493,10 @@ class SmtVerifierTest {
             // small untimed net and would decide it with no solver at all, leaving the
             // encoding path this test pins unexercised.
             .enumerationMaxClasses(0)
+            // The replay reads Spacer's refutation; the phases of VER-018/019 would find
+            // this counterexample first, by a search of their own.
+            .stateEquationPhase(false)
+            .firingBound(false)
             .initialMarking(m -> m.tokens(p1, 1))
             .property(SmtProperty.deadlockFree())
             .timeout(Duration.ofSeconds(10))
@@ -1496,6 +1529,10 @@ class SmtVerifierTest {
             // small untimed net and would decide it with no solver at all, leaving the
             // encoding path this test pins unexercised.
             .enumerationMaxClasses(0)
+            // The replay reads Spacer's refutation; the phases of VER-018/019 would find
+            // this counterexample first, by a search of their own.
+            .stateEquationPhase(false)
+            .firingBound(false)
             .initialMarking(m -> m.tokens(p1, 1))
             .property(SmtProperty.deadlockFree())
             .timeout(Duration.ofSeconds(10))
@@ -1549,6 +1586,10 @@ class SmtVerifierTest {
             // small untimed net and would decide it with no solver at all, leaving the
             // encoding path this test pins unexercised.
             .enumerationMaxClasses(0)
+            // The replay reads Spacer's refutation; the phases of VER-018/019 would find
+            // this counterexample first, by a search of their own.
+            .stateEquationPhase(false)
+            .firingBound(false)
             .initialMarking(m -> m.tokens(places.getFirst(), 1))
             .property(SmtProperty.placeBound(places.getLast(), 0))
             .replayStateSetOverride(java.util.Set.of(mk(places.getFirst(), 1)))
@@ -1573,6 +1614,10 @@ class SmtVerifierTest {
             // small untimed net and would decide it with no solver at all, leaving the
             // encoding path this test pins unexercised.
             .enumerationMaxClasses(0)
+            // The replay reads Spacer's refutation; the phases of VER-018/019 would find
+            // this counterexample first, by a search of their own.
+            .stateEquationPhase(false)
+            .firingBound(false)
             .initialMarking(m -> m.tokens(places.getFirst(), 1))
             .property(SmtProperty.placeBound(places.getLast(), 0))
             .replayNodeBudget(1)
@@ -1596,6 +1641,10 @@ class SmtVerifierTest {
             // small untimed net and would decide it with no solver at all, leaving the
             // encoding path this test pins unexercised.
             .enumerationMaxClasses(0)
+            // The replay reads Spacer's refutation; the phases of VER-018/019 would find
+            // this counterexample first, by a search of their own.
+            .stateEquationPhase(false)
+            .firingBound(false)
             .initialMarking(m -> m.tokens(places.getFirst(), 1))
             .property(SmtProperty.placeBound(places.getLast(), 0))
             .replayStateSetOverride(java.util.Set.of(mk(places.get(1), 1), mk(places.get(2), 1)))
@@ -1620,6 +1669,10 @@ class SmtVerifierTest {
             // small untimed net and would decide it with no solver at all, leaving the
             // encoding path this test pins unexercised.
             .enumerationMaxClasses(0)
+            // The replay reads Spacer's refutation; the phases of VER-018/019 would find
+            // this counterexample first, by a search of their own.
+            .stateEquationPhase(false)
+            .firingBound(false)
             .initialMarking(m -> m.tokens(places.getFirst(), 1))
             .property(SmtProperty.placeBound(places.getLast(), 0))
             .replayStateSetOverride(java.util.Set.of())

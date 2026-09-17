@@ -105,12 +105,14 @@ Neither subsumes the other, which is why both exist.
 - QuiescentCount: TypeScript (`quiescentCount(places, min, max, waivedBy)`), Rust
   (`SmtProperty::quiescent_count(places, min, max, waived_by)`, panicking on `max < min`) and
   Python (`quiescent_count(places, min, max, waived_by=None)`, raising `ValueError` on a
-  negative or fractional bound or `max < min`). Java: not yet implemented. No shared fixtures
-  until all four implement it.
+  negative or fractional bound or `max < min`) and Java
+  (`SmtProperty.quiescentCount(places, min, max, waivedBy)`, throwing
+  `IllegalArgumentException` on a negative `min` or `max < min`). No shared fixture pins it
+  yet.
 - Unbounded `max` is `Infinity` in TypeScript and `math.inf` in Python, matching how both
   already spell an unbounded threshold; Java and Rust SHOULD use an absent optional
   (`OptionalInt` in Java, `Option<usize>` in Rust, matching its other bounds) rather than a
-  sentinel, so that no legitimate count can collide with it. Rust does.
+  sentinel, so that no legitimate count can collide with it. Both do.
 
 **Test derivation:** For each property type: construct net where property holds → Proven; construct net where property is violated → Violated.
 
@@ -649,9 +651,9 @@ are requested.
 - TypeScript: `SmtVerifier.stateEquation(enabled)`; `encodeNet(…, { stateEquation })`.
 - Rust: `SmtVerifier::state_equation(bool)`.
 - Python: `verify(..., state_equation=True)`.
-- The upper-bound rows on cleared places are in TypeScript and Rust, byte-identical. Java and
-  Python still emit no row for such a place, which is weaker but sound; their scripts for a net
-  with a consume-all or reset arc differ until they follow (AC5). Python follows Rust once its
+- The upper-bound rows on cleared places are in TypeScript, Rust and Java, byte-identical.
+  Python still emits no row for such a place, which is weaker but sound; its scripts for a net
+  with a consume-all or reset arc differ until it follows (AC5). Python follows Rust once its
   binding is rebuilt against this runtime.
 
 **Depends on:** [VER-001], [VER-004], [VER-005], [VER-013], [VER-015]
@@ -848,7 +850,9 @@ with its run in 0.3 s; one left to the next phase.
 - Python: `verify(..., state_equation_phase=True)`; `encode_smt_scripts(...)["state_equation"]`
   (the first query, gated by `state_equation_phase=`; the `state_equation=` keyword is
   [VER-016]'s).
-- Java: not yet implemented.
+- Java: `org.libpetri.smt.z3.StateEquationQuery`, `TrapRefinement`, `InvariantSynthesis`,
+  `ParikhSearch`, `StateEquationPhase`; `SmtVerifier.stateEquationPhase(boolean)`;
+  `encodeScripts().stateEquation()` (the first query).
 - Naming, so the four surfaces do not each invent one: the three pre-fixpoint phases are
   `linearBound` ([VER-015]), `stateEquationPhase` ([VER-018]) and `firingBound` ([VER-019]),
   each a single boolean toggle in the verifier's builder, spelled the way the language spells
@@ -942,7 +946,9 @@ longest run exactly (38, 41, 50 and 70 firings).
   `encode_repeatable_vector_query`, `encode_bounded_run`, `replay_run`,
   `run_firing_bound_phase`); `SmtVerifier::firing_bound(bool)`.
 - Python: `verify(..., firing_bound=True)`.
-- Java: not yet implemented.
+- Java: `org.libpetri.smt.z3.BoundedRun` (`encodeRankingQuery`, `checkRankingExact`,
+  `encodeRepeatableVectorQuery`, `encodeBoundedRun`, `replayRun`, `runFiringBoundPhase`);
+  `SmtVerifier.firingBound(boolean)`.
 
 **Depends on:** [VER-001], [VER-003], [VER-004], [VER-013], [VER-018]
 
@@ -1342,7 +1348,17 @@ It is the fallback for a graph that will not close, not an alternative to one.
   `OpenNetContract.builder()` with the Rust builder's methods, places as varargs and an
   unbounded `max` as `math.inf`. Results are `OpenNetResult`, `ContractViolation` and
   `PortStep`, with the Rust report.
-- Java: not yet implemented.
+- Java: `org.libpetri.smt.opennet`: `OpenNetVerifier.verifyOpenNet(net, contract, options)`
+  with `OpenNetOptions(maxClasses, smt, configureSmt, terminationTimeout)`;
+  `OpenNetContract.builder()` (`initialMarking`, `initialTokens`, `arrive`, `arriveAtMost`,
+  `arriveBetween`, `expect`, `expectBetween` with `max` as an `OptionalInt`, `rest`,
+  `terminal`, `environment`, `requireTermination`); `OpenNetClosure.closeOpenNet`. Results are
+  `OpenNetResult`, `ContractViolation` and `ContractViolation.PortStep`. Contract places are
+  matched to the net's by name, as in TypeScript, although Java `Place` equality also compares
+  the token type. Supporting APIs: `StateClassGraph.build(…, StateClassGraph.Options.UNTIMED)`
+  and `RestSet.strandedPlaces`. The report is byte-identical to TypeScript's for place names in
+  printable ASCII; a marking with other characters lists them after the ASCII names, by code
+  point, where TypeScript's `localeCompare` follows the host's collation.
 
 **Depends on:** [VER-002], [VER-004], [VER-006], [VER-010], [VER-014], [VER-017], [VER-019]
 

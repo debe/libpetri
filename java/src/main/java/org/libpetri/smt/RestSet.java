@@ -7,6 +7,7 @@ import org.libpetri.smt.encoding.FlatNet;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -114,6 +115,53 @@ public final class RestSet {
     public static boolean strandsToken(
             MarkingState m, Collection<Place<?>> sinkPlaces, List<ConditionalSinks> conditional
     ) {
+        var resting = restingPlaces(m, sinkPlaces, conditional);
+        for (var p : m.placesWithTokens()) {
+            if (!resting.contains(p)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The places of {@code m} that hold a stranded token — marked <b>and</b> unexcused —
+     * ordered by name: empty exactly when {@link #strandsToken} is false.
+     *
+     * <p>"Unexcused" applies the [VER-014] widening: a token on a place a <em>marked</em>
+     * marker excuses is designed residue, not stranded work, and the marker itself always
+     * rests. A caller that asks only "is this place marked?" names a stranding that the
+     * other routes prove cannot happen; the open-net contract of [VER-022] reads this to
+     * name the places a quiescent marking leaves work on, so the predicate is stated here
+     * once.
+     *
+     * <p>Ordered by name ({@link String#compareTo}, UTF-16 code units, as the other
+     * implementations compare names), then by token type name for two places sharing a
+     * name, rather than in the marking's own order: {@link MarkingState} has none, and the
+     * names reach a report.
+     */
+    public static List<Place<?>> strandedPlaces(
+            MarkingState m, Collection<Place<?>> sinkPlaces, List<ConditionalSinks> conditional
+    ) {
+        var resting = restingPlaces(m, sinkPlaces, conditional);
+        var stranded = new ArrayList<Place<?>>();
+        for (var p : m.placesWithTokens()) {
+            if (!resting.contains(p)) {
+                stranded.add(p);
+            }
+        }
+        stranded.sort(Comparator.comparing((Place<?> p) -> p.name())
+            .thenComparing(p -> p.tokenType() == null ? "" : p.tokenType().getName()));
+        return List.copyOf(stranded);
+    }
+
+    /**
+     * The places where a token may rest in {@code m}: the declared sinks, every marker, and
+     * the places of every marker {@code m} marks.
+     */
+    private static Set<Place<?>> restingPlaces(
+            MarkingState m, Collection<Place<?>> sinkPlaces, List<ConditionalSinks> conditional
+    ) {
         var resting = new HashSet<Place<?>>(sinkPlaces);
         for (var entry : conditional) {
             resting.add(entry.marker());
@@ -121,12 +169,7 @@ public final class RestSet {
                 resting.addAll(entry.places());
             }
         }
-        for (var p : m.placesWithTokens()) {
-            if (!resting.contains(p)) {
-                return true;
-            }
-        }
-        return false;
+        return resting;
     }
 
     /**

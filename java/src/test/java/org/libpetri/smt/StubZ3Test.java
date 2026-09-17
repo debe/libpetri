@@ -106,6 +106,10 @@ class StubZ3Test {
             .initialMarking(m -> tokens.forEach(m::tokens))
             .property(property)
             .environmentMode(EnvironmentAnalysisMode.ignore())
+            // The contract under test is the HORN and certificate scripts' transport. The
+            // phases of VER-018/019 run first and would consume the stub's canned replies.
+            .stateEquationPhase(false)
+            .firingBound(false)
             .solver(solver)
             .timeout(timeout)
             .verify();

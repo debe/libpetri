@@ -78,6 +78,9 @@ class SmtScriptParityTest {
         compare(id, goldenDir.resolve("certificate.smt2"), scripts.certificate());
         // The linear state-equation bound query ([VER-015]); absent for a quiescence property.
         compare(id, goldenDir.resolve("bound.smt2"), scripts.bound());
+        // The state-equation phase's first query ([VER-018] AC7); absent where the phase does
+        // not run (a ν-net, Ignore with environment places).
+        compare(id, goldenDir.resolve("state-equation.smt2"), scripts.stateEquation());
     }
 
     private static void compare(String id, Path golden, String actual) throws IOException {

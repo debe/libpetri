@@ -16,6 +16,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * Pure-Java replay of a Spacer counterexample under the <em>abstract</em>
@@ -50,9 +51,10 @@ import java.util.Set;
  *       transition (subject to the bounded-environment caps on {@code M'}),
  *       plus one environment-injection step per injected env place — adding a
  *       single token while under the injection bound (VER-006).</li>
- *   <li>{@link #violates}: the property-violation predicate
- *       {@code Bad(M)} of {@code SmtEncoder.encodePropertyViolation}, including
- *       the relaxed (injection-aware) enablement inside the deadlock arm.</li>
+ *   <li>{@link #violates} / {@link #violationPredicate}: the property-violation
+ *       predicate {@code Bad(M)} of {@code SmtEncoder.encodePropertyViolation},
+ *       including the relaxed (injection-aware) enablement inside every
+ *       quiescence arm.</li>
  * </ul>
  *
  * <p>The strengthening P-invariants are deliberately NOT consulted (same
@@ -241,6 +243,80 @@ public final class AbstractReplayer {
             List<RestSet.ConditionalSinks> conditionalSinks, int[] m,
             Map<Integer, Integer> envInj
     ) {
+        return violatesIndexed(
+            flatNet, property, PropertyIndex.of(flatNet, property, sinkPlaces, conditionalSinks), m, envInj);
+    }
+
+    /**
+     * {@link #violates(FlatNet, SmtProperty, Set, List, int[])} with the net and the
+     * declarations resolved once, for a search that tests many states — the witness search
+     * of the state-equation phase ([VER-018]) and the bounded run of the firing bound
+     * ([VER-019]).
+     *
+     * <p>It is the same predicate, not a second statement of it: {@link #violates} resolves
+     * and evaluates through the one evaluator this predicate calls, so a search and the
+     * replay cannot disagree about a state. Quiescence keeps the relaxed (injection-aware)
+     * enablement: a marking an injection could re-enable is not quiescent, which is what
+     * keeps an open net merely waiting for input from reading as stuck, and a search from
+     * reporting such a marking as a witness.
+     *
+     * <p>The returned predicate throws {@link IllegalArgumentException} on a state it tests,
+     * as {@link #violates} does, when a {@code MutualExclusion} or place-bound property names
+     * a place the net does not declare.
+     *
+     * @param sinkPlaces       declared sinks, read by {@code DeadlockFree} and
+     *                         {@code TerminatesAtSink}
+     * @param conditionalSinks the conditional sinks of [VER-014], read by
+     *                         {@code DeadlockFree} only
+     * @return {@code Bad(M)} over count vectors in flat place order
+     */
+    public static Predicate<int[]> violationPredicate(
+            FlatNet flatNet, SmtProperty property, Set<Place<?>> sinkPlaces,
+            List<RestSet.ConditionalSinks> conditionalSinks
+    ) {
+        var index = PropertyIndex.of(flatNet, property, sinkPlaces, conditionalSinks);
+        Map<Integer, Integer> envInj = injectedEnvIndices(flatNet);
+        return m -> violatesIndexed(flatNet, property, index, m, envInj);
+    }
+
+    /**
+     * What {@code Bad(M)} reads from the net and the declarations before it reads a state:
+     * each list allocates, and none depends on the state. A list the property does not read
+     * is left empty.
+     *
+     * @param excuses {@code DeadlockFree}: {@link RestSet#strandingExcuses}, one entry per
+     *                flat place
+     * @param sinks   {@code TerminatesAtSink}: the declared sinks that resolve
+     * @param counted {@code QuiescentCount}: the counted places that resolve, each once —
+     *                the encoder's {@code indexOrdered}, so a place named twice is not
+     *                counted twice
+     * @param waivers {@code QuiescentCount}: the waivers that resolve; one the net does not
+     *                declare is dropped, which makes the property stricter, never laxer
+     */
+    private record PropertyIndex(int[][] excuses, List<Integer> sinks, List<Integer> counted, List<Integer> waivers) {
+        static PropertyIndex of(
+                FlatNet flatNet, SmtProperty property, Set<Place<?>> sinkPlaces,
+                List<RestSet.ConditionalSinks> conditionalSinks
+        ) {
+            return switch (property) {
+                case SmtProperty.DeadlockFree _ -> new PropertyIndex(
+                    RestSet.strandingExcuses(flatNet, sinkPlaces, conditionalSinks), List.of(), List.of(), List.of());
+                case SmtProperty.TerminatesAtSink _ -> new PropertyIndex(
+                    new int[0][], SmtEncoder.indexOrdered(flatNet, sinkPlaces), List.of(), List.of());
+                case SmtProperty.QuiescentCount qc -> new PropertyIndex(
+                    new int[0][], List.of(),
+                    SmtEncoder.indexOrdered(flatNet, qc.places()), SmtEncoder.indexOrdered(flatNet, qc.waivedBy()));
+                case SmtProperty.MutualExclusion _, SmtProperty.PlaceBound _, SmtProperty.BranchPlaceBound _,
+                     SmtProperty.Unreachable _, SmtProperty.JoinedOrDeadLettered _ ->
+                    new PropertyIndex(new int[0][], List.of(), List.of(), List.of());
+            };
+        }
+    }
+
+    private static boolean violatesIndexed(
+            FlatNet flatNet, SmtProperty property, PropertyIndex index, int[] m,
+            Map<Integer, Integer> envInj
+    ) {
         return switch (property) {
             // DeadlockFree (VER-002): quiescent AND some marked place is not where
             // resting is permitted — a conditional sink (VER-014) counts only while
@@ -250,7 +326,7 @@ public final class AbstractReplayer {
                 if (!quiescent(flatNet, m, envInj)) {
                     yield false;
                 }
-                int[][] excuses = RestSet.strandingExcuses(flatNet, sinkPlaces, conditionalSinks);
+                int[][] excuses = index.excuses();
                 for (int pid = 0; pid < flatNet.placeCount(); pid++) {
                     int[] markers = excuses[pid];
                     if (markers == null || m[pid] < 1) {
@@ -274,14 +350,12 @@ public final class AbstractReplayer {
                 if (!quiescent(flatNet, m, envInj)) {
                     yield false;
                 }
-                boolean anySinkMarked = false;
-                for (int pid : sinkIndices(flatNet, sinkPlaces)) {
+                for (int pid : index.sinks()) {
                     if (m[pid] != 0) {
-                        anySinkMarked = true;
-                        break;
+                        yield false;
                     }
                 }
-                yield !anySinkMarked;
+                yield true;
             }
             case SmtProperty.MutualExclusion me -> {
                 int idx1 = requireIndex(flatNet, me.p1(), "MutualExclusion");
@@ -320,6 +394,33 @@ public final class AbstractReplayer {
                     }
                 }
                 yield anyResolved && allMarked;
+            }
+            // QuiescentCount (VER-002): quiescent AND the count across the resolved places,
+            // each counted once, is below `min` with every resolved waiver empty, or above
+            // `max`. Mirrors the encoder's countViolationCondition, which needs a `min > 0`
+            // guard and a bounded-max guard only because they decide whether it emits a
+            // clause at all: a count is never below zero, so the comparisons decide it alone
+            // here. A long sum: an int vector's counts cannot overflow it.
+            case SmtProperty.QuiescentCount qc -> {
+                if (!quiescent(flatNet, m, envInj)) {
+                    yield false;
+                }
+                long count = 0;
+                for (int pid : index.counted()) {
+                    count += m[pid];
+                }
+                if (qc.max().isPresent() && count > qc.max().getAsInt()) {
+                    yield true;
+                }
+                if (count >= qc.min()) {
+                    yield false;
+                }
+                for (int pid : index.waivers()) {
+                    if (m[pid] != 0) {
+                        yield false;
+                    }
+                }
+                yield true;
             }
         };
     }
@@ -400,9 +501,9 @@ public final class AbstractReplayer {
                 + decodedStates.size() + " decoded state(s)");
         }
 
-        // Built once, then shared by every violates() call in the search.
-        Map<Integer, Integer> envInj = injectedEnvIndices(flatNet);
-        if (violates(flatNet, property, sinkPlaces, conditionalSinks, m0.counts(), envInj)) {
+        // Resolved once, then shared by every state the search tests.
+        Predicate<int[]> bad = violationPredicate(flatNet, property, sinkPlaces, conditionalSinks);
+        if (bad.test(m0.counts())) {
             return new ReplayOutcome.Confirmed(
                 List.of(toMarking(flatNet, m0.counts())), List.of());
         }
@@ -439,7 +540,7 @@ public final class AbstractReplayer {
                 }
                 admitted++;
                 var child = new Node(succ, segment, node, step.firing());
-                if (violates(flatNet, property, sinkPlaces, conditionalSinks, succ.counts(), envInj)) {
+                if (bad.test(succ.counts())) {
                     return chained(flatNet, child);
                 }
                 frontier.add(child);
@@ -526,18 +627,6 @@ public final class AbstractReplayer {
             }
         }
         return true;
-    }
-
-    /** Declared sink place names resolved to flat-net indices. */
-    private static Set<Integer> sinkIndices(FlatNet flatNet, Set<Place<?>> sinkPlaces) {
-        var idx = new HashSet<Integer>();
-        for (var sink : sinkPlaces) {
-            int i = flatNet.indexOf(sink);
-            if (i >= 0) {
-                idx.add(i);
-            }
-        }
-        return idx;
     }
 
     /**

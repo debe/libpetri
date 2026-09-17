@@ -15,6 +15,7 @@ import org.libpetri.smt.invariant.PInvariant;
 import org.libpetri.smt.invariant.PInvariantComputer;
 import org.libpetri.smt.invariant.StructuralCheck;
 import org.libpetri.smt.z3.AbstractReplayer;
+import org.libpetri.smt.z3.BoundedRun;
 import org.libpetri.smt.z3.CertificateChecker;
 import org.libpetri.smt.z3.CounterexampleDecoder;
 import org.libpetri.smt.z3.LinearBound;
@@ -22,6 +23,8 @@ import org.libpetri.smt.z3.NameColouredEncoder;
 import org.libpetri.smt.z3.SmtEncoder;
 import org.libpetri.smt.z3.SmtText;
 import org.libpetri.smt.z3.SpacerRunner;
+import org.libpetri.smt.z3.StateEquationPhase;
+import org.libpetri.smt.z3.StateEquationQuery;
 import org.libpetri.smt.z3.Z3Process;
 import org.libpetri.smt.z3.Z3Solver;
 
@@ -76,6 +79,11 @@ import java.util.function.Supplier;
  *       violation exceeds a decreasing conservation law {@code y·M <= y·M0} is proven
  *       structurally from one linear query, before any fixpoint search ([VER-015];
  *       {@link #linearBound(boolean)})</li>
+ *   <li><b>State-equation phase</b> - one linear query over the marking equation, refined
+ *       with traps and inductive inequalities until it proves the property, finds a run that
+ *       violates it, or steps aside ([VER-018]; {@link #stateEquationPhase(boolean)})</li>
+ *   <li><b>Firing bound</b> - when a ranking bounds every run, a bounded model check to that
+ *       length decides the property ([VER-019]; {@link #firingBound(boolean)})</li>
  *   <li><b>SMT encode + query</b> - IC3/PDR via Z3 Spacer, optionally over the state
  *       equation with firing counters ([VER-016]; {@link #stateEquation(boolean)}) and
  *       reading quiescent markings against the declared and conditional sinks
@@ -119,6 +127,8 @@ public final class SmtVerifier {
     private int enumerationMaxClasses = 50_000;
     private boolean linearBound = true;
     private boolean stateEquation = false;
+    private boolean stateEquationPhase = true;
+    private boolean firingBound = true;
     private CertificateCheck certificateChecker = CertificateChecker::check;
     private Z3Solver solver = null;
     private Set<MarkingState> replayStateSetOverride = null;
@@ -482,9 +492,68 @@ public final class SmtVerifier {
      * the equality laws), and the certificate check re-proves it against the raw step
      * relation, whose only counter knowledge is the increment. Not applied to the
      * name-coloured encoding or Route B, which the report says when it applies.
+     *
+     * <p>Not {@link #stateEquationPhase(boolean)}, which is the separate [VER-018] pre-phase
+     * that can decide the property outright instead of the fixpoint query, and is on by
+     * default.
      */
     public SmtVerifier stateEquation(boolean enabled) {
         this.stateEquation = enabled;
+        return this;
+    }
+
+    /**
+     * Enables or disables the state-equation phase ([VER-018]; default: enabled).
+     *
+     * <p>Before the fixpoint query, one linear query asks whether a marking the marking
+     * equation admits can violate the property: {@code M = M0 + C·n} over firing counts
+     * {@code n >= 0}, with an upper bound on a place a consume-all or reset arc clears.
+     * {@code unsat} proves the property. A {@code sat} candidate is settled cheapest first: a
+     * real run within its firing counts that reaches a violation (violated, with that run as
+     * the counterexample); an initially marked trap it leaves empty; or a linear inequality
+     * {@code a·M <= b}, kept by every step of the exact step relation, guards and clearing
+     * included, that excludes it. The refinement is added and the query asked again.
+     *
+     * <p>The proof is {@code SE ∧ refinements}, re-proven by the certificate check against the
+     * raw step relation before it is reported, and the report prints each refinement — on a
+     * workflow join, {@code Merge/hasdata <= Merge/ready_0 + Merge/ready_1}: a data token never
+     * outlives its input's ready token, because the skip is inhibited by it. On compiled
+     * workflow nets of 30–370 places this takes tens of milliseconds where the fixpoint query
+     * took minutes.
+     *
+     * <p>When nothing settles a candidate, the phase steps aside and the pipeline continues
+     * unchanged. Flat path only: skipped for a &nu;-net and under {@code Ignore} with
+     * environment places. Disable it to force the fixpoint path.
+     *
+     * <p>Runs within the full {@link #timeout}, and its certificate check gets its own, as on
+     * the fixpoint path. Not {@link #stateEquation(boolean)}, which adds firing counters
+     * <em>inside</em> the fixpoint encoding and is off by default.
+     */
+    public SmtVerifier stateEquationPhase(boolean enabled) {
+        this.stateEquationPhase = enabled;
+        return this;
+    }
+
+    /**
+     * Enables or disables the firing-bound phase ([VER-019]; default: enabled).
+     *
+     * <p>When weights {@code r >= 0} exist that every firing lowers by at least one, no run
+     * has more than {@code K = r·M0} firings, and a bounded model check of {@code K} exact
+     * steps decides the property: a violating run is the counterexample, and none at depth
+     * {@code K} is a proof for every run. The depth doubles from 8, so a short counterexample
+     * is found early — the case the fixpoint query handles worst, a quiescence violation deep
+     * in a workflow net. A net without such weights is reported as unbounded, naming the
+     * transitions the marking equation lets repeat, and left to the fixpoint query.
+     *
+     * <p>A proof from this phase carries no inductive invariant for the certificate check; the
+     * ranking is re-checked in exact integer arithmetic and the counterexample is replayed.
+     * Runs after the state-equation phase, on the same nets, within half the timeout. Disable
+     * it to force the fixpoint path. [VER-019] requires both phases to default the same way in
+     * every implementation, because a verdict they reach carries a different method and report
+     * from the same verdict reached by the fixpoint query.
+     */
+    public SmtVerifier firingBound(boolean enabled) {
+        this.firingBound = enabled;
         return this;
     }
 
@@ -652,8 +721,7 @@ public final class SmtVerifier {
                 // on the solver path below.
                 var routeBVerdict = outcome.verdict();
                 if (routeBVerdict instanceof SmtVerificationResult.Verdict.Proven
-                        && !environmentPlaces.isEmpty()
-                        && environmentMode instanceof EnvironmentAnalysisMode.Ignore) {
+                        && ignoresEnvironment()) {
                     report.append("  Downgraded to UNKNOWN: ")
                           .append(IGNORE_MODE_VACUITY_REASON).append("\n");
                     routeBVerdict = new SmtVerificationResult.Verdict.Unknown(
@@ -922,8 +990,7 @@ public final class SmtVerifier {
         if (linearBound
                 && colouredPlan == null
                 && isReachabilitySafety(property)
-                && !(!environmentPlaces.isEmpty()
-                    && environmentMode instanceof EnvironmentAnalysisMode.Ignore)) {
+                && !ignoresEnvironment()) {
             String proof = linearBoundProof(flatNet, z3, report);
             if (proof != null) {
                 report.append("  Certificate check: not applicable (structural proof)\n\n");
@@ -937,6 +1004,25 @@ public final class SmtVerifier {
                     report.toString(), invariants, List.of(), List.of(), List.of(),
                     Duration.between(start, Instant.now()), stats,
                     SmtVerificationResult.Route.STRUCTURAL), hasMatch, nuBounded, false);
+            }
+        }
+
+        // State-equation phase ([VER-018]), then the firing bound ([VER-019]): flat path only.
+        // Not on a ν-net, whose matched transitions the flat encoding treats name-blind and
+        // which has exact routes of its own, and not under Ignore with environment places,
+        // where [VER-006] refuses every Proven. Neither phase returns through applyNuGuard,
+        // which is safe only because this requires !hasMatch, where that guard is the identity.
+        boolean flatPhases = !hasMatch && !ignoresEnvironment();
+        if (flatPhases && stateEquationPhase) {
+            var decided = stateEquationDecision(flatNet, z3, report, propDesc, conditional, invariants, stats, start);
+            if (decided != null) {
+                return decided;
+            }
+        }
+        if (flatPhases && firingBound) {
+            var decided = firingBoundDecision(flatNet, z3, report, propDesc, conditional, invariants, stats, start);
+            if (decided != null) {
+                return decided;
             }
         }
 
@@ -1006,8 +1092,7 @@ public final class SmtVerifier {
                 // encoding does not model env injection, so env-gated transitions never
                 // fire and ANY safety bound is trivially "proven". Refuse to certify —
                 // downgrade to UNKNOWN with actionable guidance.
-                if (!environmentPlaces.isEmpty()
-                        && environmentMode instanceof EnvironmentAnalysisMode.Ignore) {
+                if (ignoresEnvironment()) {
                     String reason = IGNORE_MODE_VACUITY_REASON;
                     report.append("  Status: UNSAT, but vacuous under ignore mode\n\n");
                     report.append("=== RESULT ===\n\n");
@@ -1250,31 +1335,266 @@ public final class SmtVerifier {
     }
 
     /**
+     * Whether the net has environment places the analysis is not modelling ([VER-006]
+     * {@code Ignore}). Every route that can return {@code Proven} has to refuse one here — a
+     * proof over a frozen environment is vacuous — so the rule is named once rather than
+     * spelled out at each guard. See {@link #IGNORE_MODE_VACUITY_REASON}.
+     */
+    private boolean ignoresEnvironment() {
+        return !environmentPlaces.isEmpty() && environmentMode instanceof EnvironmentAnalysisMode.Ignore;
+    }
+
+    /** The timeout in milliseconds, saturating where a {@link Duration} holds more than a long does. */
+    private long timeoutMillis() {
+        try {
+            return timeout.toMillis();
+        } catch (ArithmeticException _) {
+            return Long.MAX_VALUE;
+        }
+    }
+
+    /**
+     * One script through the transport as the phases of [VER-018] and [VER-019] ask it,
+     * returning stdout. Throws when the reply has no verdict line, and when z3 reported an
+     * error other than the {@code model is not available} a {@code (get-model)} after
+     * {@code unsat} always draws — an errored assert silently drops out of the query, so the
+     * verdict line alone would answer a different question.
+     */
+    private static String runPhaseScript(Z3Solver z3, String script, String phase, long timeoutMs)
+            throws Z3Process.Z3ProcessException, PhaseSolverException {
+        Duration budget = Duration.ofMillis(timeoutMs);
+        var reply = z3.run(script, phase, budget, List.of());
+        String unexpected = (reply.stdout() + "\n" + reply.stderr()).lines()
+            .map(SmtText::errorLine)
+            .filter(line -> line != null && !line.contains("model is not available"))
+            .findFirst()
+            .orElse(null);
+        if (unexpected != null) {
+            throw new PhaseSolverException("z3 reported an error: " + unexpected);
+        }
+        if (SmtText.classifyFirstLine(reply.stdout()) == null) {
+            throw new PhaseSolverException(Z3Process.failureReason(reply, Z3Solver.timeoutMs(budget)));
+        }
+        return reply.stdout();
+    }
+
+    /** A phase query whose reply cannot be read; the message is the phase's inconclusive reason. */
+    private static final class PhaseSolverException extends Exception {
+        PhaseSolverException(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * Runs the state-equation phase ([VER-018]). Returns the final result when it decided the
+     * property — a {@code Proven} only once the certificate check passed — and {@code null}
+     * when it stepped aside, with the reason in the report.
+     */
+    private SmtVerificationResult stateEquationDecision(
+            FlatNet flatNet, Z3Solver z3, StringBuilder report, String propDesc,
+            List<RestSet.ConditionalSinks> conditional, List<PInvariant> invariants,
+            SmtVerificationResult.SmtStatistics stats, Instant start
+    ) {
+        report.append("  State-equation phase (VER-018):\n");
+        var outcome = StateEquationPhase.runStateEquationPhase(
+            flatNet, initialMarking, property, sinkPlaces, conditional,
+            (script, phase, ms) -> runPhaseScript(z3, script, phase.label(), ms),
+            StateEquationPhase.Options.DEFAULT.withBudgetMs(timeoutMillis()));
+        for (var r : outcome.refinements()) {
+            report.append("    Refinement (").append(r.origin().label()).append("): ")
+                .append(StateEquationQuery.formatInequality(flatNet, r)).append("\n");
+        }
+        report.append("    Queries: ").append(outcome.queries()).append("\n");
+        switch (outcome) {
+            case StateEquationPhase.StateEquationOutcome.Inconclusive inconclusive -> {
+                report.append("    Status: inconclusive (").append(inconclusive.reason()).append(")\n");
+                if (inconclusive.candidate() != null) {
+                    report.append("    Unsettled candidate: ")
+                        .append(StateEquationPhase.describeCandidate(flatNet, inconclusive.candidate()))
+                        .append("\n");
+                }
+                return null;
+            }
+            case StateEquationPhase.StateEquationOutcome.Violated violated -> {
+                report.append("    Status: a run within the candidate's firing counts reaches a violation\n");
+                return witnessResult(flatNet, violated.states(), violated.steps(), report, propDesc,
+                    invariants, stats, start);
+            }
+            case StateEquationPhase.StateEquationOutcome.Proven proven -> {
+                report.append("    Status: no marking the equation admits violates the property\n");
+                var refinements = proven.refinements();
+                String certificate = StateEquationQuery.refinementCertificate(
+                    flatNet.placeCount(), flatNet.transitionCount(), refinements);
+                if (certificateCheck) {
+                    // No P-invariants and the counter-augmented step relation forced: the
+                    // refinement certificate has to stand on its own, and its arity is places +
+                    // transitions, so the VCs need the relation that carries the counters. The
+                    // seam is the fixpoint path's, so a test can drive this check's failure too.
+                    CertificateChecker.Result checked;
+                    try {
+                        checked = certificateChecker.run(
+                            certificate, flatNet, initialMarking, property, sinkPlaces, List.of(),
+                            z3, timeout, conditional, true);
+                    } catch (RuntimeException e) {
+                        ProgrammingError.rethrowIfProgrammingError(e);
+                        checked = new CertificateChecker.Result.Unavailable("certificate check threw: " + e);
+                    }
+                    String reason = certificateDowngradeReason(checked);
+                    if (reason != null) {
+                        // Never a verdict: the fixpoint query still runs, and the failure stays
+                        // in the report where a test over the fixtures can see it.
+                        report.append("    Certificate check: FAILED (").append(reason).append(")\n");
+                        return null;
+                    }
+                    // Two spaces, not four: this line is pinned verbatim by [VER-018] AC1 and
+                    // matches the fixpoint path. The FAILED line above is nested under the phase.
+                    report.append("  Certificate check: PASSED (init, consecution, safety)\n");
+                } else {
+                    report.append("  Certificate check: not applicable (disabled)\n");
+                }
+                report.append("\n");
+                report.append("=== RESULT ===\n\n");
+                report.append("PROVEN (state equation): ").append(propDesc).append("\n");
+                report.append("  Every reachable marking satisfies the marking equation over ")
+                    .append(flatNet.transitionCount()).append(" firing counters")
+                    .append(refinements.isEmpty() ? "" : " and the refinements above")
+                    .append(", and none of those markings violates the property (VER-018).\n");
+                report.append("  NOTE: Verification ignores timing constraints.\n");
+                var readable = new ArrayList<String>(refinements.size());
+                for (var r : refinements) {
+                    readable.add(StateEquationQuery.formatInequality(flatNet, r));
+                }
+                return buildResult(
+                    new SmtVerificationResult.Verdict.Proven("state-equation", certificate),
+                    report.toString(), invariants, List.copyOf(readable), List.of(), List.of(),
+                    Duration.between(start, Instant.now()), stats);
+            }
+        }
+    }
+
+    /**
+     * Runs the firing-bound phase ([VER-019]). Returns the final result when it decided the
+     * property and {@code null} when it stepped aside, with the reason in the report.
+     */
+    private SmtVerificationResult firingBoundDecision(
+            FlatNet flatNet, Z3Solver z3, StringBuilder report, String propDesc,
+            List<RestSet.ConditionalSinks> conditional, List<PInvariant> invariants,
+            SmtVerificationResult.SmtStatistics stats, Instant start
+    ) {
+        report.append("  Firing bound (VER-019):\n");
+        // Half the timeout: a short counterexample is found in seconds, while a proof to a deep
+        // bound on a wide net can outlast any budget, and the fixpoint query after this phase
+        // still gets its full one. The phase itself refuses a net with DECLARED environment
+        // injection, whether or not the flat net resolves the place.
+        var outcome = BoundedRun.runFiringBoundPhase(
+            flatNet, initialMarking, property, sinkPlaces, conditional,
+            (script, phase, ms) -> runPhaseScript(z3, script, phase.label(), ms),
+            BoundedRun.Options.DEFAULT.withBudgetMs(Math.max(1, Math.floorDiv(timeoutMillis(), 2))));
+        switch (outcome) {
+            case BoundedRun.FiringBoundOutcome.Unbounded unbounded -> {
+                if (unbounded.repeatable() == null) {
+                    report.append("    Status: no firing bound (no weights decrease on every firing); not attempted\n");
+                } else {
+                    var names = new ArrayList<String>();
+                    for (int t : unbounded.repeatable()) {
+                        names.add(flatNet.transitions().get(t).name());
+                    }
+                    report.append("    Status: no firing bound — the marking equation lets ")
+                        .append(String.join(", ", names)).append(" repeat; not attempted\n");
+                }
+                return null;
+            }
+            case BoundedRun.FiringBoundOutcome.Inconclusive inconclusive -> {
+                if (inconclusive.bound() != null) {
+                    appendFiringBound(report, flatNet, inconclusive.bound());
+                }
+                if (!inconclusive.depths().isEmpty()) {
+                    report.append("    Depths: ").append(formatDepths(inconclusive.depths())).append("\n");
+                }
+                report.append("    Status: inconclusive (").append(inconclusive.reason()).append(")\n");
+                return null;
+            }
+            case BoundedRun.FiringBoundOutcome.Violated violated -> {
+                appendFiringBound(report, flatNet, violated.bound());
+                report.append("    Depths: ").append(formatDepths(violated.depths())).append("\n");
+                report.append("    Status: a bounded run reaches a violation (replayed)\n");
+                return witnessResult(flatNet, violated.states(), violated.steps(), report, propDesc,
+                    invariants, stats, start);
+            }
+            case BoundedRun.FiringBoundOutcome.Proven proven -> {
+                appendFiringBound(report, flatNet, proven.bound());
+                report.append("    Depths: ").append(formatDepths(proven.depths())).append("\n");
+                report.append("    Status: no run of at most the bound reaches a violation, and no run is longer\n");
+                report.append("  Certificate check: not applicable (bounded model check to the firing bound)\n");
+                report.append("\n");
+                report.append("=== RESULT ===\n\n");
+                report.append("PROVEN (bounded model check): ").append(propDesc).append("\n");
+                report.append("  No run has more than ").append(proven.bound().bound())
+                    .append(" firings, and none of at most that many reaches a violation (VER-019).\n");
+                report.append("  NOTE: Verification ignores timing constraints.\n");
+                return buildResult(
+                    new SmtVerificationResult.Verdict.Proven("bounded-model-check", null),
+                    report.toString(), invariants, List.of(), List.of(), List.of(),
+                    Duration.between(start, Instant.now()), stats);
+            }
+        }
+    }
+
+    /** {@code    Bound: 5 firings (budget + s + 2*src drops on every firing)} ([VER-019] AC1). */
+    private static void appendFiringBound(StringBuilder report, FlatNet flatNet, BoundedRun.FiringBound bound) {
+        report.append("    Bound: ").append(bound.bound()).append(" firings (")
+            .append(BoundedRun.formatRanking(flatNet, bound)).append(" drops on every firing)\n");
+    }
+
+    /** {@code 8 none, 16 violation}: each depth the bounded model check answered, in order. */
+    private static String formatDepths(List<BoundedRun.DepthStep> steps) {
+        var parts = new ArrayList<String>(steps.size());
+        for (var d : steps) {
+            parts.add(d.depth() + " " + (d.answer() == BoundedRun.DepthAnswer.SAT ? "violation" : "none"));
+        }
+        return String.join(", ", parts);
+    }
+
+    /**
+     * A {@code Violated} result for a run the phases of [VER-018] and [VER-019] found and
+     * replayed. A firing sequence re-executed under the exact abstract semantics is confirmed by
+     * construction, so there is nothing left for the counterexample replay to do.
+     */
+    private static SmtVerificationResult witnessResult(
+            FlatNet flatNet, List<int[]> states, List<String> steps, StringBuilder report, String propDesc,
+            List<PInvariant> invariants, SmtVerificationResult.SmtStatistics stats, Instant start
+    ) {
+        var trace = new ArrayList<MarkingState>(states.size());
+        for (int[] state : states) {
+            trace.add(AbstractReplayer.toMarking(flatNet, state));
+        }
+        report.append("\n");
+        report.append("=== RESULT ===\n\n");
+        report.append("VIOLATED: ").append(propDesc).append("\n");
+        report.append("  Counterexample trace (replay order, ").append(trace.size()).append(" states):\n");
+        for (int i = 0; i < trace.size(); i++) {
+            report.append("    ").append(i).append(": ").append(trace.get(i)).append("\n");
+        }
+        if (!steps.isEmpty()) {
+            report.append("  Firing sequence: ").append(String.join(" -> ", steps)).append("\n");
+        }
+        report.append("\n  WARNING: This counterexample is in UNTIMED semantics.\n");
+        report.append("  It may be spurious if timing constraints prevent this sequence.\n");
+        return buildResult(
+            new SmtVerificationResult.Verdict.Violated(),
+            report.toString(), invariants, List.of(), List.copyOf(trace), List.copyOf(steps), Boolean.TRUE,
+            Duration.between(start, Instant.now()), stats);
+    }
+
+    /**
      * The property as the report names it, followed by the sink declarations in
      * declaration order when any exist — {@code (sinks: a, b; when h: c, d; when p)}
      * ([VER-014]).
      */
     private String propertyDescription() {
         String sinkDesc = RestSet.describeSinks(sinkPlaces, conditionalSinkList());
-        String base = basePropertyDescription();
+        String base = property.description();
         return sinkDesc == null ? base : base + " (" + sinkDesc + ")";
-    }
-
-    private String basePropertyDescription() {
-        return switch (property) {
-            case SmtProperty.DeadlockFree() -> "Deadlock-freedom";
-            case SmtProperty.TerminatesAtSink() -> "Terminates at a declared sink";
-            case SmtProperty.MutualExclusion me ->
-                "Mutual exclusion of " + me.p1().name() + " and " + me.p2().name();
-            case SmtProperty.PlaceBound pb ->
-                "Place " + pb.place().name() + " bounded by " + pb.bound();
-            case SmtProperty.Unreachable ur ->
-                "Unreachability of marking with tokens in " + ur.places();
-            case SmtProperty.BranchPlaceBound bpb ->
-                "Branch place bound (ν-budget): " + bpb.place().name() + " <= " + bpb.bound();
-            case SmtProperty.JoinedOrDeadLettered jdl ->
-                "Joined-or-dead-lettered: " + jdl.pending().name() + " = 0 at quiescence";
-        };
     }
 
     /**
@@ -1294,8 +1614,14 @@ public final class SmtVerifier {
      *                    when {@link #verify()} would send it: flat path, enabled, not
      *                    refused by [VER-006], and a property with a linear demand;
      *                    {@code null} otherwise (the quiescence properties)
+     * @param stateEquation the first query of the state-equation phase ([VER-018]), before any
+     *                    refinement, present exactly when {@link #verify()} would send it;
+     *                    {@code null} where the phase does not run (the name-coloured encoding,
+     *                    a &nu;-net, {@code Ignore} with environment places, or the phase
+     *                    disabled)
      */
-    public record EncodedScripts(String horn, String certificate, boolean coloured, String bound) {}
+    public record EncodedScripts(
+        String horn, String certificate, boolean coloured, String bound, String stateEquation) {}
 
     /**
      * {@code (define-fun Reachable ((x!0 Int) …) Bool true)}: the certificate stand-in
@@ -1370,21 +1696,29 @@ public final class SmtVerifier {
         // enabled, not refused by VER-006, and a property with a linear demand (else null).
         String bound = coloured.plan() == null
                 && linearBound
-                && !(!environmentPlaces.isEmpty()
-                    && environmentMode instanceof EnvironmentAnalysisMode.Ignore)
+                && !ignoresEnvironment()
             ? LinearBound.encode(flatNet, initialMarking, property)
             : null;
-        if (coloured.encoding() != null) {
-            return new EncodedScripts(coloured.encoding().smt2(), null, true, bound);
-        }
         var conditional = conditionalSinkList();
+        // The state-equation query ([VER-018]) exactly when verify() would send it, so this
+        // mirrors `flatPhases` there — no plan conjunct, since a net without match transitions
+        // never has one.
+        boolean hasMatch = net.transitions().stream().anyMatch(t -> t.matchSpec() != null);
+        String stateEquationQuery = !hasMatch
+                && stateEquationPhase
+                && !ignoresEnvironment()
+            ? StateEquationQuery.encode(flatNet, initialMarking, property, sinkPlaces, conditional, List.of())
+            : null;
+        if (coloured.encoding() != null) {
+            return new EncodedScripts(coloured.encoding().smt2(), null, true, bound, stateEquationQuery);
+        }
         var flat = SmtEncoder.encode(
             flatNet, initialMarking, property, invariants, sinkPlaces, counterexampleReplay,
             conditional, stateEquation);
         String certificate = CertificateChecker.vcScript(
             placeholderCertificate(flatNet.placeCount() + flat.counterCount()), flatNet,
             initialMarking, property, sinkPlaces, invariants, conditional, stateEquation);
-        return new EncodedScripts(flat.smt2(), certificate, false, bound);
+        return new EncodedScripts(flat.smt2(), certificate, false, bound, stateEquationQuery);
     }
 
     /** The places a property names — the ones that must resolve for its verdict to mean anything. */
@@ -1397,6 +1731,13 @@ public final class SmtVerifier {
             case SmtProperty.BranchPlaceBound bpb -> List.of(bpb.place());
             case SmtProperty.Unreachable ur -> List.copyOf(ur.places());
             case SmtProperty.JoinedOrDeadLettered jdl -> List.of(jdl.pending());
+            // The waivers too: a mistyped waiver would never be marked, so it would silently
+            // turn a waived lower bound into an unconditional one.
+            case SmtProperty.QuiescentCount qc -> {
+                var named = new ArrayList<Place<?>>(qc.places());
+                named.addAll(qc.waivedBy());
+                yield named;
+            }
         };
     }
 
@@ -1681,8 +2022,8 @@ public final class SmtVerifier {
      * Whether a property is a <em>reachability-safety</em> property — one whose
      * violation is a reachable bad marking. For these the matched-transition
      * over-approximation is sound for {@code Proven}. Quiescence-based
-     * properties (deadlock, terminates-at-sink, joined-or-dead-lettered) are
-     * not: their violation
+     * properties (deadlock, terminates-at-sink, joined-or-dead-lettered,
+     * quiescent-count) are not: their violation
      * involves the absence of enabled transitions, which the name-blind
      * over-approximation distorts unsafely (NU-050).
      */
@@ -1695,6 +2036,7 @@ public final class SmtVerifier {
             case SmtProperty.DeadlockFree _ -> false;
             case SmtProperty.TerminatesAtSink _ -> false;
             case SmtProperty.JoinedOrDeadLettered _ -> false;
+            case SmtProperty.QuiescentCount _ -> false;
         };
     }
 

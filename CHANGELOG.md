@@ -11,7 +11,7 @@ When a firing takes a transition's input or read token and puts one back, the tr
 - Read arcs count. Surplus tokens keep the clock: a place that still satisfies the transition restarts nothing.
 - **Behaviour change:** to keep a clock running while another transition uses a shared token, have that transition read the token. Immediate transitions follow the rule too, so they move later in FIFO order within their priority, and Java, Rust and Python emit more `TransitionClockRestarted` events.
 
-### Verification: the state equation proves most workflow nets before Spacer starts (TypeScript, Rust, Python)
+### Verification: the state equation proves most workflow nets before Spacer starts (Java, TypeScript, Rust, Python)
 
 `SmtVerifier` now asks one linear question before the fixpoint query: can a marking that satisfies the marking equation violate the property? When it cannot, the property is proven, usually in tens of milliseconds. On 23 compiled workflow nets (28 to 370 places, deadlock freedom with conditional sinks), 21 prove this way in 10–220 ms, among them two the fixpoint query needed 277 s and 410 s for.
 
@@ -68,9 +68,23 @@ result.discovered_invariants  # ['Merge/hasdata <= Merge/ready_0 + Merge/ready_1
 - **Changed (Rust, Python):** with `state_equation(true)` / `state_equation=True`, a drained or reset place carries the same upper bound as in TypeScript.
 - **Behaviour change (Rust, Python):** as in TypeScript, a property Spacer used to decide may now come back from a phase. Pin a test to the fixpoint path with `.state_equation_phase(false).firing_bound(false)` or `state_equation_phase=False, firing_bound=False`.
 
-Java does not have the phases yet. Specified in spec/07-verification.md (VER-016 amendment, VER-018, VER-019).
+Java runs the same two phases, on by default, with the same verdict methods, scripts and phase lines in the report:
 
-### Verification: prove a subnet on its own, against a contract (TypeScript, Rust, Python)
+```java
+SmtVerificationResult result = SmtVerifier.forNet(net)
+    .property(SmtProperty.deadlockFree())
+    .sinkPlaces(done)
+    .verify();
+// Verdict.Proven with method "state-equation"; result.discoveredInvariants() holds the refinements
+```
+
+- **New (Java):** `SmtVerifier.stateEquationPhase(boolean)` and `.firingBound(boolean)`; `encodeScripts().stateEquation()`.
+- **Changed (Java):** with `stateEquation(true)`, a drained or reset place carries the same upper bound as in TypeScript.
+- **Behaviour change (Java):** a property Spacer used to decide may now come back from a phase. Pin a test to the fixpoint path with `.stateEquationPhase(false).firingBound(false)`.
+
+Specified in spec/07-verification.md (VER-016 amendment, VER-018, VER-019).
+
+### Verification: prove a subnet on its own, against a contract (Java, TypeScript, Rust, Python)
 
 A net built from a fixed set of reusable subnets can now be proven one subnet at a time. `verifyOpenNet` closes the subnet with the environment its contract describes, enumerates the result, and checks every quiescent marking against the contract. Each proof costs what one subnet costs, not what the interleavings of the whole net cost. Arguing that the composed net is correct once every subnet meets its contract remains the caller's job.
 
@@ -141,9 +155,34 @@ result.violations[0].port_trace  # PortSteps: .step, .transition, .environment, 
 - **Rust:** behind the `z3` feature, in `libpetri::verification::open_net`. `OpenNetOptions::configure_smt` configures each verifier the SMT route builds. `StateClassGraph::build_with_options` takes `StateClassGraphOptions { untimed: true }`.
 - **Python:** `verify_open_net` takes `max_classes`, `smt` and `termination_timeout_ms`. The rest of its keywords (`timeout_ms`, `linear_bound`, `state_equation`, `state_equation_phase`, `firing_bound`, `semiflow_invariants`) configure each SMT query as they do for `verify`. A malformed contract raises `ValueError` where it is built.
 
-Java does not have this yet. Specified in spec/07-verification.md (VER-022).
+Java has the same contract builder and entry point, and prints the same report:
 
-### Verification: a token count at quiescence (TypeScript, Rust, Python)
+```java
+import org.libpetri.smt.opennet.OpenNetContract;
+import org.libpetri.smt.opennet.OpenNetResult;
+import org.libpetri.smt.opennet.OpenNetVerifier;
+
+OpenNetContract contract = OpenNetContract.builder()
+    .initialMarking(m -> m.tokens(idle, 1).tokens(budget, 1))
+    .arrive(1, inData, inEmpty)
+    .arriveAtMost(1, halt)
+    .expect("e1", 1, e1Data, e1Empty)
+    .expectBetween("history", 0, OptionalInt.empty(), done, skipped)  // empty: no upper bound
+    .terminal(halt, inData, inEmpty)
+    .build();
+OpenNetResult result = OpenNetVerifier.verifyOpenNet(gadget, contract);
+result.isProven();
+result.violations().getFirst().portTrace();  // PortSteps: step, transition, environment, changes
+```
+
+- **Java:** in `org.libpetri.smt.opennet`. Start options from `OpenNetOptions.DEFAULT` and change what differs with `withMaxClasses`, `withSmt`, `withConfigureSmt` and `withTerminationTimeout`. `StateClassGraph.build` takes `StateClassGraph.Options.UNTIMED`. A malformed contract throws `IllegalArgumentException` where it is built.
+- The contract finds the net's places by name, as TypeScript does, even though a Java `Place` also compares its token type.
+- `initialMarking(...)` keeps its places in the order the marking builder first saw them, as TypeScript does, and so does `initialTokens(place, count)`. The order shows only in `contract.places()` and in the order of a port step's changes. `MarkingState.placesWithTokens()` now iterates in that order too, where it used to follow a hash map's.
+- The report matches TypeScript's byte for byte when place names are printable ASCII. Names with other characters sort after the ASCII ones, by code point, where TypeScript follows the host's locale.
+
+Specified in spec/07-verification.md (VER-022).
+
+### Verification: a token count at quiescence (Java, TypeScript, Rust, Python)
 
 `quiescentCount(places, min, max, waivedBy)` checks a count at every quiescent marking, and every route decides it. Its lower bound is waived while a designed-terminal marker holds a token, so "the budget is back whenever the net comes to rest, unless it halted" is one property:
 
@@ -168,7 +207,18 @@ lp.quiescent_count([budget, done], 1, math.inf)  # at least 1, no upper bound
 
 A `max` below `min` panics in Rust. In Python it raises `ValueError`, and so does a negative or fractional bound.
 
-Java does not have it yet. Specified in spec/07-verification.md (VER-002).
+Java has it too, with an unbounded `max` spelled as an empty `OptionalInt`:
+
+```java
+SmtVerifier.forNet(net)
+    .property(SmtProperty.quiescentCount(List.of(budget), k, OptionalInt.of(k), List.of(halt)))
+    .verify();
+SmtProperty.quiescentCount(List.of(budget, done), 1, OptionalInt.empty());  // at least 1, no upper bound
+```
+
+A negative `min` or a `max` below `min` throws `IllegalArgumentException` in Java.
+
+Specified in spec/07-verification.md (VER-002).
 
 ## Java 5.1.0 / TypeScript 5.1.0 / Rust 5.1.0 / Python 4.1.0 — 2026-09-09
 

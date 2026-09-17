@@ -2,8 +2,11 @@ package org.libpetri.analysis;
 
 import org.libpetri.core.Place;
 
-import java.util.HashMap;
+import java.util.AbstractSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.StringJoiner;
 
@@ -18,6 +21,12 @@ import java.util.StringJoiner;
  * Two MarkingStates are equal if they have the same token counts for all places
  * (using Place identity, not name-based comparison).
  *
+ * <h3>Order</h3>
+ * {@link #placesWithTokens()} lists the places in the order the builder first saw them, as the
+ * TypeScript reference's marking does. Equality ignores that order. It matters where a marking
+ * is shown to a person: an open-net contract's port trace lists its initial-marking places in
+ * that order ([VER-022]), and a hash map's order would change with every JVM run.
+ *
  * <h3>Example</h3>
  * <pre>{@code
  * var state = MarkingState.builder()
@@ -31,11 +40,21 @@ import java.util.StringJoiner;
  */
 public final class MarkingState {
 
+    private static final Place<?>[] NO_PLACES = new Place<?>[0];
+
+    /** Lookup: an immutable map, whose iteration order is unspecified. */
     private final Map<Place<?>, Integer> tokenCounts;
+    /**
+     * The same places in insertion order. An array beside the map rather than an ordered map,
+     * because the state-class graph keeps a marking per class and edge: a {@code LinkedHashMap}
+     * here grew its retained heap by about a third, the array by a few percent.
+     */
+    private final Place<?>[] order;
     private final int hashCode;
 
-    private MarkingState(Map<Place<?>, Integer> tokenCounts) {
-        this.tokenCounts = Map.copyOf(tokenCounts);
+    private MarkingState(Map<Place<?>, Integer> tokenCounts, Place<?>[] order) {
+        this.tokenCounts = tokenCounts;
+        this.order = order;
         this.hashCode = this.tokenCounts.hashCode();
     }
 
@@ -75,16 +94,51 @@ public final class MarkingState {
     }
 
     /**
-     * Returns all places that have tokens in this marking.
+     * Returns all places that have tokens in this marking, in the order the builder first saw
+     * them. A place set again keeps its position; one removed and set again moves to the end.
      *
-     * @return unmodifiable set of places with tokens > 0
+     * @return unmodifiable set of places with tokens > 0, in insertion order
      */
     public Set<Place<?>> placesWithTokens() {
-        return tokenCounts.keySet();
+        return new PlacesInOrder();
+    }
+
+    /** {@link #placesWithTokens()}: iterates {@link #order}, answers membership from the map. */
+    private final class PlacesInOrder extends AbstractSet<Place<?>> {
+        @Override
+        public Iterator<Place<?>> iterator() {
+            return new Iterator<>() {
+                private int next;
+
+                @Override
+                public boolean hasNext() {
+                    return next < order.length;
+                }
+
+                @Override
+                public Place<?> next() {
+                    if (next >= order.length) {
+                        throw new NoSuchElementException();
+                    }
+                    return order[next++];
+                }
+            };
+        }
+
+        @Override
+        public int size() {
+            return order.length;
+        }
+
+        @Override
+        public boolean contains(Object o) {
+            return tokenCounts.containsKey(o);
+        }
     }
 
     /**
-     * Returns the internal token count map (unmodifiable).
+     * Returns the internal token count map (unmodifiable). Its iteration order is unspecified;
+     * {@link #placesWithTokens()} has the insertion order.
      *
      * @return map from place to token count
      */
@@ -153,14 +207,14 @@ public final class MarkingState {
      * @return the empty marking state
      */
     public static MarkingState empty() {
-        return new MarkingState(Map.of());
+        return new MarkingState(Map.of(), NO_PLACES);
     }
 
     /**
      * Builder for constructing MarkingState instances.
      */
     public static final class Builder {
-        private final Map<Place<?>, Integer> tokenCounts = new HashMap<>();
+        private final LinkedHashMap<Place<?>, Integer> tokenCounts = new LinkedHashMap<>();
 
         private Builder() {}
 
@@ -226,13 +280,16 @@ public final class MarkingState {
         }
 
         /**
-         * Copies all token counts from another marking state.
+         * Copies all token counts from another marking state, its places in its order after
+         * the ones this builder already holds.
          *
          * @param other the marking state to copy from
          * @return this builder
          */
         public Builder copyFrom(MarkingState other) {
-            tokenCounts.putAll(other.tokenCounts);
+            for (var place : other.order) {
+                tokenCounts.put(place, other.tokenCounts.get(place));
+            }
             return this;
         }
 
@@ -242,7 +299,7 @@ public final class MarkingState {
          * @return a new MarkingState
          */
         public MarkingState build() {
-            return new MarkingState(tokenCounts);
+            return new MarkingState(Map.copyOf(tokenCounts), tokenCounts.keySet().toArray(NO_PLACES));
         }
     }
 }

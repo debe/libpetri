@@ -120,6 +120,28 @@ class ConditionalSinksTest {
         assertFalse(RestSet.strandsToken(MarkingState.empty(), s, cond));
     }
 
+    /**
+     * [VER-014]: stranded means marked AND unexcused. {@code b} is excused while {@code halt}
+     * is marked, {@code halt} always rests, and a sink never strands. A reading of "marked"
+     * alone would name {@code b} in the first marking — a stranding every route proves
+     * cannot happen.
+     */
+    @Test
+    void strandedPlaces_isMarkedAndUnexcused_byName() {
+        var cond = List.of(when(HALT, B));
+        var s = sinks(DONE);
+        var z = Place.of("z", String.class);
+        assertEquals(List.of(), RestSet.strandedPlaces(marking(HALT, 1, B, 1), s, cond));
+        assertEquals(List.of(B), RestSet.strandedPlaces(marking(B, 1), s, cond));
+        assertEquals(List.of(A, P0), RestSet.strandedPlaces(marking(HALT, 1, B, 2, P0, 1, A, 1, DONE, 1), s, cond));
+        assertEquals(List.of(A, B, z), RestSet.strandedPlaces(marking(z, 1, B, 1, A, 3), s, cond));
+        assertEquals(List.of(), RestSet.strandedPlaces(MarkingState.empty(), s, cond));
+        // Empty exactly when strandsToken is false.
+        for (var m : List.of(marking(HALT, 1, B, 1), marking(B, 1), marking(DONE, 3), marking(HALT, 1, A, 1))) {
+            assertEquals(!RestSet.strandsToken(m, s, cond), RestSet.strandedPlaces(m, s, cond).isEmpty(), m.toString());
+        }
+    }
+
     @Test
     void describeSinks_rendersDeclarationsInOrder() {
         var h = Place.of("h", String.class);
