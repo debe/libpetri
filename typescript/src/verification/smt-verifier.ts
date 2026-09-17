@@ -306,8 +306,8 @@ export class SmtVerifier {
    * step relation, whose only counter knowledge is the increment. Not applied to the
    * name-coloured encoding or Route B, which the report says when it applies.
    *
-   * Not {@link stateEquationPhase}, which is the separate VER-018 pre-phase that can
-   * decide the property outright instead of the fixpoint query, and is on by default.
+   * Not {@link stateEquationPhase}, the VER-018 pre-phase (on by default) that can decide
+   * the property instead of the fixpoint query.
    */
   stateEquation(enabled: boolean): this {
     this._stateEquation = enabled;
@@ -318,28 +318,20 @@ export class SmtVerifier {
    * Enables/disables the state-equation phase (VER-018; default: enabled).
    *
    * Before the fixpoint query, one linear query asks whether a marking the marking
-   * equation admits can violate the property: `M = M0 + C·n` over firing counts
-   * `n ≥ 0`, with an upper bound on a place a consume-all or reset arc clears. `unsat`
-   * proves the property. A `sat` candidate is settled cheapest first: a real run within
-   * its firing counts that reaches a violation (violated, with that run as the
-   * counterexample); an initially marked trap it leaves empty; or a linear inequality
-   * `a·M ≤ b`, kept by every step of the exact step relation, guards and clearing
-   * included, that excludes it. The refinement is added and the query asked again.
+   * equation (`M = M0 + C·n`, `n ≥ 0`, an upper bound on a cleared place) admits violates
+   * the property; `unsat` proves it. A `sat` candidate is settled cheapest first: a run
+   * within its firing counts that reaches a violation (the counterexample), an initially
+   * marked trap it empties, or an inequality `a·M ≤ b` kept by the exact step relation
+   * that excludes it. The refinement is added and the query asked again.
    *
-   * The proof is `SE ∧ refinements`, re-proven by the certificate check against the
-   * raw step relation before it is reported, and the report prints each refinement —
-   * on a workflow join, `Merge/hasdata <= Merge/ready_0 + Merge/ready_1`: a data token
-   * never outlives its input's ready token, because the skip is inhibited by it. On
-   * compiled workflow nets of 30–370 places this takes tens of milliseconds where the
-   * fixpoint query took minutes.
+   * The proof `SE ∧ refinements` passes the certificate check before it is reported, and
+   * the report prints each refinement, e.g. `Merge/hasdata <= Merge/ready_0 +
+   * Merge/ready_1` on a workflow join. When nothing settles a candidate, the pipeline
+   * continues unchanged. Flat path only: skipped for a ν-net and under `ignore` with
+   * environment places. Runs within the full {@link timeout}; the certificate check gets
+   * its own.
    *
-   * When nothing settles a candidate, the phase steps aside and the pipeline continues
-   * unchanged. Flat path only: skipped for a ν-net and under `ignore` with environment
-   * places. Disable it to force the fixpoint path.
-   *
-   * Runs within the full {@link timeout}, and its certificate check gets its own, as on
-   * the fixpoint path. Not {@link stateEquation}, which adds firing counters *inside* the
-   * fixpoint encoding and is off by default.
+   * Not {@link stateEquation}, which adds firing counters inside the fixpoint encoding.
    */
   stateEquationPhase(enabled: boolean): this {
     this._stateEquationPhase = enabled;
@@ -349,18 +341,15 @@ export class SmtVerifier {
   /**
    * Enables/disables the firing-bound phase (VER-019; default: enabled).
    *
-   * When weights `r ≥ 0` exist that every firing lowers by at least one, no run has
-   * more than `K = r·M0` firings, and a bounded model check of `K` exact steps decides
-   * the property: a violating run is the counterexample, and none at depth `K` is a
-   * proof for every run. The depth doubles from 8, so a short counterexample is found
-   * early — the case the fixpoint query handles worst, a quiescence violation deep in
-   * a workflow net. A net without such weights is reported as unbounded, naming the
-   * transitions the marking equation lets repeat, and left to the fixpoint query.
+   * Weights `r ≥ 0` that every firing lowers by at least one bound every run by
+   * `K = r·M0` firings, so a bounded model check to depth `K` decides the property. The
+   * depth doubles from 8, which finds a short counterexample early. Without such weights
+   * the report names the transitions the marking equation lets repeat, and the fixpoint
+   * query runs.
    *
-   * A proof from this phase carries no inductive invariant for the certificate check;
-   * the ranking is re-checked in exact integer arithmetic and the counterexample is
-   * replayed. Runs after the state-equation phase, on the same nets, within half the
-   * timeout. Disable it to force the fixpoint path.
+   * A proof carries no inductive invariant: the ranking is re-checked in exact integer
+   * arithmetic, and a counterexample is replayed. Runs after the state-equation phase, on
+   * the same nets, within half the {@link timeout}.
    */
   firingBound(enabled: boolean): this {
     this._firingBound = enabled;
@@ -528,8 +517,8 @@ export class SmtVerifier {
       !this.ignoresEnvironment
         ? encodeLinearBound(flatNet, this._initialMarking, this._property)
         : null;
-    // The state-equation query (VER-018) exactly when verify() would send it, so this
-    // mirrors `flatPhases` there — no plan conjunct, since `!hasMatch` already implies one.
+    // The state-equation query (VER-018) under verify()'s phase guard; `!hasMatch` implies
+    // no coloured plan.
     const stateEquation =
       !scriptsHasMatch &&
       this._stateEquationPhase &&
@@ -957,22 +946,20 @@ export class SmtVerifier {
       }
     }
 
-    // State-equation phase (VER-018), then the firing bound (VER-019): flat path only.
-    // Not on a ν-net, whose matched transitions the flat encoding treats name-blind and
-    // which has exact routes of its own, and not under `ignore` with environment places,
-    // where VER-006 refuses every `proven`.
-    // Neither phase returns through `applyNuGuard`, which is safe only because this
-    // requires `!hasMatch`, where that guard is the identity.
-    const flatPhases =
-      !hasMatch &&
-      !this.ignoresEnvironment;
-    if (flatPhases && this._stateEquationPhase) {
-      const decided = await this.stateEquationDecision(flatNet, solver, report, propDesc, invariants, stats, start);
-      if (decided != null) return decided;
-    }
-    if (flatPhases && this._firingBound) {
-      const decided = await this.firingBoundDecision(flatNet, solver, report, propDesc, invariants, stats, start);
-      if (decided != null) return decided;
+    // State-equation phase (VER-018), then the firing bound (VER-019): flat path only. Not
+    // on a ν-net (name-blind here, exact routes elsewhere), and not under `ignore` with
+    // environment places (VER-006 refuses every `proven`). Neither returns through
+    // `applyNuGuard`, which is the identity when `!hasMatch`.
+    if (!hasMatch && !this.ignoresEnvironment) {
+      const phase: PhaseContext = { flatNet, solver, report, propDesc, invariants, stats, start };
+      if (this._stateEquationPhase) {
+        const decided = await this.stateEquationDecision(phase);
+        if (decided != null) return decided;
+      }
+      if (this._firingBound) {
+        const decided = await this.firingBoundDecision(phase);
+        if (decided != null) return decided;
+      }
     }
 
     let encoding: SmtEncoding;
@@ -1239,32 +1226,12 @@ export class SmtVerifier {
   }
 
   /**
-   * Whether the net has environment places the analysis is not modelling ([VER-006]
-   * `ignore`). Every route that can return `proven` has to refuse one here — a proof over
-   * a frozen environment is vacuous — so the rule is named once rather than spelled out
-   * at each guard. See {@link IGNORE_MODE_VACUITY_REASON}.
+   * Whether environment places are registered but not modelled ([VER-006] `ignore`). A
+   * proof over a frozen environment is vacuous, so every route that can return `proven`
+   * refuses it. See {@link IGNORE_MODE_VACUITY_REASON}.
    */
   private get ignoresEnvironment(): boolean {
     return this._environmentPlaces.size > 0 && this._environmentMode.type === 'ignore';
-  }
-
-  /**
-   * The solver as the phases of VER-018/019 ask it: one script through the transport,
-   * resolving with stdout. Rejects when the reply has no verdict line, and when z3
-   * reported an error other than the `model is not available` a `(get-model)` after
-   * `unsat` always draws — an errored assert silently drops out of the query.
-   */
-  private solverRun(solver: Z3Solver): (script: string, phase: string, timeoutMs: number) => Promise<string> {
-    return async (script, phase, timeoutMs) => {
-      const reply = await runZ3Text(solver, script, phase, timeoutMs, []);
-      const unexpected = [reply.stdout, reply.stderr]
-        .flatMap((text) => text.split('\n'))
-        .map((line) => errorLine(line))
-        .find((line) => line != null && !line.includes('model is not available'));
-      if (unexpected != null) throw new Error(`z3 reported an error: ${unexpected}`);
-      if (classifyFirstLine(reply.stdout) == null) throw new Error(failureReason(reply, timeoutBudget(timeoutMs)));
-      return reply.stdout;
-    };
   }
 
   /**
@@ -1272,19 +1239,12 @@ export class SmtVerifier {
    * the property — a `proven` only once the certificate check passed — and `null` when
    * it stepped aside, with the reason in the report.
    */
-  private async stateEquationDecision(
-    flatNet: FlatNet,
-    solver: Z3Solver,
-    report: string[],
-    propDesc: string,
-    invariants: readonly PInvariant[],
-    stats: SmtStatistics,
-    start: number,
-  ): Promise<SmtVerificationResult | null> {
+  private async stateEquationDecision(phase: PhaseContext): Promise<SmtVerificationResult | null> {
+    const { flatNet, report } = phase;
     report.push('  State-equation phase (VER-018):');
     const outcome = await runStateEquationPhase(
       flatNet, this._initialMarking, this._property, this._sinkPlaces, this._conditionalSinks,
-      this.solverRun(solver),
+      phaseSolver(phase.solver),
       { budgetMs: this._timeoutMs },
     );
     for (const r of outcome.refinements) report.push(`    Refinement (${r.origin}): ${formatInequality(flatNet, r)}`);
@@ -1296,34 +1256,31 @@ export class SmtVerifier {
         return null;
       case 'violated':
         report.push("    Status: a run within the candidate's firing counts reaches a violation");
-        return this.witnessResult(flatNet, outcome.states, outcome.steps, report, propDesc, invariants, stats, start);
+        return witnessResult(phase, outcome.states, outcome.steps);
       case 'proven': {
         report.push('    Status: no marking the equation admits violates the property');
         const certificate = refinementCertificate(flatNet.places.length, flatNet.transitions.length, outcome.refinements);
         if (this._certificateCheck) {
-          // No P-invariants in slot 5 and the counter-augmented step relation forced in the
-          // last: the refinement certificate has to stand on its own, and its arity is
-          // places + transitions, so the VC needs the relation that carries the counters.
+          // No P-invariants, and the step relation that carries the counters: the
+          // certificate ranges over places + transitions and must stand on its own.
           const checked = await checkCertificate(
-            certificate, flatNet, this._initialMarking, this._property, [], this._sinkPlaces, solver,
+            certificate, flatNet, this._initialMarking, this._property, [], this._sinkPlaces, phase.solver,
             this._timeoutMs, this._conditionalSinks, true,
           );
           const reason = certificateDowngradeReason(checked);
           if (reason != null) {
-            // Never a verdict: the fixpoint query still runs, and the failure stays in
-            // the report where a test over the fixtures can see it.
+            // Not a verdict: the fixpoint query still runs.
             report.push(`    Certificate check: FAILED (${reason})`);
             return null;
           }
-          // Two spaces, not four: this line is pinned verbatim by VER-018 AC1 and matches
-          // the fixpoint path. The FAILED line above is nested under the phase instead.
+          // Two spaces, as on the fixpoint path: pinned by VER-018 AC1.
           report.push('  Certificate check: PASSED (init, consecution, safety)');
         } else {
           report.push('  Certificate check: not applicable (disabled)');
         }
         report.push('');
         report.push('=== RESULT ===\n');
-        report.push(`PROVEN (state equation): ${propDesc}`);
+        report.push(`PROVEN (state equation): ${phase.propDesc}`);
         report.push(
           `  Every reachable marking satisfies the marking equation over ${flatNet.transitions.length} firing ` +
           `counters${outcome.refinements.length > 0 ? ' and the refinements above' : ''}, and none of those ` +
@@ -1333,7 +1290,7 @@ export class SmtVerifier {
         const readable = outcome.refinements.map((r) => formatInequality(flatNet, r));
         return buildResult(
           { type: 'proven', method: 'state-equation', inductiveInvariant: certificate },
-          report.join('\n'), invariants, readable, [], [], performance.now() - start, stats,
+          report.join('\n'), phase.invariants, readable, [], [], performance.now() - phase.start, phase.stats,
         );
       }
     }
@@ -1343,22 +1300,14 @@ export class SmtVerifier {
    * Runs the firing-bound phase (VER-019). Returns the final result when it decided the
    * property and `null` when it stepped aside, with the reason in the report.
    */
-  private async firingBoundDecision(
-    flatNet: FlatNet,
-    solver: Z3Solver,
-    report: string[],
-    propDesc: string,
-    invariants: readonly PInvariant[],
-    stats: SmtStatistics,
-    start: number,
-  ): Promise<SmtVerificationResult | null> {
+  private async firingBoundDecision(phase: PhaseContext): Promise<SmtVerificationResult | null> {
+    const { flatNet, report } = phase;
     report.push('  Firing bound (VER-019):');
-    // Half the timeout: a short counterexample is found in seconds, while a proof to a
-    // deep bound on a wide net can outlast any budget, and the fixpoint query after
-    // this phase still gets its full one.
+    // Half the timeout: a short counterexample is found in seconds, a proof to a deep bound
+    // can outlast any budget, and the fixpoint query after this still gets its full one.
     const outcome = await runFiringBoundPhase(
       flatNet, this._initialMarking, this._property, this._sinkPlaces, this._conditionalSinks,
-      this.solverRun(solver), { budgetMs: Math.max(1, Math.floor(this._timeoutMs / 2)) },
+      phaseSolver(phase.solver), { budgetMs: Math.max(1, Math.floor(this._timeoutMs / 2)) },
     );
     const formatDepths = (steps: readonly DepthStep[]): string =>
       steps.map((d) => `${d.depth} ${d.answer === 'sat' ? 'violation' : 'none'}`).join(', ');
@@ -1383,7 +1332,7 @@ export class SmtVerifier {
         pushBound(outcome.bound);
         report.push(`    Depths: ${formatDepths(outcome.depths)}`);
         report.push('    Status: a bounded run reaches a violation (replayed)');
-        return this.witnessResult(flatNet, outcome.states, outcome.steps, report, propDesc, invariants, stats, start);
+        return witnessResult(phase, outcome.states, outcome.steps);
       case 'proven':
         pushBound(outcome.bound);
         report.push(`    Depths: ${formatDepths(outcome.depths)}`);
@@ -1391,7 +1340,7 @@ export class SmtVerifier {
         report.push('  Certificate check: not applicable (bounded model check to the firing bound)');
         report.push('');
         report.push('=== RESULT ===\n');
-        report.push(`PROVEN (bounded model check): ${propDesc}`);
+        report.push(`PROVEN (bounded model check): ${phase.propDesc}`);
         report.push(
           `  No run has more than ${outcome.bound.bound} firings, and none of at most that many reaches a ` +
           'violation (VER-019).',
@@ -1399,36 +1348,9 @@ export class SmtVerifier {
         report.push('  NOTE: Verification ignores timing constraints.');
         return buildResult(
           { type: 'proven', method: 'bounded-model-check', inductiveInvariant: null },
-          report.join('\n'), invariants, [], [], [], performance.now() - start, stats,
+          report.join('\n'), phase.invariants, [], [], [], performance.now() - phase.start, phase.stats,
         );
     }
-  }
-
-  /** A `violated` result for a run the phases of VER-018/019 found and replayed. */
-  private witnessResult(
-    flatNet: FlatNet,
-    states: readonly AbstractState[],
-    steps: readonly string[],
-    report: string[],
-    propDesc: string,
-    invariants: readonly PInvariant[],
-    stats: SmtStatistics,
-    start: number,
-  ): SmtVerificationResult {
-    const trace = states.map((s) => toMarkingState(s, flatNet));
-    report.push('');
-    report.push('=== RESULT ===\n');
-    report.push(`VIOLATED: ${propDesc}`);
-    report.push(`  Counterexample trace (replay order, ${trace.length} states):`);
-    for (let i = 0; i < trace.length; i++) report.push(`    ${i}: ${trace[i]}`);
-    if (steps.length > 0) report.push(`  Firing sequence: ${steps.join(' -> ')}`);
-    report.push('\n  WARNING: This counterexample is in UNTIMED semantics.');
-    report.push('  It may be spurious if timing constraints prevent this sequence.');
-    // A firing sequence re-executed under the exact abstract semantics: confirmed.
-    return buildResult(
-      { type: 'violated' }, report.join('\n'), invariants, [], trace, [...steps],
-      performance.now() - start, stats, true,
-    );
   }
 
   /**
@@ -1495,6 +1417,59 @@ export class SmtVerifier {
       'the exact ν-analysis (NU-050).\n';
     return { ...result, report: result.report + note };
   }
+}
+
+/** What the pre-fixpoint phases of VER-018/019 read from `verify()`. */
+interface PhaseContext {
+  readonly flatNet: FlatNet;
+  readonly solver: Z3Solver;
+  /** The report so far; each phase appends its section. */
+  readonly report: string[];
+  readonly propDesc: string;
+  readonly invariants: readonly PInvariant[];
+  readonly stats: SmtStatistics;
+  readonly start: number;
+}
+
+/**
+ * The solver as the phases of VER-018/019 ask it: resolves with stdout. Rejects a reply
+ * with no verdict line, and one where z3 reported an error other than the `model is not
+ * available` that `(get-model)` after `unsat` draws: an errored assert silently drops out
+ * of the query.
+ */
+function phaseSolver(solver: Z3Solver): (script: string, phase: string, timeoutMs: number) => Promise<string> {
+  return async (script, phase, timeoutMs) => {
+    const reply = await runZ3Text(solver, script, phase, timeoutMs, []);
+    const unexpected = [reply.stdout, reply.stderr]
+      .flatMap((text) => text.split('\n'))
+      .map((line) => errorLine(line))
+      .find((line) => line != null && !line.includes('model is not available'));
+    if (unexpected != null) throw new Error(`z3 reported an error: ${unexpected}`);
+    if (classifyFirstLine(reply.stdout) == null) throw new Error(failureReason(reply, timeoutBudget(timeoutMs)));
+    return reply.stdout;
+  };
+}
+
+/** The confirmed `violated` result for a run a VER-018/019 phase found and replayed. */
+function witnessResult(
+  phase: PhaseContext,
+  states: readonly AbstractState[],
+  steps: readonly string[],
+): SmtVerificationResult {
+  const { report } = phase;
+  const trace = states.map((s) => toMarkingState(s, phase.flatNet));
+  report.push('');
+  report.push('=== RESULT ===\n');
+  report.push(`VIOLATED: ${phase.propDesc}`);
+  report.push(`  Counterexample trace (replay order, ${trace.length} states):`);
+  for (let i = 0; i < trace.length; i++) report.push(`    ${i}: ${trace[i]}`);
+  if (steps.length > 0) report.push(`  Firing sequence: ${steps.join(' -> ')}`);
+  report.push('\n  WARNING: This counterexample is in UNTIMED semantics.');
+  report.push('  It may be spurious if timing constraints prevent this sequence.');
+  return buildResult(
+    { type: 'violated' }, report.join('\n'), phase.invariants, [], trace, [...steps],
+    performance.now() - phase.start, phase.stats, true,
+  );
 }
 
 /**

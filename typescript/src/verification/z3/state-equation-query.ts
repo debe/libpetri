@@ -23,7 +23,9 @@ import type { MarkingState } from '../marking-state.js';
 import type { SmtProperty } from '../smt-property.js';
 import type { ConditionalSinks } from '../rest-set.js';
 import type { Place } from '../../core/place.js';
-import { encodePropertyViolation, resolveEnvInjection, stateEquationConditions } from './smt-encoder.js';
+import {
+  encodePropertyViolation, intTerm, resolveEnvInjection, stateEquationConditions, sumTerms,
+} from './smt-encoder.js';
 import { extractDefineFuns } from './smt-text.js';
 
 /**
@@ -115,9 +117,9 @@ function inequalityTerm(inequality: MarkingInequality, vars: readonly string[]):
   const terms: string[] = [];
   for (let p = 0; p < inequality.weights.length; p++) {
     const w = flip ? -inequality.weights[p]! : inequality.weights[p]!;
-    if (w !== 0n) terms.push(term(w, vars[p]!));
+    if (w !== 0n) terms.push(intTerm(w, vars[p]!));
   }
-  const lhs = terms.length === 0 ? '0' : terms.length === 1 ? terms[0]! : `(+ ${terms.join(' ')})`;
+  const lhs = sumTerms(terms);
   return flip
     ? `(>= ${lhs} ${literal(-inequality.constant)})`
     : `(<= ${lhs} ${literal(inequality.constant)})`;
@@ -159,12 +161,6 @@ export function formatInequality(flatNet: FlatNet, inequality: MarkingInequality
   const dropZero = inequality.constant === 0n && right.length > 0;
   const rhs = dropZero ? right : [String(inequality.constant), ...right];
   return `${left.join(' + ')} <= ${rhs.join(' + ')}`;
-}
-
-function term(c: bigint, v: string): string {
-  if (c === 1n) return v;
-  if (c === -1n) return `(- ${v})`;
-  return c > 0n ? `(* ${c} ${v})` : `(* (- ${-c}) ${v})`;
 }
 
 function literal(c: bigint): string {

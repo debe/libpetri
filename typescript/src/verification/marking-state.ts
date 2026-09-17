@@ -57,11 +57,8 @@ export class MarkingState {
   }
 
   /**
-   * The marking as `{name:count, ...}`, places in Unicode code-point order of their names.
-   *
-   * Reports and witness traces print markings this way, so the order must not depend on
-   * the host: `localeCompare` would follow the default locale, and `<` compares UTF-16
-   * code units ([VER-022]).
+   * The marking as `{name:count, ...}`, places in code-point order of their names, so reports
+   * and witness traces print the same on every host ([VER-013], [VER-022]).
    */
   toString(): string {
     if (this.tokenCounts.size === 0) return '{}';

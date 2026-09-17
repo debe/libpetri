@@ -1,13 +1,9 @@
 /**
  * @module open-net/predicate
  *
- * The contract's guarantee at one quiescent marking ([VER-022]): which clauses it breaks
- * and which places it strands.
- *
- * The stranding half is the rest set of [VER-014], read through the same module every
- * `DeadlockFree` route reads. The clause places, the rest places and the environment's own
- * places are sinks, and each designed terminal is a conditional sink. That is what lets the SMT route ask for it with
- * `deadlockFree()` and mean the same thing.
+ * The contract's guarantee at one quiescent marking ([VER-022]): which clauses it breaks and
+ * which places it strands. Stranding is the [VER-014] rest set every `DeadlockFree` route
+ * reads, so the SMT route can ask for it with `deadlockFree()`.
  */
 import type { Place } from '../../core/place.js';
 import { compareCodePoints } from '../../core/internal/code-point-order.js';
@@ -44,31 +40,18 @@ export function restDeclarationOf(contract: OpenNetContract, closed: ClosedNet):
   };
 }
 
-/**
- * The clause lower bounds' waivers: every designed terminal's marker ([VER-002]).
- *
- * Both routes must waive by the same set in the same order — the graph route reads it
- * through `hasTokensInAny` and the encoder through `indexOrdered` — so it is derived here
- * once rather than at each call site.
- */
+/** The clause lower bounds' waivers, for both routes: every designed terminal's marker ([VER-002]). */
 export function waiverMarkers(contract: OpenNetContract): Place<any>[] {
   return contract.terminals.map(t => t.marker);
 }
 
 /**
- * The places `m` strands, by name, in code-point order.
- *
- * This is the predicate both routes must attribute a stranding with, and the reason it
- * lives here rather than at each call site: it asks whether a place is marked **and
- * unexcused**, applying the [VER-014] widening that a token on a place excused by a marked
- * terminal marker is designed residue. A caller that asks only "is this place marked?"
- * reports a stranding the other route proves cannot happen.
+ * The places `m` strands, in code-point order of their names ([VER-013]). Both routes
+ * attribute a stranding through this: marked **and** unexcused, with the [VER-014]
+ * widening, so neither reports a stranding the other proves impossible.
  */
 export function strandedNames(m: MarkingState, rest: RestDeclaration): Place<any>[] {
-  // Code-point order, not locale or UTF-16 code-unit order, so every implementation lists
-  // the same way.
-  return [...strandedPlaces(m, rest.sinks, rest.conditional)]
-    .sort((a, b) => compareCodePoints(a.name, b.name));
+  return strandedPlaces(m, rest.sinks, rest.conditional).sort((a, b) => compareCodePoints(a.name, b.name));
 }
 
 /**
@@ -77,8 +60,7 @@ export function strandedNames(m: MarkingState, rest: RestDeclaration): Place<any
  */
 export function quiescenceFindings(m: MarkingState, contract: OpenNetContract, rest: RestDeclaration): Finding[] {
   const findings: Finding[] = [];
-  // The clause is a QuiescentCount with every terminal marker as a waiver ([VER-002]),
-  // read through the same predicate the graph routes use for that property.
+  // Each clause is a QuiescentCount waived by every terminal marker ([VER-002]).
   const markers = waiverMarkers(contract);
   for (const clause of contract.clauses) {
     const bound = countViolation(m, clause.places, clause.min, clause.max, markers);

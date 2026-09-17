@@ -3,22 +3,15 @@
  *
  * An open net closed by the environment its contract describes ([VER-022]).
  *
- * Each arrival group becomes ordinary net structure. A source place holds the tokens the
- * group must deliver, with one transition per target place that moves a token across. The
- * part the group may withhold gets a second source, whose tokens can also be declined by a
- * transition with no output. The contract's environment transitions, the neighbours that
- * react to what the subnet sends, join unchanged. Every interleaving of the environment's
- * steps with the subnet's own firings is then a run of the closed net. A run of the closed
- * net is quiescent only once the environment has delivered what it must and decided about
- * the rest.
+ * Each arrival group becomes a source place holding the tokens it must deliver, one
+ * transition per target place moving a token across, and a second source for the optional
+ * part whose tokens may also be declined. The contract's environment transitions join
+ * unchanged. Every interleaving of environment steps with the subnet's firings is a run of
+ * the closed net, which is quiescent only once the environment has delivered what it must
+ * and decided about the rest. Every route then verifies a plain net.
  *
- * Nothing else changes. The closed net is a plain net, so the state-class graph and the SMT
- * pipeline verify it as they verify any other, and no route needs a notion of environment.
- *
- * The closure uses ordinary places rather than the environment places of [VER-006] on
- * purpose. Under `alwaysAvailable` or `bounded(k)` an environment place never runs dry, so a
- * net with one is never quiescent, and every quiescence property holds vacuously. An arrival
- * group that runs dry after `max` tokens is what a bounded contract means.
+ * Ordinary places, not the environment places of [VER-006]: those never run dry, so a net
+ * with one is never quiescent and every quiescence property would hold vacuously.
  */
 import { PetriNet } from '../../core/petri-net.js';
 import { place, type Place } from '../../core/place.js';
@@ -88,20 +81,15 @@ export function closeOpenNet(net: PetriNet, contract: OpenNetContract): ClosedNe
       if (!byName.has(p.name) && !environmentPlaces.has(p.name)) environmentPlaces.set(p.name, p);
     }
   }
-  // Before the undeclared sweep below, so an environment place is never also reported as a
-  // place the contract named and nothing declares.
+  // Before the undeclared sweep, so an environment place is never reported as undeclared.
   for (const [name, p] of environmentPlaces) {
     taken.add(name);
     byName.set(name, p);
   }
 
-  // Every place the contract names joins the closed net, a terminal's excused places included
-  // — `contract.places()` leaves those out. This is also what keeps the two routes deciding
-  // the same rest set: the SMT encoder resolves each sink and marker through
-  // `flatNet.placeIndex` and silently drops what does not resolve, while the graph route
-  // matches by name and drops nothing. An arc-less excused place that never got registered
-  // here would therefore lose its excuse on the SMT route alone, and that route would report a
-  // stranding the graph route proves cannot happen.
+  // Every place the contract names joins the closed net, excused places included. The SMT
+  // encoder drops a sink or excuse that does not resolve and the graph route does not, so an
+  // unregistered excused place would make the routes disagree on the rest set.
   const undeclared: string[] = [];
   const extra: Place<any>[] = [];
   const named = [...contract.places(), ...contract.terminals.flatMap(t => t.excused)];

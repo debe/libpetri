@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dumpedFiles, dumpPhase } from '../fixtures/z3.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SmtVerifier } from '../../src/verification/smt-verifier.js';
@@ -229,12 +230,12 @@ echo '(proof (asserted (Reachable 1 0)) (asserted (Reachable 0 1)))'
     const result = await verify(chainNet(), placeBound(p1, 0));
     delete process.env[DUMP_ENV];
     expect(result.verdict.type, result.report).toBe('violated');
-    const names = readdirSync(dump).sort();
+    const names = dumpedFiles(dump);
     // The linear state-equation bound query (VER-015, phase `bound`) runs first for a
     // reachability-safety property; the stub's `unsat` says no bound separates, so the
     // HORN query follows. Two scripts, two replies, in phase order.
-    expect(names, 'two scripts and two replies').toEqual([
-      '001-bound.out', '001-bound.smt2', '002-horn.out', '002-horn.smt2',
+    expect(names.map(dumpPhase), 'two scripts and two replies').toEqual([
+      'bound.out', 'bound.smt2', 'horn.out', 'horn.smt2',
     ]);
     expect(readFileSync(join(dump, names[1]!), 'utf8')).toContain('(set-logic QF_LIA)');
     const script = readFileSync(join(dump, names[3]!), 'utf8');

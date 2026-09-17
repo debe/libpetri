@@ -235,15 +235,12 @@ export function counterConditions(fired: number, nVars: readonly string[], npVar
 }
 
 /**
- * The marking equation over the given marking and counter variables, in place
- * order: `m_p = M0_p + Σ_t C[p][t]·n_t` for every place of {@link equationPlaces},
- * over the flat transitions with a non-zero effect on `p`, in transition order; and
- * `m_p ≤ M0_p + Σ_t C[p][t]·n_t` for a place a consume-all or reset arc clears. A
- * clearing firing removes at least its arc weight, so the linear count bounds such a
- * place from above, and the row stays inductive over `(M, n)`: a clearing step needs
- * `m_p ≥ pre`, which the row turns into `post ≤ M0_p + C_p·n'`. An injected place
- * carries no row. A coefficient of 1 is the bare counter, −1 is `(- n)`, any other
- * `(* c n)` with a negative `c` written `(- k)`.
+ * The marking equation over the given marking and counter variables, in place order, terms
+ * in transition order: `m_p = M0_p + Σ_t C[p][t]·n_t` for every place of
+ * {@link equationPlaces}, and `m_p ≤ …` for a place a consume-all or reset arc clears. A
+ * clearing firing removes at least its arc weight, so the upper bound stays inductive over
+ * `(M, n)`: the step needs `m_p ≥ pre`, which gives `post ≤ M0_p + C_p·n'`. An injected
+ * place carries no row.
  */
 export function stateEquationConditions(
   flatNet: FlatNet,
@@ -261,7 +258,7 @@ export function stateEquationConditions(
       const ft = flatNet.transitions[t]!;
       const c = ft.postVector[p]! - ft.preVector[p]!;
       if (c === 0) continue;
-      terms.push(c === 1 ? nVars[t]! : c === -1 ? `(- ${nVars[t]})` : c > 0 ? `(* ${c} ${nVars[t]})` : `(* (- ${-c}) ${nVars[t]})`);
+      terms.push(intTerm(c, nVars[t]!));
     }
     const m0 = initialMarking.tokens(flatNet.places[p]!);
     const rhs = terms.length === 0 ? `${m0}` : `(+ ${m0} ${terms.join(' ')})`;
@@ -392,6 +389,18 @@ export function conjoin(conditions: readonly string[]): string {
   if (conditions.length === 0) return 'true';
   if (conditions.length === 1) return conditions[0]!;
   return `(and ${conditions.join(' ')})`;
+}
+
+/** `c·v`: `v` for 1, `(- v)` for −1, otherwise `(* c v)` with a negative `c` written `(- k)`. */
+export function intTerm(c: number | bigint, v: string): string {
+  if (c === 1 || c === 1n) return v;
+  if (c === -1 || c === -1n) return `(- ${v})`;
+  return c > 0 ? `(* ${c} ${v})` : `(* (- ${-c}) ${v})`;
+}
+
+/** `Σ terms`: `zero` when empty, the bare term when singleton, otherwise `(+ …)`. */
+export function sumTerms(terms: readonly string[], zero = '0'): string {
+  return terms.length === 0 ? zero : terms.length === 1 ? terms[0]! : `(+ ${terms.join(' ')})`;
 }
 
 /**
@@ -537,12 +546,10 @@ export function encodePropertyViolation(
 }
 
 /**
- * The count clause of a `QuiescentCount` over rendered count terms, places and waivers
- * each in place-index order: `(and (< Σ min) (= w 0) …)` when `min > 0`, `(> Σ max)` when
- * `max` is finite, their `or` when both apply, and `null` when neither does. `Σ` is `0`
- * for no term, the term itself for one, `(+ …)` otherwise. Shared with the name-coloured
- * encoder, which renders aggregate counts, and mirrored by the abstract replayer's
- * `satisfiesBad`.
+ * The count clause of a `QuiescentCount` over rendered counts and waivers, each in
+ * place-index order: `(and (< Σ min) (= w 0) …)` when `min > 0`, `(> Σ max)` when `max` is
+ * finite, their `or` when both apply, `null` when neither does. Shared with the
+ * name-coloured encoder; mirrored by the abstract replayer's `satisfiesBad`.
  */
 export function countViolationCondition(
   counts: readonly string[],
@@ -550,7 +557,7 @@ export function countViolationCondition(
   min: number,
   max: number,
 ): string | null {
-  const sum = counts.length === 0 ? '0' : counts.length === 1 ? counts[0]! : `(+ ${counts.join(' ')})`;
+  const sum = sumTerms(counts);
   const parts: string[] = [];
   if (min > 0) {
     const below = `(< ${sum} ${min})`;

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describeZ3 } from '../fixtures/z3.js';
+import { describeZ3, dumpedFiles, dumpPhase } from '../fixtures/z3.js';
 import { SmtVerifier } from '../../src/verification/smt-verifier.js';
 import { deadlockFree, placeBound } from '../../src/verification/smt-property.js';
 import { MarkingState } from '../../src/verification/marking-state.js';
@@ -284,6 +284,7 @@ describeZ3('state-equation phase (VER-018) — end to end', () => {
 
   it('dumps each of its queries under its own phase name (VER-013)', async () => {
     const dump = mkdtempSync(join(tmpdir(), 'libpetri-state-equation-'));
+    const saved = process.env['LIBPETRI_SMT_DUMP'];
     process.env['LIBPETRI_SMT_DUMP'] = dump;
     try {
       const { net, m0, done, skipped } = joinWithSkip();
@@ -291,11 +292,12 @@ describeZ3('state-equation phase (VER-018) — end to end', () => {
         .property(deadlockFree()).sinkPlaces(done, skipped).timeout(30_000).verify();
       expect(result.verdict.type, result.report).toBe('proven');
       // The candidate, the inequality excluding it, the unsat, and the certificate check.
-      expect(readdirSync(dump).filter((n) => n.endsWith('.smt2')).sort()).toEqual([
-        '001-state-equation.smt2', '002-invariant.smt2', '003-state-equation.smt2', '004-certificate.smt2',
+      expect(dumpedFiles(dump).map(dumpPhase).filter((n) => n.endsWith('.smt2'))).toEqual([
+        'state-equation.smt2', 'invariant.smt2', 'state-equation.smt2', 'certificate.smt2',
       ]);
     } finally {
-      delete process.env['LIBPETRI_SMT_DUMP'];
+      if (saved === undefined) delete process.env['LIBPETRI_SMT_DUMP'];
+      else process.env['LIBPETRI_SMT_DUMP'] = saved;
       rmSync(dump, { recursive: true, force: true });
     }
   });

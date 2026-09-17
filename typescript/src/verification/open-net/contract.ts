@@ -1,20 +1,17 @@
 /**
  * @module open-net/contract
  *
- * What a subnet promises when it is verified on its own, with its ports played by the
- * environment ([VER-022]).
+ * What a subnet promises when verified on its own, with its ports played by the environment
+ * ([VER-022]).
  *
- * The **assumption** half says what the environment does: which tokens the subnet holds
- * before anything arrives, and the arrival groups, each delivering between `min` and `max`
- * tokens onto its places at any point of the run. Every bound is finite. A bound is both the
- * runtime cap and the width of the claim, so an environment that delivers without limit is
- * not something a contract can assume.
+ * The **assumption**: the tokens the subnet holds before anything arrives, and arrival
+ * groups, each delivering between `min` and `max` tokens onto its places at any point of the
+ * run. Every bound is finite: a bound is both the runtime cap and the width of the claim.
  *
- * The **guarantee** half says what every quiescent marking holds: the count clauses, the
- * rest places, and the designed terminals under which a run may stop short. A place the
- * contract does not name is internal to the subnet and must be empty at quiescence. Every
- * run must also come to rest, unless {@link OpenNetContractBuilder.requireTermination} is
- * turned off.
+ * The **guarantee**: at every quiescent marking the count clauses hold, and tokens rest only
+ * on clause, rest or environment places, or where a marked designed terminal excuses them;
+ * every other place is internal and empty. Every run comes to rest unless
+ * {@link OpenNetContractBuilder.requireTermination} is turned off.
  */
 import type { Place } from '../../core/place.js';
 import type { Transition } from '../../core/transition.js';
@@ -57,8 +54,7 @@ const CONTRACT_KEY = Symbol('OpenNetContract.internal');
 
 /**
  * A subnet's contract: the environment it assumes and what it guarantees at quiescence
- * ([VER-022]). Build one with {@link OpenNetContract.builder}; check it with
- * `verifyOpenNet`.
+ * ([VER-022]). Build one with {@link OpenNetContract.builder}; check it with `verifyOpenNet`.
  *
  * ```ts
  * const contract = OpenNetContract.builder()
@@ -75,18 +71,13 @@ const CONTRACT_KEY = Symbol('OpenNetContract.internal');
  * ```
  *
  * **A node that can skip needs its edge clauses conditional.** `expect('e3', 1, …)` alone
- * says every quiescent marking writes that edge exactly once, which a node that legitimately
- * skips does not: it comes to rest having written the edge zero times, and the clause reports
- * it. Whether that is a defect or a design is the contract's to say, so name the place that
- * marks a skip as a {@link OpenNetContractBuilder.terminal}. That waives the clauses' lower
- * bounds while it is marked and leaves every upper bound in force, so a run that writes an
- * edge twice is still caught.
+ * reports a node that rests having skipped the edge. Name the place that marks a skip as a
+ * {@link OpenNetContractBuilder.terminal}: while it is marked the lower bounds are waived, and
+ * the upper bounds still catch an edge written twice.
  *
- * **A subnet that asks something of its neighbours needs an environment.** Verified alone, a
- * node that dispatches a request and waits has nobody to answer it: it quiesces with the
- * request outstanding, which is correct for an open net whose environment does nothing and
- * rarely what was meant. Give the contract the transitions the neighbours would fire, and
- * their own places stay theirs — never counted as the subnet stranding a token.
+ * **A subnet that asks something of its neighbours needs an environment.** Alone, a node that
+ * sends a request and waits quiesces with the request outstanding. Give the contract the
+ * transitions the neighbours fire; their own places are never counted as stranded.
  *
  * ```ts
  * // A node that runs again on every answer, against an environment that answers twice.
@@ -145,11 +136,8 @@ export class OpenNetContract {
   /**
    * Every place the initial marking, an arrival group, a clause, the rest set or a terminal
    * marker names, then every place an environment transition touches, in first-mention
-   * order. A violation's port trace reports the token changes on these places.
-   *
-   * A terminal's *excused* places are **not** included, so a place that only ever appears
-   * as an excuse is absent here; `closeOpenNet` adds those separately, because every place
-   * the contract names has to join the closed net for both routes to resolve it.
+   * order: the places a port trace reports. A terminal's excused places are not included;
+   * `closeOpenNet` adds them to the closed net itself.
    */
   places(): Place<any>[] {
     const seen = new Map<string, Place<any>>();
@@ -284,16 +272,14 @@ export class OpenNetContractBuilder {
   }
 
   /**
-   * Transitions the environment fires: a neighbour that reacts to what the subnet sends,
-   * such as a tool that answers a request, or a loop body that sends an item back at most as
-   * often as a budget of its own allows. An arrival group cannot say that, because its
-   * tokens do not wait for a request.
+   * Transitions the environment fires: a neighbour that reacts to what the subnet sends, such
+   * as a tool answering a request. An arrival group cannot say that: its tokens do not wait
+   * for a request.
    *
-   * They join the closed net unchanged, and their firings are marked as environment steps in
-   * the port trace. A place only they touch belongs to the environment: it may hold tokens at
-   * quiescence, and the internal-place check never reports it. A place they share with the
-   * subnet is a port and is judged like any other. Their actions never run, so one that
-   * declares outputs may keep `passthrough()`.
+   * They join the closed net unchanged and are marked as environment steps in the port trace.
+   * A place only they touch belongs to the environment and may hold tokens at quiescence; a
+   * place they share with the subnet is a port, judged like any other. Their actions never
+   * run, so one that declares outputs may keep `passthrough()`.
    */
   environment(...transitions: Transition[]): this {
     for (const t of transitions) {

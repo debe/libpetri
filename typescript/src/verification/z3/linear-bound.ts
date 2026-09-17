@@ -30,7 +30,7 @@ import type { FlatNet } from '../encoding/flat-net.js';
 import type { MarkingState } from '../marking-state.js';
 import type { SmtProperty } from '../smt-property.js';
 import { nonlinearPlaces } from '../invariant/p-invariant-computer.js';
-import { resolveEnvInjection } from './smt-encoder.js';
+import { intTerm, resolveEnvInjection, sumTerms } from './smt-encoder.js';
 import { extractDefineFuns } from './smt-text.js';
 
 /** One linear bound `Σ weights[p]·m_p ≤ constant`, with the demand it separates. */
@@ -109,31 +109,21 @@ export function encodeLinearBound(flatNet: FlatNet, initialMarking: MarkingState
     const terms: string[] = [];
     for (let p = 0; p < P; p++) {
       const c = ft.postVector[p]! - ft.preVector[p]!;
-      if (c !== 0) terms.push(term(c, `y${p}`));
+      if (c !== 0) terms.push(intTerm(c, `y${p}`));
     }
-    if (terms.length > 0) lines.push(`(assert (<= ${sum(terms)} 0))`);
+    if (terms.length > 0) lines.push(`(assert (<= ${sumTerms(terms)} 0))`);
   }
   const demandTerms: string[] = [];
-  for (const p of [...demand.keys()].sort((a, b) => a - b)) demandTerms.push(term(demand.get(p)!, `y${p}`));
+  for (const p of [...demand.keys()].sort((a, b) => a - b)) demandTerms.push(intTerm(demand.get(p)!, `y${p}`));
   const initTerms: string[] = ['1'];
   for (let p = 0; p < P; p++) {
     const m0 = initialMarking.tokens(flatNet.places[p]!);
-    if (m0 > 0) initTerms.push(term(m0, `y${p}`));
+    if (m0 > 0) initTerms.push(intTerm(m0, `y${p}`));
   }
-  lines.push(`(assert (>= ${sum(demandTerms)} ${sum(initTerms)}))`);
+  lines.push(`(assert (>= ${sumTerms(demandTerms)} ${sumTerms(initTerms)}))`);
   lines.push('(check-sat)');
   lines.push('(get-model)');
   return lines.join('\n');
-}
-
-function term(c: number, v: string): string {
-  if (c === 1) return v;
-  if (c === -1) return `(- ${v})`;
-  return c > 0 ? `(* ${c} ${v})` : `(* (- ${-c}) ${v})`;
-}
-
-function sum(terms: readonly string[]): string {
-  return terms.length === 1 ? terms[0]! : `(+ ${terms.join(' ')})`;
 }
 
 /**

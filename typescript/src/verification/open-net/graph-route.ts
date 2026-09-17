@@ -1,18 +1,14 @@
 /**
  * @module open-net/graph-route
  *
- * The contract decided on the closed net's state-class graph ([VER-022]).
+ * The contract decided on the closed net's state-class graph ([VER-022]), built **untimed**
+ * ([VER-004]): every clock gets `immediate()`, so the graph holds the markings the untimed
+ * encoders reason about. Priority- and value-blind, like every graph route.
  *
- * The graph is built **untimed** ([VER-004]): every clock gets the interval of
- * `immediate()`, so the graph holds exactly the markings the untimed encoders reason about,
- * and its verdict is the stronger untimed claim even for a subnet with delayed transitions.
- * Like every graph route it is priority-blind and value-blind.
- *
- * When the graph closes, the verdict is exact. Every quiescent class is judged against the
- * contract, and a cycle anywhere in the graph is a run that never comes to rest. When it does
- * not close, what was found is still real. A class with no enabled transition is quiescent
- * whether or not the build got round to expanding it, and a cycle among explored classes is
- * a real cycle. Only the absence of findings needs the graph to have closed.
+ * A closed graph decides exactly: every quiescent class is judged, and any cycle is a run
+ * that never rests. A truncated graph's findings are still real, since a class with nothing
+ * enabled is quiescent whether or not it was expanded and an explored cycle is a real cycle;
+ * only the absence of findings needs the graph to close.
  */
 import type { Place } from '../../core/place.js';
 import { compareCodePoints } from '../../core/internal/code-point-order.js';
@@ -45,11 +41,10 @@ export function decideOnGraph(
   const rest = restDeclarationOf(contract, closed);
   const tree = bfsTree(graph);
 
-  // Classes come in BFS order, so the first class to show a subject is a shallowest one.
+  // Classes come in BFS order, so the first class showing a subject is a shallowest one.
   const first = new Map<string, { finding: Finding; target: StateClass }>();
   for (const sc of classes) {
-    // In an untimed exploration an enabled transition can always fire, so "nothing enabled" is
-    // the graph's own quiescence, and it holds of a class the build never expanded as well.
+    // Untimed, every enabled transition can fire: nothing enabled is quiescence, expanded or not.
     if (sc.enabledTransitions.length > 0) continue;
     for (const finding of quiescenceFindings(sc.marking, contract, rest)) {
       const key = `${finding.kind}:${subjectOf(finding)}`;
@@ -57,14 +52,12 @@ export function decideOnGraph(
     }
   }
 
+  // Clauses in contract order, then stranded places in code-point order ([VER-013]).
   const clauseOrder = new Map(contract.clauses.map((c, i) => [c.name, i]));
-  // Code-point order, not locale or UTF-16 code-unit order, so every implementation lists
-  // the same way.
+  const rank = (f: Finding): number =>
+    f.kind === 'clause' ? clauseOrder.get(f.clause.name)! : contract.clauses.length;
   const ordered = [...first.values()].sort((a, b) => rank(a.finding) - rank(b.finding)
     || compareCodePoints(subjectOf(a.finding), subjectOf(b.finding)));
-  function rank(f: Finding): number {
-    return f.kind === 'clause' ? clauseOrder.get(f.clause.name)! : contract.clauses.length;
-  }
 
   const violations: ContractViolation[] = ordered.map(({ finding, target }) => {
     const path = pathTo(tree, target);
@@ -134,8 +127,7 @@ interface Frame {
 
 /**
  * A reachable cycle as a lasso (the shortest stem to its entry class, then the loop), or
- * `null` when the explored graph has none. An iterative depth-first search: a graph deep
- * enough to matter would overflow a recursive one.
+ * `null`. Iterative depth-first search, so a deep graph cannot overflow the stack.
  */
 function findCycle(
   graph: StateClassGraph,

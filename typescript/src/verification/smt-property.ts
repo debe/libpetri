@@ -90,14 +90,10 @@ export interface JoinedOrDeadLettered {
 }
 
 /**
- * A token count at quiescence: every reachable quiescent marking holds between `min` and
- * `max` tokens across `places`, and the lower bound is waived while any `waivedBy` place
- * holds a token (VER-002).
- *
- * Violated by a reachable quiescent marking that holds fewer than `min` while every
- * `waivedBy` place is empty, or more than `max`. `max` may be `Infinity`. This is the
- * count a designed terminal ([VER-014]) makes conditional: a halted run need not refund
- * its budget, but it never holds more than there is.
+ * A token count at quiescence (VER-002): every reachable quiescent marking holds between
+ * `min` and `max` tokens across `places` (`max` may be `Infinity`). The lower bound is
+ * waived while any `waivedBy` place is marked, the upper never: a halted run ([VER-014])
+ * need not refund its budget, but never holds more than there is.
  */
 export interface QuiescentCount {
   readonly type: 'quiescent-count';
@@ -167,12 +163,7 @@ export function countPhrase(min: number, max: number): string {
   return `between ${min} and ${max}`;
 }
 
-/**
- * `exactly 1 across {a, b}` — a count and the places it is taken over.
- *
- * Both open-net routes and {@link propertyDescription} must say this the same way about the
- * same clause, so the phrase is built here rather than at each of the three call sites.
- */
+/** `exactly 1 across {a, b}`: the one phrasing of a count clause, for reports and both open-net routes. */
 export function countAcross(min: number, max: number, places: Iterable<Place<any>>): string {
   return `${countPhrase(min, max)} across {${[...places].map(p => p.name).join(', ')}}`;
 }

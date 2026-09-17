@@ -4,27 +4,20 @@
  * The refinement loop of the state-equation phase (VER-018).
  *
  * One `QF_LIA` query asks whether a marking the marking equation admits violates the
- * property ({@link encodeStateEquationQuery}). `unsat` proves it. A `sat` model is a
- * candidate, and each round settles it one of three ways, cheapest first:
+ * property ({@link encodeStateEquationQuery}); `unsat` proves it. Each `sat` candidate is
+ * settled cheapest first:
  *
- * 1. **Witness** — a real run from `M0` within the candidate's firing counts that
- *    reaches a violation ({@link searchWithinCounts}). The property is violated, and
- *    the run is the counterexample.
- * 2. **Trap** — an initially marked trap the candidate leaves empty
- *    ({@link refutingTrap}); `Σ_{q∈Q} m_q ≥ 1` is added and the query asked again.
- * 3. **Inductive inequality** — `a·M ≤ b`, kept by the exact step relation and
- *    excluding the candidate ({@link encodeInductiveInequality}), re-checked in exact
- *    integer arithmetic and added. When there is none, the same question is asked
- *    *relative to the marking equation* ({@link encodeRelativeInequality}), which is
- *    where the spec's `N·out + q ≤ N` shape comes from. A relative inequality is not
- *    inductive on its own, so it cannot be re-checked the same way: the certificate
- *    check over the equation and its refinements is what re-proves it.
+ * 1. **Witness**: a run from `M0` within the candidate's counts that reaches a violation
+ *    ({@link searchWithinCounts}), the counterexample.
+ * 2. **Trap**: an initially marked trap the candidate empties ({@link refutingTrap}).
+ * 3. **Inductive inequality**: `a·M ≤ b` kept by the exact step relation and excluding the
+ *    candidate ({@link encodeInductiveInequality}), re-checked exactly. Failing that, one
+ *    inductive only relative to the marking equation ({@link encodeRelativeInequality}),
+ *    which no exact re-check can accept; the certificate check re-proves it.
  *
- * Every refinement holds in every reachable marking, so an `unsat` after refinement
- * is still a proof, and the refinements it used are its certificate. When none of the
- * three settles a candidate, or the refinement budget or the deadline runs out, the
- * phase is inconclusive and the verifier falls through to the fixpoint query exactly
- * as before; the phase can add verdicts, never remove them.
+ * Every refinement holds in every reachable marking, so a later `unsat` is still a proof
+ * and the refinements are its certificate. Otherwise the phase is inconclusive and the
+ * verifier continues as without it: it adds verdicts, never removes them.
  */
 import type { FlatNet } from '../encoding/flat-net.js';
 import type { MarkingState } from '../marking-state.js';

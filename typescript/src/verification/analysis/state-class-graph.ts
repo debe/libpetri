@@ -29,11 +29,9 @@ export interface VirtualTransition {
 /** Options for {@link StateClassGraph.build}. */
 export interface StateClassGraphOptions {
   /**
-   * Explore the **untimed** reachable set: every clock gets the interval of `immediate()`,
-   * `[0, ∞)`, whatever its transition declares, so any enabled transition may fire next and
-   * the graph holds exactly the markings the untimed encoders reason about ([VER-004]). Its
-   * verdicts are then the stronger untimed claim, not the timed one. On a net whose
-   * transitions are all immediate this changes nothing.
+   * Explore the **untimed** reachable set ([VER-004]): every clock gets `immediate()`'s
+   * `[0, ∞)`, so any enabled transition may fire next and the graph holds exactly the
+   * markings the untimed encoders reason about. No effect on an all-immediate net.
    */
   readonly untimed?: boolean;
 }
@@ -258,15 +256,12 @@ function classKey(sc: StateClass): string {
 }
 
 /**
- * The canonical clock order of an enabled set: ascending by transition name
- * (Unicode code-point order, as the Rust `str` order the other ports match),
- * ties keeping their incoming order. Returns the permutation as indices into
- * `transitions`, or `null` when it is already in order — the common case, which
- * then costs no allocation.
+ * The canonical clock order of an enabled set: ascending by transition name in code-point
+ * order ([VER-013]), ties keeping their incoming order. Returns the permutation as indices
+ * into `transitions`, or `null`, without allocating, when already in order.
  *
- * The order is observable: successors are explored in it, so it decides which
- * shallowest witness a report prints. `<` would compare UTF-16 code units and
- * disagree with the other ports on supplementary-plane names.
+ * Observable: successors are explored in this order, which picks the shallowest witness a
+ * report prints.
  */
 export function canonicalOrder(transitions: readonly Transition[]): number[] | null {
   let sorted = true;

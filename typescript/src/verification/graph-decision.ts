@@ -97,10 +97,9 @@ export function tokensAcross(m: MarkingState, places: Iterable<Place<any>>): num
 }
 
 /**
- * Which bound of a count `m` breaks: `lower` when it holds fewer than `min` across `places`
- * while no `waivedBy` place is marked, `upper` when it holds more than `max`, else `null`.
- * The one reading of a count clause, shared by [VER-002]'s `QuiescentCount` on the graph
- * routes and by the open-net contract of [VER-022].
+ * Which bound of a count `m` breaks: `upper` above `max` across `places`, `lower` below `min`
+ * while no `waivedBy` place is marked, else `null`. Shared by [VER-002]'s `QuiescentCount` on
+ * the graph routes and by the open-net contract of [VER-022].
  */
 export function countViolation(
   m: MarkingState,

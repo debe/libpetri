@@ -1,35 +1,27 @@
 /**
  * @module open-net/smt-route
  *
- * The contract asked of the SMT pipeline, for a closed net whose graph does not close
- * ([VER-022]).
+ * The contract asked of the SMT pipeline when the graph does not close ([VER-022]). Each part
+ * is one query on the closed net, deciding exactly the predicate the graph route reads:
  *
- * Each part of the contract is one query on the closed net, and each decides exactly the
- * predicate the graph route reads:
- *
- * - **stranding**: `deadlockFree()` with the clause places, the rest places and the
- *   environment's own places as sinks, and each terminal as a conditional sink ([VER-014]).
- * - **a count clause**: `quiescentCount(places, min, max, markers)` ([VER-002]), with every
- *   terminal marker as a waiver.
- * - **termination**: the firing-bound ranking of [VER-019] on the closed net. Weights that
- *   every firing lowers bound the length of every run by what they give the initial
- *   marking, so no run goes on forever. When there are none, the part is undecided and the
- *   reason names the firings the marking equation lets repeat.
+ * - **stranding**: `deadlockFree()` with clause, rest and environment places as sinks and each
+ *   terminal as a conditional sink ([VER-014]);
+ * - **a count clause**: `quiescentCount(places, min, max, markers)` ([VER-002]), every
+ *   terminal marker a waiver;
+ * - **termination**: the firing-bound ranking of [VER-019]; without one the part is undecided,
+ *   naming the firings the marking equation lets repeat.
  */
 import type { Place } from '../../core/place.js';
 import { flatten } from '../encoding/net-flattener.js';
 import { tokensAcross } from '../graph-decision.js';
 import { rethrowIfProgrammingError } from '../programming-error.js';
-import { type ConditionalSinks } from '../rest-set.js';
+import type { ConditionalSinks } from '../rest-set.js';
 import {
   countAcross, deadlockFree, propertyDescription, quiescentCount, type SmtProperty,
 } from '../smt-property.js';
 import type { SmtVerificationResult } from '../smt-verification-result.js';
 import { SmtVerifier } from '../smt-verifier.js';
-import {
-  checkRankingExact, decodeRanking, decodeRepeatableVector, encodeRankingQuery, encodeRepeatableVectorQuery,
-  formatRanking,
-} from '../z3/bounded-run.js';
+import { findFiringBound, formatRanking } from '../z3/bounded-run.js';
 import { failureReason, resolveZ3, runZ3Text, timeoutBudget, Z3Unavailable, type Z3Solver } from '../z3/z3-process.js';
 import type { ClosedNet } from './closure.js';
 import type { OpenNetContract } from './contract.js';
@@ -43,11 +35,7 @@ export interface SmtRouteOutcome {
   readonly undecided: readonly string[];
   /** One report line per query. */
   readonly lines: readonly string[];
-  /**
-   * The inductive invariant each proven query returned, in query order. These are the
-   * route's proof evidence: a `proven` open-net verdict is their conjunction, one
-   * certificate per part of the contract.
-   */
+  /** The inductive invariant each proven query returned, in query order; a `proven` verdict is their conjunction. */
   readonly certificates: readonly SubjectCertificate[];
 }
 
@@ -69,14 +57,9 @@ interface Query {
 /**
  * A part of the contract: a query to run, or a clause no marking can fail.
  *
- * A count clause of `[0, ∞]` is the second kind. `countViolation` reports `upper` only
- * above `max` and `lower` only below `min`, so every marking satisfies it and both routes
- * agree without asking anything — the graph route's `quiescenceFindings` finds nothing for
- * it either. Its places still carry their weight through `restDeclarationOf`, which makes
- * every clause place a sink of the stranding query. Running the query anyway would be
- * strictly worse than skipping it: the answer is `proven` on a solver that has time and
- * `unknown` on one that does not. It gets a report line so that skipping it is visible
- * rather than silent.
+ * A `[0, ∞]` clause is the second kind: the graph route finds nothing for it either, and its
+ * places still count as sinks of the stranding query. Asking would only risk `unknown`, so it
+ * is skipped with a report line.
  */
 type Part =
   | { readonly kind: 'query'; readonly query: Query }
@@ -113,8 +96,7 @@ export async function decideViaSmt(
       + (verdict.type === 'unknown' ? ` (${verdict.reason})` : ''));
     if (verdict.type === 'unknown') undecided.push(`${q.subject}: ${verdict.reason}`);
     else if (verdict.type === 'violated') violations.push(contractViolation(closed, tracedPlaces, q.onViolated(result)));
-    // A proven part may or may not come with a certificate: the enumeration and bound
-    // phases prove without one. Keep the ones that do rather than dropping the evidence.
+    // Some routes prove without a certificate; keep the ones that come with one.
     else if (verdict.inductiveInvariant !== null) {
       certificates.push({ subject: q.subject, invariant: verdict.inductiveInvariant });
     }
@@ -134,7 +116,7 @@ export async function decideViaSmt(
 function partsFor(closed: ClosedNet, contract: OpenNetContract): Part[] {
   const rest = restDeclarationOf(contract, closed);
   const markers = waiverMarkers(contract);
-  // The last marking of a replay-confirmed counterexample is the quiescent one it reached.
+  // A replay-confirmed counterexample ends in the quiescent marking it reached.
   const quiescentMarking = (result: SmtVerificationResult) =>
     result.counterexampleConfirmed === true ? result.counterexampleTrace.at(-1) : undefined;
   const witness = (result: SmtVerificationResult) => ({
@@ -150,9 +132,7 @@ function partsFor(closed: ClosedNet, contract: OpenNetContract): Part[] {
     sinks: [...rest.sinks],
     conditional: rest.conditional,
     onViolated: result => {
-      // The verdict does not depend on the replay — the solver's `sat` is the violation. The
-      // attribution does: without a confirmed quiescent marking there is nothing to read the
-      // stranded places off, so the finding names the query rather than guessing a place.
+      // The verdict stands without the replay; naming the stranded places needs its marking.
       const last = quiescentMarking(result);
       const stranded = last === undefined ? [] : strandedNames(last, rest).map(p => p.name);
       return {
@@ -196,12 +176,7 @@ function partsFor(closed: ClosedNet, contract: OpenNetContract): Part[] {
   return parts;
 }
 
-/**
- * Termination by the firing-bound ranking of [VER-019]: weights `r ≥ 0` that every firing
- * of the closed net lowers by at least one, re-checked in exact arithmetic. No run then has
- * more than `r·M0` firings. When there are none, the Farkas alternative names the firings
- * the marking equation lets repeat.
- */
+/** Termination by the firing-bound ranking of [VER-019] on the closed net: no run has more than `r·M0` firings. */
 async function terminationByRanking(
   closed: ClosedNet,
   timeoutMs: number,
@@ -215,6 +190,7 @@ async function terminationByRanking(
     if (e instanceof Z3Unavailable) return { proven: false, reason: e.message };
     throw e;
   }
+  // A reply is read only when its first non-blank line is the verdict.
   const ask = async (script: string): Promise<string | Error> => {
     try {
       const reply = await runZ3Text(solver, script, 'ranking', timeoutMs, []);
@@ -227,31 +203,27 @@ async function terminationByRanking(
     }
   };
 
-  const ranking = await ask(encodeRankingQuery(flat, initial));
-  if (ranking instanceof Error) return { proven: false, reason: ranking.message };
-  const answer = firstLine(ranking);
-  if (answer === 'sat') {
-    const weights = decodeRanking(ranking, flat.places.length);
-    const bound = weights === null ? null : checkRankingExact(flat, initial, weights);
-    if (bound === null) return { proven: false, reason: 'the firing-bound ranking failed the exact re-check' };
-    return {
-      proven: true,
-      detail: `every run has at most ${bound.bound} firings (${formatRanking(flat, bound)} drops on every firing)`,
-    };
+  const ranking = await findFiringBound(flat, initial, ask);
+  switch (ranking.kind) {
+    case 'bound':
+      return {
+        proven: true,
+        detail: `every run has at most ${ranking.bound.bound} firings (${formatRanking(flat, ranking.bound)} drops on every firing)`,
+      };
+    case 'unbounded':
+      return {
+        proven: false,
+        reason: ranking.repeatable === null
+          ? 'no firing bound: no weights drop on every firing'
+          : `no firing bound: the marking equation lets ${ranking.repeatable.map(t => flat.transitions[t]!.name).join(', ')} repeat`,
+      };
+    case 'rejected':
+      return { proven: false, reason: 'the firing-bound ranking failed the exact re-check' };
+    case 'unknown':
+      return { proven: false, reason: 'the firing-bound query answered unknown' };
+    case 'failed':
+      return { proven: false, reason: ranking.reason };
   }
-  if (answer === 'unsat') {
-    const vector = await ask(encodeRepeatableVectorQuery(flat));
-    const repeat = vector instanceof Error || firstLine(vector) !== 'sat'
-      ? null
-      : decodeRepeatableVector(vector, flat.transitions.length);
-    return {
-      proven: false,
-      reason: repeat === null || repeat.length === 0
-        ? 'no firing bound: no weights drop on every firing'
-        : `no firing bound: the marking equation lets ${repeat.map(t => flat.transitions[t]!.name).join(', ')} repeat`,
-    };
-  }
-  return { proven: false, reason: 'the firing-bound query answered unknown' };
 }
 
 function firstLine(stdout: string): string {

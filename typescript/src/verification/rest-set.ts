@@ -84,9 +84,8 @@ export function strandsToken(
 }
 
 /**
- * The places of `m` that hold a stranded token, in `m`'s own order: empty exactly when
- * {@link strandsToken} is false. The open-net contract of [VER-022] reads it to name the
- * places a quiescent marking leaves work on.
+ * The places of `m` holding a stranded token, in `m`'s own order: empty exactly when
+ * {@link strandsToken} is false. [VER-022] names them in its violations.
  */
 export function strandedPlaces(
   m: MarkingState,

@@ -1,18 +1,10 @@
 /**
  * @module open-net/verify-open-net
  *
- * A subnet verified on its own against a contract, with its ports played by the
- * environment ([VER-022]).
- *
- * The subnet is closed with the environment its contract describes, and the closed net's
- * untimed state-class graph is enumerated. When the graph closes, the verdict is exact.
- * When it does not, a violation found among the explored classes is still real, and the rest
- * of the contract goes to the SMT pipeline, through the properties it already has.
- *
- * A caller that builds its nets from a fixed vocabulary of subnets gets one proof per
- * subnet, and each proof costs what the subnet costs rather than what the interleavings of
- * the whole net cost. Turning those proofs into a claim about the composed net is the
- * caller's own theorem; this entry proves the pieces.
+ * A subnet verified on its own against a contract, with its ports played by the environment
+ * ([VER-022]). The closed net's untimed state-class graph decides exactly when it closes; a
+ * violation it finds stands either way, and otherwise the SMT pipeline gets the contract.
+ * Composing the per-subnet proofs into a claim about a whole net is the caller's theorem.
  */
 import type { PetriNet } from '../../core/petri-net.js';
 import type { SmtVerifier } from '../smt-verifier.js';
@@ -39,6 +31,8 @@ export interface OpenNetOptions {
 const DEFAULT_MAX_CLASSES = 50_000;
 const METHOD_ENUMERATION = 'open-net contract by state-space enumeration (VER-022)';
 const METHOD_SMT = 'open-net contract by the SMT pipeline (VER-022)';
+const SKIPPED_BY_BUDGET = 'class budget 0';
+const SKIPPED_BY_MATCH = 'the closed net declares match (ν-join) transitions, which the graph does not model';
 
 /**
  * Verifies `net` in isolation against `contract` ([VER-022]).
@@ -61,17 +55,14 @@ export async function verifyOpenNet(
   const closed = closeOpenNet(net, contract);
   const maxClasses = options.maxClasses ?? DEFAULT_MAX_CLASSES;
   const useSmt = options.smt ?? true;
-  // Every place a port trace may mention: the contract's own, plus the closure's. [VER-022]
-  // reserves "port" for a place the environment shares with the subnet, which is narrower.
+  // The places a port trace reports changes on.
   const tracedPlaces = contract.places();
-  // The graph is name-blind: it fires a ν-join on any two tokens, whether or not their names
-  // match. For a quiescence contract that is no approximation in either direction — it reaches
-  // markings the net cannot (the join's output) and misses ones it does (the inputs a join that
-  // cannot match leaves stranded), so neither its `proven` nor its `violated` can stand. The same
-  // exclusion as [VER-017] condition 1; the SMT pipeline has exact routes for a ν-net.
+  // The graph is name-blind: it fires a ν-join on tokens whose names differ and never strands
+  // the inputs of a join that cannot match, so for a quiescence contract neither its `proven`
+  // nor its `violated` stands ([VER-017] condition 1). The SMT pipeline has exact ν routes.
   const graphSkipped = [...closed.net.transitions].some(t => t.matchSpec !== null)
-    ? 'the closed net declares match (ν-join) transitions, which the graph does not model'
-    : maxClasses > 0 ? null : 'class budget 0';
+    ? SKIPPED_BY_MATCH
+    : maxClasses > 0 ? null : SKIPPED_BY_BUDGET;
   const graph = graphSkipped === null ? decideOnGraph(closed, contract, maxClasses, tracedPlaces) : null;
 
   const result = (
@@ -96,14 +87,13 @@ export async function verifyOpenNet(
       return result({ type: 'violated' }, 'enumeration', graph.violations, null);
     }
     if (graph.complete) {
-      // No invariant: the closed graph proves the contract by exhausting its classes, and the
-      // classes themselves are the evidence. There is no certificate here to lose.
+      // No invariant: the exhausted graph is the evidence.
       return result({ type: 'proven', method: METHOD_ENUMERATION, inductiveInvariant: null }, 'enumeration', [], null);
     }
   }
   const why = graph !== null
     ? `the state-class graph did not close within ${maxClasses} classes`
-    : graphSkipped === 'class budget 0'
+    : graphSkipped === SKIPPED_BY_BUDGET
       ? 'the state-class graph was skipped'
       : `the state-class graph was skipped: ${graphSkipped}`;
   if (!useSmt) {
@@ -127,11 +117,8 @@ export async function verifyOpenNet(
 }
 
 /**
- * The route's certificates as one invariant, each labelled with the part of the contract it
- * proves. The whole verdict is their conjunction, so keeping them apart keeps them readable.
- *
- * `null` when no query returned one. That is weaker evidence, not a weaker verdict: a part
- * proven by a bound or by enumeration has no invariant to give.
+ * The route's certificates, each labelled with the contract part it proves, or `null` when no
+ * query returned one (a part proven by a bound or by enumeration has none).
  */
 function combineCertificates(certificates: readonly SubjectCertificate[]): string | null {
   if (certificates.length === 0) return null;

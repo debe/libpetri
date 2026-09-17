@@ -42,11 +42,8 @@ export interface PortStep {
 export interface ContractViolation {
   readonly kind: ContractViolationKind;
   /**
-   * The clause's name, a stranded place's name, or `termination`.
-   *
-   * The two routes attribute a stranding differently: the graph route reports one violation
-   * per stranded place, the SMT route one violation for the whole query, naming every place
-   * its witness strands as a comma-separated list.
+   * The clause's name, a stranded place's name, or `termination`. The SMT route reports one
+   * stranding for the whole query, naming every stranded place comma-separated.
    */
   readonly subject: string;
   /** What was found, in words. */

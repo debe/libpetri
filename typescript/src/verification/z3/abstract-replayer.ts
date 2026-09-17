@@ -157,12 +157,17 @@ function buildIndex(flatNet: FlatNet): ReplayIndex {
     const idx = flatNet.placeIndex.get(name);
     if (idx != null) envInj.set(idx, bound);
   }
-  const envCaps: [number, number][] = [];
+  return { flatNet, resetSets, envInj, envCaps: environmentCaps(flatNet) };
+}
+
+/** `environmentBounds` as `[place index, cap]` pairs (`M'[idx] <= cap`), in the net's own order. */
+export function environmentCaps(flatNet: FlatNet): [number, number][] {
+  const caps: [number, number][] = [];
   for (const [name, cap] of flatNet.environmentBounds) {
     const idx = flatNet.placeIndex.get(name);
-    if (idx != null) envCaps.push([idx, cap]);
+    if (idx != null) caps.push([idx, cap]);
   }
-  return { flatNet, resetSets, envInj, envCaps };
+  return caps;
 }
 
 /** The `envBounds(M')` conjunct of every transition disjunct (smt-encoder.ts). */
@@ -365,16 +370,14 @@ function satisfiesBadIndexed(
       // marking would violate — replay would then "confirm" at M0.
       return resolved > 0;
     }
-    // QuiescentCount (VER-002): quiescent AND the count across the resolved places,
-    // each counted once, is below `min` with every resolved waiver empty, or above
-    // `max`. Mirrors the encoder's `countViolationCondition`.
+    // QuiescentCount (VER-002): quiescent AND the count across the resolved places, each
+    // once, is above `max` or below `min` with every resolved waiver empty. Mirrors
+    // `countViolationCondition`, whose `min > 0` / finite-`max` guards only decide whether
+    // a clause is emitted.
     case 'quiescent-count': {
       if (!isQuiescent(index, state)) return false;
       let count = 0;
       for (const i of resolvedIndices(flatNet, property.places)) count += state[i]!;
-      // No `max !== Infinity` / `min > 0` guards: a count is never above `Infinity` nor
-      // below zero, so the comparisons decide it alone, as `countViolation` does. The
-      // encoder needs those guards because they decide whether it emits a clause at all.
       if (count > property.max) return true;
       if (count < property.min) {
         for (const k of resolvedIndices(flatNet, property.waivedBy)) if (state[k]! !== 0) return false;

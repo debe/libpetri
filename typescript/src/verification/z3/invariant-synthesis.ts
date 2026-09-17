@@ -46,7 +46,7 @@
 import type { FlatNet } from '../encoding/flat-net.js';
 import type { FlatTransition } from '../encoding/flat-transition.js';
 import { nonlinearPlaces } from '../invariant/p-invariant-computer.js';
-import { conjoin, resolveEnvInjection } from './smt-encoder.js';
+import { conjoin, intTerm, resolveEnvInjection, sumTerms } from './smt-encoder.js';
 import { extractDefineFuns } from './smt-text.js';
 import type { MarkingInequality } from './state-equation-query.js';
 
@@ -99,10 +99,9 @@ function stepShape(ft: FlatTransition, placeCount: number): StepShape | null {
 }
 
 /**
- * The `QF_LIA` script asking for weights `a` and a bound `b` that satisfy conditions
- * 1–3 of the module description for the given candidate marking. `u_p ≥ max(a_p, 0)`
- * carries each weight's positive part, so the `λ = 0` sign condition of a transition
- * is one equation (`Σ_p u_p = Σ_{p free} u_p`) rather than one atom per place.
+ * The `QF_LIA` script asking for weights `a` and bound `b` meeting conditions 1–3 of the
+ * module description for `candidate`. `u_p ≥ max(a_p, 0)`, so a transition's `λ = 0` sign
+ * condition is the one equation `Σ_p u_p = Σ_{p free} u_p`.
  */
 export function encodeInductiveInequality(
   flatNet: FlatNet,
@@ -130,20 +129,19 @@ export function encodeInductiveInequality(
     lines.push(`(assert (and (>= ${u(p)} 0) (>= ${u(p)} ${a(p)})))`);
     lines.push(`(assert (and (>= ${w(p)} 0) (>= ${w(p)} (- ${a(p)}))))`);
   }
-  lines.push(`(assert (= upos ${sum([...Array(P).keys()].map(u))}))`);
+  lines.push(`(assert (= upos ${sumTerms([...Array(P).keys()].map(u))}))`);
   lines.push(`(assert (<= ${linear(initial, a)} b))`);
   lines.push(`(assert (>= ${linear(candidate, a)} (+ b 1)))`);
   for (const ft of flatNet.transitions) {
     const shape = stepShape(ft, P);
     if (shape == null) continue;
     const keeps = [...shape.keepNonNegative.map((p) => `(>= ${a(p)} 0)`), `(<= ${linear(shape.keep, a)} 0)`];
-    const restores = [`(= upos ${sum(shape.restoreFree.map(u))})`, `(<= ${linear(shape.restore, a)} b)`];
+    const restores = [`(= upos ${sumTerms(shape.restoreFree.map(u))})`, `(<= ${linear(shape.restore, a)} b)`];
     lines.push(`(assert (or ${conjoin(keeps)} ${conjoin(restores)}))`);
   }
   for (const inj of resolveEnvInjection(flatNet)) lines.push(`(assert (<= ${a(inj.pid)} 0))`);
-  // The sparsest inequality: it prints as the structural fact (`hasdata <= ready_0 +
-  // ready_1`) rather than an arbitrary combination, and it excludes more candidates.
-  lines.push(`(minimize ${sum([...Array(P).keys()].flatMap((p) => [u(p), w(p)]))})`);
+  // The sparsest inequality reads as the structural fact and excludes more candidates.
+  lines.push(`(minimize ${sumTerms([...Array(P).keys()].flatMap((p) => [u(p), w(p)]))})`);
   lines.push('(check-sat)');
   lines.push('(get-model)');
   return lines.join('\n');
@@ -217,7 +215,7 @@ export function encodeRelativeInequality(
         const c = col.postVector[p]! - col.preVector[p]!;
         if (c !== 0) terms.push(scaled(c, e(p)));
       }
-      if (terms.length > 0) lines.push(`(assert (<= ${sum(terms)} 0.0))`);
+      if (terms.length > 0) lines.push(`(assert (<= ${sumTerms(terms)} 0.0))`);
     }
     // κ_t over the weights, and −η·M0.
     const kappa: string[] = [];
@@ -251,11 +249,11 @@ export function encodeRelativeInequality(
         }
       }
     }
-    keep.push(`(<= ${sum(kappa, '0.0')} ${sum(keepRhs, '0.0')})`);
-    restore.push(`(<= (- ${sum(kappa, '0.0')} (to_real b)) ${sum(restoreRhs, '0.0')})`);
+    keep.push(`(<= ${sumTerms(kappa, '0.0')} ${sumTerms(keepRhs, '0.0')})`);
+    restore.push(`(<= (- ${sumTerms(kappa, '0.0')} (to_real b)) ${sumTerms(restoreRhs, '0.0')})`);
     lines.push(`(assert (or ${conjoin(keep)} ${conjoin(restore)}))`);
   }
-  lines.push(`(minimize ${sum([...Array(P).keys()].flatMap((p) => [`u${p}`, `w${p}`]))})`);
+  lines.push(`(minimize ${sumTerms([...Array(P).keys()].flatMap((p) => [`u${p}`, `w${p}`]))})`);
   lines.push('(check-sat)');
   lines.push('(get-model)');
   return lines.join('\n');
@@ -346,11 +344,7 @@ function linear(coeffs: readonly number[], v: (p: number) => string): string {
   for (let p = 0; p < coeffs.length; p++) {
     const c = coeffs[p]!;
     if (c === 0) continue;
-    terms.push(c === 1 ? v(p) : c === -1 ? `(- ${v(p)})` : c > 0 ? `(* ${c} ${v(p)})` : `(* (- ${-c}) ${v(p)})`);
+    terms.push(intTerm(c, v(p)));
   }
-  return sum(terms);
-}
-
-function sum(terms: readonly string[], zero = '0'): string {
-  return terms.length === 0 ? zero : terms.length === 1 ? terms[0]! : `(+ ${terms.join(' ')})`;
+  return sumTerms(terms);
 }

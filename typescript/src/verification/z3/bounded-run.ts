@@ -30,9 +30,13 @@ import type { SmtProperty } from '../smt-property.js';
 import type { ConditionalSinks } from '../rest-set.js';
 import type { Place } from '../../core/place.js';
 import { rethrowIfProgrammingError } from '../programming-error.js';
-import { conjoin, encodePropertyViolation, resolveEnvInjection } from './smt-encoder.js';
+import {
+  conjoin, encodePropertyViolation, intTerm, resolveEnvInjection, sumTerms,
+} from './smt-encoder.js';
 import { classifyFirstLine, extractDefineFuns } from './smt-text.js';
-import { enabledA, fireA, vectorize, violationPredicate, type AbstractState } from './abstract-replayer.js';
+import {
+  enabledA, environmentCaps, fireA, vectorize, violationPredicate, type AbstractState,
+} from './abstract-replayer.js';
 
 /** A ranking and the firing bound it gives: `weights·C_t ≤ −1` on every transition that can fire. */
 export interface FiringBound {
@@ -66,13 +70,13 @@ export function encodeRankingQuery(flatNet: FlatNet, initial: readonly number[])
     const terms: string[] = [];
     for (let p = 0; p < P; p++) {
       const c = ft.postVector[p]! - ft.preVector[p]!;
-      if (c !== 0) terms.push(term(c, `r${p}`));
+      if (c !== 0) terms.push(intTerm(c, `r${p}`));
     }
-    lines.push(`(assert (<= ${sum(terms)} (- 1)))`);
+    lines.push(`(assert (<= ${sumTerms(terms)} (- 1)))`);
   }
   const objective: string[] = [];
-  for (let p = 0; p < P; p++) if (initial[p]! !== 0) objective.push(term(initial[p]!, `r${p}`));
-  lines.push(`(minimize ${sum(objective)})`);
+  for (let p = 0; p < P; p++) if (initial[p]! !== 0) objective.push(intTerm(initial[p]!, `r${p}`));
+  lines.push(`(minimize ${sumTerms(objective)})`);
   lines.push('(check-sat)');
   lines.push('(get-model)');
   return lines.join('\n');
@@ -128,17 +132,17 @@ export function encodeRepeatableVectorQuery(flatNet: FlatNet): string {
   ];
   for (const t of live) lines.push(`(declare-const y${t} Int)`);
   for (const t of live) lines.push(`(assert (>= y${t} 0))`);
-  lines.push(`(assert (>= ${sum(live.map((t) => `y${t}`))} 1))`);
+  lines.push(`(assert (>= ${sumTerms(live.map((t) => `y${t}`))} 1))`);
   for (let p = 0; p < P; p++) {
     const terms: string[] = [];
     for (const t of live) {
       const ft = flatNet.transitions[t]!;
       const c = ft.postVector[p]! - ft.preVector[p]!;
-      if (c !== 0) terms.push(term(c, `y${t}`));
+      if (c !== 0) terms.push(intTerm(c, `y${t}`));
     }
-    if (terms.length > 0) lines.push(`(assert (>= ${sum(terms)} 0))`);
+    if (terms.length > 0) lines.push(`(assert (>= ${sumTerms(terms)} 0))`);
   }
-  lines.push(`(minimize ${sum(live.map((t) => `y${t}`))})`);
+  lines.push(`(minimize ${sumTerms(live.map((t) => `y${t}`))})`);
   lines.push('(check-sat)');
   lines.push('(get-model)');
   return lines.join('\n');
@@ -153,6 +157,48 @@ export function decodeRepeatableVector(stdout: string, transitionCount: number):
   }
   support.sort((a, b) => a - b);
   return support.length === 0 ? null : support;
+}
+
+/** Outcome of {@link findFiringBound}. */
+export type RankingSearch =
+  | { readonly kind: 'bound'; readonly bound: FiringBound }
+  /** No ranking; `repeatable` is a repeatable firing vector's support, `null` when none was named. */
+  | { readonly kind: 'unbounded'; readonly repeatable: readonly number[] | null }
+  /** The ranking query answered `unknown`. */
+  | { readonly kind: 'unknown' }
+  /** The ranking the model gave failed {@link checkRankingExact}. */
+  | { readonly kind: 'rejected' }
+  /** `ask` failed with `reason`. */
+  | { readonly kind: 'failed'; readonly reason: string };
+
+/**
+ * The ranking query, re-checked exactly, and when it is `unsat` the repeatable-vector query.
+ * Shared by the VER-019 phase and the open-net termination check of [VER-022]. `ask` resolves
+ * with a reply that carries a verdict line, or with the `Error` that stopped it.
+ */
+export async function findFiringBound(
+  flatNet: FlatNet,
+  initial: readonly number[],
+  ask: (script: string) => Promise<string | Error>,
+): Promise<RankingSearch> {
+  const ranking = await ask(encodeRankingQuery(flatNet, initial));
+  if (ranking instanceof Error) return { kind: 'failed', reason: ranking.message };
+  switch (classifyFirstLine(ranking)) {
+    case 'sat': {
+      const weights = decodeRanking(ranking, flatNet.places.length);
+      const bound = weights == null ? null : checkRankingExact(flatNet, initial, weights);
+      return bound == null ? { kind: 'rejected' } : { kind: 'bound', bound };
+    }
+    case 'unsat': {
+      const vector = await ask(encodeRepeatableVectorQuery(flatNet));
+      const repeatable = vector instanceof Error || classifyFirstLine(vector) !== 'sat'
+        ? null
+        : decodeRepeatableVector(vector, flatNet.transitions.length);
+      return { kind: 'unbounded', repeatable };
+    }
+    default:
+      return { kind: 'unknown' };
+  }
 }
 
 /**
@@ -171,25 +217,17 @@ export function encodeBoundedRun(
   const P = flatNet.places.length;
   const T = flatNet.transitions.length;
   const m = (i: number, p: number): string => (i === 0 ? String(initial[p]!) : `m${i}_${p}`);
-  // Vacuous as the phase stands: only the `bounded` environment mode fills
-  // `environmentBounds`, and that mode fills `environmentInjection` for the same places,
-  // which `runFiringBoundPhase` refuses outright. Kept because it is the encoder's
-  // `envBounds(M')` conjunct — parity, and load-bearing the moment that guard is relaxed.
-  const caps: [number, number][] = [];
-  for (const [name, cap] of flatNet.environmentBounds) {
-    const idx = flatNet.placeIndex.get(name);
-    if (idx != null) caps.push([idx, cap]);
-  }
-  const touching: number[][] = Array.from({ length: P }, () => []);
-  flatNet.transitions.forEach((ft, t) => {
+  // The encoder's `envBounds(M')` conjunct. Vacuous while `runFiringBoundPhase` refuses
+  // injection, since only the `bounded` mode fills `environmentBounds`, and it injects.
+  const caps = environmentCaps(flatNet);
+  // Per place, the transitions that change it, last first: the `ite` chain nests inward from the last.
+  const nesting: number[][] = Array.from({ length: P }, () => []);
+  for (let t = T - 1; t >= 0; t--) {
+    const ft = flatNet.transitions[t]!;
     for (let p = 0; p < P; p++) {
-      if (clears(ft, p) || ft.postVector[p]! !== ft.preVector[p]!) touching[p]!.push(t);
+      if (clears(ft, p) || ft.postVector[p]! !== ft.preVector[p]!) nesting[p]!.push(t);
     }
-  });
-  // Reversed once, here: the `ite` chain below nests from the last toucher inward, and
-  // `.reverse()` mutates, so reversing `touching[p]` in place inside the step loop would
-  // flip the nesting from step 1 on and change the emitted script.
-  const nesting = touching.map((ts) => [...ts].reverse());
+  }
   const lines = [
     `; Bounded run (VER-019): ${depth} steps of the exact step relation from M0, idle`,
     '; only at the end; sat = a run to a violating marking.',
@@ -253,11 +291,7 @@ export function replayRun(
   firings: readonly number[],
   isBad: (state: AbstractState) => boolean,
 ): { states: AbstractState[]; steps: string[] } | null {
-  const caps: [number, number][] = [];
-  for (const [name, cap] of flatNet.environmentBounds) {
-    const idx = flatNet.placeIndex.get(name);
-    if (idx != null) caps.push([idx, cap]);
-  }
+  const caps = environmentCaps(flatNet);
   const states: AbstractState[] = [initial];
   const steps: string[] = [];
   let state = initial;
@@ -310,12 +344,10 @@ export type FiringBoundOutcome =
 export type FiringBoundSolver = (script: string, phase: 'ranking' | 'bmc', timeoutMs: number) => Promise<string>;
 
 /**
- * Runs the phase: the ranking query (or, when there is none, the repeatable-vector
- * query), then the bounded model check at depths 8, 16, 32, … up to the firing bound.
- * A violating run is replayed before it is reported; `unsat` at the bound is a proof.
- *
- * Takes the same arguments as {@link runStateEquationPhase} and builds the violation
- * predicate itself, so the two phases cannot be handed inconsistent ones.
+ * Runs the phase: {@link findFiringBound}, then the bounded model check at depths 8, 16,
+ * 32, … up to the bound. A violating run is replayed before it is reported; `unsat` at the
+ * bound is a proof. Builds its violation predicate from the same arguments as
+ * `runStateEquationPhase`, so the two phases cannot disagree on it.
  */
 export async function runFiringBoundPhase(
   flatNet: FlatNet,
@@ -346,24 +378,18 @@ export async function runFiringBoundPhase(
     }
   };
 
-  const ranking = await ask(encodeRankingQuery(flatNet, initial), 'ranking');
-  if (ranking instanceof Error) return { kind: 'inconclusive', reason: ranking.message, bound: null, depths };
-  const rankingAnswer = classifyFirstLine(ranking);
-  if (rankingAnswer === 'unsat') {
-    const vector = await ask(encodeRepeatableVectorQuery(flatNet), 'ranking');
-    const repeatable = vector instanceof Error || classifyFirstLine(vector) !== 'sat'
-      ? null
-      : decodeRepeatableVector(vector, flatNet.transitions.length);
-    return { kind: 'unbounded', repeatable };
+  const ranking = await findFiringBound(flatNet, initial, (script) => ask(script, 'ranking'));
+  switch (ranking.kind) {
+    case 'failed':
+      return { kind: 'inconclusive', reason: ranking.reason, bound: null, depths };
+    case 'unbounded':
+      return { kind: 'unbounded', repeatable: ranking.repeatable };
+    case 'unknown':
+      return { kind: 'inconclusive', reason: 'the ranking query answered unknown', bound: null, depths };
+    case 'rejected':
+      return { kind: 'inconclusive', reason: 'the ranking failed the exact re-check', bound: null, depths };
   }
-  if (rankingAnswer !== 'sat') {
-    return { kind: 'inconclusive', reason: 'the ranking query answered unknown', bound: null, depths };
-  }
-  const weights = decodeRanking(ranking, flatNet.places.length);
-  const bound = weights == null ? null : checkRankingExact(flatNet, initial, weights);
-  if (bound == null) {
-    return { kind: 'inconclusive', reason: 'the ranking failed the exact re-check', bound: null, depths };
-  }
+  const { bound } = ranking;
   if (bound.bound > BigInt(Number.MAX_SAFE_INTEGER)) {
     return { kind: 'inconclusive', reason: `firing bound ${bound.bound} is too large`, bound, depths };
   }
@@ -373,8 +399,7 @@ export async function runFiringBoundPhase(
     const reply = await ask(encodeBoundedRun(flatNet, initial, property, sinkPlaces, conditionalSinks, depth), 'bmc');
     if (reply instanceof Error) return { kind: 'inconclusive', reason: reply.message, bound, depths };
     const answer = classifyFirstLine(reply);
-    // An answered depth is a depth we searched, whichever way it went; only a verdict-less
-    // reply is not one.
+    // Record every answered depth, `sat` or `unsat`.
     if (answer !== 'sat' && answer !== 'unsat') {
       return { kind: 'inconclusive', reason: `the bounded run at depth ${depth} answered unknown`, bound, depths };
     }
@@ -420,14 +445,4 @@ function intDefinitions(stdout: string): [string, bigint][] {
     if (m != null) out.push([m[1]!, m[3] != null ? -BigInt(m[3]) : BigInt(m[4]!)]);
   }
   return out;
-}
-
-function term(c: number, v: string): string {
-  if (c === 1) return v;
-  if (c === -1) return `(- ${v})`;
-  return c > 0 ? `(* ${c} ${v})` : `(* (- ${-c}) ${v})`;
-}
-
-function sum(terms: readonly string[]): string {
-  return terms.length === 0 ? '0' : terms.length === 1 ? terms[0]! : `(+ ${terms.join(' ')})`;
 }
