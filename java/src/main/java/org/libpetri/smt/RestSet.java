@@ -2,6 +2,7 @@ package org.libpetri.smt;
 
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.core.Place;
+import org.libpetri.core.internal.CodePointOrder;
 import org.libpetri.smt.encoding.FlatNet;
 
 import java.util.ArrayList;
@@ -135,10 +136,10 @@ public final class RestSet {
      * name the places a quiescent marking leaves work on, so the predicate is stated here
      * once.
      *
-     * <p>Ordered by name ({@link String#compareTo}, UTF-16 code units, as the other
+     * <p>Ordered by name in code-point order ({@link CodePointOrder}, as the other
      * implementations compare names), then by token type name for two places sharing a
-     * name, rather than in the marking's own order: {@link MarkingState} has none, and the
-     * names reach a report.
+     * name, rather than in the marking's own order: the names reach a report, and the order
+     * a marking was built in is not part of what it says.
      */
     public static List<Place<?>> strandedPlaces(
             MarkingState m, Collection<Place<?>> sinkPlaces, List<ConditionalSinks> conditional
@@ -150,8 +151,8 @@ public final class RestSet {
                 stranded.add(p);
             }
         }
-        stranded.sort(Comparator.comparing((Place<?> p) -> p.name())
-            .thenComparing(p -> p.tokenType() == null ? "" : p.tokenType().getName()));
+        stranded.sort(Comparator.comparing((Place<?> p) -> p.name(), CodePointOrder.COMPARATOR)
+            .thenComparing(p -> p.tokenType() == null ? "" : p.tokenType().getName(), CodePointOrder.COMPARATOR));
         return List.copyOf(stranded);
     }
 

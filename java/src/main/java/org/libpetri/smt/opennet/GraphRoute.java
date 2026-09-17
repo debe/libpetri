@@ -5,6 +5,7 @@ import org.libpetri.analysis.MarkingState;
 import org.libpetri.analysis.StateClass;
 import org.libpetri.analysis.StateClassGraph;
 import org.libpetri.core.Place;
+import org.libpetri.core.internal.CodePointOrder;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -75,13 +76,13 @@ final class GraphRoute {
             clauseOrder.put(contract.clauses().get(i).name(), i);
         }
         int strandedRank = contract.clauses().size();
-        // Clauses in contract order, then stranded places by name: String.compareTo is the
-        // reference's string `<`, UTF-16 code units, not locale order.
+        // Clauses in contract order, then stranded places by name in code-point order, as every
+        // implementation lists them.
         var ordered = new ArrayList<>(first.values());
         ordered.sort(Comparator
             .comparingInt((Hit h) -> h.finding instanceof QuiescencePredicate.ClauseFinding cf
                 ? clauseOrder.get(cf.clause().name()) : strandedRank)
-            .thenComparing(h -> h.finding.subject()));
+            .thenComparing(h -> h.finding.subject(), CodePointOrder.COMPARATOR));
 
         var violations = new ArrayList<ContractViolation>();
         for (var hit : ordered) {
@@ -114,14 +115,13 @@ final class GraphRoute {
     /**
      * The explored graph by index, in the order the build discovered its classes.
      *
-     * <p>{@link StateClassGraph#stateClasses()} is an unordered set and
-     * {@link StateClassGraph#outgoingBranchEdges} an unordered map, while the reference reads
-     * both in build order: the first class to show a subject is its witness, and the first
-     * edge to reach a class is its path. Both orders are recovered exactly by walking the graph
-     * breadth-first the way the build expanded it — each class's enabled transitions in their
-     * canonical order ([VER-010] AC1), each transition's branch edges in branch order. The walk
-     * discovers the classes in the build's own order, and the edge that discovered each one is
-     * the reference's BFS-tree edge.
+     * <p>The reference reads the graph in build order: the first class to show a subject is its
+     * witness, and the first edge to reach a class is its path. Walking the graph breadth-first
+     * the way the build expanded it, each class's edges as
+     * {@link StateClassGraph#outgoingBranchEdges} lists them (transitions in their canonical
+     * order, [VER-010] AC1, and branch edges in branch order), discovers the classes in
+     * {@link StateClassGraph#stateClasses()} order, and the edge that discovered each one is the
+     * reference's BFS-tree edge.
      */
     private static final class Explored {
         final List<StateClass> classes = new ArrayList<>();
@@ -145,17 +145,18 @@ final class GraphRoute {
                 var current = e.classes.get(head);
                 var vias = new ArrayList<String>();
                 var targets = new ArrayList<Integer>();
-                for (var transition : current.enabledTransitions()) {
-                    for (var edge : graph.branchEdges(current, transition)) {
+                for (var entry : graph.outgoingBranchEdges(current).entrySet()) {
+                    String via = entry.getKey().name();
+                    for (var edge : entry.getValue()) {
                         Integer at = index.get(edge.target());
                         if (at == null) {
                             at = e.classes.size();
                             e.classes.add(edge.target());
                             index.put(edge.target(), at);
                             parents.add(head);
-                            parentVias.add(transition.name());
+                            parentVias.add(via);
                         }
-                        vias.add(transition.name());
+                        vias.add(via);
                         targets.add(at);
                     }
                 }

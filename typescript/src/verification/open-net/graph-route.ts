@@ -15,6 +15,7 @@
  * a real cycle. Only the absence of findings needs the graph to have closed.
  */
 import type { Place } from '../../core/place.js';
+import { compareCodePoints } from '../../core/internal/code-point-order.js';
 import { StateClassGraph } from '../analysis/state-class-graph.js';
 import type { StateClass } from '../analysis/state-class.js';
 import type { ClosedNet } from './closure.js';
@@ -57,9 +58,10 @@ export function decideOnGraph(
   }
 
   const clauseOrder = new Map(contract.clauses.map((c, i) => [c.name, i]));
-  // Code-point order, not locale order, so every implementation lists the same way.
+  // Code-point order, not locale or UTF-16 code-unit order, so every implementation lists
+  // the same way.
   const ordered = [...first.values()].sort((a, b) => rank(a.finding) - rank(b.finding)
-    || (subjectOf(a.finding) < subjectOf(b.finding) ? -1 : subjectOf(a.finding) > subjectOf(b.finding) ? 1 : 0));
+    || compareCodePoints(subjectOf(a.finding), subjectOf(b.finding)));
   function rank(f: Finding): number {
     return f.kind === 'clause' ? clauseOrder.get(f.clause.name)! : contract.clauses.length;
   }

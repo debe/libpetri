@@ -114,8 +114,7 @@ public final class SmtVerifier {
      */
     private static final String IGNORE_MODE_VACUITY_REASON =
         "environment places present but not modeled (mode=ignore); "
-        + "a proof would be vacuous — use EnvironmentAnalysisMode.alwaysAvailable() "
-        + "or bounded(k) to model external injection";
+        + "a proof would be vacuous — use alwaysAvailable() or bounded(k) to model external injection";
     private Duration timeout = Duration.ofSeconds(60);
     private int nuMaxClasses = 100_000;
     private FragmentMode fragmentMode = FragmentMode.BASE;

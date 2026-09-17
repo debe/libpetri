@@ -96,6 +96,20 @@ function contract(opts: { terminal?: boolean; budget?: number; termination?: boo
   return builder.build();
 }
 
+/** A relay that also leaves a token on four internal places whose names order differently by locale, code unit and code point. */
+const SPILL = {
+  q: place('q'), out: place('out'),
+  leaks: ['\u{1F600}', '\uE000', 'apfel', 'Zeit'].map(name => place(name)),
+};
+/** The leaked places in code-point order ([VER-022]). */
+const SPILL_ORDER = ['Zeit', 'apfel', '\uE000', '\u{1F600}'];
+
+function spill(): PetriNet {
+  return PetriNet.builder('spill').transitions(
+    Transition.builder('t').inputs(one(SPILL.q)).outputs(andPlaces(SPILL.out, ...SPILL.leaks)).action(produces()).build(),
+  ).build();
+}
+
 describe('open-net verification (VER-022): graph route', () => {
   it('proves a well-formed gadget, halts included', async () => {
     const r = await verifyOpenNet(gadget(), contract());
@@ -238,6 +252,16 @@ describe('open-net verification (VER-022): graph route', () => {
 
     const between = await verifyOpenNet(relay, OpenNetContract.builder().arriveAtMost(2, q).expectBetween('out', 0, 2, out).build());
     expect(between.verdict.type, between.report).toBe('proven');
+  });
+
+  it('lists stranded places and prints markings in code-point order, whatever the host locale', async () => {
+    // Locale order would put apfel before Zeit (or move them with the host); UTF-16 code
+    // units would put the surrogate pair of U+1F600 before U+E000.
+    const r = await verifyOpenNet(spill(), OpenNetContract.builder().arrive(1, SPILL.q).expect('out', 1, SPILL.out).build());
+    expect(r.verdict.type, r.report).toBe('violated');
+    expect(r.route).toBe('enumeration');
+    expect(r.violations.map(v => v.subject)).toEqual(SPILL_ORDER);
+    expect(r.report).toContain(`Quiescent marking: {Zeit:1, apfel:1, out:1, \uE000:1, \u{1F600}:1}`);
   });
 
   it('a graph that does not close is unknown without the SMT route, and says why', async () => {
@@ -477,6 +501,16 @@ describeZ3('open-net verification (VER-022): SMT route', () => {
     expect(r.violations.map(v => [v.kind, v.subject]), r.report).toEqual([['stranded', 'X/trace']]);
     // Nothing excused by the terminal is named: _halt's excused arrivals may rest.
     expect(r.violations[0]!.detail).toContain('X/trace holds a token at quiescence');
+  }, 180_000);
+
+  it('names every stranded place of the witness in code-point order', async () => {
+    const r = await verifyOpenNet(
+      spill(), OpenNetContract.builder().arrive(1, SPILL.q).expect('out', 1, SPILL.out).requireTermination(false).build(),
+      { maxClasses: 0 },
+    );
+    expect(r.verdict.type, r.report).toBe('violated');
+    expect(r.route).toBe('smt');
+    expect(r.violations.map(v => [v.kind, v.subject]), r.report).toEqual([['stranded', SPILL_ORDER.join(', ')]]);
   }, 180_000);
 
   it('reports the count a broken gadget leaves, found by the solver', async () => {

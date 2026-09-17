@@ -115,9 +115,8 @@ impl OpenNetContract {
         builder.build()
     }
 
-    /// The initial marking's places with their counts, in the order they were first named.
-    /// A [`MarkingState`] has no order of its own, and [`OpenNetContract::places`] reports
-    /// first-mention order, so the contract keeps it.
+    /// The initial marking's places with their counts, in the order they were first named:
+    /// the order [`OpenNetContract::places`] and a violation's port trace list them in.
     pub fn initial_tokens(&self) -> &[(String, usize)] {
         &self.initial_tokens
     }
@@ -301,14 +300,11 @@ impl OpenNetContractBuilder {
     }
 
     /// Replaces the tokens the subnet holds before anything arrives with `marking`. Its
-    /// places are taken in code-point order, since a [`MarkingState`] has none of its own;
-    /// use [`OpenNetContractBuilder::initial_tokens`] to fix the order the port trace lists
-    /// them in.
+    /// places are taken in the order [`MarkingState::places`] lists them, which for a
+    /// marking from [`MarkingStateBuilder`] is the order its builder first saw them: the
+    /// order a violation's port trace lists their changes in.
     pub fn initial_marking(mut self, marking: &MarkingState) -> Self {
-        let mut tokens: Vec<(String, usize)> =
-            marking.places().map(|(p, n)| (p.to_string(), n)).collect();
-        tokens.sort_unstable_by(|a, b| a.0.cmp(&b.0));
-        self.initial_tokens = tokens;
+        self.initial_tokens = marking.places().map(|(p, n)| (p.to_string(), n)).collect();
         self
     }
 

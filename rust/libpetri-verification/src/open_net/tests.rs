@@ -569,10 +569,34 @@ fn environment_refuses_an_environment_transition_declared_twice() {
     OpenNetContract::builder().environment([end(), end()]);
 }
 
+/// An initial marking from a [`MarkingStateBuilder`] keeps the order its builder saw the
+/// places, as the reference's `Map`-backed marking does, so the port trace lists `zeta`
+/// before `alpha` rather than in code-point order.
+#[test]
+fn port_trace_lists_an_initial_marking_in_the_order_its_builder_saw_it() {
+    let (zeta, alpha, done) = (place("zeta"), place("alpha"), place("done"));
+    let net = PetriNet::builder("N")
+        .transition(Transition::builder("take").input(one(&zeta)).input(one(&alpha)).output(out_place(&done)).action(fork()).build())
+        .build();
+    let marking = MarkingStateBuilder::new().tokens("zeta", 1).tokens("alpha", 1).build();
+    let order: Vec<(&str, usize)> = marking.places().collect();
+    assert_eq!(order, vec![("zeta", 1), ("alpha", 1)]);
+    let c = OpenNetContract::builder().initial_marking(&marking).expect("done", 2, ["done"]).build();
+    assert_eq!(c.places(), vec!["zeta", "alpha", "done"]);
+
+    let r = verify(&net, &c);
+    let changes: Vec<(&str, i64)> =
+        r.violations[0].port_trace[0].changes.iter().map(|ch| (ch.place.as_str(), ch.delta)).collect();
+    assert_eq!(changes, vec![("zeta", -1), ("alpha", -1), ("done", 1)]);
+    assert!(r.report.contains("\n      1. take  zeta -1, alpha -1, done +1\n"), "{}", r.report);
+    // The contract's description still lists the marking by code point.
+    assert!(r.report.contains("  Initial marking: {alpha:1, zeta:1}\n"), "{}", r.report);
+}
+
 // ==================== report text ====================
 
 /// The report is pinned byte for byte to the TypeScript reference's `renderReport` for the
-/// same net and contract: this is its text, markings in `localeCompare` order and the port
+/// same net and contract: this is its text, markings in code-point order and the port
 /// trace in the contract's first-mention order.
 #[test]
 fn report_matches_the_reference_for_an_environment_step_in_the_port_trace() {

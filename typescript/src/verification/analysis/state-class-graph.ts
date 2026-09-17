@@ -12,6 +12,7 @@ import { StateClass } from './state-class.js';
 import type { EnvironmentAnalysisMode } from './environment-analysis-mode.js';
 import { ignore } from './environment-analysis-mode.js';
 import { requireOutputProducingActions } from '../../core/internal/output-action-check.js';
+import { compareCodePoints } from '../../core/internal/code-point-order.js';
 
 /** Edge that tracks which XOR branch was taken. */
 export interface BranchEdge {
@@ -258,14 +259,19 @@ function classKey(sc: StateClass): string {
 
 /**
  * The canonical clock order of an enabled set: ascending by transition name
- * (code-point order), ties keeping their incoming order. Returns the permutation
- * as indices into `transitions`, or `null` when it is already in order — the
- * common case, which then costs no allocation.
+ * (Unicode code-point order, as the Rust `str` order the other ports match),
+ * ties keeping their incoming order. Returns the permutation as indices into
+ * `transitions`, or `null` when it is already in order — the common case, which
+ * then costs no allocation.
+ *
+ * The order is observable: successors are explored in it, so it decides which
+ * shallowest witness a report prints. `<` would compare UTF-16 code units and
+ * disagree with the other ports on supplementary-plane names.
  */
 export function canonicalOrder(transitions: readonly Transition[]): number[] | null {
   let sorted = true;
   for (let i = 1; i < transitions.length; i++) {
-    if (transitions[i]!.name < transitions[i - 1]!.name) {
+    if (compareCodePoints(transitions[i]!.name, transitions[i - 1]!.name) < 0) {
       sorted = false;
       break;
     }
@@ -273,11 +279,7 @@ export function canonicalOrder(transitions: readonly Transition[]): number[] | n
   if (sorted) return null;
   const order: number[] = new Array<number>(transitions.length);
   for (let i = 0; i < order.length; i++) order[i] = i;
-  order.sort((a, b) => {
-    const na = transitions[a]!.name;
-    const nb = transitions[b]!.name;
-    return na < nb ? -1 : na > nb ? 1 : a - b;
-  });
+  order.sort((a, b) => compareCodePoints(transitions[a]!.name, transitions[b]!.name) || a - b);
   return order;
 }
 

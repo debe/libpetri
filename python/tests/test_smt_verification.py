@@ -572,7 +572,7 @@ def test_sink_places_when_excuses_work_the_halt_interrupted():
     # `b` may rest while halted: no quiescent marking strands anything.
     excused = lp.verify(net, lp.deadlock_free(), sink_places_when={halt: [b]}, **encoders)
     assert excused.verdict == "proven", excused.report
-    assert "Property: Deadlock freedom (sinks: done; when halt: b)" in excused.report
+    assert "Property: Deadlock-freedom (sinks: done; when halt: b)" in excused.report
 
     # TerminatesAtSink reads the unconditional sinks only: {halt:1, b:1} marks none.
     reaches = lp.verify(net, lp.terminates_at_sink(), sink_places_when={halt: [b]}, **encoders)
@@ -583,7 +583,7 @@ def test_sink_places_when_excuses_work_the_halt_interrupted():
     enumerated = lp.verify(net, lp.deadlock_free(), sink_places_when={halt: [b]}, **common)
     assert enumerated.route == "enumeration", enumerated.report
     assert enumerated.verdict == excused.verdict, enumerated.report
-    assert "Property: Deadlock freedom (sinks: done; when halt: b)" in enumerated.report
+    assert "Property: Deadlock-freedom (sinks: done; when halt: b)" in enumerated.report
 
 
 # ---------- VER-015 linear state-equation bound ---------------------------

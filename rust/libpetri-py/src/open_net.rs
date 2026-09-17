@@ -8,8 +8,6 @@
 //! Places are names here, as in the Rust contract; the facade coerces `Place` objects and
 //! spreads its variadic arguments into the lists these methods take.
 
-use std::collections::HashMap;
-
 use libpetri::verification::marking_state::{MarkingState, MarkingStateBuilder};
 use libpetri::verification::open_net::{
     ContractViolation, OpenNetContract, OpenNetContractBuilder, OpenNetOptions, OpenNetResult, PortStep,
@@ -18,14 +16,26 @@ use libpetri::verification::open_net::{
 use libpetri::verification::result::Verdict;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use pyo3::wrap_pyfunction;
 
 use crate::error::panic_to_py;
 use crate::model::{PyPetriNet, PyTransition};
 use crate::verification::{bound_text, parse_count_bound, parse_semiflow_mode};
 
-fn marking_dict(marking: &MarkingState) -> HashMap<String, usize> {
+/// A marking's places with their counts, in the order the marking lists them: for the
+/// closed marking, the order its builder first saw them, as a TypeScript `Map` keeps it.
+fn marking_entries(marking: &MarkingState) -> Vec<(String, usize)> {
     marking.places().map(|(name, count)| (name.to_string(), count)).collect()
+}
+
+/// A dict in the order of `entries`, which a `HashMap` would not keep.
+fn marking_dict<'py>(py: Python<'py>, entries: &[(String, usize)]) -> PyResult<Py<PyDict>> {
+    let d = PyDict::new(py);
+    for (name, count) in entries {
+        d.set_item(name, count)?;
+    }
+    Ok(d.unbind())
 }
 
 /// Builds an `OpenNetContract`. Each method returns the builder, and a contract that
@@ -224,7 +234,7 @@ pub struct PyContractViolation {
     subject: String,
     detail: String,
     transitions: Vec<String>,
-    markings: Vec<HashMap<String, usize>>,
+    markings: Vec<Vec<(String, usize)>>,
     cycle_start: Option<usize>,
     port_trace: Vec<PyPortStep>,
     confirmed: bool,
@@ -237,7 +247,7 @@ impl PyContractViolation {
             subject: v.subject.clone(),
             detail: v.detail.clone(),
             transitions: v.transitions.clone(),
-            markings: v.markings.iter().map(marking_dict).collect(),
+            markings: v.markings.iter().map(marking_entries).collect(),
             cycle_start: v.cycle_start,
             port_trace: v.port_trace.iter().map(PyPortStep::from_rust).collect(),
             confirmed: v.confirmed,
@@ -256,7 +266,10 @@ impl PyContractViolation {
     /// The firing sequence from the initial marking, environment transitions included.
     #[getter] fn transitions(&self) -> Vec<String> { self.transitions.clone() }
     /// The marking before the first firing and after each one, when the route has them.
-    #[getter] fn markings(&self) -> Vec<HashMap<String, usize>> { self.markings.clone() }
+    #[getter]
+    fn markings(&self, py: Python<'_>) -> PyResult<Vec<Py<PyDict>>> {
+        self.markings.iter().map(|m| marking_dict(py, m)).collect()
+    }
     /// For `"termination"`, the index into `transitions` where the repeating cycle starts.
     #[getter] fn cycle_start(&self) -> Option<usize> { self.cycle_start }
     #[getter] fn port_trace(&self) -> Vec<PyPortStep> { self.port_trace.clone() }
@@ -279,7 +292,7 @@ pub struct PyOpenNetResult {
     graph_complete: bool,
     report: String,
     closed_net: PyPetriNet,
-    closed_marking: HashMap<String, usize>,
+    closed_marking: Vec<(String, usize)>,
     elapsed_ms: u64,
 }
 
@@ -302,7 +315,7 @@ impl PyOpenNetResult {
             class_count: r.class_count,
             graph_complete: r.graph_complete,
             report: r.report,
-            closed_marking: marking_dict(&r.closed_marking),
+            closed_marking: marking_entries(&r.closed_marking),
             closed_net: PyPetriNet::from_net(r.closed_net),
             elapsed_ms: r.elapsed_ms,
         }
@@ -329,7 +342,12 @@ impl PyOpenNetResult {
     #[getter] fn report(&self) -> String { self.report.clone() }
     /// The subnet closed by its environment: what every route verified.
     #[getter] fn closed_net(&self) -> PyPetriNet { self.closed_net.clone() }
-    #[getter] fn closed_marking(&self) -> HashMap<String, usize> { self.closed_marking.clone() }
+    /// The initial marking of the closed net: the contract's, in the order it was given,
+    /// then the token sources of the arrival groups.
+    #[getter]
+    fn closed_marking(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        marking_dict(py, &self.closed_marking)
+    }
     #[getter] fn elapsed_ms(&self) -> u64 { self.elapsed_ms }
 
     /// `True` if the verdict is `"proven"`.

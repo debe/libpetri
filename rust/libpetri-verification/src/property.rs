@@ -147,14 +147,25 @@ impl SmtProperty {
 
     pub fn description(&self) -> String {
         match self {
-            Self::DeadlockFree => "Deadlock freedom".into(),
+            Self::DeadlockFree => "Deadlock-freedom".into(),
             Self::TerminatesAtSink => "Terminates at a declared sink".into(),
-            Self::MutualExclusion { places } => {
-                format!("Mutual exclusion: {}", places.join(", "))
-            }
-            Self::PlaceBound { place, bound } => format!("Place bound: {place} <= {bound}"),
+            // The reference names exactly two places; more are listed the same way.
+            Self::MutualExclusion { places } => match places.split_last() {
+                Some((last, rest)) if !rest.is_empty() => {
+                    format!("Mutual exclusion of {} and {last}", rest.join(", "))
+                }
+                _ => format!("Mutual exclusion of {}", places.join(", ")),
+            },
+            Self::PlaceBound { place, bound } => format!("Place {place} bounded by {bound}"),
+            // In the order given, each place once: the reference takes a set.
             Self::Unreachable { places } => {
-                format!("Unreachable: {}", places.join(" & "))
+                let mut named: Vec<&str> = Vec::with_capacity(places.len());
+                for p in places {
+                    if !named.contains(&p.as_str()) {
+                        named.push(p);
+                    }
+                }
+                format!("Unreachability of marking with tokens in {{{}}}", named.join(", "))
             }
             Self::BranchPlaceBound { place, bound } => {
                 format!("Branch place bound (ν-budget): {place} <= {bound}")
@@ -211,23 +222,30 @@ pub fn count_across(min: usize, max: Option<usize>, places: &[String]) -> String
 mod tests {
     use super::*;
 
+    /// Every description is byte-identical to the TypeScript reference's
+    /// `propertyDescription` for the same property.
     #[test]
     fn property_descriptions() {
         assert_eq!(
             SmtProperty::deadlock_free().description(),
-            "Deadlock freedom"
+            "Deadlock-freedom"
+        );
+        assert_eq!(
+            SmtProperty::terminates_at_sink().description(),
+            "Terminates at a declared sink"
         );
         assert_eq!(
             SmtProperty::mutual_exclusion(vec!["p1".into(), "p2".into()]).description(),
-            "Mutual exclusion: p1, p2"
+            "Mutual exclusion of p1 and p2"
         );
         assert_eq!(
             SmtProperty::place_bound("p1", 3).description(),
-            "Place bound: p1 <= 3"
+            "Place p1 bounded by 3"
         );
+        // Declared order, not sorted; a repeated place is named once.
         assert_eq!(
-            SmtProperty::unreachable(vec!["p1".into(), "p2".into()]).description(),
-            "Unreachable: p1 & p2"
+            SmtProperty::unreachable(vec!["p2".into(), "p1".into(), "p2".into()]).description(),
+            "Unreachability of marking with tokens in {p2, p1}"
         );
         assert_eq!(
             SmtProperty::branch_place_bound("budget", 2).description(),

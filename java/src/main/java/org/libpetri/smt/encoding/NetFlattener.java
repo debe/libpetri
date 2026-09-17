@@ -6,6 +6,7 @@ import org.libpetri.core.Arc;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
 import org.libpetri.core.Transition;
+import org.libpetri.core.internal.CodePointOrder;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -76,7 +77,7 @@ public final class NetFlattener {
         // flatteners on every name and the emitted scripts stay byte-identical
         // (VER-013).
         var places = allPlaces.stream()
-            .sorted(Comparator.comparing(Place::name, NetFlattener::compareCodePoints))
+            .sorted(Comparator.comparing(Place::name, CodePointOrder.COMPARATOR))
             .collect(Collectors.toList());
 
         var placeIndex = new LinkedHashMap<Place<?>, Integer>();
@@ -205,21 +206,5 @@ public final class NetFlattener {
 
         // No outputs (sink transition)
         return List.of(Set.of());
-    }
-
-    /** Lexicographic order on Unicode code points (what Rust's {@code String} order is). */
-    static int compareCodePoints(String a, String b) {
-        int i = 0;
-        int j = 0;
-        while (i < a.length() && j < b.length()) {
-            int ca = a.codePointAt(i);
-            int cb = b.codePointAt(j);
-            if (ca != cb) {
-                return Integer.compare(ca, cb);
-            }
-            i += Character.charCount(ca);
-            j += Character.charCount(cb);
-        }
-        return Integer.compare(a.length() - i, b.length() - j);
     }
 }

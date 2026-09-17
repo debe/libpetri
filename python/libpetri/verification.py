@@ -286,7 +286,7 @@ def verify(
     a sink, a marker, nor a marked marker's set excuses it; the marker itself is
     at rest whenever marked, so ``{halt: []}`` excuses exactly the halt token.
     Entries are declared in dict order, which is how the report's ``Property:``
-    line renders them (``Deadlock freedom (sinks: done; when halt: b)``);
+    line renders them (``Deadlock-freedom (sinks: done; when halt: b)``);
     :func:`terminates_at_sink` ignores them.
 
     ``linear_bound`` (default ``True``, VER-015) proves a reachability-safety

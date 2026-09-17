@@ -63,7 +63,8 @@ public final class TimePetriNetAnalyzer {
     ) {
         this.net = net;
         this.initialMarking = initialMarking;
-        this.goalPlaces = Set.copyOf(goalPlaces);
+        // In the order given: the report lists them.
+        this.goalPlaces = Collections.unmodifiableSet(new LinkedHashSet<>(goalPlaces));
         this.maxClasses = maxClasses;
         this.environmentPlaces = Set.copyOf(environmentPlaces);
         this.environmentMode = environmentMode;
@@ -173,8 +174,9 @@ public final class TimePetriNetAnalyzer {
         report.append("  Property: Every transition can fire from every reachable marking\n");
         report.append("  Formal: ∀t ∈ T, ∀M reachable: ∃σ: M [σt⟩\n\n");
 
-        // For L4 liveness: every terminal SCC must contain all transitions
-        var allTransitions = new HashSet<>(net.transitions());
+        // For L4 liveness: every terminal SCC must contain all transitions. In the net's order,
+        // which the report lists missing transitions in.
+        var allTransitions = new LinkedHashSet<>(net.transitions());
         var terminalSCCsMissingTransitions = new ArrayList<Set<StateClass>>();
 
         for (var scc : terminalSCCs) {
@@ -188,7 +190,7 @@ public final class TimePetriNetAnalyzer {
             }
             if (!transitionsInSCC.containsAll(allTransitions)) {
                 terminalSCCsMissingTransitions.add(scc);
-                var missing = new HashSet<>(allTransitions);
+                var missing = new LinkedHashSet<>(allTransitions);
                 missing.removeAll(transitionsInSCC);
                 report.append("  Terminal SCC missing transitions: ")
                       .append(formatTransitions(missing)).append("\n");
@@ -284,7 +286,8 @@ public final class TimePetriNetAnalyzer {
      * @return XOR branch analysis result
      */
     public static XorBranchAnalysis analyzeXorBranches(StateClassGraph scg) {
-        var result = new HashMap<Transition, XorBranchInfo>();
+        // In the net's order, which the report follows.
+        var result = new LinkedHashMap<Transition, XorBranchInfo>();
 
         for (var transition : scg.net().transitions()) {
             if (transition.outputSpec() == null) {
@@ -359,7 +362,7 @@ public final class TimePetriNetAnalyzer {
          * Returns transitions where some XOR branches are never taken.
          */
         public Map<Transition, Set<Integer>> unreachableBranches() {
-            var result = new HashMap<Transition, Set<Integer>>();
+            var result = new LinkedHashMap<Transition, Set<Integer>>();
             for (var entry : transitionBranches.entrySet()) {
                 if (!entry.getValue().untakenBranches().isEmpty()) {
                     result.put(entry.getKey(), entry.getValue().untakenBranches());
@@ -437,7 +440,7 @@ public final class TimePetriNetAnalyzer {
     public static final class Builder {
         private final PetriNet net;
         private MarkingState initialMarking = MarkingState.empty();
-        private final Set<Place<?>> goalPlaces = new HashSet<>();
+        private final Set<Place<?>> goalPlaces = new LinkedHashSet<>();
         private int maxClasses = 100_000;
         private final Set<EnvironmentPlace<?>> environmentPlaces = new HashSet<>();
         private EnvironmentAnalysisMode environmentMode = EnvironmentAnalysisMode.ignore();

@@ -201,6 +201,24 @@ class OpenNetVerificationTest {
         return r.verdict() instanceof Verdict.Unknown(var reason) ? reason : null;
     }
 
+    /**
+     * A relay that also leaves a token on four places whose locale, UTF-16 code-unit and
+     * code-point orders differ ([VER-022] AC10).
+     */
+    private static PetriNet spill(Place<Object> q, Place<Object> out) {
+        var leaks = new ArrayList<Place<?>>(List.of(out));
+        for (var name : List.of("\uD83D\uDE00", "\uE000", "apfel", "Zeit")) {
+            leaks.add(place(name));
+        }
+        return PetriNet.builder("spill").transitions(
+            Transition.builder("t").inputs(In.one(q)).outputs(Out.and(leaks.toArray(new Place<?>[0])))
+                .action(PRODUCES).build()
+        ).build();
+    }
+
+    /** The leaked places in code-point order. */
+    private static final List<String> SPILL_ORDER = List.of("Zeit", "apfel", "\uE000", "\uD83D\uDE00");
+
     // ==================== graph route ====================
 
     @Nested
@@ -216,6 +234,20 @@ class OpenNetVerificationTest {
             assertTrue(r.report().contains("=== OPEN-NET CONTRACT VERIFICATION (VER-022) ==="));
             assertTrue(r.report().contains("e1 = exactly 1 across {e1/data, e1/empty}"));
             assertTrue(r.report().contains("Terminal: when _halt: X/in, X/in_empty"));
+        }
+
+        @Test
+        void listsStrandedPlacesAndPrintsMarkingsInCodePointOrder() {
+            // Locale order would put apfel before Zeit; UTF-16 code units would put the surrogate
+            // pair of U+1F600 before U+E000.
+            var q = place("q");
+            var out = place("out");
+            var r = verify(spill(q, out), OpenNetContract.builder().arrive(1, q).expect("out", 1, out).build());
+            assertTrue(r.isViolated(), r.report());
+            assertEquals(OpenNetResult.Route.ENUMERATION, r.route());
+            assertEquals(SPILL_ORDER, subjects(r));
+            assertTrue(r.report().contains("Quiescent marking: {Zeit:1, apfel:1, out:1, \uE000:1, \uD83D\uDE00:1}"),
+                r.report());
         }
 
         @Test
@@ -688,7 +720,7 @@ class OpenNetVerificationTest {
 
         /**
          * The report is byte-identical to the reference's for the same net and contract: this is
-         * its text, markings in {@code localeCompare} order and the port trace in the contract's
+         * its text, markings in code-point order and the port trace in the contract's
          * first-mention order.
          */
         @Test
@@ -761,9 +793,13 @@ class OpenNetVerificationTest {
                     Marking on the cycle: {a:1}""", verify(ping, c).report());
         }
 
-        /** The order Node's {@code localeCompare} gives these names: the reference's {@code MarkingState.toString} order. */
+        /**
+         * Markings list their places in code-point order, as every implementation's report does:
+         * uppercase before {@code _} before lowercase, {@code /} before {@code :}, and a
+         * supplementary character after one in U+E000–U+FFFF although its UTF-16 units are smaller.
+         */
         @Test
-        void markingTextListsPlacesInLocaleOrder() {
+        void markingTextListsPlacesInCodePointOrder() {
             var m = MarkingState.builder()
                 .tokens(place("X/in"), 1)
                 .tokens(place("_halt"), 1)
@@ -772,29 +808,17 @@ class OpenNetVerificationTest {
                 .tokens(place("X/In"), 1)
                 .tokens(place("env/ended"), 1)
                 .tokens(place("e1/data"), 2)
+                .tokens(place("\uD83D\uDE00"), 1)
                 .tokens(place("N/in"), 1)
+                .tokens(place("\uFF21"), 1)
                 .tokens(place("X/in_empty"), 1)
                 .tokens(place("_budget"), 1)
                 .build();
             assertEquals(
-                "{_budget:1, _halt:1, e1/data:2, env:arrivals[0]:1, env/ended:1, N/in:1, x/in:1, X/in:1, X/In:1, X/in_empty:1}",
+                "{N/in:1, X/In:1, X/in:1, X/in_empty:1, _budget:1, _halt:1, e1/data:2, env/ended:1, "
+                    + "env:arrivals[0]:1, x/in:1, \uFF21:1, \uD83D\uDE00:1}",
                 Report.markingText(m));
             assertEquals("{}", Report.markingText(MarkingState.empty()));
-        }
-
-        /** Every printable ASCII character alone, sorted, as Node sorts it. */
-        @Test
-        void localeOrderMatchesTheReferenceOnPrintableAscii() {
-            var chars = new ArrayList<String>();
-            for (char c = 32; c < 127; c++) {
-                chars.add(String.valueOf(c));
-            }
-            chars.sort(Report::localeOrder);
-            assertEquals(" _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$0123456789aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxXyYzZ",
-                String.join("", chars));
-            var words = new ArrayList<>(List.of("ab1", "AB", "Ab", "aB", "ab", "a1b", "a/b", "a-b", "a_b", "a b"));
-            words.sort(Report::localeOrder);
-            assertEquals(List.of("a b", "a_b", "a-b", "a/b", "a1b", "ab", "aB", "Ab", "AB", "ab1"), words);
         }
     }
 
@@ -883,6 +907,18 @@ class OpenNetVerificationTest {
             assertEquals(OpenNetResult.Route.SMT, r.route());
             assertTrue(r.report().contains("=== SMT route ==="));
             assertTrue(r.report().contains("State-class graph: skipped"));
+        }
+
+        @Test
+        void namesEveryStrandedPlaceOfTheWitnessInCodePointOrder() {
+            var q = place("q");
+            var out = place("out");
+            var r = OpenNetVerifier.verifyOpenNet(spill(q, out),
+                OpenNetContract.builder().arrive(1, q).expect("out", 1, out).requireTermination(false).build(), SMT_ONLY);
+            assertTrue(r.isViolated(), r.report());
+            assertEquals(OpenNetResult.Route.SMT, r.route());
+            assertEquals(List.of(String.join(", ", SPILL_ORDER)), subjects(r));
+            assertEquals(ContractViolation.Kind.STRANDED, r.violations().getFirst().kind());
         }
 
         @Test

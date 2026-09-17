@@ -72,6 +72,17 @@ describe('MarkingState', () => {
     expect(str).toBe('{A:1, B:2}');
   });
 
+  it('toString orders places by code point, whatever the host locale', () => {
+    // localeCompare would give {apfel, Ärger, ia, Ia, Zeit, ...} on en-US, {Ia, ia, ...} on
+    // tr-TR and {..., Ärger, aa} on da-DK; UTF-16 code units would put U+1F600 before U+E000.
+    const m = MarkingState.builder();
+    for (const name of ['\u{1F600}', 'ia', '\uE000', 'aa', 'Ia', '\u00C4rger', 'apfel', 'Zeit']) {
+      m.tokens(place(name), 1);
+    }
+    expect(m.build().toString())
+      .toBe('{Ia:1, Zeit:1, aa:1, apfel:1, ia:1, \u00C4rger:1, \uE000:1, \u{1F600}:1}');
+  });
+
   it('empty marking toString', () => {
     expect(MarkingState.empty().toString()).toBe('{}');
   });

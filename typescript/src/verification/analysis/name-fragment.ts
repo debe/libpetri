@@ -18,6 +18,7 @@
 import type { PetriNet } from '../../core/petri-net.js';
 import type { Transition } from '../../core/transition.js';
 import { enumerateBranches } from '../../core/out.js';
+import { compareCodePoints } from '../../core/internal/code-point-order.js';
 
 /**
  * Selects which coloured-place fragment {@link classify} admits. `base` (default)
@@ -126,7 +127,9 @@ export function classify(
         if (required === null) return null;
         colouredIn.push([place, required] as const);
       }
-      colouredIn.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+      // By place name in code-point order, as the Rust port sorts them: the join seeds the
+      // symbols it enumerates from its first coloured input, which orders the successors.
+      colouredIn.sort((a, b) => compareCodePoints(a[0], b[0]));
       role = { type: 'join', colouredIn };
     } else if (consumesColoured) {
       // A non-match transition consuming a coloured token.

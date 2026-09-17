@@ -2,6 +2,7 @@ package org.libpetri.smt.opennet;
 
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.core.Place;
+import org.libpetri.core.internal.CodePointOrder;
 import org.libpetri.smt.GraphDecision;
 import org.libpetri.smt.RestSet;
 import org.libpetri.smt.SmtProperty;
@@ -135,8 +136,8 @@ final class QuiescencePredicate {
     }
 
     /**
-     * The places {@code m} strands, by name ({@link String#compareTo}, UTF-16 code units, the
-     * order of the reference's string {@code <}).
+     * The places {@code m} strands, by name in code-point order ({@link CodePointOrder}), as
+     * every implementation lists them.
      *
      * <p>This is the predicate both routes must attribute a stranding with, and the reason it
      * lives here rather than at each call site: it asks whether a place is marked <b>and
@@ -148,7 +149,7 @@ final class QuiescencePredicate {
         // RestSet already orders by name; the order is restated here because it reaches the
         // report, and the reference sorts at this point too.
         var stranded = new ArrayList<Place<?>>(RestSet.strandedPlaces(m, rest.sinks(), rest.conditional()));
-        stranded.sort((a, b) -> a.name().compareTo(b.name()));
+        stranded.sort((a, b) -> CodePointOrder.compare(a.name(), b.name()));
         return stranded;
     }
 

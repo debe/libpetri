@@ -118,6 +118,21 @@ def test_the_contract_describes_itself_the_way_the_report_prints_it():
     assert "  At quiescence: any = at least 1 across {p}" in unbounded.describe()
 
 
+def test_an_initial_marking_keeps_its_dict_order_into_the_port_trace():
+    # zeta before alpha, as the dict lists them: not code-point order.
+    net = lp.Net("N").transition(
+        lp.Transition("take").action(lp.fork).input(lp.one(lp.Place("zeta"))).input(lp.one(lp.Place("alpha")))
+        .output(lp.out(lp.Place("done"))).build()
+    ).build()
+    contract = lp.OpenNetContract.builder().initial_marking({"zeta": 1, "alpha": 1}).expect("done", 2, "done").build()
+    assert contract.places() == ["zeta", "alpha", "done"]
+    r = lp.verify_open_net(net, contract, smt=False)
+    assert r.verdict == "violated", r.report
+    assert r.violations[0].port_trace[0].changes == [("zeta", -1), ("alpha", -1), ("done", 1)]
+    assert "\n      1. take  zeta -1, alpha -1, done +1\n" in r.report
+    assert list(r.closed_marking.items()) == [("zeta", 1), ("alpha", 1)]
+
+
 # ---------- graph route -----------------------------------------------------
 
 

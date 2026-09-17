@@ -510,7 +510,7 @@ mod tests {
     ///
     /// The fire step clears whatever the input loop left rather than removing the
     /// PRE-firing count — reading the original count overdraws, because the input
-    /// already took its share. Rust states the reset (`tokens(place, 0)`) and so was
+    /// already took its share. Rust states the reset (`set(place, 0)`) and so was
     /// never exposed to that; this pins it, and pins the marking the graph produces
     /// against what the executors do.
     // Feature-gated, not solver-gated: the route needs no z3 at run time, but

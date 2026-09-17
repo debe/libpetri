@@ -240,6 +240,30 @@ class SmtVerifierTest {
         result.discoveredInvariants().forEach(System.out::println);
     }
 
+    /**
+     * The description names the places in the order given, as the reference names a
+     * {@code Set}'s, so a report reads the same on every run; equality stays a set's.
+     */
+    @Test
+    void unreachable_namesItsPlacesInTheOrderGiven_andComparesAsASet() {
+        var zeit = Place.of("Zeit", String.class);
+        var apfel = Place.of("apfel", String.class);
+        var emoji = Place.of("\uD83D\uDE00", String.class);
+        var given = new java.util.LinkedHashSet<Place<?>>(java.util.List.of(emoji, zeit, apfel));
+        var property = SmtProperty.unreachable(given);
+
+        assertEquals("Unreachability of marking with tokens in {\uD83D\uDE00, Zeit, apfel}", property.description());
+        assertEquals(java.util.List.of(emoji, zeit, apfel), java.util.List.copyOf(property.places()));
+        assertEquals(SmtProperty.unreachable(Set.of(apfel, zeit, emoji)), property);
+        assertEquals(SmtProperty.unreachable(Set.of(zeit, emoji, apfel)).hashCode(), property.hashCode());
+        given.clear();
+        assertEquals(3, property.places().size(), "the record keeps its own copy");
+        assertThrows(UnsupportedOperationException.class, () -> property.places().add(zeit));
+        var withNull = new java.util.HashSet<Place<?>>();
+        withNull.add(null);
+        assertThrows(NullPointerException.class, () -> SmtProperty.unreachable(withNull));
+    }
+
     @Test
     @EnabledIf("z3Available")
     void unreachableProperty_provesForSeparateSubnets() {
@@ -480,6 +504,10 @@ class SmtVerifierTest {
             .verify();
         assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(),
             "ignore mode with env places must not silently prove\n" + result.report());
+        // The reason reads as every implementation words it.
+        assertEquals(new SmtVerificationResult.Verdict.Unknown(
+            "environment places present but not modeled (mode=ignore); a proof would be vacuous — use "
+                + "alwaysAvailable() or bounded(k) to model external injection"), result.verdict(), result.report());
     }
 
     /**

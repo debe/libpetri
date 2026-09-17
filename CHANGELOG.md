@@ -220,6 +220,28 @@ A negative `min` or a `max` below `min` throws `IllegalArgumentException` in Jav
 
 Specified in spec/07-verification.md (VER-002).
 
+### Verification: the same report on every host and in every language
+
+Reports, witness traces and flat indexes now order place and transition names by **Unicode code point**, everywhere. Before, the same verification could print differently from one machine to the next and from one language to another:
+
+- **TypeScript** sorted markings with `localeCompare` and no fixed locale, so `tr_TR` put `Ia` before `ia` and `da_DK` moved uppercase names first.
+- **Java and TypeScript** compared UTF-16 code units elsewhere, which disagrees with code-point order wherever a character above U+FFFF meets one in U+E000–U+FFFF. Rust's `str` order was already code-point order.
+- **Java** could print a different counterexample on each JVM run: its state-class graph iterated classes and successors in per-run hash order.
+
+```text
+{Ia:1, Zeit:1, aa:1, apfel:1, ia:1, Ärger:1}   ← now identical on every host and in every language
+```
+
+- **Changed (all):** mixed-case and non-ASCII names may print in a different order than before, e.g. `Zeit` now precedes `apfel`. SMT scripts are unchanged for ASCII names. Specified in spec/07-verification.md (VER-013 AC7, VER-022 AC10).
+- **Changed (Rust, Java):** property descriptions now read as TypeScript's do — `Deadlock-freedom`, `Mutual exclusion of a and b`, `Place p bounded by k`, `Unreachability of marking with tokens in {a, b}`. Java's ignore-mode vacuity reason matches too.
+- **Fixed (Rust, Python):** a `MarkingState` built with its builder lists places in the order the builder first saw them, so an open-net contract's port trace follows the initial marking's order as in TypeScript. Python `initial_marking` dicts keep their order end to end.
+- **Fixed (Java):** enumeration and open-net witnesses are the same on every run and match TypeScript's. `SmtProperty.Unreachable` keeps its places in the order given.
+
+**Faster and smaller, measured on 59,000–66,000-class state-class graphs:**
+
+- **Rust:** `MarkingState` is a name-sorted vector of shared names, so cloning a marking copies no strings and its dedup key needs no sort. Graph construction is about 30% faster with about 10% lower peak memory.
+- **Java:** the graph holds each class once, where every edge used to carry its own copy of the target class, its marking and its DBM. Retained heap is 73–88% lower and build time 28–40% lower. A 20-place `MarkingState` now takes 304 bytes instead of 488.
+
 ## Java 5.1.0 / TypeScript 5.1.0 / Rust 5.1.0 / Python 4.1.0 — 2026-09-09
 
 ### Verification — soundness

@@ -1,4 +1,5 @@
 import type { Place } from '../core/place.js';
+import { compareCodePoints } from '../core/internal/code-point-order.js';
 
 /** @internal Symbol key restricting construction to the builder and factory methods. */
 const MARKING_STATE_KEY = Symbol('MarkingState.internal');
@@ -55,10 +56,17 @@ export class MarkingState {
     return this.tokenCounts.size === 0;
   }
 
+  /**
+   * The marking as `{name:count, ...}`, places in Unicode code-point order of their names.
+   *
+   * Reports and witness traces print markings this way, so the order must not depend on
+   * the host: `localeCompare` would follow the default locale, and `<` compares UTF-16
+   * code units ([VER-022]).
+   */
   toString(): string {
     if (this.tokenCounts.size === 0) return '{}';
     const entries = [...this.tokenCounts.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
+      .sort(([a], [b]) => compareCodePoints(a, b))
       .map(([name, count]) => `${name}:${count}`);
     return `{${entries.join(', ')}}`;
   }

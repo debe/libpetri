@@ -423,6 +423,15 @@ lines joined with `\n`; no rule names. The certificate is the `(define-fun …)`
 `(get-model)` reply pasted verbatim, and a counterexample is the set of ground `Reachable` facts
 in the `(get-proof)` reply, ordered only by the replay ([VER-003]).
 
+**Name order.** Every ordering of place or transition names that reaches a script, a flat
+index, a report, a witness or a violation list MUST compare the names by Unicode code point,
+never by the host's locale and never by UTF-16 code unit. That covers the flat place index
+above, the canonical clock order of a state class ([VER-010]), and the markings and violation
+lists of an open-net report ([VER-022]). A locale makes one verification print differently
+from host to host, and UTF-16 code-unit order (JavaScript's `<`, Java's `String.compareTo`)
+disagrees with code-point order, which Rust's `str` order already is, wherever a character
+above U+FFFF meets one in U+E000–U+FFFF.
+
 **Acceptance Criteria:**
 1. The same net, marking, property and options produce byte-identical HORN and certificate
    scripts in every implementation (the golden scripts under
@@ -438,6 +447,9 @@ in the `(get-proof)` reply, ordered only by the replay ([VER-003]).
 6. The report carries `  Solver: z3 <version>` in its solver phase, or
    `  Solver: z3 unavailable (<reason>)` followed by the implementation's `UNKNOWN` result
    line naming the same reason when no solver resolved.
+7. Sorted from any starting order, the names `""`, `Z`, `a`, `ab`, `Ä` (U+00C4), `中` (U+4E2D),
+   U+E000, `Ａ` (U+FF21), U+1D400 and U+1F600 come out in exactly that order in every
+   implementation. A UTF-16 code-unit sort puts U+1D400 and U+1F600 before U+E000.
 
 **Implementation notes:**
 - Rust: `libpetri-verification` `z3_process` (`Z3Solver::resolve` / `Z3Solver::run`);
@@ -446,6 +458,9 @@ in the `(get-proof)` reply, ordered only by the replay ([VER-003]).
   executable resolves (`HAS_Z3` is the compile feature only).
 - Java: `org.libpetri.smt.z3.Z3Process` / `Z3Solver`; `SmtVerifier.z3Available()`.
 - TypeScript: `verification/z3/z3-process` (`resolveZ3` / `runZ3Text`); `z3Available()`.
+  Names are ordered by `compareCodePoints` (`core/internal/code-point-order`), which applies
+  ICU's code-point fix-up to the first differing pair of UTF-16 units; AC7 is
+  `tests/core/internal/code-point-order.test.ts`.
 - AC1 is checked without a solver: `SmtVerifier::encode_scripts` (Rust), `encodeScripts()`
   (Java, TypeScript) and `libpetri.encode_smt_scripts` (Python) return the HORN script and,
   for the flat encoding, the certificate script around the placeholder certificate
@@ -460,7 +475,8 @@ in the `(get-proof)` reply, ordered only by the replay ([VER-003]).
 and then replays a scripted reply: a banner before `unsat`; an `(error …)` on stderr during the
 certificate check; a `timeout` line; a script that never exits; a two-megabyte banner on each
 stream; a version below the floor; a missing executable. Plus the golden-script diff over the
-shared verdict-parity fixtures.
+shared verdict-parity fixtures, and the AC7 vector through each implementation's name
+comparator.
 
 ---
 
@@ -972,13 +988,13 @@ The engine may support state class graph construction using the Berthomieu-Diaz 
    its marking and its **full** firing domain, independent of the order in which its
    transitions became enabled: the successor step lays clocks out persistent-then-newly-
    enabled, which is path-dependent, so implementations MUST put every class's clocks in one
-   canonical order (ascending transition name) and key on the complete difference-bound
-   matrix ([VER-011]), not on the per-clock projections alone. Two arrivals at the same
-   marking and zone by different interleavings are one class; two zones that agree on every
-   projection but differ in a difference constraint are two. On an untimed workflow net the
-   order-sensitive key inflated the class count 1.5× (one marking held by fourteen classes);
-   the projection-only key merges classes whose successors differ, which can lose a
-   reachable marking.
+   canonical order (ascending transition name, in the code-point order of [VER-013]) and key
+   on the complete difference-bound matrix ([VER-011]), not on the per-clock projections
+   alone. Two arrivals at the same marking and zone by different interleavings are one class;
+   two zones that agree on every projection but differ in a difference constraint are two. On
+   an untimed workflow net the order-sensitive key inflated the class count 1.5× (one marking
+   held by fourteen classes); the projection-only key merges classes whose successors differ,
+   which can lose a reachable marking.
 2. Successor computation correctly handles transition firing and clock updates. The
    number of tokens a firing removes from each input place MUST be the canonical
    `consumptionCount(available)` of [IO-007] — the same function the executor uses —
@@ -1259,6 +1275,12 @@ refused.
   witness is a lasso that marks where its cycle starts.
 - `Unknown`: says which parts no route decided, and why.
 
+**Report order.** Names in a result and its report follow the name order of [VER-013], so
+the same verification lists and prints them identically on every host and in every
+implementation: the places of every printed marking, the stranded places of the graph route
+(after the clauses, in contract order), and the stranded places an SMT stranding violation
+names.
+
 **Acceptance Criteria:**
 1. A subnet that meets its contract is `Proven`. The same subnet with an edge that receives
    neither of its two places is `Violated`: the violation names that edge's clause and
@@ -1282,6 +1304,9 @@ refused.
    minted names reaching a join that requires them equal, the join can never fire and both
    inputs strand: the result is `Violated` on the SMT route, never `Proven` by enumeration, and
    `Unknown` naming the skipped graph when the SMT route is disabled.
+10. A subnet that strands places whose locale, UTF-16 code-unit and code-point orders differ
+    (`Zeit`, `apfel`, U+E000, U+1F600) lists them in code-point order ([VER-013]), in its
+    violations on either route and in the quiescent marking its report prints.
 
 **Cost.** The contract is decided on the closed net's untimed state-class graph, so its cost is
 the graph's, and what that costs is *reachable combinations* rather than size. Measured on a
@@ -1356,9 +1381,8 @@ It is the fallback for a graph that will not close, not an alternative to one.
   `OpenNetResult`, `ContractViolation` and `ContractViolation.PortStep`. Contract places are
   matched to the net's by name, as in TypeScript, although Java `Place` equality also compares
   the token type. Supporting APIs: `StateClassGraph.build(…, StateClassGraph.Options.UNTIMED)`
-  and `RestSet.strandedPlaces`. The report is byte-identical to TypeScript's for place names in
-  printable ASCII; a marking with other characters lists them after the ASCII names, by code
-  point, where TypeScript's `localeCompare` follows the host's collation.
+  and `RestSet.strandedPlaces`. The report is byte-identical to TypeScript's, names in the
+  code-point order of [VER-013].
 
 **Depends on:** [VER-002], [VER-004], [VER-006], [VER-010], [VER-014], [VER-017], [VER-019]
 

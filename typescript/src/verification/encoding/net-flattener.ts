@@ -14,7 +14,8 @@
  * - `consumeAll[p]`: true for `all`/`at-least` inputs (consume everything)
  * - Index arrays for inhibitor, read, and reset arcs
  *
- * Places are sorted by name for stable, deterministic indexing across runs.
+ * Places are sorted by name, in Unicode code-point order, for stable indexing across
+ * runs, hosts and implementations.
  */
 import type { PetriNet } from '../../core/petri-net.js';
 import type { Place, EnvironmentPlace } from '../../core/place.js';
@@ -22,6 +23,7 @@ import type { Out } from '../../core/out.js';
 import type { FlatNet } from './flat-net.js';
 import { flatTransition } from './flat-transition.js';
 import { enumerateBranches, allPlaces as outAllPlaces } from '../../core/out.js';
+import { compareCodePoints } from '../../core/internal/code-point-order.js';
 import { type EnvironmentAnalysisMode, alwaysAvailable } from '../analysis/environment-analysis-mode.js';
 
 // The SMT path shares the single 3-mode EnvironmentAnalysisMode with the state
@@ -63,8 +65,8 @@ export function flatten(
     for (const arc of t.resets) allPlacesSet.set(arc.place.name, arc.place);
   }
 
-  // Sort by name for stable indexing. Unicode code-point order (not the
-  // locale-sensitive `localeCompare`), so the index agrees with the Rust and Java
+  // Sort by name for stable indexing. Unicode code-point order (not the host's
+  // locale, and not UTF-16 code units), so the index agrees with the Rust and Java
   // flatteners on every name and the emitted scripts stay byte-identical (VER-013).
   const places = [...allPlacesSet.values()].sort((a, b) => compareCodePoints(a.name, b.name));
 
@@ -187,20 +189,4 @@ function enumerateOutputBranches(t: { outputSpec: Out | null }): ReadonlySet<Pla
   }
   // No outputs (sink transition)
   return [new Set()];
-}
-
-/** Lexicographic order on Unicode code points (what Rust's `String` order is). */
-export function compareCodePoints(a: string, b: string): number {
-  const ia = a[Symbol.iterator]();
-  const ib = b[Symbol.iterator]();
-  for (;;) {
-    const na = ia.next();
-    const nb = ib.next();
-    if (na.done && nb.done) return 0;
-    if (na.done) return -1;
-    if (nb.done) return 1;
-    const ca = na.value.codePointAt(0)!;
-    const cb = nb.value.codePointAt(0)!;
-    if (ca !== cb) return ca - cb;
-  }
 }

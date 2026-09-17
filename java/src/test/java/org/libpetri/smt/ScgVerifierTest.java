@@ -300,6 +300,72 @@ class ScgVerifierTest {
         }
     }
 
+    // === The witness is the reference's, on every run ===
+
+    private static Transition move(String name, Place<String> from, Out out) {
+        return Transition.builder(name).inputs(In.one(from)).outputs(out).build();
+    }
+
+    /**
+     * The witness is the first violating class breadth-first, reached by the edges that first
+     * found each class on the way, as the TypeScript reference reads its graph. Four independent
+     * moves and a two-way choice leave two quiescent markings five firings deep, each at the end
+     * of 120 shortest paths. The reference reports {@code go0, go1, go2, go3, xa}; a graph that
+     * kept its classes and edges in hash order reported another path, and another one again on
+     * the next JVM run.
+     */
+    @Test
+    void reportsTheReferencesWitness_amongManyShortestPaths() {
+        var x = Place.of("x", String.class);
+        var a = Place.of("a", String.class);
+        var transitions = new ArrayList<Transition>();
+        var initial = MarkingState.builder().tokens(x, 1);
+        var last = MarkingState.builder().tokens(a, 1);
+        for (int i = 0; i < 4; i++) {
+            var s = Place.of("s" + i, String.class);
+            var d = Place.of("d" + i, String.class);
+            transitions.add(move("go" + i, s, Out.place(d)));
+            initial.tokens(s, 1);
+            last.tokens(d, 1);
+        }
+        transitions.add(move("xb", x, Out.place(Place.of("b", String.class))));
+        transitions.add(move("xa", x, Out.place(a)));
+        var net = StructureOnly.bind(PetriNet.builder("ties").transitions(transitions.toArray(new Transition[0])).build());
+
+        var result = SmtVerifier.forNet(net).initialMarking(initial.build())
+            .property(SmtProperty.deadlockFree()).timeout(Duration.ofSeconds(30)).verify();
+
+        assertTrue(result.isViolated(), result.report());
+        assertEquals(SmtVerificationResult.Route.ENUMERATION, result.route());
+        assertEquals(List.of("go0", "go1", "go2", "go3", "xa"), result.counterexampleTransitions());
+        assertEquals(6, result.counterexampleTrace().size());
+        assertEquals(last.build(), result.counterexampleTrace().getLast());
+    }
+
+    /** The same through XOR branches: two splits, each joined again either way. */
+    @Test
+    void reportsTheReferencesWitness_throughXorBranches() {
+        var transitions = new ArrayList<Transition>();
+        var initial = MarkingState.builder();
+        for (int i = 1; i >= 0; i--) {
+            var start = Place.of("xs" + i, String.class);
+            var left = Place.of("l" + i, String.class);
+            var right = Place.of("r" + i, String.class);
+            var end = Place.of("e" + i, String.class);
+            transitions.add(move("split" + i, start, Out.xor(Out.place(left), Out.place(right))));
+            transitions.add(move("left" + i, left, Out.place(end)));
+            transitions.add(move("right" + i, right, Out.place(end)));
+            initial.tokens(start, 1);
+        }
+        var net = StructureOnly.bind(PetriNet.builder("xor-ties").transitions(transitions.toArray(new Transition[0])).build());
+
+        var result = SmtVerifier.forNet(net).initialMarking(initial.build())
+            .property(SmtProperty.deadlockFree()).timeout(Duration.ofSeconds(30)).verify();
+
+        assertTrue(result.isViolated(), result.report());
+        assertEquals(List.of("split0", "left0", "split1", "left1"), result.counterexampleTransitions());
+    }
+
     // === [VER-006] AC6: an open net never comes to rest ===
 
     private static PetriNet openNet(EnvironmentPlace<String> src, Place<String> in, Place<String> done) {

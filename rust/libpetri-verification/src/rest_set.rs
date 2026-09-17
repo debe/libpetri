@@ -95,8 +95,8 @@ pub fn strands_token(
 /// routes prove cannot happen; the open-net contract of [VER-022] reads this to name
 /// the places a quiescent marking leaves work on, so the predicate is stated here once.
 ///
-/// Code-point order rather than the marking's own: `MarkingState` is a hash map with
-/// no order of its own, and the names reach a report.
+/// Code-point order rather than the marking's own, which is the order it was built in:
+/// the names reach a report.
 pub fn stranded_places(
     m: &MarkingState,
     sink_places: &[String],

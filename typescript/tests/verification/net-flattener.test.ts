@@ -29,6 +29,20 @@ describe('NetFlattener', () => {
     }
   });
 
+  it('indexes places in code-point order, not locale or UTF-16 code-unit order', () => {
+    // [VER-013]: a supplementary name (a surrogate pair) indexes after U+E000, and an
+    // uppercase name before a lowercase one, whatever the host locale.
+    const names = ['\u{1F600}', '\uE000', 'apfel', 'Zeit', '\u00C4rger'];
+    const [first, ...rest] = names.map(n => place(n));
+    const t = Transition.builder('T')
+      .inputs(one(first!))
+      .outputs(andPlaces(...rest))
+      .build();
+    const flatNet = flatten(PetriNet.builder('N').transition(t).build());
+
+    expect(flatNet.places.map(p => p.name)).toEqual(['Zeit', 'apfel', '\u00C4rger', '\uE000', '\u{1F600}']);
+  });
+
   it('flattenTransition pre-vector correct for one()', () => {
     const input = place('IN');
     const output = place('OUT');

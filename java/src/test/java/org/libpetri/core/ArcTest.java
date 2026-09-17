@@ -106,6 +106,23 @@ class ArcTest {
             assertEquals(2, spec.children().size());
         }
 
+        /**
+         * A branch lists its places in declaration order, as the reference's {@code Set} does: a
+         * firing adds its outputs in that order, and a derived marking lists its places in it.
+         */
+        @Test
+        void enumerateBranches_keepsDeclarationOrderInEveryBranch() {
+            var c = Place.of("c", TestValue.class);
+            var a = Place.of("a", TestValue.class);
+            var b = Place.of("b", TestValue.class);
+            var d = Place.of("d", TestValue.class);
+            var branches = Arc.Out.and(Arc.Out.xor(Arc.Out.and(c, a), Arc.Out.place(d)), Arc.Out.place(b))
+                .enumerateBranches();
+            assertEquals(java.util.List.of(java.util.List.of(c, a, b), java.util.List.of(d, b)),
+                branches.stream().map(java.util.List::copyOf).toList());
+            assertThrows(UnsupportedOperationException.class, () -> branches.getFirst().add(d));
+        }
+
         @Test
         void outXor_rejectsLessThanTwoChildren() {
             var p1 = Place.of("P1", TestValue.class);

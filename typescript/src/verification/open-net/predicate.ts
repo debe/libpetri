@@ -10,6 +10,7 @@
  * `deadlockFree()` and mean the same thing.
  */
 import type { Place } from '../../core/place.js';
+import { compareCodePoints } from '../../core/internal/code-point-order.js';
 import type { MarkingState } from '../marking-state.js';
 import { tokensAcross, countViolation } from '../graph-decision.js';
 import { strandedPlaces, type ConditionalSinks } from '../rest-set.js';
@@ -64,9 +65,10 @@ export function waiverMarkers(contract: OpenNetContract): Place<any>[] {
  * reports a stranding the other route proves cannot happen.
  */
 export function strandedNames(m: MarkingState, rest: RestDeclaration): Place<any>[] {
-  // Code-point order, not locale order, so every implementation lists the same way.
+  // Code-point order, not locale or UTF-16 code-unit order, so every implementation lists
+  // the same way.
   return [...strandedPlaces(m, rest.sinks, rest.conditional)]
-    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    .sort((a, b) => compareCodePoints(a.name, b.name));
 }
 
 /**

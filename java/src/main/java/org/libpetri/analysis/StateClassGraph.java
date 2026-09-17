@@ -6,6 +6,7 @@ import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
 import org.libpetri.core.Timing;
 import org.libpetri.core.Transition;
+import org.libpetri.core.internal.CodePointOrder;
 import org.libpetri.core.internal.OutputActionCheck;
 
 import java.util.*;
@@ -118,10 +119,9 @@ public final class StateClassGraph {
 
     private final PetriNet net;
     private final StateClass initialClass;
+    /** Every class with its edges, in the order the build discovered the classes. */
+    private final LinkedHashMap<StateClass, Node> nodes;
     private final Set<StateClass> stateClasses;
-    private final Map<StateClass, Map<Transition, List<BranchEdge>>> transitions;
-    private final Map<StateClass, Set<StateClass>> successors;
-    private final Map<StateClass, Set<StateClass>> predecessors;
     private final boolean complete;
     private final int maxClasses;
     private final Set<Place<?>> environmentPlaces;
@@ -130,8 +130,7 @@ public final class StateClassGraph {
     private StateClassGraph(
             PetriNet net,
             StateClass initialClass,
-            Set<StateClass> stateClasses,
-            Map<StateClass, Map<Transition, List<BranchEdge>>> transitions,
+            LinkedHashMap<StateClass, Node> nodes,
             boolean complete,
             int maxClasses,
             Set<Place<?>> environmentPlaces,
@@ -139,43 +138,308 @@ public final class StateClassGraph {
     ) {
         this.net = net;
         this.initialClass = initialClass;
-        this.stateClasses = Set.copyOf(stateClasses);
-        this.transitions = deepCopyTransitions(transitions);
+        this.nodes = nodes;
+        this.stateClasses = Collections.unmodifiableSequencedSet(nodes.sequencedKeySet());
         this.complete = complete;
         this.maxClasses = maxClasses;
         this.environmentPlaces = environmentPlaces;
         this.environmentMode = environmentMode;
+    }
 
-        // Build successor/predecessor maps
-        this.successors = new HashMap<>();
-        this.predecessors = new HashMap<>();
-        for (var sc : stateClasses) {
-            successors.put(sc, new HashSet<>());
-            predecessors.put(sc, new HashSet<>());
+    // ==================== Adjacency ====================
+
+    /**
+     * Up to this many elements, a class's edge lists find an element by scanning them; above it,
+     * they add an identity index.
+     *
+     * <p>A class's out-degree is the number of firings it enables, and in-degree is as small in
+     * the nets this graph is built for. A scan of a few references costs less than hashing a
+     * {@link StateClass}, whose hash reads its whole firing domain, and an exact-size array
+     * costs 16 bytes plus 4 per element where a {@link HashSet} costs about 150 bytes before its
+     * first element. The index keeps a class with a very large degree linear to build.
+     */
+    private static final int SCAN_LIMIT = 16;
+
+    private static final Transition[] NO_TRANSITIONS = new Transition[0];
+    private static final int[] NO_ENDS = new int[0];
+    private static final BranchEdge[] NO_EDGES = new BranchEdge[0];
+
+    /**
+     * One class and its edges, every list in the order the build found it, as the reference's
+     * {@code Map} and {@code Set} keep it. The order is part of a result: the first class to show
+     * a violation is the witness, and the first edge to reach a class is the path to it
+     * ([VER-017], [VER-022]), so a hash order here made the counterexample change from one JVM
+     * run to the next.
+     *
+     * <p>Every edge target is the graph's own instance of its class, as in the reference, so the
+     * graph holds each class once rather than once per edge that reaches it, and the lists
+     * deduplicate by identity.
+     */
+    private static final class Node {
+        final StateClass stateClass;
+        /** The transitions with at least one edge, in enabled order. */
+        Transition[] keys = NO_TRANSITIONS;
+        /** {@code keyEnds[i]}: where the edges of {@code keys[i]} end in {@link #edges}. */
+        int[] keyEnds = NO_ENDS;
+        int keyCount;
+        /** Above {@link #SCAN_LIMIT} keys: each key's position. */
+        IdentityHashMap<Transition, Integer> keyIndex;
+        /** The edges, grouped by key in key order, each group in branch order. */
+        BranchEdge[] edges = NO_EDGES;
+        int edgeCount;
+        final ClassList successors = new ClassList();
+        final ClassList predecessors = new ClassList();
+
+        Node(StateClass stateClass) {
+            this.stateClass = stateClass;
         }
-        for (var entry : transitions.entrySet()) {
-            var from = entry.getKey();
-            for (var branchEdges : entry.getValue().values()) {
-                for (var edge : branchEdges) {
-                    successors.get(from).add(edge.target());
-                    predecessors.get(edge.target()).add(from);
+
+        /** Records an edge; a transition's edges arrive together, before the next transition's. */
+        void addEdge(Transition transition, int branchIndex, Node target) {
+            if (keyCount == 0 || keys[keyCount - 1] != transition) {
+                if (keyCount == keys.length) {
+                    int capacity = Math.max(keyCount * 2, stateClass.enabledTransitions().size());
+                    keys = Arrays.copyOf(keys, capacity);
+                    keyEnds = Arrays.copyOf(keyEnds, capacity);
                 }
+                keys[keyCount++] = transition;
+            }
+            if (edgeCount == edges.length) {
+                edges = Arrays.copyOf(edges, Math.max(edgeCount * 2, stateClass.enabledTransitions().size()));
+            }
+            edges[edgeCount++] = new BranchEdge(branchIndex, target.stateClass);
+            keyEnds[keyCount - 1] = edgeCount;
+            successors.add(target.stateClass);
+            target.predecessors.add(stateClass);
+        }
+
+        /** Trims every array to its length once the build is done, and indexes many keys. */
+        void freeze() {
+            if (keys.length != keyCount) {
+                keys = keyCount == 0 ? NO_TRANSITIONS : Arrays.copyOf(keys, keyCount);
+                keyEnds = keyCount == 0 ? NO_ENDS : Arrays.copyOf(keyEnds, keyCount);
+            }
+            if (edges.length != edgeCount) {
+                edges = edgeCount == 0 ? NO_EDGES : Arrays.copyOf(edges, edgeCount);
+            }
+            if (keyCount > SCAN_LIMIT) {
+                keyIndex = new IdentityHashMap<>(keyCount);
+                for (int i = 0; i < keyCount; i++) {
+                    keyIndex.put(keys[i], i);
+                }
+            }
+            successors.freeze();
+            predecessors.freeze();
+        }
+
+        int keyPosition(Object transition) {
+            if (keyIndex != null) {
+                Integer at = keyIndex.get(transition);
+                return at == null ? -1 : at;
+            }
+            for (int i = 0; i < keyCount; i++) {
+                if (keys[i] == transition) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        List<BranchEdge> edgesOf(int key) {
+            return new EdgeRange(edges, key == 0 ? 0 : keyEnds[key - 1], keyEnds[key]);
+        }
+    }
+
+    /**
+     * Distinct classes in the order first added: an array, plus an identity index above
+     * {@link #SCAN_LIMIT}. Identity is equality here because every class the lists hold is the
+     * graph's own instance.
+     */
+    private static final class ClassList {
+        private static final StateClass[] NONE = new StateClass[0];
+
+        StateClass[] items = NONE;
+        int size;
+        Set<StateClass> index;
+
+        void add(StateClass sc) {
+            if (index != null) {
+                if (!index.add(sc)) {
+                    return;
+                }
+            } else {
+                for (int i = 0; i < size; i++) {
+                    if (items[i] == sc) {
+                        return;
+                    }
+                }
+                if (size == SCAN_LIMIT) {
+                    index = Collections.newSetFromMap(new IdentityHashMap<>());
+                    for (int i = 0; i < size; i++) {
+                        index.add(items[i]);
+                    }
+                    index.add(sc);
+                }
+            }
+            if (size == items.length) {
+                items = Arrays.copyOf(items, Math.max(4, size * 2));
+            }
+            items[size++] = sc;
+        }
+
+        boolean containsInstance(StateClass sc) {
+            if (index != null) {
+                return index.contains(sc);
+            }
+            for (int i = 0; i < size; i++) {
+                if (items[i] == sc) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        void freeze() {
+            if (items.length != size) {
+                items = size == 0 ? NONE : Arrays.copyOf(items, size);
             }
         }
     }
 
-    private static Map<StateClass, Map<Transition, List<BranchEdge>>> deepCopyTransitions(
-            Map<StateClass, Map<Transition, List<BranchEdge>>> original
-    ) {
-        var copy = new HashMap<StateClass, Map<Transition, List<BranchEdge>>>();
-        for (var entry : original.entrySet()) {
-            var innerCopy = new HashMap<Transition, List<BranchEdge>>();
-            for (var inner : entry.getValue().entrySet()) {
-                innerCopy.put(inner.getKey(), new ArrayList<>(inner.getValue()));
-            }
-            copy.put(entry.getKey(), innerCopy);
+    /** A read-only view of one class's {@link ClassList}; membership by equality, as a set's. */
+    private final class ClassSet extends AbstractSet<StateClass> {
+        private final ClassList list;
+
+        ClassSet(ClassList list) {
+            this.list = list;
         }
-        return copy;
+
+        @Override
+        public Iterator<StateClass> iterator() {
+            return new ArrayIterator<>(list.items, 0, list.size);
+        }
+
+        @Override
+        public int size() {
+            return list.size;
+        }
+
+        @Override
+        public boolean contains(Object o) {
+            if (!(o instanceof StateClass sc)) {
+                return false;
+            }
+            if (list.containsInstance(sc)) {
+                return true;
+            }
+            var node = nodes.get(sc);
+            return node != null && node.stateClass != sc && list.containsInstance(node.stateClass);
+        }
+    }
+
+    /** A read-only view of one class's edges by transition, in key order. */
+    private static final class EdgeMap extends AbstractMap<Transition, List<BranchEdge>> {
+        private final Node node;
+
+        EdgeMap(Node node) {
+            this.node = node;
+        }
+
+        @Override
+        public Set<Entry<Transition, List<BranchEdge>>> entrySet() {
+            return new AbstractSet<>() {
+                @Override
+                public Iterator<Entry<Transition, List<BranchEdge>>> iterator() {
+                    return new Iterator<>() {
+                        private int next;
+
+                        @Override
+                        public boolean hasNext() {
+                            return next < node.keyCount;
+                        }
+
+                        @Override
+                        public Entry<Transition, List<BranchEdge>> next() {
+                            if (next >= node.keyCount) {
+                                throw new NoSuchElementException();
+                            }
+                            int key = next++;
+                            return Map.entry(node.keys[key], node.edgesOf(key));
+                        }
+                    };
+                }
+
+                @Override
+                public int size() {
+                    return node.keyCount;
+                }
+            };
+        }
+
+        @Override
+        public int size() {
+            return node.keyCount;
+        }
+
+        @Override
+        public boolean containsKey(Object key) {
+            return node.keyPosition(key) >= 0;
+        }
+
+        @Override
+        public List<BranchEdge> get(Object key) {
+            int at = node.keyPosition(key);
+            return at < 0 ? null : node.edgesOf(at);
+        }
+    }
+
+    /** A read-only list over {@code edges[from, to)}. */
+    private static final class EdgeRange extends AbstractList<BranchEdge> implements RandomAccess {
+        private final BranchEdge[] edges;
+        private final int from;
+        private final int to;
+
+        EdgeRange(BranchEdge[] edges, int from, int to) {
+            this.edges = edges;
+            this.from = from;
+            this.to = to;
+        }
+
+        @Override
+        public BranchEdge get(int index) {
+            Objects.checkIndex(index, to - from);
+            return edges[from + index];
+        }
+
+        @Override
+        public int size() {
+            return to - from;
+        }
+    }
+
+    private static final class ArrayIterator<T> implements Iterator<T> {
+        private final T[] items;
+        private final int end;
+        private int next;
+
+        ArrayIterator(T[] items, int from, int to) {
+            this.items = items;
+            this.next = from;
+            this.end = to;
+        }
+
+        @Override
+        public boolean hasNext() {
+            return next < end;
+        }
+
+        @Override
+        public T next() {
+            if (next >= end) {
+                throw new NoSuchElementException();
+            }
+            return items[next++];
+        }
     }
 
     /**
@@ -240,23 +504,22 @@ public final class StateClassGraph {
         var initialClass = initialStateClass(net, initialMarking, envPlaces, environmentMode, untimed);
 
         // BFS exploration
-        var stateClasses = new LinkedHashSet<StateClass>();
-        var transitionMap = new HashMap<StateClass, Map<Transition, List<BranchEdge>>>();
-        var queue = new ArrayDeque<StateClass>();
-
-        stateClasses.add(initialClass);
-        transitionMap.put(initialClass, new HashMap<>());
-        queue.add(initialClass);
+        var nodes = new LinkedHashMap<StateClass, Node>();
+        var queue = new ArrayDeque<Node>();
+        var first = new Node(initialClass);
+        nodes.put(initialClass, first);
+        queue.add(first);
 
         boolean complete = true;
 
         while (!queue.isEmpty()) {
-            if (stateClasses.size() >= maxClasses) {
+            if (nodes.size() >= maxClasses) {
                 complete = false;
                 break;
             }
 
-            var current = queue.poll();
+            var node = queue.poll();
+            var current = node.stateClass;
 
             // Pure Berthomieu-Diaz with XOR branch expansion:
             // Each enabled transition is expanded into virtual transitions (one per XOR branch).
@@ -271,21 +534,21 @@ public final class StateClassGraph {
                     // Empty DBM = temporally infeasible firing
                     if (successor == null || successor.isEmpty()) continue;
 
-                    // Add edge with branch index
-                    transitionMap.get(current)
-                        .computeIfAbsent(transition, _ -> new ArrayList<>())
-                        .add(new BranchEdge(vt.branchIndex(), successor));
-
-                    // If new state class, add to frontier
-                    if (stateClasses.add(successor)) {
-                        transitionMap.put(successor, new HashMap<>());
-                        queue.add(successor);
+                    // A class found before keeps its first instance, which the edge then points
+                    // at; a new one joins the frontier.
+                    var target = nodes.computeIfAbsent(successor, Node::new);
+                    if (target.stateClass == successor) {
+                        queue.add(target);
                     }
+                    node.addEdge(transition, vt.branchIndex(), target);
                 }
             }
         }
 
-        return new StateClassGraph(net, initialClass, stateClasses, transitionMap, complete, maxClasses, envPlaces, environmentMode);
+        for (var node : nodes.values()) {
+            node.freeze();
+        }
+        return new StateClassGraph(net, initialClass, nodes, complete, maxClasses, envPlaces, environmentMode);
     }
 
     /**
@@ -344,15 +607,15 @@ public final class StateClassGraph {
 
     /**
      * The canonical clock order of an enabled set ([VER-010] AC1): ascending by
-     * transition name (UTF-16 code-unit order, as the other implementations compare),
-     * ties keeping their incoming order. Returns the permutation as indices into
+     * transition name in code-point order ({@link CodePointOrder}), as the other
+     * implementations compare, ties keeping their incoming order. Returns the permutation as indices into
      * {@code transitions}, or {@code null} when the list is already in order — the
      * common case, which then costs no allocation.
      */
     static int[] canonicalOrder(List<Transition> transitions) {
         boolean sorted = true;
         for (int i = 1; i < transitions.size(); i++) {
-            if (transitions.get(i).name().compareTo(transitions.get(i - 1).name()) < 0) {
+            if (CodePointOrder.compare(transitions.get(i).name(), transitions.get(i - 1).name()) < 0) {
                 sorted = false;
                 break;
             }
@@ -361,7 +624,7 @@ public final class StateClassGraph {
         Integer[] order = new Integer[transitions.size()];
         for (int i = 0; i < order.length; i++) order[i] = i;
         // Arrays.sort on objects is stable, so equal names keep their incoming order.
-        Arrays.sort(order, (a, b) -> transitions.get(a).name().compareTo(transitions.get(b).name()));
+        Arrays.sort(order, (a, b) -> CodePointOrder.compare(transitions.get(a).name(), transitions.get(b).name()));
         int[] out = new int[order.length];
         for (int i = 0; i < out.length; i++) out[i] = order[i];
         return out;
@@ -757,24 +1020,44 @@ public final class StateClassGraph {
         return initialClass;
     }
 
+    /**
+     * Returns every state class, in the order the breadth-first build discovered them: the
+     * initial class first, then by depth.
+     *
+     * @return a read-only set in discovery order
+     */
     public Set<StateClass> stateClasses() {
         return stateClasses;
     }
 
     public int size() {
-        return stateClasses.size();
+        return nodes.size();
     }
 
     public boolean isComplete() {
         return complete;
     }
 
+    /**
+     * Returns the distinct classes one firing leads to from {@code sc}, in the order of the
+     * edges that first reach them.
+     *
+     * @return a read-only set, empty for a class the graph does not hold
+     */
     public Set<StateClass> successors(StateClass sc) {
-        return successors.getOrDefault(sc, Set.of());
+        var node = nodes.get(sc);
+        return node == null ? Set.of() : new ClassSet(node.successors);
     }
 
+    /**
+     * Returns the distinct classes with an edge to {@code sc}, in the order the build expanded
+     * them.
+     *
+     * @return a read-only set, empty for a class the graph does not hold
+     */
     public Set<StateClass> predecessors(StateClass sc) {
-        return predecessors.getOrDefault(sc, Set.of());
+        var node = nodes.get(sc);
+        return node == null ? Set.of() : new ClassSet(node.predecessors);
     }
 
     /**
@@ -787,9 +1070,8 @@ public final class StateClassGraph {
      */
     @Deprecated
     public Map<Transition, StateClass> outgoingTransitions(StateClass sc) {
-        var map = transitions.getOrDefault(sc, Map.of());
-        var result = new HashMap<Transition, StateClass>();
-        for (var entry : map.entrySet()) {
+        var result = new LinkedHashMap<Transition, StateClass>();
+        for (var entry : outgoingBranchEdges(sc).entrySet()) {
             var edges = entry.getValue();
             if (!edges.isEmpty()) {
                 result.put(entry.getKey(), edges.get(0).target());
@@ -806,10 +1088,12 @@ public final class StateClassGraph {
      * one possible XOR branch outcome.
      *
      * @param sc the source state class
-     * @return map of transitions to their branch edges
+     * @return read-only map of transitions to their branch edges, the transitions in the class's
+     *     enabled order and each list in branch order
      */
     public Map<Transition, List<BranchEdge>> outgoingBranchEdges(StateClass sc) {
-        return transitions.getOrDefault(sc, Map.of());
+        var node = nodes.get(sc);
+        return node == null ? Map.of() : new EdgeMap(node);
     }
 
     /**
@@ -820,25 +1104,27 @@ public final class StateClassGraph {
      *
      * @param sc the source state class
      * @param transition the transition
-     * @return list of branch edges, empty if transition not enabled from this class
+     * @return read-only list of branch edges in branch order, empty if transition not enabled
+     *     from this class
      */
     public List<BranchEdge> branchEdges(StateClass sc, Transition transition) {
-        var map = transitions.getOrDefault(sc, Map.of());
-        return map.getOrDefault(transition, List.of());
+        var node = nodes.get(sc);
+        int at = node == null ? -1 : node.keyPosition(transition);
+        return at < 0 ? List.of() : node.edgesOf(at);
     }
 
     /**
-     * Returns all transitions that are enabled from a state class.
+     * Returns all transitions that are enabled from a state class, in enabled order.
      */
     public Set<Transition> enabledTransitions(StateClass sc) {
-        return transitions.getOrDefault(sc, Map.of()).keySet();
+        return outgoingBranchEdges(sc).keySet();
     }
 
     /**
-     * Finds all state classes with a given marking.
+     * Finds all state classes with a given marking, in discovery order.
      */
     public Set<StateClass> classesWithMarking(MarkingState marking) {
-        var result = new HashSet<StateClass>();
+        var result = new LinkedHashSet<StateClass>();
         for (var sc : stateClasses) {
             if (sc.marking().equals(marking)) {
                 result.add(sc);
@@ -860,10 +1146,10 @@ public final class StateClassGraph {
     }
 
     /**
-     * Gets all reachable markings.
+     * Gets all reachable markings, in the order their first class was discovered.
      */
     public Set<MarkingState> reachableMarkings() {
-        var markings = new HashSet<MarkingState>();
+        var markings = new LinkedHashSet<MarkingState>();
         for (var sc : stateClasses) {
             markings.add(sc.marking());
         }
@@ -878,10 +1164,8 @@ public final class StateClassGraph {
      */
     public int edgeCount() {
         int count = 0;
-        for (var map : transitions.values()) {
-            for (var edges : map.values()) {
-                count += edges.size();
-            }
+        for (var node : nodes.values()) {
+            count += node.edgeCount;
         }
         return count;
     }
@@ -894,8 +1178,8 @@ public final class StateClassGraph {
      */
     public int transitionFiringCount() {
         int count = 0;
-        for (var map : transitions.values()) {
-            count += map.size();
+        for (var node : nodes.values()) {
+            count += node.keyCount;
         }
         return count;
     }

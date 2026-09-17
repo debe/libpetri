@@ -3,7 +3,8 @@ package org.libpetri.core;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -516,7 +517,7 @@ public sealed interface Arc permits Arc.In, Arc.Inhibitor, Arc.Read, Arc.Reset {
          * Out.and(Out.xor(a,b), Out.xor(c,d))         // [{a,c}, {a,d}, {b,c}, {b,d}]
          * }</pre>
          *
-         * @return list of branches, where each branch is a set of places
+         * @return list of branches, where each branch is a read-only set of places in declaration order
          */
         default List<Set<org.libpetri.core.Place<?>>> enumerateBranches() {
             return switch (this) {
@@ -553,9 +554,11 @@ public sealed interface Arc permits Arc.In, Arc.Inhibitor, Arc.Read, Arc.Reset {
             var result = new ArrayList<Set<org.libpetri.core.Place<?>>>();
             for (var setA : a) {
                 for (var setB : b) {
-                    var merged = new HashSet<org.libpetri.core.Place<?>>(setA);
+                    // In declaration order, as the reference's Set keeps it: a firing adds its
+                    // outputs in this order, and a derived marking lists its places in it.
+                    var merged = new LinkedHashSet<org.libpetri.core.Place<?>>(setA);
                     merged.addAll(setB);
-                    result.add(Set.copyOf(merged));
+                    result.add(Collections.unmodifiableSet(merged));
                 }
             }
             return result;

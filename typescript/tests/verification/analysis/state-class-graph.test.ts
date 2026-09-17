@@ -329,6 +329,21 @@ describe('StateClassGraph — canonical class identity', () => {
     expect(scg.initialClass.firingDomain.clockNames).toEqual(['ty', 'tz']);
     expect(scg.initialClass.enabledTransitions.map(t => t.name)).toEqual(['ty', 'tz']);
   });
+
+  it('orders clocks by code point, not UTF-16 code unit or locale', () => {
+    // As code units the surrogate pair of U+1F600 sorts before U+E000; as code points it
+    // sorts after, as in the Rust and Java ports. Uppercase sorts before lowercase.
+    const names = ['\u{1F600}', 'apfel', '\uE000', 'Zeit'];
+    const x = place('x');
+    const inputs = names.map(n => place(`in:${n}`));
+    const net = PetriNet.builder('code-point-order').transitions(
+      ...names.map((n, i) => Transition.builder(n).inputs(one(inputs[i]!)).outputs(outPlace(x)).action(produces()).build()),
+    ).build();
+    const marking = MarkingState.builder();
+    for (const p of inputs) marking.tokens(p, 1);
+    const scg = StateClassGraph.build(net, marking.build(), 1);
+    expect(scg.initialClass.firingDomain.clockNames).toEqual(['Zeit', 'apfel', '\uE000', '\u{1F600}']);
+  });
 });
 
 // TIME-012 / VER-010 AC4: clock persistence is decided on the intermediate marking M - Pre(t).

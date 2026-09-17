@@ -4,8 +4,6 @@
 //! contract, markings included, which is why markings are rendered here rather than
 //! through [`MarkingState::canonical_key`]: see [`marking_text`].
 
-use std::cmp::Ordering;
-
 use libpetri_core::petri_net::PetriNet;
 
 use crate::marking_state::MarkingState;
@@ -144,46 +142,16 @@ fn render_violation(v: &ContractViolation, lines: &mut Vec<String>) {
 
 /// A marking as the report prints it: `{name:count, …}`, or `{}` when empty.
 ///
-/// The places are listed in the order the TypeScript reference's `MarkingState.toString`
-/// lists them, which sorts with `localeCompare`, not by code point: `_budget` before
-/// `e1/data` before `X/idle`. The markings are the one part of the report that order
-/// reaches, and the report is pinned to the reference byte for byte, so the order is
-/// reproduced here rather than the report being allowed to differ ([`locale_order`]).
+/// The places are listed in Unicode code-point order, the one name order every
+/// implementation's report uses, whatever order the marking was built in.
 pub(super) fn marking_text(m: &MarkingState) -> String {
     let mut entries: Vec<(&str, usize)> = m.places().collect();
     if entries.is_empty() {
         return "{}".to_string();
     }
-    entries.sort_by(|a, b| locale_order(a.0, b.0));
+    entries.sort_unstable_by(|a, b| a.0.cmp(b.0));
     let parts: Vec<String> = entries.iter().map(|(p, n)| format!("{p}:{n}")).collect();
     format!("{{{}}}", parts.join(", "))
-}
-
-/// The primary collation order of printable ASCII in ICU's root collation, which Node's
-/// `localeCompare` uses, with punctuation significant: whitespace, then punctuation, then
-/// symbols, then digits, then letters with case ignored.
-const PRIMARY_ORDER: &str = " _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$0123456789abcdefghijklmnopqrstuvwxyz";
-
-/// `a.localeCompare(b)` for names of printable ASCII: the primary weights compared first
-/// (case-blind, a shorter prefix first), then case, lower before upper, at the first
-/// position the case differs.
-///
-/// Verified against Node's `localeCompare` over half a million random printable-ASCII
-/// pairs. A character outside printable ASCII sorts after every one inside it, by code
-/// point: the reference's order there depends on the collation tables, which this crate
-/// does not carry, and no name the closure generates contains one.
-fn locale_order(a: &str, b: &str) -> Ordering {
-    fn primary(c: char) -> u32 {
-        match PRIMARY_ORDER.find(c.to_ascii_lowercase()) {
-            Some(i) if c.is_ascii() => i as u32,
-            _ => PRIMARY_ORDER.len() as u32 + c as u32,
-        }
-    }
-    a.chars()
-        .map(primary)
-        .cmp(b.chars().map(primary))
-        .then_with(|| a.chars().map(|c| c.is_ascii_uppercase()).cmp(b.chars().map(|c| c.is_ascii_uppercase())))
-        .then_with(|| a.cmp(b))
 }
 
 #[cfg(test)]
@@ -191,15 +159,15 @@ mod tests {
     use super::*;
     use crate::marking_state::MarkingStateBuilder;
 
-    /// The order Node's `localeCompare` gives these names, the reference's
-    /// `MarkingState.toString` order.
+    /// Code-point order, not the order the marking was built in and not a locale's:
+    /// `X/in` before `_budget` before `e1/data`.
     #[test]
-    fn marking_text_lists_places_in_locale_order() {
+    fn marking_text_lists_places_in_code_point_order() {
         let m = MarkingStateBuilder::new()
-            .tokens("X/in", 1)
+            .tokens("x/in", 1)
             .tokens("_halt", 1)
             .tokens("env:arrivals[0]", 1)
-            .tokens("x/in", 1)
+            .tokens("X/in", 1)
             .tokens("X/In", 1)
             .tokens("env/ended", 1)
             .tokens("e1/data", 2)
@@ -209,23 +177,30 @@ mod tests {
             .build();
         assert_eq!(
             marking_text(&m),
-            "{_budget:1, _halt:1, e1/data:2, env:arrivals[0]:1, env/ended:1, N/in:1, x/in:1, X/in:1, X/In:1, X/in_empty:1}"
+            "{N/in:1, X/In:1, X/in:1, X/in_empty:1, _budget:1, _halt:1, e1/data:2, env/ended:1, env:arrivals[0]:1, x/in:1}"
         );
         assert_eq!(marking_text(&MarkingState::new()), "{}");
     }
 
-    /// Every printable ASCII character alone, sorted, as Node sorts it.
+    /// The name order every implementation asserts on this vector. UTF-16 code-unit
+    /// order would put the two astral-plane names before U+E000; UTF-8 byte order,
+    /// which `str`'s `Ord` is, agrees with code-point order everywhere.
     #[test]
-    fn locale_order_matches_the_reference_on_printable_ascii() {
-        let mut chars: Vec<String> = (32u8..127).map(|c| (c as char).to_string()).collect();
-        chars.sort_by(|a, b| locale_order(a, b));
+    fn names_sort_by_code_point() {
+        let expected = [
+            "", "Z", "a", "ab", "\u{C4}", "\u{4E2D}", "\u{E000}", "\u{FF21}", "\u{1D400}", "\u{1F600}",
+        ];
+        let mut names: Vec<&str> = expected.iter().rev().copied().collect();
+        names.sort();
+        assert_eq!(names, expected);
+
+        let mut builder = MarkingStateBuilder::new();
+        for (i, name) in expected.iter().enumerate().rev().filter(|(_, n)| !n.is_empty()) {
+            builder = builder.tokens(*name, i);
+        }
         assert_eq!(
-            chars.concat(),
-            " _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$0123456789aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxXyYzZ"
+            marking_text(&builder.build()),
+            "{Z:1, a:2, ab:3, \u{C4}:4, \u{4E2D}:5, \u{E000}:6, \u{FF21}:7, \u{1D400}:8, \u{1F600}:9}"
         );
-        let mut words = vec!["a b", "a_b", "a-b", "a/b", "a1b", "ab", "aB", "Ab", "AB", "ab1"];
-        words.reverse();
-        words.sort_by(|a, b| locale_order(a, b));
-        assert_eq!(words, vec!["a b", "a_b", "a-b", "a/b", "a1b", "ab", "aB", "Ab", "AB", "ab1"]);
     }
 }

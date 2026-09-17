@@ -11,6 +11,11 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -127,6 +132,139 @@ class StateClassGraphTest {
         assertEquals(List.of("ty", "tz"), scg.initialClass().firingDomain().clockNames());
         assertEquals(List.of("ty", "tz"),
             scg.initialClass().enabledTransitions().stream().map(Transition::name).toList());
+    }
+
+    /**
+     * The canonical clock order is code-point order, as in the other implementations: fullwidth
+     * {@code Ａ} (U+FF21) before mathematical bold {@code 𝐀} (U+1D400), whose UTF-16 units
+     * {@link String#compareTo} would put first.
+     */
+    @Test
+    void ordersClocksByCodePoint_notByUtf16Unit() {
+        var x = Place.of("x", String.class);
+        var bold = Transition.builder("\uD835\uDC00").inputs(In.one(A)).outputs(Out.place(x)).action(TransitionAction.fork()).build();
+        var fullwidth = Transition.builder("\uFF21").inputs(In.one(B)).outputs(Out.place(x)).action(TransitionAction.fork()).build();
+        var net = PetriNet.builder("code-points").transitions(bold, fullwidth).build();
+        var scg = StateClassGraph.build(net, initial(), 100);
+        assertEquals(List.of("\uFF21", "\uD835\uDC00"), scg.initialClass().firingDomain().clockNames());
+        assertEquals(List.of(fullwidth, bold), List.copyOf(scg.outgoingBranchEdges(scg.initialClass()).keySet()));
+    }
+
+    /**
+     * The graph lists everything in the order the build found it, as the reference's
+     * {@code Map} and {@code Set} do: classes breadth-first, a class's edges by transition in
+     * enabled order and branch order, successors and predecessors by first edge. The witness a
+     * graph route reports is read in that order, so a hash order here changed it between JVM
+     * runs. A token with twenty ways on and twenty ways back to one place gives classes twenty
+     * successors and predecessors, past the length at which the lists index their elements, and
+     * an XOR split beside it adds two edges under one transition.
+     */
+    @Nested
+    class BuildOrder {
+
+        private StateClassGraph fan() {
+            var transitions = new ArrayList<Transition>();
+            var start = Place.of("start", String.class);
+            var end = Place.of("end", String.class);
+            for (int i = 19; i >= 0; i--) {
+                var via = Place.of("via" + i, String.class);
+                transitions.add(chain("out" + i, start, via, false));
+                transitions.add(chain("back" + i, via, end, false));
+            }
+            var split = Place.of("split", String.class);
+            transitions.add(Transition.builder("x").inputs(In.one(split))
+                .outputs(Out.xor(Out.place(Place.of("left", String.class)), Out.place(Place.of("right", String.class))))
+                .action(TransitionAction.fork()).build());
+            var net = PetriNet.builder("fan").transitions(transitions.toArray(new Transition[0])).build();
+            return StateClassGraph.build(net, MarkingState.builder().tokens(split, 1).tokens(start, 1).build(), 100_000);
+        }
+
+        @Test
+        void listsClassesBreadthFirst_andEdgesInEnabledThenBranchOrder() {
+            var scg = fan();
+            assertEquals(22 * 3, scg.size());
+
+            var discovered = new LinkedHashSet<StateClass>();
+            var queue = new ArrayDeque<StateClass>();
+            discovered.add(scg.initialClass());
+            queue.add(scg.initialClass());
+            while (!queue.isEmpty()) {
+                var sc = queue.poll();
+                var edges = scg.outgoingBranchEdges(sc);
+                assertEquals(sc.enabledTransitions(), List.copyOf(edges.keySet()), "transitions in enabled order");
+                assertEquals(List.copyOf(edges.keySet()), List.copyOf(scg.enabledTransitions(sc)));
+                var targets = new LinkedHashSet<StateClass>();
+                for (var entry : edges.entrySet()) {
+                    assertEquals(entry.getValue(), scg.branchEdges(sc, entry.getKey()));
+                    for (int b = 0; b < entry.getValue().size(); b++) {
+                        assertEquals(b, entry.getValue().get(b).branchIndex(), "branch order");
+                        var target = entry.getValue().get(b).target();
+                        targets.add(target);
+                        if (discovered.add(target)) {
+                            queue.add(target);
+                        }
+                    }
+                }
+                assertEquals(List.copyOf(targets), List.copyOf(scg.successors(sc)), "successors by first edge");
+            }
+            assertEquals(List.copyOf(discovered), List.copyOf(scg.stateClasses()), "classes breadth-first");
+        }
+
+        @Test
+        void listsPredecessorsInTheOrderTheBuildExpandedThem() {
+            var scg = fan();
+            var expected = new IdentityHashMap<StateClass, LinkedHashSet<StateClass>>();
+            for (var sc : scg.stateClasses()) {
+                for (var edges : scg.outgoingBranchEdges(sc).values()) {
+                    for (var edge : edges) {
+                        expected.computeIfAbsent(edge.target(), _ -> new LinkedHashSet<>()).add(sc);
+                    }
+                }
+            }
+            int widest = 0;
+            for (var sc : scg.stateClasses()) {
+                var preds = expected.getOrDefault(sc, new LinkedHashSet<>());
+                assertEquals(List.copyOf(preds), List.copyOf(scg.predecessors(sc)));
+                widest = Math.max(widest, preds.size());
+            }
+            assertEquals(21, widest, "a last class has one predecessor per way back, and the split");
+            assertEquals(22, scg.successors(scg.initialClass()).size(), "twenty ways on and two branches");
+        }
+
+        @Test
+        void pointsEveryEdgeAtTheGraphsOwnInstance_andFindsEqualCopies() {
+            var scg = fan();
+            var own = Collections.newSetFromMap(new IdentityHashMap<StateClass, Boolean>());
+            own.addAll(scg.stateClasses());
+            for (var sc : scg.stateClasses()) {
+                for (var edges : scg.outgoingBranchEdges(sc).values()) {
+                    for (var edge : edges) {
+                        assertTrue(own.contains(edge.target()), "edge target is the graph's instance");
+                    }
+                }
+            }
+            var initial = scg.initialClass();
+            var next = scg.successors(initial).iterator().next();
+            var copy = new StateClass(next.marking(), next.firingDomain(), next.enabledTransitions(), next.readyEarliest());
+            assertNotSame(next, copy);
+            assertTrue(scg.successors(initial).contains(copy));
+            assertTrue(scg.predecessors(copy).contains(initial));
+            assertTrue(scg.stateClasses().contains(copy));
+            assertFalse(scg.successors(copy).contains(initial));
+        }
+
+        @Test
+        void returnsReadOnlyViews() {
+            var scg = fan();
+            var initial = scg.initialClass();
+            var t0 = initial.enabledTransitions().getFirst();
+            assertThrows(UnsupportedOperationException.class, () -> scg.stateClasses().remove(initial));
+            assertThrows(UnsupportedOperationException.class, () -> scg.successors(initial).clear());
+            assertThrows(UnsupportedOperationException.class, () -> scg.predecessors(initial).add(initial));
+            assertThrows(UnsupportedOperationException.class, () -> scg.outgoingBranchEdges(initial).remove(t0));
+            assertThrows(UnsupportedOperationException.class, () -> scg.branchEdges(initial, t0).clear());
+            assertThrows(UnsupportedOperationException.class, () -> scg.enabledTransitions(initial).clear());
+        }
     }
 
     /**

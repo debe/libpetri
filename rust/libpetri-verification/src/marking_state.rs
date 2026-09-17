@@ -1,43 +1,148 @@
 use std::collections::HashMap;
+use std::fmt::{self, Write as _};
+use std::sync::Arc;
 
 /// Immutable snapshot of a Petri net marking for state space analysis.
 ///
 /// Maps places by name to integer token counts. Only stores places with count > 0.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// A marking built with [`MarkingStateBuilder`] remembers the order its builder first saw
+/// each place, and [`MarkingState::places`] lists them in that order, as a TypeScript
+/// `MarkingState` (a JS `Map`) does. It is the order an open-net contract's port trace
+/// names places in ([VER-022]). Any other marking, one from [`MarkingState::from_map`] or
+/// one a state-space exploration derives by firing, lists its places in Unicode
+/// code-point order. The order is never part of a marking's identity: two markings with
+/// the same counts are equal and have the same [`MarkingState::canonical_key`].
+///
+/// # Representation
+///
+/// The entries are a vector sorted by name, each name an `Arc<str>` shared with every
+/// marking derived from this one. The state-class graph clones a marking per successor
+/// and keys every class by its marking, so the operations it repeats are the cheap ones:
+///
+/// | operation            | cost (k places, names of length L)                        |
+/// |----------------------|-----------------------------------------------------------|
+/// | `count`              | O(L log k), binary search                                 |
+/// | set (crate-internal) | O(L log k + k), one shift; one allocation for a new name  |
+/// | `places`             | O(k)                                                      |
+/// | `clone`              | O(k), one allocation, no string copied                    |
+/// | `canonical_key`      | O(k L), already in key order, no sort                     |
+///
+/// An entry is 24 bytes, against a hash map's bucket, control byte, spare capacity and
+/// owned string per place.
+#[derive(Clone)]
 pub struct MarkingState {
-    tokens: HashMap<String, usize>,
+    /// Places with a non-zero count, sorted by name (code-point order).
+    entries: Vec<(Arc<str>, usize)>,
+    /// The builder's first-mention order as indices into `entries`, or `None` when that
+    /// order is code-point order or the marking has none.
+    order: Option<Arc<[u32]>>,
 }
 
 impl MarkingState {
     pub fn new() -> Self {
         Self {
-            tokens: HashMap::new(),
+            entries: Vec::new(),
+            order: None,
         }
     }
 
+    /// A marking from a map of counts, zero counts dropped. A `HashMap` has no order, so
+    /// the places are listed in code-point order.
     pub fn from_map(tokens: HashMap<String, usize>) -> Self {
-        let tokens = tokens.into_iter().filter(|(_, c)| *c > 0).collect();
-        Self { tokens }
+        let mut entries: Vec<(Arc<str>, usize)> = tokens
+            .into_iter()
+            .filter(|(_, c)| *c > 0)
+            .map(|(p, c)| (Arc::from(p), c))
+            .collect();
+        entries.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        Self {
+            entries,
+            order: None,
+        }
+    }
+
+    /// A marking whose places are listed in the order given; `first_seen` holds distinct
+    /// names with non-zero counts.
+    fn from_first_seen(first_seen: Vec<(String, usize)>) -> Self {
+        let mut ranked: Vec<u32> = (0..first_seen.len() as u32).collect();
+        ranked.sort_unstable_by(|&a, &b| first_seen[a as usize].0.cmp(&first_seen[b as usize].0));
+        let in_order = ranked.iter().enumerate().all(|(at, &i)| at as u32 == i);
+        let mut order = vec![0u32; first_seen.len()];
+        for (at, &i) in ranked.iter().enumerate() {
+            order[i as usize] = at as u32;
+        }
+        let mut slots: Vec<Option<(String, usize)>> = first_seen.into_iter().map(Some).collect();
+        let entries = ranked
+            .iter()
+            .map(|&i| {
+                let (p, c) = slots[i as usize].take().expect("each index is ranked once");
+                (Arc::from(p), c)
+            })
+            .collect();
+        Self {
+            entries,
+            order: (!in_order).then(|| Arc::from(order)),
+        }
+    }
+
+    /// A copy for a firing to edit with [`MarkingState::set`]. A derived marking has no
+    /// builder order, and room for the one place a firing typically adds.
+    pub(crate) fn derived(&self) -> Self {
+        let mut entries = Vec::with_capacity(self.entries.len() + 1);
+        entries.extend(self.entries.iter().cloned());
+        Self {
+            entries,
+            order: None,
+        }
+    }
+
+    /// Sets the count of `place`; `0` removes it. Drops the builder order, if any.
+    pub(crate) fn set(&mut self, place: &str, count: usize) {
+        self.order = None;
+        match self.position(place) {
+            Ok(i) if count == 0 => {
+                self.entries.remove(i);
+            }
+            Ok(i) => self.entries[i].1 = count,
+            Err(_) if count == 0 => {}
+            Err(i) => self.entries.insert(i, (Arc::from(place), count)),
+        }
+    }
+
+    fn position(&self, place: &str) -> Result<usize, usize> {
+        self.entries.binary_search_by(|(p, _)| (**p).cmp(place))
     }
 
     /// Returns the token count for a place.
     pub fn count(&self, place: &str) -> usize {
-        self.tokens.get(place).copied().unwrap_or(0)
+        self.position(place).map_or(0, |i| self.entries[i].1)
     }
 
-    /// Returns all places with non-zero counts.
+    /// Returns all places with non-zero counts: in the order the builder first saw them,
+    /// or in code-point order for a marking that has no builder order.
     pub fn places(&self) -> impl Iterator<Item = (&str, usize)> {
-        self.tokens.iter().map(|(k, v)| (k.as_str(), *v))
+        let ordered = self.order.as_deref().map(|order| {
+            order.iter().map(|&i| {
+                let (p, c) = &self.entries[i as usize];
+                (&**p, *c)
+            })
+        });
+        let sorted = self
+            .order
+            .is_none()
+            .then(|| self.entries.iter().map(|(p, c)| (&**p, *c)));
+        ordered.into_iter().flatten().chain(sorted.into_iter().flatten())
     }
 
     /// Returns true if the marking is empty (no tokens anywhere).
     pub fn is_empty(&self) -> bool {
-        self.tokens.is_empty()
+        self.entries.is_empty()
     }
 
     /// Returns the total number of tokens across all places.
     pub fn total_tokens(&self) -> usize {
-        self.tokens.values().sum()
+        self.entries.iter().map(|(_, c)| c).sum()
     }
 
     /// Returns true if this marking has tokens in any of the named places.
@@ -45,15 +150,17 @@ impl MarkingState {
         place_names.iter().any(|name| self.count(name) > 0)
     }
 
-    /// Generates a canonical key for deduplication.
+    /// Generates a canonical key for deduplication: `name:count` in code-point order,
+    /// comma-separated.
     pub fn canonical_key(&self) -> String {
-        let mut entries: Vec<_> = self.tokens.iter().collect();
-        entries.sort_by_key(|(k, _)| k.as_str());
-        entries
-            .iter()
-            .map(|(k, v)| format!("{k}:{v}"))
-            .collect::<Vec<_>>()
-            .join(",")
+        let mut key = String::with_capacity(self.entries.iter().map(|(p, _)| p.len() + 4).sum());
+        for (i, (p, c)) in self.entries.iter().enumerate() {
+            if i > 0 {
+                key.push(',');
+            }
+            let _ = write!(key, "{p}:{c}");
+        }
+        key
     }
 }
 
@@ -63,36 +170,79 @@ impl Default for MarkingState {
     }
 }
 
+/// Equal counts on the same places; the order the places are listed in is not compared.
+impl PartialEq for MarkingState {
+    fn eq(&self, other: &Self) -> bool {
+        self.entries == other.entries
+    }
+}
+
+impl Eq for MarkingState {}
+
+impl fmt::Debug for MarkingState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        struct Tokens<'a>(&'a MarkingState);
+        impl fmt::Debug for Tokens<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.debug_map().entries(self.0.places()).finish()
+            }
+        }
+        f.debug_struct("MarkingState").field("tokens", &Tokens(self)).finish()
+    }
+}
+
 /// Builder for constructing MarkingState instances.
+///
+/// Remembers the order places are first given a count. A place set to `0` is removed, and
+/// counts from its next mention as a new place, as deleting a key from a JS `Map` does.
 pub struct MarkingStateBuilder {
-    tokens: HashMap<String, usize>,
+    /// Every place mentioned, in first-mention order; a removed place keeps a zero here.
+    first_seen: Vec<(String, usize)>,
+    /// The live index into `first_seen` of each place currently present.
+    index: HashMap<String, usize>,
 }
 
 impl MarkingStateBuilder {
     pub fn new() -> Self {
         Self {
-            tokens: HashMap::new(),
+            first_seen: Vec::new(),
+            index: HashMap::new(),
         }
     }
 
     pub fn tokens(mut self, place: impl Into<String>, count: usize) -> Self {
-        let key = place.into();
-        if count > 0 {
-            self.tokens.insert(key, count);
-        } else {
-            self.tokens.remove(&key);
+        let place = place.into();
+        match self.index.get(&place) {
+            Some(&i) if count > 0 => self.first_seen[i].1 = count,
+            Some(_) => {
+                let i = self.index.remove(&place).expect("present");
+                self.first_seen[i].1 = 0;
+            }
+            None if count > 0 => self.push(place, count),
+            None => {}
         }
         self
     }
 
     pub fn add_tokens(mut self, place: impl Into<String>, count: usize) -> Self {
-        let entry = self.tokens.entry(place.into()).or_insert(0);
-        *entry += count;
+        let place = place.into();
+        match self.index.get(&place) {
+            Some(&i) => self.first_seen[i].1 += count,
+            None if count > 0 => self.push(place, count),
+            None => {}
+        }
         self
     }
 
+    fn push(&mut self, place: String, count: usize) {
+        self.index.insert(place.clone(), self.first_seen.len());
+        self.first_seen.push((place, count));
+    }
+
     pub fn build(self) -> MarkingState {
-        MarkingState::from_map(self.tokens)
+        let mut first_seen = self.first_seen;
+        first_seen.retain(|(_, c)| *c > 0);
+        MarkingState::from_first_seen(first_seen)
     }
 }
 
@@ -173,5 +323,65 @@ mod tests {
         let ms1 = MarkingStateBuilder::new().tokens("p", 1).build();
         let ms2 = MarkingStateBuilder::new().tokens("p", 2).build();
         assert_ne!(ms1, ms2);
+    }
+    fn order(m: &MarkingState) -> Vec<(&str, usize)> {
+        m.places().collect()
+    }
+
+    /// [VER-022]: the builder's first-mention order is what `places` lists, as the
+    /// reference's `Map`-backed marking does.
+    #[test]
+    fn places_follow_the_builder_order() {
+        let ms = MarkingStateBuilder::new()
+            .tokens("zeta", 1)
+            .add_tokens("alpha", 2)
+            .tokens("mid", 3)
+            .tokens("zeta", 4)
+            .build();
+        assert_eq!(order(&ms), vec![("zeta", 4), ("alpha", 2), ("mid", 3)]);
+        assert_eq!(ms.canonical_key(), "alpha:2,mid:3,zeta:4");
+    }
+
+    /// A place set to zero is removed, and counts from its next mention as a new place.
+    #[test]
+    fn a_removed_place_rejoins_at_the_end() {
+        let ms = MarkingStateBuilder::new()
+            .tokens("b", 1)
+            .tokens("a", 1)
+            .tokens("b", 0)
+            .add_tokens("c", 0)
+            .add_tokens("b", 2)
+            .build();
+        assert_eq!(order(&ms), vec![("a", 1), ("b", 2)]);
+    }
+
+    #[test]
+    fn equality_and_key_ignore_the_order() {
+        let ba = MarkingStateBuilder::new().tokens("b", 1).tokens("a", 2).build();
+        let ab = MarkingStateBuilder::new().tokens("a", 2).tokens("b", 1).build();
+        assert_eq!(order(&ba), vec![("b", 1), ("a", 2)]);
+        assert_eq!(ba, ab);
+        let from_map = MarkingState::from_map(HashMap::from([("b".to_string(), 1), ("a".to_string(), 2)]));
+        assert_eq!(from_map, ba);
+        assert_eq!(order(&from_map), vec![("a", 2), ("b", 1)]);
+        assert_eq!(format!("{ba:?}"), r#"MarkingState { tokens: {"b": 1, "a": 2} }"#);
+    }
+
+    /// A marking derived by firing has no builder order: its places are in code-point order.
+    #[test]
+    fn a_derived_marking_is_in_code_point_order() {
+        let initial = MarkingStateBuilder::new().tokens("z", 1).tokens("m", 1).build();
+        let mut next = initial.derived();
+        assert_eq!(order(&next), vec![("m", 1), ("z", 1)]);
+        next.set("z", 0);
+        next.set("a", 3);
+        next.set("m", 2);
+        next.set("absent", 0);
+        assert_eq!(order(&next), vec![("a", 3), ("m", 2)]);
+        assert_eq!(next.count("a"), 3);
+        assert_eq!(next.count("z"), 0);
+        assert_eq!(next.total_tokens(), 5);
+        assert_eq!(next.canonical_key(), "a:3,m:2");
+        assert_eq!(order(&initial), vec![("z", 1), ("m", 1)]);
     }
 }

@@ -18,3 +18,7 @@ harness = false
 [[bench]]
 name = "owned_executor"
 harness = false
+
+[[bench]]
+name = "state_class_graph"
+harness = false

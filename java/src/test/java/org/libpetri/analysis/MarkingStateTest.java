@@ -3,7 +3,12 @@ package org.libpetri.analysis;
 import org.libpetri.core.Place;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -268,5 +273,121 @@ class MarkingStateTest {
         assertThrows(UnsupportedOperationException.class, () ->
             state.placesWithTokens().add(p2)
         );
+    }
+
+    /**
+     * The builder against the ordered map it replaced, on random operations: every marking it
+     * builds holds the same counts, lists its places in the same order, and equals and hashes
+     * like the map. The pool mixes a few places with many, and equal places that are distinct
+     * instances, so the source index, the scan of appended places and re-indexing all run.
+     */
+    @Test
+    void builder_behavesLikeAnInsertionOrderedMap_onRandomOperations() {
+        var random = new Random(20260917);
+        var pool = new ArrayList<Place<?>>();
+        for (int i = 0; i < 60; i++) {
+            pool.add(Place.of("p" + i, TestValue.class));
+        }
+        var built = new ArrayList<MarkingState>();
+        built.add(MarkingState.empty());
+        for (int round = 0; round < 3000; round++) {
+            var builder = MarkingState.builder();
+            var model = new LinkedHashMap<Place<?>, Integer>();
+            if (random.nextBoolean()) {
+                var from = built.get(random.nextInt(built.size()));
+                builder.copyFrom(from);
+                for (var place : from.placesWithTokens()) {
+                    model.put(place, from.tokens(place));
+                }
+            }
+            int width = random.nextBoolean() ? 4 : pool.size();
+            int operations = random.nextInt(random.nextBoolean() ? 6 : 80);
+            for (int op = 0; op < operations; op++) {
+                var named = pool.get(random.nextInt(width));
+                // An equal place that is another instance.
+                Place<?> place = random.nextInt(4) == 0 ? Place.of(named.name(), TestValue.class) : named;
+                int count = random.nextInt(4);
+                switch (random.nextInt(4)) {
+                    case 0 -> {
+                        builder.tokens(place, count);
+                        if (count > 0) model.put(place, count); else model.remove(place);
+                    }
+                    case 1 -> {
+                        builder.addTokens(place, count);
+                        if (count > 0) model.merge(place, count, Integer::sum);
+                    }
+                    case 2 -> {
+                        int have = model.getOrDefault(place, 0);
+                        if (count > have) {
+                            assertThrows(IllegalStateException.class, () -> builder.removeTokens(place, count));
+                        } else {
+                            builder.removeTokens(place, count);
+                            if (have - count == 0) model.remove(place); else model.put(place, have - count);
+                        }
+                    }
+                    default -> {
+                        var from = built.get(random.nextInt(built.size()));
+                        builder.copyFrom(from);
+                        for (var p : from.placesWithTokens()) {
+                            model.put(p, from.tokens(p));
+                        }
+                    }
+                }
+            }
+            var marking = builder.build();
+            assertEquals(List.copyOf(model.keySet()).stream().map(Place::name).toList(),
+                marking.placesWithTokens().stream().map(Place::name).toList(), "insertion order");
+            assertEquals(model, marking.asMap());
+            assertEquals(model.hashCode(), marking.hashCode());
+            assertEquals(new HashMap<>(model), new HashMap<>(marking.asMap()));
+            for (var place : pool) {
+                assertEquals(model.getOrDefault(place, 0), marking.tokens(place), place.name());
+                assertEquals(model.containsKey(place), marking.placesWithTokens().contains(place));
+            }
+            var shuffled = new ArrayList<>(model.entrySet());
+            java.util.Collections.shuffle(shuffled, random);
+            var reordered = MarkingState.builder();
+            for (var e : shuffled) {
+                reordered.tokens(e.getKey(), e.getValue());
+            }
+            assertEquals(marking, reordered.build(), "equality ignores order");
+            assertEquals(marking.hashCode(), reordered.build().hashCode());
+            built.add(marking);
+        }
+    }
+
+    /** Markings of 200 and 70,000 places index them in wider tables; lookups and order still hold. */
+    @Test
+    void largeMarkings_findEveryPlace_andKeepTheirOrder() {
+        for (int n : new int[] {1, 2, 127, 128, 200, 65_534, 65_535, 70_000}) {
+            var places = new ArrayList<Place<TestValue>>();
+            var builder = MarkingState.builder();
+            for (int i = n - 1; i >= 0; i--) {
+                var place = Place.of("q" + i, TestValue.class);
+                places.add(place);
+                builder.tokens(place, i % 5 + 1);
+            }
+            var marking = builder.build();
+            assertEquals(n, marking.placesWithTokens().size());
+            assertEquals(places, List.copyOf(marking.placesWithTokens()));
+            for (int i = 0; i < n; i++) {
+                assertEquals((n - 1 - i) % 5 + 1, marking.tokens(Place.of("q" + (n - 1 - i), TestValue.class)));
+            }
+            assertEquals(0, marking.tokens(Place.of("q" + n, TestValue.class)));
+            var derived = MarkingState.builder().copyFrom(marking).removeTokens(places.getFirst(), 1).build();
+            assertEquals(marking.tokens(places.getFirst()) - 1, derived.tokens(places.getFirst()));
+        }
+    }
+
+    @Test
+    void derivedMarking_keepsItsSourcesOrder_movesARefilledPlaceToTheEnd() {
+        var source = MarkingState.builder().tokens(p3, 1).tokens(p1, 2).tokens(p2, 1).build();
+        var moved = MarkingState.builder().copyFrom(source).removeTokens(p3, 1).addTokens(p3, 1).build();
+        assertEquals(List.of(p1, p2, p3), List.copyOf(moved.placesWithTokens()));
+        assertEquals(source, moved);
+        var counted = MarkingState.builder().copyFrom(source).removeTokens(p1, 1).addTokens(p2, 3).build();
+        assertEquals(List.of(p3, p1, p2), List.copyOf(counted.placesWithTokens()));
+        assertEquals(Map.of(p3, 1, p1, 1, p2, 4), counted.asMap());
+        assertTrue(MarkingState.builder().copyFrom(source).tokens(p1, 0).tokens(p2, 0).tokens(p3, 0).build().isEmpty());
     }
 }

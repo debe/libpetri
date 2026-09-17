@@ -5261,7 +5261,7 @@ mod tests {
         let excused = base().sink_places_when("halt", ["b".to_string()]).verify();
         assert!(excused.is_proven(), "{}", excused.report);
         assert!(
-            excused.report.contains("Property: Deadlock freedom (sinks: done; when halt: b)\n"),
+            excused.report.contains("Property: Deadlock-freedom (sinks: done; when halt: b)\n"),
             "{}",
             excused.report
         );
@@ -5300,7 +5300,7 @@ mod tests {
         let marker = base().sink_places_when("p2", Vec::new()).verify();
         assert!(marker.is_proven(), "{}", marker.report);
         assert!(
-            marker.report.contains("Property: Deadlock freedom (when p2)\n"),
+            marker.report.contains("Property: Deadlock-freedom (when p2)\n"),
             "{}",
             marker.report
         );
@@ -5329,7 +5329,7 @@ mod tests {
         assert!(
             excused
                 .report
-                .contains("Property: Deadlock freedom (sinks: done; when done: stuck)\n"),
+                .contains("Property: Deadlock-freedom (sinks: done; when done: stuck)\n"),
             "{}",
             excused.report
         );
@@ -6072,7 +6072,7 @@ mod tests {
                  \n\
                  === RESULT ===\n\
                  \n\
-                 PROVEN (state equation): Deadlock freedom (sinks: done, skipped)\n\
+                 PROVEN (state equation): Deadlock-freedom (sinks: done, skipped)\n\
                  \x20 Every reachable marking satisfies the marking equation over 8 firing counters \
                  and the refinements above, and none of those markings violates the property (VER-018).\n\
                  \x20 NOTE: Verification ignores timing constraints.\n"
@@ -6154,7 +6154,7 @@ mod tests {
                  \n\
                  === RESULT ===\n\
                  \n\
-                 VIOLATED: Deadlock freedom (sinks: out, budget, cancelled)\n\
+                 VIOLATED: Deadlock-freedom (sinks: out, budget, cancelled)\n\
                  \x20 Counterexample trace (replay order, 5 states):\n\
                  \x20   0: {budget:3, src:1}\n\
                  \x20   1: {budget:2, q:1, src:1}\n\
@@ -6224,7 +6224,7 @@ mod tests {
                  \n\
                  === RESULT ===\n\
                  \n\
-                 PROVEN (bounded model check): Deadlock freedom (sinks: out, budget)\n\
+                 PROVEN (bounded model check): Deadlock-freedom (sinks: out, budget)\n\
                  \x20 No run has more than 5 firings, and none of at most that many reaches a violation (VER-019).\n\
                  \x20 NOTE: Verification ignores timing constraints.\n"
             ),

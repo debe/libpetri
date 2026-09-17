@@ -3,6 +3,7 @@ package org.libpetri.analysis;
 import org.libpetri.core.Arc;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Transition;
+import org.libpetri.core.internal.CodePointOrder;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -96,7 +97,8 @@ public final class NameFragment {
      * just falls back to the sound over-approximation).
      */
     public static NameFragment classify(PetriNet net, FragmentMode mode, Set<String> carrierPlaces) {
-        var coloured = new TreeSet<String>();
+        // Code-point order: the coloured order indexes the name layer in every implementation.
+        var coloured = new TreeSet<String>(CodePointOrder.COMPARATOR);
         boolean anyMatch = false;
         for (var t : net.transitions()) {
             if (t.matchSpec() != null) {
@@ -163,7 +165,7 @@ public final class NameFragment {
                     }
                     colouredIn.add(Map.entry(place, required));
                 }
-                colouredIn.sort(Map.Entry.comparingByKey());
+                colouredIn.sort(Map.Entry.comparingByKey(CodePointOrder.COMPARATOR));
                 role = new Role.Join(colouredIn);
             } else if (consumesColoured) {
                 // A non-match transition consuming a coloured place. BASE: out of

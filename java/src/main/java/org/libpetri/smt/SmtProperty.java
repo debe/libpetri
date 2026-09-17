@@ -4,7 +4,10 @@ import org.libpetri.core.Place;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.OptionalInt;
 import java.util.Set;
 
@@ -57,8 +60,19 @@ public sealed interface SmtProperty {
      * Unreachability: the given set of places never all have tokens simultaneously.
      *
      * <p>A marking where all specified places have tokens is an error state.
+     *
+     * @param places the places, kept in the order given: the description names them in it, as
+     *               every implementation does. Equality is still a set's.
      */
-    record Unreachable(Set<Place<?>> places) implements SmtProperty {}
+    record Unreachable(Set<Place<?>> places) implements SmtProperty {
+        public Unreachable {
+            var ordered = new LinkedHashSet<Place<?>>();
+            for (var place : places) {
+                ordered.add(Objects.requireNonNull(place, "place"));
+            }
+            places = Collections.unmodifiableSequencedSet(ordered);
+        }
+    }
 
     /**
      * Branch / budget place bound: a &nu;-net budget or fork-branch place never
@@ -145,7 +159,7 @@ public sealed interface SmtProperty {
             case PlaceBound pb ->
                 "Place " + pb.place().name() + " bounded by " + pb.bound();
             case Unreachable ur ->
-                "Unreachability of marking with tokens in " + ur.places();
+                "Unreachability of marking with tokens in {" + names(ur.places()) + "}";
             case BranchPlaceBound bpb ->
                 "Branch place bound (ν-budget): " + bpb.place().name() + " <= " + bpb.bound();
             case JoinedOrDeadLettered jdl ->
@@ -182,8 +196,15 @@ public sealed interface SmtProperty {
         return new PlaceBound(place, bound);
     }
 
+    /**
+     * Unreachability of a marking with tokens in every one of {@code places}.
+     *
+     * @param places the places, named in the description in the order given (a
+     *               {@link java.util.LinkedHashSet} or {@link java.util.SequencedSet} keeps one;
+     *               {@link Set#of} does not)
+     */
     static Unreachable unreachable(Set<Place<?>> places) {
-        return new Unreachable(Set.copyOf(places));
+        return new Unreachable(places);
     }
 
     static BranchPlaceBound branchPlaceBound(Place<?> place, int bound) {

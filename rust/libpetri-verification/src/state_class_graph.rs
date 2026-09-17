@@ -8,7 +8,7 @@ use libpetri_core::transition::Transition;
 
 use crate::dbm::Dbm;
 use crate::environment::EnvironmentAnalysisMode;
-use crate::marking_state::{MarkingState, MarkingStateBuilder};
+use crate::marking_state::MarkingState;
 use crate::state_class::StateClass;
 
 /// Edge in the state class graph representing a transition firing.
@@ -560,12 +560,7 @@ fn consume_marking(
     env_places: &HashSet<&str>,
     env_mode: &EnvironmentAnalysisMode,
 ) -> MarkingState {
-    let mut builder = MarkingStateBuilder::new();
-
-    // Copy current marking
-    for (place, count) in marking.places() {
-        builder = builder.tokens(place, count);
-    }
+    let mut next = marking.derived();
 
     // Consume from inputs (skip env places in AlwaysAvailable/Bounded modes)
     for spec in transition.input_specs() {
@@ -580,30 +575,25 @@ fn consume_marking(
         let current = marking.count(place_name);
         let to_consume = input_consume_count(spec, current);
         let remaining = current.saturating_sub(to_consume);
-        builder = builder.tokens(place_name, remaining);
+        next.set(place_name, remaining);
     }
 
     // Reset places
     for arc in transition.resets() {
-        builder = builder.tokens(arc.place.name(), 0);
+        next.set(arc.place.name(), 0);
     }
 
-    builder.build()
+    next
 }
 
 /// `intermediate` with one token deposited into each output place of the fired
 /// branch.
 fn produce_marking(intermediate: &MarkingState, output_places: &HashSet<String>) -> MarkingState {
-    let mut output_builder = MarkingStateBuilder::new();
-    for (place, count) in intermediate.places() {
-        output_builder = output_builder.tokens(place, count);
-    }
+    let mut next = intermediate.derived();
     for place in output_places {
-        let current = intermediate.count(place);
-        output_builder = output_builder.tokens(place.as_str(), current + 1);
+        next.set(place, intermediate.count(place) + 1);
     }
-
-    output_builder.build()
+    next
 }
 
 /// Tokens removed from an input place by one firing, given how many are there.
@@ -635,6 +625,7 @@ fn input_consume_count(spec: &In, available: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::marking_state::MarkingStateBuilder;
     use libpetri_core::action::fork;
     use libpetri_core::arc::inhibitor;
     use libpetri_core::input::{all, at_least, one};
@@ -665,7 +656,7 @@ mod tests {
     /// the PRE-firing count: reading the original count would overdraw — the input
     /// already took its share — which in a builder that removes rather than sets is
     /// an error, and the whole enumeration route dies on a net that runs fine. This
-    /// implementation states the reset directly (`tokens(place, 0)`), which cannot
+    /// implementation states the reset directly (`set(place, 0)`), which cannot
     /// overdraw, and agrees by construction with what the flat encoder emits
     /// (`m'_p = post[p]` for a reset place). Outputs are produced afterwards, so a
     /// place that is both reset and an output target ends at its post count

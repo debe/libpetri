@@ -120,16 +120,16 @@ pub(super) fn decide_via_smt(
         let word = verdict_word(&result.verdict);
         match &result.verdict {
             Verdict::Unknown { reason } => {
-                lines.push(format!("  [{}] {}: {word} ({reason})", q.subject, query_description(&q.property)));
+                lines.push(format!("  [{}] {}: {word} ({reason})", q.subject, q.property.description()));
                 undecided.push(format!("{}: {reason}", q.subject));
             }
             Verdict::Violated => {
-                lines.push(format!("  [{}] {}: {word}", q.subject, query_description(&q.property)));
+                lines.push(format!("  [{}] {}: {word}", q.subject, q.property.description()));
                 let witness = read_violation(&q, &result, &rest);
                 violations.push(contract_violation(closed, traced_places, witness));
             }
             Verdict::Proven { inductive_invariant, .. } => {
-                lines.push(format!("  [{}] {}: {word}", q.subject, query_description(&q.property)));
+                lines.push(format!("  [{}] {}: {word}", q.subject, q.property.description()));
                 // A proven part may or may not come with a certificate: the enumeration and
                 // bound phases prove without one. Keep the ones that do rather than dropping
                 // the evidence.
@@ -233,19 +233,6 @@ pub(super) fn verdict_word(verdict: &Verdict) -> &'static str {
         Verdict::Proven { .. } => "proven",
         Verdict::Violated => "violated",
         Verdict::Unknown { .. } => "unknown",
-    }
-}
-
-/// A query's property as the open-net report names it.
-///
-/// The TypeScript reference words `DeadlockFree` as `Deadlock-freedom` in this report,
-/// where the verifier's own report in this crate says `Deadlock freedom`; the open-net
-/// report is pinned byte-for-byte to the reference, so it takes the reference's word here
-/// rather than changing the verifier's.
-fn query_description(property: &SmtProperty) -> String {
-    match property {
-        SmtProperty::DeadlockFree => "Deadlock-freedom".to_string(),
-        other => other.description(),
     }
 }
 
