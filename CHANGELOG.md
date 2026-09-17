@@ -1,6 +1,15 @@
 # Changelog
 
-## Unreleased
+## Java 6.0.0 / TypeScript 6.0.0 / Rust 6.0.0 / Python 5.0.0 — 2026-09-17
+
+### Breaking
+
+Two verification types grew, so every language takes a major.
+
+- **`SmtProperty` has a new member, `QuiescentCount`** (Java sealed subtype, TypeScript union member, Rust enum variant). An exhaustive `switch` or `match` over property kinds without a default arm stops compiling; add the case.
+- **`EncodedScripts` carries the state-equation script** (Java record component `stateEquation`, TypeScript required field `stateEquation`, Rust `pub state_equation: Option<String>`). Code that builds the value or deconstructs all of its components must add it. Reading it from `encodeScripts()` is unaffected.
+- **Changed (Rust, Python):** the default SMT timeout is 60 s, up from 30 s, as in Java and TypeScript (`SmtVerifier::timeout`, `timeout_ms`).
+- **Python** has no API break. It takes the major for the timing and verdict changes below.
 
 ### Timing: clock restarts follow the intermediate marking ([TIME-012])
 
@@ -153,7 +162,7 @@ Reports, witness traces and flat indexes now order place and transition names by
 ```
 
 - **Changed (all):** mixed-case and non-ASCII names may print in a different order, e.g. `Zeit` now precedes `apfel`. SMT scripts are unchanged for ASCII names ([VER-013] AC7, [VER-022] AC10).
-- **Changed (Rust, Java):** property descriptions read as TypeScript's — `Deadlock-freedom`, `Mutual exclusion of a and b`, `Place p bounded by k`, `Unreachability of marking with tokens in {a, b}` — and so does Java's ignore-mode vacuity reason.
+- **Changed (Rust, Python, Java):** property descriptions read as TypeScript's — `Deadlock-freedom`, `Mutual exclusion of a and b`, `Place p bounded by k`, `Unreachability of marking with tokens in {a, b}` — and so does Java's ignore-mode vacuity reason.
 - **Fixed (Rust, Python):** a `MarkingState` from the builder lists places in the order the builder first saw them, so port traces follow the initial marking's order; Python `initial_marking` dicts keep their order.
 - **Fixed (Java):** enumeration and open-net witnesses are the same on every run and match TypeScript's. `SmtProperty.Unreachable` keeps its places in the order given.
 
