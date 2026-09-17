@@ -303,11 +303,18 @@ class StubZ3Test {
         assertInstanceOf(SmtVerificationResult.Verdict.Violated.class, result.verdict(), result.report());
         try (Stream<Path> files = Files.list(dump)) {
             // A reachability-safety property runs the linear bound (VER-015) before the
-            // HORN query, so the counter gives 001-bound then 002-horn; the stub answers
-            // `unsat` to both (no bound separates; then the violation).
-            var names = files.map(p -> p.getFileName().toString()).sorted().toList();
+            // HORN query; the stub answers `unsat` to both (no bound separates; then the
+            // violation). The counter is process-wide, so an earlier dump anywhere in this
+            // JVM moves it: check the phases in order and that horn follows bound, not the
+            // absolute numbers.
+            var names = files.map(p -> p.getFileName().toString())
+                .sorted(Comparator.comparingInt(StubZ3Test::dumpCounter).thenComparing(Comparator.naturalOrder()))
+                .toList();
             assertEquals(4, names.size(), "two scripts and two replies: " + names);
-            assertEquals(List.of("001-bound.out", "001-bound.smt2", "002-horn.out", "002-horn.smt2"), names);
+            assertEquals(List.of("bound.out", "bound.smt2", "horn.out", "horn.smt2"),
+                names.stream().map(n -> n.substring(n.indexOf('-') + 1)).toList(), names.toString());
+            assertEquals(dumpCounter(names.get(0)) + 1, dumpCounter(names.get(2)),
+                "the HORN query is dumped straight after the bound: " + names);
             String bound = Files.readString(dump.resolve(names.get(1)));
             assertTrue(bound.contains("(set-logic QF_LIA)"), "the bound dump is the QF_LIA script:\n" + bound);
             String script = Files.readString(dump.resolve(names.get(3)));
@@ -316,5 +323,10 @@ class StubZ3Test {
             String reply = Files.readString(dump.resolve(names.get(2)));
             assertTrue(reply.contains("\nunsat\n"), "the dump is the reply as received:\n" + reply);
         }
+    }
+
+    /** The zero-padded counter a dump file name starts with ({@code 012-horn.smt2} is 12). */
+    private static int dumpCounter(String name) {
+        return Integer.parseInt(name.substring(0, name.indexOf('-')));
     }
 }
