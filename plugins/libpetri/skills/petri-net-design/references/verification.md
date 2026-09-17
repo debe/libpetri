@@ -31,6 +31,7 @@ How to make a net provable, which route proves what, and what silently destroys 
 | `MutualExclusion(places)` | can two of these places hold tokens at the same time? |
 | `PlaceBound(place, k)` | can this place ever hold more than k tokens? |
 | `Unreachable(places)` | can all of these be non-empty simultaneously? |
+| `QuiescentCount(places, min, max, waivedBy)` | does every quiescent marking hold `min..max` tokens across these places? The lower bound is waived while a `waivedBy` place (a halt marker) is marked; the upper bound never is. |
 | `BranchPlaceBound(place, k)` | ν: can more than k tokens of one correlation name pile up here? |
 | `JoinedOrDeadLettered(pending)` | ν: is every forked name eventually joined or dead-lettered? |
 
@@ -141,6 +142,14 @@ Read `result.route` rather than inferring it — it is one of `enumeration`, `nu
 P-invariants**, so an empty `result.invariants` off any other route means "not computed", never
 "this net has none". A non-empty list is real whatever the route says.
 
+On the flat `smt` path two phases run before Spacer, both on by default. The **state-equation
+phase** (VER-018) asks whether the marking equation admits a violation and refines spurious
+candidates with traps and inductive inequalities; its proofs are certificate-checked, report
+method `state-equation`, and list the refinements in `discoveredInvariants`. The **firing bound**
+(VER-019) looks for place weights every firing lowers, then model-checks every run up to that
+length (method `bounded-model-check`). A `Violated` from either is a replayed run. Neither runs on
+a ν-net; the firing bound also skips nets with injected environment places.
+
 ## 3. P-invariants and semiflows: why proofs scale
 
 A P-invariant is a weight vector `y` with `y·M = c` for every reachable marking. It is a proof that needs no state enumeration, and libpetri conjoins the discovered ones into the transition rules of the encoding so IC3 does not have to rediscover them.
@@ -224,6 +233,11 @@ And say which of the three you have. A property you did not run is "not checked"
 Treat a property as a test, from the first commit, not as a milestone at the end.
 
 - **Prove subnets in isolation as they are written.** Fast, and the failure names one component.
+  `verifyOpenNet(subnet, contract)` (VER-022) checks a subnet against a whole contract: arrivals
+  (`arrive`, `arriveAtMost`), count clauses at quiescence (`expect`), `rest` places, designed
+  `terminal`s that waive lower bounds, `environment` transitions for neighbours that answer, and
+  termination. The verdict is untimed; a subnet with ν-joins skips the state-class graph and goes
+  to SMT. Composing the subnet proofs into a whole-net guarantee is still your argument.
 - **Prove the whole net too.** Composition can create deadlocks that neither part had, which is the entire reason composed systems are hard.
 - **Assert the verdict, not the absence of an exception.** A test that passes on `Unknown` proves nothing, and it will pass forever after a change silently destroys an invariant. Assert `Proven` explicitly.
 - **Give each query a solver budget and treat a timeout as a red test**, then fix it by changing the net, not by raising the budget. A proof that needs 15 seconds today needs forever after the next feature.
@@ -305,6 +319,12 @@ stage has run") — is a fact Spacer reads rather than a lemma it must invent. A
 under conditional sinks on a 50-place agent net went from `Unknown` at 120 s to `Proven` in 1.5 s
 with this flag alone. Off by default: it grows the state and slows the search for a genuine
 counterexample by about 1.5×, so turn it on for the proofs and leave it off for witness hunting.
+
+**`stateEquationPhase` / `firingBound`.** The pre-Spacer phases of section 2, on by default. Turn
+both off (`.stateEquationPhase(false).firingBound(false)`) only to pin a test to Spacer's
+certificate or replay. Not the same switch as `stateEquation`, which adds counters *inside* the
+Spacer encoding. "No firing bound" is not evidence of a loop: a round that only an inhibitor stops
+has no ranking, and routing the re-entry through a place of its own usually gives it one.
 
 **The linear state-equation bound** ([VER-015]) needs no knob: for `placeBound`, `mutualExclusion`
 and `unreachable` the verifier first asks one linear query whether a weighting `y ≥ 0, y·C ≤ 0`

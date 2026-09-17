@@ -70,7 +70,7 @@ Merging two transitions unions their arcs, and this is where the sharp edges liv
 - **Do not duplicate place-name strings across the subnet and its orchestrator.** Export the port constants from the subnet and have the caller reference them. A typo in a duplicated name silently creates a second, unconnected place, and the net will simply never fire that transition. That failure looks like a logic bug and is one of the most expensive mistakes in this model.
 - **Watch static-initialization cycles.** If a subnet class holds static place constants and the orchestrator holds static subnet definitions that reference each other, class-initialization order can hand you nulls at build time. Keep the definition side free of back-references to the orchestrator.
 - **Prefer many small instances over one shared place set.** Isolation by renaming costs nothing at run time and is dramatically cheaper to verify: fewer interleavings, disjoint name pools.
-- **Verify the subnet in isolation as you write it** (MOD-051). It wraps each input port in an environment place, so the environment mode decides everything: under `Ignore` a subnet with an input port can never be proven. Default to `AlwaysAvailable`, or `Bounded(k)` when the caller really supplies at most k.
+- **Verify the subnet in isolation as you write it** (MOD-051). It wraps each input port in an environment place, so the environment mode decides everything: under `Ignore` a subnet with an input port can never be proven. Default to `AlwaysAvailable`, or `Bounded(k)` when the caller really supplies at most k. To state what arrives and what must hold at rest as one contract, use `verifyOpenNet` (VER-022, `references/verification.md` section 8).
 
 ## 6. Worked example: one leaky bucket, used twice
 

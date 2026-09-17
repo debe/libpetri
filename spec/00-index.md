@@ -462,10 +462,13 @@ The Rust column doubles as Python's: `libpetri-py` binds the same engine, so a `
 | VER-015 | `LinearBoundTest` | `linear-bound.test.ts` | `linear_bound::tests`, `smt_verifier::tests` (linear bound); Python `test_smt_verification.py` |
 | VER-017 | `ScgVerifierTest` | `scg-verifier.test.ts` | `scg_verifier::tests`; Python `test_smt_verification.py` |
 | VER-016 | `StateEquationTest` | `state-equation.test.ts` | `smt_encoder::tests` (state equation), `smt_verifier::tests` (state equation); Python `test_smt_verification.py` |
-| VER-018 | — | `state-equation-phase.test.ts` (building blocks, end to end, dump phases) | — |
-| VER-019 | — | `state-equation-phase.test.ts` (firing bound) | — |
+| VER-002 (QuiescentCount) | `QuiescentCountTest` | `quiescent-count.test.ts` | `property::tests`, `smt_verifier::tests` (`quiescent_count_*`) |
+| VER-018 | `StateEquationQueryTest`, `TrapRefinementTest`, `InvariantSynthesisTest`, `ParikhSearchTest`, `StateEquationPhaseTest`, `StateEquationPhaseVerifierTest`, `StateEquationQueryGoldenTest` | `state-equation-phase.test.ts` (building blocks, end to end, dump phases) | `trap_refinement::tests`, `invariant_synthesis::tests`, `parikh_search::tests`, `state_equation_phase::tests`, `smt_verifier::tests` (`state_equation_phase_*`), `tests/phase_dump.rs`; Python `test_state_equation_phase.py` |
+| VER-019 | `BoundedRunTest`, `StateEquationPhaseVerifierTest` | `state-equation-phase.test.ts` (firing bound) | `bounded_run::tests`, `smt_verifier::tests` (`firing_bound_*`), `tests/phase_dump.rs`; Python `test_state_equation_phase.py` |
+| VER-022 | `OpenNetVerificationTest` | `open-net.test.ts` | `open_net::tests`; Python `test_open_net.py` |
 | VER-010 AC1 (canonical class identity) | `StateClassGraphTest` (canonical class identity), `DBMTest` (zone key) | `state-class-graph.test.ts > canonical class identity`, `dbm.test.ts > DBM zone identity` | `state_class_graph::tests` (canonical order), `dbm::tests` (zone key) |
 | VER-013 | `StubZ3Test`, `Z3BinaryGateTest`, `SmtScriptGoldenTest`, `SmtScriptParityTest` | `stub-z3.test.ts`, `z3-gate.test.ts`, `smt-script-golden.test.ts`, `smt-script-parity.test.ts` | `tests/stub_z3.rs`, `tests/z3_gate.rs`, `tests/smt_script_parity.rs`, `z3_process::tests`; Python `test_z3_gate.py`, `test_smt_script_parity.py` |
+| VER-013 AC7 (code-point name order) | `CodePointOrderTest` | `core/internal/code-point-order.test.ts` | `marking_state::tests`, `open_net::report::tests` |
 | EVT-001–014 | `NetEventTest` | `net-event.test.ts` | `net_event::tests` |
 | EVT-020–024 | `EventStoreTest` | `event-store.test.ts` | `event_store::tests` |
 | EVT-025 | `SessionArchiveWriterConsistencyTest`, `SessionArchiveV3Test` | `session-archive-writer-consistency.test.ts`, `session-archive-v3.test.ts` | `session_archive_reader::tests` |
