@@ -12,6 +12,7 @@
  * drifted (NU-040 AC4).
  */
 import type { Place } from '../core/place.js';
+import { countViolation } from './count-clause.js';
 import type { MarkingState } from './marking-state.js';
 import type { SmtProperty } from './smt-property.js';
 import { strandsToken, type ConditionalSinks } from './rest-set.js';
@@ -82,36 +83,6 @@ export function decideOverClasses(
       return firstWhere(i => view.isQuiescent(i)
         && countViolation(view.markingOf(i), property.places, property.min, property.max, property.waivedBy) !== null);
   }
-}
-
-/** The tokens `m` holds across `places`, each place counted once. */
-export function tokensAcross(m: MarkingState, places: Iterable<Place<any>>): number {
-  const seen = new Set<string>();
-  let count = 0;
-  for (const p of places) {
-    if (seen.has(p.name)) continue;
-    seen.add(p.name);
-    count += m.tokens(p);
-  }
-  return count;
-}
-
-/**
- * Which bound of a count `m` breaks: `upper` above `max` across `places`, `lower` below `min`
- * while no `waivedBy` place is marked, else `null`. Shared by [VER-002]'s `QuiescentCount` on
- * the graph routes and by the open-net contract of [VER-022].
- */
-export function countViolation(
-  m: MarkingState,
-  places: Iterable<Place<any>>,
-  min: number,
-  max: number,
-  waivedBy: Iterable<Place<any>>,
-): 'lower' | 'upper' | null {
-  const count = tokensAcross(m, places);
-  if (count > max) return 'upper';
-  if (count < min && !m.hasTokensInAny(waivedBy)) return 'lower';
-  return null;
 }
 
 /** Whether any declared sink place holds a token in `m` ([VER-002]). */

@@ -7,10 +7,9 @@
  */
 import type { Place } from '../../core/place.js';
 import { compareCodePoints } from '../../core/internal/code-point-order.js';
+import { countAcross, countViolation, tokensAcross } from '../count-clause.js';
 import type { MarkingState } from '../marking-state.js';
-import { tokensAcross, countViolation } from '../graph-decision.js';
 import { strandedPlaces, type ConditionalSinks } from '../rest-set.js';
-import { countAcross } from '../smt-property.js';
 import type { ClosedNet } from './closure.js';
 import type { CountClause, OpenNetContract } from './contract.js';
 

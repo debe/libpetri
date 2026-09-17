@@ -10,7 +10,7 @@ import { deadline, delayed } from '../../src/core/timing.js';
 import { MarkingState } from '../../src/verification/marking-state.js';
 import { StateClassGraph } from '../../src/verification/analysis/state-class-graph.js';
 import { OpenNetContract, closeOpenNet, verifyOpenNet } from '../../src/verification/open-net/index.js';
-import { countPhrase } from '../../src/verification/smt-property.js';
+import { countPhrase } from '../../src/verification/count-clause.js';
 import { matchKey, matchSpec } from '../../src/core/match-spec.js';
 import { nameId } from '../../src/core/name.js';
 

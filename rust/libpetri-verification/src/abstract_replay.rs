@@ -142,7 +142,8 @@ pub fn violates(
 /// states ([VER-018] witness search, [VER-019] bounded run). Both evaluate through one
 /// function, so a search and the replay cannot disagree about a state. Quiescence keeps
 /// relax-env enablement: a marking an injection could re-enable is not stuck.
-pub fn violation_predicate<'a>(
+#[cfg(feature = "z3")]
+pub(crate) fn violation_predicate<'a>(
     flat: &'a FlatNet,
     property: &'a SmtProperty,
     sink_places: &[String],

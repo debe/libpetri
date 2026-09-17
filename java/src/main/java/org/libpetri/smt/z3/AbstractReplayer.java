@@ -270,7 +270,7 @@ public final class AbstractReplayer {
      *                         {@code DeadlockFree} only
      * @return {@code Bad(M)} over count vectors in flat place order
      */
-    public static Predicate<int[]> violationPredicate(
+    static Predicate<int[]> violationPredicate(
             FlatNet flatNet, SmtProperty property, Set<Place<?>> sinkPlaces,
             List<RestSet.ConditionalSinks> conditionalSinks
     ) {

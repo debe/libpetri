@@ -16,7 +16,7 @@
 import type { Place } from '../../core/place.js';
 import type { Transition } from '../../core/transition.js';
 import { MarkingState, type MarkingStateBuilder } from '../marking-state.js';
-import { countPhrase } from '../smt-property.js';
+import { countPhrase } from '../count-clause.js';
 
 /**
  * The environment delivers between `min` and `max` tokens in total, each onto one of

@@ -15,12 +15,12 @@ import { PetriNet } from '../../core/petri-net.js';
 import type { Place } from '../../core/place.js';
 import { Transition } from '../../core/transition.js';
 import { flatten } from '../encoding/net-flattener.js';
-import { tokensAcross } from '../graph-decision.js';
+import { countAcross, tokensAcross } from '../count-clause.js';
 import { rethrowIfProgrammingError } from '../programming-error.js';
 import type { ConditionalSinks } from '../rest-set.js';
 import { isUntimed } from '../scg-verifier.js';
 import {
-  countAcross, deadlockFree, propertyDescription, quiescentCount, type SmtProperty,
+  deadlockFree, propertyDescription, quiescentCount, type SmtProperty,
 } from '../smt-property.js';
 import type { SmtVerificationResult } from '../smt-verification-result.js';
 import { SmtVerifier } from '../smt-verifier.js';

@@ -184,7 +184,7 @@ impl SmtProperty {
 
 /// `exactly 1`, `at most 1`, `at least 2`, `between 1 and 3`, `any number`: a count's
 /// bounds (`max: None` unbounded) as every implementation's report words them.
-pub fn count_phrase(min: usize, max: Option<usize>) -> String {
+pub(crate) fn count_phrase(min: usize, max: Option<usize>) -> String {
     match max {
         Some(max) if max == min => format!("exactly {min}"),
         None if min == 0 => "any number".to_string(),
@@ -196,7 +196,7 @@ pub fn count_phrase(min: usize, max: Option<usize>) -> String {
 
 /// `exactly 1 across {a, b}`, places in the order given: the one phrasing of a count
 /// clause, for the property description and the [VER-022] contract report.
-pub fn count_across(min: usize, max: Option<usize>, places: &[String]) -> String {
+pub(crate) fn count_across(min: usize, max: Option<usize>, places: &[String]) -> String {
     format!("{} across {{{}}}", count_phrase(min, max), places.join(", "))
 }
 

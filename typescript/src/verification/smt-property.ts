@@ -1,4 +1,5 @@
 import type { Place } from '../core/place.js';
+import { countAcross } from './count-clause.js';
 
 /**
  * Safety properties that can be verified via IC3/PDR.
@@ -153,19 +154,6 @@ export function quiescentCount(
     throw new Error(`quiescentCount needs whole bounds with 0 <= min <= max, got ${min}..${max}`);
   }
   return { type: 'quiescent-count', places: [...places], min, max, waivedBy: [...waivedBy] };
-}
-
-/** `exactly 1`, `at most 1`, `at least 2`, `between 1 and 3`, `any number`. */
-export function countPhrase(min: number, max: number): string {
-  if (min === max) return `exactly ${min}`;
-  if (max === Infinity) return min === 0 ? 'any number' : `at least ${min}`;
-  if (min === 0) return `at most ${max}`;
-  return `between ${min} and ${max}`;
-}
-
-/** `exactly 1 across {a, b}`: the one phrasing of a count clause, for reports and both open-net routes. */
-export function countAcross(min: number, max: number, places: Iterable<Place<any>>): string {
-  return `${countPhrase(min, max)} across {${[...places].map(p => p.name).join(', ')}}`;
 }
 
 /** Human-readable description of a property. */
