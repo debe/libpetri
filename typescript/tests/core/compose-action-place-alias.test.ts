@@ -274,4 +274,70 @@ describe('MOD-031 — action place resolution under composition', () => {
     );
     expect(handT.placeAlias.size).toBe(0);
   });
+  it('multi-pass rewrite keeps a declared place whose name round-trips unchanged (MOD-031 regression)', async () => {
+    // The chained path never walks arcs — it can only carry forward what the
+    // previous pass recorded. So a declared place that happens to map to its own
+    // name on pass 1 must still get an entry, or pass 2 has nothing to rename
+    // and the action's hardcoded constant resolves to a place that no longer
+    // exists in the composed net.
+    const aDecl = place<string>('aDecl'); // exposed as an input port
+    const bDecl = place<string>('bDecl'); // internal — always gets prefixed
+    const outDecl = place<string>('outDecl'); // internal — always gets prefixed
+
+    const join: TransitionAction = async (ctx) => {
+      ctx.output(outDecl, ctx.input(aDecl) + '+' + ctx.input(bDecl));
+    };
+    const t = Transition.builder('join')
+      .inputs(one(aDecl), one(bDecl))
+      .outputs(outPlace(outDecl))
+      .action(join)
+      .build();
+    const innerDef = SubnetDef.builder('Inner')
+      .place(bDecl)
+      .place(outDecl)
+      .transition(t)
+      .inputPort('a', aDecl)
+      .build();
+
+    // Pass 1 — bind port 'a' to a host place named EXACTLY like the declared
+    // place. 'aDecl' round-trips to itself here; 'bDecl'/'outDecl' do not, so
+    // the alias is mixed and survives the all-identity wholesale drop.
+    const hostA = place<string>('aDecl');
+    const mid = PetriNet.builder('mid')
+      .place(hostA)
+      .compose(innerDef.instantiate('inst'), (b) => b.bindPort('a', hostA))
+      .build();
+
+    // Pass 2 — retrofit that composed body as a subnet, re-expose hostA, and
+    // bind it to a differently-named host place.
+    const midDef = SubnetDef.fromNet(mid, Interface.builder().inputPort('a2', hostA).build());
+    const hostReq = place<string>('hostReq');
+    const host = PetriNet.builder('host')
+      .place(hostReq)
+      .compose(midDef.instantiate('outer'), (b) => b.bindPort('a2', hostReq))
+      .build();
+
+    const finalB = [...host.places].find((p) => p.name === 'outer/inst/bDecl') as
+      | Place<string>
+      | undefined;
+    const finalOut = [...host.places].find((p) => p.name === 'outer/inst/outDecl') as
+      | Place<string>
+      | undefined;
+    expect(finalB).not.toBeUndefined();
+    expect(finalOut).not.toBeUndefined();
+
+    const initial = new Map<Place<unknown>, Token<unknown>[]>();
+    initial.set(hostReq as Place<unknown>, [tokenOf('A')] as Token<unknown>[]);
+    initial.set(finalB! as Place<unknown>, [tokenOf('B')] as Token<unknown>[]);
+
+    const executor = new BitmapNetExecutor(host, initial as Map<Place<any>, Token<any>[]>);
+    const marking = await executor.run(2000);
+
+    // Before the fix: the transition enabled, started, consumed both inputs,
+    // then threw `Place 'aDecl' not in declared inputs`. Under EXEC-031 (no
+    // rollback) the tokens were simply gone — silent loss, not a build error.
+    expect(marking.hasTokens(finalOut!)).toBe(true);
+    expect(marking.peekFirst(finalOut!)?.value).toBe('A+B');
+    expect(marking.tokenCount(hostReq)).toBe(0);
+  });
 });

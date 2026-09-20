@@ -31,7 +31,8 @@ import type { Transition } from '../core/transition.js';
 import type { EventStore } from '../event/event-store.js';
 import type { NetEvent } from '../event/net-event.js';
 import type { PetriNetExecutor, RunTimeoutPolicy } from './petri-net-executor.js';
-import { tokenOf } from '../core/token.js';
+import type { Clock } from './clock.js';
+import { tokenAt } from '../core/token.js';
 import { TokenInput } from '../core/token-input.js';
 import { TokenOutput } from '../core/token-output.js';
 import { TransitionContext } from '../core/transition-context.js';
@@ -39,7 +40,7 @@ import { noopEventStore } from '../event/event-store.js';
 import { WORD_SHIFT, BIT_MASK, restartThresholds } from './compiled-net.js';
 import { Marking } from './marking.js';
 import { PrecompiledNet, CONSUME_ONE, CONSUME_N, CONSUME_ALL, CONSUME_ATLEAST, RESET } from './precompiled-net.js';
-import { validateOutSpec, produceTimeoutOutput, executeAction, swallowEventStoreFailure, DEADLINE_TOLERANCE_MS } from './executor-support.js';
+import { validateOutSpec, produceTimeoutOutput, executeAction, swallowEventStoreFailure, DEADLINE_TOLERANCE_MS, nextExecutionId } from './executor-support.js';
 import { OutViolationError } from './out-violation-error.js';
 import { findBinding, IncrementalMatcher } from './match-engine.js';
 import { keyForPlace } from '../core/match-spec.js';
@@ -73,8 +74,19 @@ export interface PrecompiledNetExecutorOptions {
    * force-disabled with a `transition-timed-out` event (TIME-013). Defaults to {@link DEADLINE_TOLERANCE_MS}
    * (5ms); `0` gives strict enforcement. Must be non-negative. Does not affect `exact()` transitions,
    * which are enforced softly (TIME-006).
+   *
+   * **Set this to `0` alongside {@link PrecompiledNetExecutorOptions.clock}.** The default band
+   * exists to absorb real timer and scheduling jitter; under an injected clock that jitter is the
+   * host's to control, and leaving the band at 5ms masks exactly the deadline discrepancies a
+   * virtual clock is introduced to expose (TIME-015).
    */
   deadlineToleranceMs?: number;
+  /**
+   * Host-supplied time source for **this executor** (TIME-015). Unset — the default — leaves the
+   * executor on `performance.now()`, `Date.now()` and `setTimeout`, with no indirection on the hot
+   * path. See {@link Clock} for the five-point contract an injected clock must honour.
+   */
+  clock?: Clock;
 }
 
 /**
@@ -83,6 +95,9 @@ export interface PrecompiledNetExecutorOptions {
  * Implements `PetriNetExecutor` with the same semantics as `BitmapNetExecutor`
  * but with flat-array optimizations for lower per-transition overhead.
  */
+/** @internal Discarded admission callback for {@link PrecompiledNetExecutor.injectNoAwait}. */
+const NOOP_ADMISSION = (): void => {};
+
 export class PrecompiledNetExecutor implements PetriNetExecutor {
   private readonly program: PrecompiledNet;
   private readonly eventStore: EventStore;
@@ -92,6 +107,28 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
   private readonly skipOutputValidation: boolean;
   private readonly deadlineToleranceMs: number;
   private readonly startMs: number;
+  /**
+   * Host-supplied time source (TIME-015), or `null` for the default sources. Null-checked at each
+   * read rather than defaulted to a {@link systemClock} instance: the firing clock is read on every
+   * orchestrator cycle, and a field test plus a direct call keeps the no-clock path as direct as it
+   * was, where dispatching through an always-present object would put an interface call on it
+   * (TIME-015 AC#9, PERF-010).
+   */
+  private readonly clock: Clock | null;
+  /**
+   * Aborted by {@link close} to release a host sleeping on an injected clock (TIME-015 contract 4).
+   * Allocated only when a clock is supplied, so the default path carries nothing.
+   */
+  private readonly abortController: AbortController | null;
+  /**
+   * Epoch-clock reader handed to each firing's {@link TokenOutput}, or `undefined` when no
+   * clock is injected (TIME-015 AC#13). Bound once rather than per firing; `undefined`
+   * rather than a wrapper around `Date.now` so the default path allocates and dispatches
+   * nothing it did not before.
+   */
+  private readonly epochNowFn: (() => number) | undefined;
+  /** Stable identifier for this execution, allocated at construction (TIME-015 AC#14). */
+  private readonly runId: string = nextExecutionId();
   private readonly eventStoreEnabled: boolean;
 
   // ==================== Token Storage ====================
@@ -170,6 +207,24 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
   private readonly completionQueue: number[] = [];
   private readonly externalQueue: ExternalEvent[] = [];
   private wakeUpResolve: (() => void) | null = null;
+  /**
+   * A wake-up raised while the executor was **not** parked, latched until the next
+   * {@link awaitWork} consumes it.
+   *
+   * `wakeUp()` used to be edge-triggered — it resolved `wakeUpResolve` or did nothing — so a
+   * signal raised between cycles was dropped, and the executor then parked despite the state
+   * change it was told about. `drain()` is where that bit: with no queue of its own to leave a
+   * trace in, a lost drain meant the loop slept to its run budget. `inject()` mostly escaped it
+   * because `awaitWork` re-checks `externalQueue` on entry, but it raced the same edge
+   * (ENV-005 requires an injection to wake the executor), and `close()` did too.
+   *
+   * Worth knowing when reading the TIME-015 tests: a host driving an injected clock drains from
+   * inside `sleep`, where the signal could never be lost, because `wakeUpResolve` is installed
+   * before the clock is called. So the reliable shape was the one our own tests used and the
+   * racy one was what a host would write — which is why existing tests carried an
+   * `await sleep(...)` before `drain()` and this went unnoticed.
+   */
+  private wakeUpPending = false;
 
   // ==================== Reusable Buffers ====================
   private readonly markingSnapBuffer: Uint32Array;
@@ -184,6 +239,37 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
   private running = false;
   private draining = false;
   private closed = false;
+
+  /**
+   * The **firing clock** (TIME-015): monotonic, arbitrary origin, milliseconds. Every enablement
+   * stamp and elapsed-time decision reads here and nowhere else. Never wall time — `enabledAtMs`
+   * differences would be meaningless against a clock that can step backwards over an NTP
+   * correction.
+   */
+  private nowMs(): number {
+    const c = this.clock;
+    return c === null ? performance.now() : c.now();
+  }
+
+  /**
+   * The **epoch clock** (TIME-015): wall-clock milliseconds, stamping event timestamps and the
+   * tokens this executor mints. Its origin is unrelated to {@link nowMs}'s, so the two must never
+   * be substituted for one another.
+   */
+  private epochMs(): number {
+    const c = this.clock;
+    return c === null ? Date.now() : c.epochNow();
+  }
+
+  /**
+   * Time-free readiness predicate handed to an injected clock's `sleep` (TIME-015 contract 5):
+   * true when non-timing work is already queued and the wait would return immediately anyway. A
+   * host consults it to avoid advancing its clock past work that is already waiting. Cheap,
+   * repeatable, side-effect free, and — the point of the contract — it reads no clock. Bound once
+   * per executor so a host may retain it across waits.
+   */
+  private readonly isWorkReady = (): boolean =>
+    this.completionQueue.length > 0 || (!this.closed && this.externalQueue.length > 0);
 
   // ==================== Lazy Marking ====================
   private marking: Marking | null = null;
@@ -205,7 +291,11 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     if (this.deadlineToleranceMs < 0) {
       throw new Error(`Deadline tolerance must be non-negative: ${this.deadlineToleranceMs}`);
     }
-    this.startMs = performance.now();
+    // Before the first nowMs() — that read already goes through the seam.
+    this.clock = options.clock ?? null;
+    this.abortController = this.clock === null ? null : new AbortController();
+    this.epochNowFn = this.clock === null ? undefined : (): number => this.epochMs();
+    this.startMs = this.nowMs();
     this.eventStoreEnabled = this.eventStore.isEnabled();
 
     const prog = this.program;
@@ -402,7 +492,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
 
     this.emitEvent({
       type: 'execution-started',
-      timestamp: Date.now(),
+      timestamp: this.epochMs(),
       netName: prog.compiled.net.name,
       executionId: this.executionId(),
     });
@@ -412,7 +502,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
 
     this.emitEvent({
       type: 'marking-snapshot',
-      timestamp: Date.now(),
+      timestamp: this.epochMs(),
       marking: this.snapshotMarking(),
     });
 
@@ -421,7 +511,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       this.processExternalEvents();
       this.updateDirtyTransitions();
 
-      const cycleNowMs = performance.now();
+      const cycleNowMs = this.nowMs();
       if (prog.anyDeadlines) this.enforceDeadlines(cycleNowMs);
 
       if (this.shouldTerminate()) break;
@@ -436,16 +526,16 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
 
     this.emitEvent({
       type: 'marking-snapshot',
-      timestamp: Date.now(),
+      timestamp: this.epochMs(),
       marking: this.snapshotMarking(),
     });
 
     this.emitEvent({
       type: 'execution-completed',
-      timestamp: Date.now(),
+      timestamp: this.epochMs(),
       netName: prog.compiled.net.name,
       executionId: this.executionId(),
-      totalDurationMs: performance.now() - this.startMs,
+      totalDurationMs: this.nowMs() - this.startMs,
     });
 
     return this.syncMarkingFromQueues();
@@ -453,6 +543,18 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
 
   // ======================== Environment Place API ========================
 
+  /**
+   * Injects a token into an environment place ([ENV-004]). The returned promise reports
+   * **admission** — it settles when the orchestrator reaches its external-events phase and
+   * takes the token, not when the call returns.
+   *
+   * **Never `await` this from inside a host clock's wait** ([TIME-015]). Inside the wait the
+   * orchestrator *is* the caller, so awaiting admission suspends the only thing that can grant
+   * it: a self-deadlock with no error and nothing from the executor's own machinery to explain
+   * it. Inject and return — or use {@link injectNoAwait}, which has no result to await. (A
+   * `run(timeoutMs)` budget still fires, since it runs on the real timer rather than the
+   * injected clock, so the hang surfaces as a run timeout rather than never at all.)
+   */
   async inject<T>(envPlace: EnvironmentPlace<T>, token: Token<T>): Promise<boolean> {
     if (!this.environmentPlaces.has(envPlace.place.name)) {
       throw new Error(`Place ${envPlace.place.name} is not registered as an environment place`);
@@ -470,8 +572,42 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     });
   }
 
+  /**
+   * Convenience: inject a raw value (creates token with current timestamp).
+   *
+   * The token is minted *by the executor*, so it is stamped from the epoch clock and follows an
+   * injected one (TIME-015 AC#13) — as does every other token libpetri constructs, including
+   * `ctx.output(...)` writes and action-timeout recovery outputs. Only tokens the host builds
+   * itself keep their own `createdAt`; see {@link Clock.epochNow}.
+   */
   async injectValue<T>(envPlace: EnvironmentPlace<T>, value: T): Promise<boolean> {
-    return this.inject(envPlace, tokenOf(value));
+    return this.inject(envPlace, tokenAt(value, this.epochMs()));
+  }
+
+  /**
+   * Enqueues an external token and returns immediately, with **no admission signal to await**
+   * ([TIME-015], [ENV-004]).
+   *
+   * The form to call from inside a host clock's `sleep`, where awaiting {@link inject}'s
+   * admission promise deadlocks the orchestrator against itself. This one cannot be held wrong:
+   * there is no result. The token is admitted in the executor's own external-events phase on a
+   * following cycle, exactly as an ordinary injection is — only the acknowledgement is dropped.
+   *
+   * Throws synchronously for an unregistered place, where {@link inject} returns a rejected
+   * promise: a void method has nowhere else to put it.
+   */
+  injectNoAwait<T>(envPlace: EnvironmentPlace<T>, value: T): void {
+    if (!this.environmentPlaces.has(envPlace.place.name)) {
+      throw new Error(`Place ${envPlace.place.name} is not registered as an environment place`);
+    }
+    if (this.closed || this.draining) return;
+    this.externalQueue.push({
+      place: envPlace.place,
+      token: tokenAt(value, this.epochMs()),
+      resolve: NOOP_ADMISSION,
+      reject: NOOP_ADMISSION,
+    });
+    this.wakeUp();
   }
 
   // ======================== Initialize ========================
@@ -515,7 +651,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
   // ======================== Dirty Set Processing ========================
 
   private updateDirtyTransitions(): void {
-    const nowMs = performance.now();
+    const nowMs = this.nowMs();
     const prog = this.program;
     const tc = prog.transitionCount;
 
@@ -553,7 +689,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
           this.enabledAtMs[tid] = nowMs;
           this.emitEvent({
             type: 'transition-enabled',
-            timestamp: Date.now(),
+            timestamp: this.epochMs(),
             transitionName: prog.compiled.transition(tid).name,
           });
         } else if (!canNow && wasEnabled) {
@@ -570,7 +706,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
           this.enabledAtMs[tid] = nowMs;
           this.emitEvent({
             type: 'transition-clock-restarted',
-            timestamp: Date.now(),
+            timestamp: this.epochMs(),
             transitionName: prog.compiled.transition(tid).name,
           });
         }
@@ -602,7 +738,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
         this.enabledAtMs[tid] = -Infinity;
         this.emitEvent({
           type: 'transition-timed-out',
-          timestamp: Date.now(),
+          timestamp: this.epochMs(),
           transitionName: prog.compiled.transition(tid).name,
           deadlineMs: latestMs,
           actualDurationMs: elapsed,
@@ -731,7 +867,14 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     }
     if (ready.length === 0) return;
 
-    // Sort: higher priority first, then earlier enablement (FIFO)
+    // Sort: higher priority first, then earlier enablement (FIFO), then declaration order.
+    // That third key is carried by `sort` being stable (ES2019+) over a buffer filled in
+    // ascending tid — i.e. declaration order — so equal `enabledAtMs` keeps it. Load-bearing
+    // under an injected clock (TIME-015 AC#10): a host clock derived from millisecond wall
+    // time or a replay log is non-decreasing but *not* strictly increasing, so it returns the
+    // same reading across many cycles and ties here become common rather than rare. Ties must
+    // fall through to declaration order per EXEC-002 AC3 — do not "optimise" this into an
+    // unstable sort, and do not add a tie-break that reads the clock again.
     ready.sort((a, b) => {
       const prioCmp = b.priority - a.priority;
       if (prioCmp !== 0) return prioCmp;
@@ -801,7 +944,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       const err = e instanceof Error ? e : new Error(String(e));
       this.emitEvent({
         type: 'transition-failed',
-        timestamp: Date.now(),
+        timestamp: this.epochMs(),
         transitionName: t.name,
         errorMessage: err.message,
         exceptionType: err.name,
@@ -838,7 +981,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
             inputs.add(prog.places[pid]!, token);
             this.emitEvent({
               type: 'token-removed',
-              timestamp: Date.now(),
+              timestamp: this.epochMs(),
               placeName: prog.places[pid]!.name,
               token,
             });
@@ -854,7 +997,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
               inputs.add(place, token);
               this.emitEvent({
                 type: 'token-removed',
-                timestamp: Date.now(),
+                timestamp: this.epochMs(),
                 placeName: place.name,
                 token,
               });
@@ -872,7 +1015,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
               inputs.add(place, token);
               this.emitEvent({
                 type: 'token-removed',
-                timestamp: Date.now(),
+                timestamp: this.epochMs(),
                 placeName: place.name,
                 token,
               });
@@ -891,7 +1034,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
               inputs.add(place, token);
               this.emitEvent({
                 type: 'token-removed',
-                timestamp: Date.now(),
+                timestamp: this.epochMs(),
                 placeName: place.name,
                 token,
               });
@@ -919,7 +1062,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
           consumed.push(token);
           this.emitEvent({
             type: 'token-removed',
-            timestamp: Date.now(),
+            timestamp: this.epochMs(),
             placeName: place.name,
             token,
           });
@@ -933,7 +1076,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
 
     this.emitEvent({
       type: 'transition-started',
-      timestamp: Date.now(),
+      timestamp: this.epochMs(),
       transitionName: t.name,
       consumedTokens: consumed,
     });
@@ -942,7 +1085,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     const logFn = (level: string, message: string, error?: Error) => {
       this.emitEvent({
         type: 'log-message',
-        timestamp: Date.now(),
+        timestamp: this.epochMs(),
         transitionName: t.name,
         logger: t.name,
         level,
@@ -952,11 +1095,12 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       });
     };
     const context = new TransitionContext(
-      t.name, inputs, new TokenOutput(),
+      t.name, inputs, new TokenOutput(this.epochNowFn),
       t.inputPlaces(), t.readPlaces(), t.outputPlaces(),
       execCtx,
       logFn,
       t.placeAlias,
+      this.epochNowFn,
     );
     let freshNameSupplier = this.freshNameSuppliers[tid];
     if (freshNameSupplier === undefined) {
@@ -988,7 +1132,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
           produceTimeoutOutput(context, timeoutSpec.child);
           this.emitEvent({
             type: 'action-timed-out',
-            timestamp: Date.now(),
+            timestamp: this.epochMs(),
             transitionName: t.name,
             timeoutMs,
           });
@@ -1005,7 +1149,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     this.inFlightPromises[tid] = completionPromise;
     this.inFlightContexts[tid] = context;
     this.inFlightConsumed[tid] = consumed;
-    this.inFlightStartMs[tid] = performance.now();
+    this.inFlightStartMs[tid] = this.nowMs();
     this.inFlightResolves[tid] = resolveInFlight;
     this.inFlightErrors[tid] = null;
 
@@ -1074,7 +1218,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
         inputs.add(inSpec.place, token);
         this.emitEvent({
           type: 'token-removed',
-          timestamp: Date.now(),
+          timestamp: this.epochMs(),
           placeName: inSpec.place.name,
           token,
         });
@@ -1092,7 +1236,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
         consumed.push(token);
         this.emitEvent({
           type: 'token-removed',
-          timestamp: Date.now(),
+          timestamp: this.epochMs(),
           placeName: arc.place.name,
           token,
         });
@@ -1159,7 +1303,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
         const err = error instanceof Error ? error : new Error(String(error));
         this.emitEvent({
           type: 'transition-failed',
-          timestamp: Date.now(),
+          timestamp: this.epochMs(),
           transitionName: t.name,
           errorMessage: err.message,
           exceptionType: err.name,
@@ -1207,7 +1351,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
           produced.push(entry.token);
           this.emitEvent({
             type: 'token-added',
-            timestamp: Date.now(),
+            timestamp: this.epochMs(),
             placeName: entry.place.name,
             token: entry.token,
           });
@@ -1216,16 +1360,16 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
 
         this.emitEvent({
           type: 'transition-completed',
-          timestamp: Date.now(),
+          timestamp: this.epochMs(),
           transitionName: t.name,
           producedTokens: produced,
-          durationMs: performance.now() - startMs,
+          durationMs: this.nowMs() - startMs,
         });
       } catch (e) {
         const err = e instanceof Error ? e : new Error(String(e));
         this.emitEvent({
           type: 'transition-failed',
-          timestamp: Date.now(),
+          timestamp: this.epochMs(),
           transitionName: t.name,
           errorMessage: err.message,
           exceptionType: err.name,
@@ -1251,7 +1395,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
 
         this.emitEvent({
           type: 'token-added',
-          timestamp: Date.now(),
+          timestamp: this.epochMs(),
           placeName: event.place.name,
           token: event.token,
         });
@@ -1294,7 +1438,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     this.unknownPlaceTokens.set(place.name, { place, tokens: [token] });
     this.emitEvent({
       type: 'log-message',
-      timestamp: Date.now(),
+      timestamp: this.epochMs(),
       transitionName,
       logger: 'libpetri.runtime',
       level: 'WARN',
@@ -1319,6 +1463,15 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     if (this.completionQueue.length > 0 || (!this.closed && this.externalQueue.length > 0)) return;
 
     await Promise.resolve();
+    // Consume a latched wake-up here, *after* the flush — not on entry. The flush is a
+    // yield point, so a drain()/inject()/close() from host code lands during it; checking
+    // only on entry would latch that signal and then park on it anyway, which is the bug
+    // this latch exists to fix. This is the last yield before the waiter is installed, so
+    // any wake-up after this point finds `wakeUpResolve` non-null and resolves it directly.
+    if (this.wakeUpPending) {
+      this.wakeUpPending = false;
+      return;
+    }
     if (this.completionQueue.length > 0 || (!this.closed && this.externalQueue.length > 0)) return;
     // ENV-013: when closed with no in-flight, exit immediately for shouldTerminate()
     if (this.closed && this.inFlightCount === 0) return;
@@ -1352,12 +1505,25 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       const timerMs = this.millisUntilNextTimedTransition();
       if (timerMs === 0 && promises.length === 0) return;
 
-      // External event wake-up
+      // 2. External event wake-up
       promises.push(new Promise<void>(resolve => { this.wakeUpResolve = resolve; }));
 
-      // Timer for next timed transition
-      if (timerMs > 0 && timerMs < Infinity) {
-        promises.push(new Promise<void>(r => setTimeout(r, timerMs)));
+      // 3. Wait for the next timing boundary. An injected clock owns this half of the wait
+      //    (TIME-015) — only this half: the in-flight and wake-up promises above stay in the
+      //    race, so a completing action, an injected external event and close() each still wake
+      //    the orchestrator without the interval being waited out, exactly as by default
+      //    (TIME-015 AC#8 — a seam expressed purely as a duration could not express that, and a
+      //    net under an injected clock would stall where the default path kept running).
+      //    `Infinity` reaches the host as "nothing timed is pending, suspend"; `0` never reaches
+      //    it at all, because a boundary already due is not waited on (AC#7, above).
+      if (timerMs > 0) {
+        const clock = this.clock;
+        if (clock !== null) {
+          // abortController is non-null exactly when clock is — the constructor sets both together.
+          promises.push(clock.sleep(timerMs, this.isWorkReady, this.abortController!.signal));
+        } else if (timerMs < Infinity) {
+          promises.push(new Promise<void>(r => setTimeout(r, timerMs)));
+        }
       }
     }
 
@@ -1368,7 +1534,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
   }
 
   private millisUntilNextTimedTransition(): number {
-    const nowMs = performance.now();
+    const nowMs = this.nowMs();
     const prog = this.program;
     const tc = prog.transitionCount;
     let minWaitMs = Infinity;
@@ -1395,7 +1561,13 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
   }
 
   private wakeUp(): void {
-    this.wakeUpResolve?.();
+    const resolve = this.wakeUpResolve;
+    if (resolve === null) {
+      // Not parked — latch rather than drop. See wakeUpPending.
+      this.wakeUpPending = true;
+      return;
+    }
+    resolve();
   }
 
   // ======================== Dirty Set Helpers ========================
@@ -1452,8 +1624,14 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     return this.enabledTransitionCount === 0 && this.inFlightCount === 0;
   }
 
+  /**
+   * Identifies this execution in the `execution-started` / `execution-completed` events.
+   *
+   * See {@link nextExecutionId} for why this is a counter rather than the start clock
+   * reading it used to be.
+   */
   executionId(): string {
-    return this.startMs.toString(16);
+    return this.runId;
   }
 
   drain(): void {
@@ -1464,6 +1642,9 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
   close(): void {
     this.draining = true;
     this.closed = true;
+    // Release a host sleeping on an injected clock. Its `sleep` resolves rather than rejecting
+    // (TIME-015 contract 4) — this is the teardown path where a rejection escapes unobserved.
+    this.abortController?.abort();
     this.wakeUp();
   }
 
@@ -1488,7 +1669,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     this.warnedMultiplicity.add(transitionName);
     this.emitEvent({
       type: 'log-message',
-      timestamp: Date.now(),
+      timestamp: this.epochMs(),
       transitionName,
       logger: 'libpetri.runtime',
       level: 'WARN',

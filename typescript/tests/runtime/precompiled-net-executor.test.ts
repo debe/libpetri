@@ -1632,8 +1632,9 @@ describe('Environment Place Tests', () => {
     const accepted = await executor.inject(envP, tokenOf('injected'));
     expect(accepted).toBe(true);
 
-    // Drain and collect
-    await sleep(50);
+    // Drain and collect. No sleep needed to make the drain land: a wake-up raised while
+    // the executor is not parked is latched rather than dropped, so drain() can no longer
+    // be lost. Sleeping here would also hide a regression of exactly that.
     executor.drain();
     const marking = await promise;
 
@@ -1683,7 +1684,6 @@ describe('Environment Place Tests', () => {
       await sleep(10);
     }
 
-    await sleep(100);
     executor.drain();
     const marking = await promise;
 
@@ -1854,7 +1854,8 @@ describe('Environment Place Tests', () => {
     );
 
     const promise = executor.run(5000);
-    await sleep(500);
+    // Drain at once: the delayed transition is enabled, so drain() waits for it to fire
+    // before terminating. Sleeping past the delay first would test the sleep, not that.
     executor.drain();
     const marking = await promise;
 
@@ -1882,7 +1883,6 @@ describe('Environment Place Tests', () => {
     const promise = executor.run(5000);
     await sleep(20);
     await executor.inject(envP, tokenOf('test'));
-    await sleep(50);
     executor.drain();
     await promise;
 

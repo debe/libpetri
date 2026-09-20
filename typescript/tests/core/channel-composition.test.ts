@@ -519,6 +519,77 @@ describe('SubnetRewriter.mergeTransitions — ν-net match + declared→actual a
     expect(() => mergeTransitions(caller, instance, 'attempt')).toThrow('attempt');
   });
 
+  it('channelMerge_identityAliasLosesToNonIdentity: MOD-031 AC#10 identity carries no assertion', () => {
+    // buildPlaceAlias keeps identity entries so the declared key set stays
+    // complete across passes. An identity entry records that *some pass did not
+    // rename this place*, not that the author required the name — so it must
+    // never manufacture a merge conflict against a real mapping.
+    const X = place<string>('declaredX'); // identity: declaredX -> declaredX
+    const hostY = place<string>('host/y');
+    const hostZ = place<string>('host/z');
+
+    // Caller side is MIXED: one identity entry plus one real mapping. That is
+    // exactly the shape that survives buildPlaceAlias's all-identity drop.
+    const caller = Transition.builder('merged')
+      .placeAlias(
+        new Map<string, Place<any>>([
+          ['declaredX', X],
+          ['declaredZ', hostZ],
+        ]),
+      )
+      .build();
+    const instance = Transition.builder('instanceSide')
+      .placeAlias(new Map<string, Place<any>>([['declaredX', hostY]]))
+      .build();
+
+    const merged = mergeTransitions(caller, instance, 'merged');
+
+    expect(merged.placeAlias.get('declaredX')?.name).toBe('host/y');
+    expect(merged.placeAlias.get('declaredZ')?.name).toBe('host/z');
+
+    // Same ruling with the sides swapped: the caller's non-identity mapping is
+    // not clobbered by the instance's identity entry.
+    const swappedMerged = mergeTransitions(
+      Transition.builder('merged')
+        .placeAlias(new Map<string, Place<any>>([['declaredX', hostY]]))
+        .build(),
+      Transition.builder('instanceSide')
+        .placeAlias(
+          new Map<string, Place<any>>([
+            ['declaredX', X],
+            ['declaredZ', hostZ],
+          ]),
+        )
+        .build(),
+      'merged',
+    );
+    expect(swappedMerged.placeAlias.get('declaredX')?.name).toBe('host/y');
+    expect(swappedMerged.placeAlias.get('declaredZ')?.name).toBe('host/z');
+  });
+
+  it('channelMerge_mixedAliasTwoNonIdentityMappings_stillThrows: MOD-031 AC#10 negative', () => {
+    // Identity losing to non-identity must not weaken the real conflict check:
+    // two differing NON-identity mappings for one declared place are still
+    // ambiguous, mixed alias or not.
+    const hostA = place<string>('host/a');
+    const hostB = place<string>('host/b');
+    const hostZ = place<string>('host/z');
+    const caller = Transition.builder('merged')
+      .placeAlias(
+        new Map<string, Place<any>>([
+          ['declaredX', hostA],
+          ['declaredZ', hostZ],
+        ]),
+      )
+      .build();
+    const instance = Transition.builder('instanceSide')
+      .placeAlias(new Map<string, Place<any>>([['declaredX', hostB]]))
+      .build();
+
+    expect(() => mergeTransitions(caller, instance, 'attempt')).toThrow('MOD-031');
+    expect(() => mergeTransitions(caller, instance, 'attempt')).toThrow('declaredX');
+  });
+
   it('channelMerge_mergedMatchJoin_correlatesByName_notFifo: behavioral regression', async () => {
     // The reported production symptom: a matched join fused through the merge
     // path must still pair tokens by name — not by FIFO arrival order.

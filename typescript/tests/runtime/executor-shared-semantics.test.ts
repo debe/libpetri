@@ -837,3 +837,70 @@ for (const backendName of ['BitmapNetExecutor', 'PrecompiledNetExecutor'] as con
     });
   });
 }
+
+// ==================== ENV-005/ENV-013: wake-ups are latched, never dropped ====================
+
+for (const backendName of ['BitmapNetExecutor', 'PrecompiledNetExecutor'] as const) {
+  describe(`wake-up latching (${backendName})`, () => {
+    it('a drain() issued while the executor is not parked is not lost', async () => {
+      // `wakeUp()` used to be edge-triggered: it resolved the parked waiter or did nothing.
+      // A drain() raised between cycles was therefore dropped, and since drain() has no queue
+      // of its own to leave a trace in, the executor then slept to its run budget with
+      // `draining` already set. The existing tests hid it by sleeping before draining — which
+      // is why this one deliberately does not.
+      //
+      // The sharp window is the microtask flush at the top of awaitWork: awaiting the
+      // injection hands control back here *inside* that flush, so the drain below lands after
+      // the executor has entered awaitWork but before it has installed its waiter. Checking
+      // the latch only on entry would still park. No timers, no sleeps — the interleaving is
+      // forced by the await, not hoped for.
+      const envP = environmentPlace<string>('ENV');
+      const output = place<string>('OUT');
+      const t = Transition.builder('T')
+        .inputs(one(envP.place))
+        .outputs(outPlace(output))
+        .action(async (ctx) => { ctx.output(output, ctx.input(envP.place)); })
+        .build();
+      const net = PetriNet.builder('N').place(envP.place).transition(t).build();
+
+      const executor = backendName === 'BitmapNetExecutor'
+        ? new BitmapNetExecutor(net, initialTokens(), { environmentPlaces: new Set([envP]) })
+        : new PrecompiledNetExecutor(net, initialTokens(), { environmentPlaces: new Set([envP]) });
+
+      const running = executor.run(3000);
+      await executor.injectValue(envP, 'go');
+      executor.drain();
+
+      // Before the fix this rejected with 'Execution timed out' at the run budget.
+      const marking = await running;
+      expect(marking.hasTokens(output)).toBe(true);
+      expect(marking.peekFirst(output)?.value).toBe('go');
+    });
+
+    it('a close() issued while the executor is not parked still terminates the loop', async () => {
+      // The same window, the other caller — but verified to pass *before* the latch existed
+      // too, so it is not a second test of the latch. close() is rescued by awaitWork's own
+      // `closed && nothing in flight` re-check after the flush, which drain() has no
+      // equivalent of. Kept because it pins that ENV-013 path without a sleep; labelled so
+      // nobody reads a passing run here as evidence the latch works.
+      const envP = environmentPlace<string>('ENV');
+      const output = place<string>('OUT');
+      const t = Transition.builder('T')
+        .inputs(one(envP.place))
+        .outputs(outPlace(output))
+        .action(async (ctx) => { ctx.output(output, ctx.input(envP.place)); })
+        .build();
+      const net = PetriNet.builder('N').place(envP.place).transition(t).build();
+
+      const executor = backendName === 'BitmapNetExecutor'
+        ? new BitmapNetExecutor(net, initialTokens(), { environmentPlaces: new Set([envP]) })
+        : new PrecompiledNetExecutor(net, initialTokens(), { environmentPlaces: new Set([envP]) });
+
+      const running = executor.run(3000);
+      await executor.injectValue(envP, 'go');
+      executor.close();
+
+      await expect(running).resolves.toBeDefined();
+    });
+  });
+}

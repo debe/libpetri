@@ -247,22 +247,43 @@ function rebuildWithName(
 /**
  * Builds the per-transition **declared → actual** place correspondence (per
  * **MOD-031**) for a transition being rewritten through `remap`, keyed by the
- * author-original declared place **name** → actual composed place. Mirrors the
- * Rust `build_local_name_map` / Java `buildPlaceAlias` algorithm so all three
- * implementations agree.
+ * author-original declared place **name** → actual composed place. Specified by
+ * **MOD-031** in `spec/11-modular-composition.md`: key-set completeness across
+ * passes (AC#8), the all-identity wholesale drop (AC#9), merge behaviour
+ * (AC#10, see {@link mergePlaceAlias}) and the identity test (AC#11). The
+ * other implementations agree with this one because each meets that
+ * requirement — parity with a sibling is the consequence, never the
+ * justification.
  *
  * **Chained path** — when `t` already carries a non-empty alias (from an
  * earlier rewrite pass: nested instantiation [MOD-013], or
  * instantiate-then-compose), each `declaredName → prev` entry is carried
- * forward as `declaredName → (remap.get(prev.name) ?? prev)`; identity results
- * are dropped. The arcs are deliberately **not** walked in this case — their
- * places are intermediate-pass names, not author-original, so recording them
- * would leak intermediate keys the user never declared.
+ * forward as `declaredName → (remap.get(prev.name) ?? prev)`. The arcs are
+ * deliberately **not** walked in this case — their places are intermediate-pass
+ * names, not author-original, so recording them would leak intermediate keys the
+ * user never declared. That is only sound because the previous pass kept an
+ * entry for *every* author-original place, identity included: the prev map's
+ * key set **is** the author-original set, so nothing can be lost here.
  *
- * **First-pass path** — when `t` carries no alias, every arc place maps to its
- * remapped place keyed by the author-original name; identity entries are
- * skipped. The ForwardInput `from` is captured via the input walk and its `to`
- * via {@link allPlaces}.
+ * **First-pass path** — when `t` carries no alias, every arc place is recorded
+ * under its author-original name, mapping to its remapped place or to itself.
+ * The ForwardInput `from` is captured via the input walk and its `to` via
+ * {@link allPlaces}.
+ *
+ * **Identity entries are kept** on both paths, and dropped only *wholesale*
+ * when every entry is an identity — which is what keeps a flat / hand-written
+ * transition's alias empty per **MOD-025** AC#4, and lets the next pass take
+ * the arc-walking first-pass branch (which self-heals) rather than chaining an
+ * empty map. Filtering identities per-entry instead is the MOD-031 place-alias
+ * defect: a place whose declared name survives one pass unchanged (e.g. a port
+ * bound to a host place that happens to carry the declared name) lost its
+ * entry, a later pass renamed it, and the chained path had nothing to carry
+ * forward — so the action's hardcoded declared place resolved to a place no
+ * longer in the composed net, *after* its inputs were already consumed.
+ *
+ * Cost: a composed transition carries one entry per place rather than one per
+ * *changed* place. That is the price of the invariant the chained path relies
+ * on.
  */
 function buildPlaceAlias(
   t: Transition,
@@ -278,29 +299,34 @@ function buildPlaceAlias(
   if (prev.size > 0) {
     for (const [declaredName, prevActual] of prev) {
       const replaced = remap.get(prevActual.name);
-      const finalActual = replaced !== undefined ? replaced : prevActual;
-      if (finalActual.name !== declaredName) {
-        alias.set(declaredName, finalActual);
-      }
+      alias.set(declaredName, replaced !== undefined ? replaced : prevActual);
     }
-    return alias;
+  } else {
+    const record = (p: Place<unknown>): void => {
+      if (alias.has(p.name)) return;
+      const replaced = remap.get(p.name);
+      alias.set(p.name, replaced !== undefined ? replaced : p);
+    };
+    for (const spec of t.inputSpecs) record(spec.place as Place<unknown>);
+    for (const rd of t.reads) record(rd.place as Place<unknown>);
+    for (const inh of t.inhibitors) record(inh.place as Place<unknown>);
+    for (const rs of t.resets) record(rs.place as Place<unknown>);
+    if (t.outputSpec !== null) {
+      for (const p of allPlaces(t.outputSpec)) record(p as Place<unknown>);
+    }
   }
 
-  const record = (p: Place<unknown>): void => {
-    if (alias.has(p.name)) return;
-    const replaced = remap.get(p.name);
-    if (replaced !== undefined && replaced.name !== p.name) {
-      alias.set(p.name, replaced);
+  // All-identity → drop wholesale (MOD-025 AC#4). A single non-identity entry
+  // makes the whole map live, identity entries included. Identity is **name**
+  // equality per MOD-031 AC#11 — the same equality the correspondence's own
+  // lookup uses (`TransitionContext.resolve` does `placeAlias.get(place.name)`,
+  // and TS `Place<T>` carries no runtime token type; cf. MOD-024).
+  for (const [declaredName, actual] of alias) {
+    if (actual.name !== declaredName) {
+      return alias;
     }
-  };
-  for (const spec of t.inputSpecs) record(spec.place as Place<unknown>);
-  for (const rd of t.reads) record(rd.place as Place<unknown>);
-  for (const inh of t.inhibitors) record(inh.place as Place<unknown>);
-  for (const rs of t.resets) record(rs.place as Place<unknown>);
-  if (t.outputSpec !== null) {
-    for (const p of allPlaces(t.outputSpec)) record(p as Place<unknown>);
   }
-  return alias;
+  return EMPTY_ALIAS;
 }
 
 /** @internal Shared empty correspondence for the no-op rewrite case. */
@@ -554,6 +580,16 @@ function mergeMatchSpecs(
  * present on both sides with the same actual collapses; a genuine conflict (same
  * declared place bound to two different actual places, compared by place name)
  * is rejected naming the declared place.
+ *
+ * **An identity entry carries no assertion** (MOD-031 “Merging correspondences”,
+ * AC#10). Where one side maps a declared place to itself and the other maps it
+ * to a different actual place, the **non-identity** mapping wins and the merge
+ * succeeds; only two differing *non-identity* mappings are a genuine conflict.
+ * An identity entry records that some pass did not rename that place, not that
+ * the author required it to keep its name — {@link buildPlaceAlias} retains such
+ * entries to keep the key set complete across passes, and without this rule that
+ * (correct) correspondence would be *less* composable than the lossy one that
+ * discarded them.
  */
 function mergePlaceAlias(
   caller: ReadonlyMap<string, Place<any>>,
@@ -566,6 +602,17 @@ function mergePlaceAlias(
   for (const [declared, actual] of instance) {
     const existing = merged.get(declared);
     if (existing !== undefined && existing.name !== actual.name) {
+      // Identity loses to non-identity, either way round; two differing
+      // non-identity mappings are the real ambiguity. Identity is name
+      // equality here too, per MOD-031 AC#11 — same test as the wholesale
+      // drop in buildPlaceAlias, same test as the lookup.
+      if (existing.name === declared) {
+        merged.set(declared, actual);
+        continue;
+      }
+      if (actual.name === declared) {
+        continue;
+      }
       throw new Error(
         `Channel composition '${channelName}': conflicting declared→actual place alias ` +
           `for declared place '${declared}' — caller-side maps to '${existing.name}', ` +

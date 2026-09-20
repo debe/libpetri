@@ -28,8 +28,23 @@ export interface PetriNetExecutor {
    */
   run(timeoutMs?: number, onTimeout?: RunTimeoutPolicy): Promise<Marking>;
 
-  /** Inject an external token. Returns true if accepted. */
+  /**
+   * Inject an external token. Returns true if accepted.
+   *
+   * The promise reports **admission**, which the orchestrator grants. Never `await` it from
+   * inside a host clock's wait ([TIME-015]) — there the orchestrator is the caller, so
+   * awaiting admission suspends the only thing that can grant it. Use {@link injectNoAwait}.
+   */
   inject<T>(place: EnvironmentPlace<T>, token: Token<T>): Promise<boolean>;
+
+  /**
+   * Enqueue an external token with **no admission signal to await** ([TIME-015]).
+   *
+   * The form to call from inside a host clock's `sleep`. The token is admitted in the
+   * executor's external-events phase on a following cycle exactly as {@link inject}'s is;
+   * only the acknowledgement is dropped, which is what makes it impossible to deadlock on.
+   */
+  injectNoAwait<T>(place: EnvironmentPlace<T>, value: T): void;
 
   /** Graceful shutdown: reject new inject() calls, process queued events, terminate at quiescence. */
   drain(): void;

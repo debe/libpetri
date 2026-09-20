@@ -74,6 +74,29 @@ export function swallowEventStoreFailure(when: string, err: unknown): void {
  */
 export const DEADLINE_TOLERANCE_MS = 5;
 
+/** @internal Monotone source behind {@link nextExecutionId}. */
+let executionIdCounter = 0;
+
+/**
+ * Allocates the next execution identifier, at **construction** time.
+ *
+ * Deliberately not derived from a clock (TIME-015 contract 1, AC#14): a reading is not a
+ * unique key. `performance.now()` made that almost-true by accident — two executors
+ * practically never shared a reading — and an injected clock removes the accident, so two
+ * executors seeded at the same virtual instant, or one run replayed, collided on an
+ * identifier carried by `execution-started` / `execution-completed`.
+ *
+ * A plain counter satisfies both halves of AC#14: unique among executors observable
+ * together, and reproducible for a fixed construction order — which a clock reading is not.
+ * Allocated at construction rather than at run start so two executors are distinguishable
+ * before either runs, and shared by **both** backends so a bitmap and a precompiled executor
+ * in one process cannot both be `0`. It is not distinctive on its own, and does not need to
+ * be: the events carry the net name beside it.
+ */
+export function nextExecutionId(): string {
+  return (executionIdCounter++).toString(16);
+}
+
 /**
  * [IO-015] output validation as an **exact-explanation search**.
  *

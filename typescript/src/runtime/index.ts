@@ -19,3 +19,5 @@ export { PrecompiledNetExecutor } from './precompiled-net-executor.js';
 export type { PrecompiledNetExecutorOptions } from './precompiled-net-executor.js';
 export { OutViolationError } from './out-violation-error.js';
 export { validateOutSpec, produceTimeoutOutput } from './executor-support.js';
+export { systemClock, seedToken } from './clock.js';
+export type { Clock } from './clock.js';

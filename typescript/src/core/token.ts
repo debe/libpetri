@@ -25,7 +25,17 @@ const UNIT_TOKEN: Token<null> = Object.freeze({
   createdAt: 0,
 });
 
-/** Creates a token with the given value and current timestamp. */
+/**
+ * Creates a token with the given value and the current wall-clock timestamp.
+ *
+ * **Reads the real clock, always.** It is called from host code, so no executor seam reaches it
+ * — an injected {@link import('../runtime/clock.js').Clock} does not change what it stamps
+ * ([TIME-015]). It is therefore non-deterministic under a host clock and **unsuitable for an
+ * initial marking**, whose tokens are minted before any executor exists: a replay reseeded with
+ * `tokenOf` differs from the previous attempt inside the marking itself. Use
+ * {@link import('../runtime/clock.js').seedToken} for fresh seed tokens, or {@link tokenAt} to
+ * state the timestamp outright.
+ */
 export function tokenOf<T>(value: T): Token<T> {
   return { value, createdAt: Date.now() };
 }
@@ -39,7 +49,17 @@ export function unitToken(): Token<null> {
   return UNIT_TOKEN;
 }
 
-/** Creates a token with a specific timestamp (for testing/replay). */
+/**
+ * Creates a token with a specific timestamp (for testing/replay).
+ *
+ * The explicit-timestamp escape hatch ([CORE-011]) behind every determinism rule here, and what
+ * {@link import('../runtime/clock.js').seedToken} is built from.
+ *
+ * Not needed for ordinary replay-safety: under an injected clock libpetri already stamps every
+ * token it constructs — `ctx.output(...)` included — from that clock ([TIME-015] AC#13). Reach
+ * for this when the host wants to *choose* a timestamp: replaying a recorded token, restoring a
+ * snapshot ([CORE-073]), or seeding a marking before any executor exists.
+ */
 export function tokenAt<T>(value: T, createdAt: number): Token<T> {
   return { value, createdAt };
 }

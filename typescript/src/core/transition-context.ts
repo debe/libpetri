@@ -53,6 +53,12 @@ export class TransitionContext {
   private readonly _logFn?: LogFn;
   private readonly placeAlias: ReadonlyMap<string, Place<any>>;
   private _freshNameSupplier?: () => NameId;
+  /**
+   * Epoch-clock reader handed to any {@link TokenOutput} this context builds, so the
+   * post-timeout harvest collector stamps through the injected clock like the original
+   * one did ([TIME-015]). `undefined` means the wall clock.
+   */
+  private readonly epochNowMs: (() => number) | undefined;
 
   constructor(
     transitionName: string,
@@ -64,6 +70,7 @@ export class TransitionContext {
     executionContext?: Map<string, unknown>,
     logFn?: LogFn,
     placeAlias?: ReadonlyMap<string, Place<any>>,
+    epochNowMs?: () => number,
   ) {
     this._transitionName = transitionName;
     this.rawInput = rawInput;
@@ -84,6 +91,7 @@ export class TransitionContext {
     this.executionCtx = executionContext ?? new Map();
     this._logFn = logFn;
     this.placeAlias = placeAlias ?? EMPTY_ALIAS;
+    this.epochNowMs = epochNowMs;
   }
 
   /**
@@ -239,7 +247,7 @@ export class TransitionContext {
    */
   detachForTimeout(): void {
     this.writeTarget.detach();
-    this._rawOutput = new TokenOutput();
+    this._rawOutput = new TokenOutput(this.epochNowMs);
   }
 
   /**
