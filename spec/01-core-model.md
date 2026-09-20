@@ -610,13 +610,45 @@ enablement moment, per [TIME-010] / [TIME-011]. Restoring does **not** resume a 
 firing interval — a token's `created_at` never advances or shortcuts any `Delayed`, `Window`,
 `Deadline`, or `Exact` decision.
 
+**The fresh clock is safe for lower bounds and unsafe for upper bounds.** Re-waiting a `Delayed`
+or `Exact` lower bound after a restore still satisfies it: a bound measured again from zero is
+still at least that bound. A `Deadline` or `Window` **upper** bound is not symmetric — it receives
+a fresh full budget, so a deadline the net promised to enforce can be silently missed across a
+restore, and a `TransitionTimedOut` ([EVT-009]) that would have fired does not. A host that needs
+a hard bound to survive a restore MUST NOT express it as net timing: it belongs in the token
+payload (an absolute instant the net tests against) or in an action-level timeout ([IO-013]),
+which severs the output rather than restarting a clock.
+
+**Soundness is conditional on restore being infrequent.** Every restore restarts every clock
+([TIME-011]). A transition whose `Delayed(d)` clock is restarted more often than every `d` never
+accumulates `d` and never fires — starvation, not slowdown. This contract is therefore sound for
+restore as an *occasional* operation (a suspend boundary, a durable checkpoint, a crash-recovery
+point) and unsound for a scheduler that parks and resumes a run as a matter of course. An
+implementation offering restore SHOULD state this bound rather than leave it to be discovered.
+
+**A timed proof does not cross a restore.** The state-class construction ([VER-010]) enumerates
+classes reachable from the initial marking *and its initial clock valuation*. A restored marking
+seeds a new execution with every clock at zero — a different initial state, not necessarily a
+class of the original graph — so a timed property proved for the original run says nothing about
+the resumed one. Re-verifying with the restored marking as the initial marking covers the resumed
+segment exactly. An untimed proof ([VER-004]) is unaffected: it is clock-blind, and a restored
+marking that came from a real run is reachable by construction. That last clause does not hold for
+a hand-authored marking no run produced.
+
 **Acceptance Criteria:**
 1. Snapshot → restore round-trips each token's value and `created_at` unchanged.
 2. A restored marking pre-populates places exactly like any other initial marking ([CORE-072]).
 3. A `Delayed` / `Window` transition enabled by restored tokens waits its full interval measured
    from the resuming executor's enablement, regardless of how old the tokens' `created_at` is.
+4. A `Deadline(d)` transition enabled by restored tokens is reaped `d` after the **resuming**
+   executor's enablement, not `d` after the original enablement: the original hard bound does
+   not survive the restore, and no `TransitionTimedOut` is emitted for the elapsed original
+   budget.
+5. Restoring the same marking repeatedly at an interval shorter than `d` never fires its
+   `Delayed(d)` transition, demonstrating the frequency bound above.
 
-**Depends on:** [CORE-010], [CORE-011], [CORE-072], [TIME-010], [TIME-011]
+**Depends on:** [CORE-010], [CORE-011], [CORE-072], [TIME-010], [TIME-011], [EVT-009], [IO-013],
+[VER-004], [VER-010]
 **Status:** Proposed
 **Implementation status:** Python (`MarkingView.snapshot()` / `from_snapshot()`, structured
 `{value, created_at}` form) implemented; Rust `Marking` is `Clone` and carries per-token

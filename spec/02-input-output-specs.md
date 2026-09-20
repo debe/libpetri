@@ -224,6 +224,23 @@ that silently destroys the remaining N−1 tokens on the retry path, and a firin
 consumed nothing from `from` (not possible for a declared input, but reachable through a
 mis-declared spec) forwards nothing.
 
+**What a forwarded token carries.** A forwarded token SHOULD preserve the original token's
+`created_at` as well as its value: `ForwardInput` exists so a retry does not *lose* tokens, and
+discarding their creation time is a partial loss — it erases provenance across exactly the path a
+net takes when something went wrong. This makes forwarding the one exception to [TIME-015]'s
+token-stamping rule: a forwarded token is not executor-*minted* even though the executor produces
+it, so it does not take the injected epoch clock. A *minted* recovery token, such as the unit token
+of a bare `Place` child, does.
+
+An implementation whose context exposes consumed inputs **by value rather than by token** cannot
+preserve the timestamp — it is already gone at that API boundary — and re-mints instead. That is
+conforming: under [TIME-015] the re-minted token is executor-produced and takes the epoch clock, so
+it stays replay-deterministic. It is a **documented divergence**, in the manner of [MOD-024]: the
+same net under the same clock yields forwarded tokens whose `created_at` is the original in one
+implementation and the firing instant in another. Closing it requires a token-level forward path in
+the affected implementation and is a breaking change to that context API, not a defect to be fixed
+in place.
+
 **Acceptance Criteria:**
 1. `from` must be a declared input place of the transition (validated at build time).
 2. On timeout, one token is produced to `to` for each token consumed from `from`,
@@ -231,8 +248,16 @@ mis-declared spec) forwards nothing.
 3. Invalid `from` reference → build error.
 4. `In.All` or `In.Exactly(n)` on `from` with N tokens consumed → exactly N tokens
    appear in `to`; token count is conserved across the timeout.
+5. Where the implementation forwards tokens rather than values, a forwarded token's `created_at`
+   equals the original's and is **not** re-stamped from the epoch clock, while a minted recovery
+   token in the same branch *is*. Where it forwards values, both are stamped from the epoch clock
+   and the divergence above is documented.
 
-**Depends on:** [IO-007], [EXEC-010]
+**Implementation status:** **Rust** forwards tokens and preserves `created_at`, with a test pinning
+the asymmetry against a minted sibling. **Java** forwards values (`TransitionContext.inputs`
+returns values), so it re-mints from the clock — conforming, and the divergence above. TypeScript
+and Python unassessed against AC5.
+**Depends on:** [IO-007], [EXEC-010], [TIME-015], [MOD-024]
 **Test derivation:** Transition with input P1 and ForwardInput(P1, P2) in timeout; action
 times out; verify P2 receives the original P1 values. Repeat with `all()` and
 `exactly(3)` on P1 over 3 tokens; verify P2 receives all 3 in order.

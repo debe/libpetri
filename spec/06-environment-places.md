@@ -193,21 +193,57 @@ Calling `close()` after `drain()` escalates from graceful to immediate shutdown.
 The executor exposes a `snapshot()` operation that returns a point-in-time copy of the current
 marking **without affecting lifecycle** — unlike `drain()` ([ENV-011]) and `close()` ([ENV-013]),
 it neither stops nor pauses execution. The request is serviced within one orchestrator cycle and
-the returned marking is an owned, independent copy. This backs checkpoint-saver patterns (e.g. a
-periodic external persistence of in-flight state) without interrupting the run.
+the returned marking is an owned, independent copy. This backs observation and checkpoint-saver
+patterns (e.g. periodic external persistence of the marking) without interrupting the run.
+
+**Observation is not a restore point.** A marking taken while any action is in flight is a valid
+*observation* but is **not** sufficient to resume from, for two reasons of different severity:
+
+1. A firing whose action is in flight has already consumed its inputs ([EXEC-031], no rollback)
+   and has not yet deposited its outputs. The snapshot captures neither, so those tokens are
+   simply absent from it.
+2. More fundamentally, the correspondence between an in-flight action and the **external work it
+   started** — a remote call, a task handle, a cancellation scope — has no representation in the
+   marking at all. A snapshot can therefore restore every token faithfully and still resume a net
+   that has forgotten it has work outstanding. No amount of fidelity in the marking closes this;
+   it is outside the marking by construction.
+
+Consequently a snapshot offered as a restore point for [CORE-073] MUST be taken at a moment when
+no action is in flight. An implementation MUST make that condition visible to the caller rather
+than leaving it implicit: either by refusing a restore-point snapshot while work is in flight, by
+reporting alongside the returned marking whether it was taken with zero in-flight actions, or by
+offering a mode that defers servicing until the executor next reaches that state. Which of the
+three is an implementation choice; silently returning a marking the caller cannot tell is
+unusable for restore is not.
 
 **Acceptance Criteria:**
 1. `snapshot()` may be called at any time while the executor is running.
 2. The executor services the request within one orchestrator cycle and keeps running afterwards.
 3. The returned marking is an owned copy, independent of subsequent executor state.
 4. `snapshot()` is rejected (error / `None`) once the executor has been drained or closed.
+5. A snapshot taken while an action is in flight is distinguishable by the caller from one taken
+   with none in flight — by refusal, by an accompanying indication, or by the operation having
+   waited for quiescence.
+6. A net whose only marked place feeds a transition with an in-flight action yields a snapshot in
+   which those consumed tokens are absent, and the caller can determine that the snapshot is not
+   a valid restore point.
 
-**Depends on:** [ENV-010]
+**Depends on:** [ENV-010], [EXEC-031], [EXEC-040], [CORE-073]
 **Status:** Proposed
-**Implementation status:** Rust (`ExecutorSignal::Snapshot` + `ExecutorHandle::snapshot`) and Python
-(`ExecutorHandle.snapshot`) implemented; Java/TypeScript pending.
+**Implementation status:** AC1–AC4 only. Rust (`ExecutorSignal::Snapshot` +
+`ExecutorHandle::snapshot`) and Python (`ExecutorHandle.snapshot`) implement the snapshot itself;
+Java/TypeScript pending. **AC5 and AC6 are unmet everywhere**, including in Rust and Python: neither
+refuses a snapshot taken with work in flight, reports the in-flight condition alongside the returned
+marking, nor defers until quiescence — the caller cannot tell a restore-safe snapshot from an
+unusable one. Both implementations' documentation currently recommends this operation for
+checkpoint-saver patterns, which is precisely the use AC5 exists to qualify. Until that is fixed,
+treat the snapshot as an **observation** only. This requirement has no test citation in any
+language.
 **Test derivation:** Start a long-running net; call `snapshot()` mid-execution; verify the returned
 marking reflects current state and the executor continues; call after `close()` and verify rejection.
+For AC5/AC6, gate a transition's action open, snapshot while it is in flight, and assert the caller
+can tell the result apart from a snapshot taken at quiescence — then release the gate, snapshot
+again at quiescence, and assert that one restores to an equivalent marking per [CORE-073].
 
 ---
 

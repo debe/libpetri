@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-libpetri is a multi-language **Coloured Time Petri Net** (CTPN) engine with formal verification. Four implementations conform to one language-agnostic specification (`spec/`, **217 active requirements across 13 files** — `spec/00-index.md` is the canonical count):
+libpetri is a multi-language **Coloured Time Petri Net** (CTPN) engine with formal verification. Four implementations conform to one language-agnostic specification (`spec/`, **219 active requirements across 13 files** — `spec/00-index.md` is the canonical count):
 
 | Implementation | Language | Runtime | Status |
 |---|---|---|---|
@@ -58,6 +58,13 @@ cargo test -p libpetri-runtime                                  # single crate
 cargo test -p libpetri-runtime precompiled                      # filter tests by name
 cargo bench                                                     # Criterion benchmarks
 ```
+
+**`python3 scripts/lean-fidelity-check.py` is a CI gate** (`.github/workflows/ci.yml`) and is easy
+to miss because it is not a cargo command. The Lean development pins specific Rust items by
+**content hash and line range** (`lean/proof-coverage.json`), so editing a pinned item — `run_sync`,
+`Token`, and ~25 others — fails the check even when every cargo gate is green. The failure is the
+point: it forces you to re-read the named Lean model and confirm it still describes the changed
+Rust before re-pinning. Run `--update` only *after* that re-verification, never as the fix itself.
 
 Rust 2024 edition, rustc ≥1.88. Cargo workspace of 10 crates (`libpetri-core`, `-event`, `-runtime`, `-export`, `-verification`, `-debug`, `-docgen`, `libpetri` umbrella, `libpetri-py`, `benches`). **NOT fmt/clippy-gated** — match the existing hand-style; CI runs neither. Verification shells out to the **`z3` executable** via SMT-LIB2 text, as every implementation does (VER-013; the `z3` cargo feature is an empty compile-gate, *not* the z3/z3-sys crate).
 
@@ -203,7 +210,7 @@ contents change, and they're identical across the three destinations.
 
 ## Specification
 
-`spec/` contains 13 spec files (`00-index.md` … `12-nu-nets.md`), **217 active requirements**. Prefixes: CORE, IO, TIME, EXEC, CONC, ENV, VER, EVT, EXP, PERF, plus **MOD** (modular composition, `11-`) and **NU** (ν-nets / correlated fork-join by ID, `12-`). Requirements use MUST/SHOULD/MAY priority with testable acceptance criteria; cross-references use `[PREFIX-NNN]`. `spec/00-index.md` is the canonical registry — it tracks active vs removed/tombstoned IDs (e.g. IO-006), so trust the index count over any prose figure elsewhere.
+`spec/` contains 13 spec files (`00-index.md` … `12-nu-nets.md`), **219 active requirements**. Prefixes: CORE, IO, TIME, EXEC, CONC, ENV, VER, EVT, EXP, PERF, plus **MOD** (modular composition, `11-`) and **NU** (ν-nets / correlated fork-join by ID, `12-`). Requirements use MUST/SHOULD/MAY priority with testable acceptance criteria; cross-references use `[PREFIX-NNN]`. `spec/00-index.md` is the canonical registry — it tracks active vs removed/tombstoned IDs (e.g. IO-006), so trust the index count over any prose figure elsewhere.
 
 ## Release
 
@@ -220,7 +227,7 @@ Each language has its own release script and versioning. Tags are prefixed by la
 
 - **Java** `Place` is a `record (name, tokenType)` — equality is **structural on both fields**.
 - **TypeScript** `Place<T>` is an `interface { name }` with a phantom `_phantom?: T` — equality is **name-based at runtime** (no `tokenType` field exists).
-- **Rust** `Place<T>` derives a name-only `PartialEq`/`Hash` impl (the `PhantomData<T>` does not participate).
+- **Rust** `Place<T>` has **hand-written** (not derived) name-only `PartialEq`/`Hash` impls comparing `self.name` alone — `place.rs:50-62`; the `PhantomData<fn() -> T>` does not participate. `PlaceRef` is a newtype over the name, so its derived impls are name-only too.
 
 `compose(instance)` / `compose_auto` (per `spec/11-modular-composition.md` MOD-024) uses
 the implementation's existing `Place` equality:

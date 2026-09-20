@@ -33,7 +33,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 |------|--------|-------|-----------|
 | [01-core-model.md](01-core-model.md) | CORE | Places, tokens, transitions, arcs, net construction, actions, context, marking | 35 |
 | [02-input-output-specs.md](02-input-output-specs.md) | IO | Input cardinality, composite output routing, validation | 14 |
-| [03-timing.md](03-timing.md) | TIME | Firing intervals, clock semantics, deadline enforcement | 11 |
+| [03-timing.md](03-timing.md) | TIME | Firing intervals, clock semantics, deadline enforcement, injectable clock | 12 |
 | [04-execution-model.md](04-execution-model.md) | EXEC | Orchestrator loop, scheduling, token consumption, failure, quiescence | 14 |
 | [05-concurrency.md](05-concurrency.md) | CONC | Single-threaded orchestrator, bitmap executor, precompiled flat-array executor, async actions, wake-up | 18 |
 | [06-environment-places.md](06-environment-places.md) | ENV | External event injection, implicit long-running behavior, executor lifecycle | 13 |
@@ -42,8 +42,8 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | [09-export.md](09-export.md) | EXP | Graph export, formal interchange | 17 |
 | [10-performance.md](10-performance.md) | PERF | Scaling, benchmarks, memory efficiency, flat-array executor performance | 14 |
 | [11-modular-composition.md](11-modular-composition.md) | MOD | Open-net subnet definition, instantiation, port composition, channel fusion, action binding per instance, place fusion | 26 |
-| [12-nu-nets.md](12-nu-nets.md) | NU | Token name identity, fresh-name minting (ν-binder/fork), join by name equality, bounded-budget decidability ledger | 12 |
-| **Total** | | | **217** |
+| [12-nu-nets.md](12-nu-nets.md) | NU | Token name identity, fresh-name minting (ν-binder/fork), join by name equality, bounded-budget decidability ledger | 13 |
+| **Total** | | | **219** |
 
 > **IO-006** (Input Guard Predicate) and **EXEC-011** (Guarded Token Consumption) were
 > removed (see [IO-006], [EXEC-011]); both are retained as struck-through tombstones for
@@ -113,7 +113,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | CORE-070 | Marking State | MUST | — |
 | CORE-071 | Marking Thread Safety | MUST | — |
 | CORE-072 | Initial Marking | MUST | EVT-013 |
-| CORE-073 | Marking Snapshot and Restore | SHOULD | CORE-010, CORE-011, CORE-072, TIME-010, TIME-011 |
+| CORE-073 | Marking Snapshot and Restore | SHOULD | CORE-010, CORE-011, CORE-072, TIME-010, TIME-011, EVT-009, IO-013, VER-004, VER-010 |
 
 ### ENV — Environment Places
 | ID | Title | Priority | Depends On |
@@ -128,7 +128,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | ENV-011 | Graceful Drain | MUST | ENV-010 |
 | ENV-012 | Event-Driven Workflow Pattern | SHOULD | ENV-001, 002, 010 |
 | ENV-013 | Immediate Close | MUST | ENV-010 |
-| ENV-014 | Mid-Execution Marking Snapshot | SHOULD | ENV-010 |
+| ENV-014 | Mid-Execution Marking Snapshot | SHOULD | ENV-010, EXEC-031, EXEC-040, CORE-073 |
 | ENV-015 | Immediate Termination | MAY | ENV-013 |
 | ENV-016 | Observable Termination | MAY | ENV-013 |
 
@@ -147,7 +147,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | EVT-010 | ActionTimedOut Event | MUST | IO-013, EXEC-022 |
 | EVT-011 | TokenAdded Event | MUST | — |
 | EVT-012 | TokenRemoved Event | MUST | — |
-| EVT-013 | LogMessage Event | SHOULD | — |
+| EVT-013 | LogMessage Event | SHOULD | CORE-072, ENV-012, ENV-013, EXEC-041 |
 | EVT-014 | MarkingSnapshot Event | SHOULD | — |
 | EVT-020 | EventStore Interface | MUST | — |
 | EVT-021 | InMemoryEventStore | MUST | — |
@@ -175,7 +175,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | EXEC-030 | Action Failure | MUST | EVT-007 |
 | EXEC-031 | No Rollback | MUST | — |
 | EXEC-040 | Standard Quiescence | MUST | — |
-| EXEC-041 | Execution Result | MUST | — |
+| EXEC-041 | Execution Result | MUST | EXEC-040, ENV-013 |
 | EXEC-050 | Timestamp-Based Stale Detection | SHOULD | CORE-032, 010 |
 
 ### EXP — Export
@@ -213,7 +213,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | IO-011 | Output And | MUST | — |
 | IO-012 | Output Xor | MUST | IO-015 |
 | IO-013 | Output Timeout | MUST | EVT-009 |
-| IO-014 | Output ForwardInput | MUST | IO-007, EXEC-010 |
+| IO-014 | Output ForwardInput | MUST | IO-007, EXEC-010, TIME-015, MOD-024 |
 | IO-015 | Output Validation | MUST | EVT-007, CORE-051 |
 | IO-016 | Branch Enumeration | SHOULD | — |
 | IO-017 | allPlaces Flattening | MUST | — |
@@ -240,7 +240,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | MOD-025 | Direct Composition (compose a subnet without instantiation) | MUST | MOD-001, MOD-020, MOD-023, CORE-040 |
 | MOD-026 | Subnet-Membership Metadata for Direct Composition | SHOULD | MOD-025, MOD-023, MOD-001 |
 | MOD-030 | Action Binding Per Instance (share-by-default, override via bindActions) | MUST | CORE-042, MOD-010 |
-| MOD-031 | Action Place Resolution under Composition (declared → actual correspondence) | MUST | MOD-010, MOD-013, MOD-020, MOD-023, MOD-025, MOD-030, CORE-042 |
+| MOD-031 | Action Place Resolution under Composition (declared → actual correspondence) | MUST | MOD-010, MOD-013, MOD-020, MOD-021, MOD-023, MOD-024, MOD-025, MOD-030, CORE-042, EXEC-031 |
 | MOD-040 | Export Grouping (subgraph cluster_* per instance prefix) | SHOULD | MOD-010, EXP-001, EXP-014 |
 | MOD-041 | Debug Protocol Subnet Instances | SHOULD | MOD-010, MOD-013 |
 | MOD-050 | Verification Pass-Through on Composed Flat Net | MUST | MOD-023, VER-001 |
@@ -253,6 +253,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 |----|-------|----------|------------|
 | NU-001 | Name Identity | MUST | CORE-010 |
 | NU-010 | Fresh-Name Minting | MUST | CORE-050, IO-011 |
+| NU-011 | Resume-Safe Fresh-Name Minting | MUST | NU-010, NU-020, CORE-073, VER-004 |
 | NU-020 | Match Specification | MUST | IO-001, IO-005, CORE-022, CORE-013 |
 | NU-021 | Match as the Sole Per-Token Filter | MUST | NU-020, IO-006 |
 | NU-022 | Deterministic Match Selection | MUST | NU-020, NU-001 |
@@ -296,6 +297,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | TIME-012 | Clock Restart on Intermediate Disablement | MUST | TIME-011, CORE-034, EXEC-013, EVT-004 |
 | TIME-013 | Deadline Enforcement | MUST | EVT-008 |
 | TIME-014 | Competitive Scheduling with Timing | MUST | EXEC-003 |
+| TIME-015 | Injectable Clock | SHOULD | TIME-010, TIME-011, TIME-013, CORE-011, CORE-072, EXEC-001, EXEC-002, CONC-010, ENV-003, ENV-004, ENV-005, ENV-013, IO-013, MOD-010, PERF-010, PERF-020, PERF-021 |
 
 ### VER — Verification
 | ID | Title | Priority | Depends On |
@@ -327,10 +329,10 @@ This specification defines the **observable contract** of the Coloured Time Petr
 
 | Priority | Count | Description |
 |----------|-------|-------------|
-| MUST     | 141   | Core contract; all implementations must conform |
-| SHOULD   | 60    | Recommended; implementations should include unless technically infeasible |
+| MUST     | 142   | Core contract; all implementations must conform |
+| SHOULD   | 61    | Recommended; implementations should include unless technically infeasible |
 | MAY      | 16    | Optional; implementations may include |
-| **Total** | **217** | Matches the active-requirement total above; tombstones (IO-006, EXEC-011) excluded |
+| **Total** | **219** | Matches the active-requirement total above; tombstones (IO-006, EXEC-011) excluded |
 
 ---
 

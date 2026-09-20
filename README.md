@@ -119,7 +119,7 @@ That is the “why”: coordination policy is explicit and inspectable. A viewer
 - **Long-running and observable workflows.** Environment places accept external events. Thirteen event types, pluggable event stores, DOT export, and the debug protocol expose what fired, what moved, and why a net is waiting.
 - **Analysis before execution.** Check deadlock freedom, mutual exclusion, place bounds, and unreachability with structural analysis, timed state-class graphs, and SMT/IC3. The SMT verifier runs the `z3` executable (4.8.0 or newer, on `PATH`) and every implementation sends it the same script.
 
-The full contract covers **217 active requirements** across the core model, I/O, timing, execution, concurrency, environment places, verification, observability, export, performance, modular composition, and ν-nets. Start with the [specification index](spec/00-index.md) when exact behavior matters.
+The full contract covers **219 active requirements** across the core model, I/O, timing, execution, concurrency, environment places, verification, observability, export, performance, modular composition, and ν-nets. Start with the [specification index](spec/00-index.md) when exact behavior matters.
 
 ## Evidence, not just an API
 
@@ -147,6 +147,15 @@ The proof boundary is deliberate: the full timed cycle, asynchronous action plum
 - **A reusable order pipeline.** The project examples combine timed approvals, parallel work, and failure paths in a conventional workflow shape. [View the pipeline](docs/showcase-order-pipeline.svg).
 
 These are stress tests and design examples, not an argument that every program should be expressed as a Petri net. libpetri is most useful when the graph makes concurrency, timing, resource ownership, or coordination easier to reason about.
+
+## Framework integrations
+
+Start with no framework at all. libpetri is already an agent orchestrator: model the turn loop, tool calls, retries, budgets, and timeouts as places and transitions, put the model call in a transition action, and run the net. The graph carries the control flow that an agent framework would otherwise hide, and the same graph goes to the verifier. The [design skill](#design-help-in-your-coding-agent) teaches this shape.
+
+Where an orchestrator already exists, two projects swap its scheduling core for a libpetri net and leave the rest of the host product alone.
+
+- **[adk-libpetri](https://github.com/debe/adk-libpetri)** — Google ADK Java. A single coloured net, composed from typed subnets, replaces `SequentialAgent`, `ParallelAgent`, `LoopAgent`, `BaseLlmFlow`, `AgentTransfer`, and the RxJava `Runner`. The stock ADK `Runner` still drives turn-based sessions through `PetriAgent`, and `BidiPetriAgent` bridges live/BIDI providers. Z3 proves both demo nets deadlock-free on every build. It forks neither ADK nor genai. Maven Central: `org.libpetri:adk-libpetri` (0.x — a minor version may break the API).
+- **[n8n-libpetri](https://github.com/debe/n8n-libpetri)** — n8n. A compiler turns a workflow into a net; a kernel runs that net to quiescence, so the graph decides what runs next in place of n8n's scheduling loop. Concurrency, cycles, joins, retries, resource limits, and terminal states become places, transitions, and arcs, which the kernel executes and the verifier analyses. The editor, workflow format, credentials, node implementations, persistence, webhooks, and queue mode stay as they are; two patches add the registration seam, and with nothing registered n8n runs its own loop.
 
 ## Design help in your coding agent
 

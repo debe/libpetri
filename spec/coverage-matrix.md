@@ -8,11 +8,11 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 
 ## Summary
 
-- Active requirements: **217**
+- Active requirements: **219**
 - Proven in Lean (≥ 1 validated theorem fragment): **26**
-- Referenced in Lean comments only (mention without a validated theorem mapping): **10**
-- Referenced by ≥ 1 test file: java **82**, typescript **78**, rust **88**, python **39**
-- Untested anywhere (no test-file reference in any language): **121**
+- Referenced in Lean comments only (mention without a validated theorem mapping): **11**
+- Referenced by ≥ 1 test file: java **86**, typescript **82**, rust **95**, python **41**
+- Untested anywhere (no test-file reference in any language): **116**
 
 ## 01-core-model.md — CORE
 
@@ -22,7 +22,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | CORE-002 | — | — | — | — | — | — |
 | CORE-003 | — | — | — | — | — | — |
 | CORE-010 | — | — | — | — | — | — |
-| CORE-011 | — | — | — | — | — | — |
+| CORE-011 | — | — | — | — | ✓ | — |
 | CORE-012 | — | — | — | — | — | — |
 | CORE-013 | — | — | — | — | — | — |
 | CORE-020 | — | — | — | — | — | — |
@@ -52,7 +52,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | CORE-070 | — | — | — | — | — | — |
 | CORE-071 | — | — | — | — | — | — |
 | CORE-072 | `unknown_place_drop` — AC3 retrodiction of divergence (d): pre-fix produce_token was the identity for places the program does not know — a token silently dropped, violating conservation; motivates the extra_marking retention fix, whose post-fix behaviour is not itself modelled | ✓ | ✓ | ✓ | ✓ | ✓ |
-| CORE-073 | — | — | — | — | — | — |
+| CORE-073 | — | — | ✓ | ✓ | ✓ | — |
 
 ## 02-input-output-specs.md — IO
 
@@ -88,6 +88,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | TIME-012 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | TIME-013 | `deadline_reap_dirty_diverges` — witness that the two shipped enforce_deadlines diverge observably after a reap (precompiled re-dirties, bitmap does not) on a one-transition quiet-net control-cell model - establishes the behaviors differ, does not rule which is spec-correct (post-reap re-enablement is unaddressed by TIME-013)<br>`bb_never_fires_after_reap` — the bitmap side of the divergence: with no token mutation after a reap, the transition stays disabled over every schedule (no re-dirty route exists) - quiet-net fragment only<br>`bb_reaped_stays_disabled` — induction backbone for bb_never_fires_after_reap: a disabled, clean control cell is a fixed point of the bitmap cycle over any schedule | ✓ | ✓ | ✓ | ✓ | ✓ |
 | TIME-014 | — | — | — | — | — | — |
+| TIME-015 | — | ✓ | ✓ | ✓ | ✓ | — |
 
 ## 04-execution-model.md — EXEC
 
@@ -103,9 +104,9 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | EXEC-021 | — | — | — | — | — | — |
 | EXEC-022 | — | — | ✓ | ✓ | ✓ | — |
 | EXEC-030 | — | — | — | — | — | — |
-| EXEC-031 | — | — | — | — | — | ✓ |
+| EXEC-031 | — | — | ✓ | ✓ | ✓ | ✓ |
 | EXEC-040 | — | — | — | — | — | — |
-| EXEC-041 | — | — | — | — | — | — |
+| EXEC-041 | — | — | ✓ | — | — | — |
 | EXEC-050 | — | — | — | — | — | — |
 
 ## 05-concurrency.md — CONC
@@ -139,13 +140,13 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | ENV-002 | — | — | — | — | — | — |
 | ENV-003 | — | — | — | — | — | — |
 | ENV-004 | — | — | — | — | — | — |
-| ENV-005 | — | — | — | — | — | — |
+| ENV-005 | — | — | — | ✓ | ✓ | — |
 | ENV-006 | — | — | — | — | — | — |
 | ENV-010 | — | — | — | — | — | — |
 | ENV-011 | — | — | — | — | ✓ | — |
 | ENV-012 | — | — | — | — | — | — |
 | ENV-013 | — | — | ✓ | ✓ | ✓ | — |
-| ENV-014 | — | — | — | — | — | — |
+| ENV-014 | — | — | — | — | ✓ | — |
 | ENV-015 | — | — | — | — | — | — |
 | ENV-016 | — | — | — | — | — | — |
 
@@ -232,7 +233,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | PERF-002 | — | — | — | — | — | — |
 | PERF-003 | — | — | — | — | — | — |
 | PERF-004 | — | — | — | — | — | — |
-| PERF-010 | — | — | — | — | — | — |
+| PERF-010 | — | — | — | — | ✓ | — |
 | PERF-011 | — | — | — | — | — | — |
 | PERF-020 | — | — | — | — | — | — |
 | PERF-021 | — | — | — | — | — | — |
@@ -256,10 +257,10 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | MOD-010 | — | — | ✓ | ✓ | ✓ | — |
 | MOD-011 | — | — | ✓ | ✓ | ✓ | — |
 | MOD-012 | — | — | ✓ | ✓ | ✓ | — |
-| MOD-013 | — | — | ✓ | ✓ | ✓ | — |
+| MOD-013 | — | — | ✓ | ✓ | ✓ | ✓ |
 | MOD-014 | — | — | ✓ | ✓ | ✓ | — |
 | MOD-020 | — | — | ✓ | ✓ | ✓ | — |
-| MOD-021 | — | — | ✓ | ✓ | ✓ | — |
+| MOD-021 | — | — | ✓ | ✓ | ✓ | ✓ |
 | MOD-022 | — | — | ✓ | ✓ | ✓ | — |
 | MOD-023 | — | — | ✓ | ✓ | ✓ | — |
 | MOD-024 | — | — | ✓ | ✓ | ✓ | — |
@@ -280,6 +281,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 |----|---------------------------------|----------|------|------------|------|--------|
 | NU-001 | — | ✓ | ✓ | — | ✓ | — |
 | NU-010 | — | — | ✓ | ✓ | ✓ | ✓ |
+| NU-011 | — | — | — | — | — | — |
 | NU-020 | `match_cache_lockstep` — incremental match-cache lockstep: under the three-conjunct fast-path eligibility gate of init_match_caches, cache contents equal the from-scratch per-name FIFO recompute of the live ring after any sequence of modeled pool mutations - queue contents only, at one correlated input's granularity; name selection/tie-break not covered<br>`fire_muts_lockstep` — the eligibility gate isolates a cached place: foreign firings emit no mutation on it, the owner's consume phase is exactly one fixed-count matched consume mirrored by the matcher - consume phase modeled per place, produce/inject as mirrored adds<br>`one_exactly_is_necessary` — necessity of the One/Exactly conjunct: an AtLeast(1) correlated input consumes count_matching tokens while the fixed-consume matcher pops only the minimum - concrete two-token desync<br>`sole_consumer_is_necessary` — necessity of the sole-consumer conjunct: a rival input arc consumes via ring_remove_first, a path with no cache call - concrete one-firing desync<br>`no_reset_is_necessary` — necessity of the never-reset conjunct: a reset arc drains the ring with no cache call - concrete one-sweep desync | ✓ | ✓ | ✓ | ✓ | ✓ |
 | NU-021 | — | ✓ | ✓ | ✓ | ✓ | — |
 | NU-022 | `sync_matchedRemove_step` — the incremental consume (FIFO-within-name pop paired with ring_remove_matching) preserves content equality with the reference index's underlying queues - contents fragment only; AC2 selection equality remains the differential test's claim | ✓ | — | — | — | — |

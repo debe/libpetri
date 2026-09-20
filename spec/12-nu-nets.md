@@ -73,6 +73,56 @@ downstream join and each pair merges (see `nu_fork_mints_unique_ids_then_join_me
 
 ---
 
+#### NU-011: Resume-Safe Fresh-Name Minting
+
+**Priority:** MUST (for implementations that support [CORE-073] restore)
+
+[NU-010] scopes minted-name uniqueness to "a single execution". Restoring a marking
+([CORE-073]) begins a **new** execution whose initial marking already holds names minted by
+the previous one. An implementation that satisfies [NU-010] by counting firings from zero
+therefore re-mints names that are already live — and because a [NU-020] join correlates on
+name equality alone, the collision does not surface as an error: it silently correlates
+tokens from different run segments, merging a restored token with an unrelated fresh one.
+
+Names minted by an execution seeded from a restored marking MUST NOT collide with names
+present in that marking, nor with names minted by any other execution in the same restore
+lineage. The mechanism is not prescribed. Two that satisfy it:
+
+- a per-execution **scope** supplied by the host and incorporated into every minted name;
+- carrying the minter's high-water mark in the snapshot and resuming strictly above it.
+
+Deriving the floor by scanning the restored marking is **not** sufficient in general: name
+carrying values are opaque to the engine ([VER-004]), and a name minted into a token that has
+since been consumed leaves no trace in the marking while remaining live in host state and in
+any token the host holds across the restore.
+
+Replay stability ([NU-010] AC3) is preserved **within** a run segment: for a fixed scope (or
+a fixed restored high-water mark) and a fixed firing order, the minted sequence MUST be
+reproducible. An implementation MUST NOT satisfy this requirement with a source of
+randomness that makes a segment unreproducible.
+
+**Acceptance Criteria:**
+1. Restore a marking holding a name `n` minted by a prior execution; run the resumed
+   execution so it mints at least as many names as the original minted; no minted name
+   equals `n`.
+2. A restored token awaiting its sibling at a [NU-020] join is not correlated with a
+   freshly minted token of the resumed segment.
+3. For a fixed scope and firing order, two runs from the same restored marking mint the
+   identical name sequence.
+4. Two concurrent executions restored from the same snapshot mint disjoint name sets.
+
+**Depends on:** [NU-010], [NU-020], [CORE-073], [VER-004]
+**Status:** Proposed
+**Implementation status:** None. All four implementations mint `<transition>#<n>` from a
+per-executor counter initialised to zero, so a resumed execution re-mints `<transition>#0`
+onward and collides with any such name in the restored marking.
+**Test derivation:** Run a ν-fork net until a token stamped `fork#0` awaits its sibling at a
+join; snapshot and restore into a fresh execution; fire the fork again and assert the new
+name differs from `fork#0` and that the join does not merge the restored token with the new
+one. Repeat the restore twice concurrently and assert the two name sets are disjoint.
+
+---
+
 ## Join by Name Equality
 
 #### NU-020: Match Specification

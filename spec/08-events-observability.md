@@ -215,16 +215,32 @@ Emitted when a token is removed from a place (consumed by input arc or cleared b
 
 Emitted when a transition action produces log output. The engine captures log statements from within actions and wraps them as events. Contains:
 - Timestamp
-- Transition name
+- Transition name — **absent when the diagnostic is not attributable to a transition** (see below)
 - Logger name
 - Log level
 - Message
 - Error/throwable details (optional)
 
+**The engine may also emit diagnostics of its own** through this event rather than adding an event
+type per diagnostic — an unknown place in an initial marking ([CORE-072]), a repeated output place,
+and similar. Such an event carries **no transition name**, because none is responsible for it.
+Consumers MUST therefore treat the transition name as optional and MUST NOT key, filter or group on
+it without handling its absence.
+
+An engine diagnostic SHOULD be emitted only where it reports something the caller did not ask for
+and would otherwise not learn. A diagnostic on a path the caller explicitly requested — a `close()`
+it called itself ([ENV-013]) — is a false positive: it fires on every run of a net whose normal
+ending is a shutdown ([ENV-012]), and a warning that always fires trains its reader to ignore the
+level. Where a queryable result already carries the information ([EXEC-041] AC3), the event is an
+addition to it and MUST NOT be the only signal.
+
 **Acceptance Criteria:**
 1. Log statements within actions are captured as LogMessage events.
 2. Log level (INFO, WARN, ERROR, etc.) is preserved.
 3. Exception details are included when present.
+4. An engine-emitted diagnostic carries no transition name, and every consumer of the event
+   tolerates its absence.
+5. No engine diagnostic is emitted on a caller-requested termination path.
 
 **Implementation notes:**
 - Java: Captures SLF4J output via LogCaptureScope

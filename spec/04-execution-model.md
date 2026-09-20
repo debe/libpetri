@@ -272,11 +272,52 @@ The final marking is returned.
 
 When execution completes, the executor returns the final marking (token distribution across all places).
 
+**Termination cause MUST be observable.** The returned marking says what the net *holds*, not
+whether the run *finished*. An executor that can stop for any reason other than quiescence
+([EXEC-040]) — a close ([ENV-013]), a caller's run budget, a host cancellation — MUST make that
+reason distinguishable to the caller, by the return value, by a distinct event, or by a raised
+error. Emitting the same completion signal for a quiesced run and a truncated one is
+non-conforming: a partial marking presented as final cannot be told apart from a net that had
+nothing left to do, so every consumer that treats completion as proof the run finished — a durable
+checkpoint, a workflow step, an assertion on the final marking — silently accepts the truncation.
+
+**Ambient host state is not a stop request.** An executor MUST NOT treat host state it did not
+itself set — a thread's pre-existing cancellation or interrupt flag, for example — as a request to
+stop. Such state is not a request from the caller of *this* run: it may have been left by earlier
+work on a reused thread, or set by the run's own action code following the host language's
+convention for propagating a cancellation it caught (in a runtime that invokes actions inline on
+the orchestrator's own thread, that convention is indistinguishable from a stop). An executor that
+consults it as a loop condition can execute zero cycles, or truncate mid-run, and report success in
+both cases. A cancellation the executor observes *itself*, raised while it waits, MAY stop the run
+— but only under the distinguishability rule above.
+
 **Acceptance Criteria:**
 1. Return value contains the token state after quiescence.
 2. All places with tokens are represented.
+3. A run that stops before quiescence is distinguishable by the caller from one that reached
+   quiescence.
+4. Ambient host cancellation state present *before* the run begins neither prevents the run from
+   executing nor causes it to report completion having fired nothing.
+5. Action code that sets the host's cancellation flag while running — the conventional way to
+   propagate a caught cancellation — does not truncate the run.
 
-**Test derivation:** Run net; inspect returned marking; verify expected token distribution.
+**Depends on:** [EXEC-040], [ENV-013]
+**Implementation status:** AC1–AC2 implemented everywhere. AC3–AC5 are new: **Java** implemented
+(a queryable termination reason; a `WARN` log message accompanies it only where the stop was not
+caller-requested, per [EVT-013] AC5).
+**TypeScript** partial — an expired run budget raises, which satisfies AC3 for that case, but a
+`close()`-terminated run returns its marking indistinguishably from a quiesced one. **Rust** and
+**Python** pending — no termination reason is exposed. AC4/AC5 are vacuous where the runtime exposes no
+ambient cancellation state an executor *could* consult, so no conformance test can even be written:
+**Python** is the clearest case (actions run on Tokio threads with no running asyncio loop, there is
+no thread-level interrupt flag, and the synchronous run loop never polls signals), then **Rust**
+(which has no ambient cancellation state at all — task cancellation drops the future, which is not
+state an executor reads) and **TypeScript** (a single-threaded event loop with nothing ambient to
+consult).
+**Test derivation:** Run net; inspect returned marking; verify expected token distribution. For
+AC4, set the host's cancellation flag immediately before `run()` and assert the net still executes
+to quiescence. For AC5, have an action set that flag mid-run and assert every downstream transition
+still fires. For AC3, stop a run early and assert the caller can tell it apart from a quiesced one.
 
 ---
 
