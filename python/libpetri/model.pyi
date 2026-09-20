@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, TypeAlias
+from typing import Any, Callable, Protocol, TypeAlias
 
 from . import _libpetri as _ext
 
@@ -29,13 +29,28 @@ SubnetInstance: TypeAlias = _ext.SubnetInstance
 Instance: TypeAlias = _ext.Instance
 BuiltSubnetDef: TypeAlias = _ext.SubnetDef
 SubnetDefBuilder: TypeAlias = _ext.SubnetDefBuilder
+BuiltInterface: TypeAlias = _ext.Interface
+InterfaceBuilder: TypeAlias = _ext.InterfaceBuilder
 
 PlaceLike: TypeAlias = str | Place
 OutputLike: TypeAlias = Place | OutputSpec
 
 def Transition(name: str) -> TransitionBuilder: ...
 def Net(name: str) -> NetBuilder: ...
-def SubnetDef(name: str) -> SubnetDefBuilder: ...
+# `SubnetDef` is a factory function that also carries `from_net` as an
+# attribute, so the call site reads the same as Rust/TS/Java. A plain
+# `def SubnetDef(...)` declaration hides that: a type checker sees no
+# `from_net` on a function object, and `py.typed` ships, so
+# `lp.SubnetDef.from_net(net, iface)` would be an error for every user even
+# though it works at runtime. Declaring the callable's shape fixes both.
+class _SubnetDefFactory(Protocol):
+    def __call__(self, name: str) -> SubnetDefBuilder: ...
+    @staticmethod
+    def from_net(net: BuiltNet, interface: BuiltInterface) -> BuiltSubnetDef: ...
+
+SubnetDef: _SubnetDefFactory
+
+def Interface() -> InterfaceBuilder: ...
 
 # Re-exports of factory functions from the extension
 def one(p: Place) -> InputSpec: ...

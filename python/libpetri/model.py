@@ -29,6 +29,8 @@ SubnetInstance = _ext.SubnetInstance
 Instance = _ext.Instance
 BuiltSubnetDef = _ext.SubnetDef
 SubnetDefBuilder = _ext.SubnetDefBuilder
+BuiltInterface = _ext.Interface
+InterfaceBuilder = _ext.InterfaceBuilder
 
 PlaceLike: TypeAlias = str | Place
 OutputLike: TypeAlias = Place | OutputSpec
@@ -72,6 +74,24 @@ def Net(name: str) -> NetBuilder:
 
 def SubnetDef(name: str) -> SubnetDefBuilder:
     return SubnetDefBuilder(name)
+
+
+def Interface() -> InterfaceBuilder:
+    """Starts an interface: a subnet boundary (ports and channels) declared
+    independently of any body.
+
+    Needed to retrofit an already-composed net as a subnet — see
+    ``SubnetDef.from_net``.
+    """
+    return InterfaceBuilder()
+
+
+# Attached to the factory rather than exposed as a module-level function, so
+# the call site reads `SubnetDef.from_net(net, iface)` — the same spelling as
+# Rust, TypeScript and Java. Python functions carry attributes, so this works
+# without a class wrapper and without Python being the one language that
+# spells it differently.
+SubnetDef.from_net = BuiltSubnetDef.from_net
 
 
 one = _ext.one
@@ -123,6 +143,9 @@ __all__ = [
     "InputSpec",
     "Instance",
     "InhibitorArc",
+    "Interface",
+    "InterfaceBuilder",
+    "BuiltInterface",
     "MatchSpec",
     "match_spec",
     "Net",

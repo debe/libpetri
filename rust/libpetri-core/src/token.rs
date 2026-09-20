@@ -15,7 +15,19 @@ pub struct Token<T> {
 }
 
 impl<T> Token<T> {
-    /// Creates a token with the given value and current timestamp.
+    /// Creates a token with the given value, stamped from the **real wall
+    /// clock**.
+    ///
+    /// \[TIME-015\] **Not suitable for a seed marking under a host clock.**
+    /// An initial marking (\[CORE-072\]) is built before any executor
+    /// exists, so no injected epoch clock can reach this call: two replays
+    /// on the same host clock get different `created_at` values *inside the
+    /// marking*, and the divergence is invisible because its cause was
+    /// minted before the run began. Seed through
+    /// [`libpetri_runtime::clock::seed_token`] (or [`Token::at`] with a
+    /// timestamp you control) instead.
+    ///
+    /// [`libpetri_runtime::clock::seed_token`]: https://docs.rs/libpetri
     pub fn new(value: T) -> Self {
         Self {
             value: Arc::new(value),
@@ -23,7 +35,12 @@ impl<T> Token<T> {
         }
     }
 
-    /// Creates a token with a specific timestamp (for testing/replay).
+    /// Creates a token with a specific timestamp (\[CORE-011\]).
+    ///
+    /// This is the replay-safe constructor: it is also what
+    /// \[CORE-073\] restore uses to preserve a token's original
+    /// `created_at`, which is why the executor never silently re-stamps
+    /// tokens a host supplied.
     pub fn at(value: T, created_at: u64) -> Self {
         Self {
             value: Arc::new(value),

@@ -115,6 +115,7 @@ impl PetriNet {
 /// Place storage is an order-preserving dedup'd `Vec` plus a parallel
 /// `HashSet` for O(1) membership — see [`PetriNet`] docs for the
 /// cross-language byte-parity rationale.
+#[derive(Clone)]
 pub struct PetriNetBuilder {
     name: Arc<str>,
     places: Vec<PlaceRef>,

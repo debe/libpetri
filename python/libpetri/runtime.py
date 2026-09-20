@@ -26,9 +26,20 @@ class MarkingView(Mapping[str, tuple[Any, ...]]):
     - **Structured snapshot:** ``{place: [{"value": v, "created_at": ms},
       ...]}``. Timestamps are preserved verbatim. This is the form executor
       runs return as of 2.7.0 and the form `snapshot()` emits, so passing a
-      previous run's view back as `initial=` does a timestamp-faithful
-      restore (deadlines, windows, and the `created_at`-driven freshness
-      patterns survive the round-trip).
+      previous run's view back as `initial=` preserves every token's
+      `created_at`, and with it the `created_at`-driven freshness patterns.
+
+      **Timing clocks do not survive the round-trip** ([CORE-073] AC#3/AC#4).
+      A restored marking pre-populates places like any other initial marking,
+      so a `delayed`/`window` transition it enables waits its **full**
+      interval measured from the *resuming* executor's enablement, and a
+      `deadline(d)` is reaped `d` after that enablement — the original hard
+      bound is gone, and no timeout is emitted for the budget already spent.
+      The asymmetry matters: re-waiting a lower bound is conservative and
+      stays sound, but a hard upper bound is silently **renewed**, so a token
+      that should have been reaped gets a fresh full budget on every restore.
+      Restoring more often than `d` therefore means `deadline(d)` never
+      fires at all.
 
     Iteration, ``view[place]``, and `tokens(place)` all yield the
     **value-only** tuple — backward-compatible with pre-2.7.0 callers.
@@ -122,8 +133,14 @@ class MarkingView(Mapping[str, tuple[Any, ...]]):
         """Structured snapshot with per-token `created_at` preserved.
 
         Round-trip via `MarkingView.from_snapshot(view.snapshot())` reproduces
-        the marking exactly. Pass this (or the view itself) as `initial=` to
-        `run_sync`/`run_async` to resume a timed net without losing clocks.
+        the marking exactly — every value and every `created_at`.
+
+        What it does **not** reproduce is timing state ([CORE-073] AC#3/AC#4):
+        pass this back as `initial=` and a `delayed`/`window` transition waits
+        its full interval again from the resuming executor's enablement, while
+        a `deadline(d)` gets a fresh full `d`. Token freshness survives; net
+        clocks restart. See `MarkingView` for why the upper-bound half is the
+        unsafe one.
         """
         return {
             place: [
@@ -258,8 +275,17 @@ if _ext.HAS_TOKIO:
 
             The executor materializes its current marking and returns it as a
             `MarkingView` with per-token `created_at` preserved. Does not
-            affect lifecycle — the executor keeps running. Use this for
-            checkpoint-saver patterns (e.g. periodic persistence).
+            affect lifecycle — the executor keeps running.
+
+            **This is an observation, not a restore point** ([ENV-014]).
+            Nothing suspends the run to take it, so an action may be in
+            flight — having consumed its inputs and not yet produced its
+            outputs. Those tokens are in neither place at the instant you
+            observe them, and restoring such a marking simply loses that
+            work. Refusing, reporting or deferring an in-flight snapshot
+            ([ENV-014] AC5/AC6) is unimplemented in every language, so use
+            this for diagnostics and monitoring; for a restore point,
+            snapshot a run that has terminated.
 
             Raises `RuntimeError` if the handle is drained, closed, or the
             executor has already exited.

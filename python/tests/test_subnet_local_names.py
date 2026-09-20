@@ -403,3 +403,251 @@ def test_bind_actions_is_non_mutating() -> None:
     res_b = lp.run_sync(net_b, initial={b_in: [{"v": 1}]})
     assert res_a.first(a_out) == {"v": 1, "by": "a"}
     assert res_b.first(b_out) == {"v": 1, "by": "b"}
+
+
+def test_identity_round_trip_entry_still_resolves_all_declared_names() -> None:
+    """MOD-031 AC#8: a declared place bound to a host place of its **own
+    declared name** produces an *identity* entry (``x -> x``) in the
+    correspondence, mixed with non-identity entries for the prefixed internal
+    places. Every hardcoded declared name must still resolve.
+
+    Identity entries used to be filtered out to keep the map minimal. They are
+    now retained, because the chained rewrite pass carries the map forward
+    without walking arcs, so the map is the only carrier of the author-original
+    key set and a dropped key is unrecoverable at the next pass.
+
+    Asserted on the executor run rather than on the map's shape: the failure
+    mode is consume-then-throw — the transition enables, its inputs are
+    consumed, and only then does the action fail its declared-place check, so
+    the tokens are lost rather than the net failing to build (EXEC-031).
+
+    This is the two-pass half — instantiate, then port-bind. The third pass,
+    which renames the identity-bound place afterwards and is where the entry
+    actually becomes load-bearing, is
+    ``test_identity_round_trip_survives_a_later_renaming_pass`` below.
+    """
+
+    x = lp.Place("x")  # port place
+    y = lp.Place("y")  # internal -> becomes inst/y
+    z = lp.Place("z")  # internal sink -> becomes inst/z
+
+    def join(ctx: lp.TransitionContext) -> None:
+        # Every name here is the author-declared one. After compose, `x` is
+        # the identity entry and `y` / `z` are prefixed.
+        left = ctx.input("x")
+        right = ctx.input("y")
+        ctx.output("z", {**left, **right})
+
+    subnet = (
+        lp.SubnetDef("Step")
+        .place(y)
+        .place(z)
+        .transition(
+            lp.Transition("call")
+            .input(lp.one(x))
+            .input(lp.one(y))
+            .output(lp.out(z))
+            .action(join)
+            .build()
+        )
+        .input_port("in", x)
+        .build()
+    )
+
+    # The host place carries the subnet's own declared name -> identity entry.
+    host_x = lp.Place("x")
+    net = (
+        lp.NetBuilder("Host")
+        .place(host_x)
+        .compose("inst", subnet, {"in": host_x})
+        .build()
+    )
+
+    result = lp.run_sync(
+        net,
+        initial={host_x: [{"l": 1}], lp.Place("inst/y"): [{"r": 2}]},
+    )
+
+    sink = lp.Place("inst/z")
+    assert result.count(sink) == 1, "action must resolve every declared name and produce"
+    assert result.first(sink) == {"l": 1, "r": 2}
+    assert result.count(host_x) == 0, "input consumed"
+    assert result.count(lp.Place("inst/y")) == 0, "input consumed"
+
+
+def test_all_identity_correspondence_still_resolves() -> None:
+    """MOD-031 AC#9: when *every* declared place round-trips to its own name
+    the correspondence carries no information and may be dropped wholesale.
+    The action's declared names are then the actual names, so the binding's
+    literal-first lookup resolves them without consulting a map at all."""
+
+    x = lp.Place("x")
+    z = lp.Place("z")
+
+    def pass_through(ctx: lp.TransitionContext) -> None:
+        ctx.output("z", {**ctx.input("x"), "seen": True})
+
+    subnet = (
+        lp.SubnetDef("Step")
+        .transition(
+            lp.Transition("call")
+            .input(lp.one(x))
+            .output(lp.out(z))
+            .action(pass_through)
+            .build()
+        )
+        .input_port("in", x)
+        .output_port("out", z)
+        .build()
+    )
+
+    # Both ports bind to host places carrying the author's own names.
+    host_x = lp.Place("x")
+    host_z = lp.Place("z")
+    net = (
+        lp.NetBuilder("Host")
+        .place(host_x)
+        .place(host_z)
+        .compose("inst", subnet, {"in": host_x, "out": host_z})
+        .build()
+    )
+
+    result = lp.run_sync(net, initial={host_x: [{"v": 1}]})
+    assert result.count(host_z) == 1
+    assert result.first(host_z) == {"v": 1, "seen": True}
+
+
+def test_identity_round_trip_survives_a_later_renaming_pass() -> None:
+    """MOD-031 AC#8, the full three-pass shape.
+
+    Pass 1 instantiates under ``inst``; pass 2 binds the port to a host place
+    carrying the subnet's **own declared name**, so ``x``'s correspondence
+    round-trips to ``x``; pass 3 retrofits that host as a subnet via
+    ``SubnetDef.from_net`` and composes it under ``outer``, which finally
+    renames ``x``.
+
+    A correspondence that dropped the identity entry at pass 2 has nothing to
+    carry into pass 3 — the chained rewrite deliberately does not walk arcs —
+    so ``ctx.input("x")`` resolves to a place that no longer exists. The
+    transition still *enables* and its inputs are still consumed, so the
+    symptom is lost tokens rather than a build error (EXEC-031); this asserts
+    on the run, not on the map's shape.
+
+    The mixed case is what makes it reachable: ``y`` and ``z`` stay
+    non-identity, so the map survives pass 2 as a real map. An all-identity
+    map is dropped whole and the next pass self-heals off the arcs (AC#9).
+    """
+
+    x = lp.Place("x")
+    y = lp.Place("y")
+    z = lp.Place("z")
+
+    def join(ctx: lp.TransitionContext) -> None:
+        left = ctx.input("x")  # author-declared names throughout
+        right = ctx.input("y")
+        ctx.output("z", {**left, **right})
+
+    subnet = (
+        lp.SubnetDef("Step")
+        .place(y)
+        .place(z)
+        .transition(
+            lp.Transition("call")
+            .input(lp.one(x))
+            .input(lp.one(y))
+            .output(lp.out(z))
+            .action(join)
+            .build()
+        )
+        .input_port("in", x)
+        .build()
+    )
+
+    # Passes 1 + 2: the host place carries the declared name -> identity entry.
+    host_x = lp.Place("x")
+    host = (
+        lp.NetBuilder("Host")
+        .place(host_x)
+        .compose("inst", subnet, {"in": host_x})
+        .build()
+    )
+    assert {p.name for p in host.places} >= {"x", "inst/y", "inst/z"}
+
+    # Pass 3: retrofit and compose under a second prefix, renaming `x`.
+    retrofit = lp.SubnetDef.from_net(
+        host, lp.Interface().input_port("in", host_x).build()
+    )
+    top = lp.NetBuilder("Top").compose("outer", retrofit, {}).build()
+
+    result = lp.run_sync(
+        top,
+        initial={lp.Place("outer/x"): [{"l": 1}], lp.Place("outer/inst/y"): [{"r": 2}]},
+    )
+
+    sink = lp.Place("outer/inst/z")
+    assert result.count(sink) == 1, (
+        "the action must resolve both declared places after the later rename; "
+        "a dropped identity entry loses `x` and the firing throws after consuming"
+    )
+    assert result.first(sink) == {"l": 1, "r": 2}
+    assert result.count(lp.Place("outer/x")) == 0, "input consumed"
+
+
+def test_nested_instantiation_resolves_doubly_prefixed() -> None:
+    """MOD-013 + MOD-031 AC#3: a declared place resolves through *nested*
+    instantiation to the doubly-prefixed composed place.
+
+    Compose ``Inner`` into a body net under ``inner``, retrofit that body as
+    subnet ``S``, then compose ``S`` under ``outer``. The inner action's
+    hardcoded ``xDecl`` must reach ``outer/inner/xDecl`` and its ``reqDecl``
+    must reach the host place, through two prefixing passes.
+    """
+
+    req = lp.Place("reqDecl")
+    x = lp.Place("xDecl")
+
+    def emit(ctx: lp.TransitionContext) -> None:
+        msg = ctx.input("reqDecl")  # bound out to the host, two passes up
+        ctx.output("xDecl", {**msg, "emitted": True})  # internal, doubly prefixed
+
+    inner = (
+        lp.SubnetDef("Inner")
+        .place(x)
+        .transition(
+            lp.Transition("emit")
+            .input(lp.one(req))
+            .output(lp.out(x))
+            .action(emit)
+            .build()
+        )
+        .input_port("in", req)
+        .build()
+    )
+
+    s_in = lp.Place("sIn")
+    body = (
+        lp.NetBuilder("Sbody")
+        .place(s_in)
+        .compose("inner", inner, {"in": s_in})
+        .build()
+    )
+
+    s_def = lp.SubnetDef.from_net(
+        body, lp.Interface().input_port("sin", s_in).build()
+    )
+
+    host_req = lp.Place("hostReq")
+    host = (
+        lp.NetBuilder("Host")
+        .place(host_req)
+        .compose("outer", s_def, {"sin": host_req})
+        .build()
+    )
+
+    names = {p.name for p in host.places}
+    assert "outer/inner/xDecl" in names, f"doubly-prefixed internal place: {names}"
+    assert "hostReq" in names
+
+    result = lp.run_sync(host, initial={host_req: [{"v": 7}]})
+    assert result.count(lp.Place("outer/inner/xDecl")) == 1
+    assert result.first(lp.Place("outer/inner/xDecl")) == {"v": 7, "emitted": True}

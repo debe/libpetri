@@ -249,9 +249,24 @@ fn rebuild_with_name(
 /// earlier substitute, which may have already chained through an
 /// existing `local_name_map`).
 ///
-/// Returns `None` if no name actually changes — keeps the field
-/// `None`-valued for the common no-op case and avoids spurious Arc
-/// allocation.
+/// Specified by **MOD-031** (`spec/11-modular-composition.md`), "Key-set
+/// completeness across passes" + AC#8/#9/#11. The spec is the authority here,
+/// not the TS/Java twins: all three previously cited each other, so when the
+/// algorithm was wrong each was faithfully mirroring a defect while its
+/// comment made that look like evidence of correctness.
+///
+/// Returns `None` if *every* entry would be an identity (`local == final`) —
+/// keeps the field `None`-valued for flat / hand-written transitions and
+/// avoids spurious Arc allocation (AC#9). Individual identity entries inside
+/// an otherwise-renaming map are **kept** (AC#8): see the chained-path note
+/// below.
+///
+/// Identity is decided by the **same equality the correspondence's own lookup
+/// uses** (AC#11) — name-only, since `PlaceRef` is a newtype over `Arc<str>`,
+/// `Place`'s `PartialEq`/`Hash` compare the name alone (the `PhantomData<T>`
+/// does not participate, per MOD-024), and the map is keyed by name. A
+/// coarser identity test would discard entries the lookup could have
+/// resolved; a finer one would retain entries it can never reach.
 fn build_local_name_map(
     t: &Transition,
     remap: &HashMap<Arc<str>, PlaceRef>,
@@ -266,30 +281,40 @@ fn build_local_name_map(
     // prior pass and carries an author-local → intermediate-name map.
     // Chain through it (local → resolve(intermediate, remap)) and stop.
     //
-    // We do NOT also walk the arcs here. Their names are the
-    // intermediate-pass names, not author-original — recording them
-    // would leak intermediate names as additional lookup keys
-    // (`intermediate → final`), which the user never typed.
-    // `substitute_places` only rewrites existing arcs; it never adds
-    // new ones, so the author-original set is exactly the prev map's
-    // keys.
+    // We do NOT also walk the arcs here, as MOD-031 requires: their names
+    // are the intermediate-pass names, not author-original, and recording
+    // them would leak intermediate names as additional lookup keys
+    // (`intermediate → final`) that the author never typed.
+    //
+    // That makes the prev map the *only* carrier of the author-original key
+    // set, so this path is sound only under the invariant that the prev
+    // map's keys ARE that complete set. Retaining identity entries is what
+    // establishes the invariant — it is not a standing fact about
+    // `substitute_places` (which only ever rewrites existing arcs, never
+    // adds them). A place whose name round-trips to its own author-declared
+    // name on some pass (`local → local`) must therefore stay in the map:
+    // there are no arcs here to re-derive it from, so dropping it loses the
+    // author-local name for good, and a LATER pass that renames that place
+    // has nothing to rewrite. The action then fails its declared-place check
+    // after its inputs were already consumed — the tokens are lost, not the
+    // build (MOD-031 AC#8, EXEC-031).
     if let Some(prev) = t.local_name_map() {
         for (local, prev_name) in prev.as_ref().iter() {
             let final_name = match remap.get(prev_name) {
                 Some(replaced) => Arc::clone(replaced.name_arc()),
                 None => Arc::clone(prev_name),
             };
-            if final_name != *local {
-                map.insert(Arc::clone(local), final_name);
-            }
+            map.insert(Arc::clone(local), final_name);
         }
-        return if map.is_empty() { None } else { Some(map) };
+        return wholesale_drop_if_all_identity(map);
     }
 
     // First-substitute path: walk arcs to capture author-original
     // names. Original place names come straight off each arc; the
     // post-remap name is computed via the same `resolve` used during
-    // the rewrite.
+    // the rewrite. Identity entries are recorded here too, so that a
+    // later chained pass has the full author-original key set to carry
+    // forward.
     let mut record = |orig: &PlaceRef| {
         let local = Arc::clone(orig.name_arc());
         if map.contains_key(&local) {
@@ -299,9 +324,7 @@ fn build_local_name_map(
             Some(replaced) => Arc::clone(replaced.name_arc()),
             None => Arc::clone(&local),
         };
-        if post != local {
-            map.insert(local, post);
-        }
+        map.insert(local, post);
     };
 
     for spec in t.input_specs() {
@@ -320,7 +343,23 @@ fn build_local_name_map(
         collect_out_places(out, &mut record);
     }
 
-    if map.is_empty() { None } else { Some(map) }
+    wholesale_drop_if_all_identity(map)
+}
+
+/// Collapses a fully-identity correspondence to `None`. A map in which no
+/// name changes carries no information — dropping it wholesale preserves the
+/// "flat / hand-written transitions carry no map" property (MOD-025), and
+/// leaves the next rewrite pass on the first-pass branch, which re-derives
+/// the author-original key set from the arcs (whose names are still
+/// author-original at that point). MOD-031 AC#9 permits exactly this.
+fn wholesale_drop_if_all_identity(
+    map: HashMap<Arc<str>, Arc<str>>,
+) -> Option<HashMap<Arc<str>, Arc<str>>> {
+    if map.iter().all(|(local, final_name)| local == final_name) {
+        None
+    } else {
+        Some(map)
+    }
 }
 
 fn collect_out_places(out: &Out, f: &mut impl FnMut(&PlaceRef)) {
@@ -681,8 +720,15 @@ fn merge_match_specs(
 /// merge. Both actions run within the single merged firing, so each side's
 /// declared-place resolution must survive. Disjoint keys union; an entry present
 /// on both sides with the same actual collapses; a genuine conflict (same
-/// declared name bound to two different actual names) is rejected with a panic
-/// naming the declared place.
+/// declared name bound to two different **non-identity** actual names) is
+/// rejected with a panic naming the declared place.
+///
+/// An **identity** entry (`X → X`) carries no assertion — it records that some
+/// pass did not rename the place, not that the author required the name to
+/// stay. So identity loses to a non-identity mapping on the other side and the
+/// merge succeeds (MOD-031, AC#10). Without this rule, keeping identity entries
+/// (which MOD-031 requires, for key-set completeness across passes) would
+/// manufacture conflicts that the older, lossy map never raised.
 fn merge_local_name_maps(
     caller: Option<&Arc<HashMap<Arc<str>, Arc<str>>>>,
     instance: Option<&Arc<HashMap<Arc<str>, Arc<str>>>>,
@@ -693,22 +739,79 @@ fn merge_local_name_maps(
         (Some(m), None) | (None, Some(m)) => Some(Arc::clone(m)),
         (Some(c), Some(i)) => {
             let mut merged: HashMap<Arc<str>, Arc<str>> = (**c).clone();
+            // Collect *every* conflict rather than panicking on the first.
+            // This walks a `HashMap`, whose iteration order is not
+            // deterministic, so reporting the first would name an arbitrary
+            // one of N — the same ambiguity would be blamed on a different
+            // place from run to run, and a test asserting on the named place
+            // would be flaky. Sorted by declared name before reporting.
+            let mut conflicts: Vec<AliasConflict> = Vec::new();
             for (declared, actual) in i.iter() {
                 if let Some(existing) = merged.get(declared) {
-                    if existing != actual {
-                        panic!(
-                            "Channel composition '{}': conflicting declared→actual place \
-                             alias for declared place '{}' — caller-side maps to '{}', \
-                             instance-side to '{}' (MOD-031). Resolve explicitly.",
-                            channel_name, declared, existing, actual
-                        );
+                    if existing == actual {
+                        continue;
+                    }
+                    // Identity carries no assertion: whichever side is the
+                    // identity yields to the other (MOD-031 AC#10).
+                    if actual == declared {
+                        continue;
+                    }
+                    if existing != declared {
+                        conflicts.push(AliasConflict {
+                            declared: Arc::clone(declared),
+                            caller: Arc::clone(existing),
+                            instance: Arc::clone(actual),
+                        });
+                        continue;
                     }
                 }
                 merged.insert(Arc::clone(declared), Arc::clone(actual));
             }
+            if !conflicts.is_empty() {
+                conflicts.sort_by(|a, b| a.declared.cmp(&b.declared));
+                panic!("{}", describe_alias_conflicts(channel_name, &conflicts));
+            }
             Some(Arc::new(merged))
         }
     }
+}
+
+/// One declared place bound to two different non-identity actuals across the
+/// fused sides of a channel merge.
+struct AliasConflict {
+    declared: Arc<str>,
+    caller: Arc<str>,
+    instance: Arc<str>,
+}
+
+/// Renders the MOD-031 alias-conflict diagnostic.
+///
+/// A single conflict keeps the original one-line shape. Several are listed —
+/// sorted by declared name, so the message is identical on every run — because
+/// naming one of N and stopping tells the user to fix one ambiguity and
+/// rediscover the rest one recompile at a time.
+fn describe_alias_conflicts(channel_name: &str, conflicts: &[AliasConflict]) -> String {
+    if let [only] = conflicts {
+        return format!(
+            "Channel composition '{}': conflicting declared→actual place \
+             alias for declared place '{}' — caller-side maps to '{}', \
+             instance-side to '{}' (MOD-031). Resolve explicitly.",
+            channel_name, only.declared, only.caller, only.instance
+        );
+    }
+    let mut msg = format!(
+        "Channel composition '{}': conflicting declared→actual place aliases \
+         for {} declared places (MOD-031). Resolve explicitly.",
+        channel_name,
+        conflicts.len()
+    );
+    for c in conflicts {
+        msg.push_str(&format!(
+            "\n  - '{}': caller-side maps to '{}', instance-side to '{}'",
+            c.declared, c.caller, c.instance
+        ));
+    }
+    msg
 }
 
 /// Merges two timings per **MOD-021**:
@@ -1950,6 +2053,140 @@ mod tests {
         assert!(msg.contains("MOD-031"), "must cite MOD-031: {msg}");
     }
 
+    /// MOD-031: with several declared places ambiguous at once, the
+    /// diagnostic names **all** of them in sorted order. Reporting the first
+    /// conflict found would name an arbitrary one — the merge walks a
+    /// `HashMap` — so the message would differ between runs on identical
+    /// input, and a caller would rediscover the rest one recompile at a time.
+    #[test]
+    fn channel_merge_reports_every_conflicting_alias_in_sorted_order() {
+        let caller = Transition::builder("merged")
+            .local_name_map(Arc::new(HashMap::from([
+                (Arc::<str>::from("declaredQ"), Arc::<str>::from("host/q1")),
+                (Arc::<str>::from("declaredP"), Arc::<str>::from("host/p1")),
+                (Arc::<str>::from("declaredR"), Arc::<str>::from("host/r1")),
+                (Arc::<str>::from("agreed"), Arc::<str>::from("host/same")),
+            ])))
+            .build();
+        let instance = Transition::builder("instanceSide")
+            .local_name_map(Arc::new(HashMap::from([
+                (Arc::<str>::from("declaredQ"), Arc::<str>::from("host/q2")),
+                (Arc::<str>::from("declaredP"), Arc::<str>::from("host/p2")),
+                (Arc::<str>::from("declaredR"), Arc::<str>::from("host/r2")),
+                (Arc::<str>::from("agreed"), Arc::<str>::from("host/same")),
+            ])))
+            .build();
+
+        // Same input, many times: the message must be byte-identical.
+        let mut seen: Vec<String> = Vec::new();
+        for _ in 0..16 {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                merge_transitions(&caller, &instance, Arc::<str>::from("attempt"))
+            }));
+            let err = result.expect_err("three ambiguous aliases must be rejected");
+            seen.push(
+                err.downcast_ref::<String>()
+                    .cloned()
+                    .or_else(|| err.downcast_ref::<&'static str>().map(|s| s.to_string()))
+                    .unwrap_or_default(),
+            );
+        }
+        let msg = &seen[0];
+        assert!(
+            seen.iter().all(|m| m == msg),
+            "diagnostic must not vary with hash order: {seen:?}"
+        );
+
+        assert!(msg.contains("attempt"), "must name the channel: {msg}");
+        assert!(msg.contains("MOD-031"), "must cite MOD-031: {msg}");
+        assert!(msg.contains("3 declared places"), "must count them: {msg}");
+        for (declared, caller_side, instance_side) in [
+            ("declaredP", "host/p1", "host/p2"),
+            ("declaredQ", "host/q1", "host/q2"),
+            ("declaredR", "host/r1", "host/r2"),
+        ] {
+            assert!(msg.contains(declared), "must name '{declared}': {msg}");
+            assert!(msg.contains(caller_side), "must name '{caller_side}': {msg}");
+            assert!(msg.contains(instance_side), "must name '{instance_side}': {msg}");
+        }
+        assert!(
+            !msg.contains("agreed"),
+            "an entry both sides agree on is not a conflict: {msg}"
+        );
+
+        let (p, q, r) = (
+            msg.find("declaredP").unwrap(),
+            msg.find("declaredQ").unwrap(),
+            msg.find("declaredR").unwrap(),
+        );
+        assert!(p < q && q < r, "conflicts must be listed sorted: {msg}");
+    }
+
+    /// MOD-031 AC#10: an identity entry carries no assertion — it records that
+    /// some pass did not rename the place, not that the author required the
+    /// name to stay. It must lose to the other side's real mapping instead of
+    /// manufacturing a conflict.
+    #[test]
+    fn channel_merge_identity_entry_yields_to_non_identity() {
+        // Caller side is mixed: `declaredX` is an identity, `declaredA` is not
+        // (an all-identity map never reaches the merge — it is dropped whole).
+        let caller = Transition::builder("merged")
+            .local_name_map(Arc::new(HashMap::from([
+                (Arc::<str>::from("declaredX"), Arc::<str>::from("declaredX")),
+                (Arc::<str>::from("declaredA"), Arc::<str>::from("host/a")),
+            ])))
+            .build();
+        let instance = Transition::builder("instanceSide")
+            .local_name_map(Arc::new(HashMap::from([(
+                Arc::<str>::from("declaredX"),
+                Arc::<str>::from("host/x"),
+            )])))
+            .build();
+
+        let merged = merge_transitions(&caller, &instance, Arc::<str>::from("merged"));
+
+        let map = merged
+            .local_name_map()
+            .expect("MOD-031: local_name_map must survive the merge");
+        assert_eq!(
+            map.get("declaredX").map(|s| &**s),
+            Some("host/x"),
+            "non-identity must win over the caller-side identity: {map:?}"
+        );
+        assert_eq!(map.get("declaredA").map(|s| &**s), Some("host/a"));
+    }
+
+    /// MOD-031 AC#10, other direction: the *instance*-side entry is the
+    /// identity, so the caller's real mapping survives (a plain
+    /// last-write-wins union would have clobbered it back to identity).
+    #[test]
+    fn channel_merge_instance_side_identity_yields_to_caller() {
+        let caller = Transition::builder("merged")
+            .local_name_map(Arc::new(HashMap::from([(
+                Arc::<str>::from("declaredX"),
+                Arc::<str>::from("host/x"),
+            )])))
+            .build();
+        let instance = Transition::builder("instanceSide")
+            .local_name_map(Arc::new(HashMap::from([
+                (Arc::<str>::from("declaredX"), Arc::<str>::from("declaredX")),
+                (Arc::<str>::from("declaredB"), Arc::<str>::from("host/b")),
+            ])))
+            .build();
+
+        let merged = merge_transitions(&caller, &instance, Arc::<str>::from("merged"));
+
+        let map = merged
+            .local_name_map()
+            .expect("MOD-031: local_name_map must survive the merge");
+        assert_eq!(
+            map.get("declaredX").map(|s| &**s),
+            Some("host/x"),
+            "instance-side identity must not clobber the caller mapping: {map:?}"
+        );
+        assert_eq!(map.get("declaredB").map(|s| &**s), Some("host/b"));
+    }
+
     // ============================================================
     //  build_local_name_map — author-local → composed lookup map
     //  used by binding-side action contexts for ctx.output("X")
@@ -1991,7 +2228,14 @@ mod tests {
     }
 
     #[test]
-    fn build_local_name_map_skips_identity_passthroughs() {
+    fn build_local_name_map_records_identity_passthroughs() {
+        // This test previously pinned the OPPOSITE contract — identity
+        // passthroughs were filtered out to keep the map minimal. That
+        // made the chained-compose path unsound: it carries the prev map
+        // forward without walking arcs, so a name dropped as identity on
+        // one pass is unrecoverable when a later pass renames it. The map
+        // now holds one entry per arc place (see
+        // `build_local_name_map_chained_compose_recovers_later_renamed_identity`).
         let stays = Place::<i32>::new("stays");
         let renamed = Place::<i32>::new("renamed");
         let t = Transition::builder("t")
@@ -1999,7 +2243,7 @@ mod tests {
             .input(one(&renamed))
             .build();
 
-        // Only `renamed` is in remap. `stays` must not appear in the map.
+        // Only `renamed` is in remap; `stays` maps to itself.
         let mut remap = HashMap::new();
         remap.insert(Arc::<str>::from("renamed"), PlaceRef::new("host/renamed"));
 
@@ -2007,10 +2251,11 @@ mod tests {
         let map = substituted
             .local_name_map()
             .expect("renamed entry must populate map");
-        assert_eq!(map.len(), 1, "identity passthrough must not be recorded");
-        assert!(
-            !map.contains_key("stays"),
-            "identity-passthrough name leaked into map: {map:?}"
+        assert_eq!(map.len(), 2, "identity passthrough must be recorded");
+        assert_eq!(
+            map.get("stays").map(|s| &**s),
+            Some("stays"),
+            "identity passthrough must be carried as local -> local: {map:?}"
         );
         assert_eq!(&**map.get("renamed").unwrap(), "host/renamed");
     }
@@ -2070,6 +2315,59 @@ mod tests {
         assert!(
             pass2.local_name_map().is_none(),
             "X → X identity must collapse the map to None"
+        );
+    }
+
+    #[test]
+    fn build_local_name_map_chained_compose_recovers_later_renamed_identity() {
+        // MOD-031 regression: a place whose post-remap name equals its own
+        // author-declared name on one pass must STILL be recorded. The
+        // chained path deliberately does not walk arcs — it trusts the prev
+        // map to hold every author-original name — so an entry dropped here
+        // is unrecoverable when a LATER pass renames that place.
+        //
+        // Needs the mixed case: `bDecl` stays non-identity so the map
+        // survives as `Some` and pass 2 takes the chained branch (an
+        // all-identity map collapses to `None`, and the next pass then
+        // self-heals through the arc walk).
+        let a = Place::<i32>::new("aDecl");
+        let b = Place::<i32>::new("bDecl");
+        let t = Transition::builder("t")
+            .input(one(&a))
+            .input(one(&b))
+            .build();
+
+        // Pass 1: aDecl round-trips to its own name, bDecl moves.
+        let mut remap1 = HashMap::new();
+        remap1.insert(Arc::<str>::from("aDecl"), PlaceRef::new("aDecl"));
+        remap1.insert(Arc::<str>::from("bDecl"), PlaceRef::new("inst/bDecl"));
+        let pass1 = substitute_places(&t, &remap1);
+        let map1 = pass1.local_name_map().expect("pass-1 map");
+        assert_eq!(
+            map1.get("aDecl").map(|s| &**s),
+            Some("aDecl"),
+            "identity passthrough must be recorded so pass 2 can chain it: {map1:?}"
+        );
+        assert_eq!(&**map1.get("bDecl").unwrap(), "inst/bDecl");
+
+        // Pass 2: aDecl now DOES move. Its entry must chain through.
+        let mut remap2 = HashMap::new();
+        remap2.insert(Arc::<str>::from("aDecl"), PlaceRef::new("outer/aDecl"));
+        remap2.insert(
+            Arc::<str>::from("inst/bDecl"),
+            PlaceRef::new("outer/inst/bDecl"),
+        );
+        let pass2 = substitute_places(&pass1, &remap2);
+        let map2 = pass2.local_name_map().expect("pass-2 map");
+        assert_eq!(
+            map2.get("aDecl").map(|s| &**s),
+            Some("outer/aDecl"),
+            "author-local name lost across the chained pass: {map2:?}"
+        );
+        assert_eq!(&**map2.get("bDecl").unwrap(), "outer/inst/bDecl");
+        assert!(
+            !map2.contains_key("inst/bDecl"),
+            "intermediate-pass name must not appear as a key: {map2:?}"
         );
     }
 

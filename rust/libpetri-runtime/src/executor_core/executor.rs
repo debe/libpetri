@@ -25,6 +25,7 @@ use libpetri_core::token::ErasedToken;
 use libpetri_event::event_store::EventStore;
 use libpetri_event::net_event::NetEvent;
 
+use crate::clock::ExecutorClock;
 use crate::executor_core::backend::{
     ExecutorBackend, NoopChangeTracker, RecordingChangeTracker,
 };
@@ -32,6 +33,15 @@ use crate::executor_core::deadline::{elapsed_ms_since, now_millis};
 use crate::executor_core::event_payload::{token_added_event, token_removed_event};
 use crate::executor_core::output::{describe_out_violation, validate_out_spec};
 use crate::marking::Marking;
+
+/// \[TIME-015\] The installed clock plus the token-stamping closure derived
+/// from it. Built once in [`Executor::set_clock`] so handing the epoch source
+/// to a firing context is an `Arc::clone`, the same discipline the ν-name
+/// minter uses — never a per-firing allocation.
+struct ClockSeam {
+    clock: Arc<dyn ExecutorClock>,
+    epoch_fn: libpetri_core::context::EpochFn,
+}
 
 /// Shared executor over an [`ExecutorBackend`] and an `EventStore`.
 ///
@@ -48,14 +58,15 @@ pub struct Executor<S: ExecutorBackend, E: EventStore> {
     event_store: E,
     start_time: Instant,
 
-    /// Test-only virtual clock (milliseconds). `None` unless a test opts in
-    /// via [`enable_virtual_clock`](Self::enable_virtual_clock); when set,
-    /// [`elapsed_ms`](Self::elapsed_ms) returns this value instead of the
-    /// real monotonic clock and `run_sync` advances it in exact jumps to the
-    /// next timed boundary (see the loop). The field, its reads, and its
-    /// writes are all `#[cfg(test)]` so release binaries are byte-identical.
-    #[cfg(test)]
-    virtual_now_ms: Option<f64>,
+    /// \[TIME-015\] Host-supplied time source, or `None` for the default
+    /// (read [`Instant`] / [`SystemTime`] directly).
+    ///
+    /// One boxed `Option` rather than a field per member, so the no-clock
+    /// path costs one null check on a field that never changes during a run
+    /// — predicted perfectly — and eight bytes of executor state, instead of
+    /// an unconditional `dyn` call on every orchestrator cycle
+    /// (\[TIME-015\] AC#9, \[PERF-010\]).
+    clock: Option<Box<ClockSeam>>,
 
     /// True when the configured net references any environment places.
     /// The async loop short-circuits the event-injection phase when this
@@ -125,8 +136,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             backend,
             event_store,
             start_time: Instant::now(),
-            #[cfg(test)]
-            virtual_now_ms: None,
+            clock: None,
             has_environment_places,
             skip_output_validation: false,
             reusable_inputs: HashMap::new(),
@@ -187,26 +197,66 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         self.backend.is_quiescent()
     }
 
+    /// The firing clock (\[TIME-015\]): monotonic milliseconds since this
+    /// executor started.
+    ///
+    /// The `None` arm is the default path and compiles to exactly the
+    /// direct [`Instant`] read it was before the seam existed; the branch
+    /// is on a field that never changes during a run, so it predicts
+    /// perfectly. A `dyn` dispatch is taken only once a host has asked for
+    /// one (\[TIME-015\] AC#9, \[PERF-010\]).
     #[inline]
     fn elapsed_ms(&self) -> f64 {
-        #[cfg(test)]
-        if let Some(virtual_now) = self.virtual_now_ms {
-            return virtual_now;
+        match &self.clock {
+            Some(seam) => seam.clock.now_ms(),
+            None => elapsed_ms_since(self.start_time),
         }
-        elapsed_ms_since(self.start_time)
+    }
+
+    /// The epoch clock (\[TIME-015\]): wall-clock milliseconds since the
+    /// Unix epoch, for event timestamps and executor-produced tokens.
+    #[inline]
+    fn epoch_ms(&self) -> u64 {
+        match &self.clock {
+            Some(seam) => seam.clock.epoch_ms(),
+            None => now_millis(),
+        }
+    }
+
+    /// Installs a host time source for this executor (\[TIME-015\]).
+    ///
+    /// Per executor, never per net: a [`PetriNet`](libpetri_core::petri_net::PetriNet)
+    /// is immutable and shared across composition, and two executors in one
+    /// process must be able to run on independent clocks.
+    ///
+    /// Call before running. Changing the clock mid-run would move the
+    /// firing-clock origin under enablement stamps already taken, which
+    /// contract point 1 forbids.
+    pub fn set_clock(&mut self, clock: Arc<dyn ExecutorClock>) {
+        let for_tokens = Arc::clone(&clock);
+        self.clock = Some(Box::new(ClockSeam {
+            clock,
+            epoch_fn: Arc::new(move || for_tokens.epoch_ms()),
+        }));
+    }
+
+    /// The installed host clock, if any.
+    pub fn clock(&self) -> Option<&Arc<dyn ExecutorClock>> {
+        self.clock.as_ref().map(|seam| &seam.clock)
     }
 
     /// Puts this executor on a deterministic virtual clock starting at 0ms.
     ///
-    /// Test-only seam for the timed differential harness
+    /// Test seam for the timed differential harness
     /// ([`differential_prop_tests`](crate::differential_prop_tests)):
     /// `run_sync` then advances time in exact jumps to the next timed
     /// boundary (next `earliest` opening or hard deadline) instead of
     /// busy-waiting on the real monotonic clock, making timed runs both
-    /// instant and bit-for-bit reproducible.
+    /// instant and bit-for-bit reproducible. Now expressed through the
+    /// public \[TIME-015\] seam rather than a test-only field.
     #[cfg(test)]
     pub(crate) fn enable_virtual_clock(&mut self) {
-        self.virtual_now_ms = Some(0.0);
+        self.set_clock(Arc::new(crate::clock::ManualClock::new()));
     }
 
     /// Runs the executor synchronously until completion. All transition
@@ -218,7 +268,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             let net_name: Arc<str> = self.backend.compiled().net().name().into();
             self.event_store.append(NetEvent::ExecutionStarted {
                 net_name,
-                timestamp: now_millis(),
+                timestamp: self.epoch_ms(),
             });
         }
         self.warn_unknown_places("");
@@ -236,7 +286,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 timed_out.clear();
                 self.backend.enforce_deadlines(cycle_now, &mut timed_out);
                 if E::ENABLED {
-                    let ts = now_millis();
+                    let ts = self.epoch_ms();
                     for &tid in &timed_out {
                         let name = Arc::clone(self.backend.compiled().transition(tid).name_arc());
                         self.event_store.append(NetEvent::TransitionTimedOut {
@@ -258,41 +308,41 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 self.backend.collect_ready_general(cycle_now, &mut ready);
             }
 
-            #[cfg(test)]
             let mut fired_any = false;
             for &tid in &ready {
                 if self.backend.recheck_can_fire(tid) {
                     self.fire_transition_sync(tid);
-                    #[cfg(test)]
-                    {
-                        fired_any = true;
-                    }
+                    fired_any = true;
                 } else {
                     self.backend.disable(tid);
                 }
             }
 
-            // Virtual-clock advance (test builds only; release `run_sync`
-            // is untouched and waits out timed windows on the real clock).
-            // When a full cycle at the current virtual instant fired
+            // \[TIME-015\] Phase 6 (sync): hand the wait for the next timing
+            // boundary to the installed clock. With no clock this whole
+            // block is skipped and the loop spins out timed windows on the
+            // real monotonic clock, exactly as it did before the seam
+            // (AC#1) — the sync path has no channels to park on.
+            //
+            // Reached only when a full cycle at the current instant fired
             // nothing and left no dirty work, but transitions are still
-            // enabled and waiting on their windows, jump straight to the
-            // next timed boundary. `millis_until_next_timed_transition`
-            // is finite whenever anything is enabled (every timing has a
-            // finite `earliest`), so the INFINITY case coincides with
-            // `enabled_count() == 0` and falls through to the quiescence
-            // exit below. The `.max(0.5)` floor guarantees progress even
-            // if a backend ever reported a 0ms wait.
-            #[cfg(test)]
-            if !fired_any
+            // enabled and waiting on their windows.
+            // `millis_until_next_timed_transition` is finite whenever
+            // anything is enabled (every timing has a finite `earliest`),
+            // so the INFINITY case coincides with `enabled_count() == 0`
+            // and falls through to the quiescence exit below.
+            //
+            // The `ready` predicate is the backend's dirty flag: cheap,
+            // repeatable, side-effect free and time-free, as contract
+            // point 5 requires.
+            if let Some(seam) = &self.clock
+                && !fired_any
                 && !self.backend.has_dirty_bits()
                 && self.backend.enabled_count() > 0
-                && let Some(virtual_now) = self.virtual_now_ms
             {
-                let wait = self.backend.millis_until_next_timed_transition(virtual_now);
-                if wait.is_finite() {
-                    self.virtual_now_ms = Some(virtual_now + wait.max(0.5));
-                }
+                let wait = self.backend.millis_until_next_timed_transition(cycle_now);
+                let backend = &self.backend;
+                seam.clock.await_work(&|| backend.has_dirty_bits(), wait);
             }
 
             if !self.backend.has_dirty_bits() && self.backend.enabled_count() == 0 {
@@ -304,7 +354,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             let net_name: Arc<str> = self.backend.compiled().net().name().into();
             self.event_store.append(NetEvent::ExecutionCompleted {
                 net_name,
-                timestamp: now_millis(),
+                timestamp: self.epoch_ms(),
             });
         }
 
@@ -330,7 +380,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
     #[cold]
     fn emit_unknown_place_warnings(&mut self, places: &[Arc<str>], transition_name: &str) {
         let name: Arc<str> = Arc::from(transition_name);
-        let timestamp = now_millis();
+        let timestamp = self.epoch_ms();
         for place in places {
             self.event_store.append(NetEvent::LogMessage {
                 transition_name: Arc::clone(&name),
@@ -366,7 +416,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             };
             self.backend.update_enablement(now_ms, &mut tracker);
 
-            let ts = now_millis();
+            let ts = self.epoch_ms();
             for &tid in newly_enabled.iter() {
                 let name = Arc::clone(self.backend.compiled().transition(tid).name_arc());
                 self.event_store.append(NetEvent::TransitionEnabled {
@@ -394,6 +444,15 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
     fn consume_and_emit(&mut self, tid: usize) {
         self.reusable_inputs.clear();
         self.reusable_reads.clear();
+        // The closure borrows `self` mutably through the destructure, so the
+        // epoch source is carried in rather than read off `self`. Gated on
+        // `E::ENABLED` so the whole thing const-folds away under
+        // `NoopEventStore` — this is the per-firing path.
+        let epoch_fn = if E::ENABLED {
+            self.clock.as_ref().map(|seam| Arc::clone(&seam.epoch_fn))
+        } else {
+            None
+        };
         let Self {
             backend,
             event_store,
@@ -403,11 +462,11 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         } = self;
         backend.consume_for_firing(tid, reusable_inputs, reusable_reads, |place, token| {
             if E::ENABLED {
-                event_store.append(token_removed_event::<E>(
-                    Arc::clone(place),
-                    now_millis(),
-                    token,
-                ));
+                let ts = match &epoch_fn {
+                    Some(epoch_fn) => epoch_fn(),
+                    None => now_millis(),
+                };
+                event_store.append(token_removed_event::<E>(Arc::clone(place), ts, token));
             }
         });
     }
@@ -542,7 +601,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                  place, so this firing exceeds what they explore (IO-016)",
                 repeated.join(", ")
             ),
-            timestamp: now_millis(),
+            timestamp: self.epoch_ms(),
         });
     }
 
@@ -558,6 +617,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         outputs: &[OutputEntry],
         flushed: &HashSet<Arc<str>>,
     ) {
+        let timestamp = self.epoch_ms();
         let Self {
             backend,
             event_store,
@@ -574,7 +634,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         event_store.append(NetEvent::TransitionFailed {
             transition_name: Arc::clone(transition_name),
             error: format!("[IO-015] '{transition_name}': {detail}"),
-            timestamp: now_millis(),
+            timestamp,
         });
     }
 
@@ -593,7 +653,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         if E::ENABLED {
             self.event_store.append(NetEvent::TransitionStarted {
                 transition_name: Arc::clone(&transition_name),
-                timestamp: now_millis(),
+                timestamp: self.epoch_ms(),
             });
         }
 
@@ -616,6 +676,9 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         }
         let fresh_name_fn = self.fresh_name_fn(tid, &transition_name);
         ctx.set_fresh_name_fn(fresh_name_fn);
+        if let Some(seam) = &self.clock {
+            ctx.set_epoch_fn(Arc::clone(&seam.epoch_fn));
+        }
 
         let result = action.run_sync(&mut ctx);
 
@@ -636,7 +699,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                         let event = if E::ENABLED {
                             Some(token_added_event::<E>(
                                 Arc::clone(&entry.place_name),
-                                now_millis(),
+                                self.epoch_ms(),
                                 &entry.token,
                             ))
                         } else {
@@ -651,7 +714,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                     if E::ENABLED {
                         self.event_store.append(NetEvent::TransitionCompleted {
                             transition_name: Arc::clone(&transition_name),
-                            timestamp: now_millis(),
+                            timestamp: self.epoch_ms(),
                         });
                     }
                 } else if E::ENABLED {
@@ -668,7 +731,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                     self.event_store.append(NetEvent::TransitionFailed {
                         transition_name: Arc::clone(&transition_name),
                         error: err.message,
-                        timestamp: now_millis(),
+                        timestamp: self.epoch_ms(),
                     });
                 }
             }
@@ -737,13 +800,17 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         let mut in_flight_count: usize = 0;
         let mut signal_channel_open = true;
         let mut draining = false;
+        // \[TIME-015\] Hoisted once per run: the Phase-6 `select!` arms
+        // borrow `self` mutably, so the clock cannot be read off `self`
+        // there. Cloning a `None` is free.
+        let clock = self.clock.as_ref().map(|seam| Arc::clone(&seam.clock));
         let mut closed = false;
 
         if E::ENABLED {
             let net_name: Arc<str> = self.backend.compiled().net().name().into();
             self.event_store.append(NetEvent::ExecutionStarted {
                 net_name,
-                timestamp: now_millis(),
+                timestamp: self.epoch_ms(),
             });
         }
         self.warn_unknown_places("");
@@ -779,7 +846,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 timed_out.clear();
                 self.backend.enforce_deadlines(cycle_now, &mut timed_out);
                 if E::ENABLED {
-                    let ts = now_millis();
+                    let ts = self.epoch_ms();
                     for &tid in &timed_out {
                         let name = Arc::clone(self.backend.compiled().transition(tid).name_arc());
                         self.event_store.append(NetEvent::TransitionTimedOut {
@@ -848,27 +915,59 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
 
             let timer_ms = self.backend.millis_until_next_timed_transition(cycle_now);
 
-            tokio::select! {
-                Some(completion) = completion_rx.recv() => {
-                    in_flight_count -= 1;
-                    self.handle_completion(completion);
-                }
-                Some(flush) = flush_rx.recv() => {
-                    self.handle_flush(flush);
-                }
-                result = signal_rx.recv(), if signal_channel_open && !closed => {
-                    match result {
-                        Some(signal) => {
-                            self.handle_signal(signal, &mut draining, &mut closed, &mut signal_rx);
+            // \[TIME-015\] The wait is "signal or timeout", and only the
+            // timeout half is the clock's. The three channel arms below are
+            // the wake-up half: a completing action, an injected event
+            // (\[ENV-005\]) or a close (\[ENV-013\]) wins the race whatever
+            // the clock does, so installing one cannot stall the
+            // orchestrator (AC#8). libpetri never silences these arms, so
+            // the cross-thread visibility precondition that delegating to a
+            // host readiness predicate would impose does not arise.
+            //
+            // The two branches exist so the default path keeps constructing
+            // `tokio::time::sleep` in place, un-boxed, exactly as it did
+            // before the seam (AC#9). Only an installed clock pays for the
+            // `dyn` future.
+            //
+            // `timer_ms <= 0` (boundary already due) reaches
+            // `Duration::from_millis(0)`, which completes immediately and
+            // lets the next cycle act on it — the short-circuit an injected
+            // clock must not change.
+            macro_rules! await_work {
+                ($timer:expr) => {
+                    tokio::select! {
+                        Some(completion) = completion_rx.recv() => {
+                            in_flight_count -= 1;
+                            self.handle_completion(completion);
                         }
-                        None => {
-                            signal_channel_open = false;
+                        Some(flush) = flush_rx.recv() => {
+                            self.handle_flush(flush);
                         }
+                        result = signal_rx.recv(), if signal_channel_open && !closed => {
+                            match result {
+                                Some(signal) => {
+                                    self.handle_signal(
+                                        signal,
+                                        &mut draining,
+                                        &mut closed,
+                                        &mut signal_rx,
+                                    );
+                                }
+                                None => {
+                                    signal_channel_open = false;
+                                }
+                            }
+                        }
+                        _ = $timer => {}
                     }
-                }
-                _ = tokio::time::sleep(std::time::Duration::from_millis(
+                };
+            }
+
+            match &clock {
+                None => await_work!(tokio::time::sleep(std::time::Duration::from_millis(
                     if timer_ms < f64::INFINITY { timer_ms as u64 } else { 60_000 }
-                )) => {}
+                ))),
+                Some(clock) => await_work!(clock.await_work_async(timer_ms)),
             }
         }
 
@@ -876,7 +975,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             let net_name: Arc<str> = self.backend.compiled().net().name().into();
             self.event_store.append(NetEvent::ExecutionCompleted {
                 net_name,
-                timestamp: now_millis(),
+                timestamp: self.epoch_ms(),
             });
         }
 
@@ -896,7 +995,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                     self.event_store.append(NetEvent::ActionTimedOut {
                         transition_name: Arc::clone(&completion.transition_name),
                         timeout_ms,
-                        timestamp: now_millis(),
+                        timestamp: self.epoch_ms(),
                     });
                 }
                 // [IO-015]: validate before producing. Skipped on the
@@ -932,7 +1031,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                     let event = if E::ENABLED {
                         Some(token_added_event::<E>(
                             Arc::clone(&entry.place_name),
-                            now_millis(),
+                            self.epoch_ms(),
                             &entry.token,
                         ))
                     } else {
@@ -947,7 +1046,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 if E::ENABLED && completion.timed_out.is_none() {
                     self.event_store.append(NetEvent::TransitionCompleted {
                         transition_name: Arc::clone(&completion.transition_name),
-                        timestamp: now_millis(),
+                        timestamp: self.epoch_ms(),
                     });
                 }
             }
@@ -956,7 +1055,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                     self.event_store.append(NetEvent::TransitionFailed {
                         transition_name: Arc::clone(&completion.transition_name),
                         error: err,
-                        timestamp: now_millis(),
+                        timestamp: self.epoch_ms(),
                     });
                 }
             }
@@ -972,7 +1071,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             let event = if E::ENABLED {
                 Some(token_added_event::<E>(
                     Arc::clone(&entry.place_name),
-                    now_millis(),
+                    self.epoch_ms(),
                     &entry.token,
                 ))
             } else {
@@ -1000,7 +1099,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 let captured = if E::ENABLED {
                     Some(token_added_event::<E>(
                         Arc::clone(&event.place_name),
-                        now_millis(),
+                        self.epoch_ms(),
                         &event.token,
                     ))
                 } else {
@@ -1021,7 +1120,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                     let captured = if E::ENABLED {
                         Some(token_added_event::<E>(
                             Arc::clone(&event.place_name),
-                            now_millis(),
+                            self.epoch_ms(),
                             &event.token,
                         ))
                     } else {
@@ -1081,7 +1180,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         if E::ENABLED {
             self.event_store.append(NetEvent::TransitionStarted {
                 transition_name: Arc::clone(&transition_name),
-                timestamp: now_millis(),
+                timestamp: self.epoch_ms(),
             });
         }
 
@@ -1111,6 +1210,9 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             }
             let fresh_name_fn = self.fresh_name_fn(tid, &transition_name);
             ctx.set_fresh_name_fn(fresh_name_fn);
+            if let Some(seam) = &self.clock {
+                ctx.set_epoch_fn(Arc::clone(&seam.epoch_fn));
+            }
             let result = action.run_sync(&mut ctx);
             self.reusable_inputs = ctx.take_inputs();
             self.reusable_reads = ctx.take_reads();
@@ -1125,7 +1227,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                             let event = if E::ENABLED {
                                 Some(token_added_event::<E>(
                                     Arc::clone(&entry.place_name),
-                                    now_millis(),
+                                    self.epoch_ms(),
                                     &entry.token,
                                 ))
                             } else {
@@ -1140,7 +1242,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                         if E::ENABLED {
                             self.event_store.append(NetEvent::TransitionCompleted {
                                 transition_name: Arc::clone(&transition_name),
-                                timestamp: now_millis(),
+                                timestamp: self.epoch_ms(),
                             });
                         }
                     } else if E::ENABLED {
@@ -1157,7 +1259,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                         self.event_store.append(NetEvent::TransitionFailed {
                             transition_name: Arc::clone(&transition_name),
                             error: err.message,
-                            timestamp: now_millis(),
+                            timestamp: self.epoch_ms(),
                         });
                     }
                 }
@@ -1212,6 +1314,9 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             }
             let fresh_name_fn = self.fresh_name_fn(tid, &transition_name);
             ctx.set_fresh_name_fn(fresh_name_fn);
+            if let Some(seam) = &self.clock {
+                ctx.set_epoch_fn(Arc::clone(&seam.epoch_fn));
+            }
 
             // Mid-action flush wiring: each fired async transition gets
             // a closure capturing its own name + a clone of flush_tx.
@@ -1227,6 +1332,10 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 });
             }));
 
+            // \[TIME-015\] AC#13: the spawned task outlives any borrow of `self`,
+            // so the epoch source is captured here. `None` when no clock is
+            // installed, and then the path is byte-identical to before.
+            let timeout_epoch_fn = self.clock.as_ref().map(|seam| Arc::clone(&seam.epoch_fn));
             tokio::spawn(async move {
                 let completion = if let Some((after_ms, timeout_child)) = timeout_info {
                     tokio::select! {
@@ -1239,6 +1348,13 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                                 result: Ok(crate::executor_core::output::timeout_outputs(
                                     &timeout_child,
                                     &forwarded_inputs,
+                                    // \[TIME-015\] AC#13: read at the instant the timeout
+                                    // fired. The context that normally carries the epoch
+                                    // source was dropped with the cancelled action.
+                                    match &timeout_epoch_fn {
+                                        Some(epoch_fn) => epoch_fn(),
+                                        None => now_millis(),
+                                    },
                                 )),
                                 flushed_places: HashSet::new(),
                                 timed_out: Some(after_ms),

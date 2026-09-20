@@ -54,6 +54,16 @@ impl ExecutorHandle {
     ///
     /// Returns `false` if the handle has been drained/closed or the channel is
     /// disconnected. O(1) — single channel send.
+    ///
+    /// \[TIME-015\] **Legal reentrantly**, including from inside an
+    /// [`ExecutorClock`](crate::clock::ExecutorClock)'s wait: the send is
+    /// non-blocking on an unbounded channel and only *enqueues*. The token
+    /// is admitted in the executor's own external-events phase
+    /// (\[EXEC-001\] step 2) on a following cycle, never at the point of
+    /// injection, so a host-driven run's admission order matches a default
+    /// run's. Inject and return — there is nothing here to await, by
+    /// design; see [`snapshot`](Self::snapshot) for the call that must not
+    /// be awaited there.
     pub fn inject(&mut self, place_name: Arc<str>, token: ErasedToken) -> bool {
         if self.drained {
             return false;
@@ -127,9 +137,40 @@ impl ExecutorHandle {
     /// is disconnected — in either case no snapshot will be delivered.
     ///
     /// Unlike `drain` / `close`, this does **not** affect lifecycle: the
-    /// executor keeps running. Use this for checkpoint-saver patterns where
-    /// the caller wants a consistent marking for persistence without
-    /// interrupting execution.
+    /// executor keeps running.
+    ///
+    /// # This is an observation, not a restore point
+    ///
+    /// \[ENV-014\] The snapshot is served from the orchestrator's cycle, but
+    /// nothing suspends the run to take it: an action may be **in flight**,
+    /// having already consumed its inputs and not yet produced its outputs.
+    /// Those tokens are in neither place at the instant you observe them, so
+    /// a marking captured then is not a valid point to resume from — restore
+    /// it and that work is simply gone.
+    ///
+    /// AC5/AC6 of \[ENV-014\] — refusing such a snapshot, reporting the
+    /// condition, or deferring until nothing is in flight — are **not
+    /// implemented** in any language. Until they are, treat this as
+    /// diagnostics and monitoring. For a restore point, snapshot a run that
+    /// has terminated.
+    ///
+    /// # Do not await this from inside the executor's wait
+    ///
+    /// \[TIME-015\] A host that installs an [`ExecutorClock`] is running
+    /// *on the orchestrator's own thread of control* while its wait is
+    /// parked. The task that would send on this receiver is that same
+    /// orchestrator, so awaiting it there parks the executor against
+    /// itself: no error, no timeout from libpetri's own machinery, and
+    /// nothing indicating what happened.
+    ///
+    /// [`inject`](Self::inject) and [`inject_many`](Self::inject_many) are
+    /// deliberately not awaitable for this reason — they return `bool` after
+    /// a non-blocking send and the tokens are admitted in the executor's own
+    /// external-events phase on a following cycle. `snapshot` is the one
+    /// call on this handle whose result must not be awaited from inside a
+    /// clock's wait.
+    ///
+    /// [`ExecutorClock`]: crate::clock::ExecutorClock
     // `Result<_, ()>` is intentional: the only failure is "snapshot cannot be
     // requested" (drained/closed or channel gone), which carries no payload.
     // `Err(())` keeps the `?`/`is_err()` ergonomics the sibling lifecycle

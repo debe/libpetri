@@ -15,11 +15,25 @@ use libpetri_core::petri_net::PetriNet;
 use libpetri_event::event_store::EventStore;
 
 use crate::bitmap_backend::BitmapBackend;
+use crate::clock::ExecutorClock;
 use crate::executor_core::executor::Executor;
 use crate::marking::Marking;
 
 /// Construction-time options for a [`BitmapNetExecutor`].
+///
+/// `#[non_exhaustive]`: this struct has gained an option at each of the last
+/// three releases (`environment_places` → `deadline_tolerance_ms` → `clock`),
+/// and every one of those was a breaking change for callers who wrote a
+/// struct literal. Construct it from [`Default`] and the consuming setters
+/// below instead, and the next option costs you nothing:
+///
+/// ```ignore
+/// ExecutorOptions::default()
+///     .clock(Arc::new(ManualClock::new()))
+///     .deadline_tolerance_ms(0.0)
+/// ```
 #[derive(Default)]
+#[non_exhaustive]
 pub struct ExecutorOptions {
     /// Names of places that receive externally-injected tokens (via
     /// `ExecutorSignal::Event` on the async path). Empty by default;
@@ -30,6 +44,46 @@ pub struct ExecutorOptions {
     /// [`DEADLINE_TOLERANCE_MS`](crate::executor_core::deadline) (5ms); `Some(0.0)` is strict.
     /// Should be non-negative. Does not affect `exact()` transitions, enforced softly (TIME-006).
     pub deadline_tolerance_ms: Option<f64>,
+    /// \[TIME-015\] Host time source for this executor. `None` (the default)
+    /// reads the real monotonic and wall clocks directly, with no
+    /// indirection on the hot path. Per executor, never per net — two
+    /// executors in one process run on independent clocks.
+    pub clock: Option<Arc<dyn ExecutorClock>>,
+}
+
+impl ExecutorOptions {
+    /// Names the places that receive externally-injected tokens
+    /// (`ExecutorSignal::Event` on the async path). When empty, the sync
+    /// loop terminates at quiescence.
+    pub fn environment_places<N: Into<Arc<str>>>(
+        mut self,
+        places: impl IntoIterator<Item = N>,
+    ) -> Self {
+        self.environment_places = places.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Sets the grace band (ms) beyond a hard deadline before a transition is
+    /// force-disabled with a `TransitionTimedOut` event (\[TIME-013\]).
+    /// `0.0` is strict; the default is
+    /// [`DEADLINE_TOLERANCE_MS`](crate::executor_core::deadline).
+    ///
+    /// A host verifying deadline behaviour under an injected clock should set
+    /// this to `0.0` — at its default it masks exactly the discrepancies a
+    /// virtual clock exists to expose (\[TIME-015\]).
+    pub fn deadline_tolerance_ms(mut self, ms: f64) -> Self {
+        debug_assert!(ms >= 0.0, "deadline tolerance must be non-negative: {ms}");
+        self.deadline_tolerance_ms = Some(ms);
+        self
+    }
+
+    /// Installs a host time source for this executor (\[TIME-015\]).
+    /// Absent one the executor reads the real monotonic and wall clocks
+    /// directly, with no indirection on the hot path.
+    pub fn clock(mut self, clock: Arc<dyn ExecutorClock>) -> Self {
+        self.clock = Some(clock);
+        self
+    }
 }
 
 /// Bitmap-based executor for Coloured Time Petri Nets.
@@ -55,7 +109,11 @@ impl<E: EventStore> Executor<BitmapBackend, E> {
             backend.set_deadline_tolerance_ms(ms);
         }
         let has_environment_places = !options.environment_places.is_empty();
-        Executor::from_parts(backend, E::default(), has_environment_places)
+        let mut executor = Executor::from_parts(backend, E::default(), has_environment_places);
+        if let Some(clock) = options.clock {
+            executor.set_clock(clock);
+        }
+        executor
     }
 }
 
@@ -619,6 +677,7 @@ mod async_tests {
             ExecutorOptions {
                 environment_places: ["p1"].iter().map(|s| Arc::from(*s)).collect(),
                 deadline_tolerance_ms: Some(400.0),
+                ..Default::default()
             },
         );
 

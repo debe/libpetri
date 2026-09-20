@@ -70,6 +70,7 @@ mod backend_suite_tests;
 mod differential_prop_tests;
 pub mod bitmap;
 pub mod bitmap_backend;
+pub mod clock;
 pub mod compiled_net;
 pub mod environment;
 pub mod executor;

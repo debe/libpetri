@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use libpetri_event::event_store::EventStore;
 
+use crate::clock::ExecutorClock;
 use crate::executor_core::executor::Executor;
 use crate::marking::Marking;
 use crate::precompiled_backend::PrecompiledBackend;
@@ -41,6 +42,7 @@ pub struct PrecompiledExecutorBuilder<'a, E: EventStore> {
     environment_places: HashSet<Arc<str>>,
     skip_output_validation: bool,
     deadline_tolerance_ms: Option<f64>,
+    clock: Option<Arc<dyn ExecutorClock>>,
 }
 
 impl<'a, E: EventStore> PrecompiledExecutorBuilder<'a, E> {
@@ -76,6 +78,14 @@ impl<'a, E: EventStore> PrecompiledExecutorBuilder<'a, E> {
         self
     }
 
+    /// Installs a host time source for this executor (\[TIME-015\]).
+    /// Absent one the executor reads the real monotonic and wall clocks
+    /// directly, with no indirection on the hot path.
+    pub fn clock(mut self, clock: Arc<dyn ExecutorClock>) -> Self {
+        self.clock = Some(clock);
+        self
+    }
+
     /// Builds the executor.
     pub fn build(self) -> PrecompiledNetExecutor<'a, E> {
         let mut backend = PrecompiledBackend::new(self.program, self.initial_marking);
@@ -89,6 +99,9 @@ impl<'a, E: EventStore> PrecompiledExecutorBuilder<'a, E> {
             has_environment_places,
         );
         executor.set_skip_output_validation(self.skip_output_validation);
+        if let Some(clock) = self.clock {
+            executor.set_clock(clock);
+        }
         executor
     }
 }
@@ -106,6 +119,7 @@ impl<'a, E: EventStore> Executor<PrecompiledBackend<'a>, E> {
             environment_places: HashSet::new(),
             skip_output_validation: false,
             deadline_tolerance_ms: None,
+            clock: None,
         }
     }
 

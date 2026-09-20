@@ -137,3 +137,66 @@ fn hand_written_transition_has_identity_correspondence() {
         .build();
     assert!(t.local_name_map().is_none());
 }
+
+/// Regression (MOD-031): a declared place whose composed name round-trips to
+/// the author's *own* declared name on one pass must still resolve after a
+/// LATER pass renames it.
+///
+/// Here `aDecl` is bound to a host place that happens to carry the same name,
+/// so pass 2's correspondence for it is `aDecl -> aDecl`. Wrapping that host
+/// as a subnet and instantiating it moves the place to `outer/aDecl`. The
+/// chained rewrite path deliberately does not walk arcs — it carries the prev
+/// map forward — so dropping the identity entry loses `aDecl` for good.
+///
+/// `bDecl` stays non-identity throughout: with an all-identity map the
+/// transition carries no map at all and the next pass self-heals via the arc
+/// walk, so only the *mixed* case exposes the loss.
+#[test]
+fn identity_correspondence_survives_a_later_renaming_pass() {
+    let a = Place::<String>::new("aDecl");
+    let b = Place::<String>::new("bDecl");
+    let call = Transition::builder("call")
+        .input(one(&a))
+        .input(one(&b))
+        .build();
+    let def = SubnetDef::<()>::builder("Step")
+        .place(&a)
+        .place(&b)
+        .transition(call)
+        .input_port("a", &a)
+        .build();
+
+    // Host place carries the subnet's own declared name: binding port "a"
+    // rewrites `inst/aDecl` back to `aDecl`, an identity correspondence.
+    let host_a = Place::<String>::new("aDecl");
+    let inst = def.instantiate_unit("inst");
+    let host = PetriNet::builder("Host")
+        .place(host_a.as_ref())
+        .compose_with(&inst, |bind| {
+            bind.bind_port::<String>("a", &host_a);
+        })
+        .build();
+
+    let mid = find_t(&host, "inst/call");
+    assert_eq!(alias_of(mid, "bDecl").as_deref(), Some("inst/bDecl"));
+    assert_eq!(
+        alias_of(mid, "aDecl").as_deref(),
+        Some("aDecl"),
+        "identity correspondence must be recorded, not dropped"
+    );
+
+    // Retrofit the host as a subnet and instantiate it: now `aDecl` moves.
+    let outer_def = SubnetDef::from_net(
+        host,
+        Interface::builder().input_port("a", &host_a).build(),
+    );
+    let outer_inst = outer_def.instantiate_unit("outer");
+    let t = find_t(outer_inst.renamed_body(), "outer/inst/call");
+
+    assert_eq!(
+        alias_of(t, "aDecl").as_deref(),
+        Some("outer/aDecl"),
+        "declared place lost its correspondence across the identity pass"
+    );
+    assert_eq!(alias_of(t, "bDecl").as_deref(), Some("outer/inst/bDecl"));
+}

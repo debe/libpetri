@@ -30,6 +30,9 @@ use crate::error::panic_to_py;
 use crate::executor::PyCompiledNet;
 use crate::value::PyTokenValue;
 
+use libpetri::core::interface::{Channel, Interface, Port};
+use libpetri::core::petri_net::PetriNetBuilder;
+
 /// A typed-but-runtime-untyped token container.
 ///
 /// Constructed as `Place("name")`. Identity is by name. Tokens deposited in a
@@ -44,6 +47,14 @@ pub struct PyPlace {
 impl PyPlace {
     pub fn place(&self) -> &Place<PyTokenValue> {
         &self.inner
+    }
+
+    /// Rebuilds a handle from a (possibly composition-prefixed) place name.
+    /// Place identity is by name, so this round-trips faithfully.
+    pub(crate) fn from_name(name: &str) -> Self {
+        Self {
+            inner: Place::new(name),
+        }
     }
 }
 
@@ -172,6 +183,10 @@ pub struct PyTransition {
 impl PyTransition {
     pub fn transition(&self) -> &Transition {
         &self.inner
+    }
+
+    pub(crate) fn from_rust(inner: Transition) -> Self {
+        Self { inner }
     }
 }
 
@@ -428,6 +443,30 @@ impl PyPetriNet {
         self.inner.name().to_string()
     }
 
+    /// The net's places, in declaration order.
+    ///
+    /// Composition prefixes place names, so this is how you name a composed
+    /// place when building an `Interface` over an already-composed net
+    /// (see `SubnetDef.from_net`).
+    #[getter]
+    fn places(&self) -> Vec<PyPlace> {
+        self.inner
+            .places()
+            .iter()
+            .map(|p| PyPlace::from_name(p.name()))
+            .collect()
+    }
+
+    /// The net's transitions, in declaration order.
+    #[getter]
+    fn transitions(&self) -> Vec<PyTransition> {
+        self.inner
+            .transitions()
+            .iter()
+            .map(|t| PyTransition::from_rust(t.clone()))
+            .collect()
+    }
+
     /// Precompiles the net for fast execution. Raises `StructureError` if a transition
     /// declares an output spec but carries the built-in `passthrough` (**CORE-043**).
     fn compile(&self) -> PyResult<PyCompiledNet> {
@@ -578,6 +617,148 @@ impl PyInstance {
     }
 }
 
+/// A subnet's declared boundary — its ports and channels — built
+/// independently of any body.
+///
+/// `SubnetDefBuilder` declares a boundary and a body together, which is the
+/// common case. You need a standalone `Interface` for the other one:
+/// retrofitting an **already-composed** net as a subnet via
+/// `SubnetDef.from_net`, which is what makes a third composition pass (and
+/// therefore MOD-013 nested instantiation) reachable.
+#[pyclass(module = "_libpetri", name = "Interface", from_py_object)]
+#[derive(Clone)]
+pub struct PyInterface {
+    pub(crate) inner: Interface,
+}
+
+#[pymethods]
+impl PyInterface {
+    /// Number of declared ports.
+    #[getter]
+    fn port_count(&self) -> usize {
+        self.inner.port_count()
+    }
+
+    /// Number of declared channels.
+    #[getter]
+    fn channel_count(&self) -> usize {
+        self.inner.channel_count()
+    }
+
+    /// The declared ports as `Port` descriptors.
+    fn ports(&self) -> Vec<PyPort> {
+        self.inner.ports().map(PyPort::from_rust).collect()
+    }
+
+    /// The declared channels as `Channel` descriptors.
+    fn channels(&self) -> Vec<PyChannel> {
+        self.inner.channels().map(PyChannel::from_rust).collect()
+    }
+
+    /// One port by name, or `None`.
+    fn port(&self, name: &str) -> Option<PyPort> {
+        self.inner.port(name).map(PyPort::from_rust)
+    }
+
+    /// One channel by name, or `None`.
+    fn channel(&self, name: &str) -> Option<PyChannel> {
+        self.inner.channel(name).map(PyChannel::from_rust)
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "Interface(ports={}, channels={})",
+            self.inner.port_count(),
+            self.inner.channel_count()
+        )
+    }
+}
+
+/// Fluent builder for an `Interface`. Declare ports and channels, then `.build()`.
+#[pyclass(module = "_libpetri", name = "InterfaceBuilder")]
+pub struct PyInterfaceBuilder {
+    ports: Vec<Port>,
+    channels: Vec<Channel>,
+}
+
+#[pymethods]
+impl PyInterfaceBuilder {
+    #[new]
+    fn new() -> Self {
+        Self {
+            ports: Vec::new(),
+            channels: Vec::new(),
+        }
+    }
+
+    /// Exposes `place` as an input port named `name`.
+    fn input_port(slf: Py<Self>, py: Python<'_>, name: String, place: &PyPlace) -> Py<Self> {
+        slf.borrow_mut(py)
+            .ports
+            .push(Port::new(name, PortDirection::Input, place.place()));
+        slf
+    }
+
+    /// Exposes `place` as an output port named `name`.
+    fn output_port(slf: Py<Self>, py: Python<'_>, name: String, place: &PyPlace) -> Py<Self> {
+        slf.borrow_mut(py)
+            .ports
+            .push(Port::new(name, PortDirection::Output, place.place()));
+        slf
+    }
+
+    /// Exposes `place` as a bidirectional port named `name`.
+    fn inout_port(slf: Py<Self>, py: Python<'_>, name: String, place: &PyPlace) -> Py<Self> {
+        slf.borrow_mut(py)
+            .ports
+            .push(Port::new(name, PortDirection::InOut, place.place()));
+        slf
+    }
+
+    /// Exposes `transition` as a synchronous channel named `name` (MOD-005).
+    fn channel(slf: Py<Self>, py: Python<'_>, name: String, t: &PyTransition) -> Py<Self> {
+        slf.borrow_mut(py)
+            .channels
+            .push(Channel::new(name, t.transition()));
+        slf
+    }
+
+    /// Exposes a channel by the transition's **name** rather than an object.
+    ///
+    /// Channels carry the transition's name, not its identity, so this is
+    /// equivalent to `channel(...)` — and it is the only route available over
+    /// an already-composed net, whose transitions carry instance-prefixed
+    /// names (`inner/attempt`) the caller may hold no object for.
+    fn channel_by_name(
+        slf: Py<Self>,
+        py: Python<'_>,
+        name: String,
+        transition_name: String,
+    ) -> Py<Self> {
+        slf.borrow_mut(py)
+            .channels
+            .push(Channel::from_names(name, transition_name));
+        slf
+    }
+
+    /// Builds the immutable `Interface`. Raises on duplicate port or channel names.
+    fn build(&self) -> PyResult<PyInterface> {
+        let ports = self.ports.clone();
+        let channels = self.channels.clone();
+        let inner = panic_to_py(move || {
+            let mut builder = Interface::builder();
+            for port in ports {
+                builder = builder.port(port);
+            }
+            for channel in channels {
+                builder = builder.channel(channel);
+            }
+            builder.build()
+        })?;
+        Ok(PyInterface { inner })
+    }
+}
+
 /// A reusable subnet definition with named ports and channels. Build via `SubnetDefBuilder(name)`.
 #[pyclass(module = "_libpetri", name = "SubnetDef", from_py_object)]
 #[derive(Clone)]
@@ -619,6 +800,27 @@ impl PySubnetDef {
             .collect()
     }
 
+    /// Retrofits an already-built `Net` as a reusable subnet, exposing the
+    /// boundary `interface` declares over its places and transitions.
+    ///
+    /// This is what makes a **third** composition pass reachable: compose a
+    /// subnet into a host, wrap the result with `from_net`, then instantiate
+    /// *that* under a second prefix. Nested instantiation (MOD-013) is
+    /// exactly this shape, and so is the identity-round-trip case of
+    /// MOD-031 AC#8.
+    ///
+    /// `interface` must name places and transitions the net actually
+    /// contains — after composition those carry instance prefixes, so read
+    /// them off `net.places` / `net.transitions`, or use
+    /// `InterfaceBuilder.channel_by_name` for a prefixed transition.
+    #[staticmethod]
+    fn from_net(net: &PyPetriNet, interface: &PyInterface) -> PyResult<PySubnetDef> {
+        let body = net.net().clone();
+        let iface = interface.inner.clone();
+        let inner = panic_to_py(move || SubnetDef::from_net(body, iface))?;
+        Ok(PySubnetDef { inner })
+    }
+
     /// Instantiates the subnet under `prefix`, returning an `Instance` whose
     /// place / transition names are prefix-namespaced.
     fn instantiate(&self, prefix: &str) -> PyResult<PyInstance> {
@@ -633,26 +835,112 @@ impl PySubnetDef {
 /// `port_name -> PlaceRef` form. Shared by `compose` and `compose_instance`.
 fn parse_port_bindings(
     port_bindings: &Bound<'_, PyAny>,
-) -> PyResult<HashMap<Arc<str>, libpetri::PlaceRef>> {
+) -> PyResult<Vec<(Arc<str>, Place<PyTokenValue>)>> {
     let dict = port_bindings
         .cast::<PyDict>()
         .map_err(|_| PyTypeError::new_err("port_bindings must be a dict[str, Place]"))?;
 
-    let mut bindings: HashMap<Arc<str>, libpetri::PlaceRef> = HashMap::new();
+    let mut bindings = Vec::with_capacity(dict.len());
     for (port_name_obj, place_obj) in dict.iter() {
         let port_name: String = port_name_obj.extract()?;
         let place: PyRef<'_, PyPlace> = place_obj.extract()?;
-        bindings.insert(Arc::<str>::from(port_name), place.place().as_ref());
+        bindings.push((Arc::<str>::from(port_name), place.place().clone()));
     }
     Ok(bindings)
 }
 
+/// Parses a `dict[str, Transition]` channel-binding mapping (MOD-021): each
+/// entry fuses a caller-side transition with the instance-side transition the
+/// named channel exports. Shared by `compose` and `compose_instance`.
+fn parse_channel_bindings(
+    channel_bindings: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Vec<(Arc<str>, Transition)>> {
+    let Some(obj) = channel_bindings else {
+        return Ok(Vec::new());
+    };
+    let dict = obj
+        .cast::<PyDict>()
+        .map_err(|_| PyTypeError::new_err("channel_bindings must be a dict[str, Transition]"))?;
+
+    let mut bindings = Vec::with_capacity(dict.len());
+    for (channel_name_obj, transition_obj) in dict.iter() {
+        let channel_name: String = channel_name_obj.extract()?;
+        let t: PyRef<'_, PyTransition> = transition_obj.extract()?;
+        bindings.push((Arc::<str>::from(channel_name), t.transition().clone()));
+    }
+    Ok(bindings)
+}
+
+/// Applies port and channel bindings through the core's `compose_with` seam.
+///
+/// Both binding kinds panic in the core on a duplicate name, so the whole
+/// closure runs under `panic_to_py` — a Python caller gets a `ValueError`,
+/// not an abort.
+fn compose_bound(
+    builder: PetriNetBuilder,
+    instance: &libpetri::core::instance::Instance<()>,
+    ports: Vec<(Arc<str>, Place<PyTokenValue>)>,
+    channels: Vec<(Arc<str>, Transition)>,
+) -> PyResult<PetriNetBuilder> {
+    panic_to_py(move || {
+        builder.compose_with(instance, |b| {
+            for (port_name, place) in &ports {
+                b.bind_port::<PyTokenValue>(Arc::clone(port_name), place);
+            }
+            for (channel_name, transition) in &channels {
+                b.bind_channel(Arc::clone(channel_name), transition);
+            }
+        })
+    })
+}
+
 /// Fluent builder for a `Net`. Add places, transitions, or composed subnets, then `.build()`.
+///
+/// Holds the **accumulating** core `PetriNetBuilder` rather than raw place and
+/// transition vectors. The difference is asymptotic: the previous shape
+/// rebuilt the entire net on every `compose` — cloning both accumulated
+/// vectors and running a full `build()` — so composing n instances cost
+/// O(n²). The other three languages thread one builder through and validate
+/// once; this now does the same, and `compose` is O(size of the instance).
 #[pyclass(module = "_libpetri", name = "NetBuilder")]
 pub struct PyPetriNetBuilder {
-    name: String,
-    places: Vec<libpetri::PlaceRef>,
-    transitions: Vec<Transition>,
+    /// `None` only if an earlier `compose` unwound while the builder was
+    /// moved into the merge — see [`PyPetriNetBuilder::take_builder`].
+    inner: Option<PetriNetBuilder>,
+}
+
+impl PyPetriNetBuilder {
+    /// Moves the accumulating builder out. The core's builder methods consume
+    /// `self` and hand it back, so every mutation is a take-and-reinstate.
+    fn take_builder(&mut self) -> PyResult<PetriNetBuilder> {
+        self.inner.take().ok_or_else(|| {
+            PyValueError::new_err(
+                "NetBuilder is unusable: an earlier compose() failed while merging, so \
+                 the partially-composed net was discarded rather than left in an \
+                 undefined state. Start from a fresh NetBuilder.",
+            )
+        })
+    }
+
+    /// Rejects unknown port and channel names *before* the builder is moved,
+    /// so the common authoring mistake is reported at this call site — not
+    /// deferred to `build()`, and not at the cost of the accumulated net.
+    /// O(bindings), independent of what has been composed so far.
+    fn validate_binding_names(
+        instance: &libpetri::core::instance::Instance<()>,
+        ports: &[(Arc<str>, Place<PyTokenValue>)],
+        channels: &[(Arc<str>, Transition)],
+    ) -> PyResult<()> {
+        panic_to_py(|| {
+            for (port_name, _) in ports {
+                // Also runtime-checks the declared token type.
+                let _ = instance.port::<PyTokenValue>(port_name);
+            }
+            for (channel_name, _) in channels {
+                let _ = instance.channel(channel_name);
+            }
+        })
+    }
 }
 
 #[pymethods]
@@ -661,9 +949,7 @@ impl PyPetriNetBuilder {
     #[new]
     fn new(name: String) -> Self {
         Self {
-            name,
-            places: Vec::new(),
-            transitions: Vec::new(),
+            inner: Some(PetriNet::builder(name)),
         }
     }
 
@@ -671,7 +957,8 @@ impl PyPetriNetBuilder {
     fn place(slf: Py<Self>, py: Python<'_>, place: &PyPlace) -> PyResult<Py<Self>> {
         {
             let mut this = slf.borrow_mut(py);
-            this.places.push(place.place().as_ref());
+            let builder = this.take_builder()?;
+            this.inner = Some(builder.place(place.place().as_ref()));
         }
         Ok(slf)
     }
@@ -680,88 +967,87 @@ impl PyPetriNetBuilder {
     fn transition(slf: Py<Self>, py: Python<'_>, t: &PyTransition) -> PyResult<Py<Self>> {
         {
             let mut this = slf.borrow_mut(py);
-            this.transitions.push(t.transition().clone());
+            let builder = this.take_builder()?;
+            this.inner = Some(builder.transition(t.transition().clone()));
         }
         Ok(slf)
     }
 
     /// Composes a subnet into this net under `instance_name`, gluing the
-    /// subnet's ports to the host's places via the `port_bindings` dict.
+    /// subnet's ports to the host's places via the `port_bindings` dict, and
+    /// optionally fusing caller-side transitions onto the subnet's exported
+    /// channels via `channel_bindings` (MOD-021).
+    #[pyo3(signature = (instance_name, subnet, port_bindings, channel_bindings = None))]
     fn compose(
         slf: Py<Self>,
         py: Python<'_>,
         instance_name: String,
         subnet: &PySubnetDef,
         port_bindings: &Bound<'_, PyAny>,
+        channel_bindings: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<Self>> {
-        let bindings = parse_port_bindings(port_bindings)?;
+        let ports = parse_port_bindings(port_bindings)?;
+        let channels = parse_channel_bindings(channel_bindings)?;
 
         let prefix_arc = Arc::<str>::from(instance_name);
         let subnet_inner = subnet.inner.clone();
         let instance = panic_to_py(|| subnet_inner.instantiate(prefix_arc, ()))?;
-        let composed = {
-            let this = slf.borrow(py);
-            panic_to_py(|| {
-                PetriNet::builder(this.name.clone())
-                    .places(this.places.clone())
-                    .transitions(this.transitions.clone())
-                    .compose(&instance, bindings)
-                    .build()
-            })?
-        };
+        Self::validate_binding_names(&instance, &ports, &channels)?;
 
         {
             let mut this = slf.borrow_mut(py);
-            this.places = composed.places().to_vec();
-            this.transitions = composed.transitions().to_vec();
+            let builder = this.take_builder()?;
+            this.inner = Some(compose_bound(builder, &instance, ports, channels)?);
         }
         Ok(slf)
     }
 
     /// Composes a pre-built `Instance` into this net, gluing the instance's
-    /// ports to the host's places via `port_bindings`. The instance already
-    /// carries its prefix, so no name is passed here.
+    /// ports to the host's places via `port_bindings` and its channels via
+    /// `channel_bindings`. The instance already carries its prefix, so no name
+    /// is passed here.
     ///
     /// Use this when you need per-instance action binding before composition —
     /// `subnet.instantiate(prefix).bind_actions({...})` returns an `Instance`
     /// whose actions resolve their author-local places after the merge (MOD-030
     /// / MOD-031). For the common no-binding case, `compose(name, subnet,
     /// bindings)` is the one-step shortcut.
+    #[pyo3(signature = (instance, port_bindings, channel_bindings = None))]
     fn compose_instance(
         slf: Py<Self>,
         py: Python<'_>,
         instance: &PyInstance,
         port_bindings: &Bound<'_, PyAny>,
+        channel_bindings: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<Self>> {
-        let bindings = parse_port_bindings(port_bindings)?;
+        let ports = parse_port_bindings(port_bindings)?;
+        let channels = parse_channel_bindings(channel_bindings)?;
 
         let instance_inner = instance.inner.clone();
-        let composed = {
-            let this = slf.borrow(py);
-            panic_to_py(|| {
-                PetriNet::builder(this.name.clone())
-                    .places(this.places.clone())
-                    .transitions(this.transitions.clone())
-                    .compose(&instance_inner, bindings)
-                    .build()
-            })?
-        };
+        Self::validate_binding_names(&instance_inner, &ports, &channels)?;
 
         {
             let mut this = slf.borrow_mut(py);
-            this.places = composed.places().to_vec();
-            this.transitions = composed.transitions().to_vec();
+            let builder = this.take_builder()?;
+            this.inner = Some(compose_bound(builder, &instance_inner, ports, channels)?);
         }
         Ok(slf)
     }
 
     /// Builds the immutable `Net`.
-    fn build(&self) -> PyPetriNet {
-        let net = PetriNet::builder(self.name.clone())
-            .places(self.places.clone())
-            .transitions(self.transitions.clone())
-            .build();
-        PyPetriNet { inner: net }
+    ///
+    /// Non-consuming: the accumulated builder is cloned, so the `NetBuilder`
+    /// stays usable and `build()` may be called more than once. This is the
+    /// single O(net) step of a composition sequence.
+    fn build(&self) -> PyResult<PyPetriNet> {
+        let builder = self.inner.clone().ok_or_else(|| {
+            PyValueError::new_err(
+                "NetBuilder is unusable: an earlier compose() failed while merging. \
+                 Start from a fresh NetBuilder.",
+            )
+        })?;
+        let net = panic_to_py(move || builder.build())?;
+        Ok(PyPetriNet { inner: net })
     }
 }
 
@@ -1082,6 +1368,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPetriNet>()?;
     m.add_class::<PyPort>()?;
     m.add_class::<PyChannel>()?;
+    m.add_class::<PyInterface>()?;
+    m.add_class::<PyInterfaceBuilder>()?;
     m.add_class::<PySubnetInstance>()?;
     m.add_class::<PyInstance>()?;
     m.add_class::<PySubnetDef>()?;

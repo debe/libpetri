@@ -25,6 +25,12 @@ static GLOBAL_FRESH_NAME_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// not install one — sync actions complete before they can flush.
 pub type FlushFn = Arc<dyn Fn(Vec<OutputEntry>) + Send + Sync>;
 
+/// Epoch-clock source for tokens this context produces (\[TIME-015\]).
+/// Wall-clock milliseconds since the Unix epoch. Installed by the executor
+/// when a host clock is present; absent, `created_at` is stamped from
+/// [`crate::token::now_millis`] exactly as before.
+pub type EpochFn = Arc<dyn Fn() -> u64 + Send + Sync>;
+
 /// An output entry: place name + erased token.
 #[derive(Debug, Clone)]
 pub struct OutputEntry {
@@ -53,6 +59,11 @@ pub struct TransitionContext {
     /// Optional ν-name minter installed by the executor. When absent,
     /// [`fresh_name`](Self::fresh_name) falls back to a process-global counter.
     fresh_name_fn: Option<FreshNameFn>,
+    /// Optional epoch-clock source installed by the executor
+    /// (\[TIME-015\]). When present, every token this context produces is
+    /// stamped through it instead of the wall clock, so a host running on
+    /// a virtual or replayed clock gets reproducible `created_at` values.
+    epoch_fn: Option<EpochFn>,
     /// Optional author-local → composed-name map. Inherited from the
     /// transition's [`crate::transition::Transition::local_name_map`].
     /// Bindings use it to fall back from a local-name lookup to the
@@ -87,6 +98,7 @@ impl TransitionContext {
             log_fn,
             flush_fn: None,
             fresh_name_fn: None,
+            epoch_fn: None,
             local_name_map: None,
             flushed_places: HashSet::new(),
         }
@@ -104,6 +116,29 @@ impl TransitionContext {
     #[doc(hidden)]
     pub fn set_local_name_map(&mut self, map: Arc<HashMap<Arc<str>, Arc<str>>>) {
         self.local_name_map = Some(map);
+    }
+
+    /// Installs the epoch-clock source for tokens produced through this
+    /// context (\[TIME-015\]). Wired by the executor at firing time when a
+    /// host clock is installed.
+    ///
+    /// **Not part of the user-facing API.** It exists so the runtime crate
+    /// (a different compilation unit than libpetri-core) can route token
+    /// stamping through the executor's clock.
+    #[doc(hidden)]
+    pub fn set_epoch_fn(&mut self, epoch_fn: EpochFn) {
+        self.epoch_fn = Some(epoch_fn);
+    }
+
+    /// Wall-clock milliseconds for a token produced right now — through the
+    /// installed epoch clock if there is one (\[TIME-015\]), else the real
+    /// wall clock.
+    #[inline]
+    fn epoch_now(&self) -> u64 {
+        match &self.epoch_fn {
+            Some(epoch_fn) => epoch_fn(),
+            None => crate::token::now_millis(),
+        }
     }
 
     /// Returns a clone of the installed local-name map (cheap — `Arc`
@@ -334,11 +369,12 @@ impl TransitionContext {
         value: T,
     ) -> Result<(), ActionError> {
         let name = self.require_output(place_name)?;
+        let created_at = self.epoch_now();
         self.outputs.push(OutputEntry {
             place_name: name,
             token: ErasedToken {
                 value: Arc::new(value),
-                created_at: crate::token::now_millis(),
+                created_at,
                 value_type_name: std::any::type_name::<T>(),
             },
         });
@@ -352,11 +388,12 @@ impl TransitionContext {
         value: Arc<dyn Any + Send + Sync>,
     ) -> Result<(), ActionError> {
         let name = self.require_output(place_name)?;
+        let created_at = self.epoch_now();
         self.outputs.push(OutputEntry {
             place_name: name,
             token: ErasedToken {
                 value,
-                created_at: crate::token::now_millis(),
+                created_at,
                 // Raw path has already erased the static type — best we can surface.
                 value_type_name: "dyn Any",
             },
@@ -392,7 +429,7 @@ impl TransitionContext {
         let iter = values.into_iter();
         let (lower, _) = iter.size_hint();
         self.outputs.reserve(lower);
-        let created_at = crate::token::now_millis();
+        let created_at = self.epoch_now();
         for value in iter {
             self.outputs.push(OutputEntry {
                 place_name: Arc::clone(&name),

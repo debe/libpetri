@@ -361,13 +361,25 @@ fn cap_multiplicity<M: Mask>(buf: &mut Vec<M>, start: usize) {
 ///
 /// Only reachable from the async (`tokio`) path; gated so feature-free
 /// builds don't flag it as dead code.
+/// `epoch_ms` is the wall-clock stamp for tokens this path *mints*
+/// (\[TIME-015\] AC#13). It is read once, at the instant the timeout fired,
+/// and threaded in rather than taken from a clock here: these tokens are
+/// synthesised after the action's [`TransitionContext`] — which carries the
+/// executor's epoch source — has been severed by the cancellation, so this
+/// is the one executor-produced token path that cannot reach the context.
+/// That is exactly why it was missed: nobody writes these tokens.
+///
+/// Forwarded tokens are **not** re-stamped. They were consumed from the
+/// marking and already carry a `created_at`; re-stamping them would defeat
+/// \[CORE-073\] restore, which preserves it on purpose.
 #[cfg(feature = "tokio")]
 pub(crate) fn timeout_outputs(
     child: &Out,
     forwarded: &HashMap<Arc<str>, Vec<ErasedToken>>,
+    epoch_ms: u64,
 ) -> Vec<OutputEntry> {
     let mut out = Vec::new();
-    collect_timeout_outputs(child, forwarded, &mut out);
+    collect_timeout_outputs(child, forwarded, epoch_ms, &mut out);
     out
 }
 
@@ -375,11 +387,12 @@ pub(crate) fn timeout_outputs(
 fn collect_timeout_outputs(
     out: &Out,
     forwarded: &HashMap<Arc<str>, Vec<ErasedToken>>,
+    epoch_ms: u64,
     result: &mut Vec<OutputEntry>,
 ) {
     match out {
         Out::Place(p) => {
-            let token = ErasedToken::from_typed(&Token::new(()));
+            let token = ErasedToken::from_typed(&Token::at((), epoch_ms));
             result.push(OutputEntry {
                 place_name: Arc::clone(p.name_arc()),
                 token,
@@ -387,7 +400,7 @@ fn collect_timeout_outputs(
         }
         Out::And(children) => {
             for c in children {
-                collect_timeout_outputs(c, forwarded, result);
+                collect_timeout_outputs(c, forwarded, epoch_ms, result);
             }
         }
         Out::Xor(_) => {
