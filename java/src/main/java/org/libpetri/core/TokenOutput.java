@@ -33,6 +33,37 @@ public final class TokenOutput {
     private final List<Entry> entries = new ArrayList<>();
 
     /**
+     * Epoch clock stamping tokens built from a raw value, or {@code null} for
+     * {@link Token#of(Object)} (wall clock).
+     *
+     * <p>This is the <b>token-stamping boundary</b> of <b>TIME-015</b>. A transition action
+     * reaches the executor's epoch clock only through here: {@link #add(Place, Object)}
+     * constructs the {@link Token} itself, so there is no other interception point between
+     * {@code ctx.output(place, value)} and the produced marking. Tokens the caller has
+     * already built ({@link #add(Place, Token)}) carry their own timestamp and are passed
+     * through untouched — the host stamped those.
+     *
+     * <p>Null rather than a default supplier: the standalone path then pays a predictable
+     * branch instead of an indirection, per TIME-015's zero-cost-when-unused rule.
+     */
+    private final java.util.function.Supplier<java.time.Instant> clock;
+
+    /** Creates a collector stamping tokens with the wall clock. */
+    public TokenOutput() {
+        this.clock = null;
+    }
+
+    /**
+     * Creates a collector stamping tokens from a host-supplied epoch clock, without
+     * changing the standalone token-creation path (<b>TIME-015</b>).
+     *
+     * @param clock the epoch clock; must not be null
+     */
+    public TokenOutput(java.util.function.Supplier<java.time.Instant> clock) {
+        this.clock = java.util.Objects.requireNonNull(clock, "clock");
+    }
+
+    /**
      * Once true, further writes are rejected and counted instead of appended.
      *
      * <p>Volatile so the abandoned action's thread observes the flag promptly. The executor
@@ -50,6 +81,22 @@ public final class TokenOutput {
     private volatile int discardedWrites = 0;
 
     /**
+     * A fresh, empty collector stamping through the <b>same</b> epoch clock as this one.
+     *
+     * <p>Exists for {@link TransitionContext#detachForTimeout()}, which replaces the harvested
+     * collector when an action times out. Building a bare {@code new TokenOutput()} there
+     * silently drops the clock, so every recovery token would carry wall time under an injected
+     * clock — at precisely the moment [TIME-015] AC#13 is under test. The timeout path is the
+     * one place tokens are minted somewhere other than the collector the executor handed the
+     * action, which is what makes it easy to miss.
+     *
+     * @return an empty collector with this one's clock
+     */
+    public TokenOutput freshWithSameClock() {
+        return clock == null ? new TokenOutput() : new TokenOutput(clock);
+    }
+
+    /**
      * Add a token to an output place.
      *
      * @param place the output place
@@ -58,7 +105,7 @@ public final class TokenOutput {
      */
     public <T> TokenOutput add(Place<T> place, T value) {
         if (detached) { discardedWrites++; return this; }
-        entries.add(new Entry(place, Token.of(value)));
+        entries.add(new Entry(place, clock == null ? Token.of(value) : new Token<>(value, clock.get())));
         return this;
     }
 

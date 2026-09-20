@@ -353,7 +353,9 @@ public final class TransitionContext {
      */
     public void detachForTimeout() {
         writeTarget.detach();
-        rawOutput = new TokenOutput();
+        // Same clock, not a bare collector: the recovery tokens harvested from this are
+        // executor-produced and must follow the injected epoch clock ([TIME-015] AC#13).
+        rawOutput = writeTarget.freshWithSameClock();
     }
 
     /**

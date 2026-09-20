@@ -94,6 +94,19 @@ public interface PetriNetExecutor extends AutoCloseable {
 
     <T> void injectAsync(EnvironmentPlace<T> place, Token<T> token);
 
+    /**
+     * Why the last run stopped, per <b>EXEC-041</b>.
+     *
+     * <p>The marking returned by {@link #run()} says what the net <i>holds</i>, not whether the
+     * run <i>finished</i>. Only {@link TerminationReason#QUIESCENT} means it is a final marking;
+     * any other value means the run was truncated and the marking is partial. A consumer that
+     * treats completion as proof the run finished — a durable checkpoint, a workflow step, an
+     * assertion on the final marking — must consult this.
+     *
+     * @return the reason, or {@link TerminationReason#RUNNING} before the first run completes
+     */
+    TerminationReason terminationReason();
+
     boolean isQuiescent();
 
     boolean isWaitingForCompletion();

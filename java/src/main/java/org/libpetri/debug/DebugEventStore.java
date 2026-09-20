@@ -48,6 +48,14 @@ import org.libpetri.event.NetEvent;
  * var recentEvents = debugStore.eventsSince(Instant.now().minusSeconds(60));
  * }</pre>
  *
+ * <p><b>The bound must come from the same clock the executor was given.</b> {@code eventsSince}
+ * and {@code eventsBetween} compare against each event's own timestamp, and under an injected
+ * clock ([TIME-015]) those are stamped from the host's epoch source — so a wall-clock bound like
+ * the one above silently matches nothing when the executor runs on virtual time. Use the
+ * injected environment's own epoch source to build the bound — {@code env.now().minusSeconds(60)}
+ * where {@code env} is the {@link org.libpetri.runtime.ExecutionEnvironment} the executor was
+ * built with — or an absolute instant you know that clock produced.
+ *
  * <h2>Thread Safety</h2>
  * <p>{@link #append(NetEvent)} is called from multiple threads concurrently:
  * <ul>

@@ -255,6 +255,21 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
 
     private final boolean skipOutputValidation;
 
+    /** Stable per-executor id ([EXEC-041] diagnostics); see {@link #executionId()}. */
+    private final String executionId = ExecutorSupport.nextExecutionId();
+
+    /** Set when the wait itself was interrupted, so the finally can report INTERRUPTED. */
+    private volatile boolean interruptedDuringWait = false;
+
+    /** Why the last run stopped ([EXEC-041] AC#3). */
+    private volatile TerminationReason terminationReason = TerminationReason.RUNNING;
+
+    /** Host-supplied clock and cooperative wait, or null for the default sources ([TIME-015]). */
+    private final ExecutionEnvironment environment;
+
+    /** Cached so the hosted wait does not allocate a lambda per cycle. */
+    private final java.util.function.BooleanSupplier workReady = this::hasHostWork;
+
     /** Grace band (ms) before a hard deadline ({@code deadline()}/{@code window()}) force-disables. */
     private final long deadlineToleranceMillis;
 
@@ -268,8 +283,10 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         boolean skipOutputValidation,
         long deadlineToleranceMillis,
         ActionFailureHandler uncaughtActionHandler,
-        boolean ownsExecutor
+        boolean ownsExecutor,
+        ExecutionEnvironment environment
     ) {
+        this.environment = environment;
         this.program = program;
         this.eventStore = eventStore;
         this.executor = executor;
@@ -280,7 +297,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         this.executionContextProvider = executionContextProvider;
         this.skipOutputValidation = skipOutputValidation;
         this.deadlineToleranceMillis = deadlineToleranceMillis;
-        this.startNanos = System.nanoTime();
+        this.startNanos = clockNanos();
 
         this.eventStoreEnabled = eventStore.isEnabled();
         this.trackConsumed = eventStoreEnabled || executionContextProvider != ExecutionContextProvider.NOOP;
@@ -355,7 +372,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         for (int tid = 0; tid < program.transitionCount; tid++) {
             Transition t = program.transitionsById[tid];
             var ctx = new TransitionContext(
-                t, new TokenInput(program.inputPlaceCount[tid]), new TokenOutput());
+                t, new TokenInput(program.inputPlaceCount[tid]), newOutput());
             // Install the ν-name minter once per pooled context (NU-010, NU-030):
             // monotonic across the run, instance-prefixed via the transition name.
             final String freshNameBase = t.name();
@@ -385,7 +402,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
      */
     private TransitionContext newFiringContext(int tid, Transition t) {
         var ctx = new TransitionContext(
-            t, new TokenInput(program.inputPlaceCount[tid]), new TokenOutput());
+            t, new TokenInput(program.inputPlaceCount[tid]), newOutput());
         final String freshNameBase = t.name();
         ctx.setFreshNameSupplier(() ->
             new NameId(freshNameBase + "#" + freshNameCounter.getAndIncrement()));
@@ -704,7 +721,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                     if (consumed != null) consumed.add(token);
                     inputs.add(place, (Token<Object>) token);
                     if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
-                        Instant.now(), in.place().name(), token));
+                        clockInstant(), in.place().name(), token));
                 }
             } else {
                 // one / exactly(n) take a fixed count off the ring head and are already
@@ -720,7 +737,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                     if (consumed != null) consumed.add(token);
                     inputs.add(place, (Token<Object>) token);
                     if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
-                        Instant.now(), in.place().name(), token));
+                        clockInstant(), in.place().name(), token));
                 }
             }
         }
@@ -1053,6 +1070,22 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
             return this;
         }
 
+        private ExecutionEnvironment environment;
+
+        /**
+         * Supplies the executor's firing clock, epoch clock and wait ([TIME-015]).
+         *
+         * <p>Per executor, never per net. Absent this call the executor reads
+         * {@link System#nanoTime()} and {@link Instant#now()} directly.
+         *
+         * @param environment the host environment; must not be null
+         * @return this builder
+         */
+        public Builder environment(ExecutionEnvironment environment) {
+            this.environment = Objects.requireNonNull(environment, "environment");
+            return this;
+        }
+
         public PrecompiledNetExecutor build() {
             var prog = program != null ? program : PrecompiledNet.compile(net);
             ExecutorService exec = executor != null
@@ -1062,7 +1095,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                 prog, initialTokens, eventStore, exec,
                 environmentPlaces, executionContextProvider,
                 skipOutputValidation, deadlineToleranceMillis, uncaughtActionHandler,
-                executor == null
+                executor == null, environment
             );
         }
     }
@@ -1117,7 +1150,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
 
     @Override
     public <T> CompletableFuture<Boolean> inject(EnvironmentPlace<T> place, T token) {
-        return inject(place, Token.of(token));
+        return inject(place, environment == null ? Token.of(token) : new Token<>(token, clockInstant()));
     }
 
     @Override
@@ -1207,6 +1240,10 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
     private Marking awaitPublishedSnapshot() {
         long seq = markingRequestSeq.incrementAndGet();
         wakeUp();
+        // Deliberately the REAL clock, not clockNanos(). This runs on a FOREIGN thread and the
+        // park below is a real-time parkNanos, so a cap measured on an advance-on-demand host
+        // clock would never retire and the caller would wait forever ([TIME-015]). It is a
+        // liveness backstop, not a firing decision, so it is not the seam's to virtualize.
         long deadline = System.nanoTime() + ExecutorSupport.MARKING_SNAPSHOT_WAIT_NANOS;
         while (markingServedSeq < seq) {
             if (orchestratorThread == null) return null; // loop finished; caller uses final snapshot
@@ -1275,9 +1312,23 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         if (!eventStoreEnabled) return;
         if (warnedUnknownPlaces == null) warnedUnknownPlaces = new HashSet<>();
         if (!warnedUnknownPlaces.add(place)) return;
-        emitEvent(new NetEvent.LogMessage(Instant.now(), transitionName, "libpetri.runtime", "WARN",
+        emitEvent(new NetEvent.LogMessage(clockInstant(), transitionName, "libpetri.runtime", "WARN",
             "unknown place '" + place.name() + "': tokens are retained in the marking but inert "
                 + "(the net declares no arc on it)", null, null));
+    }
+
+    /**
+     * Why the last run stopped ([EXEC-041] AC#3).
+     *
+     * <p>{@link TerminationReason#QUIESCENT} is the only value for which the marking returned
+     * by {@link #run()} is a <b>final</b> marking; every other value means the run was
+     * truncated and the marking is partial.
+     *
+     * @return the termination reason, or {@link TerminationReason#RUNNING} before the first run
+     */
+    @Override
+    public TerminationReason terminationReason() {
+        return terminationReason;
     }
 
     @Override
@@ -1297,8 +1348,16 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
     public int enabledCount() { return enabledTransitionCount; }
 
     @Override
+    /**
+     * This executor's id, assigned at construction from a process-wide counter.
+     *
+     * <p>Not derived from the clock: an id built from a firing-clock reading violates
+     * [TIME-015] contract point 1 (a reading is not a unique key). Under an injected clock two
+     * executors seeded at the same virtual instant would share an id, and a replayed run would
+     * collide with itself.
+     */
     public String executionId() {
-        return Long.toHexString(startNanos);
+        return executionId;
     }
 
     @Override
@@ -1333,7 +1392,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         running = true;
         if (eventStoreEnabled) {
             emitEvent(new NetEvent.ExecutionStarted(
-                Instant.now(), netName(), executionId()));
+                clockInstant(), netName(), executionId()));
         }
 
         initializeMarkingBitmap();
@@ -1343,15 +1402,31 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         // The loop body must never leave pending inject() futures uncompleted, even when it
         // exits by exception: those callers are blocked on join() and their tokens have
         // already been consumed. Termination bookkeeping therefore lives in the finally.
+        boolean quiesced = false;
         try {
-            while (running && !stopRequested && !Thread.currentThread().isInterrupted()) {
+            // NOTE: the thread's interrupt flag is deliberately NOT a loop condition.
+            // [EXEC-041] forbids treating ambient host state as a stop request: the flag
+            // may be inherited from earlier work on a reused thread, or set by this run's
+            // own action code following Java's convention for propagating a caught
+            // interrupt — and actions run inline on this very thread. Consulting it here
+            // executed zero cycles, or truncated mid-run, and reported success either way.
+            // Stopping is stopRequested / close(); an interrupt counts only where the wait
+            // actually throws it.
+            while (running && !stopRequested) {
                 serviceMarkingRequest();
                 processCompletedTransitions();
                 processExternalEvents();
                 updateDirtyTransitions();
                 if (program.anyDeadlines) enforceDeadlines();
 
-                if (shouldTerminate()) break;
+                if (shouldTerminate()) {
+                    // shouldTerminate() is also true for a close with nothing in flight, so it
+                    // cannot itself mean "finished". Record ACTUAL quiescence instead: a close
+                    // that arrives while transitions are still enabled truncates the run and
+                    // must report CLOSED, not QUIESCENT ([EXEC-041]).
+                    quiesced = enabledTransitionCount == 0 && inFlightCount == 0 && completionQueue.isEmpty();
+                    break;
+                }
 
                 fireReadyTransitions();
 
@@ -1362,6 +1437,10 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         } finally {
             running = false;
             terminated = true;
+            terminationReason = quiesced ? TerminationReason.QUIESCENT
+                : interruptedDuringWait ? TerminationReason.INTERRUPTED
+                : closed.get() ? TerminationReason.CLOSED
+                : TerminationReason.STOPPED;
             drainPendingExternalEvents();
 
             // Emit failures must not prevent the loop from reporting termination: a throwing
@@ -1369,9 +1448,23 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
             // awaitTermination forever.
             try {
                 emitMarkingSnapshot();
+                // An engine diagnostic, so no transition name ([EVT-013]). Emitted ONLY for an
+                // interrupt: [EVT-013] AC#5 bars a diagnostic on a caller-requested termination
+                // path, and a close() or a run budget is something the caller already knows it
+                // asked for. Warning on those would fire on every clean shutdown of a net whose
+                // normal ending IS a shutdown — a reactive net with environment places, designed
+                // never to quiesce — and a warning that always fires teaches its reader to ignore
+                // the level. The queryable terminationReason() carries the distinction either way
+                // ([EXEC-041] AC#3); this event is an addition to it, never the only signal.
+                if (terminationReason == TerminationReason.INTERRUPTED) {
+                    emitEvent(new NetEvent.LogMessage(clockInstant(), null, "libpetri.runtime", "WARN",
+                        "Execution stopped before quiescence (INTERRUPTED): the orchestrator's wait "
+                            + "was interrupted, so the returned marking is partial, not final "
+                            + "(EXEC-041).", null, null));
+                }
                 if (eventStoreEnabled) {
                     emitEvent(new NetEvent.ExecutionCompleted(
-                        Instant.now(), netName(), executionId(), elapsedDuration()));
+                        clockInstant(), netName(), executionId(), elapsedDuration()));
                 }
             } catch (Throwable emitError) {
                 ExecutorSupport.swallowEventStoreFailure("ExecutionCompleted", emitError);
@@ -1437,7 +1530,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
     // ==================== Dirty Set Processing ====================
 
     private void updateDirtyTransitions() {
-        long nowNanos = System.nanoTime();
+        long nowNanos = clockNanos();
 
         // Snapshot and clear dirty bitmap using summary to visit only non-zero words
         for (int s = 0; s < summaryWords; s++) {
@@ -1473,7 +1566,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                     enabledTransitionCount++;
                     enabledAtNanos[tid] = nowNanos;
                     if (eventStoreEnabled) emitEvent(new NetEvent.TransitionEnabled(
-                        Instant.now(), program.transitionsById[tid].name()));
+                        clockInstant(), program.transitionsById[tid].name()));
                 } else if (!canNow && wasEnabled) {
                     clearEnabledBit(tid);
                     enabledTransitionCount--;
@@ -1483,7 +1576,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                     // this scan: re-enabled, so a fresh clock (TIME-012).
                     enabledAtNanos[tid] = nowNanos;
                     if (eventStoreEnabled) emitEvent(new NetEvent.TransitionClockRestarted(
-                        Instant.now(), program.transitionsById[tid].name()));
+                        clockInstant(), program.transitionsById[tid].name()));
                 }
             }
         }
@@ -1538,7 +1631,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
     // ==================== Deadline Enforcement ====================
 
     private void enforceDeadlines() {
-        long nowNanos = System.nanoTime();
+        long nowNanos = clockNanos();
         for (int s = 0; s < summaryWords; s++) {
             long summary = enabledWordSummary[s];
             while (summary != 0) {
@@ -1570,7 +1663,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                         if (eventStoreEnabled) {
                             Transition t = program.transitionsById[tid];
                             emitEvent(new NetEvent.TransitionTimedOut(
-                                Instant.now(), t.name(),
+                                clockInstant(), t.name(),
                                 t.timing().latest(),
                                 Duration.ofMillis(elapsedMillis)));
                         }
@@ -1625,7 +1718,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
      * General firing path using priority-partitioned ready queues.
      */
     private void fireReadyGeneral() {
-        long nowNanos = System.nanoTime();
+        long nowNanos = clockNanos();
 
         // Populate ready queues from enabled bitmap using summary
         clearAllReadyQueues();
@@ -1778,7 +1871,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         updateBitmapAfterConsumption(tid);
 
         if (eventStoreEnabled) emitEvent(new NetEvent.TransitionStarted(
-            Instant.now(), t.name(), consumed != null ? consumed : List.of()));
+            clockInstant(), t.name(), consumed != null ? consumed : List.of()));
 
         // Update execution context if custom provider
         if (trackConsumed) {
@@ -1799,7 +1892,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
             transitionFuture = ExecutorSupport.withActionTimeout(
                 t, context, transitionFuture,
                 () -> { if (eventStoreEnabled) emitEvent(new NetEvent.ActionTimedOut(
-                    Instant.now(), t.name(), t.actionTimeout().after())); });
+                    clockInstant(), t.name(), t.actionTimeout().after())); });
         }
 
         // Clear enabled status
@@ -1823,7 +1916,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
             inFlightFutures[tid] = transitionFuture;
             inFlightContexts[tid] = context;
             inFlightConsumed[tid] = consumed;
-            inFlightStartNanos[tid] = System.nanoTime();
+            inFlightStartNanos[tid] = clockNanos();
             inFlightCount++;
             setInFlightBit(tid);
         }
@@ -1847,7 +1940,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                     if (consumed != null) consumed.add(token);
                     inputs.add((Place<Object>) program.placesById[pid], (Token<Object>) token);
                     if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
-                        Instant.now(), program.placesById[pid].name(), token));
+                        clockInstant(), program.placesById[pid].name(), token));
                 }
                 case PrecompiledNet.CONSUME_N -> {
                     int pid = prog[pc++];
@@ -1858,7 +1951,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                         if (consumed != null) consumed.add(token);
                         inputs.add(place, (Token<Object>) token);
                         if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
-                            Instant.now(), place.name(), token));
+                            clockInstant(), place.name(), token));
                     }
                 }
                 case PrecompiledNet.CONSUME_ALL, PrecompiledNet.CONSUME_ATLEAST -> {
@@ -1875,7 +1968,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                         if (consumed != null) consumed.add(token);
                         inputs.add(place, (Token<Object>) token);
                         if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
-                            Instant.now(), place.name(), token));
+                            clockInstant(), place.name(), token));
                     }
                 }
                 case PrecompiledNet.RESET -> {
@@ -1886,7 +1979,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                         Token<?> token = ringRemoveFirst(pid);
                         if (consumed != null) consumed.add(token);
                         if (eventStoreEnabled) emitEvent(new NetEvent.TokenRemoved(
-                            Instant.now(), program.placesById[pid].name(), token));
+                            clockInstant(), program.placesById[pid].name(), token));
                     }
                 }
                 default -> throw new IllegalStateException("Unknown opcode: " + opcode);
@@ -1962,7 +2055,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                 if (eventStoreEnabled) {
                     produced.add(token);
                     emitEvent(new NetEvent.TokenAdded(
-                        Instant.now(), entry.place().name(), token));
+                        clockInstant(), entry.place().name(), token));
                 }
             }
 
@@ -1970,7 +2063,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
 
             if (eventStoreEnabled) {
                 emitEvent(new NetEvent.TransitionCompleted(
-                    Instant.now(), t.name(), produced, Duration.ZERO));
+                    clockInstant(), t.name(), produced, Duration.ZERO));
             }
         } catch (RuntimeException e) {
             // See processCompletedTransitions: CancellationException arrives unwrapped.
@@ -2020,15 +2113,15 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                     produceToken(entry.place(), token, t.name());
                     if (produced != null) produced.add(token);
                     if (eventStoreEnabled) emitEvent(new NetEvent.TokenAdded(
-                        Instant.now(), entry.place().name(), token));
+                        clockInstant(), entry.place().name(), token));
                 }
 
                 markTransitionDirty(tid);
 
                 if (eventStoreEnabled) {
-                    var transitionDuration = Duration.ofNanos(System.nanoTime() - flightStart);
+                    var transitionDuration = Duration.ofNanos(clockNanos() - flightStart);
                     emitEvent(new NetEvent.TransitionCompleted(
-                        Instant.now(), t.name(), produced, transitionDuration));
+                        clockInstant(), t.name(), produced, transitionDuration));
                 }
             } catch (RuntimeException e) {
                 // CompletionException (action failed), OutViolationException (output spec
@@ -2049,7 +2142,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         if (eventStoreEnabled) {
             try {
                 emitEvent(new NetEvent.TransitionFailed(
-                    Instant.now(), t.name(), cause.getMessage(), cause.getClass().getName()));
+                    clockInstant(), t.name(), cause.getMessage(), cause.getClass().getName()));
                 emitted = true;
             } catch (Throwable storeError) {
                 ExecutorSupport.swallowEventStoreFailure("TransitionFailed", storeError);
@@ -2069,7 +2162,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                 produceToken(event.place(), event.token(), "");
 
                 if (eventStoreEnabled) emitEvent(new NetEvent.TokenAdded(
-                    Instant.now(), event.place().name(), event.token()));
+                    clockInstant(), event.place().name(), event.token()));
                 event.resultFuture().complete(true);
             } catch (Exception e) {
                 event.resultFuture().completeExceptionally(e);
@@ -2127,6 +2220,16 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
 
         if (inFlightCount == 0) return;
 
+        if (environment != null) {
+            // The host owns both halves of the wait ([TIME-015]): `workReady` is the signal
+            // the semaphore carries by default, the delay is the timeout. No poll loop — a
+            // host may return spuriously and the orchestrator re-checks on its next cycle
+            // (contract point 3), which is what makes the poll bound unnecessary here.
+            environment.awaitWork(workReady,
+                program.allImmediate ? Long.MAX_VALUE : nanosUntilNextTimedTransition());
+            return;
+        }
+
         // A completing action does `completionQueue.offer(tid); wakeUp();`, so the semaphore
         // is the wake-up signal and the queue is the durable record. Composing a
         // CompletableFuture.anyOf over every in-flight future once per poll cycle — as this
@@ -2142,7 +2245,13 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                     return;
                 }
             } catch (InterruptedException e) {
+                // A cancellation the executor observed ITSELF, raised while waiting. Unlike an
+                // ambient flag this IS a request against this run, so [EXEC-041] permits it to
+                // stop the loop — but only distinguishably. Restore the flag for the caller and
+                // let the finally report INTERRUPTED rather than a plain completion.
                 Thread.currentThread().interrupt();
+                interruptedDuringWait = true;
+                stopRequested = true;
                 return;
             }
             if (!completionQueue.isEmpty() || (!closed.get() && !externalEventQueue.isEmpty())) return;
@@ -2153,7 +2262,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
     }
 
     private long nanosUntilNextTimedTransition() {
-        long nowNanos = System.nanoTime();
+        long nowNanos = clockNanos();
         long minWaitNanos = Long.MAX_VALUE;
 
         for (int s = 0; s < summaryWords; s++) {
@@ -2187,15 +2296,28 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
     }
 
     private void awaitExternalEvent() {
+        long waitNanos = nanosUntilNextTimedTransition();
+        // Boundary already due: return and let the next cycle act on it rather than waiting.
+        // Hoisted above the environment branch so an injected clock cannot make the
+        // short-circuit diverge from the default one ([TIME-015], [EXEC-001], [CONC-010]).
+        if (waitNanos <= 0) return;
+
+        if (environment != null) {
+            environment.awaitWork(workReady, waitNanos);
+            return;
+        }
+
         try {
-            long waitNanos = nanosUntilNextTimedTransition();
-            if (waitNanos <= 0) return;
             long waitMs = waitNanos == Long.MAX_VALUE ? Long.MAX_VALUE : (waitNanos + 999_999) / 1_000_000;
             if (waitMs == Long.MAX_VALUE) wakeUpSignal.acquire();
             else wakeUpSignal.tryAcquire(waitMs, TimeUnit.MILLISECONDS);
             wakeUpSignal.drainPermits();
         } catch (InterruptedException e) {
+            // See awaitCompletionOrEvent: an interrupt raised AT the wait is a stop request
+            // against this run ([EXEC-041]), unlike an ambient flag.
             Thread.currentThread().interrupt();
+            interruptedDuringWait = true;
+            stopRequested = true;
         }
     }
 
@@ -2263,7 +2385,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         if (repeated.isEmpty()) return;
         if (warnedMultiplicity == null) warnedMultiplicity = new HashSet<>();
         warnedMultiplicity.add(transitionName);
-        emitEvent(new NetEvent.LogMessage(Instant.now(), transitionName, "libpetri.runtime", "WARN",
+        emitEvent(new NetEvent.LogMessage(clockInstant(), transitionName, "libpetri.runtime", "WARN",
             "'" + transitionName + "': wrote more than one token to a place its output spec names once ("
                 + String.join(", ", repeated) + "); branch-enumerating analyses model one token per "
                 + "named place, so this firing exceeds what they explore (IO-016)", null, null));
@@ -2298,16 +2420,78 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
     }
 
     private Duration elapsedDuration() {
-        return Duration.ofNanos(System.nanoTime() - startNanos);
+        return Duration.ofNanos(clockNanos() - startNanos);
     }
 
     private void emitMarkingSnapshot() {
         if (eventStoreEnabled) {
-            emitEvent(new NetEvent.MarkingSnapshot(Instant.now(), marking().snapshot()));
+            emitEvent(new NetEvent.MarkingSnapshot(clockInstant(), marking().snapshot()));
         }
     }
 
+    // ==================== TIME-015: injectable clock ====================
+
+    /**
+     * Firing clock ([TIME-015]). Reads {@link System#nanoTime()} directly when no environment
+     * was supplied — a predictable branch on a {@code final} field rather than an interface
+     * dispatch, so the unused seam costs nothing on a path read every orchestrator cycle.
+     */
+    private long clockNanos() {
+        return environment == null ? System.nanoTime() : environment.nanoTime();
+    }
+
+    /** Epoch clock ([TIME-015]): token creation stamps and event timestamps. */
+    private Instant clockInstant() {
+        return environment == null ? Instant.now() : environment.now();
+    }
+
+    /** A collector stamping produced tokens through the epoch clock ([TIME-015]). */
+    private TokenOutput newOutput() {
+        return environment == null ? new TokenOutput() : new TokenOutput(environment::now);
+    }
+
+    /**
+     * The signal half of the hosted wait ([TIME-015]): true when a completing action, an
+     * injected external event, or a stop has made work available. Cheap, repeatable and
+     * time-free, as the contract on {@code ready} requires.
+     */
+    private boolean hasHostWork() {
+        // shouldTerminate() is part of the predicate, not just the queues. Under a host clock
+        // wakeUp() is silenced, so a state change that carries no queue entry — drain() setting
+        // `draining`, close() setting `closed` — has nothing else to signal the host with, and a
+        // wait asked for Long.MAX_VALUE would never be woken by it. shouldTerminate() is a few
+        // field reads: cheap, repeatable, side-effect free and time-free, as the contract on
+        // `ready` requires. It is false while a draining net still has work, so it cannot spin.
+        return stopRequested || shouldTerminate() || !completionQueue.isEmpty()
+            || markingRequestSeq.get() != markingServedSeq
+            || (!closed.get() && !externalEventQueue.isEmpty());
+    }
+
+    /**
+     * Releases the internal wake-up signal.
+     *
+     * <p>Silenced under a host clock ([TIME-015]): the host owns the wait, nothing drains
+     * the semaphore, and permits would accumulate for the executor's lifetime.
+     *
+     * <p>Because it is silenced, {@link #hasHostWork()} is the <b>sole</b> carrier and must
+     * observe every state change reachable from here. The six callers publish:
+     * {@code stopRequested} ({@code terminateNow}), the external-event queue ({@code inject}),
+     * the completion queue (a finishing action), {@code draining} / {@code closed}
+     * ({@code drain}, {@code close} — both reached via {@code shouldTerminate()}), and
+     * {@code markingRequestSeq} ({@code marking()} from a foreign thread). Adding a caller
+     * without adding its state to that predicate reintroduces a wait nothing can wake, under
+     * an injected clock only.
+     *
+     * <p>The cross-thread part of the predicate — both queues, {@code closed} and
+     * {@code stopRequested} — reads {@code ConcurrentLinkedQueue},
+     * {@link java.util.concurrent.atomic.AtomicBoolean} and {@code volatile} state, so work
+     * published by any thread is visible and a host may complete actions on foreign threads.
+     * {@code shouldTerminate()} and {@code markingServedSeq} additionally read plain fields;
+     * that is safe only because the predicate is invoked from inside the host's wait, i.e. on
+     * the orchestrator thread that owns them.
+     */
     private void wakeUp() {
+        if (environment != null) return;
         wakeUpSignal.release();
     }
 

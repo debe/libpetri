@@ -24,6 +24,8 @@ import org.openjdk.jmh.results.RunResult;
 import org.openjdk.jmh.results.format.ResultFormatType;
 import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.RunnerException;
+import org.openjdk.jmh.runner.options.CommandLineOptionException;
+import org.openjdk.jmh.runner.options.CommandLineOptions;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 
 /**
@@ -1721,13 +1723,31 @@ public class BitmapNetExecutorBenchmark {
 
     // ==================== MAIN ====================
 
-    public static void main(String[] args) throws RunnerException {
-        var opt = new OptionsBuilder()
-            .include(BitmapNetExecutorBenchmark.class.getSimpleName())
-            .addProfiler("gc")
-            .result("benchmark-results.json")
-            .resultFormat(ResultFormatType.JSON)
-            .build();
+    public static void main(String[] args) throws RunnerException, CommandLineOptionException {
+        // `args` was previously ignored outright, so the documented
+        // `./mvnw test-compile exec:exec -Pjmh` route could only ever run all benchmarks at the
+        // annotation defaults — a filter or -f/-i on the command line was silently dropped and
+        // a tuned run looked like it had worked.
+        //
+        // parent() alone is not enough: a value set on the CHILD wins over the parent, so an
+        // unconditional .include(...) here would still swallow a command-line filter. Each
+        // built-in below is therefore applied only when the command line did not supply it,
+        // making them true defaults.
+        var cli = new CommandLineOptions(args);
+        var builder = new OptionsBuilder().parent(cli);
+        if (cli.getIncludes().isEmpty()) {
+            builder.include(BitmapNetExecutorBenchmark.class.getSimpleName());
+        }
+        if (cli.getProfilers().isEmpty()) {
+            builder.addProfiler("gc");
+        }
+        if (!cli.getResult().hasValue()) {
+            builder.result("benchmark-results.json");
+        }
+        if (!cli.getResultFormat().hasValue()) {
+            builder.resultFormat(ResultFormatType.JSON);
+        }
+        var opt = builder.build();
         var results = new Runner(opt).run();
         printScalingSummary(results);
     }

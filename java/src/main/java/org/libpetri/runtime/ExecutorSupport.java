@@ -20,6 +20,26 @@ final class ExecutorSupport {
     private static final Logger LOG = System.getLogger("org.libpetri.runtime");
 
     /**
+     * Process-wide execution-id sequence, shared by every executor so ids stay unique across
+     * backends observed together.
+     *
+     * <p>A counter rather than a clock reading: an id derived from the firing clock violates
+     * [TIME-015] contract point 1, which forbids treating a reading as a unique key. A
+     * host-supplied clock may be coarse or replayed, so two executors constructed at the same
+     * virtual instant would collide, and a replayed run would collide with itself. A counter
+     * assigned at construction is unique among executors observable together and reproducible
+     * for a fixed construction order. It need not be globally distinctive — the events that
+     * carry it carry {@code netName} alongside.
+     */
+    private static final java.util.concurrent.atomic.AtomicLong EXECUTION_ID_SEQ =
+        new java.util.concurrent.atomic.AtomicLong();
+
+    /** Returns the next execution id, hex-formatted. Assigned at executor construction. */
+    static String nextExecutionId() {
+        return Long.toHexString(EXECUTION_ID_SEQ.getAndIncrement());
+    }
+
+    /**
      * Default handler for an action failure that no {@link org.libpetri.event.EventStore}
      * observed.
      *

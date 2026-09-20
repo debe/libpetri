@@ -239,23 +239,36 @@ public final class SubnetRewriter {
     /**
      * Builds the per-transition <b>declared&rarr;actual</b> place correspondence
      * (per <b>MOD-031</b>) for a transition being rewritten through
-     * {@code remap}. Mirrors the Rust {@code build_local_name_map} algorithm so
-     * all three implementations agree.
+     * {@code remap}. Preserves author-original keys across nested rewrites, per
+     * <b>MOD-031</b> AC#8/#9/#10/#11 — which is the authority for this algorithm.
+     * Cross-language agreement is a <i>consequence</i> of all four implementations
+     * following the requirement, never the justification for it: this method
+     * previously cited the Rust twin, so when the algorithm was wrong each
+     * implementation was faithfully mirroring a defect and the citation made that
+     * look like evidence of correctness.
      *
      * <p><b>Chained path</b> — when {@code t} already carries a non-empty alias
      * (from an earlier rewrite pass: nested instantiation [MOD-013], or
      * instantiate-then-compose), each {@code declared → prev} entry is carried
-     * forward as {@code declared → remap.getOrDefault(prev, prev)}; identity
-     * results are dropped. The arcs are deliberately <b>not</b> walked in this
-     * case — their places are intermediate-pass names, not author-original, so
-     * recording them would leak intermediate keys the user never declared (see
-     * the Rust regression {@code build_local_name_map_chained_compose_*}).
+     * forward as {@code declared → remap.getOrDefault(prev, prev)}. Identity
+     * entries are retained alongside changed entries: a later rewrite may rename
+     * a port that temporarily returned to its declared name, and this map is the
+     * only carrier of the author-original key set. The arcs are deliberately
+     * <b>not</b> walked in this case — their places are intermediate-pass names,
+     * not author-original, so recording them would leak intermediate keys the user
+     * never declared (MOD-031, "Key-set completeness across passes"). That is also
+     * why the map is the <i>only</i> carrier of the author-original key set, and
+     * why a key dropped at an intermediate pass is unrecoverable.
      *
      * <p><b>First-pass path</b> — when {@code t} carries no alias, every arc
      * place {@code p} maps to {@code remap.getOrDefault(p, p)} keyed by the
-     * author-original declared place; identity entries are skipped. The
-     * ForwardInput {@code from} place is captured via the input walk and its
+     * author-original declared place; identity entries accompany changed entries.
+     * The ForwardInput {@code from} place is captured via the input walk and its
      * {@code to} via {@code outputSpec().allPlaces()}.
+     *
+     * <p>Both paths hand off to {@link #compactIdentityAlias}, which drops an
+     * <i>all</i>-identity result as a whole (MOD-031 AC#9). Dropping individual
+     * identity entries is what MOD-031 AC#8 forbids.
      *
      * @return a fresh map (possibly empty for an identity / no-op rewrite)
      */
@@ -274,11 +287,9 @@ public final class SubnetRewriter {
             for (var e : prev.entrySet()) {
                 var declared = e.getKey();
                 var finalActual = remap.getOrDefault(e.getValue(), e.getValue());
-                if (!finalActual.equals(declared)) {
-                    alias.put(declared, finalActual);
-                }
+                alias.put(declared, finalActual);
             }
-            return alias;
+            return compactIdentityAlias(alias);
         }
 
         for (var in  : t.inputSpecs())  recordAlias(in.place(),  remap, alias);
@@ -288,10 +299,38 @@ public final class SubnetRewriter {
         if (t.outputSpec() != null) {
             for (var p : t.outputSpec().allPlaces()) recordAlias(p, remap, alias);
         }
-        return alias;
+        return compactIdentityAlias(alias);
     }
 
-    /** Records {@code declared → remap(declared)} into {@code alias}, skipping identity and duplicates. */
+    /**
+     * Drops the correspondence <b>as a whole</b> when every entry is the identity
+     * (per <b>MOD-031</b> AC#9): a transition carrying no correspondence is rebuilt
+     * from its arcs on the next pass, and at that point those names are still
+     * author-original, so the key set self-heals. Dropping a <i>single</i> identity
+     * entry out of a mixed map is what AC#8 forbids — the chained path never
+     * re-reads the arcs, so that key is gone for good.
+     *
+     * <p><b>Which equality decides identity</b> (MOD-031 AC#11): the identity test
+     * MUST use the <b>same</b> place equality the correspondence's own lookup uses.
+     * Here that is {@link Place#equals} — the record's structural
+     * {@code (name, tokenType)} equality — because
+     * {@link org.libpetri.core.TransitionContext} resolves through a
+     * {@code Map<Place<?>, Place<?>>} keyed by exactly that. {@link #mergePlaceAlias}
+     * uses the same notion for the same reason, so the two rules cannot disagree.
+     *
+     * <p>Tying the two together is not optional: an identity test <i>coarser</i> than
+     * the lookup would discard entries the lookup would have resolved — reintroducing
+     * the very loss AC#8 forbids — and one <i>finer</i> would retain entries the
+     * lookup can never reach. So a place rebound to a same-named place of a
+     * <i>different</i> token type is retained here and is the identity in TypeScript
+     * and Rust, whose lookups compare by name alone. That is the [MOD-024] divergence
+     * inherited rather than a new one, and both are conforming.
+     */
+    private static Map<Place<?>, Place<?>> compactIdentityAlias(Map<Place<?>, Place<?>> alias) {
+        return alias.entrySet().stream().allMatch(e -> e.getKey().equals(e.getValue())) ? Map.of() : alias;
+    }
+
+    /** Records every author-original key, including temporarily unchanged places. */
     private static void recordAlias(
         Place<?> declared,
         Map<Place<?>, Place<?>> remap,
@@ -299,9 +338,7 @@ public final class SubnetRewriter {
     ) {
         if (alias.containsKey(declared)) return;
         var actual = remap.getOrDefault(declared, declared);
-        if (!actual.equals(declared)) {
-            alias.put(declared, actual);
-        }
+        alias.put(declared, actual);
     }
 
     // ============================================================
@@ -574,8 +611,23 @@ public final class SubnetRewriter {
      * for a channel merge. Both actions run within the single merged firing, so
      * each side's declared-place resolution must survive. Disjoint keys union;
      * an entry present on both sides with the same actual collapses; a genuine
-     * conflict (same declared place bound to two different actual places) is
-     * rejected naming the declared place.
+     * conflict (same declared place bound to two different <i>non-identity</i>
+     * actual places) is rejected naming the declared place.
+     *
+     * <p>An <b>identity</b> entry carries <b>no assertion</b> and MUST NOT
+     * manufacture a conflict (per <b>MOD-031</b> "Merging correspondences", AC#10):
+     * it records that some pass did not rename the place, not that the author
+     * required the name to stick. Where one side maps {@code X → X} and the other
+     * {@code X → Y}, the non-identity mapping wins and the merge succeeds. Without
+     * this rule, retaining identity entries (AC#8) would make a <i>complete</i>
+     * correspondence less composable than the lossy one it replaces — and it
+     * reproduces the old observable behaviour exactly, since the dropped identity
+     * entry simply left the key absent and the other side's mapping was used.
+     *
+     * <p>Identity is {@link Place#equals} here — the same notion
+     * {@link #compactIdentityAlias} applies, as MOD-031 AC#11 requires: the identity
+     * test must agree with the lookup, and one notion must not be used in the test
+     * and another in the lookup.
      */
     private static Map<Place<?>, Place<?>> mergePlaceAlias(
         Map<Place<?>, Place<?>> caller,
@@ -585,17 +637,54 @@ public final class SubnetRewriter {
         if (caller.isEmpty()) return instance;
         if (instance.isEmpty()) return caller;
         var merged = new HashMap<Place<?>, Place<?>>(caller);
+        List<AliasConflict> conflicts = null;
         for (var e : instance.entrySet()) {
-            var existing = merged.putIfAbsent(e.getKey(), e.getValue());
-            if (existing != null && !existing.equals(e.getValue())) {
-                throw new IllegalArgumentException(
-                    "Channel composition '" + channelName + "': conflicting declared→actual "
-                        + "place alias for declared place '" + e.getKey().name() + "' — caller-side "
-                        + "maps to '" + existing.name() + "', instance-side to '" + e.getValue().name()
-                        + "' (MOD-031). Resolve explicitly.");
+            var declared = e.getKey();
+            var incoming = e.getValue();
+            var existing = merged.putIfAbsent(declared, incoming);
+            if (existing == null || existing.equals(incoming)) continue;
+
+            // Identity loses to non-identity on either side (MOD-031 AC#10).
+            if (existing.equals(declared)) {
+                merged.put(declared, incoming);
+                continue;
             }
+            if (incoming.equals(declared)) continue;
+
+            // Collect rather than throw on the first one found: `instance` is a HashMap, so
+            // reporting "the" conflict would name whichever happened to be iterated first and
+            // the message would vary run to run for the same inputs.
+            if (conflicts == null) conflicts = new ArrayList<>();
+            conflicts.add(new AliasConflict(declared.name(), existing.name(), incoming.name()));
         }
+        if (conflicts != null) throw aliasConflict(conflicts, channelName);
         return merged;
+    }
+
+    /** One declared place bound to two different non-identity actual places across a merge. */
+    private record AliasConflict(String declared, String callerSide, String instanceSide) {}
+
+    /**
+     * Builds the MOD-031 merge-conflict diagnostic, sorted by declared place name so the same
+     * inputs always produce the same message. The single-conflict wording is unchanged; two or
+     * more are listed together rather than reporting one and hiding the rest.
+     */
+    private static IllegalArgumentException aliasConflict(List<AliasConflict> conflicts, String channelName) {
+        conflicts.sort(java.util.Comparator.comparing(AliasConflict::declared));
+        var head = "Channel composition '" + channelName + "': conflicting declared→actual place alias";
+        if (conflicts.size() == 1) {
+            var c = conflicts.getFirst();
+            return new IllegalArgumentException(head + " for declared place '" + c.declared()
+                + "' — caller-side maps to '" + c.callerSide() + "', instance-side to '"
+                + c.instanceSide() + "' (MOD-031). Resolve explicitly.");
+        }
+        var sb = new StringBuilder(head).append("es for ").append(conflicts.size())
+            .append(" declared places (MOD-031). Resolve explicitly.");
+        for (var c : conflicts) {
+            sb.append("\n  - '").append(c.declared()).append("' — caller-side maps to '")
+              .append(c.callerSide()).append("', instance-side to '").append(c.instanceSide()).append('\'');
+        }
+        return new IllegalArgumentException(sb.toString());
     }
 
     /**

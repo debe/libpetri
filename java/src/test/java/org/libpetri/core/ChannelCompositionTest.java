@@ -570,6 +570,98 @@ class ChannelCompositionTest {
     }
 
     @Test
+    void channelMerge_identityAliasLosesToNonIdentity_MOD031_AC10() {
+        Place<String> declaredX = Place.of("declaredX", String.class);
+        Place<String> actualY   = Place.of("host/y", String.class);
+        Place<String> declaredZ = Place.of("declaredZ", String.class);
+        Place<String> actualZ   = Place.of("host/z", String.class);
+
+        // MOD-031 AC#10. Retaining identity entries (AC#8) widened the alias key
+        // set, so a key that used to be simply absent on the caller side is now
+        // present as X → X. An identity entry records that some pass did not
+        // rename the place, NOT that the author required the name to stick — it
+        // carries no assertion and must not manufacture a conflict. The mixed
+        // declaredZ entry keeps the caller map non-empty, so the merge really
+        // walks the per-entry path rather than short-circuiting on an empty side.
+        Transition caller = Transition.builder("merged")
+            .placeAlias(Map.of(declaredX, declaredX, declaredZ, actualZ))
+            .build();
+        Transition instance = Transition.builder("instanceSide")
+            .placeAlias(Map.of(declaredX, actualY))
+            .build();
+
+        var merged = SubnetRewriter.mergeTransitions(caller, instance, "merged");
+
+        assertEquals(actualY, merged.placeAlias().get(declaredX),
+            "MOD-031 AC#10: caller-side identity X→X must lose to instance-side X→Y, not conflict. "
+                + "This also reproduces the pre-AC#8 observable behaviour exactly: back when the "
+                + "identity entry was dropped the key was absent and the instance mapping was used");
+        assertEquals(actualZ, merged.placeAlias().get(declaredZ),
+            "the unrelated non-identity entry is unaffected");
+    }
+
+    @Test
+    void channelMerge_identityAliasLosesToNonIdentity_instanceSide_MOD031_AC10() {
+        Place<String> declaredX = Place.of("declaredX", String.class);
+        Place<String> actualY   = Place.of("host/y", String.class);
+
+        // Symmetric case: the identity sits on the instance side this time. The
+        // rule is about identity vs non-identity, not about which side wins.
+        Transition caller = Transition.builder("merged")
+            .placeAlias(Map.of(declaredX, actualY))
+            .build();
+        Transition instance = Transition.builder("instanceSide")
+            .placeAlias(Map.of(declaredX, declaredX))
+            .build();
+
+        var merged = SubnetRewriter.mergeTransitions(caller, instance, "merged");
+
+        assertEquals(actualY, merged.placeAlias().get(declaredX),
+            "MOD-031 AC#10: instance-side identity X→X must lose to caller-side X→Y");
+    }
+
+    /**
+     * MOD-031 <b>AC#11</b> — the identity test must agree with the lookup.
+     *
+     * <p>The rule is not "each implementation picks an equality"; it is that the
+     * identity test MUST use the <b>same</b> place equality the correspondence's own
+     * lookup uses. An identity test <i>coarser</i> than the lookup discards entries
+     * the lookup would have resolved (reintroducing the AC#8 loss); one <i>finer</i>
+     * retains entries the lookup can never reach.
+     *
+     * <p>Java's {@link Place} is a record with structural equality on
+     * {@code (name, tokenType)}, and {@link TransitionContext} resolves through a map
+     * keyed by exactly that — so {@code declaredX:String} and {@code declaredX:Integer}
+     * are distinct keys, the Integer entry is not the identity, and it is retained.
+     * TypeScript and Rust collapse the same pair because <i>their</i> lookups compare
+     * by name alone. Both are conforming: the [MOD-024] divergence inherited, not a
+     * new one. Pinned here so the outcome is a recorded decision rather than a
+     * silent consequence of the record's {@code equals}.
+     */
+    @Test
+    void channelMerge_sameNameDifferentTokenType_isNotIdentityInJava_MOD031_AC11_MOD024() {
+        Place<String>  declaredX = Place.of("declaredX", String.class);
+        Place<Integer> sameName  = Place.of("declaredX", Integer.class);
+        Place<String>  actualY   = Place.of("host/y", String.class);
+
+        Transition caller = Transition.builder("merged")
+            .placeAlias(Map.of(declaredX, actualY))
+            .build();
+        Transition instance = Transition.builder("instanceSide")
+            .placeAlias(Map.of(sameName, sameName))
+            .build();
+
+        var merged = SubnetRewriter.mergeTransitions(caller, instance, "merged");
+
+        assertEquals(actualY, merged.placeAlias().get(declaredX),
+            "the String-typed declared place keeps its non-identity mapping");
+        assertEquals(sameName, merged.placeAlias().get(sameName),
+            "MOD-031 AC#11 / MOD-024: the Integer-typed same-named place is a separate key "
+                + "under the equality Java's lookup uses, so its entry is not the identity and "
+                + "is retained rather than collapsed into the String one");
+    }
+
+    @Test
     void channelMerge_mergedMatchJoin_correlatesByName_notFifo() {
         // Behavioral regression for the reported production symptom: a matched
         // join fused through the channel-merge path must still pair tokens by
