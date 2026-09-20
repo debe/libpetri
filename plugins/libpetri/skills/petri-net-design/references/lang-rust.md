@@ -26,6 +26,12 @@ Real concurrency, which is what you want, and it means an action that blocks a w
 
 Adding a `pub` field to a released struct is breaking (struct literals). Carry new options as a builder method or an options struct.
 
+## Checkpoint and resume
+
+`marking.snapshot()` gives a `MarkingSnapshot` (`BTreeMap<Arc<str>, Vec<ErasedToken>>`), so place order is code-point order by construction and empty places are omitted. There is no `restore` option: `Marking::from_snapshot(&snap)` *is* the initial marking you hand the executor. Since 7.0 `handle.snapshot()` resolves to a `SnapshotResult { marking, action_in_flight }`; persist only when `is_restore_point()` is true. Every inject accepted before the request is already in the marking, because injects and snapshot requests share one FIFO channel. An async action may await the reply and is reported in flight. A sync action under `run_async` runs inline in the orchestrator loop: it may send the request but must never block on the reply, which is only produced after the action returns.
+
+Design consequences. Clocks restart on resume: a `delayed` is re-waited, a `deadline` or `window` gets a fresh full budget, so a bound that must survive a restore belongs in the token payload or an action timeout. Restore occasionally, never as a scheduling mechanism. If the net mints ν-names, read "Minting across a resume" in `nu-nets.md` before you pin `execution_scope`; an invalid scope **panics** at executor construction, so run untrusted input through `validate_execution_scope` first.
+
 ## Verification
 
 Verification shells out to the `z3` executable and speaks SMT-LIB2 text. The `z3` cargo feature is an empty compile gate, not the `z3` / `z3-sys` crate: do not go looking for native bindings.

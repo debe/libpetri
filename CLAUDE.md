@@ -43,7 +43,7 @@ npm run test:watch             # Watch mode
 npm test -- core               # Run tests matching "core"
 ```
 
-TypeScript 6.0, ESM-only, strict mode. Built with tsup (multi-entry: `index`, `export`, `verification`, `debug`, `doclet`), tested with vitest. JaCoCo code coverage auto-generated in Java (`target/site/jacoco/`).
+TypeScript 6.0, ESM-only, strict mode. Built with tsup (multi-entry: `index`, `export`, `verification`, `debug`, `doclet`, `render-dom`, `viewer`), tested with vitest. JaCoCo code coverage auto-generated in Java (`target/site/jacoco/`).
 
 ### Rust (`rust/`)
 
@@ -58,6 +58,20 @@ cargo test -p libpetri-runtime                                  # single crate
 cargo test -p libpetri-runtime precompiled                      # filter tests by name
 cargo bench                                                     # Criterion benchmarks
 ```
+
+**Neither cargo gate subsumes the other, and "check is clean" is weaker than it reads.**
+`cargo check` does **not** build test targets, so a compile error confined to a `#[cfg(test)]`
+block is invisible to it — only `cargo test` catches that. Conversely `cargo test --all-features`
+never compiles the default-feature fallback arms, which is why the `check` line exists at all. So
+the two gates cover disjoint gaps and quoting both is not independent confirmation of the same
+thing. Adding `--all-targets` to the check closes the test-target half:
+
+```bash
+cargo check --workspace --exclude libpetri-py --all-targets --all-features
+```
+
+As of 2026-09-20 that reports 0 errors and 43 warnings, all of them pre-existing
+`criterion::black_box` deprecations under `benches/`.
 
 **`python3 scripts/lean-fidelity-check.py` is a CI gate** (`.github/workflows/ci.yml`) and is easy
 to miss because it is not a cargo command. The Lean development pins specific Rust items by
@@ -238,8 +252,14 @@ the implementation's existing `Place` equality:
 This divergence is documented in MOD-024 (last paragraph of the body, the
 SHOULD note on "implementations whose Place equality is name-only"). A future
 breaking change that adds `tokenType` to TS Place and `TypeId` to Rust Place
-would close this gap and warrant a coordinated TS/Rust 3.0 release. All three
-languages are on 2.3.x with the additive MOD-024 overload.
+would close this gap and warrant a coordinated major release. The additive
+MOD-024 overload has shipped in all three since 2.3.x.
+
+The same structural equality is why Java restores a snapshot with
+`Marking.fromSnapshot(snapshot, places)` — a place synthesised from a name has no
+token type, so it would not equal the net's own place — and why Java rejects
+snapshot/restore on a net holding two same-named places. TS and Rust restore from
+names alone (CORE-073).
 
 ## Key Conventions
 

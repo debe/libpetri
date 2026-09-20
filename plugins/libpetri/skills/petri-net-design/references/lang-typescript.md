@@ -18,7 +18,13 @@ Actions return promises, and the event loop provides the concurrency. The trap i
 
 ## Not available here
 
-No `ctx.flush()`, so the mid-action publication rules do not apply. No marking snapshot and restore, so checkpoint and resume designs do not port to TypeScript yet.
+No `ctx.flush()`, so the mid-action publication rules do not apply.
+
+## Checkpoint and resume (6.1 and later)
+
+`marking.snapshot()` gives place name to tokens, in ascending code-point order with empty places omitted. Hand it back as `{ restore: snap }` with an empty initial marking; supplying both is an error, not a merge. `executor.snapshot()` on a running net returns `{ marking, actionInFlight }`, captured at one instant. Persist only when `isRestorePoint(result)` is true (a function exported from `libpetri`, exactly `!result.actionInFlight`): the flag is true while an action is running **or** while an injected event has been accepted and not yet deposited, and in either case a token is in no place. A saver written as an event-store decorator keys on `transition-completed`, which is emitted from a settled marking. Persist as an array of entries, `JSON.stringify([...snap])` and `new Map(JSON.parse(stored))`, because a JavaScript object reorders integer-like place names.
+
+Design consequences. Clocks restart on resume: a `delayed` is re-waited, a `deadline` or `window` gets a fresh full budget, so a bound that must survive a restore belongs in the token payload or an action timeout. Restore occasionally, never as a scheduling mechanism. If the net mints ν-names, read "Minting across a resume" in `nu-nets.md` before you pin `executionScope`.
 
 ## Verification
 

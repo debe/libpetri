@@ -1,8 +1,21 @@
 # Changelog
 
-## Java 6.1.0 / TypeScript 6.1.0 / Rust 7.0.0 / Python 5.1.0 — 2026-09-20
+## Java 6.1.0 / TypeScript 6.1.0 / Rust 7.0.0 / Python 6.0.0 — 2026-09-20
 
-### Breaking — Rust only
+### Breaking
+
+Rust and Python take a major. Java and TypeScript take a minor — nothing you *call* changed shape there — but the first item reaches every language, and the last one reaches you if you implement the executor interface yourself.
+
+**Everyone: minted ν-names changed format ([NU-011]).** `ctx.freshName()` (`fresh_name()` in Rust and Python) used to return `<transition>#<n>`. It now returns `<transition>#<scope>:<n>`, and unless you pin it the scope is random:
+
+```
+before   fork#0
+now      fork#3f9c2a6e51b04d7f8a1c0e9b7d2f4a61:0
+```
+
+If you stored minted names, parse them, or assert on them in a test or a golden event log, this is visible. Names already inside a persisted marking are carried through a restore untouched and still correlate with each other; only *newly minted* names have the new shape. The reason, and how to get reproducible names back, is under "Changed: minted ν-names carry a scope" below.
+
+#### Rust 7.0.0
 
 **`ExecutorOptions` is `#[non_exhaustive]`.** It has gained an option at each of the last three releases, and every one of those broke callers who wrote a struct literal. Construct it from `Default` and the setters, and the next option costs you nothing:
 
@@ -13,7 +26,179 @@ let options = ExecutorOptions::default()
     .clock(Arc::new(ManualClock::new()));
 ```
 
-Code already using `ExecutorOptions::default()` and assigning fields is unaffected — the fields stay public. Only cross-crate struct-literal syntax (including `..Default::default()`) stops compiling. Java, TypeScript and Python have no break; they take a minor for the additions below.
+Code already using `ExecutorOptions::default()` and assigning fields is unaffected — the fields stay public. Only cross-crate struct-literal syntax (including `..Default::default()`) stops compiling.
+
+**`ExecutorHandle::snapshot()` resolves to a `SnapshotResult`, not a `Marking`.** The marking now arrives with the answer to "may I checkpoint this?":
+
+```rust
+let snap = handle.snapshot().expect("executor is running").await?;
+
+// before: snap was a Marking            snap.count("done")
+// now:    snap.marking is a MarkingSnapshot, snap.action_in_flight a bool
+if snap.is_restore_point() {
+    let marking = Marking::from_snapshot(&snap.marking);
+}
+```
+
+If you drive the signal channel yourself, `ExecutorSignal::Snapshot` carries a `oneshot::Sender<SnapshotResult>` accordingly.
+
+**`NetEvent::MarkingSnapshot.marking` is a `BTreeMap<Arc<str>, usize>`** (was `HashMap`). Constructing the event, or matching it into a typed `HashMap` binding, needs the new type; iterating it is unchanged and now comes out in place-name order.
+
+**`libpetri-debug` swapped its hash maps for ordered ones**, so a debug frame or a session archive written twice from the same data is byte-identical instead of differing per process:
+
+| Item | Was | Now |
+|---|---|---|
+| `NetEventInfo.details` | `HashMap<String, serde_json::Value>` | `BTreeMap<…>` |
+| `DebugResponse::Subscribed.current_marking` | `HashMap<String, Vec<TokenInfo>>` | `BTreeMap<…>` |
+| `DebugResponse::MarkingSnapshot.marking` | `HashMap<String, Vec<TokenInfo>>` | `BTreeMap<…>` |
+| `ComputedState.marking` | `HashMap<String, Vec<TokenInfo>>` | `BTreeMap<…>` |
+| `marking_cache::apply_events(marking, …)` | `&mut HashMap<…>` | `&mut BTreeMap<…>` |
+
+`ComputedState.enabled_transitions` / `in_flight_transitions` and `NetStructure.places` keep their types and are now sorted; session `tags` stay a `HashMap` and serialize in key order. The JSON on the wire has the same shape as before — no archive version change, and a reader still must not depend on JSON key order.
+
+#### Python 6.0.0
+
+**`await handle.snapshot()` returns a `SnapshotResult`, not a `MarkingView`.** What you had before is on `.marking`; what you did not have before is whether it is safe to keep:
+
+```python
+snap = await handle.snapshot()
+
+# before (5.0.0)                         # now
+snap["done"]                             snap.marking["done"]
+lp.run_sync(net, initial=snap)           lp.run_sync(net, initial=snap.marking)   # after checking snap.is_restore_point
+```
+
+`SnapshotResult` is a frozen dataclass, not a mapping, so the old forms fail loudly rather than quietly restoring a marking taken mid-action. `snap["done"]` is `TypeError: 'SnapshotResult' object is not subscriptable`. `initial=snap` — on `run_sync`, `start_async` and `run_async` alike — and `MarkingView(snap)` / `MarkingView.from_snapshot(snap)` raise a `TypeError` that says what to write instead: pass `result.marking`, after checking `result.is_restore_point`. It is never unwrapped for you, not even when nothing was in flight; forcing that check is what the type is for. If you call the native extension directly, `_libpetri.ExecutorHandle.snapshot()` now resolves to `{"marking": {...}, "action_in_flight": bool}` instead of the bare place dict.
+
+**`MarkingView.snapshot()` is canonical.** Places come out in ascending code-point order whatever order the view was built in, and a place holding no tokens is **omitted** where it used to appear as `[]`. A restore accepts both forms identically, so stored snapshots keep working; code comparing a snapshot to a literal dict containing empty places does not. `to_dict()` is sorted too and still includes empty places. Iterating the view itself keeps construction order.
+
+**`created_at` is validated, identically whether it goes through `MarkingView(...)` or straight into `initial=`.** Accepted: an integer (anything with `__index__`, so numpy ints work) or an integral float such as `1700000000000.0`, in `0 <= ms < 2**64`. What used to slip through and no longer does:
+
+| Value | 5.0.0 | Now |
+|---|---|---|
+| `1.5` | view truncated it to `1` | `ValueError` |
+| `"3"` | view parsed it | `TypeError` |
+| `True` | accepted as `1` | `TypeError` |
+| `-1`, `2**64` | view accepted; engine raised `TypeError: must be an int` | `ValueError` in both |
+| `nan`, `inf` | leaked `ValueError` / `OverflowError` from `int()` | `ValueError` naming `created_at` |
+| `1700000000000.0` | engine raised `TypeError` | accepted in both |
+
+#### Java 6.1.0 / TypeScript 6.1.0 — only if you implement `PetriNetExecutor` yourself
+
+Callers of the two shipped executors have no break. A wrapper, decorator or test double that *implements* the interface must add the members it gained, which is a compile error on a minor and we would rather say so than have you find it:
+
+- **Java**: `TerminationReason terminationReason()` and `SnapshotResult snapshot()`. Both are abstract on purpose — a default could only lie about a run it knows nothing about.
+- **TypeScript**: `snapshot(): SnapshotResult` and `injectNoAwait<T>(place, value): void`.
+
+### Added: snapshot a marking, restore it, resume ([CORE-073], [ENV-014])
+
+A marking can now be captured and handed to a new executor in **every** language — it was Rust and Python only. The form is the same everywhere: place **name** → that place's tokens in FIFO order, each token its value and its `created_at`. The engine imposes no codec. Your values stay yours to encode, and a closure or a native handle round-trips in-process untouched.
+
+```ts
+// TypeScript
+const snap = marking.snapshot();                                  // ReadonlyMap<string, readonly Token[]>
+const resumed = new BitmapNetExecutor(net, new Map(), { restore: snap });
+```
+
+```java
+// Java
+Map<String, List<Token<?>>> snap = marking.snapshot();
+var resumed = BitmapNetExecutor.builder(net, Map.of()).restore(snap).build();
+```
+
+```rust
+// Rust — no `restore` option: the restored marking IS the initial marking
+let snap: MarkingSnapshot = marking.snapshot();                   // BTreeMap<Arc<str>, Vec<ErasedToken>>
+let mut resumed = BitmapNetExecutor::<NoopEventStore>::new(&net, Marking::from_snapshot(&snap), options);
+```
+
+```python
+# Python — likewise, through `initial=`
+snap = marking.snapshot()                                         # {place: [{"value": …, "created_at": …}]}
+final = lp.run_sync(net, initial=snap)
+```
+
+`PrecompiledNetExecutor` takes the same option / builder call in each language, and the two executors snapshot key for key.
+
+**Java's `Marking.fromSnapshot(snapshot, places)` takes the net's places; nobody else's does.** A snapshot holds names. TypeScript and Rust compare places by name, so a name is enough to rebuild a usable key. Java's `Place` is a record with structural `(name, tokenType)` equality ([MOD-024]), so a place synthesised from a name alone would not equal the net's own place and the restored tokens would land where no transition could see them. Pass `net.places()`; `Builder.restore(snap)` does that for you. The same fact has one hard edge: a Java net that declares two places with one name and different token types cannot be snapshotted or restored — `executor.snapshot()` throws `IllegalStateException` and `restore(…).build()` / `fromSnapshot` throw `IllegalArgumentException`, on your thread, naming the place. Building and running such a net is unchanged.
+
+**Ask a running executor, and check the answer before you persist it.** `snapshot()` on a live executor does not stop the net, and returns the marking *together with* whether it is a restore point — one value, captured at one instant, so you cannot pair a marking with a flag from a different moment:
+
+```ts
+const snap = executor.snapshot();                                 // TypeScript
+if (isRestorePoint(snap)) await save(JSON.stringify([...snap.marking]));
+```
+
+```java
+var snap = executor.snapshot();                                   // Java
+if (snap.isRestorePoint()) save(snap.marking());
+```
+
+```rust
+let snap = handle.snapshot().expect("running").await?;            // Rust
+if snap.is_restore_point() { save(&snap.marking); }
+```
+
+```python
+snap = await handle.snapshot()                                    # Python
+if snap.is_restore_point:
+    save(snap.marking.snapshot())
+```
+
+The question reads the same in all four. In TypeScript `SnapshotResult` is a plain `{ marking, actionInFlight }` object, so `isRestorePoint` is a function you import from `libpetri` rather than a method — it is exactly `!result.actionInFlight`.
+
+`actionInFlight` / `action_in_flight` means **work in flight**, and there are two kinds:
+
+- **An action is running.** Its firing already consumed its inputs and its outputs have not landed, so those tokens are in *no* place. Restoring from that marking drops them without a sound — and the link between the action and whatever external work it started is not something a marking can hold at all.
+- **An event you injected was accepted but has not reached its place yet.** `inject` told you "accepted"; a checkpoint that omits the token loses an event you were promised. Java and TypeScript fold the pending queue into the flag. In Rust and Python the case cannot arise — injects and snapshot requests travel one FIFO channel, so every event accepted before the request is already *in* the marking.
+
+A `true` is never an error. It is a perfectly good observation for a dashboard or a debugger; for a checkpoint, ask again a little later.
+
+Worth knowing:
+
+- **Clocks do not come back.** `created_at` is restored verbatim and never re-stamped, even under an injected clock — but every transition the restored marking enables starts its timing interval fresh. A `delayed` lower bound is simply re-waited. A `deadline` or `window` **upper** bound gets a fresh full budget, so a timeout the net promised can be missed across a restore. A hard bound that must survive one belongs in the token payload or an action timeout, not in net timing.
+- **Restore occasionally, not routinely.** A `delayed(d)` whose clock is restarted more often than every `d` never fires at all. Sound for a suspend boundary or a checkpoint; unsound for a scheduler that parks and resumes as a matter of course.
+- **Places come out in ascending code-point order, and empty places are left out** — on every snapshot in all four languages, on both executors, and on the `marking-snapshot` event in Java and TypeScript (Rust, and Python with it, does not emit that event yet). Same marking, same keys, same order, so one codec gives one artefact you can diff, hash or content-address. A restore accepts a place that is absent and one that is present-but-empty as the same thing.
+- **In TypeScript, persist the snapshot as an array of entries**, as above: `JSON.stringify([...snap])` out, `new Map(JSON.parse(stored))` back. `Object.fromEntries(snap)` still restores correctly, but a JavaScript object hoists integer-like keys (`'9'`, `'10'`) ahead of everything else, so the stored artefact loses its canonical order — and a place named `__proto__` needs care.
+- **JSON session archives and the JSON debug protocol are not canonically ordered**, and their format did not change. A JSON object is an unordered medium. What they now guarantee is that writing the same data twice gives the same bytes; the per-process hash ordering that broke that is gone in Java, Rust and Python.
+- **A restore and a non-empty initial marking together is an error**, not a merge (Java, TypeScript). Pass `Map.of()` / `new Map()` alongside `restore`.
+- **A restored token on a place the net no longer declares is kept**, inert, and reported once with the same `WARN` an unknown initial place gets ([CORE-072]) — so a snapshot survives a net that has since lost a place.
+- **Calling `snapshot()` from inside an action** works and always reports work in flight — the calling firing has consumed its inputs. In TypeScript that holds from the moment of consumption, including the action's synchronous prefix and any `EventStore.append` during the firing; a checkpoint saver written as an event-store decorator should key on `transition-completed`, which is emitted from a settled marking. In Java the call returns at once on the orchestrator thread instead of waiting for itself. In Rust and Python an `async` action may await the reply and is reported in flight. A *sync* action under `run_async` / `start_async` is different: it runs inline in the executor's loop, so it may send the request but must not block on the reply — the executor cannot answer until the action returns, and the answer then describes the marking after that firing.
+- **In Java, a `snapshot()` from another thread waits for the orchestrator — for at most two seconds.** Normally that is microseconds. If the orchestrator is stuck inside a long inline action and has not served the request by then, you get the last marking it published with `actionInFlight = true`, whatever that older marking was published with: a request that was not served is never a restore point. `marking()` has the same cap and hands back the same marking.
+- **After `drain()` or `close()`, `snapshot()` refuses**: it throws in Java and TypeScript, raises `RuntimeError` in Python, and returns `Err` in Rust. The marking `run()` returned is your final state.
+- **If you restore while an injected epoch clock is in play**, seed that clock at or above the largest `created_at` in the snapshot. [NU-022] breaks ties between correlated groups on `created_at`; with a clock that starts below the restored timestamps, the order between restored and fresh groups is unspecified. Nothing is ever re-stamped to paper over it.
+
+### Changed: minted ν-names carry a scope ([NU-011])
+
+A resume is a new execution. An executor that counts minted names from zero would re-mint `fork#0` on top of the `fork#0` already sitting in its restored marking — and because a join correlates on name equality alone, that is not an error. It is a restored token silently merged with an unrelated fresh one.
+
+So every minted name now carries the scope of the execution that minted it: `<transition>#<scope>:<n>`.
+
+- **By default the scope is random**: 128 bits as exactly 32 lowercase hex characters, drawn per executor. That makes a resume collision-safe with no action from you, *including across a process restart* — which is where resumes usually happen, and where a per-process counter restarts at zero and collides exactly.
+- **It is not the execution id.** `executionId` / `execution_id` stays the small reproducible per-process counter of [TIME-015]. One value cannot be both reproducible and unique across processes, so they are now two values.
+- **`<n>` is a plain per-executor counter from 0**, under any scope. Randomness lives in the default scope and nowhere else.
+
+**For a replay, pin the scope.** With a fixed scope and a fixed firing order the minted sequence is reproducible — `fork#run-a:0`, `fork#run-a:1`, …:
+
+```ts
+new BitmapNetExecutor(net, new Map(), { restore: snap, executionScope: 'segment-2' });   // TypeScript
+```
+
+```java
+BitmapNetExecutor.builder(net, Map.of()).restore(snap).executionScope("segment-2").build();   // Java
+```
+
+```rust
+ExecutorOptions::default().execution_scope("segment-2")   // Rust — also on both precompiled builders
+```
+
+```python
+lp.ExecutorOptions(execution_scope="segment-2")           # Python
+```
+
+A pinned scope must be **fresh per run segment**. Resuming under the scope the snapshot was minted under is the very collision this exists to prevent, and nothing can detect it for you.
+
+**What a scope may contain** is the same in all four: not empty, no `:`, no `#`. Whitespace is legal — the test is length zero, not blankness. With both separators banned a minted name parses uniquely whatever the transition is called: the last `:` splits off the counter, then the last `#` before it splits off the scope. A bad scope is rejected where you wrote it, not at the first mint: `IllegalArgumentException` (Java), `Error` (TypeScript), `ValueError` from both `lp.ExecutorOptions` and the native options (Python). **Rust panics** at executor construction, as documented on every setter; for a scope that comes from outside your program call `validate_execution_scope(scope)` first — it returns `Result<(), InvalidExecutionScope>` and never panics.
 
 ### Added: inject the executor's clock ([TIME-015])
 
@@ -47,6 +232,10 @@ Three things worth knowing before you use it:
 - **Action timeouts are not virtualized.** `timeout(after, recovery)` in an output spec still elapses in real time; only its recovery *tokens* follow the epoch clock. A net declaring one is not fully replayable.
 - **Seed your initial marking through the clock.** A marking is built before any executor exists, so the ordinary token constructor stamps wall time and differs on every replay attempt — inside the marking. Use the clock-stamped seed helper (`seedToken` / `seed_token`), or construct tokens at an explicit timestamp.
 
+- **TypeScript: the `signal` handed to `sleep` belongs to that one wait.** It is aborted when *the wait is over or the executor is closing* — your sleep resolved, another wake source won the race, or `close()` was called. So abort means "this wait no longer matters", not "tear down": resolve (never reject), release what this call registered, keep the clock, and do not hold the signal across calls. A `sleep` written that way leaks nothing however long the net idles; `systemClock()` already is.
+- **TypeScript: never `await inject(...)` from inside `sleep`.** The orchestrator is the one waiting on you, so awaiting its admission suspends the only thing that can grant it. Use the new `injectNoAwait(place, value)` there — same admission, no acknowledgement to deadlock on.
+- **Rust: a clock implementing only the required methods is safe on the async path.** The inherited `await_work_async` yields before it blocks and stays pending when there is no boundary to wait for, so it cannot park the orchestrator on an idle net. A clock that really sleeps should still override it with a runtime-native sleep, as `SystemClock` does. `OwnedPrecompiledExecutorBuilder` takes `.clock(...)` too. Python has no clock seam.
+
 With no clock supplied, nothing changes: the default path reads the real clocks directly, with no indirection added.
 
 ### Fixed: a set interrupt flag made a Java run report success having done nothing ([EXEC-041])
@@ -61,11 +250,32 @@ catch (InterruptedException e) { Thread.currentThread().interrupt(); }
 
 — set the flag on the loop's own thread and silently truncated the net mid-chain, again reported as a completed run. The flag also survived `run()`, so a caller looping over several runs poisoned every subsequent one.
 
-The loop no longer consults the flag. Stopping is `close()` or a stop request, and an interrupt counts only where the wait actually throws one. **`terminationReason()`** now reports `QUIESCENT`, `CLOSED`, `INTERRUPTED` or `STOPPED`, so a truncated run is no longer indistinguishable from a finished one. An interrupted run additionally emits a `WARN` log message, because that is the stop nobody asked for; a `close()` you called yourself stays silent.
+The loop no longer consults the flag, and a flag that is merely *set* can no longer end a run at its first wait either. Both executors take the flag down — and remember it — when the run starts, after every inline action returns and before every wait (the hosted wait of an injected `ExecutionEnvironment` included), and put it back when `run()` returns. So a flag set before `run()`, or by an action, never truncates the net, and you still find it set afterwards. Stopping is `close()`, `terminateNow()` or a stop request; an interrupt ends the run only when it arrives **during** a wait that was entered with the flag clear.
+
+**`terminationReason()`** now reports `QUIESCENT`, `CLOSED`, `INTERRUPTED` or `STOPPED` (and `RUNNING` until a run has finished), so a truncated run is no longer indistinguishable from a finished one. An interrupted run additionally emits a `WARN` log message, because that is the stop nobody asked for; a `close()` you called yourself stays silent.
+
+What that costs, so it does not surprise you:
+
+- An interrupt from another thread that lands **while an inline action is executing** cannot be told from one the action set itself. It is deferred: the run carries on, and the flag is handed back when `run()` returns.
+- A net that never waits is therefore not interruptible. Stop it with `terminateNow()` or `close()`.
+- Under an injected `ExecutionEnvironment` the host owns the wait, and `awaitWork` cannot throw `InterruptedException`. The executor enters it with the flag clear and reads the flag when it returns: set on return means the interrupt arrived during the wait, and the run ends `INTERRUPTED` exactly as it does on a built-in wait. So a host that blocks interruptibly should catch the exception, re-interrupt and return. One that swallows it makes the run uninterruptible while it waits — and anything the host runs on the orchestrator thread inside `awaitWork` that sets the flag ends the run too.
+- A later action in the same run does not see a flag an earlier one set.
 
 ### Fixed — smaller, across languages
 
-- **Execution ids were clock readings** (Java, TypeScript). `executionId` was a hex-formatted monotonic-clock reading, so two executors started at the same instant — routine under an injected clock, and the whole point of running two — collided. It is now a process-wide counter assigned at construction. **The field's format changes**: a long hex timestamp becomes a short hex counter.
+- **Execution ids were clock readings** (Java, TypeScript). `executionId` was a hex-formatted monotonic-clock reading, so two executors started at the same instant — routine under an injected clock, and the whole point of running two — collided. It is now a process-wide counter assigned at construction. **The field's format changes**: a long hex timestamp becomes a short hex counter. It identifies a run within a process and nothing more — in particular the ν-name scope above is *not* derived from it.
+- **An `inject()` made from inside an event-store callback could vanish** (TypeScript; present in 6.0.0). Injecting from `EventStore.append` while the executor was admitting external events put the new event behind a queue that was then cleared: accepted, never deposited, and its promise never settled. It is now admitted on the next cycle and resolves `true`.
+- **`PrecompiledNetExecutor.getMarking()` went stale mid-run** (TypeScript). The first call during a run was cached for the rest of it. It now rebuilds on every call while running — a fresh copy each time, where `BitmapNetExecutor.getMarking()` is a live reference — and after `run()` resolves it is the marking `run()` resolved with.
+- **Debug markings and archives differed from run to run** (Java, Rust, Python). Per-process hash ordering decided the place order of `NetEventConverter.convertMarking(...)` and `ComputedState.marking` in Java, of debug frames, `NetStructure.places` and archive tags in Rust, and of `ComputedState.marking`, `InMemoryEventStore.counters()`, `SessionArchive.tags` and `SessionSummary.tags` in Python. All are now in ascending key order. No format change.
+- **A place named `__proto__` disappeared from the debug protocol** (TypeScript). `subscribed.currentMarking` and every `markingSnapshot.marking` dropped it; they now keep it. The wire JSON is otherwise identical. The debug UI had the same hole on the receiving side, and a worse one: its markings were ordinary objects, so a token arriving on a place named `__proto__` or `constructor` threw instead of rendering. Its markings are now prototype-less, and the bundled copy the debug server serves is rebuilt from that source.
+- **The debug UI could not be rebuilt, and misrouted server messages when it was** (debug UI source). Its message handlers told their messages apart with input guards. Against a core without guards `debug-ui/` no longer type-checked, and at runtime the predicate was silently ignored, so every handler competed for every message: an `eventBatch` could be taken by the session-list handler, which failed with `msg.sessions is not iterable` while the events never reached the log. The bundles already released were built against the older core, guards included, and route correctly; this is what stood in the way of shipping a new one. Messages now pass through a classifier transition whose XOR output has one leg per message type, so each reaches its own handler, in arrival order. A frame of a type the UI does not know, an `event` that arrives between two sessions, and a handler that throws are logged to the console and dropped — none of them can stall the messages behind it. The routing is proven on the UI's own net (nothing strands, in any session state), and `debug-ui` now type-checks and runs its tests in CI.
+- **Switching sessions in the debug UI left the old session's mode behind** (debug UI; in every released bundle). Whether a session is live or a replay, and whether a replay is paused, playing or stopped at a breakpoint, was injected by the UI's own actions and never taken back. After a replay session, the play button of a live session could be taken by the replay that had been left, so the live session never got its resume; and a second replay session started with two "paused" tokens. The modes are outputs of the transitions that enter them now, and leaving a session consumes exactly what it holds: that a session is in one phase and one mode, and a replay in one playback mode, is proven on the whole UI net. With it:
+  - Replay could run at double speed. A playback tick that arrived just after a pause stayed queued and ran beside the first tick of the next play. A tick that finds nothing playing is now consumed, and only one timer is ever armed.
+  - A panel repainted once per event, not once per frame. Frames nobody needed were kept — sixty a second while the page sat idle — and then paid for one repaint per event with no throttle at all; without that backlog the three panels took turns on a single frame. Each panel now repaints at most once a frame, however many events the frame covers, and an unused frame is dropped.
+  - If the connection closed between selecting a session and the server's answer, no session could be selected again until the page was reloaded. The outstanding subscribe is now abandoned, and a selection made while disconnected is sent once the connection is back. A session already on screen stays there, as before.
+  - An action that threw (a corrupt event under the seek slider, say) took the UI state token with it: the log stopped, and the session could not be left. Such an action now leaves the state as it was and logs to the console.
+- **`await handle.snapshot()` from inside an `async def` action failed the firing** (Python; present in 5.0.0). It raised `RuntimeError: no running event loop` — actions run on Tokio threads, which have none — so the action failed, the token it had consumed was gone and nothing was deposited. It now returns, from the action's first statement as well as after a real suspension, and reports work in flight. Called with no event loop to bind to at all, it raises before sending the request instead of leaving an unanswerable one queued.
+- **Python's type stubs had drifted from the runtime.** `ExecutorOptions()` with no arguments failed type-checking because the stub had lost `deadline_tolerance_ms`'s default; `libpetri/__init__.pyi` was missing names the package exports (`Interface`, `MarkingCache`, `SessionArchive`, `EventStream`, `SnapshotResult`, …); and `initial=view.snapshot()` was a type error. All fixed, `libpetri.PlaceLike` now exists at runtime as the stub always claimed, and a test now compares every stub against its module.
 - **A channel-composition conflict named an arbitrary place** (Java, Rust). When more than one declared place conflicted, which one the error named depended on hash order. All conflicts are now collected, sorted and reported together.
 - **`drain()` could be lost** (TypeScript). The wake-up was edge-triggered, so a drain issued while the executor was not parked in its wait was dropped and the net slept to its run budget. It now latches. Four `await sleep(...)` workarounds per executor came out of the test suite with it.
 - **Composing many subnet instances was quadratic** (Python). `NetBuilder.compose` rebuilt the whole net on every call. It now accumulates: 400 chained instances went from 262ms to 10.8ms, and per-instance cost is flat instead of doubling with net size. **Behaviour change**: a failed *merge* now leaves the builder unusable and says so, where previously it was left untouched. A bad port or channel name is still reported at the `compose` call and leaves the builder usable.
@@ -134,11 +344,14 @@ Both are conforming and both are replay-deterministic. But the same net under th
 
 ### Spec
 
-Three requirements were added or tightened from cross-integration design work. They are **Proposed** and carry no implementation in this release:
+Four requirements behind this release are now **implemented in all four languages**, and the spec says so — their `Status: Proposed` lines are gone, and `00-index.md` now states the convention (a requirement with no Status line is accepted and implemented; `Proposed` means an implementation is still pending somewhere).
 
-- **[NU-011] Resume-safe fresh-name minting.** A resume is a new execution, so an implementation that counts minted ν-names from zero re-mints names already live in the restored marking — and because joins correlate on name equality alone, the collision silently merges tokens from different run segments instead of erroring.
-- **[ENV-014]** now separates *observation* from a *restore point*. A marking taken while an action is in flight cannot be resumed from: the in-flight firing's inputs are already consumed and its outputs have not landed, and more fundamentally the link between an in-flight action and the external work it started has no representation in the marking at all. A snapshot can restore every token faithfully and still resume a net that has forgotten it has work outstanding.
-- **[CORE-073]** now states what its fresh-clock rule costs. Lower bounds (`delayed`, `exact`) re-waited after a restore are still satisfied; hard upper bounds (`deadline`, `window`) get a fresh full budget, so a promised timeout can be missed across a restore. Restore is also only sound when it is *infrequent* — a `delayed(d)` whose clock restarts more often than every `d` never fires at all. And a timed proof does not cross a restore: re-verify with the restored marking as the initial marking.
+- **[NU-011] Resume-safe fresh-name minting.** A resume is a new execution, and a restore lineage crosses processes. The default scope MUST therefore be unique across processes — 128 bits as 32 lowercase hex — and is deliberately *not* the run identifier; the earlier "default the scope to the run identifier" is withdrawn, because one value cannot be both reproducible ([TIME-015]) and unique across processes. Also new: the name format, the scope validation rule and the unique parse rule, identical everywhere. [NU-010]'s replay stability is now stated "for a fixed firing order **and a fixed scope**".
+- **[ENV-014]** separates *observation* from a *restore point*, and "in flight" now means an action **or an accepted external event not yet injected**. A firing counts from the moment its inputs are consumed; a snapshot requested from inside an action must not deadlock on itself and reports in flight.
+- **[CORE-073]**: an emitted snapshot MUST omit empty places and a restore MUST accept both forms (was "MAY either way"). Code-point order is guaranteed on the snapshot form and on the [EVT-014] event; JSON archives and the debug protocol ([EVT-025]) are an unordered medium that owes reproducibility across runs instead. An implementation with structural place equality MUST reject a snapshot or restore over two same-named places, on the caller's thread. It also states what the fresh-clock rule costs: lower bounds (`delayed`, `exact`) are re-waited and still satisfied; hard upper bounds (`deadline`, `window`) get a fresh full budget; restore is only sound when it is *infrequent*; and a timed proof does not cross a restore — re-verify with the restored marking as the initial marking.
+- **[TIME-015]** contract 4: the wait's abort signal is raised "when the wait is over or the executor is closing", and a host must not read abort as teardown. **[EXEC-041]**'s text is unchanged; its Java status now describes the clear-and-restore of the interrupt flag above, the hosted wait's flag-on-return rule included. **[EVT-014]** records that Java and TypeScript *produce* the marking-snapshot event; Rust, and Python with it, declares and consumes it but has no producer yet.
+
+The index's priority tally was corrected to 143 MUST / 60 SHOULD / 16 MAY. The total is unchanged at 219.
 
 ## Java 6.0.0 / TypeScript 6.0.0 / Rust 6.0.0 / Python 5.0.0 — 2026-09-17
 

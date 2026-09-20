@@ -27,7 +27,14 @@ Adding a component to a public `record` is a breaking change (record patterns de
 ## Not available here
 
 - No `ctx.flush()`, so the mid-action publication rules do not apply.
-- Marking snapshot and restore is pending, so checkpoint and resume designs do not port to Java yet.
+
+## Checkpoint and resume (6.1 and later)
+
+`marking.snapshot()` gives `Map<String, List<Token<?>>>`: place name to tokens, ascending code-point order, empty places omitted. Resume with `BitmapNetExecutor.builder(net, Map.of()).restore(snap).build()` (the precompiled builder is the same); a restore next to a non-empty initial marking throws. `executor.snapshot()` returns `SnapshotResult(marking, actionInFlight)` captured as one pair. Persist only when `isRestorePoint()` is true: the flag is set while an action is running **or** while an accepted `inject` has not yet reached its place. Called from inside an action it returns at once and always reports work in flight, because actions run inline on the orchestrator thread. Called from another thread it waits for the orchestrator, for at most two seconds; if a blocking inline action keeps the request unserved, the last published marking comes back flagged in flight, never as a restore point.
+
+Structural `Place` equality shows up here twice. `Marking.fromSnapshot(snapshot, places)` needs the net's places (`net.places()`), because a place rebuilt from a name alone would not equal the net's own. And a net that declares two places with one name and different token types cannot be snapshotted or restored at all: `snapshot()` throws `IllegalStateException`, `restore(...).build()` throws `IllegalArgumentException`, both on the caller's thread. Keep names unique and neither matters.
+
+Design consequences. Clocks restart on resume: a `delayed` is re-waited, a `deadline` or `window` gets a fresh full budget, so a bound that must survive a restore belongs in the token payload or an action timeout. Restore occasionally, never as a scheduling mechanism. If the net mints ν-names, read "Minting across a resume" in `nu-nets.md` before you pin `executionScope(...)`.
 
 ## Available only here
 

@@ -108,9 +108,15 @@ info "Setting Java version to ${VERSION}"
 cd "$JAVA_DIR"
 ./mvnw versions:set -DnewVersion="$VERSION" -DgenerateBackupPoms=false -q
 
+# The install coordinates in the two READMEs are not derived from the pom, so a
+# release that leaves them alone advertises the previous version.
+sed -i.bak -E "s|(org\.libpetri:libpetri:)[0-9]+\.[0-9]+\.[0-9]+|\\1${VERSION}|" "$PROJECT_ROOT/README.md"
+sed -i.bak -E "/<artifactId>libpetri<\/artifactId>/{n;s|<version>[^<]+</version>|<version>${VERSION}</version>|;}" "$PROJECT_ROOT/java/README.md"
+rm -f "$PROJECT_ROOT/README.md.bak" "$PROJECT_ROOT/java/README.md.bak"
+
 # --- Commit the version bump ---
 cd "$PROJECT_ROOT"
-git add java/pom.xml
+git add java/pom.xml README.md java/README.md
 git diff --cached --quiet || git commit -m "release: java ${VERSION}"
 
 # --- Build / Deploy ---

@@ -26,6 +26,10 @@ Subscriptions are batched and filtered inside Rust. There are no per-event Pytho
 
 The key projection is a Python callable evaluated under the GIL for each candidate token, on the enablement path. Attribute access or a dict lookup is fine. Anything heavier taxes every enablement check of every matched transition, on every cycle.
 
-## Available here (and in Rust) but not in Java or TypeScript
+## Checkpoint and resume
 
-Marking snapshot and restore, and executor snapshot. Checkpoint and resume designs port to Rust and Python only.
+Available in all four languages since Java and TypeScript 6.1, Rust 7.0 and Python 6.0, so a checkpoint design ports. `view.snapshot()` gives `{place: [{"value": ..., "created_at": ...}]}` in ascending code-point order with empty places omitted. There is no `restore` option: pass the snapshot, or the view, as `initial=`.
+
+Since 6.0 `await handle.snapshot()` returns a `SnapshotResult`, not a `MarkingView`. The marking is on `.marking`; persist it only when `.is_restore_point` is true, because a snapshot taken while an action is in flight holds tokens in no place. Every `inject` accepted before the call is already in the marking, since both travel one FIFO channel. An `async def` action may `await handle.snapshot()` and is reported in flight; a sync action under `start_async` / `run_async` runs inline in the executor's loop and must not block on the reply. Passing the `SnapshotResult` itself as `initial=` is a `TypeError` that tells you to pass `.marking`. `created_at` on a restore must be an integer, or an integral float, in `0 <= ms < 2**64`; anything else is a `TypeError` or `ValueError` rather than a silent coercion.
+
+Design consequences. Clocks restart on resume: a `delayed` is re-waited, a `deadline` or `window` gets a fresh full budget, so a bound that must survive a restore belongs in the token payload or an action timeout. Restore occasionally, never as a scheduling mechanism. If the net mints ν-names, read "Minting across a resume" in `nu-nets.md` before you pin `execution_scope`.
