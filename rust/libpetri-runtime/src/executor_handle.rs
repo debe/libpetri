@@ -12,7 +12,7 @@ use libpetri_core::token::ErasedToken;
 use libpetri_core::token::Token;
 
 use crate::environment::{ExecutorSignal, ExternalEvent};
-use crate::marking::Marking;
+use crate::marking::SnapshotResult;
 
 /// RAII handle for injecting events and controlling executor lifecycle.
 ///
@@ -131,44 +131,65 @@ impl ExecutorHandle {
 
     /// Requests a mid-execution snapshot of the executor's current marking.
     ///
-    /// Returns a oneshot receiver that resolves to an owned [`Marking`] once
+    /// Returns a oneshot receiver that resolves to a [`SnapshotResult`] once
     /// the executor processes the signal (typically within one orchestrator
-    /// cycle). Returns `Err` if the handle is drained/closed or the channel
-    /// is disconnected — in either case no snapshot will be delivered.
+    /// cycle) — the marking in the \[CORE-073\] form, plus whether an action
+    /// was in flight when it was taken (\[ENV-014\] AC5/AC6). Returns `Err`
+    /// if the handle is drained/closed or the channel is disconnected — in
+    /// either case no snapshot will be delivered.
     ///
     /// Unlike `drain` / `close`, this does **not** affect lifecycle: the
     /// executor keeps running.
     ///
-    /// # This is an observation, not a restore point
+    /// # An observation is not always a restore point — check the flag
     ///
     /// \[ENV-014\] The snapshot is served from the orchestrator's cycle, but
     /// nothing suspends the run to take it: an action may be **in flight**,
     /// having already consumed its inputs and not yet produced its outputs.
     /// Those tokens are in neither place at the instant you observe them, so
-    /// a marking captured then is not a valid point to resume from — restore
-    /// it and that work is simply gone.
+    /// a marking captured then is not a valid point to resume from —
+    /// restore it and that work is simply gone.
     ///
-    /// AC5/AC6 of \[ENV-014\] — refusing such a snapshot, reporting the
-    /// condition, or deferring until nothing is in flight — are **not
-    /// implemented** in any language. Until they are, treat this as
-    /// diagnostics and monitoring. For a restore point, snapshot a run that
-    /// has terminated.
+    /// That is why the reply carries [`SnapshotResult::action_in_flight`]
+    /// rather than a bare marking. Check
+    /// [`is_restore_point`](SnapshotResult::is_restore_point) before using
+    /// one as a resume point; a snapshot taken mid-flight remains perfectly
+    /// good for diagnostics and monitoring.
     ///
-    /// # Do not await this from inside the executor's wait
+    /// # Do not wait for the reply on the orchestrator's own thread of control
     ///
-    /// \[TIME-015\] A host that installs an [`ExecutorClock`] is running
-    /// *on the orchestrator's own thread of control* while its wait is
-    /// parked. The task that would send on this receiver is that same
-    /// orchestrator, so awaiting it there parks the executor against
-    /// itself: no error, no timeout from libpetri's own machinery, and
-    /// nothing indicating what happened.
+    /// The reply is sent by the orchestrator, from a following cycle. Code
+    /// that is *running on the orchestrator* and waits for it therefore parks
+    /// the executor against itself: no error, no timeout from libpetri's own
+    /// machinery, and nothing indicating what happened. Two places are on
+    /// the orchestrator:
+    ///
+    /// - **An [`ExecutorClock`]'s wait** (\[TIME-015\]). A host that installs
+    ///   a clock is running inside the orchestrator's wait while it is
+    ///   parked, so awaiting the reply there never completes.
+    /// - **A sync action under `run_async`** (\[ENV-014\] AC#8). Sync actions
+    ///   run *inline* in the orchestrator's loop. Requesting a snapshot from
+    ///   one is fine — the send does not block — but the request cannot be
+    ///   served until the action returns, so *blocking* on the reply
+    ///   (`tokio::task::block_in_place`, a `std` channel, a foreign
+    ///   `block_on`) hangs the run for good. tokio's own
+    ///   `Receiver::blocking_recv` panics there instead, which is the lucky
+    ///   case. The executor cannot detect either: the receiver is a plain
+    ///   oneshot the action holds, not a call back into the executor. Hand
+    ///   the receiver to something that outlives the action; once the action
+    ///   has returned, the reply describes that later instant — its outputs
+    ///   deposited, and a restore point if nothing else is running.
+    ///
+    /// An **async** action is *not* on the orchestrator: it runs as its own
+    /// task, may await the reply freely, and is — correctly — told that an
+    /// action is in flight, since the firing that asked has consumed its
+    /// inputs and not yet produced its outputs.
     ///
     /// [`inject`](Self::inject) and [`inject_many`](Self::inject_many) are
     /// deliberately not awaitable for this reason — they return `bool` after
     /// a non-blocking send and the tokens are admitted in the executor's own
     /// external-events phase on a following cycle. `snapshot` is the one
-    /// call on this handle whose result must not be awaited from inside a
-    /// clock's wait.
+    /// call on this handle whose result must not be waited for from there.
     ///
     /// [`ExecutorClock`]: crate::clock::ExecutorClock
     // `Result<_, ()>` is intentional: the only failure is "snapshot cannot be
@@ -176,7 +197,7 @@ impl ExecutorHandle {
     // `Err(())` keeps the `?`/`is_err()` ergonomics the sibling lifecycle
     // tests rely on, so we opt out of `result_unit_err` here.
     #[allow(clippy::result_unit_err)]
-    pub fn snapshot(&self) -> Result<tokio::sync::oneshot::Receiver<Marking>, ()> {
+    pub fn snapshot(&self) -> Result<tokio::sync::oneshot::Receiver<SnapshotResult>, ()> {
         if self.drained {
             return Err(());
         }
@@ -273,8 +294,11 @@ mod tests {
         let receiver = handle.snapshot().expect("snapshot on live handle");
         match rx.recv().await {
             Some(ExecutorSignal::Snapshot(reply)) => {
-                // Mimic the executor side: send back an empty marking.
-                let _ = reply.send(Marking::default());
+                // Mimic the executor side: an empty marking, nothing in flight.
+                let _ = reply.send(SnapshotResult {
+                    marking: crate::marking::Marking::default().snapshot(),
+                    action_in_flight: false,
+                });
             }
             other => panic!("expected Snapshot signal, got {:?}", other),
         }

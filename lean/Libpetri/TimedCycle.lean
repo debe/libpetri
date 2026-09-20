@@ -29,8 +29,8 @@ backends (`precompiled_backend.rs:1302-1309`, `bitmap_backend.rs:855-862`)
 and `disable` in **neither** (`:1311-1317`, `:864-870`, the EXEC-003 loser
 path of `Enablement.lean`'s `disable_frame`) — the reap is the unique
 asymmetric dirty site. The executor consumes the reaped list only to emit
-`TransitionTimedOut` (EVT-009; `executor_core/executor.rs:292` sync,
-`:852` async) — no token change, no re-dirty route.
+`TransitionTimedOut` (EVT-009; `executor_core/executor.rs:373` sync,
+`:933` async) — no token change, no re-dirty route.
 
 **This module rules that the two shipped behaviors differ; it deliberately
 does not rule which one is spec-correct.** TIME-013 mandates "disables it and
@@ -44,7 +44,7 @@ The model is the per-transition control cell at cycle granularity — token
 presence abstracted to one `Bool` (enough for `can_enable`, which the quiet
 net keeps constant), `Nat` clocks per `Sched.lean`'s convention with `none`
 for `NEG_INFINITY`. A cycle is the executor loop's phase order (`run_sync`,
-`executor_core/executor.rs:281`; async loop Phase 3/4/5): update enablement,
+`executor_core/executor.rs:362`; async loop Phase 3/4/5): update enablement,
 enforce deadlines, then the ready/fire decision — the observable. Firing
 *effects* are outside the fragment: the divergence is observable at the fire
 decision itself, before any consumption happens. `exact()` timing is excluded
@@ -172,8 +172,8 @@ def fires (earliest now : Nat) (s : Cell) : Bool :=
 
 /-! ## One executor cycle, and runs over a schedule
 
-Phase order per the loop (`run_sync`, `executor_core/executor.rs:281`; the
-async loop's Phase 3/4/5, `:840-896`): update enablement, enforce deadlines,
+Phase order per the loop (`run_sync`, `executor_core/executor.rs:362`; the
+async loop's Phase 3/4/5, `:921-977`): update enablement, enforce deadlines,
 collect ready + fire. Advancing time between cycles is the schedule itself:
 a run is driven by the list of cycle timestamps `now`.
 
@@ -186,7 +186,7 @@ but explicitly does **not** promise it advances between two reads: a host
 clock derived from millisecond wall time or a replay log yields a schedule
 with repeated timestamps, which is already inside this quantification. The
 executor still reads the clock exactly once per cycle (`let cycle_now =
-self.elapsed_ms()`, `:282` sync / `:841` async), which is the `now` here. -/
+self.elapsed_ms()`, `:363` sync / `:922` async), which is the `now` here. -/
 
 /-- One cycle under the given enforcement step. Returns the post-cycle cell
 and the fire observable. Firing effects (consumption, `post_fire`) are

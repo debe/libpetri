@@ -138,3 +138,40 @@ def test_compute_at_counts_multiple_tokens_in_one_place() -> None:
     cache = lp.MarkingCache()
     state = cache.compute_at(store, len(store))
     assert state.marking.get("p_out", 0) == 2
+
+
+def test_computed_state_is_ordered_independently_of_the_process() -> None:
+    """A Python dict and list are ordered media, so a container seeded per
+    process must not decide what a host logs, diffs or golden-files. Twelve
+    scrambled names: a randomised container passes by luck one time in 12!.
+
+    ``list(...)`` on the dict — equality alone ignores order.
+    """
+    names = ["q07", "q11", "q02", "q09", "q00", "q05", "q10", "q03", "q08", "q01", "q06", "q04"]
+    builder = lp.Net("wide")
+    for n in names:
+        builder = builder.transition(
+            lp.Transition(f"t_{n}")
+            .input(lp.one(lp.Place(f"in_{n}")))
+            .output(lp.out(lp.Place(f"out_{n}")))
+            .action(lp.fork)
+            .build()
+        )
+    net = builder.build()
+    store = lp.InMemoryEventStore()
+    lp.run_sync(net, initial={f"in_{n}": ["v"] for n in names}, event_store=store)
+
+    cache = lp.MarkingCache()
+    widest_enabled: list[str] = []
+    widest_marking: list[str] = []
+    for index in range(len(store) + 1):
+        state = cache.compute_at(store, index)
+        places = list(state.marking)
+        assert places == sorted(places), f"event {index}: marking keys {places}"
+        assert state.enabled_transitions == sorted(state.enabled_transitions), index
+        assert state.in_flight_transitions == sorted(state.in_flight_transitions), index
+        widest_enabled = max(widest_enabled, state.enabled_transitions, key=len)
+        widest_marking = max(widest_marking, places, key=len)
+    # The ordering assertions above must have had something to order.
+    assert len(widest_marking) >= len(names), widest_marking
+    assert len(widest_enabled) >= 6, widest_enabled

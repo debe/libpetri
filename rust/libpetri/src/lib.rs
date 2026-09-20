@@ -97,9 +97,12 @@ pub use libpetri_event::net_event::NetEvent;
 
 pub use libpetri_export::dot_exporter::dot_export;
 
+pub use libpetri_runtime::clock::{ClockWait, ExecutorClock, ManualClock, SystemClock, seed_token};
 pub use libpetri_runtime::compiled_net::CompiledNet;
-pub use libpetri_runtime::executor::{BitmapNetExecutor, ExecutorOptions};
-pub use libpetri_runtime::marking::Marking;
+pub use libpetri_runtime::executor::{
+    BitmapNetExecutor, ExecutorOptions, InvalidExecutionScope, validate_execution_scope,
+};
+pub use libpetri_runtime::marking::{Marking, MarkingSnapshot, SnapshotResult};
 pub use libpetri_runtime::owned_precompiled::{
     OwnedPrecompiledExecutorBuilder, OwnedPrecompiledNet,
 };

@@ -72,7 +72,9 @@ pub struct SessionArchiveV2 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_time: Option<String>,
     pub event_count: usize,
-    #[serde(default)]
+    /// Written in ascending key order, so a header is byte-identical across
+    /// runs for identical session data.
+    #[serde(default, serialize_with = "crate::debug_response::serialize_sorted")]
     pub tags: HashMap<String, String>,
     pub metadata: SessionMetadata,
     pub structure: NetStructure,
@@ -96,7 +98,9 @@ pub struct SessionArchiveV3 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_time: Option<String>,
     pub event_count: usize,
-    #[serde(default)]
+    /// Written in ascending key order, so a header is byte-identical across
+    /// runs for identical session data.
+    #[serde(default, serialize_with = "crate::debug_response::serialize_sorted")]
     pub tags: HashMap<String, String>,
     pub metadata: SessionMetadata,
     pub structure: NetStructure,
@@ -230,5 +234,57 @@ impl SessionMetadata {
     /// sessions and as the fallback for v1 archive imports.
     pub fn empty() -> Self {
         Self::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// \[EVT-014\] AC5 / \[EVT-025\]: an archive header written twice from identical session data must not
+    /// differ, and `tags` was the one map in it still on a per-process
+    /// randomised container. Twelve tags, inserted scrambled.
+    #[test]
+    fn header_tags_render_in_ascending_key_order() {
+        const SCRAMBLED: [&str; 12] = ["p07", "p02", "p11", "p00", "p05", "p09", "p01", "p10", "p03", "p08", "p04", "p06"];
+        let tags = || -> HashMap<String, String> {
+            SCRAMBLED.iter().map(|k| (k.to_string(), "v".to_string())).collect()
+        };
+        let structure = || NetStructure { places: vec![], transitions: vec![] };
+        let v2 = SessionArchiveV2 {
+            version: 2,
+            session_id: "s".into(),
+            net_name: "n".into(),
+            dot_diagram: String::new(),
+            start_time: "0".into(),
+            end_time: None,
+            event_count: 0,
+            tags: tags(),
+            metadata: SessionMetadata::empty(),
+            structure: structure(),
+        };
+        let v3 = SessionArchiveV3 {
+            version: 3,
+            session_id: "s".into(),
+            net_name: "n".into(),
+            dot_diagram: String::new(),
+            start_time: "0".into(),
+            end_time: None,
+            event_count: 0,
+            tags: tags(),
+            metadata: SessionMetadata::empty(),
+            structure: structure(),
+        };
+        let mut sorted = SCRAMBLED.to_vec();
+        sorted.sort_unstable();
+        for json in [serde_json::to_string(&v2).unwrap(), serde_json::to_string(&v3).unwrap()] {
+            let offsets: Vec<usize> = sorted
+                .iter()
+                .map(|k| json.find(&format!("\"{k}\":")).expect("tag present"))
+                .collect();
+            assert!(offsets.windows(2).all(|w| w[0] < w[1]), "tags out of order: {json}");
+            let back: SessionArchiveV3 = serde_json::from_str(&json).unwrap();
+            assert_eq!(back.tags, tags(), "sorting the rendering must not change the data");
+        }
     }
 }

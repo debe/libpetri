@@ -84,3 +84,25 @@ def test_debug_bridge_translates_json_callbacks() -> None:
     assert isinstance(sessions, list)
     assert sessions[0]["sessionId"] == "py-session"
     assert sessions[0]["tags"]["suite"] == "python"
+
+
+@pytest.mark.skipif(not lp.HAS_DEBUG, reason="wheel built without debug support")
+def test_session_tags_are_ordered_independently_of_the_process() -> None:
+    """Both routes a host reads tags by — the `SessionSummary` object and the
+    JSON frame — in ascending key order rather than hash order. Twelve
+    scrambled keys: a randomised container passes one time in 12!."""
+    _source, _sink, _subnet, net = build_composed_net()
+    tags = {k: f"v-{k}" for k in ["k07", "k11", "k02", "k09", "k00", "k05", "k10", "k03", "k08", "k01", "k06", "k04"]}
+
+    handler = lp.DebugProtocolHandler()
+    handler.register_session("tagged", net, tags=tags)
+
+    [summary] = handler.list_sessions()
+    assert summary.tags == tags
+    assert list(summary.tags) == sorted(tags)
+
+    messages: list[dict[str, object]] = []
+    handler.connect("client-1", messages.append)
+    handler.send("client-1", {"type": "listSessions", "limit": 10, "activeOnly": False})
+    [frame] = [m for m in messages if m.get("type") == "sessionList"]
+    assert list(frame["sessions"][0]["tags"]) == sorted(tags)

@@ -1,17 +1,97 @@
 use std::any::Any;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Arc;
 
 use libpetri_core::place::Place;
 use libpetri_core::token::{ErasedToken, Token};
 
+/// \[CORE-073\] The normative snapshot form: place **name** → the place's
+/// tokens in **FIFO order** (\[CORE-013\]).
+///
+/// Keyed by name rather than by [`Place`] deliberately: \[CORE-073\] AC#7
+/// requires a snapshot to retain a place the receiving net does not declare,
+/// and there is no `Place` to construct for a name the net has never heard
+/// of. `Marking` has always been keyed this way, so retention is structural
+/// rather than something to remember.
+///
+/// A `BTreeMap` rather than a `HashMap` so the place order is **deterministic
+/// across runs**. The form is a mapping and only the per-place sequence is
+/// ordered, so hash order would not violate the requirement — but the moment
+/// a host serializes a snapshot and diffs, hashes or content-addresses it,
+/// unstable key order bites, and ordering it costs nothing here.
+///
+/// The entry is [`ErasedToken`], which already *is* `(value, created_at)` —
+/// no parallel "snapshot entry" type, matching Java and TypeScript, which
+/// reuse their `Token` for the same reason. Note it carries one extra field,
+/// `value_type_name`, which is engine metadata outside the normative form
+/// and does not survive a round-trip through a binding.
+///
+/// **Structural, not serialized.** No codec is imposed and token values need
+/// not be serializable: the value stays an `Arc<dyn Any + Send + Sync>`, so
+/// a closure, a native handle or a host object round-trips in-process
+/// untouched (\[CORE-073\] AC#8).
+pub type MarkingSnapshot = BTreeMap<Arc<str>, Vec<ErasedToken>>;
+
+/// \[ENV-014\] AC5/AC6 — what a mid-execution snapshot returns.
+///
+/// The marking **and** whether an action was in flight when it was taken,
+/// as one value. Deliberately not a separately-queryable flag: that would be
+/// read at a different instant than the marking, which is the race AC5
+/// exists to close.
+///
+/// # Why the flag matters
+///
+/// Nothing suspends the run to serve a snapshot. An action may be **in
+/// flight** — having already consumed its inputs (\[EXEC-031\]) and not yet
+/// produced its outputs — so those tokens are in *neither* place at the
+/// instant you observe them. The marking is a perfectly valid
+/// **observation**; it is not a valid **restore point**, because restoring
+/// it loses that work silently.
+///
+/// # External events
+///
+/// The flag's cross-language meaning is *work in flight: an action, or an
+/// accepted but un-injected external event*. In this implementation the
+/// second half is never true: an inject and a snapshot request travel the
+/// same FIFO signal channel, and the executor applies an inject to the
+/// marking the moment it receives it. Every event accepted before the
+/// snapshot was requested is therefore already **in** the marking, and the
+/// flag reduces to "an action was in flight".
+///
+/// `action_in_flight` is singular and boolean on purpose. A count would
+/// invite the reader to treat it as a live gauge of how many are running
+/// now, which is exactly the racy reading AC5 forbids. This is a fact about
+/// the instant the snapshot was taken, not a measurement you can re-check.
+#[derive(Debug, Clone)]
+pub struct SnapshotResult {
+    /// The captured marking, in the \[CORE-073\] normative form.
+    pub marking: MarkingSnapshot,
+    /// Work in flight: an action, or an accepted but un-injected external
+    /// event (the latter cannot occur here — see *External events* above).
+    /// True makes the marking an observation rather than a restore point.
+    pub action_in_flight: bool,
+}
+
+impl SnapshotResult {
+    /// True when nothing was in flight, so the marking is safe to restore
+    /// from. Sugar for `!action_in_flight`, named for the question a caller
+    /// is actually asking.
+    pub fn is_restore_point(&self) -> bool {
+        !self.action_in_flight
+    }
+}
+
 /// Mutable token state of a Petri net during execution.
 ///
 /// Stores type-erased tokens in FIFO queues keyed by place name. `Clone` is
-/// supported so an executor can hand out an owned snapshot through a oneshot
+/// supported so an executor can hand out an owned copy through a oneshot
 /// channel (used by [`ExecutorHandle::snapshot`](crate::ExecutorHandle::snapshot));
 /// each cloned token clones its underlying `Arc<dyn Any + Send + Sync>`, so
 /// shared payloads are not deep-copied.
+///
+/// `Clone` is an **in-process copy, not the snapshot form** — see
+/// [`snapshot`](Self::snapshot) / [`from_snapshot`](Self::from_snapshot) for
+/// \[CORE-073\]. The two coexist; neither replaces the other.
 #[derive(Debug, Default, Clone)]
 pub struct Marking {
     tokens: HashMap<Arc<str>, VecDeque<ErasedToken>>,
@@ -20,6 +100,60 @@ pub struct Marking {
 impl Marking {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// \[CORE-073\] Captures this marking in the normative snapshot form.
+    ///
+    /// Every token's `value` and `created_at` are preserved, and each
+    /// place's sequence is its FIFO order, so a restore reproduces which
+    /// token the next firing consumes (\[CORE-013\], AC#6).
+    ///
+    /// Empty places are omitted. \[CORE-073\] permits either, and requires
+    /// only that omitted and present-but-empty restore identically —
+    /// [`from_snapshot`](Self::from_snapshot) accepts both.
+    ///
+    /// Restoring does **not** resume a partially elapsed firing interval: a
+    /// restored marking seeds a new execution whose timing clocks all start
+    /// fresh (\[TIME-010\] / \[TIME-011\]). That is safe for `delayed` /
+    /// `exact` lower bounds and **unsafe for `deadline` / `window` upper
+    /// bounds**, which receive a fresh full budget — and restoring more often
+    /// than a `Delayed(d)` interval means that transition never fires at all.
+    /// Restore is sound as an *occasional* operation, not as a scheduler's
+    /// routine park-and-resume.
+    pub fn snapshot(&self) -> MarkingSnapshot {
+        self.tokens
+            .iter()
+            .filter(|(_, queue)| !queue.is_empty())
+            .map(|(place, queue)| (Arc::clone(place), queue.iter().cloned().collect()))
+            .collect()
+    }
+
+    /// \[CORE-073\] Rebuilds a marking from the normative snapshot form.
+    ///
+    /// FIFO order within each place is preserved, `created_at` is carried
+    /// through **unchanged** — the engine never re-stamps a restored token,
+    /// including under an injected epoch clock (\[TIME-015\], AC#9) — and a
+    /// place the receiving net does not declare is retained rather than
+    /// dropped, exactly as \[CORE-072\] requires of any initial marking
+    /// (AC#7).
+    ///
+    /// An explicitly-empty sequence is accepted and yields the same marking
+    /// as omitting the place entirely (AC#7). That half is worth testing
+    /// directly: a snapshot-then-restore round-trip can never exercise it,
+    /// because [`snapshot`](Self::snapshot) never emits one.
+    pub fn from_snapshot(snapshot: &MarkingSnapshot) -> Self {
+        let mut marking = Self::new();
+        for (place, entries) in snapshot {
+            if entries.is_empty() {
+                continue;
+            }
+            marking
+                .tokens
+                .entry(Arc::clone(place))
+                .or_default()
+                .extend(entries.iter().cloned());
+        }
+        marking
     }
 
     /// Adds a typed token to a place.

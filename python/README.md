@@ -59,6 +59,7 @@ Outputs are normally published atomically when an action returns. In an async ac
 - Reusable subnets, typed interfaces, composition, and place fusion.
 - Environment events, event stores, debug protocol, and DOT export.
 - ν-net fresh identities and correlated joins.
+- Marking snapshot and restore through `initial=`. `await handle.snapshot()` returns a `SnapshotResult` (`.marking`, `.is_restore_point`): check the flag, then pass `.marking` as `initial=` — handing over the result itself is a `TypeError` that says so.
 - Structural, timed, and SMT verification through the Rust engine where available.
 
 ## SMT verification needs a `z3` executable

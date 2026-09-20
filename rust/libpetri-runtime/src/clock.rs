@@ -197,12 +197,51 @@ pub trait ExecutorClock: Send + Sync + fmt::Debug {
     /// boundary: return a future that stays `Pending` and let the
     /// executor's own wake-up arms win the race.
     ///
-    /// The default runs [`await_work`](Self::await_work) on first poll,
-    /// which suits only a clock that *advances* to the boundary. **A clock
-    /// that suspends MUST override this** rather than inherit the default,
-    /// which would block a tokio worker for the duration.
+    /// # The default
+    ///
+    /// Safe for any clock that implements only the three required methods:
+    ///
+    /// - on an absent boundary it returns a future that stays `Pending`, and
+    ///   never enters [`await_work`](Self::await_work) — the synchronous
+    ///   wait's `ready` has nothing to observe here, so a conforming clock
+    ///   handed `f64::INFINITY` would park the polling worker for good and
+    ///   the executor's inject / snapshot / close arms would never run again;
+    /// - on a finite one it yields `Pending` **once**, so the executor's
+    ///   other arms get their turn first, and only then runs
+    ///   [`await_work`](Self::await_work) with a `ready` that is always
+    ///   false.
+    ///
+    /// That second step is exact for a clock that *advances* to the
+    /// boundary. A clock that really sleeps still blocks a runtime worker
+    /// for the finite interval — the default cannot know better — so **a
+    /// clock that suspends in real time SHOULD override this** with a
+    /// runtime-native sleep, as [`SystemClock`] does.
     fn await_work_async(&self, delay_ms: f64) -> ClockWait<'_> {
-        Box::pin(async move { self.await_work(&|| false, delay_ms) })
+        if !delay_ms.is_finite() {
+            return Box::pin(std::future::pending());
+        }
+        Box::pin(async move {
+            YieldOnce(false).await;
+            self.await_work(&|| false, delay_ms)
+        })
+    }
+}
+
+/// `Pending` exactly once, then `Ready` — a runtime-agnostic
+/// `yield_now`, so [`ExecutorClock::await_work_async`]'s default needs no
+/// `tokio` gate and the trait keeps one shape under every feature set.
+struct YieldOnce(bool);
+
+impl Future for YieldOnce {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<()> {
+        if self.0 {
+            return std::task::Poll::Ready(());
+        }
+        self.0 = true;
+        cx.waker().wake_by_ref();
+        std::task::Poll::Pending
     }
 }
 
@@ -407,12 +446,13 @@ impl ExecutorClock for ManualClock {
 
     /// Overridden rather than inherited, deliberately.
     ///
-    /// The default runs [`await_work`](ExecutorClock::await_work) on first
-    /// poll, which suits a clock that *advances*. `ManualClock` suspends
-    /// when there is no boundary, and a suspending clock on the inherited
-    /// default would block a tokio worker — the worker the in-flight action
-    /// needs. On the async path the suspension is a `Pending` future the
-    /// executor's own wake-up arms race against, which costs no thread.
+    /// The inherited default would be correct here — it suspends on an
+    /// absent boundary and yields once before a finite one — but it reaches
+    /// the boundary through the synchronous [`await_work`](ExecutorClock::await_work),
+    /// lock and readiness check included. This advances directly and yields
+    /// through the runtime. On the async path the suspension is a `Pending`
+    /// future the executor's own wake-up arms race against, which costs no
+    /// thread.
     #[cfg(feature = "tokio")]
     fn await_work_async(&self, delay_ms: f64) -> ClockWait<'_> {
         if !delay_ms.is_finite() {

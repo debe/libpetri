@@ -383,3 +383,23 @@ async def test_subscription_close_before_iteration_stops_cleanly() -> None:
 
     assert await asyncio.wait_for(consume(), timeout=2.0) == "stopped"
     assert collected == []
+
+
+def test_counters_histogram_is_ordered_independently_of_the_process() -> None:
+    """`counters()` lands in a Python dict — an ordered medium — so the event
+    types come back in ascending order, not in the order a per-process seeded
+    hash map happens to yield. ``list(...)``: dict equality ignores order."""
+    p_in, p_out = lp.Place("p_in"), lp.Place("p_out")
+    net = (
+        lp.Net("hist")
+        .transition(
+            lp.Transition("t").input(lp.one(p_in)).output(lp.out(p_out)).action(lp.fork).build()
+        )
+        .build()
+    )
+    store = lp.InMemoryEventStore()
+    lp.run_sync(net, initial={p_in: ["v"]}, event_store=store)
+
+    kinds = list(store.counters())
+    assert len(kinds) >= 5, f"too few event types to order: {kinds}"
+    assert kinds == sorted(kinds)

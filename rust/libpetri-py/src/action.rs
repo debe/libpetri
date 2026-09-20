@@ -106,7 +106,7 @@ pub fn install_event_loop_locals(py: Python<'_>) -> PyResult<EventLoopGuard> {
 }
 
 #[cfg(feature = "tokio")]
-fn current_event_loop_locals() -> Option<TaskLocals> {
+pub(crate) fn current_event_loop_locals() -> Option<TaskLocals> {
     EVENT_LOOP_LOCALS.lock().unwrap().locals.clone()
 }
 

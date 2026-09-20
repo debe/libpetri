@@ -24,7 +24,9 @@ pub struct PyComputedState {
 
 #[pymethods]
 impl PyComputedState {
-    /// Token-count marking per place: `{place_name: token_count}`.
+    /// Token-count marking per place: `{place_name: token_count}`, places in
+    /// ascending order. The core holds it in a `BTreeMap` precisely so that
+    /// this dict — an ordered medium — is identical on every process run.
     ///
     /// Note that — unlike `MarkingView.snapshot()` from a live executor —
     /// these tokens are *replayed* from the event stream and therefore lack
@@ -40,11 +42,14 @@ impl PyComputedState {
         Ok(d.unbind())
     }
 
+    /// Enabled transitions at this index, in ascending name order.
     #[getter]
     fn enabled_transitions(&self) -> Vec<String> {
         self.inner.enabled_transitions.clone()
     }
 
+    /// Transitions started and not yet completed at this index, in ascending
+    /// name order.
     #[getter]
     fn in_flight_transitions(&self) -> Vec<String> {
         self.inner.in_flight_transitions.clone()

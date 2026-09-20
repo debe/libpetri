@@ -18,7 +18,7 @@
 //!   pattern used by transition callbacks (`action.rs`).
 //! - Tier C: counters / failures projections compute in Rust on demand.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex};
 #[cfg(feature = "tokio")]
 use std::time::Duration;
@@ -369,10 +369,12 @@ impl PyEventStoreHandle {
         }
     }
 
-    /// Tier C: histogram by event type, computed Rust-side.
+    /// Tier C: histogram by event type, computed Rust-side. Event types in
+    /// ascending order — a Python dict is an ordered medium, so a hashed
+    /// container here would reorder the histogram on every process run.
     fn counters(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         let inner = self.inner.lock().unwrap();
-        let mut counts: HashMap<&'static str, usize> = HashMap::new();
+        let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
         for ev in &inner.events {
             *counts.entry(net_event_type(ev)).or_insert(0) += 1;
         }

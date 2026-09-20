@@ -17,6 +17,7 @@ use libpetri_event::event_store::EventStore;
 use crate::bitmap_backend::BitmapBackend;
 use crate::clock::ExecutorClock;
 use crate::executor_core::executor::Executor;
+pub use crate::executor_core::scope::{InvalidExecutionScope, validate_execution_scope};
 use crate::marking::Marking;
 
 /// Construction-time options for a [`BitmapNetExecutor`].
@@ -49,6 +50,13 @@ pub struct ExecutorOptions {
     /// indirection on the hot path. Per executor, never per net — two
     /// executors in one process run on independent clocks.
     pub clock: Option<Arc<dyn ExecutorClock>>,
+    /// \[NU-011\] Scope folded into minted ν-names. `None` defaults to a
+    /// random 128-bit token (32 lowercase hex characters), unique across
+    /// processes — so an execution restored from a persisted snapshot cannot
+    /// re-mint a name that snapshot holds. Pin it to make a segment's minted
+    /// names reproducible. Must be non-empty and hold neither `':'` nor
+    /// `'#'`, or [`BitmapNetExecutor::new`] panics.
+    pub execution_scope: Option<Arc<str>>,
 }
 
 impl ExecutorOptions {
@@ -84,6 +92,22 @@ impl ExecutorOptions {
         self.clock = Some(clock);
         self
     }
+
+    /// \[NU-011\] Pins the ν-name scope, making minted names reproducible
+    /// (`<transition>#<scope>:<n>`, `n` from 0). Absent, the scope is a random
+    /// 128-bit token — unique across processes, and therefore *not*
+    /// reproducible; a host that replays pins it. See
+    /// [`Executor::set_execution_scope`](crate::executor_core::executor::Executor::set_execution_scope).
+    ///
+    /// # Panics
+    ///
+    /// Not here — this only stores the value — but in [`BitmapNetExecutor::new`], if `scope` is
+    /// empty or contains `':'` or `'#'`. Check untrusted input first with
+    /// [`validate_execution_scope`](crate::executor_core::scope::validate_execution_scope).
+    pub fn execution_scope(mut self, scope: impl Into<Arc<str>>) -> Self {
+        self.execution_scope = Some(scope.into());
+        self
+    }
 }
 
 /// Bitmap-based executor for Coloured Time Petri Nets.
@@ -103,6 +127,11 @@ pub type BitmapNetExecutor<E> = Executor<BitmapBackend, E>;
 impl<E: EventStore> Executor<BitmapBackend, E> {
     /// Compile `net`, load `initial_tokens` into the backend, and wrap
     /// it with a fresh default-constructed event store.
+    ///
+    /// # Panics
+    ///
+    /// If [`ExecutorOptions::execution_scope`] is empty or contains `':'` or
+    /// `'#'` (\[NU-011\]).
     pub fn new(net: &PetriNet, initial_tokens: Marking, options: ExecutorOptions) -> Self {
         let mut backend = BitmapBackend::new(net, initial_tokens);
         if let Some(ms) = options.deadline_tolerance_ms {
@@ -112,6 +141,9 @@ impl<E: EventStore> Executor<BitmapBackend, E> {
         let mut executor = Executor::from_parts(backend, E::default(), has_environment_places);
         if let Some(clock) = options.clock {
             executor.set_clock(clock);
+        }
+        if let Some(scope) = options.execution_scope {
+            executor.set_execution_scope(scope);
         }
         executor
     }

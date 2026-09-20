@@ -645,6 +645,55 @@ fn no_clock_installed_behaves_exactly_as_before() {
 }
 
 // ============================================================
+//  The owned (cached-program) entry point reaches the seam too
+// ============================================================
+
+/// `OwnedPrecompiledNet` is the documented production entry point and
+/// forwards each option by hand, so the clock needs its own pin on **both**
+/// `run_*`. A short real delay keeps a regression cheap: with the clock
+/// dropped the run still finishes, 400ms later, having never advanced the
+/// virtual clock — which is what the stamp assertion sees.
+#[test]
+fn the_owned_builder_installs_the_clock_on_the_sync_path() {
+    use libpetri::runtime::owned_precompiled::OwnedPrecompiledNet;
+
+    let clock = Arc::new(ManualClock::new());
+    let stamps = Arc::new(Mutex::new(Vec::new()));
+    let net = delayed_net(400, Arc::clone(&stamps), clock.clone() as Arc<dyn ExecutorClock>);
+
+    let end = OwnedPrecompiledNet::compile(&net)
+        .builder::<NoopEventStore>(seeded("src", "x"))
+        .clock(clock.clone() as Arc<dyn ExecutorClock>)
+        .run_sync();
+
+    assert_eq!(end.count("sink"), 1);
+    assert_eq!(*stamps.lock().unwrap(), vec![400.0], "fired on the injected firing clock");
+    assert_eq!(stamp_of(&end, "sink"), clock.epoch_ms(), "and stamped by its epoch clock");
+}
+
+#[cfg(feature = "tokio")]
+#[tokio::test]
+async fn the_owned_builder_installs_the_clock_on_the_async_path() {
+    use libpetri::runtime::environment::ExecutorSignal;
+    use libpetri::runtime::owned_precompiled::OwnedPrecompiledNet;
+
+    let clock = Arc::new(ManualClock::new());
+    let stamps = Arc::new(Mutex::new(Vec::new()));
+    let net = delayed_net(400, Arc::clone(&stamps), clock.clone() as Arc<dyn ExecutorClock>);
+
+    let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+    let end = OwnedPrecompiledNet::compile(&net)
+        .builder::<NoopEventStore>(seeded("src", "x"))
+        .clock(clock.clone() as Arc<dyn ExecutorClock>)
+        .run_async(rx)
+        .await;
+
+    assert_eq!(end.count("sink"), 1);
+    assert_eq!(*stamps.lock().unwrap(), vec![400.0], "fired on the injected firing clock");
+    assert_eq!(stamp_of(&end, "sink"), clock.epoch_ms(), "and stamped by its epoch clock");
+}
+
+// ============================================================
 //  Async path — AC#5, AC#8, AC#11
 //
 //  These use a clock whose async wait NEVER completes. Anything that
@@ -730,7 +779,6 @@ mod async_path {
     #[tokio::test]
     async fn every_shipped_clock_suspends_on_an_absent_boundary() {
         use libpetri::runtime::clock::SystemClock;
-        use std::future::Future;
         use std::task::{Context, Poll};
 
         fn polls_pending(clock: &dyn ExecutorClock) -> bool {
@@ -1016,5 +1064,293 @@ mod async_path {
              executor's own external-events phase, in injection order"
         );
         assert_eq!(executor.marking().count("p2"), 2);
+    }
+
+    // --------------------------------------------------------
+    //  The INHERITED async wait — a clock that implements only
+    //  the three required methods.
+    // --------------------------------------------------------
+
+    /// A contract-conforming clock that overrides nothing optional: on an
+    /// absent boundary its synchronous wait **parks until `ready()`**, as
+    /// contract point 2 demands. Every other async test clock in this file
+    /// overrides `await_work_async`, so this is the only one that exercises
+    /// the trait's default.
+    ///
+    /// `release` is a test-only escape hatch so that a regression fails the
+    /// assertion instead of wedging the test process on a parked worker.
+    #[derive(Debug, Default)]
+    struct RequiredOnlyClock {
+        inner: ManualClock,
+        sync_waits: Mutex<Vec<f64>>,
+        release: AtomicBool,
+    }
+
+    impl ExecutorClock for RequiredOnlyClock {
+        fn now_ms(&self) -> f64 {
+            self.inner.now_ms()
+        }
+        fn epoch_ms(&self) -> u64 {
+            self.inner.epoch_ms()
+        }
+        fn await_work(&self, ready: &dyn Fn() -> bool, delay_ms: f64) {
+            self.sync_waits.lock().unwrap().push(delay_ms);
+            if !delay_ms.is_finite() {
+                while !ready() && !self.release.load(Ordering::SeqCst) {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                return;
+            }
+            self.inner.await_work(ready, delay_ms);
+        }
+    }
+
+    /// The default `await_work_async` must honour the trait's own two MUST
+    /// NOTs: stay `Pending` on an absent boundary **without** entering the
+    /// synchronous wait (which, handed a `ready` that is never true, parks
+    /// the polling thread for good), and not complete on first poll for a
+    /// finite one.
+    #[test]
+    fn the_inherited_async_wait_suspends_and_never_completes_on_first_poll() {
+        use std::task::{Context, Poll};
+
+        let clock = RequiredOnlyClock::default();
+        // A regression parks inside poll(); release it so the assertion
+        // below reports the failure instead of the test hanging.
+        clock.release.store(true, Ordering::SeqCst);
+        let mut cx = Context::from_waker(std::task::Waker::noop());
+
+        let mut absent = clock.await_work_async(f64::INFINITY);
+        for _ in 0..3 {
+            assert!(
+                matches!(absent.as_mut().poll(&mut cx), Poll::Pending),
+                "an absent boundary must stay Pending (TIME-015 AC#15)"
+            );
+        }
+        drop(absent);
+        assert!(
+            clock.sync_waits.lock().unwrap().is_empty(),
+            "the inherited async wait must not enter the synchronous wait on an absent \
+             boundary — its `ready` is hard-wired false, so a conforming clock never returns"
+        );
+
+        let mut finite = clock.await_work_async(25.0);
+        assert!(
+            matches!(finite.as_mut().poll(&mut cx), Poll::Pending),
+            "a finite wait must not complete synchronously on first poll"
+        );
+        assert!(
+            clock.sync_waits.lock().unwrap().is_empty(),
+            "and must give the race a turn BEFORE it blocks in the synchronous wait"
+        );
+        assert!(matches!(finite.as_mut().poll(&mut cx), Poll::Ready(())));
+        assert_eq!(*clock.sync_waits.lock().unwrap(), vec![25.0]);
+        assert_eq!(clock.now_ms(), 25.0, "the advancing wait still advances");
+    }
+
+    /// AC#8 end to end, on **both** backends: a clock that inherits the
+    /// default async wait cannot stall an idle environment-place net.
+    /// Inject, then close, must both be observed.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_clock_inheriting_the_async_wait_cannot_stall_an_idle_net() {
+        use libpetri::runtime::precompiled_executor::PrecompiledNetExecutor;
+        use libpetri::runtime::precompiled_net::PrecompiledNet;
+
+        for backend in ["bitmap", "precompiled"] {
+            let clock = Arc::new(RequiredOnlyClock::default());
+            let dyn_clock = clock.clone() as Arc<dyn ExecutorClock>;
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+
+            let run = match backend {
+                "bitmap" => tokio::spawn(async move {
+                    let net = env_net();
+                    let mut executor = env_executor(&net, dyn_clock);
+                    executor.run_async(rx).await.into_owned()
+                }),
+                _ => tokio::spawn(async move {
+                    let net = env_net();
+                    let program = PrecompiledNet::from_compiled(
+                        libpetri::runtime::compiled_net::CompiledNet::compile(&net),
+                    );
+                    let mut executor =
+                        PrecompiledNetExecutor::<NoopEventStore>::builder(&program, Marking::new())
+                            .environment_places([Arc::from("p1")].into_iter().collect())
+                            .clock(dyn_clock)
+                            .build();
+                    executor.run_async(rx).await.into_owned()
+                }),
+            };
+
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            tx.send(event(7)).unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            tx.send(ExecutorSignal::Close).unwrap();
+
+            let outcome = tokio::time::timeout(std::time::Duration::from_secs(3), run).await;
+            // Un-park a regressed worker before asserting, so a failure is a
+            // failed assertion and not a wedged runtime shutdown.
+            clock.release.store(true, Ordering::SeqCst);
+            let marking = outcome
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "{backend}: run_async never observed inject/close — the inherited \
+                         async wait parked the orchestrator (TIME-015 AC#8)"
+                    )
+                })
+                .expect("run task");
+            assert_eq!(marking.count("p2"), 1, "{backend}: the injected token must fire");
+        }
+    }
+
+    // --------------------------------------------------------
+    //  Repeated idle waits retain nothing
+    // --------------------------------------------------------
+
+    /// A clock whose every async wait is *countable*: the future it returns
+    /// holds one clone of `live`, and stores the waker it was last polled
+    /// with inside itself. A wait future that outlives its `select!` is
+    /// therefore visible as a strong count above one — and so is the waker
+    /// it kept, which is the thing a leaked listener actually pins.
+    #[derive(Debug)]
+    struct CountingClock {
+        inner: ManualClock,
+        live: Arc<()>,
+        entries: AtomicUsize,
+        /// The most wait futures still alive at the moment a *new* wait was
+        /// requested. The executor has one wait outstanding at a time, so
+        /// anything above zero is a future the previous cycle did not drop.
+        max_live_at_entry: AtomicUsize,
+    }
+
+    impl CountingClock {
+        fn new() -> Self {
+            Self {
+                inner: ManualClock::new(),
+                live: Arc::new(()),
+                entries: AtomicUsize::new(0),
+                max_live_at_entry: AtomicUsize::new(0),
+            }
+        }
+        fn live_waits(&self) -> usize {
+            Arc::strong_count(&self.live) - 1
+        }
+    }
+
+    struct CountedWait {
+        _live: Arc<()>,
+        waker: Option<std::task::Waker>,
+    }
+
+    impl Future for CountedWait {
+        type Output = ();
+        fn poll(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<()> {
+            // Registered and never fired: only the executor's own arms end
+            // this wait, exactly as for an absent boundary.
+            self.waker = Some(cx.waker().clone());
+            std::task::Poll::Pending
+        }
+    }
+
+    impl ExecutorClock for CountingClock {
+        fn now_ms(&self) -> f64 {
+            self.inner.now_ms()
+        }
+        fn epoch_ms(&self) -> u64 {
+            self.inner.epoch_ms()
+        }
+        fn await_work(&self, _ready: &dyn Fn() -> bool, _delay_ms: f64) {
+            // Sync path is unused by this test.
+        }
+        fn await_work_async(&self, _delay_ms: f64) -> ClockWait<'_> {
+            self.entries.fetch_add(1, Ordering::SeqCst);
+            self.max_live_at_entry.fetch_max(self.live_waits(), Ordering::SeqCst);
+            Box::pin(CountedWait { _live: Arc::clone(&self.live), waker: None })
+        }
+    }
+
+    /// \[TIME-015\] The wait that *loses* the race is dropped, and nothing of
+    /// it — future, waker, listener — survives into the next cycle.
+    ///
+    /// The TypeScript twin of this seam leaked one abort listener per idle
+    /// wait. Rust has no listener list to forget: `select!` drops the losing
+    /// future in place and the executor holds no other reference to it. This
+    /// pins that on **both** backends, over enough idle waits that a
+    /// per-wait leak is a three-digit count rather than an off-by-one.
+    #[tokio::test]
+    async fn repeated_idle_waits_retain_no_wait_future_or_waker() {
+        use libpetri::runtime::precompiled_executor::PrecompiledNetExecutor;
+        use libpetri::runtime::precompiled_net::PrecompiledNet;
+
+        const WAITS: usize = 150;
+
+        for backend in ["bitmap", "precompiled"] {
+            let clock = Arc::new(CountingClock::new());
+            let dyn_clock = clock.clone() as Arc<dyn ExecutorClock>;
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+
+            let feeder = tokio::spawn(async move {
+                for v in 0..WAITS as i32 {
+                    // Long enough for the orchestrator to go idle and enter
+                    // the clock's wait between two injections.
+                    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                    tx.send(event(v)).unwrap();
+                }
+                // Dropping `tx` closes the channel and ends the run.
+            });
+
+            let net = env_net();
+            let fired = match backend {
+                "bitmap" => {
+                    let mut executor = env_executor(&net, dyn_clock);
+                    let run = tokio::time::timeout(
+                        std::time::Duration::from_secs(10),
+                        executor.run_async(rx),
+                    )
+                    .await;
+                    assert!(run.is_ok(), "{backend}: the run must terminate");
+                    executor.marking().count("p2")
+                }
+                _ => {
+                    let program = PrecompiledNet::from_compiled(
+                        libpetri::runtime::compiled_net::CompiledNet::compile(&net),
+                    );
+                    let mut executor =
+                        PrecompiledNetExecutor::<NoopEventStore>::builder(&program, Marking::new())
+                            .environment_places([Arc::from("p1")].into_iter().collect())
+                            .clock(dyn_clock)
+                            .build();
+                    let run = tokio::time::timeout(
+                        std::time::Duration::from_secs(10),
+                        executor.run_async(rx),
+                    )
+                    .await;
+                    assert!(run.is_ok(), "{backend}: the run must terminate");
+                    executor.marking().count("p2")
+                }
+            };
+            feeder.await.unwrap();
+
+            assert_eq!(fired, WAITS, "{backend}: every injected token must fire");
+            let entries = clock.entries.load(Ordering::SeqCst);
+            assert!(
+                entries >= WAITS / 2,
+                "{backend}: the test must really exercise repeated idle waits, got {entries}"
+            );
+            assert_eq!(
+                clock.max_live_at_entry.load(Ordering::SeqCst),
+                0,
+                "{backend}: a wait future from an earlier cycle was still alive when the next \
+                 wait was requested — the losing future (and the waker it holds) must be \
+                 dropped every cycle (TIME-015)"
+            );
+            assert_eq!(
+                clock.live_waits(),
+                0,
+                "{backend}: a wait future outlived the run ({entries} waits were requested)"
+            );
+        }
     }
 }

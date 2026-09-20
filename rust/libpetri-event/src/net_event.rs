@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::token_payload::TokenPayload;
@@ -86,8 +86,20 @@ pub enum NetEvent {
         timestamp: u64,
     },
     /// Snapshot of the current marking (token counts per place).
+    ///
+    /// A `BTreeMap`, so the places appear in **ascending code-point order**
+    /// (\[CORE-073\] canonical order, carried onto the event by
+    /// \[EVT-014\]). Rust's `Ord for str` compares UTF-8 bytes, and UTF-8
+    /// byte order *is* code-point order — so this is canonical by
+    /// construction rather than by a comparator anyone has to remember.
+    ///
+    /// The requirement is **reproducibility across runs of one
+    /// implementation**, not cross-language byte equality: \[EVT-025\] makes
+    /// event bodies per-language. A `HashMap` here would randomise its seed
+    /// per process, so anything rendering or archiving the event would
+    /// differ run to run over identical data.
     MarkingSnapshot {
-        marking: HashMap<Arc<str>, usize>,
+        marking: BTreeMap<Arc<str>, usize>,
         timestamp: u64,
     },
 }

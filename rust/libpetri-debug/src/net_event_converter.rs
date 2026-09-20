@@ -1,6 +1,6 @@
 //! Converts Rust `NetEvent` instances to serializable `NetEventInfo`.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use libpetri_event::net_event::NetEvent;
@@ -37,7 +37,7 @@ pub fn to_event_info_with_registry(
             timestamp: format_timestamp(*timestamp),
             transition_name: None,
             place_name: None,
-            details: HashMap::from([(
+            details: BTreeMap::from([(
                 "netName".into(),
                 serde_json::Value::String(net_name.to_string()),
             )]),
@@ -50,7 +50,7 @@ pub fn to_event_info_with_registry(
             timestamp: format_timestamp(*timestamp),
             transition_name: None,
             place_name: None,
-            details: HashMap::from([(
+            details: BTreeMap::from([(
                 "netName".into(),
                 serde_json::Value::String(net_name.to_string()),
             )]),
@@ -63,7 +63,7 @@ pub fn to_event_info_with_registry(
             timestamp: format_timestamp(*timestamp),
             transition_name: Some(transition_name.to_string()),
             place_name: None,
-            details: HashMap::new(),
+            details: BTreeMap::new(),
         },
         NetEvent::TransitionClockRestarted {
             transition_name,
@@ -73,7 +73,7 @@ pub fn to_event_info_with_registry(
             timestamp: format_timestamp(*timestamp),
             transition_name: Some(transition_name.to_string()),
             place_name: None,
-            details: HashMap::new(),
+            details: BTreeMap::new(),
         },
         NetEvent::TransitionStarted {
             transition_name,
@@ -83,7 +83,7 @@ pub fn to_event_info_with_registry(
             timestamp: format_timestamp(*timestamp),
             transition_name: Some(transition_name.to_string()),
             place_name: None,
-            details: HashMap::new(),
+            details: BTreeMap::new(),
         },
         NetEvent::TransitionCompleted {
             transition_name,
@@ -93,7 +93,7 @@ pub fn to_event_info_with_registry(
             timestamp: format_timestamp(*timestamp),
             transition_name: Some(transition_name.to_string()),
             place_name: None,
-            details: HashMap::new(),
+            details: BTreeMap::new(),
         },
         NetEvent::TransitionFailed {
             transition_name,
@@ -104,7 +104,7 @@ pub fn to_event_info_with_registry(
             timestamp: format_timestamp(*timestamp),
             transition_name: Some(transition_name.to_string()),
             place_name: None,
-            details: HashMap::from([(
+            details: BTreeMap::from([(
                 "errorMessage".into(),
                 serde_json::Value::String(error.clone()),
             )]),
@@ -117,7 +117,7 @@ pub fn to_event_info_with_registry(
             timestamp: format_timestamp(*timestamp),
             transition_name: Some(transition_name.to_string()),
             place_name: None,
-            details: HashMap::new(),
+            details: BTreeMap::new(),
         },
         NetEvent::ActionTimedOut {
             transition_name,
@@ -128,7 +128,7 @@ pub fn to_event_info_with_registry(
             timestamp: format_timestamp(*timestamp),
             transition_name: Some(transition_name.to_string()),
             place_name: None,
-            details: HashMap::from([("timeoutMs".into(), serde_json::json!(*timeout_ms))]),
+            details: BTreeMap::from([("timeoutMs".into(), serde_json::json!(*timeout_ms))]),
         },
         NetEvent::TokenAdded {
             place_name,
@@ -164,20 +164,25 @@ pub fn to_event_info_with_registry(
             timestamp: format_timestamp(*timestamp),
             transition_name: Some(transition_name.to_string()),
             place_name: None,
-            details: HashMap::from([
+            details: BTreeMap::from([
                 ("level".into(), serde_json::Value::String(level.clone())),
                 ("message".into(), serde_json::Value::String(message.clone())),
             ]),
         },
         NetEvent::MarkingSnapshot { marking, timestamp } => {
-            let marking_map: HashMap<String, usize> =
-                marking.iter().map(|(k, v)| (k.to_string(), *v)).collect();
+            // [EVT-014] The event already carries its places in ascending
+            // code-point order; insert in that order so it survives even when
+            // a downstream crate switches serde_json to `preserve_order`.
+            let marking_map: serde_json::Map<String, serde_json::Value> = marking
+                .iter()
+                .map(|(place, count)| (place.to_string(), serde_json::json!(*count)))
+                .collect();
             NetEventInfo {
                 event_type: "MarkingSnapshot".into(),
                 timestamp: format_timestamp(*timestamp),
                 transition_name: None,
                 place_name: None,
-                details: HashMap::from([("marking".into(), serde_json::json!(marking_map))]),
+                details: BTreeMap::from([("marking".into(), marking_map.into())]),
             }
         }
     }
@@ -198,9 +203,9 @@ fn token_details(
     token: Option<&Arc<dyn TokenPayload>>,
     registry: Option<&TokenProjectorRegistry>,
     timestamp: u64,
-) -> HashMap<String, serde_json::Value> {
+) -> BTreeMap<String, serde_json::Value> {
     let Some(payload) = token else {
-        return HashMap::new();
+        return BTreeMap::new();
     };
     let structured = registry.map(|r| r.project(payload.as_ref()));
     let info = TokenInfo {
@@ -210,7 +215,7 @@ fn token_details(
         structured,
         timestamp: Some(format_timestamp(timestamp)),
     };
-    HashMap::from([(
+    BTreeMap::from([(
         "token".into(),
         serde_json::to_value(info).unwrap_or(serde_json::Value::Null),
     )])
@@ -337,7 +342,7 @@ mod tests {
                 timestamp: 11,
             },
             NetEvent::MarkingSnapshot {
-                marking: HashMap::from([(Arc::from("p"), 1)]),
+                marking: std::collections::BTreeMap::from([(Arc::from("p"), 1)]),
                 timestamp: 12,
             },
         ];

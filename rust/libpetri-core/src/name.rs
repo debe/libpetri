@@ -23,11 +23,14 @@ use std::sync::Arc;
 ///
 /// **Cross-language ordering note.** The derived [`Ord`] compares the inner
 /// `str` by UTF-8 bytes (= Unicode code-point order). The match tie-break is
-/// byte-identical across the Rust/Java/TS ports for ASCII/BMP names — which
-/// includes every executor-minted name (`"{transition}#{n}"`, ASCII). For
-/// supplementary-plane (astral) code points in *user-supplied* correlation
-/// keys the order can differ from Java/TS (which compare UTF-16 code units);
-/// NU-001 requires only per-implementation consistency, which holds.
+/// byte-identical across the Rust/Java/TS ports for ASCII/BMP names. An
+/// executor-minted name is `"{transition}#{scope}:{n}"` (NU-011): its default
+/// scope is lowercase hex, so it is ASCII whenever the transition name is —
+/// but a host-pinned scope is arbitrary text. For supplementary-plane
+/// (astral) code points, whether in a *user-supplied* correlation key or in
+/// a pinned scope or transition name, the order can differ from Java/TS
+/// (which compare UTF-16 code units); NU-001 requires only
+/// per-implementation consistency, which holds.
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NameId(Arc<str>);
 

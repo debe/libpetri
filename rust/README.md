@@ -48,6 +48,17 @@ assert_eq!(&*executor.marking().peek(&output).unwrap(), "hello");
 
 With the `tokio` feature, transition futures can overlap while the orchestrator alone updates the marking. Actions receive owned context and return it with their outputs, preventing concurrent mutation of runtime state.
 
+## Checkpoint and resume
+
+```rust
+let snap = handle.snapshot().expect("running").await?;   // does not stop the net
+if snap.is_restore_point() { save(&snap.marking); }       // MarkingSnapshot
+
+let resumed = Marking::from_snapshot(&saved);             // pass as the initial marking
+```
+
+A `MarkingSnapshot` is a `BTreeMap` from place name to tokens and carries `created_at` through untouched. Persist one only when `is_restore_point()` is true; otherwise an action had consumed inputs whose outputs had not landed. Timing clocks restart on resume, so a `deadline` gets a fresh full budget. Minted ν-names are `<transition>#<scope>:<n>` with a random scope per executor; pin `execution_scope(...)` when a replay must reproduce them, fresh per run segment. An invalid scope panics at construction, so check untrusted input with `validate_execution_scope` first.
+
 ## Workspace crates
 
 | Crate | Purpose |

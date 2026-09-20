@@ -162,11 +162,15 @@ impl PySessionArchive {
         self.metadata.end_time().map(str::to_owned)
     }
 
-    /// Tags map (v2+); empty dict for v1 archives.
+    /// Tags map (v2+); empty dict for v1 archives. Keys in ascending order:
+    /// a Python dict is an ordered medium, and the header holds them in a
+    /// per-process seeded `HashMap`.
     #[getter]
     fn tags<'py>(&self, py: Python<'py>) -> PyResult<Py<PyDict>> {
         let d = PyDict::new(py);
-        for (k, v) in self.metadata.tags() {
+        let mut tags: Vec<_> = self.metadata.tags().iter().collect();
+        tags.sort_unstable();
+        for (k, v) in tags {
             d.set_item(k, v)?;
         }
         Ok(d.unbind())

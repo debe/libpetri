@@ -1,6 +1,6 @@
 //! Debug protocol bindings.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
 
 use libpetri::debug::{DebugCommand, DebugProtocolHandler, DebugSession, DebugSessionRegistry};
@@ -21,8 +21,10 @@ pub struct PySessionSummary {
     active: bool,
     #[pyo3(get)]
     event_count: usize,
+    /// Sorted, so the dict Python sees has the same key order on every run
+    /// (the registry's own map is a per-process seeded `HashMap`).
     #[pyo3(get)]
-    tags: HashMap<String, String>,
+    tags: BTreeMap<String, String>,
     #[pyo3(get)]
     end_time: Option<String>,
     #[pyo3(get)]
@@ -36,7 +38,7 @@ impl PySessionSummary {
             net_name: session.net_name.clone(),
             active: session.active,
             event_count: session.event_store.event_count(),
-            tags: session.tags.clone(),
+            tags: session.tags.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             end_time: session.end_time.map(|ts| ts.to_string()),
             duration_ms: session.duration_ms(),
         }

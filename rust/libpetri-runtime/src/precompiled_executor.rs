@@ -43,6 +43,7 @@ pub struct PrecompiledExecutorBuilder<'a, E: EventStore> {
     skip_output_validation: bool,
     deadline_tolerance_ms: Option<f64>,
     clock: Option<Arc<dyn ExecutorClock>>,
+    execution_scope: Option<Arc<str>>,
 }
 
 impl<'a, E: EventStore> PrecompiledExecutorBuilder<'a, E> {
@@ -86,7 +87,28 @@ impl<'a, E: EventStore> PrecompiledExecutorBuilder<'a, E> {
         self
     }
 
+    /// \[NU-011\] Pins the ν-name scope, making minted names reproducible
+    /// (`<transition>#<scope>:<n>`, `n` from 0). Absent, the scope is a random
+    /// 128-bit token — unique across processes, and therefore *not*
+    /// reproducible; a host that replays pins it. See
+    /// [`Executor::set_execution_scope`](crate::executor_core::executor::Executor::set_execution_scope).
+    ///
+    /// # Panics
+    ///
+    /// Not here — this only stores the value — but in [`build`](Self::build), if `scope` is
+    /// empty or contains `':'` or `'#'`. Check untrusted input first with
+    /// [`validate_execution_scope`](crate::executor_core::scope::validate_execution_scope).
+    pub fn execution_scope(mut self, scope: impl Into<Arc<str>>) -> Self {
+        self.execution_scope = Some(scope.into());
+        self
+    }
+
     /// Builds the executor.
+    ///
+    /// # Panics
+    ///
+    /// If a pinned [`execution_scope`](Self::execution_scope) is empty or
+    /// contains `':'` or `'#'` (\[NU-011\]).
     pub fn build(self) -> PrecompiledNetExecutor<'a, E> {
         let mut backend = PrecompiledBackend::new(self.program, self.initial_marking);
         if let Some(ms) = self.deadline_tolerance_ms {
@@ -101,6 +123,9 @@ impl<'a, E: EventStore> PrecompiledExecutorBuilder<'a, E> {
         executor.set_skip_output_validation(self.skip_output_validation);
         if let Some(clock) = self.clock {
             executor.set_clock(clock);
+        }
+        if let Some(scope) = self.execution_scope {
+            executor.set_execution_scope(scope);
         }
         executor
     }
@@ -120,6 +145,7 @@ impl<'a, E: EventStore> Executor<PrecompiledBackend<'a>, E> {
             skip_output_validation: false,
             deadline_tolerance_ms: None,
             clock: None,
+            execution_scope: None,
         }
     }
 
@@ -662,8 +688,14 @@ mod tests {
 
             executor.run_async(rx).await;
             let snap = driver.await.expect("driver task");
-            assert_eq!(snap.count("p2"), 1, "fired token should be in p2");
-            assert_eq!(snap.count("p1"), 0, "p1 should be consumed");
+            // [CORE-073] the reply now carries the snapshot form; [ENV-014]
+            // AC5 adds whether anything was in flight when it was taken.
+            assert_eq!(snap.marking.get("p2").map_or(0, Vec::len), 1, "fired token should be in p2");
+            assert_eq!(snap.marking.get("p1").map_or(0, Vec::len), 0, "p1 should be consumed");
+            assert!(
+                snap.is_restore_point(),
+                "the run had quiesced before the snapshot, so nothing was in flight"
+            );
         }
 
         // ===== Out::Timeout conformance: IO-013 c4 + EXEC-022 c2/c3 =====

@@ -21,10 +21,17 @@ pub struct ExternalEvent {
 ///   process already-queued events, complete in-flight actions, terminate at quiescence.
 /// - [`Close`](Self::Close) — immediate shutdown per \[ENV-013\]: discard queued events,
 ///   complete in-flight actions, terminate.
-/// - [`Snapshot`](Self::Snapshot) — mid-execution marking snapshot: the executor
-///   materializes its current marking and sends it through the provided
-///   oneshot. Does not affect lifecycle. Used by checkpoint-saver patterns
-///   (e.g. `langgraph-libpetri`'s `PetriCheckpointSaver`).
+/// - [`Snapshot`](Self::Snapshot) — mid-execution snapshot per \[ENV-014\]: the
+///   executor materializes its current marking and replies on the provided
+///   oneshot with a [`SnapshotResult`](crate::marking::SnapshotResult) — the
+///   marking **and** whether work was in flight at that instant. Does not
+///   affect lifecycle. The reply is always a valid *observation*; it is a
+///   valid *restore point* only when
+///   [`is_restore_point`](crate::marking::SnapshotResult::is_restore_point)
+///   says so, because a firing in flight has consumed its inputs and not yet
+///   deposited its outputs. A checkpoint saver must check it before
+///   persisting. Events sent before this signal are already in the marking
+///   it reports (one FIFO channel, applied on receipt).
 ///
 /// Use [`ExecutorHandle`](crate::executor_handle::ExecutorHandle) for RAII-managed
 /// lifecycle with automatic drain on drop.
@@ -42,7 +49,11 @@ pub enum ExecutorSignal {
     Drain,
     /// Immediate close: discard queued events, complete in-flight, terminate.
     Close,
-    /// Mid-execution snapshot request: executor replies with the current
-    /// owned [`Marking`](crate::Marking) on the provided oneshot.
-    Snapshot(tokio::sync::oneshot::Sender<crate::marking::Marking>),
+    /// Mid-execution snapshot request: executor replies on the provided
+    /// oneshot with the marking in the \[CORE-073\] form **plus** whether an
+    /// action was in flight when it was taken (\[ENV-014\] AC5/AC6). Sending
+    /// is non-blocking and legal from anywhere, an action included; the reply
+    /// MUST NOT be *blocked on* from the orchestrator's own thread of control
+    /// — see [`ExecutorHandle::snapshot`](crate::executor_handle::ExecutorHandle::snapshot).
+    Snapshot(tokio::sync::oneshot::Sender<crate::marking::SnapshotResult>),
 }

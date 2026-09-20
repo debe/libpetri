@@ -1,6 +1,6 @@
 //! Caches computed state snapshots at periodic intervals for efficient seek/step.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 
 use libpetri_event::net_event::NetEvent;
 
@@ -10,9 +10,14 @@ use crate::debug_response::TokenInfo;
 pub const SNAPSHOT_INTERVAL: usize = 256;
 
 /// Computed state from replaying events.
+///
+/// Ordered, so that one replay renders identically on every run: `marking`
+/// iterates in ascending place-name order and the two transition lists are
+/// sorted. A `HashMap` / `HashSet` re-seeds its iteration order per process,
+/// which leaked into debug-protocol frames and the Python binding's dicts.
 #[derive(Debug, Clone)]
 pub struct ComputedState {
-    pub marking: HashMap<String, Vec<TokenInfo>>,
+    pub marking: BTreeMap<String, Vec<TokenInfo>>,
     pub enabled_transitions: Vec<String>,
     pub in_flight_transitions: Vec<String>,
 }
@@ -99,7 +104,7 @@ impl Default for MarkingCache {
 
 /// Computes marking, enabled transitions, and in-flight transitions from events.
 pub fn compute_state(events: &[NetEvent]) -> ComputedState {
-    let mut marking = HashMap::new();
+    let mut marking = BTreeMap::new();
     let mut enabled = HashSet::new();
     let mut in_flight = HashSet::new();
     apply_events(&mut marking, &mut enabled, &mut in_flight, events);
@@ -108,7 +113,7 @@ pub fn compute_state(events: &[NetEvent]) -> ComputedState {
 
 /// Applies events to mutable accumulator collections.
 pub fn apply_events(
-    marking: &mut HashMap<String, Vec<TokenInfo>>,
+    marking: &mut BTreeMap<String, Vec<TokenInfo>>,
     enabled: &mut HashSet<String>,
     in_flight: &mut HashSet<String>,
     events: &[NetEvent],
@@ -185,19 +190,26 @@ pub fn apply_events(
 }
 
 fn to_computed_state(
-    marking: HashMap<String, Vec<TokenInfo>>,
+    marking: BTreeMap<String, Vec<TokenInfo>>,
     enabled: HashSet<String>,
     in_flight: HashSet<String>,
 ) -> ComputedState {
+    // The sets stay hashed while events are applied (one insert/remove per
+    // event, the replay hot path) and are sorted once per computed state.
+    let sorted = |set: HashSet<String>| {
+        let mut names: Vec<String> = set.into_iter().collect();
+        names.sort_unstable();
+        names
+    };
     ComputedState {
         marking,
-        enabled_transitions: enabled.into_iter().collect(),
-        in_flight_transitions: in_flight.into_iter().collect(),
+        enabled_transitions: sorted(enabled),
+        in_flight_transitions: sorted(in_flight),
     }
 }
 
 fn replay_delta(base: &ComputedState, delta: &[NetEvent]) -> ComputedState {
-    let mut marking: HashMap<String, Vec<TokenInfo>> = base
+    let mut marking: BTreeMap<String, Vec<TokenInfo>> = base
         .marking
         .iter()
         .map(|(k, v)| (k.clone(), v.clone()))
@@ -320,5 +332,43 @@ mod tests {
         // After invalidation, still produces correct results
         let state = cache.compute_at(&events, 300);
         assert_eq!(state.marking.get("p1").map(|t| t.len()), Some(300));
+    }
+
+    /// \[EVT-014\] AC5 (rendering reproducibility — Rust has no producer of
+    /// the event, so AC1–AC4 are not covered here or anywhere).
+    ///
+    /// A replayed state is handed to the debug protocol and to the Python
+    /// binding, which both iterate it — so its order must not depend on the
+    /// per-process seed of a `HashMap` / `HashSet`.
+    #[test]
+    fn computed_state_is_ordered_independently_of_the_process() {
+        const SCRAMBLED: [&str; 12] = ["p07", "p02", "p11", "p00", "p05", "p09", "p01", "p10", "p03", "p08", "p04", "p06"];
+        let mut events = Vec::new();
+        for name in SCRAMBLED {
+            events.push(NetEvent::token_added(Arc::from(name), 0));
+            events.push(NetEvent::TransitionEnabled {
+                transition_name: Arc::from(format!("e_{name}")),
+                timestamp: 0,
+            });
+            events.push(NetEvent::TransitionStarted {
+                transition_name: Arc::from(format!("f_{name}")),
+                timestamp: 0,
+            });
+        }
+        let mut sorted = SCRAMBLED.to_vec();
+        sorted.sort_unstable();
+
+        let mut cache = MarkingCache::new();
+        for state in [compute_state(&events), cache.compute_at(&events, events.len())] {
+            assert_eq!(state.marking.keys().map(String::as_str).collect::<Vec<_>>(), sorted);
+            assert_eq!(
+                state.enabled_transitions,
+                sorted.iter().map(|n| format!("e_{n}")).collect::<Vec<_>>()
+            );
+            assert_eq!(
+                state.in_flight_transitions,
+                sorted.iter().map(|n| format!("f_{n}")).collect::<Vec<_>>()
+            );
+        }
     }
 }

@@ -14,8 +14,8 @@
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
 use libpetri_core::context::{FreshNameFn, OutputEntry, TransitionContext};
@@ -32,7 +32,17 @@ use crate::executor_core::backend::{
 use crate::executor_core::deadline::{elapsed_ms_since, now_millis};
 use crate::executor_core::event_payload::{token_added_event, token_removed_event};
 use crate::executor_core::output::{describe_out_violation, validate_out_spec};
+use crate::executor_core::scope::{default_execution_scope, validate_execution_scope};
 use crate::marking::Marking;
+
+/// Source of per-executor run identifiers (\[TIME-015\] AC#14).
+///
+/// A counter, never a clock reading: \[TIME-015\] contract point 1 forbids
+/// treating a reading as a unique key, and under an injected clock two
+/// executors seeded at the same virtual instant would collide. Shared by
+/// **both** backends so a bitmap and a precompiled executor in one process
+/// cannot both be `0`. Reproducible, so NOT the \[NU-011\] default scope.
+static EXECUTION_ID_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// \[TIME-015\] The installed clock plus the token-stamping closure derived
 /// from it. Built once in [`Executor::set_clock`] so handing the epoch source
@@ -67,6 +77,18 @@ pub struct Executor<S: ExecutorBackend, E: EventStore> {
     /// an unconditional `dyn` call on every orchestrator cycle
     /// (\[TIME-015\] AC#9, \[PERF-010\]).
     clock: Option<Box<ClockSeam>>,
+
+    /// This executor's run identifier, drawn at construction: a per-process
+    /// counter, reproducible by design (\[TIME-015\] AC#14). Deliberately
+    /// **not** carried on `ExecutionStarted` / `ExecutionCompleted`, so it
+    /// does not touch the session-archive wire format (\[EVT-025\]).
+    execution_id: Arc<str>,
+
+    /// \[NU-011\] Scope folded into every minted ν-name. Set when a host
+    /// pins one; otherwise a random 128-bit token drawn on first use, so a
+    /// net that never mints pays nothing for it. Never the `execution_id`:
+    /// that restarts at `0` in every process, and minted names outlive one.
+    execution_scope: OnceLock<Arc<str>>,
 
     /// True when the configured net references any environment places.
     /// The async loop short-circuits the event-injection phase when this
@@ -132,11 +154,15 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
     /// The backend is expected to be constructed with the net's initial
     /// marking already loaded.
     pub fn from_parts(backend: S, event_store: E, has_environment_places: bool) -> Self {
+        let execution_id: Arc<str> =
+            Arc::from(format!("{:x}", EXECUTION_ID_SEQ.fetch_add(1, Ordering::Relaxed)));
         Self {
             backend,
             event_store,
             start_time: Instant::now(),
             clock: None,
+            execution_id,
+            execution_scope: OnceLock::new(),
             has_environment_places,
             skip_output_validation: false,
             reusable_inputs: HashMap::new(),
@@ -159,10 +185,11 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
     }
 
     /// Returns the ν-name minter for transition `tid` (spec NU-010, NU-030),
-    /// building it once and caching it. Minted names are `"{transition_name}#{n}"`
-    /// with `n` drawn from the per-run monotonic counter, so they are unique
-    /// across firings and per-instance (the transition name is instance-prefixed
-    /// after compose). The minter is built lazily on first firing and reused
+    /// building it once and caching it. Minted names are
+    /// `"{transition_name}#{scope}:{n}"` (\[NU-011\]) with `n` drawn from the
+    /// per-run monotonic counter, so they are unique across firings, across a
+    /// restore lineage (the scope) and per-instance (the transition name is
+    /// instance-prefixed after compose). Built lazily on first firing and reused
     /// thereafter, so installing it on a context (the caller's
     /// `ctx.set_fresh_name_fn`) is an `Arc::clone` — no per-fire heap allocation.
     fn fresh_name_fn(&mut self, tid: usize, transition_name: &Arc<str>) -> FreshNameFn {
@@ -172,9 +199,14 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         if self.fresh_name_fns[tid].is_none() {
             let counter = Arc::clone(&self.fresh_name_counter);
             let name = Arc::clone(transition_name);
+            // [NU-011] `<transition>#<scope>:<n>`, agreed across all four
+            // implementations. The `<transition>#` prefix keeps debug output
+            // readable; the scope is what stops a resumed execution
+            // re-minting names its restored marking already holds.
+            let scope = Arc::clone(self.execution_scope.get_or_init(default_execution_scope));
             let minter: FreshNameFn = Arc::new(move || {
                 let n = counter.fetch_add(1, Ordering::Relaxed);
-                NameId::new(format!("{name}#{n}"))
+                NameId::new(format!("{name}#{scope}:{n}"))
             });
             self.fresh_name_fns[tid] = Some(minter);
         }
@@ -221,6 +253,55 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             Some(seam) => seam.clock.epoch_ms(),
             None => now_millis(),
         }
+    }
+
+    /// This executor's run identifier (\[TIME-015\] AC#14): a per-process
+    /// counter, distinct from every other executor *in this process*, stable
+    /// for its lifetime and reproducible from run to run. It is **not** the
+    /// \[NU-011\] scope — see [`execution_scope`](Self::execution_scope).
+    ///
+    /// Not published on any event: adding it to `ExecutionStarted` /
+    /// `ExecutionCompleted` would touch the session-archive wire format
+    /// (\[EVT-025\]) and is a separate, still-open decision.
+    pub fn execution_id(&self) -> &str {
+        &self.execution_id
+    }
+
+    /// \[NU-011\] The scope folded into minted ν-names: the pinned one, or
+    /// else a random token of exactly 32 lowercase hex characters (128 bits),
+    /// drawn on first use and stable from then on. Random so that it is
+    /// unique across *processes* — a persisted snapshot is routinely restored
+    /// by a process whose counters have all restarted at zero.
+    pub fn execution_scope(&self) -> &str {
+        self.execution_scope.get_or_init(default_execution_scope)
+    }
+
+    /// \[NU-011\] Pins the ν-name scope, making the minted sequence
+    /// reproducible: for a fixed scope and firing order the names are
+    /// `<transition>#<scope>:0`, `:1`, … (\[NU-010\] AC3). Replay pins it.
+    ///
+    /// Restoring a marking (\[CORE-073\]) starts a *new* execution whose
+    /// initial marking already holds names the previous one minted, and a
+    /// \[NU-020\] join correlates on name equality alone — a re-minted name
+    /// silently correlates tokens from different run segments. The default
+    /// scope cannot collide; a pinned one is the host's promise: two
+    /// executions in one restore lineage MUST NOT share a scope.
+    ///
+    /// # Panics
+    ///
+    /// If `scope` is empty (length 0 — a blank scope is legal) or contains
+    /// `':'` or `'#'`, the separators of a minted name. Validated rather
+    /// than escaped so a name [parses uniquely](crate::executor_core::scope);
+    /// [`validate_execution_scope`] is the non-panicking check.
+    pub fn set_execution_scope(&mut self, scope: impl Into<Arc<str>>) {
+        let scope: Arc<str> = scope.into();
+        if let Err(invalid) = validate_execution_scope(&scope) {
+            panic!("{invalid}: {scope:?}");
+        }
+        self.execution_scope = OnceLock::from(scope);
+        // Minters cache the formatted prefix, so drop them to pick up the
+        // new scope. Cheap: they are rebuilt lazily per transition.
+        self.fresh_name_fns.clear();
     }
 
     /// Installs a host time source for this executor (\[TIME-015\]).
@@ -834,7 +915,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
 
             // Phase 2: drain queued signals (events + lifecycle).
             while let Ok(signal) = signal_rx.try_recv() {
-                self.handle_signal(signal, &mut draining, &mut closed, &mut signal_rx);
+                self.handle_signal(signal, &mut draining, &mut closed, &mut signal_rx, in_flight_count);
             }
 
             // Phase 3: update enablement and emit events.
@@ -951,6 +1032,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                                         &mut draining,
                                         &mut closed,
                                         &mut signal_rx,
+                                        in_flight_count,
                                     );
                                 }
                                 None => {
@@ -1093,6 +1175,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         draining: &mut bool,
         closed: &mut bool,
         signal_rx: &mut tokio::sync::mpsc::UnboundedReceiver<ExecutorSignal>,
+        in_flight_count: usize,
     ) {
         match signal {
             ExecutorSignal::Event(event) if !*draining => {
@@ -1151,7 +1234,14 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 // One arm covers both backends: bitmap clones its Marking,
                 // precompiled materialises from its ring buffers — both via
                 // snapshot_marking(). Receiver gone = silently drop.
-                let _ = reply.send(self.backend.snapshot_marking().into_owned());
+                // [ENV-014] AC5/AC6: the in-flight flag is read *here*, in
+                // the same cycle that captures the marking, so the two
+                // describe one instant. A caller querying it separately
+                // would read a different one — the race AC5 closes.
+                let _ = reply.send(crate::marking::SnapshotResult {
+                    marking: self.backend.snapshot_marking().snapshot(),
+                    action_in_flight: in_flight_count > 0,
+                });
             }
         }
     }

@@ -148,3 +148,22 @@ def test_archive_time_accessors_typed(tmp_path) -> None:
     archive = lp.SessionArchiveReader.read(path)
     assert isinstance(archive.start_time, str)
     assert archive.end_time is None or isinstance(archive.end_time, str)
+
+
+def test_archive_tags_come_back_in_ascending_key_order(tmp_path) -> None:
+    """A Python dict is an ordered medium: tags read out of a per-process
+    seeded hash map would differ run to run for one and the same archive.
+    Twelve scrambled keys, so a randomised container passes one time in 12!.
+    ``list(...)`` because dict equality ignores order."""
+    p_in, _p_out, net = _chain_net()
+    store = lp.InMemoryEventStore()
+    lp.run_sync(net, initial={p_in: ["v"]}, event_store=store)
+    tags = {k: f"v-{k}" for k in ["k07", "k11", "k02", "k09", "k00", "k05", "k10", "k03", "k08", "k01", "k06", "k04"]}
+
+    archive_path = tmp_path / "tagged.lpa"
+    lp.SessionArchiveWriter.write_from_store(
+        archive_path, session_id="tagged", net=net, store=store, tags=tags
+    )
+    archive = lp.SessionArchiveReader.read(archive_path)
+    assert archive.tags == tags
+    assert list(archive.tags) == sorted(tags)

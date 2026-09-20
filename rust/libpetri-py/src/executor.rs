@@ -35,9 +35,15 @@ pub struct PyExecutorOptions {
     environment_places: Vec<String>,
     skip_output_validation: bool,
     deadline_tolerance_ms: Option<f64>,
+    execution_scope: Option<String>,
 }
 
 impl PyExecutorOptions {
+    /// \[NU-011\] The host-pinned ν-name scope, if any.
+    pub fn execution_scope(&self) -> Option<&str> {
+        self.execution_scope.as_deref()
+    }
+
     pub fn environment_place_set(&self) -> HashSet<Arc<str>> {
         self.environment_places
             .iter()
@@ -57,13 +63,30 @@ impl PyExecutorOptions {
     /// the library default (5ms). Real-time orchestrators whose runs can stall may widen it. Must
     /// be non-negative. Does not affect `exact()` transitions, which are enforced softly and never
     /// force-disabled (TIME-006).
+    ///
+    /// \[NU-011\] `execution_scope` is folded into every minted ν-name
+    /// (`<transition>#<scope>:<n>`). `None` draws a fresh random scope per executor — 128 bits as
+    /// exactly 32 lowercase hex characters, unique across processes and **not** reproducible; pin
+    /// one to make a resumed segment's names reproducible (`<n>` is a per-executor counter from
+    /// 0). Raises `ValueError` for an empty scope (whitespace is legal) or one containing `':'` or
+    /// `'#'` — the same rule as every other implementation, under which a minted name parses
+    /// uniquely: the last `':'` splits off the counter, then the last `'#'` before it the scope.
     #[new]
-    #[pyo3(signature = (*, environment_places = None, skip_output_validation = false, deadline_tolerance_ms = None))]
+    #[pyo3(signature = (*, environment_places = None, skip_output_validation = false, deadline_tolerance_ms = None, execution_scope = None))]
     fn new(
         environment_places: Option<Vec<String>>,
         skip_output_validation: bool,
         deadline_tolerance_ms: Option<f64>,
+        execution_scope: Option<String>,
     ) -> PyResult<Self> {
+        // Validated here with the core's own rule. The core *panics* on a bad
+        // scope at executor construction, and a panic across the FFI at run
+        // time is no way to report a typo — so it must never get that far.
+        if let Some(scope) = &execution_scope {
+            libpetri::validate_execution_scope(scope).map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!("{e}: {scope:?}"))
+            })?;
+        }
         if let Some(ms) = deadline_tolerance_ms {
             if !(ms >= 0.0) {
                 return Err(pyo3::exceptions::PyValueError::new_err(format!(
@@ -72,6 +95,7 @@ impl PyExecutorOptions {
             }
         }
         Ok(Self {
+            execution_scope,
             environment_places: environment_places.unwrap_or_default(),
             skip_output_validation,
             deadline_tolerance_ms,
@@ -88,6 +112,14 @@ impl PyExecutorOptions {
     #[getter]
     fn skip_output_validation(&self) -> bool {
         self.skip_output_validation
+    }
+
+    /// \[NU-011\] The pinned ν-name scope, or `None` when the executor draws
+    /// its own: a random 32-lowercase-hex token, fresh per executor and not
+    /// observable here (it does not exist until the run mints a name).
+    #[getter(execution_scope)]
+    fn execution_scope_py(&self) -> Option<String> {
+        self.execution_scope.clone()
     }
 
     /// Deadline-enforcement tolerance in milliseconds, or `None` for the library default (5ms).
@@ -157,6 +189,7 @@ impl PyCompiledNet {
         let environment_places = options.environment_place_set();
         let skip_output_validation = options.skip_output_validation;
         let deadline_tolerance_ms = options.deadline_tolerance_ms;
+        let execution_scope = options.execution_scope().map(Arc::<str>::from);
         let owned = self.inner.clone();
 
         let marking = py.detach(move || match event_store.map(|h| h.shared()) {
@@ -168,6 +201,9 @@ impl PyCompiledNet {
                 if let Some(ms) = deadline_tolerance_ms {
                     builder = builder.deadline_tolerance_ms(ms);
                 }
+                if let Some(scope) = execution_scope.clone() {
+                    builder = builder.execution_scope(scope);
+                }
                 builder.run_sync()
             }
             Some(shared) => {
@@ -178,6 +214,9 @@ impl PyCompiledNet {
                     .skip_output_validation(skip_output_validation);
                 if let Some(ms) = deadline_tolerance_ms {
                     builder = builder.deadline_tolerance_ms(ms);
+                }
+                if let Some(scope) = execution_scope.clone() {
+                    builder = builder.execution_scope(scope);
                 }
                 builder.run_sync()
             }
@@ -204,6 +243,7 @@ impl PyCompiledNet {
         let environment_places = options.environment_place_set();
         let skip_output_validation = options.skip_output_validation;
         let deadline_tolerance_ms = options.deadline_tolerance_ms;
+        let execution_scope = options.execution_scope().map(Arc::<str>::from);
         let owned = self.inner.clone();
         let shared = event_store.map(|h| h.shared());
 
@@ -230,6 +270,9 @@ impl PyCompiledNet {
                     if let Some(ms) = deadline_tolerance_ms {
                         builder = builder.deadline_tolerance_ms(ms);
                     }
+                    if let Some(scope) = execution_scope.clone() {
+                        builder = builder.execution_scope(scope);
+                    }
                     builder.run_async(rx).await
                 }
                 Some(shared) => {
@@ -240,6 +283,9 @@ impl PyCompiledNet {
                         .skip_output_validation(skip_output_validation);
                     if let Some(ms) = deadline_tolerance_ms {
                         builder = builder.deadline_tolerance_ms(ms);
+                    }
+                    if let Some(scope) = execution_scope.clone() {
+                        builder = builder.execution_scope(scope);
                     }
                     builder.run_async(rx).await
                 }
@@ -325,25 +371,55 @@ impl PyExecutorHandle {
     }
 
     /// Requests a mid-execution marking snapshot. Returns an awaitable that
-    /// resolves to a structured snapshot dict
-    /// (`{place: [{"value": v, "created_at": ms}, ...]}`) — same shape as
-    /// `MarkingView.snapshot()`. Wrap with `MarkingView.from_snapshot(...)`
-    /// for a typed view.
+    /// resolves to `{"marking": {place: [{"value": v, "created_at": ms}, ...]},
+    /// "action_in_flight": bool}` — the two read at one instant (\[ENV-014\]
+    /// AC5/AC6). `"marking"` has the shape of `MarkingView.snapshot()`: places
+    /// in ascending code-point order, empty places omitted.
+    /// `"action_in_flight"` means work in flight: an action, or an accepted
+    /// but un-injected external event — the latter cannot occur here, since
+    /// injects and snapshot requests share one FIFO channel and an inject is
+    /// applied on receipt. The `libpetri.ExecutorHandle` wrapper turns this
+    /// into a `SnapshotResult`.
     ///
     /// Raises `RuntimeError` if the executor has already drained, closed, or
     /// disconnected.
+    ///
+    /// Legal from inside an action (\[ENV-014\] AC8). An `async def` action is
+    /// driven from a Tokio worker with no running asyncio loop, so the
+    /// awaitable is bound to the loop captured by `run_async` / `start_async`
+    /// when the calling thread has none; the reply then reports the calling
+    /// firing in flight. A **sync** action under `run_async` runs inline in the
+    /// orchestrator loop: it may send the request, but blocking on the reply
+    /// before returning waits on the orchestrator from the orchestrator.
     fn snapshot<'py>(&self, py: Python<'py>) -> PyResult<Py<PyAny>> {
+        // Resolved before the request is sent, so a caller with no loop at
+        // all fails without leaving an unanswerable request in the channel.
+        let locals = match pyo3_async_runtimes::tokio::get_current_locals(py) {
+            Ok(locals) => locals,
+            Err(err) => crate::action::current_event_loop_locals().ok_or(err)?,
+        };
         let rx = self
             .inner
             .lock()
             .unwrap()
             .snapshot()
             .map_err(|_| PyRuntimeError::new_err("executor handle is drained or closed"))?;
-        let awaitable = pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let marking = rx.await.map_err(|_| {
+        let awaitable = pyo3_async_runtimes::tokio::future_into_py_with_locals(py, locals, async move {
+            let result = rx.await.map_err(|_| {
                 PyRuntimeError::new_err("executor dropped before snapshot was delivered")
             })?;
-            Python::attach(|py| marking_snapshot_to_python(py, &marking))
+            // [ENV-014] AC5/AC6: the marking and whether anything was in
+            // flight travel together, as one value read at one instant.
+            // The Python wrapper builds a `SnapshotResult` from this.
+            Python::attach(|py| {
+                let out = pyo3::types::PyDict::new(py);
+                out.set_item(
+                    "marking",
+                    crate::value::snapshot_form_to_python(py, &result.marking)?,
+                )?;
+                out.set_item("action_in_flight", result.action_in_flight)?;
+                Ok::<_, pyo3::PyErr>(out.unbind())
+            })
         })?;
         Ok(awaitable.unbind())
     }

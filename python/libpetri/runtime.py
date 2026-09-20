@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import operator
 import time
 from collections.abc import Awaitable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
@@ -15,6 +16,61 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
+_CREATED_AT_LIMIT = 2**64  # `Token.created_at` is a u64 on the Rust side
+
+
+def _coerce_created_at(raw: Any) -> int:
+    """Validates a snapshot token's `created_at` — never alters it.
+
+    The same rule as the binding's `marking_from_python`, so a dict means the
+    same thing whether or not it passes through a `MarkingView` first
+    ([CORE-073] AC#9): an integer (anything with ``__index__``, so numpy
+    scalars count) or an integral float (JSON pipelines produce
+    ``1700000000000.0``), in ``0 <= ms < 2**64``. ``TypeError`` for a value
+    that is not a number of milliseconds at all, ``ValueError`` for one that
+    is but cannot be a timestamp.
+    """
+    if isinstance(raw, bool):
+        raise TypeError(
+            f"snapshot token 'created_at' must be an int (ms since epoch), got {raw!r}"
+        )
+    if isinstance(raw, float):
+        if not raw.is_integer():  # also False for nan / inf
+            raise ValueError(
+                "snapshot token 'created_at' must be a whole number of "
+                f"milliseconds, got {raw!r}"
+            )
+        value = int(raw)
+    else:
+        try:
+            value = operator.index(raw)
+        except TypeError:
+            raise TypeError(
+                "snapshot token 'created_at' must be an int (ms since epoch), "
+                f"got {raw!r}"
+            ) from None
+    if not 0 <= value < _CREATED_AT_LIMIT:
+        raise ValueError(
+            "snapshot token 'created_at' must be a non-negative int that fits "
+            f"in 64 bits (ms since epoch), got {raw!r}"
+        )
+    return value
+
+
+def _reject_snapshot_result(value: Any, where: str) -> None:
+    """A `SnapshotResult` is not a marking. Unwrapping it silently would skip
+    the one check it exists to force ([ENV-014] AC5), so every entry point
+    that takes a marking refuses it and says what to write instead — rather
+    than failing later with "'SnapshotResult' object is not iterable"."""
+    if isinstance(value, SnapshotResult):
+        raise TypeError(
+            f"{where} takes a marking, not a SnapshotResult: pass "
+            "`result.marking` — after checking `result.is_restore_point` "
+            "(a snapshot taken with work in flight is an observation, not a "
+            "restore point; [ENV-014])"
+        )
+
+
 class MarkingView(Mapping[str, tuple[Any, ...]]):
     """Read-only marking view with per-token `created_at` timestamps preserved.
 
@@ -24,7 +80,10 @@ class MarkingView(Mapping[str, tuple[Any, ...]]):
       timestamp is filled with the current wall clock (`time.time()`).
       Useful for callers building an `initial=` argument from plain values.
     - **Structured snapshot:** ``{place: [{"value": v, "created_at": ms},
-      ...]}``. Timestamps are preserved verbatim. This is the form executor
+      ...]}``. Timestamps are preserved verbatim — and validated, never
+      coerced: `created_at` must be an integer (or an integral float) in
+      ``0 <= ms < 2**64``, the same rule the engine applies, so a bad value
+      fails here rather than later inside a run. This is the form executor
       runs return as of 2.7.0 and the form `snapshot()` emits, so passing a
       previous run's view back as `initial=` preserves every token's
       `created_at`, and with it the `created_at`-driven freshness patterns.
@@ -54,6 +113,7 @@ class MarkingView(Mapping[str, tuple[Any, ...]]):
             self._values = dict(data._values)
             self._created_at = dict(data._created_at)
             return
+        _reject_snapshot_result(data, "MarkingView(...)")
         self._values: dict[str, tuple[Any, ...]] = {}
         self._created_at: dict[str, tuple[int, ...]] = {}
         if data is None:
@@ -69,7 +129,7 @@ class MarkingView(Mapping[str, tuple[Any, ...]]):
                     and "created_at" in token
                 ):
                     values_list.append(token["value"])
-                    ts_list.append(int(token["created_at"]))
+                    ts_list.append(_coerce_created_at(token["created_at"]))
                 else:
                     if fallback_ts is None:
                         fallback_ts = _now_ms()
@@ -122,11 +182,14 @@ class MarkingView(Mapping[str, tuple[Any, ...]]):
     def to_dict(self) -> dict[str, list[Any]]:
         """Legacy value-only projection — drops timestamps.
 
-        Use `snapshot()` for the timestamp-preserving structured form.
+        Places appear in ascending code-point order (a dict is an ordered
+        medium, so insertion order would otherwise leak into whatever a host
+        does with it). Use `snapshot()` for the timestamp-preserving
+        structured form.
         """
         return {
-            place_name: list(tokens)
-            for place_name, tokens in self._values.items()
+            place_name: list(self._values[place_name])
+            for place_name in sorted(self._values)
         }
 
     def snapshot(self) -> dict[str, list[dict[str, Any]]]:
@@ -134,6 +197,14 @@ class MarkingView(Mapping[str, tuple[Any, ...]]):
 
         Round-trip via `MarkingView.from_snapshot(view.snapshot())` reproduces
         the marking exactly — every value and every `created_at`.
+
+        This is Python's [CORE-073] snapshot form, so it is **canonical**
+        however the view was built: places in ascending code-point order
+        (AC#12 — ``sorted()`` on `str` is exactly that order, so two hosts
+        snapshotting the same marking agree key for key), and places holding
+        no tokens omitted. A restore accepts a snapshot with or without empty
+        places identically. Iterating the view itself (``for place in view``,
+        `places()`) still follows construction order.
 
         What it does **not** reproduce is timing state ([CORE-073] AC#3/AC#4):
         pass this back as `initial=` and a `delayed`/`window` transition waits
@@ -149,11 +220,52 @@ class MarkingView(Mapping[str, tuple[Any, ...]]):
                     self._values[place], self._created_at[place], strict=True
                 )
             ]
-            for place in self._values
+            for place in sorted(self._values)
+            if self._values[place]
         }
 
     def __repr__(self) -> str:
         return f"MarkingView({self.to_dict()!r})"
+
+
+@dataclass(slots=True, frozen=True)
+class SnapshotResult:
+    """[ENV-014] AC5/AC6 — what a mid-execution snapshot returns.
+
+    The marking **and** whether work was in flight when it was taken, as one
+    value. Deliberately not a separately-queryable flag: that would be
+    read at a different instant than the marking, which is the race AC5 exists
+    to close.
+
+    Nothing suspends the run to serve a snapshot, so an action may be in
+    flight — having consumed its inputs and not yet produced its outputs.
+    Those tokens are in *neither* place at the instant you observe them. The
+    marking is a valid **observation**; it is not a valid **restore point**,
+    because restoring it loses that work silently. Check `is_restore_point`.
+
+    `action_in_flight` means **work in flight: an action, or an accepted but
+    un-injected external event**. The second half is there for parity with the
+    other implementations and cannot occur in Python: `inject` and `snapshot`
+    travel down one FIFO channel to the Rust executor and an inject is applied
+    on receipt, so every event accepted before the snapshot request is already
+    in its marking.
+
+    `action_in_flight` is singular and boolean on purpose: a count would
+    invite reading it as a live gauge of what is running *now*, which is the
+    racy reading AC5 forbids. It is a fact about one instant, not a
+    measurement you can re-check.
+    """
+
+    marking: MarkingView
+    action_in_flight: bool
+
+    @property
+    def is_restore_point(self) -> bool:
+        """True when nothing was in flight, so the marking is safe to restore.
+
+        Named for the question a caller is actually asking.
+        """
+        return not self.action_in_flight
 
 
 @dataclass(slots=True, frozen=True)
@@ -165,6 +277,44 @@ class ExecutorOptions:
     #: must be non-negative. Does not affect ``exact()`` transitions, which are enforced
     #: softly and never force-disabled (TIME-006).
     deadline_tolerance_ms: float | None = None
+    #: [NU-011] Scope folded into every minted ν-name (``<transition>#<scope>:<n>``).
+    #: ``None`` draws a fresh random scope per executor — 128 bits as exactly 32
+    #: lowercase hex characters, unique across processes — so two executions resumed
+    #: from one snapshot, even in different processes, cannot mint colliding names by
+    #: default. It is *not* the executor's run identifier and is **not reproducible**:
+    #: pin a scope to make a resumed segment's minted names reproducible (NU-011 AC#3)
+    #: — for a fixed scope and firing order the sequence is identical, ``<n>`` being a
+    #: per-executor counter from 0. A pinned scope must be unique within its restore
+    #: lineage; reusing one is the collision NU-011 forbids.
+    #:
+    #: Must not be empty (whitespace is legal) and must not contain ``':'`` or ``'#'``
+    #: — ``ValueError`` otherwise. With both separators banned a minted name parses
+    #: uniquely whatever the transition is called: the last ``':'`` splits off the
+    #: counter, then the last ``'#'`` before it splits off the scope.
+    execution_scope: str | None = None
+
+    def __post_init__(self) -> None:
+        # Validate here rather than only at `native()`: the scope is a
+        # construction-time choice, and an error raised where the caller
+        # wrote the value points at the mistake instead of at the run.
+        # The rule is identical in all four implementations and in the
+        # binding (`_libpetri.ExecutorOptions`): empty — not blank — and the
+        # two separators.
+        scope = self.execution_scope
+        if scope is None:
+            return
+        if len(scope) == 0:
+            raise ValueError("execution_scope must not be empty (NU-011)")
+        if ":" in scope:
+            raise ValueError(
+                "execution_scope must not contain ':' (it separates scope from "
+                f"counter in a minted name, NU-011): {scope!r}"
+            )
+        if "#" in scope:
+            raise ValueError(
+                "execution_scope must not contain '#' (it separates transition "
+                f"from scope in a minted name, NU-011): {scope!r}"
+            )
 
     def native(self) -> _ext.ExecutorOptions:
         return _ext.ExecutorOptions(
@@ -173,12 +323,14 @@ class ExecutorOptions:
             ],
             skip_output_validation=self.skip_output_validation,
             deadline_tolerance_ms=self.deadline_tolerance_ms,
+            execution_scope=self.execution_scope,
         )
 
 
 def _normalize_initial(initial):
     if initial is None:
         return None
+    _reject_snapshot_result(initial, "`initial=`")
     if isinstance(initial, MarkingView):
         # Use the structured form so per-token `created_at` survives the
         # round-trip back into the executor (required for timed nets).
@@ -270,28 +422,41 @@ if _ext.HAS_TOKIO:
         def drained(self) -> bool:
             return self._inner.drained
 
-        async def snapshot(self) -> MarkingView:
+        async def snapshot(self) -> SnapshotResult:
             """Request a mid-execution marking snapshot.
 
-            The executor materializes its current marking and returns it as a
-            `MarkingView` with per-token `created_at` preserved. Does not
-            affect lifecycle — the executor keeps running.
+            The executor materializes its current marking and returns a
+            `SnapshotResult`: the marking as a `MarkingView` with per-token
+            `created_at` preserved, **and** `action_in_flight`, read at the
+            same instant ([ENV-014] AC5/AC6). Does not affect lifecycle — the
+            executor keeps running. Every `inject` accepted before this call
+            is already in the marking (one FIFO channel serves both).
 
-            **This is an observation, not a restore point** ([ENV-014]).
-            Nothing suspends the run to take it, so an action may be in
-            flight — having consumed its inputs and not yet produced its
-            outputs. Those tokens are in neither place at the instant you
-            observe them, and restoring such a marking simply loses that
-            work. Refusing, reporting or deferring an in-flight snapshot
-            ([ENV-014] AC5/AC6) is unimplemented in every language, so use
-            this for diagnostics and monitoring; for a restore point,
-            snapshot a run that has terminated.
+            Nothing suspends the run to take the snapshot, so an action may
+            be in flight — having consumed its inputs and not yet produced
+            its outputs. Those tokens are in neither place at the instant you
+            observe them, so check `is_restore_point` before resuming from
+            one. A mid-flight snapshot remains perfectly good for diagnostics
+            and monitoring.
+
+            **From inside an action** ([ENV-014] AC8). An ``async def`` action
+            may ``await handle.snapshot()``; the firing running it has
+            consumed its inputs and deposited nothing, so the result reports
+            `action_in_flight` and is not a restore point. A **sync** action
+            under `start_async` / `run_async` runs inline in the executor's
+            loop: it must not *block* on the reply (for example through
+            ``asyncio.run_coroutine_threadsafe(...).result()``) — the reply
+            can only be produced once the action has returned, so an unbounded
+            wait never ends.
 
             Raises `RuntimeError` if the handle is drained, closed, or the
             executor has already exited.
             """
             data = await self._inner.snapshot()
-            return MarkingView.from_snapshot(data)
+            return SnapshotResult(
+                marking=MarkingView.from_snapshot(data["marking"]),
+                action_in_flight=bool(data["action_in_flight"]),
+            )
 
 else:
 
@@ -343,6 +508,7 @@ __all__ = [
     "ExecutorHandle",
     "ExecutorOptions",
     "MarkingView",
+    "SnapshotResult",
     "compile",
     "run_async",
     "run_sync",

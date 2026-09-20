@@ -13,6 +13,7 @@ use std::sync::Arc;
 use libpetri_core::petri_net::PetriNet;
 use libpetri_event::event_store::EventStore;
 
+use crate::clock::ExecutorClock;
 use crate::compiled_net::CompiledNet;
 #[cfg(feature = "tokio")]
 use crate::environment::ExecutorSignal;
@@ -75,6 +76,8 @@ impl OwnedPrecompiledNet {
             environment_places: HashSet::new(),
             skip_output_validation: false,
             deadline_tolerance_ms: None,
+            clock: None,
+            execution_scope: None,
         }
     }
 
@@ -102,6 +105,8 @@ pub struct OwnedPrecompiledExecutorBuilder<E: EventStore> {
     environment_places: HashSet<Arc<str>>,
     skip_output_validation: bool,
     deadline_tolerance_ms: Option<f64>,
+    clock: Option<Arc<dyn ExecutorClock>>,
+    execution_scope: Option<Arc<str>>,
 }
 
 impl<E: EventStore> OwnedPrecompiledExecutorBuilder<E> {
@@ -123,6 +128,31 @@ impl<E: EventStore> OwnedPrecompiledExecutorBuilder<E> {
         self
     }
 
+    /// Installs a host time source for this execution (\[TIME-015\]), exactly
+    /// as [`PrecompiledExecutorBuilder::clock`](crate::precompiled_executor::PrecompiledExecutorBuilder::clock)
+    /// does. Per execution, never per program: the cached program is shared,
+    /// and two runs of it must be able to use independent clocks.
+    pub fn clock(mut self, clock: Arc<dyn ExecutorClock>) -> Self {
+        self.clock = Some(clock);
+        self
+    }
+
+    /// \[NU-011\] Pins the ν-name scope, making minted names reproducible
+    /// (`<transition>#<scope>:<n>`, `n` from 0). Absent, the scope is a random
+    /// 128-bit token — unique across processes, and therefore *not*
+    /// reproducible; a host that replays pins it. See
+    /// [`Executor::set_execution_scope`](crate::executor_core::executor::Executor::set_execution_scope).
+    ///
+    /// # Panics
+    ///
+    /// Not here — this only stores the value — but in [`run_sync`](Self::run_sync) / `run_async`, if `scope` is
+    /// empty or contains `':'` or `'#'`. Check untrusted input first with
+    /// [`validate_execution_scope`](crate::executor_core::scope::validate_execution_scope).
+    pub fn execution_scope(mut self, scope: impl Into<Arc<str>>) -> Self {
+        self.execution_scope = Some(scope.into());
+        self
+    }
+
     /// Sets the deadline-enforcement tolerance (ms). The grace band beyond a hard deadline
     /// (`deadline()` / `window()`) before a transition is force-disabled (TIME-013); defaults to
     /// the library value (5ms). Does not affect `exact()` transitions, enforced softly (TIME-006).
@@ -139,6 +169,12 @@ impl<E: EventStore> OwnedPrecompiledExecutorBuilder<E> {
             .skip_output_validation(self.skip_output_validation);
         if let Some(ms) = self.deadline_tolerance_ms {
             builder = builder.deadline_tolerance_ms(ms);
+        }
+        if let Some(clock) = self.clock {
+            builder = builder.clock(clock);
+        }
+        if let Some(scope) = self.execution_scope {
+            builder = builder.execution_scope(scope);
         }
         if let Some(store) = self.event_store {
             builder = builder.event_store(store);
@@ -158,6 +194,12 @@ impl<E: EventStore> OwnedPrecompiledExecutorBuilder<E> {
             .skip_output_validation(self.skip_output_validation);
         if let Some(ms) = self.deadline_tolerance_ms {
             builder = builder.deadline_tolerance_ms(ms);
+        }
+        if let Some(clock) = self.clock {
+            builder = builder.clock(clock);
+        }
+        if let Some(scope) = self.execution_scope {
+            builder = builder.execution_scope(scope);
         }
         if let Some(store) = self.event_store {
             builder = builder.event_store(store);

@@ -55,7 +55,7 @@ pub fn build_net_structure(session: &DebugSession) -> NetStructure {
         };
     };
 
-    let place_infos: Vec<PlaceInfo> = places
+    let mut place_infos: Vec<PlaceInfo> = places
         .data()
         .iter()
         .map(|(name, info)| PlaceInfo {
@@ -68,6 +68,9 @@ pub fn build_net_structure(session: &DebugSession) -> NetStructure {
             instance_prefix: instance_prefix_of(name).map(str::to_owned),
         })
         .collect();
+    // `data()` is a `HashMap`, and this list is a JSON *array* — its order is
+    // data. Sort it so one net yields one structure block on every run.
+    place_infos.sort_unstable_by(|a, b| a.name.cmp(&b.name));
 
     let transition_infos: Vec<TransitionInfo> = session
         .transition_names
@@ -1080,5 +1083,35 @@ mod tests {
                 trans.name
             );
         }
+    }
+
+    /// \[EVT-014\] AC5 / \[EVT-025\]: `NetStructure.places` is a JSON *array*, so its order is data — and it
+    /// was being read straight out of a `HashMap`, which made the structure
+    /// block of an archive header (and of every `Subscribed` frame) differ
+    /// from one process to the next for the same net.
+    #[test]
+    fn net_structure_lists_places_in_ascending_name_order() {
+        const SCRAMBLED: [&str; 12] = ["p07", "p02", "p11", "p00", "p05", "p09", "p01", "p10", "p03", "p08", "p04", "p06"];
+        let sink = Place::<i32>::new("sink");
+        let mut builder = PetriNet::builder("wide");
+        for name in SCRAMBLED {
+            builder = builder.transition(
+                Transition::builder(format!("t_{name}"))
+                    .input(one(&Place::<i32>::new(name)))
+                    .output(out_place(&sink))
+                    .build(),
+            );
+        }
+        let net = builder.build();
+
+        let mut registry = DebugSessionRegistry::new();
+        registry.register("s".into(), &net);
+        let structure = build_net_structure(registry.get_session("s").unwrap());
+
+        let names: Vec<&str> = structure.places.iter().map(|p| p.name.as_str()).collect();
+        let mut sorted = names.clone();
+        sorted.sort_unstable();
+        assert_eq!(names.len(), 13);
+        assert_eq!(names, sorted);
     }
 }

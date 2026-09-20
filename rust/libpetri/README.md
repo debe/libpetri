@@ -52,6 +52,7 @@ assert_eq!(&*executor.marking().peek(&output).unwrap(), "hello");
 - Open subnet composition, port/channel binding, place fusion, and action overrides.
 - Bitmap reference and precompiled production executors.
 - Environment events, event stores, DOT export, and ν-net identity correlation.
+- Marking snapshot and restore, a mid-run snapshot that says whether it is a restore point, and an injectable clock for virtual-time tests.
 - Structural analysis, timed state classes, and feature-gated SMT verification.
 
 Transition futures may overlap, but one orchestrator owns the marking. This keeps token movement deterministic and makes concurrency visible in the net rather than hidden inside shared mutable state.

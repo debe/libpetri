@@ -4,10 +4,20 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeAlias
 
 from . import _libpetri as _ext
-from .model import BuiltNet, PlaceLike
+from .model import BuiltNet, Place, PlaceLike
+
+# `Mapping` is invariant in its key, so `Mapping[PlaceLike, ...]` alone rejects
+# both a `dict[str, ...]` — which is what `MarkingView.snapshot()` returns, i.e.
+# the documented restore idiom — and a `dict[Place, ...]`.
+_Initial: TypeAlias = (
+    Mapping[str, Iterable[Any]]
+    | Mapping[Place, Iterable[Any]]
+    | Mapping[PlaceLike, Iterable[Any]]
+    | MarkingView
+)
 
 class MarkingView(Mapping[str, tuple[Any, ...]]):
     def __init__(
@@ -34,6 +44,7 @@ class ExecutorOptions:
     environment_places: tuple[PlaceLike, ...] = ...
     skip_output_validation: bool = ...
     deadline_tolerance_ms: float | None = ...
+    execution_scope: str | None = ...
     def native(self) -> _ext.ExecutorOptions: ...
 
 class CompiledNet:
@@ -43,24 +54,31 @@ class CompiledNet:
     def run_sync(
         self,
         *,
-        initial: Mapping[PlaceLike, Iterable[Any]] | MarkingView | None = ...,
+        initial: _Initial | None = ...,
         options: ExecutorOptions | _ext.ExecutorOptions | None = ...,
         event_store: _ext.InMemoryEventStore | None = ...,
     ) -> MarkingView: ...
     def start_async(
         self,
         *,
-        initial: Mapping[PlaceLike, Iterable[Any]] | MarkingView | None = ...,
+        initial: _Initial | None = ...,
         options: ExecutorOptions | _ext.ExecutorOptions | None = ...,
         event_store: _ext.InMemoryEventStore | None = ...,
     ) -> tuple[ExecutorHandle, Awaitable[MarkingView]]: ...
     async def run_async(
         self,
         *,
-        initial: Mapping[PlaceLike, Iterable[Any]] | MarkingView | None = ...,
+        initial: _Initial | None = ...,
         options: ExecutorOptions | _ext.ExecutorOptions | None = ...,
         event_store: _ext.InMemoryEventStore | None = ...,
     ) -> MarkingView: ...
+
+@dataclass(slots=True, frozen=True)
+class SnapshotResult:
+    marking: MarkingView
+    action_in_flight: bool
+    @property
+    def is_restore_point(self) -> bool: ...
 
 class ExecutorHandle:
     def __init__(self, inner: _ext.ExecutorHandle) -> None: ...
@@ -70,7 +88,7 @@ class ExecutorHandle:
     def close(self) -> bool: ...
     @property
     def drained(self) -> bool: ...
-    async def snapshot(self) -> MarkingView: ...
+    async def snapshot(self) -> SnapshotResult: ...
 
 ExecutionTarget = BuiltNet | CompiledNet | _ext.CompiledNet
 
@@ -78,21 +96,21 @@ def compile(net: BuiltNet) -> CompiledNet: ...
 def run_sync(
     target: ExecutionTarget,
     *,
-    initial: Mapping[PlaceLike, Iterable[Any]] | MarkingView | None = ...,
+    initial: _Initial | None = ...,
     options: ExecutorOptions | _ext.ExecutorOptions | None = ...,
     event_store: _ext.InMemoryEventStore | None = ...,
 ) -> MarkingView: ...
 def start_async(
     target: ExecutionTarget,
     *,
-    initial: Mapping[PlaceLike, Iterable[Any]] | MarkingView | None = ...,
+    initial: _Initial | None = ...,
     options: ExecutorOptions | _ext.ExecutorOptions | None = ...,
     event_store: _ext.InMemoryEventStore | None = ...,
 ) -> tuple[ExecutorHandle, Awaitable[MarkingView]]: ...
 async def run_async(
     target: ExecutionTarget,
     *,
-    initial: Mapping[PlaceLike, Iterable[Any]] | MarkingView | None = ...,
+    initial: _Initial | None = ...,
     options: ExecutorOptions | _ext.ExecutorOptions | None = ...,
     event_store: _ext.InMemoryEventStore | None = ...,
 ) -> MarkingView: ...

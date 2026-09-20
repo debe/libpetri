@@ -1,7 +1,7 @@
 //! Responses sent from server to debug UI client via WebSocket.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::debug_command::{BreakpointConfig, EventFilter};
 
@@ -17,7 +17,13 @@ pub struct SessionSummary {
     pub start_time: String,
     pub active: bool,
     pub event_count: usize,
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    /// Rendered in ascending key order (see [`serialize_sorted`]); the type
+    /// stays a `HashMap` because tags are looked up, never iterated in order.
+    #[serde(
+        default,
+        skip_serializing_if = "HashMap::is_empty",
+        serialize_with = "serialize_sorted"
+    )]
     pub tags: HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_time: Option<String>,
@@ -45,6 +51,12 @@ pub struct TokenInfo {
 }
 
 /// Serializable event information.
+///
+/// `details` is a `BTreeMap` so an event renders identically on every run.
+/// JSON objects are unordered and no reader may depend on the order — but an
+/// archive written twice from identical run data must not differ, and a
+/// `HashMap` re-seeds its iteration order per process (\[EVT-014\],
+/// \[EVT-025\]).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NetEventInfo {
@@ -53,7 +65,19 @@ pub struct NetEventInfo {
     pub timestamp: String,
     pub transition_name: Option<String>,
     pub place_name: Option<String>,
-    pub details: HashMap<String, serde_json::Value>,
+    pub details: BTreeMap<String, serde_json::Value>,
+}
+
+/// Serializes a string map in ascending key order without changing its type.
+///
+/// For maps whose *type* is public API that callers build and look up by key
+/// (session and archive tags). Only the rendering needs an order, so that one
+/// implementation writes identical bytes for identical data on every run.
+pub(crate) fn serialize_sorted<S: serde::Serializer>(
+    map: &HashMap<String, String>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.collect_map(map.iter().collect::<BTreeMap<_, _>>())
 }
 
 /// Information about a place in the net structure.
@@ -148,7 +172,9 @@ pub enum DebugResponse {
         net_name: String,
         dot_diagram: String,
         structure: NetStructure,
-        current_marking: HashMap<String, Vec<TokenInfo>>,
+        /// Ascending place-name order, as on the marking-snapshot event
+        /// (\[EVT-014\]): reproducible from run to run.
+        current_marking: BTreeMap<String, Vec<TokenInfo>>,
         enabled_transitions: Vec<String>,
         in_flight_transitions: Vec<String>,
         event_count: usize,
@@ -178,7 +204,8 @@ pub enum DebugResponse {
     },
     MarkingSnapshot {
         session_id: String,
-        marking: HashMap<String, Vec<TokenInfo>>,
+        /// Ascending place-name order; see `Subscribed::current_marking`.
+        marking: BTreeMap<String, Vec<TokenInfo>>,
         enabled_transitions: Vec<String>,
         in_flight_transitions: Vec<String>,
     },
@@ -331,7 +358,7 @@ mod tests {
                     instance_prefix: None,
                 }],
             },
-            current_marking: HashMap::new(),
+            current_marking: BTreeMap::new(),
             enabled_transitions: vec!["t1".into()],
             in_flight_transitions: vec![],
             event_count: 5,
@@ -378,7 +405,7 @@ mod tests {
                 places: vec![],
                 transitions: vec![],
             },
-            current_marking: HashMap::new(),
+            current_marking: BTreeMap::new(),
             enabled_transitions: vec!["t1".into()],
             in_flight_transitions: vec![],
             event_count: 5,
@@ -433,7 +460,7 @@ mod tests {
                     timestamp: "2025-01-01T00:00:00Z".into(),
                     transition_name: Some("t1".into()),
                     place_name: None,
-                    details: HashMap::new(),
+                    details: BTreeMap::new(),
                 },
             },
             DebugResponse::EventBatch {
@@ -444,7 +471,7 @@ mod tests {
             },
             DebugResponse::MarkingSnapshot {
                 session_id: "s1".into(),
-                marking: HashMap::new(),
+                marking: BTreeMap::new(),
                 enabled_transitions: vec![],
                 in_flight_transitions: vec![],
             },
@@ -485,5 +512,84 @@ mod tests {
             let json = serde_json::to_string(&resp).unwrap();
             let _back: DebugResponse = serde_json::from_str(&json).unwrap();
         }
+    }
+
+    // ---- reproducible key order ([EVT-014] AC5, [EVT-025]) ----------------
+    //
+    // A JSON object is an unordered medium, so nothing here is a wire-format
+    // guarantee. What IS required is that one implementation renders identical
+    // data identically on every run — and a `HashMap` re-seeds its iteration
+    // order per process. Twelve keys, inserted scrambled: a randomised
+    // container passes this by luck once in 479,001,600 runs.
+
+    const SCRAMBLED: [&str; 12] = ["p07", "p02", "p11", "p00", "p05", "p09", "p01", "p10", "p03", "p08", "p04", "p06"];
+
+    /// Byte offsets of `"p00"` … `"p11"` as JSON keys, in name order.
+    fn key_offsets(json: &str) -> Vec<usize> {
+        let mut names = SCRAMBLED.to_vec();
+        names.sort_unstable();
+        names
+            .iter()
+            .map(|n| json.find(&format!("\"{n}\":")).unwrap_or_else(|| panic!("{n} in {json}")))
+            .collect()
+    }
+
+    fn assert_keys_ascend(json: &str) {
+        let offsets = key_offsets(json);
+        assert!(offsets.windows(2).all(|w| w[0] < w[1]), "keys out of order: {json}");
+    }
+
+    #[test]
+    fn marking_bearing_frames_render_places_in_ascending_order() {
+        let marking = || SCRAMBLED.iter().map(|p| (p.to_string(), Vec::new())).collect();
+        let snapshot = DebugResponse::MarkingSnapshot {
+            session_id: "s".into(),
+            marking: marking(),
+            enabled_transitions: vec![],
+            in_flight_transitions: vec![],
+        };
+        assert_keys_ascend(&serde_json::to_string(&snapshot).unwrap());
+
+        let subscribed = DebugResponse::Subscribed {
+            session_id: "s".into(),
+            net_name: "n".into(),
+            dot_diagram: String::new(),
+            structure: NetStructure { places: vec![], transitions: vec![] },
+            current_marking: marking(),
+            enabled_transitions: vec![],
+            in_flight_transitions: vec![],
+            event_count: 0,
+            mode: "live".into(),
+            subnet_instances: vec![],
+        };
+        assert_keys_ascend(&serde_json::to_string(&subscribed).unwrap());
+    }
+
+    #[test]
+    fn event_details_render_in_ascending_key_order() {
+        let info = NetEventInfo {
+            event_type: "LogMessage".into(),
+            timestamp: "0".into(),
+            transition_name: None,
+            place_name: None,
+            details: SCRAMBLED
+                .iter()
+                .map(|k| (k.to_string(), serde_json::Value::Null))
+                .collect(),
+        };
+        assert_keys_ascend(&serde_json::to_string(&info).unwrap());
+    }
+
+    #[test]
+    fn session_tags_render_in_ascending_key_order() {
+        let summary = SessionSummary {
+            session_id: "s".into(),
+            tags: SCRAMBLED.iter().map(|k| (k.to_string(), "v".to_string())).collect(),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&summary).unwrap();
+        assert_keys_ascend(&json);
+        let back: SessionSummary = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.tags, summary.tags, "sorting the rendering must not change the data");
     }
 }

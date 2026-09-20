@@ -12,7 +12,16 @@ from .debug import (
     SessionSummary as SessionSummary,
     require_debug as require_debug,
 )
+from .archive import (
+    ComputedState as ComputedState,
+    MarkingCache as MarkingCache,
+    SessionArchive as SessionArchive,
+    SessionArchiveReader as SessionArchiveReader,
+    SessionArchiveWriter as SessionArchiveWriter,
+)
 from .events import (
+    EventStream as EventStream,
+    EventSubscription as EventSubscription,
     InMemoryEventStore as InMemoryEventStore,
     NetEvent as NetEvent,
 )
@@ -22,6 +31,7 @@ from .export import (
     dot_export as dot_export,
 )
 from .model import (
+    BuiltInterface as BuiltInterface,
     BuiltNet as BuiltNet,
     BuiltSubnetDef as BuiltSubnetDef,
     BuiltTransition as BuiltTransition,
@@ -30,6 +40,8 @@ from .model import (
     InhibitorArc as InhibitorArc,
     InputSpec as InputSpec,
     Instance as Instance,
+    Interface as Interface,
+    InterfaceBuilder as InterfaceBuilder,
     MatchSpec as MatchSpec,
     Net as Net,
     NetBuilder as NetBuilder,
@@ -75,6 +87,7 @@ from .runtime import (
     ExecutorHandle as ExecutorHandle,
     ExecutorOptions as ExecutorOptions,
     MarkingView as MarkingView,
+    SnapshotResult as SnapshotResult,
     compile as compile,
     run_async as run_async,
     run_sync as run_sync,
@@ -82,6 +95,7 @@ from .runtime import (
 )
 from .verification import (
     ContractViolation as ContractViolation,
+    EnvironmentAnalysisMode as EnvironmentAnalysisMode,
     OpenNetContract as OpenNetContract,
     OpenNetContractBuilder as OpenNetContractBuilder,
     OpenNetResult as OpenNetResult,
@@ -91,9 +105,12 @@ from .verification import (
     SubnetVerificationResult as SubnetVerificationResult,
     VerificationHarness as VerificationHarness,
     VerificationResult as VerificationResult,
+    always_available as always_available,
+    bounded as bounded,
     branch_place_bound as branch_place_bound,
     deadlock_free as deadlock_free,
     terminates_at_sink as terminates_at_sink,
+    ignore as ignore,
     joined_or_dead_lettered as joined_or_dead_lettered,
     mutual_exclusion as mutual_exclusion,
     place_bound as place_bound,
@@ -113,4 +130,5 @@ StructureError = _libpetri.StructureError
 HAS_TOKIO: bool
 HAS_Z3: bool
 HAS_DEBUG: bool
+HAS_ARCHIVE: bool
 __version__: str

@@ -4,6 +4,7 @@
 //! ## Module map
 //!
 //! - [`deadline`], [`event_payload`], [`output`] — pure helpers.
+//! - [`scope`] — the \[NU-011\] execution scope: validation and the random default.
 //! - [`backend`] — the internal seam: the
 //!   [`ExecutorBackend`](backend::ExecutorBackend) trait that abstracts
 //!   token storage, enablement representation, and dirty tracking.
@@ -19,3 +20,4 @@ pub(crate) mod deadline;
 pub(crate) mod event_payload;
 pub mod executor;
 pub(crate) mod output;
+pub mod scope;
