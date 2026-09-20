@@ -401,7 +401,7 @@ describeZ3('SmtVerifier (Z3 integration)', () => {
     // Route B is structural, so this needs no solver — but it lives in this z3-gated
     // block beside its sibling, and asserting `unknown` is correct either way.
     it('ignore mode on Route B does not silently prove (NU-050)', async () => {
-      const inEnv = environmentPlace(place<string>('IN'));
+      const inEnv = environmentPlace<string>('IN');
       const branchA = place<string>('branchA');
       const branchB = place<string>('branchB');
       const accepted = place<string>('accepted');
@@ -1139,8 +1139,8 @@ describe('SmtVerifier semiflow invariants (VER-007)', () => {
   const NU_SOURCE = place('source');
   const NU_BUDGET = place('budget');
   const NU_PENDING = place('pending');
-  const NU_A = place('branchA');
-  const NU_B = place('branchB');
+  const NU_A = place<string>('branchA');
+  const NU_B = place<string>('branchB');
   const NU_MERGED = place('merged');
 
   function colouredLoop(): PetriNet {

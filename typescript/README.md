@@ -53,6 +53,18 @@ The orchestrator owns the marking and invokes ready actions without awaiting ear
 
 Use places and transitions for coordination rather than hiding concurrency inside `Promise.all`: the net can then visualize, trace, replay, and verify the fan-out and join.
 
+## Checkpoint and resume
+
+```typescript
+const result = executor.snapshot();                        // does not stop the net
+if (isRestorePoint(result)) await save(JSON.stringify([...result.marking]));
+
+const restore = new Map(JSON.parse(stored));
+const resumed = new BitmapNetExecutor(net, new Map(), { restore });
+```
+
+A snapshot maps place names to tokens, in a canonical order, and carries `createdAt` through untouched. Persist one only when `isRestorePoint(result)` — that is, when `actionInFlight` is false: the flag is true while an action is running or an injected event has not reached its place yet, and either way a token is in no place. Timing clocks restart on resume, so a `deadline` gets a fresh full budget. Minted ν-names are `<transition>#<scope>:<n>` with a random scope per executor; pin `executionScope` when a replay must reproduce them, fresh per run segment.
+
 ## Package entry points
 
 | Import | Purpose |

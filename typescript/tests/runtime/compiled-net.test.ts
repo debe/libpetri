@@ -3,8 +3,8 @@ import { CompiledNet, setBit, clearBit, testBit, containsAll, intersects } from 
 import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
-import { one, exactly, all, atLeast } from '../../src/core/in.js';
-import { outPlace, andPlaces, xorPlaces } from '../../src/core/out.js';
+import { one, exactly } from '../../src/core/in.js';
+import { outPlace, andPlaces } from '../../src/core/out.js';
 import { fork } from '../../src/core/transition-action.js';
 
 // CORE-043: a transition that declares an output spec must carry an action that

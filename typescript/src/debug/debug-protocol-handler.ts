@@ -524,9 +524,21 @@ export function toImmutableState(
   };
 }
 
-/** Convert Map to Record for JSON serialization. */
+/**
+ * Convert Map to Record for JSON serialization.
+ *
+ * Null-prototype for the reason `convertMarking` is: assigning a place named `__proto__` onto
+ * an ordinary object literal sets the prototype instead of creating a key, so the place
+ * silently vanishes from `subscribed.currentMarking` and every `markingSnapshot`.
+ * `JSON.stringify` treats a null-prototype object identically, so the wire format is unchanged.
+ *
+ * The result is a JSON *object*, which is an unordered medium (CORE-073): key order is
+ * reproducible from run to run — it follows the computed marking's insertion order, with
+ * JavaScript hoisting integer-like names first — but it is not the canonical code-point order,
+ * and a consumer that needs that order sorts the keys itself.
+ */
 function mapToRecord(map: ReadonlyMap<string, readonly TokenInfo[]>): Record<string, readonly TokenInfo[]> {
-  const result: Record<string, readonly TokenInfo[]> = {};
+  const result = Object.create(null) as Record<string, readonly TokenInfo[]>;
   for (const [key, value] of map) {
     result[key] = value;
   }

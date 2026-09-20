@@ -35,10 +35,15 @@ export interface NameStat {
  *
  * The `NameId` tie-break uses JS string `<` (UTF-16 code-unit order). This is
  * byte-identical to the Java (`String.compareTo`) and Rust (UTF-8 code-point)
- * ports for ASCII/BMP names — which covers every executor-minted name
- * (`"{transition}#{n}"`). For supplementary-plane code points in user-supplied
- * correlation keys, Rust's UTF-8 order can differ from this UTF-16 order; NU-001
- * requires only per-implementation consistency, which holds.
+ * ports for ASCII/BMP names. An executor-minted name is
+ * `"{transition}#{scope}:{n}"` (NU-011): its default scope (32 lowercase hex
+ * characters) and its counter are ASCII, so it is BMP exactly when the transition
+ * name — and the scope, where a host pinned one — is. Both of those are host
+ * text, under the same caveat as a user-supplied correlation key: for
+ * supplementary-plane code points, Rust's UTF-8 order can differ from this UTF-16
+ * order; NU-001 requires only per-implementation consistency, which holds.
+ * Nothing here parses a name or assumes its alphabet — the comparison is total
+ * over every JS string.
  */
 export function selectMatchName(
   perPlace: ReadonlyArray<Map<NameId, NameStat>>,

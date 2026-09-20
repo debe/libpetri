@@ -100,6 +100,7 @@ describe('SessionArchive v3 (libpetri 1.8.0)', () => {
       // runtime, so JSON.stringify picks it up. This test pins the behavior so callers
       // know archiving a `private`-field bean still exposes those fields on the wire.
       class TsPrivate {
+        // @ts-expect-error deliberately never read: the test is about how it serializes
         private readonly secret = 'hidden';
         toString() { return 'TsPrivate{***}'; }
       }
@@ -112,7 +113,7 @@ describe('SessionArchive v3 (libpetri 1.8.0)', () => {
       // JS `#fields` are inaccessible to JSON.stringify, so a bean whose only state is
       // #private serializes to `{}`. The empty-object guard drops `structured`.
       class JsOpaque {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        // @ts-expect-error deliberately never read: the test is about how it serializes
         readonly #hidden = 'secret';
         toString() { return 'JsOpaque{***}'; }
       }

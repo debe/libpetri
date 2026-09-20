@@ -80,9 +80,16 @@ import { tokenAt } from '../core/token.js';
  * 3. **{@link sleep} MAY complete early, for no reason.** The executor re-checks
  *    its boundary conditions and never treats "the wait completed" as "the
  *    boundary is reached", so a host may resolve whenever it likes.
- * 4. **{@link sleep} resolves on abort — it does not reject.** The signal fires
- *    during `close()`, which is exactly the path where a rejection escapes
- *    unobserved as an unhandled rejection.
+ * 4. **{@link sleep} resolves on abort — it does not reject.** The signal is
+ *    aborted when **the wait is over or the executor is closing**: every wait gets
+ *    a signal of its own, and the executor aborts it as soon as the wait ends —
+ *    because this `sleep` resolved, because another wake source won the race, or
+ *    because of `close()`. So abort means "this wait no longer matters", not
+ *    "tear down": release what *this call* holds (a timer, a listener) and
+ *    resolve; do not dispose of the clock. Resolve rather than reject because on
+ *    both paths nobody is left observing the promise, which is exactly where a
+ *    rejection escapes as an unhandled rejection. Do not retain the signal past
+ *    the call — the next wait brings a new one.
  * 5. **The `ready` predicate is time-free.** It is cheap, repeatable and
  *    side-effect free, and a host MUST NOT wrap it in anything that consults a
  *    clock — a time-based predicate reintroduces the real clock behind the seam.
@@ -99,7 +106,8 @@ import { tokenAt } from '../core/token.js';
  *     if (delayMs === Infinity) {
  *       // No boundary to advance to, so suspend until something wakes us (contract 2).
  *       // Returning here instead would spin the executor and starve the event loop —
- *       // including the very event it is waiting for.
+ *       // including the very event it is waiting for. The signal is this wait's own and
+ *       // is aborted the moment the wait ends, so this listener never outlives it.
  *       return new Promise(resolve => {
  *         signal.addEventListener('abort', () => resolve(), { once: true });
  *       });
@@ -149,7 +157,8 @@ export interface Clock {
    * executor races it against its own wake sources (an in-flight action completing,
    * an external event arriving), re-checks every boundary afterwards, and abandons a
    * `sleep` promise that loses the race — so resolving *late*, or not at all while
-   * another wake source can still fire, is safe.
+   * another wake source can still fire, is safe. It aborts `signal` as it abandons the
+   * promise, which is what lets a well-behaved `sleep` clean up after a wait it lost.
    *
    * Resolving **early is not**, when `delayMs` is `Infinity`: see contract 2. The
    * race does protect a single early resolution, which is why contract 3 permits a
@@ -172,8 +181,10 @@ export interface Clock {
    * @param ready a time-free predicate that is `true` when work is already queued and
    *        the executor would return immediately. A host consults it to avoid
    *        advancing its clock past work that is already waiting (contract 5).
-   * @param signal aborted when the executor is closing ([ENV-013]). On abort the
-   *        returned promise MUST **resolve**, never reject (contract 4).
+   * @param signal this wait's own signal, aborted when the wait is over — another wake
+   *        source won the race, or this promise resolved — or the executor is closing
+   *        ([ENV-013]). On abort the returned promise MUST **resolve**, never reject, and
+   *        SHOULD release whatever the call still holds (contract 4). Never pre-aborted.
    */
   sleep(delayMs: number, ready: () => boolean, signal: AbortSignal): Promise<void>;
 }
@@ -216,7 +227,8 @@ export function seedToken<T>(clock: Clock, value: T): Token<T> {
  * conformance runs on ([TIME-015] AC#1).
  *
  * Its `sleep` honours the abort signal by resolving (contract 4) and clears its
- * timer when it does, so a `close()` mid-wait leaves nothing pending.
+ * timer when it does, so a wait that loses the race — or a `close()` mid-wait —
+ * leaves nothing pending: no timer, no listener.
  */
 export function systemClock(): Clock {
   return SYSTEM_CLOCK;

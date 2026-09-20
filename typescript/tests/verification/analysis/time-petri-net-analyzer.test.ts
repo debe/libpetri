@@ -7,7 +7,6 @@ import { PetriNet } from '../../../src/core/petri-net.js';
 import { place, environmentPlace } from '../../../src/core/place.js';
 import { one } from '../../../src/core/in.js';
 import { outPlace, xorPlaces } from '../../../src/core/out.js';
-import { immediate, delayed, window } from '../../../src/core/timing.js';
 import { alwaysAvailable, bounded, ignore } from '../../../src/verification/analysis/environment-analysis-mode.js';
 import { produces } from '../../fixtures/producing-actions.js';
 

@@ -3,8 +3,7 @@ import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
 import { one, exactly } from '../../src/core/in.js';
 import { xorPlaces, andPlaces, outPlace, forwardInput, timeout } from '../../src/core/out.js';
-import { delayed, immediate } from '../../src/core/timing.js';
-import { passthrough } from '../../src/core/transition-action.js';
+import { delayed } from '../../src/core/timing.js';
 
 describe('Transition', () => {
   const p1 = place<string>('P1');

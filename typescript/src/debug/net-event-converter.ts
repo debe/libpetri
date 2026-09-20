@@ -258,7 +258,20 @@ export function convertMarking(
   marking: ReadonlyMap<string, readonly Token<unknown>[]>,
   compact = false,
 ): Record<string, readonly TokenInfo[]> {
-  const result: Record<string, readonly TokenInfo[]> = {};
+  // Null-prototype, because a place named `__proto__` assigned onto an ordinary object literal
+  // sets the prototype instead of creating a key: the entry vanishes and the marking serializes
+  // without it. Silent data loss, and reachable input rather than a hypothetical — a host
+  // compiling place names from user-supplied step or node identifiers can be handed one.
+  // `JSON.stringify` treats a null-prototype object identically, so the archive format is
+  // unchanged.
+  //
+  // Order: the incoming Map is in canonical code-point order ([EVT-014]); this object is not
+  // guaranteed to be. A JSON object is an unordered medium (CORE-073), and a JavaScript object
+  // hoists integer-like keys (`'9'`, `'10'`) ahead of all others in numeric order whatever the
+  // prototype. What the archive and the debug protocol do guarantee is reproducibility: one
+  // marking always renders to the same bytes ([EVT-025]). A consumer needing canonical order
+  // sorts the keys by code point.
+  const result = Object.create(null) as Record<string, readonly TokenInfo[]>;
   const mapper = compact ? compactTokenInfo : tokenInfo;
   for (const [name, tokens] of marking) {
     result[name] = tokens.map(mapper);

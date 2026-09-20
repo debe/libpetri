@@ -191,8 +191,8 @@ function buildPetriNet(g: GenNet): PetriNet {
   for (const p of places) builder = builder.place(p);
   for (const gt of g.transitions) {
     const t = Transition.builder(gt.name)
-      .inputs(one(places[gt.inIdx]))
-      .outputs(outPlace(places[gt.outIdx]))
+      .inputs(one(places[gt.inIdx]!))
+      .outputs(outPlace(places[gt.outIdx]!))
       .build();
     builder = builder.transition(t);
   }
@@ -220,8 +220,8 @@ function splitIntoTwoFusionSets(places: Place<string>[]): [FusionSet, FusionSet]
   const mid = Math.floor(places.length / 2);
   const left = places.slice(0, mid);
   const right = places.slice(mid);
-  const f1 = FusionSet.of('F1', left[0], ...left.slice(1));
-  const f2 = FusionSet.of('F2', right[0], ...right.slice(1));
+  const f1 = FusionSet.of('F1', left[0]!, ...left.slice(1));
+  const f2 = FusionSet.of('F2', right[0]!, ...right.slice(1));
   return [f1, f2];
 }
 
@@ -239,13 +239,13 @@ describe('composition-properties', () => {
           for (const p of hostPlaces) b = b.place(p);
           for (const gt of g.transitions) {
             const t = Transition.builder(gt.name)
-              .inputs(one(hostPlaces[gt.inIdx]))
-              .outputs(outPlace(hostPlaces[gt.outIdx]))
+              .inputs(one(hostPlaces[gt.inIdx]!))
+              .outputs(outPlace(hostPlaces[gt.outIdx]!))
               .build();
             b = b.transition(t);
           }
           b = b.compose(inst, (bind) => {
-            bind.bindPort<string>('in_port', hostPlaces[0]);
+            bind.bindPort<string>('in_port', hostPlaces[0]!);
           });
           // Disjoint fusion sets over the original host places, leaving
           // hostPlaces[0] out (it has been bound by compose; excluding it

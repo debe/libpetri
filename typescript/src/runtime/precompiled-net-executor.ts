@@ -30,17 +30,19 @@ import type { Token } from '../core/token.js';
 import type { Transition } from '../core/transition.js';
 import type { EventStore } from '../event/event-store.js';
 import type { NetEvent } from '../event/net-event.js';
-import type { PetriNetExecutor, RunTimeoutPolicy } from './petri-net-executor.js';
+import type { PetriNetExecutor, RunTimeoutPolicy, SnapshotResult } from './petri-net-executor.js';
 import type { Clock } from './clock.js';
 import { tokenAt } from '../core/token.js';
 import { TokenInput } from '../core/token-input.js';
 import { TokenOutput } from '../core/token-output.js';
 import { TransitionContext } from '../core/transition-context.js';
 import { noopEventStore } from '../event/event-store.js';
+import { compareCodePoints } from '../core/internal/code-point-order.js';
 import { WORD_SHIFT, BIT_MASK, restartThresholds } from './compiled-net.js';
 import { Marking } from './marking.js';
+import type { MarkingSnapshotForm } from './marking.js';
 import { PrecompiledNet, CONSUME_ONE, CONSUME_N, CONSUME_ALL, CONSUME_ATLEAST, RESET } from './precompiled-net.js';
-import { validateOutSpec, produceTimeoutOutput, executeAction, swallowEventStoreFailure, DEADLINE_TOLERANCE_MS, nextExecutionId } from './executor-support.js';
+import { validateOutSpec, produceTimeoutOutput, executeAction, swallowEventStoreFailure, DEADLINE_TOLERANCE_MS, nextExecutionId, restoredTokens, resolveExecutionScope } from './executor-support.js';
 import { OutViolationError } from './out-violation-error.js';
 import { findBinding, IncrementalMatcher } from './match-engine.js';
 import { keyForPlace } from '../core/match-spec.js';
@@ -87,6 +89,34 @@ export interface PrecompiledNetExecutorOptions {
    * path. See {@link Clock} for the five-point contract an injected clock must honour.
    */
   clock?: Clock;
+  /**
+   * Seed this execution from a **CORE-073** snapshot rather than from `initialTokens` — a
+   * *resume*.
+   *
+   * Restored `createdAt` values are never re-stamped (AC#9). Timing clocks are **not** restored:
+   * every transition this marking enables starts its interval fresh at this executor's
+   * enablement ([TIME-011]), so a `Delayed` lower bound is re-satisfied but a `Deadline` upper
+   * bound gets a fresh full budget — see {@link Marking.fromSnapshot}.
+   *
+   * Supplying this alongside a non-empty `initialTokens` is an error rather than a merge: the
+   * two are competing descriptions of the same initial marking, and silently preferring one
+   * would lose the other's tokens.
+   */
+  restore?: MarkingSnapshotForm;
+  /**
+   * Scope embedded in ν-names this execution mints ([NU-011]), as `<transition>#<scope>:<n>`.
+   *
+   * Defaults to a fresh random token — 32 lowercase hex characters, 128 bits — which makes a
+   * resume collision-safe with no host action, **including across a process restart**: a
+   * resumed execution cannot re-mint a name already present in the restored marking, because
+   * the scope differs. It is *not* {@link PrecompiledNetExecutor.executionId}, which stays a reproducible per-process
+   * counter. Pin it to make a segment replayable — for a fixed scope and firing order the
+   * minted sequence is reproducible, `<n>` being a per-executor counter from 0 either way.
+   *
+   * @throws at construction if empty (length zero — a blank scope is legal), or if it contains
+   *         `:` or `#`, the two characters a minted name is parsed on
+   */
+  executionScope?: string;
 }
 
 /**
@@ -116,10 +146,15 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
    */
   private readonly clock: Clock | null;
   /**
-   * Aborted by {@link close} to release a host sleeping on an injected clock (TIME-015 contract 4).
-   * Allocated only when a clock is supplied, so the default path carries nothing.
+   * Controller for the injected-clock wait **currently in progress**, or `null` when the
+   * executor is not inside one (TIME-015 contract 4). One per wait, not one per executor: it is
+   * aborted as soon as the race in {@link awaitWork} settles, so a conforming host `sleep` that
+   * lost the race resolves and drops its `abort` listener there and then — with a single
+   * executor-lifetime signal each idle wait left a listener, a closure and a pending promise
+   * behind until `close()`. {@link close} aborts it too, to release a host sleeping mid-wait.
+   * Allocated only on the clock path, so the default path carries nothing.
    */
-  private readonly abortController: AbortController | null;
+  private waitAbort: AbortController | null = null;
   /**
    * Epoch-clock reader handed to each firing's {@link TokenOutput}, or `undefined` when no
    * clock is injected (TIME-015 AC#13). Bound once rather than per firing; `undefined`
@@ -129,6 +164,8 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
   private readonly epochNowFn: (() => number) | undefined;
   /** Stable identifier for this execution, allocated at construction (TIME-015 AC#14). */
   private readonly runId: string = nextExecutionId();
+  /** Scope embedded in minted ν-names (NU-011); defaults to a random token, never {@link runId}. */
+  private readonly executionScope: string;
   private readonly eventStoreEnabled: boolean;
 
   // ==================== Token Storage ====================
@@ -241,6 +278,24 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
   private closed = false;
 
   /**
+   * True while the token queues are **between** two settled states inside one synchronous
+   * stretch of the cycle ([ENV-014] AC#6): from the first input of a firing being consumed
+   * until that firing is counted in flight, and from a completed firing being uncounted until
+   * its last output has landed. Host code can run in exactly those windows — an action's
+   * synchronous prefix, and every `EventStore.append` — and a {@link snapshot} taken there is
+   * missing tokens that are in no place, so it ORs this into `actionInFlight`. Identical to the
+   * bitmap executor's flag; two plain field writes per firing and per completion.
+   */
+  private unsettled = false;
+  /**
+   * How many entries of {@link externalQueue} the current external-events phase has already
+   * deposited. Entries at or past it are **accepted but not yet injected** — in no place — so
+   * {@link snapshot} reports them as work in flight ([ENV-014] AC#6). Zero outside that phase,
+   * where the whole queue is pending.
+   */
+  private externalCursor = 0;
+
+  /**
    * The **firing clock** (TIME-015): monotonic, arbitrary origin, milliseconds. Every enablement
    * stamp and elapsed-time decision reads here and nowhere else. Never wall time — `enabledAtMs`
    * differences would be meaningless against a clock that can step backwards over an NTP
@@ -291,9 +346,14 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     if (this.deadlineToleranceMs < 0) {
       throw new Error(`Deadline tolerance must be non-negative: ${this.deadlineToleranceMs}`);
     }
+    if (options.restore !== undefined && initialTokens.size > 0) {
+      throw new Error(
+        'restore and a non-empty initialTokens both describe the initial marking (CORE-073); ' +
+        'pass one or the other');
+    }
+    this.executionScope = resolveExecutionScope(options.executionScope);
     // Before the first nowMs() — that read already goes through the seam.
     this.clock = options.clock ?? null;
-    this.abortController = this.clock === null ? null : new AbortController();
     this.epochNowFn = this.clock === null ? undefined : (): number => this.epochMs();
     this.startMs = this.nowMs();
     this.eventStoreEnabled = this.eventStore.isEnabled();
@@ -309,8 +369,11 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       this.tokenQueues[pid] = [];
     }
 
-    // Load initial tokens
-    for (const [place, tokens] of initialTokens) {
+    // Load initial tokens. A resume seeds from the snapshot's names instead; the undeclared
+    // branch below then retains any the net no longer declares (CORE-073 AC#7).
+    const seedTokens = options.restore !== undefined
+      ? restoredTokens(options.restore) : initialTokens;
+    for (const [place, tokens] of seedTokens) {
       const pid = prog.compiled.tryPlaceId(place);
       if (pid === undefined) {
         // CORE-072: undeclared place — retain the tokens in a side store so
@@ -918,9 +981,15 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
    * fatal-rethrow escape hatch.
    */
   private fireTransitionContained(tid: number): void {
+    // Raised before the first input is consumed and dropped once the firing is counted in
+    // flight (or has failed): the action's synchronous prefix and every emit in between run
+    // with tokens in no place (ENV-014 AC#6).
+    this.unsettled = true;
     try {
       this.fireTransition(tid);
+      this.unsettled = false;
     } catch (e) {
+      this.unsettled = false;
       const t = this.program.compiled.transition(tid);
       if (this.enabledFlags[tid]) {
         this.enabledFlags[tid] = 0;
@@ -1105,7 +1174,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     let freshNameSupplier = this.freshNameSuppliers[tid];
     if (freshNameSupplier === undefined) {
       const base = t.name;
-      freshNameSupplier = () => nameId(`${base}#${this.freshNameCounter++}`);
+      freshNameSupplier = () => nameId(`${base}#${this.executionScope}:${this.freshNameCounter++}`);
       this.freshNameSuppliers[tid] = freshNameSupplier;
     }
     context.setFreshNameSupplier(freshNameSupplier);
@@ -1313,6 +1382,9 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
         continue;
       }
 
+      // The firing is uncounted and its outputs have not landed: each token-added emit below
+      // runs with part of this firing's production still in no place (ENV-014 AC#6).
+      this.unsettled = true;
       try {
         const outputs = context.rawOutput();
 
@@ -1357,6 +1429,8 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
           });
         }
         this.markTransitionDirty(tid);
+        // Every output has landed — transition-completed is emitted from a settled marking.
+        this.unsettled = false;
 
         this.emitEvent({
           type: 'transition-completed',
@@ -1366,6 +1440,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
           durationMs: this.nowMs() - startMs,
         });
       } catch (e) {
+        this.unsettled = false;
         const err = e instanceof Error ? e : new Error(String(e));
         this.emitEvent({
           type: 'transition-failed',
@@ -1390,6 +1465,8 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
 
     for (let i = 0; i < len; i++) {
       const event = this.externalQueue[i]!;
+      // Counted as deposited from here: its token-added emit must not report it pending.
+      this.externalCursor = i + 1;
       try {
         this.produceToken(event.place, event.token, '');
 
@@ -1404,7 +1481,14 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
         event.reject(e instanceof Error ? e : new Error(String(e)));
       }
     }
-    this.externalQueue.length = 0;
+    // Drop what this pass deposited — not the whole queue. `EventStore.append` runs
+    // synchronously inside the walk above, so an inject() made from a token-added handler has
+    // landed past `len`; clearing the queue would discard an accepted event and leave its
+    // admission promise unsettled forever. It is admitted next cycle instead (its wakeUp() is
+    // latched, and awaitWork re-checks the queue on entry).
+    if (this.externalQueue.length === len) this.externalQueue.length = 0;
+    else this.externalQueue.splice(0, len);
+    this.externalCursor = 0;
   }
 
   /**
@@ -1478,6 +1562,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
 
     const promises = this.awaitPromises;
     promises.length = 0;
+    let waitAbort: AbortController | null = null;
 
     // In-flight completion
     if (this.inFlightCount > 0) {
@@ -1519,18 +1604,28 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       if (timerMs > 0) {
         const clock = this.clock;
         if (clock !== null) {
-          // abortController is non-null exactly when clock is — the constructor sets both together.
-          promises.push(clock.sleep(timerMs, this.isWorkReady, this.abortController!.signal));
+          // This wait's own signal: aborted below once the race settles, and by close().
+          waitAbort = this.waitAbort = new AbortController();
+          promises.push(clock.sleep(timerMs, this.isWorkReady, waitAbort.signal));
         } else if (timerMs < Infinity) {
           promises.push(new Promise<void>(r => setTimeout(r, timerMs)));
         }
       }
     }
 
-    if (promises.length > 0) {
-      await Promise.race(promises);
+    try {
+      if (promises.length > 0) {
+        await Promise.race(promises);
+      }
+    } finally {
+      this.wakeUpResolve = null;
+      if (waitAbort !== null) {
+        // The wait is over, whoever won it. Tell the host, so a `sleep` still parked on this
+        // signal resolves and releases its listener instead of outliving the wait.
+        this.waitAbort = null;
+        waitAbort.abort();
+      }
     }
-    this.wakeUpResolve = null;
   }
 
   private millisUntilNextTimedTransition(): number {
@@ -1605,19 +1700,41 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
 
   // ======================== State Inspection ========================
 
+  /**
+   * The current marking, materialised from the token queues.
+   *
+   * The queues are the state; a {@link Marking} is a view built on demand. While the executor
+   * is running the view is rebuilt on **every call** — a cached one would be frozen at the first
+   * mid-run call and silently stale afterwards, since nothing on the firing path invalidates it
+   * (and an invalidating write per token movement is not worth paying on the production
+   * executor's hot path for an inspection API). Outside a run the queues do not move, so the
+   * cached view is returned: after `run()` resolves this is the same object it resolved with.
+   *
+   * Unlike `BitmapNetExecutor.getMarking()`, the returned object is therefore a **copy**
+   * mid-run, not a live reference: it does not follow later firings.
+   */
   getMarking(): Marking {
+    if (this.running) return this.syncMarkingFromQueues();
     return this.marking ?? this.syncMarkingFromQueues();
   }
 
   private snapshotMarking(): ReadonlyMap<string, readonly Token<any>[]> {
+    // Canonical order per **CORE-073**: ascending code-point order of the place *name*.
+    // This used to emit in compiled place-id order, which is deterministic within one
+    // implementation and arbitrary between them — Java's defect in a quieter form. The rule
+    // follows the form: it applies wherever a marking snapshot is rendered into an ordered
+    // medium, including onto an event ([EVT-014]) and into a session archive ([EVT-025]).
+    // `compareCodePoints` rather than the default sort so this agrees with Rust's `str`
+    // ordering above U+FFFF, where UTF-16 code-unit order diverges.
     const prog = this.program;
-    const snap = new Map<string, readonly Token<any>[]>();
+    const entries: [string, readonly Token<any>[]][] = [];
     for (let pid = 0; pid < prog.placeCount; pid++) {
       const q = this.tokenQueues[pid]!;
       if (q.length === 0) continue;
-      snap.set(prog.places[pid]!.name, [...q]);
+      entries.push([prog.places[pid]!.name, [...q]]);
     }
-    return snap;
+    entries.sort((a, b) => compareCodePoints(a[0], b[0]));
+    return new Map(entries);
   }
 
   isQuiescent(): boolean {
@@ -1634,6 +1751,39 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     return this.runId;
   }
 
+  /**
+   * Captures the running net's marking ([ENV-014]), without stopping it.
+   *
+   * Safe to call at any time while the executor is running (AC#1), and from anywhere: between
+   * cycles, from inside an action, or from an `EventStore.append`. The orchestrator is a single
+   * logical thread, so the capture is atomic with respect to it (AC#2) and the net keeps running
+   * afterwards. The marking is rebuilt from the live token queues on every call — never served
+   * from the lazily synced {@link getMarking} cache — and {@link Marking.snapshot} copies every
+   * sequence, so the result is independent of later executor state (AC#3).
+   *
+   * **`actionInFlight` is read at the same instant as the marking**, and is `true` whenever a
+   * token is in no place: an action is running; a firing has consumed its inputs and is still in
+   * its action's synchronous prefix or in an event-store callback; a completed firing has
+   * deposited only some of its outputs; or an external event has been accepted by
+   * {@link inject} / {@link injectNoAwait} and not yet deposited. Only host code that runs
+   * *between* cycles is guaranteed a settled marking — code inside an action or an event store
+   * is not, and the flag is what tells the two apart. A saver written as an event-store
+   * decorator should key on `transition-completed`, the instant a firing's outputs have all
+   * landed.
+   *
+   * @throws once the executor has been drained or closed (AC#4)
+   */
+  snapshot(): SnapshotResult {
+    if (this.draining || this.closed) {
+      throw new Error('snapshot() is not available once the executor has been drained or closed (ENV-014)');
+    }
+    return {
+      marking: this.syncMarkingFromQueues().snapshot(),
+      actionInFlight: this.inFlightCount > 0 || this.unsettled
+        || this.externalQueue.length > this.externalCursor,
+    };
+  }
+
   drain(): void {
     this.draining = true;
     this.wakeUp();
@@ -1644,7 +1794,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     this.closed = true;
     // Release a host sleeping on an injected clock. Its `sleep` resolves rather than rejecting
     // (TIME-015 contract 4) — this is the teardown path where a rejection escapes unobserved.
-    this.abortController?.abort();
+    this.waitAbort?.abort();
     this.wakeUp();
   }
 

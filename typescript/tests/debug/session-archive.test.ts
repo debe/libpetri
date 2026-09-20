@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import { DebugEventStore } from '../../src/debug/debug-event-store.js';
 import { DebugSessionRegistry, buildNetStructure } from '../../src/debug/debug-session-registry.js';
 import { SessionArchiveWriter } from '../../src/debug/archive/session-archive-writer.js';
 import { SessionArchiveReader } from '../../src/debug/archive/session-archive-reader.js';

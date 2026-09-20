@@ -13,7 +13,7 @@ import { Transition } from '../../src/core/transition.js';
 import { PetriNet } from '../../src/core/petri-net.js';
 import { place } from '../../src/core/place.js';
 import { one } from '../../src/core/in.js';
-import { andPlaces, outPlace, xor, and } from '../../src/core/out.js';
+import { andPlaces, outPlace, xor } from '../../src/core/out.js';
 import { produces } from '../fixtures/producing-actions.js';
 import { verificationNets } from '../fixtures/verification-nets.js';
 

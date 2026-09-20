@@ -67,8 +67,7 @@ describe('PetriNet', () => {
       .transition(t)
       .build();
 
-    let called = false;
-    const action: TransitionAction = async () => { called = true; };
+    const action: TransitionAction = async () => {};
 
     const bound = net.bindActions({ T: action });
 

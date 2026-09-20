@@ -4,6 +4,8 @@ import type { SmtVerificationResult } from '../../src/verification/smt-verificat
 
 describe('SmtVerificationResult', () => {
   const baseResult: Omit<SmtVerificationResult, 'verdict'> = {
+    route: 'smt',
+    counterexampleConfirmed: null,
     report: 'test report',
     invariants: [],
     discoveredInvariants: [],

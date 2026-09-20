@@ -49,12 +49,12 @@ describe('partition — ghost edges (EXP-017)', () => {
     expect(result.topLevelEdges).toHaveLength(3);
     const ghosts = result.topLevelEdges.filter(e => e.arcType === 'ghost');
     expect(ghosts).toHaveLength(1);
-    expect(ghosts[0].style).toBe('invis');
-    expect(ghosts[0].arrowhead).toBe('none');
-    expect(ghosts[0].attrs?.ltail).toBe('cluster_left');
-    expect(ghosts[0].attrs?.lhead).toBe('cluster_right');
-    expect(ghosts[0].from).toBe('p_left_a');
-    expect(ghosts[0].to).toBe('p_right_b');
+    expect(ghosts[0]!.style).toBe('invis');
+    expect(ghosts[0]!.arrowhead).toBe('none');
+    expect(ghosts[0]!.attrs?.ltail).toBe('cluster_left');
+    expect(ghosts[0]!.attrs?.lhead).toBe('cluster_right');
+    expect(ghosts[0]!.from).toBe('p_left_a');
+    expect(ghosts[0]!.to).toBe('p_right_b');
   });
 
   it('dedups: 3 orphans bridging the same cluster pair produce 1 ghost edge', () => {
@@ -77,8 +77,8 @@ describe('partition — ghost edges (EXP-017)', () => {
 
     const ghosts = result.topLevelEdges.filter(e => e.arcType === 'ghost');
     expect(ghosts).toHaveLength(1);
-    expect(ghosts[0].attrs?.ltail).toBe('cluster_left');
-    expect(ghosts[0].attrs?.lhead).toBe('cluster_right');
+    expect(ghosts[0]!.attrs?.ltail).toBe('cluster_left');
+    expect(ghosts[0]!.attrs?.lhead).toBe('cluster_right');
   });
 
   it('emits a ghost per ordered direction (X→Y and Y→X are distinct)', () => {
@@ -153,8 +153,8 @@ describe('partition — ghost edges (EXP-017)', () => {
 
     const ghosts = result.topLevelEdges.filter(e => e.arcType === 'ghost');
     expect(ghosts).toHaveLength(1);
-    expect(ghosts[0].attrs?.ltail).toBe('cluster_outer_inner');
-    expect(ghosts[0].attrs?.lhead).toBe('cluster_far');
+    expect(ghosts[0]!.attrs?.ltail).toBe('cluster_outer_inner');
+    expect(ghosts[0]!.attrs?.lhead).toBe('cluster_far');
   });
 
   it('handles multiple orphans bridging multiple cluster pairs', () => {

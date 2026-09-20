@@ -8,12 +8,13 @@
  * @module runtime
  */
 export { Marking } from './marking.js';
-export type { PredicateSpec } from './marking.js';
+export type { PredicateSpec, MarkingSnapshotForm } from './marking.js';
 export { CompiledNet, setBit, clearBit, testBit, containsAll, intersects } from './compiled-net.js';
 export type { CardinalityCheck } from './compiled-net.js';
 export { BitmapNetExecutor } from './bitmap-net-executor.js';
 export type { BitmapNetExecutorOptions } from './bitmap-net-executor.js';
-export type { PetriNetExecutor, RunTimeoutPolicy } from './petri-net-executor.js';
+export type { PetriNetExecutor, RunTimeoutPolicy, SnapshotResult } from './petri-net-executor.js';
+export { isRestorePoint } from './petri-net-executor.js';
 export { PrecompiledNet } from './precompiled-net.js';
 export { PrecompiledNetExecutor } from './precompiled-net-executor.js';
 export type { PrecompiledNetExecutorOptions } from './precompiled-net-executor.js';

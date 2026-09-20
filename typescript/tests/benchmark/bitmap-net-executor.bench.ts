@@ -145,7 +145,7 @@ describe('compilation', () => {
 
     bench(`${n} transitions`, () => {
       const net = PetriNet.builder(`Compile${n}`).transitions(...transitions).build();
-      const _executor = new BitmapNetExecutor(net, new Map());
+      void new BitmapNetExecutor(net, new Map());
     });
   }
 });

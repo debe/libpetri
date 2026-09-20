@@ -6,8 +6,8 @@ import { PetriNet } from '../../../src/core/petri-net.js';
 import { place, environmentPlace } from '../../../src/core/place.js';
 import { one, all, atLeast } from '../../../src/core/in.js';
 import { outPlace, xorPlaces } from '../../../src/core/out.js';
-import { immediate, delayed, window } from '../../../src/core/timing.js';
-import { alwaysAvailable, ignore } from '../../../src/verification/analysis/environment-analysis-mode.js';
+import { delayed, window } from '../../../src/core/timing.js';
+import { alwaysAvailable } from '../../../src/verification/analysis/environment-analysis-mode.js';
 import { produces } from '../../fixtures/producing-actions.js';
 
 describe('StateClassGraph', () => {

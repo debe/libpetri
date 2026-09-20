@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { DebugProtocolHandler, computeState } from '../../src/debug/debug-protocol-handler.js';
 import { DebugSessionRegistry } from '../../src/debug/debug-session-registry.js';
 import { DebugEventStore } from '../../src/debug/debug-event-store.js';
-import type { DebugCommand } from '../../src/debug/debug-command.js';
 import type { DebugResponse, NetStructure } from '../../src/debug/debug-response.js';
 import type { NetEvent } from '../../src/event/net-event.js';
 import { tokenOf } from '../../src/core/token.js';
@@ -218,6 +217,32 @@ describe('DebugProtocolHandler', () => {
       expect(subscribed.dotDiagram).toBeDefined();
       expect(subscribed.structure).toBeDefined();
       expect(subscribed.mode).toBe('live');
+    });
+
+    it('keeps a place named __proto__ on every marking it renders, instead of dropping it', () => {
+      // A Map rendered into `{}` by assignment sets the prototype at this key instead of
+      // creating a property, and JSON.stringify then omits the place: silent loss on the debug
+      // wire. Reachable input — a host compiling place names from user-supplied identifiers can
+      // be handed one. Checked after the serialization the transport actually performs.
+      setup();
+      connectClient('c1');
+      const now = Date.now();
+      registerSessionWithEvents('s1',
+        { type: 'token-added', timestamp: now, placeName: '__proto__', token: tokenOf('payload') },
+        { type: 'token-added', timestamp: now, placeName: 'ordinary', token: tokenOf('other') },
+      );
+
+      handler.handleCommand('c1', { type: 'subscribe', sessionId: 's1', mode: 'replay', fromIndex: 0 });
+      const subscribed = JSON.parse(JSON.stringify(lastResponseOfType('subscribed')!)) as
+        { currentMarking: Record<string, unknown[]> };
+      expect(Object.keys(subscribed.currentMarking).sort()).toEqual(['__proto__', 'ordinary']);
+      expect(subscribed.currentMarking['__proto__']).toHaveLength(1);
+
+      // The seek path renders through the same helper.
+      handler.handleCommand('c1', { type: 'seek', sessionId: 's1', timestamp: new Date(now + 1).toISOString() });
+      const snapshot = JSON.parse(JSON.stringify(lastResponseOfType('markingSnapshot')!)) as
+        { marking: Record<string, unknown[]> };
+      expect(Object.keys(snapshot.marking).sort()).toEqual(['__proto__', 'ordinary']);
     });
 
     it('should send historical events as batch', () => {

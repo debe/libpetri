@@ -36,6 +36,7 @@ import { delayed } from '../../src/core/timing.js';
 import { tokenOf } from '../../src/core/token.js';
 import type { Token } from '../../src/core/token.js';
 import { InMemoryEventStore, eventsOfType } from '../../src/event/event-store.js';
+import type { EventStore } from '../../src/event/event-store.js';
 import type { LogMessage, NetEvent } from '../../src/event/net-event.js';
 
 /** Both executors expose the same `new Executor(net, tokens)` + `run(ms)` API. */
@@ -901,6 +902,55 @@ for (const backendName of ['BitmapNetExecutor', 'PrecompiledNetExecutor'] as con
       executor.close();
 
       await expect(running).resolves.toBeDefined();
+    });
+  });
+}
+
+// ==================== ENV-004: an injection made during the external-events phase ====================
+
+for (const backendName of ['BitmapNetExecutor', 'PrecompiledNetExecutor'] as const) {
+  describe(`re-entrant injection (${backendName})`, () => {
+    it('an inject() made from an event-store callback mid-phase is admitted, not dropped', async () => {
+      // The external-events phase walks the queue up to the length it had on entry and then
+      // cleared the *whole* queue. `EventStore.append` runs synchronously inside that walk, so
+      // an injection made from a `token-added` handler — a net reacting to its own admissions
+      // through its observer — landed past the walk and was wiped by the clear: accepted,
+      // never deposited, and its admission promise never settled. Found while making
+      // snapshot() report accepted-but-un-injected events ([ENV-014]); this is the case where
+      // such an event stayed un-injected for good.
+      const envP = environmentPlace<string>('ENV');
+      const net = PetriNet.builder('N').place(envP.place).build();
+      const inner = new InMemoryEventStore();
+      const holder: { executor?: BitmapNetExecutor | PrecompiledNetExecutor } = {};
+      let nested: Promise<boolean> | undefined;
+      const store: EventStore = {
+        append(event) {
+          inner.append(event);
+          if (event.type === 'token-added' && nested === undefined) {
+            nested = holder.executor!.inject(envP, tokenOf('nested'));
+          }
+        },
+        events: () => inner.events(),
+        isEnabled: () => true,
+        size: () => inner.size(),
+        isEmpty: () => inner.isEmpty(),
+      };
+      const options = { environmentPlaces: new Set([envP]), eventStore: store };
+      holder.executor = backendName === 'BitmapNetExecutor'
+        ? new BitmapNetExecutor(net, initialTokens(), options)
+        : new PrecompiledNetExecutor(net, initialTokens(), options);
+
+      const running = holder.executor.run(3000);
+      expect(await holder.executor.inject(envP, tokenOf('outer'))).toBe(true);
+      const settled = await Promise.race([
+        nested!,
+        new Promise<string>(resolve => setTimeout(() => resolve('admission never settled'), 300)),
+      ]);
+      holder.executor.drain();
+      const marking = await running;
+
+      expect(settled).toBe(true);
+      expect(marking.peekTokens(envP.place).map(t => t.value)).toEqual(['outer', 'nested']);
     });
   });
 }

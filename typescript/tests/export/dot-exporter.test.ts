@@ -4,7 +4,7 @@ import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
 import { one, exactly } from '../../src/core/in.js';
-import { outPlace, andPlaces, xorPlaces, timeout } from '../../src/core/out.js';
+import { outPlace, xorPlaces, timeout } from '../../src/core/out.js';
 import { delayed } from '../../src/core/timing.js';
 
 describe('dotExport', () => {

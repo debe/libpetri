@@ -144,8 +144,8 @@ describe('DebugSessionRegistry', () => {
     const registry = new DebugSessionRegistry();
     const session = registry.register('session-1', TEST_NET);
 
-    expect(session.places).toBeDefined();
-    const placesData = session.places.data;
+    expect(session.places).not.toBeNull();
+    const placesData = session.places!.data;
     expect(placesData.has('Input')).toBe(true);
     expect(placesData.has('Output')).toBe(true);
 

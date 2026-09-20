@@ -11,11 +11,12 @@
  * Each isolates a failure that is silent under a real clock.
  */
 import { describe, it, expect } from 'vitest';
+import { getEventListeners } from 'node:events';
 import { BitmapNetExecutor } from '../../src/runtime/bitmap-net-executor.js';
+import type { BitmapNetExecutorOptions } from '../../src/runtime/bitmap-net-executor.js';
 import { PrecompiledNetExecutor } from '../../src/runtime/precompiled-net-executor.js';
 import type { Clock } from '../../src/runtime/clock.js';
 import { systemClock, seedToken } from '../../src/runtime/clock.js';
-import type { PetriNetExecutor } from '../../src/runtime/petri-net-executor.js';
 import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place, environmentPlace } from '../../src/core/place.js';
@@ -114,8 +115,8 @@ function makeExecutor(
   backend: Backend,
   net: PetriNet,
   tokens: Map<Place<any>, Token<any>[]>,
-  options: Record<string, unknown>,
-): PetriNetExecutor {
+  options: BitmapNetExecutorOptions,
+): BitmapNetExecutor | PrecompiledNetExecutor {
   return backend === 'bitmap'
     ? new BitmapNetExecutor(net, tokens, options)
     : new PrecompiledNetExecutor(net, tokens, options);
@@ -240,7 +241,7 @@ describe('TIME-015 — injectable clock', () => {
     });
 
     it('AC#8: an injected external event wakes the wait', async () => {
-      const ENV = environmentPlace(place<string>('ENV'));
+      const ENV = environmentPlace<string>('ENV');
       const OUT = place<string>('OUT');
       const t = Transition.builder('OnEvent')
         .inputs(one(ENV.place))
@@ -271,7 +272,7 @@ describe('TIME-015 — injectable clock', () => {
     });
 
     it('AC#5/AC#8: close aborts the wait, which resolves rather than failing, and the run terminates', async () => {
-      const ENV = environmentPlace(place<string>('ENV'));
+      const ENV = environmentPlace<string>('ENV');
       const OUT = place<string>('OUT');
       const t = Transition.builder('OnEvent')
         .inputs(one(ENV.place))
@@ -297,11 +298,62 @@ describe('TIME-015 — injectable clock', () => {
       await expect(running).resolves.toBeDefined();
     });
 
+    it('TIME-015 AC#5 / contract 4: every wait gets its own signal, aborted when that wait is over — a conforming sleep leaks nothing', async () => {
+      // A long-running service net goes idle, is woken by an external event, goes idle again.
+      // Each idle wait calls `sleep(Infinity, …)`, and a conforming sleep parks on the signal's
+      // `abort`. With one executor-lifetime signal that listener — and the promise and closure
+      // behind it — can only be released by close(), so the executor leaks one per idle wait
+      // for as long as it lives (and Node warns past ten). The shipped systemClock() and the
+      // documented VirtualClock both have that shape, so the fix belongs in the executor.
+      const ENV = environmentPlace<string>('ENV');
+      const OUT = place<string>('OUT');
+      const t = Transition.builder('OnEvent')
+        .inputs(one(ENV.place))
+        .outputs(outPlace(OUT))
+        .action(async (ctx) => { ctx.output(OUT, ctx.input(ENV.place)); })
+        .build();
+      const net = PetriNet.builder('N').place(ENV.place).transition(t).build();
+
+      const signals: AbortSignal[] = [];
+      const clock: Clock = {
+        now: () => systemClock().now(),
+        epochNow: () => systemClock().epochNow(),
+        sleep: (delayMs, ready, signal) => {
+          signals.push(signal);
+          return systemClock().sleep(delayMs, ready, signal);
+        },
+      };
+      const executor = makeExecutor(backend, net, initial(), { clock, environmentPlaces: new Set([ENV]) });
+      const listeners = (): number =>
+        [...new Set(signals)].reduce((n, s) => n + getEventListeners(s, 'abort').length, 0);
+
+      const running = executor.run(10_000);
+      const rounds = 25;
+      for (let i = 0; i < rounds; i++) {
+        await executor.injectValue(ENV, `e${i}`);
+        await new Promise<void>(r => setTimeout(r, 2));
+      }
+
+      // Parked on its latest idle wait: that one listener is live, and nothing older is.
+      expect(signals.length).toBeGreaterThanOrEqual(rounds);
+      expect(listeners()).toBe(1);
+      expect(new Set(signals).size).toBe(signals.length);
+      expect(signals.slice(0, -1).every(s => s.aborted)).toBe(true);
+      expect(signals.at(-1)!.aborted).toBe(false);
+
+      // close() still reaches the wait in progress (TIME-015 AC#5).
+      executor.close();
+      expect(signals.at(-1)!.aborted).toBe(true);
+      const marking = await running;
+      expect(marking.tokenCount(OUT)).toBe(rounds);
+      expect(listeners()).toBe(0);
+    });
+
     it('AC#11: inject() is legal from inside the wait and admits on a later cycle, never at the injection point', async () => {
       // The only admission path a clock-only host has: it is inside `sleep` when it
       // decides to publish an event. That must enqueue and return, with the tokens
       // entering through the executor's own external-events phase.
-      const ENV = environmentPlace(place<string>('ENV'));
+      const ENV = environmentPlace<string>('ENV');
       const OUT = place<string>('OUT');
       let fired = false;
       const t = Transition.builder('OnEvent')
@@ -346,7 +398,7 @@ describe('TIME-015 — injectable clock', () => {
       // The SHOULD half of the admission rule: documenting the deadlock is the weak fix,
       // handing the host a form with no result to await is the stronger one. `inject` is
       // the footgun precisely because inject-and-confirm is what a host author writes first.
-      const ENV = environmentPlace(place<string>('ENV'));
+      const ENV = environmentPlace<string>('ENV');
       const OUT = place<string>('OUT');
       let fired = false;
       const t = Transition.builder('OnEvent')
@@ -431,7 +483,7 @@ describe('TIME-015 — injectable clock', () => {
       // Three token origins, three different rules. The seam reaches the first two and
       // deliberately does not reach the third — pinned here so the boundary is a
       // decision on record rather than an oversight.
-      const ENV = environmentPlace(place<string>('ENV')); // executor-minted, nothing consumes it
+      const ENV = environmentPlace<string>('ENV'); // executor-minted, nothing consumes it
       const SEED = place<string>('SEED');                 // host-minted, initial marking
       const SRC = place<string>('SRC');
       const OUT = place<string>('OUT');                   // action-minted via ctx.output

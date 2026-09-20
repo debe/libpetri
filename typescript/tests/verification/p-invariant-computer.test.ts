@@ -251,6 +251,7 @@ describe('validateInvariantsExact', () => {
       // @ts-expect-error flatNet and initialMarking are required
       return validateInvariantsExact(matrix, [staleConstant]);
     }
+    void _degraded;
 
     // Supplied, the stale constant is caught.
     const { valid, dropped } = validateInvariantsExact(matrix, [staleConstant], flatNet, initialMarking);

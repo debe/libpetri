@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  InMemoryEventStore, noopEventStore, inMemoryEventStore,
+  InMemoryEventStore, noopEventStore,
   filterEvents, eventsOfType, transitionEvents, failures,
 } from '../../src/event/event-store.js';
 import type { NetEvent } from '../../src/event/net-event.js';

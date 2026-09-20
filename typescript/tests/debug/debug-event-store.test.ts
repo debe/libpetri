@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { DebugEventStore, DEFAULT_MAX_EVENTS } from '../../src/debug/debug-event-store.js';
 import type { NetEvent } from '../../src/event/net-event.js';
-import { tokenOf } from '../../src/core/token.js';
 
 function enabledEvent(name: string, ts = Date.now()): NetEvent {
   return { type: 'transition-enabled', timestamp: ts, transitionName: name };

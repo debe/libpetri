@@ -10,7 +10,9 @@ import { StateClassGraph } from '../../src/verification/analysis/state-class-gra
 import { Transition } from '../../src/core/transition.js';
 import { PetriNet } from '../../src/core/petri-net.js';
 import { place, environmentPlace } from '../../src/core/place.js';
+import type { Place } from '../../src/core/place.js';
 import { all, exactly, one } from '../../src/core/in.js';
+import type { In } from '../../src/core/in.js';
 import { outPlace } from '../../src/core/out.js';
 import { delayed } from '../../src/core/timing.js';
 import { alwaysAvailable } from '../../src/verification/analysis/environment-analysis-mode.js';
@@ -219,7 +221,7 @@ describe('programming errors are never verdicts', () => {
   it('a replayer defect surfaces instead of reading as an exhausted search', () => {
     // assessCounterexample catches to keep a replayer fault from crashing the
     // verifier; a TypeError there must still reach the caller.
-    const { net, m0 } = pipeline(2);
+    const { net } = pipeline(2);
     const flat = flatten(net, new Set(), alwaysAvailable());
     const notAMarking = { tokens: 'not a function' } as any;
     expect(() => assessCounterexample(flat, notAMarking, new Set([notAMarking]), deadlockFree(), new Set()))
@@ -231,14 +233,14 @@ describe('programming errors are never verdicts', () => {
 // this, so the enumeration route must too. It used to clear the PRE-firing count
 // after the inputs had already drawn, overdrawing and throwing.
 describe('reset arcs in the enumeration route (VER-010 AC2)', () => {
-  function resetAndInput(inputSpec) {
+  function resetAndInput(inputSpec: (p: Place<unknown>) => In) {
     const p = place('p'), q = place('q');
     const t = Transition.builder('t').inputs(inputSpec(p)).reset(p)
       .outputs(outPlace(q)).action(produces()).build();
     return { net: PetriNet.builder('reset-input').transitions(t).build(), p, q };
   }
 
-  for (const [label, spec] of [['one(p)', one], ['all(p)', all]]) {
+  for (const [label, spec] of [['one(p)', one], ['all(p)', all]] as const) {
     it(`decides a net whose transition consumes and resets the same place — ${label}`, async () => {
       const { net, p, q } = resetAndInput(spec);
       const m0 = MarkingState.builder().tokens(p, 3).build();
@@ -266,7 +268,7 @@ describe('reset arcs in the enumeration route (VER-010 AC2)', () => {
 // that answer into `proven` is a false proof. Each net below is genuinely dead at
 // its initial marking; both executors confirm it.
 describe('the structural shortcut refuses nets it does not govern', () => {
-  const run = (net, m0) => SmtVerifier.forNet(net).initialMarking(m0)
+  const run = (net: PetriNet, m0: MarkingState) => SmtVerifier.forNet(net).initialMarking(m0)
     .property(deadlockFree()).enumerationMaxClasses(0).timeout(30_000).verify();
 
   it('a read arc: the gate used to prove a net that cannot fire at all', async () => {

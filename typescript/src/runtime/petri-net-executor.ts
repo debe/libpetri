@@ -1,4 +1,4 @@
-import type { Marking } from './marking.js';
+import type { Marking, MarkingSnapshotForm } from './marking.js';
 import type { EnvironmentPlace } from '../core/place.js';
 import type { Token } from '../core/token.js';
 
@@ -15,6 +15,70 @@ import type { Token } from '../core/token.js';
  *   events are discarded and in-flight actions are allowed to complete, per [ENV-013].
  */
 export type RunTimeoutPolicy = 'abandon' | 'close';
+
+/**
+ * A marking captured from a **running** executor, per **ENV-014**.
+ *
+ * Carries the in-flight condition *with* the marking rather than exposing it separately: a
+ * separately-queryable count would be read at a different instant than the capture, and a
+ * caller comparing the two would be racing the orchestrator (AC#5).
+ */
+export interface SnapshotResult {
+  /** The marking at the instant of capture, in CORE-073's form. An owned copy (AC#3). */
+  readonly marking: MarkingSnapshotForm;
+  /**
+   * Whether any **work was in flight** at the instant this snapshot was taken: an action, or an
+   * accepted but un-injected external event.
+   *
+   * A boolean observation about that moment — not a count, and not a live reading. Deliberately
+   * singular: a plural name on a boolean invites the reader to expect a quantity, and a quantity
+   * is what ENV-014 AC#5 rejects, because it would be read at a different instant than the
+   * capture and so be racy.
+   *
+   * `true` means the snapshot is **not a valid restore point**, because some token is in no
+   * place (AC#6):
+   *
+   * - a firing has consumed its inputs and its outputs have not all landed. That holds from the
+   *   moment of consumption — so it covers the action's synchronous prefix and every
+   *   `EventStore.append` called during the firing, not only the awaited part of the action —
+   *   until the last output is deposited (`transition-completed` is emitted from a settled
+   *   marking);
+   * - or an external event was accepted by `inject` / `injectValue` / `injectNoAwait` and has
+   *   not yet been deposited into its environment place. Resuming from such a capture would
+   *   lose an event the host was told was accepted.
+   *
+   * It remains a perfectly valid *observation* of the running net — which is why this reports
+   * the fact rather than refusing. The name predates the second case and is kept so the field
+   * reads the same in all four languages (`action_in_flight` in Rust and Python).
+   */
+  readonly actionInFlight: boolean;
+}
+
+/**
+ * Whether `result` may be persisted and later handed back as `restore` without losing tokens
+ * (**ENV-014** AC#5–AC#8): exactly `!result.actionInFlight`.
+ *
+ * Named for the question a checkpointing caller is actually asking. {@link SnapshotResult} is a
+ * plain interface here, so this is a free function where Java has the accessor
+ * `SnapshotResult.isRestorePoint()` and Rust and Python have `is_restore_point` — the same
+ * derivation in all four, with no state of its own. The field stays the fact the engine saw; a
+ * field named `restorable` would describe one caller's intent instead.
+ *
+ * `false` is never an error: the snapshot is still a valid observation of the running net, and
+ * a saver that gets `false` retries later — `transition-completed` is emitted from a settled
+ * marking, so it is the natural moment to ask again.
+ *
+ * ```ts
+ * const result = executor.snapshot();
+ * if (isRestorePoint(result)) await save(JSON.stringify([...result.marking]));
+ * ```
+ *
+ * @returns `true` when no work was in flight at the instant of capture — no action between
+ *   consumption and its last deposit, and no accepted external event still un-injected
+ */
+export function isRestorePoint(result: SnapshotResult): boolean {
+  return !result.actionInFlight;
+}
 
 /**
  * Interface for Petri net executors.
@@ -45,6 +109,18 @@ export interface PetriNetExecutor {
    * only the acknowledgement is dropped, which is what makes it impossible to deadlock on.
    */
   injectNoAwait<T>(place: EnvironmentPlace<T>, value: T): void;
+
+  /**
+   * Captures the running net's marking ([ENV-014]).
+   *
+   * Serviced without stopping the net: the executor keeps running afterwards, and the returned
+   * marking is an owned copy independent of subsequent state (AC#2, AC#3). Callable from
+   * anywhere, including from inside an action or an `EventStore.append`; there the capture can
+   * land mid-firing, which {@link SnapshotResult.actionInFlight} then reports.
+   *
+   * @throws once the executor has been drained or closed (AC#4)
+   */
+  snapshot(): SnapshotResult;
 
   /** Graceful shutdown: reject new inject() calls, process queued events, terminate at quiescence. */
   drain(): void;

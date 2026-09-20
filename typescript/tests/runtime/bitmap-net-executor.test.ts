@@ -6,14 +6,14 @@ import { Transition } from '../../src/core/transition.js';
 import { place, environmentPlace } from '../../src/core/place.js';
 import type { Place, EnvironmentPlace } from '../../src/core/place.js';
 import { one, exactly, all, atLeast } from '../../src/core/in.js';
-import { outPlace, andPlaces, xor, xorPlaces, timeout, timeoutPlace, forwardInput, and } from '../../src/core/out.js';
-import { immediate, delayed, window, deadline, exact } from '../../src/core/timing.js';
-import { tokenOf, unitToken } from '../../src/core/token.js';
+import { outPlace, andPlaces, xor, xorPlaces, timeout, timeoutPlace, forwardInput } from '../../src/core/out.js';
+import { immediate, delayed, window, exact } from '../../src/core/timing.js';
+import { tokenOf } from '../../src/core/token.js';
 import type { Token } from '../../src/core/token.js';
 import type { TransitionAction } from '../../src/core/transition-action.js';
 import { InMemoryEventStore, noopEventStore, eventsOfType, failures } from '../../src/event/event-store.js';
 import type { EventStore } from '../../src/event/event-store.js';
-import type { NetEvent, TransitionFailed, TransitionTimedOut, MarkingSnapshot } from '../../src/event/net-event.js';
+import type { NetEvent, TransitionFailed } from '../../src/event/net-event.js';
 
 // ======================== Test Helpers ========================
 
@@ -846,7 +846,7 @@ describe('Output Spec Tests', () => {
     const t = Transition.builder('T')
       .inputs(one(input))
       .outputs(xorPlaces(branchA, branchB))
-      .action(async (ctx) => {
+      .action(async () => {
         // No output produced → XOR violation
       })
       .build();
@@ -866,7 +866,7 @@ describe('Output Spec Tests', () => {
     const t = Transition.builder('T')
       .inputs(one(input))
       .outputs(outPlace(output))
-      .action(async (ctx) => {
+      .action(async () => {
         // No output produced
       })
       .build();
@@ -1740,7 +1740,7 @@ describe('Environment Place Tests', () => {
 
     // Close immediately — should discard the pending event
     executor.close();
-    const marking = await promise;
+    await promise;
 
     // The pending inject should complete with false (discarded, not processed)
     expect(await pendingResult).toBe(false);
@@ -2731,7 +2731,7 @@ describe('Marking Snapshot Tests', () => {
       .action(async (ctx) => { ctx.output(b, ctx.input(a)); })
       .build();
 
-    const net = PetriNet.builder('N').transition(t).build();
+    const net = PetriNet.builder('N').place(c).transition(t).build(); // C: declared, never marked
     const eventStore = new InMemoryEventStore();
     await runNet(net, initialTokens([a, [tokenOf('val')]]), { eventStore });
 

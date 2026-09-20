@@ -25,10 +25,6 @@ import { fork, transform } from '../../src/core/transition-action.js';
  * `compose(...)` accepts and applies a channel binding.
  */
 
-interface Item {
-  readonly tag: string;
-}
-
 function tokensOf(...values: string[]): Token<string>[] {
   return values.map(tokenOf);
 }

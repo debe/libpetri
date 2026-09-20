@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { passthrough, isPassthrough, transform, transformFrom, fork, produce, transformAsync, withTimeout } from '../../src/core/transition-action.js';
 import { TransitionContext } from '../../src/core/transition-context.js';
 import { TokenInput } from '../../src/core/token-input.js';

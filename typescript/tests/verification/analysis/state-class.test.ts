@@ -6,7 +6,7 @@ import { Transition } from '../../../src/core/transition.js';
 import { place } from '../../../src/core/place.js';
 import { one } from '../../../src/core/in.js';
 import { outPlace } from '../../../src/core/out.js';
-import { immediate, delayed } from '../../../src/core/timing.js';
+import { delayed } from '../../../src/core/timing.js';
 
 describe('StateClass', () => {
   const pA = place('A');

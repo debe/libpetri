@@ -17,7 +17,6 @@ import {
   colorForPrefix,
   discoverClusters,
   mount,
-  type ViewerHandle,
 } from '../../src/viewer/index.js';
 import { applyFilter } from '../../src/viewer/cluster-overlay.js';
 
