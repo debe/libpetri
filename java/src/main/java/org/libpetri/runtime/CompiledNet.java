@@ -43,6 +43,12 @@ public final class CompiledNet {
 
     // ID mappings
     private final Place<?>[] placesById;
+    /**
+     * Name of a place this net holds twice under different token types, or {@code null}
+     * ([MOD-024]). Found once here so an executor's {@code snapshot()} can reject such a net
+     * without every executor construction paying for the scan.
+     */
+    private final String ambiguousPlaceName;
     private final Transition[] transitionsById;
     // HashMap: Place is a record, so structural equals is correct and needed
     private final Map<Place<?>, Integer> placeIndex;
@@ -111,6 +117,7 @@ public final class CompiledNet {
 
         // Assign place IDs
         this.placesById = allPlaces.toArray(new Place<?>[0]);
+        this.ambiguousPlaceName = ExecutorSupport.duplicatePlaceName(allPlaces);
         this.placeIndex = new HashMap<>(placeCount * 2);
         for (int i = 0; i < placesById.length; i++) {
             placeIndex.put(placesById[i], i);
@@ -282,6 +289,7 @@ public final class CompiledNet {
 
     public PetriNet net() { return net; }
     public int placeCount() { return placeCount; }
+    String ambiguousPlaceName() { return ambiguousPlaceName; }
     public int transitionCount() { return transitionCount; }
     public int wordCount() { return wordCount; }
 

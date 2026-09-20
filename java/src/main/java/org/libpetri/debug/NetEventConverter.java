@@ -306,13 +306,22 @@ public final class NetEventConverter {
     /**
      * Converts a marking map to serializable form.
      *
+     * <p>The result iterates in <b>ascending code-point order</b> of the place name, whatever
+     * map it was given ([EVT-014]). The {@code MarkingSnapshot} event arrives canonically
+     * ordered; copying it into a {@code HashMap} discarded that order on the way out. JSON is
+     * an unordered medium, so nothing may <i>rely</i> on the order there — but output that is
+     * reproducible and matches the event costs nothing. Not Jackson's
+     * {@code ORDER_MAP_ENTRIES_BY_KEYS}: that is UTF-16 code-unit order, which disagrees for
+     * astral characters.
+     *
      * @param marking the marking to convert
      * @param compact if true, token values are omitted (type only)
-     * @return serializable marking
+     * @return serializable marking, keys in code-point order
      */
     public static Map<String, List<TokenInfo>> convertMarking(Map<String, List<Token<?>>> marking, boolean compact) {
         Function<Token<?>, TokenInfo> mapper = compact ? NetEventConverter::compactTokenInfo : NetEventConverter::tokenInfo;
-        var result = new HashMap<String, List<TokenInfo>>();
+        var result = new java.util.TreeMap<String, List<TokenInfo>>(
+            org.libpetri.core.internal.CodePointOrder.COMPARATOR);
         for (var entry : marking.entrySet()) {
             result.put(entry.getKey(), entry.getValue().stream().map(mapper).toList());
         }

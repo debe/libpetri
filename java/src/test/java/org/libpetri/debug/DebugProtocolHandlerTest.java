@@ -734,5 +734,22 @@ class DebugProtocolHandlerTest {
             assertNotNull(state.marking().get("P1"));
             assertNotNull(state.marking().get("P2"));
         }
+
+        @Test
+        void computedMarkingIsInCodePointOrderWhateverOrderTokensArrivedIn_EVT014() {
+            var now = Instant.now();
+            var canonical = List.of("a10", "a9", "alpha", "b", "mid", "zeta", "\uE000", "\uD83D\uDE00");
+            var events = new ArrayList<NetEvent>();
+            for (var name : canonical.reversed()) events.add(new NetEvent.TokenAdded(now, name, Token.of("v")));
+
+            assertEquals(canonical, List.copyOf(DebugProtocolHandler.computeState(events).marking().keySet()),
+                "EVT-014: the computed-state marking the debug protocol sends is ordered like "
+                    + "the MarkingSnapshot event it is replayed from — the accumulator fills in "
+                    + "arrival order, and a HashMap emitted String.hashCode order");
+
+            var cache = new MarkingCache();
+            assertEquals(canonical, List.copyOf(cache.computeAt(events, events.size()).marking().keySet()),
+                "and the cached replay path agrees");
+        }
     }
 }

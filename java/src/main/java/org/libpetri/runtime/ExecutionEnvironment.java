@@ -150,6 +150,15 @@ public interface ExecutionEnvironment {
      * boundary already due must let the next cycle act on it rather than being waited out
      * ([EXEC-001], [CONC-010]).
      *
+     * <p><b>Interrupts.</b> This method cannot throw {@link InterruptedException}. The
+     * executor always calls it with the thread's interrupt flag <b>clear</b>, and reads the
+     * flag when it returns: set on return means an interrupt arrived during the wait, which
+     * ends the run {@link TerminationReason#INTERRUPTED} ([EXEC-041]). A host that blocks
+     * interruptibly should therefore catch the exception, restore the flag
+     * ({@code Thread.currentThread().interrupt()}) and return; one that swallows it makes the
+     * run uninterruptible while it waits, and one that sets the flag for reasons of its own
+     * ends the run.
+     *
      * @param ready      readiness predicate; cheap, repeatable, side-effect free and never
      *                   time-based. May be called any number of times, including zero.
      * @param delayNanos logical nanoseconds until the next timing boundary, or

@@ -39,11 +39,15 @@ public record NameId(String value) implements Comparable<NameId> {
     /**
      * Total order for the deterministic match tie-break (NU-020). Uses
      * {@link String#compareTo} (UTF-16 code-unit order), which is byte-identical to
-     * the Rust and TypeScript ports for ASCII/BMP names — including every
-     * executor-minted name ({@code "{transition}#{n}"}). For supplementary-plane
-     * (astral) code points in user-supplied correlation keys the order can differ
-     * from Rust's UTF-8/code-point order; NU-001 requires only per-implementation
-     * consistency, which holds.
+     * the Rust and TypeScript ports for BMP names. An executor-minted name is
+     * {@code "<transition>#<scope>:<n>"} (NU-011): the default scope (32 lowercase hex
+     * characters) and the counter are ASCII, so a minted name is BMP exactly when the
+     * transition name is — and the scope, where a host pinned one with
+     * {@code Builder.executionScope}, which accepts any string without {@code ':'} or
+     * {@code '#'}. For supplementary-plane (astral) code points, there or in a
+     * user-supplied correlation key, the order can differ from Rust's UTF-8/code-point
+     * order; NU-001 requires only per-implementation consistency, which holds. Nothing in
+     * this implementation parses a name or assumes it is ASCII.
      */
     @Override
     public int compareTo(NameId other) {

@@ -59,6 +59,19 @@ Java actions are invoked **inline on the orchestrator thread**. libpetri does no
 
 One orchestrator owns the marking. Completed stages, external events, and timers wake it so token movement remains deterministic even when actions overlap.
 
+## Checkpoint and resume
+
+```java
+var snap = executor.snapshot();                 // does not stop the net
+if (snap.isRestorePoint()) save(snap.marking()); // Map<String, List<Token<?>>>
+
+var resumed = BitmapNetExecutor.builder(net, Map.of()).restore(saved).build();
+```
+
+A snapshot maps place names to tokens, in a canonical order, and carries `createdAt` through untouched. Persist one only when `isRestorePoint()` is true: `actionInFlight` is set while an action is running or an injected event has not reached its place yet, and either way a token is in no place. A `snapshot()` from another thread that the orchestrator cannot serve within two seconds — it is stuck in a blocking inline action — comes back flagged in flight, never as a restore point. Timing clocks restart on resume, so a `deadline` gets a fresh full budget. Minted ν-names are `<transition>#<scope>:<n>` with a random scope per executor; pin `executionScope(...)` on the builder when a replay must reproduce them, fresh per run segment.
+
+Because `Place` equality is structural, `Marking.fromSnapshot(snapshot, net.places())` takes the net's places, and a net declaring two places with one name cannot be snapshotted or restored.
+
 ## SMT verification needs a `z3` executable
 
 The verifier (`org.libpetri.smt.SmtVerifier`) does not bundle a solver. It runs the `z3` executable found on `PATH` (or named by `LIBPETRI_Z3`), version 4.8.0 or newer, one process per query; `SmtVerifier.z3Available()` tells you whether one resolves, and without it every verification returns `Unknown` with a reason naming the command. Set `LIBPETRI_SMT_DUMP` to a directory to keep every SMT-LIB2 script and solver reply. The timeout is per solver invocation.

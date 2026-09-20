@@ -135,11 +135,30 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
     private final List<ReadyTransition> readyBuffer = new ArrayList<>();
     /** Cached flag: true if any transition in the net has a deadline. */
     private final boolean hasAnyDeadlines;
+    /**
+     * ν-name scope ([NU-011]): the host-pinned one, or {@code null} until the default is drawn
+     * by {@link #executionScope()}.
+     */
+    private volatile String executionScope;
+
+    /**
+     * Name of a place the net declares twice under different token types, or {@code null}
+     * ([MOD-024]). The name-keyed snapshot form cannot tell such places apart, so
+     * {@link #snapshot()} rejects the net on the caller's thread rather than lose tokens.
+     */
+    private final String ambiguousPlaceName;
+
     /** Stable per-executor id ([EXEC-041] diagnostics); see {@link #executionId()}. */
     private final String executionId = ExecutorSupport.nextExecutionId();
 
     /** Set when the wait itself was interrupted, so the finally can report INTERRUPTED. */
     private volatile boolean interruptedDuringWait = false;
+
+    /**
+     * An interrupt flag the run found set and took down, to be put back when {@code run()}
+     * returns ([EXEC-041] AC#4/AC#5); see {@link #absorbInterruptFlag()}. Orchestrator-only.
+     */
+    private boolean interruptDeferred;
 
     /** Why the last run stopped ([EXEC-041] AC#3). */
     private volatile TerminationReason terminationReason = TerminationReason.RUNNING;
@@ -249,23 +268,35 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
     private final boolean ownsExecutor;
 
     /**
-     * Owned snapshot published by the orchestrator for foreign-thread {@link #marking()} reads.
-     * Refreshed when {@link #markingRequestSeq} outpaces {@link #markingServedSeq}, so observers
-     * never read the live marking and the copy costs nothing when nobody is watching. Written
-     * only by the orchestrator; {@code volatile} for cross-thread visibility.
+     * Owned snapshot published by the orchestrator for foreign-thread {@link #marking()} and
+     * {@link #snapshot()} reads: the marking <b>and</b> the work-in-flight observation taken
+     * with it, as one immutable value behind one reference ([ENV-014] AC#5). Two fields would
+     * let a caller read the marking of one capture and the flag of the next.
+     *
+     * <p>Refreshed when {@link #markingRequestSeq} outpaces {@link #markingServedSeq}, so
+     * observers never read the live marking and the copy costs nothing when nobody is watching;
+     * and once more, as the final pair, in the loop's {@code finally}. Written only by the
+     * orchestrator; {@code volatile} for cross-thread visibility.
      */
-    private volatile Marking publishedMarking;
+    private volatile ExecutorSupport.PublishedState published;
 
     /** Unknown places already reported (CORE-072 AC4) — one diagnostic per place, not per token. */
     private Set<Place<?>> warnedUnknownPlaces;
     /** Transitions already warned for writing several tokens to a place their spec names once (IO-016 AC4). */
     private Set<String> warnedMultiplicity;
 
-    /** Incremented by a foreign-thread {@link #marking()} to request a fresh {@link #publishedMarking}. */
+    /** Incremented by a foreign-thread {@link #marking()} to request a fresh {@link #published} pair. */
     private final AtomicLong markingRequestSeq = new AtomicLong();
 
     /** Highest request sequence the orchestrator has published a snapshot for. */
     private volatile long markingServedSeq = 0;
+
+    /**
+     * How long a foreign {@code marking()}/{@code snapshot()} waits to be served; see
+     * {@link ExecutorSupport#MARKING_SNAPSHOT_WAIT_NANOS}. A field only so a test can reach
+     * the cap without holding an action for two seconds.
+     */
+    private volatile long snapshotWaitNanos = ExecutorSupport.MARKING_SNAPSHOT_WAIT_NANOS;
 
     /**
      * The orchestrator loop's thread, or {@code null} before it starts and after it finishes.
@@ -285,8 +316,11 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
         long deadlineToleranceMillis,
         ActionFailureHandler uncaughtActionHandler,
         boolean ownsExecutor,
-        ExecutionEnvironment environment
+        ExecutionEnvironment environment,
+        String executionScope
     ) {
+        this.executionScope = executionScope;
+        this.ambiguousPlaceName = compiled.ambiguousPlaceName();
         this.environment = environment;
         this.compiled = compiled;
         this.marking = marking;
@@ -650,6 +684,51 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
             return this;
         }
 
+        private Map<String, List<Token<?>>> restored;
+
+        /**
+         * Seeds this executor from a <b>CORE-073</b> snapshot instead of an explicit initial
+         * marking — a <i>resume</i>.
+         *
+         * <p>Place names are resolved against the net's places, so restored tokens are visible
+         * to the net's transitions (AC#10). A name the net does not declare is retained rather
+         * than dropped ([CORE-072]), so a snapshot survives a round-trip through a net that has
+         * since gained or lost a place. Timestamps are carried through unchanged — restoring is
+         * the one path where the engine hands back a {@code created_at} it did not choose.
+         *
+         * <p>A resumed execution's ν-names are scoped ([NU-011]) so they cannot collide with
+         * names already in the restored marking; see {@link #executionScope(String)}.
+         *
+         * <p><b>Cannot be combined with a non-empty initial marking</b> (AC#11). Pass
+         * {@code Map.of()} to {@code builder(net, …)} when restoring.
+         *
+         * <p><b>A net declaring two places with one name cannot be restored into</b>
+         * ([MOD-024]): Java tells such places apart by token type, the snapshot form only by
+         * name, so which place a name's tokens belong to is not recoverable. {@link #build()}
+         * throws {@link IllegalArgumentException} for it, on the caller's thread.
+         *
+         * @param snapshot the snapshot form: place name to tokens in FIFO order
+         * @return this builder
+         * @throws IllegalStateException if a non-empty initial marking was also supplied
+         */
+        public Builder restore(Map<String, List<Token<?>>> snapshot) {
+            Objects.requireNonNull(snapshot, "snapshot");
+            if (!initialTokens.isEmpty()) {
+                throw new IllegalStateException(
+                    "restore() and an explicit initial marking cannot both be supplied "
+                        + "(CORE-073 AC11). Merging them would invent a state neither caller "
+                        + "described, and preferring either would silently discard the other's "
+                        + "tokens. Pass Map.of() as the initial marking when restoring.");
+            }
+            this.restored = snapshot;
+            return this;
+        }
+
+        /** The initial tokens to seed with: the restored snapshot when one was supplied. */
+        private Map<Place<?>, List<Token<?>>> seedTokens() {
+            return restored == null ? initialTokens : Marking.resolveSnapshot(restored, net.places());
+        }
+
         private ExecutionEnvironment environment;
 
         /**
@@ -666,9 +745,54 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
             return this;
         }
 
+        private String executionScope;
+
+        /**
+         * Sets the <b>execution scope</b> woven into every ν-name this executor mints
+         * (<b>NU-011</b>).
+         *
+         * <p>Minted names are {@code <transition>#<scope>:<n>}. Restoring a marking
+         * ([CORE-073]) begins a <i>new</i> execution whose initial marking already holds names
+         * the previous one minted; an executor that counts from zero re-mints those, and
+         * because a [NU-020] join correlates on name equality alone the collision surfaces not
+         * as an error but as a <b>silent mis-correlation</b> — a restored token merged with an
+         * unrelated fresh one.
+         *
+         * <p><b>Default: a random token</b> — 32 lowercase hex characters, 128 bits, drawn per
+         * executor — so the default is resume-safe across processes, which is where a resume
+         * usually happens. It is <b>not</b> the {@link #executionId()}: that stays a
+         * reproducible process counter ([TIME-015] AC#14), and a counter restarts at 0 in every
+         * JVM, so a scope equal to it re-minted a restored marking's names exactly.
+         *
+         * <p><b>Pin it when a replay must reproduce the exact name sequence</b>: for a fixed
+         * scope and firing order the sequence is reproducible ([NU-010] AC#3, scoped per
+         * NU-011) — {@code <n>} is a plain per-executor counter from 0 under any scope, and the
+         * default's randomness never reaches it. A pinned scope must be <b>fresh per run
+         * segment</b>: resuming under the scope the snapshot was minted under collides just as
+         * the counter did.
+         *
+         * <p>Deriving the floor by scanning the restored marking instead would <b>not</b>
+         * suffice: a name minted into a token since consumed leaves no trace in the marking
+         * while remaining live in host state.
+         *
+         * @param scope the scope; must be non-empty and must not contain {@code ':'} or
+         *              {@code '#'}, the two separators of a minted name. With both banned a
+         *              name parses uniquely: the last {@code ':'} splits off the counter, then
+         *              the last {@code '#'} before it splits off the scope. Whitespace is
+         *              accepted.
+         * @return this builder
+         * @throws IllegalArgumentException if the scope is null, empty, or contains {@code ':'}
+         *                                  or {@code '#'}
+         */
+        public Builder executionScope(String scope) {
+            this.executionScope = org.libpetri.core.internal.ExecutionScopes.requireValid(scope);
+            return this;
+        }
+
         public BitmapNetExecutor build() {
             var compiled = compiledNet != null ? compiledNet : CompiledNet.compile(net);
-            var marking = Marking.from(initialTokens);
+            var seed = seedTokens();
+            var marking = Marking.from(seed);
             ExecutorService exec = executor != null
                 ? executor
                 : Executors.newVirtualThreadPerTaskExecutor();
@@ -676,9 +800,9 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
                 compiled, marking, eventStore, exec,
                 environmentPlaces, executionContextProvider,
                 deadlineToleranceMillis, uncaughtActionHandler,
-                executor == null, environment
+                executor == null, environment, executionScope
             );
-            built.warnUnknownInitialPlaces(initialTokens);
+            built.warnUnknownInitialPlaces(seed);
             return built;
         }
     }
@@ -840,9 +964,13 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
     private Marking executeLoop() {
         // Publish an initial snapshot and the thread reference BEFORE running=true, so a foreign
         // marking() that observes the loop as live also observes both (volatile piggyback).
-        publishedMarking = marking.copy();
+        published = capturePublishedState();
         orchestratorThread = Thread.currentThread();
         running = true;
+        // [EXEC-041] AC#4: an interrupt flag already set is host state this run did not set.
+        // Take it down before the first action can trip over it; run() puts it back.
+        interruptDeferred = false;
+        absorbInterruptFlag();
         emitEvent(new NetEvent.ExecutionStarted(
             clockInstant(), compiled.net().name(), executionId()));
 
@@ -863,12 +991,18 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
             // own action code following Java's convention for propagating a caught
             // interrupt — and actions run inline on this very thread. Consulting it here
             // executed zero cycles, or truncated mid-run, and reported success either way.
-            // Stopping is stopRequested / close(); an interrupt counts only where the wait
-            // actually throws it.
+            // Stopping is stopRequested / close(); an interrupt counts only where a wait that
+            // was ENTERED with the flag clear throws it — or, hosted, returns with the flag
+            // set. See absorbInterruptFlag() and awaitHostedWork().
             while (running && !stopRequested) {
-                serviceMarkingRequest();
                 processCompletedTransitions();
                 processExternalEvents();
+                // After the external-events phase, not before it: an inject() the host made
+                // before asking is then already IN the marking it gets back, as it is on the
+                // Rust/Python executors, whose injects and snapshot requests share one FIFO
+                // channel. Serviced first, every inject-then-snapshot came back "not a restore
+                // point" and cost the host a retry.
+                serviceMarkingRequest();
                 updateDirtyTransitions();
                 if (hasAnyDeadlines) enforceDeadlines();
 
@@ -922,21 +1056,125 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
             } catch (Throwable emitError) {
                 ExecutorSupport.swallowEventStoreFailure("ExecutionCompleted", emitError);
             } finally {
+                // The final pair, for every snapshot() after the loop ([ENV-014]): without it
+                // a post-run snapshot paired the final marking with whatever flag the last
+                // mid-run request happened to publish. True here means the run was truncated
+                // with an action abandoned in flight — not a restore point, and it says so.
+                // The external queue was drained above: those events were refused, not accepted.
+                // No copy: nothing mutates the live marking once the loop has ended, and this
+                // is the same instance a post-termination marking() already hands out.
+                published = new ExecutorSupport.PublishedState(marking, workInFlight());
                 terminatedFuture.complete(marking);
                 orchestratorThread = null; // last: post-termination marking() reads are exact
+                // [EXEC-041]: hand back the interrupt this run took down or was stopped by.
+                // Last, so nothing above — an event store, a future's dependents — runs with
+                // the flag set on the run's account.
+                if (interruptDeferred) Thread.currentThread().interrupt();
             }
         }
 
         return marking;
     }
 
-    /** Refreshes the published snapshot when a foreign thread has asked for one (see {@link #marking()}). */
+    /** Refreshes the published pair when a foreign thread has asked for one (see {@link #marking()}). */
     private void serviceMarkingRequest() {
         long req = markingRequestSeq.get();
         if (req != markingServedSeq) {
-            publishedMarking = marking.copy();
+            published = capturePublishedState(); // before the seq: the seq is the barrier
             markingServedSeq = req;
         }
+    }
+
+    /**
+     * Captures the marking and the work-in-flight observation as <b>one</b> value, so they
+     * describe the same instant on the reading side too ([ENV-014] AC#5). Orchestrator thread,
+     * or no orchestrator at all.
+     *
+     * <p>"Work in flight" is an action, or an <b>accepted but un-injected external event</b>:
+     * {@code inject} has taken the token but the external-events phase has not run, so it is
+     * in the queue and in no place. Either way restoring the marking drops tokens. A closed
+     * executor refuses its queue rather than injecting it, so it does not count.
+     */
+    private ExecutorSupport.PublishedState capturePublishedState() {
+        return new ExecutorSupport.PublishedState(marking.copy(),
+            workInFlight());
+    }
+
+    /**
+     * The one work-in-flight expression, for every pair this executor publishes — mid-run,
+     * never-started and final alike; see {@link ExecutorSupport#workInFlight}. Once the loop
+     * has ended ({@code terminated}) or the executor is closed, a queued event is one that
+     * {@code drainPendingExternalEvents()} refuses — {@code inject} answers {@code false} —
+     * so it was never accepted and does not count.
+     */
+    private boolean workInFlight() {
+        return ExecutorSupport.workInFlight(!inFlight.isEmpty(), closed.get() || terminated, externalEventQueue);
+    }
+
+    /**
+     * Takes the thread's interrupt flag down and remembers it, to be restored when
+     * {@code run()} returns ([EXEC-041] AC#4/AC#5). Called at loop start, after every inline
+     * action returns, and before every wait — including the hosted one ([TIME-015]).
+     *
+     * <p><b>Why clear rather than ignore.</b> {@code Semaphore.tryAcquire}/{@code acquire}
+     * throw at once when the flag is <i>already</i> set on entry, so merely not consulting the
+     * flag in the loop condition still truncated every net that waits: a flag left over from
+     * earlier work on a reused thread, or set by an action following the
+     * catch-and-re-interrupt idiom (actions run inline on this thread), was reported as "raised
+     * while waiting". With the flag down on entry, an {@link InterruptedException} from the
+     * wait can only be an interrupt that arrived <i>during</i> it — the one case that is a
+     * request against this run, and the only one that ends it {@code INTERRUPTED}.
+     *
+     * <p><b>Consequence.</b> An external interrupt that lands while an inline action is
+     * executing is indistinguishable from one the action set itself, so it too is deferred to
+     * {@code run()}'s return rather than stopping the run; a net that never waits is therefore
+     * not interruptible — stop it with {@code terminateNow()} or {@code close()}. Later
+     * actions of the same run do not observe the flag. The hosted wait has its own form of
+     * the rule: see {@link #awaitHostedWork}.
+     */
+    private void absorbInterruptFlag() {
+        if (Thread.interrupted()) interruptDeferred = true;
+    }
+
+    /**
+     * The [TIME-015] hosted wait, under the same interrupt rule as the built-in ones
+     * ([EXEC-041]). {@code ExecutionEnvironment.awaitWork} cannot throw
+     * {@link InterruptedException}; a host that blocks interruptibly catches it, restores the
+     * flag and returns. Every caller has just run {@link #absorbInterruptFlag()}, so the wait
+     * is <b>entered with the flag clear</b>, and a flag found set when it returns was set
+     * <i>during</i> the wait — exactly what an {@code InterruptedException} from a built-in
+     * wait entered clear means. It ends the run {@code INTERRUPTED} the same way; otherwise
+     * an executor under an injected clock could not be interrupted at all.
+     *
+     * <p><b>Consequence.</b> Whatever runs on this thread <i>inside</i> the host's wait — a
+     * cooperative host completing an action, a callback — and sets the flag is
+     * indistinguishable from an external interrupt there, and ends the run too. Inside an
+     * action the same ambiguity is resolved the other way (deferred), because actions are
+     * this run's own code and a wait is not.
+     */
+    private void awaitHostedWork(long delayNanos) {
+        environment.awaitWork(workReady, delayNanos);
+        if (Thread.interrupted()) {
+            interruptDeferred = true;
+            interruptedDuringWait = true;
+            stopRequested = true;
+        }
+    }
+
+    /** The ν-name scope, drawing the random default on first use ([NU-011]). */
+    private String executionScope() {
+        String scope = executionScope;
+        if (scope == null) {
+            // Lazy: most nets mint no ν-name, and the draw is a SecureRandom read. Locked
+            // because an action may mint from a continuation on any thread.
+            synchronized (freshNameCounter) {
+                scope = executionScope;
+                if (scope == null) {
+                    executionScope = scope = org.libpetri.core.internal.ExecutionScopes.random();
+                }
+            }
+        }
+        return scope;
     }
 
     /**
@@ -1435,12 +1673,13 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
         var context = new TransitionContext(t, inputs, newOutput(), execContext);
         final String freshNameBase = t.name();
         context.setFreshNameSupplier(() ->
-            new NameId(freshNameBase + "#" + freshNameCounter.getAndIncrement()));
+            new NameId(freshNameBase + "#" + executionScope() + ":" + freshNameCounter.getAndIncrement()));
 
         CompletableFuture<Void> transitionFuture = eventStore.isEnabled()
             ? LogCaptureScope.call(t.name(), eventStore::append,
                   () -> ExecutorSupport.executeAction(t, context))
             : ExecutorSupport.executeAction(t, context);
+        absorbInterruptFlag(); // [EXEC-041] AC#5: what the action set is not a stop request
 
         // Handle Out.Timeout
         if (t.hasActionTimeout()) {
@@ -1722,13 +1961,13 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
 
         if (inFlight.isEmpty()) return;
 
+        absorbInterruptFlag();
         if (environment != null) {
             // The host owns both halves of the wait ([TIME-015]): `workReady` is the signal
             // the semaphore carries by default, the delay is the timeout. No poll loop — a
             // host may return spuriously and the orchestrator re-checks on its next cycle
             // (contract point 3), which is what makes the poll bound unnecessary here.
-            environment.awaitWork(workReady,
-                allImmediate ? Long.MAX_VALUE : nanosUntilNextTimedTransition());
+            awaitHostedWork(allImmediate ? Long.MAX_VALUE : nanosUntilNextTimedTransition());
             return;
         }
 
@@ -1747,11 +1986,12 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
                     return;
                 }
             } catch (InterruptedException e) {
-                // A cancellation the executor observed ITSELF, raised while waiting. Unlike an
-                // ambient flag this IS a request against this run, so [EXEC-041] permits it to
-                // stop the loop — but only distinguishably. Restore the flag for the caller and
-                // let the finally report INTERRUPTED rather than a plain completion.
-                Thread.currentThread().interrupt();
+                // A cancellation the executor observed ITSELF, raised while waiting: the flag
+                // was down on entry (absorbInterruptFlag above; nothing in this loop sets it),
+                // so unlike an ambient flag this IS a request against this run and [EXEC-041]
+                // permits it to stop the loop — but only distinguishably. The finally reports
+                // INTERRUPTED and hands the flag back to the caller.
+                interruptDeferred = true;
                 interruptedDuringWait = true;
                 stopRequested = true;
                 return;
@@ -1811,8 +2051,9 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
         // short-circuit diverge from the default one ([TIME-015], [EXEC-001], [CONC-010]).
         if (waitNanos <= 0) return;
 
+        absorbInterruptFlag();
         if (environment != null) {
-            environment.awaitWork(workReady, waitNanos);
+            awaitHostedWork(waitNanos);
             return;
         }
 
@@ -1824,7 +2065,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
         } catch (InterruptedException e) {
             // See awaitCompletionOrEvent: an interrupt raised AT the wait is a stop request
             // against this run ([EXEC-041]), unlike an ambient flag.
-            Thread.currentThread().interrupt();
+            interruptDeferred = true;
             interruptedDuringWait = true;
             stopRequested = true;
         }
@@ -1950,37 +2191,137 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
      */
     @Override
     public Marking marking() {
-        Thread orchestrator = orchestratorThread;
+        Thread orchestrator = orchestratorOrAwaitStart();
         if (orchestrator != null && Thread.currentThread() != orchestrator) {
-            Marking snapshot = awaitPublishedSnapshot();
+            var snapshot = awaitPublishedState();
             if (orchestratorThread != null) {
-                return snapshot != null ? snapshot : Marking.empty();
+                return snapshot != null ? snapshot.marking() : Marking.empty();
             }
             // else: the loop finished while we waited — fall through to the exact live marking.
         }
         return marking;
     }
 
+    /** Test hook: shortens the foreign-reader cap. Package-private on purpose. */
+    void snapshotWaitNanosForTesting(long nanos) {
+        this.snapshotWaitNanos = nanos;
+    }
+
     /**
-     * Requests a fresh published snapshot from the orchestrator and waits, bounded, for it.
-     * Returns the freshest {@link #publishedMarking} it can; the caller checks whether the loop
-     * ended meanwhile (in which case it reads the exact live marking instead).
+     * Requests a fresh published pair from the orchestrator and waits, bounded, for it.
+     * Returns the freshest {@link #published} pair it can — <b>one</b> volatile read, so the
+     * marking and the flag always belong to the same capture — or {@code null} when the loop
+     * ended meanwhile; the caller then reads the final state instead. When the request was
+     * <b>not served</b> within the cap, the last published marking comes back with
+     * {@code workInFlight} forced {@code true}.
      */
-    private Marking awaitPublishedSnapshot() {
+    private ExecutorSupport.PublishedState awaitPublishedState() {
         long seq = markingRequestSeq.incrementAndGet();
         wakeUp();
         // Deliberately the REAL clock, not clockNanos(). This runs on a FOREIGN thread and the
         // park below is a real-time parkNanos, so a cap measured on an advance-on-demand host
         // clock would never retire and the caller would wait forever ([TIME-015]). It is a
         // liveness backstop, not a firing decision, so it is not the seam's to virtualize.
-        long deadline = System.nanoTime() + ExecutorSupport.MARKING_SNAPSHOT_WAIT_NANOS;
+        long deadline = System.nanoTime() + snapshotWaitNanos;
         while (markingServedSeq < seq) {
             if (orchestratorThread == null) return null; // loop finished; caller reads exact
             long remaining = deadline - System.nanoTime();
             if (remaining <= 0) break; // best-effort cap: return the last snapshot
             LockSupport.parkNanos(Math.min(remaining, 1_000_000L));
         }
-        return publishedMarking;
+        // Served first, pair second: a pair read after the barrier is at least as new as the
+        // request. NOT served — the cap expired with the orchestrator stuck in an inline
+        // action — the last pair's marking is still the best observation there is, but its
+        // flag describes an older instant: since then an accepted event may have been injected
+        // and consumed by the very firing that is blocking, leaving it in neither the marking
+        // nor that flag. An unserved request is never a restore point ([ENV-014] AC#7).
+        boolean served = markingServedSeq >= seq;
+        var state = published;
+        return served || state == null ? state
+            : new ExecutorSupport.PublishedState(state.marking(), true);
+    }
+
+    /**
+     * Captures a point-in-time snapshot of the marking while the executor runs
+     * (<b>ENV-014</b>), together with whether any action was in flight at that instant.
+     *
+     * <p>Callable at any time while running (AC#1), and also before the run and after it has
+     * ended on its own. The request is serviced within one orchestrator cycle, after that
+     * cycle's external-events phase — so an {@code inject} made before the call is already in
+     * the marking — and execution continues afterwards (AC#2). The returned marking is an owned
+     * copy, independent of later executor state (AC#3).
+     *
+     * <p>Rejected once the executor has been drained or closed (AC#4): after that there is no
+     * loop to service the request, so a returned marking would be a different thing — the final
+     * marking — wearing the same type. Use {@link #marking()} for that.
+     *
+     * <p>{@link SnapshotResult#actionInFlight()} is captured at the <b>same instant</b> as the
+     * marking and travels with it as one value through one reference, which is what makes
+     * AC#5/AC#6 answerable without a race — with any number of concurrent callers. It is true
+     * for an in-flight action <b>and</b> for an accepted but un-injected external event.
+     *
+     * <p><b>From inside an action</b> — or an event-store callback, or the hosted wait: any
+     * code on the orchestrator thread — the capture is direct and immediate, of the live
+     * marking, and always reports {@code actionInFlight = true}: the calling firing has
+     * consumed its inputs and not yet produced its outputs, so it is never a restore point. A
+     * "checkpoint" transition therefore cannot checkpoint from within itself; snapshot from a
+     * continuation on another thread, or after the firing.
+     *
+     * <p>Best-effort bound, as for {@link #marking()}: while the orchestrator is stuck inside a
+     * long inline action it cannot serve the request, and after 2s a foreign caller gets the
+     * <b>last published marking with {@code actionInFlight = true}</b>, whatever that older
+     * pair's own flag said. A request that was not served is never a restore point (AC#7): the
+     * orchestrator may since have injected an accepted event and handed it to the very firing
+     * that is blocking, so the event is in neither the older marking nor the older flag. The
+     * marking is still a valid, internally consistent observation — of an earlier instant.
+     *
+     * @return the marking and the in-flight observation, taken together
+     * @throws IllegalStateException if the executor has been drained or closed, or if the net
+     *         declares two places with one name ([MOD-024]) — the name-keyed form would
+     *         silently lose one place's tokens
+     */
+    @Override
+    public SnapshotResult snapshot() {
+        if (closed.get() || draining.get()) {
+            throw new IllegalStateException(
+                "snapshot() is not available after drain()/close() (ENV-014 AC4): no orchestrator "
+                    + "loop remains to service the request. Use marking() for the final marking.");
+        }
+        ExecutorSupport.requireSnapshotable(ambiguousPlaceName);
+        Thread orchestrator = orchestratorOrAwaitStart();
+        if (orchestrator == Thread.currentThread()) {
+            // Never park waiting for ourselves. True, not the in-flight state: the calling
+            // firing is registered in-flight only after its action returns.
+            return new SnapshotResult(marking.snapshot(), true);
+        }
+        ExecutorSupport.PublishedState state = orchestrator != null ? awaitPublishedState() : null;
+        if (state == null) {
+            // No loop. Finished — while we waited, or before we asked: the finally published
+            // the final pair before it cleared the thread reference. Or never started: capture
+            // here, nothing else touches the marking.
+            state = terminated ? published : capturePublishedState();
+        }
+        return new SnapshotResult(state.marking().snapshot(), state.workInFlight());
+    }
+
+    /**
+     * The orchestrator thread, first waiting out the <b>start window</b>: {@code run()} has
+     * been called but the loop has not published its thread yet — it may still be queued on a
+     * caller-supplied executor. A foreign reader that saw {@code null} there took the
+     * never-started path and read (Precompiled: rebuilt) the live marking while the loop's
+     * first cycle mutated it, which throws {@code ConcurrentModificationException} or worse.
+     * Bounded like every other foreign-thread wait here; on expiry the caller falls back to
+     * that old behaviour rather than hang.
+     */
+    private Thread orchestratorOrAwaitStart() {
+        Thread orchestrator = orchestratorThread;
+        if (orchestrator != null || !started || terminated) return orchestrator;
+        long giveUp = System.nanoTime() + ExecutorSupport.MARKING_SNAPSHOT_WAIT_NANOS;
+        while ((orchestrator = orchestratorThread) == null && !terminated
+                && System.nanoTime() < giveUp) {
+            LockSupport.parkNanos(100_000L);
+        }
+        return orchestrator;
     }
 
     /**

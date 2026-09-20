@@ -30,9 +30,82 @@ final class ExecutorSupport {
      * assigned at construction is unique among executors observable together and reproducible
      * for a fixed construction order. It need not be globally distinctive — the events that
      * carry it carry {@code netName} alongside.
+     *
+     * <p><b>Not the ν-name scope.</b> Precisely because it restarts at 0 in every JVM, the id
+     * is no default for [NU-011]'s execution scope: a resume in a fresh process would re-mint
+     * the restored marking's names. That default is drawn at random instead — see
+     * {@link org.libpetri.core.internal.ExecutionScopes#random()}.
      */
     private static final java.util.concurrent.atomic.AtomicLong EXECUTION_ID_SEQ =
         new java.util.concurrent.atomic.AtomicLong();
+
+    /**
+     * What the orchestrator publishes for foreign-thread readers: the marking and the
+     * work-in-flight observation captured <b>with</b> it, as one immutable value so that one
+     * volatile read yields a pair describing one instant ([ENV-014] AC#5).
+     *
+     * @param marking      an owned copy of the marking
+     * @param workInFlight whether an action was in flight, or an accepted external event was
+     *                     still queued, when {@code marking} was copied
+     */
+    record PublishedState(Marking marking, boolean workInFlight) {}
+
+    /**
+     * [ENV-014]'s "work in flight", as <b>one</b> expression for both executors and for every
+     * pair either publishes: an action that has started and not completed, or an external
+     * event the executor has <b>accepted</b> and not yet injected.
+     *
+     * <p>A queued event counts only while the executor will still inject it. Once it is
+     * {@code refusing} — closed ([ENV-013]), or the loop has ended — everything in the queue is
+     * completed {@code false} by {@link #drainPendingExternalEvents}: the host is told the
+     * token was <i>not</i> taken and still holds it, so the event was never accepted and a
+     * marking without it is a legitimate restore point. That is also what makes the final
+     * pair of a run the same expression as a mid-run one, rather than "actions only" in one
+     * executor and "actions or queue" in the other: an {@code inject} racing the end of a
+     * STOPPED or INTERRUPTED run sits in the queue for an instant before its own re-drain
+     * refuses it, and must not flip the final flag.
+     *
+     * @param actionInFlight whether any action has started and not completed
+     * @param refusing       whether queued external events will be refused, not injected
+     * @param externalQueue  the accepted-events queue
+     */
+    static boolean workInFlight(boolean actionInFlight, boolean refusing, Queue<?> externalQueue) {
+        return actionInFlight || (!refusing && !externalQueue.isEmpty());
+    }
+
+    /**
+     * The name of a place {@code places} holds twice — legal in Java, where {@code Place}
+     * equality is structural over {@code (name, tokenType)} ([MOD-024]) — or {@code null}.
+     * The least such name in code-point order, so the diagnostic is reproducible.
+     */
+    static String duplicatePlaceName(java.util.Collection<? extends Place<?>> places) {
+        var seen = new java.util.HashSet<String>();
+        String duplicate = null;
+        for (var place : places) {
+            if (!seen.add(place.name())
+                && (duplicate == null
+                    || org.libpetri.core.internal.CodePointOrder.compare(place.name(), duplicate) < 0)) {
+                duplicate = place.name();
+            }
+        }
+        return duplicate;
+    }
+
+    /**
+     * Rejects {@code snapshot()} on a net with two places of one name ([MOD-024]), on the
+     * caller's thread. The [CORE-073] form is keyed by place <b>name</b>, so the two would
+     * collapse into one entry and a restore could not tell whose tokens are whose — a silent
+     * loss in a value whose whole purpose is to be restored from.
+     */
+    static void requireSnapshotable(String ambiguousPlaceName) {
+        if (ambiguousPlaceName != null) {
+            throw new IllegalStateException(
+                "snapshot() is not available for this net: it declares two places named '"
+                    + ambiguousPlaceName + "' with different token types. Java tells them apart "
+                    + "by type (MOD-024) but the CORE-073 snapshot form is keyed by place name, "
+                    + "so one place's tokens would be lost or mis-restored. Rename one place.");
+        }
+    }
 
     /** Returns the next execution id, hex-formatted. Assigned at executor construction. */
     static String nextExecutionId() {
@@ -181,7 +254,9 @@ final class ExecutorSupport {
      * fresh snapshot before falling back to the last one it published. The handshake normally
      * resolves in microseconds (the orchestrator services the request at the top of its next
      * loop iteration); this cap only bites while the orchestrator is stuck inside a long inline
-     * action, where a slightly stale snapshot is the documented best-effort outcome.
+     * action, where a slightly stale snapshot is the documented best-effort outcome — and
+     * where {@code snapshot()} reports that stale marking as <b>not</b> a restore point,
+     * whatever flag it was published with ([ENV-014] AC#7).
      */
     static final long MARKING_SNAPSHOT_WAIT_NANOS = 2_000_000_000L; // 2s
 

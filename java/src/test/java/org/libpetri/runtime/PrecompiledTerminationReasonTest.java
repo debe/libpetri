@@ -18,4 +18,15 @@ class PrecompiledTerminationReasonTest extends AbstractTerminationReasonTest {
     ) {
         return PrecompiledNetExecutor.builder(net, initial).eventStore(store).build();
     }
+
+    @Override
+    protected PetriNetExecutor create(
+        PetriNet net, Map<Place<?>, List<Token<?>>> initial, EventStore store,
+        ExecutionEnvironment environment
+    ) {
+        var builder = PrecompiledNetExecutor.builder(net, initial);
+        if (store != null) builder.eventStore(store);
+        if (environment != null) builder.environment(environment);
+        return builder.build();
+    }
 }

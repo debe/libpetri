@@ -18,4 +18,15 @@ class BitmapTerminationReasonTest extends AbstractTerminationReasonTest {
     ) {
         return BitmapNetExecutor.builder(net, initial).eventStore(store).build();
     }
+
+    @Override
+    protected PetriNetExecutor create(
+        PetriNet net, Map<Place<?>, List<Token<?>>> initial, EventStore store,
+        ExecutionEnvironment environment
+    ) {
+        var builder = BitmapNetExecutor.builder(net, initial);
+        if (store != null) builder.eventStore(store);
+        if (environment != null) builder.environment(environment);
+        return builder.build();
+    }
 }

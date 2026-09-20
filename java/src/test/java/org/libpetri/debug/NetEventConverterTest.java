@@ -111,6 +111,39 @@ class NetEventConverterTest {
             assertInstanceOf(Map.class, info.details().get("marking"));
         }
 
+        /** Names whose code-point, UTF-16 code-unit and {@code String.hashCode} orders all differ. */
+        private static final List<String> CANONICAL = List.of(
+            "a10", "a9", "alpha", "b", "mid", "zeta", "\uE000", "\uD83D\uDE00");
+
+        @Test
+        void markingKeepsTheEventsCanonicalPlaceOrder_EVT014() {
+            var unordered = new java.util.LinkedHashMap<String, List<Token<?>>>();
+            for (var name : CANONICAL.reversed()) unordered.put(name, List.of(Token.of("v")));
+            var event = new NetEvent.MarkingSnapshot(NOW, unordered);
+            assertEquals(CANONICAL, List.copyOf(event.marking().keySet()), "the event is canonical");
+
+            for (boolean compact : new boolean[] {false, true}) {
+                var marking = (Map<?, ?>) NetEventConverter.toEventInfo(event, compact).details().get("marking");
+                assertEquals(CANONICAL, List.copyOf(marking.keySet()),
+                    "EVT-014: the converter must not canonicalise the event and then discard "
+                        + "the order on the way out. It copied the sorted snapshot into a "
+                        + "HashMap, so the debug protocol emitted places in String.hashCode "
+                        + "order. compact=" + compact);
+            }
+        }
+
+        @Test
+        void convertMarkingOrdersAnArbitraryMapToo_EVT014() {
+            // Computed state is accumulated in event-arrival order, not handed over sorted, so
+            // preserving the input order would not be enough.
+            var arrival = new java.util.LinkedHashMap<String, List<Token<?>>>();
+            for (var name : CANONICAL.reversed()) arrival.put(name, List.of(Token.of("v")));
+
+            assertEquals(CANONICAL, List.copyOf(NetEventConverter.convertMarking(arrival).keySet()),
+                "code-point order — not Jackson's ORDER_MAP_ENTRIES_BY_KEYS / String.compareTo, "
+                    + "which would put the astral name before U+E000");
+        }
+
         @Test
         void shouldConvertLogMessageWithAndWithoutThrowable() {
             var withoutThrowable = new NetEvent.LogMessage(NOW, "T1", "com.example.Foo", "INFO", "hello", null, null);

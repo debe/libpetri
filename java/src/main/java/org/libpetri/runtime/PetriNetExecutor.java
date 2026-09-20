@@ -107,6 +107,27 @@ public interface PetriNetExecutor extends AutoCloseable {
      */
     TerminationReason terminationReason();
 
+    /**
+     * Captures a point-in-time snapshot of the marking together with whether work was in
+     * flight at that same instant, per <b>ENV-014</b>.
+     *
+     * <p>The marking is the snapshot form of [CORE-073] — what
+     * {@code Builder.restore(...)} takes back. Consult
+     * {@link SnapshotResult#isRestorePoint()} before persisting it as a checkpoint: a snapshot
+     * taken while an action is in flight, or while an accepted external event has not yet been
+     * injected, is a valid observation but drops tokens when restored.
+     *
+     * <p><b>Implementers.</b> Abstract, like {@link #terminationReason()}: a wrapper that
+     * answered with a default could only lie about one of the two facts this returns. A
+     * third-party implementation of this interface must add it.
+     *
+     * @return the marking and the in-flight observation, taken together
+     * @throws IllegalStateException if the executor has been drained or closed (AC#4), or if
+     *         the net declares two places with one name, which the name-keyed snapshot form
+     *         cannot tell apart ([MOD-024])
+     */
+    SnapshotResult snapshot();
+
     boolean isQuiescent();
 
     boolean isWaitingForCompletion();

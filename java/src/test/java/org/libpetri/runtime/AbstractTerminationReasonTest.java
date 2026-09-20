@@ -39,6 +39,11 @@ abstract class AbstractTerminationReasonTest {
     protected abstract PetriNetExecutor create(
         PetriNet net, Map<Place<?>, List<Token<?>>> initial, EventStore store);
 
+    /** Either of {@code store} and {@code environment} may be null, leaving that knob at its default. */
+    protected abstract PetriNetExecutor create(
+        PetriNet net, Map<Place<?>, List<Token<?>>> initial, EventStore store,
+        ExecutionEnvironment environment);
+
     private static final Place<String> A = Place.of("a", String.class);
     private static final Place<String> B = Place.of("b", String.class);
     private static final Place<String> C = Place.of("c", String.class);
@@ -71,6 +76,35 @@ abstract class AbstractTerminationReasonTest {
                 .timing(Timing.delayed(java.time.Duration.ofSeconds(10)))
                 .action(ctx -> { ctx.output(C, ctx.input(B)); return CompletableFuture.completedFuture(null); })
                 .build())
+            .build();
+    }
+
+    /**
+     * {@code a -t1(async, 20ms)-> b -t2(delayed 20ms)-> c}: a net that really <b>waits</b>, in
+     * both of the executor's waits — on an in-flight action, then on a timer. {@code t1} runs
+     * {@code duringT1} inline before going async; {@code t2} runs {@code duringT2}.
+     *
+     * <p>The all-synchronous {@link #chain} never reaches a wait, and the wait is where an
+     * interrupt flag bites: {@code Semaphore.tryAcquire}/{@code acquire} throw at once when the
+     * flag is already set on entry. AC#4/AC#5 tests on {@code chain} alone could not fail for
+     * the defect they were written against.
+     */
+    private static PetriNet waitingChain(Runnable duringT1, Runnable duringT2) {
+        return PetriNet.builder("waiting-chain")
+            .transition(Transition.builder("t1").inputs(one(A)).outputs(place(B))
+                .action(ctx -> {
+                    if (duringT1 != null) duringT1.run();
+                    var value = ctx.input(A);
+                    return CompletableFuture.runAsync(() -> ctx.output(B, value),
+                        CompletableFuture.delayedExecutor(20, java.util.concurrent.TimeUnit.MILLISECONDS));
+                }).build())
+            .transition(Transition.builder("t2").inputs(one(B)).outputs(place(C))
+                .timing(Timing.delayed(java.time.Duration.ofMillis(20)))
+                .action(ctx -> {
+                    if (duringT2 != null) duringT2.run();
+                    ctx.output(C, ctx.input(B));
+                    return CompletableFuture.completedFuture(null);
+                }).build())
             .build();
     }
 
@@ -119,6 +153,125 @@ abstract class AbstractTerminationReasonTest {
                     + "never did, and the partial marking was reported as a completion. "
                     + "Marking: " + marking);
             assertEquals(TerminationReason.QUIESCENT, executor.terminationReason());
+        }
+    }
+
+    @Test
+    void ambientInterruptDoesNotTruncateANetThatWaits_AC4() {
+        try (var executor = create(waitingChain(null, null), seed())) {
+            Thread.currentThread().interrupt();
+            Marking marking;
+            boolean flagAfterRun;
+            try {
+                marking = executor.run();
+            } finally {
+                flagAfterRun = Thread.interrupted(); // read AND clear, whatever happens
+            }
+
+            assertEquals(1, marking.tokenCount(C),
+                "EXEC-041 AC#4 on a net that WAITS: the flag was set before run(), t1 went "
+                    + "async, and the orchestrator's wait on it threw at once — Semaphore "
+                    + "throws on entry when the flag is already set — so an ambient flag was "
+                    + "reported as 'interrupted while waiting' and t2 never fired. Marking: "
+                    + marking);
+            assertEquals(TerminationReason.QUIESCENT, executor.terminationReason());
+            assertTrue(flagAfterRun,
+                "the flag is the caller's: the run takes it down to wait, and puts it back "
+                    + "when run() returns");
+        }
+    }
+
+    @Test
+    void actionRestoringTheInterruptFlagDoesNotTruncateANetThatWaits_AC5() {
+        var seenByT2 = new java.util.concurrent.atomic.AtomicReference<Boolean>();
+        var net = waitingChain(
+            () -> Thread.currentThread().interrupt(),
+            () -> seenByT2.set(Thread.currentThread().isInterrupted()));
+        try (var executor = create(net, seed())) {
+            Marking marking;
+            boolean flagAfterRun;
+            try {
+                marking = executor.run();
+            } finally {
+                flagAfterRun = Thread.interrupted();
+            }
+
+            assertEquals(1, marking.tokenCount(C),
+                "EXEC-041 AC#5: 'assert every downstream transition still fires'. t1 set the "
+                    + "flag inline and went async, so the very next thing the orchestrator did "
+                    + "was wait — and the wait threw. Marking: " + marking);
+            assertEquals(TerminationReason.QUIESCENT, executor.terminationReason());
+            assertEquals(Boolean.FALSE, seenByT2.get(),
+                "the flag one action set does not leak into the next: a later action that "
+                    + "blocks inline would otherwise throw InterruptedException for an "
+                    + "interrupt nobody sent it");
+            assertTrue(flagAfterRun,
+                "not swallowed — deferred: the caller gets the flag back when run() returns");
+        }
+    }
+
+    /**
+     * An event store that re-interrupts on every append. Event stores run inline on the
+     * orchestrator thread like actions do, but <i>between</i> an action's return and the next
+     * wait — so this is the input only the clear <b>before the wait</b> can absorb; the clears
+     * at loop start and after each action have already run by then.
+     */
+    private static EventStore interruptingStore() {
+        var delegate = EventStore.inMemory();
+        return new EventStore() {
+            @Override public void append(NetEvent event) {
+                delegate.append(event);
+                Thread.currentThread().interrupt();
+            }
+            @Override public List<NetEvent> events() { return delegate.events(); }
+            @Override public boolean isEnabled() { return true; }
+        };
+    }
+
+    @Test
+    void aFlagSetBetweenAnActionAndTheWaitDoesNotTruncateTheRun_AC5() {
+        try (var executor = create(waitingChain(null, null), seed(), interruptingStore())) {
+            Marking marking;
+            try {
+                marking = executor.run();
+            } finally {
+                Thread.interrupted();
+            }
+            assertEquals(1, marking.tokenCount(C),
+                "EXEC-041: the flag is cleared-and-remembered before EVERY wait, not only after "
+                    + "actions — inline host code other than an action (an event store here) "
+                    + "can set it just as innocently. Marking: " + marking);
+            assertEquals(TerminationReason.QUIESCENT, executor.terminationReason());
+        }
+    }
+
+    @Test
+    void theHostedWaitIsEnteredWithTheFlagClear_AC4_TIME015() {
+        // Under an injected clock the host owns the wait. It is host code, it may well block
+        // interruptibly, and it must not be handed a flag the run did not raise.
+        var flagAtWait = new java.util.ArrayList<Boolean>();
+        var clock = new AbstractInjectableClockTest.VirtualClock() {
+            @Override public void awaitWork(java.util.function.BooleanSupplier ready, long delayNanos) {
+                flagAtWait.add(Thread.currentThread().isInterrupted());
+                super.awaitWork(ready, delayNanos);
+            }
+        };
+        try (var executor = create(delayedChain(() -> Thread.currentThread().interrupt()), seed(),
+                interruptingStore(), clock)) {
+            Marking marking;
+            boolean flagAfterRun;
+            try {
+                marking = executor.run();
+            } finally {
+                flagAfterRun = Thread.interrupted();
+            }
+
+            assertEquals(1, marking.tokenCount(C), "the virtual clock carried t2 past its delay");
+            assertFalse(flagAtWait.isEmpty(), "the net really did wait on the host");
+            assertEquals(List.of(), flagAtWait.stream().filter(f -> f).toList(),
+                "EXEC-041 / TIME-015: clear-and-remember happens before the hosted wait too. "
+                    + "Flags seen on entry: " + flagAtWait);
+            assertTrue(flagAfterRun, "and is restored when run() returns");
         }
     }
 
@@ -190,23 +343,87 @@ abstract class AbstractTerminationReasonTest {
     }
 
     @Test
-    void interruptedRunEmitsAnEngineWarning_EVT013() {
+    void interruptedRunEmitsAnEngineWarning_EVT013() throws Exception {
         var store = EventStore.inMemory();
-        // t1 sets the flag; t2's 10s delay then makes the orchestrator wait, and the wait
-        // itself throws — which is the one termination nobody asked for.
-        try (var executor = create(delayedChain(() -> Thread.currentThread().interrupt()), seed(), store)) {
-            try {
+        // A FOREIGN thread interrupts the orchestrator while it is parked on t2's 10s delay:
+        // the one interrupt that is a request against this run, and the one termination nobody
+        // on the caller's side asked for. (This used to have t1 set the flag itself — which is
+        // AC#5's input, and asserted the truncation AC#5 forbids.)
+        try (var executor = create(delayedChain(null), seed(), store)) {
+            var flagAfterRun = new java.util.concurrent.atomic.AtomicBoolean();
+            var runner = Thread.ofPlatform().start(() -> {
                 executor.run();
-            } finally {
-                Thread.interrupted();
+                flagAfterRun.set(Thread.currentThread().isInterrupted());
+            });
+
+            // t1 has fired once b is marked; after that the loop has nothing to do but wait.
+            long giveUp = System.nanoTime() + java.time.Duration.ofSeconds(10).toNanos();
+            while (executor.marking().tokenCount(B) == 0 && System.nanoTime() < giveUp) Thread.sleep(5);
+            // Repeated: an interrupt that lands in the sliver between two waits is absorbed as
+            // ambient (by design) and deferred; one that lands IN the wait ends the run.
+            while (runner.isAlive() && System.nanoTime() < giveUp) {
+                Thread.sleep(50);
+                runner.interrupt();
             }
+            runner.join(10_000);
+            assertFalse(runner.isAlive(), "the interrupt ended the run well inside t2's 10s delay");
 
             assertEquals(TerminationReason.INTERRUPTED, executor.terminationReason(),
-                "the wait was interrupted, so the run was truncated by something the caller "
-                    + "did not request");
+                "the wait was entered with the flag clear and threw InterruptedException, so the "
+                    + "run was truncated by something the caller did not request");
+            assertEquals(0, executor.marking().tokenCount(C), "t2 never fired");
+            assertTrue(flagAfterRun.get(), "the interrupt is handed back to the run's thread");
             assertEquals(1, engineWarnings(store).size(),
                 "EVT-013: an interrupt is exactly the case the caller would otherwise not learn "
                     + "about, so it earns a diagnostic. Events: " + store.events());
+        }
+    }
+
+    @Test
+    void anInterruptDuringAHostedWaitEndsTheRunInterrupted_TIME015() throws Exception {
+        // Under an injected clock the HOST owns the wait, and awaitWork cannot throw
+        // InterruptedException: a host that blocks interruptibly catches it, restores the flag
+        // — the convention — and returns. The wait was entered with the flag clear, so a flag
+        // set on return arrived DURING the wait: the same request against this run that an
+        // InterruptedException is from a built-in wait. Deferring it made an executor under
+        // an injected clock uninterruptible.
+        var store = EventStore.inMemory();
+        var parked = new java.util.concurrent.CountDownLatch(1);
+        var clock = new AbstractInjectableClockTest.VirtualClock() {
+            boolean blockedOnce;
+            @Override public void awaitWork(java.util.function.BooleanSupplier ready, long delayNanos) {
+                if (!blockedOnce && !ready.getAsBoolean() && delayNanos != Long.MAX_VALUE) {
+                    blockedOnce = true; // t2's 10s timer: block for REAL, as a wall-clock host would
+                    parked.countDown();
+                    try {
+                        new java.util.concurrent.CountDownLatch(1).await(5, java.util.concurrent.TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return; // spurious as far as the clock goes: nothing advanced
+                }
+                super.awaitWork(ready, delayNanos); // afterwards: virtual, so a deferred interrupt ends QUIESCENT
+            }
+        };
+        try (var executor = create(delayedChain(null), seed(), store, clock)) {
+            var flagAfterRun = new java.util.concurrent.atomic.AtomicBoolean();
+            var runner = Thread.ofPlatform().start(() -> {
+                executor.run();
+                flagAfterRun.set(Thread.currentThread().isInterrupted());
+            });
+            assertTrue(parked.await(10, java.util.concurrent.TimeUnit.SECONDS), "the host is parked in its wait");
+            Thread.sleep(50); // past countDown() and into await(); either side is inside awaitWork
+            runner.interrupt();
+            runner.join(20_000);
+            assertFalse(runner.isAlive());
+
+            assertEquals(TerminationReason.INTERRUPTED, executor.terminationReason(),
+                "TIME-015 / EXEC-041: the hosted wait was entered with the flag clear and returned "
+                    + "with it set, so the interrupt arrived during the wait. Marking: " + executor.marking());
+            assertEquals(0, executor.marking().tokenCount(C), "t2 never fired — the run was truncated");
+            assertTrue(flagAfterRun.get(), "the interrupt is handed back to the run's thread");
+            assertEquals(1, engineWarnings(store).size(),
+                "EVT-013: same diagnostic as for a built-in wait. Events: " + store.events());
         }
     }
 

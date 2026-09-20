@@ -46,6 +46,8 @@ public final class PrecompiledNet {
 
     // ID mappings
     final Place<?>[] placesById;
+    /** See {@code CompiledNet.ambiguousPlaceName()}: a name two places share, or null ([MOD-024]). */
+    final String ambiguousPlaceName;
     final Transition[] transitionsById;
     final Map<Place<?>, Integer> placeIndex;
     final IdentityHashMap<Transition, Integer> transitionIndex;
@@ -134,6 +136,7 @@ public final class PrecompiledNet {
         // Copy ID mappings from CompiledNet
         this.placesById = new Place<?>[placeCount];
         for (int i = 0; i < placeCount; i++) placesById[i] = compiled.place(i);
+        this.ambiguousPlaceName = compiled.ambiguousPlaceName();
 
         this.transitionsById = new Transition[transitionCount];
         this.transitionIndex = new IdentityHashMap<>(transitionCount * 2);

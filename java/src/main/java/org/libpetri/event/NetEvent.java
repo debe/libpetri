@@ -337,13 +337,35 @@ public sealed interface NetEvent {
         Instant timestamp,
         Map<String, List<Token<?>>> marking
     ) implements NetEvent {
-        /** Deep defensive copy to ensure immutability. */
+        /**
+         * Deep defensive copy, in <b>ascending code-point order of the place name</b> — the
+         * same canonical order {@link org.libpetri.runtime.Marking#snapshot()} produces, per
+         * <b>CORE-073</b> and <b>EVT-014</b>.
+         *
+         * <p>The rule follows the form: it applies wherever a marking snapshot is rendered into
+         * an ordered medium, and an event written into a session archive ([EVT-025]) is one.
+         * Canonicalising the returned snapshot and then discarding that order on the way into
+         * an event would fix the case nobody persists and leave the case everyone does — an
+         * archive is the more durable artefact and so the likelier to be diffed, hashed or
+         * compared against a golden file.
+         *
+         * <p><b>Not {@code Collectors.toUnmodifiableMap}</b>, which this used to be. That
+         * collects into a {@code Map.ofEntries}-backed map, and Java's immutable maps randomise
+         * their iteration order with a salt fixed once per JVM — so the same marking produced a
+         * <i>different</i> key order on every run of the same program, not merely an arbitrary
+         * one. That is the shape of unordered container to watch for: an ordinary hash map is
+         * arbitrary but stable within a process, where this changes the artefact run to run.
+         *
+         * <p>[EVT-025] makes event bodies per-language and explicitly not byte-compatible, so
+         * cross-language byte equality is <b>not</b> claimed here. What is required is
+         * reproducibility across runs of this implementation: an archive written twice from
+         * identical run data must not differ.
+         */
         public MarkingSnapshot {
-            marking = marking.entrySet().stream()
-                .collect(Collectors.toUnmodifiableMap(
-                    Map.Entry::getKey,
-                    e -> List.copyOf(e.getValue())
-                ));
+            var canonical = new java.util.TreeMap<String, List<Token<?>>>(
+                org.libpetri.core.internal.CodePointOrder.COMPARATOR);
+            marking.forEach((place, tokens) -> canonical.put(place, List.copyOf(tokens)));
+            marking = java.util.Collections.unmodifiableSortedMap(canonical);
         }
     }
 }

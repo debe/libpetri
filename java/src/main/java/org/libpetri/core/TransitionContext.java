@@ -80,6 +80,11 @@ public final class TransitionContext {
      */
     private static final AtomicLong GLOBAL_FRESH_NAME_COUNTER = new AtomicLong();
 
+    /** The detached fallback's scope, drawn once per process and only if that path is taken. */
+    private static final class DetachedScope {
+        static final String VALUE = org.libpetri.core.internal.ExecutionScopes.random();
+    }
+
     private Transition transition;
     private TokenInput rawInput;
 
@@ -427,9 +432,24 @@ public final class TransitionContext {
      *
      * <p>An action calls this on the fork side to create a correlation id, then
      * writes it into the sibling output payloads; a later join correlates those
-     * siblings via a {@link MatchSpec}. Uses the executor-installed minter when
-     * present; otherwise falls back to a process-global counter prefixed by the
-     * transition name (still unique, but not replay-stable across processes).
+     * siblings via a {@link MatchSpec}.
+     *
+     * <p>Both paths mint the <b>same shape</b>, {@code <transition>#<scope>:<n>}
+     * ([NU-011]). An executor installs a minter scoped to its execution; a
+     * directly-constructed context — a harness, a test double — has no execution to
+     * scope to and falls back to a process-wide random scope plus a process-global counter.
+     *
+     * <p>The fallback deliberately does not mint the old unscoped
+     * {@code <transition>#<n>}. NU-011 is a MUST, so a path minting unscoped names is a
+     * latent violation the moment anything reaches it — "unreachable today" is a property
+     * of today's call sites, not of the API — and a directly-constructed context is exactly
+     * where someone would meet the old format and reasonably take it for the format.
+     *
+     * <p>The fallback is unique but <b>not</b> replay-stable, unchanged from before: the
+     * global counter guarantees uniqueness within the process, and the scope — 32 random hex
+     * characters, the same default an executor draws — keeps its names from colliding with
+     * those in a marking another process persisted. Replay stability needs an executor with a
+     * pinned {@code executionScope}.
      *
      * @return a fresh correlation name
      */
@@ -437,7 +457,11 @@ public final class TransitionContext {
         if (freshNameSupplier != null) {
             return freshNameSupplier.get();
         }
-        return new NameId(transition.name() + "#" + GLOBAL_FRESH_NAME_COUNTER.getAndIncrement());
+        // Process-wide rather than a field: TransitionContext is allocated per firing, so a
+        // scope field would cost every firing for a path no executor run ever takes. Not the
+        // identity hash it used to be — 31 bits that repeat across JVM runs are no scope.
+        return new NameId(transition.name() + "#" + DetachedScope.VALUE
+            + ":" + GLOBAL_FRESH_NAME_COUNTER.getAndIncrement());
     }
 
     // ==================== Structure Info ====================

@@ -539,7 +539,10 @@ public class DebugProtocolHandler {
             Map<String, ArrayList<DebugResponse.TokenInfo>> marking,
             Set<String> enabled,
             Set<String> inFlight) {
-        var resultMarking = new HashMap<String, List<DebugResponse.TokenInfo>>();
+        // Code-point order, like the MarkingSnapshot event it is replayed from ([EVT-014]): the
+        // accumulator is filled in event-arrival order, which is not an order at all.
+        var resultMarking = new java.util.TreeMap<String, List<DebugResponse.TokenInfo>>(
+            org.libpetri.core.internal.CodePointOrder.COMPARATOR);
         for (var entry : marking.entrySet()) {
             resultMarking.put(entry.getKey(), List.copyOf(entry.getValue()));
         }
