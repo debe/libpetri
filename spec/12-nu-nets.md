@@ -59,12 +59,19 @@ be deterministic for a fixed firing order (replay stability). The executor
 installs the minter; absent an executor-installed minter, a fallback still
 guarantees uniqueness.
 
+What replays is the sequence **within a minting scope** ([NU-011]). Under the
+default scope the scope component of a name differs from run to run by design —
+that is what keeps a resumed execution from re-minting a live name — so a host
+that needs the *whole* name reproduced pins the scope, and a test compares names
+structurally or pins one rather than hard-coding a default-scope name.
+
 **Acceptance Criteria:**
 1. Two `freshName()` calls — within one firing or across firings — return
    unequal names.
 2. A fork that stamps both AND-branches with one minted name produces sibling
    tokens that a [NU-020] join later correlates.
-3. For a fixed firing order, the sequence of minted names is reproducible.
+3. For a fixed firing order and a fixed scope ([NU-011]), the sequence of minted
+   names is reproducible.
 
 **Depends on:** [CORE-050], [IO-011]
 **Test derivation:** A `fork` transition mints a name per firing and stamps both
@@ -75,7 +82,7 @@ downstream join and each pair merges (see `nu_fork_mints_unique_ids_then_join_me
 
 #### NU-011: Resume-Safe Fresh-Name Minting
 
-**Priority:** MUST (for implementations that support [CORE-073] restore)
+**Priority:** MUST
 
 [NU-010] scopes minted-name uniqueness to "a single execution". Restoring a marking
 ([CORE-073]) begins a **new** execution whose initial marking already holds names minted by
@@ -91,6 +98,55 @@ lineage. The mechanism is not prescribed. Two that satisfy it:
 - a per-execution **scope** supplied by the host and incorporated into every minted name;
 - carrying the minter's high-water mark in the snapshot and resuming strictly above it.
 
+**The restore lineage crosses processes.** [CORE-073] offers restore as a suspend boundary, a
+durable checkpoint, a crash-recovery point — so the execution that resumes a marking is, in the
+normal case, running in a *different process* from the one that minted the names in it. "Unique
+per executor" read as "unique within a process" is therefore not enough. Anything derived from a
+per-process counter restarts with the process, and the first executor of the new process re-mints
+the first name of the old one: exactly the silent merge above, in the default configuration.
+
+**The default scope MUST be unique across processes — and is therefore not the run identifier.**
+Absent a host-supplied scope, an implementation using the scope mechanism — all four do — MUST
+draw one per executor from the platform's random source: a 128-bit value rendered as exactly **32 lowercase hexadecimal characters**, of
+which at least 122 bits are random (a version-4 UUID with its dashes removed conforms). The
+rendering is fixed so that a default-scope name looks alike, and parses alike, in every language.
+
+An earlier revision of this requirement said that an implementation which already publishes a run
+identifier SHOULD default the scope to it, "so one value means one thing". **That SHOULD is
+withdrawn**, because the two values are required to have opposite properties. A run identifier
+SHOULD be *reproducible* for a fixed construction order ([TIME-015] AC#14) — that is what lets a
+replay carry the same identifier, and it is what a per-process counter provides. A default scope
+MUST *differ* between two processes that did nothing differently — which is precisely what a
+reproducible value cannot do. One value cannot be both. The run identifier remains the
+reproducible one, the default scope is the unique one, and an implementation MUST NOT derive
+either from the other.
+
+**The scope's uniqueness is required; its observability is not.** The default scope MAY be entirely
+internal — an implementation is not required to publish it, on an event or anywhere else, and MUST
+NOT be read as required to merely to satisfy this requirement. What a host can observe is the
+*name*, and the property that matters is that two executors never mint the same one. An
+implementation whose scope is internal therefore conforms exactly as one whose scope is visible,
+and the difference is not a divergence in behaviour.
+
+**The name format, and what a scope may contain.** An implementation using the scope mechanism
+mints `<transition>#<scope>:<n>`, where `<n>` is a per-executor counter from zero. A host-supplied
+scope MUST be rejected when the executor is configured — not at the first mint — if it is **empty**
+or contains **`:`** or **`#`**; the separators are rejected rather than escaped. Two details are
+fixed because the implementations otherwise drift apart on them:
+
+- *Empty* means length zero. A whitespace-only scope is legal, if unwise; an implementation MUST
+  NOT trim the scope or test it for blankness, since "blank" is defined differently by every
+  standard library and the same configuration would then be accepted in one language and refused
+  in another.
+- Rejecting `:` alone is **not** enough. Transition `a` under scope `b#c` and transition `a#b`
+  under scope `c` both mint `a#b#c:0` — a collision between two segments of one lineage, which is
+  what this requirement forbids. With `#` banned as well, a minted name parses uniquely whatever
+  the transition name contains: the **last `:`** splits off the counter, and the **last `#` before
+  it** splits off the scope; everything in front is the transition name.
+
+A pinned scope is host text, so it SHOULD stay within the Basic Multilingual Plane for the reason
+given under [NU-020]'s tie-break; this is advice to the host, not a validation.
+
 Deriving the floor by scanning the restored marking is **not** sufficient in general: name
 carrying values are opaque to the engine ([VER-004]), and a name minted into a token that has
 since been consumed leaves no trace in the marking while remaining live in host state and in
@@ -98,8 +154,12 @@ any token the host holds across the restore.
 
 Replay stability ([NU-010] AC3) is preserved **within** a run segment: for a fixed scope (or
 a fixed restored high-water mark) and a fixed firing order, the minted sequence MUST be
-reproducible. An implementation MUST NOT satisfy this requirement with a source of
-randomness that makes a segment unreproducible.
+reproducible. Randomness is therefore admitted in exactly **one** place — the *default* scope,
+chosen once per executor — and nowhere else: the counter `<n>` MUST NOT be random, and a scope
+the host pinned MUST be used verbatim, with nothing random mixed into it or into the sequence
+minted under it. A host that needs a reproducible segment pins its scope (AC3). A host that pins
+nothing gets uniqueness instead of reproducibility, and that is the right default: an
+unreproducible name is visible and harmless, a cross-segment merge is neither.
 
 **Acceptance Criteria:**
 1. Restore a marking holding a name `n` minted by a prior execution; run the resumed
@@ -110,16 +170,36 @@ randomness that makes a segment unreproducible.
 3. For a fixed scope and firing order, two runs from the same restored marking mint the
    identical name sequence.
 4. Two concurrent executions restored from the same snapshot mint disjoint name sets.
+5. **The default scope is not process-local.** An executor given no scope mints names whose scope
+   component is 32 lowercase hexadecimal characters, different for every executor and — where
+   the implementation publishes a run identifier — not equal to it. AC1 and AC2 therefore hold
+   when the resuming executor is the *first* one constructed in its process, which is the case a
+   per-process counter fails.
+6. **Scope validation and the parse rule.** An empty scope, a scope containing `:` and a scope
+   containing `#` are each rejected at configuration; a whitespace-only scope is accepted. A name
+   minted by a transition whose own name contains `#` and `:` splits back into transition, scope
+   and counter by the rule above.
 
-**Depends on:** [NU-010], [NU-020], [CORE-073], [VER-004]
-**Status:** Proposed
-**Implementation status:** None. All four implementations mint `<transition>#<n>` from a
-per-executor counter initialised to zero, so a resumed execution re-mints `<transition>#0`
-onward and collides with any such name in the restored marking.
-**Test derivation:** Run a ν-fork net until a token stamped `fork#0` awaits its sibling at a
-join; snapshot and restore into a fresh execution; fire the fork again and assert the new
-name differs from `fork#0` and that the join does not merge the restored token with the new
-one. Repeat the restore twice concurrently and assert the two name sets are disjoint.
+**Depends on:** [NU-010], [NU-020], [CORE-073], [TIME-015], [VER-004]
+**Implementation status:** Implemented in all four, as `<transition>#<scope>:<n>`. The default
+scope is a random 32-hex token drawn per executor — `crypto.randomUUID()` in **TypeScript** and
+`UUID.randomUUID()` in **Java**, dashes stripped; 128 bits of the platform's random state in
+**Rust**, which **Python** rides — and it is internal everywhere, so nothing was added to any
+event and the session-archive decision stays open on its own terms. The run identifier
+(`executionId` / `execution_id`) is a *different* value: it stays the reproducible per-process
+counter of [TIME-015] AC#14. A host pins the scope (`executionScope` / `execution_scope`) for the
+replay reproducibility of AC#3. Validation is the same in all four — length zero, `:` or `#` —
+and is raised as the language's argument error (`IllegalArgumentException`, `Error`, Python
+`ValueError` from both the binding and the `ExecutorOptions` wrapper); **Rust** panics, in
+`set_execution_scope` and in every builder that takes a scope, and documents the panic on each.
+**Test derivation:** Run a ν-fork net under a **pinned** scope until a token carrying a minted
+name awaits its sibling at a join; snapshot and restore into a fresh execution under a different
+pinned scope — and again under the default one; fire the fork and assert the new name differs
+from the restored one and that the join does not merge the restored token with the new one.
+Repeat the restore twice concurrently and assert the two name sets are disjoint. No test may
+depend on how many executors the process constructed before it: compare names structurally
+(transition, scope, counter) or pin the scope, and include a case in which the resuming executor
+is the first one constructed.
 
 ---
 
@@ -148,10 +228,13 @@ implementation MUST choose by this exact rule, so all languages fire identically
 2. ties broken by **name order** ([NU-001]).
 
 > The name-order tie-break is byte-identical across implementations for **BMP**
-> names (which covers every executor-minted name, `"{transition}#{n}"`). For
-> supplementary-plane code points in a user-supplied key, Rust's code-point order
-> can differ from the Java/TypeScript UTF-16 code-unit order; [NU-001] requires
-> only per-implementation consistency, which holds.
+> names. An executor-minted name is `"{transition}#{scope}:{n}"` ([NU-011]): its
+> default scope and its counter are ASCII, so it is BMP exactly when the
+> transition name — and the scope, where a host pinned one — is. Both of those
+> are host text and fall under the same caveat as a user-supplied key: for
+> supplementary-plane code points, Rust's code-point order can differ from the
+> Java/TypeScript UTF-16 code-unit order; [NU-001] requires only
+> per-implementation consistency, which holds.
 
 **Acceptance Criteria:**
 1. A join correlates by name, not arrival order: with branch A = [X@t0, Y@t1] and
@@ -213,8 +296,10 @@ acceleration of it MUST return byte-identical results to the reference function.
    implementation selects the same `NameId`.
 2. An incremental matcher returns the same `NameId` as the reference
    `selectMatchName` for any sequence of add/consume operations.
-3. `NameId` ordering is byte-identical for ASCII/BMP names (all executor-minted
-   names are ASCII); supplementary-plane code points MAY order differently per
+3. `NameId` ordering is byte-identical for ASCII/BMP names (an executor-minted
+   name is one whenever its transition name and any host-pinned scope are — the
+   default scope and the counter are ASCII; [NU-011]); supplementary-plane code
+   points MAY order differently per
    [NU-001] (UTF-8 byte order vs UTF-16 code-unit order).
 
 **Depends on:** [NU-020], [NU-001]

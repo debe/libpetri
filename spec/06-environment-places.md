@@ -196,8 +196,10 @@ it neither stops nor pauses execution. The request is serviced within one orches
 the returned marking is an owned, independent copy. This backs observation and checkpoint-saver
 patterns (e.g. periodic external persistence of the marking) without interrupting the run.
 
-**Observation is not a restore point.** A marking taken while any action is in flight is a valid
-*observation* but is **not** sufficient to resume from, for two reasons of different severity:
+**Observation is not a restore point.** A marking taken while any work is in flight is a valid
+*observation* but is **not** sufficient to resume from. **Work in flight** means either of two
+things: an **action** that has started and not completed, or an **external event the executor has
+accepted but not yet injected** ([ENV-003], [ENV-004]). Three reasons, of different severity:
 
 1. A firing whose action is in flight has already consumed its inputs ([EXEC-031], no rollback)
    and has not yet deposited its outputs. The snapshot captures neither, so those tokens are
@@ -207,14 +209,44 @@ patterns (e.g. periodic external persistence of the marking) without interruptin
    marking at all. A snapshot can therefore restore every token faithfully and still resume a net
    that has forgotten it has work outstanding. No amount of fidelity in the marking closes this;
    it is outside the marking by construction.
+3. An accepted external event is the same conservation gap from the other side. The host has
+   handed the token over — `inject()` returned, or was never going to be awaited ([TIME-015]'s
+   admission rule forbids awaiting it from inside a host wait) — and the executor has not yet
+   reached the external-events phase that places it ([EXEC-001] step 2). The token is in neither
+   the host's hands nor the marking. A host that persists such a snapshot as a restore point and
+   shuts down has lost it, and nothing in the snapshot says so.
 
 Consequently a snapshot offered as a restore point for [CORE-073] MUST be taken at a moment when
-no action is in flight. An implementation MUST make that condition visible to the caller rather
-than leaving it implicit: either by refusing a restore-point snapshot while work is in flight, by
-reporting alongside the returned marking whether it was taken with zero in-flight actions, or by
-offering a mode that defers servicing until the executor next reaches that state. Which of the
-three is an implementation choice; silently returning a marking the caller cannot tell is
-unusable for restore is not.
+no work is in flight — no action, and no accepted external event still awaiting injection. An
+implementation MUST make that condition visible to the caller rather than leaving it implicit:
+either by refusing a restore-point snapshot while work is in flight, by reporting alongside the
+returned marking whether it was taken with none, or by offering a mode that defers servicing
+until the executor next reaches that state. Which of the three is an implementation choice;
+silently returning a marking the caller cannot tell is unusable for restore is not. Whichever is
+chosen MUST cover **both** kinds of work and MUST be decided at the same instant the marking is
+captured: an indication computed from the actions alone reports a restore point across exactly
+the gap in (3).
+
+**Two conforming shapes for the pending-event half.** An implementation whose `snapshot()` reads
+the marking without passing through the orchestrator's event queue MUST fold "an accepted event
+is still queued" into its indication. An implementation whose snapshot request travels the *same
+ordered channel* as injections serves every injection accepted before it first, so at the moment
+the marking is captured no earlier-accepted event can still be pending: it conforms by
+construction, with the token **in** the marking rather than flagged. The two differ in what the
+snapshot contains and agree on the property that matters — a token the executor has accepted is
+never absent from a snapshot that reports itself a restore point.
+
+**A snapshot requested from inside an action is a snapshot with work in flight.** The firing that
+is running the caller has consumed its inputs and not deposited its outputs, which is reason (1)
+exactly. A firing therefore counts as in flight **from the moment its inputs are consumed** — not
+from the moment its action first suspends — so the window covers the action's synchronous prefix
+and any event-store callback the firing triggers, and the indication MUST report work in flight
+throughout it. Where actions are invoked inline on the orchestrator's own thread, such a request
+additionally cannot be queued for the orchestrator to service, because the orchestrator *is* the
+caller and would park waiting for itself — with no error, no timeout and nothing to indicate what
+happened, the same self-deadlock [TIME-015] describes for an awaited `inject()`. An
+implementation with that shape MUST detect the case and capture directly on the calling thread,
+after whatever synchronisation of internal token storage any other marking read performs.
 
 **Acceptance Criteria:**
 1. `snapshot()` may be called at any time while the executor is running.
@@ -227,23 +259,64 @@ unusable for restore is not.
 6. A net whose only marked place feeds a transition with an in-flight action yields a snapshot in
    which those consumed tokens are absent, and the caller can determine that the snapshot is not
    a valid restore point.
+7. **An accepted event is never silently absent.** A snapshot requested after an external event
+   has been accepted and before it has been injected either contains that event's token or is
+   distinguishable as not a valid restore point. It never omits the token while reporting one.
+8. **From inside an action.** `snapshot()` requested by a running action — from its synchronous
+   prefix as well as after it has suspended — does not park the orchestrator against itself. Its
+   result is either distinguishable as not a valid restore point, or **deferred until that firing
+   has settled**, in which case it describes the settled instant — outputs deposited, no token
+   missing — and may truthfully be a restore point. What it MUST NOT be is a result that omits the
+   firing's consumed inputs *and* reports a restore point. An implementation that defers MUST NOT
+   be blocked on from the orchestrator's own thread of control, since the reply cannot arrive until
+   the action returns.
 
-**Depends on:** [ENV-010], [EXEC-031], [EXEC-040], [CORE-073]
-**Status:** Proposed
-**Implementation status:** AC1–AC4 only. Rust (`ExecutorSignal::Snapshot` +
-`ExecutorHandle::snapshot`) and Python (`ExecutorHandle.snapshot`) implement the snapshot itself;
-Java/TypeScript pending. **AC5 and AC6 are unmet everywhere**, including in Rust and Python: neither
-refuses a snapshot taken with work in flight, reports the in-flight condition alongside the returned
-marking, nor defers until quiescence — the caller cannot tell a restore-safe snapshot from an
-unusable one. Both implementations' documentation currently recommends this operation for
-checkpoint-saver patterns, which is precisely the use AC5 exists to qualify. Until that is fixed,
-treat the snapshot as an **observation** only. This requirement has no test citation in any
-language.
+**Depends on:** [ENV-003], [ENV-004], [ENV-010], [EXEC-001], [EXEC-031], [EXEC-040], [CORE-073],
+[TIME-015]
+**Implementation status:** AC1–AC8 in all four. `snapshot()` returns a result carrying the marking
+**and** an in-flight indication, read in the same operation that captures the marking — a
+separately-queryable flag would be read at a different instant, which is the race AC5 closes. The
+field keeps its name (`actionInFlight` / `action_in_flight`) and means **work in flight: an action,
+or an accepted but un-injected external event**. **TypeScript** and **Java** read the marking
+outside the event queue, so they OR a pending-external-queue check into the flag at the instant
+of capture; **TypeScript** counts a firing as in flight from consumption, and **Java**, whose
+actions run inline, captures directly when called on the orchestrator thread (the precompiled
+executor synchronising its ring buffers first, as its `marking()` does) and reports the flag
+true. A Java request from a *foreign* thread waits for the orchestrator to serve it, bounded by a
+2 s best-effort cap so a caller is never parked behind a blocking inline action; a request that
+was **not served** within the cap returns the last published marking with the flag **forced
+true**, whatever flag that older marking was published with — since then an accepted event may
+have been injected and consumed by the very firing that is blocking, so an unserved request is
+never a restore point (AC7). Both Java executors compute the published flag with one shared
+expression, and an event that will be *refused* — queued behind a run that has already
+terminated or closed, so `inject` answers `false` and the host keeps the token — was never
+accepted and does not count. **Rust** and **Python** need neither: injections and the snapshot request share one FIFO
+channel, so every earlier injection is already in the marking when the snapshot is served, and a
+request is a non-blocking send whose reply arrives from the orchestrator's next cycle — an
+**asynchronous** action that awaits it is, correctly, reported in flight, from its first statement
+as well as after it has suspended (in Python the awaitable binds to the loop `start_async` /
+`run_async` captured, since an action's thread has no running loop). As with `inject()` under
+[TIME-015], that reply MUST NOT be *blocked on* from the orchestrator's own thread of control,
+and there are two such places: an `ExecutorClock` wait, and a **synchronous** action under
+`run_async` / `start_async`, which runs inline in the orchestrator loop. Such an action may send
+the request, but the orchestrator cannot serve it until the action returns, so blocking on the
+reply hangs the run; and the reply, once it comes, describes the instant *after* that firing
+settled — outputs deposited, no token missing, and therefore possibly a restore point. That is
+AC8's deferred arm: in Rust and Python an asynchronous action gets the flagged result, and an
+inline synchronous one gets the deferred one. Under `run_sync` there is no signal channel and the
+case does not arise.
+
 **Test derivation:** Start a long-running net; call `snapshot()` mid-execution; verify the returned
 marking reflects current state and the executor continues; call after `close()` and verify rejection.
 For AC5/AC6, gate a transition's action open, snapshot while it is in flight, and assert the caller
 can tell the result apart from a snapshot taken at quiescence — then release the gate, snapshot
-again at quiescence, and assert that one restores to an equivalent marking per [CORE-073].
+again at quiescence, and assert that one restores to an equivalent marking per [CORE-073]. For
+AC7, inject without awaiting admission and snapshot in the same turn; assert the token is present
+or the result is flagged, on every executor. Where a foreign caller's wait for the orchestrator
+is bounded, also hold an inline action past that bound with an accepted event already consumed by
+it, and assert the unserved result is flagged. For AC8, call `snapshot()` from an action's first
+synchronous statement and assert it returns flagged; bound the test by the call returning, not by
+patience, since the failure mode is a self-deadlock.
 
 ---
 

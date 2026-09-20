@@ -304,7 +304,26 @@ both cases. A cancellation the executor observes *itself*, raised while it waits
 **Depends on:** [EXEC-040], [ENV-013]
 **Implementation status:** AC1–AC2 implemented everywhere. AC3–AC5 are new: **Java** implemented
 (a queryable termination reason; a `WARN` log message accompanies it only where the stop was not
-caller-requested, per [EVT-013] AC5).
+caller-requested, per [EVT-013] AC5). For AC4/AC5 Java does not merely avoid *reading* the
+interrupt flag as a loop condition — that alone is not enough, because every blocking wait on the
+platform throws at once when entered with the flag already set, so an ambient flag truncates the
+run at its first wait instead of its first cycle. Both executors therefore **clear and remember**
+the flag before every wait (the [TIME-015] host wait included) and after each inline action
+returns, and **restore** it when `run()` returns. Only an interrupt that arrives during a wait
+that was *entered with the flag clear* ends the run, as `INTERRUPTED`. A built-in wait reports
+that by throwing. The [TIME-015] hosted wait (`ExecutionEnvironment.awaitWork`) cannot throw, so
+there the executor reads the flag when the wait returns: **set on return from a wait entered
+clear is the same event**, and ends the run `INTERRUPTED` the same way, with the same `WARN` and
+the flag handed back when `run()` returns — otherwise an executor under an injected clock could
+not be interrupted at all. The host's half of that contract is to let the flag survive its wait
+(catch the exception, re-interrupt, return); a host that swallows the interrupt makes the run
+uninterruptible while it waits. The consequences are documented rather than hidden: an external
+interrupt that lands while an inline action is executing is indistinguishable from one the action
+set itself, so it does not stop the run; it is deferred, and reappears on the thread when `run()`
+returns. Inside the hosted wait the same ambiguity is resolved the other way — anything the host
+runs on the orchestrator thread within `awaitWork` that sets the flag is indistinguishable from
+an external interrupt, and ends the run — because an action is the run's own code and a wait is
+not.
 **TypeScript** partial — an expired run budget raises, which satisfies AC3 for that case, but a
 `close()`-terminated run returns its marking indistinguishably from a quiesced one. **Rust** and
 **Python** pending — no termination reason is exposed. AC4/AC5 are vacuous where the runtime exposes no
@@ -318,6 +337,11 @@ consult).
 AC4, set the host's cancellation flag immediately before `run()` and assert the net still executes
 to quiescence. For AC5, have an action set that flag mid-run and assert every downstream transition
 still fires. For AC3, stop a run early and assert the caller can tell it apart from a quiesced one.
+The AC4 and AC5 nets MUST actually reach a wait — an asynchronous action, a delayed transition —
+because an all-synchronous chain never enters one and passes whether or not the flag is handled.
+To test that a *real* cancellation still stops the run, raise it from a foreign thread while the
+orchestrator is parked in the wait, not from an action — and do so under a host-supplied wait
+([TIME-015]) as well as the built-in one, since the two report the interrupt differently.
 
 ---
 

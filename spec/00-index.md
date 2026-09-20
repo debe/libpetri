@@ -24,6 +24,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 - **Verifiable**: Every requirement has acceptance criteria that can be tested.
 - **Traceable**: Requirements use `[PREFIX-NNN]` cross-references.
 - **Implementation notes** appear only where runtime behavior necessarily diverges (e.g., bitmap word size: 64-bit in Java, 32-bit in TypeScript/Rust).
+- **Status lines**: an accepted requirement carries **no** `Status` line. `**Status:** Proposed` marks a requirement that at least one implementation it targets has not built yet — its `Implementation status` line says which — and the line is deleted when the last one lands. `**Status:** Removed` marks a tombstone. A requirement reading "Proposed" directly above "implemented in all four" is a stale line, not a third state.
 
 ---
 
@@ -113,7 +114,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | CORE-070 | Marking State | MUST | — |
 | CORE-071 | Marking Thread Safety | MUST | — |
 | CORE-072 | Initial Marking | MUST | EVT-013 |
-| CORE-073 | Marking Snapshot and Restore | SHOULD | CORE-010, CORE-011, CORE-072, TIME-010, TIME-011, EVT-009, IO-013, VER-004, VER-010 |
+| CORE-073 | Marking Snapshot and Restore | MUST | CORE-010, CORE-011, CORE-013, CORE-072, TIME-010, TIME-011, TIME-015, EVT-009, IO-013, MOD-024, VER-004, VER-010, VER-013 |
 
 ### ENV — Environment Places
 | ID | Title | Priority | Depends On |
@@ -128,7 +129,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | ENV-011 | Graceful Drain | MUST | ENV-010 |
 | ENV-012 | Event-Driven Workflow Pattern | SHOULD | ENV-001, 002, 010 |
 | ENV-013 | Immediate Close | MUST | ENV-010 |
-| ENV-014 | Mid-Execution Marking Snapshot | SHOULD | ENV-010, EXEC-031, EXEC-040, CORE-073 |
+| ENV-014 | Mid-Execution Marking Snapshot | SHOULD | ENV-003, ENV-004, ENV-010, EXEC-001, EXEC-031, EXEC-040, CORE-073, TIME-015 |
 | ENV-015 | Immediate Termination | MAY | ENV-013 |
 | ENV-016 | Observable Termination | MAY | ENV-013 |
 
@@ -148,7 +149,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | EVT-011 | TokenAdded Event | MUST | — |
 | EVT-012 | TokenRemoved Event | MUST | — |
 | EVT-013 | LogMessage Event | SHOULD | CORE-072, ENV-012, ENV-013, EXEC-041 |
-| EVT-014 | MarkingSnapshot Event | SHOULD | — |
+| EVT-014 | MarkingSnapshot Event | SHOULD | CORE-073 |
 | EVT-020 | EventStore Interface | MUST | — |
 | EVT-021 | InMemoryEventStore | MUST | — |
 | EVT-022 | NoopEventStore | MUST | — |
@@ -253,7 +254,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 |----|-------|----------|------------|
 | NU-001 | Name Identity | MUST | CORE-010 |
 | NU-010 | Fresh-Name Minting | MUST | CORE-050, IO-011 |
-| NU-011 | Resume-Safe Fresh-Name Minting | MUST | NU-010, NU-020, CORE-073, VER-004 |
+| NU-011 | Resume-Safe Fresh-Name Minting | MUST | NU-010, NU-020, CORE-073, TIME-015, VER-004 |
 | NU-020 | Match Specification | MUST | IO-001, IO-005, CORE-022, CORE-013 |
 | NU-021 | Match as the Sole Per-Token Filter | MUST | NU-020, IO-006 |
 | NU-022 | Deterministic Match Selection | MUST | NU-020, NU-001 |
@@ -329,8 +330,8 @@ This specification defines the **observable contract** of the Coloured Time Petr
 
 | Priority | Count | Description |
 |----------|-------|-------------|
-| MUST     | 142   | Core contract; all implementations must conform |
-| SHOULD   | 61    | Recommended; implementations should include unless technically infeasible |
+| MUST     | 143   | Core contract; all implementations must conform |
+| SHOULD   | 60    | Recommended; implementations should include unless technically infeasible |
 | MAY      | 16    | Optional; implementations may include |
 | **Total** | **219** | Matches the active-requirement total above; tombstones (IO-006, EXEC-011) excluded |
 
@@ -366,15 +367,18 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Inline sync execution | Avoid task dispatch | — | — | ✓ (try_run_inline) |
 | Modular composition | Open-net subnets, instantiation, port composition, fusion ([MOD-001]..[MOD-024]) | ✓ | ✓ | ✓ |
 | ν-net correlated fork/join | Fresh-name minting + join by name equality | ✓ | ✓ | ✓ |
+| Marking snapshot / restore | One normative snapshot form; mid-run `snapshot()` reports work in flight; resume-safe minting ([CORE-073], [ENV-014], [NU-011]) | ✓ (both executors; restore resolves names against the net, [MOD-024]) | ✓ (both executors) | ✓ (both backends) |
+| Injectable clock | Host-supplied firing clock, epoch clock and wait ([TIME-015]) | ✓ (`ExecutionEnvironment`) | ✓ (`Clock`) | ✓ (`ExecutorClock`; no Python seam, by design) |
+| MarkingSnapshot event producer | Emitted at start and before completion, canonical place order ([EVT-014]) | ✓ | ✓ | — (event declared and consumed, never emitted) |
 
 \* Rust uses 64-bit words matching Java.
 
 **Python** (`libpetri-py`) binds the Rust crate rather than re-implementing the engine, so it
 inherits the Rust column above instead of forming its own, and its session archives are
-wire-compatible with Rust's. A few SHOULD capabilities currently land Rust/Python-first —
-mid-execution snapshot ([ENV-014]), marking snapshot/restore ([CORE-073]), live event
-subscriptions ([EVT-031]), and the marking replay cache ([EVT-032]); their per-language status is
-tracked in those requirements.
+wire-compatible with Rust's. Live event subscriptions ([EVT-031]) are a SHOULD capability that currently
+lands Rust/Python-first; its per-language status is tracked in that requirement. The marking replay
+cache ([EVT-032]) began that way and is now in all four. Marking snapshot/restore ([CORE-073]) and the
+mid-execution snapshot ([ENV-014]) began that way and are now in all four.
 
 **Executor-hardening divergence (Java-first).** A 2026 hardening pass landed several
 robustness fixes in Java ahead of the other implementations: a synchronous action throw fails
@@ -436,23 +440,24 @@ The Rust column doubles as Python's: `libpetri-py` binds the same engine, so a `
 | CORE-050–054 | `TransitionActionTest` | `transition-action.test.ts` | `context::tests` |
 | CORE-060–064 | `TransitionContextTest` | `transition-context.test.ts` | `context::tests` |
 | CORE-070–072 | `MarkingTest`, `BackendDivergenceRegressionTest` | `marking.test.ts`, `executor-shared-semantics.test.ts` | `marking::tests`, `backend_suite_tests`; Python `test_backend_divergences.py` |
-| CORE-073 | — | — | `executor_handle::tests`; Python `test_marking_snapshot.py` (Rust/Python-first) |
+| CORE-073 | `MarkingSnapshotTest` (the form), `AbstractExecutorSnapshotTest` (`BitmapExecutorSnapshotTest`, `PrecompiledExecutorSnapshotTest`; restore through the builder, AC9–AC11, and the [CORE-072] warning on a restored seed) | `snapshot-restore.test.ts > CORE-073 — marking snapshot and restore`, `> CORE-073 AC#12 — the reference and production executors snapshot key for key` (both executors) | `tests/core073_snapshot_restore.rs` (Bitmap, Precompiled and Owned; incl. `an_undeclared_place_in_a_restored_seed_is_warned_about_once`); Python `test_marking_snapshot.py` |
 | IO-001–005, IO-007 | `InTest` | `in.test.ts` | `input::tests` |
 | IO-010–013, IO-016–017 | `OutTest` | `out.test.ts` | `output::tests` |
 | IO-014 (ForwardInput multiplicity) | `AbstractNetExecutorEngineTest#outTimeout_forwardInput_all_forwardsEveryConsumedToken`, `#outTimeout_forwardInput_exactly_forwardsEveryConsumedToken` | `executor-support.test.ts > forwards every consumed input value, in consumption order` | `output::tests` (always forwarded all) |
 | IO-015 (incl. exact-explanation search) | `ExecutorSupportOutSpecTest`, `AbstractNetExecutorEngineTest` (out-violation cases), `BitmapNetExecutorAsyncOutputTest` | `executor-support.test.ts` (`validateOutSpec`) | `backend_suite_tests::xor_output_both_branches_violates`, `xor_output_no_branch_violates`, `and_output_partial_violates`, `single_place_output_missing_violates`, `conforming_output_still_succeeds`, `xor_subsuming_branch_is_accepted` (both backends) |
 | TIME-001–006 | `TimingTest` | `timing.test.ts` | `timing::tests` |
 | TIME-010–014 | `AbstractNetExecutorEngineTest.TimingTests`, `DeadlineToleranceTest` | `executor-timing.test.ts` | — |
+| TIME-015 | `AbstractInjectableClockTest` (`BitmapInjectableClockTest`, `PrecompiledInjectableClockTest`), `ExecutionIdTest`; the hosted wait's interrupt rule in `AbstractTerminationReasonTest#anInterruptDuringAHostedWaitEndsTheRunInterrupted_TIME015` | `injectable-clock.test.ts > TIME-015 — injectable clock` (both executors; AC5's per-wait signal included) | `tests/time015_injectable_clock.rs` (both backends; `async_path::repeated_idle_waits_retain_no_wait_future_or_waker` for the abandoned wait; Python exposes no seam) |
 | TIME-012 (intermediate marking) | `AbstractNetExecutorEngineTest.TimingTests` (`consumeAndRedeposit*`, `surplusTokenShouldKeepTimedTransitionClock`, `exactlyTwoInputShouldRestartClockOnlyBelowTwoTokens`, `samePassRefreshesShouldKeepTimedTransitionClock`) | `bitmap-net-executor.test.ts`, `precompiled-net-executor.test.ts > Intermediate Marking Clock Restart Tests` (6 cases each) | `backend_suite_tests::clock_restarts_on_conserved_input_refresh`, `clock_restarts_for_read_arc_dependent`, `clock_restarts_on_reset_arc_refresh`, `clock_persists_with_surplus_token`, `clock_persists_at_cardinality_threshold`, `clock_restarts_below_cardinality_threshold`, `clock_persists_across_same_pass_refills`, `nu_join_clock_persists_across_same_pass_refills`, `sync_refresh_restarts_clock_*`, `async_refresh_restarts_clock_*`; Python `test_timing.py` (`*_restarts_timed_transition_clock`, surplus) |
-| EXEC-001–003 | `AbstractNetExecutorEngineTest`, `BackendDivergenceRegressionTest` | `bitmap-net-executor.test.ts`, `executor-shared-semantics.test.ts` | `executor::tests`, `backend_suite_tests::scheduling_order` (covers Python; no binding-level test) |
-| EXEC-010, 012–013 | `AbstractNetExecutorEngineTest`, `BackendDivergenceRegressionTest` | `bitmap-net-executor.test.ts`, `executor-shared-semantics.test.ts` | `executor::tests`, `backend_suite_tests` |
-| EXEC-020–022 | `AbstractNetExecutorEngineTest.CompletionWakeupTests`, `ActionTimeoutCompositionTest` | `executor-support.test.ts` | `executor::tests` |
+| EXEC-001–003 | `AbstractNetExecutorEngineTest`, `BackendDivergenceRegressionTest` | `bitmap-net-executor.test.ts`, `executor-shared-semantics.test.ts` | `executor::async_tests`, `backend_suite_tests::scheduling_order` (covers Python; no binding-level test) |
+| EXEC-010, 012–013 | `AbstractNetExecutorEngineTest`, `BackendDivergenceRegressionTest` | `bitmap-net-executor.test.ts`, `executor-shared-semantics.test.ts` | `executor::async_tests`, `backend_suite_tests` |
+| EXEC-020–022 | `AbstractNetExecutorEngineTest.CompletionWakeupTests`, `ActionTimeoutCompositionTest` | `executor-support.test.ts` | `executor::async_tests` |
 | EXEC-030–031 | `AbstractNetExecutorEngineTest.FailureBoundaryTests`, `.FailureAndErrorHandlingTests` | `executor-failure.test.ts` | — |
-| EXEC-040–041 | `BitmapNetExecutorTest.EventStoreTests`, `AbstractNetExecutorEngineTest.EventImmutabilityTests` | `bitmap-net-executor.test.ts` | `executor::tests` |
+| EXEC-040–041 | `BitmapNetExecutorTest.EventStoreTests`, `AbstractNetExecutorEngineTest.EventImmutabilityTests`, `AbstractTerminationReasonTest` (`BitmapTerminationReasonTest`, `PrecompiledTerminationReasonTest`; EXEC-041 AC3–AC5, on a net that waits, under the built-in and the hosted wait) | `bitmap-net-executor.test.ts` | `executor::async_tests`, `backend_suite_tests` (EXEC-040 and EXEC-041 AC1–AC2; no termination reason is exposed) |
 | CONC-004–008 | `BitmapNetExecutorTest` | `compiled-net.test.ts` | `compiled_net::tests`, `bitmap::tests` |
 | ENV-001–006 | `EnvironmentPlaceTest` | `environment.test.ts` | `injector::tests` |
 | ENV-010–013 | `EnvironmentPlaceTest` | `environment.test.ts` | `environment::tests` |
-| ENV-014 | — | — | `executor_handle::tests`; Python `test_marking_snapshot.py` (Rust/Python-first) |
+| ENV-014 | `AbstractExecutorSnapshotTest` (`BitmapExecutorSnapshotTest`, `PrecompiledExecutorSnapshotTest`; AC1–AC8, incl. the unserved request of AC7), `ExecutorSupportWorkInFlightTest` (the one published-flag expression) | `snapshot-restore.test.ts > ENV-014 — mid-execution snapshot` (both executors; `isRestorePoint` included) | `executor_handle::tests`, `tests/core073_snapshot_restore.rs` (AC7; AC8 as `a_snapshot_awaited_from_inside_an_action_returns_and_is_flagged` and, for the inline sync action, `a_snapshot_requested_by_an_inline_sync_action_is_served_only_after_it_returns`); Python `test_marking_snapshot.py` (the same two, plus `test_a_snapshot_result_is_not_an_initial_marking`) |
 | ENV-015–016 | `AbstractNetExecutorEnvironmentTest` (Java-first) | — | — |
 | VER-001–006 | `SmtVerifierTest` | `smt-verifier.test.ts` | `structural_check::tests`, `p_invariant::tests` |
 | VER-007 | `SemiflowInvariantsTest` (incl. `semiflowsReachTheColouredEncoder`, AC6) | `smt-verifier.test.ts` (semiflow invariants, incl. the coloured encoder) | `smt_verifier::tests` (semiflow invariants, incl. `semiflows_reach_the_coloured_encoder`); Python `test_smt_verification.py` |
@@ -472,6 +477,7 @@ The Rust column doubles as Python's: `libpetri-py` binds the same engine, so a `
 | VER-013 | `StubZ3Test`, `Z3BinaryGateTest`, `SmtScriptGoldenTest`, `SmtScriptParityTest` | `stub-z3.test.ts`, `z3-gate.test.ts`, `smt-script-golden.test.ts`, `smt-script-parity.test.ts` | `tests/stub_z3.rs`, `tests/z3_gate.rs`, `tests/smt_script_parity.rs`, `z3_process::tests`; Python `test_z3_gate.py`, `test_smt_script_parity.py` |
 | VER-013 AC7 (code-point name order) | `CodePointOrderTest` | `core/internal/code-point-order.test.ts` | `marking_state::tests`, `open_net::report::tests` |
 | EVT-001–014 | `NetEventTest` | `net-event.test.ts` | `net_event::tests` |
+| EVT-014 (AC4 order on the event; AC5 reproducible rendering) | `AbstractNetExecutorEngineTest.MarkingSnapshotTests`, `MarkingSnapshotTest#theMarkingSnapshotEventCanonicalisesOrderToo_AC12_EVT014` | `snapshot-restore.test.ts > EVT-014 AC#4 / CORE-073 AC#12 on the event path — canonical order where a snapshot is rendered` (both executors) | AC5 only — no producer, so AC1–AC4 are covered nowhere: `debug_response::tests::marking_bearing_frames_render_places_in_ascending_order`, `marking_cache::tests::computed_state_is_ordered_independently_of_the_process`, `debug_session_registry::tests::net_structure_lists_places_in_ascending_name_order`, `archive::session_archive::tests::header_tags_render_in_ascending_key_order` |
 | EVT-020–024 | `EventStoreTest` | `event-store.test.ts` | `event_store::tests` |
 | EVT-025 | `SessionArchiveWriterConsistencyTest`, `SessionArchiveV3Test` | `session-archive-writer-consistency.test.ts`, `session-archive-v3.test.ts` | `session_archive_reader::tests` |
 | EVT-031 | — | — | Python `test_subscribe_stream.py` (Rust/Python-first) |
@@ -509,6 +515,7 @@ The Rust column doubles as Python's: `libpetri-py` binds the same engine, so a `
 | MOD-060 | `FusionSetTest#fusionSet_firstMemberIsCanonical`, `fusionSet_typeHomogeneity_enforced`, `fusionSet_emptySet_throws`, `fusionSet_of_factoryConvenience` | `fusion-set.test.ts > firstMemberIsCanonical`, `> emptySet_throws`, `> singleMember_isValid`, `> of_factoryConvenience` | `fusion::tests::fusion_set_first_member_is_canonical`, `fusion_set_empty_panics`, `fusion_set_single_member_is_valid`, `fusion_set_of_factory` |
 | MOD-061 | `FusionTest#fuse_substitutesNonCanonicalInArcs`, `fuse_chained_threeBucketsShareLimiter`, `fuse_runsAfterCompose`, `fuse_andCompose_orthogonality` | `fusion.test.ts > fuse_substitutesNonCanonicalInArcs`, `> fuse_chained_threeBucketsShareLimiter`, `> fuse_runsAfterCompose`, `> fuse_andCompose_orthogonality` | `fusion::fuse_substitutes_non_canonical_in_arcs`, `fuse_chained_three_buckets_share_limiter`, `fuse_runs_after_compose`, `fuse_and_compose_orthogonality` |
 | NU-001–060 | `AbstractNetExecutorEngineTest#nuJoin_matchesByName_notFifo`, `nuJoin_blocksWithoutMatchingName`, `nuFork_mintsUniqueIds_thenJoinMerges` (both executors) | `nu-net.test.ts > join matches by name, not FIFO` (+ siblings, both executors) | `backend_suite_tests::nu_join_matches_by_name_not_fifo`, `nu_join_blocks_without_matching_name`, `nu_fork_mints_unique_ids_then_join_merges` (both backends); Python `test_nu_net.py` |
+| NU-011 (resume; the NU-001–060 row covers the rest) | `AbstractResumeSafeMintingTest` (`BitmapResumeSafeMintingTest`, `PrecompiledResumeSafeMintingTest`) | `snapshot-restore.test.ts > NU-011 — resume-safe fresh-name minting` (both executors) | `tests/core073_snapshot_restore.rs` (Bitmap, Precompiled and Owned); Python `test_marking_snapshot.py` |
 | NU-052 | `NuScgPriorityTest` | `name-scg-priority.test.ts` | `nu_scg_verifier::tests` (priority); Python `test_nu_verification.py` |
 | NU-053 | `SmtVerifierTest` (Route A quiescence) | `smt-verifier.test.ts` (Route A quiescence) | `name_coloured_encoder::tests`, `smt_verifier::tests` (nu053); Python `test_nu_verification.py` |
 

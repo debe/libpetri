@@ -259,12 +259,46 @@ Emitted at specific points during execution to capture the full marking state. C
 - Timestamp
 - Map of place name → list of tokens
 
+A marking snapshot carried on this event is the snapshot form of [CORE-073], and [CORE-073]'s
+canonical place-order rule applies to it: where an implementation emits this event, the places of
+the marking it carries MUST appear in ascending code-point order of the place name. The event is
+an ordered, in-process value, so the order is both meetable and observable there, and it is one
+of the two places a host takes a snapshot from.
+
+The order is **not** promised past the event. A JSON session archive ([EVT-025]) and the JSON
+debug protocol are unordered media, and code-point order is deliberately not required of them.
+What is required of any rendering of this event — those two included — is **reproducibility
+across runs of the same implementation**: two runs over identical data MUST produce identical
+output, so a rendering MUST NOT pass the marking through a container whose iteration order is
+randomised per process ([CORE-073]).
+
+Emitting this event MUST NOT fail the run. In particular the refusal [CORE-073] requires for two
+same-named places belongs to the host-facing snapshot and restore operations, not to this event.
+
 **Acceptance Criteria:**
 1. Emitted at least at execution start (initial marking) and before execution completion.
 2. Snapshot is a deep defensive copy (not a live reference).
 3. Only non-empty places are included.
+4. The places of the marking carried on the event appear in ascending code-point order of the
+   place name ([CORE-073] AC12), on every executor, including for a place name above U+FFFF.
+5. Rendering the same event stream twice with one implementation — into an archive or onto the
+   debug protocol — yields identical output.
+
+**Depends on:** [CORE-073]
+**Implementation status:** **Java** and **TypeScript** emit the event at start and before
+completion, on both executors, in canonical order. **Rust** — and **Python**, which rides it —
+declares the event and consumes it (debug converter, marking cache, archive metadata) but has **no
+producer**: no executor emits it, so AC1–AC4 are unmet there and a test that constructs the event
+by hand is not coverage of them. AC5 holds in all four. Rust's tests cite this requirement for
+AC5 alone — the `libpetri-debug` rendering-order tests over debug frames, the marking cache, the
+net structure and archive headers, each of which failed on the per-process-randomised map they
+replaced. A converter-level test of event-to-JSON order would prove nothing (`serde_json`'s map is
+ordered unless `preserve_order` is enabled, and it is not), so there is deliberately none.
 
 **Test derivation:** Run net; verify MarkingSnapshot at start and end; verify snapshot accuracy.
+For AC4, run a net whose place names include one above U+FFFF and one in U+E000–U+FFFF and assert
+the order on the emitted event. For AC5, render one recorded stream twice — in two processes where
+the implementation's default map is randomised per process — and compare the output.
 
 ---
 
@@ -405,6 +439,25 @@ content, not wire layout.
   when the token's inner `T` is registered, else falls back to
   `{"type": <type_name>, "text": <Debug repr>}` — parallel to Java's `{valueType, text}`
   shape.
+
+**Key order in an archive is not guaranteed, and [CORE-073]'s canonical order does not reach it.**
+A JSON object is an *unordered* collection by definition, so an archive that renders a marking as
+one carries no order regardless of what the producer did. Some implementations preserve insertion
+order incidentally; JavaScript cannot, because it orders integer-like keys numerically ahead of
+every other key whatever the insertion order — a net with a place named `2` reorders itself. The
+JSON debug protocol is the same medium and is bound the same way.
+
+This is a bound on the medium, not a defect to fix: canonical order is guaranteed **on the snapshot
+form and on the event** ([CORE-073], [EVT-014]), which is where a host that hashes, diffs or
+content-addresses should take it. A host needing a byte-stable archive artefact *across
+implementations* MUST canonicalise at its own serialization boundary rather than relying on the
+object's key order.
+
+What the medium does not excuse is **irreproducibility**. An archive written twice by the same
+implementation from identical run data MUST NOT differ ([CORE-073], [EVT-014] AC5). JavaScript's
+numeric-first key order is arbitrary but fixed, so it satisfies this; a marking copied through a
+per-process-randomised map does not, and an implementation MUST NOT put one on the path to the
+archive or the debug protocol. This asks for no change of archive format.
 
 **Acceptance Criteria:**
 1. Each language's v3-capable writer defaults to emitting v3; `writeV1` / `writeV2` still
@@ -554,8 +607,8 @@ from the nearest periodically-cached snapshot rather than from the start of the 
    payloads (events carry type + structured metadata, not live objects).
 
 **Depends on:** [EVT-021], [CONC-025]
-**Status:** Proposed
-**Implementation status:** Rust (`libpetri-debug::MarkingCache`) and Python (`MarkingCache`,
-`ComputedState`) implemented; Java/TypeScript pending.
+**Implementation status:** Implemented in all four: Rust (`libpetri-debug::MarkingCache`), Python
+(`MarkingCache`, `ComputedState`), Java (`org.libpetri.debug.MarkingCache.computeAt`) and
+TypeScript (`MarkingCache.computeAt` in `libpetri/debug`).
 **Test derivation:** Record a multi-firing run; `compute_at` at 0, an intermediate index, the end,
 and beyond-end; verify clamping and snapshot reuse.

@@ -304,9 +304,22 @@ and each is silent when violated:
 3. **Spurious completion permitted.** The wait MAY complete early and for no reason. The
    executor MUST re-check its boundary conditions and MUST NOT treat "the wait completed" as
    "the boundary is reached".
-4. **Abort completes, not fails.** When the executor is shutting down ([ENV-013]) the wait
-   MUST complete normally rather than failing. Shutdown is precisely the path on which a
-   failing wait is most likely to escape unobserved.
+4. **Abort completes, not fails.** Where the seam hands the wait an abort signal, the executor
+   raises it **when the wait is over or the executor is closing** ([ENV-013]) — not only on
+   shutdown. A wait is over as soon as the executor stops waiting on it, which is usually because
+   the *other* half of "signal or timeout" won: an action completed, an event arrived. On abort
+   the wait MUST complete normally rather than failing, and MUST release whatever it registered
+   to hear the abort. Shutdown is precisely the path on which a failing wait is most likely to
+   escape unobserved.
+
+   The signal is scoped to **one wait** because the alternative leaks. A suspended wait
+   (contract 2: an infinite interval) that loses to a wake-up is abandoned still suspended; if
+   the only signal it listens to is one that fires at close, its registration — and everything
+   the registration retains — outlives it, once per idle period, for the life of the executor.
+   A host MUST therefore not read abort as teardown: it says *this wait* is finished, and the
+   clock will be asked to wait again. An implementation whose abandoned wait is simply dropped
+   or cancelled by the runtime owes nothing here; one that hands out a listener-style signal
+   owes a per-wait one, and MUST still keep the no-clock path free of the allocation (AC#9).
 5. **Any readiness signal is time-free.** A host-visible readiness predicate the wait
    consults MUST be cheap, repeatable and side-effect free, and MUST NOT itself consult a
    clock — a time-based predicate reintroduces the real clock behind the seam.
@@ -411,6 +424,15 @@ default token constructor is non-deterministic under a host clock and unsuitable
 marking. Left undocumented the failure is invisible: a replay diverges, and the cause is a
 timestamp minted before the run began.
 
+> **Note (non-normative).** Mixed time bases are also visible to one firing decision: the
+> [NU-022] tie-break orders correlation names by their oldest token's `created_at`. Host-stamped
+> seed tokens and restored tokens ([CORE-073]) carry the stamps of whatever clock made them, and a
+> virtual epoch clock that starts near zero sorts every token the run produces ahead of all of
+> them. A host injecting an epoch clock over such a marking — a resumed execution above all —
+> should seed the clock at or above the marking's maximum `created_at`; below it, the tie-break
+> order between the pre-existing and the fresh groups is unspecified. The engine does not
+> re-stamp and the tie-break key does not change.
+
 **Scope limit: action timeouts are not virtualized.** An action timeout ([IO-013]) — the
 `timeout(after, recovery)` branch of an output spec — *is* a timing decision the net declares, but
 it is enforced by a **per-action** wait, whereas this seam owns only the executor's single
@@ -444,6 +466,11 @@ virtual instant, or one run replayed, produce the same reading and therefore the
 Such an identifier MUST be unique among executors that can be observed together, and SHOULD remain
 reproducible for a fixed clock and firing order.
 
+A run identifier is deliberately **not** the default minting scope of [NU-011]. That scope MUST
+differ between two processes that did nothing differently; a reproducible identifier is one that
+does not. The two are separate values, and an implementation MUST NOT derive either from the
+other.
+
 **Interactions.**
 
 - [TIME-013]'s deadline tolerance exists to absorb real timer and scheduling jitter. Under an
@@ -466,7 +493,9 @@ reproducible for a fixed clock and firing order.
 4. A wait that completes spuriously does not cause a transition to fire before its earliest
    bound.
 5. A wait aborted during shutdown completes rather than failing, and the executor terminates
-   per [ENV-013] with no escaping failure.
+   per [ENV-013] with no escaping failure. Where the seam carries an abort signal, a wait that
+   *loses* to a wake-up is aborted too: after many idle waits on a suspending clock, the number
+   of registrations that clock holds on the executor's signals does not grow.
 6. Under an injected clock with deadline tolerance `0`, a `Deadline` transition is reaped at
    exactly its bound.
 7. A net with a boundary already due and nothing in flight advances on the next cycle rather
@@ -514,18 +543,29 @@ reproducible for a fixed clock and firing order.
 **Depends on:** [TIME-010], [TIME-011], [TIME-013], [CORE-011], [CORE-072], [EXEC-001],
 [EXEC-002], [CONC-010], [ENV-003], [ENV-004], [ENV-005], [ENV-013], [IO-013], [MOD-010], [PERF-010], [PERF-020],
 [PERF-021]
-**Status:** Proposed — the contract is settled but the API may still move, so the seam is not yet
-frozen.
-**Implementation status:** **Java** (`ExecutionEnvironment`: `nanoTime` / `now` / `awaitWork`, both
-executors), **TypeScript** (`Clock`: `now` / `epochNow` / `sleep`, plus `systemClock()` and
-`seedToken()`, both executors) and **Rust** (`ExecutorClock`: `now_ms` / `epoch_ms` /
+**Implementation status:** The contract is settled; the host-facing API is **not yet frozen** and
+its names and signatures may still move. **Java** (`ExecutionEnvironment`: `nanoTime` / `now` /
+`awaitWork`, both executors), **TypeScript** (`Clock`: `now` / `epochNow` / `sleep`, plus
+`systemClock()` and `seedToken()`, both executors) and **Rust** (`ExecutorClock`: `now_ms` / `epoch_ms` /
 `await_work` / `await_work_async`, plus `SystemClock`, `ManualClock`, `seed_token()` and
 `ExecutorOptions::clock`, both backends) expose the seam; the default path in each reads the real
 clocks directly, with no indirection. Signatures and units differ by idiom (nanoseconds, float
-milliseconds, `Instant` versus a number); the semantics above are what is held in common. **Python**
-deliberately exposes no seam: a Python-implemented clock would put a GIL acquisition on every
-orchestrator cycle, so a Rust-side replay clock configured from Python is the intended shape if one
-is ever wanted.
+milliseconds, `Instant` versus a number); the semantics above are what is held in common. Only
+**TypeScript**'s seam carries a listener-style abort signal, so only it owes contract 4's per-wait
+scope: each wait gets its own `AbortController`, aborted when the race settles and on `close()`,
+and the no-clock fast path allocates none. Java's wait is a call that returns and Rust's a future
+that is dropped, so neither retains anything for an abandoned wait. For Rust that is checked, not
+assumed: the clock's async wait is one arm of the idle-cycle `select!`, built fresh each cycle
+and dropped in place when it loses, the executor keeps no other reference to it, and there is no
+listener list for a wait to be forgotten on; a test on both backends counts live wait futures —
+each holding the waker it was polled with — across repeated idle cycles and finds none surviving
+into the next. **Java**'s `awaitWork` cannot throw `InterruptedException`, so its interrupt
+contract is on the flag ([EXEC-041]): the executor calls it with the flag clear and reads the
+flag when it returns, a host that blocks interruptibly catches, re-interrupts and returns, and a
+flag set on return ends the run `INTERRUPTED`. **Python** deliberately
+exposes no seam: a Python-implemented clock would put a GIL acquisition on every orchestrator
+cycle, so a Rust-side replay clock configured from Python is the intended shape if one is ever
+wanted.
 
 AC#13 is the criterion most easily missed on a partial implementation: an executor may route
 `ctx.output` and raw-value injection through the epoch clock and still mint action-timeout recovery
