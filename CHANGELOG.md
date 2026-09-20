@@ -1,5 +1,145 @@
 # Changelog
 
+## Java 6.1.0 / TypeScript 6.1.0 / Rust 7.0.0 / Python 5.1.0 — 2026-09-20
+
+### Breaking — Rust only
+
+**`ExecutorOptions` is `#[non_exhaustive]`.** It has gained an option at each of the last three releases, and every one of those broke callers who wrote a struct literal. Construct it from `Default` and the setters, and the next option costs you nothing:
+
+```rust
+let options = ExecutorOptions::default()
+    .environment_places(["requests"])
+    .deadline_tolerance_ms(0.0)
+    .clock(Arc::new(ManualClock::new()));
+```
+
+Code already using `ExecutorOptions::default()` and assigning fields is unaffected — the fields stay public. Only cross-crate struct-literal syntax (including `..Default::default()`) stops compiling. Java, TypeScript and Python have no break; they take a minor for the additions below.
+
+### Added: inject the executor's clock ([TIME-015])
+
+An executor can now take its time from you instead of from the machine, **per executor** — two executors in one process run on independent clocks. That makes a timed net testable in virtual time, and a run reproducible on a replay.
+
+```ts
+// TypeScript
+const clock: Clock = {
+  now: () => virtualMs,                    // firing clock, monotonic
+  epochNow: () => 1_700_000_000_000,       // stamps tokens and events
+  sleep: (delayMs, ready, signal) => advanceTo(virtualMs + delayMs),
+};
+new BitmapNetExecutor(net, initial, { clock, deadlineToleranceMs: 0 });
+```
+
+```java
+// Java
+BitmapNetExecutor.builder(net, initial).environment(myExecutionEnvironment).build();
+```
+
+```rust
+// Rust
+let options = ExecutorOptions::default().clock(Arc::new(ManualClock::new()));
+```
+
+There are **two** clocks, not one, and they are not interchangeable: a monotonic **firing clock** drives enablement stamps, elapsed-time decisions and deadline enforcement, while an epoch clock stamps token `created_at` and event timestamps. The seam also owns the **wait** — a clock that only reported the time would leave a `delayed(1000)` costing a real second.
+
+Three things worth knowing before you use it:
+
+- **Set the deadline tolerance to `0`.** It defaults to 5ms to absorb real timer jitter, which under your own clock masks exactly the deadline behaviour you are trying to observe.
+- **Action timeouts are not virtualized.** `timeout(after, recovery)` in an output spec still elapses in real time; only its recovery *tokens* follow the epoch clock. A net declaring one is not fully replayable.
+- **Seed your initial marking through the clock.** A marking is built before any executor exists, so the ordinary token constructor stamps wall time and differs on every replay attempt — inside the marking. Use the clock-stamped seed helper (`seedToken` / `seed_token`), or construct tokens at an explicit timestamp.
+
+With no clock supplied, nothing changes: the default path reads the real clocks directly, with no indirection added.
+
+### Fixed: a set interrupt flag made a Java run report success having done nothing ([EXEC-041])
+
+**Java only.** Both executors guarded the orchestrator loop on the calling thread's interrupt flag, and emitted `ExecutionCompleted` regardless. So with that flag set, `run()` executed **zero cycles** and reported a successful completion holding the initial marking — indistinguishable from a net that had nothing to do. It returned normally and threw nothing.
+
+The worse half was reachable without any thread of your own. Actions run inline on the orchestrator thread, so an action using the standard idiom for not swallowing an interrupt —
+
+```java
+catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+```
+
+— set the flag on the loop's own thread and silently truncated the net mid-chain, again reported as a completed run. The flag also survived `run()`, so a caller looping over several runs poisoned every subsequent one.
+
+The loop no longer consults the flag. Stopping is `close()` or a stop request, and an interrupt counts only where the wait actually throws one. **`terminationReason()`** now reports `QUIESCENT`, `CLOSED`, `INTERRUPTED` or `STOPPED`, so a truncated run is no longer indistinguishable from a finished one. An interrupted run additionally emits a `WARN` log message, because that is the stop nobody asked for; a `close()` you called yourself stays silent.
+
+### Fixed — smaller, across languages
+
+- **Execution ids were clock readings** (Java, TypeScript). `executionId` was a hex-formatted monotonic-clock reading, so two executors started at the same instant — routine under an injected clock, and the whole point of running two — collided. It is now a process-wide counter assigned at construction. **The field's format changes**: a long hex timestamp becomes a short hex counter.
+- **A channel-composition conflict named an arbitrary place** (Java, Rust). When more than one declared place conflicted, which one the error named depended on hash order. All conflicts are now collected, sorted and reported together.
+- **`drain()` could be lost** (TypeScript). The wake-up was edge-triggered, so a drain issued while the executor was not parked in its wait was dropped and the net slept to its run budget. It now latches. Four `await sleep(...)` workarounds per executor came out of the test suite with it.
+- **Composing many subnet instances was quadratic** (Python). `NetBuilder.compose` rebuilt the whole net on every call. It now accumulates: 400 chained instances went from 262ms to 10.8ms, and per-instance cost is flat instead of doubling with net size. **Behaviour change**: a failed *merge* now leaves the builder unusable and says so, where previously it was left untouched. A bad port or channel name is still reported at the `compose` call and leaves the builder usable.
+- **Python's restore documentation said the opposite of the contract.** `libpetri.runtime` told you a restore was "timestamp-faithful" and that "deadlines, windows … survive the round-trip", and that you could "resume a timed net without losing clocks". Only the `created_at` half was ever true: [CORE-073] restarts every clock at the resuming executor's enablement, so a `deadline` or `window` gets a **fresh full budget** and the original bound does not survive. Corrected. Nothing about the behaviour changed — the documentation was wrong, and it was the reference documentation for that requirement.
+- **The JMH entry point ignored its arguments** (Java, benchmarks only). `-Pjmh` silently discarded filters, fork counts and output paths, so every run measured all 78 benchmarks at low rigour — and produced plausible-looking numbers rather than an error.
+
+### Added — Python reaches composition parity
+
+Python could not express three composition features the other languages had. All three now work, so `MOD-013` nested instantiation and `MOD-021` channel composition are reachable from Python for the first time:
+
+```python
+iface = lp.Interface().input_port("in", req).channel_by_name("attempt", "inner/attempt").build()
+sub   = lp.SubnetDef.from_net(composed_net, iface)          # retrofit a built net as a subnet
+host  = lp.NetBuilder("host").compose("i1", sub, {"in": p}, channel_bindings={"attempt": t})
+```
+
+`Net.places` and `Net.transitions` are also exposed.
+
+### Fixed: a composed action could consume its tokens and then lose them ([MOD-031])
+
+An action that names places by their **declared** constants — the ones visible when the subnet was authored — could stop resolving them after two or more composition passes. The failure mode was the bad one: the transition became enabled, fired, **consumed its inputs**, and only then failed its declared-place check. Under no-rollback ([EXEC-031]) those tokens were gone. Nothing failed at build time, and with no action-failure handler installed the only symptom was a silently empty sink.
+
+The trigger is a place whose name survives a pass unchanged — most often a port bound to a host place that happens to carry the port place's own declared name. Its entry in the declared→actual correspondence was dropped as redundant, a later pass renamed the place, and by then there was nothing left to rewrite.
+
+```ts
+const output = place<string>('output');
+const sink   = place<string>('sink');
+
+// The middle level binds the inner port to a place that is ALSO named 'output'.
+const middle = PetriNet.builder('middle').place(output)
+  .compose(inner.instantiate('inner'), b => b.bindPort('out', output))
+  .build();
+
+// The host level then renames it to 'sink'.
+const host = PetriNet.builder('host').place(sink)
+  .compose(SubnetDef.fromNet(middle, iface).instantiate('outer'), b => b.bindPort('o', sink))
+  .build();
+
+// before: ctx.output(output, v) threw
+//           Place 'output' not in declared outputs: [sink]
+//         — after the action had already consumed its inputs
+// now:    resolves to 'sink' and produces
+```
+
+Fixed in Java, TypeScript and Rust; Python inherits the fix through its Rust bindings.
+
+**Also fixed — channel composition no longer invents conflicts.** Merging two transitions ([MOD-021]) rejected the merge when one side mapped a declared place to itself and the other renamed it. An identity mapping asserts nothing, so the renaming side now wins and the merge succeeds. Two *differing* non-identity mappings are still a conflict, with the same error.
+
+**Visible change you may want to check.** A composed transition's correspondence now carries one entry per place rather than one per *changed* place. `placeAlias` (Java, TypeScript) and `local_name_map` (Rust) therefore return wider maps in two situations:
+
+- a port bound to a place carrying its own declared name — this is the case that was broken;
+- a partial remap: place fusion, or direct composition where some arc places are not remapped.
+
+Composing prefixed instances is **byte-identical** to 6.0.0. Place resolution behaves the same everywhere; only code asserting on the correspondence's *contents* can see a difference.
+
+One cross-language note, unchanged in substance but now explicit in the spec: "is this mapping the identity?" is answered by each implementation's own place equality, because it has to agree with that implementation's lookup. Java's `Place` is a record with structural `(name, tokenType)` equality, so a place rebound to a same-named place of a *different* token type stays a real entry there; TypeScript and Rust compare names only, so it is the identity. That is the existing [MOD-024] divergence, not a new one.
+
+### Known divergence: forwarded tokens on a timeout retry
+
+`ForwardInput(from, to)` inside a `timeout(…)` branch reproduces each consumed token onto `to` so a retry does not lose it. **[IO-014] now says what such a token carries**, because two implementations had answered differently and the requirement was silent:
+
+- **Rust** forwards the token and preserves its original `created_at`.
+- **Java** forwards the *value* — `TransitionContext.inputs` returns values, so the timestamp is already gone at that boundary — and re-mints from the clock.
+
+Both are conforming and both are replay-deterministic. But the same net under the same clock gives forwarded tokens whose `created_at` is the original in one and the retry instant in the other, so don't compare that field across languages. Closing the gap needs a token-level forward path in the affected context API, which is a breaking change and is not in this release. Forwarding is the one exception to the clock-stamping rule above: a token that is *forwarded* keeps its timestamp, a token that is *minted* takes the epoch clock.
+
+### Spec
+
+Three requirements were added or tightened from cross-integration design work. They are **Proposed** and carry no implementation in this release:
+
+- **[NU-011] Resume-safe fresh-name minting.** A resume is a new execution, so an implementation that counts minted ν-names from zero re-mints names already live in the restored marking — and because joins correlate on name equality alone, the collision silently merges tokens from different run segments instead of erroring.
+- **[ENV-014]** now separates *observation* from a *restore point*. A marking taken while an action is in flight cannot be resumed from: the in-flight firing's inputs are already consumed and its outputs have not landed, and more fundamentally the link between an in-flight action and the external work it started has no representation in the marking at all. A snapshot can restore every token faithfully and still resume a net that has forgotten it has work outstanding.
+- **[CORE-073]** now states what its fresh-clock rule costs. Lower bounds (`delayed`, `exact`) re-waited after a restore are still satisfied; hard upper bounds (`deadline`, `window`) get a fresh full budget, so a promised timeout can be missed across a restore. Restore is also only sound when it is *infrequent* — a `delayed(d)` whose clock restarts more often than every `d` never fires at all. And a timed proof does not cross a restore: re-verify with the restored marking as the initial marking.
+
 ## Java 6.0.0 / TypeScript 6.0.0 / Rust 6.0.0 / Python 5.0.0 — 2026-09-17
 
 ### Breaking
