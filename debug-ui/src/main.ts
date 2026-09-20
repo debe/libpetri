@@ -11,8 +11,7 @@ import { initElements } from './dom/elements.js';
 import { bindDomEvents } from './dom/bindings.js';
 import { startRafLoop } from './dom/raf-loop.js';
 import { buildDebugNet, setExecutor } from './net/definition.js';
-import { allEnvironmentPlaces } from './net/places.js';
-import { shared } from './net/shared-state.js';
+import { allEnvironmentPlaces, deepLink } from './net/places.js';
 import { setSubnetPanelExecutor, refreshSubnetPanel } from './net/actions/subnet-panel.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -41,7 +40,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Parse URL for deep-linking
   const targetSessionId = new URLSearchParams(window.location.search).get('sessionId');
   if (targetSessionId) {
-    shared.pendingDeepLink = targetSessionId;
+    // Queued until the executor runs; spent by the first session list to arrive.
+    executor.injectNoAwait(deepLink, targetSessionId);
   }
 
   // Start rAF loop for throttled UI updates

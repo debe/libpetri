@@ -20,7 +20,6 @@ interface MutablePlaybackTimerState {
   timer: ReturnType<typeof setTimeout> | null;
   animationFrame: number | null;
   speed: number;
-  breakpointHitIndex: number | null;
 }
 
 /** Mutable shared state. */
@@ -45,7 +44,6 @@ export const shared = {
     timer: null,
     animationFrame: null,
     speed: 1.0,
-    breakpointHitIndex: null,
   } as MutablePlaybackTimerState,
   /** Virtual scroll state */
   virtualLog: {
@@ -64,8 +62,6 @@ export const shared = {
   allSessions: [] as SessionSummary[],
   /** Current net-name filter value. */
   netNameFilter: '' as string,
-  /** URL param auto-select target. */
-  pendingDeepLink: null as string | null,
 };
 
 /** Send a command over the WebSocket. */

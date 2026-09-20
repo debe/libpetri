@@ -100,13 +100,12 @@ describe('debug net integration', () => {
     shared.currentSession = null;
     shared.currentMode = null;
     shared.replay = { allEvents: [], checkpoints: [], checkpointInterval: 20 };
-    shared.playback = { timer: null, animationFrame: null, speed: 1, breakpointHitIndex: null };
+    shared.playback = { timer: null, animationFrame: null, speed: 1 };
     shared.svgNodeCache = null;
     shared.viewerHandle = null;
     shared.prevHighlighted = { shapes: [], edges: [] };
     shared.allSessions = [];
     shared.netNameFilter = '';
-    shared.pendingDeepLink = null;
 
     const { net, initialTokens } = buildDebugNet();
     executor = new BitmapNetExecutor(net, initialTokens, {

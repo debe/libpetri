@@ -12,6 +12,11 @@ export interface UIState {
   readonly events: readonly NetEventInfo[];
   readonly eventIndex: number;
   readonly totalEvents: number;
+  /**
+   * Replay only: the index playback last stopped at for a breakpoint, so that resuming steps
+   * past that event instead of stopping at it again. Seeking rebuilds the state and drops it.
+   */
+  readonly breakpointHitIndex?: number | null;
 }
 
 /** Data associated with an active session subscription. */
@@ -109,3 +114,18 @@ export const CONFIG = {
   virtualLogItemHeight: 72,
   virtualLogOverscan: 10,
 } as const;
+
+/** Why the message router gave up on a WebSocket frame, and the frame itself. */
+export interface DeadLetter {
+  readonly reason:
+    /** No route: the `type` is not one this client knows, or the frame is not an object with one. */
+    | 'unknown-type'
+    /** `subscribed` with no subscribe outstanding. */
+    | 'not-subscribing'
+    /** `event` / `eventBatch` / `markingSnapshot` with no subscribed session to apply it to. */
+    | 'no-session'
+    /** The handler threw; its resource tokens were put back unchanged. */
+    | 'handler-failed';
+  readonly message: unknown;
+  readonly error?: unknown;
+}

@@ -49,6 +49,33 @@ jobs:
       - run: npm run check
       - run: npm test
 
+  # The debug UI is a consumer of the TypeScript package (`file:../typescript`), and nothing
+  # else compiles it: a core API change that breaks it is invisible to the typescript job. It
+  # did not build for seven weeks after input guards were removed. Type-check and unit tests
+  # only; the Playwright layout suite (debug-ui/e2e) stays a local tool.
+  debug-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      # tests/*-verification.test.ts prove the UI's own net with the z3 executable (VER-013).
+      - uses: ./.github/actions/install-z3
+      # debug-ui resolves `libpetri` to typescript/dist, so the package is built first.
+      - name: Build the libpetri package the UI links against
+        working-directory: typescript
+        run: |
+          npm ci
+          npm run build
+      - run: npm ci
+        working-directory: debug-ui
+      - run: npx tsc --noEmit
+        working-directory: debug-ui
+      - run: npm test
+        working-directory: debug-ui
+
   rust:
     runs-on: ubuntu-latest
     timeout-minutes: 15

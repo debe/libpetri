@@ -6,6 +6,7 @@ import { sendCommand } from '../shared-state.js';
 import { el } from '../../dom/elements.js';
 import type { DebugResponse, SessionSummary, NetStructure } from '../../protocol/index.js';
 import type { SessionData, UIState, StructureLookup } from '../types.js';
+import { emptyMarking, copyMarking } from '../marking-record.js';
 
 /** Send listSessions command. */
 export function refreshSessions(): void {
@@ -103,7 +104,7 @@ export function buildSessionData(response: Extract<DebugResponse, { type: 'subsc
 export function buildInitialUIState(response: Extract<DebugResponse, { type: 'subscribed' }>, isReplay: boolean): UIState {
   if (isReplay) {
     return {
-      marking: {},
+      marking: emptyMarking(),
       enabledTransitions: [],
       inFlightTransitions: [],
       events: [],
@@ -112,12 +113,22 @@ export function buildInitialUIState(response: Extract<DebugResponse, { type: 'su
     };
   }
   return {
-    marking: response.currentMarking ?? {},
+    marking: copyMarking(response.currentMarking),
     enabledTransitions: response.enabledTransitions ?? [],
     inFlightTransitions: response.inFlightTransitions ?? [],
     events: [],
     eventIndex: 0,
     totalEvents: response.eventCount,
+  };
+}
+
+/** UIState after a server `markingSnapshot`: the marking and both transition sets are replaced. */
+export function applyMarkingSnapshot(state: UIState, msg: Extract<DebugResponse, { type: 'markingSnapshot' }>): UIState {
+  return {
+    ...state,
+    marking: copyMarking(msg.marking),
+    enabledTransitions: msg.enabledTransitions ?? [],
+    inFlightTransitions: msg.inFlightTransitions ?? [],
   };
 }
 

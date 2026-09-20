@@ -7,10 +7,12 @@ import { el } from '../../dom/elements.js';
 import type { UIState, Checkpoint } from '../types.js';
 import { CONFIG } from '../types.js';
 import type { NetEventInfo, BreakpointConfig } from '../../protocol/index.js';
+import { emptyMarking, copyMarking } from '../marking-record.js';
 
 /** Apply a single event to UIState, returning an updated copy. */
 export function applyEventToState(state: UIState, event: NetEventInfo): UIState {
-  const marking = { ...state.marking };
+  // A prototype-less copy: a place may be named `__proto__` or `constructor` (marking-record.ts).
+  const marking = copyMarking(state.marking);
   let enabled = [...state.enabledTransitions];
   let inFlight = [...state.inFlightTransitions];
 
@@ -34,7 +36,8 @@ export function applyEventToState(state: UIState, event: NetEventInfo): UIState 
     case 'MarkingSnapshot': {
       const newMarking = (event.details?.marking ?? {}) as Record<string, readonly UIState['marking'][string][number][]>;
       Object.keys(marking).forEach(k => delete marking[k]);
-      Object.assign(marking, newMarking);
+      // The target is prototype-less, so `__proto__` lands as an own key like any other name.
+      for (const k of Object.keys(newMarking)) marking[k] = newMarking[k]!;
       break;
     }
     case 'TransitionEnabled':
@@ -68,14 +71,15 @@ export function buildCheckpoints(events: readonly NetEventInfo[], fromIndex: num
   const checkpoints = [...shared.replay.checkpoints];
   const interval = shared.replay.checkpointInterval;
 
-  const tempMarking: Record<string, unknown[]> = {};
+  const tempMarking = emptyMarking<unknown[]>();
   const tempEnabled: string[] = [];
   const tempInFlight: string[] = [];
   let startIndex = 0;
 
   if (fromIndex > 0 && checkpoints.length > 0) {
     const lastCp = checkpoints[checkpoints.length - 1]!;
-    Object.assign(tempMarking, structuredClone(lastCp.marking));
+    const seeded = structuredClone(lastCp.marking) as unknown as Record<string, unknown[]>;
+    for (const k of Object.keys(seeded)) tempMarking[k] = seeded[k]!;
     tempEnabled.push(...lastCp.enabledTransitions);
     tempInFlight.push(...lastCp.inFlightTransitions);
     startIndex = lastCp.index;
@@ -88,7 +92,7 @@ export function buildCheckpoints(events: readonly NetEventInfo[], fromIndex: num
     if ((i + 1) % interval === 0) {
       checkpoints.push({
         index: i + 1,
-        marking: structuredClone(tempMarking) as Checkpoint['marking'],
+        marking: copyMarking(structuredClone(tempMarking)) as Checkpoint['marking'],
         enabledTransitions: [...tempEnabled],
         inFlightTransitions: [...tempInFlight],
       });
@@ -139,7 +143,8 @@ function applyEventToTemp(
     }
     case 'MarkingSnapshot': {
       Object.keys(marking).forEach(k => delete marking[k]);
-      Object.assign(marking, (event.details?.marking ?? {}));
+      const snapshot = (event.details?.marking ?? {}) as Record<string, unknown[]>;
+      for (const k of Object.keys(snapshot)) marking[k] = snapshot[k]!;
       break;
     }
   }
@@ -153,7 +158,7 @@ export function seekToIndex(targetIndex: number): UIState {
   stopPlayback();
 
   let startIndex = 0;
-  let marking: Record<string, readonly unknown[]> = {};
+  let marking: Record<string, readonly unknown[]> = emptyMarking();
   let enabled: readonly string[] = [];
   let inFlight: readonly string[] = [];
 
@@ -162,7 +167,7 @@ export function seekToIndex(targetIndex: number): UIState {
     const cp = checkpoints[i]!;
     if (cp.index <= targetIndex) {
       startIndex = cp.index;
-      marking = structuredClone(cp.marking);
+      marking = copyMarking(structuredClone(cp.marking));
       enabled = [...cp.enabledTransitions];
       inFlight = [...cp.inFlightTransitions];
       break;
