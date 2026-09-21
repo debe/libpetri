@@ -669,8 +669,10 @@ def test_the_first_executor_of_two_processes_mints_different_names() -> None:
     )
 
     def first_name() -> str:
+        # -P: `-c` would otherwise put the cwd (python/) first on sys.path, and the
+        # source package there shadows the installed wheel's compiled extension.
         done = subprocess.run(
-            [sys.executable, "-c", child], capture_output=True, text=True, timeout=60
+            [sys.executable, "-P", "-c", child], capture_output=True, text=True, timeout=60
         )
         assert done.returncode == 0, done.stderr
         return done.stdout.strip()
