@@ -284,9 +284,17 @@ pub fn build_plan(
             .filter(|&pid| ft.post[pid] > 0)
             .collect();
 
-        let class = if t.match_spec().is_some() {
+        let class = if let Some(ms) = t.match_spec() {
             // Matched join: consumes coloured inputs (count 1), produces none.
             if !coloured_out.is_empty() || coloured_in.is_empty() {
+                return None;
+            }
+            // Every coloured input must be a key: an off-key one is taken FIFO at
+            // runtime, whatever its colour, not the join's shared colour.
+            if coloured_in
+                .iter()
+                .any(|&pid| !ms.keys().iter().any(|k| k.place_name() == flat.places[pid]))
+            {
                 return None;
             }
             if coloured_in.iter().any(|&pid| ft.pre[pid] != 1) {
@@ -1195,6 +1203,59 @@ mod tests {
         // where a co-minted place accumulates distinct colours — are covered by
         // `extended_leaky_carrier_fanout_rejected`, which still falls back.)
         assert!(plan_for(&mint_join_net(true), FragmentMode::Base, &[]).is_some());
+    }
+
+    /// `join1` consumes `c`, a key of `join2`; `c_keyed` makes it one of `join1`'s
+    /// own keys too. Off-key, the runtime takes `c`'s oldest token whatever its
+    /// colour, while the plan would force `join1`'s colour on it.
+    fn off_key_coloured_net(c_keyed: bool) -> PetriNet {
+        let budget1 = Place::<()>::new("budget1");
+        let a = Place::<String>::new("a");
+        let b = Place::<String>::new("b");
+        let c = Place::<String>::new("c");
+        let d = Place::<String>::new("d");
+        let key = |s: &String| NameId::new(s.clone());
+
+        let mint_a = Transition::builder("mintA")
+            .input(one(&budget1))
+            .output(and(vec![out_place(&a), out_place(&b), out_place(&c)]))
+            .action(fork())
+            .build();
+        let mint_b = Transition::builder("mintB")
+            .input(one(&budget1))
+            .output(and(vec![out_place(&c), out_place(&d)]))
+            .action(fork())
+            .build();
+        let mut join1_keys = MatchSpec::builder().key(&a, key).key(&b, key);
+        if c_keyed {
+            join1_keys = join1_keys.key(&c, key);
+        }
+        let join1 = Transition::builder("join1")
+            .input(one(&a))
+            .input(one(&b))
+            .input(one(&c))
+            .match_spec(join1_keys.build())
+            .output(out_place(&budget1))
+            .action(fork())
+            .build();
+        let join2 = Transition::builder("join2")
+            .input(one(&c))
+            .input(one(&d))
+            .match_spec(MatchSpec::builder().key(&c, key).key(&d, key).build())
+            .output(out_place(&budget1))
+            .action(fork())
+            .build();
+        PetriNet::builder("off_key_coloured")
+            .transitions([mint_a, mint_b, join1, join2])
+            .build()
+    }
+
+    #[test]
+    fn join_consuming_a_coloured_place_off_key_is_rejected() {
+        for mode in [FragmentMode::Base, FragmentMode::Extended] {
+            assert!(plan_for(&off_key_coloured_net(false), mode, &[]).is_none(), "{mode:?}");
+            assert!(plan_for(&off_key_coloured_net(true), mode, &[]).is_some(), "{mode:?}");
+        }
     }
 
     #[test]

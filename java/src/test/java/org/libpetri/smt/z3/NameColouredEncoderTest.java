@@ -271,6 +271,56 @@ class NameColouredEncoderTest {
         assertNull(planFor(mintLeakyCarrierNet(), FragmentMode.EXTENDED, "c"));
     }
 
+    /**
+     * {@code join1} consumes {@code c}, a key of {@code join2}; {@code cKeyed} makes it one
+     * of {@code join1}'s own keys too. Off-key, the runtime takes {@code c}'s oldest token
+     * whatever its colour, while the plan would force {@code join1}'s colour on it.
+     */
+    private static PetriNet offKeyColouredNet(boolean cKeyed) {
+        var budget1 = Place.of("budget1", Integer.class);
+        var a = Place.of("a", String.class);
+        var b = Place.of("b", String.class);
+        var c = Place.of("c", String.class);
+        var d = Place.of("d", String.class);
+
+        var mintA = Transition.builder("mintA")
+            .inputs(Arc.In.one(budget1))
+            .outputs(Arc.Out.and(a, b, c))
+            .build();
+        var mintB = Transition.builder("mintB")
+            .inputs(Arc.In.one(budget1))
+            .outputs(Arc.Out.and(c, d))
+            .build();
+        var join1Keys = MatchSpec.builder()
+            .key(a, (String s) -> NameId.of(s))
+            .key(b, (String s) -> NameId.of(s));
+        if (cKeyed) {
+            join1Keys.key(c, (String s) -> NameId.of(s));
+        }
+        var join1 = Transition.builder("join1")
+            .inputs(Arc.In.one(a), Arc.In.one(b), Arc.In.one(c))
+            .match(join1Keys.build())
+            .outputs(Arc.Out.place(budget1))
+            .build();
+        var join2 = Transition.builder("join2")
+            .inputs(Arc.In.one(c), Arc.In.one(d))
+            .match(MatchSpec.builder()
+                .key(c, (String s) -> NameId.of(s))
+                .key(d, (String s) -> NameId.of(s))
+                .build())
+            .outputs(Arc.Out.place(budget1))
+            .build();
+        return PetriNet.builder("offKeyColoured").transitions(mintA, mintB, join1, join2).build();
+    }
+
+    @Test
+    void joinConsumingAColouredPlaceOffKeyIsRejected() {
+        for (var mode : FragmentMode.values()) {
+            assertNull(planFor(offKeyColouredNet(false), mode), mode.toString());
+            assertNotNull(planFor(offKeyColouredNet(true), mode), mode.toString());
+        }
+    }
+
     @Test
     void xorTransitionNoLongerBlocksThePlan() {
         // A plain XOR transition expands to two flat rows; NU-053 Part 3 drops the old 1:1

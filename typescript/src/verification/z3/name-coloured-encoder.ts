@@ -249,6 +249,10 @@ export function buildColouredPlan(
       // Matched join: consumes coloured inputs (count 1), produces none.
       if (colouredOut.length !== 0 || colouredIn.length === 0) return null;
       if (colouredIn.some((pid) => ft.preVector[pid]! !== 1)) return null;
+      // Every coloured input must be a key: an off-key one is taken FIFO at runtime,
+      // whatever its colour, not the join's shared colour.
+      const keyPlaces = new Set(ms.keys.map((k) => k.place.name));
+      if (colouredIn.some((pid) => !keyPlaces.has(flat.places[pid]!.name))) return null;
       classes.push({ kind: 'join', colouredIn });
     } else if (colouredIn.length !== 0) {
       // EXTENDED coloured consumer (relay/drain, [NU-051]): a non-match transition

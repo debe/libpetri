@@ -117,6 +117,11 @@ export function classify(
     let role: Role;
     if (t.matchSpec !== null) {
       if (producesColoured) return null; // re-mint onto a coloured place — out of fragment
+      // A coloured place consumed off-key is taken FIFO, whatever its name; the join
+      // step only removes the matched name from the keys, so the name layer would keep
+      // a symbol the base marking has lost.
+      const keyPlaces = new Set(t.matchSpec.keys.map(k => k.place.name));
+      if (colouredInputs.some(s => !keyPlaces.has(s.place.name))) return null;
       const colouredIn: Array<readonly [string, number]> = [];
       for (const key of t.matchSpec.keys) {
         const place = key.place.name;

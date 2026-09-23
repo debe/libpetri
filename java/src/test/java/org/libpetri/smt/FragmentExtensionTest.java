@@ -204,6 +204,69 @@ class FragmentExtensionTest {
     }
 
     /**
+     * {@code JOIN1} matches on {@code A}/{@code B} and also consumes {@code C}, a key of
+     * {@code JOIN2}, as a non-correlated input: at runtime it takes {@code C}'s oldest
+     * token, whatever its name. With {@code MINT_B} first that token is {@code JOIN2}'s,
+     * so {@code JOIN2} never fires and {@code PENDING} strands. The name layer would drop
+     * nothing from {@code C} and prove the net stranding-free, so classify must reject it
+     * in both modes (NU-051 AC7).
+     */
+    @Test
+    void joinConsumingAColouredPlaceOffKeyRejectedBothModes() {
+        var net = offKeyColouredNet();
+        assertNull(NameFragment.classify(net, FragmentMode.BASE, Set.of()));
+        assertNull(NameFragment.classify(net, FragmentMode.EXTENDED, Set.of()));
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void offKeyColouredJoinIsNotProvenStrandingFree() {
+        var r = SmtVerifier.forNet(StructureOnly.bind(offKeyColouredNet()))
+            .initialMarking(MarkingState.builder()
+                .tokens(Place.of("SRC_A", String.class), 1)
+                .tokens(Place.of("SRC_B", String.class), 1)
+                .build())
+            .property(SmtProperty.joinedOrDeadLettered(Place.of("PENDING", String.class)))
+            .verify();
+        assertFalse(r.isProven(), "PENDING can strand at runtime; a proof is false:\n" + r.report());
+    }
+
+    private static PetriNet offKeyColouredNet() {
+        var srcA = Place.of("SRC_A", String.class);
+        var srcB = Place.of("SRC_B", String.class);
+        var a = Place.of("A", String.class);
+        var b = Place.of("B", String.class);
+        var c = Place.of("C", String.class);
+        var d = Place.of("D", String.class);
+        var pending = Place.of("PENDING", String.class);
+        var mintA = Transition.builder("MINT_A")
+            .inputs(Arc.In.one(srcA))
+            .outputs(Arc.Out.and(a, b, c))
+            .build();
+        var mintB = Transition.builder("MINT_B")
+            .inputs(Arc.In.one(srcB))
+            .outputs(Arc.Out.and(c, d, pending))
+            .build();
+        var join1 = Transition.builder("JOIN1")
+            .inputs(Arc.In.one(a), Arc.In.one(b), Arc.In.one(c))
+            .match(MatchSpec.builder()
+                .key(a, (String s) -> NameId.of(s))
+                .key(b, (String s) -> NameId.of(s))
+                .build())
+            .outputs(Arc.Out.place(OUT))
+            .build();
+        var join2 = Transition.builder("JOIN2")
+            .inputs(Arc.In.one(c), Arc.In.one(d), Arc.In.one(pending))
+            .match(MatchSpec.builder()
+                .key(c, (String s) -> NameId.of(s))
+                .key(d, (String s) -> NameId.of(s))
+                .build())
+            .outputs(Arc.Out.place(OUT))
+            .build();
+        return PetriNet.builder("offKeyColoured").transitions(mintA, mintB, join1, join2).build();
+    }
+
+    /**
      * A mistyped carrier name would silently make two fork branches mint independent
      * names, so the join never becomes name-enabled and the verifier could report a
      * false deadlock. {@link SmtVerifier#carrierPlaces} must fail loudly instead.

@@ -264,6 +264,14 @@ public final class NameColouredEncoder {
                         return null;
                     }
                 }
+                // Every coloured input must be a key: an off-key one is taken FIFO at
+                // runtime, whatever its colour, not the join's shared colour.
+                for (int pid : colouredIn) {
+                    var name = flat.places().get(pid).name();
+                    if (t.matchSpec().keys().stream().noneMatch(key -> key.place().name().equals(name))) {
+                        return null;
+                    }
+                }
                 klass = new Join(colouredIn);
             } else if (colouredIn.length != 0) {
                 // EXTENDED coloured consumer (relay/drain, NU-051): a non-match transition

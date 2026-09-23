@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **ν verification: a join that consumes a correlated place off-key is no longer proven (all languages, [NU-051] AC7).** A matched transition may consume a place that is another join's key (or a declared carrier) through an input that is not one of its own keys. That input takes the oldest token whatever its name, but the name-aware graph (Route B) removed nothing from it, and the coloured encoding (Route A) forced the join's own colour on it. Both could miss a reachable stranding and report `Proven`. Such nets now fall back to the sound over-approximation in BASE and EXTENDED mode. Non-key inputs on uncorrelated places (budgets, permits) are unaffected.
+
 ## Java 6.1.0 / TypeScript 6.1.0 / Rust 7.0.0 / Python 6.0.0 — 2026-09-21
 
 ### Breaking

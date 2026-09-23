@@ -7,6 +7,7 @@ import org.libpetri.core.internal.CodePointOrder;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -151,6 +152,18 @@ public final class NameFragment {
             if (t.matchSpec() != null) {
                 if (producesColoured) {
                     return null; // re-mint onto a coloured place — out of fragment
+                }
+                // A coloured place consumed off-key is taken FIFO, whatever its name; the
+                // join step only removes the matched name from the keys, so the name layer
+                // would keep a symbol the base marking has lost.
+                var keyPlaces = new HashSet<String>();
+                for (var key : t.matchSpec().keys()) {
+                    keyPlaces.add(key.place().name());
+                }
+                for (var in : t.inputSpecs()) {
+                    if (coloured.contains(in.place().name()) && !keyPlaces.contains(in.place().name())) {
+                        return null;
+                    }
                 }
                 var colouredIn = new ArrayList<Map.Entry<String, Integer>>();
                 for (var key : t.matchSpec().keys()) {

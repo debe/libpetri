@@ -527,6 +527,14 @@ format ([VER-012]), so cross-language byte compatibility is preserved.
   tightening applied to BASE too (rejection just falls back to the sound
   over-approximation); it never turns a `Proven`/`Violated` into an unsound verdict.
 
+- **Off-key coloured input exclusion (BOTH modes).** In **both** BASE and EXTENDED,
+  the analyzer rejects a net in which a matched transition consumes a coloured place
+  through an input that is **not** one of its match keys. Such an input consumes
+  FIFO ([NU-020]), whatever the token's name, so the name layer cannot know which
+  name leaves the place: Route B would keep the symbol and Route A would force the
+  join's shared colour on it. A non-coloured non-key input (a budget or permit) is
+  unaffected. Rejection just falls back to the sound over-approximation.
+
 - **Diagnosability.** When EXTENDED is requested but the net falls outside this
   fragment, the verifier MUST surface a short note (an "EXTENDED declined" line)
   rather than silently falling back, so an author can tell the exact path was not
@@ -551,12 +559,16 @@ format ([VER-012]), so cross-language byte compatibility is preserved.
    name-partition quotient), not the name-blind SMT path.
 6. (MAY) A single `Xor` coloured consumer relays the name on one branch and drains
    it on another through the same transition.
+7. (MUST) In both BASE and EXTENDED, a matched transition that consumes a coloured
+   place through a non-key input is rejected (returns no fragment, no coloured plan),
+   and a stranding such a net can reach is not reported `Proven`.
 
 **Depends on:** [NU-050], [VER-012], [NU-020]
 **Test derivation:** `classify` accepts a drain/relay fixture under EXTENDED and
 rejects it under BASE; an `Exactly(2)` coloured consumer is rejected (blocker-1 /
 blocker-2 regression); a reset-on-coloured net is rejected in both modes; an unknown
-carrier name fails loudly; an end-to-end `deadlockFree` / `JoinedOrDeadLettered`
+carrier name fails loudly; a join consuming another join's key off-key is rejected in
+both modes and its reachable stranding is not proven; an end-to-end `deadlockFree` / `JoinedOrDeadLettered`
 query on a fork-threaded co-mint plus drain fixture PROVES via Route B and turns
 VIOLATED when the drain is removed.
 

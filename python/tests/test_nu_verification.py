@@ -161,6 +161,43 @@ def test_joined_or_dead_lettered_proven_by_route_b():
     assert "Route B" in result.report
 
 
+def test_join_consuming_a_coloured_place_off_key_is_not_proven():
+    # NU-051 AC7: `join1` matches on a/b and also consumes `c`, a key of `join2`, as a
+    # non-correlated input. At runtime it takes c's oldest token, whatever its name;
+    # with `mintB` first that is join2's, so join2 never fires and `pending` strands.
+    # The name-aware graph used to drop nothing from `c` and prove this net.
+    src_a, src_b = lp.Place("srcA"), lp.Place("srcB")
+    a, b, c, d = lp.Place("a"), lp.Place("b"), lp.Place("c"), lp.Place("d")
+    pending, out = lp.Place("pending"), lp.Place("out")
+    key = lambda m: m  # noqa: E731
+    net = (
+        lp.Net("off_key_coloured")
+        .transition(lp.Transition("mintA").input(lp.one(src_a)).output(lp.and_(a, b, c)).action(lp.fork).build())
+        .transition(lp.Transition("mintB").input(lp.one(src_b)).output(lp.and_(c, d, pending)).action(lp.fork).build())
+        .transition(
+            lp.Transition("join1")
+            .input(lp.one(a)).input(lp.one(b)).input(lp.one(c))
+            .match_spec(lp.match_spec([(a, key), (b, key)]))
+            .output(lp.out(out)).action(lp.fork).build()
+        )
+        .transition(
+            lp.Transition("join2")
+            .input(lp.one(c)).input(lp.one(d)).input(lp.one(pending))
+            .match_spec(lp.match_spec([(c, key), (d, key)]))
+            .output(lp.out(out)).action(lp.fork).build()
+        )
+        .build()
+    )
+    result = lp.verify(
+        net,
+        lp.joined_or_dead_lettered(pending),
+        initial_marking={src_a: 1, src_b: 1},
+        timeout_ms=15_000,
+    )
+    assert result.verdict != "proven", result.report
+    assert result.route != "nu-scg", result.report
+
+
 def test_deadlock_free_violated_by_route_b():
     # NU-050 Route B: DeadlockFree is now exact. The net quiesces when `source` is
     # exhausted (budget returned, no group in flight) — a genuine deadlock with no

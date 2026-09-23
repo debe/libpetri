@@ -209,6 +209,42 @@ describe('name-coloured fragment gate (NU-053 EXTENDED + XOR)', () => {
     expect(planFor(mintLeakyCarrierNet(), 'extended', ['c'])).toBeNull();
   });
 
+  // `join1` consumes `c`, a key of `join2`; `cKeyed` makes it one of `join1`'s own keys
+  // too. Off-key, the runtime takes `c`'s oldest token whatever its colour, while the
+  // plan would force `join1`'s colour on it.
+  function offKeyColouredNet(cKeyed: boolean) {
+    const budget1 = place('budget1');
+    const a = place<string>('a');
+    const b = place<string>('b');
+    const c = place<string>('c');
+    const d = place<string>('d');
+    const key = (s: string) => nameId(s);
+
+    const mintA = Transition.builder('mintA').inputs(one(budget1)).outputs(andPlaces(a, b, c)).build();
+    const mintB = Transition.builder('mintB').inputs(one(budget1)).outputs(andPlaces(c, d)).build();
+    const join1Keys = cKeyed
+      ? matchSpec(matchKey(a, key), matchKey(b, key), matchKey(c, key))
+      : matchSpec(matchKey(a, key), matchKey(b, key));
+    const join1 = Transition.builder('join1')
+      .inputs(one(a), one(b), one(c))
+      .match(join1Keys)
+      .outputs(outPlace(budget1))
+      .build();
+    const join2 = Transition.builder('join2')
+      .inputs(one(c), one(d))
+      .match(matchSpec(matchKey(c, key), matchKey(d, key)))
+      .outputs(outPlace(budget1))
+      .build();
+    return PetriNet.builder('offKeyColoured').transitions(mintA, mintB, join1, join2).build();
+  }
+
+  it('rejects a join that consumes a coloured place off-key', () => {
+    for (const mode of ['base', 'extended'] as const) {
+      expect(planFor(offKeyColouredNet(false), mode, [])).toBeNull();
+      expect(planFor(offKeyColouredNet(true), mode, [])).not.toBeNull();
+    }
+  });
+
   it('no longer blocks the coloured plan on an XOR transition', () => {
     // A plain XOR transition expands to two flat rows; Part 3 drops the old 1:1
     // net↔flat rejection so the mint→join fragment is still recognised.

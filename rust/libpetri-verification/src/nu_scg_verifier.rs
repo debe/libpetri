@@ -554,6 +554,76 @@ mod tests {
         .is_none());
     }
 
+    /// `join1` matches on `a`/`b` and also consumes `c`, a key of `join2`, as a
+    /// non-correlated input: at runtime it takes `c`'s oldest token, whatever its
+    /// name. With `mintB` first that token is `join2`'s, so `join2` never fires and
+    /// `pending` strands. The name layer would drop nothing from `c` and prove the
+    /// net stranding-free, so the net must be out of fragment ([NU-051] AC7).
+    #[test]
+    fn join_consuming_a_coloured_place_off_key_is_not_in_fragment() {
+        let src_a = Place::<()>::new("srcA");
+        let src_b = Place::<()>::new("srcB");
+        let a = Place::<String>::new("a");
+        let b = Place::<String>::new("b");
+        let c = Place::<String>::new("c");
+        let d = Place::<String>::new("d");
+        let pending = Place::<()>::new("pending");
+        let out = Place::<()>::new("out");
+        let key = |s: &String| NameId::new(s.clone());
+
+        let mint_a = Transition::builder("mintA")
+            .input(one(&src_a))
+            .output(and(vec![out_place(&a), out_place(&b), out_place(&c)]))
+            .action(fork())
+            .build();
+        let mint_b = Transition::builder("mintB")
+            .input(one(&src_b))
+            .output(and(vec![out_place(&c), out_place(&d), out_place(&pending)]))
+            .action(fork())
+            .build();
+        let join1 = Transition::builder("join1")
+            .input(one(&a))
+            .input(one(&b))
+            .input(one(&c))
+            .match_spec(MatchSpec::builder().key(&a, key).key(&b, key).build())
+            .output(out_place(&out))
+            .action(fork())
+            .build();
+        let join2 = Transition::builder("join2")
+            .input(one(&c))
+            .input(one(&d))
+            .input(one(&pending))
+            .match_spec(MatchSpec::builder().key(&c, key).key(&d, key).build())
+            .output(out_place(&out))
+            .action(fork())
+            .build();
+        let net = PetriNet::builder("off_key_coloured")
+            .transitions([mint_a, mint_b, join1, join2])
+            .build();
+        let initial = MarkingStateBuilder::new().tokens("srcA", 1).tokens("srcB", 1).build();
+
+        for mode in [FragmentMode::Base, FragmentMode::Extended] {
+            let out = verify_via_name_scg(
+                &net,
+                &initial,
+                &SmtProperty::joined_or_dead_lettered("pending"),
+                &[],
+                &[],
+                &EnvironmentAnalysisMode::Ignore,
+                MAX,
+                mode,
+                &BTreeSet::new(),
+                PrioritySemantics::None,
+                &[],
+            );
+            assert!(
+                out.is_none(),
+                "{mode:?}: off-key coloured input must fall back, got {:?}",
+                out.map(|o| o.verdict)
+            );
+        }
+    }
+
     // === EXTENDED coloured-consumer fragment ([NU-051]) ===
 
     /// A fork co-mints one fresh name into `branchA`, `branchB`, and the declared

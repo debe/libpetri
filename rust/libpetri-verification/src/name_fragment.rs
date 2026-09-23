@@ -167,6 +167,15 @@ pub(crate) fn classify(
             if produces_coloured {
                 return None; // re-mint onto a coloured place — out of fragment
             }
+            // A coloured place consumed off-key is taken FIFO, whatever its name; the
+            // join step only removes the matched name from the keys, so the name layer
+            // would keep a symbol the base marking has lost.
+            if coloured_inputs
+                .iter()
+                .any(|s| !ms.keys().iter().any(|k| k.place_name() == s.place_name()))
+            {
+                return None;
+            }
             let mut coloured_in: Vec<(String, usize)> = Vec::with_capacity(ms.keys().len());
             for key in ms.keys() {
                 let place = key.place_name();
