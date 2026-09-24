@@ -110,6 +110,7 @@ These are hard modelling constraints, not tuning knobs. Violating one does not p
 
 - **No reset, read or inhibitor arc on any coloured place** (NU-051), in both fragment modes. Such an arc would be misclassified and drift the name layer from the base marking.
 - **A coloured consumer (a drain or a relay) consumes exactly one coloured input at count exactly one.** Not `exactly(n>=2)`, not `at_least`, not `all`, and not two coloured inputs. Re-emitting a higher input cardinality into the name layer over-counts and could let a join fire by equating two distinct names, which is a false `Proven`.
+- **A join consumes a coloured place only through its own match key.** A non-key input on another join's key place, or on a carrier, takes the oldest token whatever its name, and the exact routes do not model that faithfully, so keep such inputs out of the design. A budget or permit input on the join is fine.
 - **Never consume and re-mint on the same transition.** A relay threads the consumed name into its coloured outputs, or into none of them (a drain). A single `Xor` transition may relay on one branch and drain on another.
 - **Declare carrier places explicitly and spell them correctly.** A mistyped carrier must fail loudly (a builder rejection, or `Unknown` naming the place), never be ignored: silently ignoring it would let two fork branches mint independent names and yield a confident spurious deadlock verdict.
 - **Budget conservation must not leak.** A join must refund no more budget than the cheapest mint consumes. The colour-slot bound comes from a covering non-negative P-semiflow over the coloured set. A fan-out that co-mints a colour into a place no matched join re-collects has no covering semiflow and falls back rather than certifying.
@@ -119,7 +120,7 @@ These are hard modelling constraints, not tuning knobs. Violating one does not p
 Two exact routes, plus a sound fallback:
 
 - **Route A, coloured IC3/PDR.** Scales. Wants a declared budget and the clean mint-to-join fragment above. This is where budget-declared untimed safety queries go.
-- **Route B, name-partition state-class quotient.** Solver-free. Names are interchangeable symbols, quotiented under permutation symmetry, which keeps the graph finite even without a budget. Exact over name and time, and it is the route that decides **quiescence**. It has no partial-order reduction, so heavy independent-branch parallelism truncates it.
+- **Route B, name-partition state-class quotient.** Solver-free. Names are interchangeable symbols, quotiented under permutation symmetry, which keeps the graph finite even without a budget. Exact over name and time, and the first route tried for **quiescence**; with a declared budget, Route A decides quiescence too when Route B truncates (NU-053). It has no partial-order reduction, so heavy independent-branch parallelism truncates it.
 - **The over-approximation fallback** is sound for reachability safety, but **not** for quiescence. A `Proven` on a quiescence property never comes from the fallback.
 
 Routing in practice: a quiescence query, or a net with no declared budget, tries Route B first; if Route B truncates on a bounded quiescence query, the verifier defers to the coloured Route A encoder rather than giving up.

@@ -54,11 +54,10 @@ exist and why neither could be dropped:
 | `{done:1, stuck:1}`, `done` a sink | violated | proven |
 | `{}`, fully drained | proven | violated |
 
-So a net that drains completely is deadlock-free, and a net that parks one token in a terminal
+So a net that drains completely is deadlock-free, and a net that parks one token in a sink
 place while another sits stranded upstream is not. Pick the one that states your intent, and say
-which. If you are reading an older net or an older set of notes and the claim was "a token in a
-terminal place is a legitimate stop", that claim is `TerminatesAtSink` now, and it is the drop-in
-if you want the previous behaviour:
+which. If the claim you mean is "a token in a sink place is a legitimate stop", that is
+`TerminatesAtSink`:
 
 ```java
 SmtVerifier.forNet(net).property(SmtProperty.terminatesAtSink())        // Java
@@ -73,15 +72,15 @@ SmtProperty::terminates_at_sink()                                       // Rust
 lp.terminates_at_sink()                                                 # Python
 ```
 
-**Declare sink places for a net that is meant to terminate**, and declare *every* intended
-terminal place, not a representative one. Under the strict reading the list is load bearing in
-both directions: a terminal place you forget to declare is reported as stranded, and a place you
-declare that is not really terminal excuses a token that should have moved on. With no sinks
+**Declare sink places for a net that is meant to come to rest**, and declare *every* place it
+may legitimately rest in, not a representative one. Under the strict reading the list is load
+bearing in both directions: a resting place you forget to declare is reported as stranded, and a
+place you declare that is not really a resting place excuses a token that should have moved on. With no sinks
 declared at all, `DeadlockFree` degenerates to "any quiescent marking still holding a token",
 which is what most closed nets already assumed.
 
-Expect the change to surface real bugs on nets that verified clean before. Every new violation is
-a token stranded outside your declared terminals, which is the thing you wanted found.
+Every violation is a token stranded outside your declared sinks, which is the thing you wanted
+found.
 
 ## 2. The three routes
 
@@ -118,7 +117,7 @@ needs a frame per stage and its cost climbs with roughly the cube of the length.
 linear in the state space. Measured on a compiled forty-node linear workflow: **410 s on the
 fixpoint path, 0.11 s here**; a 62-place diamond went 53.9 s to 0.0 s.
 
-- The verdict is **exact** — sound *and* complete — so a `Violated` carries a real firing
+- The verdict is **exact**, sound *and* complete, so a `Violated` carries a real firing
   sequence rather than a possibly-spurious one, and reports `counterexampleConfirmed: true`.
 - It applies only to an **untimed** net (every transition `immediate`) with no ν-join and no
   environment place. The timed case is excluded deliberately: the graph carries firing domains,
@@ -137,7 +136,7 @@ A ν-net asking about quiescence, or one with no declared budget place, goes to 
 truncates on a bounded quiescence query, the verifier defers to the scalable coloured Route A
 encoder (NU-053). Budget-declared untimed safety stays on Route A, where IC3 scales.
 
-Read `result.route` rather than inferring it — it is one of `enumeration`, `nu-scg`, `structural`,
+Read `result.route` rather than inferring it: it is one of `enumeration`, `nu-scg`, `structural`,
 `smt`, `unavailable`. It matters for more than curiosity: **only the `smt` route computes
 P-invariants**, so an empty `result.invariants` off any other route means "not computed", never
 "this net has none". A non-empty list is real whatever the route says.
@@ -164,7 +163,7 @@ The consequence in plain terms: one draining arc or reset arc on a busy place ki
 
 **Siphons and traps (VER-020).** A siphon is a place set that stays empty once empty; a trap stays marked once marked. Commoner's condition (every minimal siphon contains a marked trap) is a cheap structural deadlock pre-check, run for nets up to roughly 50 places, that can settle deadlock-freedom before any solver starts. When it fires, you get an answer in milliseconds. A siphon reported by the analysis is also the best debugging artefact you will get: it names the exact set of places that can drain and never refill, which is usually the bug.
 
-**It applies to ORDINARY nets only, and since the 5.1 wave libpetri enforces that.** The siphon and trap fixpoints are computed from the pre/post vectors, so they model a net where the only reason a transition is disabled is an input place holding too few tokens. A read arc, an inhibitor arc, a reset arc, a consume-all input or an arc weight above one is a disablement they do not see, and dropping it yields a strictly *more permissive* net — the wrong direction for a deadlock proof. Before the restriction, all three of these were reported deadlock-free while being dead at their initial marking on both executors:
+**It applies to ORDINARY nets only, and libpetri enforces that.** The siphon and trap fixpoints are computed from the pre/post vectors, so they model a net where the only reason a transition is disabled is an input place holding too few tokens. A read arc, an inhibitor arc, a reset arc, a consume-all input or an arc weight above one is a disablement they do not see, and dropping it yields a strictly *more permissive* net, the wrong direction for a deadlock proof. Without the restriction, all three of these would be reported deadlock-free while being dead at their initial marking on both executors:
 
 ```
 t1: one(a) read(g) -> g ;  t2: one(g) -> a      M0 = {a:1}
@@ -196,8 +195,8 @@ Practical consequence: under `AlwaysAvailable`, a bare `env -> T -> OUT` makes `
 5. **Inhibitor-heavy models.** Inhibitor arcs are what make the formalism Turing-complete. Use them where they express the domain, and expect the decidable fragment to shrink as you add more.
 6. **Heavy independent-branch parallelism under Route B.** The name-partition graph has no partial-order reduction and will truncate. Fixes: declare a budget so the coloured Route A encoder can take the query, reduce places shared between parallel branches, or push independent work into separate subnet instances.
 7. **Multi-token production into one output place in one firing.** The proved over-approximation fixes the abstract gain at one token per branch place. Producing several is outside the proof and is a live route to a false `Proven` on `PlaceBound`.
-8. **A terminating net with an incomplete sink list.** Under the strict `DeadlockFree` every
-   terminal place you failed to declare reads as a stranded token. The failure is loud and the
+8. **A net with an incomplete sink list.** Under the strict `DeadlockFree` every resting
+   place you failed to declare reads as a stranded token. The failure is loud and the
    fix is to finish the list, but it will look like a design bug until you do.
 9. **Priority-dependent safety.** The SMT encoder never encodes priorities and Route B is priority-blind unless you opt into `CONFLICT` semantics (NU-052). If your argument is "the high-priority transition always wins", either opt in or make the exclusion structural.
 
@@ -206,7 +205,7 @@ Practical consequence: under `AlwaysAvailable`, a bare `env -> T -> OUT` makes `
 - **Bound everything structurally.** A permit place consumed on entry and returned on exit *is* a P-invariant (`inFlight + permits = k`) and hands you a `PlaceBound` for free.
 - **Prefer `one()` and `exactly(n)`.** Reserve `all()` and `at_least(m)` for places whose counts no proof depends on. If you must drain a queue, drain it into a place that no invariant needs to weigh.
 - **Keep reset arcs on scratch and side places**, never on resource-counting places.
-- **Declare sink places** for every intended terminal state.
+- **Declare sink places** for every intended resting state.
 - **Declare environment places to the verifier** and pick a mode that models injection.
 - **Declare the ν budget place** and keep the mint-to-join fragment clean (see `nu-nets.md`).
 - **Use subnet instances rather than one shared place set** to keep interleavings and name pools apart. Isolation by renaming is free at run time and much cheaper to verify.
@@ -226,7 +225,7 @@ And say which of the three you have. A property you did not run is "not checked"
 
 **`Unknown`** is information, not failure. Read the reason. The common ones map to fixes: truncation (bound something, split the net, or declare a budget), vacuity (`Ignore` mode with env places registered), and a lost invariant (turn on semiflows, or move the draining arc).
 
-**But rule out the clock first, because it looks exactly like the others.** A proof that needs four minutes reports the same `Unknown` as one that needs forever. One team read a monotone, reproducible wall between 16 and 20 nodes across three fixtures as a capability limit; a larger budget walked straight through it, and every one of those nets proved — at 35 s, 277 s and 410 s. Three consecutive `Unknown`s are no evidence at all when they share a timeout. Vary the budget before characterising anything, and when you record a limit, record which budget produced it.
+**But rule out the clock first, because it looks exactly like the others.** A proof that needs four minutes reports the same `Unknown` as one that needs forever. One team read a monotone, reproducible wall between 16 and 20 nodes across three fixtures as a capability limit; a larger budget walked straight through it, and every one of those nets proved, at 35 s, 277 s and 410 s. Three consecutive `Unknown`s are no evidence at all when they share a timeout. Vary the budget before characterising anything, and when you record a limit, record which budget produced it.
 
 ## 8. Wiring proofs into the build
 
@@ -253,13 +252,13 @@ rather than by habit. It is off by default; turn it on deliberately.
 
 *The setting to reach for first is `'auto'`,* which applies the rule below for you in a single
 pass: it computes and unions the semiflows exactly when the basis lost a law to the H1 guard,
-and skips them otherwise. Prefer it to deciding by hand — the fact it keys on is one the
+and skips them otherwise. Prefer it to deciding by hand: the fact it keys on is one the
 pipeline already has, and reading it yourself means running the pipeline twice.
 
 *One exception, and it bites reporting rather than proving.* `'auto'` decides whether the
 semiflows would strengthen the **encoding**, not whether they would show up in the invariant list
 you read back. A complete basis spans every conservation law, but it is the *signed* basis, and a
-law it spans need not appear in it **non-negatively** — only the Farkas enumeration gives you
+law it spans need not appear in it **non-negatively**; only the Farkas enumeration gives you
 that form. So if you harvest invariants and search them by shape ("a non-negative law weighting
 the budget place and every running place"), `'auto'` can leave you empty-handed on a net that
 plainly has the law. Ask for the union explicitly on that run. `'auto'` for verification,
@@ -274,7 +273,7 @@ from the report: `Dropped invariant:` / `Dropped semiflow:` lines naming a consu
 place mean your basis is deficient and this option is worth trying.
 
 *When it is the whole bill and buys nothing.* If the basis is already complete and the net is
-**branchy**, the minimal semiflows are exponential in the branching — `k` independent diamonds in
+**branchy**, the minimal semiflows are exponential in the branching: `k` independent diamonds in
 series have `2^k` of them. Measured on a join-heavy workflow of 81 nodes and 870 places: the
 option accounted for **130 seconds of a 132-second run**, against 2.6 seconds with it off, and
 what it added was **one invariant** that moved no verdict on any fixture in that suite. Before
@@ -289,15 +288,15 @@ evidence that no such law exists.
 
 **`sinkPlaces`.** This is the design surface of a deadlock-freedom claim: what you list is what
 you are promising is a legitimate place to stop. Write the list before you write the assertion.
-It helps to split it into "state that outlives a unit of work" and "terminal outcomes of a unit
-of work", because the second group is the one that changes when you add a feature. Since the 5.0
-wave the list binds both ways under `DeadlockFree`: an undeclared terminal place is a violation,
+It helps to split it into "state that outlives a unit of work" and "final outcomes of a unit
+of work", because the second group is the one that changes when you add a feature. The list binds
+both ways under `DeadlockFree`: an undeclared resting place is a violation,
 and an over-declared one silently excuses a token. It is read by `TerminatesAtSink` too, with the
 opposite polarity, so never copy a sink list between the two properties without re-reading it.
 
 **`sinkPlacesWhen(marker, ...places)`.** The conditional half of the sink list ([VER-014]): the
-named places may hold a token *while the marker holds one*. Use it for designed terminals — a
-halt or pause marker under which the work it interrupted legitimately stays where it was
+named places may hold a token *while the marker holds one*. Use it for designed stops that
+do not end the run, such as a halt or pause marker under which the work it interrupted legitimately stays where it was
 delivered. The marker itself is at rest whenever it is marked; declarations for one marker
 accumulate, and for several markers they union, so a place excused by both `halt` and `pause`
 is stranded only when both are unmarked. Without it, every workflow that can halt mid-flight
@@ -313,9 +312,9 @@ SmtVerifier.forNet(net).property(deadlockFree())
 
 **`stateEquation`.** The lever for *quiescence* proofs on pipeline-shaped nets ([VER-016]). The
 encoding carries one firing counter per transition and states the marking equation
-`M = M0 + C·n` in every rule, so every linear consequence of it — the equality laws, the
+`M = M0 + C·n` in every rule, so every linear consequence of it (the equality laws, the
 decreasing laws, and the mixed-sign *ordering* laws ("both join slots armed means every upstream
-stage has run") — is a fact Spacer reads rather than a lemma it must invent. A `deadlockFree`
+stage has run")) is a fact Spacer reads rather than a lemma it must invent. A `deadlockFree`
 under conditional sinks on a 50-place agent net went from `Unknown` at 120 s to `Proven` in 1.5 s
 with this flag alone. Off by default: it grows the state and slows the search for a genuine
 counterexample by about 1.5×, so turn it on for the proofs and leave it off for witness hunting.
@@ -334,7 +333,7 @@ pipeline one stage before a join. `linearBound(false)` forces the fixpoint path 
 certificate.
 
 **`enumerationMaxClasses`.** The enumeration route's budget, default 50 000, `0` to disable. It is a
-performance knob and not a semantic one — past it the route declines and the SMT pipeline answers,
+performance knob and not a semantic one: past it the route declines and the SMT pipeline answers,
 so it cannot cost you a verdict. Set it to `0` if you enumerate the state space yourself before
 calling libpetri, or if you specifically want to exercise the solver path (which is why the
 library's own solver tests set it).
@@ -394,14 +393,14 @@ Slices are fast, local signal. Build them from the *same* subnet composition cal
 - Its environment handling never consumes environment tokens, so it cannot prove that an environment cell clears. Use the SMT route with a bounded environment mode for that.
 - **The enumeration budget behaves differently from `nuMaxClasses`, and the difference is the point.**
   Exceeding `nuMaxClasses` yields `Unknown`; exceeding `enumerationMaxClasses` yields nothing at
-  all — the route declines and the SMT pipeline answers. So a small enumeration budget costs you
+  all: the route declines and the SMT pipeline answers. So a small enumeration budget costs you
   the fast path, never a verdict. If you already enumerate the state space yourself before calling
   libpetri, set it to `0`: a second enumeration under a smaller budget can only re-explore and
   decline, which one consumer measured at 17 s to 101 s across their suite.
 
 ## 13a. `verify()` throws on a bug, and that is deliberate
 
-A verification failure — a dead solver, an exhausted budget, a truncated search — becomes an
+A verification failure (a dead solver, an exhausted budget, a truncated search) becomes an
 `Unknown` verdict with a reason. A **programming** failure does not: since the 5.1 wave a
 `TypeError` or `ReferenceError` propagates out of `verify()` instead of being laundered into a
 verdict. A `RangeError` still becomes a verdict, because a deep net overflowing the stack is
