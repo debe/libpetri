@@ -10,7 +10,7 @@
     {
       "name": "libpetri",
       "description": "Design principles for building provable Coloured Time Petri Nets with libpetri: token-carried data flow, reusable subnets, correlated fork/join, and proofs from the first commit.",
-      "version": "1.3.0",
+      "version": "1.4.0",
       "source": "./plugins/libpetri",
       "category": "development"
     }
