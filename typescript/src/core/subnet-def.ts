@@ -7,18 +7,16 @@ import type { Instance } from './instance.js';
 import { __createInstance } from './instance.js';
 import { PetriNet as PetriNetClass } from './petri-net.js';
 import { renameNet } from './internal/subnet-rewriter.js';
-import { SmtVerifier } from '../verification/smt-verifier.js';
-import { alwaysAvailable } from '../verification/analysis/environment-analysis-mode.js';
 import type { EnvironmentAnalysisMode } from '../verification/analysis/environment-analysis-mode.js';
 import type { SmtProperty } from '../verification/smt-property.js';
 import type { SmtVerificationResult } from '../verification/smt-verification-result.js';
-import {
-  buildVerificationResult,
-  normaliseGenerators,
-  normaliseProperties,
-  type VerificationHarness,
-  type VerificationResult,
-  type TokenSupplier,
+// Type-only on purpose: the verifier is loaded lazily inside `verify()`. A value
+// import here would pull `verification/` (and z3-process's `node:child_process`)
+// into the chunk the browser-safe root entry loads.
+import type {
+  VerificationHarness,
+  VerificationResult,
+  TokenSupplier,
 } from '../verification/verification-harness.js';
 import { requireOutputProducingActions } from './internal/output-action-check.js';
 
@@ -197,11 +195,19 @@ export class SubnetDef<P = void> {
      * `ignore()` is accepted but cannot yield `proven` — VER-006 refuses to certify a
      * proof that holds only because injection was never modeled.
      */
-    environmentMode: EnvironmentAnalysisMode = alwaysAvailable(),
+    environmentMode?: EnvironmentAnalysisMode,
   ): Promise<VerificationResult> {
     if (harness === null || harness === undefined) {
       throw new Error('SubnetDef.verify: harness must not be null/undefined');
     }
+
+    const [{ SmtVerifier }, { alwaysAvailable }, { buildVerificationResult, normaliseGenerators, normaliseProperties }] =
+      await Promise.all([
+        import('../verification/smt-verifier.js'),
+        import('../verification/analysis/environment-analysis-mode.js'),
+        import('../verification/verification-harness.js'),
+      ]);
+    const envMode = environmentMode ?? alwaysAvailable();
 
     // Step 1: instantiate this SubnetDef under the "sut" prefix. Uses an
     // underscore in the synthetic enclosing net's name to avoid colliding
@@ -301,7 +307,7 @@ export class SubnetDef<P = void> {
       const verifier = SmtVerifier.forNet(syntheticNet).property(property);
       if (envPlaces.length > 0) {
         verifier.environmentPlaces(...envPlaces);
-        verifier.environmentMode(environmentMode);
+        verifier.environmentMode(envMode);
       }
       const result = await verifier.verify();
       perProperty.set(property, result);
