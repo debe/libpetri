@@ -78,12 +78,12 @@ export class PrecompiledNet {
   readonly inhibitorMask: readonly Uint32Array[];
 
   // ==================== Sparse Enablement (PERF-042) ====================
-  readonly needsSingleWordIndex: Int8Array;
+  readonly needsSingleWordIndex: Int32Array;
   readonly needsSingleWordMask: Uint32Array;
   readonly needsSparseIndices: readonly (readonly number[])[];
   readonly needsSparseMasks: readonly (readonly number[])[];
 
-  readonly inhibitorSingleWordIndex: Int8Array;
+  readonly inhibitorSingleWordIndex: Int32Array;
   readonly inhibitorSingleWordMask: Uint32Array;
   readonly inhibitorSparseIndices: readonly (readonly number[])[];
   readonly inhibitorSparseMasks: readonly (readonly number[])[];
@@ -182,12 +182,12 @@ export class PrecompiledNet {
     this.inhibitorMask = inhibitorMask;
 
     // ==================== Sparse Enablement ====================
-    this.needsSingleWordIndex = new Int8Array(tc);
+    this.needsSingleWordIndex = new Int32Array(tc);
     this.needsSingleWordMask = new Uint32Array(tc);
     const needsSparseIndices: number[][] = new Array(tc);
     const needsSparseMasks: number[][] = new Array(tc);
 
-    this.inhibitorSingleWordIndex = new Int8Array(tc);
+    this.inhibitorSingleWordIndex = new Int32Array(tc);
     this.inhibitorSingleWordMask = new Uint32Array(tc);
     const inhibitorSparseIndices: number[][] = new Array(tc);
     const inhibitorSparseMasks: number[][] = new Array(tc);
@@ -379,7 +379,7 @@ export class PrecompiledNet {
 function compileSparse(
   mask: Uint32Array,
   wordCount: number,
-  singleWordIndex: Int8Array,
+  singleWordIndex: Int32Array,
   singleWordMask: Uint32Array,
   sparseIndices: number[][],
   sparseMasks: number[][],
