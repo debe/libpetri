@@ -13,6 +13,7 @@ use std::sync::Arc;
 use libpetri_core::petri_net::PetriNet;
 use libpetri_event::event_store::EventStore;
 
+#[cfg(feature = "tokio")]
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::clock::ExecutorClock;

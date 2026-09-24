@@ -34,6 +34,7 @@ use crate::executor_core::event_payload::{token_added_event, token_removed_event
 use crate::executor_core::output::{describe_out_violation, validate_out_spec};
 use crate::executor_core::scope::{default_execution_scope, validate_execution_scope};
 use crate::marking::Marking;
+#[cfg(feature = "tokio")]
 use crate::marking::SnapshotResult;
 use crate::termination::TerminationReason;
 
