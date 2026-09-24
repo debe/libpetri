@@ -143,7 +143,7 @@ fn smt_scripts_match_the_committed_goldens() {
     let mut encoded: Vec<(String, EncodedScripts)> = Vec::new();
     for fixture in fixtures {
         let id = fixture.str("id");
-        let built = nets::build(fixture.str("net"));
+        let built = nets::declare_terminals(nets::build(fixture.str("net")), &fixture.str_arr_opt("terminals"));
         let scripts = verifier_for(fixture, &built).encode_scripts();
         let dir = root.join("scripts").join(id);
         let horn = dir.join("horn.smt2");
@@ -201,7 +201,7 @@ fn smt_scripts_match_the_committed_goldens() {
                 continue;
             }
             let id = fixture.str("id");
-            let built = nets::build(fixture.str("net"));
+            let built = nets::declare_terminals(nets::build(fixture.str("net")), &fixture.str_arr_opt("terminals"));
             let reported = &encoded.iter().find(|(f, _)| f == id).expect("encoded").1;
             // With the defaults the phases of [VER-018]/[VER-019] run before the fixpoint
             // query and, on most fixtures, decide; with both off, the HORN query is sent.

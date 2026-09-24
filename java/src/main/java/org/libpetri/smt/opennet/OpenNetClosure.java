@@ -152,9 +152,11 @@ public final class OpenNetClosure {
             transitions.add(onClosedPlaces(t, byName));
         }
         transitions.addAll(envTransitions);
-        var closed = PetriNet.builder(net.name() + "+environment")
+        var closedBuilder = PetriNet.builder(net.name() + "+environment")
             .places(places.toArray(new Place<?>[0]))
-            .transitions(transitions.toArray(new Transition[0]))
+            .transitions(transitions.toArray(new Transition[0]));
+        net.terminals().forEach(closedBuilder::terminal); // EXEC-042
+        var closed = closedBuilder
             .build()
             .bindActions(name -> placeholder.contains(name) ? ENVIRONMENT_ACTION : null);
         return new ClosedNet(

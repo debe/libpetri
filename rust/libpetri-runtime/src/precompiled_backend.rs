@@ -131,6 +131,14 @@ pub struct PrecompiledBackend<'a> {
 
     /// Grace band (ms) before a hard deadline force-disables (TIME-013).
     deadline_tolerance_ms: f64,
+
+    // ==================== Terminal places (EXEC-042) ====================
+    /// Copied from the compiled net: false for every net that declares no
+    /// terminal place, which keeps the per-deposit check one predicted branch.
+    has_terminals: bool,
+    /// Latched by the first deposit that marks a terminal place (or by an
+    /// initial marking that does). Never cleared: the run is over.
+    terminal_reached: bool,
 }
 
 impl<'a> PrecompiledBackend<'a> {
@@ -237,6 +245,8 @@ impl<'a> PrecompiledBackend<'a> {
             deposit_touched: Vec::with_capacity(pc),
             has_deposits: false,
             deadline_tolerance_ms: DEADLINE_TOLERANCE_MS,
+            has_terminals: program.compiled().has_terminals(),
+            terminal_reached: false,
         };
         this.init_match_caches();
         this
@@ -510,6 +520,15 @@ impl<'a> PrecompiledBackend<'a> {
     }
 
     // ==================== Bitmap helpers ====================
+
+    /// EXEC-042: latch the run's end when `pid` is a terminal place. One
+    /// predicted branch on a net without terminal places.
+    #[inline(always)]
+    fn latch_terminal(&mut self, pid: usize) {
+        if self.has_terminals && self.program.compiled().is_terminal(pid) {
+            self.terminal_reached = true;
+        }
+    }
 
     #[inline]
     fn set_enabled_bit(&mut self, tid: usize) {
@@ -893,9 +912,16 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
         for pid in 0..self.program.place_count() {
             if self.token_counts[pid] > 0 {
                 self.set_marking_bit(pid);
+                // EXEC-042: the initial marking is a check point.
+                self.latch_terminal(pid);
             }
         }
         self.mark_all_dirty();
+    }
+
+    #[inline]
+    fn terminal_reached(&self) -> bool {
+        self.terminal_reached
     }
 
     fn snapshot_marking(&self) -> Cow<'_, Marking> {
@@ -1293,6 +1319,7 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
             // delta keep this token out of the rest of the pass (EXEC-003).
             self.record_deposit(pid);
             self.mark_place_dirty(pid);
+            self.latch_terminal(pid);
         } else {
             self.extra_marking.add_erased(place, token);
             self.unknown_places.record(place);
@@ -1322,6 +1349,7 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
             self.ring_add_last(pid, token);
             self.set_marking_bit(pid);
             self.mark_place_dirty(pid);
+            self.latch_terminal(pid);
         } else {
             self.extra_marking.add_erased(place, token);
             self.unknown_places.record(place);

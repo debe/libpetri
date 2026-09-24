@@ -134,7 +134,9 @@ function untimed(net: PetriNet): PetriNet {
     if (t.matchSpec !== null) b.match(t.matchSpec);
     return b.build();
   });
-  return PetriNet.builder(net.name).places(...net.places).transitions(...transitions).build();
+  return PetriNet.builder(net.name).places(...net.places).transitions(...transitions)
+    .terminals(...net.terminals) // EXEC-042
+    .build();
 }
 
 function partsFor(closed: ClosedNet, contract: OpenNetContract): Part[] {

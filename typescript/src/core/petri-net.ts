@@ -7,9 +7,13 @@ import { SubnetDef } from './subnet-def.js';
 import { ComposeBindings, __createComposeBindings } from './compose-bindings.js';
 import { applyFusion, mergeTransitions, substitutePlaces } from './internal/subnet-rewriter.js';
 import { FusionSet, FusionSetBuilder } from './fusion-set.js';
+import { rejectSubnetTerminals } from './internal/terminal-check.js';
 
 /** @internal Symbol key restricting construction to the builder and bindActions. */
 const PETRI_NET_KEY = Symbol('PetriNet.internal');
+
+/** Shared empty terminal set (EXEC-042): the default, so a net without terminals allocates none. */
+const EMPTY_TERMINALS: ReadonlySet<Place<any>> = new Set();
 
 /**
  * Immutable definition of a Time Petri Net structure.
@@ -35,6 +39,17 @@ export class PetriNet {
    */
   readonly subnetMembership: ReadonlyMap<string, string>;
 
+  /**
+   * Terminal places per **EXEC-042**, in declaration order: once any of them holds a token the
+   * run is over. The executor stops at the deposit that marks one (termination reason
+   * `'terminal'`), and every verifier treats each as a designed terminal without being told.
+   * Empty for a net that declares none — the common case, which costs nothing anywhere.
+   *
+   * Always a subset of {@link places}, and never an input or read-arc place of any transition
+   * (rejected at build time).
+   */
+  readonly terminals: ReadonlySet<Place<any>>;
+
   /** @internal Use {@link PetriNet.builder} to create instances. */
   constructor(
     key: symbol,
@@ -42,12 +57,14 @@ export class PetriNet {
     places: ReadonlySet<Place<any>>,
     transitions: ReadonlySet<Transition>,
     subnetMembership: ReadonlyMap<string, string> = new Map(),
+    terminals: ReadonlySet<Place<any>> = EMPTY_TERMINALS,
   ) {
     if (key !== PETRI_NET_KEY) throw new Error('Use PetriNet.builder() to create instances');
     this.name = name;
     this.places = places;
     this.transitions = transitions;
     this.subnetMembership = subnetMembership;
+    this.terminals = terminals;
   }
 
   /**
@@ -84,7 +101,7 @@ export class PetriNet {
     // MOD-026: bindActions rebuilds transitions but preserves their names, so
     // name-keyed membership metadata survives a session bind unchanged.
     return new PetriNet(PETRI_NET_KEY, this.name, this.places, boundTransitions,
-      this.subnetMembership);
+      this.subnetMembership, this.terminals);
   }
 
   static builder(name: string): PetriNetBuilder {
@@ -102,6 +119,8 @@ export class PetriNetBuilder {
   // membership at build(). V8 Map/Set iterate in insertion order, preserving
   // compose order for cross-language byte-parity.
   private readonly _subnetContributions = new Map<string, Set<string>>();
+  // EXEC-042: terminal places by name, in declaration order (TS Place identity is name-based).
+  private readonly _terminals = new Map<string, Place<any>>();
 
   constructor(name: string) {
     this._name = name;
@@ -116,6 +135,29 @@ export class PetriNetBuilder {
   /** Add explicit places. */
   places(...places: Place<any>[]): this {
     for (const p of places) this._places.add(p);
+    return this;
+  }
+
+  /**
+   * Declares a **terminal place** per **EXEC-042**: the run is over once `place` holds a token.
+   * The executor stops at the deposit that marks it — in-flight actions are abandoned and
+   * queued external events refused — and ends with termination reason `'terminal'`. Verifiers
+   * treat it as a designed terminal automatically ([VER-014]).
+   *
+   * The place joins the net if no arc touches it. It may be an environment place (injecting
+   * into it ends the run), but it must not be an input or read-arc place of any transition:
+   * {@link build} rejects that. A net that declares terminals cannot be composed as a subnet
+   * body.
+   */
+  terminal(place: Place<any>): this {
+    if (!this._terminals.has(place.name)) this._terminals.set(place.name, place);
+    this._places.add(place);
+    return this;
+  }
+
+  /** Declares several terminal places ({@link terminal}), in order. */
+  terminals(...places: Place<any>[]): this {
+    for (const p of places) this.terminal(p);
     return this;
   }
 
@@ -251,6 +293,9 @@ export class PetriNetBuilder {
    */
   private composeDirect(def: SubnetDef<unknown>): this {
     const iface = def.iface;
+
+    // EXEC-042: terminals are a whole-net property; a subnet body may not declare them.
+    rejectSubnetTerminals(def.body, def.name, 'compose(SubnetDef)');
 
     // MOD-025: direct composition does not bind channels.
     if (iface.channels.size > 0) {
@@ -475,6 +520,8 @@ export class PetriNetBuilder {
     channelBindings: ReadonlyMap<string, Transition>,
   ): this {
     const iface = instance.def.iface;
+    // EXEC-042: instantiate already refuses such a body; this guards an Instance built otherwise.
+    rejectSubnetTerminals(instance.def.body, instance.def.name, 'compose(Instance)');
 
     // Step 1: Stage rewritten instance transitions in a working map keyed
     // by prefixed transition name. The substitutePlaces primitive keeps
@@ -626,8 +673,12 @@ export class PetriNetBuilder {
   build(): PetriNet {
     const membership = this.resolveSubnetMembership();
     if (this._fusionSets.length === 0) {
+      const terminals = this._terminals.size === 0
+        ? EMPTY_TERMINALS
+        : new Set<Place<any>>(this._terminals.values());
+      requireWellFormedTerminals(this._name, terminals, this._transitions);
       return new PetriNet(PETRI_NET_KEY, this._name, this._places, this._transitions,
-        membership);
+        membership, terminals);
     }
     return this.buildWithFusion(membership);
   }
@@ -740,8 +791,55 @@ export class PetriNetBuilder {
       for (const r of t.resets) rebuiltPlaces.add(r.place);
     }
 
+    // EXEC-042: a terminal that was a non-canonical fusion member is now its canonical place.
+    let terminals: ReadonlySet<Place<any>> = EMPTY_TERMINALS;
+    if (this._terminals.size > 0) {
+      const byName = new Map<string, Place<any>>();
+      for (const p of this._terminals.values()) {
+        const canonical = fusionMap.get(p.name) ?? p;
+        if (!byName.has(canonical.name)) byName.set(canonical.name, canonical);
+        rebuiltPlaces.add(canonical);
+      }
+      terminals = new Set(byName.values());
+    }
+    requireWellFormedTerminals(this._name, terminals, rewrittenTransitions);
+
     return new PetriNet(PETRI_NET_KEY, this._name, rebuiltPlaces, rewrittenTransitions,
-      PetriNetBuilder.filterFusedMembership(membership, nonCanonicalNames));
+      PetriNetBuilder.filterFusedMembership(membership, nonCanonicalNames), terminals);
+  }
+}
+
+/**
+ * EXEC-042 well-formedness: a terminal place must not be an input or a read-arc place of any
+ * transition — once it is marked nothing fires, so such a transition could never fire.
+ */
+function requireWellFormedTerminals(
+  netName: string,
+  terminals: ReadonlySet<Place<any>>,
+  transitions: ReadonlySet<Transition>,
+): void {
+  if (terminals.size === 0) return;
+  const names = new Set<string>();
+  for (const p of terminals) names.add(p.name);
+  for (const t of transitions) {
+    for (const spec of t.inputSpecs) {
+      if (names.has(spec.place.name)) {
+        throw new Error(
+          `Net '${netName}': terminal place '${spec.place.name}' is an input of transition ` +
+          `'${t.name}'. A terminal place ends the run once marked, so no transition may consume ` +
+          `it (EXEC-042).`,
+        );
+      }
+    }
+    for (const arc of t.reads) {
+      if (names.has(arc.place.name)) {
+        throw new Error(
+          `Net '${netName}': terminal place '${arc.place.name}' is a read-arc place of transition ` +
+          `'${t.name}'. A terminal place ends the run once marked, so no transition may read ` +
+          `it (EXEC-042).`,
+        );
+      }
+    }
   }
 }
 

@@ -30,7 +30,7 @@ import type { Token } from '../core/token.js';
 import type { Transition } from '../core/transition.js';
 import type { EventStore } from '../event/event-store.js';
 import type { NetEvent } from '../event/net-event.js';
-import type { PetriNetExecutor, RunTimeoutPolicy, SnapshotResult } from './petri-net-executor.js';
+import type { PetriNetExecutor, RunTimeoutPolicy, SnapshotResult, TerminationReason } from './petri-net-executor.js';
 import type { Clock } from './clock.js';
 import { tokenAt } from '../core/token.js';
 import { TokenInput } from '../core/token-input.js';
@@ -278,6 +278,17 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
   private closed = false;
 
   /**
+   * Latched when a deposit marks a terminal place ([EXEC-042]), or the initial marking already
+   * does. From then on no transition fires, no further completion or external event is admitted,
+   * and the loop ends `'terminal'`. Only ever set when the net declares terminals.
+   */
+  private terminalReached = false;
+  /** Why the run ended ([EXEC-041]); `'running'` until it has. */
+  private reason: TerminationReason = 'running';
+  /** Per place id, `1` for a terminal place ([EXEC-042]); `null` — the common case — for none. */
+  private readonly terminalFlags: Uint8Array | null;
+
+  /**
    * True while the token queues are **between** two settled states inside one synchronous
    * stretch of the cycle ([ENV-014] AC#6): from the first input of a firing being consumed
    * until that firing is counted in flight, and from a completed firing being uncounted until
@@ -357,6 +368,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     this.epochNowFn = this.clock === null ? undefined : (): number => this.epochMs();
     this.startMs = this.nowMs();
     this.eventStoreEnabled = this.eventStore.isEnabled();
+    this.terminalFlags = this.program.compiled.terminalFlags;
 
     const prog = this.program;
     const pc = prog.placeCount;
@@ -542,6 +554,8 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     } finally {
       if (timer !== undefined) clearTimeout(timer);
       if (timedOut) {
+        // EXEC-041: an expired budget is a caller-requested stop, whatever the loop does next.
+        if (this.reason === 'running') this.reason = 'stopped';
         if (onTimeout === 'close') this.close();
         // Nobody is left to observe the abandoned loop's outcome.
         loop.catch(() => {});
@@ -562,6 +576,8 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
 
     this.initializeMarkingBitmap();
     this.markAllDirty();
+    // EXEC-042 AC1: a terminal place marked from the start ends the run before the first cycle.
+    if (this.terminalFlags !== null) this.checkInitialTerminals();
 
     this.emitEvent({
       type: 'marking-snapshot',
@@ -569,9 +585,13 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       marking: this.snapshotMarking(),
     });
 
-    while (this.running) {
+    while (this.running && !this.terminalReached) {
       this.processCompletedTransitions();
+      // EXEC-042: a completion that marked a terminal place ends the run here — nothing queued
+      // behind it is admitted and nothing fires.
+      if (this.terminalReached) break;
       this.processExternalEvents();
+      if (this.terminalReached) break;
       this.updateDirtyTransitions();
 
       const cycleNowMs = this.nowMs();
@@ -585,7 +605,11 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     }
 
     this.running = false;
+    // EXEC-042: a terminal stop refuses whatever is still queued (ENV-004), as close() does.
     this.drainPendingExternalEvents();
+    if (this.reason === 'running') {
+      this.reason = this.terminalReached ? 'terminal' : this.closed ? 'closed' : 'quiescent';
+    }
 
     this.emitEvent({
       type: 'marking-snapshot',
@@ -622,7 +646,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     if (!this.environmentPlaces.has(envPlace.place.name)) {
       throw new Error(`Place ${envPlace.place.name} is not registered as an environment place`);
     }
-    if (this.closed || this.draining) return false;
+    if (this.closed || this.draining || this.terminalReached) return false;
 
     return new Promise<boolean>((resolve, reject) => {
       this.externalQueue.push({
@@ -663,7 +687,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     if (!this.environmentPlaces.has(envPlace.place.name)) {
       throw new Error(`Place ${envPlace.place.name} is not registered as an environment place`);
     }
-    if (this.closed || this.draining) return;
+    if (this.closed || this.draining || this.terminalReached) return;
     this.externalQueue.push({
       place: envPlace.place,
       token: tokenAt(value, this.epochMs()),
@@ -679,6 +703,17 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     for (let pid = 0; pid < this.program.placeCount; pid++) {
       if (this.tokenQueues[pid]!.length > 0) {
         this.setMarkingBit(pid);
+      }
+    }
+  }
+
+  /** EXEC-042 AC1: latches when the initial marking already marks a terminal place. */
+  private checkInitialTerminals(): void {
+    const flags = this.terminalFlags!;
+    for (let pid = 0; pid < flags.length; pid++) {
+      if (flags[pid] && this.tokenQueues[pid]!.length > 0) {
+        this.terminalReached = true;
+        return;
       }
     }
   }
@@ -1452,6 +1487,11 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
         });
         this.markTransitionDirty(tid);
       }
+      // EXEC-042: completions queued behind a terminal deposit are abandoned, never deposited.
+      if (this.terminalReached) {
+        // Their tids stay counted in flight, so a later snapshot still reports the work.
+        break;
+      }
     }
     this.completionQueue.length = 0;
   }
@@ -1480,14 +1520,18 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       } catch (e) {
         event.reject(e instanceof Error ? e : new Error(String(e)));
       }
+      // EXEC-042: events queued behind a terminal injection stay queued, to be refused when the
+      // loop ends (drainPendingExternalEvents).
+      if (this.terminalReached) break;
     }
     // Drop what this pass deposited — not the whole queue. `EventStore.append` runs
     // synchronously inside the walk above, so an inject() made from a token-added handler has
     // landed past `len`; clearing the queue would discard an accepted event and leave its
     // admission promise unsettled forever. It is admitted next cycle instead (its wakeUp() is
     // latched, and awaitWork re-checks the queue on entry).
-    if (this.externalQueue.length === len) this.externalQueue.length = 0;
-    else this.externalQueue.splice(0, len);
+    const deposited = this.externalCursor;
+    if (this.externalQueue.length === deposited) this.externalQueue.length = 0;
+    else this.externalQueue.splice(0, deposited);
     this.externalCursor = 0;
   }
 
@@ -1506,6 +1550,9 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     this.tokenQueues[pid]!.push(token);
     this.setMarkingBit(pid);
     this.markDirty(pid);
+    // EXEC-042: latch; the caller finishes the current firing's deposits, then stops admitting.
+    const terminalFlags = this.terminalFlags;
+    if (terminalFlags !== null && terminalFlags[pid]) this.terminalReached = true;
   }
 
   /**
@@ -1739,6 +1786,14 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
 
   isQuiescent(): boolean {
     return this.enabledTransitionCount === 0 && this.inFlightCount === 0;
+  }
+
+  /**
+   * Why the run ended ([EXEC-041] AC3), or `'running'` until it has: `'quiescent'`,
+   * `'terminal'` ([EXEC-042]), `'closed'` ([ENV-013]) or `'stopped'` (an expired run budget).
+   */
+  terminationReason(): TerminationReason {
+    return this.reason;
   }
 
   /**

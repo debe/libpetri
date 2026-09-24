@@ -10,7 +10,8 @@ import type { PetriNet } from '../../core/petri-net.js';
 import type { SmtVerifier } from '../smt-verifier.js';
 import type { Verdict } from '../smt-verification-result.js';
 import { closeOpenNet } from './closure.js';
-import type { OpenNetContract } from './contract.js';
+import { withDesignedTerminals, type OpenNetContract } from './contract.js';
+import { terminalExcusedPlaces, withTerminalInhibitors } from '../terminal-places.js';
 import { decideOnGraph } from './graph-route.js';
 import { renderReport } from './report.js';
 import type { ContractViolation, OpenNetResult, OpenNetRoute } from './result.js';
@@ -52,7 +53,15 @@ export async function verifyOpenNet(
   options: OpenNetOptions = {},
 ): Promise<OpenNetResult> {
   const start = performance.now();
-  const closed = closeOpenNet(net, contract);
+  let closed = closeOpenNet(net, contract);
+  // EXEC-042 / VER-014: the net's own terminal places, applied without the caller restating
+  // them. Each inhibits every transition of the closed net (the environment's too: after a
+  // terminal stop the runtime admits nothing), and is merged as a designed terminal excusing
+  // every place of the closed net.
+  if (closed.net.terminals.size > 0) {
+    contract = withDesignedTerminals(contract, closed.net.terminals, terminalExcusedPlaces(closed.net));
+    closed = { ...closed, net: withTerminalInhibitors(closed.net) };
+  }
   const maxClasses = options.maxClasses ?? DEFAULT_MAX_CLASSES;
   const useSmt = options.smt ?? true;
   // The places a port trace reports changes on.

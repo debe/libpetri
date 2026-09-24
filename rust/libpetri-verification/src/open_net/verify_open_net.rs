@@ -13,6 +13,7 @@ use libpetri_core::petri_net::PetriNet;
 
 use crate::result::Verdict;
 use crate::smt_verifier::SmtVerifier;
+use crate::terminal_places::inhibit_on_terminals;
 
 use super::closure::close_open_net;
 use super::contract::OpenNetContract;
@@ -84,7 +85,16 @@ const GRAPH_SKIPPED_BUDGET: &str = "class budget 0";
 /// collide with the net's ([`close_open_net`](super::close_open_net)).
 pub fn verify_open_net(net: &PetriNet, contract: &OpenNetContract, options: &OpenNetOptions) -> OpenNetResult {
     let start = Instant::now();
-    let closed = close_open_net(net, contract);
+    // [EXEC-042] / [VER-022]: the net's own terminal places are designed terminals of the
+    // contract, and each inhibits every transition of the closed net, the environment's
+    // included — the runtime refuses what arrives after the stop. Neither changes anything
+    // for a net without terminal places.
+    let merged = contract.with_net_terminals(net);
+    let contract = merged.as_ref().unwrap_or(contract);
+    let mut closed = close_open_net(net, contract);
+    if let Some(inhibited) = inhibit_on_terminals(&closed.net) {
+        closed.net = inhibited;
+    }
     let max_classes = options.max_classes;
     // Every place a port trace may mention: the contract's own, plus the closure's. [VER-022]
     // reserves "port" for a place the environment shares with the subnet, which is narrower.

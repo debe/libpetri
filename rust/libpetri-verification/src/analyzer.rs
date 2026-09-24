@@ -7,6 +7,7 @@ use crate::environment::EnvironmentAnalysisMode;
 use crate::marking_state::MarkingState;
 use crate::scc::{compute_sccs, find_terminal_sccs};
 use crate::state_class_graph::StateClassGraph;
+use crate::terminal_places::inhibit_on_terminals;
 
 /// Result of liveness analysis.
 #[derive(Debug)]
@@ -112,12 +113,15 @@ impl<'a> TimePetriNetAnalyzer<'a> {
 
     /// Performs formal liveness analysis.
     pub fn analyze(&self) -> LivenessResult {
+        // Net-declared terminals ([EXEC-042]): a terminal place inhibits every transition.
+        let rewritten = inhibit_on_terminals(self.net);
+        let net = rewritten.as_ref().unwrap_or(self.net);
         let mut report = Vec::new();
         report.push("=== TIME PETRI NET FORMAL ANALYSIS ===\n".to_string());
         report.push("Method: State Class Graph (Berthomieu-Diaz 1991)".to_string());
-        report.push(format!("Net: {}", self.net.name()));
-        report.push(format!("Places: {}", self.net.places().len()));
-        report.push(format!("Transitions: {}", self.net.transitions().len()));
+        report.push(format!("Net: {}", net.name()));
+        report.push(format!("Places: {}", net.places().len()));
+        report.push(format!("Transitions: {}", net.transitions().len()));
         report.push(format!("Goal places: [{}]\n", self.goal_places.join(", ")));
 
         // Phase 1: Build State Class Graph
@@ -128,7 +132,7 @@ impl<'a> TimePetriNetAnalyzer<'a> {
         }
         let env_refs: Vec<&str> = self.env_places.iter().map(|s| s.as_str()).collect();
         let scg = StateClassGraph::build_with_env(
-            self.net,
+            net,
             &self.initial_marking,
             self.max_classes,
             &env_refs,
@@ -210,7 +214,7 @@ impl<'a> TimePetriNetAnalyzer<'a> {
             .push("  Property: Every transition can fire from every reachable marking".to_string());
 
         let all_transition_names: HashSet<&str> =
-            self.net.transitions().iter().map(|t| t.name()).collect();
+            net.transitions().iter().map(|t| t.name()).collect();
 
         let mut terminal_missing_transitions = 0;
         for scc in &terminal_sccs {
@@ -490,6 +494,34 @@ mod tests {
 
         assert!(!result.is_goal_live);
         assert!(result.report.contains("GOAL LIVENESS VIOLATION"));
+    }
+
+    #[test]
+    fn net_terminal_freezes_the_state_class_graph_exec042() {
+        // A↔B circulates forever; t3 marks T once. Undeclared, A stays reachable from every
+        // class. Declared terminal, T inhibits the circle, so a class holding B and T is stuck.
+        let p_a = Place::<i32>::new("A");
+        let p_b = Place::<i32>::new("B");
+        let p_c = Place::<i32>::new("C");
+        let p_t = Place::<i32>::new("T");
+        let build = |terminal: bool| {
+            let t1 = Transition::builder("t1").input(one(&p_a)).output(out_place(&p_b)).action(fork()).build();
+            let t2 = Transition::builder("t2").input(one(&p_b)).output(out_place(&p_a)).action(fork()).build();
+            let t3 = Transition::builder("t3").input(one(&p_c)).output(out_place(&p_t)).action(fork()).build();
+            let builder = PetriNet::builder("frozen").transitions([t1, t2, t3]);
+            if terminal { builder.terminal(&p_t).build() } else { builder.build() }
+        };
+        let analyze = |net: &PetriNet| {
+            TimePetriNetAnalyzer::for_net(net)
+                .initial_marking(MarkingStateBuilder::new().tokens("A", 1).tokens("C", 1).build())
+                .goal_place("A")
+                .max_classes(100)
+                .build()
+                .analyze()
+        };
+
+        assert!(analyze(&build(false)).is_goal_live);
+        assert!(!analyze(&build(true)).is_goal_live);
     }
 
     #[test]

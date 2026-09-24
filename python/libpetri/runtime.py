@@ -103,15 +103,20 @@ class MarkingView(Mapping[str, tuple[Any, ...]]):
     Iteration, ``view[place]``, and `tokens(place)` all yield the
     **value-only** tuple — backward-compatible with pre-2.7.0 callers.
     Use `timestamps(place)` or `snapshot()` to reach the `created_at` data.
+
+    A view returned by a run also carries `termination_reason` ([EXEC-041]
+    AC3): why the run ended.
     """
 
     def __init__(
         self,
         data: Mapping[str, Iterable[Any]] | None = None,
     ) -> None:
+        self._termination_reason: str | None = None
         if isinstance(data, MarkingView):
             self._values = dict(data._values)
             self._created_at = dict(data._created_at)
+            self._termination_reason = data._termination_reason
             return
         _reject_snapshot_result(data, "MarkingView(...)")
         self._values: dict[str, tuple[Any, ...]] = {}
@@ -149,6 +154,27 @@ class MarkingView(Mapping[str, tuple[Any, ...]]):
         the named entry point makes restore intent obvious at call sites.
         """
         return cls(data)
+
+    @classmethod
+    def _from_run(cls, result: tuple[Any, str]) -> "MarkingView":
+        data, reason = result
+        view = cls(data)
+        view._termination_reason = reason
+        return view
+
+    @property
+    def termination_reason(self) -> str | None:
+        """Why the run that returned this view ended ([EXEC-041] AC3), or
+        ``None`` for a view that no run returned.
+
+        ``"quiescent"`` — nothing enabled and nothing in flight ([EXEC-040]);
+        ``"terminal"`` — a terminal place was marked ([EXEC-042]), and the run
+        stopped at once, abandoning actions in flight; ``"closed"`` — a
+        ``close()`` truncated the run ([ENV-013]); ``"stopped"`` — another
+        caller-requested stop. The first two are designed ends: the marking
+        is the one the net was built to finish in.
+        """
+        return self._termination_reason
 
     def __getitem__(self, place_name: str) -> tuple[Any, ...]:
         return self._values[place_name]
@@ -373,7 +399,7 @@ class CompiledNet:
             _native_options(options),
             event_store,
         )
-        return MarkingView(result)
+        return MarkingView._from_run(result)
 
     def start_async(self, *, initial=None, options=None, event_store=None):
         if not _ext.HAS_TOKIO:
@@ -387,7 +413,7 @@ class CompiledNet:
         )
 
         async def _wait_for_result() -> MarkingView:
-            return MarkingView(await native_awaitable)
+            return MarkingView._from_run(await native_awaitable)
 
         return ExecutorHandle(native_handle), _wait_for_result()
 
@@ -421,6 +447,14 @@ if _ext.HAS_TOKIO:
         @property
         def drained(self) -> bool:
             return self._inner.drained
+
+        @property
+        def termination_reason(self) -> str:
+            """Why the run ended ([EXEC-041] AC3): ``"running"`` until it
+            has, then ``"quiescent"``, ``"terminal"`` ([EXEC-042]),
+            ``"closed"`` or ``"stopped"`` — the value the run's `MarkingView`
+            carries."""
+            return self._inner.termination_reason
 
         async def snapshot(self) -> SnapshotResult:
             """Request a mid-execution marking snapshot.

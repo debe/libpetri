@@ -44,6 +44,7 @@
  * MOD-013, MOD-020, MOD-030.
  */
 
+import { rejectSubnetTerminals } from './terminal-check.js';
 import type { Place } from '../place.js';
 import { place } from '../place.js';
 import type { ArcInhibitor, ArcRead, ArcReset } from '../arc.js';
@@ -102,6 +103,9 @@ export function renameNet(
   placeRemap: Map<string, Place<unknown>>,
   transitionRemap: Map<string, Transition>,
 ): PetriNet {
+  // EXEC-042: a subnet body may not declare terminal places (instantiate's only rename path).
+  rejectSubnetTerminals(body, body.name, 'SubnetDef.instantiate');
+
   placeRemap.clear();
   transitionRemap.clear();
 

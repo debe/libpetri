@@ -47,6 +47,9 @@ public final class PetriNetGraphMapper {
     public static Graph map(PetriNet net, ExportConfig config) {
         var places = PlaceAnalysis.from(net);
         var envNames = config.environmentPlaces();
+        // EXEC-042: terminal places render in their own category.
+        var terminalNames = new HashSet<String>();
+        for (var p : net.terminals()) terminalNames.add(p.name());
 
         var nodes = new ArrayList<GraphNode>();
         var edges = new ArrayList<GraphEdge>();
@@ -74,7 +77,7 @@ public final class PetriNetGraphMapper {
         // Place nodes
         for (var entry : places.data().entrySet()) {
             String name = entry.getKey();
-            String category = places.category(name, envNames);
+            String category = places.category(name, envNames, terminalNames);
             NodeVisual style = StyleConstants.nodeStyle(category);
             String nodeId = "p_" + DotExporter.sanitize(name);
             // LinkedHashMap so xlabel always renders before fixedsize —

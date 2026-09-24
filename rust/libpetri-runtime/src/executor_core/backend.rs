@@ -156,6 +156,13 @@ pub trait ExecutorBackend {
     /// materialise from ring buffers and return `Cow::Owned`.
     fn snapshot_marking(&self) -> Cow<'_, Marking>;
 
+    /// \[EXEC-042\] True once a deposit — an output, a flush, an injection —
+    /// or the initial marking has marked a terminal place. Latched by the
+    /// backend at the deposit itself, so the loop reads it after each
+    /// deposit site and stops: no transition fires afterwards. Always false
+    /// on a net that declares no terminal place.
+    fn terminal_reached(&self) -> bool;
+
     /// True when nothing is enabled. The loop uses this alongside
     /// `has_environment_places` to decide between sleeping and
     /// terminating.

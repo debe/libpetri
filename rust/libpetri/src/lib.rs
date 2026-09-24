@@ -104,12 +104,13 @@ pub use libpetri_runtime::executor::{
 };
 pub use libpetri_runtime::marking::{Marking, MarkingSnapshot, SnapshotResult};
 pub use libpetri_runtime::owned_precompiled::{
-    OwnedPrecompiledExecutorBuilder, OwnedPrecompiledNet,
+    OwnedPrecompiledExecutorBuilder, OwnedPrecompiledNet, RunOutcome,
 };
 pub use libpetri_runtime::precompiled_executor::{
     PrecompiledExecutorBuilder, PrecompiledNetExecutor,
 };
 pub use libpetri_runtime::precompiled_net::PrecompiledNet;
+pub use libpetri_runtime::termination::TerminationReason;
 
 #[cfg(feature = "tokio")]
 pub use libpetri_runtime::environment::{ExecutorSignal, ExternalEvent};

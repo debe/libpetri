@@ -199,6 +199,9 @@ pub fn close_open_net(net: &PetriNet, contract: &OpenNetContract) -> ClosedNet {
         .transitions(net.transitions().iter().cloned())
         .transitions(contract.environment().iter().cloned())
         .transitions(env_transitions)
+        // [EXEC-042]: the net's terminal places are the closed net's; verify_open_net
+        // encodes them over the closure, environment transitions included.
+        .terminals(net.terminals().iter().cloned())
         .build()
         .bind_actions_with_resolver(|name| placeholder.contains(name).then(environment_action));
     ClosedNet {

@@ -23,6 +23,7 @@ public final class StyleConstants {
     public static final NodeVisual START          = new NodeVisual(NodeShape.CIRCLE,  "#d4edda", "#28a745", 2.0, null, null, 0.35);
     public static final NodeVisual END            = new NodeVisual(NodeShape.DOUBLECIRCLE,  "#cce5ff", "#004085", 2.0, null, null, 0.35);
     public static final NodeVisual ENVIRONMENT    = new NodeVisual(NodeShape.CIRCLE,  "#f8d7da", "#721c24", 2.0, "dashed", null, 0.35);
+    public static final NodeVisual TERMINAL       = new NodeVisual(NodeShape.DOUBLECIRCLE,  "#d6d8db", "#1b1e21", 3.0, null, null, 0.35);
     public static final NodeVisual TRANSITION     = new NodeVisual(NodeShape.BOX,  "#fff3cd", "#856404", 1.0, null, 0.4, 0.8);
     public static final NodeVisual XOR_JUNCTION   = new NodeVisual(NodeShape.DIAMOND,  "#FFFFFF", "#333333", 1.0, null, 0.3, 0.3);
     public static final NodeVisual AND_JUNCTION   = new NodeVisual(NodeShape.DIAMOND,  "#FFFFFF", "#333333", 1.0, null, 0.3, 0.3);
@@ -34,6 +35,7 @@ public final class StyleConstants {
         Map.entry("start",          START),
         Map.entry("end",            END),
         Map.entry("environment",    ENVIRONMENT),
+        Map.entry("terminal",       TERMINAL),
         Map.entry("transition",     TRANSITION),
         Map.entry("xor-junction",   XOR_JUNCTION),
         Map.entry("and-junction",   AND_JUNCTION),

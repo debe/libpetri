@@ -284,6 +284,43 @@ function nuScatterGather(): VerificationFixtureNet {
   );
 }
 
+/**
+ * EXEC-042 AC7: start(1),a,b,done,result; fork: one(start) -> AND(a, b); finish: one(a) -> done;
+ * work: one(b) -> result. Built WITHOUT terminals: the fixture's `terminals` are declared on the
+ * net by the runner ({@link withFixtureTerminals}).
+ */
+function terminalForkInFlight(): VerificationFixtureNet {
+  const start = place('start');
+  const a = place('a');
+  const b = place('b');
+  const done = place('done');
+  const result = place('result');
+  const fork = Transition.builder('fork').inputs(one(start)).outputs(andPlaces(a, b)).build();
+  const finish = Transition.builder('finish').inputs(one(a)).outputs(outPlace(done)).build();
+  const work = Transition.builder('work').inputs(one(b)).outputs(outPlace(result)).build();
+  const net = PetriNet.builder('terminalForkInFlight').transitions(fork, finish, work).build();
+  return fixture(net, m => m.tokens(start, 1), [start, a, b, done, result]);
+}
+
+/**
+ * The fixture net with `terminals` declared on the NET (EXEC-042), never on the verifier, or the
+ * net itself when the fixture declares none. Places and transitions keep their order.
+ */
+export function withFixtureTerminals(
+  built: VerificationFixtureNet,
+  terminals: readonly string[] | undefined,
+): PetriNet {
+  if (terminals == null || terminals.length === 0) return built.net;
+  const net = built.net;
+  const b = PetriNet.builder(net.name).places(...net.places).transitions(...net.transitions);
+  for (const name of terminals) {
+    const p = built.places.get(name);
+    if (p == null) throw new Error(`fixture terminal references unknown place '${name}'`);
+    b.terminal(p);
+  }
+  return b.build();
+}
+
 /** Registry: fixture `net` name -> builder. */
 export const verificationNets: Record<string, () => VerificationFixtureNet> = {
   circularChain,
@@ -300,4 +337,5 @@ export const verificationNets: Record<string, () => VerificationFixtureNet> = {
   nuMixedTerminal,
   nuDrainedTerminal,
   nuScatterGather,
+  terminalForkInFlight,
 };

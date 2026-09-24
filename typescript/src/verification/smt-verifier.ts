@@ -1,3 +1,4 @@
+import { terminalExcusedPlaces, withTerminalInhibitors } from './terminal-places.js';
 import type { PetriNet } from '../core/petri-net.js';
 import { rethrowIfProgrammingError } from './programming-error.js';
 import type { EnvironmentPlace, Place } from '../core/place.js';
@@ -88,7 +89,12 @@ export class SmtVerifier {
   private readonly _carrierPlaces = new Set<string>();
   private _prioritySemantics: PrioritySemantics = 'none';
 
-  private constructor(private readonly net: PetriNet) {}
+  /** Not readonly: {@link applyNetTerminals} swaps in the terminal encoding ([EXEC-042]). */
+  private net: PetriNet;
+
+  private constructor(net: PetriNet) {
+    this.net = net;
+  }
 
   static forNet(net: PetriNet): SmtVerifier {
     return new SmtVerifier(net);
@@ -164,6 +170,33 @@ export class SmtVerifier {
     }
     for (const p of places) entry.places.add(p);
     return this;
+  }
+
+  /**
+   * Applies the net's own terminal places ([EXEC-042], [VER-014] "Net-declared terminals"):
+   * each terminal place inhibits every transition, is a sink, and is a conditional-sink marker
+   * excusing every place. The caller restates nothing.
+   *
+   * A net without terminals is left untouched — the same instance, the same sink declarations —
+   * so its scripts stay byte-identical ([VER-013]). The encoded net declares no terminals, so a
+   * second call is a no-op.
+   */
+  private applyNetTerminals(): void {
+    const net = this.net;
+    if (net.terminals.size === 0) return;
+    const terminals = [...net.terminals];
+    const all = terminalExcusedPlaces(net);
+    this.net = withTerminalInhibitors(net);
+    for (const p of terminals) {
+      if (![...this._sinkPlaces].some(s => s.name === p.name)) this._sinkPlaces.add(p);
+      let entry = this._conditionalSinks.find(c => c.marker.name === p.name);
+      if (entry == null) {
+        entry = { marker: p, places: new Set<Place<any>>() };
+        this._conditionalSinks.push(entry);
+      }
+      const present = new Set([...entry.places].map(q => q.name));
+      for (const q of all) if (!present.has(q.name)) entry.places.add(q);
+    }
   }
 
   /**
@@ -486,6 +519,7 @@ export class SmtVerifier {
    * refusal are bypassed: it is what Route A encodes.
    */
   encodeScripts(): EncodedScripts {
+    this.applyNetTerminals();
     requireOutputProducingActions(this.net);
     const flatNet = flatten(this.net, this._environmentPlaces, this._environmentMode);
     const matrix = IncidenceMatrix.from(flatNet);
@@ -549,6 +583,7 @@ export class SmtVerifier {
    * @throws Error if the net violates CORE-043 — verification rejects the same nets execution rejects.
    */
   async verify(): Promise<SmtVerificationResult> {
+    this.applyNetTerminals();
     requireOutputProducingActions(this.net);
     const start = performance.now();
     const report: string[] = [];

@@ -105,6 +105,13 @@ public final class PrecompiledNet {
     final boolean allImmediate;
     final boolean allSamePriority;
     final boolean anyDeadlines;
+    /**
+     * EXEC-042: {@code isTerminal[pid]} when place {@code pid} is a terminal place. Read only
+     * behind {@link #hasTerminals}, so a net without terminals pays nothing per deposit.
+     */
+    final boolean[] isTerminal;
+    /** EXEC-042: whether the net declares any terminal place. */
+    final boolean hasTerminals;
     /** Bitmap mask of transitions that have non-trivial timing (delayed, windowed, deadline, exact). */
     final long[] timedMask;
 
@@ -252,6 +259,16 @@ public final class PrecompiledNet {
         }
         this.anyDeadlines = anyDl;
         this.allImmediate = allImm;
+        this.isTerminal = new boolean[placeCount];
+        boolean anyTerminal = false;
+        for (var p : compiled.net().terminals()) {
+            Integer pid = placeIndex.get(p);
+            if (pid != null) {
+                isTerminal[pid] = true;
+                anyTerminal = true;
+            }
+        }
+        this.hasTerminals = anyTerminal;
         int transitionWords = (transitionCount + 63) >>> 6;
         this.timedMask = new long[transitionWords];
         for (int tid = 0; tid < transitionCount; tid++) {

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { SmtVerifier } from '../../src/verification/smt-verifier.js';
-import { verificationNets } from '../fixtures/verification-nets.js';
+import { verificationNets, withFixtureTerminals } from '../fixtures/verification-nets.js';
 import { applySinkPlacesWhen, fixtures, fixturesPath, placeOf, toProperty } from './verdict-parity.test.js';
 
 /**
@@ -43,7 +43,8 @@ describe('SMT script parity with the Rust goldens (VER-013 AC1)', () => {
   for (const fixture of fixtures) {
     it(fixture.id, () => {
       const built = verificationNets[fixture.net]!();
-      const verifier = SmtVerifier.forNet(built.net)
+      // EXEC-042: a fixture's `terminals` are declared on the net, never on the verifier.
+      const verifier = SmtVerifier.forNet(withFixtureTerminals(built, fixture.terminals))
       .enumerationMaxClasses(0)
         .initialMarking(built.initialMarking)
         .property(toProperty(fixture.property, built.places))

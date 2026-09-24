@@ -72,6 +72,12 @@ pub struct BitmapBackend {
     has_any_deadlines: bool,
     /// Grace band (ms) before a hard deadline force-disables (TIME-013).
     deadline_tolerance_ms: f64,
+    /// EXEC-042: whether the net declares any terminal place, cached so the
+    /// per-deposit check reads a local field rather than the compiled net.
+    has_terminals: bool,
+    /// EXEC-042: latched by the first deposit (or initial marking) that marks
+    /// a terminal place. Never cleared: the run is over.
+    terminal_reached: bool,
 
     /// Per transition: its clock restarts at the next enablement scan even
     /// if that scan still finds it enabled (TIME-012). A firing sets the bit
@@ -104,6 +110,7 @@ impl BitmapBackend {
     /// just before the first cycle.
     pub fn new(net: &PetriNet, initial_marking: Marking) -> Self {
         let compiled = CompiledNet::compile(net);
+        let has_terminals = compiled.has_terminals();
         let word_count = compiled.word_count;
         let tc = compiled.transition_count;
         let dirty_word_count = bitmap::word_count(tc);
@@ -159,6 +166,8 @@ impl BitmapBackend {
             all_same_priority,
             has_any_deadlines,
             deadline_tolerance_ms: DEADLINE_TOLERANCE_MS,
+            has_terminals,
+            terminal_reached: false,
             restart_pending: vec![0u64; dirty_word_count],
             has_restart_pending: false,
             match_caches: Vec::new(),
@@ -476,6 +485,15 @@ impl BitmapBackend {
         }
     }
 
+    /// EXEC-042: latch the run's end when `pid` is a terminal place. One
+    /// predicted branch on a net without terminal places.
+    #[inline(always)]
+    fn latch_terminal(&mut self, pid: usize) {
+        if self.has_terminals && self.compiled.is_terminal(pid) {
+            self.terminal_reached = true;
+        }
+    }
+
     #[inline]
     fn mark_place_dirty(&mut self, pid: usize) {
         let tids: Vec<usize> = self.compiled.affected_transitions(pid).to_vec();
@@ -534,6 +552,8 @@ impl ExecutorBackend for BitmapBackend {
             let place = self.compiled.place(pid);
             if self.marking.has_tokens(place.name()) {
                 bitmap::set_bit(&mut self.marked_places, pid);
+                // EXEC-042: the initial marking is a check point.
+                self.latch_terminal(pid);
             }
         }
         // Initial tokens on places the net never declared stay in the
@@ -548,6 +568,11 @@ impl ExecutorBackend for BitmapBackend {
 
     fn snapshot_marking(&self) -> Cow<'_, Marking> {
         Cow::Borrowed(&self.marking)
+    }
+
+    #[inline]
+    fn terminal_reached(&self) -> bool {
+        self.terminal_reached
     }
 
     fn is_quiescent(&self) -> bool {
@@ -846,6 +871,7 @@ impl ExecutorBackend for BitmapBackend {
             // delta keep this token out of the rest of the pass (EXEC-003).
             self.record_deposit(pid);
             self.mark_place_dirty(pid);
+            self.latch_terminal(pid);
         } else {
             self.marking.add_erased(place, token);
             self.unknown_places.record(place);
@@ -875,6 +901,7 @@ impl ExecutorBackend for BitmapBackend {
             self.marking.add_erased(place, token);
             bitmap::set_bit(&mut self.marked_places, pid);
             self.mark_place_dirty(pid);
+            self.latch_terminal(pid);
         } else {
             self.marking.add_erased(place, token);
             self.unknown_places.record(place);

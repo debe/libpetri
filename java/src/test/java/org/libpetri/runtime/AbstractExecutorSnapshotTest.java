@@ -59,6 +59,12 @@ abstract class AbstractExecutorSnapshotTest {
     /** Shortens the foreign-reader cap (2 s by default) through the executor's package-private hook. */
     protected abstract void snapshotCap(PetriNetExecutor executor, Duration cap);
 
+    /** Whether the orchestrator is parked in its wait now ([ENV-014] AC#9). */
+    protected abstract boolean parked(PetriNetExecutor executor);
+
+    /** Foreign marking requests the executor has registered so far ([ENV-014] AC#9). */
+    protected abstract long markingRequests(PetriNetExecutor executor);
+
     private static final Place<String> A = Place.of("a", String.class);
     private static final Place<String> B = Place.of("b", String.class);
     private static final Place<String> IN  = Place.of("in",  String.class);
@@ -654,5 +660,133 @@ abstract class AbstractExecutorSnapshotTest {
         assertTrue(store.events().stream()
                 .anyMatch(e -> e instanceof org.libpetri.event.NetEvent.ExecutionCompleted),
             "the run reported completion");
+    }
+
+    // ============================================================
+    //  ENV-014 AC#9 — a parked executor answers without waking
+    // ============================================================
+
+    /** {@code in -> out} (sync), and an environment place that keeps the run alive once done. */
+    private static PetriNet parkingNet() {
+        return PetriNet.builder("parking")
+            .transition(Transition.builder("t").inputs(one(IN)).outputs(place(OUT))
+                .action(ctx -> { ctx.output(OUT, ctx.input(IN)); return CompletableFuture.completedFuture(null); })
+                .build())
+            .transition(Transition.builder("absorb").inputs(one(EVENTS.place())).outputs(place(OUT))
+                .action(ctx -> { ctx.output(OUT, ctx.input(EVENTS.place())); return CompletableFuture.completedFuture(null); })
+                .build())
+            .build();
+    }
+
+    private void awaitParked(PetriNetExecutor executor) {
+        long giveUp = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        while (!parked(executor) && System.nanoTime() < giveUp) Thread.onSpinWait();
+        assertTrue(parked(executor), "the premise: the orchestrator is parked in its wait");
+    }
+
+    @Test
+    void aParkedExecutorAnswersAForeignReadWithoutWaking_BuiltInWait_ENV014_AC9() throws Exception {
+        try (var executor = create(parkingNet(), Map.of(IN, List.of(new Token<>("x", T1))),
+                new Options(null, null, Set.of(EVENTS), null))) {
+            var run = CompletableFuture.supplyAsync(executor::run);
+            try {
+                awaitParked(executor);
+                long requestsBefore = markingRequests(executor);
+
+                var marking = executor.marking();
+                var snapshot = executor.snapshot();
+
+                assertEquals(requestsBefore, markingRequests(executor),
+                    "ENV-014 AC#9: a foreign read of a parked orchestrator is answered without its "
+                        + "participation — no request is registered, so nothing wakes it");
+                assertTrue(marking.hasTokens(OUT) && !marking.hasTokens(IN),
+                    "AC#9: the CURRENT marking, not the loop-start one it published. Got: " + marking);
+                assertEquals(List.of("x"), snapshot.marking().get("out").stream().map(Token::value).toList(),
+                    "the snapshot is current too. Got: " + snapshot);
+                assertFalse(snapshot.marking().containsKey("in"), "Got: " + snapshot);
+                assertFalse(snapshot.actionInFlight(),
+                    "AC#9: the work-in-flight flag is computed as for any capture — nothing is in "
+                        + "flight and nothing is queued, so this is a restore point");
+            } finally {
+                executor.close();
+                run.get(20, TimeUnit.SECONDS);
+            }
+        }
+    }
+
+    @Test
+    void aParkedExecutorAnswersAForeignReadWithoutWaking_HostedWait_ENV014_AC9() throws Exception {
+        // A host that holds its wait until told otherwise, as a deterministic workflow runtime
+        // does while it answers a query under the lock the orchestrator would need to return.
+        var entered = new CountDownLatch(1);
+        var letGo = new CountDownLatch(1);
+        var readiness = new AtomicReference<BooleanSupplier>();
+        var host = new ExecutionEnvironment() {
+            @Override public long nanoTime() { return System.nanoTime(); }
+            @Override public Instant now() { return Instant.now(); }
+            @Override public void awaitWork(BooleanSupplier ready, long delayNanos) {
+                readiness.set(ready);
+                entered.countDown();
+                try { letGo.await(20, TimeUnit.SECONDS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            }
+        };
+        try (var executor = create(parkingNet(), Map.of(IN, List.of(new Token<>("x", T1))),
+                new Options(null, host, Set.of(EVENTS), null))) {
+            snapshotCap(executor, Duration.ofSeconds(30)); // an engaged protocol would stall 30 s
+            var run = CompletableFuture.supplyAsync(executor::run);
+            try {
+                assertTrue(entered.await(10, TimeUnit.SECONDS), "the host's wait was entered");
+                long requestsBefore = markingRequests(executor);
+
+                var marking = CompletableFuture.supplyAsync(executor::marking).get(5, TimeUnit.SECONDS);
+                var snapshot = CompletableFuture.supplyAsync(executor::snapshot).get(5, TimeUnit.SECONDS);
+
+                assertEquals(requestsBefore, markingRequests(executor),
+                    "ENV-014 AC#9: no request is registered against a parked orchestrator");
+                assertFalse(readiness.get().getAsBoolean(),
+                    "AC#9: the read did not make the host's readiness predicate true — the host "
+                        + "is never asked to return from its wait to answer a read");
+                assertTrue(marking.hasTokens(OUT) && !marking.hasTokens(IN),
+                    "AC#9: the current marking. Got: " + marking);
+                assertTrue(snapshot.marking().containsKey("out") && !snapshot.actionInFlight(),
+                    "Got: " + snapshot);
+            } finally {
+                executor.close();
+                letGo.countDown();
+                run.get(20, TimeUnit.SECONDS);
+            }
+        }
+    }
+
+    @Test
+    void aParkedReadReportsAnEventQueuedButNotAdmittedAsWorkInFlight_ENV014_AC9() throws Exception {
+        var entered = new CountDownLatch(1);
+        var letGo = new CountDownLatch(1);
+        var host = new ExecutionEnvironment() {
+            @Override public long nanoTime() { return System.nanoTime(); }
+            @Override public Instant now() { return Instant.now(); }
+            @Override public void awaitWork(BooleanSupplier ready, long delayNanos) {
+                entered.countDown();
+                try { letGo.await(20, TimeUnit.SECONDS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            }
+        };
+        try (var executor = create(parkingNet(), Map.of(), new Options(null, host, Set.of(EVENTS), null))) {
+            var run = CompletableFuture.supplyAsync(executor::run);
+            try {
+                assertTrue(entered.await(10, TimeUnit.SECONDS), "the host's wait was entered");
+                executor.injectAsync(EVENTS, new Token<>("e", T1)); // accepted, not yet admitted
+                var snapshot = CompletableFuture.supplyAsync(executor::snapshot).get(5, TimeUnit.SECONDS);
+                assertFalse(snapshot.marking().containsKey("events"),
+                    "the premise: the event is still queued, so it is in no place. Got: " + snapshot);
+                assertTrue(snapshot.actionInFlight(),
+                    "AC#9 with AC#5-AC#7: a parked read computes the work-in-flight flag with the "
+                        + "same expression as any capture, so an accepted but unadmitted event "
+                        + "keeps it from being a restore point. Got: " + snapshot);
+            } finally {
+                executor.close();
+                letGo.countDown();
+                run.get(20, TimeUnit.SECONDS);
+            }
+        }
     }
 }

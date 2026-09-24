@@ -34,6 +34,8 @@ use crate::executor_core::event_payload::{token_added_event, token_removed_event
 use crate::executor_core::output::{describe_out_violation, validate_out_spec};
 use crate::executor_core::scope::{default_execution_scope, validate_execution_scope};
 use crate::marking::Marking;
+use crate::marking::SnapshotResult;
+use crate::termination::TerminationReason;
 
 /// Source of per-executor run identifiers (\[TIME-015\] AC#14).
 ///
@@ -147,6 +149,10 @@ pub struct Executor<S: ExecutorBackend, E: EventStore> {
     /// non-ν transitions. Every transition gets a minter (forks mint but carry
     /// no match spec, so gating on `has_match` would wrongly starve them).
     fresh_name_fns: Vec<Option<FreshNameFn>>,
+
+    /// \[EXEC-041\] AC3: why the last run ended. `Running` until a run
+    /// returns.
+    termination_reason: TerminationReason,
 }
 
 impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
@@ -172,6 +178,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             warned_multiplicity: HashSet::new(),
             fresh_name_counter: Arc::new(AtomicU64::new(0)),
             fresh_name_fns: Vec::new(),
+            termination_reason: TerminationReason::Running,
         }
     }
 
@@ -227,6 +234,17 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
     /// True when no transition is enabled.
     pub fn is_quiescent(&self) -> bool {
         self.backend.is_quiescent()
+    }
+
+    /// Why the last run ended (\[EXEC-041\] AC3):
+    /// [`Quiescent`](TerminationReason::Quiescent) or
+    /// [`Terminal`](TerminationReason::Terminal) (\[EXEC-042\]) when the
+    /// returned marking is a designed end,
+    /// [`Closed`](TerminationReason::Closed) when a close truncated it, and
+    /// [`Running`](TerminationReason::Running) before any run has returned.
+    /// See [`TerminationReason::is_complete`].
+    pub fn termination_reason(&self) -> TerminationReason {
+        self.termination_reason
     }
 
     /// The firing clock (\[TIME-015\]): monotonic milliseconds since this
@@ -343,7 +361,12 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
     /// Runs the executor synchronously until completion. All transition
     /// actions must be sync (`Action::is_sync()` returns `true`).
     pub fn run_sync(&mut self) -> Cow<'_, Marking> {
+        self.termination_reason = TerminationReason::Running;
         self.backend.initialize();
+        // \[EXEC-042\] Hoisted once per run: every terminal check below is
+        // `has_terminals && …`, one predicted branch on a net without
+        // terminal places.
+        let has_terminals = self.backend.compiled().has_terminals();
 
         if E::ENABLED {
             let net_name: Arc<str> = self.backend.compiled().net().name().into();
@@ -360,6 +383,12 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         let mut ready: Vec<usize> = Vec::new();
 
         loop {
+            // \[EXEC-042\] The initial marking, or the firing pass that
+            // just ended, marked a terminal place: the run is over.
+            if has_terminals && self.backend.terminal_reached() {
+                break;
+            }
+
             let cycle_now = self.elapsed_ms();
             self.update_enablement_and_emit(cycle_now, &mut newly_enabled, &mut clock_restarted);
 
@@ -394,6 +423,12 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 if self.backend.recheck_can_fire(tid) {
                     self.fire_transition_sync(tid);
                     fired_any = true;
+                    // \[EXEC-042\] Strict: once a deposit marks a terminal
+                    // place no transition fires afterwards — not even one
+                    // already ready later in this pass.
+                    if has_terminals && self.backend.terminal_reached() {
+                        break;
+                    }
                 } else {
                     self.backend.disable(tid);
                 }
@@ -430,6 +465,12 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 break;
             }
         }
+
+        self.termination_reason = if has_terminals && self.backend.terminal_reached() {
+            TerminationReason::Terminal
+        } else {
+            TerminationReason::Quiescent
+        };
 
         if E::ENABLED {
             let net_name: Arc<str> = self.backend.compiled().net().name().into();
@@ -876,7 +917,10 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         let (flush_tx, mut flush_rx) =
             tokio::sync::mpsc::unbounded_channel::<ActionFlush>();
 
+        self.termination_reason = TerminationReason::Running;
         self.backend.initialize();
+        // \[EXEC-042\] Hoisted once per run; see `run_sync`.
+        let has_terminals = self.backend.compiled().has_terminals();
 
         let mut in_flight_count: usize = 0;
         let mut signal_channel_open = true;
@@ -901,21 +945,43 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         let mut timed_out: Vec<usize> = Vec::new();
         let mut ready: Vec<usize> = Vec::new();
 
+        // \[EXEC-042\] True once a deposit has marked a terminal place. Every
+        // admission loop below re-reads it after each item, so nothing queued
+        // behind the latching deposit — a completion, a flush, an event — is
+        // admitted.
+        macro_rules! terminal {
+            () => {
+                has_terminals && self.backend.terminal_reached()
+            };
+        }
+
         loop {
+            // \[EXEC-042\] The initial marking, or whatever was admitted
+            // since the last check, marked a terminal place: stop. In-flight
+            // actions are abandoned — their completion sends fail once this
+            // function drops the receivers, so a late result is never
+            // deposited.
+            if terminal!() {
+                break;
+            }
+
             // Phase 1: process completed async actions.
-            while let Ok(completion) = completion_rx.try_recv() {
+            while !terminal!() && let Ok(completion) = completion_rx.try_recv() {
                 in_flight_count -= 1;
                 self.handle_completion(completion);
             }
 
             // Phase 1b: process mid-action flushes from in-flight actions.
-            while let Ok(flush) = flush_rx.try_recv() {
+            while !terminal!() && let Ok(flush) = flush_rx.try_recv() {
                 self.handle_flush(flush);
             }
 
             // Phase 2: drain queued signals (events + lifecycle).
-            while let Ok(signal) = signal_rx.try_recv() {
+            while !terminal!() && let Ok(signal) = signal_rx.try_recv() {
                 self.handle_signal(signal, &mut draining, &mut closed, &mut signal_rx, in_flight_count);
+            }
+            if terminal!() {
+                break;
             }
 
             // Phase 3: update enablement and emit events.
@@ -970,6 +1036,12 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                         &mut in_flight_count,
                     );
                     fired_any = true;
+                    // \[EXEC-042\] Strict: a sync action inline in this pass
+                    // marked a terminal place, so nothing later in the pass
+                    // fires.
+                    if terminal!() {
+                        break;
+                    }
                 } else {
                     self.backend.disable(tid);
                 }
@@ -1052,6 +1124,36 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 Some(clock) => await_work!(clock.await_work_async(timer_ms)),
             }
         }
+
+        let terminal = terminal!();
+        if terminal {
+            // \[EXEC-042\] Refuse what is still queued, as a close does
+            // (\[ENV-013\]): events are discarded, and the injector learns it
+            // from `inject` returning `false` once the receiver is dropped
+            // below. A snapshot request queued behind the stop is answered —
+            // with the final marking, and `action_in_flight` reporting the
+            // abandoned work (\[ENV-014\]).
+            while let Ok(signal) = signal_rx.try_recv() {
+                if let ExecutorSignal::Snapshot(reply) = signal {
+                    let _ = reply.send(SnapshotResult {
+                        marking: self.backend.snapshot_marking().snapshot(),
+                        action_in_flight: in_flight_count > 0,
+                    });
+                }
+            }
+        }
+        // \[EXEC-041\] AC3, as Java decides it: actual quiescence first — a
+        // close that lands on a net with nothing enabled and nothing in
+        // flight truncated nothing — then the close.
+        self.termination_reason = if terminal {
+            TerminationReason::Terminal
+        } else if self.backend.enabled_count() == 0 && in_flight_count == 0 {
+            TerminationReason::Quiescent
+        } else if closed {
+            TerminationReason::Closed
+        } else {
+            TerminationReason::Stopped
+        };
 
         if E::ENABLED {
             let net_name: Arc<str> = self.backend.compiled().net().name().into();
@@ -1200,6 +1302,11 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             }
             ExecutorSignal::EventBatch(events) if !*draining => {
                 for event in events {
+                    // \[EXEC-042\] Each injected token is a check point: the
+                    // rest of a batch behind a terminal deposit is refused.
+                    if self.backend.terminal_reached() {
+                        break;
+                    }
                     let captured = if E::ENABLED {
                         Some(token_added_event::<E>(
                             Arc::clone(&event.place_name),
@@ -1238,7 +1345,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 // the same cycle that captures the marking, so the two
                 // describe one instant. A caller querying it separately
                 // would read a different one — the race AC5 closes.
-                let _ = reply.send(crate::marking::SnapshotResult {
+                let _ = reply.send(SnapshotResult {
                     marking: self.backend.snapshot_marking().snapshot(),
                     action_in_flight: in_flight_count > 0,
                 });

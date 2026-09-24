@@ -19,7 +19,7 @@ import json
 import libpetri as lp
 import pytest
 
-from test_verdict_parity import FIXTURES, _net, _property
+from test_verdict_parity import FIXTURES, _net, _property, _with_terminals
 
 pytestmark = pytest.mark.skipif(not lp.HAS_Z3, reason="z3 feature not enabled")
 
@@ -42,6 +42,7 @@ def test_smt_scripts_match_the_committed_goldens():
     for fixture in fixtures:
         fid = fixture["id"]
         net, marking, env = _net(fixture["net"])
+        net = _with_terminals(net, fixture.get("terminals"))
         scripts = lp.encode_smt_scripts(
             net,
             _property(fixture["property"]),

@@ -513,6 +513,12 @@ as `(sinks: a, b; when h: c, d; when p)`, in declaration order.
    name-partition graph ([VER-012]) — reads the same rest set; the four implementations emit
    byte-identical scripts for the same declarations ([VER-013] AC1).
 
+**Net-declared terminals.** A terminal place declared on the net ([EXEC-042]) is a designed
+terminal that the caller does not restate. Every route verifies the net with `P` inhibiting each
+transition, `P` added to the sinks, and `sinkPlacesWhen(P, all places)` added to the conditional
+declarations. The open-net route ([VER-022]) merges it as a designed terminal. These additions
+apply to the net's own terminals only. A net without them keeps its scripts byte-identical.
+
 **Implementation notes:**
 - Java: `SmtVerifier.sinkPlacesWhen(Place<?> marker, Place<?>... places)`.
 - TypeScript: `SmtVerifier.sinkPlacesWhen(marker, ...places)`; `verification/rest-set`

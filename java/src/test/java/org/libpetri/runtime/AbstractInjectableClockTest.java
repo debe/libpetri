@@ -1,5 +1,9 @@
 package org.libpetri.runtime;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.libpetri.core.*;
@@ -314,37 +318,157 @@ abstract class AbstractInjectableClockTest {
     }
 
     @Test
-    void foreignMarkingRequestIsObservedByTheReadinessPredicate() {
-        // marking() from a foreign thread signals the orchestrator through wakeUp() and
-        // markingRequestSeq. Under a host clock wakeUp() is silenced, so the sequence counter is
-        // the only carrier left — and a predicate built around the work queues omits it, exactly
-        // as it omitted drain(). The caller then parks until its real-time cap, or forever.
+    void foreignReadOfAParkedExecutorReturnsTheCurrentMarkingWithoutWakingIt_ENV014_AC9() {
+        // A host holding its wait while a foreign thread reads — Temporal answering a query
+        // under the lock the orchestrator would need to return. Before [ENV-014] AC#9 the read
+        // registered a request and made the readiness predicate true, then parked until its
+        // real-time cap: slow, and it came back with the LAST PUBLISHED marking, an older
+        // phase than the host had already seen. Now the parked orchestrator is read directly.
         var clock = new VirtualClock();
         var trigger = Place.of("trigger", String.class);
         var envPlace = EnvironmentPlace.of(trigger);
-        var net = PetriNet.builder("parked").transition(Transition.builder("t")
-            .inputs(one(trigger)).outputs(place(OUT))
-            .action(ctx -> { ctx.output(OUT, ctx.input(trigger)); return CompletableFuture.completedFuture(null); })
-            .build()).build();
+        var net = PetriNet.builder("parked")
+            .transition(Transition.builder("t").inputs(one(IN)).outputs(place(OUT))
+                .action(ctx -> { ctx.output(OUT, ctx.input(IN)); return CompletableFuture.completedFuture(null); })
+                .build())
+            .transition(Transition.builder("absorb").inputs(one(trigger)).outputs(place(OUT))
+                .action(ctx -> { ctx.output(OUT, ctx.input(trigger)); return CompletableFuture.completedFuture(null); })
+                .build())
+            .build();
 
-        try (var executor = create(net, Map.of(), clock, Duration.ZERO,
+        try (var executor = create(net, seed(), clock, Duration.ZERO,
                                    Set.<EnvironmentPlace<?>>of(envPlace))) {
+            var observed = new AtomicReference<Marking>();
+            var snapshot = new AtomicReference<SnapshotResult>();
             clock.atNextWaitWithReady = ready -> {
-                var foreign = new Thread(executor::marking, "foreign-marking");
+                // Inside the host's wait, on the orchestrator thread: the host does not return
+                // until the foreign read has come back.
+                var foreign = new Thread(() -> {
+                    observed.set(executor.marking());
+                    snapshot.set(executor.snapshot());
+                }, "foreign-marking");
                 foreign.setDaemon(true);
+                long start = System.nanoTime();
                 foreign.start();
-
-                long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
-                while (!ready.getAsBoolean() && System.nanoTime() < deadline) Thread.onSpinWait();
-                assertTrue(ready.getAsBoolean(),
-                    "a foreign marking() request must make the executor ready. With the request "
-                        + "counter absent from the predicate the orchestrator is never woken, so "
-                        + "the caller parks until its cap — and under an advance-on-demand clock "
-                        + "a cap measured on the firing clock never retires at all.");
+                try {
+                    foreign.join(Duration.ofSeconds(1));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                long took = System.nanoTime() - start;
+                assertFalse(foreign.isAlive(),
+                    "ENV-014 AC#9: a foreign read of a parked executor must be answered without "
+                        + "the orchestrator's participation. It is still waiting after "
+                        + Duration.ofNanos(took).toMillis() + " ms for a host that cannot return.");
+                assertFalse(ready.getAsBoolean(),
+                    "AC#9: the read must not make the readiness predicate true — it asks nothing "
+                        + "of the orchestrator, so the host is never told to return");
                 executor.drain();
             };
             assertDoesNotThrow((org.junit.jupiter.api.function.ThrowingSupplier<Marking>) executor::run,
-                "the run completes once the marking request has been served");
+                "the run completes after the parked read");
+            assertNotNull(observed.get(), "the foreign read returned");
+            assertTrue(observed.get().hasTokens(OUT) && !observed.get().hasTokens(IN),
+                "AC#9: the CURRENT marking — 't' has fired — not the one published when the loop "
+                    + "started. Got: " + observed.get());
+            assertTrue(snapshot.get().marking().containsKey("out") && !snapshot.get().actionInFlight(),
+                "the snapshot is current, and a restore point: nothing in flight. Got: " + snapshot.get());
+        }
+    }
+
+    @Test
+    void foreignReadWhileAnInlineActionBlocksStillUsesTheRequestProtocol() throws Exception {
+        // The other half of AC#9: an orchestrator NOT parked — here inside a blocking inline
+        // action — must not be read directly, since it may be mutating the marking. The read
+        // registers a request and waits for the orchestrator to serve it once the action
+        // returns, under a host clock as under the built-in wait.
+        var clock = new VirtualClock();
+        var trigger = Place.of("trigger", String.class);
+        var envPlace = EnvironmentPlace.of(trigger);
+        var holding = new CountDownLatch(1);
+        var letGo = new CountDownLatch(1);
+        var net = PetriNet.builder("blocking")
+            .transition(Transition.builder("t").inputs(one(IN)).outputs(place(OUT))
+                .action(ctx -> {
+                    holding.countDown();
+                    try { letGo.await(20, TimeUnit.SECONDS); }
+                    catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                    ctx.output(OUT, ctx.input(IN));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build())
+            .transition(Transition.builder("absorb").inputs(one(trigger)).outputs(place(OUT))
+                .action(ctx -> { ctx.output(OUT, ctx.input(trigger)); return CompletableFuture.completedFuture(null); })
+                .build())
+            .build();
+
+        try (var executor = create(net, seed(), clock, Duration.ZERO,
+                                   Set.<EnvironmentPlace<?>>of(envPlace))) {
+            clock.atIdle = executor::drain;
+            var run = CompletableFuture.supplyAsync(executor::run);
+            try {
+                assertTrue(holding.await(10, TimeUnit.SECONDS), "'t' is running inline");
+                var read = CompletableFuture.supplyAsync(executor::marking);
+                Thread.sleep(200);
+                assertFalse(read.isDone(),
+                    "an orchestrator busy in an inline action is not parked: the read waits for "
+                        + "it to serve the request rather than copying state it may be mutating");
+                letGo.countDown();
+                var marking = read.get(5, TimeUnit.SECONDS);
+                assertTrue(marking.hasTokens(OUT),
+                    "the request is served once the action returns, with the marking after it. Got: " + marking);
+            } finally {
+                letGo.countDown();
+                run.get(20, TimeUnit.SECONDS);
+            }
+        }
+    }
+
+    // ============================================================
+    //  AC#11 — an action's future completed inside the wait
+    // ============================================================
+
+    @Test
+    void actionFutureCompletedInsideTheWaitIsAdmittedInTheNextCompletionPhase_AC11() {
+        // A host that executes actions itself: the action hands back a future the HOST
+        // completes, from inside awaitWork. Completion only enqueues — the outputs appear in
+        // the following cycle's completion phase, never at the call.
+        var clock = new VirtualClock();
+        var pending = new AtomicReference<CompletableFuture<Void>>();
+        var context = new AtomicReference<TransitionContext>();
+        var net = PetriNet.builder("hosted-action").transition(Transition.builder("t")
+            .inputs(one(IN)).outputs(place(OUT))
+            .action(ctx -> {
+                var f = new CompletableFuture<Void>();
+                context.set(ctx);
+                pending.set(f);
+                return f;
+            })
+            .build()).build();
+
+        try (var executor = create(net, seed(), clock)) {
+            var atTheCall = new AtomicReference<Marking>();
+            var readyAfter = new AtomicBoolean();
+            clock.atNextWaitWithReady = ready -> {
+                assertNotNull(pending.get(), "the premise: the action is in flight when the host waits");
+                assertFalse(ready.getAsBoolean(), "nothing is ready before the host completes it");
+                context.get().output(OUT, "done");
+                pending.get().complete(null);
+                // Read on the orchestrator thread itself: the exact live marking — copied, since
+                // on this thread marking() hands out the executor's own instance.
+                atTheCall.set(executor.marking().copy());
+                readyAfter.set(ready.getAsBoolean());
+            };
+            var marking = executor.run();
+
+            assertFalse(atTheCall.get().hasTokens(OUT),
+                "TIME-015 AC#11: completing an action's future inside the wait must only enqueue; "
+                    + "its outputs must not appear at the call. Got: " + atTheCall.get());
+            assertTrue(readyAfter.get(),
+                "the completion made the executor ready, so the host's wait returns");
+            assertTrue(marking.hasTokens(OUT),
+                "the outputs were admitted in the following cycle's completion phase. Got: " + marking);
+            assertEquals(TerminationReason.QUIESCENT, executor.terminationReason());
         }
     }
 

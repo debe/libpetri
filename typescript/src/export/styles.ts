@@ -55,6 +55,7 @@ const NODE_STYLES: Record<NodeCategory, NodeVisual> = {
   start:           { shape: 'circle',  fill: '#d4edda', stroke: '#28a745', penwidth: 2.0, width: 0.35 },
   end:             { shape: 'doublecircle',  fill: '#cce5ff', stroke: '#004085', penwidth: 2.0, width: 0.35 },
   environment:     { shape: 'circle',  fill: '#f8d7da', stroke: '#721c24', penwidth: 2.0, style: 'dashed', width: 0.35 },
+  terminal:        { shape: 'doublecircle',  fill: '#d6d8db', stroke: '#1b1e21', penwidth: 3.0, width: 0.35 },
   transition:      { shape: 'box',  fill: '#fff3cd', stroke: '#856404', penwidth: 1.0, height: 0.4, width: 0.8 },
   'xor-junction':  { shape: 'diamond',  fill: '#FFFFFF', stroke: '#333333', penwidth: 1.0, height: 0.3, width: 0.3 },
   'and-junction':  { shape: 'diamond',  fill: '#FFFFFF', stroke: '#333333', penwidth: 1.0, height: 0.3, width: 0.3 },
@@ -77,7 +78,7 @@ export const GRAPH: GraphStyle = { nodesep: 0.5, ranksep: 0.75, forcelabels: tru
 
 // ======================== Public API ========================
 
-export type NodeCategory = 'place' | 'start' | 'end' | 'environment' | 'transition' | 'xor-junction' | 'and-junction' | 'interface-port' | 'sync-channel';
+export type NodeCategory = 'place' | 'start' | 'end' | 'environment' | 'terminal' | 'transition' | 'xor-junction' | 'and-junction' | 'interface-port' | 'sync-channel';
 export type EdgeCategory = 'input' | 'output' | 'inhibitor' | 'read' | 'reset' | 'reset-output';
 
 /** Returns the visual style for the given node category. */

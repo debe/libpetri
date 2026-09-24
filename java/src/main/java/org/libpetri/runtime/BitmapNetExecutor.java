@@ -1,5 +1,6 @@
 package org.libpetri.runtime;
 
+import java.lang.invoke.VarHandle;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
@@ -135,6 +136,22 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
     private final List<ReadyTransition> readyBuffer = new ArrayList<>();
     /** Cached flag: true if any transition in the net has a deadline. */
     private final boolean hasAnyDeadlines;
+    /** [EXEC-042]: {@code isTerminal[pid]} for a terminal place; read only behind {@link #hasTerminals}. */
+    private final boolean[] isTerminal;
+    /** [EXEC-042]: whether the net declares any terminal place. */
+    private final boolean hasTerminals;
+    /**
+     * [EXEC-042] latch: a deposit marked a terminal place. Orchestrator-only, and set only when
+     * {@link #hasTerminals}.
+     */
+    private boolean terminalReached;
+    /**
+     * [ENV-014] AC#9 park epoch, a seqlock over the orchestrator's wait: incremented just
+     * before and just after every wait, built-in or hosted, so it is odd exactly while the
+     * orchestrator is parked. Single writer, so {@code ++} on the volatile is safe. See
+     * {@link #parkedState()}.
+     */
+    private volatile long parkEpoch;
     /**
      * ν-name scope ([NU-011]): the host-pinned one, or {@code null} until the default is drawn
      * by {@link #executionScope()}.
@@ -365,6 +382,16 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
             if (t.priority() != firstPriority) samePrio = false;
         }
         this.hasAnyDeadlines = anyDeadlines;
+        this.isTerminal = new boolean[compiled.placeCount()];
+        boolean anyTerminal = false;
+        for (var p : compiled.net().terminals()) {
+            int pid = compiled.placeIdOrMissing(p);
+            if (pid >= 0) {
+                isTerminal[pid] = true;
+                anyTerminal = true;
+            }
+        }
+        this.hasTerminals = anyTerminal;
         this.allImmediate = allImm;
         this.timedMask = new long[transitionWords];
         for (int tid = 0; tid < compiled.transitionCount(); tid++) {
@@ -976,6 +1003,8 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
 
         // Initialize bitmap from initial marking
         initializeMarkedBitmap();
+        // [EXEC-042] check point 1: the initial marking, before the first cycle.
+        if (hasTerminals) checkInitialTerminals();
         // Mark all transitions dirty for initial enablement check
         markAllDirty();
         emitMarkingSnapshot();
@@ -994,9 +1023,13 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
             // Stopping is stopRequested / close(); an interrupt counts only where a wait that
             // was ENTERED with the flag clear throws it — or, hosted, returns with the flag
             // set. See absorbInterruptFlag() and awaitHostedWork().
-            while (running && !stopRequested) {
+            while (running && !stopRequested && !terminalReached) {
                 processCompletedTransitions();
+                // [EXEC-042]: a completion marked a terminal place. Nothing more is admitted —
+                // queued events are refused by the finally's drain — and nothing fires.
+                if (terminalReached) break;
                 processExternalEvents();
+                if (terminalReached) break;
                 // After the external-events phase, not before it: an inject() the host made
                 // before asking is then already IN the marking it gets back, as it is on the
                 // Rust/Python executors, whose injects and snapshot requests share one FIFO
@@ -1026,7 +1059,12 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
         } finally {
             running = false;
             terminated = true;
-            terminationReason = quiesced ? TerminationReason.QUIESCENT
+            // [EXEC-042] first: a terminal stop is designed, whatever else was pending. No
+            // diagnostic event for it ([EVT-013] AC#5). Actions still in flight are abandoned,
+            // as under terminateNow(): their late completions land in a queue nobody reads,
+            // and `terminated` makes every later inject() refuse.
+            terminationReason = terminalReached ? TerminationReason.TERMINAL
+                : quiesced ? TerminationReason.QUIESCENT
                 : interruptedDuringWait ? TerminationReason.INTERRUPTED
                 : closed.get() ? TerminationReason.CLOSED
                 : TerminationReason.STOPPED;
@@ -1153,7 +1191,12 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
      * this run's own code and a wait is not.
      */
     private void awaitHostedWork(long delayNanos) {
-        environment.awaitWork(workReady, delayNanos);
+        parkEpoch++; // [ENV-014] AC#9: parked (odd)
+        try {
+            environment.awaitWork(workReady, delayNanos);
+        } finally {
+            parkEpoch++;
+        }
         if (Thread.interrupted()) {
             interruptDeferred = true;
             interruptedDuringWait = true;
@@ -1175,6 +1218,16 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
             }
         }
         return scope;
+    }
+
+    /** [EXEC-042]: latches {@link #terminalReached} when the initial marking marks a terminal place. */
+    private void checkInitialTerminals() {
+        for (int pid = 0; pid < compiled.placeCount(); pid++) {
+            if (isTerminal[pid] && marking.hasTokens(compiled.place(pid))) {
+                terminalReached = true;
+                return;
+            }
+        }
     }
 
     /**
@@ -1451,6 +1504,9 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
 
                 if (canEnable(tid, fireScanBitmap, true)) {
                     fireTransitionGuarded(tid);
+                    // [EXEC-042] strictness: a sync output marked a terminal place, so
+                    // nothing later in this pass fires.
+                    if (terminalReached) return;
                 } else {
                     clearEnabledBit(tid);
                     enabledTransitionCount--;
@@ -1500,6 +1556,8 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
             int tid = entry.tid();
             if (isEnabled(tid) && canEnable(tid, fireScanBitmap, true)) {
                 fireTransitionGuarded(tid);
+                // [EXEC-042] strictness: nothing later in this pass fires.
+                if (terminalReached) return;
             } else {
                 clearEnabledBit(tid);
                 enabledTransitionCount--;
@@ -1729,20 +1787,10 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
             List<Token<?>> produced = eventStoreEnabled ? new ArrayList<>(entries.size()) : null;
             for (var entry : entries) {
                 var token = entry.token();
-                // Unknown places retain the token (CORE-072 AC3); only compiled
-                // places get presence bits and dirty marking.
-                int pid = compiled.placeIdOrMissing(entry.place());
-                cacheAddToken(entry.place(), token);
-                marking.addToken((Place<Object>) entry.place(), (Token<Object>) token);
-                if (pid >= 0) {
-                    setMarkingBit(pid);
-                    // Live presence only — the fire-scan snapshot and the deposit delta
-                    // keep this token out of the rest of the pass (EXEC-003).
-                    recordDeposit(pid);
-                    markDirty(pid);
-                } else {
-                    warnUnknownPlace(entry.place(), t.name());
-                }
+                int pid = deposit(entry.place(), token, t.name());
+                // Live presence only — the fire-scan snapshot and the deposit delta keep
+                // this token out of the rest of the pass (EXEC-003).
+                if (pid >= 0) recordDeposit(pid);
                 if (eventStoreEnabled) {
                     produced.add(token);
                     emitEvent(new NetEvent.TokenAdded(
@@ -1828,7 +1876,9 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
     @SuppressWarnings("unchecked")
     private void processCompletedTransitions() {
         Transition t;
-        while ((t = completionQueue.poll()) != null) {
+        // [EXEC-042]: stop admitting after the completion whose deposit latched; the rest
+        // stay queued and are abandoned with their actions.
+        while (!terminalReached && (t = completionQueue.poll()) != null) {
             InFlightTransition flight = inFlight.remove(t);
             if (flight == null) continue;
 
@@ -1848,16 +1898,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
                 List<Token<?>> produced = new ArrayList<>(entries.size());
                 for (var entry : entries) {
                     var token = entry.token();
-                    // See processSyncOutput: unknown places retain the token (CORE-072 AC3).
-                    int pid = compiled.placeIdOrMissing(entry.place());
-                    cacheAddToken(entry.place(), token);
-                    marking.addToken((Place<Object>) entry.place(), (Token<Object>) token);
-                    if (pid >= 0) {
-                        setMarkingBit(pid);
-                        markDirty(pid);
-                    } else {
-                        warnUnknownPlace(entry.place(), t.name());
-                    }
+                    deposit(entry.place(), token, t.name());
                     produced.add(token);
                     if (eventStoreEnabled) emitEvent(new NetEvent.TokenAdded(
                         clockInstant(), entry.place().name(), token));
@@ -1908,22 +1949,13 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
     private void processExternalEvents() {
         if (closed.get()) return; // ENV-013: leave queued events for drainPendingExternalEvents()
         ExternalEvent<?> event;
-        while ((event = externalEventQueue.poll()) != null) {
+        // [EXEC-042]: stop after the event whose deposit latched; the finally's drain refuses
+        // the rest (their futures complete false).
+        while (!terminalReached && (event = externalEventQueue.poll()) != null) {
             try {
-                cacheAddToken(event.place(), event.token());
-                marking.addToken(
-                    (Place<Object>) event.place(),
-                    (Token<Object>) event.token());
-
                 // An environment place the compiled net does not know still retains the
                 // token in the marking (CORE-072 AC3); it just cannot enable anything.
-                int pid = compiled.placeIdOrMissing(event.place());
-                if (pid >= 0) {
-                    setMarkingBit(pid);
-                    markDirty(pid);
-                } else {
-                    warnUnknownPlace(event.place(), "");
-                }
+                deposit(event.place(), event.token(), "");
 
                 if (eventStoreEnabled) emitEvent(new NetEvent.TokenAdded(
                     clockInstant(), event.place().name(), event.token()));
@@ -1936,6 +1968,30 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
 
     private void drainPendingExternalEvents() {
         ExecutorSupport.drainPendingExternalEvents(externalEventQueue);
+    }
+
+    /**
+     * The one deposit path — a completion, an injection, a synchronous output: adds the token to
+     * the marking and the ν cache and, for a compiled place, sets its presence bit, marks its
+     * readers dirty and checks it against the terminal places ([EXEC-042] check point 2). A
+     * place the compiled net does not know retains the token (CORE-072 AC3) and is reported.
+     *
+     * @param transitionName the producing transition, or {@code ""} at the injection seam
+     * @return the place id, or {@code -1} for a place the compiled net does not know
+     */
+    @SuppressWarnings("unchecked")
+    private int deposit(Place<?> place, Token<?> token, String transitionName) {
+        int pid = compiled.placeIdOrMissing(place);
+        cacheAddToken(place, token);
+        marking.addToken((Place<Object>) place, (Token<Object>) token);
+        if (pid >= 0) {
+            setMarkingBit(pid);
+            markDirty(pid);
+            if (hasTerminals && isTerminal[pid]) terminalReached = true;
+        } else {
+            warnUnknownPlace(place, transitionName);
+        }
+        return pid;
     }
 
     // ======================== Await Work ========================
@@ -1977,6 +2033,18 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
         // used to — allocated a fresh dependent node on each of those futures every 1-50ms
         // and then abandoned it, which on a long-running action accumulates for the lifetime
         // of the call. The loop below observes exactly the same events.
+        //
+        // The whole loop is one park ([ENV-014] AC#9): between polls it only reads.
+        parkEpoch++;
+        try {
+            awaitCompletionPolling();
+        } finally {
+            parkEpoch++;
+        }
+    }
+
+    /** The built-in poll of {@link #awaitCompletionOrEvent()}, run while parked. */
+    private void awaitCompletionPolling() {
         while (true) {
             long pollMs = allImmediate ? awaitPollMillis
                 : Math.max(1, Math.min(awaitPollMillis, nanosUntilNextTimedTransition() / 1_000_000));
@@ -2057,6 +2125,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
             return;
         }
 
+        parkEpoch++; // [ENV-014] AC#9: parked (odd)
         try {
             long waitMs = waitNanos == Long.MAX_VALUE ? Long.MAX_VALUE : (waitNanos + 999_999) / 1_000_000;
             if (waitMs == Long.MAX_VALUE) wakeUpSignal.acquire();
@@ -2068,6 +2137,8 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
             interruptDeferred = true;
             interruptedDuringWait = true;
             stopRequested = true;
+        } finally {
+            parkEpoch++;
         }
     }
 
@@ -2183,6 +2254,12 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
      * {@code HashMap} of {@code ArrayDeque}s the orchestrator mutates on every firing, and
      * reading it from another thread would throw or spin rather than merely return a stale value.
      *
+     * <p><b>While the orchestrator is parked in its wait</b> — the built-in one or a host's
+     * ([TIME-015]) — the foreign read is answered at once, without the orchestrator's
+     * participation, with the current marking ([ENV-014] AC#9): the reader copies the state
+     * itself under a park-epoch check and uses the request protocol below only if the
+     * orchestrator moved during the copy.
+     *
      * <p>The snapshot is best-effort. The caller flags a request and the orchestrator refreshes
      * the published copy at the next safe point in its loop; while the orchestrator is inside a
      * long inline action it may not reach that point immediately, so the returned marking can lag.
@@ -2193,6 +2270,9 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
     public Marking marking() {
         Thread orchestrator = orchestratorOrAwaitStart();
         if (orchestrator != null && Thread.currentThread() != orchestrator) {
+            // [ENV-014] AC#9: a parked orchestrator is answered without waking it.
+            var parked = parkedState();
+            if (parked != null) return parked.marking();
             var snapshot = awaitPublishedState();
             if (orchestratorThread != null) {
                 return snapshot != null ? snapshot.marking() : Marking.empty();
@@ -2200,6 +2280,49 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
             // else: the loop finished while we waited — fall through to the exact live marking.
         }
         return marking;
+    }
+
+    /**
+     * [ENV-014] AC#9: the current marking and work-in-flight flag, read by a foreign thread
+     * <b>without the orchestrator's participation</b> while the orchestrator is parked in its
+     * wait — or {@code null} when it is not parked, or moved while the copy was taken, and the
+     * caller must use the request protocol instead.
+     *
+     * <p><b>Why this is safe.</b> The live {@code Marking} and the in-flight map are mutated
+     * only by the loop's phases (completion, external events, firing), and never while the
+     * orchestrator is parked: the wait only waits. Whatever a host runs on the orchestrator
+     * thread inside {@code awaitWork} — {@code inject}, completing an action's future — only
+     * <i>enqueues</i> ([TIME-015] "Admission from inside the wait"); the queue is admitted by
+     * the next cycle's phases, after the epoch has moved on. So an odd epoch {@code e1} read
+     * before the copy, and the same {@code e1} read after it, bracket a copy no write
+     * overlapped. The volatile write that made the epoch odd publishes every write before it
+     * to this reader; the acquire fence keeps the copy's plain loads ahead of the second epoch
+     * read, as {@code StampedLock.validate} does. A copy that overlapped the orchestrator
+     * waking may throw ({@code ConcurrentModificationException} from the marking's maps); any
+     * {@code RuntimeException} is a failed attempt, never an answer.
+     */
+    private ExecutorSupport.PublishedState parkedState() {
+        long e1 = parkEpoch;
+        if ((e1 & 1L) == 0) return null;
+        try {
+            var copy = marking.copy();
+            boolean inFlightNow = workInFlight(); // the one expression every capture uses
+            VarHandle.acquireFence();
+            if (parkEpoch == e1) return new ExecutorSupport.PublishedState(copy, inFlightNow);
+        } catch (RuntimeException raced) {
+            // The orchestrator woke mid-copy: fall back to the request protocol.
+        }
+        return null;
+    }
+
+    /** Test hook ([ENV-014] AC#9): whether the orchestrator is parked in its wait now. */
+    boolean parkedForTesting() {
+        return (parkEpoch & 1L) != 0;
+    }
+
+    /** Test hook ([ENV-014] AC#9): foreign marking requests registered so far. */
+    long markingRequestsForTesting() {
+        return markingRequestSeq.get();
     }
 
     /** Test hook: shortens the foreign-reader cap. Package-private on purpose. */
@@ -2250,6 +2373,9 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
      * cycle's external-events phase — so an {@code inject} made before the call is already in
      * the marking — and execution continues afterwards (AC#2). The returned marking is an owned
      * copy, independent of later executor state (AC#3).
+     * A foreign call while the orchestrator is parked in its wait is instead answered at once
+     * from the current state (AC#9, see {@link #marking()}); an event injected but not yet
+     * admitted is then not in the marking, and the flag below reports it as work in flight.
      *
      * <p>Rejected once the executor has been drained or closed (AC#4): after that there is no
      * loop to service the request, so a returned marking would be a different thing — the final
@@ -2294,7 +2420,12 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
             // firing is registered in-flight only after its action returns.
             return new SnapshotResult(marking.snapshot(), true);
         }
-        ExecutorSupport.PublishedState state = orchestrator != null ? awaitPublishedState() : null;
+        ExecutorSupport.PublishedState state = null;
+        if (orchestrator != null) {
+            // [ENV-014] AC#9: a parked orchestrator is answered without waking it.
+            state = parkedState();
+            if (state == null) state = awaitPublishedState();
+        }
         if (state == null) {
             // No loop. Finished — while we waited, or before we asked: the finally published
             // the final pair before it cleared the thread reference. Or never started: capture
@@ -2327,9 +2458,9 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
     /**
      * Why the last run stopped ([EXEC-041] AC#3).
      *
-     * <p>{@link TerminationReason#QUIESCENT} is the only value for which the marking returned
-     * by {@link #run()} is a <b>final</b> marking; every other value means the run was
-     * truncated and the marking is partial.
+     * <p>{@link TerminationReason#QUIESCENT} and {@link TerminationReason#TERMINAL} are the
+     * values for which the marking returned by {@link #run()} is a <b>final</b> marking; every
+     * other value means the run was truncated and the marking is partial.
      *
      * @return the termination reason, or {@link TerminationReason#RUNNING} before the first run
      */

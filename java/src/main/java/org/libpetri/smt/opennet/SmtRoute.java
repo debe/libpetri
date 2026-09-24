@@ -195,10 +195,11 @@ final class SmtRoute {
             t.resets().forEach(b::resetArc);
             transitions.add(b.build());
         }
-        return PetriNet.builder(net.name())
+        var untimed = PetriNet.builder(net.name())
             .places(net.places().toArray(new Place<?>[0]))
-            .transitions(transitions.toArray(new Transition[0]))
-            .build();
+            .transitions(transitions.toArray(new Transition[0]));
+        net.terminals().forEach(untimed::terminal); // EXEC-042
+        return untimed.build();
     }
 
     private static List<Part> partsFor(ClosedNet closed, OpenNetContract contract) {

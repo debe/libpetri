@@ -270,10 +270,25 @@ after whatever synchronisation of internal token storage any other marking read 
    firing's consumed inputs *and* reports a restore point. An implementation that defers MUST NOT
    be blocked on from the orchestrator's own thread of control, since the reply cannot arrive until
    the action returns.
+9. **A parked executor answers without waking.** A foreign read (`marking()` or `snapshot()`)
+   of an executor whose orchestrator is parked in its wait — the built-in wait or a host's
+   ([TIME-015]) — MUST be answered without the orchestrator's participation, and MUST return the
+   current marking, not an earlier published one. A host that holds a lock the orchestrator needs
+   in order to return from its wait (a deterministic workflow runtime answering a query, for
+   example) otherwise gets a stale marking after a real-time delay. The work-in-flight indication
+   of AC5–AC7 is computed as for any other capture.
 
 **Depends on:** [ENV-003], [ENV-004], [ENV-010], [EXEC-001], [EXEC-031], [EXEC-040], [CORE-073],
 [TIME-015]
-**Implementation status:** AC1–AC8 in all four. `snapshot()` returns a result carrying the marking
+**Implementation status:** AC1–AC8 in all four. AC9 in all four:
+- **Rust** races the clock's wait against its signal channel, so a request is served mid-wait
+  (Python rides on it).
+- **TypeScript** is single-threaded, so no read can overlap a wait.
+- **Java** has a park epoch. The orchestrator bumps a volatile counter just before and just after
+  each wait. A foreign reader that finds it parked copies the state directly, checks the counter
+  again, and falls back to the request protocol below only if the orchestrator moved in between.
+
+`snapshot()` returns a result carrying the marking
 **and** an in-flight indication, read in the same operation that captures the marking — a
 separately-queryable flag would be read at a different instant, which is the race AC5 closes. The
 field keeps its name (`actionInFlight` / `action_in_flight`) and means **work in flight: an action,

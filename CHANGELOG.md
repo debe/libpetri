@@ -2,7 +2,35 @@
 
 ## Unreleased
 
+### Breaking
+
+- **Rust: `ExecutorBackend` gains a required `terminal_reached()` method.** Only code that implements its own executor backend is affected. `run_sync` and `run_async` keep their return types.
+
+### Added
+
+- **Terminal places: a net can say when it is done (all languages, [EXEC-042]).** Declare a place as terminal, and the run ends the moment it is marked. That includes a net with environment places, which otherwise never quiesces. In-flight actions are abandoned, and anything queued behind the deposit is refused.
+
+  ```java
+  var net = PetriNet.builder("order")
+      .transition(submit).transition(approve).transition(ship)
+      .terminal(DONE)           // the run is over once DONE holds a token
+      .build();
+
+  executor.run();
+  executor.terminationReason(); // TERMINAL — a completed run, like QUIESCENT
+  ```
+
+  The check is strict: once a deposit marks the place, nothing fires, not even a transition already enabled later in the same pass. The verifier applies terminals automatically: each terminal inhibits every transition and excuses the marking it ends in. So `deadlockFree()` proves such a net without any `sinkPlaces`/`sinkPlacesWhen` options. A transition that consumes or reads a terminal place is rejected at build time, and so is a subnet body that declares one. DOT export draws terminal places as heavy double circles.
+- **TypeScript, Rust and Python report why a run ended ([EXEC-041] AC3).** A quiesced run is now distinguishable from a terminal, closed or stopped one, as it already was in Java. TypeScript: `executor.terminationReason()`. Rust: `Executor::termination_reason()`, or `run_sync_outcome()` / `run_async_outcome()` returning a `RunOutcome { marking, termination_reason }`. Python: `termination_reason` on the run result and on `ExecutorHandle`.
+
+### Changed
+
+- **Java: reading the marking of a parked executor no longer waits ([ENV-014] AC9).** A `marking()` or `snapshot()` from another thread used to ask the orchestrator for a snapshot and wait for it, up to 2 s. Under a host that owns the wait ([TIME-015]) and holds a lock the orchestrator needs to return — a workflow runtime answering a query, for example — that wait always ran out, and the reader got a stale marking. While the orchestrator is parked, the read is now answered directly and is exact. Monitoring threads polling an idle long-running net no longer wake it either.
+- **[TIME-015]: completing an action's future from inside the host wait is now specified.** A host that runs actions itself may complete them inside `awaitWork`. The result is admitted on the next cycle's completion phase, just as an `inject()` from the same place is.
+
 ### Fixed
+
+- **The root `libpetri` npm entry no longer pulls in `node:child_process`.** `SubnetDef.verify()` imported the verifier statically, so every browser bundle of `libpetri` contained the z3 process transport, and the debug-ui crashed on load under the Vite dev server. The verifier now loads on first use.
 
 - **ν verification: a join that consumes a correlated place off-key is no longer proven (all languages, [NU-051] AC7).** A matched transition may consume a place that is another join's key (or a declared carrier) through an input that is not one of its own keys. That input takes the oldest token whatever its name, but the name-aware graph (Route B) removed nothing from it, and the coloured encoding (Route A) forced the join's own colour on it. Both could miss a reachable stranding and report `Proven`. Such nets now fall back to the sound over-approximation in BASE and EXTENDED mode. Non-key inputs on uncorrelated places (budgets, permits) are unaffected.
 

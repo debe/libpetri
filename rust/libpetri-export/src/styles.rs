@@ -61,6 +61,19 @@ pub const ENVIRONMENT_PLACE: NodeVisual = NodeVisual {
     width: Some(0.35),
 };
 
+/// A terminal place (EXEC-042): the run ends once it is marked. Takes
+/// precedence over the environment/start/end categories. Values from
+/// `spec/petri-net-styles.json` "terminal".
+pub const TERMINAL_PLACE: NodeVisual = NodeVisual {
+    shape: "doublecircle",
+    fill: "#d6d8db",
+    stroke: "#1b1e21",
+    penwidth: 3.0,
+    style: None,
+    height: None,
+    width: Some(0.35),
+};
+
 pub const TRANSITION: NodeVisual = NodeVisual {
     shape: "box",
     fill: "#fff3cd",

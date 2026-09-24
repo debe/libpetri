@@ -8,10 +8,10 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 
 ## Summary
 
-- Active requirements: **219**
+- Active requirements: **220**
 - Proven in Lean (≥ 1 validated theorem fragment): **26**
 - Referenced in Lean comments only (mention without a validated theorem mapping): **11**
-- Referenced by ≥ 1 test file: java **88**, typescript **86**, rust **100**, python **44**
+- Referenced by ≥ 1 test file: java **91**, typescript **88**, rust **102**, python **45**
 - Untested anywhere (no test-file reference in any language): **111**
 
 ## 01-core-model.md — CORE
@@ -106,7 +106,8 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | EXEC-030 | — | — | — | — | — | — |
 | EXEC-031 | — | — | ✓ | ✓ | ✓ | ✓ |
 | EXEC-040 | — | — | — | — | — | — |
-| EXEC-041 | — | — | ✓ | — | — | — |
+| EXEC-041 | — | — | ✓ | ✓ | ✓ | — |
+| EXEC-042 | — | — | ✓ | ✓ | ✓ | ✓ |
 | EXEC-050 | — | — | — | — | — | — |
 
 ## 05-concurrency.md — CONC
@@ -139,7 +140,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | ENV-001 | — | — | — | — | — | — |
 | ENV-002 | — | — | — | — | — | — |
 | ENV-003 | — | — | — | — | — | — |
-| ENV-004 | — | — | — | ✓ | — | — |
+| ENV-004 | — | — | ✓ | ✓ | — | — |
 | ENV-005 | — | — | — | ✓ | ✓ | — |
 | ENV-006 | — | — | — | — | — | — |
 | ENV-010 | — | — | — | — | — | — |
@@ -288,7 +289,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | NU-030 | — | — | ✓ | ✓ | ✓ | ✓ |
 | NU-040 | — | — | ✓ | ✓ | ✓ | ✓ |
 | NU-050 | — | — | ✓ | ✓ | ✓ | ✓ |
-| NU-051 | — | — | — | ✓ | ✓ | ✓ |
+| NU-051 | — | — | ✓ | ✓ | ✓ | ✓ |
 | NU-052 | `willFire_guard_is_necessary` — retrodiction of c23cd9e: the pre-fix conflict-only prune (no will-fire guard) drops a drain firing the executor really performs, the shipped prune does not — nu name layer abstracted to a boolean nameEnabled, untimed fragment<br>`postFixPrune_agrees_with_executor` — the shipped prune condition never contradicts the executor's firing rule (immediate by construction — the condition is the executor's rule); untimed fragment, boolean name layer | ✓ | ✓ | ✓ | ✓ | ✓ |
 | NU-053 | `covered_place_empty` — AC6, the column side: under a covering semi-positive validated law with y.M0 = 0 every positively-weighted (coloured) place is empty on every abstract reachable marking - the zero colour slots the k = 0 plan drops are identically zero<br>`vacuous_colour_layer` — AC6, the rule side: every flat transition consuming from or producing into a covered place is dead on the reachable set, so any sub-net keeping the untouched rows (what the zero-slot coloured encoding emits) reaches exactly the same markings - the k = 0 plan is exact; coloured encoder modelled, not extracted; injection-free fragment (vacuous_colour_layer_inj is the env-aware twin) | ✓ | ✓ | ✓ | ✓ | ✓ |
 | NU-060 | — | — | ✓ | ✓ | ✓ | ✓ |

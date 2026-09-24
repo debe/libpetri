@@ -35,7 +35,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | [01-core-model.md](01-core-model.md) | CORE | Places, tokens, transitions, arcs, net construction, actions, context, marking | 35 |
 | [02-input-output-specs.md](02-input-output-specs.md) | IO | Input cardinality, composite output routing, validation | 14 |
 | [03-timing.md](03-timing.md) | TIME | Firing intervals, clock semantics, deadline enforcement, injectable clock | 12 |
-| [04-execution-model.md](04-execution-model.md) | EXEC | Orchestrator loop, scheduling, token consumption, failure, quiescence | 14 |
+| [04-execution-model.md](04-execution-model.md) | EXEC | Orchestrator loop, scheduling, token consumption, failure, quiescence, terminal places | 15 |
 | [05-concurrency.md](05-concurrency.md) | CONC | Single-threaded orchestrator, bitmap executor, precompiled flat-array executor, async actions, wake-up | 18 |
 | [06-environment-places.md](06-environment-places.md) | ENV | External event injection, implicit long-running behavior, executor lifecycle | 13 |
 | [07-verification.md](07-verification.md) | VER | SMT/IC3, state-equation phase, firing bound, state class graph, structural analysis, open-net contracts | 20 |
@@ -44,7 +44,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | [10-performance.md](10-performance.md) | PERF | Scaling, benchmarks, memory efficiency, flat-array executor performance | 14 |
 | [11-modular-composition.md](11-modular-composition.md) | MOD | Open-net subnet definition, instantiation, port composition, channel fusion, action binding per instance, place fusion | 26 |
 | [12-nu-nets.md](12-nu-nets.md) | NU | Token name identity, fresh-name minting (ν-binder/fork), join by name equality, bounded-budget decidability ledger | 13 |
-| **Total** | | | **219** |
+| **Total** | | | **220** |
 
 > **IO-006** (Input Guard Predicate) and **EXEC-011** (Guarded Token Consumption) were
 > removed (see [IO-006], [EXEC-011]); both are retained as struck-through tombstones for
@@ -177,6 +177,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | EXEC-031 | No Rollback | MUST | — |
 | EXEC-040 | Standard Quiescence | MUST | — |
 | EXEC-041 | Execution Result | MUST | EXEC-040, ENV-013 |
+| EXEC-042 | Terminal Places | SHOULD | EXEC-001, EXEC-040, EXEC-041, ENV-004, ENV-013, ENV-015, VER-002, VER-014, VER-022, MOD-001 |
 | EXEC-050 | Timestamp-Based Stale Detection | SHOULD | CORE-032, 010 |
 
 ### EXP — Export
@@ -331,9 +332,9 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Priority | Count | Description |
 |----------|-------|-------------|
 | MUST     | 143   | Core contract; all implementations must conform |
-| SHOULD   | 60    | Recommended; implementations should include unless technically infeasible |
+| SHOULD   | 61    | Recommended; implementations should include unless technically infeasible |
 | MAY      | 16    | Optional; implementations may include |
-| **Total** | **219** | Matches the active-requirement total above; tombstones (IO-006, EXEC-011) excluded |
+| **Total** | **220** | Matches the active-requirement total above; tombstones (IO-006, EXEC-011) excluded |
 
 ---
 
@@ -351,6 +352,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Sync action-throw containment | Failing action fails only that firing ([EXEC-030]) | ✓ | ✓ | ✓ |
 | Inject after natural termination | Rejected, not hung ([ENV-006]) | ✓ (`terminated` flag) | ✓ (draining guard) | ✓ |
 | Immediate termination / observable termination | [ENV-015] / [ENV-016] (MAY) | ✓ | Pending | Pending |
+| Terminal places | [EXEC-042] (SHOULD) | ✓ | ✓ | ✓ |
 | Token type safety | Typed places + typed tokens | Generics (compile-time) | Phantom type param | Generics (compile-time) |
 | Guard predicates | **Removed** from the model ([IO-006], [EXEC-011]) — no per-token value predicate exists | n/a (never implemented) | n/a (removed) | n/a (removed) |
 | Output spec validation ([IO-015]) | Enforced on every executor backend | ✓ | ✓ | ✓ (both backends; previously unenforced) |
@@ -453,7 +455,8 @@ The Rust column doubles as Python's: `libpetri-py` binds the same engine, so a `
 | EXEC-010, 012–013 | `AbstractNetExecutorEngineTest`, `BackendDivergenceRegressionTest` | `bitmap-net-executor.test.ts`, `executor-shared-semantics.test.ts` | `executor::async_tests`, `backend_suite_tests` |
 | EXEC-020–022 | `AbstractNetExecutorEngineTest.CompletionWakeupTests`, `ActionTimeoutCompositionTest` | `executor-support.test.ts` | `executor::async_tests` |
 | EXEC-030–031 | `AbstractNetExecutorEngineTest.FailureBoundaryTests`, `.FailureAndErrorHandlingTests` | `executor-failure.test.ts` | — |
-| EXEC-040–041 | `BitmapNetExecutorTest.EventStoreTests`, `AbstractNetExecutorEngineTest.EventImmutabilityTests`, `AbstractTerminationReasonTest` (`BitmapTerminationReasonTest`, `PrecompiledTerminationReasonTest`; EXEC-041 AC3–AC5, on a net that waits, under the built-in and the hosted wait) | `bitmap-net-executor.test.ts` | `executor::async_tests`, `backend_suite_tests` (EXEC-040 and EXEC-041 AC1–AC2; no termination reason is exposed) |
+| EXEC-040–041 | `BitmapNetExecutorTest.EventStoreTests`, `AbstractNetExecutorEngineTest.EventImmutabilityTests`, `AbstractTerminationReasonTest` (`BitmapTerminationReasonTest`, `PrecompiledTerminationReasonTest`; EXEC-041 AC3–AC5, on a net that waits, under the built-in and the hosted wait) | `bitmap-net-executor.test.ts` | `executor::async_tests`, `backend_suite_tests` (EXEC-040 and EXEC-041 AC1–AC3) |
+| EXEC-042 | `AbstractTerminalPlaceTest` (`BitmapTerminalPlaceTest`, `PrecompiledTerminalPlaceTest`), `TerminalPlaceVerificationTest` | `terminal-places.test.ts` | `tests/exec042_terminal_places.rs`; Python `test_terminal_places.py` |
 | CONC-004–008 | `BitmapNetExecutorTest` | `compiled-net.test.ts` | `compiled_net::tests`, `bitmap::tests` |
 | ENV-001–006 | `EnvironmentPlaceTest` | `environment.test.ts` | `injector::tests` |
 | ENV-010–013 | `EnvironmentPlaceTest` | `environment.test.ts` | `environment::tests` |

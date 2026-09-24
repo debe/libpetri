@@ -151,6 +151,41 @@ public final class OpenNetContract {
         return new Builder();
     }
 
+    /**
+     * This contract with each of {@code markers} merged in as a designed terminal excusing
+     * {@code excused}: the form a net-declared terminal place takes here ([EXEC-042],
+     * [VER-014]). A marker the contract already names keeps its position and gains the excuses.
+     */
+    OpenNetContract withDesignedTerminals(Collection<? extends Place<?>> markers,
+                                          Collection<? extends Place<?>> excused) {
+        var b = new Builder();
+        b.initialTokens.putAll(copyOfInitial());
+        b.arrivals.addAll(arrivals);
+        b.clauses.addAll(clauses);
+        for (var p : rest) {
+            b.rest.put(p.name(), p);
+        }
+        for (var t : terminals) {
+            b.terminal(t.marker(), t.excused().toArray(new Place<?>[0]));
+        }
+        // One rebuild for every marker: O(markers × excused), not a rebuild per marker.
+        var excusedArray = excused.toArray(new Place<?>[0]);
+        for (var marker : markers) {
+            b.terminal(marker, excusedArray);
+        }
+        b.environment.addAll(environment);
+        b.requiresTermination = requiresTermination;
+        return new OpenNetContract(b);
+    }
+
+    private Map<String, Map.Entry<Place<?>, Integer>> copyOfInitial() {
+        var out = new LinkedHashMap<String, Map.Entry<Place<?>, Integer>>();
+        for (var e : initialTokens) {
+            out.put(e.getKey().name(), e);
+        }
+        return out;
+    }
+
     /** Tokens the subnet holds before anything arrives: its own resources and any shared pool it borrows from. */
     public MarkingState initialMarking() {
         return initialMarking;

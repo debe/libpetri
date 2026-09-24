@@ -1,5 +1,6 @@
 package org.libpetri.smt.fixtures;
 
+import java.util.List;
 import org.libpetri.analysis.EnvironmentAnalysisMode;
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.core.Arc.In;
@@ -63,8 +64,49 @@ public final class VerificationNets {
             case "nuMixedTerminal" -> nuMixedTerminal();
             case "nuDrainedTerminal" -> nuDrainedTerminal();
             case "nuScatterGather" -> nuScatterGather();
+            case "terminalForkInFlight" -> terminalForkInFlight();
             default -> throw new IllegalArgumentException("unknown fixture net: " + name);
         };
+    }
+
+    /**
+     * {@code start(1),a,b,done,result; fork: one(start)->AND(a,b); finish: one(a)->done;
+     * work: one(b)->result} — [EXEC-042] AC7, built WITHOUT terminal places: the fixture's
+     * {@code terminals} array declares {@code done} on the net ({@link #withTerminals}).
+     */
+    static NamedNet terminalForkInFlight() {
+        var start = place("start");
+        var a = place("a");
+        var b = place("b");
+        var done = place("done");
+        var result = place("result");
+        var fork = Transition.builder("fork").inputs(In.one(start)).outputs(Out.and(a, b)).build();
+        var finish = Transition.builder("finish").inputs(In.one(a)).outputs(Out.place(done)).build();
+        var work = Transition.builder("work").inputs(In.one(b)).outputs(Out.place(result)).build();
+        return closed(
+            PetriNet.builder("terminalForkInFlight").transitions(fork, finish, work).build(),
+            MarkingState.builder().tokens(start, 1).build());
+    }
+
+    /**
+     * {@code named} with {@code terminals} declared as its terminal places ([EXEC-042]), in
+     * order — the fixture's optional {@code terminals} array. The same instance when the array
+     * is empty, so every fixture without it is built exactly as before.
+     */
+    public static NamedNet withTerminals(NamedNet named, List<String> terminals) {
+        if (terminals.isEmpty()) {
+            return named;
+        }
+        var net = named.net();
+        var builder = PetriNet.builder(net.name())
+            .places(net.places().toArray(new Place<?>[0]))
+            .transitions(net.transitions().toArray(new Transition[0]));
+        net.terminals().forEach(builder::terminal);
+        for (var name : terminals) {
+            builder.terminal(place(name));
+        }
+        return new NamedNet(builder.build(), named.initialMarking(), named.environmentPlaces(),
+            named.environmentMode());
     }
 
     private static Place<String> place(String name) {

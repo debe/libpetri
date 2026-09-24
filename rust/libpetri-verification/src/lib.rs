@@ -117,6 +117,7 @@ pub mod smt_encoder;
 pub mod state_class;
 pub mod state_class_graph;
 pub mod structural_check;
+pub mod terminal_places;
 
 #[cfg(feature = "z3")]
 pub mod bounded_run;

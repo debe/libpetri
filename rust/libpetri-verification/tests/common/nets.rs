@@ -14,7 +14,7 @@ use libpetri_core::match_spec::MatchSpec;
 use libpetri_core::name::NameId;
 use libpetri_core::output::{and, out_place};
 use libpetri_core::petri_net::PetriNet;
-use libpetri_core::place::Place;
+use libpetri_core::place::{Place, PlaceRef};
 use libpetri_core::transition::Transition;
 use libpetri_verification::environment::EnvironmentAnalysisMode;
 use libpetri_verification::marking_state::{MarkingState, MarkingStateBuilder};
@@ -38,6 +38,23 @@ impl FixtureNet {
             env_mode: EnvironmentAnalysisMode::Ignore,
         }
     }
+}
+
+/// Applies a fixture's optional `terminals` array ([EXEC-042]): the named
+/// places are declared terminal ON THE NET, not on the verifier — the verifier
+/// must apply them itself. An empty array leaves the net untouched, so every
+/// fixture without the key builds exactly as before.
+pub fn declare_terminals(mut built: FixtureNet, terminals: &[String]) -> FixtureNet {
+    if terminals.is_empty() {
+        return built;
+    }
+    let net = &built.net;
+    built.net = PetriNet::builder(net.name())
+        .places(net.places().iter().cloned())
+        .transitions(net.transitions().iter().cloned())
+        .terminals(terminals.iter().map(|t| PlaceRef::new(t.as_str())))
+        .build();
+    built
 }
 
 /// Builds the named fixture net. Panics on an unknown name so a new fixture
@@ -285,6 +302,41 @@ pub fn build(name: &str) -> FixtureNet {
                     .transition(t)
                     .build(),
                 MarkingStateBuilder::new().tokens("p0", 1).build(),
+            )
+        }
+        // [EXEC-042] AC7: a fork whose `finish` arm marks `done` while the
+        // `work` arm is still pending. Built WITHOUT terminal places: the
+        // fixture's optional `terminals` array declares them (see
+        // `declare_terminals`). Undeclared, every quiescent marking strands a
+        // token (DeadlockFree violated); with `done` terminal, `done` inhibits
+        // every transition and excuses every place, so it is proven with no
+        // sink option from the caller.
+        "terminalForkInFlight" => {
+            let start = Place::<i32>::new("start");
+            let a = Place::<i32>::new("a");
+            let b = Place::<i32>::new("b");
+            let done = Place::<i32>::new("done");
+            let result = Place::<i32>::new("result");
+            let fork_t = Transition::builder("fork")
+                .input(one(&start))
+                .output(and(vec![out_place(&a), out_place(&b)]))
+                .action(fork())
+                .build();
+            let finish = Transition::builder("finish")
+                .input(one(&a))
+                .output(out_place(&done))
+                .action(fork())
+                .build();
+            let work = Transition::builder("work")
+                .input(one(&b))
+                .output(out_place(&result))
+                .action(fork())
+                .build();
+            FixtureNet::closed(
+                PetriNet::builder("terminalForkInFlight")
+                    .transitions([fork_t, finish, work])
+                    .build(),
+                MarkingStateBuilder::new().tokens("start", 1).build(),
             )
         }
         // === Route B fixtures (`"route": "B"` in fixtures.json) ===

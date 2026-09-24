@@ -13,6 +13,8 @@ use std::sync::Arc;
 use libpetri_core::petri_net::PetriNet;
 use libpetri_event::event_store::EventStore;
 
+use tokio::sync::mpsc::UnboundedReceiver;
+
 use crate::clock::ExecutorClock;
 use crate::compiled_net::CompiledNet;
 #[cfg(feature = "tokio")]
@@ -20,6 +22,22 @@ use crate::environment::ExecutorSignal;
 use crate::marking::Marking;
 use crate::precompiled_executor::PrecompiledNetExecutor;
 use crate::precompiled_net::PrecompiledNet;
+use crate::termination::TerminationReason;
+
+/// A finished run from the owned entry points: the final marking and why the
+/// run ended (\[EXEC-041\] AC3). Returned by
+/// [`OwnedPrecompiledExecutorBuilder::run_sync_outcome`] and
+/// `run_async_outcome`, for callers — the Python bindings among them — that
+/// never hold the executor itself.
+#[derive(Debug)]
+pub struct RunOutcome {
+    /// The marking the run ended with.
+    pub marking: Marking,
+    /// Why it ended: [`Quiescent`](TerminationReason::Quiescent) and
+    /// [`Terminal`](TerminationReason::Terminal) (\[EXEC-042\]) are designed
+    /// ends, anything else a truncation.
+    pub termination_reason: TerminationReason,
+}
 
 /// Owned, `'static`-safe wrapper around a fully-precompiled net.
 ///
@@ -91,7 +109,7 @@ impl OwnedPrecompiledNet {
     pub async fn run_async<E: EventStore>(
         &self,
         initial_marking: Marking,
-        signal_rx: tokio::sync::mpsc::UnboundedReceiver<ExecutorSignal>,
+        signal_rx: UnboundedReceiver<ExecutorSignal>,
     ) -> Marking {
         self.builder::<E>(initial_marking).run_async(signal_rx).await
     }
@@ -164,6 +182,12 @@ impl<E: EventStore> OwnedPrecompiledExecutorBuilder<E> {
 
     /// Runs one synchronous execution.
     pub fn run_sync(self) -> Marking {
+        self.run_sync_outcome().marking
+    }
+
+    /// Runs one synchronous execution and reports why it ended
+    /// (\[EXEC-041\] AC3).
+    pub fn run_sync_outcome(self) -> RunOutcome {
         let mut builder = PrecompiledNetExecutor::<E>::builder(&self.program, self.initial_marking)
             .environment_places(self.environment_places)
             .skip_output_validation(self.skip_output_validation);
@@ -180,15 +204,25 @@ impl<E: EventStore> OwnedPrecompiledExecutorBuilder<E> {
             builder = builder.event_store(store);
         }
         let mut executor = builder.build();
-        executor.run_sync().into_owned()
+        let marking = executor.run_sync().into_owned();
+        RunOutcome { marking, termination_reason: executor.termination_reason() }
     }
 
     /// Runs one async execution.
     #[cfg(feature = "tokio")]
     pub async fn run_async(
         self,
-        signal_rx: tokio::sync::mpsc::UnboundedReceiver<ExecutorSignal>,
+        signal_rx: UnboundedReceiver<ExecutorSignal>,
     ) -> Marking {
+        self.run_async_outcome(signal_rx).await.marking
+    }
+
+    /// Runs one async execution and reports why it ended (\[EXEC-041\] AC3).
+    #[cfg(feature = "tokio")]
+    pub async fn run_async_outcome(
+        self,
+        signal_rx: UnboundedReceiver<ExecutorSignal>,
+    ) -> RunOutcome {
         let mut builder = PrecompiledNetExecutor::<E>::builder(&self.program, self.initial_marking)
             .environment_places(self.environment_places)
             .skip_output_validation(self.skip_output_validation);
@@ -205,7 +239,8 @@ impl<E: EventStore> OwnedPrecompiledExecutorBuilder<E> {
             builder = builder.event_store(store);
         }
         let mut executor = builder.build();
-        executor.run_async(signal_rx).await.into_owned()
+        let marking = executor.run_async(signal_rx).await.into_owned();
+        RunOutcome { marking, termination_reason: executor.termination_reason() }
     }
 }
 

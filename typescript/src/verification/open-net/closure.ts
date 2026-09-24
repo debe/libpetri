@@ -136,6 +136,7 @@ export function closeOpenNet(net: PetriNet, contract: OpenNetContract): ClosedNe
   const closed = PetriNet.builder(`${net.name}+environment`)
     .places(...net.places, ...extra)
     .transitions(...net.transitions, ...contract.environment, ...envTransitions)
+    .terminals(...net.terminals) // EXEC-042
     .build()
     .bindActionsWithResolver(name => (placeholder.has(name) ? ENVIRONMENT_ACTION : null));
   return {

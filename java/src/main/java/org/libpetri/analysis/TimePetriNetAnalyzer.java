@@ -6,6 +6,7 @@ import org.libpetri.core.Place;
 import org.libpetri.core.Transition;
 
 import java.util.*;
+import org.libpetri.core.internal.TerminalEncoding;
 
 import static org.libpetri.analysis.AnalysisUtils.formatPlaces;
 import static org.libpetri.analysis.AnalysisUtils.formatTransitions;
@@ -61,7 +62,9 @@ public final class TimePetriNetAnalyzer {
             Set<EnvironmentPlace<?>> environmentPlaces,
             EnvironmentAnalysisMode environmentMode
     ) {
-        this.net = net;
+        // EXEC-042: the net's terminal places inhibit every transition, as the runtime stops there.
+        // The same instance for a net without terminals.
+        this.net = TerminalEncoding.inhibited(net);
         this.initialMarking = initialMarking;
         // In the order given: the report lists them.
         this.goalPlaces = Collections.unmodifiableSet(new LinkedHashSet<>(goalPlaces));

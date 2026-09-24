@@ -969,3 +969,43 @@ fn a_nu_net_gets_the_untimed_verdict_a_deadline_that_keeps_slow_from_firing_does
     assert_eq!(kinds, [ContractViolationKind::Stranded], "{}", r.report);
     assert!(r.violations[0].transitions.iter().any(|t| t == "slow"), "{}", r.report);
 }
+
+// ==================== net-declared terminals ([EXEC-042]) ====================
+
+/// `fork` splits the arrival; `finish` marks `done` while `work` may still be pending. With
+/// `done` declared terminal on the net, the open-net route merges it as a designed terminal
+/// excusing every place, and `done` inhibits every transition of the closed net.
+fn terminal_fork(terminal: bool) -> PetriNet {
+    let (in_, a, b, done, result) = (place("in"), place("a"), place("b"), place("done"), place("result"));
+    let mut nb = PetriNet::builder("terminalFork")
+        .transition(Transition::builder("fork").input(one(&in_)).output(ands(&[&a, &b])).action(fork()).build())
+        .transition(Transition::builder("finish").input(one(&a)).output(out_place(&done)).action(fork()).build())
+        .transition(Transition::builder("work").input(one(&b)).output(out_place(&result)).action(fork()).build());
+    if terminal {
+        nb = nb.terminal(&done);
+    }
+    nb.build()
+}
+
+#[test]
+fn net_declared_terminals_are_merged_as_designed_terminals_on_both_routes() {
+    let c = OpenNetContract::builder().arrive(1, ["in"]).build();
+    let r = verify(&terminal_fork(false), &c);
+    assert!(matches!(r.verdict, Verdict::Violated), "undeclared, the run strands tokens:\n{}", r.report);
+
+    let r = verify(&terminal_fork(true), &c);
+    assert!(r.verdict.is_proven(), "graph route:\n{}", r.report);
+    assert!(r.closed_net.is_terminal("done"), "the closed net keeps the declaration");
+    assert!(
+        r.closed_net.transitions().iter().all(|t| t.inhibitors().iter().any(|i| i.place.name() == "done")),
+        "every closed-net transition, the environment's included, is inhibited by the terminal"
+    );
+
+    if skip_without_z3("net_declared_terminals_are_merged_as_designed_terminals_on_both_routes") {
+        return;
+    }
+    let r = verify_open_net(&terminal_fork(true), &c, &smt_only());
+    assert!(r.verdict.is_proven(), "SMT route:\n{}", r.report);
+    let r = verify_open_net(&terminal_fork(false), &c, &smt_only());
+    assert!(matches!(r.verdict, Verdict::Violated), "SMT route, undeclared:\n{}", r.report);
+}

@@ -391,14 +391,34 @@ impl TransitionBuilder {
     }
 }
 
+impl Transition {
+    /// Returns a copy of this transition with `extra` appended to its inhibitor
+    /// arcs, skipping any place it already inhibits. Name, timing, priority,
+    /// action and every other arc carry through unchanged. Used by the
+    /// verifier's terminal-place encoding ([EXEC-042]).
+    pub fn with_added_inhibitors(&self, extra: impl IntoIterator<Item = Inhibitor>) -> Transition {
+        let mut inhibitors = self.inhibitors.clone();
+        for inh in extra {
+            if !inhibitors.contains(&inh) {
+                inhibitors.push(inh);
+            }
+        }
+        rebuild(self, Arc::clone(&self.action), inhibitors)
+    }
+}
+
 /// Creates a new transition with a different action while preserving all arc specs.
 pub(crate) fn rebuild_with_action(t: &Transition, action: BoxedAction) -> Transition {
+    rebuild(t, action, t.inhibitors.clone())
+}
+
+fn rebuild(t: &Transition, action: BoxedAction, inhibitors: Vec<Inhibitor>) -> Transition {
     let mut builder = Transition::builder(Arc::clone(&t.name))
         .timing(t.timing)
         .priority(t.priority)
         .action(action)
         .inputs(t.input_specs.clone())
-        .inhibitors(t.inhibitors.clone())
+        .inhibitors(inhibitors)
         .reads(t.reads.clone())
         .resets(t.resets.clone());
 

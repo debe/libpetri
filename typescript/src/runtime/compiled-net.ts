@@ -64,6 +64,15 @@ export class CompiledNet {
   // (zero-cost gating).
   private readonly _hasMatch: boolean[];
 
+  /**
+   * Terminal-place flags per place id ([EXEC-042]): `1` for a place the net declares terminal.
+   * `null` when the net declares none, which is what {@link hasTerminals} gates on, so a net
+   * without terminals pays one boolean test per deposit batch and nothing per token.
+   */
+  readonly terminalFlags: Uint8Array | null;
+  /** Whether the net declares any terminal place ([EXEC-042]). Precomputed, like `anyDeadlines`. */
+  readonly hasTerminals: boolean;
+
   private constructor(net: PetriNet) {
     this.net = net;
 
@@ -91,6 +100,17 @@ export class CompiledNet {
     this._placeIndex = new Map();
     for (let i = 0; i < this._placesById.length; i++) {
       this._placeIndex.set(this._placesById[i]!.name, i);
+    }
+
+    // EXEC-042: terminal places (declared on the net, so always among its places).
+    if (net.terminals.size > 0) {
+      const flags = new Uint8Array(this.placeCount);
+      for (const p of net.terminals) flags[this._placeIndex.get(p.name)!] = 1;
+      this.terminalFlags = flags;
+      this.hasTerminals = true;
+    } else {
+      this.terminalFlags = null;
+      this.hasTerminals = false;
     }
 
     // Assign transition IDs

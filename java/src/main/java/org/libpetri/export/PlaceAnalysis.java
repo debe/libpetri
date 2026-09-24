@@ -99,13 +99,27 @@ public record PlaceAnalysis(Map<String, Info> data) {
     }
 
     /**
-     * Determines the node category for a place.
+     * Determines the node category for a place, for a net without terminal places.
      *
      * @param placeName the place name
      * @param environmentPlaces set of environment place names
      * @return category string: "start", "end", "environment", or "place"
      */
     public String category(String placeName, Set<String> environmentPlaces) {
+        return category(placeName, environmentPlaces, Set.of());
+    }
+
+    /**
+     * Determines the node category for a place. A terminal place ([EXEC-042]) takes precedence
+     * over every other category, an environment place's included: it is the net's designed end.
+     *
+     * @param placeName the place name
+     * @param environmentPlaces set of environment place names
+     * @param terminalPlaces set of terminal place names
+     * @return category string: "terminal", "start", "end", "environment", or "place"
+     */
+    public String category(String placeName, Set<String> environmentPlaces, Set<String> terminalPlaces) {
+        if (terminalPlaces.contains(placeName)) return "terminal";
         if (environmentPlaces.contains(placeName)) return "environment";
         var info = data.get(placeName);
         if (info == null) return "place";

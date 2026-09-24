@@ -17,6 +17,7 @@ use std::sync::Arc;
 use crate::instance::{Instance, new_instance};
 use crate::interface::{Channel, Interface, Port, PortDirection};
 use crate::petri_net::{PetriNet, PetriNetBuilder};
+use crate::petri_net::reject_subnet_terminals;
 use crate::place::{Place, PlaceRef};
 use crate::rewriter;
 use crate::transition::Transition;
@@ -97,6 +98,9 @@ impl<P: 'static> SubnetDef<P> {
             prefix,
             self.name
         );
+
+        // EXEC-042: a subnet body may not declare terminal places.
+        reject_subnet_terminals("SubnetDef::instantiate", &self.name, &self.body);
 
         // Run the rename pass. The maps are populated as side effects so
         // we can build the typed handle maps below without re-walking.

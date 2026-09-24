@@ -176,7 +176,13 @@ fn untimed(net: &PetriNet) -> Option<PetriNet> {
         }
         b.build()
     });
-    Some(PetriNet::builder(net.name()).places(net.places().iter().cloned()).transitions(transitions).build())
+    Some(
+        PetriNet::builder(net.name())
+            .places(net.places().iter().cloned())
+            .transitions(transitions)
+            .terminals(net.terminals().iter().cloned())
+            .build(),
+    )
 }
 
 fn parts_for<'c>(contract: &'c OpenNetContract, rest: &RestDeclaration) -> Vec<Part<'c>> {

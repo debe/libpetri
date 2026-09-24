@@ -98,8 +98,9 @@ public interface PetriNetExecutor extends AutoCloseable {
      * Why the last run stopped, per <b>EXEC-041</b>.
      *
      * <p>The marking returned by {@link #run()} says what the net <i>holds</i>, not whether the
-     * run <i>finished</i>. Only {@link TerminationReason#QUIESCENT} means it is a final marking;
-     * any other value means the run was truncated and the marking is partial. A consumer that
+     * run <i>finished</i>. Only a completed reason ({@link TerminationReason#isComplete()}:
+     * {@link TerminationReason#QUIESCENT} or {@link TerminationReason#TERMINAL}) means it is a
+     * final marking; any other value means the run was truncated and the marking is partial. A consumer that
      * treats completion as proof the run finished — a durable checkpoint, a workflow step, an
      * assertion on the final marking — must consult this.
      *

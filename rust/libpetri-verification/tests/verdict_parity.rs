@@ -93,7 +93,7 @@ fn verdict_parity_fixtures() {
     for fixture in fixtures {
         let id = fixture.str("id");
         let expected = fixture.str("expected");
-        let built = nets::build(fixture.str("net"));
+        let built = nets::declare_terminals(nets::build(fixture.str("net")), &fixture.str_arr_opt("terminals"));
         let property = property_of(fixture.get("property").expect("fixture without property"));
 
         let mut verifier = SmtVerifier::for_net(&built.net)

@@ -19,10 +19,12 @@
 use std::collections::HashSet;
 
 use libpetri_core::output::Out;
+use libpetri_core::petri_net::PetriNet;
 use libpetri_core::transition::Transition;
 
 use crate::marking_state::{MarkingState, MarkingStateBuilder};
 use crate::property::count_phrase;
+use crate::terminal_places::all_place_names;
 
 use super::report::marking_text;
 
@@ -136,6 +138,33 @@ impl OpenNetContract {
 
     pub fn terminals(&self) -> &[DesignedTerminal] {
         &self.terminals
+    }
+
+    /// This contract with `net`'s own terminal places ([EXEC-042]) merged in as designed
+    /// terminals, each excusing every place of the net ([VER-014] `sink_places_when(P, all
+    /// places)`), after the contract's own and in declaration order. `None` when the net
+    /// declares none, so the caller keeps this contract untouched.
+    pub(crate) fn with_net_terminals(&self, net: &PetriNet) -> Option<OpenNetContract> {
+        if net.terminals().is_empty() {
+            return None;
+        }
+        let all_places = all_place_names(net);
+        let mut merged = self.clone();
+        for p in net.terminals() {
+            let index = match merged.terminals.iter().position(|t| t.marker == p.name()) {
+                Some(i) => i,
+                None => {
+                    merged.terminals.push(DesignedTerminal { marker: p.name().to_string(), excused: Vec::new() });
+                    merged.terminals.len() - 1
+                }
+            };
+            let entry = &mut merged.terminals[index];
+            let mut seen: HashSet<&str> = entry.excused.iter().map(String::as_str).collect();
+            let fresh: Vec<String> =
+                all_places.iter().filter(|place| seen.insert(place.as_str())).cloned().collect();
+            entry.excused.extend(fresh);
+        }
+        Some(merged)
     }
 
     /// Transitions the environment fires: neighbours that react to what the subnet sends.

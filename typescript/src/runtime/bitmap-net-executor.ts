@@ -27,7 +27,7 @@ import type { Token } from '../core/token.js';
 import type { Transition } from '../core/transition.js';
 import type { EventStore } from '../event/event-store.js';
 import type { NetEvent } from '../event/net-event.js';
-import type { PetriNetExecutor, RunTimeoutPolicy, SnapshotResult } from './petri-net-executor.js';
+import type { PetriNetExecutor, RunTimeoutPolicy, SnapshotResult, TerminationReason } from './petri-net-executor.js';
 import type { Clock } from './clock.js';
 import { tokenAt } from '../core/token.js';
 import { TokenInput } from '../core/token-input.js';
@@ -264,6 +264,15 @@ export class BitmapNetExecutor implements PetriNetExecutor {
   private closed = false;
 
   /**
+   * Latched when a deposit marks a terminal place ([EXEC-042]), or the initial marking already
+   * does. From then on no transition fires, no further completion or external event is admitted,
+   * and the loop ends `'terminal'`. Only ever set when {@link CompiledNet.hasTerminals}.
+   */
+  private terminalReached = false;
+  /** Why the run ended ([EXEC-041]); `'running'` until it has. */
+  private reason: TerminationReason = 'running';
+
+  /**
    * True while the marking is **between** two settled states inside one synchronous stretch of
    * the cycle ([ENV-014] AC#6): from the first input of a firing being consumed until that
    * firing is registered in flight, and from a completed firing being unregistered until its
@@ -493,6 +502,8 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     } finally {
       if (timer !== undefined) clearTimeout(timer);
       if (timedOut) {
+        // EXEC-041: an expired budget is a caller-requested stop, whatever the loop does next.
+        if (this.reason === 'running') this.reason = 'stopped';
         if (onTimeout === 'close') this.close();
         // Nobody is left to observe the abandoned loop's outcome.
         loop.catch(() => {});
@@ -511,6 +522,8 @@ export class BitmapNetExecutor implements PetriNetExecutor {
 
     this.initializeMarkingBitmap();
     this.markAllDirty();
+    // EXEC-042 AC1: a terminal place marked from the start ends the run before the first cycle.
+    if (this.compiled.hasTerminals) this.checkInitialTerminals();
 
     this.emitEvent({
       type: 'marking-snapshot',
@@ -518,9 +531,13 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       marking: this.snapshotMarking(),
     });
 
-    while (this.running) {
+    while (this.running && !this.terminalReached) {
       this.processCompletedTransitions();
+      // EXEC-042: a completion that marked a terminal place ends the run here — nothing queued
+      // behind it is admitted and nothing fires.
+      if (this.terminalReached) break;
       this.processExternalEvents();
+      if (this.terminalReached) break;
       this.updateDirtyTransitions();
       // Single timestamp for this loop iteration: ensures deadline enforcement and
       // firing readiness checks use the same time reference, preventing races where
@@ -542,7 +559,11 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     }
 
     this.running = false;
+    // EXEC-042: a terminal stop refuses whatever is still queued (ENV-004), as close() does.
     this.drainPendingExternalEvents();
+    if (this.reason === 'running') {
+      this.reason = this.terminalReached ? 'terminal' : this.closed ? 'closed' : 'quiescent';
+    }
 
     this.emitEvent({
       type: 'marking-snapshot',
@@ -579,7 +600,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     if (!this.environmentPlaces.has(envPlace.place.name)) {
       throw new Error(`Place ${envPlace.place.name} is not registered as an environment place`);
     }
-    if (this.closed || this.draining) return false;
+    if (this.closed || this.draining || this.terminalReached) return false;
 
     return new Promise<boolean>((resolve, reject) => {
       this.externalQueue.push({
@@ -620,7 +641,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     if (!this.environmentPlaces.has(envPlace.place.name)) {
       throw new Error(`Place ${envPlace.place.name} is not registered as an environment place`);
     }
-    if (this.closed || this.draining) return;
+    if (this.closed || this.draining || this.terminalReached) return;
     this.externalQueue.push({
       place: envPlace.place,
       token: tokenAt(value, this.epochMs()),
@@ -637,6 +658,17 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       const place = this.compiled.place(pid);
       if (this.marking.hasTokens(place)) {
         setBit(this.markingBitmap, pid);
+      }
+    }
+  }
+
+  /** EXEC-042 AC1: latches when the initial marking already marks a terminal place. */
+  private checkInitialTerminals(): void {
+    const flags = this.compiled.terminalFlags!;
+    for (let pid = 0; pid < flags.length; pid++) {
+      if (flags[pid] && this.marking.hasTokens(this.compiled.place(pid))) {
+        this.terminalReached = true;
+        return;
       }
     }
   }
@@ -1219,6 +1251,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
 
         // Single pass: add tokens to marking, update bitmap, and emit events
         const produced: Token<any>[] = [];
+        const terminalFlags = this.compiled.terminalFlags;
         for (const entry of outputs.entries()) {
           const pid = this.compiled.tryPlaceId(entry.place);
           this.marking.addToken(entry.place, entry.token);
@@ -1227,6 +1260,8 @@ export class BitmapNetExecutor implements PetriNetExecutor {
             this.cacheAddToken(pid, entry.token);
             setBit(this.markingBitmap, pid);
             this.markDirty(pid);
+            // EXEC-042: the firing still deposits all its outputs; the latch stops what follows.
+            if (terminalFlags !== null && terminalFlags[pid]) this.terminalReached = true;
           } else {
             // Unknown place — retained in the Marking (CORE-072 AC3), no bits to update.
             this.warnUnknownPlace(entry.place, t.name);
@@ -1262,6 +1297,9 @@ export class BitmapNetExecutor implements PetriNetExecutor {
         });
         this.markTransitionDirty(tid);
       }
+      // EXEC-042: completions queued behind a terminal deposit are abandoned, never deposited.
+      // Their flights stay registered, so a later snapshot still reports work in flight.
+      if (this.terminalReached) break;
     }
     this.completionQueue.length = 0;
   }
@@ -1286,6 +1324,8 @@ export class BitmapNetExecutor implements PetriNetExecutor {
           this.cacheAddToken(pid, event.token);
           setBit(this.markingBitmap, pid);
           this.markDirty(pid);
+          const terminalFlags = this.compiled.terminalFlags;
+          if (terminalFlags !== null && terminalFlags[pid]) this.terminalReached = true;
         } else {
           // Unknown place — retained in the Marking (CORE-072 AC3), no bits to update.
           this.warnUnknownPlace(event.place, '');
@@ -1301,14 +1341,18 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       } catch (e) {
         event.reject(e instanceof Error ? e : new Error(String(e)));
       }
+      // EXEC-042: events queued behind a terminal injection stay queued, to be refused when the
+      // loop ends (drainPendingExternalEvents).
+      if (this.terminalReached) break;
     }
     // Drop what this pass deposited — not the whole queue. `EventStore.append` runs
     // synchronously inside the walk above, so an inject() made from a token-added handler has
     // landed past `len`; clearing the queue would discard an accepted event and leave its
     // admission promise unsettled forever. It is admitted next cycle instead (its wakeUp() is
     // latched, and awaitWork re-checks the queue on entry).
-    if (this.externalQueue.length === len) this.externalQueue.length = 0;
-    else this.externalQueue.splice(0, len);
+    const deposited = this.externalCursor;
+    if (this.externalQueue.length === deposited) this.externalQueue.length = 0;
+    else this.externalQueue.splice(0, deposited);
     this.externalCursor = 0;
   }
 
@@ -1500,6 +1544,14 @@ export class BitmapNetExecutor implements PetriNetExecutor {
 
   isQuiescent(): boolean {
     return this.enabledTransitionCount === 0 && this.inFlight.size === 0;
+  }
+
+  /**
+   * Why the run ended ([EXEC-041] AC3), or `'running'` until it has: `'quiescent'`,
+   * `'terminal'` ([EXEC-042]), `'closed'` ([ENV-013]) or `'stopped'` (an expired run budget).
+   */
+  terminationReason(): TerminationReason {
+    return this.reason;
   }
 
   /**

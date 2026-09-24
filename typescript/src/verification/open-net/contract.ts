@@ -177,6 +177,29 @@ export class OpenNetContract {
   }
 }
 
+/**
+ * @internal `contract` with each of `markers` merged in as a designed terminal excusing
+ * `excused`: the form net-declared terminal places take on the open-net route ([EXEC-042],
+ * [VER-014]). A marker the contract already names keeps its position and gains the excuses.
+ * One rebuild for every marker, not one per marker.
+ */
+export function withDesignedTerminals(
+  contract: OpenNetContract,
+  markers: Iterable<Place<any>>,
+  excused: readonly Place<any>[],
+): OpenNetContract {
+  const b = new OpenNetContractBuilder()
+    .initialMarking(contract.initialMarking)
+    .requireTermination(contract.requiresTermination);
+  for (const g of contract.arrivals) b.arriveBetween(g.min, g.max, ...g.places);
+  for (const c of contract.clauses) b.expectBetween(c.name, c.min, c.max, ...c.places);
+  if (contract.rest.length > 0) b.rest(...contract.rest);
+  for (const t of contract.terminals) b.terminal(t.marker, ...t.excused);
+  for (const marker of markers) b.terminal(marker, ...excused);
+  if (contract.environment.length > 0) b.environment(...contract.environment);
+  return b.build();
+}
+
 /** Every place an arc of `t` touches: inputs, reads, inhibitors, resets, then outputs. */
 export function transitionPlaces(t: Transition): Place<any>[] {
   return [

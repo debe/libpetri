@@ -280,10 +280,42 @@ def _net(name: str):
         )
         return net, {"source": 3, "budget": 2}, {}
 
+    if name == "terminalForkInFlight":
+        # [EXEC-042] AC7: fork -> a + b; finish: a -> done; work: b -> result.
+        # Built WITHOUT terminals: the fixture's `terminals` array declares them
+        # on the net (see `_with_terminals`), never on the verifier.
+        start, a, b = lp.Place("start"), lp.Place("a"), lp.Place("b")
+        done, result = lp.Place("done"), lp.Place("result")
+        net = (
+            lp.Net("terminalForkInFlight")
+            .transition(lp.Transition("fork").input(lp.one(start)).output(lp.and_(a, b)).action(lp.fork).build())
+            .transition(lp.Transition("finish").input(lp.one(a)).output(lp.out(done)).action(lp.fork).build())
+            .transition(lp.Transition("work").input(lp.one(b)).output(lp.out(result)).action(lp.fork).build())
+            .build()
+        )
+        return net, {"start": 1}, {}
+
     raise AssertionError(
         f"unknown fixture net {name!r} — add its builder here "
         "(the shared fixtures.json gained a net this implementation does not build yet)"
     )
+
+
+def _with_terminals(net, names):
+    """Applies a fixture's optional `terminals` array ([EXEC-042]) to the NET:
+    rebuilt with the same places and transitions, plus the declarations. An
+    absent or empty array returns the net untouched, so every other fixture is
+    built exactly as before."""
+    if not names:
+        return net
+    builder = lp.NetBuilder(net.name)
+    for place in net.places:
+        builder = builder.place(place)
+    for transition in net.transitions:
+        builder = builder.transition(transition)
+    for name in names:
+        builder = builder.terminal(name)
+    return builder.build()
 
 
 def _property(spec):
@@ -320,6 +352,7 @@ def test_verdict_parity_fixtures():
         fid = fixture["id"]
         expected = fixture["expected"]
         net, marking, env = _net(fixture["net"])
+        net = _with_terminals(net, fixture.get("terminals"))
         result = lp.verify(
             net,
             _property(fixture["property"]),

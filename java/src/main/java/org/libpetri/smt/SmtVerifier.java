@@ -8,6 +8,7 @@ import org.libpetri.core.EnvironmentPlace;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
 import org.libpetri.core.internal.OutputActionCheck;
+import org.libpetri.core.internal.TerminalEncoding;
 import org.libpetri.smt.encoding.FlatNet;
 import org.libpetri.smt.encoding.IncidenceMatrix;
 import org.libpetri.smt.encoding.NetFlattener;
@@ -96,7 +97,8 @@ import java.util.function.Supplier;
  */
 public final class SmtVerifier {
 
-    private final PetriNet net;
+    /** Not final: {@link #applyNetTerminals()} swaps in the terminal encoding ([EXEC-042]). */
+    private PetriNet net;
     private MarkingState initialMarking = MarkingState.empty();
     private SmtProperty property = SmtProperty.deadlockFree();
     private final Set<EnvironmentPlace<?>> environmentPlaces = new HashSet<>();
@@ -228,6 +230,28 @@ public final class SmtVerifier {
         this.conditionalSinks.computeIfAbsent(marker, _ -> new LinkedHashSet<>())
             .addAll(Arrays.asList(places));
         return this;
+    }
+
+    /**
+     * Applies the net's own terminal places ([EXEC-042], [VER-014] "Net-declared terminals"):
+     * each terminal place inhibits every transition, is a sink, and excuses every place as a
+     * conditional-sink marker. The caller restates nothing.
+     *
+     * <p>A net without terminals is left untouched — the same instance, the same sink lists —
+     * so its scripts stay byte-identical. The encoded net declares no terminals, so a second
+     * call is a no-op.
+     */
+    private void applyNetTerminals() {
+        if (net.terminals().isEmpty()) {
+            return;
+        }
+        var terminals = List.copyOf(net.terminals());
+        var all = NetFlattener.declaredPlaces(net);
+        net = TerminalEncoding.inhibited(net);
+        for (var p : terminals) {
+            sinkPlaces.add(p);
+            conditionalSinks.computeIfAbsent(p, _ -> new LinkedHashSet<>()).addAll(all);
+        }
     }
 
     /** The conditional sink declarations in declaration order ([VER-014]). */
@@ -641,6 +665,7 @@ public final class SmtVerifier {
      */
     public SmtVerificationResult verify() {
         OutputActionCheck.requireOutputProducingActions(net);
+        applyNetTerminals();
         var start = Instant.now();
         var report = new StringBuilder();
         report.append("=== IC3/PDR SAFETY VERIFICATION ===\n\n");
@@ -1683,6 +1708,7 @@ public final class SmtVerifier {
     /** See {@link EncodedScripts}. */
     public EncodedScripts encodeScripts() {
         OutputActionCheck.requireOutputProducingActions(net);
+        applyNetTerminals();
         FlatNet flatNet = NetFlattener.flatten(net, environmentPlaces, environmentMode);
         // AUTO decides from the same fact here as in verify() — whether the basis lost a law
         // to the H1 guard — so the script this reports is the script that would be sent.

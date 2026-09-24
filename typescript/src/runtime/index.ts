@@ -13,8 +13,8 @@ export { CompiledNet, setBit, clearBit, testBit, containsAll, intersects } from 
 export type { CardinalityCheck } from './compiled-net.js';
 export { BitmapNetExecutor } from './bitmap-net-executor.js';
 export type { BitmapNetExecutorOptions } from './bitmap-net-executor.js';
-export type { PetriNetExecutor, RunTimeoutPolicy, SnapshotResult } from './petri-net-executor.js';
-export { isRestorePoint } from './petri-net-executor.js';
+export type { PetriNetExecutor, RunTimeoutPolicy, SnapshotResult, TerminationReason } from './petri-net-executor.js';
+export { isRestorePoint, isComplete } from './petri-net-executor.js';
 export { PrecompiledNet } from './precompiled-net.js';
 export { PrecompiledNetExecutor } from './precompiled-net-executor.js';
 export type { PrecompiledNetExecutorOptions } from './precompiled-net-executor.js';

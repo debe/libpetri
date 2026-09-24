@@ -9,6 +9,10 @@ package org.libpetri.runtime;
  * checkpoint, a workflow step, an assertion on the final marking — would silently accept a
  * truncation. This enum is the distinguishing signal EXEC-041 AC#3 requires.
  *
+ * <p>Two values are <b>completed</b> reasons ({@link #isComplete()}): {@link #QUIESCENT} and
+ * {@link #TERMINAL}. For both, the returned marking is the one the net was designed to end in.
+ * Every other value is a truncation.
+ *
  * @see PetriNetExecutor#terminationReason()
  */
 public enum TerminationReason {
@@ -17,10 +21,22 @@ public enum TerminationReason {
     RUNNING,
 
     /**
-     * The net reached quiescence ([EXEC-040]): nothing enabled, nothing in flight. This is the
-     * only value for which the returned marking is a <b>final</b> marking.
+     * The net reached quiescence ([EXEC-040]): nothing enabled, nothing in flight. The returned
+     * marking is a <b>final</b> marking.
      */
     QUIESCENT,
+
+    /**
+     * A deposit marked one of the net's terminal places ([EXEC-042],
+     * {@link org.libpetri.core.PetriNet.Builder#terminal PetriNet.Builder.terminal}), and the
+     * run stopped there: no transition fired afterwards. A completed reason, like
+     * {@link #QUIESCENT}: the returned marking is the one the net was designed to end in.
+     *
+     * <p>The stop is hard. Actions still in flight were abandoned and their results discarded,
+     * and external events still queued were refused. A snapshot taken afterwards still reports
+     * the abandoned work as work in flight ([ENV-014]).
+     */
+    TERMINAL,
 
     /** {@link PetriNetExecutor#close()} stopped the run before quiescence ([ENV-013]). */
     CLOSED,
@@ -66,8 +82,11 @@ public enum TerminationReason {
     /** The run stopped before quiescence for another reason, such as a caller's run budget. */
     STOPPED;
 
-    /** True when the returned marking is a final marking rather than a truncated one. */
+    /**
+     * True when the returned marking is a final marking rather than a truncated one:
+     * {@link #QUIESCENT} or {@link #TERMINAL}.
+     */
     public boolean isComplete() {
-        return this == QUIESCENT;
+        return this == QUIESCENT || this == TERMINAL;
     }
 }

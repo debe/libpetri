@@ -69,7 +69,10 @@ class VerdictParityTest {
     private static void runFixture(JsonNode fixture) {
         String id = fixture.get("id").asText();
         String expected = fixture.get("expected").asText();
-        var named = VerificationNets.build(fixture.get("net").asText());
+        // Optional shared-schema field: the net's own terminal places ([EXEC-042]), which the
+        // verifier applies without any sink option ([VER-014] "Net-declared terminals").
+        var named = VerificationNets.withTerminals(
+            VerificationNets.build(fixture.get("net").asText()), terminalNames(fixture));
         var property = parseProperty(fixture.get("property"));
 
         var verifier = SmtVerifier.forNet(named.net())
@@ -136,6 +139,17 @@ class VerdictParityTest {
                 + "\" — report this cross-language disagreement, do not adjust the fixture\n"
                 + result.report());
         }
+    }
+
+    /** The fixture's optional {@code terminals} array ([EXEC-042]): place names, in order. */
+    static List<String> terminalNames(JsonNode fixture) {
+        var out = new ArrayList<String>();
+        if (fixture.hasNonNull("terminals")) {
+            for (JsonNode name : fixture.get("terminals")) {
+                out.add(name.asText());
+            }
+        }
+        return out;
     }
 
     /** The fixture's optional {@code sinkPlaces} array, resolved to places. */

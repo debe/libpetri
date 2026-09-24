@@ -24,4 +24,14 @@ class PrecompiledExecutorSnapshotTest extends AbstractExecutorSnapshotTest {
     protected void snapshotCap(PetriNetExecutor executor, java.time.Duration cap) {
         ((PrecompiledNetExecutor) executor).snapshotWaitNanosForTesting(cap.toNanos());
     }
+
+    @Override
+    protected boolean parked(PetriNetExecutor executor) {
+        return ((PrecompiledNetExecutor) executor).parkedForTesting();
+    }
+
+    @Override
+    protected long markingRequests(PetriNetExecutor executor) {
+        return ((PrecompiledNetExecutor) executor).markingRequestsForTesting();
+    }
 }

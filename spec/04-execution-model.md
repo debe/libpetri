@@ -324,9 +324,9 @@ returns. Inside the hosted wait the same ambiguity is resolved the other way —
 runs on the orchestrator thread within `awaitWork` that sets the flag is indistinguishable from
 an external interrupt, and ends the run — because an action is the run's own code and a wait is
 not.
-**TypeScript** partial — an expired run budget raises, which satisfies AC3 for that case, but a
-`close()`-terminated run returns its marking indistinguishably from a quiesced one. **Rust** and
-**Python** pending — no termination reason is exposed. AC4/AC5 are vacuous where the runtime exposes no
+**TypeScript**, **Rust** and **Python** expose a queryable termination reason
+(`quiescent`, `terminal`, `closed`, `stopped`), added with [EXEC-042]. That satisfies AC3; an
+expired TypeScript run budget still raises as well. AC4/AC5 are vacuous where the runtime exposes no
 ambient cancellation state an executor *could* consult, so no conformance test can even be written:
 **Python** is the clearest case (actions run on Tokio threads with no running asyncio loop, there is
 no thread-level interrupt flag, and the synchronous run loop never polls signals), then **Rust**
@@ -342,6 +342,100 @@ because an all-synchronous chain never enters one and passes whether or not the 
 To test that a *real* cancellation still stops the run, raise it from a foreign thread while the
 orchestrator is parked in the wait, not from an action — and do so under a host-supplied wait
 ([TIME-015]) as well as the built-in one, since the two report the interrupt differently.
+
+**Termination reasons.** Where an implementation exposes the reason as a value, the values are:
+`quiescent` ([EXEC-040]), `terminal` ([EXEC-042]), `closed` ([ENV-013]), `stopped` (a run budget
+or another caller-requested stop) and `interrupted` (a cancellation observed in the wait, where
+the runtime has one). `quiescent` and `terminal` are the two **completed** reasons: the returned
+marking is the one the net was designed to end in. The others are truncations.
+
+---
+
+#### EXEC-042: Terminal Places
+
+**Priority:** SHOULD
+
+A net MAY declare **terminal places** (`terminal(place)` on the net builder). A terminal place
+states, in the model, that the run is over once the place holds a token. The executor ends the
+run at that point. Nothing outside the net has to watch the marking and stop it.
+
+A net that never quiesces makes this the only in-net way to say "done". Nets with environment
+places are the usual example ([ENV-010]): a workflow that ends on a result, or a session that
+ends on a cancel signal injected into a terminal environment place.
+
+**Check points, and strictness.** An implementation MUST check terminal places at these points:
+- on the initial marking, before the first cycle;
+- after every token it deposits, from an action's completion, an external injection, or a
+  synchronous action's output within the firing pass ([EXEC-001]).
+
+Once a deposit marks a terminal place, **no transition starts afterwards**. That includes a
+transition that was already enabled later in the same firing pass. The firing that made the
+deposit completes atomically: all its outputs are deposited. Strictness is what makes the runtime
+equal to the verification encoding below. A check "at the next cycle boundary" would let
+transitions fire that the encoding says cannot.
+
+**What stopping means.** A stop on a terminal place is a hard stop:
+- Actions still in flight are abandoned. Their late results are discarded and never deposited,
+  as in [ENV-015].
+- Completions and external events still queued behind the deposit are not admitted. A queued
+  external event is refused ([ENV-004]), exactly as after [ENV-013].
+- The run ends with the termination reason `terminal` ([EXEC-041]), a completed reason.
+- No diagnostic event is emitted ([EVT-013] AC5): the stop was designed, not caller-requested.
+- A snapshot taken afterwards ([ENV-014]) still reports abandoned work as work in flight.
+
+**Well-formedness.** A terminal place MUST NOT be an input or a read-arc place of any
+transition: such a transition could never fire, so the net is rejected when it is built. A
+terminal place MAY be an environment place: injecting into it ends the run.
+
+**Composition.** Terminals are a property of the whole net. A subnet body ([MOD-001]) that
+declares terminal places MUST be rejected by `compose` and `instantiate` with an error that names
+the place. Scoped termination (ending one subnet instance) is not defined.
+
+**Verification.** A verifier MUST apply terminal places automatically, with no restatement by
+the caller. For each terminal place `P` it verifies the net in which:
+- `P` inhibits every transition;
+- `P` is a sink place ([VER-002]);
+- `P` is a conditional-sink marker for every place ([VER-014]), i.e. `sinkPlacesWhen(P, all
+  places)`.
+
+This is exact for the runtime above. A marking with `P` marked is quiescent and excused, and no
+transition fires once `P` is marked. It is merged into open-net contracts ([VER-022]) as a
+designed terminal. A net with no terminal places MUST produce byte-identical scripts ([VER-013]).
+
+Abandoned in-flight actions are sound for monotone properties (place bounds, mutual exclusion,
+unreachability): the abandoned marking lies below one the model reaches. Where the transition
+that marks `P` tests an input of an abandoned action by an inhibitor, reset or consume-all arc,
+that interleaving is not an atomic-firing behaviour ([VER-010] AC4 applies unchanged).
+
+**Acceptance Criteria:**
+1. A net whose initial marking marks a terminal place fires nothing and ends `terminal`.
+2. An asynchronous completion that marks a terminal place ends the run `terminal`. With another
+   action still in flight, the run does not wait for it, and its result never appears in the
+   marking.
+3. An injection that marks a terminal environment place ends the run `terminal`. An external
+   event queued behind it is refused.
+4. No transition starts after the deposit that marks a terminal place. Where synchronous outputs
+   are deposited inside the firing pass, a second transition later in the same pass's order does
+   not start. Where they are deposited in the completion phase, that transition may already have
+   started, but its result is abandoned and never deposited.
+5. A transition that consumes or reads a terminal place is rejected when the net is built.
+6. `compose` and `instantiate` reject a subnet body that declares a terminal place.
+7. Without the declaration, the net of AC2 is a `DeadlockFree` violation (its other in-flight
+   work is stranded). With it, the verifier proves `DeadlockFree` without any sink option from
+   the caller.
+8. A net without terminal places produces byte-identical verification scripts.
+
+**Depends on:** [EXEC-001], [EXEC-040], [EXEC-041], [ENV-004], [ENV-013], [ENV-015], [VER-002],
+[VER-014], [VER-022], [MOD-001]
+**Implementation status:** Java, TypeScript, Rust and Python (via Rust). Java and Rust deposit a
+synchronous action's outputs inside the firing pass, so they break the pass there. TypeScript
+deposits every output in the completion phase, so a transition started earlier in the same pass is
+abandoned instead (AC4, second case). Either way it is an interleaving the atomic model allows: the
+transition started before the terminal place was marked.
+**Test derivation:** One net per AC. For AC4, build a pass with two enabled transitions ordered
+by priority: the first is synchronous and marks the terminal place, the second must never fire.
+For AC7, use a fork whose one arm marks the terminal place while the other arm's action is still
+in flight.
 
 ---
 

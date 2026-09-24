@@ -53,6 +53,7 @@ pub fn sanitize(name: &str) -> String {
 /// Place classification for visual styling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PlaceCategory {
+    Terminal,
     Start,
     End,
     Environment,
@@ -144,8 +145,10 @@ pub fn map_to_graph(net: &PetriNet, config: &DotConfig) -> Graph {
             has_incoming.contains(name),
             has_outgoing.contains(name),
             config.environment_places.contains(name),
+            net.is_terminal(name),
         );
         let style = match category {
+            PlaceCategory::Terminal => &styles::TERMINAL_PLACE,
             PlaceCategory::Start => &styles::START_PLACE,
             PlaceCategory::End => &styles::END_PLACE,
             PlaceCategory::Environment => &styles::ENVIRONMENT_PLACE,
@@ -388,13 +391,17 @@ fn place_category(
     has_incoming: bool,
     has_outgoing: bool,
     is_environment: bool,
+    is_terminal: bool,
 ) -> PlaceCategory {
     // Mirrors Java's `PlaceAnalysis.category` (which uses
     // `isStart() = !hasIncoming` and `isEnd() = !hasOutgoing`) and TS's
     // `placeCategory` so an orphan place (no incoming, no outgoing) is
     // categorised as `Start` rather than `Regular`. Required for
     // cross-language byte-parity per **EXP-016**/**MOD-040**.
-    if is_environment {
+    // EXEC-042: a terminal place takes precedence over every other category.
+    if is_terminal {
+        PlaceCategory::Terminal
+    } else if is_environment {
         PlaceCategory::Environment
     } else if !has_incoming {
         PlaceCategory::Start
@@ -686,6 +693,32 @@ mod tests {
         let end_node = graph.nodes.iter().find(|n| n.id == "p_end").unwrap();
         assert_eq!(end_node.fill.as_deref(), Some(styles::END_PLACE.fill));
         assert_eq!(end_node.shape, NodeShape::DoubleCircle);
+    }
+
+    #[test]
+    fn terminal_place_category_takes_precedence() {
+        // EXEC-042: `done` is an end place AND an environment place here; the
+        // terminal category wins over both.
+        let p_start = Place::<i32>::new("start");
+        let p_done = Place::<i32>::new("done");
+        let t = Transition::builder("t1")
+            .input(one(&p_start))
+            .output(out_place(&p_done))
+            .build();
+        let net = PetriNet::builder("test").transition(t).terminal(&p_done).build();
+        let mut config = DotConfig::default();
+        config.environment_places.insert("done".to_string());
+
+        let graph = map_to_graph(&net, &config);
+
+        let done = graph.nodes.iter().find(|n| n.id == "p_done").unwrap();
+        assert_eq!(done.fill.as_deref(), Some(styles::TERMINAL_PLACE.fill));
+        assert_eq!(done.stroke.as_deref(), Some(styles::TERMINAL_PLACE.stroke));
+        assert_eq!(done.penwidth, Some(3.0));
+        assert_eq!(done.shape, NodeShape::DoubleCircle);
+        assert_eq!(done.style, None);
+        let start = graph.nodes.iter().find(|n| n.id == "p_start").unwrap();
+        assert_eq!(start.fill.as_deref(), Some(styles::START_PLACE.fill));
     }
 
     #[test]

@@ -1,3 +1,4 @@
+import { withTerminalInhibitors } from '../terminal-places.js';
 import type { Place } from '../../core/place.js';
 import type { EnvironmentPlace } from '../../core/place.js';
 import type { Transition } from '../../core/transition.js';
@@ -71,7 +72,9 @@ export class TimePetriNetAnalyzer {
     environmentPlaces: Set<EnvironmentPlace<any>>,
     environmentMode: EnvironmentAnalysisMode,
   ) {
-    this.net = net;
+    // EXEC-042: the net's terminal places inhibit every transition, as the runtime stops there.
+    // The same instance for a net without terminals.
+    this.net = withTerminalInhibitors(net);
     this.initialMarking = initialMarking;
     this.goalPlaces = goalPlaces;
     this.maxClasses = maxClasses;

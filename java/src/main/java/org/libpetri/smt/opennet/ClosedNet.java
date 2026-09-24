@@ -47,6 +47,11 @@ public final class ClosedNet {
         this.placesByName = Map.copyOf(placesByName);
     }
 
+    /** This closure with {@code replacement} as its net; every place map stays as it is. */
+    ClosedNet withNet(PetriNet replacement) {
+        return new ClosedNet(replacement, initialMarking, environment, environmentPlaces, undeclared, placesByName);
+    }
+
     /** The closed net: the subnet, the contract's environment transitions and the arrival groups' structure. */
     public PetriNet net() {
         return net;

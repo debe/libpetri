@@ -29,6 +29,7 @@ use crate::action::{boxed_async_action, boxed_sync_action};
 use crate::error::panic_to_py;
 use crate::executor::PyCompiledNet;
 use crate::value::PyTokenValue;
+use crate::value::place_name_from_object;
 
 use libpetri::core::interface::{Channel, Interface, Port};
 use libpetri::core::petri_net::PetriNetBuilder;
@@ -464,6 +465,16 @@ impl PyPetriNet {
             .transitions()
             .iter()
             .map(|t| PyTransition::from_rust(t.clone()))
+            .collect()
+    }
+
+    /// The net's terminal places (EXEC-042), in declaration order.
+    #[getter]
+    fn terminals(&self) -> Vec<PyPlace> {
+        self.inner
+            .terminals()
+            .iter()
+            .map(|p| PyPlace::from_name(p.name()))
             .collect()
     }
 
@@ -969,6 +980,25 @@ impl PyPetriNetBuilder {
             let mut this = slf.borrow_mut(py);
             let builder = this.take_builder()?;
             this.inner = Some(builder.transition(t.transition().clone()));
+        }
+        Ok(slf)
+    }
+
+    /// Declares a **terminal place** (EXEC-042): the run is over once `place`
+    /// holds a token. The executor stops at that point — no transition fires
+    /// afterwards, in-flight actions are abandoned, queued injections are
+    /// refused — and reports `termination_reason == "terminal"`. The verifier
+    /// applies it automatically. Accepts a `Place` or a place name; an
+    /// environment place is allowed (injecting into it ends the run).
+    ///
+    /// `build()` raises `StructureError` when a transition consumes or reads a
+    /// terminal place, and composing a subnet whose body declares one raises too.
+    fn terminal(slf: Py<Self>, py: Python<'_>, place: &Bound<'_, PyAny>) -> PyResult<Py<Self>> {
+        let name = place_name_from_object(place)?;
+        {
+            let mut this = slf.borrow_mut(py);
+            let builder = this.take_builder()?;
+            this.inner = Some(builder.terminal(libpetri::PlaceRef::new(name)));
         }
         Ok(slf)
     }

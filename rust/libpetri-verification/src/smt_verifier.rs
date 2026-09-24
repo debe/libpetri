@@ -25,6 +25,7 @@ use crate::smt_encoder;
 use crate::state_equation_phase::{self, StateEquationOutcome, StateEquationPhaseOptions};
 use crate::state_equation_query;
 use crate::structural_check::{self, StructuralCheckResult};
+use crate::terminal_places::{all_place_names, inhibit_on_terminals};
 use crate::z3_process::{self, Z3Solver};
 
 /// How the gate-validated P-semiflows reach the encoders ([VER-007]).
@@ -262,8 +263,10 @@ impl<'a> SmtVerifier<'a> {
                 self.conditional_sinks.last_mut().unwrap()
             }
         };
+        // Set-backed dedup keeps declaration order at O(n) rather than O(n²).
+        let mut seen: HashSet<String> = entry.places.iter().cloned().collect();
         for place in places {
-            if !entry.places.contains(&place) {
+            if seen.insert(place.clone()) {
                 entry.places.push(place);
             }
         }
@@ -543,6 +546,70 @@ impl<'a> SmtVerifier<'a> {
     /// 4. Encode as CHC and query Z3 Spacer
     /// 5. Format results
     pub fn verify(self) -> VerificationResult {
+        // [EXEC-042] / [VER-014]: a net's own terminal places apply with no
+        // restatement by the caller. A net without them takes this branch and
+        // is verified exactly as before.
+        match inhibit_on_terminals(self.net) {
+            None => self.verify_net(),
+            Some(rewritten) => self.on_net(&rewritten).with_net_terminals().verify_net(),
+        }
+    }
+
+    /// Re-targets this configuration at `net`, every option carried over. The
+    /// terminal-place rewrite ([EXEC-042]) builds a net the caller never held,
+    /// so the borrow changes.
+    fn on_net<'b>(self, net: &'b PetriNet) -> SmtVerifier<'b> {
+        SmtVerifier {
+            net,
+            initial_marking: self.initial_marking,
+            property: self.property,
+            env_places: self.env_places,
+            env_mode: self.env_mode,
+            sink_places: self.sink_places,
+            conditional_sinks: self.conditional_sinks,
+            budget_places: self.budget_places,
+            timeout_ms: self.timeout_ms,
+            nu_max_classes: self.nu_max_classes,
+            fragment_mode: self.fragment_mode,
+            carrier_places: self.carrier_places,
+            priority_semantics: self.priority_semantics,
+            certificate_check: self.certificate_check,
+            counterexample_replay: self.counterexample_replay,
+            semiflow_invariants: self.semiflow_invariants,
+            enumeration_max_classes: self.enumeration_max_classes,
+            state_equation: self.state_equation,
+            linear_bound: self.linear_bound,
+            state_equation_phase: self.state_equation_phase,
+            firing_bound: self.firing_bound,
+            #[cfg(test)]
+            certificate_override: self.certificate_override,
+            #[cfg(test)]
+            replay_state_set_override: self.replay_state_set_override,
+            #[cfg(test)]
+            replay_node_budget_override: self.replay_node_budget_override,
+        }
+    }
+
+    /// Adds the rest-set half of the net's terminal places ([VER-014]): each
+    /// terminal `P` becomes a sink, then `sink_places_when(P, all places)`,
+    /// after the caller's own declarations and in terminal declaration order.
+    fn with_net_terminals(mut self) -> Self {
+        let net = self.net;
+        let all_places = all_place_names(net);
+        for p in net.terminals() {
+            if !self.sink_places.iter().any(|s| s == p.name()) {
+                self.sink_places.push(p.name().to_string());
+            }
+        }
+        for p in net.terminals() {
+            self = self.sink_places_when(p.name(), all_places.iter().cloned());
+        }
+        self
+    }
+
+    /// [`verify`](Self::verify) on `self.net` as given: the terminal rewrite
+    /// has already been applied, or there was none.
+    fn verify_net(self) -> VerificationResult {
         let start = Instant::now();
         let mut report = String::new();
 
@@ -1293,6 +1360,15 @@ no constraint the encoding does not already have; they may still differ in FORM)
     /// [`SemiflowMode::Off`], which made the parity goldens able to pin something
     /// `verify()` never emits.
     pub fn encode_scripts(self) -> EncodedScripts {
+        // [EXEC-042]: the same rewrite `verify()` applies; none without terminals,
+        // so those scripts stay byte-identical ([EXEC-042] AC8).
+        match inhibit_on_terminals(self.net) {
+            None => self.encode_net_scripts(),
+            Some(rewritten) => self.on_net(&rewritten).with_net_terminals().encode_net_scripts(),
+        }
+    }
+
+    fn encode_net_scripts(self) -> EncodedScripts {
         let flat = net_flattener::flatten(self.net);
         let sink_places = canonical_place_order(&flat, &self.sink_places);
         let property = canonical_property(&flat, &self.property);

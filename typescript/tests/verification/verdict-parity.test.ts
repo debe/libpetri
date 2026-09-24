@@ -8,7 +8,7 @@ import {
   deadlockFree, mutualExclusion, placeBound, terminatesAtSink, unreachable, type SmtProperty,
 } from '../../src/verification/smt-property.js';
 import type { Place } from '../../src/core/place.js';
-import { verificationNets } from '../fixtures/verification-nets.js';
+import { verificationNets, withFixtureTerminals } from '../fixtures/verification-nets.js';
 
 // Cross-language verdict-parity runner (C4). The shared expectations live in
 // spec/verification-fixtures/fixtures.json; each language builds the named
@@ -49,6 +49,11 @@ export interface Fixture {
    * Declared in object order. Absent = no conditional declarations.
    */
   readonly sinkPlacesWhen?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * Terminal places ([EXEC-042]) declared on the NET builder, never on the verifier: the
+   * verifier must apply them itself ([VER-014] net-declared terminals). Absent = none.
+   */
+  readonly terminals?: readonly string[];
   /** ν budget places (NU-040): put a reachability-safety query on Route A's coloured encoding. */
   readonly budgetPlaces?: readonly string[];
   readonly semiflowInvariants?: boolean;
@@ -109,7 +114,8 @@ describeZ3('verdict parity (spec/verification-fixtures/fixtures.json)', () => {
   for (const fixture of fixtures) {
     it(`${fixture.id} -> ${fixture.expected}`, async () => {
       const built = verificationNets[fixture.net]!();
-      const verifier = SmtVerifier.forNet(built.net)
+      // EXEC-042: a fixture's `terminals` are declared on the net, never on the verifier.
+      const verifier = SmtVerifier.forNet(withFixtureTerminals(built, fixture.terminals))
       .enumerationMaxClasses(0)
         .initialMarking(built.initialMarking)
         .property(toProperty(fixture.property, built.places))

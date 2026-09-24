@@ -53,6 +53,25 @@ The orchestrator owns the marking and invokes ready actions without awaiting ear
 
 Use places and transitions for coordination rather than hiding concurrency inside `Promise.all`: the net can then visualize, trace, replay, and verify the fan-out and join.
 
+## Ending a run
+
+A run ends at quiescence: nothing is enabled and nothing is in flight. A net that never quiesces, such as one waiting on environment places, can say "done" with a terminal place:
+
+```typescript
+const net = PetriNet.builder('workflow')
+  .transitions(start, work, finish)
+  .terminal(result)              // the run is over once `result` holds a token
+  .build();
+
+const marking = await executor.run();
+executor.terminationReason();                // 'terminal'
+isComplete(executor.terminationReason());    // true
+```
+
+The executor stops at the deposit that marks the terminal place. Nothing fires after it, actions still in flight are abandoned and their late results discarded, and queued external events are refused (`inject` resolves `false`). A terminal place may be an environment place: injecting into it ends the run. It must not be an input or read-arc place of any transition, and a subnet body may not declare one. The SMT verifier applies terminal places by itself: each one inhibits every transition and excuses every token while it is marked, so no sink options are needed.
+
+`terminationReason()` returns `'quiescent'`, `'terminal'`, `'closed'` (after `close()`) or `'stopped'` (an expired `run(timeoutMs)` budget, which still rejects), and `'running'` before the run ends. `isComplete(reason)` is true only for `'quiescent'` and `'terminal'`: the other two are truncations.
+
 ## Checkpoint and resume
 
 ```typescript

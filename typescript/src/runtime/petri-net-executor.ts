@@ -17,6 +17,30 @@ import type { Token } from '../core/token.js';
 export type RunTimeoutPolicy = 'abandon' | 'close';
 
 /**
+ * Why an executor's run ended ([EXEC-041], [EXEC-042]), or `'running'` while no run has ended.
+ *
+ * - `'quiescent'` — nothing enabled and nothing in flight ([EXEC-040]); the marking is final.
+ * - `'terminal'` — a deposit marked a terminal place the net declares ([EXEC-042]). The marking
+ *   is the designed end; in-flight actions were abandoned and queued external events refused.
+ * - `'closed'` — {@link PetriNetExecutor.close} stopped the run ([ENV-013]).
+ * - `'stopped'` — a run budget (`run(timeoutMs)`) expired. The returned promise still rejects,
+ *   as it always has; this is what the executor reports afterwards.
+ *
+ * `'quiescent'` and `'terminal'` are the **completed** reasons ({@link isComplete}); the others
+ * are truncations, whose marking the net was not designed to end in.
+ */
+export type TerminationReason = 'running' | 'quiescent' | 'terminal' | 'closed' | 'stopped';
+
+/**
+ * Whether `reason` is a **completed** termination ([EXEC-041]): `'quiescent'` or `'terminal'`,
+ * the two whose marking the net was designed to end in. `false` for a truncation and while the
+ * run is still going.
+ */
+export function isComplete(reason: TerminationReason): boolean {
+  return reason === 'quiescent' || reason === 'terminal';
+}
+
+/**
  * A marking captured from a **running** executor, per **ENV-014**.
  *
  * Carries the in-flight condition *with* the marking rather than exposing it separately: a
@@ -121,6 +145,13 @@ export interface PetriNetExecutor {
    * @throws once the executor has been drained or closed (AC#4)
    */
   snapshot(): SnapshotResult;
+
+  /**
+   * Why the run ended ([EXEC-041] AC3), or `'running'` until it has. Distinguishes a run that
+   * completed (`'quiescent'`, `'terminal'`) from one that was truncated (`'closed'`,
+   * `'stopped'`); see {@link isComplete}.
+   */
+  terminationReason(): TerminationReason;
 
   /** Graceful shutdown: reject new inject() calls, process queued events, terminate at quiescence. */
   drain(): void;

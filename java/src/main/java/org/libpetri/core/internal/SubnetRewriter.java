@@ -88,6 +88,7 @@ public final class SubnetRewriter {
         Map<Place<?>, Place<?>> placeRemap,
         Map<Transition, Transition> transitionRemap
     ) {
+        rejectTerminals(body, "instantiate: subnet body '" + body.name() + "'");
         placeRemap.clear();
         transitionRemap.clear();
 
@@ -116,6 +117,22 @@ public final class SubnetRewriter {
             builder.transition(renamed);
         }
         return builder.build();
+    }
+
+    /**
+     * Rejects a subnet body that declares terminal places per <b>EXEC-042</b>: terminals are a
+     * property of the whole net, and scoped termination of one subnet instance is not defined.
+     *
+     * @param body    the subnet body
+     * @param context the diagnostic prefix naming the operation and subnet
+     * @throws IllegalArgumentException naming the first terminal place when {@code body} has any
+     */
+    public static void rejectTerminals(PetriNet body, String context) {
+        if (body.terminals().isEmpty()) return;
+        var p = body.terminals().iterator().next();
+        throw new IllegalArgumentException(
+            context + " declares terminal place '" + p.name() + "'; terminal places are a"
+                + " property of the whole net and a subnet body must not declare them (EXEC-042)");
     }
 
     /**

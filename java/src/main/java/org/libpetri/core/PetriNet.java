@@ -45,23 +45,28 @@ public final class PetriNet {
     // Recorded by Builder.compose(SubnetDef); empty for every net not built
     // via direct composition.
     private final Map<String, String> subnetMembership;
+    // EXEC-042: places whose marking ends the run. Insertion-ordered for determinism.
+    private final Set<Place<?>> terminals;
 
     private PetriNet(String name, Set<Place<?>> places, Set<Transition> transitions,
-                     Map<String, String> subnetMembership) {
+                     Map<String, String> subnetMembership, Set<Place<?>> terminals) {
         this.name = name;
+        this.terminals = terminals.isEmpty()
+            ? Set.of()
+            : Collections.unmodifiableSet(new LinkedHashSet<>(terminals));
         // Preserve the builder's LinkedHashSet insertion order — Set.copyOf
         // would discard it (its iteration order is unspecified per the JDK
         // contract). The DOT exporter's cross-language byte-parity contract
         // depends on stable iteration order, see PetriNet.Builder.
-        this.places = java.util.Collections.unmodifiableSet(new java.util.LinkedHashSet<>(places));
-        this.transitions = java.util.Collections.unmodifiableSet(new java.util.LinkedHashSet<>(transitions));
+        this.places = Collections.unmodifiableSet(new LinkedHashSet<>(places));
+        this.transitions = Collections.unmodifiableSet(new LinkedHashSet<>(transitions));
         // LinkedHashMap copy gives the subnetMembership() accessor a stable,
         // deterministic iteration order for callers. Cluster render order
         // does NOT depend on it: PetriNetGraphMapper iterates the net's nodes
         // (themselves insertion-ordered) and only looks up membership, so a
         // plain HashMap would export byte-identically — Rust uses one. The
         // ordered copy here is purely for public-accessor stability.
-        this.subnetMembership = java.util.Collections.unmodifiableMap(
+        this.subnetMembership = Collections.unmodifiableMap(
             new java.util.LinkedHashMap<>(subnetMembership));
     }
 
@@ -79,6 +84,14 @@ public final class PetriNet {
      * cluster_*} blocks from this map.
      */
     public Map<String, String> subnetMembership() { return subnetMembership; }
+
+    /**
+     * Terminal places per <b>EXEC-042</b>, in declaration order: the run ends as soon as any of
+     * them holds a token. Never null; empty for a net that declares none.
+     *
+     * @see Builder#terminal(Place)
+     */
+    public Set<Place<?>> terminals() { return terminals; }
 
     /**
      * Creates a new PetriNet with actions bound to transitions.
@@ -142,7 +155,7 @@ public final class PetriNet {
         }
         // MOD-026: bindActions rebuilds transitions but preserves their names,
         // so name-keyed membership metadata survives a session bind unchanged.
-        return new PetriNet(name, places, boundTransitions, subnetMembership);
+        return new PetriNet(name, places, boundTransitions, subnetMembership, terminals);
     }
 
     /**
@@ -199,14 +212,16 @@ public final class PetriNet {
         // TS uses Set / Map iteration which is insertion-ordered, Rust uses
         // an explicit Vec. With a plain HashSet the rendered cluster
         // contents would shuffle nondeterministically across JVM runs.
-        private final java.util.LinkedHashSet<Place<?>> places = new java.util.LinkedHashSet<>();
-        private final java.util.LinkedHashSet<Transition> transitions = new java.util.LinkedHashSet<>();
+        private final LinkedHashSet<Place<?>> places = new LinkedHashSet<>();
+        private final LinkedHashSet<Transition> transitions = new LinkedHashSet<>();
         private final List<FusionSet> fusionSets = new ArrayList<>();
         // MOD-026: node name -> set of subnet names that contributed it via
         // compose(SubnetDef), in first-contribution order. Resolved to
         // single-owner membership at build().
         private final LinkedHashMap<String, LinkedHashSet<String>> subnetContributions =
             new LinkedHashMap<>();
+        // EXEC-042: declared terminal places, in declaration order.
+        private final LinkedHashSet<Place<?>> terminals = new LinkedHashSet<>();
 
         private Builder(String name) {
             this.name = name;
@@ -236,6 +251,37 @@ public final class PetriNet {
             for (var t : transitions) {
                 transition(t);
             }
+            return this;
+        }
+
+        /**
+         * Declares {@code place} a <b>terminal place</b> per <b>EXEC-042</b>: the run ends as
+         * soon as the place holds a token.
+         *
+         * <p>The executor checks the initial marking and every token it deposits (an action's
+         * completion, an external injection, a synchronous action's output within the firing
+         * pass). Once a deposit marks a terminal place no transition fires afterwards, not even
+         * one already enabled later in the same pass. The stop is hard: in-flight actions are
+         * abandoned and their results discarded, queued external events are refused, and the
+         * run ends with {@link org.libpetri.runtime.TerminationReason#TERMINAL TERMINAL}, a
+         * completed reason.
+         *
+         * <p>The place is added to the net if no arc references it. It may be an
+         * {@link EnvironmentPlace environment place}: injecting into it ends the run. It must
+         * not be an input or read-arc place of any transition; {@link #build()} rejects that.
+         * A {@link SubnetDef} body that declares terminals is rejected by composition and
+         * instantiation, since terminals are a property of the whole net.
+         *
+         * <p>Verifiers apply the declaration automatically ([VER-014]): {@code place} inhibits
+         * every transition, is a sink place, and excuses every place as a conditional sink.
+         *
+         * @param place the terminal place (non-null)
+         * @return this builder, for chaining
+         */
+        public Builder terminal(Place<?> place) {
+            Objects.requireNonNull(place, "place");
+            places.add(place);
+            terminals.add(place);
             return this;
         }
 
@@ -281,6 +327,8 @@ public final class PetriNet {
          */
         public Builder compose(Instance<?> instance) {
             Objects.requireNonNull(instance, "instance");
+            SubnetRewriter.rejectTerminals(instance.def().body(),
+                "compose(Instance): subnet '" + instance.def().name() + "'");
             var iface = instance.def().iface();
 
             if (!iface.channels().isEmpty()) {
@@ -446,6 +494,7 @@ public final class PetriNet {
          */
         public Builder compose(SubnetDef<?> def) {
             Objects.requireNonNull(def, "def");
+            SubnetRewriter.rejectTerminals(def.body(), "compose(SubnetDef): subnet '" + def.name() + "'");
             var iface = def.iface();
 
             // MOD-025: direct composition does not bind channels.
@@ -549,6 +598,8 @@ public final class PetriNet {
             Objects.requireNonNull(instance, "instance");
             Objects.requireNonNull(portMappings, "portMappings");
             Objects.requireNonNull(channelBindings, "channelBindings");
+            SubnetRewriter.rejectTerminals(instance.def().body(),
+                "compose: subnet '" + instance.def().name() + "'");
 
             var iface = instance.def().iface();
             var mergeMap = new HashMap<Place<?>, Place<?>>(portMappings.size() * 2);
@@ -793,9 +844,34 @@ public final class PetriNet {
         public PetriNet build() {
             var membership = resolveSubnetMembership();
             if (fusionSets.isEmpty()) {
-                return new PetriNet(name, places, transitions, membership);
+                checkTerminals(terminals, transitions);
+                return new PetriNet(name, places, transitions, membership, terminals);
             }
             return buildWithFusion(membership);
+        }
+
+        /**
+         * EXEC-042 well-formedness: a terminal place must not be an input or a read-arc place
+         * of any transition, since such a transition could never fire usefully.
+         */
+        private static void checkTerminals(Set<Place<?>> terminals, Collection<Transition> transitions) {
+            if (terminals.isEmpty()) return;
+            for (var t : transitions) {
+                for (var in : t.inputSpecs()) {
+                    if (terminals.contains(in.place())) {
+                        throw new IllegalArgumentException(
+                            "terminal place '" + in.place().name() + "' is an input of transition '"
+                                + t.name() + "'; a terminal place must not be consumed (EXEC-042)");
+                    }
+                }
+                for (var rd : t.reads()) {
+                    if (terminals.contains(rd.place())) {
+                        throw new IllegalArgumentException(
+                            "terminal place '" + rd.place().name() + "' is read by transition '"
+                                + t.name() + "'; a terminal place must not be read (EXEC-042)");
+                    }
+                }
+            }
         }
 
         /**
@@ -912,8 +988,17 @@ public final class PetriNet {
                 for (var rs  : t.resets())     rebuiltPlaces.add(rs.place());
             }
 
+            // EXEC-042: a fused non-canonical terminal is the canonical place now.
+            var remappedTerminals = new LinkedHashSet<Place<?>>();
+            for (var p : terminals) {
+                var canonical = fusionMap.getOrDefault(p, p);
+                remappedTerminals.add(canonical);
+                rebuiltPlaces.add(canonical);
+            }
+            checkTerminals(remappedTerminals, rewrittenTransitions);
+
             return new PetriNet(name, rebuiltPlaces, rewrittenTransitions,
-                filterFusedMembership(membership, nonCanonicalSet));
+                filterFusedMembership(membership, nonCanonicalSet), remappedTerminals);
         }
     }
 }

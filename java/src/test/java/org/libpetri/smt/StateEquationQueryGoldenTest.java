@@ -2,7 +2,9 @@ package org.libpetri.smt;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.LinkedHashMap;
 import org.libpetri.core.Place;
+import org.libpetri.core.internal.TerminalEncoding;
 import org.libpetri.smt.encoding.FlatNet;
 import org.libpetri.smt.encoding.NetFlattener;
 import org.libpetri.smt.fixtures.VerificationNets;
@@ -69,20 +71,38 @@ class StateEquationQueryGoldenTest {
     }
 
     private static FlatNet flatten(JsonNode fixture) {
-        var named = VerificationNets.build(fixture.get("net").asText());
-        return NetFlattener.flatten(named.net(), named.environmentPlaces(), named.environmentMode());
+        var named = named(fixture);
+        // [EXEC-042] / [VER-014]: the encoder sees the net-declared terminals as the verifier
+        // applies them — every terminal inhibits every transition.
+        return NetFlattener.flatten(TerminalEncoding.inhibited(named.net()),
+            named.environmentPlaces(), named.environmentMode());
+    }
+
+    private static VerificationNets.NamedNet named(JsonNode fixture) {
+        return VerificationNets.withTerminals(
+            VerificationNets.build(fixture.get("net").asText()), VerdictParityTest.terminalNames(fixture));
     }
 
     private static void compare(JsonNode fixture, Path golden) throws IOException {
         String id = fixture.get("id").asText();
-        var named = VerificationNets.build(fixture.get("net").asText());
+        var named = named(fixture);
         FlatNet flat = flatten(fixture);
-        var conditional = new ArrayList<RestSet.ConditionalSinks>();
+        // Declaration order as SmtVerifier builds it: the caller's, then each net terminal's
+        // (a sink, and a conditional-sink marker over every place of the net).
+        var conditionalByMarker = new LinkedHashMap<Place<?>, LinkedHashSet<Place<?>>>();
         VerdictParityTest.sinkPlacesWhen(fixture).forEach((marker, places) ->
-            conditional.add(new RestSet.ConditionalSinks(marker, new LinkedHashSet<Place<?>>(places))));
+            conditionalByMarker.computeIfAbsent(marker, _ -> new LinkedHashSet<>()).addAll(places));
+        var sinks = new LinkedHashSet<Place<?>>(VerdictParityTest.sinkPlaces(fixture));
+        var all = NetFlattener.declaredPlaces(named.net());
+        for (var terminal : named.net().terminals()) {
+            sinks.add(terminal);
+            conditionalByMarker.computeIfAbsent(terminal, _ -> new LinkedHashSet<>()).addAll(all);
+        }
+        var conditional = new ArrayList<RestSet.ConditionalSinks>();
+        conditionalByMarker.forEach((marker, places) -> conditional.add(new RestSet.ConditionalSinks(marker, places)));
         String actual = StateEquationQuery.encode(flat, named.initialMarking(),
             VerdictParityTest.parseProperty(fixture.get("property")),
-            new LinkedHashSet<>(VerdictParityTest.sinkPlaces(fixture)), conditional, List.of());
+            sinks, conditional, List.of());
         assertEquals(Files.readString(golden), actual, () -> "SCRIPT PARITY FINDING [" + id + "]: "
             + golden + " differs from StateEquationQuery.encode — report the divergence, never edit the golden by hand");
     }

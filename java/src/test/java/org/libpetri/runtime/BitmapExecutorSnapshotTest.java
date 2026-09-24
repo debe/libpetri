@@ -24,4 +24,14 @@ class BitmapExecutorSnapshotTest extends AbstractExecutorSnapshotTest {
     protected void snapshotCap(PetriNetExecutor executor, java.time.Duration cap) {
         ((BitmapNetExecutor) executor).snapshotWaitNanosForTesting(cap.toNanos());
     }
+
+    @Override
+    protected boolean parked(PetriNetExecutor executor) {
+        return ((BitmapNetExecutor) executor).parkedForTesting();
+    }
+
+    @Override
+    protected long markingRequests(PetriNetExecutor executor) {
+        return ((BitmapNetExecutor) executor).markingRequestsForTesting();
+    }
 }

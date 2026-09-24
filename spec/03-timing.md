@@ -376,6 +376,14 @@ only *enqueue*: the tokens MUST be admitted in the executor's own external-event
 This keeps a host-driven run's admission order identical to a default run's, and it matters
 because a host that installs a clock and nothing else has no other admission path.
 
+The same holds for the other admission path, an action's result. A host that executes actions
+itself — a workflow runtime's activities, a discrete-event simulator, a deterministic test harness —
+MAY complete an action's future (or promise, or task) from inside the wait. Completion MUST only
+enqueue: the result is admitted in the executor's completion phase ([EXEC-001] step 1) of a
+following cycle, never at the call. Where the runtime runs a future's dependents inline on the
+completing thread, whatever the completion runs there is bound by the same rules as the host: it
+may inject or complete, but it MUST NOT await an admission signal and MUST NOT block.
+
 **The admission signal MUST NOT be awaited there.** `inject()` reports admission through a
 completion signal that the **orchestrator** completes once the event reaches its phase
 ([ENV-004]) — and inside the wait the orchestrator *is* the caller. Awaiting that signal there
@@ -520,7 +528,8 @@ other.
     external-events phase in the order a default run would have admitted them. A host that
     injects and returns proceeds normally; the run does not deadlock, and the hazard of
     awaiting the admission signal in that position is stated on the API rather than left to be
-    discovered.
+    discovered. Likewise, an in-flight action's future completed from inside the wait is admitted
+    in the following cycle's completion phase, and its outputs appear there, not at the call.
 12. **Seed determinism is reachable and documented.** Two replays on the same host clock,
     seeded through the implementation's clock-stamped seed path, produce identical token
     timestamps in the initial marking; the documentation states that the default token

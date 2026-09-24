@@ -37,6 +37,10 @@ pub struct PetriNet {
     /// *looks up* membership, so the map's own iteration order never
     /// reaches the rendered DOT — no `IndexMap` is needed.
     subnet_membership: HashMap<Arc<str>, Arc<str>>,
+    /// EXEC-042: terminal places, in declaration order, deduplicated. The run
+    /// ends as soon as any of them holds a token. Empty for every net that
+    /// declares none — the common case.
+    terminals: Vec<PlaceRef>,
 }
 
 impl PetriNet {
@@ -66,6 +70,36 @@ impl PetriNet {
         &self.subnet_membership
     }
 
+    /// Terminal places per **EXEC-042**, in declaration order. A run ends as
+    /// soon as any of them holds a token; the verifier treats each as a
+    /// designed end ([VER-014]). Empty when the net declares none.
+    pub fn terminals(&self) -> &[PlaceRef] {
+        &self.terminals
+    }
+
+    /// True when `place_name` is one of the net's terminal places ([EXEC-042]).
+    pub fn is_terminal(&self, place_name: &str) -> bool {
+        self.terminals.iter().any(|p| p.name() == place_name)
+    }
+
+    /// Returns a copy of this net whose transitions are `f` applied to each of
+    /// this net's, in order. Name, places, terminals ([EXEC-042]) and
+    /// subnet-membership metadata ([MOD-026]) carry through unchanged, so `f`
+    /// must preserve transition names and must not introduce places the net
+    /// does not already declare.
+    ///
+    /// The seam for whole-net rewrites that keep the net's identity — action
+    /// binding, and the verifier's terminal-place encoding.
+    pub fn map_transitions(&self, f: impl FnMut(&Transition) -> Transition) -> PetriNet {
+        PetriNet {
+            name: Arc::clone(&self.name),
+            places: self.places.clone(),
+            transitions: self.transitions.iter().map(f).collect(),
+            subnet_membership: self.subnet_membership.clone(),
+            terminals: self.terminals.clone(),
+        }
+    }
+
     /// Creates a new PetriNet with actions bound to transitions by name.
     /// Transitions not in the map keep their existing action.
     pub fn bind_actions(
@@ -81,27 +115,17 @@ impl PetriNet {
         &self,
         resolver: impl Fn(&str) -> Option<BoxedAction>,
     ) -> PetriNet {
-        let transitions: Vec<Transition> = self
-            .transitions
-            .iter()
-            .map(|t: &Transition| {
-                if let Some(action) = resolver(t.name()) {
-                    rebuild_with_action(t, action)
-                } else {
-                    t.clone()
-                }
-            })
-            .collect();
-
         // MOD-026: bind_actions rebuilds transitions but preserves their
         // names, so name-keyed membership metadata survives a session bind
-        // unchanged — clone it through.
-        PetriNet {
-            name: Arc::clone(&self.name),
-            places: self.places.clone(),
-            transitions,
-            subnet_membership: self.subnet_membership.clone(),
-        }
+        // unchanged — as do the EXEC-042 terminals. `map_transitions` clones
+        // both through.
+        self.map_transitions(|t: &Transition| {
+            if let Some(action) = resolver(t.name()) {
+                rebuild_with_action(t, action)
+            } else {
+                t.clone()
+            }
+        })
     }
 
     /// Creates a new PetriNetBuilder.
@@ -126,6 +150,8 @@ pub struct PetriNetBuilder {
     /// [`PetriNetBuilder::compose_direct`]. Resolved to single-owner
     /// membership at [`PetriNetBuilder::build`].
     subnet_contributions: HashMap<Arc<str>, HashSet<Arc<str>>>,
+    /// EXEC-042: declared terminal places, in declaration order, deduplicated.
+    terminals: Vec<PlaceRef>,
 }
 
 impl PetriNetBuilder {
@@ -137,6 +163,7 @@ impl PetriNetBuilder {
             transitions: Vec::new(),
             fusion_sets: Vec::new(),
             subnet_contributions: HashMap::new(),
+            terminals: Vec::new(),
         }
     }
 
@@ -160,6 +187,37 @@ impl PetriNetBuilder {
     pub fn places(mut self, places: impl IntoIterator<Item = PlaceRef>) -> Self {
         for p in places {
             self.insert_place(p);
+        }
+        self
+    }
+
+    /// Declares a **terminal place** per **EXEC-042**: the run is over once the
+    /// place holds a token. The executor ends the run at that point — no
+    /// transition fires afterwards, in-flight actions are abandoned and queued
+    /// external events are refused — with the termination reason
+    /// `Terminal`. The verifier applies the declaration automatically
+    /// ([VER-014]): the place inhibits every transition and is a designed end.
+    ///
+    /// Accepts a `&Place<T>` or a [`PlaceRef`]; an environment place is
+    /// allowed (injecting into it ends the run). The place is added to the net
+    /// if no arc names it. Repeated declarations are idempotent.
+    ///
+    /// # Panics
+    /// [`build`](Self::build) panics when a terminal place is an input or a
+    /// read-arc place of any transition: that transition could never fire.
+    pub fn terminal(mut self, place: impl Into<PlaceRef>) -> Self {
+        let place = place.into();
+        if !self.terminals.contains(&place) {
+            self.terminals.push(place.clone());
+        }
+        self.insert_place(place);
+        self
+    }
+
+    /// Declares several terminal places; see [`terminal`](Self::terminal).
+    pub fn terminals(mut self, places: impl IntoIterator<Item = PlaceRef>) -> Self {
+        for p in places {
+            self = self.terminal(p);
         }
         self
     }
@@ -383,6 +441,10 @@ impl PetriNetBuilder {
     ///   already in this builder — use `instantiate(prefix)` for independent
     ///   copies.
     pub fn compose_direct<P: 'static>(self, def: &SubnetDef<P>) -> Self {
+        // EXEC-042: terminals are a whole-net property; scoped termination of
+        // one composed subnet is not defined.
+        reject_subnet_terminals("compose_direct", def.name(), def.body());
+
         // MOD-025: direct composition does not bind channels.
         let mut channel_names: Vec<&str> =
             def.iface().channels().map(|c| c.name.as_ref()).collect();
@@ -519,15 +581,69 @@ impl PetriNetBuilder {
     /// Panics when two fusion sets share a place name.
     pub fn build(self) -> PetriNet {
         let membership = resolve_subnet_membership(&self.subnet_contributions);
-        if self.fusion_sets.is_empty() {
-            return PetriNet {
+        let net = if self.fusion_sets.is_empty() {
+            PetriNet {
                 name: self.name,
                 places: self.places,
                 transitions: self.transitions,
                 subnet_membership: membership,
-            };
+                terminals: self.terminals,
+            }
+        } else {
+            build_with_fusion(self, membership)
+        };
+        if !net.terminals.is_empty() {
+            validate_terminals(&net);
         }
-        build_with_fusion(self, membership)
+        net
+    }
+}
+
+/// **EXEC-042** well-formedness: a terminal place MUST NOT be an input or a
+/// read-arc place of any transition — such a transition could never fire,
+/// since the run ends the moment the place is marked.
+///
+/// # Panics
+/// Naming the terminal place and the offending transition.
+fn validate_terminals(net: &PetriNet) {
+    // One set lookup per arc: O(arcs), not O(arcs × terminals).
+    let terminals: HashSet<&str> = net.terminals.iter().map(|p| p.name()).collect();
+    for t in &net.transitions {
+        let hit = t
+            .input_specs()
+            .iter()
+            .map(|s| (s.place().name(), "an input"))
+            .chain(t.reads().iter().map(|r| (r.place.name(), "a read-arc")))
+            .find(|(name, _)| terminals.contains(name));
+        if let Some((place, role)) = hit {
+            panic!(
+                "Terminal place '{}' is {} place of transition '{}' in net '{}'. The run ends \
+                 as soon as a terminal place holds a token, so '{}' could never fire \
+                 (EXEC-042).",
+                place,
+                role,
+                t.name(),
+                net.name,
+                t.name()
+            );
+        }
+    }
+}
+
+/// **EXEC-042** composition rule: a subnet body that declares terminal places
+/// is rejected by `compose` and `instantiate` — terminals are a property of
+/// the whole net, and scoped termination is not defined.
+///
+/// # Panics
+/// Naming the subnet and its first terminal place.
+pub(crate) fn reject_subnet_terminals(operation: &str, subnet: &str, body: &PetriNet) {
+    if let Some(p) = body.terminals().first() {
+        panic!(
+            "{operation}: subnet '{subnet}' declares terminal place '{}'. Terminal places are \
+             a property of the whole net and a subnet body may not declare them; declare it \
+             on the enclosing net instead (EXEC-042).",
+            p.name()
+        );
     }
 }
 
@@ -615,6 +731,7 @@ fn build_with_fusion(
         transitions,
         fusion_sets,
         subnet_contributions: _,
+        terminals,
     } = builder;
 
     // Step 1: detect overlap. The same place name MUST NOT appear in more
@@ -724,11 +841,24 @@ fn build_with_fusion(
                 .collect()
         };
 
+    // EXEC-042: a terminal declared on a non-canonical fused member names the
+    // canonical place now — remap it, dedup in declaration order, and make
+    // sure the canonical place is present.
+    let mut fused_terminals: Vec<PlaceRef> = Vec::with_capacity(terminals.len());
+    for t in terminals {
+        let canonical = fusion_map.get(t.name_arc()).cloned().unwrap_or(t);
+        if !fused_terminals.contains(&canonical) {
+            push(canonical.clone(), &mut seen, &mut rebuilt_places);
+            fused_terminals.push(canonical);
+        }
+    }
+
     PetriNet {
         name,
         places: rebuilt_places,
         transitions: rewritten_transitions,
         subnet_membership: filtered_membership,
+        terminals: fused_terminals,
     }
 }
 

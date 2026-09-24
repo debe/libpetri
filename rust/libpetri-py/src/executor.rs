@@ -11,6 +11,8 @@ use std::sync::Arc;
 #[cfg(feature = "tokio")]
 use std::sync::Mutex;
 
+#[cfg(feature = "tokio")]
+use libpetri::TerminationReason;
 use libpetri::{NoopEventStore, OwnedPrecompiledNet, PetriNet};
 #[cfg(feature = "tokio")]
 use pyo3::exceptions::PyRuntimeError;
@@ -171,11 +173,14 @@ impl PyCompiledNet {
     /// ...]` (timestamps preserved — used by `MarkingView.snapshot()` for
     /// timestamp-faithful restore).
     ///
-    /// Returns the final marking as a structured-snapshot dict
-    /// `{place_name: [{"value": v, "created_at": ms}, ...]}`. The Python
-    /// `MarkingView` wrapper exposes this via `.snapshot()` and projects to
-    /// the value-only form via `.to_dict()` / iteration. The GIL is released
-    /// for the duration of the executor loop.
+    /// Returns `(marking, termination_reason)`: the final marking as a
+    /// structured-snapshot dict `{place_name: [{"value": v, "created_at": ms},
+    /// ...]}`, and why the run ended (EXEC-041 AC3) as one of `"quiescent"`,
+    /// `"terminal"` (EXEC-042), `"closed"`, `"stopped"`. The Python
+    /// `MarkingView` wrapper exposes the marking via `.snapshot()` and
+    /// projects to the value-only form via `.to_dict()` / iteration, and
+    /// carries the reason as `.termination_reason`. The GIL is released for
+    /// the duration of the executor loop.
     #[pyo3(signature = (initial = None, options = None, event_store = None))]
     fn run_sync(
         &self,
@@ -183,7 +188,7 @@ impl PyCompiledNet {
         initial: Option<&Bound<'_, PyAny>>,
         options: Option<&PyExecutorOptions>,
         event_store: Option<&PyEventStoreHandle>,
-    ) -> PyResult<Py<PyDict>> {
+    ) -> PyResult<(Py<PyDict>, String)> {
         let initial_marking = marking_from_python(py, initial)?;
         let options = options.cloned().unwrap_or_default();
         let environment_places = options.environment_place_set();
@@ -192,7 +197,7 @@ impl PyCompiledNet {
         let execution_scope = options.execution_scope().map(Arc::<str>::from);
         let owned = self.inner.clone();
 
-        let marking = py.detach(move || match event_store.map(|h| h.shared()) {
+        let outcome = py.detach(move || match event_store.map(|h| h.shared()) {
             None => {
                 let mut builder = owned
                     .builder::<NoopEventStore>(initial_marking)
@@ -204,7 +209,7 @@ impl PyCompiledNet {
                 if let Some(scope) = execution_scope.clone() {
                     builder = builder.execution_scope(scope);
                 }
-                builder.run_sync()
+                builder.run_sync_outcome()
             }
             Some(shared) => {
                 let mut builder = owned
@@ -218,17 +223,22 @@ impl PyCompiledNet {
                 if let Some(scope) = execution_scope.clone() {
                     builder = builder.execution_scope(scope);
                 }
-                builder.run_sync()
+                builder.run_sync_outcome()
             }
         });
 
-        marking_snapshot_to_python(py, &marking)
+        Ok((
+            marking_snapshot_to_python(py, &outcome.marking)?,
+            outcome.termination_reason.as_str().to_string(),
+        ))
     }
 
     /// Runs the net on tokio, returning an `(ExecutorHandle, awaitable)` pair.
     ///
     /// The handle lets you inject tokens into environment places mid-run; the
-    /// awaitable resolves to the final marking when the executor drains.
+    /// awaitable resolves to `(marking, termination_reason)` when the run ends
+    /// — the same pair `run_sync` returns — and the handle's
+    /// `termination_reason` reports the reason from then on.
     #[cfg(feature = "tokio")]
     #[pyo3(signature = (initial = None, options = None, event_store = None))]
     fn run_async<'py>(
@@ -255,13 +265,15 @@ impl PyCompiledNet {
         let loop_guard = crate::action::install_event_loop_locals(py)?;
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let reason_cell: Arc<Mutex<Option<TerminationReason>>> = Arc::new(Mutex::new(None));
+        let run_reason = Arc::clone(&reason_cell);
         let handle = Py::new(
             py,
-            PyExecutorHandle::new(libpetri::ExecutorHandle::new(tx)),
+            PyExecutorHandle::new(libpetri::ExecutorHandle::new(tx), reason_cell),
         )?;
         let awaitable = pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let _loop_guard = loop_guard;
-            let marking = match shared {
+            let outcome = match shared {
                 None => {
                     let mut builder = owned
                         .builder::<NoopEventStore>(initial_marking)
@@ -273,7 +285,7 @@ impl PyCompiledNet {
                     if let Some(scope) = execution_scope.clone() {
                         builder = builder.execution_scope(scope);
                     }
-                    builder.run_async(rx).await
+                    builder.run_async_outcome(rx).await
                 }
                 Some(shared) => {
                     let mut builder = owned
@@ -287,10 +299,18 @@ impl PyCompiledNet {
                     if let Some(scope) = execution_scope.clone() {
                         builder = builder.execution_scope(scope);
                     }
-                    builder.run_async(rx).await
+                    builder.run_async_outcome(rx).await
                 }
             };
-            Python::attach(|py| marking_snapshot_to_python(py, &marking))
+            // [EXEC-041] AC3: published before the awaitable resolves, so a
+            // caller that awaited it reads the final reason off the handle.
+            *run_reason.lock().unwrap() = Some(outcome.termination_reason);
+            Python::attach(|py| {
+                Ok((
+                    marking_snapshot_to_python(py, &outcome.marking)?,
+                    outcome.termination_reason.as_str().to_string(),
+                ))
+            })
         })?;
 
         Ok((handle, awaitable.unbind()))
@@ -306,13 +326,19 @@ impl PyCompiledNet {
 #[pyclass(module = "_libpetri", name = "ExecutorHandle")]
 pub struct PyExecutorHandle {
     inner: Mutex<libpetri::ExecutorHandle>,
+    /// Set by the run when it ends (EXEC-041 AC3); `None` while it runs.
+    termination_reason: Arc<Mutex<Option<TerminationReason>>>,
 }
 
 #[cfg(feature = "tokio")]
 impl PyExecutorHandle {
-    fn new(inner: libpetri::ExecutorHandle) -> Self {
+    fn new(
+        inner: libpetri::ExecutorHandle,
+        termination_reason: Arc<Mutex<Option<TerminationReason>>>,
+    ) -> Self {
         Self {
             inner: Mutex::new(inner),
+            termination_reason,
         }
     }
 }
@@ -368,6 +394,18 @@ impl PyExecutorHandle {
     #[getter]
     fn drained(&self) -> bool {
         self.inner.lock().unwrap().is_drained()
+    }
+
+    /// Why the run ended (EXEC-041 AC3): `"running"` until it has, then
+    /// `"quiescent"`, `"terminal"` (EXEC-042 — a terminal place was marked),
+    /// `"closed"` or `"stopped"`.
+    #[getter]
+    fn termination_reason(&self) -> &'static str {
+        self.termination_reason
+            .lock()
+            .unwrap()
+            .unwrap_or(TerminationReason::Running)
+            .as_str()
     }
 
     /// Requests a mid-execution marking snapshot. Returns an awaitable that

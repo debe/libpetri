@@ -2,11 +2,13 @@ package org.libpetri.smt.opennet;
 
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
+import org.libpetri.core.internal.TerminalEncoding;
 import org.libpetri.smt.SmtVerificationResult.Verdict;
 
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import org.libpetri.smt.encoding.NetFlattener;
 
 /**
  * A subnet verified on its own against a contract, with its ports played by the environment
@@ -63,6 +65,15 @@ public final class OpenNetVerifier {
     public static OpenNetResult verifyOpenNet(PetriNet net, OpenNetContract contract, OpenNetOptions options) {
         long start = System.nanoTime();
         var closed = OpenNetClosure.closeOpenNet(net, contract);
+        // EXEC-042 / VER-014: the net's own terminal places, applied without the caller
+        // restating them. Each inhibits every transition of the closed net (the environment's
+        // too: after a terminal stop the runtime admits nothing), and is merged as a designed
+        // terminal excusing every place of the closed net.
+        if (!closed.net().terminals().isEmpty()) {
+            contract = contract.withDesignedTerminals(closed.net().terminals(),
+                NetFlattener.declaredPlaces(closed.net()));
+            closed = closed.withNet(TerminalEncoding.inhibited(closed.net()));
+        }
         int maxClasses = options.maxClasses();
         // Every place a port trace may mention: the contract's own, plus the closure's. [VER-022]
         // reserves "port" for a place the environment shares with the subnet, which is narrower.

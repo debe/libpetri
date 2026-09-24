@@ -48,7 +48,9 @@ class SmtScriptParityTest {
 
     private static void runFixture(JsonNode fixture, Path goldenDir) throws IOException {
         String id = fixture.get("id").asText();
-        var named = VerificationNets.build(fixture.get("net").asText());
+        var named = VerificationNets.withTerminals(
+            VerificationNets.build(fixture.get("net").asText()),
+            VerdictParityTest.terminalNames(fixture));
         var verifier = SmtVerifier.forNet(named.net())
             .initialMarking(named.initialMarking())
             .property(VerdictParityTest.parseProperty(fixture.get("property")))

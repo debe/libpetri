@@ -50,6 +50,11 @@ pub struct CompiledNet {
     cardinality_checks: Vec<Option<CardinalityCheck>>,
     // ν-net join correlation flag per transition (spec NU-020).
     has_match: Vec<bool>,
+
+    // EXEC-042 terminal flag per place, and whether any is set. Empty when the
+    // net declares no terminal places, so the executors' guard is one load.
+    terminal_places: Vec<bool>,
+    has_terminals: bool,
 }
 
 impl CompiledNet {
@@ -213,6 +218,17 @@ impl CompiledNet {
             .map(|s| s.into_iter().collect())
             .collect();
 
+        // EXEC-042: every terminal place is in `net.places()` (the builder
+        // declares it), so it always has an ID.
+        let has_terminals = !net.terminals().is_empty();
+        let mut terminal_places = Vec::new();
+        if has_terminals {
+            terminal_places = vec![false; place_count];
+            for p in net.terminals() {
+                terminal_places[place_index[p.name_arc()]] = true;
+            }
+        }
+
         CompiledNet {
             net: net.clone(),
             place_count,
@@ -229,6 +245,8 @@ impl CompiledNet {
             restart_thresholds,
             cardinality_checks,
             has_match,
+            terminal_places,
+            has_terminals,
         }
     }
 
@@ -247,6 +265,21 @@ impl CompiledNet {
     /// Returns the transition at the given compiled ID.
     pub fn transition(&self, tid: usize) -> &Transition {
         &self.net.transitions()[self.transitions_by_id[tid]]
+    }
+
+    /// True when the net declares any terminal place ([EXEC-042]). Precomputed,
+    /// so the executors' per-deposit check costs one load and a predicted
+    /// branch on every net that declares none.
+    #[inline]
+    pub fn has_terminals(&self) -> bool {
+        self.has_terminals
+    }
+
+    /// True when place `pid` is a terminal place ([EXEC-042]). Only meaningful
+    /// when [`has_terminals`](Self::has_terminals) is true.
+    #[inline]
+    pub fn is_terminal(&self, pid: usize) -> bool {
+        self.has_terminals && self.terminal_places[pid]
     }
 
     /// Returns the place ID for a given place name.

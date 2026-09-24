@@ -71,6 +71,24 @@ class PetriNetGraphMapperTest {
     }
 
     @Test
+    void stylesTerminalPlacesAboveEndAndEnvironment_EXEC042() {
+        // A terminal place that is also an end place and an environment place: the terminal
+        // category takes precedence ([EXEC-042], spec/petri-net-styles.json "terminal").
+        var net = PetriNet.builder("Test").transition(Transition.builder("Process")
+                .inputs(In.one(START)).outputs(Out.place(END)).build())
+            .terminal(END)
+            .build();
+        var config = new ExportConfig(RankDir.TB, true, true, true, Set.of("End"));
+        var endNode = PetriNetGraphMapper.map(net, config).nodes().stream()
+            .filter(n -> n.id().equals("p_End")).findFirst().orElseThrow();
+        assertEquals(NodeShape.DOUBLECIRCLE, endNode.shape());
+        assertEquals("#d6d8db", endNode.fill());
+        assertEquals("#1b1e21", endNode.stroke());
+        assertEquals(3.0, endNode.penwidth());
+        assertEquals(0.35, endNode.width());
+    }
+
+    @Test
     void stylesEnvironmentPlaces() {
         var envPlace = Place.of("Events", String.class);
         var t = Transition.builder("Process")

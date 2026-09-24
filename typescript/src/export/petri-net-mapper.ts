@@ -74,6 +74,9 @@ export function sanitize(name: string): string {
 export function mapToGraph(net: PetriNet, config: DotConfig = DEFAULT_DOT_CONFIG): Graph {
   const places = analyzePlaces(net);
   const envNames = config.environmentPlaces ?? new Set<string>();
+  // EXEC-042: a declared terminal place renders as `terminal`, ahead of every other category.
+  const terminalNames = new Set<string>();
+  for (const p of net.terminals) terminalNames.add(p.name);
 
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
@@ -93,7 +96,7 @@ export function mapToGraph(net: PetriNet, config: DotConfig = DEFAULT_DOT_CONFIG
 
   // Place nodes
   for (const [name, info] of places) {
-    const category = placeCategory(info, envNames.has(name));
+    const category = placeCategory(info, envNames.has(name), terminalNames.has(name));
     const style = nodeStyle(category);
     const nodeId = 'p_' + sanitize(name);
     nodes.push({
@@ -311,7 +314,10 @@ function analyzePlaces(net: PetriNet): Map<string, PlaceInfo> {
   return map;
 }
 
-function placeCategory(info: PlaceInfo, isEnvironment: boolean): NodeCategory {
+function placeCategory(info: PlaceInfo, isEnvironment: boolean, isTerminal: boolean): NodeCategory {
+  // EXEC-042: terminal takes precedence over environment/start/end — a terminal environment
+  // place ends the run when injected into, and that is what the reader needs to see.
+  if (isTerminal) return 'terminal';
   if (isEnvironment) return 'environment';
   if (!info.hasIncoming) return 'start';
   if (!info.hasOutgoing) return 'end';
