@@ -78,17 +78,41 @@ structure Semiflow (net : FlatNet) (n : Nat) (y : Weight) : Prop
     extends ValidLaw net n y where
   nonneg : ∀ p, 0 ≤ y p
 
+/-- One step of `ReachAStrs`: a `StepARel` step keeping every law of `ys`. -/
+def StepAStrsRel (net : FlatNet) (ys : List Weight) (n : Nat) (a0 a a' : AMarking) : Prop :=
+  StepARel net a a' ∧ ∀ y ∈ ys, dot y a' n = dot y a0 n
+
 /-- `ReachA` with the conjunct `y·M' = y·M₀` added for **every** law in `ys` —
 the rule body `invariant_conditions` (`smt_encoder.rs`) builds when handed the
 whole list, spliced by `encode_transition_rule`. `ReachAStr` of
 `Strengthening.lean` is the one-law case. -/
-inductive ReachAStrs (net : FlatNet) (ys : List Weight) (n : Nat) (a0 : AMarking) :
-    AMarking → Prop
-  | init : ReachAStrs net ys n a0 a0
-  | step {a ft} :
-      ReachAStrs net ys n a0 a → ft ∈ net → enabledA a ft.1 = true →
-      (∀ y ∈ ys, dot y (fireA a ft.1 ft.2) n = dot y a0 n) →
-      ReachAStrs net ys n a0 (fireA a ft.1 ft.2)
+def ReachAStrs (net : FlatNet) (ys : List Weight) (n : Nat) (a0 : AMarking) :
+    AMarking → Prop :=
+  Relation.ReflTransGen (StepAStrsRel net ys n a0) a0
+
+theorem ReachAStrs.init {net ys n a0} : ReachAStrs net ys n a0 a0 :=
+  Relation.ReflTransGen.refl
+
+theorem ReachAStrs.step {net ys n a0 a} {ft : FlatTransition} (h : ReachAStrs net ys n a0 a)
+    (hmem : ft ∈ net) (hen : enabledA a ft.1 = true)
+    (hc : ∀ y ∈ ys, dot y (fireA a ft.1 ft.2) n = dot y a0 n) :
+    ReachAStrs net ys n a0 (fireA a ft.1 ft.2) :=
+  Relation.ReflTransGen.tail h ⟨⟨ft, hmem, hen, rfl⟩, hc⟩
+
+/-- Induction over `ReachAStrs` with the cases of the former inductive. -/
+@[elab_as_elim, induction_eliminator]
+theorem ReachAStrs.rec' {net ys n a0}
+    {motive : (a : AMarking) → ReachAStrs net ys n a0 a → Prop}
+    (init : motive a0 ReachAStrs.init)
+    (step : ∀ {a ft} (hr : ReachAStrs net ys n a0 a) (hmem : ft ∈ net)
+      (hen : enabledA a ft.1 = true) (hc : ∀ y ∈ ys, dot y (fireA a ft.1 ft.2) n = dot y a0 n),
+      motive a hr → motive (fireA a ft.1 ft.2) (ReachAStrs.step hr hmem hen hc))
+    {a : AMarking} (h : ReachAStrs net ys n a0 a) : motive a h := by
+  induction h with
+  | refl => exact init
+  | tail hr hs ih =>
+    obtain ⟨⟨ft, hmem, hen, rfl⟩, hc⟩ := hs
+    exact step hr hmem hen hc ih
 
 /-- Conjoining a whole list of validated laws is sound: the strengthened
 relation reaches exactly the same markings. Forward direction per law from
@@ -153,18 +177,48 @@ structure ValidLawInj (net : FlatNet) (envs : List PlaceId) (n : Nat) (y : Weigh
     extends ValidLaw net n y where
   h3 : ∀ p ∈ envs, y p = 0
 
+/-- One step of `ReachAInjStrs`: a strengthened firing, or an unconstrained injection. -/
+def StepAInjStrsRel (net : FlatNet) (envs : List PlaceId) (ys : List Weight) (n : Nat)
+    (a0 a a' : AMarking) : Prop :=
+  StepAStrsRel net ys n a0 a a' ∨ ∃ p ∈ envs, a' = fun q => if q == p then a q + 1 else a q
+
 /-- `ReachAInj` with every law of `ys` conjoined into the transition rules;
 injection rules carry no conjunct (`encode_injection_rule`, `smt_encoder.rs`). -/
-inductive ReachAInjStrs (net : FlatNet) (envs : List PlaceId) (ys : List Weight)
-    (n : Nat) (a0 : AMarking) : AMarking → Prop
-  | init : ReachAInjStrs net envs ys n a0 a0
-  | step {a ft} :
-      ReachAInjStrs net envs ys n a0 a → ft ∈ net → enabledA a ft.1 = true →
-      (∀ y ∈ ys, dot y (fireA a ft.1 ft.2) n = dot y a0 n) →
-      ReachAInjStrs net envs ys n a0 (fireA a ft.1 ft.2)
-  | inject {a p} :
-      ReachAInjStrs net envs ys n a0 a → p ∈ envs →
-      ReachAInjStrs net envs ys n a0 (fun q => if q == p then a q + 1 else a q)
+def ReachAInjStrs (net : FlatNet) (envs : List PlaceId) (ys : List Weight)
+    (n : Nat) (a0 : AMarking) : AMarking → Prop :=
+  Relation.ReflTransGen (StepAInjStrsRel net envs ys n a0) a0
+
+theorem ReachAInjStrs.init {net envs ys n a0} : ReachAInjStrs net envs ys n a0 a0 :=
+  Relation.ReflTransGen.refl
+
+theorem ReachAInjStrs.step {net envs ys n a0 a} {ft : FlatTransition}
+    (h : ReachAInjStrs net envs ys n a0 a) (hmem : ft ∈ net) (hen : enabledA a ft.1 = true)
+    (hc : ∀ y ∈ ys, dot y (fireA a ft.1 ft.2) n = dot y a0 n) :
+    ReachAInjStrs net envs ys n a0 (fireA a ft.1 ft.2) :=
+  Relation.ReflTransGen.tail h (Or.inl ⟨⟨ft, hmem, hen, rfl⟩, hc⟩)
+
+theorem ReachAInjStrs.inject {net envs ys n a0 a} {p : PlaceId}
+    (h : ReachAInjStrs net envs ys n a0 a) (hp : p ∈ envs) :
+    ReachAInjStrs net envs ys n a0 (fun q => if q == p then a q + 1 else a q) :=
+  Relation.ReflTransGen.tail h (Or.inr ⟨p, hp, rfl⟩)
+
+/-- Induction over `ReachAInjStrs` with the cases of the former inductive. -/
+@[elab_as_elim, induction_eliminator]
+theorem ReachAInjStrs.rec' {net envs ys n a0}
+    {motive : (a : AMarking) → ReachAInjStrs net envs ys n a0 a → Prop}
+    (init : motive a0 ReachAInjStrs.init)
+    (step : ∀ {a ft} (hr : ReachAInjStrs net envs ys n a0 a) (hmem : ft ∈ net)
+      (hen : enabledA a ft.1 = true) (hc : ∀ y ∈ ys, dot y (fireA a ft.1 ft.2) n = dot y a0 n),
+      motive a hr → motive (fireA a ft.1 ft.2) (ReachAInjStrs.step hr hmem hen hc))
+    (inject : ∀ {a p} (hr : ReachAInjStrs net envs ys n a0 a) (hp : p ∈ envs), motive a hr →
+      motive (fun q => if q == p then a q + 1 else a q) (ReachAInjStrs.inject hr hp))
+    {a : AMarking} (h : ReachAInjStrs net envs ys n a0 a) : motive a h := by
+  induction h with
+  | refl => exact init
+  | tail hr hs ih =>
+    rcases hs with ⟨⟨ft, hmem, hen, rfl⟩, hc⟩ | ⟨p, hp, rfl⟩
+    · exact step hr hmem hen hc ih
+    · exact inject hr hp ih
 
 theorem strengthened_reach_eq_list_inj {net : FlatNet} {envs : List PlaceId}
     {a0 : AMarking} {ys : List Weight} {n : Nat}
@@ -235,28 +289,13 @@ consumer (consumes from one) is ever enabled — and the encoder, which emits
 one rule per colour slot for those classes, emits none for them.
 -/
 
-theorem isum_nonneg {f : PlaceId → Int} (hf : ∀ p, 0 ≤ f p) : ∀ n, 0 ≤ isum f n
-  | 0 => Int.le_refl 0
-  | n + 1 => by
-    show 0 ≤ isum f n + f n
-    have := isum_nonneg hf n
-    have := hf n
-    omega
+theorem isum_nonneg {f : PlaceId → Int} (hf : ∀ p, 0 ≤ f p) : ∀ n, 0 ≤ isum f n :=
+  fun _ => Finset.sum_nonneg fun p _ => hf p
 
 /-- With every summand non-negative, one summand is bounded by the sum. -/
 theorem isum_term_le {f : PlaceId → Int} (hf : ∀ p, 0 ≤ f p) :
-    ∀ n p, p < n → f p ≤ isum f n
-  | 0, p, h => absurd h (Nat.not_lt_zero p)
-  | n + 1, p, h => by
-    show f p ≤ isum f n + f n
-    have hn := hf n
-    rcases Nat.lt_or_ge p n with hlt | hge
-    · have := isum_term_le hf n p hlt
-      omega
-    · have hpn : p = n := Nat.le_antisymm (Nat.le_of_lt_succ h) hge
-      subst hpn
-      have := isum_nonneg hf p
-      omega
+    ∀ n p, p < n → f p ≤ isum f n :=
+  fun _ _ h => Finset.single_le_sum (fun q _ => hf q) (Finset.mem_range.mpr h)
 
 /-- A semi-positive weighted sum at zero empties every positively-weighted place. -/
 theorem dot_zero_forces_empty {y : Weight} {a : AMarking} {n : Nat}
@@ -266,8 +305,7 @@ theorem dot_zero_forces_empty {y : Weight} {a : AMarking} {n : Nat}
     Int.mul_nonneg (hy q) (Int.natCast_nonneg (a q))
   have hterm : y p * (a p : Int) ≤ isum (fun q => y q * (a q : Int)) n :=
     isum_term_le hf n p hp
-  unfold dot at h0
-  rw [h0] at hterm
+  rw [← dot_eq_isum, h0] at hterm
   rcases Nat.eq_zero_or_pos (a p) with hz | hgt
   · exact hz
   · exfalso

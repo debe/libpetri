@@ -536,6 +536,156 @@
           "fragment": "necessity of key-equivariance: a step that reads a datum the key hides loses a reachable class under interning - the shape of the ready_earliest hole the base intern key closes"
         }
       ]
+    },
+    {
+      "name": "canonicalKey_comp",
+      "module": "Libpetri/Novel/CanonicalKey.lean",
+      "specIds": [
+        {
+          "id": "NU-050",
+          "fragment": "Route B symmetry quotient, soundness half: the modelled canonical_key (signature ranking by (signature, raw id), per-place sorted (rank, count) lists) is invariant under every permutation of the name symbols; the string rendering is not modelled (it is injective over a fixed coloured_order)"
+        }
+      ]
+    },
+    {
+      "name": "canonicalKey_complete",
+      "module": "Libpetri/Novel/CanonicalKey.lean",
+      "specIds": [
+        {
+          "id": "NU-050",
+          "fragment": "Route B symmetry quotient, completeness half: on finite live supports, equal canonical keys imply the name markings differ by a symbol permutation (N = M o sigma), so the quotient merges exactly the renaming orbits; name_successors equivariance remains a stated hypothesis"
+        }
+      ]
+    },
+    {
+      "name": "farkas_output_semiflow",
+      "module": "Libpetri/Novel/Farkas.lean",
+      "specIds": [
+        {
+          "id": "VER-007",
+          "fragment": "the semiflow source is correct: every vector the modelled compute_p_semiflows elimination returns (init rows (C column, e_p), per-column zero rows plus (-rn[t]) rp + rp[t] rn combinations, gcd reduction, any sub-selecting prune standing for the overflow drop, candidate cap, keep_support_minimal and truncation) is non-negative, nonzero, supported below place_count and annihilates every incidence column; unbounded integers, env-injector columns not modelled, completeness not claimed"
+        }
+      ]
+    },
+    {
+      "name": "farkas_output_sound",
+      "module": "Libpetri/Novel/Farkas.lean",
+      "specIds": [
+        {
+          "id": "VER-007",
+          "fragment": "Farkas correctness end to end: every enumerated semiflow that passes the H1 guard keeps y.M = y.M0 (its emitted constant) on every abstract reachable marking; injection-free fragment"
+        }
+      ]
+    },
+    {
+      "name": "certificate_sound",
+      "module": "Libpetri/Novel/Farkas.lean",
+      "specIds": [
+        {
+          "id": "VER-005",
+          "fragment": "certificate check: a weight vector passing the column-wise y.C = 0 recheck of validate_invariants_exact over the flat incidence matrix (C[k][p] = post - pre) plus the H1 guard is constant along ReachA; injection-free fragment"
+        }
+      ]
+    },
+    {
+      "name": "reset_arc_semantics",
+      "module": "Libpetri/Novel/ResetArc.lean",
+      "specIds": [
+        {
+          "id": "CORE-034",
+          "fragment": "AC1-AC3 on the concrete model: a place that is only a reset place of t imposes no token requirement (t is enabled with it empty iff with any content), enablement is unchanged with every reset arc removed, and after firing the reset place holds exactly the produced tokens (empty with no output to it); token counts only, untimed, the EXEC-003 AC5 drainable-prefix refinement (same-pass deposits survive a reset) not modelled"
+        }
+      ]
+    },
+    {
+      "name": "fireA_reset_empty",
+      "module": "Libpetri/Novel/ResetArc.lean",
+      "specIds": [
+        {
+          "id": "CORE-034",
+          "fragment": "AC2 in the CHC fire relation (firing_conditions): a reset place off the output branch has m'_p = 0 whatever it held; enabledA_congr_off gives AC1/AC3 for the abstract guard"
+        }
+      ]
+    },
+    {
+      "name": "empty_iff_flagged",
+      "module": "Libpetri/Novel/Dbm.lean",
+      "specIds": [
+        {
+          "id": "VER-011",
+          "fragment": "AC2: zone emptiness is detected exactly - for a DBM with a finite reference row, the modelled in-place Floyd-Warshall canonicalize (Rust k/i/j loop order) followed by the negative-diagonal check flags the zone empty iff it has no solution (exact rationals, eps = 0; flagged_empty gives soundness at any eps >= 0, so the 1e-9 tolerance can only miss an emptiness, never invent one); floating point, let_time_pass and fire_transition not modelled"
+        }
+      ]
+    },
+    {
+      "name": "closed_canon",
+      "module": "Libpetri/Novel/Dbm.lean",
+      "specIds": [
+        {
+          "id": "VER-011",
+          "fragment": "canonical form: without negative cycles the in-place Floyd-Warshall pass returns a closed matrix (D i j <= D i k + D k j), and sat_canon shows canonicalisation never changes the solution set"
+        }
+      ]
+    },
+    {
+      "name": "sat_permD",
+      "module": "Libpetri/Novel/Dbm.lean",
+      "specIds": [
+        {
+          "id": "VER-011",
+          "fragment": "AC4: permuting the clocks (permuted) maps the zone bijectively (theta to theta o sigma) and closed_permD keeps a canonical matrix canonical, so the reordered positional key denotes the same zone; the zone_key string rendering is not modelled"
+        }
+      ]
+    },
+    {
+      "name": "commoner",
+      "module": "Libpetri/Novel/Commoner.lean",
+      "specIds": [
+        {
+          "id": "VER-020",
+          "fragment": "AC2: Commoner's theorem over the CHC relation ReachA for ordinary nets (commoner_applies: no read/inhibitor/reset arc, no consume-all input, arc weight <= 1) - if every nonempty siphon contains an initially marked trap, no reachable marking is dead; built on siphon_stays_empty (any arcs) and trap_stays_marked (no reset/consume-all on the trap); the Rust fixpoint loops and the minimal-siphon reduction are not modelled"
+        }
+      ]
+    },
+    {
+      "name": "ordinary_is_necessary",
+      "module": "Libpetri/Novel/Commoner.lean",
+      "specIds": [
+        {
+          "id": "VER-020",
+          "fragment": "AC3: the spec's witness t: exactly(2, a) -> a from {a:1} satisfies the full siphon/marked-trap condition yet is dead initially, so the arc-weight guard of commoner_applies is load-bearing"
+        }
+      ]
+    },
+    {
+      "name": "marked_trap_is_necessary",
+      "module": "Libpetri/Novel/Commoner.lean",
+      "specIds": [
+        {
+          "id": "VER-020",
+          "fragment": "the ordinary cycle a -> b -> a from the empty marking passes the condition structural_check tests (every nonempty siphon contains a nonempty trap, initial marking unread) yet is dead initially - Commoner needs the trap marked"
+        }
+      ]
+    },
+    {
+      "name": "net_enumeration_exact",
+      "module": "Libpetri/Novel/Enumeration.lean",
+      "specIds": [
+        {
+          "id": "VER-017",
+          "fragment": "what the verdict means: when the modelled breadth-first class exploration (budget check at pop, dedup by key, complete iff the queue runs dry) closes on a flat net, its classes are exactly the ReachA-reachable markings, so Proven holds iff no reachable marking is bad and a quiescent class exists iff a reachable marking is dead - sound and complete; no environment injection (env_set not modelled; the route requires no env places), untimed successors modelled by fireA (the condition-3 premise, assumed), class key taken as marking equality, counterexample path and closing-on-small-nets not modelled"
+        }
+      ]
+    },
+    {
+      "name": "run_complete_iff_reach",
+      "module": "Libpetri/Novel/Enumeration.lean",
+      "specIds": [
+        {
+          "id": "VER-017",
+          "fragment": "the worklist invariant for any successor function: a run that reports complete has discovered exactly the reachable set (every class reachable; every class not waiting in the queue has all successors discovered)"
+        }
+      ]
     }
   ]
 }

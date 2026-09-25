@@ -61,34 +61,111 @@ def Row (net : FlatNet) (a0 a : AMarking) (n : Counters) (p : PlaceId) : Prop :=
   if cleared net p = true then (a p : Int) ≤ rowRhs net a0 n p
   else (a p : Int) = rowRhs net a0 n p
 
+/-- One step of `ReachCnt` on an augmented state `(M, n)`: flat transition `k`
+fires and bumps its counter, or an environment place receives a token. -/
+def StepCntRel (net : FlatNet) (envs : List PlaceId) (s s' : AMarking × Counters) : Prop :=
+  (∃ k ft, net[k]? = some ft ∧ enabledA s.1 ft.1 = true ∧
+      s' = (fireA s.1 ft.1 ft.2, bump s.2 k))
+  ∨ ∃ p ∈ envs, s' = (fun q => if q == p then s.1 q + 1 else s.1 q, s.2)
+
 /-- `ReachAInj` over augmented states `(M, n)`: the least fixpoint of the
 options-on rules without their strengthening conjuncts. -/
-inductive ReachCnt (net : FlatNet) (envs : List PlaceId) (a0 : AMarking) :
-    AMarking → Counters → Prop
-  | init : ReachCnt net envs a0 a0 (fun _ => 0)
-  | step {a n k ft} :
-      ReachCnt net envs a0 a n → net[k]? = some ft → enabledA a ft.1 = true →
-      ReachCnt net envs a0 (fireA a ft.1 ft.2) (bump n k)
-  | inject {a n p} :
-      ReachCnt net envs a0 a n → p ∈ envs →
-      ReachCnt net envs a0 (fun q => if q == p then a q + 1 else a q) n
+def ReachCnt (net : FlatNet) (envs : List PlaceId) (a0 : AMarking) :
+    AMarking → Counters → Prop :=
+  fun a n => Relation.ReflTransGen (StepCntRel net envs) (a0, fun _ => 0) (a, n)
+
+theorem ReachCnt.init {net envs a0} : ReachCnt net envs a0 a0 (fun _ => 0) :=
+  Relation.ReflTransGen.refl
+
+theorem ReachCnt.step {net envs a0 a n} {k : Nat} {ft : FlatTransition}
+    (h : ReachCnt net envs a0 a n) (hk : net[k]? = some ft) (hen : enabledA a ft.1 = true) :
+    ReachCnt net envs a0 (fireA a ft.1 ft.2) (bump n k) :=
+  Relation.ReflTransGen.tail h (Or.inl ⟨k, ft, hk, hen, rfl⟩)
+
+theorem ReachCnt.inject {net envs a0 a n} {p : PlaceId}
+    (h : ReachCnt net envs a0 a n) (hp : p ∈ envs) :
+    ReachCnt net envs a0 (fun q => if q == p then a q + 1 else a q) n :=
+  Relation.ReflTransGen.tail h (Or.inr ⟨p, hp, rfl⟩)
+
+/-- Induction over `ReachCnt` with the cases of the former inductive. -/
+@[elab_as_elim, induction_eliminator]
+theorem ReachCnt.rec' {net envs a0}
+    {motive : (a : AMarking) → (n : Counters) → ReachCnt net envs a0 a n → Prop}
+    (init : motive a0 (fun _ => 0) ReachCnt.init)
+    (step : ∀ {a n k ft} (hr : ReachCnt net envs a0 a n) (hk : net[k]? = some ft)
+      (hen : enabledA a ft.1 = true),
+      motive a n hr → motive (fireA a ft.1 ft.2) (bump n k) (ReachCnt.step hr hk hen))
+    (inject : ∀ {a n p} (hr : ReachCnt net envs a0 a n) (hp : p ∈ envs), motive a n hr →
+      motive (fun q => if q == p then a q + 1 else a q) n (ReachCnt.inject hr hp))
+    {a : AMarking} {n : Counters} (h : ReachCnt net envs a0 a n) : motive a n h := by
+  suffices ∀ s (h : Relation.ReflTransGen (StepCntRel net envs) (a0, fun _ => 0) s),
+      motive s.1 s.2 h from this (a, n) h
+  intro s h
+  induction h with
+  | refl => exact init
+  | tail hr hs ih =>
+    rcases hs with ⟨k, ft, hk, hen, rfl⟩ | ⟨p, hp, rfl⟩
+    · exact step hr hk hen ih
+    · exact inject hr hp ih
+
+/-- One step of `ReachCntStr`: a firing whose successor keeps every law of `ys`
+and every non-injected row below `w`, or an unconstrained injection. -/
+def StepCntStrRel (net : FlatNet) (envs : List PlaceId) (ys : List Weight) (w : Nat)
+    (a0 : AMarking) (s s' : AMarking × Counters) : Prop :=
+  (∃ k ft, net[k]? = some ft ∧ enabledA s.1 ft.1 = true ∧
+      (∀ y ∈ ys, dot y (fireA s.1 ft.1 ft.2) w = dot y a0 w) ∧
+      (∀ p, p < w → p ∉ envs → Row net a0 (fireA s.1 ft.1 ft.2) (bump s.2 k) p) ∧
+      s' = (fireA s.1 ft.1 ft.2, bump s.2 k))
+  ∨ ∃ p ∈ envs, s' = (fun q => if q == p then s.1 q + 1 else s.1 q, s.2)
 
 /-- The shipped options-on rules (`encode_net`, `smt_encoder.rs:151-173`):
 every transition rule conjoins each law of `ys` and the row of every
 non-injected place below `w` over `(M', n')`; injection rules conjoin
 neither. -/
-inductive ReachCntStr (net : FlatNet) (envs : List PlaceId) (ys : List Weight)
-    (w : Nat) (a0 : AMarking) : AMarking → Counters → Prop
-  | init : ReachCntStr net envs ys w a0 a0 (fun _ => 0)
-  | step {a n k ft} :
-      ReachCntStr net envs ys w a0 a n → net[k]? = some ft →
-      enabledA a ft.1 = true →
-      (∀ y ∈ ys, dot y (fireA a ft.1 ft.2) w = dot y a0 w) →
-      (∀ p, p < w → p ∉ envs → Row net a0 (fireA a ft.1 ft.2) (bump n k) p) →
-      ReachCntStr net envs ys w a0 (fireA a ft.1 ft.2) (bump n k)
-  | inject {a n p} :
-      ReachCntStr net envs ys w a0 a n → p ∈ envs →
-      ReachCntStr net envs ys w a0 (fun q => if q == p then a q + 1 else a q) n
+def ReachCntStr (net : FlatNet) (envs : List PlaceId) (ys : List Weight)
+    (w : Nat) (a0 : AMarking) : AMarking → Counters → Prop :=
+  fun a n => Relation.ReflTransGen (StepCntStrRel net envs ys w a0) (a0, fun _ => 0) (a, n)
+
+theorem ReachCntStr.init {net envs ys w a0} : ReachCntStr net envs ys w a0 a0 (fun _ => 0) :=
+  Relation.ReflTransGen.refl
+
+theorem ReachCntStr.step {net envs ys w a0 a n} {k : Nat} {ft : FlatTransition}
+    (h : ReachCntStr net envs ys w a0 a n) (hk : net[k]? = some ft)
+    (hen : enabledA a ft.1 = true)
+    (hc : ∀ y ∈ ys, dot y (fireA a ft.1 ft.2) w = dot y a0 w)
+    (hrow : ∀ p, p < w → p ∉ envs → Row net a0 (fireA a ft.1 ft.2) (bump n k) p) :
+    ReachCntStr net envs ys w a0 (fireA a ft.1 ft.2) (bump n k) :=
+  Relation.ReflTransGen.tail h (Or.inl ⟨k, ft, hk, hen, hc, hrow, rfl⟩)
+
+theorem ReachCntStr.inject {net envs ys w a0 a n} {p : PlaceId}
+    (h : ReachCntStr net envs ys w a0 a n) (hp : p ∈ envs) :
+    ReachCntStr net envs ys w a0 (fun q => if q == p then a q + 1 else a q) n :=
+  Relation.ReflTransGen.tail h (Or.inr ⟨p, hp, rfl⟩)
+
+/-- Induction over `ReachCntStr` with the cases of the former inductive. -/
+@[elab_as_elim, induction_eliminator]
+theorem ReachCntStr.rec' {net envs ys w a0}
+    {motive : (a : AMarking) → (n : Counters) → ReachCntStr net envs ys w a0 a n → Prop}
+    (init : motive a0 (fun _ => 0) ReachCntStr.init)
+    (step : ∀ {a n k ft} (hr : ReachCntStr net envs ys w a0 a n) (hk : net[k]? = some ft)
+      (hen : enabledA a ft.1 = true)
+      (hc : ∀ y ∈ ys, dot y (fireA a ft.1 ft.2) w = dot y a0 w)
+      (hrow : ∀ p, p < w → p ∉ envs → Row net a0 (fireA a ft.1 ft.2) (bump n k) p),
+      motive a n hr →
+      motive (fireA a ft.1 ft.2) (bump n k) (ReachCntStr.step hr hk hen hc hrow))
+    (inject : ∀ {a n p} (hr : ReachCntStr net envs ys w a0 a n) (hp : p ∈ envs),
+      motive a n hr →
+      motive (fun q => if q == p then a q + 1 else a q) n (ReachCntStr.inject hr hp))
+    {a : AMarking} {n : Counters} (h : ReachCntStr net envs ys w a0 a n) : motive a n h := by
+  suffices ∀ s (h : Relation.ReflTransGen (StepCntStrRel net envs ys w a0) (a0, fun _ => 0) s),
+      motive s.1 s.2 h from this (a, n) h
+  intro s h
+  induction h with
+  | refl => exact init
+  | tail hr hs ih =>
+    rcases hs with ⟨k, ft, hk, hen, hc, hrow, rfl⟩ | ⟨p, hp, rfl⟩
+    · exact step hr hk hen hc hrow ih
+    · exact inject hr hp ih
 
 /-! ## The counters are bookkeeping -/
 
@@ -115,11 +192,8 @@ theorem counters_exist {net : FlatNet} {envs : List PlaceId} {a0 a : AMarking}
 
 theorem rowRhs_zero (net : FlatNet) (a0 : AMarking) (p : PlaceId) :
     rowRhs net a0 (fun _ => 0) p = a0 p := by
-  have : ∀ m, isum (fun k => incAt net k p * ((0 : Nat) : Int)) m = 0 := by
-    intro m
-    induction m with
-    | zero => rfl
-    | succ m ih => show isum _ m + _ = 0; rw [ih]; simp
+  have : ∀ m, isum (fun k => incAt net k p * ((0 : Nat) : Int)) m = 0 := fun m => by
+    simp [isum]
   unfold rowRhs
   rw [this]
   omega
@@ -131,7 +205,7 @@ theorem isum_bump (c : Nat → Int) (n : Counters) {k : Nat} :
         = isum (fun j => c j * (n j : Int)) m + c k
   | 0, h => absurd h (Nat.not_lt_zero k)
   | m + 1, h => by
-    show isum _ m + c m * (bump n k m : Int) = isum _ m + c m * (n m : Int) + c k
+    rw [isum_succ, isum_succ]
     by_cases hkm : k = m
     · subst hkm
       have hframe : isum (fun j => c j * (bump n k j : Int)) k

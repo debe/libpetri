@@ -95,31 +95,8 @@ is why fix (a)'s `sort_unstable_by` with the `(enabled_at, tid)` key is
 deterministic and stability-free. -/
 theorem eq_of_perm_of_sorted (K : SchedKey) :
     ∀ {l₁ l₂ : List Nat}, l₁.Pairwise K.lt → l₂.Pairwise K.lt →
-      l₁.Perm l₂ → l₁ = l₂ := by
-  intro l₁
-  induction l₁ with
-  | nil =>
-    intro l₂ _ _ hperm
-    exact (List.Perm.nil_eq hperm).symm |>.symm ▸ rfl
-  | cons a t₁ ih =>
-    intro l₂ hs₁ hs₂ hperm
-    cases l₂ with
-    | nil => exact absurd hperm.symm (by simp)
-    | cons b t₂ =>
-      rw [List.pairwise_cons] at hs₁ hs₂
-      have hab : a = b := by
-        by_cases h : a = b
-        · exact h
-        · exfalso
-          have ha2 : a ∈ b :: t₂ := hperm.mem_iff.mp List.mem_cons_self
-          have hb1 : b ∈ a :: t₁ := hperm.mem_iff.mpr List.mem_cons_self
-          rcases List.mem_cons.mp ha2 with h1 | h1
-          · exact h h1
-          · rcases List.mem_cons.mp hb1 with h2 | h2
-            · exact h h2.symm
-            · exact K.lt_asymm (hs₁.1 b h2) (hs₂.1 a h1)
-      subst hab
-      rw [ih hs₁.2 hs₂.2 (hperm.cons_inv)]
+      l₁.Perm l₂ → l₁ = l₂ :=
+  List.Perm.eq_of_pairwise fun _ _ _ _ hab hba => (K.lt_asymm hab hba).elim
 
 /-! ## The ready set (general path, Nat clocks) -/
 

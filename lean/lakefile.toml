@@ -1,13 +1,32 @@
 name = "libpetri"
-defaultTargets = ["Libpetri"]
+defaultTargets = ["Libpetri", "proofgraph", "ProofGraphFixture"]
 
-# Deliberately dependency-free — no Mathlib.
+# Mathlib is pinned to the tag matching `lean-toolchain` exactly.
 #
-# The plan called for Mathlib (Multiset / Finset / Finsupp), but the abstraction
-# `α` erases colours to token *counts*, so every abstract marking is ℕ-valued and
-# core Lean's `Nat` + `List` + `omega` suffice. Dropping Mathlib keeps `lake build`
-# at a few seconds and removes the toolchain-pinning fragility that would
-# otherwise dominate the CI job.
+# The development started dependency-free: the abstraction `α` erases colours to
+# token *counts*, so core `Nat` + `List` + `omega` sufficed. Mathlib is now
+# adopted to replace hand-rolled machinery (reflexive-transitive closures ->
+# `Relation.ReflTransGen`, sums/dot products -> `Finset.sum`/`Matrix`, sortedness
+# lemmas) and to unlock the proofs the README defers to it (Farkas, orbit
+# completeness). Import individual Mathlib modules per file, never `Mathlib`,
+# and bump the tag only together with `lean-toolchain`.
+
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+rev = "v4.32.2"
 
 [[lean_lib]]
 name = "Libpetri"
+
+# `lake exe proofgraph`: the proof-dependency graph extractor (graph/README.md).
+# In defaultTargets so the gate's `lake build` builds it.
+[[lean_exe]]
+name = "proofgraph"
+root = "ProofGraph.Main"
+supportInterpreter = true
+
+# The extractor's test fixture (graph/README.md, "Testing the extractor"). Tiny,
+# core-only, never imported by Libpetri; in defaultTargets so the gate builds it.
+[[lean_lib]]
+name = "ProofGraphFixture"

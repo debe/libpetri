@@ -12,6 +12,7 @@ can be dropped — so each is a real gap in the shipped verifier, not proof
 bureaucracy.
 -/
 import Libpetri.Basic
+import Mathlib.Logic.Relation
 
 namespace Libpetri
 
@@ -132,29 +133,79 @@ structure StepC (m : CMarking) (ft : FlatTransition)
   unit    : UnitOutput prod ft.2
   effect  : alpha m' = alphaFireC m ft.1 prod
 
-/-- Concrete reachability `R(N)`. -/
-inductive ReachC (net : FlatNet) (m0 : CMarking) : CMarking → Prop
-  | init : ReachC net m0 m0
-  | step {m m' ft prod} :
-      ReachC net m0 m → ft ∈ net → StepC m ft prod m' → ReachC net m0 m'
+/-- One concrete step of `net`: some transition of the net fires as a `StepC`. -/
+def StepCRel (net : FlatNet) (m m' : CMarking) : Prop :=
+  ∃ ft ∈ net, ∃ prod, StepC m ft prod m'
+
+/-- Concrete reachability `R(N)`: the reflexive-transitive closure of `StepCRel`. -/
+def ReachC (net : FlatNet) (m0 : CMarking) : CMarking → Prop :=
+  Relation.ReflTransGen (StepCRel net) m0
+
+theorem ReachC.init {net : FlatNet} {m0 : CMarking} : ReachC net m0 m0 :=
+  Relation.ReflTransGen.refl
+
+theorem ReachC.step {net : FlatNet} {m0 m m' : CMarking} {ft : FlatTransition}
+    {prod : PlaceId → Nat} (h : ReachC net m0 m) (hmem : ft ∈ net)
+    (hs : StepC m ft prod m') : ReachC net m0 m' :=
+  Relation.ReflTransGen.tail h ⟨ft, hmem, prod, hs⟩
+
+/-- Induction over `ReachC` with the cases of the former inductive
+(`induction h using ReachC.rec' with | init | step`). -/
+@[elab_as_elim, induction_eliminator]
+theorem ReachC.rec' {net : FlatNet} {m0 : CMarking}
+    {motive : (m : CMarking) → ReachC net m0 m → Prop}
+    (init : motive m0 ReachC.init)
+    (step : ∀ {m m' ft prod} (hr : ReachC net m0 m) (hmem : ft ∈ net)
+      (hs : StepC m ft prod m'), motive m hr → motive m' (ReachC.step hr hmem hs))
+    {m : CMarking} (h : ReachC net m0 m) : motive m h := by
+  induction h with
+  | refl => exact init
+  | tail hr hst ih =>
+    obtain ⟨ft, hmem, prod, hs⟩ := hst
+    exact step hr hmem hs ih
+
+/-- One abstract step of `net`: an enabled transition of the net fires. -/
+def StepARel (net : FlatNet) (a a' : AMarking) : Prop :=
+  ∃ ft ∈ net, enabledA a ft.1 = true ∧ a' = fireA a ft.1 ft.2
 
 /-- Abstract reachability `R(N̂)` — the least fixpoint of the CHC rules
 (`encode_net`, the body of `encode`: `smt_encoder.rs:145` seeds it with `M₀`,
 `:156-173` adds one rule per flat transition). This is the options-off path;
 the firing counters of `EncodeOptions::state_equation` ([VER-016]) are
 `StateEquation.lean`'s. -/
-inductive ReachA (net : FlatNet) (a0 : AMarking) : AMarking → Prop
-  | init : ReachA net a0 a0
-  | step {a ft} :
-      ReachA net a0 a → ft ∈ net → enabledA a ft.1 = true →
-      ReachA net a0 (fireA a ft.1 ft.2)
+def ReachA (net : FlatNet) (a0 : AMarking) : AMarking → Prop :=
+  Relation.ReflTransGen (StepARel net) a0
+
+theorem ReachA.init {net : FlatNet} {a0 : AMarking} : ReachA net a0 a0 :=
+  Relation.ReflTransGen.refl
+
+theorem ReachA.step {net : FlatNet} {a0 a : AMarking} {ft : FlatTransition}
+    (h : ReachA net a0 a) (hmem : ft ∈ net) (hen : enabledA a ft.1 = true) :
+    ReachA net a0 (fireA a ft.1 ft.2) :=
+  Relation.ReflTransGen.tail h ⟨ft, hmem, hen, rfl⟩
+
+/-- Induction over `ReachA` with the cases of the former inductive
+(`induction h using ReachA.rec' with | init | step`). -/
+@[elab_as_elim, induction_eliminator]
+theorem ReachA.rec' {net : FlatNet} {a0 : AMarking}
+    {motive : (a : AMarking) → ReachA net a0 a → Prop}
+    (init : motive a0 ReachA.init)
+    (step : ∀ {a ft} (hr : ReachA net a0 a) (hmem : ft ∈ net)
+      (hen : enabledA a ft.1 = true),
+      motive a hr → motive (fireA a ft.1 ft.2) (ReachA.step hr hmem hen))
+    {a : AMarking} (h : ReachA net a0 a) : motive a h := by
+  induction h with
+  | refl => exact init
+  | tail hr hst ih =>
+    obtain ⟨ft, hmem, hen, rfl⟩ := hst
+    exact step hr hmem hen ih
 
 /-- **Proposition 1.** `α(R(N)) ⊆ R(N̂)`. -/
 theorem proposition_one
     {net : FlatNet} {m0 m : CMarking}
     (hWF : WellFormed net) (h : ReachC net m0 m) :
     ReachA net (alpha m0) (alpha m) := by
-  induction h with
+  induction h using ReachC.rec' with
   | init => exact ReachA.init
   | step hr hmem hstep ih =>
     rename_i m1 m2 ft prod

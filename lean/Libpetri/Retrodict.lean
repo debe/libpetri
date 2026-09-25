@@ -57,19 +57,51 @@ theorem false_proven_without_injection :
 
 /-! ## Post-fix: injection restores the missing steps -/
 
+/-- One step of `R(N̂)` with injection: a net transition fires, or one token
+is injected into an environment place. -/
+def StepAInjRel (net : FlatNet) (envs : List PlaceId) (a a' : AMarking) : Prop :=
+  StepARel net a a' ∨ ∃ p ∈ envs, a' = fun q => if q == p then a q + 1 else a q
+
 /-- `R(N̂)` with the environment-injection rule (`encode_injection_rule`,
 `smt_encoder.rs:532-560`, one per injectable place from `encode_net`'s loop at
 `:182-184`; the conjuncts are `injection_conditions`, `:446-467`).
 `AlwaysAvailable` (unbounded) is modelled; the `Bounded k` variant adds the
 `m_p < bound` guard. -/
-inductive ReachAInj (net : FlatNet) (envs : List PlaceId) (a0 : AMarking) : AMarking → Prop
-  | init : ReachAInj net envs a0 a0
-  | step {a ft} :
-      ReachAInj net envs a0 a → ft ∈ net → enabledA a ft.1 = true →
-      ReachAInj net envs a0 (fireA a ft.1 ft.2)
-  | inject {a p} :
-      ReachAInj net envs a0 a → p ∈ envs →
-      ReachAInj net envs a0 (fun q => if q == p then a q + 1 else a q)
+def ReachAInj (net : FlatNet) (envs : List PlaceId) (a0 : AMarking) : AMarking → Prop :=
+  Relation.ReflTransGen (StepAInjRel net envs) a0
+
+theorem ReachAInj.init {net : FlatNet} {envs : List PlaceId} {a0 : AMarking} :
+    ReachAInj net envs a0 a0 :=
+  Relation.ReflTransGen.refl
+
+theorem ReachAInj.step {net : FlatNet} {envs : List PlaceId} {a0 a : AMarking}
+    {ft : FlatTransition} (h : ReachAInj net envs a0 a) (hmem : ft ∈ net)
+    (hen : enabledA a ft.1 = true) : ReachAInj net envs a0 (fireA a ft.1 ft.2) :=
+  Relation.ReflTransGen.tail h (Or.inl ⟨ft, hmem, hen, rfl⟩)
+
+theorem ReachAInj.inject {net : FlatNet} {envs : List PlaceId} {a0 a : AMarking}
+    {p : PlaceId} (h : ReachAInj net envs a0 a) (hp : p ∈ envs) :
+    ReachAInj net envs a0 (fun q => if q == p then a q + 1 else a q) :=
+  Relation.ReflTransGen.tail h (Or.inr ⟨p, hp, rfl⟩)
+
+/-- Induction over `ReachAInj` with the cases of the former inductive. -/
+@[elab_as_elim, induction_eliminator]
+theorem ReachAInj.rec' {net : FlatNet} {envs : List PlaceId} {a0 : AMarking}
+    {motive : (a : AMarking) → ReachAInj net envs a0 a → Prop}
+    (init : motive a0 ReachAInj.init)
+    (step : ∀ {a ft} (hr : ReachAInj net envs a0 a) (hmem : ft ∈ net)
+      (hen : enabledA a ft.1 = true),
+      motive a hr → motive (fireA a ft.1 ft.2) (ReachAInj.step hr hmem hen))
+    (inject : ∀ {a p} (hr : ReachAInj net envs a0 a) (hp : p ∈ envs),
+      motive a hr →
+      motive (fun q => if q == p then a q + 1 else a q) (ReachAInj.inject hr hp))
+    {a : AMarking} (h : ReachAInj net envs a0 a) : motive a h := by
+  induction h with
+  | refl => exact init
+  | tail hr hst ih =>
+    rcases hst with ⟨ft, hmem, hen, rfl⟩ | ⟨p, hp, rfl⟩
+    · exact step hr hmem hen ih
+    · exact inject hr hp ih
 
 /-- `M₀` after one injection into the environment place. -/
 def aInjected : AMarking := fun q => if q == envPlace then m0A q + 1 else m0A q

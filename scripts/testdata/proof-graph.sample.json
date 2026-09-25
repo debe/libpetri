@@ -1,0 +1,40 @@
+{
+  "schema": "libpetri-proofgraph/1",
+  "nodes": [
+    {"name": "Libpetri.Sample.Marking", "kind": "structure", "module": "Libpetri.Sample.Core", "file": "Libpetri/Sample/Core.lean", "line": 3, "specs": [], "locked": false, "axioms": [], "external": ["Nat"]},
+    {"name": "Libpetri.Sample.Marking.mk", "kind": "ctor", "module": "Libpetri.Sample.Core", "file": "Libpetri/Sample/Core.lean", "line": 3, "specs": [], "locked": false, "axioms": [], "external": ["Nat"]},
+    {"name": "Libpetri.Sample.Step", "kind": "inductive", "module": "Libpetri.Sample.Core", "file": "Libpetri/Sample/Core.lean", "line": 20, "specs": [], "locked": false, "axioms": [], "external": []},
+    {"name": "Libpetri.Sample.aux'", "kind": "theorem", "module": "Libpetri.Sample.Lemmas", "file": "Libpetri/Sample/Lemmas.lean", "line": 12, "specs": [], "locked": false, "axioms": ["propext"], "external": ["Nat.le_refl"]},
+    {"name": "Libpetri.Sample.diamondBottom", "kind": "theorem", "module": "Libpetri.Sample.Main", "file": "Libpetri/Sample/Main.lean", "line": 30, "specs": [], "locked": false, "axioms": ["propext"], "external": []},
+    {"name": "Libpetri.Sample.diamondLeft", "kind": "theorem", "module": "Libpetri.Sample.Main", "file": "Libpetri/Sample/Main.lean", "line": 20, "specs": [], "locked": false, "axioms": ["propext"], "external": []},
+    {"name": "Libpetri.Sample.diamondRight", "kind": "def", "module": "Libpetri.Sample.Main", "file": "Libpetri/Sample/Main.lean", "line": 25, "specs": [], "locked": false, "axioms": [], "external": []},
+    {"name": "Libpetri.Sample.diamondTop", "kind": "theorem", "module": "Libpetri.Sample.Main", "file": "Libpetri/Sample/Main.lean", "line": 40, "specs": ["DEMO-001"], "locked": true, "axioms": ["Quot.sound", "propext"], "external": ["Eq.trans"]},
+    {"name": "Libpetri.Sample.enabled", "kind": "def", "module": "Libpetri.Sample.Core", "file": "Libpetri/Sample/Core.lean", "line": 10, "specs": [], "locked": false, "axioms": [], "external": ["Bool"]},
+    {"name": "Libpetri.Sample.enabled_iff", "kind": "theorem", "module": "Libpetri.Sample.Lemmas", "file": "Libpetri/Sample/Lemmas.lean", "line": 30, "specs": [], "locked": false, "axioms": [], "external": []},
+    {"name": "Libpetri.Sample.fire", "kind": "def", "module": "Libpetri.Sample.Core", "file": "Libpetri/Sample/Core.lean", "line": 15, "specs": [], "locked": false, "axioms": [], "external": ["Nat.sub"]},
+    {"name": "Libpetri.Sample.fire_mono", "kind": "theorem", "module": "Libpetri.Sample.Lemmas", "file": "Libpetri/Sample/Lemmas.lean", "line": 5, "specs": [], "locked": false, "axioms": ["propext"], "external": ["Nat.le_trans"]},
+    {"name": "Libpetri.Sample.helper✝", "kind": "other", "module": "Libpetri.Sample.Lemmas", "file": "Libpetri/Sample/Lemmas.lean", "line": 8, "specs": [], "locked": false, "axioms": [], "external": []},
+    {"name": "Libpetri.Sample.safety", "kind": "theorem", "module": "Libpetri.Sample.Main", "file": "Libpetri/Sample/Main.lean", "line": 50, "specs": ["DEMO-002"], "locked": false, "axioms": ["propext"], "external": []},
+    {"name": "Libpetri.Sample.σ_step", "kind": "theorem", "module": "Libpetri.Sample.Lemmas", "file": "Libpetri/Sample/Lemmas.lean", "line": 20, "specs": [], "locked": false, "axioms": [], "external": []}
+  ],
+  "edges": [
+    ["Libpetri.Sample.Marking.mk", "Libpetri.Sample.Marking"],
+    ["Libpetri.Sample.Step", "Libpetri.Sample.Marking"],
+    ["Libpetri.Sample.aux'", "Libpetri.Sample.helper✝"],
+    ["Libpetri.Sample.diamondBottom", "Libpetri.Sample.fire_mono"],
+    ["Libpetri.Sample.diamondLeft", "Libpetri.Sample.diamondBottom"],
+    ["Libpetri.Sample.diamondRight", "Libpetri.Sample.Marking"],
+    ["Libpetri.Sample.diamondRight", "Libpetri.Sample.diamondBottom"],
+    ["Libpetri.Sample.diamondTop", "Libpetri.Sample.diamondBottom"],
+    ["Libpetri.Sample.diamondTop", "Libpetri.Sample.diamondLeft"],
+    ["Libpetri.Sample.diamondTop", "Libpetri.Sample.diamondRight"],
+    ["Libpetri.Sample.enabled", "Libpetri.Sample.Marking"],
+    ["Libpetri.Sample.enabled_iff", "Libpetri.Sample.enabled"],
+    ["Libpetri.Sample.fire", "Libpetri.Sample.Marking"],
+    ["Libpetri.Sample.fire_mono", "Libpetri.Sample.aux'"],
+    ["Libpetri.Sample.fire_mono", "Libpetri.Sample.fire"],
+    ["Libpetri.Sample.safety", "Libpetri.Sample.fire_mono"],
+    ["Libpetri.Sample.safety", "Libpetri.Sample.σ_step"],
+    ["Libpetri.Sample.σ_step", "Libpetri.Sample.Step"]
+  ]
+}

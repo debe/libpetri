@@ -57,6 +57,7 @@ has `bound ≤ next_sym` at the time it is explored, and the theorem holds for
 whichever fresh counter that turns out to be.
 -/
 import Libpetri.Basic
+import Mathlib.Logic.Relation
 
 namespace Libpetri
 
@@ -85,21 +86,68 @@ structure Equivariant (E : Explorer S K L) : Prop where
   key_succ : ∀ a b c c', E.key a = E.key b → E.bound a ≤ c → E.bound b ≤ c' →
     List.Perm ((E.succ c a).map E.keyed) ((E.succ c' b).map E.keyed)
 
+/-- One plain step: a successor of `a` under some counter fresh for `a`. -/
+def StepRel (E : Explorer S K L) (a s : S) : Prop :=
+  ∃ c l, E.bound a ≤ c ∧ (l, s) ∈ E.succ c a
+
 /-- Plain exploration: the closure of `a0` under successors, each step taken
 with some counter fresh for its source (the shipped counter is monotone, so
 this is the counter the build actually has). -/
-inductive Reach (E : Explorer S K L) (a0 : S) : S → Prop
-  | init : Reach E a0 a0
-  | step {a : S} {c : Nat} {l : L} {s : S} :
-      Reach E a0 a → E.bound a ≤ c → (l, s) ∈ E.succ c a → Reach E a0 s
+def Reach (E : Explorer S K L) (a0 : S) : S → Prop :=
+  Relation.ReflTransGen (StepRel E) a0
+
+theorem Reach.init {E : Explorer S K L} {a0 : S} : Reach E a0 a0 :=
+  Relation.ReflTransGen.refl
+
+theorem Reach.step {E : Explorer S K L} {a0 a : S} {c : Nat} {l : L} {s : S}
+    (h : Reach E a0 a) (hb : E.bound a ≤ c) (hmem : (l, s) ∈ E.succ c a) : Reach E a0 s :=
+  Relation.ReflTransGen.tail h ⟨c, l, hb, hmem⟩
+
+/-- Induction over `Reach` with the cases of the former inductive. -/
+@[elab_as_elim, induction_eliminator]
+theorem Reach.rec' {E : Explorer S K L} {a0 : S}
+    {motive : (s : S) → Reach E a0 s → Prop}
+    (init : motive a0 Reach.init)
+    (step : ∀ {a c l s} (hr : Reach E a0 a) (hb : E.bound a ≤ c) (hmem : (l, s) ∈ E.succ c a),
+      motive a hr → motive s (Reach.step hr hb hmem))
+    {s : S} (h : Reach E a0 s) : motive s h := by
+  induction h with
+  | refl => exact init
+  | tail hr hst ih =>
+    obtain ⟨c, l, hb, hmem⟩ := hst
+    exact step hr hb hmem ih
+
+/-- One interned step: explore a successor `s` of `a`, stored as `rep s`. -/
+def StepIRel (E : Explorer S K L) (rep : S → S) (a s' : S) : Prop :=
+  ∃ c l s, E.bound a ≤ c ∧ (l, s) ∈ E.succ c a ∧ s' = rep s
 
 /-- Interned exploration: every successor is stored — and later explored — as
 `rep s` instead of `s`. The shipped interner is `rep = first-seen state with
 this key`; the theorem holds for any key-preserving `rep`. -/
-inductive ReachI (E : Explorer S K L) (rep : S → S) (a0 : S) : S → Prop
-  | init : ReachI E rep a0 a0
-  | step {a : S} {c : Nat} {l : L} {s : S} :
-      ReachI E rep a0 a → E.bound a ≤ c → (l, s) ∈ E.succ c a → ReachI E rep a0 (rep s)
+def ReachI (E : Explorer S K L) (rep : S → S) (a0 : S) : S → Prop :=
+  Relation.ReflTransGen (StepIRel E rep) a0
+
+theorem ReachI.init {E : Explorer S K L} {rep : S → S} {a0 : S} : ReachI E rep a0 a0 :=
+  Relation.ReflTransGen.refl
+
+theorem ReachI.step {E : Explorer S K L} {rep : S → S} {a0 a : S} {c : Nat} {l : L} {s : S}
+    (h : ReachI E rep a0 a) (hb : E.bound a ≤ c) (hmem : (l, s) ∈ E.succ c a) :
+    ReachI E rep a0 (rep s) :=
+  Relation.ReflTransGen.tail h ⟨c, l, s, hb, hmem, rfl⟩
+
+/-- Induction over `ReachI` with the cases of the former inductive. -/
+@[elab_as_elim, induction_eliminator]
+theorem ReachI.rec' {E : Explorer S K L} {rep : S → S} {a0 : S}
+    {motive : (s : S) → ReachI E rep a0 s → Prop}
+    (init : motive a0 ReachI.init)
+    (step : ∀ {a c l s} (hr : ReachI E rep a0 a) (hb : E.bound a ≤ c)
+      (hmem : (l, s) ∈ E.succ c a), motive a hr → motive (rep s) (ReachI.step hr hb hmem))
+    {s : S} (h : ReachI E rep a0 s) : motive s h := by
+  induction h with
+  | refl => exact init
+  | tail hr hst ih =>
+    obtain ⟨c, l, s, hb, hmem, rfl⟩ := hst
+    exact step hr hb hmem ih
 
 /-- An edge of the plain graph, seen through the key. -/
 inductive Edge (E : Explorer S K L) (a0 : S) : K → L → K → Prop

@@ -10,9 +10,16 @@ import Libpetri.Enablement
 import Libpetri.Refinement
 import Libpetri.Sched
 import Libpetri.RetrodictExec
+import Libpetri.InvariantSum
 import Libpetri.Strengthening
 import Libpetri.TimedCycle
 import Libpetri.MatchCache
 import Libpetri.Semiflow
 import Libpetri.Interning
 import Libpetri.StateEquation
+import Libpetri.Novel.CanonicalKey
+import Libpetri.Novel.Farkas
+import Libpetri.Novel.ResetArc
+import Libpetri.Novel.Dbm
+import Libpetri.Novel.Commoner
+import Libpetri.Novel.Enumeration

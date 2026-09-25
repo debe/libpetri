@@ -54,164 +54,9 @@ what *is* sufficient:
   [VER-002]'s error condition, so its two `false` fallbacks hide no violation.
 -/
 import Libpetri.Retrodict
+import Libpetri.Strengthening.Hypotheses
 
 namespace Libpetri
-
-/-!
-## Weight vectors and the emitted sums
-
-`PInvariant` (`p_invariant.rs:9-13`) carries `weights: Vec<i64>` over the
-dense place index plus a `support` that `validate_invariants_exact` pins to
-exactly the nonzero weights (`p_invariant.rs:288-299`). A weight vector is
-modelled total over `PlaceId` with its support below `place_count`; sums are
-hand-rolled over the first `n` places (`RingArith.lean` style — no Mathlib),
-which is the sum `invariant_conditions` emits (`smt_encoder.rs:406-429`),
-since the dense index of `flatten` (`net_flattener.rs:31-40`) keeps every
-place id below `place_count`.
--/
-
-/-- A P-invariant weight vector `y`: one integer weight per dense place index
-(`PInvariant.weights`, `p_invariant.rs:9-13`). -/
-abbrev Weight := PlaceId → Int
-
-/-- The support of `y` lies below `n` — what `PInvariant.support ⊆
-[0, place_count)` means for a total function. -/
-def SupportBelow (n : Nat) (y : Weight) : Prop :=
-  ∀ p, n ≤ p → y p = 0
-
-/-- `Σ_{p < n} f p`, hand-rolled over the dense place index. -/
-def isum (f : PlaceId → Int) : Nat → Int
-  | 0 => 0
-  | n + 1 => isum f n + f n
-
-/-- The weighted token sum `y·M` over the first `n` places — the equality the
-encoder conjoins on the successor variables `m'_i` (`invariant_conditions`,
-`smt_encoder.rs:406-429`). -/
-def dot (y : Weight) (m : AMarking) (n : Nat) : Int :=
-  isum (fun p => y p * (m p : Int)) n
-
-/-- `y·(post − pre)` over the first `n` places: `y` applied to one flat
-transition's **incidence column exactly as the shipped matrix builds it** —
-`C[t][p] = post − pre` with `pre = required_count`
-(`incidence_matrix.rs:45-51` from `net_flattener.rs:50-54`; TS
-`incidence-matrix.ts` from `net-flattener.ts`). `dotInc y ft n = 0` is
-therefore *verbatim* the condition `validate_invariants_exact` re-validates in
-exact arithmetic (`p_invariant.rs:313-331`; TS `p-invariant-computer.ts`).
-Note what the column does **not** say: nothing about `consume_all` or
-`reset_places` — that omission is H1 below. -/
-def dotInc (y : Weight) (ft : FlatTransition) (n : Nat) : Int :=
-  isum (fun p => y p * ((post ft.2 p : Int) - (pre ft.1 p : Int))) n
-
-theorem isum_congr {f g : PlaceId → Int} :
-    ∀ {n : Nat}, (∀ p, p < n → f p = g p) → isum f n = isum g n
-  | 0, _ => rfl
-  | n + 1, h => by
-    show isum f n + f n = isum g n + g n
-    rw [isum_congr fun p hp => h p (Nat.lt_succ_of_lt hp), h n n.lt_succ_self]
-
-theorem isum_add (f g : PlaceId → Int) :
-    ∀ n, isum (fun p => f p + g p) n = isum f n + isum g n
-  | 0 => rfl
-  | n + 1 => by
-    show isum (fun p => f p + g p) n + (f n + g n)
-        = (isum f n + f n) + (isum g n + g n)
-    rw [isum_add f g n]
-    omega
-
-/-- A weight vector supported below `n` sums identically under any wider
-truncation — the encoder's support-indexed sum (`invariant_conditions`,
-`smt_encoder.rs:414-418`, iterates `inv.support` only) loses nothing against
-the full `y·M`. -/
-theorem dot_stable_of_support_below {y : Weight} {n : Nat}
-    (hy : SupportBelow n y) (m : AMarking) :
-    ∀ k, dot y m (n + k) = dot y m n
-  | 0 => rfl
-  | k + 1 => by
-    show dot y m (n + k) + y (n + k) * (m (n + k) : Int) = dot y m n
-    rw [dot_stable_of_support_below hy m k, hy (n + k) (Nat.le_add_right n k)]
-    omega
-
-/-- Two-place evaluation of `dot`, for the concrete witnesses below. -/
-theorem dot_two (y : Weight) (m : AMarking) :
-    dot y m 2 = y 0 * (m 0 : Int) + y 1 * (m 1 : Int) := by
-  show 0 + y 0 * (m 0 : Int) + y 1 * (m 1 : Int) = _
-  omega
-
-/-!
-## The hypotheses the proof forces
-
-The abstract fire relation (`fireA`, modelling `firing_conditions`,
-`smt_encoder.rs:372-396`) has exactly two non-linear arms: a reset place and a
-consume-all place both get `m'_i = post[i]` (`smt_encoder.rs:376-381`), erasing
-however many tokens the
-place actually held. A weighted sum survives such an arm only where the
-weight is zero — that is H1, and `consume_all_hypothesis_is_necessary` is the
-counterexample that put it into the shipped gate. H2 is the incidence-column
-condition the C2 gate always checked. H3 — env-freedom — is carried by the
-reachability relation itself; its env-aware replacement H3′ appears with
-`invariant_strengthening_sound_inj`.
--/
-
-/-- **H1 (linearity).** Below the truncation bound, `y` vanishes on every
-place where `fireA` is non-linear: reset places and consume-all places
-(`Card.consumesAll`, i.e. `In::All` / `In::AtLeast` — `flatten`,
-`net_flattener.rs:53-55`).
-Only places below `n` matter: the emitted sum never reads past `place_count`. -/
-def ZeroOnNonlinear (y : Weight) (t : Transition) (n : Nat) : Prop :=
-  ∀ p, p < n → t.resets.contains p = true ∨ consumeAllAt t p = true → y p = 0
-
-/-- Abstract enablement bounds the linear arm's `Nat` subtraction:
-`pre[p] ≤ m p`, so `m p - pre[p] + post[p]` computes the exact integer
-`m p − pre[p] + post[p]`. -/
-theorem pre_le_of_enabledA {m : AMarking} {t : Transition}
-    (hEn : enabledA m t = true) (p : PlaceId) : pre t p ≤ m p := by
-  unfold pre
-  cases hs : specAt t p with
-  | none => exact Nat.zero_le _
-  | some s =>
-    obtain ⟨hmem, hplace⟩ := specAt_sound hs
-    unfold enabledA at hEn
-    simp only [Bool.and_eq_true, List.all_eq_true, decide_eq_true_eq] at hEn
-    exact hplace ▸ hEn.1.1 s hmem
-
-/-- One place's contribution to `y·M` across one abstract firing: with H1 at
-`p` and enablement, the change is exactly `y p · (post[p] − pre[p])` — the
-place's incidence-column entry. -/
-theorem fire_term (y : Weight) {m : AMarking} {t : Transition} (br : List PlaceId)
-    {n : Nat} (h1 : ZeroOnNonlinear y t n) (hEn : enabledA m t = true)
-    (p : PlaceId) (hp : p < n) :
-    y p * (fireA m t br p : Int)
-      = y p * (m p : Int) + y p * ((post br p : Int) - (pre t p : Int)) := by
-  by_cases hR : t.resets.contains p = true
-  · rw [h1 p hp (Or.inl hR)]
-    omega
-  · by_cases hCA : consumeAllAt t p = true
-    · rw [h1 p hp (Or.inr hCA)]
-      omega
-    · have hfa : fireA m t br p = m p - pre t p + post br p := by
-        unfold fireA
-        rw [if_neg hR, if_neg hCA]
-      have hle : pre t p ≤ m p := pre_le_of_enabledA hEn p
-      have hcast : ((m p - pre t p + post br p : Nat) : Int)
-          = (m p : Int) + ((post br p : Int) - (pre t p : Int)) := by omega
-      rw [hfa, hcast, Int.mul_add]
-
-/-- Per-step conservation: one abstract firing preserves `y·M` when `y` is
-(H1) zero on the firing's non-linear places and (H2) annihilates its
-incidence column. [VER-005] AC2, with the hypothesis the shipped pipeline is
-missing made explicit. -/
-theorem dot_fireA (y : Weight) {m : AMarking} {t : Transition} {br : List PlaceId}
-    {n : Nat} (h1 : ZeroOnNonlinear y t n) (h2 : dotInc y (t, br) n = 0)
-    (hEn : enabledA m t = true) :
-    dot y (fireA m t br) n = dot y m n := by
-  have hsplit : dot y (fireA m t br) n = dot y m n + dotInc y (t, br) n := by
-    have hcongr : isum (fun p => y p * (fireA m t br p : Int)) n
-        = isum (fun p => y p * (m p : Int)
-            + y p * ((post br p : Int) - (pre t p : Int))) n :=
-      isum_congr fun p hp => fire_term y br h1 hEn p hp
-    exact hcongr.trans (isum_add _ _ n)
-  rw [hsplit, h2]
-  omega
 
 /-!
 ## Soundness of strengthening
@@ -247,19 +92,38 @@ theorem invariant_strengthening_sound {net : FlatNet} {a0 a : AMarking}
   | @step a1 ft hr hmem hen ih =>
     exact (dot_fireA y (h1 ft hmem) (h2 ft hmem) hen).trans ih
 
+/-- One strengthened step: a `StepARel` step whose successor keeps `y·M' = y·M₀`. -/
+def StepAStrRel (net : FlatNet) (y : Weight) (n : Nat) (a0 a a' : AMarking) : Prop :=
+  StepARel net a a' ∧ dot y a' n = dot y a0 n
+
 /-- `ReachA` with the invariant conjunct `y·M' = y·M₀` added to every
 transition-rule body — the shape `encode_transition_rule` actually emits
 (`smt_encoder.rs:502` conjoins the `strengthening` list, which `encode_net`
 opens with `invariant_conditions` over the successor variables `m'_i` at
 `:157`, inside the rule body, so a violating successor is pruned,
 not flagged). -/
-inductive ReachAStr (net : FlatNet) (y : Weight) (n : Nat) (a0 : AMarking) :
-    AMarking → Prop
-  | init : ReachAStr net y n a0 a0
-  | step {a ft} :
-      ReachAStr net y n a0 a → ft ∈ net → enabledA a ft.1 = true →
-      dot y (fireA a ft.1 ft.2) n = dot y a0 n →
-      ReachAStr net y n a0 (fireA a ft.1 ft.2)
+def ReachAStr (net : FlatNet) (y : Weight) (n : Nat) (a0 : AMarking) :
+    AMarking → Prop :=
+  Relation.ReflTransGen (StepAStrRel net y n a0) a0
+
+theorem ReachAStr.init {net y n a0} : ReachAStr net y n a0 a0 := Relation.ReflTransGen.refl
+
+theorem ReachAStr.step {net y n a0 a} {ft : FlatTransition} (h : ReachAStr net y n a0 a)
+    (hmem : ft ∈ net) (hen : enabledA a ft.1 = true)
+    (hc : dot y (fireA a ft.1 ft.2) n = dot y a0 n) : ReachAStr net y n a0 (fireA a ft.1 ft.2) :=
+  Relation.ReflTransGen.tail h ⟨⟨ft, hmem, hen, rfl⟩, hc⟩
+
+/-- Induction over `ReachAStr` with the cases of the former inductive. -/
+@[elab_as_elim, induction_eliminator]
+theorem ReachAStr.rec' {net y n a0} {motive : (a : AMarking) → ReachAStr net y n a0 a → Prop}
+    (init : motive a0 ReachAStr.init)
+    (step : ∀ {a ft} (hr : ReachAStr net y n a0 a) (hmem : ft ∈ net) (hen : enabledA a ft.1 = true)
+      (hc : dot y (fireA a ft.1 ft.2) n = dot y a0 n), motive a hr →
+      motive (fireA a ft.1 ft.2) (ReachAStr.step hr hmem hen hc))
+    {a : AMarking} (h : ReachAStr net y n a0 a) : motive a h := by
+  induction h with
+  | refl => exact init
+  | tail hr hs ih => obtain ⟨⟨ft, hmem, hen, rfl⟩, hc⟩ := hs; exact step hr hmem hen hc ih
 
 /-- **Conjoining is sound**: under H1 + H2 (+ H3 via `ReachA`), the
 strengthened relation reaches exactly the same markings. The forward
@@ -316,7 +180,7 @@ theorem invariant_strengthening_sound_inj {net : FlatNet} {envs : List PlaceId}
   | @inject a1 pinj hr hpin ih =>
     have hstep : dot y (fun q => if q == pinj then a1 q + 1 else a1 q) n
         = dot y a1 n := by
-      unfold dot
+      rw [dot_eq_isum, dot_eq_isum]
       refine isum_congr fun q hq => ?_
       show y q * ((if q == pinj then a1 q + 1 else a1 q : Nat) : Int)
           = y q * (a1 q : Int)
@@ -328,22 +192,52 @@ theorem invariant_strengthening_sound_inj {net : FlatNet} {envs : List PlaceId}
       · rw [if_neg hqp]
     exact hstep.trans ih
 
+/-- One step of `ReachAInjStr`: a strengthened firing, or an unconstrained injection. -/
+def StepAInjStrRel (net : FlatNet) (envs : List PlaceId) (y : Weight) (n : Nat)
+    (a0 a a' : AMarking) : Prop :=
+  StepAStrRel net y n a0 a a' ∨ ∃ p ∈ envs, a' = fun q => if q == p then a q + 1 else a q
+
 /-- The shipped strengthened shape with env injection: the invariant conjunct
 sits in *transition*-rule bodies only (`encode_transition_rule`,
 `smt_encoder.rs:485-511`); injection rules carry no invariant conjunct
 (`encode_injection_rule`, `smt_encoder.rs:532-560` — with
 `EncodeOptions::state_equation` they copy the firing counters, `:550-553`,
 modelled in `StateEquation.lean`). -/
-inductive ReachAInjStr (net : FlatNet) (envs : List PlaceId) (y : Weight)
-    (n : Nat) (a0 : AMarking) : AMarking → Prop
-  | init : ReachAInjStr net envs y n a0 a0
-  | step {a ft} :
-      ReachAInjStr net envs y n a0 a → ft ∈ net → enabledA a ft.1 = true →
-      dot y (fireA a ft.1 ft.2) n = dot y a0 n →
-      ReachAInjStr net envs y n a0 (fireA a ft.1 ft.2)
-  | inject {a p} :
-      ReachAInjStr net envs y n a0 a → p ∈ envs →
-      ReachAInjStr net envs y n a0 (fun q => if q == p then a q + 1 else a q)
+def ReachAInjStr (net : FlatNet) (envs : List PlaceId) (y : Weight)
+    (n : Nat) (a0 : AMarking) : AMarking → Prop :=
+  Relation.ReflTransGen (StepAInjStrRel net envs y n a0) a0
+
+theorem ReachAInjStr.init {net envs y n a0} : ReachAInjStr net envs y n a0 a0 :=
+  Relation.ReflTransGen.refl
+
+theorem ReachAInjStr.step {net envs y n a0 a} {ft : FlatTransition}
+    (h : ReachAInjStr net envs y n a0 a) (hmem : ft ∈ net) (hen : enabledA a ft.1 = true)
+    (hc : dot y (fireA a ft.1 ft.2) n = dot y a0 n) :
+    ReachAInjStr net envs y n a0 (fireA a ft.1 ft.2) :=
+  Relation.ReflTransGen.tail h (Or.inl ⟨⟨ft, hmem, hen, rfl⟩, hc⟩)
+
+theorem ReachAInjStr.inject {net envs y n a0 a} {p : PlaceId}
+    (h : ReachAInjStr net envs y n a0 a) (hp : p ∈ envs) :
+    ReachAInjStr net envs y n a0 (fun q => if q == p then a q + 1 else a q) :=
+  Relation.ReflTransGen.tail h (Or.inr ⟨p, hp, rfl⟩)
+
+/-- Induction over `ReachAInjStr` with the cases of the former inductive. -/
+@[elab_as_elim, induction_eliminator]
+theorem ReachAInjStr.rec' {net envs y n a0}
+    {motive : (a : AMarking) → ReachAInjStr net envs y n a0 a → Prop}
+    (init : motive a0 ReachAInjStr.init)
+    (step : ∀ {a ft} (hr : ReachAInjStr net envs y n a0 a) (hmem : ft ∈ net)
+      (hen : enabledA a ft.1 = true) (hc : dot y (fireA a ft.1 ft.2) n = dot y a0 n),
+      motive a hr → motive (fireA a ft.1 ft.2) (ReachAInjStr.step hr hmem hen hc))
+    (inject : ∀ {a p} (hr : ReachAInjStr net envs y n a0 a) (hp : p ∈ envs), motive a hr →
+      motive (fun q => if q == p then a q + 1 else a q) (ReachAInjStr.inject hr hp))
+    {a : AMarking} (h : ReachAInjStr net envs y n a0 a) : motive a h := by
+  induction h with
+  | refl => exact init
+  | tail hr hs ih =>
+    rcases hs with ⟨⟨ft, hmem, hen, rfl⟩, hc⟩ | ⟨p, hp, rfl⟩
+    · exact step hr hmem hen hc ih
+    · exact inject hr hp ih
 
 /-- Conjoining stays sound under injection provided H3′ — the formal warrant
 for keeping invariants in the transition rules while the injector columns
@@ -545,6 +439,9 @@ theorem bad_rule_proves_every_net (net : FlatNet) (a0 : AMarking) :
 /-!
 ## `QuiescentCount`'s count clause is exact ([VER-002])
 -/
+
+-- Keep core's `Zero ℕ` for `List.sum` below, as elaborated before Mathlib's algebra was imported.
+attribute [local instance high] Zero.ofOfNat0
 
 /-- `count_violation_condition` (`smt_encoder.rs:775-804`) over the count
 `total` and whether every waiver is empty: the lower part when `min > 0`, the

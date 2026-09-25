@@ -104,4 +104,12 @@ structure PlacesInBounds (t : Transition) (n : Nat) : Prop where
   inhibitors : ∀ p ∈ t.inhibitors, p < n
   resets : ∀ p ∈ t.resets, p < n
 
+/-- Appending a token never changes the place count (shared by
+`Refinement.lean` and `MatchCache.lean`). -/
+theorem addLast_nplaces (s : Pool) (p : PlaceId) (c : Colour) :
+    (s.addLast p c).nplaces = s.nplaces := by
+  unfold Pool.addLast
+  by_cases hfull : s.cnt p = s.cap p <;>
+    simp [hfull, Pool.pushLast, Pool.growRing]
+
 end Libpetri

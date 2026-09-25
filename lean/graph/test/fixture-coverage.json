@@ -1,0 +1,12 @@
+{
+  "$comment": "Fixture for scripts/test_proofgraph_extractor.sh: one spec entry, matched by short name and module file like lean/proof-coverage.json.",
+  "theorems": [
+    {
+      "name": "isRed_spec",
+      "module": "ProofGraphFixture.lean",
+      "specIds": [
+        { "id": "FIX-001", "fragment": "fixture only" }
+      ]
+    }
+  ]
+}
