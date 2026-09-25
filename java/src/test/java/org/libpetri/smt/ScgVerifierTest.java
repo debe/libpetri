@@ -533,6 +533,24 @@ class ScgVerifierTest {
 
     @Test
     @EnabledIf("z3Available")
+    void aSiphonBehindASecondInput_theGateUsedToProveANetThatIsDeadAtM0() {
+        // x -> y -> x, each step also consuming and returning its own guard. From {g, h}
+        // nothing fires and the guard tokens are stranded; growing each siphon by the
+        // FIRST input of a producer misses the empty siphon {x, y}.
+        var g = Place.of("g", Integer.class);
+        var h = Place.of("h", Integer.class);
+        var x = Place.of("x", Integer.class);
+        var y = Place.of("y", Integer.class);
+        var t1 = Transition.builder("t1").inputs(In.one(g), In.one(x)).outputs(Out.and(y, g)).build();
+        var t2 = Transition.builder("t2").inputs(In.one(h), In.one(y)).outputs(Out.and(x, h)).build();
+        var net = StructureOnly.bind(PetriNet.builder("guarded-ring").transitions(t1, t2).build());
+        var result = runDeadlockFree(net, MarkingState.builder().tokens(g, 1).tokens(h, 1).build());
+        assertNotProvenStructurally(result);
+        assertInstanceOf(SmtVerificationResult.Verdict.Violated.class, result.verdict(), result.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
     void anArcWeightAboveOne() {
         var a = Place.of("a", Integer.class);
         var t = Transition.builder("t").inputs(In.exactly(2, a)).outputs(Out.place(a)).build();

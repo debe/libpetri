@@ -825,30 +825,29 @@ public final class SmtVerifier {
 
         // Phase 2: Structural pre-check
         report.append("Phase 2: Structural pre-check (siphon/trap)...\n");
-        var structResult = StructuralCheck.check(flatNet, initialMarking);
+        // The structural check only proves DeadlockFree, and only when no sink places
+        // (conditional or not) are declared: it does not account for sinks. Environment
+        // places rule it out too: the siphon/trap analysis runs on the closed net and is
+        // blind to env injection (VER-006), so fall through to the (injection-aware) SMT
+        // encoding instead. Nets Commoner's theorem does not govern are excluded as well,
+        // see {@link #commonerApplies}. The siphon search is exponential, so it runs only
+        // when its result can decide the verdict.
+        boolean structuralCandidate = property instanceof SmtProperty.DeadlockFree
+                && !hasMatch
+                && commonerApplies(flatNet)
+                && sinkPlaces.isEmpty()
+                && conditional.isEmpty()
+                && environmentPlaces.isEmpty();
+        var structResult = structuralCandidate ? StructuralCheck.check(flatNet, initialMarking) : null;
         String structResultStr = switch (structResult) {
+            case null -> "n/a (not a deadlock-freedom proof candidate)";
             case StructuralCheck.Result.NoPotentialDeadlock() -> "no potential deadlock";
             case StructuralCheck.Result.PotentialDeadlock(var siphon) -> "potential deadlock (siphon: " + siphon + ")";
             case StructuralCheck.Result.Inconclusive(var reason) -> "inconclusive (" + reason + ")";
         };
         report.append("  Result: ").append(structResultStr).append("\n\n");
 
-        // If structural check proves deadlock-freedom for DeadlockFree property
-        // (only valid when no sink places, conditional or not — structural check doesn't
-        // account for sinks). Skipped when environment places are registered: the
-        // siphon/trap analysis runs on the closed net and is blind to env injection
-        // (VER-006), so its early proof could be unsound — fall through to the
-        // (injection-aware) SMT encoding instead.
-        // Skipped too for any net Commoner's theorem does not govern: see
-        // {@link #commonerApplies}. That guard is what makes this a proof rather than a
-        // guess, and it was missing.
-        if (property instanceof SmtProperty.DeadlockFree
-                && !hasMatch
-                && commonerApplies(flatNet)
-                && sinkPlaces.isEmpty()
-                && conditional.isEmpty()
-                && environmentPlaces.isEmpty()
-                && structResult instanceof StructuralCheck.Result.NoPotentialDeadlock) {
+        if (structuralCandidate && structResult instanceof StructuralCheck.Result.NoPotentialDeadlock) {
             report.append("=== RESULT ===\n\n");
             report.append("PROVEN (structural): Deadlock-freedom verified by Commoner's theorem.\n");
             report.append("  All siphons contain initially marked traps.\n");
@@ -1004,6 +1003,10 @@ public final class SmtVerifier {
         // fragment keeps the flat encoding.
         var colouredAttempt = colouredAttempt(flatNet, invariants, () -> semiflows);
         NameColouredEncoder.ColouredPlan colouredPlan = colouredAttempt.plan();
+        if (hasMatch && nuBounded && !flatNet.environmentInjection().isEmpty()) {
+            report.append("  ν-encoding: name-blind over-approximation (the name-coloured encoding does not\n")
+                .append("  model environment injection, VER-006)\n");
+        }
 
         // Linear state-equation bound (VER-015): a reachability-safety property whose
         // violating markings exceed some `y·M <= y·M0` with `y >= 0`, `y·C <= 0` is
@@ -1683,7 +1686,10 @@ public final class SmtVerifier {
             FlatNet flatNet, List<PInvariant> invariants, Supplier<List<PInvariant>> semiflows) {
         boolean hasMatch = net.transitions().stream().anyMatch(t -> t.matchSpec() != null);
         boolean nuBounded = !budgetPlaces.isEmpty();
-        if (!hasMatch || !nuBounded) {
+        // The name-coloured encoding has no injection rule ([VER-006]): its environment
+        // places would stay empty and every verdict would describe the closed net. Decline,
+        // so the flat encoding, which models injection, answers soundly.
+        if (!hasMatch || !nuBounded || !flatNet.environmentInjection().isEmpty()) {
             return new ColouredAttempt(null, null);
         }
         // Supplied rather than passed by value: Java evaluates arguments eagerly, so a

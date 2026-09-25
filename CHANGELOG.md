@@ -5,6 +5,7 @@
 ### Breaking
 
 - **Rust: `ExecutorBackend` gains a required `terminal_reached()` method.** Only code that implements its own executor backend is affected. `run_sync` and `run_async` keep their return types.
+- **Rust: `structural_check` takes the initial marking.** `structural_check(flat, initial: &MarkingState)`: Commoner's condition needs each minimal siphon's trap marked at M0 ([VER-020]). Callers of the free function pass the net's initial marking.
 
 ### Added
 
@@ -30,6 +31,8 @@
 
 ### Fixed
 
+- **ν verification: Route A no longer ignores environment injection (all languages, [VER-006] AC7).** The name-coloured encoding has no injection rule, so on a ν-net with a declared budget and environment places under `alwaysAvailable` or `bounded(k)`, environment places stayed empty and safety queries came back vacuously `Proven`. Route A now declines under injection and the flat encoding, which models it, answers; the report says so.
+- **Verification: the structural deadlock shortcut no longer proves dead nets (all languages, [VER-020] AC4).** Commoner's check needs every minimal siphon, each with a trap marked in the initial marking. The siphon search committed to one input per producer (Java, TypeScript: the first; Rust: all of them) and could miss the empty siphon, and Rust never checked the trap was initially marked. `DeadlockFree` with enumeration off (timed nets, `enumerationMaxClasses(0)`, or past the class budget) could then return a structural `Proven` for a net dead at its initial marking. The search now branches on every input, under a 10 000-node budget past which it is inconclusive and the SMT pipeline answers. It runs only for a `DeadlockFree` query it could prove. TypeScript `findMinimalSiphons` returns every minimal siphon and takes an optional node budget.
 - **The root `libpetri` npm entry no longer pulls in `node:child_process`.** `SubnetDef.verify()` imported the verifier statically, so every browser bundle of `libpetri` contained the z3 process transport, and the debug-ui crashed on load under the Vite dev server. The verifier now loads on first use.
 
 - **ν verification: a join that consumes a correlated place off-key is no longer proven (all languages, [NU-051] AC7).** A matched transition may consume a place that is another join's key (or a declared carrier) through an input that is not one of its own keys. That input takes the oldest token whatever its name, but the name-aware graph (Route B) removed nothing from it, and the coloured encoding (Route A) forced the join's own colour on it. Both could miss a reachable stranding and report `Proven`. Such nets now fall back to the sound over-approximation in BASE and EXTENDED mode. Non-key inputs on uncorrelated places (budgets, permits) are unaffected.

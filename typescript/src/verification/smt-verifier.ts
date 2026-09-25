@@ -494,7 +494,10 @@ export class SmtVerifier {
   ): { plan: ColouredPlan | null; encoding: SmtEncoding | null } {
     const hasMatch = [...this.net.transitions].some(t => t.matchSpec !== null);
     const nuBounded = this._budgetPlaces.size > 0;
-    if (!hasMatch || !nuBounded) return { plan: null, encoding: null };
+    // The name-coloured encoding has no injection rule (VER-006): its environment places
+    // would stay empty and every verdict would describe the closed net. Decline, so the
+    // flat encoding, which models injection, answers soundly.
+    if (!hasMatch || !nuBounded || flatNet.environmentInjection.size > 0) return { plan: null, encoding: null };
     const plan = buildColouredPlan(
       this.net, flatNet, this._initialMarking, this._budgetPlaces,
       this._fragmentMode, this._carrierPlaces, semiflows,
@@ -761,9 +764,26 @@ export class SmtVerifier {
 
     // Phase 2: Structural pre-check
     report.push('Phase 2: Structural pre-check (siphon/trap)...');
-    const structResult = structuralCheck(flatNet, this._initialMarking);
+    // The structural check proves only deadlock-freedom, and only when no sink
+    // places are declared (it does not account for sinks). It is skipped when
+    // environment places are registered: the siphon/trap analysis runs on the
+    // closed net and is blind to env injection (VER-006), so the injection-aware
+    // SMT encoding decides instead. It is skipped too for any net Commoner's theorem
+    // does not govern: see {@link commonerApplies}. The search is exponential, so
+    // it runs only when its answer could return PROVEN.
+    const structuralCandidate =
+      this._property.type === 'deadlock-free' &&
+      !hasMatch &&
+      commonerApplies(flatNet) &&
+      this._sinkPlaces.size === 0 &&
+      this._conditionalSinks.length === 0 &&
+      this._environmentPlaces.size === 0;
+    const structResult = structuralCandidate ? structuralCheck(flatNet, this._initialMarking) : null;
     let structResultStr: string;
-    switch (structResult.type) {
+    switch (structResult?.type) {
+      case undefined:
+        structResultStr = 'n/a (not a deadlock-freedom proof candidate)';
+        break;
       case 'no-potential-deadlock':
         structResultStr = 'no potential deadlock';
         break;
@@ -776,23 +796,7 @@ export class SmtVerifier {
     }
     report.push(`  Result: ${structResultStr}\n`);
 
-    // If structural check proves deadlock-freedom for DeadlockFree property
-    // (only valid when no sink places — structural check doesn't account for sinks).
-    // Skipped when environment places are registered: the siphon/trap analysis runs
-    // on the closed net and is blind to env injection (VER-006), so its early proof
-    // could be unsound — fall through to the (injection-aware) SMT encoding instead.
-    // Skipped too for any net Commoner's theorem does not govern: see
-    // {@link commonerApplies}. That guard is what makes this a proof rather than a
-    // guess, and it was missing.
-    if (
-      this._property.type === 'deadlock-free' &&
-      !hasMatch &&
-      commonerApplies(flatNet) &&
-      this._sinkPlaces.size === 0 &&
-      this._conditionalSinks.length === 0 &&
-      structResult.type === 'no-potential-deadlock' &&
-      this._environmentPlaces.size === 0
-    ) {
+    if (structuralCandidate && structResult?.type === 'no-potential-deadlock') {
       report.push('=== RESULT ===\n');
       report.push('PROVEN (structural): Deadlock-freedom verified by Commoner\'s theorem.');
       report.push('  All siphons contain initially marked traps.');
@@ -948,6 +952,10 @@ export class SmtVerifier {
     // Rust order it the same way.
     const colouredAttempt = this.colouredAttempt(flatNet, invariants, semiflows);
     const colouredPlan: ColouredPlan | null = colouredAttempt.plan;
+    if (hasMatch && nuBounded && flatNet.environmentInjection.size > 0) {
+      report.push('  ν-encoding: name-blind over-approximation (the name-coloured encoding does not');
+      report.push('  model environment injection, VER-006)');
+    }
 
     // Linear state-equation bound (VER-015): a reachability-safety property whose
     // violating markings exceed some `y·M <= y·M0` with `y >= 0`, `y·C <= 0` is

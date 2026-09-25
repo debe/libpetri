@@ -6,7 +6,7 @@ import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
 import { one } from '../../src/core/in.js';
-import { outPlace } from '../../src/core/out.js';
+import { and, outPlace } from '../../src/core/out.js';
 
 describe('StructuralCheck', () => {
   it('circular net is deadlock-free', () => {
@@ -110,5 +110,35 @@ describe('StructuralCheck', () => {
     const trap = findMaximalTrapIn(flatNet, allPlaces);
     // Both places form a trap in a circular net
     expect(trap.size).toBe(2);
+  });
+
+  const guardedRing = () => {
+    const g = place('g'), h = place('h'), x = place('x'), y = place('y');
+    const t1 = Transition.builder('t1').inputs(one(g), one(x)).outputs(and(outPlace(y), outPlace(g))).build();
+    const t2 = Transition.builder('t2').inputs(one(h), one(y)).outputs(and(outPlace(x), outPlace(h))).build();
+    return { flatNet: flatten(PetriNet.builder('N').transitions(t1, t2).build()), g, h, x };
+  };
+
+  it('finds a siphon that only a second input reaches', () => {
+    const { flatNet, g, h, x } = guardedRing();
+    const names = findMinimalSiphons(flatNet).map(s => [...s].map(i => flatNet.places[i]!.name).sort().join(','));
+    expect(names.sort()).toEqual(['g', 'h', 'x,y']);
+    expect(structuralCheck(flatNet, MarkingState.builder().tokens(g, 1).tokens(h, 1).build()).type)
+      .toBe('potential-deadlock');
+    expect(structuralCheck(flatNet, MarkingState.builder().tokens(g, 1).tokens(h, 1).tokens(x, 1).build()).type)
+      .toBe('no-potential-deadlock');
+  });
+
+  it('an exhausted search is inconclusive', () => {
+    expect(findMinimalSiphons(guardedRing().flatNet, 1)).toBeNull();
+  });
+
+  it('does not pad a siphon with every input of a producer', () => {
+    // t1: a + c -> b + c, t2: b -> a. The minimal siphon {a, b} is empty at {c:1}.
+    const a = place('a'), b = place('b'), c = place('c');
+    const t1 = Transition.builder('t1').inputs(one(a), one(c)).outputs(and(outPlace(b), outPlace(c))).build();
+    const t2 = Transition.builder('t2').inputs(one(b)).outputs(outPlace(a)).build();
+    const flatNet = flatten(PetriNet.builder('N').transitions(t1, t2).build());
+    expect(structuralCheck(flatNet, MarkingState.builder().tokens(c, 1).build()).type).toBe('potential-deadlock');
   });
 });

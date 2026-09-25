@@ -46,8 +46,9 @@
 //! Quiescence properties (`DeadlockFree`, `JoinedOrDeadLettered`) use a colour-aware
 //! deadlock predicate ([NU-053], Part 2): every transition is disabled for every
 //! colour (a mint has no globally-fresh colour, a join no shared colour, a consumer
-//! no resident colour) and the marking is not a sink state — mirroring the flat
-//! [`crate::smt_encoder`] deadlock with the same env-injection relaxation.
+//! no resident colour) and the marking is not a sink state, mirroring the flat
+//! [`crate::smt_encoder`] deadlock. The encoding has no injection rule, so the
+//! verifier never calls it with environment injection ([VER-006] AC7).
 
 use std::collections::HashSet;
 
@@ -415,6 +416,9 @@ impl Layout {
 /// Returns `None` when the property names a place that does not resolve in the
 /// net (see [`encode_violation`]); the verifier reports `Unknown` rather than
 /// certify a vacuous `Proven`.
+///
+/// The encoding has no injection rule, so a non-empty `env_inject` yields an
+/// unsound relaxed predicate; the verifier never passes one ([VER-006] AC7).
 #[allow(clippy::too_many_arguments)]
 pub fn encode_coloured(
     plan: &ColouredPlan,

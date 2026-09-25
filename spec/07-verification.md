@@ -242,6 +242,11 @@ reachable set, so it is a fortiori a counterexample in the injected one.
    route that returns a verdict without invoking the solver.
 6. When injection makes some transition enabled in every marking, a quiescence property is
    reported as vacuously true: the verdict stands, and the report names the reason.
+7. The name-coloured encoding of [NU-050] Route A has no injection rule, so under
+   `AlwaysAvailable` or `Bounded(k)` with environment places it MUST NOT answer: the query
+   takes the flat encoding, which models injection, and the report says so. For a ν-net
+   `env source → fork (mint) → join → merged` with a declared budget, `Unreachable(merged)` is
+   `Violated` under both modes.
 
 **Test derivation:** Same net (`env IN → T → OUT`) with different environment modes; verify
 `AlwaysAvailable` → `Violated`, `Bounded(k)` gates by per-firing multiplicity, `Ignore` → `Unknown`.
@@ -1115,12 +1120,30 @@ dead at its initial marking and was reported deadlock-free before the restrictio
 `t1: one(a) read(g) → g` with `t2: one(g) → a` from `{a:1}`; `t: exactly(2, a) → a` from
 `{a:1}`; `t: one(a) inhibitor(b) → a` from `{a:1, b:1}`.
 
+**A structural proof needs every minimal siphon, each with an initially marked trap.**
+Commoner's condition quantifies over all siphons; checking the minimal ones suffices, because a
+trap inside a minimal siphon lies inside every siphon that contains it. An implementation MUST
+therefore find **every** minimal siphon before it concludes "no potential deadlock", and MUST
+require each one's maximal trap to hold a token in the **initial** marking; an empty or unmarked
+trap is a potential deadlock. Growing a siphon by committing to one input of each producer (the
+first, or all of them) is incomplete: it can miss exactly the empty siphon that makes the net
+dead. Deciding the condition is co-NP-complete, so the search MAY run under a budget; past it
+the result is inconclusive, never a proof. Two witnesses, each dead at its initial marking with
+a token stranded: `t1: one(g) one(x) → y, g` with `t2: one(h) one(y) → x, h` from
+`{g:1, h:1}` (minimal siphon `{x, y}`); `t1: one(a) one(c) → b, c` with `t2: one(b) → a` from
+`{c:1}` (minimal siphon `{a, b}`).
+
 **Acceptance Criteria:**
 1. Siphons and traps are identified from the net structure.
-2. Results inform deadlock analysis (every siphon containing a marked trap ensures liveness).
+2. Results inform deadlock analysis (every siphon containing an initially marked trap ensures
+   deadlock-freedom of an ordinary net; liveness only for free-choice nets).
 3. A structural `Proven` is offered only for a net with no read, inhibitor or reset arc, no
    consume-all input and no arc weight above one. Each of the three witnesses above returns a
    verdict from a route that models what disables them, never a structural proof.
+4. The siphon search is complete: it finds `{x, y}` and `{a, b}` in the two witnesses above, and
+   neither net is proven structurally. A siphon whose maximal trap is empty in the initial
+   marking (the ring `a ↔ b` from the empty marking) blocks a structural proof. An exhausted
+   search budget yields an inconclusive result.
 
 **Test derivation:** Net with known siphon/trap structure; verify identification.
 

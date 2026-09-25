@@ -18,12 +18,19 @@ import java.util.*;
  * <p>A <b>trap</b> is a set of places S such that every transition with
  * an input in S also has an output in S. Once marked, a trap stays marked.
  *
- * <p>This is a cheap polynomial pre-check that may prove deadlock-freedom
- * before the more expensive SMT analysis.
+ * <p>Checking every <em>minimal</em> siphon suffices, since a trap inside a minimal
+ * siphon lies inside every siphon containing it. So {@code NoPotentialDeadlock} needs
+ * the search to have found <b>every</b> minimal siphon, and each one's maximal trap to
+ * hold a token in the initial marking. Deciding that is co-NP-complete, so the siphon
+ * search runs under a budget and answers {@code Inconclusive} past it, leaving the
+ * verdict to the SMT analysis.
  */
 public final class StructuralCheck {
 
     private static final int MAX_PLACES_FOR_SIPHON_ANALYSIS = 50;
+
+    /** Search budget for the siphon search, in search nodes. Identical in every implementation. */
+    private static final int SIPHON_SEARCH_BUDGET = 10_000;
 
     private StructuralCheck() {}
 
@@ -31,13 +38,13 @@ public final class StructuralCheck {
      * Result of structural deadlock check.
      */
     public sealed interface Result {
-        /** No potential deadlock detected (all siphons contain marked traps). */
+        /** Every minimal siphon contains a trap marked in the initial marking. */
         record NoPotentialDeadlock() implements Result {}
 
         /** A siphon was found that does not contain a marked trap. */
         record PotentialDeadlock(Set<Integer> siphon) implements Result {}
 
-        /** Analysis could not determine (e.g., net too large for complete analysis). */
+        /** Analysis could not decide: the net has too many places, or the siphon search exceeded its node budget. */
         record Inconclusive(String reason) implements Result {}
     }
 
@@ -46,7 +53,7 @@ public final class StructuralCheck {
      *
      * @param flatNet the flattened net
      * @param initialMarking the initial marking
-     * @return the check result
+     * @return the check result; {@code Inconclusive} when the net is too large or the siphon search exceeds its budget
      */
     public static Result check(FlatNet flatNet, MarkingState initialMarking) {
         int P = flatNet.placeCount();
@@ -60,11 +67,9 @@ public final class StructuralCheck {
             return new Result.Inconclusive("Net has " + P + " places, siphon enumeration skipped");
         }
 
-        // Find minimal siphons using backward closure
-        var siphons = findMinimalSiphons(flatNet);
-
-        if (siphons.isEmpty()) {
-            return new Result.NoPotentialDeadlock();
+        var siphons = findMinimalSiphons(flatNet, SIPHON_SEARCH_BUDGET);
+        if (siphons == null) {
+            return new Result.Inconclusive("siphon search exceeded " + SIPHON_SEARCH_BUDGET + " nodes");
         }
 
         // For each siphon, check if it contains a marked trap
@@ -82,117 +87,86 @@ public final class StructuralCheck {
     }
 
     /**
-     * Finds minimal siphons by checking all non-empty subsets of deadlock-enabling places.
-     * Uses a fixed-point approach: start from each place and grow the siphon.
+     * Finds <b>all</b> minimal siphons, or {@code null} when the search exceeds
+     * {@code budget} nodes.
+     *
+     * <p>A siphon is a place set S such that every transition with an output in S has
+     * at least one input in S. The search grows S from each start place; where a
+     * producer into S has no input in S, it branches on each of that producer's inputs.
+     * Every minimal siphon containing the start place is reached by the branch that
+     * always picks an input inside it, so the search is complete. Committing to one
+     * input instead (the first, or all of them at once) is not: it can miss exactly
+     * the unmarked siphon that makes the net dead.
      */
-    static List<Set<Integer>> findMinimalSiphons(FlatNet flatNet) {
-        int P = flatNet.placeCount();
-        var siphons = new ArrayList<Set<Integer>>();
-
-        // Pre-compute: for each place, which transitions have it as output?
-        // And for each transition, what are its input places?
-        var placeAsOutput = new ArrayList<List<Integer>>(P); // place -> list of transition indices
-        for (int p = 0; p < P; p++) {
-            placeAsOutput.add(new ArrayList<>());
-        }
-
-        for (int t = 0; t < flatNet.transitionCount(); t++) {
-            var ft = flatNet.transitions().get(t);
-            for (int p = 0; p < P; p++) {
-                if (ft.postVector()[p] > 0) {
-                    placeAsOutput.get(p).add(t);
-                }
+    static List<Set<Integer>> findMinimalSiphons(FlatNet flatNet, int budget) {
+        var found = new ArrayList<Set<Integer>>();
+        var nodes = new int[] {0};
+        for (int start = 0; start < flatNet.placeCount(); start++) {
+            if (!growSiphon(flatNet, Set.of(start), found, nodes, budget)) {
+                return null;
             }
         }
-
-        // For each starting place, compute the minimal siphon containing it
-        for (int startPlace = 0; startPlace < P; startPlace++) {
-            var siphon = computeSiphonContaining(startPlace, flatNet, placeAsOutput);
-            if (siphon != null && !siphon.isEmpty()) {
-                // Check it's truly minimal (not a superset of an existing siphon)
-                boolean isMinimal = true;
-                var toRemove = new ArrayList<Integer>();
-                for (int i = 0; i < siphons.size(); i++) {
-                    var existing = siphons.get(i);
-                    if (existing.equals(siphon)) {
-                        isMinimal = false;
-                        break;
-                    }
-                    if (siphon.containsAll(existing)) {
-                        isMinimal = false;
-                        break;
-                    }
-                    if (existing.containsAll(siphon)) {
-                        toRemove.add(i);
-                    }
-                }
-                // Remove non-minimal existing siphons
-                for (int i = toRemove.size() - 1; i >= 0; i--) {
-                    siphons.remove((int) toRemove.get(i));
-                }
-                if (isMinimal) {
-                    siphons.add(siphon);
+        var minimal = new ArrayList<Set<Integer>>();
+        for (int i = 0; i < found.size(); i++) {
+            var s = found.get(i);
+            boolean isMinimal = true;
+            for (int j = 0; j < found.size(); j++) {
+                var other = found.get(j);
+                if (j != i && other.size() <= s.size() && s.containsAll(other)) {
+                    isMinimal = false;
+                    break;
                 }
             }
+            if (isMinimal) {
+                minimal.add(s);
+            }
         }
-
-        return siphons;
+        return minimal;
     }
 
-    /**
-     * Computes the minimal siphon containing a given place using fixed-point iteration.
-     * A siphon S must satisfy: for every transition t with an output in S, t has an input in S.
-     */
-    private static Set<Integer> computeSiphonContaining(
-            int startPlace, FlatNet flatNet, List<List<Integer>> placeAsOutput) {
-
-        var siphon = new TreeSet<Integer>();
-        siphon.add(startPlace);
-
-        // Fixed-point: keep adding required input places
-        boolean changed = true;
-        while (changed) {
-            changed = false;
-
-            for (int p : new ArrayList<>(siphon)) {
-                // For each transition that outputs to p
-                for (int t : placeAsOutput.get(p)) {
-                    var ft = flatNet.transitions().get(t);
-
-                    // This transition must have at least one input in the siphon
-                    boolean hasInputInSiphon = false;
-                    for (int q = 0; q < flatNet.placeCount(); q++) {
-                        if (ft.preVector()[q] > 0 && siphon.contains(q)) {
-                            hasInputInSiphon = true;
-                            break;
-                        }
-                    }
-
-                    if (!hasInputInSiphon) {
-                        // Must add at least one input place of this transition
-                        // Choose the first one (heuristic for minimality)
-                        boolean added = false;
-                        for (int q = 0; q < flatNet.placeCount(); q++) {
-                            if (ft.preVector()[q] > 0) {
-                                if (siphon.add(q)) {
-                                    changed = true;
-                                }
-                                added = true;
-                                break;
-                            }
-                        }
-                        // If transition has no inputs but has outputs in siphon,
-                        // the siphon property is trivially violated (source transition).
-                        // This siphon can't exist - return null.
-                        if (!added) {
-                            return null;
-                        }
-                    }
-                }
+    /** One node of the siphon search. Returns {@code false} when the budget is exhausted. */
+    private static boolean growSiphon(
+            FlatNet flatNet, Set<Integer> siphon, List<Set<Integer>> found, int[] nodes, int budget) {
+        if (++nodes[0] > budget) {
+            return false;
+        }
+        // A superset of a siphon already found cannot lead to a new minimal one.
+        for (var f : found) {
+            if (f.size() <= siphon.size() && siphon.containsAll(f)) {
+                return true;
             }
         }
 
-        return Set.copyOf(siphon);
+        FlatTransition violating = null;
+        for (var ft : flatNet.transitions()) {
+            boolean outputsToSiphon = false;
+            boolean hasInputInSiphon = false;
+            for (int p : siphon) {
+                if (ft.postVector()[p] > 0) outputsToSiphon = true;
+                if (ft.preVector()[p] > 0) hasInputInSiphon = true;
+            }
+            if (outputsToSiphon && !hasInputInSiphon) {
+                violating = ft;
+                break;
+            }
+        }
+
+        if (violating == null) {
+            found.add(siphon);
+            return true;
+        }
+        // A producer with no inputs keeps any set holding its output marked: no siphon
+        // on this branch. Otherwise branch on each input.
+        for (int q = 0; q < flatNet.placeCount(); q++) {
+            if (violating.preVector()[q] > 0) {
+                var next = new TreeSet<>(siphon);
+                next.add(q);
+                if (!growSiphon(flatNet, Collections.unmodifiableSortedSet(next), found, nodes, budget)) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     /**

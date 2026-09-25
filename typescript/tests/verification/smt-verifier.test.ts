@@ -520,6 +520,27 @@ describeZ3('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
     return { net, source, budget, pending };
   }
 
+  it('Route A declines under environment injection (VER-006)', async () => {
+    // VER-006 binds every route that can return proven. The name-coloured encoding has
+    // no injection rule, so with `source` an environment place the net stayed frozen
+    // there and unreachable(merged) came back proven, although one injection makes
+    // merged reachable. Route A now declines under injection.
+    const { net, budget } = nuScatterGatherNet();
+    const merged = place<string>('merged');
+    for (const mode of [alwaysAvailable(), bounded(2)]) {
+      const r = await SmtVerifier.forNet(bindProducers(net))
+        .initialMarking(m => { m.tokens(budget, 2); })
+        .environmentPlaces(environmentPlace('source'))
+        .environmentMode(mode)
+        .property(unreachable(new Set([merged])))
+        .budgetPlaces(budget)
+        .timeout(15_000)
+        .verify();
+      expect(r.verdict.type, r.report).toBe('violated');
+      expect(r.report).toContain('does not\n  model environment injection');
+    }
+  });
+
   it('decides quiescence at zero budget via the zero-slot plan (NU-053 AC6)', async () => {
     // A mid-phase marking with no budget token — the covering semiflow's initial sum
     // is zero — is decided exactly by the zero-slot coloured plan instead of being

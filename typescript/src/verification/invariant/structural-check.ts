@@ -14,10 +14,12 @@
  * outputs to S. Key property: once any place in a trap is marked,
  * the trap remains marked forever.
  *
- * **Algorithm**: For each place, compute the minimal siphon containing it via
- * fixed-point expansion. For each siphon, find the maximal trap within it
- * (fixed-point contraction). If every siphon contains an initially-marked
- * trap, deadlock-freedom is proven structurally — no SMT query needed.
+ * **Algorithm**: Find every minimal siphon by a branching search: grow a set from
+ * each place and, where a producer into the set has no input in it, branch on each
+ * of that producer's inputs. For each minimal siphon, find its maximal trap
+ * (fixed-point contraction). If every such trap is marked in the initial marking,
+ * deadlock-freedom is proven structurally and no SMT query is needed. The search is
+ * capped at SIPHON_SEARCH_BUDGET nodes; past it the check is inconclusive.
  *
  * Limited to nets with ≤50 places to bound enumeration cost.
  */
@@ -25,6 +27,14 @@ import type { FlatNet } from '../encoding/flat-net.js';
 import type { MarkingState } from '../marking-state.js';
 
 const MAX_PLACES_FOR_SIPHON_ANALYSIS = 50;
+
+/**
+ * Search budget for the siphon search, in search nodes. Deciding Commoner's
+ * condition is co-NP-complete, so the search is exponential in the worst case;
+ * past this budget the check answers `inconclusive` and the SMT pipeline
+ * decides. Identical in every implementation.
+ */
+const SIPHON_SEARCH_BUDGET = 10_000;
 
 /**
  * Result of structural deadlock check using siphon/trap analysis.
@@ -45,6 +55,11 @@ export type StructuralCheckResult =
  *
  * A trap is a set of places S such that every transition with
  * an input in S also has an output in S. Once marked, a trap stays marked.
+ *
+ * Checking every *minimal* siphon suffices, since a trap inside a minimal siphon
+ * lies inside every siphon containing it. So `no-potential-deadlock` needs the
+ * search to have found **every** minimal siphon, and each one's maximal trap to
+ * hold a token in the initial marking.
  */
 export function structuralCheck(flatNet: FlatNet, initialMarking: MarkingState): StructuralCheckResult {
   const P = flatNet.places.length;
@@ -57,10 +72,9 @@ export function structuralCheck(flatNet: FlatNet, initialMarking: MarkingState):
     return { type: 'inconclusive', reason: `Net has ${P} places, siphon enumeration skipped` };
   }
 
-  const siphons = findMinimalSiphons(flatNet);
-
-  if (siphons.length === 0) {
-    return { type: 'no-potential-deadlock' };
+  const siphons = findMinimalSiphons(flatNet, SIPHON_SEARCH_BUDGET);
+  if (siphons === null) {
+    return { type: 'inconclusive', reason: `siphon search exceeded ${SIPHON_SEARCH_BUDGET} nodes` };
   }
 
   for (const siphon of siphons) {
@@ -75,105 +89,59 @@ export function structuralCheck(flatNet: FlatNet, initialMarking: MarkingState):
 }
 
 /**
- * Finds minimal siphons by checking all non-empty subsets of deadlock-enabling places.
- * Uses a fixed-point approach: start from each place and grow the siphon.
+ * Finds all minimal siphons (indices into `flatNet.places`). Exponential in the
+ * worst case. Pass `budget` to cap the search; past `budget` search nodes it
+ * returns `null`.
+ *
+ * A siphon is a place set `S` such that every transition with an output in `S`
+ * has at least one input in `S`. The search grows `S` from each start place;
+ * where a producer into `S` has no input in `S`, it branches on each of that
+ * producer's inputs. Every minimal siphon containing the start place is reached
+ * by the branch that always picks an input inside it, so the search is complete.
+ * Committing to one input instead (the first, or all of them at once) is not:
+ * it can miss exactly the unmarked siphon that makes the net dead.
  */
-export function findMinimalSiphons(flatNet: FlatNet): ReadonlySet<number>[] {
+export function findMinimalSiphons(flatNet: FlatNet): ReadonlySet<number>[];
+export function findMinimalSiphons(flatNet: FlatNet, budget: number): ReadonlySet<number>[] | null;
+export function findMinimalSiphons(
+  flatNet: FlatNet, budget = Number.POSITIVE_INFINITY,
+): ReadonlySet<number>[] | null {
   const P = flatNet.places.length;
-  const siphons: Set<number>[] = [];
+  const found: Set<number>[] = [];
+  let nodes = 0;
 
-  // Pre-compute: for each place, which transitions have it as output?
-  const placeAsOutput: number[][] = [];
-  for (let p = 0; p < P; p++) {
-    placeAsOutput.push([]);
-  }
+  const grow = (siphon: Set<number>): boolean => {
+    if (++nodes > budget) return false;
+    // A superset of a siphon already found cannot lead to a new minimal one.
+    if (found.some(f => isSubsetOf(f, siphon))) return true;
 
-  for (let t = 0; t < flatNet.transitions.length; t++) {
-    const ft = flatNet.transitions[t]!;
-    for (let p = 0; p < P; p++) {
-      if (ft.postVector[p]! > 0) {
-        placeAsOutput[p]!.push(t);
+    const violating = flatNet.transitions.find(ft => {
+      let outputsToSiphon = false;
+      let hasInputInSiphon = false;
+      for (const p of siphon) {
+        if (ft.postVector[p]! > 0) outputsToSiphon = true;
+        if (ft.preVector[p]! > 0) hasInputInSiphon = true;
       }
+      return outputsToSiphon && !hasInputInSiphon;
+    });
+
+    if (violating === undefined) {
+      found.push(siphon);
+      return true;
     }
-  }
-
-  for (let startPlace = 0; startPlace < P; startPlace++) {
-    const siphon = computeSiphonContaining(startPlace, flatNet, placeAsOutput);
-    if (siphon !== null && siphon.size > 0) {
-      let isMinimal = true;
-      const toRemove: number[] = [];
-      for (let i = 0; i < siphons.length; i++) {
-        const existing = siphons[i]!;
-        if (setsEqual(existing, siphon)) {
-          isMinimal = false;
-          break;
-        }
-        if (isSubsetOf(existing, siphon)) {
-          isMinimal = false;
-          break;
-        }
-        if (isSubsetOf(siphon, existing)) {
-          toRemove.push(i);
-        }
-      }
-      for (let i = toRemove.length - 1; i >= 0; i--) {
-        siphons.splice(toRemove[i]!, 1);
-      }
-      if (isMinimal) {
-        siphons.push(siphon);
-      }
+    // A producer with no inputs keeps any set holding its output marked: no siphon
+    // on this branch. Otherwise branch on each input.
+    for (let q = 0; q < P; q++) {
+      if (violating.preVector[q]! > 0 && !grow(new Set([...siphon, q]))) return false;
     }
+    return true;
+  };
+
+  for (let start = 0; start < P; start++) {
+    if (!grow(new Set([start]))) return null;
   }
 
-  return siphons;
-}
-
-function computeSiphonContaining(
-  startPlace: number,
-  flatNet: FlatNet,
-  placeAsOutput: number[][],
-): Set<number> | null {
-  const siphon = new Set<number>();
-  siphon.add(startPlace);
-
-  let changed = true;
-  while (changed) {
-    changed = false;
-    const snapshot = [...siphon];
-
-    for (const p of snapshot) {
-      for (const t of placeAsOutput[p]!) {
-        const ft = flatNet.transitions[t]!;
-
-        let hasInputInSiphon = false;
-        for (let q = 0; q < flatNet.places.length; q++) {
-          if (ft.preVector[q]! > 0 && siphon.has(q)) {
-            hasInputInSiphon = true;
-            break;
-          }
-        }
-
-        if (!hasInputInSiphon) {
-          let added = false;
-          for (let q = 0; q < flatNet.places.length; q++) {
-            if (ft.preVector[q]! > 0) {
-              if (!siphon.has(q)) {
-                siphon.add(q);
-                changed = true;
-              }
-              added = true;
-              break;
-            }
-          }
-          if (!added) {
-            return null;
-          }
-        }
-      }
-    }
-  }
-
-  return siphon;
+  return found.filter((s, i) => !found.some((other, j) => j !== i && isSubsetOf(other, s)));
 }
 
 /**
@@ -226,14 +194,6 @@ function isMarked(placeIndices: ReadonlySet<number>, flatNet: FlatNet, marking: 
     if (marking.tokens(place) > 0) return true;
   }
   return false;
-}
-
-function setsEqual(a: ReadonlySet<number>, b: ReadonlySet<number>): boolean {
-  if (a.size !== b.size) return false;
-  for (const v of a) {
-    if (!b.has(v)) return false;
-  }
-  return true;
 }
 
 function isSubsetOf(sub: ReadonlySet<number>, sup: ReadonlySet<number>): boolean {

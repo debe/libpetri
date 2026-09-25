@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeZ3 } from '../fixtures/z3.js';
+import { describeZ3, Z3_AVAILABLE } from '../fixtures/z3.js';
 import { SmtVerifier, assessCounterexample } from '../../src/verification/smt-verifier.js';
 import { rethrowIfProgrammingError } from '../../src/verification/programming-error.js';
 import { flatten } from '../../src/verification/encoding/net-flattener.js';
@@ -13,7 +13,7 @@ import { place, environmentPlace } from '../../src/core/place.js';
 import type { Place } from '../../src/core/place.js';
 import { all, exactly, one } from '../../src/core/in.js';
 import type { In } from '../../src/core/in.js';
-import { outPlace } from '../../src/core/out.js';
+import { and, outPlace } from '../../src/core/out.js';
 import { delayed } from '../../src/core/timing.js';
 import { alwaysAvailable } from '../../src/verification/analysis/environment-analysis-mode.js';
 import { produces } from '../fixtures/producing-actions.js';
@@ -288,6 +288,20 @@ describe('the structural shortcut refuses nets it does not govern', () => {
     const net = PetriNet.builder('weighted').transitions(t).build();
     const r = await run(net, MarkingState.builder().tokens(a, 1).build());
     expect(r.verdict.type === 'proven' && r.verdict.method === 'structural', r.report).toBe(false);
+  });
+
+  it('a siphon behind a second input: the gate used to prove a net that is dead at M0', async () => {
+    // x -> y -> x, each step also consuming and returning its own guard. From {g, h}
+    // nothing fires and the guard tokens are stranded. Growing each siphon by the
+    // FIRST input of a producer only reaches {g} and {h} and misses the empty {x, y}.
+    const g = place('g'), h = place('h'), x = place('x'), y = place('y');
+    const t1 = Transition.builder('t1').inputs(one(g), one(x)).outputs(and(outPlace(y), outPlace(g))).action(produces()).build();
+    const t2 = Transition.builder('t2').inputs(one(h), one(y)).outputs(and(outPlace(x), outPlace(h))).action(produces()).build();
+    const net = PetriNet.builder('guarded-ring').transitions(t1, t2).build();
+    const r = await run(net, MarkingState.builder().tokens(g, 1).tokens(h, 1).build());
+    expect(r.verdict.type === 'proven' && r.verdict.method === 'structural', r.report).toBe(false);
+    // M0 itself is the counterexample; without a solver the verdict is Unknown.
+    if (Z3_AVAILABLE) expect(r.verdict.type, r.report).toBe('violated');
   });
 
   it('an inhibitor arc', async () => {

@@ -946,6 +946,29 @@ class SmtVerifierTest {
             "same-mint siblings can join -> merged reachable -> Violated\n" + result.report());
     }
 
+    @Test
+    @EnabledIf("z3Available")
+    void nuRouteA_declinesUnderEnvironmentInjection() {
+        // [VER-006] binds every route that can return Proven. The name-coloured encoding
+        // has no injection rule, so with `source` an environment place the net stayed
+        // frozen there and Unreachable(merged) came back Proven, although one injection
+        // makes merged reachable. Route A now declines under injection.
+        var source = EnvironmentPlace.of(NU_SOURCE);
+        for (var mode : java.util.List.of(
+                EnvironmentAnalysisMode.alwaysAvailable(), EnvironmentAnalysisMode.bounded(2))) {
+            var result = SmtVerifier.forNet(StructureOnly.bind(nuScatterGatherNet()))
+                .initialMarking(m -> m.tokens(NU_BUDGET, 2))
+                .environmentPlaces(source)
+                .environmentMode(mode)
+                .property(SmtProperty.unreachable(Set.of(NU_MERGED)))
+                .budgetPlaces(NU_BUDGET)
+                .timeout(Duration.ofSeconds(15))
+                .verify();
+            assertTrue(result.isViolated(), mode + ": one injection makes merged reachable\n" + result.report());
+            assertTrue(result.report().contains("does not\n  model environment injection"), result.report());
+        }
+    }
+
     // === NU-050 Route B: exact name-aware SCG name-partition quotient ===
 
     /**

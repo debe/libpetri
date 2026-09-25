@@ -881,11 +881,24 @@ impl<'a> SmtVerifier<'a> {
 
         // Phase 2: Structural pre-check
         report.push_str("=== Phase 2: Structural Analysis ===\n");
-        let structural_result = structural_check::structural_check(&flat);
+        // The siphon search is exponential in the worst case, so it runs only when a
+        // `NoPotentialDeadlock` answer could return `Proven` below.
+        let structural_candidate = matches!(property, SmtProperty::DeadlockFree)
+            && !has_match
+            && commoner_applies(&flat)
+            && sink_places.is_empty()
+            && self.conditional_sinks.is_empty()
+            && self.env_places.is_empty();
+        let structural_result = if structural_candidate {
+            Some(structural_check::structural_check(&flat, &self.initial_marking))
+        } else {
+            None
+        };
         let structural_str = match &structural_result {
-            StructuralCheckResult::NoPotentialDeadlock => "no potential deadlock",
-            StructuralCheckResult::PotentialDeadlock => "potential deadlock detected",
-            StructuralCheckResult::Inconclusive => "inconclusive",
+            None => "n/a (not a deadlock-freedom proof candidate)",
+            Some(StructuralCheckResult::NoPotentialDeadlock) => "no potential deadlock",
+            Some(StructuralCheckResult::PotentialDeadlock) => "potential deadlock detected",
+            Some(StructuralCheckResult::Inconclusive) => "inconclusive",
         };
         report.push_str(&format!("Result: {structural_str}\n\n"));
 
@@ -896,14 +909,7 @@ impl<'a> SmtVerifier<'a> {
         // (injection-aware) SMT encoding instead. Skipped too on any net Commoner's
         // theorem does not govern (`commoner_applies`) — that guard is what makes
         // this a proof rather than a guess, and it was missing.
-        if matches!(property, SmtProperty::DeadlockFree)
-            && !has_match
-            && commoner_applies(&flat)
-            && sink_places.is_empty()
-            && self.conditional_sinks.is_empty()
-            && self.env_places.is_empty()
-            && structural_result == StructuralCheckResult::NoPotentialDeadlock
-        {
+        if structural_result == Some(StructuralCheckResult::NoPotentialDeadlock) {
             let elapsed_ms = start.elapsed().as_millis() as u64;
             report.push_str("Deadlock freedom proven structurally (Commoner's theorem).\n");
             report.push_str(&cert_not_applicable("structural proof"));
@@ -1106,6 +1112,11 @@ no constraint the encoding does not already have; they may still differ in FORM)
             Some((plan, encoding)) => (Some(plan), encoding),
             None => (None, None),
         };
+        if has_match && nu_bounded && !env_injection.is_empty() {
+            report.push_str(
+                "  ν-encoding: name-blind over-approximation (the name-coloured encoding does not\n  model environment injection, VER-006)\n",
+            );
+        }
 
         // Flat path: a property naming a place outside the net would encode to a
         // vacuous violation predicate (`false` proves anything), and its linear
@@ -1215,7 +1226,7 @@ no constraint the encoding does not already have; they may still differ in FORM)
 
         let encoding = if let Some(plan) = &coloured_plan {
             report.push_str(&format!(
-                "ν-encoding: name-coloured (exact within budget k={}; {} coloured place(s))\n",
+                "  ν-encoding: name-coloured (exact within budget k={}; {} coloured place(s))\n",
                 plan.k,
                 plan.coloured.len()
             ));
@@ -1551,7 +1562,10 @@ no constraint the encoding does not already have; they may still differ in FORM)
     ) -> Option<(name_coloured_encoder::ColouredPlan, Option<smt_encoder::SmtEncoding>)> {
         let has_match = self.net.transitions().iter().any(|t| t.match_spec().is_some());
         let nu_bounded = !self.budget_places.is_empty();
-        if !has_match || !nu_bounded {
+        // The name-coloured encoding has no injection rule ([VER-006]): its environment
+        // places would stay empty and every verdict would describe the closed net.
+        // Decline, so the flat encoding, which models injection, answers soundly.
+        if !has_match || !nu_bounded || !env_injection.is_empty() {
             return None;
         }
         let plan = name_coloured_encoder::build_plan(
@@ -1563,10 +1577,6 @@ no constraint the encoding does not already have; they may still differ in FORM)
             &self.carrier_places,
             semiflows,
         )?;
-        let env_inject_idx: Vec<(usize, Option<usize>)> = env_injection
-            .iter()
-            .filter_map(|(name, b)| flat.place_index.get(name).map(|&pid| (pid, *b)))
-            .collect();
         let encoding = name_coloured_encoder::encode_coloured(
             &plan,
             flat,
@@ -1575,7 +1585,8 @@ no constraint the encoding does not already have; they may still differ in FORM)
             invariants,
             sink_places,
             &self.conditional_sinks,
-            &env_inject_idx,
+            // Injection is empty here: Route A declines under it ([VER-006]).
+            &[],
         );
         Some((plan, encoding))
     }
@@ -2989,6 +3000,57 @@ mod tests {
             assert!(proven_structurally(&r), "{}", r.report);
         }
 
+        /// `t1: a + c -> b + c`, `t2: b -> a` from `{c:1}`: dead at M0 with a token
+        /// stranded in `c` ([VER-020]). The minimal siphon {a,b} is empty; a search
+        /// that pads each siphon with every input of a producer only finds {a,b,c},
+        /// whose trap is marked through `c`, and used to answer `Proven`.
+        #[test]
+        fn a_padded_siphon_search_is_not_a_proof() {
+            let a = Place::<i32>::new("a");
+            let b = Place::<i32>::new("b");
+            let c = Place::<i32>::new("c");
+            let t1 = Transition::builder("t1")
+                .input(one(&a))
+                .input(one(&c))
+                .output(and(vec![out_place(&b), out_place(&c)]))
+                .action(fork())
+                .build();
+            let t2 = Transition::builder("t2")
+                .input(one(&b))
+                .output(out_place(&a))
+                .action(fork())
+                .build();
+            let net = PetriNet::builder("stranded").transition(t1).transition(t2).build();
+            let r = deadlock_free(&net, MarkingStateBuilder::new().tokens("c", 1).build());
+            assert!(!proven_structurally(&r), "{}", r.report);
+            if z3_available() {
+                assert!(r.is_violated(), "{}", r.report);
+            }
+        }
+
+        /// The trap must be marked under the INITIAL marking: the ring `a <-> b`
+        /// from the empty marking has a trap and nothing to keep it alive. (The
+        /// verdict itself is `Proven`, a drained net being deadlock-free, but not
+        /// by Commoner's theorem.)
+        #[test]
+        fn an_unmarked_trap_is_not_a_proof() {
+            let a = Place::<i32>::new("a");
+            let b = Place::<i32>::new("b");
+            let t1 = Transition::builder("t1")
+                .input(one(&a))
+                .output(out_place(&b))
+                .action(fork())
+                .build();
+            let t2 = Transition::builder("t2")
+                .input(one(&b))
+                .output(out_place(&a))
+                .action(fork())
+                .build();
+            let net = PetriNet::builder("empty-ring").transition(t1).transition(t2).build();
+            let r = deadlock_free(&net, MarkingStateBuilder::new().build());
+            assert!(!proven_structurally(&r), "{}", r.report);
+        }
+
         /// The predicate itself, on the flat net, so the reason a net is refused is
         /// pinned rather than inferred from a verdict.
         #[test]
@@ -4083,6 +4145,43 @@ mod tests {
             "a bounded ν-net in the supported fragment uses the exact name-coloured encoding\n{}",
             result.report
         );
+    }
+
+    /// [VER-006] binds every route that can return `Proven`. The name-coloured
+    /// encoding has no injection rule, so with `source` an environment place the
+    /// net stays frozen there and `Unreachable(merged)` came back `Proven`,
+    /// although one injection makes `merged` reachable. Route A now declines
+    /// under injection and the flat encoding answers.
+    #[test]
+    fn nu_route_a_declines_under_environment_injection() {
+        if !z3_available() {
+            eprintln!("skipping nu_route_a_declines_under_environment_injection: z3 binary not on PATH");
+            return;
+        }
+        let net = nu_scatter_gather_net();
+        for mode in [
+            EnvironmentAnalysisMode::AlwaysAvailable,
+            EnvironmentAnalysisMode::Bounded { max_tokens: 2 },
+        ] {
+            let result = SmtVerifier::for_net(&net)
+                .initial_marking(MarkingStateBuilder::new().tokens("budget", 2).build())
+                .environment_places(vec!["source".into()])
+                .environment_mode(mode.clone())
+                .property(SmtProperty::unreachable(vec!["merged".into()]))
+                .budget_place("budget")
+                .timeout(15_000)
+                .verify();
+            assert!(
+                result.is_violated(),
+                "{mode:?}: one injection makes merged reachable\n{}",
+                result.report
+            );
+            assert!(
+                result.report.contains("does not\n  model environment injection"),
+                "{}",
+                result.report
+            );
+        }
     }
 
     // === NU-053: Route A coloured quiescence (EXTENDED + deadlock encoding) ===

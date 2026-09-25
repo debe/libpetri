@@ -67,8 +67,9 @@ import java.util.TreeSet;
  * counts. Quiescence properties ({@code DeadlockFree}, {@code JoinedOrDeadLettered},
  * {@code QuiescentCount}) use a colour-aware deadlock predicate (NU-053, Part 2): every transition is disabled
  * for every colour (a mint has no globally-fresh colour, a join no shared colour, a
- * consumer no resident colour) and the marking is not a sink state — mirroring the flat
- * {@link SmtEncoder} deadlock with the same env-injection relaxation.
+ * consumer no resident colour) and the marking is not a sink state, mirroring the flat
+ * {@link SmtEncoder} deadlock. The encoding has no injection rule, so the verifier never
+ * calls it with environment injection (VER-006 AC7).
  *
  * <p>This mirrors the Rust reference {@code name_coloured_encoder.rs} exactly and emits
  * the same SMT-LIB2 text byte for byte (VER-013).
@@ -502,6 +503,10 @@ public final class NameColouredEncoder {
      * SMT-LIB2 text byte-identical to the Rust reference ({@code encode_coloured}).
      * With the query {@code (not Error)}, {@code sat} &rArr; PROVEN, {@code unsat}
      * &rArr; VIOLATED (the Spacer convention shared with {@link SmtEncoder}).
+     *
+     * <p>The encoding has no injection rule, so a {@code flat} with non-empty environment
+     * injection yields an unsound relaxed predicate; the verifier never passes one
+     * (VER-006 AC7).
      *
      * @param sinkPlaces terminal places (a quiescent marking holding a sink token is not a
      *                   deadlock, VER-002) — used by the colour-aware deadlock predicate

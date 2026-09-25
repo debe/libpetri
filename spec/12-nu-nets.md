@@ -673,8 +673,8 @@ Under this extension the coloured encoder:
 - encodes **quiescence** (`DeadlockFree`, `JoinedOrDeadLettered`) as a colour-aware
   deadlock predicate — every transition is disabled for every colour (a mint has no
   globally-fresh colour, a join no shared colour, a consumer no resident colour) and
-  the marking is not a sink state — with the same environment-injection relaxation
-  ([VER-006]) as the name-blind encoder;
+  the marking is not a sink state. The encoding has no environment-injection rule, so
+  it does not answer when injection is modelled ([VER-006] AC7);
 - classifies each XOR output branch independently by its own incidence (no 1:1
   net↔flat assumption);
 - bounds the simultaneously-live colour count `k` **structurally**, from a
