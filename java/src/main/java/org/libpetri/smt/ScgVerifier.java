@@ -113,11 +113,29 @@ public final class ScgVerifier {
             List<RestSet.ConditionalSinks> conditionalSinks
     ) {
         var graph = StateClassGraph.build(net, initial, maxClasses);
-        var classes = List.copyOf(graph.stateClasses());
         if (!graph.isComplete()) {
-            return new Outcome.Truncated(classes.size());
+            return new Outcome.Truncated(graph.stateClasses().size());
         }
+        return decide(graph, property, sinkPlaces, conditionalSinks);
+    }
 
+    /**
+     * Decides {@code property} over a graph that has already closed. The graph is only read,
+     * so one graph answers any number of properties, concurrently — which is what
+     * {@link StateSpaceCache} relies on.
+     *
+     * @param graph a <em>complete</em> state-class graph of the net and its initial marking
+     */
+    static Outcome.Decided decide(
+            StateClassGraph graph,
+            SmtProperty property,
+            Collection<Place<?>> sinkPlaces,
+            List<RestSet.ConditionalSinks> conditionalSinks
+    ) {
+        if (!graph.isComplete()) {
+            throw new IllegalArgumentException("decide() needs a closed state-class graph");
+        }
+        var classes = List.copyOf(graph.stateClasses());
         int violating = GraphDecision.decideOverClasses(
             new GraphDecision.ClassView() {
                 @Override

@@ -5,6 +5,7 @@ import org.libpetri.analysis.FragmentMode;
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.analysis.NameFragment;
 import org.libpetri.analysis.PrioritySemantics;
+import org.libpetri.analysis.StateClassGraph;
 import org.libpetri.core.EnvironmentPlace;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
@@ -102,6 +103,12 @@ public final class SmtVerifier {
 
     /** Not final: {@link #applyNetTerminals()} swaps in the terminal encoding ([EXEC-042]). */
     private PetriNet net;
+    /**
+     * The net as the caller passed it, before {@link #applyNetTerminals()}: the
+     * {@link StateSpaceCache} key, since the rewrite builds a new instance per verification.
+     */
+    private final PetriNet callerNet;
+    private StateSpaceCache stateSpaceCache = null;
     private MarkingState initialMarking = MarkingState.empty();
     private SmtProperty property = SmtProperty.deadlockFree();
     private final Set<EnvironmentPlace<?>> environmentPlaces = new HashSet<>();
@@ -150,6 +157,7 @@ public final class SmtVerifier {
 
     private SmtVerifier(PetriNet net) {
         this.net = Objects.requireNonNull(net);
+        this.callerNet = net;
     }
 
     /**
@@ -492,6 +500,29 @@ public final class SmtVerifier {
     }
 
     /**
+     * Shares a state-space cache with other verifications ([VER-017] "Reusing the state space
+     * across queries"; default: none).
+     *
+     * <p>The state-class graph of the enumeration route depends only on the net and its
+     * initial marking, so every query on the same net and marking that passes the same
+     * {@code cache} reads one graph instead of building its own. A remembered truncation
+     * works the same way: a later query whose budget is no larger declines at once instead
+     * of paying the full attempt again. Entries are keyed by this verifier's net, by
+     * identity, and the initial marking; see {@link StateSpaceCache} for the budget rules
+     * and the thread-safety guarantees.
+     *
+     * <p>The verdict, the witness and the route are the same with and without a cache; the
+     * report adds one line when a cached graph or a cached truncation was used. Without a
+     * cache the behaviour is unchanged.
+     *
+     * @param cache the cache to read and fill, owned by the caller; {@code null} for none
+     */
+    public SmtVerifier stateSpaceCache(StateSpaceCache cache) {
+        this.stateSpaceCache = cache;
+        return this;
+    }
+
+    /**
      * Enables or disables the linear state-equation bound phase ([VER-015]; default:
      * enabled). A reachability-safety property whose violating markings exceed some
      * {@code y·M <= y·M0} with {@code y >= 0}, {@code y·C <= 0} is then proven
@@ -821,8 +852,28 @@ public final class SmtVerifier {
                 && environmentPlaces.isEmpty()
                 && enumerationMaxClasses > 0
                 && ScgVerifier.isUntimed(net)) {
-            var enumerated = ScgVerifier.verify(
-                net, initialMarking, property, sinkPlaces, enumerationMaxClasses, conditional);
+            ScgVerifier.Outcome enumerated;
+            if (stateSpaceCache == null) {
+                enumerated = ScgVerifier.verify(
+                    net, initialMarking, property, sinkPlaces, enumerationMaxClasses, conditional);
+            } else {
+                // Keyed by the caller's net: the terminal rewrite above is a new instance per
+                // verification, but a deterministic function of the net it rewrote.
+                var encoded = net;
+                var lookup = stateSpaceCache.lookup(callerNet, initialMarking, enumerationMaxClasses,
+                    budget -> StateClassGraph.build(encoded, initialMarking, budget));
+                enumerated = lookup.closed()
+                    ? ScgVerifier.decide(lookup.graph(), property, sinkPlaces, conditional)
+                    : new ScgVerifier.Outcome.Truncated(lookup.classCount());
+                if (lookup.fromCache()) {
+                    report.append(lookup.closed()
+                        ? "Bounded state-space enumeration: reused cached state space ("
+                            + lookup.classCount() + " classes) (VER-017).\n"
+                        : "Bounded state-space enumeration: cached truncation at "
+                            + enumerationMaxClasses
+                            + " classes (VER-017); verifying via the SMT pipeline.\n");
+                }
+            }
             if (enumerated instanceof ScgVerifier.Outcome.Decided decided) {
                 report.append("=== Bounded state-space enumeration (VER-017) ===\n");
                 report.append("  State classes: ").append(decided.classCount()).append("\n");
