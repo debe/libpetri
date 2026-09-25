@@ -21,6 +21,7 @@ EnvironmentAnalysisMode = _ext.EnvironmentAnalysisMode
 VerificationResult = _ext.VerificationResult
 PropertyResult = _ext.PropertyResult
 SubnetVerificationResult = _ext.SubnetVerificationResult
+StateSpaceCache = _ext.StateSpaceCache
 
 
 class VerificationHarness:
@@ -166,6 +167,7 @@ def verify(
     enumeration_max_classes: int | None = None,
     state_equation_phase: bool = True,
     firing_bound: bool = True,
+    state_space_cache: StateSpaceCache | None = None,
 ) -> VerificationResult:
     """Verify ``property`` against ``net`` via SMT (Z3).
 
@@ -328,6 +330,22 @@ def verify(
     the transitions that can repeat. Turn either phase off to force the fixpoint
     path, for its certificate or to pin a test to it.
 
+    ``state_space_cache`` (VER-017) is a :class:`StateSpaceCache` the caller
+    creates, passes to every query on one net, and owns. The state-class graph
+    the enumeration route builds depends only on the net and its initial
+    marking, so with a cache it is built once: later queries with a larger
+    budget than its class count reuse it, and a known truncation declines
+    without building. The verdict, witness and route are the same as without
+    it; the report adds ``Bounded state-space enumeration: reused cached state
+    space (C classes) (VER-017).`` or ``... cached truncation at B classes ...``.
+    The net is keyed by its structure, so a rebuilt copy of the same net hits.
+    ``len(cache)`` counts entries, ``cache.build_count`` the graphs built, and
+    ``cache.clear()`` drops them::
+
+        cache = StateSpaceCache()
+        for prop in properties:
+            verify(net, prop, initial_marking=m0, state_space_cache=cache)
+
     ``result.route`` (VER-003 AC4) names which route decided: ``"smt"``,
     ``"enumeration"``, ``"nu-scg"``, ``"structural"`` or ``"unavailable"``. Read
     it before concluding anything from an EMPTY invariant list -- off the
@@ -359,6 +377,7 @@ def verify(
         enumeration_max_classes=enumeration_max_classes,
         state_equation_phase=state_equation_phase,
         firing_bound=firing_bound,
+        state_space_cache=state_space_cache,
     )
 
 

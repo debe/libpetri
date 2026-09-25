@@ -1,6 +1,5 @@
 //! SMT verification bindings.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use libpetri::verification::environment::EnvironmentAnalysisMode;
@@ -10,6 +9,7 @@ use libpetri::verification::property::SmtProperty;
 use libpetri::verification::result::{Verdict, VerificationResult, VerificationRoute};
 #[cfg(feature = "z3")]
 use libpetri::verification::smt_verifier::SemiflowMode;
+use libpetri::verification::state_space_cache::StateSpaceCache;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -47,6 +47,50 @@ impl PySmtProperty {
     /// Returns a human-readable description of the property.
     fn description(&self) -> String {
         self.inner.description()
+    }
+}
+
+/// A caller-owned cache of the enumeration route's state space (VER-017). Pass it to
+/// every `verify_net(..., state_space_cache=cache)` on one net: the state-class graph
+/// of a net and initial marking is built once, and a known truncation declines
+/// without building. Safe to share across threads; parallel queries build once.
+#[pyclass(module = "_libpetri", name = "StateSpaceCache", frozen)]
+pub struct PyStateSpaceCache {
+    inner: StateSpaceCache,
+}
+
+#[pymethods]
+impl PyStateSpaceCache {
+    #[new]
+    fn new() -> Self {
+        Self {
+            inner: StateSpaceCache::new(),
+        }
+    }
+
+    /// Drops every entry.
+    fn clear(&self) {
+        self.inner.clear();
+    }
+
+    /// How many state-class graphs this cache has built over its lifetime; a query
+    /// answered from the cache builds none.
+    #[getter]
+    fn build_count(&self) -> usize {
+        self.inner.build_count()
+    }
+
+    /// The number of entries: closed graphs and remembered truncations.
+    fn __len__(&self) -> usize {
+        self.inner.len()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "StateSpaceCache(entries={}, builds={})",
+            self.inner.len(),
+            self.inner.build_count()
+        )
     }
 }
 
@@ -466,6 +510,27 @@ fn parse_sink_places_when(
     Ok(entries)
 }
 
+/// Reads the `initial_marking` dict (`{place_name: count}`) in the caller's order.
+/// A `HashMap` would scramble it, and the order is observable: the first state of a
+/// witness lists the caller's marking as the caller wrote it (VER-017), so a
+/// `HashMap` made it differ from call to call.
+#[cfg(feature = "z3")]
+fn parse_initial_marking(marking: Option<&Bound<'_, PyDict>>) -> PyResult<MarkingState> {
+    let mut mb = libpetri::verification::marking_state::MarkingStateBuilder::new();
+    if let Some(marking) = marking {
+        for (name, count) in marking.iter() {
+            let name: String = name.extract().map_err(|_| {
+                PyTypeError::new_err("initial_marking keys must be place-name strings")
+            })?;
+            let count: usize = count.extract().map_err(|_| {
+                PyTypeError::new_err("initial_marking values must be non-negative ints")
+            })?;
+            mb = mb.tokens(name, count);
+        }
+    }
+    Ok(mb.build())
+}
+
 /// Reads the `semiflow_invariants` keyword argument (VER-007): `True` / `False`,
 /// or the string `"auto"` — union the gate-validated P-semiflows into the
 /// invariant list exactly when the null-space basis lost a law to the H1 guard,
@@ -501,14 +566,15 @@ pub(crate) fn parse_semiflow_mode(value: Option<&Bound<'_, PyAny>>) -> PyResult<
 /// the bounded state-space enumeration route, `0` disabling it;
 /// `state_equation_phase` (VER-018) and `firing_bound` (VER-019), both default
 /// `True`, are the pre-fixpoint phases, `False` forcing the fixpoint path. Unlike
-/// `state_equation`, neither changes the fixpoint encoding.
+/// `state_equation`, neither changes the fixpoint encoding. `state_space_cache`
+/// (VER-017) shares the enumeration route's state space across calls.
 #[pyfunction(name = "verify_net")]
-#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 60_000, nu_max_classes = None, fragment_mode = None, carrier_places = None, priority_semantics = None, certificate_check = true, counterexample_replay = true, semiflow_invariants = None, sink_places_when = None, linear_bound = true, state_equation = false, enumeration_max_classes = None, state_equation_phase = true, firing_bound = true))]
+#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 60_000, nu_max_classes = None, fragment_mode = None, carrier_places = None, priority_semantics = None, certificate_check = true, counterexample_replay = true, semiflow_invariants = None, sink_places_when = None, linear_bound = true, state_equation = false, enumeration_max_classes = None, state_equation_phase = true, firing_bound = true, state_space_cache = None))]
 fn py_verify_net(
     py: Python<'_>,
     net: &PyPetriNet,
     property: &PySmtProperty,
-    initial_marking: Option<HashMap<String, usize>>,
+    initial_marking: Option<Bound<'_, PyDict>>,
     environment_places: Option<Vec<String>>,
     environment_mode: Option<PyEnvironmentAnalysisMode>,
     sink_places: Option<Vec<String>>,
@@ -527,11 +593,15 @@ fn py_verify_net(
     enumeration_max_classes: Option<usize>,
     state_equation_phase: bool,
     firing_bound: bool,
+    state_space_cache: Option<PyRef<'_, PyStateSpaceCache>>,
 ) -> PyResult<PyVerificationResult> {
     #[cfg(feature = "z3")]
     {
         use libpetri::verification::name_fragment::FragmentMode;
         let net = net.net().clone();
+        // VER-017: a clone shares the caller's cache. The net is cloned per call, so
+        // the cache keys on the net's structure, which every clone shares.
+        let state_space_cache = state_space_cache.map(|c| c.inner.clone());
         let property = property.inner.clone();
         let environment_places = environment_places.unwrap_or_default();
         // ν-net fragment mode (NU-051): "base" (default) reproduces the shipped
@@ -569,11 +639,7 @@ fn py_verify_net(
         // "unknown" (NU-050).
         let budget_places = budget_places.unwrap_or_default();
         // Initial marking as a {place_name: count} map (empty if omitted).
-        let mut mb = libpetri::verification::marking_state::MarkingStateBuilder::new();
-        for (name, count) in initial_marking.unwrap_or_default() {
-            mb = mb.tokens(name, count);
-        }
-        let marking = mb.build();
+        let marking = parse_initial_marking(initial_marking.as_ref())?;
         // VER-014 conditional sinks, read off the dict before detaching (a Bound
         // cannot cross into the detached region) and in the caller's order.
         let sink_places_when = parse_sink_places_when(sink_places_when.as_ref())?;
@@ -618,6 +684,9 @@ fn py_verify_net(
             if let Some(n) = enumeration_max_classes {
                 verifier = verifier.enumeration_max_classes(n);
             }
+            if let Some(cache) = &state_space_cache {
+                verifier = verifier.state_space_cache(cache);
+            }
             // VER-014: one declaration per dict entry, in insertion order, so the
             // report renders them as the caller wrote them.
             for (marker, places) in sink_places_when {
@@ -633,7 +702,7 @@ fn py_verify_net(
     }
     #[cfg(not(feature = "z3"))]
     {
-        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes, fragment_mode, carrier_places, priority_semantics, certificate_check, counterexample_replay, semiflow_invariants, sink_places_when, linear_bound, state_equation, enumeration_max_classes, state_equation_phase, firing_bound);
+        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes, fragment_mode, carrier_places, priority_semantics, certificate_check, counterexample_replay, semiflow_invariants, sink_places_when, linear_bound, state_equation, enumeration_max_classes, state_equation_phase, firing_bound, state_space_cache);
         Ok(PyVerificationResult::unknown("z3 feature not enabled"))
     }
 }
@@ -651,7 +720,7 @@ fn py_encode_smt_scripts(
     py: Python<'_>,
     net: &PyPetriNet,
     property: &PySmtProperty,
-    initial_marking: Option<HashMap<String, usize>>,
+    initial_marking: Option<Bound<'_, PyDict>>,
     environment_places: Option<Vec<String>>,
     environment_mode: Option<PyEnvironmentAnalysisMode>,
     sink_places: Option<Vec<String>>,
@@ -678,11 +747,7 @@ fn py_encode_smt_scripts(
         let environment_mode = environment_mode
             .map(|m| m.inner)
             .unwrap_or(EnvironmentAnalysisMode::AlwaysAvailable);
-        let mut mb = libpetri::verification::marking_state::MarkingStateBuilder::new();
-        for (name, count) in initial_marking.unwrap_or_default() {
-            mb = mb.tokens(name, count);
-        }
-        let marking = mb.build();
+        let marking = parse_initial_marking(initial_marking.as_ref())?;
         let sink_places_when = parse_sink_places_when(sink_places_when.as_ref())?;
         let semiflow_invariants = parse_semiflow_mode(semiflow_invariants.as_ref())?;
         let scripts = panic_to_py(|| {
@@ -813,6 +878,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySmtProperty>()?;
     m.add_class::<PyEnvironmentAnalysisMode>()?;
     m.add_class::<PyVerificationResult>()?;
+    m.add_class::<PyStateSpaceCache>()?;
     m.add_class::<PyPropertyResult>()?;
     m.add_class::<PySubnetVerificationResult>()?;
     m.add_class::<PyVerificationHarness>()?;

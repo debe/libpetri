@@ -12,6 +12,7 @@ SmtProperty: TypeAlias = _ext.SmtProperty
 VerificationResult: TypeAlias = _ext.VerificationResult
 PropertyResult: TypeAlias = _ext.PropertyResult
 SubnetVerificationResult: TypeAlias = _ext.SubnetVerificationResult
+StateSpaceCache: TypeAlias = _ext.StateSpaceCache
 EnvironmentAnalysisMode: TypeAlias = _ext.EnvironmentAnalysisMode
 OpenNetResult: TypeAlias = _ext.OpenNetResult
 ContractViolation: TypeAlias = _ext.ContractViolation
@@ -79,6 +80,7 @@ def verify(
     enumeration_max_classes: int | None = ...,
     state_equation_phase: bool = ...,
     firing_bound: bool = ...,
+    state_space_cache: StateSpaceCache | None = ...,
 ) -> VerificationResult:
     """``sink_places_when`` declares, in dict order, the places where a token may
     rest while its marker place holds a token (VER-014). ``linear_bound`` (default
@@ -92,8 +94,10 @@ def verify(
     ``semiflow_invariants="auto"`` unions the P-semiflows exactly when the
     null-space basis lost a law to the H1 guard (VER-007). ``state_equation_phase``
     (VER-018) and ``firing_bound`` (VER-019), both on by default, can decide the
-    property before the fixpoint query; ``False`` forces the fixpoint path. The
-    result names the deciding route in ``route`` (VER-003)."""
+    property before the fixpoint query; ``False`` forces the fixpoint path.
+    ``state_space_cache`` shares the enumeration route's state-class graph across
+    queries on one net and initial marking (VER-017). The result names the
+    deciding route in ``route`` (VER-003)."""
 def verify_subnet(
     subnet: BuiltSubnetDef,
     harness: VerificationHarness | Iterable[SmtProperty],

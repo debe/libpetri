@@ -102,6 +102,7 @@ from .verification import (
     PortStep as PortStep,
     PropertyResult as PropertyResult,
     SmtProperty as SmtProperty,
+    StateSpaceCache as StateSpaceCache,
     SubnetVerificationResult as SubnetVerificationResult,
     VerificationHarness as VerificationHarness,
     VerificationResult as VerificationResult,
