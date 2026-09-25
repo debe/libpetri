@@ -77,6 +77,10 @@ export type ScgOutcome =
 /**
  * Decides `property` by enumeration, or reports truncation.
  *
+ * Builds the graph with {@link buildStateSpace} and reads the verdict off it with
+ * {@link decideOverStateSpace}; a `StateSpaceCache` runs the same two steps
+ * with the build shared across queries.
+ *
  * @param maxClasses the class budget; `<= 0` disables the route (the caller then
  *   never calls this).
  */
@@ -88,10 +92,42 @@ export function verifyViaStateClassGraph(
   maxClasses: number,
   conditionalSinks: readonly ConditionalSinks[] = [],
 ): ScgOutcome {
-  const graph = StateClassGraph.build(net, initial, maxClasses);
-  const classes = graph.stateClasses();
-  if (!graph.isComplete()) return { kind: 'truncated', classCount: classes.length };
+  return decideOverStateSpace(buildStateSpace(net, initial, maxClasses), property, sinkPlaces, conditionalSinks);
+}
 
+let builds = 0;
+
+/**
+ * @internal Number of state-class graphs this route has built since the module loaded — the
+ * test hook that shows a `StateSpaceCache` hit builds nothing ([VER-017] AC7–AC10).
+ */
+export function stateSpaceBuildCount(): number {
+  return builds;
+}
+
+/**
+ * Builds the state-class graph the route reads, up to `maxClasses` classes. The graph depends
+ * only on `net` and `initial`; the property and the sinks only read it ([VER-017]).
+ */
+export function buildStateSpace(net: PetriNet, initial: MarkingState, maxClasses: number): StateClassGraph {
+  builds++;
+  return StateClassGraph.build(net, initial, maxClasses);
+}
+
+/**
+ * Decides `property` over a state-class graph: the verdict, and for a violation the shortest
+ * witnessing firing sequence from the initial class. A graph that did not close decides
+ * nothing — its frontier classes look quiescent and its unexplored markings are missing — so it
+ * is reported as `truncated`.
+ */
+export function decideOverStateSpace(
+  graph: StateClassGraph,
+  property: SmtProperty,
+  sinkPlaces: ReadonlySet<Place<any>>,
+  conditionalSinks: readonly ConditionalSinks[] = [],
+): ScgOutcome {
+  if (!graph.isComplete()) return { kind: 'truncated', classCount: graph.size() };
+  const classes = graph.stateClasses();
   const violating = decideOverClasses(
     {
       count: classes.length,

@@ -27,7 +27,9 @@ import { formatRanking, runFiringBoundPhase, type DepthStep, type FiringBound } 
 import { failureReason, formatZ3Version, resolveZ3, runZ3Text, timeoutBudget, Z3Unavailable, type Z3Solver } from './z3/z3-process.js';
 import { buildColouredPlan, encodeColoured, type ColouredPlan } from './z3/name-coloured-encoder.js';
 import { verifyViaNameScg } from './nu-scg-verifier.js';
-import { verifyViaStateClassGraph, isUntimed, NOTE_ENUMERATED } from './scg-verifier.js';
+import { verifyViaStateClassGraph, decideOverStateSpace, isUntimed, NOTE_ENUMERATED } from './scg-verifier.js';
+import type { ScgOutcome } from './scg-verifier.js';
+import { resolveStateSpace, type StateSpaceCache } from './state-space-cache.js';
 import { classify, type FragmentMode, type NameFragment } from './analysis/name-fragment.js';
 import { compareCodePoints } from '../core/internal/code-point-order.js';
 import type { PrioritySemantics } from './analysis/priority-semantics.js';
@@ -95,15 +97,19 @@ export class SmtVerifier {
   private _firingBound: boolean = true;
   private _nuMaxClasses: number = 100_000;
   private _enumerationMaxClasses: number = 50_000;
+  private _stateSpaceCache: StateSpaceCache | null = null;
   private _fragmentMode: FragmentMode = 'base';
   private readonly _carrierPlaces = new Set<string>();
   private _prioritySemantics: PrioritySemantics = 'none';
 
   /** Not readonly: {@link applyNetTerminals} swaps in the terminal encoding ([EXEC-042]). */
   private net: PetriNet;
+  /** The net as the caller passed it — the {@link StateSpaceCache} key, before any terminal rewrite. */
+  private readonly callerNet: PetriNet;
 
   private constructor(net: PetriNet) {
     this.net = net;
+    this.callerNet = net;
   }
 
   static forNet(net: PetriNet): SmtVerifier {
@@ -431,6 +437,21 @@ export class SmtVerifier {
    */
   enumerationMaxClasses(max: number): this {
     this._enumerationMaxClasses = max;
+    return this;
+  }
+
+  /**
+   * Shares the bounded state-space enumeration route's state-class graph across queries
+   * (VER-017). The graph depends only on the net and the initial marking, so every verifier
+   * given the same `cache`, net instance and initial marking builds it once; a remembered
+   * truncation makes a later query at the same or a smaller budget skip the attempt entirely.
+   *
+   * The verdict, witness and route are the same as without the cache; the report adds one line
+   * when a cached graph or a cached truncation was used. Without this call behaviour is
+   * unchanged.
+   */
+  stateSpaceCache(cache: StateSpaceCache): this {
+    this._stateSpaceCache = cache;
     return this;
   }
 
@@ -763,11 +784,9 @@ export class SmtVerifier {
       this._enumerationMaxClasses > 0 &&
       isUntimed(this.net)
     ) {
-      const enumerated = verifyViaStateClassGraph(
-        this.net, this._initialMarking, this._property, this._sinkPlaces,
-        this._enumerationMaxClasses, this._conditionalSinks,
-      );
+      const { enumerated, cacheLine } = this.enumerate();
       if (enumerated.kind === 'decided') {
+        if (cacheLine !== null) report.push(cacheLine);
         report.push('=== Bounded state-space enumeration (VER-017) ===');
         report.push(`  State classes: ${enumerated.classCount}`);
         report.push('  P-invariants: not computed (no encoding is built on this route)');
@@ -790,6 +809,7 @@ export class SmtVerifier {
           'enumeration',
         );
       }
+      if (cacheLine !== null) report.push(cacheLine);
       report.push(
         `Bounded state-space enumeration truncated at ${this._enumerationMaxClasses} classes ` +
         '(VER-017); verifying via the SMT pipeline.',
@@ -1262,6 +1282,45 @@ export class SmtVerifier {
         );
       }
     }
+  }
+
+  /**
+   * Runs the VER-017 enumeration, through the {@link StateSpaceCache} when one is set.
+   * `cacheLine` is the report line for a cached graph or cached truncation, else `null`.
+   */
+  private enumerate(): { enumerated: ScgOutcome; cacheLine: string | null } {
+    const cache = this._stateSpaceCache;
+    if (cache === null) {
+      return {
+        enumerated: verifyViaStateClassGraph(
+          this.net, this._initialMarking, this._property, this._sinkPlaces,
+          this._enumerationMaxClasses, this._conditionalSinks,
+        ),
+        cacheLine: null,
+      };
+    }
+    const lookup = resolveStateSpace(cache, this.callerNet, this.net, this._initialMarking, this._enumerationMaxClasses);
+    if (lookup.kind === 'declined') {
+      return {
+        enumerated: { kind: 'truncated', classCount: this._enumerationMaxClasses },
+        cacheLine:
+          `Bounded state-space enumeration: cached truncation at ${this._enumerationMaxClasses} classes (VER-017); ` +
+          'verifying via the SMT pipeline.',
+      };
+    }
+    // The key includes the marking's listing and Place objects, so a reused graph's witness is
+    // the one a cold build would return; only the initial MarkingState object is the first
+    // caller's, and the caller's own stands in for it.
+    const decided = decideOverStateSpace(lookup.graph, this._property, this._sinkPlaces, this._conditionalSinks);
+    const enumerated = decided.kind === 'decided' && decided.trace.length > 0
+      ? { ...decided, trace: [this._initialMarking, ...decided.trace.slice(1)] }
+      : decided;
+    return {
+      enumerated,
+      cacheLine: lookup.kind === 'reused'
+        ? `Bounded state-space enumeration: reused cached state space (${lookup.graph.size()} classes) (VER-017).`
+        : null,
+    };
   }
 
   /**
