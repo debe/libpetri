@@ -1,9 +1,10 @@
 # Changelog
 
-## Unreleased
+## Java 7.0.0 / TypeScript 7.0.0 / Rust 8.0.0 / Python 6.1.0 — 2026-09-25
 
 ### Breaking
 
+- **Java: `TerminationReason` gains `TERMINAL`; TypeScript: `NodeCategory` gains `'terminal'` ([EXEC-042]).** An exhaustive `switch` over either needs the new case.
 - **Rust: `ExecutorBackend` gains a required `terminal_reached()` method.** Only code that implements its own executor backend is affected. `run_sync` and `run_async` keep their return types.
 - **Rust: `structural_check` takes the initial marking.** `structural_check(flat, initial: &MarkingState)`: Commoner's condition needs each minimal siphon's trap marked at M0 ([VER-020]). Callers of the free function pass the net's initial marking.
 
