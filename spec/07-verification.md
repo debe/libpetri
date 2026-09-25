@@ -737,6 +737,41 @@ one predicate implementation between this route and [VER-012]'s rather than rest
 The route can only add verdicts, never remove them: on truncation the SMT pipeline runs exactly
 as before, so no query that the solver could decide becomes `unknown`.
 
+**Reusing the state space across queries.** The graph depends only on the net and its initial
+marking. The property, the sinks and the conditional sinks only *read* it. A caller that asks many
+questions of one net would otherwise rebuild the same graph for every question. When the graph
+exceeds the budget, every question pays the full attempt before it falls through. Measured on a
+47-place, 54-transition agent net whose graph exceeds the default budget: 3–4.6 s per query with
+the route, 17–24 ms without it; 5 183 claims took more than 15 minutes instead of 149 s.
+
+An implementation SHOULD therefore offer an explicit **state-space cache** that the caller creates,
+passes to each verification, and owns: `StateSpaceCache` / `stateSpaceCache(cache)`. Without one,
+behaviour is exactly as above. With one:
+
+- An entry is keyed by the caller's net and its initial marking. The terminal rewrite of [EXEC-042]
+  is a deterministic function of the net, so the key is the net as the caller passed it. An
+  implementation whose nets have no stable identity keys on a structural fingerprint instead. The
+  fingerprint MUST cover everything the graph reads: places, arcs with their kinds and
+  cardinalities, outputs, timing, priority and terminals. A fingerprint that also covers the actions
+  may miss where it could hit, and that is allowed. It MUST NOT hit where the graphs differ.
+- The marking half of the key is the marking the caller passed. Where the order in which a marking
+  lists its places is observable in a witness, either that order is part of the key, or the
+  witness takes its first state from the caller's own marking rather than the cached graph's.
+- A **closed** graph of `C` classes is reused for any budget greater than `C`. A budget of `C` or
+  less would have truncated, and is answered as truncated.
+- A **truncated** attempt at budget `B` is remembered. Any later budget of `B` or less declines at
+  once, without building. A larger budget builds again and replaces the entry.
+- The verdict, the witness and the route are the same with and without the cache. The report says
+  when a cached graph, or a cached truncation, was used.
+- Concurrent verifications that share a cache build a given entry once. The others wait for it
+  rather than build their own. While a larger budget rebuilds a truncated entry, a budget of `B` or
+  less still declines at once rather than wait.
+- A build that fails leaves the entry as it found it: absent, or the truncation it was replacing.
+  The failure reaches the query that ran the build. Queries waiting on it do not inherit the
+  failure: each looks again, and declines, reuses or builds as its own budget requires.
+- The cache holds its graphs until the caller drops it or clears it. It never shares memory the
+  caller did not ask for.
+
 **Acceptance Criteria:**
 1. On an untimed net whose state-class graph closes within the budget, the property is decided
    without invoking a solver: the report names the route and its class count, and carries no
@@ -753,14 +788,50 @@ as before, so no query that the solver could decide becomes `unknown`.
 5. The route is skipped for a ν-net, for a net with environment places, for a timed net, and
    when the budget is `0`; in each case the report shows the SMT pipeline ran.
 6. Where both routes can answer, they return the same verdict for the same net and property.
+7. With a state-space cache, the second and later queries on one net and initial marking build
+   no graph, and return the same verdict, witness and route as a query without the cache.
+8. A cached truncation at budget `B` makes a query at budget `≤ B` decline without building. A
+   query at a larger budget builds, and replaces the entry.
+9. A different initial marking, or a structurally different net, never hits another entry.
+10. Parallel queries sharing a cache on one net build its graph once, where the runtime has
+    parallel queries.
 
 **Implementation notes:**
 - TypeScript: `verification/scg-verifier` (`verifyViaStateClassGraph`, `isUntimed`);
   `SmtVerifier.enumerationMaxClasses(max)`, default 50 000. The shared predicate is
   `verification/graph-decision` (`decideOverClasses`), used by [VER-012]'s route as well.
+  The state-space cache is `StateSpaceCache` (`verification/state-space-cache`; its only public
+  method is `clear()`), passed with `SmtVerifier.stateSpaceCache(cache)`. The key is the net
+  instance (held weakly), the initial marking in the order it lists its places, and the `Place`
+  objects it names, so an equal marking listed in another order misses. `decideOverStateSpace`
+  (exported from `libpetri/verification`) returns an `ScgOutcome`, `truncated` for an incomplete
+  graph. The build is synchronous, so concurrent `verify()` calls on one event loop build an entry
+  once, and a build that throws leaves the previous entry in place.
 - Java: `org.libpetri.smt.ScgVerifier`; `SmtVerifier.enumerationMaxClasses(int)`.
+  The state-space cache is `org.libpetri.smt.StateSpaceCache` (`clear()`; `size()` counts entries,
+  builds in flight included), passed with `SmtVerifier.stateSpaceCache(StateSpaceCache)`. The key
+  is the net by identity, the initial marking by equality, and the order `placesWithTokens()` lists
+  its places in, so the whole witness matches an uncached query. It is thread-safe: concurrent
+  queries wait on one build per entry, and waiting is not interruptible.
 - Rust: `libpetri-verification` `scg_verifier`; `SmtVerifier::enumeration_max_classes(usize)`.
-- Python: `verify(..., enumeration_max_classes=50_000)`.
+  The cache is `state_space_cache::StateSpaceCache` (`new`, `clear`, `len`, `is_empty`,
+  `build_count`; `len` counts closed and truncated entries, including one whose larger rebuild is
+  in flight, but not a first build;
+  `Clone` shares it, `Send + Sync`), passed as `SmtVerifier::state_space_cache(&cache)`. A
+  `PetriNet` has no identity, so the key is a structural fingerprint of the caller's net: the
+  `Debug` rendering of its place names, sorted, its terminals and, per transition, name, input specs, output
+  spec, inhibitor, read and reset arcs, timing, priority and match presence. Actions and
+  transition ids are left out, so clones and rebuilt copies hit. The full string is the key,
+  not a hash. The marking is keyed by its counts in place-name order. A witness from a cached
+  graph starts at the caller's own listing of the initial marking. Parallel queries wait on a
+  per-entry condition variable. A build that panics restores the slot to what it held (empty, or
+  the truncation), wakes the waiters to retry, and propagates.
+- Python: `verify(..., enumeration_max_classes=50_000)`. The cache is
+  `libpetri.StateSpaceCache()` (`len(cache)`, `cache.build_count`, `cache.clear()`), passed as
+  `verify(..., state_space_cache=cache)`. It wraps the Rust cache, so it keys on the same
+  structural fingerprint, which is why it hits although the binding clones the net on every
+  call. An empty cache is falsy, since it defines `__len__`. The `initial_marking` dict is read in
+  insertion order, so a witness starts in the caller's order.
 
 **Depends on:** [VER-002], [VER-004], [VER-006], [VER-010], [VER-012], [VER-014]
 

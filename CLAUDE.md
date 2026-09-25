@@ -75,8 +75,8 @@ As of 2026-09-20 that reports 0 errors and 43 warnings, all of them pre-existing
 
 **`python3 scripts/lean-fidelity-check.py` is a CI gate** (`.github/workflows/ci.yml`) and is easy
 to miss because it is not a cargo command. The Lean development pins specific Rust items by
-**content hash and line range** (`lean/proof-coverage.json`), so editing a pinned item — `run_sync`,
-`Token`, and ~25 others — fails the check even when every cargo gate is green. The failure is the
+**content hash** (`lean/fidelity.toml`, hashes in `lean/fidelity.lock`), so editing a pinned item — `run_sync`,
+`Token`, and ~110 others — fails the check even when every cargo gate is green. The failure is the
 point: it forces you to re-read the named Lean model and confirm it still describes the changed
 Rust before re-pinning. Run `--update` only *after* that re-verification, never as the fix itself.
 

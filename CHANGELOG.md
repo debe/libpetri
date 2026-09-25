@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **State-space cache for the enumeration route (all languages, [VER-017]).** Asking many questions of one net no longer rebuilds its state-class graph for every question. Create a cache, pass it to each verification, and the graph is built once per net and initial marking. A graph that exceeded the class budget is remembered too, so later queries at the same or a smaller budget skip straight to the SMT pipeline instead of paying the full attempt again. On a 47-place agent net, that attempt cost 3–4.6 s per query.
+
+  ```java
+  var cache = new StateSpaceCache();
+  for (var property : properties) {
+      SmtVerifier.forNet(net).property(property).stateSpaceCache(cache).verify();
+  }
+  ```
+
+  Verdicts, witnesses and routes are identical with and without the cache. The report adds one line when the cache answered. Parallel queries sharing a cache build each graph once. Without a cache nothing changes, and the caller owns the cache's memory (`clear()` drops it). Java and TypeScript key on the net instance and on the initial marking in the order it lists its places, so pass the same `PetriNet` object and build the marking the same way each time; an equal marking listed in another order misses. TypeScript: `new StateSpaceCache()` from `libpetri/verification` and `.stateSpaceCache(cache)`. Rust: `libpetri::verification::state_space_cache::StateSpaceCache::new()` and `.state_space_cache(&cache)`, keyed on a structural fingerprint, so a clone of the net hits. Python: `cache = StateSpaceCache()`, then `verify(..., state_space_cache=cache)` on each query; it wraps the Rust cache and keys the same way.
+
+### Fixed
+
+- **Python: a witness now starts in the order you listed `initial_marking`.** `verify()` and `encode_smt_scripts()` read the dict through a hash map, so the first state of a counterexample trace listed its places in an order that changed from call to call. The dict is now read in insertion order, with or without a cache. A key that is not a string, or a count that is not a non-negative int, raises `TypeError`.
+
+### Lean
+
+`lean/` now builds on Mathlib. CI fetches the cached oleans of the imported modules only and never builds Mathlib. Six new files under `Libpetri/Novel/` prove properties of models of the shipped Rust functions, each pinned by the fidelity check so a change to the Rust fails CI until the model is re-read: the enumeration route decides exactly (`net_enumeration_exact`, [VER-017], assuming the untimed successor step is the CHC firing rule and the class key is marking equality), Commoner's theorem for ordinary nets with the arc-weight and marked-trap conditions shown necessary (`commoner`, [VER-020]), exact DBM emptiness detection (`empty_iff_flagged`, [VER-011]), reset-arc semantics (`reset_arc_semantics`, [CORE-034]), `canonical_key` as a complete orbit invariant, and soundness of the Farkas semiflow enumeration. 31 of 220 requirements now carry a proof fragment, up from 26. `scripts/lean-fidelity-check.py` now scans the subdirectories of `Libpetri/` too; before, citations from `Novel/` and `Refinement/` went unchecked.
+
+The [interactive proof graph](https://libpetri.org/proof-graph/) shows, per requirement, which declarations each proof depends on. `scripts/regen-proof-graph.sh` regenerates it, and CI fails when it is stale.
+
 ## Java 7.0.0 / TypeScript 7.0.0 / Rust 8.0.0 / Python 6.1.0 — 2026-09-25
 
 ### Breaking

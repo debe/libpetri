@@ -82,7 +82,7 @@ The extension manifest lives in `rust/libpetri-py`. Do not build it as an ordina
 
 ## Project links
 
-- [Language-agnostic specification](https://github.com/debe/libpetri/blob/main/spec/00-index.md) — 208 active requirements
+- [Language-agnostic specification](https://github.com/debe/libpetri/blob/main/spec/00-index.md) — 220 active requirements
 - [Lean soundness and backend-refinement proofs](https://github.com/debe/libpetri/blob/main/lean/README.md)
 - [Changelog](https://github.com/debe/libpetri/blob/main/CHANGELOG.md)
 - [Benchmarks](https://github.com/debe/libpetri/tree/main/python/benches)

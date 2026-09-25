@@ -92,6 +92,8 @@ The verifier (`org.libpetri.smt.SmtVerifier`) does not bundle a solver. It runs 
 
 Not every query reaches the solver. On an untimed net with no ν-joins and no environment places, `SmtVerifier` first enumerates the state-class graph up to `enumerationMaxClasses(int)` (default 50 000, `0` disables) and reads the verdict off it — exact, and far cheaper than a fixpoint search on a long pipeline ([VER-017]). A reachability-safety property is then tried against the linear state-equation bound (`linearBound(boolean)`, on by default, [VER-015]) before IC3/PDR runs.
 
+To ask many questions of one net, pass the same `StateSpaceCache` to each verifier with `stateSpaceCache(cache)`. The enumeration graph is then built once per net instance and initial marking, and a known truncation skips the attempt. Verdicts, witnesses and routes do not change.
+
 Options that change what the encoders see:
 
 | Method | Default | What it does |
