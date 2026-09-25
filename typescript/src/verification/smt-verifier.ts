@@ -28,7 +28,8 @@ import { failureReason, formatZ3Version, resolveZ3, runZ3Text, timeoutBudget, Z3
 import { buildColouredPlan, encodeColoured, type ColouredPlan } from './z3/name-coloured-encoder.js';
 import { verifyViaNameScg } from './nu-scg-verifier.js';
 import { verifyViaStateClassGraph, isUntimed, NOTE_ENUMERATED } from './scg-verifier.js';
-import type { FragmentMode } from './analysis/name-fragment.js';
+import { classify, type FragmentMode, type NameFragment } from './analysis/name-fragment.js';
+import { compareCodePoints } from '../core/internal/code-point-order.js';
 import type { PrioritySemantics } from './analysis/priority-semantics.js';
 import { decode } from './z3/counterexample-decoder.js';
 import {
@@ -66,6 +67,15 @@ import { requireOutputProducingActions } from '../core/internal/output-action-ch
 const IGNORE_MODE_VACUITY_REASON =
   'environment places present but not modeled (mode=ignore); a proof would be ' +
   'vacuous — use alwaysAvailable() or bounded(k) to model external injection';
+
+/**
+ * The VER-006 AC6 note on a quiescence property no marking can satisfy. Shared by Route B
+ * and the solver path.
+ */
+const QUIESCENCE_VACUITY_NOTE =
+  '  NOTE: no marking of this net can be quiescent — a transition is enabled in every ' +
+  'marking (an environment-gated one under modelled injection, VER-006). Every quiescence ' +
+  'property is therefore vacuously true here, and a `proven` says nothing about the net.';
 
 export class SmtVerifier {
   private _initialMarking: MarkingState = MarkingState.empty();
@@ -641,6 +651,38 @@ export class SmtVerifier {
     // outside the supported fragment, verifyViaNameScg returns null and we fall
     // through to the existing pipeline (which applies the sound unknown downgrade).
     if (hasMatch && (!isReachabilitySafety(this._property) || !nuBounded)) {
+      let quiescenceVacuous = false;
+      if (!isReachabilitySafety(this._property)) {
+        const flat = flatten(this.net, this._environmentPlaces, this._environmentMode);
+        quiescenceVacuous = quiescenceUnreachable(flat, resolveEnvInjection(flat));
+      }
+      // VER-006: Route B sees an environment place only as an inexhaustible input.
+      // A verdict that reads its count or names would be vacuous, so refuse here and
+      // never defer to Route A, which declines under injection too and would lose the reason.
+      const fragment = classify(this.net, this._fragmentMode, this._carrierPlaces);
+      const envReason =
+        fragment === null || this._initialMarking.placesWithTokens().some(p => fragment.isColoured(p.name))
+          ? null // Route B declines this net itself; the pipeline below decides it.
+          : routeBEnvObservation(
+              this.net, fragment, this._property, this._sinkPlaces, this._conditionalSinks,
+              this._environmentPlaces, this._environmentMode, this._prioritySemantics, quiescenceVacuous,
+            );
+      if (envReason !== null) {
+        report.push('=== ν-net Route B: name-aware state-class graph (NU-050) ===');
+        report.push(`  Declined under environment injection: ${envReason}`);
+        return buildResult(
+          { type: 'unknown', reason: envReason }, report.join('\n'), [], [], [], [],
+          performance.now() - start,
+          {
+            places: [...this.net.places].length,
+            transitions: [...this.net.transitions].length,
+            invariantsFound: 0,
+            structuralResult: 'n/a (ν name-partition SCG)',
+          },
+          null,
+          'nu-scg',
+        );
+      }
       const outcome = verifyViaNameScg(
         this.net, this._initialMarking, this._property, this._sinkPlaces,
         this._environmentPlaces, this._environmentMode, this._nuMaxClasses,
@@ -674,6 +716,8 @@ export class SmtVerifier {
         ) {
           report.push(`  Downgraded to UNKNOWN: ${IGNORE_MODE_VACUITY_REASON}`);
           routeBVerdict = { type: 'unknown', reason: IGNORE_MODE_VACUITY_REASON };
+        } else if (quiescenceVacuous) {
+          report.push(QUIESCENCE_VACUITY_NOTE); // VER-006 AC6, as on the solver path
         }
         return buildResult(
           routeBVerdict, report.join('\n'), [], [], outcome.trace, outcome.transitions,
@@ -907,11 +951,7 @@ export class SmtVerifier {
     // true: the verdict would be `proven` whatever the net does. Say so, or the
     // caller reads an empty claim as a guarantee about their workflow.
     if (!isReachabilitySafety(this._property) && quiescenceUnreachable(flatNet, resolveEnvInjection(flatNet))) {
-      report.push(
-        '  NOTE: no marking of this net can be quiescent — a transition is enabled in every ' +
-        'marking (an environment-gated one under modelled injection, VER-006). Every quiescence ' +
-        'property is therefore vacuously true here, and a `proven` says nothing about the net.',
-      );
+      report.push(QUIESCENCE_VACUITY_NOTE);
     }
 
     // Phase 4: SMT encode + query via Spacer
@@ -1749,6 +1789,81 @@ function propertyPlaces(property: SmtProperty): Place<any>[] {
     case 'joined-or-dead-lettered': return [property.pending];
     case 'quiescent-count': return [...property.places, ...property.waivedBy];
   }
+}
+
+/**
+ * Why Route B ([NU-050]) must not answer under modelled injection ([VER-006]), or `null`.
+ *
+ * The name-partition graph treats an environment place as an inexhaustible input: its count
+ * stays frozen and it carries no injected names. Any verdict that reads either is vacuous.
+ * Returns the first hit; rules run in a fixed order and scan names in code-point order, so
+ * every implementation names the same culprit:
+ * 1. an environment place is coloured (a match key or carrier place);
+ * 2. an environment place is tested by an inhibitor arc;
+ * 3. under `conflict` priority, an environment place is a consumed input of two or more
+ *    transitions (the pruning compares against the frozen count);
+ * 4. the property observes an environment place. Quiescence properties observe nothing when
+ *    `quiescenceVacuous`, since no quiescent marking exists to read.
+ */
+function routeBEnvObservation(
+  net: PetriNet,
+  fragment: NameFragment,
+  property: SmtProperty,
+  sinkPlaces: ReadonlySet<Place<any>>,
+  conditionalSinks: readonly ConditionalSinks[],
+  environmentPlaces: ReadonlySet<EnvironmentPlace<any>>,
+  environmentMode: EnvironmentAnalysisMode,
+  prioritySemantics: PrioritySemantics,
+  quiescenceVacuous: boolean,
+): string | null {
+  if (environmentMode.type === 'ignore' || environmentPlaces.size === 0) return null;
+  // Only environment places the net declares: an undeclared one has nothing to observe.
+  const declared = new Set([...net.places].map(p => p.name));
+  const env = [...new Set([...environmentPlaces].map(e => e.place.name))]
+    .filter(n => declared.has(n))
+    .sort(compareCodePoints);
+  const transitions = [...net.transitions].sort((a, b) => compareCodePoints(a.name, b.name));
+  const decline = (place: string, why: string): string =>
+    `environment place '${place}' ${why}; the name-partition state-class graph (NU-050, Route B) ` +
+    'models an environment place only as an inexhaustible input, not its token count or the ' +
+    'names injected into it; refusing to certify (VER-006)';
+
+  for (const p of env) {
+    if (fragment.isColoured(p)) return decline(p, 'carries ν-names (a match key or carrier place)');
+  }
+  for (const p of env) {
+    const t = transitions.find(t => t.inhibitors.some(i => i.place.name === p));
+    if (t !== undefined) return decline(p, `is tested by an inhibitor arc of transition '${t.name}'`);
+  }
+  if (prioritySemantics === 'conflict') {
+    for (const p of env) {
+      const consumers = transitions.filter(t => t.inputSpecs.some(s => s.place.name === p)).length;
+      if (consumers >= 2) return decline(p, 'is a consumed input shared under conflict priority');
+    }
+  }
+  const sinks = new Set([...sinkPlaces].map(s => s.name));
+  let observed: Iterable<string>;
+  switch (property.type) {
+    case 'deadlock-free':
+      observed = quiescenceVacuous
+        ? []
+        : [...env.filter(p => !sinks.has(p)), ...conditionalSinks.map(c => c.marker.name)];
+      break;
+    case 'terminates-at-sink':
+      observed = quiescenceVacuous ? [] : sinks;
+      break;
+    case 'joined-or-dead-lettered':
+    case 'quiescent-count':
+      observed = quiescenceVacuous ? [] : propertyPlaces(property).map(p => p.name);
+      break;
+    default:
+      observed = propertyPlaces(property).map(p => p.name);
+  }
+  const observedSet = new Set(observed);
+  for (const p of env) {
+    if (observedSet.has(p)) return decline(p, 'is read by the property');
+  }
+  return null;
 }
 
 /** The name of the first place the property names that is not in the flat net, or `null`. */

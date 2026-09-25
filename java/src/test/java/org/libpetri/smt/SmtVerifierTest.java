@@ -13,6 +13,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -552,6 +554,126 @@ class SmtVerifierTest {
         assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(),
             "Route B must not certify a bound that holds only because injection was "
                 + "never modelled\n" + result.report());
+    }
+
+    // === [VER-006] AC8: Route B under modelled injection ===
+    // Witness: fork: one(IN env) + one(slot) -> A, B; join: A, B matched -> accepted;
+    // ack: accepted -> slot; initial {slot:1}; no budget, so Route B runs. Solver-free.
+
+    private static final Place<String> AC8_IN = Place.of("IN", String.class);
+    private static final Place<String> AC8_SLOT = Place.of("slot", String.class);
+    private static final Place<String> AC8_A = Place.of("A", String.class);
+    private static final Place<String> AC8_B = Place.of("B", String.class);
+    private static final Place<String> AC8_ACCEPTED = Place.of("accepted", String.class);
+
+    private static MatchSpec ac8Match(Place<String> first, Place<String> second) {
+        return MatchSpec.builder()
+            .key(first, (String v) -> NameId.of(v))
+            .key(second, (String v) -> NameId.of(v))
+            .build();
+    }
+
+    private static List<Transition> ac8Witness() {
+        return List.of(
+            Transition.builder("fork").inputs(In.one(AC8_IN), In.one(AC8_SLOT))
+                .outputs(Out.and(AC8_A, AC8_B)).build(),
+            Transition.builder("join").inputs(In.one(AC8_A), In.one(AC8_B))
+                .match(ac8Match(AC8_A, AC8_B)).outputs(Out.place(AC8_ACCEPTED)).build(),
+            Transition.builder("ack").inputs(In.one(AC8_ACCEPTED)).outputs(Out.place(AC8_SLOT)).build());
+    }
+
+    private static SmtVerifier ac8Verifier(
+            List<Transition> transitions, EnvironmentAnalysisMode mode, SmtProperty property
+    ) {
+        var net = PetriNet.builder("ver006-ac8").transitions(transitions.toArray(Transition[]::new)).build();
+        return SmtVerifier.forNet(StructureOnly.bind(net))
+            .environmentPlaces(EnvironmentPlace.of(AC8_IN))
+            .environmentMode(mode)
+            .initialMarking(m -> m.tokens(AC8_SLOT, 1))
+            .property(property)
+            .timeout(Duration.ofSeconds(15));
+    }
+
+    private static String unknownReason(SmtVerificationResult result) {
+        var unknown = assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(),
+            result.report());
+        assertEquals(SmtVerificationResult.Route.NU_SCG, result.route(), result.report());
+        assertTrue(unknown.reason().contains("(VER-006)"), unknown.reason());
+        assertTrue(result.report().contains("Declined under environment injection: " + unknown.reason()),
+            result.report());
+        return unknown.reason();
+    }
+
+    @Test
+    void ver006ac8_routeB_propertyReadingEnvironmentPlace_isUnknown() {
+        for (var mode : List.of(EnvironmentAnalysisMode.alwaysAvailable(), EnvironmentAnalysisMode.bounded(1))) {
+            var result = ac8Verifier(ac8Witness(), mode, SmtProperty.placeBound(AC8_IN, 0)).verify();
+            assertEquals(
+                "environment place 'IN' is read by the property; the name-partition state-class graph "
+                    + "(NU-050, Route B) models an environment place only as an inexhaustible input, not its "
+                    + "token count or the names injected into it; refusing to certify (VER-006)",
+                unknownReason(result), mode.toString());
+        }
+    }
+
+    @Test
+    void ver006ac8_routeB_inhibitorOnEnvironmentPlace_isUnknown() {
+        var slot2 = Place.of("slot2", String.class);
+        var hit = Place.of("hit", String.class);
+        var transitions = new ArrayList<>(ac8Witness());
+        transitions.add(Transition.builder("probe").inputs(In.one(slot2)).inhibitor(AC8_IN)
+            .outputs(Out.place(hit)).build());
+        var result = ac8Verifier(transitions, EnvironmentAnalysisMode.alwaysAvailable(),
+                SmtProperty.unreachable(Set.of(hit)))
+            .initialMarking(m -> { m.tokens(AC8_SLOT, 1); m.tokens(AC8_IN, 1); m.tokens(slot2, 1); })
+            .verify();
+        assertTrue(unknownReason(result).startsWith(
+            "environment place 'IN' is tested by an inhibitor arc of transition 'probe';"), result.report());
+    }
+
+    @Test
+    void ver006ac8_routeB_colouredEnvironmentPlace_isUnknown() {
+        var transitions = List.of(
+            Transition.builder("fork").inputs(In.one(AC8_SLOT)).outputs(Out.place(AC8_A)).build(),
+            Transition.builder("join").inputs(In.one(AC8_A), In.one(AC8_IN))
+                .match(ac8Match(AC8_A, AC8_IN)).outputs(Out.place(AC8_ACCEPTED)).build(),
+            Transition.builder("ack").inputs(In.one(AC8_ACCEPTED)).outputs(Out.place(AC8_SLOT)).build());
+        var result = ac8Verifier(transitions, EnvironmentAnalysisMode.alwaysAvailable(),
+            SmtProperty.unreachable(Set.of(AC8_ACCEPTED))).verify();
+        assertTrue(unknownReason(result).startsWith(
+            "environment place 'IN' carries ν-names (a match key or carrier place);"), result.report());
+    }
+
+    @Test
+    void ver006ac8_routeB_verdictsNotObservingTheEnvironment_stand() {
+        var violated = ac8Verifier(ac8Witness(), EnvironmentAnalysisMode.alwaysAvailable(),
+            SmtProperty.unreachable(Set.of(AC8_ACCEPTED))).verify();
+        assertTrue(violated.isViolated(), violated.report());
+        assertEquals(SmtVerificationResult.Route.NU_SCG, violated.route(), violated.report());
+        assertFalse(violated.counterexampleTransitions().isEmpty(), violated.report());
+
+        var proven = ac8Verifier(ac8Witness(), EnvironmentAnalysisMode.alwaysAvailable(),
+            SmtProperty.placeBound(AC8_ACCEPTED, 1)).verify();
+        assertTrue(proven.isProven(), proven.report());
+        assertEquals(SmtVerificationResult.Route.NU_SCG, proven.route(), proven.report());
+    }
+
+    @Test
+    void ver006ac8_routeB_vacuousQuiescence_carriesTheAc6Note() {
+        var beat = Place.of("beat", String.class);
+        var transitions = new ArrayList<>(ac8Witness());
+        transitions.add(Transition.builder("heartbeat").inputs(In.one(AC8_IN)).reset(beat)
+            .outputs(Out.place(beat)).build());
+        var vacuous = ac8Verifier(transitions, EnvironmentAnalysisMode.alwaysAvailable(),
+            SmtProperty.deadlockFree()).verify();
+        assertTrue(vacuous.isProven(), vacuous.report());
+        assertEquals(SmtVerificationResult.Route.NU_SCG, vacuous.route(), vacuous.report());
+        assertTrue(vacuous.report().contains("no marking of this net can be quiescent"), vacuous.report());
+
+        var observed = ac8Verifier(ac8Witness(), EnvironmentAnalysisMode.alwaysAvailable(),
+            SmtProperty.deadlockFree()).verify();
+        assertTrue(unknownReason(observed).startsWith("environment place 'IN' is read by the property;"),
+            observed.report());
     }
 
     @Test

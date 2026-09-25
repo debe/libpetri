@@ -360,36 +360,13 @@ pub(crate) fn is_enabled(
     env_mode: &EnvironmentAnalysisMode,
 ) -> bool {
     for spec in transition.input_specs() {
-        let place_name = spec.place_name();
-        let is_env = env_places.contains(place_name);
-
-        if is_env {
-            match env_mode {
-                EnvironmentAnalysisMode::AlwaysAvailable => continue, // always satisfied
-                EnvironmentAnalysisMode::Bounded { max_tokens } => {
-                    // Consider up to max_tokens available
-                    let required = input::required_count(spec);
-                    let available = marking.count(place_name) + max_tokens;
-                    if available < required {
-                        return false;
-                    }
-                }
-                EnvironmentAnalysisMode::Ignore => {
-                    let required = input::required_count(spec);
-                    if marking.count(place_name) < required {
-                        return false;
-                    }
-                }
-            }
-        } else {
-            let required = input::required_count(spec);
-            if marking.count(place_name) < required {
-                return false;
-            }
+        let required = input::required_count(spec);
+        if !check_place_enabled(spec.place_name(), required, marking, env_places, env_mode) {
+            return false;
         }
     }
     for arc in transition.reads() {
-        if marking.count(arc.place.name()) < 1 {
+        if !check_place_enabled(arc.place.name(), 1, marking, env_places, env_mode) {
             return false;
         }
     }
@@ -399,6 +376,27 @@ pub(crate) fn is_enabled(
         }
     }
     true
+}
+
+/// Whether `place` can supply `required` tokens ([VER-006] AC3). An environment place
+/// under `AlwaysAvailable` always can; under `Bounded(k)` it can exactly when
+/// `required <= k`, whatever it already holds; under `Ignore` it is an ordinary place.
+/// Mirrors Java `StateClassGraph.checkPlaceEnabled`.
+fn check_place_enabled(
+    place: &str,
+    required: usize,
+    marking: &MarkingState,
+    env_places: &HashSet<&str>,
+    env_mode: &EnvironmentAnalysisMode,
+) -> bool {
+    if !env_places.contains(place) {
+        return marking.count(place) >= required;
+    }
+    match env_mode {
+        EnvironmentAnalysisMode::AlwaysAvailable => true,
+        EnvironmentAnalysisMode::Bounded { max_tokens } => required <= *max_tokens,
+        EnvironmentAnalysisMode::Ignore => marking.count(place) >= required,
+    }
 }
 
 pub(crate) fn expand_transition(
@@ -624,8 +622,8 @@ mod tests {
     use super::*;
     use crate::marking_state::MarkingStateBuilder;
     use libpetri_core::action::fork;
-    use libpetri_core::arc::inhibitor;
-    use libpetri_core::input::{all, at_least, one};
+    use libpetri_core::arc::{inhibitor, read};
+    use libpetri_core::input::{all, at_least, exactly, one};
     use libpetri_core::output::out_place;
     use libpetri_core::place::Place;
     use libpetri_core::transition::Transition;
@@ -1089,6 +1087,63 @@ mod tests {
         assert!(scg.class_count() >= 2);
         let target = MarkingStateBuilder::new().tokens("out", 1).build();
         assert!(scg.is_reachable(&target));
+    }
+
+    /// [VER-006] AC3: a read arc on an environment place is satisfied by modelled
+    /// injection, like an input arc, not checked against the (empty) count.
+    #[test]
+    fn env_read_arc_is_satisfied_under_always_available() {
+        let p_env = Place::<i32>::new("env");
+        let p_ready = Place::<i32>::new("ready");
+        let p_out = Place::<i32>::new("out");
+        let t = Transition::builder("t1")
+            .read(read(&p_env))
+            .input(one(&p_ready))
+            .output(out_place(&p_out))
+            .action(fork())
+            .build();
+        let net = PetriNet::builder("env-read").transition(t).build();
+        let initial = MarkingStateBuilder::new().tokens("ready", 1).build();
+
+        let scg = StateClassGraph::build_with_env(
+            &net,
+            &initial,
+            100,
+            &["env"],
+            &EnvironmentAnalysisMode::AlwaysAvailable,
+        );
+        let target = MarkingStateBuilder::new().tokens("out", 1).build();
+        assert!(scg.is_reachable(&target));
+    }
+
+    /// [VER-006] AC3: under `Bounded(k)` an environment input is enabled exactly when
+    /// its demand is at most `k`; tokens already in the place do not add to `k`.
+    #[test]
+    fn env_bounded_gates_demand_above_k_whatever_the_count() {
+        let p_env = Place::<i32>::new("env");
+        let p_ready = Place::<i32>::new("ready");
+        let p_out = Place::<i32>::new("out");
+        let t = Transition::builder("t1")
+            .input(exactly(2, &p_env))
+            .input(one(&p_ready))
+            .output(out_place(&p_out))
+            .action(fork())
+            .build();
+        let net = PetriNet::builder("env-bounded").transition(t).build();
+        let initial = MarkingStateBuilder::new()
+            .tokens("env", 2)
+            .tokens("ready", 1)
+            .build();
+
+        let scg = StateClassGraph::build_with_env(
+            &net,
+            &initial,
+            100,
+            &["env"],
+            &EnvironmentAnalysisMode::Bounded { max_tokens: 1 },
+        );
+        assert!(scg.is_complete());
+        assert!(scg.reachable_markings().iter().all(|m| m.count("out") == 0));
     }
 
     #[test]

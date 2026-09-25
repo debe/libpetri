@@ -372,4 +372,44 @@ class StateClassGraphTest {
             assertArrayEquals(new double[] {0.2, 0.3}, bounds, 1e-9);
         }
     }
+
+    /**
+     * [VER-006] environment enablement parity with Rust and TypeScript: a read arc on an
+     * environment place honours the mode like an input does, and {@code Bounded(k)} gates by
+     * the per-firing demand ({@code required <= k}), not by the count already present.
+     */
+    @Nested
+    class EnvironmentEnablementParity {
+
+        private final Place<String> env = Place.of("env", String.class);
+        private final Place<String> ready = Place.of("ready", String.class);
+        private final Place<String> out = Place.of("out", String.class);
+
+        private boolean marksOut(StateClassGraph scg) {
+            return scg.stateClasses().stream().anyMatch(sc -> sc.marking().hasTokens(out));
+        }
+
+        @Test
+        void readOnEmptyEnvironmentPlace_isSatisfiedUnderAlwaysAvailable() {
+            var t = Transition.builder("t").reads(env).inputs(In.one(ready))
+                .outputs(Out.place(out)).action(TransitionAction.fork()).build();
+            var net = PetriNet.builder("env-read").transitions(t).build();
+            var scg = StateClassGraph.build(net, MarkingState.builder().tokens(ready, 1).build(), 100,
+                java.util.Set.of(org.libpetri.core.EnvironmentPlace.of(env)),
+                EnvironmentAnalysisMode.alwaysAvailable());
+            assertTrue(marksOut(scg), "a read of an always-available environment place is satisfied");
+        }
+
+        @Test
+        void demandAboveBound_isDisabledUnderBounded_evenWhenTheCountSuffices() {
+            var t = Transition.builder("t").inputs(In.exactly(2, env), In.one(ready))
+                .outputs(Out.place(out)).action(TransitionAction.fork()).build();
+            var net = PetriNet.builder("env-bounded").transitions(t).build();
+            var scg = StateClassGraph.build(net,
+                MarkingState.builder().tokens(env, 2).tokens(ready, 1).build(), 100,
+                java.util.Set.of(org.libpetri.core.EnvironmentPlace.of(env)),
+                EnvironmentAnalysisMode.bounded(1));
+            assertFalse(marksOut(scg), "Bounded(1) caps a single firing's demand at 1");
+        }
+    }
 }

@@ -12,7 +12,7 @@ use crate::incidence_matrix::IncidenceMatrix;
 use crate::linear_bound;
 use crate::marking_state::{MarkingState, MarkingStateBuilder};
 use crate::name_coloured_encoder;
-use crate::name_fragment::FragmentMode;
+use crate::name_fragment::{self, FragmentMode, NameFragment};
 use crate::net_flattener::{self, FlatNet};
 use crate::nu_scg_verifier;
 use crate::p_invariant::{self, PInvariant};
@@ -147,6 +147,14 @@ pub struct SmtVerifier<'a> {
 const IGNORE_MODE_VACUITY_REASON: &str =
     "environment places present but not modeled (mode=Ignore); a proof would be vacuous \
      — use AlwaysAvailable or Bounded(k) to model external injection";
+
+/// [VER-006] AC6: the note every route appends to a quiescence verdict on a net that
+/// can never come to rest.
+const QUIESCENCE_VACUITY_NOTE: &str =
+    "NOTE: no marking of this net can be quiescent — a transition is enabled in every \
+     marking (an environment-gated one under modelled injection, VER-006). Every \
+     quiescence property is therefore vacuously true here, and a `proven` says \
+     nothing about the net.\n";
 
 impl<'a> SmtVerifier<'a> {
     /// Creates a verifier for the given net.
@@ -670,6 +678,49 @@ impl<'a> SmtVerifier<'a> {
         if has_match && (!is_reachability_safety(&self.property) || !nu_bounded) {
             let env_refs: Vec<&str> = self.env_places.iter().map(|s| s.as_str()).collect();
             let carrier_set: BTreeSet<String> = self.carrier_places.iter().cloned().collect();
+            let quiescence_vacuous = self.quiescence_vacuous();
+            // [VER-006] AC8: Route B models an environment place only as an
+            // inexhaustible input. A verdict that reads its count or its names would
+            // be vacuous, so decline here; Route A and the flat path could only
+            // return the same Unknown without the reason.
+            let declined = if self.env_places.is_empty() || self.ignores_environment() {
+                None
+            } else {
+                name_fragment::classify(self.net, self.fragment_mode, &carrier_set).and_then(
+                    |fragment| {
+                        route_b_env_observation(
+                            self.net,
+                            &fragment,
+                            &self.property,
+                            &self.sink_places,
+                            &self.conditional_sinks,
+                            &self.env_places,
+                            self.priority_semantics,
+                            quiescence_vacuous,
+                        )
+                    },
+                )
+            };
+            if let Some(reason) = declined {
+                let elapsed_ms = start.elapsed().as_millis() as u64;
+                report.push_str("=== ν-net Route B: name-aware state-class graph (NU-050) ===\n");
+                report.push_str(&format!("Property: {}\n", describe(self.property.description())));
+                report.push_str(&format!("Declined under environment injection: {reason}\n"));
+                report.push_str(&format!("\nElapsed: {elapsed_ms}ms\n"));
+                return build_result(
+                    Verdict::Unknown { reason },
+                    VerificationRoute::NuScg,
+                    report,
+                    elapsed_ms,
+                    VerificationStatistics {
+                        places: self.net.places().len(),
+                        transitions: self.net.transitions().len(),
+                        invariants_found: 0,
+                        structural_result: "n/a (ν name-partition SCG)".into(),
+                    },
+                    Diagnostics::none(),
+                );
+            }
             let scg_outcome = nu_scg_verifier::verify_via_name_scg(
                 self.net,
                 &self.initial_marking,
@@ -700,6 +751,9 @@ impl<'a> SmtVerifier<'a> {
                     outcome.class_count
                 ));
                 report.push_str(&outcome.note);
+                if quiescence_vacuous {
+                    report.push_str(QUIESCENCE_VACUITY_NOTE);
+                }
                 if !outcome.transitions.is_empty() {
                     report.push_str(&format!(
                         "Counterexample trace: {} states, {} transitions\n",
@@ -862,17 +916,7 @@ impl<'a> SmtVerifier<'a> {
                 .collect(),
             _ => Vec::new(),
         };
-        let env_injection: Vec<(String, Option<usize>)> = match &self.env_mode {
-            EnvironmentAnalysisMode::AlwaysAvailable => {
-                self.env_places.iter().map(|n| (n.clone(), None)).collect()
-            }
-            EnvironmentAnalysisMode::Bounded { max_tokens } => self
-                .env_places
-                .iter()
-                .map(|n| (n.clone(), Some(*max_tokens)))
-                .collect(),
-            EnvironmentAnalysisMode::Ignore => Vec::new(),
-        };
+        let env_injection = self.env_injection();
         // Resolved injector place indices for the incidence matrix.
         let env_inject_indices: Vec<usize> = env_injection
             .iter()
@@ -1056,12 +1100,7 @@ no constraint the encoding does not already have; they may still differ in FORM)
                 &smt_encoder::resolve_env_injection(&flat, &env_injection),
             )
         {
-            report.push_str(
-                "NOTE: no marking of this net can be quiescent — a transition is enabled in every \
-                 marking (an environment-gated one under modelled injection, VER-006). Every \
-                 quiescence property is therefore vacuously true here, and a `proven` says \
-                 nothing about the net.\n",
-            );
+            report.push_str(QUIESCENCE_VACUITY_NOTE);
         }
         report.push('\n');
 
@@ -1392,17 +1431,7 @@ no constraint the encoding does not already have; they may still differ in FORM)
                 .collect(),
             _ => Vec::new(),
         };
-        let env_injection: Vec<(String, Option<usize>)> = match &self.env_mode {
-            EnvironmentAnalysisMode::AlwaysAvailable => {
-                self.env_places.iter().map(|n| (n.clone(), None)).collect()
-            }
-            EnvironmentAnalysisMode::Bounded { max_tokens } => self
-                .env_places
-                .iter()
-                .map(|n| (n.clone(), Some(*max_tokens)))
-                .collect(),
-            EnvironmentAnalysisMode::Ignore => Vec::new(),
-        };
+        let env_injection = self.env_injection();
         let env_inject_indices: Vec<usize> = env_injection
             .iter()
             .filter_map(|(name, _)| flat.place_index.get(name).copied())
@@ -1667,6 +1696,36 @@ no constraint the encoding does not already have; they may still differ in FORM)
     /// rather than spelled out at each guard. See [`IGNORE_MODE_VACUITY_REASON`].
     fn ignores_environment(&self) -> bool {
         !self.env_places.is_empty() && self.env_mode == EnvironmentAnalysisMode::Ignore
+    }
+
+    /// The modelled injection per environment place ([VER-006]): `None` is unbounded
+    /// (`AlwaysAvailable`), `Some(k)` is `Bounded(k)`; `Ignore` models none.
+    fn env_injection(&self) -> Vec<(String, Option<usize>)> {
+        match &self.env_mode {
+            EnvironmentAnalysisMode::AlwaysAvailable => {
+                self.env_places.iter().map(|n| (n.clone(), None)).collect()
+            }
+            EnvironmentAnalysisMode::Bounded { max_tokens } => self
+                .env_places
+                .iter()
+                .map(|n| (n.clone(), Some(*max_tokens)))
+                .collect(),
+            EnvironmentAnalysisMode::Ignore => Vec::new(),
+        }
+    }
+
+    /// Whether no marking of the net can be quiescent under the modelled injection, so a
+    /// quiescence property holds vacuously ([VER-006] AC6). False for a
+    /// reachability-safety property, which quiescence does not bear on.
+    fn quiescence_vacuous(&self) -> bool {
+        if is_reachability_safety(&self.property) {
+            return false;
+        }
+        let flat = net_flattener::flatten(self.net);
+        smt_encoder::quiescence_unreachable(
+            &flat,
+            &smt_encoder::resolve_env_injection(&flat, &self.env_injection()),
+        )
     }
 
     /// Runs the state-equation phase ([VER-018]). Returns the final result when it
@@ -2475,6 +2534,90 @@ fn is_reachability_safety(property: &SmtProperty) -> bool {
         | SmtProperty::JoinedOrDeadLettered { .. }
         | SmtProperty::QuiescentCount { .. } => false,
     }
+}
+
+/// Why Route B ([NU-050]) must not answer under modelled injection ([VER-006] AC8), or
+/// `None` when it may. The name-partition graph supplies an environment place as an
+/// inexhaustible input: never consumed, its count frozen at the initial value plus
+/// outputs, and carrying no injected names. So a verdict that reads that count or
+/// those names can be a vacuous `Proven`. The rules run in a fixed order, each
+/// scanning places (outer) and transitions (inner) in code-point order of their names,
+/// so every implementation names the same culprit. `Ignore` never reaches here; the
+/// downgrade after Route B covers it.
+#[allow(clippy::too_many_arguments)]
+fn route_b_env_observation(
+    net: &PetriNet,
+    fragment: &NameFragment,
+    property: &SmtProperty,
+    sink_places: &[String],
+    conditional_sinks: &[ConditionalSinks],
+    env_places: &BTreeSet<String>,
+    priority_semantics: PrioritySemantics,
+    quiescence_vacuous: bool,
+) -> Option<String> {
+    // An environment name the net does not declare holds nothing to observe.
+    let declared: HashSet<&str> = net.places().iter().map(|p| p.name()).collect();
+    let env: BTreeSet<&str> = env_places
+        .iter()
+        .map(|s| s.as_str())
+        .filter(|p| declared.contains(p))
+        .collect();
+    let mut transitions: Vec<_> = net.transitions().iter().collect();
+    transitions.sort_by(|a, b| a.name().cmp(b.name()));
+    let refuse = |place: &str, why: &str| {
+        Some(format!(
+            "environment place '{place}' {why}; the name-partition state-class graph \
+             (NU-050, Route B) models an environment place only as an inexhaustible input, \
+             not its token count or the names injected into it; refusing to certify (VER-006)"
+        ))
+    };
+
+    // 1. Coloured: the graph carries no names into it.
+    if let Some(p) = env.iter().find(|p| fragment.is_coloured(p)) {
+        return refuse(p, "carries ν-names (a match key or carrier place)");
+    }
+    // 2. Inhibitor: tests the frozen count.
+    for p in &env {
+        if let Some(t) = transitions
+            .iter()
+            .find(|t| t.inhibitors().iter().any(|i| i.place.name() == *p))
+        {
+            return refuse(p, &format!("is tested by an inhibitor arc of transition '{}'", t.name()));
+        }
+    }
+    // 3. Conflict pruning compares enablement against the frozen count.
+    if priority_semantics == PrioritySemantics::Conflict {
+        for p in &env {
+            let consumers = transitions
+                .iter()
+                .filter(|t| t.input_specs().iter().any(|s| s.place_name() == *p))
+                .count();
+            if consumers >= 2 {
+                return refuse(p, "is a consumed input shared under conflict priority");
+            }
+        }
+    }
+    // 4. The property reads it. A vacuous quiescence property reads nothing.
+    let observed: BTreeSet<&str> = if is_reachability_safety(property) {
+        property_place_names(property).into_iter().map(|s| s.as_str()).collect()
+    } else if quiescence_vacuous {
+        BTreeSet::new()
+    } else {
+        match property {
+            SmtProperty::DeadlockFree => env
+                .iter()
+                .copied()
+                .filter(|p| !sink_places.iter().any(|s| s == p))
+                .chain(conditional_sinks.iter().map(|c| c.marker.as_str()))
+                .collect(),
+            SmtProperty::TerminatesAtSink => sink_places.iter().map(|s| s.as_str()).collect(),
+            _ => property_place_names(property).into_iter().map(|s| s.as_str()).collect(),
+        }
+    };
+    if let Some(p) = env.iter().find(|p| observed.contains(*p)) {
+        return refuse(p, "is read by the property");
+    }
+    None
 }
 
 /// ν-net soundness guard ([NU-040], [NU-050]). Applied only when the net
@@ -3984,6 +4127,251 @@ mod tests {
             result.verdict,
             result.report
         );
+    }
+
+    // === VER-006 AC8: Route B under environment injection ===
+    // Route B supplies an environment place as an inexhaustible input whose count
+    // stays frozen and which carries no injected names, so it must decline any
+    // verdict that reads either. Solver-free: every case returns from Route B.
+
+    /// Which variant of the Route B witness to build.
+    #[derive(Clone, Copy, PartialEq)]
+    enum EnvWitness {
+        Plain,
+        /// `probe: one(slot2), inhibitor(IN) -> hit`.
+        Probe,
+        /// The join is keyed on `IN` too; `fork` no longer consumes it.
+        KeyedOnIn,
+        /// `heartbeat: one(IN) + reset(beat) -> beat`, so no marking is quiescent.
+        Heartbeat,
+    }
+
+    /// `fork: one(IN) + one(slot) -> A, B`; `join: one(A), one(B)` matched on A and
+    /// B `-> accepted`; `ack: one(accepted) -> slot`. No budget, so Route B runs.
+    fn route_b_env_witness(variant: EnvWitness) -> PetriNet {
+        use libpetri_core::arc::{inhibitor, reset};
+        use libpetri_core::match_spec::MatchSpec;
+        use libpetri_core::name::NameId;
+
+        let in_p = Place::<String>::new("IN");
+        let slot = Place::<String>::new("slot");
+        let a = Place::<String>::new("A");
+        let b = Place::<String>::new("B");
+        let accepted = Place::<String>::new("accepted");
+        let keyed = variant == EnvWitness::KeyedOnIn;
+
+        let mut fork_t = Transition::builder("fork").input(one(&slot));
+        if !keyed {
+            fork_t = fork_t.input(one(&in_p));
+        }
+        let fork_t = fork_t
+            .output(and(vec![out_place(&a), out_place(&b)]))
+            .action(fork())
+            .build();
+        let mut keys = MatchSpec::builder()
+            .key(&a, |s: &String| NameId::new(s.clone()))
+            .key(&b, |s: &String| NameId::new(s.clone()));
+        let mut join = Transition::builder("join").input(one(&a)).input(one(&b));
+        if keyed {
+            keys = keys.key(&in_p, |s: &String| NameId::new(s.clone()));
+            join = join.input(one(&in_p));
+        }
+        let join = join
+            .match_spec(keys.build())
+            .output(out_place(&accepted))
+            .action(fork())
+            .build();
+        let ack = Transition::builder("ack")
+            .input(one(&accepted))
+            .output(out_place(&slot))
+            .action(fork())
+            .build();
+        let mut transitions = vec![fork_t, join, ack];
+        match variant {
+            EnvWitness::Probe => {
+                let slot2 = Place::<String>::new("slot2");
+                let hit = Place::<String>::new("hit");
+                transitions.push(
+                    Transition::builder("probe")
+                        .input(one(&slot2))
+                        .inhibitor(inhibitor(&in_p))
+                        .output(out_place(&hit))
+                        .action(fork())
+                        .build(),
+                );
+            }
+            EnvWitness::Heartbeat => {
+                let beat = Place::<String>::new("beat");
+                transitions.push(
+                    Transition::builder("heartbeat")
+                        .input(one(&in_p))
+                        .reset(reset(&beat))
+                        .output(out_place(&beat))
+                        .action(fork())
+                        .build(),
+                );
+            }
+            EnvWitness::Plain | EnvWitness::KeyedOnIn => {}
+        }
+        PetriNet::builder("route_b_env_witness")
+            .transitions(transitions)
+            .build()
+    }
+
+    fn verify_env_witness(
+        variant: EnvWitness,
+        m0: MarkingState,
+        mode: EnvironmentAnalysisMode,
+        property: SmtProperty,
+    ) -> VerificationResult {
+        SmtVerifier::for_net(&route_b_env_witness(variant))
+            .initial_marking(m0)
+            .environment_places(vec!["IN".into()])
+            .environment_mode(mode)
+            .property(property)
+            .verify()
+    }
+
+    fn slot_marking() -> MarkingState {
+        MarkingStateBuilder::new().tokens("slot", 1).build()
+    }
+
+    fn assert_declined(result: &VerificationResult, fragment: &str) {
+        let Verdict::Unknown { reason } = &result.verdict else {
+            panic!("expected Unknown, got {:?}\n{}", result.verdict, result.report);
+        };
+        assert!(reason.contains(fragment), "reason: {reason}");
+        assert!(reason.contains("(VER-006)"), "reason: {reason}");
+        assert_eq!(result.route, VerificationRoute::NuScg, "{}", result.report);
+        assert!(
+            result
+                .report
+                .contains(&format!("Declined under environment injection: {reason}")),
+            "{}",
+            result.report
+        );
+    }
+
+    /// Route B would prove `IN <= 0` from the frozen count; the real net injects.
+    #[test]
+    fn ver006_route_b_declines_a_property_reading_an_env_place() {
+        for mode in [
+            EnvironmentAnalysisMode::AlwaysAvailable,
+            EnvironmentAnalysisMode::Bounded { max_tokens: 1 },
+        ] {
+            let result = verify_env_witness(
+                EnvWitness::Plain,
+                slot_marking(),
+                mode,
+                SmtProperty::place_bound("IN", 0),
+            );
+            assert_declined(&result, "environment place 'IN' is read by the property");
+            // The full text, byte-identical in Java, TypeScript and Rust.
+            let Verdict::Unknown { reason } = &result.verdict else { unreachable!() };
+            assert_eq!(
+                reason,
+                "environment place 'IN' is read by the property; the name-partition state-class graph \
+                 (NU-050, Route B) models an environment place only as an inexhaustible input, not its \
+                 token count or the names injected into it; refusing to certify (VER-006)"
+            );
+        }
+    }
+
+    /// Route B never consumes `IN`, so the inhibitor keeps `probe` blocked forever;
+    /// the real `fork` empties `IN` and `probe` fires.
+    #[test]
+    fn ver006_route_b_declines_an_inhibitor_on_an_env_place() {
+        let m0 = MarkingStateBuilder::new()
+            .tokens("slot", 1)
+            .tokens("IN", 1)
+            .tokens("slot2", 1)
+            .build();
+        let result = verify_env_witness(
+            EnvWitness::Probe,
+            m0,
+            EnvironmentAnalysisMode::AlwaysAvailable,
+            SmtProperty::unreachable(vec!["hit".to_string()]),
+        );
+        assert_declined(
+            &result,
+            "environment place 'IN' is tested by an inhibitor arc of transition 'probe'",
+        );
+    }
+
+    /// A join keyed on an environment place needs injected names Route B never has.
+    #[test]
+    fn ver006_route_b_declines_a_coloured_env_place() {
+        let result = verify_env_witness(
+            EnvWitness::KeyedOnIn,
+            slot_marking(),
+            EnvironmentAnalysisMode::AlwaysAvailable,
+            SmtProperty::unreachable(vec!["accepted".to_string()]),
+        );
+        assert_declined(
+            &result,
+            "environment place 'IN' carries ν-names (a match key or carrier place)",
+        );
+    }
+
+    /// Non-vacuity: a property that reads no environment count keeps Route B's answer.
+    #[test]
+    fn ver006_route_b_still_answers_when_no_env_count_is_read() {
+        let violated = verify_env_witness(
+            EnvWitness::Plain,
+            slot_marking(),
+            EnvironmentAnalysisMode::AlwaysAvailable,
+            SmtProperty::unreachable(vec!["accepted".to_string()]),
+        );
+        assert!(violated.verdict.is_violated(), "{}", violated.report);
+        assert_eq!(violated.route, VerificationRoute::NuScg);
+        assert!(!violated.counterexample_transitions.is_empty());
+
+        let proven = verify_env_witness(
+            EnvWitness::Plain,
+            slot_marking(),
+            EnvironmentAnalysisMode::AlwaysAvailable,
+            SmtProperty::place_bound("accepted", 1),
+        );
+        assert!(
+            matches!(proven.verdict, Verdict::Proven { .. }),
+            "{:?}\n{}",
+            proven.verdict,
+            proven.report
+        );
+        assert_eq!(proven.route, VerificationRoute::NuScg);
+    }
+
+    /// [VER-006] AC6 on Route B: `heartbeat` is always enabled under injection, so
+    /// deadlock freedom is vacuous, reads nothing, and carries the note. Without it
+    /// the quiescence check reads `IN`, and Route B declines.
+    #[test]
+    fn ver006_route_b_quiescence_vacuity_note_and_decline() {
+        let vacuous = verify_env_witness(
+            EnvWitness::Heartbeat,
+            slot_marking(),
+            EnvironmentAnalysisMode::AlwaysAvailable,
+            SmtProperty::DeadlockFree,
+        );
+        assert!(
+            matches!(vacuous.verdict, Verdict::Proven { .. }),
+            "{:?}\n{}",
+            vacuous.verdict,
+            vacuous.report
+        );
+        assert_eq!(vacuous.route, VerificationRoute::NuScg);
+        assert!(
+            vacuous.report.contains("no marking of this net can be quiescent"),
+            "{}",
+            vacuous.report
+        );
+
+        let read = verify_env_witness(
+            EnvWitness::Plain,
+            slot_marking(),
+            EnvironmentAnalysisMode::AlwaysAvailable,
+            SmtProperty::DeadlockFree,
+        );
+        assert_declined(&read, "environment place 'IN' is read by the property");
     }
 
     // === NU-040 / NU-050: ν-net verification (sound carve-out, Stage 6a) ===

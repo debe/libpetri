@@ -455,6 +455,10 @@ verifier MUST return `Unknown` rather than an unsound verdict (criterion **#2**
 below, mirroring the `Ignore`-mode discipline of [VER-006]); under Route B this
 appears as state-class-graph truncation.
 
+Under modelled injection ([VER-006]) Route B treats an environment place as an inexhaustible
+input and so cannot observe its count or the names injected into it; it declines (`Unknown`)
+when a verdict would depend on them ([VER-006] AC8).
+
 **Acceptance Criteria:**
 1. (**NU-050 #1**) A property whose counterexample requires two *different* names
    to be equal is not reported on the exact path, unlike the value-blind

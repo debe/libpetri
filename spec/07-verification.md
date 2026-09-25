@@ -247,12 +247,25 @@ reachable set, so it is a fortiori a counterexample in the injected one.
    takes the flat encoding, which models injection, and the report says so. For a ν-net
    `env source → fork (mint) → join → merged` with a declared budget, `Unreachable(merged)` is
    `Violated` under both modes.
+8. The name-partition state-class graph of [NU-050] Route B models an environment place under
+   `AlwaysAvailable` / `Bounded(k)` only as an inexhaustible (k-capped) input: never consumed,
+   never injected into, carrying no injected names. Its count in a state class is therefore not
+   the environment's. When a Route B verdict would depend on that count or name layer, Route B
+   MUST return `Unknown` naming the environment place, never `Proven`: the property reads an
+   environment place (a quiescence property only when quiescence is reachable), an inhibitor arc
+   tests one, an environment place is coloured (a match key or carrier), or conflict priority
+   prunes on an environment input two transitions consume. Otherwise its verdict stands, and a
+   quiescence verdict carries the AC6 note. For the ν-net
+   `env IN, slot → fork → A, B → join (match) → accepted → ack → slot` under `AlwaysAvailable`,
+   `PlaceBound(IN, 0)` is `Unknown` and `Unreachable(accepted)` is `Violated`.
 
 **Test derivation:** Same net (`env IN → T → OUT`) with different environment modes; verify
 `AlwaysAvailable` → `Violated`, `Bounded(k)` gates by per-firing multiplicity, `Ignore` → `Unknown`.
 For AC5, a ν-net with an environment place and no declared budget place (which routes to the
 state-class graph rather than the solver) under `Ignore`: a bound that is unreachable only because
-injection was not modelled reports `Unknown`, not `Proven`.
+injection was not modelled reports `Unknown`, not `Proven`. For AC8, the witness net above under
+`AlwaysAvailable` and `Bounded(1)`: a bound on the environment place reports `Unknown`, and the
+reachable `accepted` is `Violated`.
 
 ---
 

@@ -59,15 +59,9 @@ final class NuScgVerifier {
             PrioritySemantics prioritySemantics,
             List<RestSet.ConditionalSinks> conditionalSinks
     ) {
-        var fragment = NameFragment.classify(net, fragmentMode, carrierPlaces);
+        var fragment = supportedFragment(net, initial, fragmentMode, carrierPlaces);
         if (fragment == null) {
             return null;
-        }
-        // We model no initial colour assignment, so coloured places must start empty.
-        for (var p : initial.placesWithTokens()) {
-            if (fragment.isColoured(p.name())) {
-                return null;
-            }
         }
 
         var scg = NameStateClassGraph.build(
@@ -100,6 +94,26 @@ final class NuScgVerifier {
             transitions = path.transitions();
         }
         return new Outcome(verdict, trace, transitions, NOTE_EXACT, scg.classCount());
+    }
+
+    /**
+     * The fragment {@link #verify} runs on, or {@code null} when it would decline: the net is
+     * outside the mint&rarr;matched-join fragment, or a coloured place starts marked (no
+     * initial colour assignment is modelled).
+     */
+    static NameFragment supportedFragment(
+            PetriNet net, MarkingState initial, FragmentMode fragmentMode, Set<String> carrierPlaces
+    ) {
+        var fragment = NameFragment.classify(net, fragmentMode, carrierPlaces);
+        if (fragment == null) {
+            return null;
+        }
+        for (var p : initial.placesWithTokens()) {
+            if (fragment.isColoured(p.name())) {
+                return null;
+            }
+        }
+        return fragment;
     }
 
     /**

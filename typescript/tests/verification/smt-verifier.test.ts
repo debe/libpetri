@@ -1085,6 +1085,149 @@ describeZ3('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
   }, Z3_TIMEOUT);
 });
 
+// VER-006 AC8: Route B (NU-050) holds an environment place as an inexhaustible input with a
+// frozen count and no injected names, so it declines any verdict that would read either.
+// Route B is structural: no solver needed.
+describe('SmtVerifier Route B under environment injection (VER-006)', () => {
+  const key = (v: string) => nameId(v);
+
+  // fork: one(IN) + one(slot) -> A, B; join (matched on A, B) -> accepted; ack: accepted -> slot.
+  // Finite under injection, and unbudgeted so Route B runs.
+  function witness(inEnv = environmentPlace<string>('IN'), extra: Transition[] = []) {
+    const slot = place('slot');
+    const a = place<string>('A');
+    const b = place<string>('B');
+    const accepted = place<string>('accepted');
+    const fork = Transition.builder('fork')
+      .inputs(one(inEnv.place), one(slot)).outputs(andPlaces(a, b)).build();
+    const join = Transition.builder('join')
+      .inputs(one(a), one(b))
+      .match(matchSpec(matchKey(a, key), matchKey(b, key)))
+      .outputs(outPlace(accepted))
+      .build();
+    const ack = Transition.builder('ack').inputs(one(accepted)).outputs(outPlace(slot)).build();
+    const net = PetriNet.builder('nu-env-witness').transitions(fork, join, ack, ...extra).build();
+    return { net: bindProducers(net), inEnv, slot, accepted };
+  }
+
+  it('declines a property that reads an environment place (alwaysAvailable and bounded)', async () => {
+    for (const mode of [alwaysAvailable(), bounded(1)]) {
+      const { net, inEnv, slot } = witness();
+      const result = await SmtVerifier.forNet(net)
+        .environmentPlaces(inEnv)
+        .environmentMode(mode)
+        .initialMarking(m => m.tokens(slot, 1))
+        .property(placeBound(inEnv.place, 0))
+        .verify();
+      expect(result.verdict.type, result.report).toBe('unknown');
+      expect(result.route).toBe('nu-scg');
+      const reason = result.verdict.type === 'unknown' ? result.verdict.reason : '';
+      // The full text, byte-identical in Java, TypeScript and Rust.
+      expect(reason).toBe(
+        "environment place 'IN' is read by the property; the name-partition state-class graph " +
+        '(NU-050, Route B) models an environment place only as an inexhaustible input, not its ' +
+        'token count or the names injected into it; refusing to certify (VER-006)');
+      expect(result.report).toContain('Declined under environment injection: ');
+    }
+  });
+
+  it('declines when an inhibitor arc tests an environment place', async () => {
+    const inEnv = environmentPlace<string>('IN');
+    const slot2 = place('slot2');
+    const hit = place('hit');
+    const probe = Transition.builder('probe')
+      .inputs(one(slot2)).inhibitor(inEnv.place).outputs(outPlace(hit)).build();
+    const { net, slot } = witness(inEnv, [probe]);
+    const result = await SmtVerifier.forNet(net)
+      .environmentPlaces(inEnv)
+      .environmentMode(alwaysAvailable())
+      .initialMarking(m => { m.tokens(slot, 1); m.tokens(inEnv.place, 1); m.tokens(slot2, 1); })
+      .property(unreachable(new Set([hit])))
+      .verify();
+    expect(result.verdict.type, result.report).toBe('unknown');
+    expect(result.route).toBe('nu-scg');
+    const reason = result.verdict.type === 'unknown' ? result.verdict.reason : '';
+    expect(reason).toContain("environment place 'IN' is tested by an inhibitor arc of transition 'probe'");
+  });
+
+  it('declines when an environment place is a match key', async () => {
+    // The join is keyed on IN, so IN is coloured; the graph injects no names into it.
+    const inEnv = environmentPlace<string>('IN');
+    const slot = place('slot');
+    const a = place<string>('A');
+    const accepted = place<string>('accepted');
+    const fork = Transition.builder('fork').inputs(one(slot)).outputs(outPlace(a)).build();
+    const join = Transition.builder('join')
+      .inputs(one(a), one(inEnv.place))
+      .match(matchSpec(matchKey(a, key), matchKey(inEnv.place, key)))
+      .outputs(outPlace(accepted))
+      .build();
+    const ack = Transition.builder('ack').inputs(one(accepted)).outputs(outPlace(slot)).build();
+    const net = PetriNet.builder('nu-env-keyed').transitions(fork, join, ack).build();
+    const result = await SmtVerifier.forNet(bindProducers(net))
+      .environmentPlaces(inEnv)
+      .environmentMode(alwaysAvailable())
+      .initialMarking(m => m.tokens(slot, 1))
+      .property(unreachable(new Set([accepted])))
+      .verify();
+    expect(result.verdict.type, result.report).toBe('unknown');
+    expect(result.route).toBe('nu-scg');
+    const reason = result.verdict.type === 'unknown' ? result.verdict.reason : '';
+    expect(reason).toContain("environment place 'IN' carries ν-names (a match key or carrier place)");
+  });
+
+  it('still decides properties that read no environment place', async () => {
+    const { net, inEnv, slot, accepted } = witness();
+    const violated = await SmtVerifier.forNet(net)
+      .environmentPlaces(inEnv)
+      .environmentMode(alwaysAvailable())
+      .initialMarking(m => m.tokens(slot, 1))
+      .property(unreachable(new Set([accepted])))
+      .verify();
+    expect(violated.verdict.type, violated.report).toBe('violated');
+    expect(violated.route).toBe('nu-scg');
+    expect(violated.counterexampleTransitions.length).toBeGreaterThan(0);
+
+    const proven = await SmtVerifier.forNet(net)
+      .environmentPlaces(inEnv)
+      .environmentMode(alwaysAvailable())
+      .initialMarking(m => m.tokens(slot, 1))
+      .property(placeBound(accepted, 1))
+      .verify();
+    expect(proven.verdict.type, proven.report).toBe('proven');
+    expect(proven.route).toBe('nu-scg');
+  });
+
+  it('notes a vacuous quiescence verdict and declines a non-vacuous one (AC6)', async () => {
+    const inEnv = environmentPlace<string>('IN');
+    const beat = place('beat');
+    const heartbeat = Transition.builder('heartbeat')
+      .inputs(one(inEnv.place)).reset(beat).outputs(outPlace(beat)).build();
+    const vacuous = witness(inEnv, [heartbeat]);
+    const proven = await SmtVerifier.forNet(vacuous.net)
+      .environmentPlaces(inEnv)
+      .environmentMode(alwaysAvailable())
+      .initialMarking(m => m.tokens(vacuous.slot, 1))
+      .property(deadlockFree())
+      .verify();
+    expect(proven.verdict.type, proven.report).toBe('proven');
+    expect(proven.route).toBe('nu-scg');
+    expect(proven.report).toContain('no marking of this net can be quiescent');
+
+    const plain = witness();
+    const declined = await SmtVerifier.forNet(plain.net)
+      .environmentPlaces(plain.inEnv)
+      .environmentMode(alwaysAvailable())
+      .initialMarking(m => m.tokens(plain.slot, 1))
+      .property(deadlockFree())
+      .verify();
+    expect(declined.verdict.type, declined.report).toBe('unknown');
+    expect(declined.route).toBe('nu-scg');
+    const reason = declined.verdict.type === 'unknown' ? declined.verdict.reason : '';
+    expect(reason).toContain("environment place 'IN' is read by the property");
+  });
+});
+
 // CORE-043 verification-rejection tests live in smt-verifier-core043.test.ts —
 // a separate file so their solver run gets its own z3 WASM heap rather than
 // adding to this file's, which already runs close to the 2 GB wasm32 ceiling.

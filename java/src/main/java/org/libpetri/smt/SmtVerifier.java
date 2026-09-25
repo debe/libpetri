@@ -3,10 +3,13 @@ package org.libpetri.smt;
 import org.libpetri.analysis.EnvironmentAnalysisMode;
 import org.libpetri.analysis.FragmentMode;
 import org.libpetri.analysis.MarkingState;
+import org.libpetri.analysis.NameFragment;
 import org.libpetri.analysis.PrioritySemantics;
 import org.libpetri.core.EnvironmentPlace;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
+import org.libpetri.core.Transition;
+import org.libpetri.core.internal.CodePointOrder;
 import org.libpetri.core.internal.OutputActionCheck;
 import org.libpetri.core.internal.TerminalEncoding;
 import org.libpetri.smt.encoding.FlatNet;
@@ -117,6 +120,16 @@ public final class SmtVerifier {
     private static final String IGNORE_MODE_VACUITY_REASON =
         "environment places present but not modeled (mode=ignore); "
         + "a proof would be vacuous — use alwaysAvailable() or bounded(k) to model external injection";
+
+    /**
+     * The [VER-006] AC6 note: a quiescence verdict on a net that can never come to rest is
+     * vacuously true. Shared by Route B and the solver path so the two cannot drift apart.
+     */
+    static final String QUIESCENCE_VACUITY_NOTE =
+        "NOTE: no marking of this net can be quiescent — a transition is "
+        + "enabled in every marking (an environment-gated one under modelled injection, "
+        + "VER-006). Every quiescence property is therefore vacuously true here, and a "
+        + "`proven` says nothing about the net.";
     private Duration timeout = Duration.ofSeconds(60);
     private int nuMaxClasses = 100_000;
     private FragmentMode fragmentMode = FragmentMode.BASE;
@@ -719,6 +732,28 @@ public final class SmtVerifier {
         // through to the existing pipeline (which applies the sound Unknown
         // downgrade for these cases).
         if (hasMatch && (!isReachabilitySafety(property) || !nuBounded)) {
+            // [VER-006] AC8: under modelled injection the graph holds an environment place as
+            // an inexhaustible input with a frozen count and no injected names, so a verdict
+            // that observes either is vacuous. Decline before building it, and do not defer to
+            // Route A: it declines under injection too, and the reason would be lost.
+            var fragment = NuScgVerifier.supportedFragment(net, initialMarking, fragmentMode, carrierPlaces);
+            boolean quiescenceVacuous = !isReachabilitySafety(property)
+                && SmtEncoder.quiescenceUnreachable(
+                    NetFlattener.flatten(net, environmentPlaces, environmentMode));
+            String envObservation = fragment == null ? null : routeBEnvObservation(
+                net, fragment, property, sinkPlaces, conditional, environmentPlaces, environmentMode,
+                prioritySemantics, quiescenceVacuous);
+            if (envObservation != null) {
+                report.append("=== ν-net Route B: name-aware state-class graph (NU-050) ===\n");
+                report.append("  Declined under environment injection: ").append(envObservation).append("\n");
+                return buildResult(
+                    new SmtVerificationResult.Verdict.Unknown(envObservation), report.toString(),
+                    List.of(), List.of(), List.of(), List.of(),
+                    Duration.between(start, Instant.now()),
+                    new SmtVerificationResult.SmtStatistics(
+                        net.places().size(), net.transitions().size(), 0, "n/a (ν name-partition SCG)"),
+                    SmtVerificationResult.Route.NU_SCG);
+            }
             var outcome = NuScgVerifier.verify(
                 net, initialMarking, property, sinkPlaces, environmentPlaces, environmentMode, nuMaxClasses,
                 fragmentMode, carrierPlaces, prioritySemantics, conditional);
@@ -750,6 +785,9 @@ public final class SmtVerifier {
                           .append(IGNORE_MODE_VACUITY_REASON).append("\n");
                     routeBVerdict = new SmtVerificationResult.Verdict.Unknown(
                         IGNORE_MODE_VACUITY_REASON);
+                }
+                if (quiescenceVacuous) {
+                    report.append("  ").append(QUIESCENCE_VACUITY_NOTE).append("\n");
                 }
                 return buildResult(
                     routeBVerdict, report.toString(), List.of(), List.of(),
@@ -962,10 +1000,7 @@ public final class SmtVerifier {
         // the verdict would be Proven whatever the net does ([VER-006] AC6). Say so, or the
         // caller reads an empty claim as a guarantee about their workflow.
         if (!isReachabilitySafety(property) && SmtEncoder.quiescenceUnreachable(flatNet)) {
-            report.append("  NOTE: no marking of this net can be quiescent — a transition is "
-                + "enabled in every marking (an environment-gated one under modelled injection, "
-                + "VER-006). Every quiescence property is therefore vacuously true here, and a "
-                + "`proven` says nothing about the net.\n");
+            report.append("  ").append(QUIESCENCE_VACUITY_NOTE).append("\n");
         }
 
         // Phase 4: SMT encode + query via Spacer
@@ -1750,6 +1785,99 @@ public final class SmtVerifier {
             placeholderCertificate(flatNet.placeCount() + flat.counterCount()), flatNet,
             initialMarking, property, sinkPlaces, invariants, conditional, stateEquation);
         return new EncodedScripts(flat.smt2(), certificate, false, bound, stateEquationQuery);
+    }
+
+    /**
+     * Why Route B (NU-050) would observe an environment place it does not model, or {@code null}
+     * when its verdict stands ([VER-006] AC8). Under {@code AlwaysAvailable} / {@code Bounded(k)}
+     * the name-partition graph holds an environment place as an inexhaustible input: its count
+     * stays frozen and it carries no injected names. The rules are checked in a fixed order and
+     * names are scanned in code-point order, so every implementation names the same culprit.
+     * {@code Ignore} is left to the existing vacuity downgrade.
+     */
+    static String routeBEnvObservation(
+            PetriNet net,
+            NameFragment fragment,
+            SmtProperty property,
+            Set<Place<?>> sinkPlaces,
+            List<RestSet.ConditionalSinks> conditionalSinks,
+            Set<EnvironmentPlace<?>> environmentPlaces,
+            EnvironmentAnalysisMode environmentMode,
+            PrioritySemantics prioritySemantics,
+            boolean quiescenceVacuous
+    ) {
+        if (environmentPlaces.isEmpty() || environmentMode instanceof EnvironmentAnalysisMode.Ignore) {
+            return null;
+        }
+        // Only environment places the net declares: an undeclared one has nothing to observe.
+        var declared = new HashSet<String>();
+        net.places().forEach(p -> declared.add(p.name()));
+        var envNames = new TreeSet<String>(CodePointOrder.COMPARATOR);
+        environmentPlaces.forEach(ep -> {
+            if (declared.contains(ep.name())) {
+                envNames.add(ep.name());
+            }
+        });
+        var transitions = new ArrayList<>(net.transitions());
+        transitions.sort(Comparator.comparing(Transition::name, CodePointOrder.COMPARATOR));
+
+        // 1. A coloured environment place: the graph injects no names into it.
+        for (var p : envNames) {
+            if (fragment.isColoured(p)) {
+                return routeBEnvReason(p, "carries ν-names (a match key or carrier place)");
+            }
+        }
+        // 2. An inhibitor arc tests the frozen count.
+        for (var p : envNames) {
+            for (var t : transitions) {
+                if (t.inhibitors().stream().anyMatch(a -> a.place().name().equals(p))) {
+                    return routeBEnvReason(p, "is tested by an inhibitor arc of transition '" + t.name() + "'");
+                }
+            }
+        }
+        // 3. Conflict-priority pruning compares against the frozen count.
+        if (prioritySemantics == PrioritySemantics.CONFLICT) {
+            for (var p : envNames) {
+                long consumers = transitions.stream()
+                    .filter(t -> t.inputSpecs().stream().anyMatch(a -> a.place().name().equals(p)))
+                    .count();
+                if (consumers >= 2) {
+                    return routeBEnvReason(p, "is a consumed input shared under conflict priority");
+                }
+            }
+        }
+        // 4. The property reads the frozen count.
+        var observed = new HashSet<String>();
+        if (isReachabilitySafety(property)) {
+            propertyPlaces(property).forEach(pl -> observed.add(pl.name()));
+        } else if (!quiescenceVacuous) {
+            switch (property) {
+                case SmtProperty.DeadlockFree() -> {
+                    var sinks = new HashSet<String>();
+                    sinkPlaces.forEach(pl -> sinks.add(pl.name()));
+                    for (var p : envNames) {
+                        if (!sinks.contains(p)) {
+                            observed.add(p);
+                        }
+                    }
+                    conditionalSinks.forEach(cs -> observed.add(cs.marker().name()));
+                }
+                case SmtProperty.TerminatesAtSink() -> sinkPlaces.forEach(pl -> observed.add(pl.name()));
+                default -> propertyPlaces(property).forEach(pl -> observed.add(pl.name()));
+            }
+        }
+        for (var p : envNames) {
+            if (observed.contains(p)) {
+                return routeBEnvReason(p, "is read by the property");
+            }
+        }
+        return null;
+    }
+
+    private static String routeBEnvReason(String place, String why) {
+        return "environment place '" + place + "' " + why + "; the name-partition state-class graph "
+            + "(NU-050, Route B) models an environment place only as an inexhaustible input, not its "
+            + "token count or the names injected into it; refusing to certify (VER-006)";
     }
 
     /** The places a property names — the ones that must resolve for its verdict to mean anything. */

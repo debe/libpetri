@@ -4,10 +4,10 @@ import { MarkingState } from '../../../src/verification/marking-state.js';
 import { Transition } from '../../../src/core/transition.js';
 import { PetriNet } from '../../../src/core/petri-net.js';
 import { place, environmentPlace } from '../../../src/core/place.js';
-import { one, all, atLeast } from '../../../src/core/in.js';
+import { one, all, atLeast, exactly } from '../../../src/core/in.js';
 import { outPlace, xorPlaces } from '../../../src/core/out.js';
 import { delayed, window } from '../../../src/core/timing.js';
-import { alwaysAvailable } from '../../../src/verification/analysis/environment-analysis-mode.js';
+import { alwaysAvailable, bounded } from '../../../src/verification/analysis/environment-analysis-mode.js';
 import { produces } from '../../fixtures/producing-actions.js';
 
 describe('StateClassGraph', () => {
@@ -150,6 +150,35 @@ describe('StateClassGraph', () => {
     expect(scg.size()).toBeGreaterThanOrEqual(1);
     const initialEnabled = scg.enabledTransitions(scg.initialClass);
     expect(initialEnabled.has(t1)).toBe(true);
+  });
+
+  // VER-006 AC3 parity with Java and Rust: inputs and reads on an environment place go
+  // through the modelled mode, and bounded(k) admits a demand exactly when it is <= k.
+  it('a read arc on an empty environment place is satisfied under alwaysAvailable', () => {
+    const env = environmentPlace<string>('env');
+    const ready = place('ready');
+    const out = place('out');
+    const t = Transition.builder('t')
+      .inputs(one(ready)).read(env.place).outputs(outPlace(out)).action(produces()).build();
+    const net = PetriNet.builder('env-read').transitions(t).build();
+    const scg = StateClassGraph.build(
+      net, MarkingState.builder().tokens(ready, 1).build(), 100, new Set([env]), alwaysAvailable(),
+    );
+    expect(scg.stateClasses().some(sc => sc.marking.tokens(out) > 0)).toBe(true);
+  });
+
+  it('bounded(k) refuses a demand above k even when the place holds enough tokens', () => {
+    const env = environmentPlace<string>('env');
+    const ready = place('ready');
+    const out = place('out');
+    const t = Transition.builder('t')
+      .inputs(exactly(2, env.place), one(ready)).outputs(outPlace(out)).action(produces()).build();
+    const net = PetriNet.builder('env-bounded').transitions(t).build();
+    const scg = StateClassGraph.build(
+      net, MarkingState.builder().tokens(ready, 1).tokens(env.place, 2).build(), 100,
+      new Set([env]), bounded(1),
+    );
+    expect(scg.stateClasses().some(sc => sc.marking.tokens(out) > 0)).toBe(false);
   });
 
   it('deadend net has no outgoing transitions from final state', () => {
