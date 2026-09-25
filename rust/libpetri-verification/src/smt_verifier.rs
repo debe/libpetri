@@ -20,6 +20,8 @@ use crate::priority_semantics::PrioritySemantics;
 use crate::property::SmtProperty;
 use crate::rest_set::{ConditionalSinks, describe_sinks};
 use crate::scg_verifier::{self, ScgOutcome};
+use crate::state_class_graph::StateClassGraph;
+use crate::state_space_cache::{StateSpaceCache, StateSpaceKey, StateSpaceLookup};
 use crate::result::{Verdict, VerificationResult, VerificationRoute, VerificationStatistics};
 use crate::smt_encoder;
 use crate::state_equation_phase::{self, StateEquationOutcome, StateEquationPhaseOptions};
@@ -112,6 +114,13 @@ pub struct SmtVerifier<'a> {
     /// default 50 000; `0` disables it). See
     /// [`SmtVerifier::enumeration_max_classes`].
     enumeration_max_classes: usize,
+    /// The caller's state-space cache for the enumeration route ([VER-017]), if
+    /// any. See [`SmtVerifier::state_space_cache`].
+    state_space_cache: Option<StateSpaceCache>,
+    /// The cache key of the caller's net and initial marking, taken in
+    /// [`SmtVerifier::verify`] before the terminal rewrite ([EXEC-042]) replaces
+    /// the net. `None` without a cache, or when the route cannot apply.
+    state_space_key: Option<StateSpaceKey>,
     /// Whether the flat CHC encoding carries the state equation with firing
     /// counters ([VER-016], default `false`). See [`SmtVerifier::state_equation`].
     state_equation: bool,
@@ -185,6 +194,8 @@ impl<'a> SmtVerifier<'a> {
             counterexample_replay: true,
             semiflow_invariants: SemiflowMode::Off,
             enumeration_max_classes: 50_000,
+            state_space_cache: None,
+            state_space_key: None,
             state_equation: false,
             linear_bound: true,
             // Both on, as in every implementation: a phase verdict carries its own
@@ -443,6 +454,28 @@ impl<'a> SmtVerifier<'a> {
         self
     }
 
+    /// Shares a caller-owned [`StateSpaceCache`] with this verification
+    /// ([VER-017]), so the enumeration route builds the state-class graph of a net
+    /// and initial marking once across every query that passes the same cache.
+    ///
+    /// The graph depends only on the net and its initial marking; the property and
+    /// the sinks only read it. A closed graph of `C` classes answers any later
+    /// query whose budget exceeds `C`; a truncation at budget `B` makes any later
+    /// budget of `B` or less decline at once, without building. The verdict, the
+    /// witness and the route are the same with and without the cache; the report
+    /// adds one line when a cached graph or a cached truncation was used. Without
+    /// this call the behaviour is unchanged.
+    ///
+    /// ```ignore
+    /// let cache = StateSpaceCache::new();
+    /// let a = SmtVerifier::for_net(&net).property(p1).state_space_cache(&cache).verify();
+    /// let b = SmtVerifier::for_net(&net).property(p2).state_space_cache(&cache).verify(); // no build
+    /// ```
+    pub fn state_space_cache(mut self, cache: &StateSpaceCache) -> Self {
+        self.state_space_cache = Some(cache.clone());
+        self
+    }
+
     /// Enables or disables the linear state-equation bound phase ([VER-015];
     /// default: enabled). A reachability-safety property whose violating markings
     /// exceed some `y·M <= y·M0` with `y >= 0`, `y·C <= 0` is then proven
@@ -553,13 +586,79 @@ impl<'a> SmtVerifier<'a> {
     /// 3. Compute P-invariants
     /// 4. Encode as CHC and query Z3 Spacer
     /// 5. Format results
-    pub fn verify(self) -> VerificationResult {
+    pub fn verify(mut self) -> VerificationResult {
+        // [VER-017]: the state-space cache is keyed on the net as the caller passed
+        // it, so the key is taken before the terminal rewrite below replaces it.
+        // The rewrite adds inhibitors only, so whether the route can apply is the
+        // same question on either net.
+        if self.state_space_cache.is_some() && self.enumeration_applies() {
+            self.state_space_key = Some(StateSpaceKey::new(self.net, &self.initial_marking));
+        }
         // [EXEC-042] / [VER-014]: a net's own terminal places apply with no
         // restatement by the caller. A net without them takes this branch and
         // is verified exactly as before.
         match inhibit_on_terminals(self.net) {
             None => self.verify_net(),
             Some(rewritten) => self.on_net(&rewritten).with_net_terminals().verify_net(),
+        }
+    }
+
+    /// Whether the bounded state-space enumeration route ([VER-017]) runs on this
+    /// configuration: no ν-join, no environment place, a positive budget and an
+    /// untimed net.
+    fn enumeration_applies(&self) -> bool {
+        !self.net.transitions().iter().any(|t| t.match_spec().is_some())
+            && self.env_places.is_empty()
+            && self.enumeration_max_classes > 0
+            && scg_verifier::is_untimed(self.net)
+    }
+
+    /// Runs the enumeration route, through the state-space cache when one is set.
+    /// Returns the outcome and, when the cache answered, the report line saying so.
+    fn enumerate(&self) -> (ScgOutcome, Option<String>) {
+        let (Some(cache), Some(key)) = (&self.state_space_cache, &self.state_space_key) else {
+            let outcome = scg_verifier::verify_via_state_class_graph(
+                self.net,
+                &self.initial_marking,
+                &self.property,
+                &self.sink_places,
+                self.enumeration_max_classes,
+                &self.conditional_sinks,
+            );
+            return (outcome, None);
+        };
+        let budget = self.enumeration_max_classes;
+        let lookup = cache.lookup(key.clone(), budget, || {
+            StateClassGraph::build(self.net, &self.initial_marking, budget)
+        });
+        let decide = |graph: &StateClassGraph| {
+            scg_verifier::decide_over_state_space(
+                graph,
+                &self.initial_marking,
+                &self.property,
+                &self.sink_places,
+                &self.conditional_sinks,
+            )
+        };
+        match lookup {
+            StateSpaceLookup::Built(graph) => (decide(&graph), None),
+            StateSpaceLookup::Reused(graph) => {
+                let line = format!(
+                    "Bounded state-space enumeration: reused cached state space ({} classes) \
+                     (VER-017).\n",
+                    graph.class_count()
+                );
+                (decide(&graph), Some(line))
+            }
+            // The line names this query's budget, as the truncation line that
+            // follows it does, not the budget the cached truncation was found at.
+            StateSpaceLookup::Declined => {
+                let line = format!(
+                    "Bounded state-space enumeration: cached truncation at {budget} classes \
+                     (VER-017); verifying via the SMT pipeline.\n"
+                );
+                (ScgOutcome::Truncated { class_count: budget }, Some(line))
+            }
         }
     }
 
@@ -585,6 +684,8 @@ impl<'a> SmtVerifier<'a> {
             counterexample_replay: self.counterexample_replay,
             semiflow_invariants: self.semiflow_invariants,
             enumeration_max_classes: self.enumeration_max_classes,
+            state_space_cache: self.state_space_cache,
+            state_space_key: self.state_space_key,
             state_equation: self.state_equation,
             linear_bound: self.linear_bound,
             state_equation_phase: self.state_equation_phase,
@@ -825,14 +926,7 @@ impl<'a> SmtVerifier<'a> {
             && self.enumeration_max_classes > 0
             && scg_verifier::is_untimed(self.net)
         {
-            let enumerated = scg_verifier::verify_via_state_class_graph(
-                self.net,
-                &self.initial_marking,
-                &self.property,
-                &self.sink_places,
-                self.enumeration_max_classes,
-                &self.conditional_sinks,
-            );
+            let (enumerated, cache_line) = self.enumerate();
             match enumerated {
                 ScgOutcome::Decided {
                     verdict,
@@ -841,6 +935,9 @@ impl<'a> SmtVerifier<'a> {
                     class_count,
                 } => {
                     let elapsed_ms = start.elapsed().as_millis() as u64;
+                    if let Some(line) = &cache_line {
+                        report.push_str(line);
+                    }
                     report.push_str("=== Bounded state-space enumeration (VER-017) ===\n");
                     report.push_str(&format!("Property: {}\n", describe(self.property.description())));
                     report.push_str(&format!("State classes: {class_count}\n"));
@@ -879,6 +976,9 @@ impl<'a> SmtVerifier<'a> {
                     );
                 }
                 ScgOutcome::Truncated { .. } => {
+                    if let Some(line) = &cache_line {
+                        report.push_str(line);
+                    }
                     report.push_str(&format!(
                         "Bounded state-space enumeration truncated at {} classes (VER-017); \
                          verifying via the SMT pipeline.\n",

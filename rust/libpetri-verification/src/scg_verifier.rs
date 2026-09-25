@@ -89,7 +89,8 @@ impl ClassView for GraphClasses<'_> {
 /// Decides `property` by enumeration, or reports truncation.
 ///
 /// `max_classes` is the class budget; `0` disables the route (the caller then
-/// never calls this).
+/// never calls this). Builds the graph and hands it to
+/// [`decide_over_state_space`].
 pub fn verify_via_state_class_graph(
     net: &PetriNet,
     initial: &MarkingState,
@@ -99,6 +100,24 @@ pub fn verify_via_state_class_graph(
     conditional_sinks: &[ConditionalSinks],
 ) -> ScgOutcome {
     let graph = StateClassGraph::build(net, initial, max_classes);
+    decide_over_state_space(&graph, initial, property, sink_places, conditional_sinks)
+}
+
+/// Reads the verdict off a built graph, or reports truncation when it did not
+/// close. Only reads `graph`, so one graph answers any number of properties
+/// ([`crate::state_space_cache`]).
+///
+/// `initial` is the marking the graph was built from, as the caller listed it: it
+/// is the first state of a witness trace. The graph's own initial class holds the
+/// same counts, but a cached graph may have been built from a marking listed in
+/// another order.
+pub fn decide_over_state_space(
+    graph: &StateClassGraph,
+    initial: &MarkingState,
+    property: &SmtProperty,
+    sink_places: &[String],
+    conditional_sinks: &[ConditionalSinks],
+) -> ScgOutcome {
     if !graph.is_complete() {
         return ScgOutcome::Truncated {
             class_count: graph.class_count(),
@@ -106,7 +125,7 @@ pub fn verify_via_state_class_graph(
     }
 
     let violating = decide_over_classes(
-        &GraphClasses(&graph),
+        &GraphClasses(graph),
         property,
         sink_places,
         conditional_sinks,
@@ -114,7 +133,7 @@ pub fn verify_via_state_class_graph(
 
     match violating {
         Some(idx) => {
-            let (trace, transitions) = counterexample_path(&graph, idx);
+            let (trace, transitions) = counterexample_path(graph, initial, idx);
             ScgOutcome::Decided {
                 verdict: Verdict::Violated,
                 trace,
@@ -135,7 +154,8 @@ pub fn verify_via_state_class_graph(
 }
 
 /// Shortest firing sequence from the initial class (0) to `target`, as markings
-/// and transition names. BFS over the recorded edges.
+/// and transition names. BFS over the recorded edges. Class 0 is reported as
+/// `initial`, the caller's own listing of its marking.
 ///
 /// The edge list is indexed by source in one pass first, so the walk is O(V + E)
 /// like TypeScript's, which reads the graph's per-class adjacency directly.
@@ -145,6 +165,7 @@ pub fn verify_via_state_class_graph(
 /// so the tree the BFS builds — and hence the reported path — is unchanged.
 fn counterexample_path(
     graph: &StateClassGraph,
+    initial: &MarkingState,
     target: usize,
 ) -> (Vec<MarkingState>, Vec<String>) {
     let n = graph.class_count();
@@ -187,7 +208,13 @@ fn counterexample_path(
     chain.reverse();
     let markings = chain
         .iter()
-        .map(|&i| graph.classes()[i].marking.clone())
+        .map(|&i| {
+            if i == 0 {
+                initial.clone()
+            } else {
+                graph.classes()[i].marking.clone()
+            }
+        })
         .collect();
     let transitions = chain.iter().skip(1).map(|&i| via[i].clone()).collect();
     (markings, transitions)

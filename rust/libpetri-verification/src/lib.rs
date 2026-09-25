@@ -76,7 +76,10 @@
 //! needs a frame per pipeline stage. On truncation the SMT pipeline runs
 //! unchanged, so the route can only add verdicts. It and the ν name-partition
 //! route of [VER-012] decide the SAME predicate, stated once in
-//! [`graph_decision`] ([VER-002] AC7).
+//! [`graph_decision`] ([VER-002] AC7). A caller asking many questions of one
+//! net passes a [`StateSpaceCache`](state_space_cache::StateSpaceCache) to each
+//! (`state_space_cache(&cache)`), so the graph is built once per net and initial
+//! marking, and a known truncation declines without building.
 //!
 //! [`VerificationResult::route`](result::VerificationResult::route) names which
 //! route answered ([VER-003] AC4). Read it before concluding anything from an
@@ -116,6 +119,7 @@ pub mod scg_verifier;
 pub mod smt_encoder;
 pub mod state_class;
 pub mod state_class_graph;
+pub mod state_space_cache;
 pub mod structural_check;
 pub mod terminal_places;
 
