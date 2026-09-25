@@ -4,14 +4,14 @@ This directory maps which Lean declarations every libpetri proof depends on, fro
 requirement down to the lemmas. Lean extracts it from the elaborated environment, so every file
 here is generated: regenerate it, never edit it.
 
-The interactive view is [`index.html`](index.html). It is checked in and CI fails if it is stale.
-Open it from a checkout in any browser; it is self-contained and works offline.
+**[Open the interactive graph](https://libpetri.org/proof-graph/)**. The page is generated into
+[`docs/proof-graph/index.html`](../../docs/proof-graph/index.html), which GitHub Pages serves. It is
+self-contained, so it also opens offline from a checkout.
 
 ## What is here
 
 | File | Contents |
 |---|---|
-| [`index.html`](index.html) | Interactive view of the whole graph |
 | [`requirements/<SPEC-ID>.md`](requirements/) | One page per spec requirement: the theorems that prove it and their proof trees as Mermaid |
 | [`modules.md`](modules.md) | File-level overview with declaration counts |
 | `proof-graph.json` | The raw graph (schema below) |
@@ -35,12 +35,12 @@ bash scripts/regen-proof-graph.sh
 ```
 
 The script builds `lean/` and checks the extractor against its fixture. It then extracts
-`proof-graph.json` with `lake exe proofgraph` and renders the pages with
-`scripts/proof-graph.py`. It deletes requirement pages that no longer apply. It fails if
+`proof-graph.json` with `lake exe proofgraph` and renders the pages and
+`docs/proof-graph/index.html` with `scripts/proof-graph.py`. It deletes requirement pages that no longer apply. It fails if
 `lean/proof-coverage.json` names a theorem that is not in the graph. Output is deterministic:
-on an unchanged commit, `git status lean/graph` stays clean. CI enforces this in the `lean` job.
+on an unchanged commit, `git status lean/graph docs/proof-graph` stays clean. CI enforces this in the `lean` job.
 
-Commit the regenerated files with any change to `Libpetri/` or `proof-coverage.json`.
+Commit the regenerated files, including the page, with any change to `Libpetri/` or `proof-coverage.json`.
 
 ## How the graph is built
 

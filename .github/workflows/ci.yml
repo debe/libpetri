@@ -292,14 +292,15 @@ jobs:
       - name: Spec coverage matrix is up to date
         working-directory: ${{ github.workspace }}
         run: python3 scripts/spec-coverage-matrix.py --check
-      # lean/graph/ is generated from the build; regenerating it must be a no-op.
+      # lean/graph/ and docs/proof-graph/ are generated from the build;
+      # regenerating them must be a no-op.
       - name: Proof graph is up to date
         working-directory: ${{ github.workspace }}
         run: |
           python3 -m unittest scripts/test_proof_graph.py
           bash scripts/regen-proof-graph.sh
-          git diff --exit-code -- lean/graph
-          test -z "$(git status --porcelain -- lean/graph)"
+          git diff --exit-code -- lean/graph docs/proof-graph
+          test -z "$(git status --porcelain -- lean/graph docs/proof-graph)"
 
   # Guards the doc-generator viewer bundle (petrinet-diagrams.js): the baked
   # Graphviz-WASM must instantiate + render, and the committed assets must be

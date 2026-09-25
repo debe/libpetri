@@ -12,7 +12,7 @@ Writes
   inside the graph, transitively reduced and grouped by source file.
 * ``<out>/modules.md``: the file-level overview (file -> file when any edge crosses them),
   transitively reduced, with the declaration count per file.
-* ``<out>/index.html``: one self-contained interactive page over the whole graph (template and
+* ``<out>/index.html`` (or ``--html``): one self-contained interactive page over the whole graph (template and
   script in ``scripts/proof-graph-html/``, plain JS + SVG, no library, no network access).
 
 The input is the only source: nothing is annotated by hand. Output is deterministic, with
@@ -486,7 +486,8 @@ def check_coverage(data: dict, coverage: dict) -> list:
     return sorted(ids)
 
 
-def render(data: dict, out_dir: str, threshold: int = DEFAULT_THRESHOLD) -> list:
+def render(data: dict, out_dir: str, threshold: int = DEFAULT_THRESHOLD,
+           html_path: str | None = None) -> list:
     by_name = {n["name"]: n for n in data["nodes"]}
     edges = [tuple(e) for e in data["edges"]]
     adj = adjacency(set(by_name), edges)
@@ -509,7 +510,7 @@ def render(data: dict, out_dir: str, threshold: int = DEFAULT_THRESHOLD) -> list
     path = os.path.join(out_dir, "modules.md")
     write(path, modules_page(by_name, edges))
     written.append(path)
-    path = os.path.join(out_dir, "index.html")
+    path = html_path or os.path.join(out_dir, "index.html")
     write(path, html_page(data))
     written.append(path)
     return written
@@ -519,6 +520,7 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--in", dest="inp", required=True, help="proof-graph.json (schema v1)")
     p.add_argument("--out", required=True, help="output directory")
+    p.add_argument("--html", help="path of the interactive page (default <out>/index.html)")
     p.add_argument("--threshold", type=int, default=DEFAULT_THRESHOLD,
                    help=f"max nodes per diagram before collapsing (default {DEFAULT_THRESHOLD})")
     p.add_argument("--coverage", help="proof-coverage.json: fail unless every listed theorem is "
@@ -538,7 +540,7 @@ def main(argv=None) -> int:
         except CoverageError as e:
             print(f"proof-graph: {args.coverage}: {e}", file=sys.stderr)
             return 3
-    written = render(data, args.out, args.threshold)
+    written = render(data, args.out, args.threshold, args.html)
     for path in written:
         print(f"proof-graph: wrote {path}")
     pages = sum(1 for p_ in written if os.path.basename(os.path.dirname(p_)) == "requirements")

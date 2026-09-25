@@ -3,7 +3,8 @@
 #   lean/graph/proof-graph.json      (lake exe proofgraph, Lean's own extraction)
 #   lean/graph/requirements/*.md     (scripts/proof-graph.py)
 #   lean/graph/modules.md            (scripts/proof-graph.py)
-#   lean/graph/index.html            (scripts/proof-graph.py, template in scripts/proof-graph-html/)
+#   docs/proof-graph/index.html      (scripts/proof-graph.py, template in scripts/proof-graph-html/;
+#                                     GitHub Pages serves it at https://libpetri.org/proof-graph/)
 # No arguments, no gate data. Runnable from any directory. Never edit the outputs by hand.
 set -euo pipefail
 
@@ -28,4 +29,5 @@ cd "$repo"
 python3 scripts/proof-graph.py \
   --in lean/graph/proof-graph.json \
   --out lean/graph \
+  --html docs/proof-graph/index.html \
   --coverage lean/proof-coverage.json

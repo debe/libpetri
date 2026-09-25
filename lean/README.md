@@ -40,8 +40,8 @@ freshness check.
 ## Proof-dependency graph
 
 [`graph/`](graph/README.md) maps every theorem to the declarations it depends on, per spec
-requirement. The interactive view is [`graph/index.html`](graph/index.html); open it from a
-checkout.
+requirement. **[Open the interactive graph](https://libpetri.org/proof-graph/)** (generated into
+`docs/proof-graph/index.html`, served by GitHub Pages).
 
 ## What is proved
 
