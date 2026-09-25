@@ -40,8 +40,8 @@ freshness check.
 ## Proof-dependency graph
 
 [`graph/`](graph/README.md) maps every theorem to the declarations it depends on, per spec
-requirement. **[Open the interactive graph](https://claude.ai/artifact/KSBe316tRKVWwPQHvMo72u)**
-or [`graph/index.html`](graph/index.html) from a checkout.
+requirement. The interactive view is [`graph/index.html`](graph/index.html); open it from a
+checkout.
 
 ## What is proved
 

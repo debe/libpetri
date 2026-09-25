@@ -138,7 +138,7 @@ The Lean development proves:
 
 The models also reproduce historical verifier and executor defects, including wrong ready ordering, read/reset ordering, duplicate-input failure, and unknown-place token loss. This matters because a model that cannot see real divergences offers weak evidence about the code it describes.
 
-The proof boundary is deliberate: the full timed cycle, asynchronous action plumbing, and complete ν-match/cache lockstep are not yet refined end to end. CI runs `lake build`, rejects `sorry` and `admit`, and checks the headline theorems for unexpected axioms. See [`lean/README.md`](lean/README.md) for the theorem map, assumptions, counterexamples, and maintenance obligation. The [interactive proof graph](https://claude.ai/artifact/KSBe316tRKVWwPQHvMo72u) shows which declarations each proved requirement depends on.
+The proof boundary is deliberate: the full timed cycle, asynchronous action plumbing, and complete ν-match/cache lockstep are not yet refined end to end. CI runs `lake build`, rejects `sorry` and `admit`, and checks the headline theorems for unexpected axioms. See [`lean/README.md`](lean/README.md) for the theorem map, assumptions, counterexamples, and maintenance obligation. The [proof-dependency graph](lean/graph/README.md) ([`index.html`](lean/graph/index.html), open from a checkout) shows which declarations each proved requirement depends on.
 
 ## See it at scale
 

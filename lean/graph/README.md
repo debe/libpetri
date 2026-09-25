@@ -4,8 +4,8 @@ This directory maps which Lean declarations every libpetri proof depends on, fro
 requirement down to the lemmas. Lean extracts it from the elaborated environment, so every file
 here is generated: regenerate it, never edit it.
 
-**[Open the interactive graph](https://claude.ai/artifact/KSBe316tRKVWwPQHvMo72u)**, or open
-[`index.html`](index.html) from a checkout. The page is self-contained and works offline.
+The interactive view is [`index.html`](index.html). It is checked in and CI fails if it is stale.
+Open it from a checkout in any browser; it is self-contained and works offline.
 
 ## What is here
 
