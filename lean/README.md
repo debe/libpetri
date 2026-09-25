@@ -248,7 +248,7 @@ modules extend both axes:
 witnessed in `TimedCycle.lean`, but the TIME-013 semantics ruling and the
 full timed-cycle refinement remain open — only the ready-collection phase is
 covered), DBM / Berthomieu–Diaz state
-classes; the async loop and action plumbing (actions are pure
+classes beyond `Novel/Dbm.lean` (successor zones, float rounding); the async loop and action plumbing (actions are pure
 emission functions here); ν-match `best()` selection and tie-break (NU-022
 AC2 stays a differential-test claim — `MatchCache.lean` covers queue
 contents only); the u64 word packing and two-level summaries (bit/set
@@ -260,12 +260,36 @@ beyond the generic key/step model of `Interning.lean` (that
 `name_successors` is equivariant under renaming is a stated hypothesis, not a
 theorem); Lemma 0 quiescence; extraction to the four implementations.
 
-Two properties those files assume are proved separately under
-`Libpetri/Novel/`, on models of the Rust functions: `canonical_key` is a
-complete invariant of the symbol-renaming orbit (`CanonicalKey.lean`), and
-every row the Farkas enumeration returns is a semiflow (`Farkas.lean`;
+`Libpetri/Novel/` holds Mathlib-based proofs on models of the Rust
+functions. Two discharge properties the files above assume: `canonical_key`
+is a complete invariant of the symbol-renaming orbit (`CanonicalKey.lean`),
+and every row the Farkas enumeration returns is a semiflow (`Farkas.lean`;
 env-injector columns not modelled). They are not yet wired into the
-hypotheses of `Interning.lean` and `Semiflow.lean`.
+hypotheses of `Interning.lean` and `Semiflow.lean`. The other four stand
+alone:
+
+- `Enumeration.lean` — `net_enumeration_exact` ([VER-017]): a closed
+  breadth-first class exploration discovers exactly the reachable markings,
+  so the modelled route's verdict is sound and complete. It carries over to
+  the shipped route under two assumed premises: on an immediate-only net
+  `compute_successor` yields exactly the `fireA` successors, and the class
+  `canonical_key` is marking equality. Environment injection, the state-space
+  cache and the counterexample path are not modelled.
+- `Commoner.lean` — `commoner` ([VER-020] AC2): in an ordinary net, if every
+  nonempty siphon contains an initially marked trap, no reachable marking is
+  dead. `ordinary_is_necessary` (AC3) and `marked_trap_is_necessary` witness
+  the arc-weight guard (`commoner_applies`) and the marked-trap test in
+  `structural_check`. The siphon and trap fixpoints themselves are not
+  verified.
+- `Dbm.lean` — `empty_iff_flagged` ([VER-011] AC2): in-place Floyd–Warshall
+  followed by the negative-diagonal check flags a zone empty exactly when it
+  has no solution (exact rationals, a finite reference row, tolerance 0; the
+  shipped `1e-9` tolerance can only miss an emptiness); `sat_permD` (AC4)
+  covers clock reordering.
+- `ResetArc.lean` — `reset_arc_semantics` ([CORE-034]): a reset arc never
+  affects enablement and leaves its place holding only what the firing
+  produced (token counts; tokens a same-pass action deposited, which survive
+  a reset per EXEC-003 AC5, are not modelled).
 
 The immediate-fragment refinement also idealizes the EXEC-003 recheck the same
 way on both sides — `pcRecheck` and `bbRecheck` both re-read the *live*
@@ -321,7 +345,8 @@ each pinned item's current source span, doc comments and attributes included.
 `scripts/lean-fidelity-check.py` re-hashes the pins against the lock, and runs
 two citation guards:
 
-- **file coverage** — every `.rs` file cited in a Lean doc comment must have at
+- **file coverage** — every `.rs` file cited in a Lean doc comment (every
+  `.lean` file under `Libpetri/`, subdirectories included) must have at
   least one pin. This is per *file*, not per item: a comment that starts
   modelling a second function in an already-pinned file is not caught here, so
   add the pin by hand.

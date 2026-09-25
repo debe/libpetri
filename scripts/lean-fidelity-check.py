@@ -255,7 +255,7 @@ _CITATION = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_/.\-]*\.rs\b")
 def lean_citations() -> list[tuple[str, str]]:
     """(cited .rs path, citing lean file) for every distinct citation."""
     lean_dir = REPO_ROOT / "lean"
-    files = [lean_dir / "Libpetri.lean"] + sorted((lean_dir / "Libpetri").glob("*.lean"))
+    files = [lean_dir / "Libpetri.lean"] + sorted((lean_dir / "Libpetri").rglob("*.lean"))
     seen: dict[str, str] = {}
     for f in files:
         for m in _CITATION.finditer(f.read_text(encoding="utf-8")):
@@ -358,7 +358,7 @@ def check_line_hints(pins: list[dict]) -> list[str]:
 
     problems: list[str] = []
     lean_dir = REPO_ROOT / "lean"
-    files = [lean_dir / "Libpetri.lean"] + sorted((lean_dir / "Libpetri").glob("*.lean"))
+    files = [lean_dir / "Libpetri.lean"] + sorted((lean_dir / "Libpetri").rglob("*.lean"))
     for lf in files:
         rel = str(lf.relative_to(REPO_ROOT))
         if rel in HISTORICAL_CITATIONS:

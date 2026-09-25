@@ -5,21 +5,26 @@ import Mathlib.Logic.Relation
 # The bounded enumeration route decides exactly ([VER-017])
 
 Model of the enumeration route: `StateClassGraph::build_with_options`
-(`rust/libpetri-verification/src/state_class_graph.rs:102-197`) and the verdict of
-`verify_via_state_class_graph` (`rust/libpetri-verification/src/scg_verifier.rs:93-135`).
+(`rust/libpetri-verification/src/state_class_graph.rs:102`), which the route reaches through
+`StateClassGraph::build` with no environment places, and the verdict that
+`decide_over_state_space` (`rust/libpetri-verification/src/scg_verifier.rs:114`) reads off the
+built graph. `verify_via_state_class_graph` (`scg_verifier.rs:94`) is the two in sequence; with
+a `StateSpaceCache` attached, `verify_net` calls `decide_over_state_space` directly on a graph
+the cache built or already held.
 
-The exploration is a breadth-first worklist (`state_class_graph.rs:125-194`):
+The exploration is a breadth-first worklist (`state_class_graph.rs:128-194`):
 * pop the front class, and stop with `complete = false` if the budget is reached
-  (`classes.len() >= max_classes`, `:129-132`);
+  (`classes.len() >= max_classes`, `state_class_graph.rs:129-132`);
 * otherwise, for every successor in order, look its key up. A new successor is appended to
-  both the class list and the queue (`:162-174`); a known one only gets an edge.
+  both the class list and the queue (`state_class_graph.rs:164-174`); a known one only gets an
+  edge.
 * The graph is complete when the queue runs dry.
 `run` is that loop with the class list and queue as lists and dedup by equality (the key).
 Lean needs termination, so there is a `fuel` argument, and running out of fuel counts as
-truncation. `verify_via_state_class_graph` reports `Truncated` unless the graph is complete.
+truncation. `decide_over_state_space` reports `Truncated` unless the graph is complete.
 Otherwise the verdict is `Violated` iff some discovered class satisfies the property's bad
-predicate, where a class is quiescent iff it has no successor (`is_quiescent`,
-`scg_verifier.rs:84-86`).
+predicate (`decide_over_classes`, the first class where it holds), where a class is quiescent
+iff it has no successor (`is_quiescent`, `scg_verifier.rs:84-86`).
 
 Results:
 * `run_complete_iff_reach` (the core): if the loop reports `complete`, a state is among the
@@ -27,30 +32,39 @@ Results:
   class is reachable, and every class not waiting in the queue has all its successors
   discovered.
 * `decided_exact`: a complete run's `Proven` (no discovered class is bad) holds **iff** no
-  reachable state is bad, and a `Violated` class is really reachable. The route is sound and
-  complete for the predicate it reads, as the spec's "What the verdict means" demands.
+  reachable state is bad, and a `Violated` class is really reachable. For the abstract loop the
+  verdict is sound and complete for the predicate it reads, as the spec's "What the verdict
+  means" demands.
 * `succNet_iff_step`, `quiescent_iff_dead`, `net_enumeration_exact`: instantiated with the
   flat net's successor function over abstract markings, the discovered classes are exactly the
   `ReachA`-reachable markings (the encoders' untimed reachable set), and a quiescent class is
   exactly a dead marking. So deadlock freedom read off a closed graph is deadlock freedom of
   `ReachA`.
 
-Modelling gaps (not proven here):
-* On an untimed net a class is modelled by its marking and its successors by the CHC fire
-  relation `fireA`, one per enabled flat transition (XOR branch), in net order. The Rust
-  `compute_successor` works on state classes with (trivial) firing domains and drops a
-  successor whose domain is empty (`:158-160`). That it yields exactly the `fireA` successors
-  on an immediate-only net is the premise of VER-017 condition 3, assumed here.
-* Environment injection is not modelled. The Rust build threads `env_set` into
-  `compute_successor` (`state_class_graph.rs:112`, `:153`), but the Lean successor step
-  `succNet` covers only net transitions, so the exactness result is about the net without
-  environment injection. The route itself runs only when no environment places are registered
-  (VER-017 condition 2, `smt_verifier.rs:770`).
-* Class identity is `canonical_key`; the model takes it to be equality of markings.
-* The counterexample path reconstruction (`counterexample_path`) is not modelled; only
-  reachability of the violating class is proven.
-* That the route closes on every small enough state space (budget and fuel large enough) is
-  not proven. Only what a closed run decides is.
+The step from these results to the shipped route rests on two premises that are assumed, not
+proven:
+* **Successors.** On an untimed net a class is modelled by its marking and its successors by
+  the CHC fire relation `fireA`, one per enabled flat transition (XOR branch). The Rust
+  `compute_successor` (`state_class_graph.rs:429`) works on state classes with (trivial) firing
+  domains, iterates the class's enabled transitions in canonical clock order rather than net
+  order, and drops a successor whose domain is empty (`state_class_graph.rs:158-160`). That it
+  yields exactly the `fireA` successors, as a set, on an immediate-only net is the premise of
+  VER-017 condition 3. Order does not matter: every result above is about membership.
+* **Class identity.** The Rust dedups classes by `StateClass::canonical_key`, the marking key
+  joined with the DBM's `zone_key`. The model takes it to be equality of markings, which holds
+  when the zone of an untimed class is determined by its marking.
+
+Also not modelled:
+* Environment injection. The Rust build threads `env_set` into `compute_successor`
+  (`state_class_graph.rs:112`, `state_class_graph.rs:153`), but the Lean successor step
+  `succNet` covers only net transitions. The route itself runs only when no environment places
+  are registered (VER-017 condition 2, checked in `verify_net`).
+* The state-space cache: that a graph reused under an equal net and marking fingerprint is the
+  graph a fresh build would return.
+* The counterexample path reconstruction (`counterexample_path`); only reachability of the
+  violating class is proven.
+* That the route closes on every small enough state space (budget and fuel large enough). Only
+  what a closed run decides is proven.
 -/
 
 namespace Libpetri.Novel.Enumeration
@@ -64,7 +78,7 @@ def Reach (succ : σ → List σ) (x0 : σ) : σ → Prop :=
   Relation.ReflTransGen (fun a b => b ∈ succ a) x0
 
 /-- Expand one class: every successor not yet discovered is appended to the class list and
-to the queue, in successor order (`state_class_graph.rs:146-174`). -/
+to the queue, in successor order (`state_class_graph.rs:136-193`). -/
 def expand (cls q : List σ) : List σ → List σ × List σ
   | [] => (cls, q)
   | y :: ys => if y ∈ cls then expand cls q ys else expand (cls ++ [y]) (q ++ [y]) ys

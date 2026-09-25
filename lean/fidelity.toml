@@ -146,12 +146,12 @@ lean = ["Libpetri/Compile.lean"]
 [[pin]]
 file = "rust/libpetri-runtime/src/bitmap_backend.rs"
 fn = "can_enable"
-lean = ["Libpetri/Basic.lean", "Libpetri/Refinement.lean"]
+lean = ["Libpetri/Basic.lean", "Libpetri/Refinement.lean", "Libpetri/Novel/ResetArc.lean"]
 
 [[pin]]
 file = "rust/libpetri-runtime/src/bitmap_backend.rs"
 fn = "consume_for_firing"
-lean = ["Libpetri/Basic.lean", "Libpetri/Refinement.lean"]
+lean = ["Libpetri/Basic.lean", "Libpetri/Refinement.lean", "Libpetri/Novel/ResetArc.lean"]
 
 [[pin]]
 file = "rust/libpetri-runtime/src/bitmap_backend.rs"
@@ -183,7 +183,7 @@ lean = ["Libpetri/Enablement.lean", "Libpetri/Refinement.lean"]
 [[pin]]
 file = "rust/libpetri-runtime/src/compiled_net.rs"
 fn = "compile"
-lean = ["Libpetri/Compile.lean", "Libpetri/Enablement.lean"]
+lean = ["Libpetri/Compile.lean", "Libpetri/Enablement.lean", "Libpetri/Novel/ResetArc.lean"]
 
 [[pin]]
 file = "rust/libpetri-runtime/src/compiled_net.rs"
@@ -280,7 +280,7 @@ lean = ["Libpetri/Retrodict.lean", "Libpetri/StateEquation.lean"]
 [[pin]]
 file = "rust/libpetri-verification/src/net_flattener.rs"
 fn = "flatten"
-lean = ["Libpetri/Basic.lean", "Libpetri/Soundness.lean"]
+lean = ["Libpetri/Basic.lean", "Libpetri/Soundness.lean", "Libpetri/Novel/Commoner.lean"]
 
 # ---- rust/libpetri-verification/src/priority_semantics.rs ----
 
@@ -384,7 +384,7 @@ lean = ["Libpetri/Strengthening.lean"]
 [[pin]]
 file = "rust/libpetri-verification/src/p_invariant.rs"
 fn = "validate_invariants_exact"
-lean = ["Libpetri/Strengthening.lean"]
+lean = ["Libpetri/Strengthening.lean", "Libpetri/Novel/Farkas.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/p_invariant.rs"
@@ -481,7 +481,7 @@ lean = ["Libpetri/Semiflow.lean"]
 [[pin]]
 file = "rust/libpetri-verification/src/p_invariant.rs"
 fn = "compute_p_semiflows"
-lean = ["Libpetri/Semiflow.lean"]
+lean = ["Libpetri/Semiflow.lean", "Libpetri/Novel/Farkas.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/p_invariant.rs"
@@ -526,7 +526,7 @@ lean = ["Libpetri/Interning.lean"]
 [[pin]]
 file = "rust/libpetri-verification/src/name_marking.rs"
 fn = "canonical_key"
-lean = ["Libpetri/Interning.lean"]
+lean = ["Libpetri/Interning.lean", "Libpetri/Novel/CanonicalKey.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/name_marking.rs"
@@ -536,7 +536,7 @@ lean = ["Libpetri/Interning.lean"]
 [[pin]]
 file = "rust/libpetri-verification/src/state_class.rs"
 fn = "StateClass"
-lean = ["Libpetri/Interning.lean"]
+lean = ["Libpetri/Interning.lean", "Libpetri/Novel/Enumeration.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/name_state_class.rs"
@@ -549,3 +549,115 @@ lean = ["Libpetri/Interning.lean"]
 file = "rust/libpetri-core/src/match_spec.rs"
 fn = "extract"
 lean = ["Libpetri/MatchCache.lean"]
+
+# ---- Libpetri/Novel/ (Mathlib-based proofs on models of the Rust functions) ----
+
+# ResetArc.lean: reset places are invisible to the presence/inhibitor fast path.
+[[pin]]
+file = "rust/libpetri-runtime/src/compiled_net.rs"
+fn = "can_enable_bitmap"
+lean = ["Libpetri/Novel/ResetArc.lean"]
+
+
+# CanonicalKey.lean: `live` is `live_symbols`; `canonical_key` is pinned above.
+[[pin]]
+file = "rust/libpetri-verification/src/name_marking.rs"
+fn = "live_symbols"
+lean = ["Libpetri/Novel/CanonicalKey.lean"]
+
+
+# Farkas.lean: `combine` / `reduceGcd` / `keepSupportMinimal`; the enclosing
+# `compute_p_semiflows` is pinned above.
+[[pin]]
+file = "rust/libpetri-verification/src/p_invariant.rs"
+fn = "combine_row"
+lean = ["Libpetri/Novel/Farkas.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/p_invariant.rs"
+fn = "reduce_gcd"
+lean = ["Libpetri/Novel/Farkas.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/p_invariant.rs"
+fn = "keep_support_minimal"
+lean = ["Libpetri/Novel/Farkas.lean"]
+
+
+# Commoner.lean: the siphon/trap pre-check and the guard that makes its
+# `NoPotentialDeadlock` a `Proven`. The early return itself sits in `verify_net`,
+# which is deliberately not pinned (775 lines, most of them unrelated phases).
+[[pin]]
+file = "rust/libpetri-verification/src/structural_check.rs"
+fn = "structural_check"
+lean = ["Libpetri/Novel/Commoner.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/structural_check.rs"
+fn = "find_minimal_siphons"
+lean = ["Libpetri/Novel/Commoner.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/structural_check.rs"
+fn = "grow_siphon"
+lean = ["Libpetri/Novel/Commoner.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/structural_check.rs"
+fn = "find_maximal_trap_in"
+lean = ["Libpetri/Novel/Commoner.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_verifier.rs"
+fn = "commoner_applies"
+lean = ["Libpetri/Novel/Commoner.lean"]
+
+
+# Enumeration.lean: the VER-017 worklist, its successor step (an assumed
+# premise, pinned so a change forces the premise to be re-read) and the verdict.
+[[pin]]
+file = "rust/libpetri-verification/src/state_class_graph.rs"
+fn = "build_with_options"
+lean = ["Libpetri/Novel/Enumeration.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/state_class_graph.rs"
+fn = "compute_successor"
+lean = ["Libpetri/Novel/Enumeration.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/scg_verifier.rs"
+fn = "verify_via_state_class_graph"
+lean = ["Libpetri/Novel/Enumeration.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/scg_verifier.rs"
+fn = "decide_over_state_space"
+lean = ["Libpetri/Novel/Enumeration.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/scg_verifier.rs"
+fn = "is_quiescent"
+lean = ["Libpetri/Novel/Enumeration.lean"]
+
+
+# Dbm.lean: in-place Floyd–Warshall, the emptiness flag, and clock reordering.
+[[pin]]
+file = "rust/libpetri-verification/src/dbm.rs"
+fn = "get"
+lean = ["Libpetri/Novel/Dbm.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/dbm.rs"
+fn = "canonicalize"
+lean = ["Libpetri/Novel/Dbm.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/dbm.rs"
+fn = "canonicalize_in_place"
+lean = ["Libpetri/Novel/Dbm.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/dbm.rs"
+fn = "permuted"
+lean = ["Libpetri/Novel/Dbm.lean"]

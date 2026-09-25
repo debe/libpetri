@@ -3,20 +3,27 @@ import Libpetri.Soundness
 /-!
 # Siphons, traps and Commoner's theorem ([VER-020])
 
-Model of the structural deadlock pre-check: `structural_check`, `find_minimal_siphons` and
-`find_maximal_trap_in` (`rust/libpetri-verification/src/structural_check.rs:17-132`), and the
-early `Proven` built on it (`smt_verifier.rs:892-905`, guarded by `commoner_applies`,
-`smt_verifier.rs:2699-2707`). The semantics is the CHC relation `ReachA` over flat transitions
-(`Soundness.lean`), one entry per XOR branch, as `flatten` produces them.
+Model of the structural deadlock pre-check: `structural_check`
+(`rust/libpetri-verification/src/structural_check.rs:30`), its siphon search
+`find_minimal_siphons` / `grow_siphon` and its trap contraction `find_maximal_trap_in`
+(`structural_check.rs:140`), and the early `Proven` that `verify_net` builds on it in
+`smt_verifier.rs`, guarded by `commoner_applies` (`smt_verifier.rs:2953`). The semantics is the
+CHC relation `ReachA` over flat transitions (`Soundness.lean`), one entry per XOR branch, as
+`flatten` produces them.
 
 * `Consumes t p` is `pre[p] > 0`: `flatten` sums `required_count` over the input arcs on `p`,
   and the sum is positive iff one of them requires a token.
 * `Siphon`: every flat transition that outputs into `S` consumes from `S`.
   `Trap`: every flat transition that consumes from `T` outputs into `T`. These are the
-  properties the Rust fixpoints test (`structural_check.rs:47-61`, `:102-117`).
+  properties the Rust fixpoints test: the violating-producer search of `grow_siphon`
+  (`structural_check.rs:103-115`) and the contraction test of `find_maximal_trap_in`
+  (`structural_check.rs:155-170`).
 * `Ordinary` is `commoner_applies`: no read, inhibitor or reset arc, no consume-all input, and
   every input arc requires at most one token. The Rust guard bounds the per-place *sum* by one,
   which implies the per-arc bound used here.
+* `CommonerCond` is what `structural_check` decides: `NoPotentialDeadlock` requires that each
+  minimal siphon's maximal trap holds a token under the initial marking
+  (`initial.count(..) > 0`, `structural_check.rs:38-46`).
 
 Results:
 * `siphon_stays_empty` (any arcs): once a siphon is empty it stays empty on every
@@ -25,25 +32,23 @@ Results:
 * `commoner` (AC2): in an ordinary net whose input places lie below `n`, if every nonempty
   siphon below `n` contains a trap that is marked initially, then no reachable marking is dead.
   At a dead marking the unmarked places form a siphon; its marked trap would have to be both
-  marked and unmarked.
+  marked and unmarked. This is the theorem behind the early structural `Proven`.
 * `ordinary_is_necessary` (AC3): `t: exactly(2, a) → a` from `{a:1}`, the spec's second
   witness. It satisfies the full siphon/trap condition, marked trap included, yet it is dead
-  initially, so dropping the arc-weight bound breaks the theorem.
+  initially, so dropping the arc-weight bound breaks the theorem. `commoner_applies` is the
+  guard that excludes it.
 * `marked_trap_is_necessary`: the ordinary cycle `t1: a → b`, `t2: b → a` from the empty
-  marking. Every nonempty siphon contains a nonempty trap, which is exactly what
-  `structural_check` asks: it returns `NoPotentialDeadlock` when each minimal siphon's maximal
-  trap is nonempty and never reads the initial marking. Yet the net is dead initially.
-  Commoner needs a *marked* trap, so the early structural `Proven` is only sound once that
-  check is added. The default VER-017 enumeration decides small untimed nets before this phase
-  runs, so by our reading of `smt_verifier.rs:769-905` the gap is reachable for timed nets,
-  truncated enumerations and `enumeration_max_classes = 0`. That reading has not been
-  confirmed against a running verifier.
+  marking. Every nonempty siphon contains a nonempty trap, yet the net is dead initially, so a
+  check that asked only for a nonempty trap would certify a dead net. This justifies the
+  marked-trap test `structural_check` performs: the Rust answers `PotentialDeadlock` on this
+  net (its unit test `an_unmarked_trap_does_not_count`).
 
-Out of scope: the fixpoint loops themselves (that `find_minimal_siphons` returns siphons and
-that a siphon with no source transition closes correctly, that the contraction of
-`find_maximal_trap_in` returns a trap, and that checking minimal siphons suffices), the
-50-place `Inconclusive` cut-off, timing, environment places, sink places and ν-matching (all
-excluded by the same guard).
+Out of scope: the fixpoint loops themselves (that `find_minimal_siphons` returns every minimal
+siphon, that the contraction of `find_maximal_trap_in` returns the maximal trap, and that
+checking minimal siphons suffices), the 50-place and 10 000-node `Inconclusive` cut-offs,
+timing, and the conditions `verify_net` checks beside `commoner_applies` before it calls
+`structural_check` (deadlock freedom only, no environment places, no sink or conditional-sink
+places, no ν-matching).
 -/
 
 namespace Libpetri.Novel.Commoner
@@ -138,7 +143,7 @@ theorem trap_stays_marked {net : FlatNet} {T : PlaceId → Prop} (hT : Trap net 
 
 /-! ## Commoner's theorem for ordinary nets -/
 
-/-- `commoner_applies` (`smt_verifier.rs:2699-2707`). -/
+/-- `commoner_applies` (`smt_verifier.rs:2953`). -/
 def Ordinary (net : FlatNet) : Prop :=
   ∀ ft ∈ net, ft.1.inhibitors = [] ∧ ft.1.reads = [] ∧ ft.1.resets = [] ∧
     ∀ s ∈ ft.1.inputs, s.card.consumesAll = false ∧ s.card.required ≤ 1
@@ -254,9 +259,10 @@ theorem consumes_tBA {q : PlaceId} (h : Consumes tBA q) : q = 1 := by
   subst hs
   exact hq.symm
 
-/-- **The marked-trap requirement is necessary.** The ordinary cycle passes the check
-`structural_check` performs, since every nonempty siphon contains a nonempty trap, yet it is
-dead at the empty marking. -/
+/-- **The marked-trap requirement is necessary.** In the ordinary cycle every nonempty siphon
+contains a nonempty trap, yet the net is dead at the empty marking. An unmarked trap therefore
+certifies nothing, which is why `structural_check` also requires the trap to hold a token
+under the initial marking. -/
 theorem marked_trap_is_necessary :
     Ordinary netCyc ∧
     (∀ S : PlaceId → Prop, (∃ p, S p) → Siphon netCyc S →

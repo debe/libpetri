@@ -167,8 +167,8 @@ jobs:
   # the precompiled executor's hot loop (flat-pool token conservation + the
   # Bitmap/Precompiled backend refinement).
   # Proof-only: no implementation code depends on this, so the job stands alone.
-  # Dependency-free (no Mathlib), so the build is seconds and needs no release
-  # cache — only elan itself is cached.
+  # Libpetri/Novel/ imports Mathlib; only the cached oleans of the imported
+  # closure are fetched (step below), so nothing from Mathlib is compiled.
   lean:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -262,6 +262,21 @@ jobs:
           #print axioms Libpetri.rows_hold
           #print axioms Libpetri.state_equation_reach_eq
           #print axioms Libpetri.equality_row_is_unsound_on_a_clearing_place
+          #print axioms Libpetri.Novel.CanonicalKey.canonicalKey_eq_iff_exists_perm
+          #print axioms Libpetri.Novel.Farkas.farkas_output_sound
+          #print axioms Libpetri.Novel.Farkas.certificate_sound
+          #print axioms Libpetri.Novel.ResetArc.reset_arc_semantics
+          #print axioms Libpetri.Novel.ResetArc.alphaFireC_reset_eq_fireA
+          #print axioms Libpetri.Novel.Dbm.empty_iff_flagged
+          #print axioms Libpetri.Novel.Dbm.sat_canon
+          #print axioms Libpetri.Novel.Dbm.sat_permD
+          #print axioms Libpetri.Novel.Dbm.closed_permD
+          #print axioms Libpetri.Novel.Commoner.commoner
+          #print axioms Libpetri.Novel.Commoner.ordinary_is_necessary
+          #print axioms Libpetri.Novel.Commoner.marked_trap_is_necessary
+          #print axioms Libpetri.Novel.Enumeration.run_complete_iff_reach
+          #print axioms Libpetri.Novel.Enumeration.decided_exact
+          #print axioms Libpetri.Novel.Enumeration.net_enumeration_exact
           EOF
           if ! lake env lean /tmp/axioms.lean > /tmp/axioms.out 2>&1; then
             cat /tmp/axioms.out

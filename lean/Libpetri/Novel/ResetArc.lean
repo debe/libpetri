@@ -10,13 +10,14 @@ AC2: if the reset place has tokens, all of them are removed on firing.
 AC3: the reset arc imposes no token requirement.
 
 The Rust behaviour:
-* Enablement. `CompiledNet::new` (`rust/libpetri-runtime/src/compiled_net.rs:192-197`) puts a
+* Enablement. `CompiledNet::compile` (`rust/libpetri-runtime/src/compiled_net.rs:192-197`) puts a
   reset place in the reverse index and the `drained` set only. It never sets a bit in
   `needs_masks` or `inhibitor_masks`, and `can_enable_bitmap` (`compiled_net.rs:356`) and
   `can_enable` (`rust/libpetri-runtime/src/bitmap_backend.rs:328`) read nothing else of it.
   `enabledC` / `enabledA` (`Basic.lean`) model this: neither reads `Transition.resets`.
-* Firing. `consume_for_firing` (`bitmap_backend.rs:834-852`) calls `marking.remove_all` on
-  every reset place, and does so whatever the place holds, including nothing. `alphaFireC`
+* Firing. `consume_for_firing` (`bitmap_backend.rs:834-852`) drains every reset place with
+  `marking.remove_all` on a deposit-free pass (`take == live`), whatever the place holds,
+  including nothing. `alphaFireC`
   (concrete, token-count image) and `fireA` (the CHC fire relation, `smt_encoder.rs:372-396`)
   give a reset place exactly the tokens the firing itself produces there.
 

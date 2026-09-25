@@ -663,7 +663,7 @@
       "specIds": [
         {
           "id": "VER-020",
-          "fragment": "the ordinary cycle a -> b -> a from the empty marking passes the condition structural_check tests (every nonempty siphon contains a nonempty trap, initial marking unread) yet is dead initially - Commoner needs the trap marked"
+          "fragment": "the ordinary cycle a -> b -> a from the empty marking has a nonempty trap in every nonempty siphon yet is dead initially - Commoner needs the trap marked, which is why structural_check requires each minimal siphon's maximal trap to hold a token under the initial marking (it answers PotentialDeadlock on this net)"
         }
       ]
     },
@@ -673,7 +673,7 @@
       "specIds": [
         {
           "id": "VER-017",
-          "fragment": "what the verdict means: when the modelled breadth-first class exploration (budget check at pop, dedup by key, complete iff the queue runs dry) closes on a flat net, its classes are exactly the ReachA-reachable markings, so Proven holds iff no reachable marking is bad and a quiescent class exists iff a reachable marking is dead - sound and complete; no environment injection (env_set not modelled; the route requires no env places), untimed successors modelled by fireA (the condition-3 premise, assumed), class key taken as marking equality, counterexample path and closing-on-small-nets not modelled"
+          "fragment": "what the verdict means: when the modelled breadth-first class exploration (budget check at pop, dedup by key, complete iff the queue runs dry) closes on a flat net, its classes are exactly the ReachA-reachable markings, so Proven holds iff no reachable marking is bad and a quiescent class exists iff a reachable marking is dead - sound and complete for the model, and for the shipped route under two assumed premises; no environment injection (env_set not modelled; the route requires no env places), untimed successors modelled by fireA (the condition-3 premise, assumed), class key taken as marking equality (the second premise), state-space cache reuse, counterexample path and closing-on-small-nets not modelled"
         }
       ]
     },

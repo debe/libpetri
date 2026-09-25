@@ -9,7 +9,8 @@ import Mathlib.Tactic.Ring
 # DBM zones: canonicalisation preserves the zone, emptiness detection is exact ([VER-011])
 
 Model of `Dbm` (`rust/libpetri-verification/src/dbm.rs`), the difference bound matrix of the
-state-class graph. Entry `D i j` bounds `θᵢ - θⱼ` (`dbm.rs:3-8`, `get`, `dbm.rs:74-77`);
+state-class graph. Entry `D i j` bounds `θᵢ - θⱼ` (the struct's doc comment, and `get`,
+`dbm.rs:74-77`);
 `f64::INFINITY` is `⊤` of `WithTop ℚ`. The zone of `D` is its solution set `Sat D`.
 
 * `canonicalize` (`dbm.rs:107-133`, `canonicalize_in_place`, `dbm.rs:318-339`) is in-place
