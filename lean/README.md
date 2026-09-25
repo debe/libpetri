@@ -25,13 +25,23 @@ differential suite never reached, and each is retrodicted here.
 
 ```bash
 cd lean
-lake build                  # a few seconds; no dependencies
+lake exe cache get          # once per Mathlib bump: prebuilt Mathlib oleans
+lake build
 ```
 
-Toolchain is pinned in `lean-toolchain` (Lean 4.32.2). There is **no Mathlib
-dependency**: `α` erases colours to token counts, so every abstract marking is
-ℕ-valued and core `Nat`/`List`/`omega` suffice. CI runs `lake build`, a
-`sorry`/`admit` grep, and a `#print axioms` check on the headline theorems.
+Toolchain is pinned in `lean-toolchain` (Lean 4.32.2), and Mathlib in `lakefile.toml` at the
+matching tag. Mathlib replaces hand-rolled machinery (`Relation.ReflTransGen`, `Finset.sum`,
+sortedness lemmas) and carries the proofs under `Libpetri/Novel/`. Import individual Mathlib
+modules, never `Mathlib` as a whole: CI fetches only the cached oleans of the imported modules
+(`scripts/lean-ci-deps.sh`) and never builds Mathlib. CI then runs `lake build`, a
+`sorry`/`admit` grep, a `#print axioms` check on the headline theorems, and the proof-graph
+freshness check.
+
+## Proof-dependency graph
+
+[`graph/`](graph/README.md) maps every theorem to the declarations it depends on, per spec
+requirement. **[Open the interactive graph](https://claude.ai/artifact/KSBe316tRKVWwPQHvMo72u)**
+or [`graph/index.html`](graph/index.html) from a checkout.
 
 ## What is proved
 
@@ -246,17 +256,16 @@ granularity only; PERF-042 AC4 pins the words differentially); the u32
 opcode encoding (FR4 is proven on the structured op stream); the ν name
 layer beyond the boolean `nameEnabled` abstraction in `Priority.lean` (so
 the ν-budget retrodictions `667e67d` and `a4038f5` are **not** covered) and
-beyond the generic key/step model of `Interning.lean` (that `canonicalKey`
-is a complete invariant of the symbol-renaming orbit and that
-`name_successors` is equivariant under renaming are stated hypotheses, not
-theorems); that the Farkas enumeration returns genuine semiflows (the gate
-re-validates every row, so `Semiflow.lean` assumes only what the gate
-checks); Lemma 0 quiescence; extraction to the four implementations.
+beyond the generic key/step model of `Interning.lean` (that
+`name_successors` is equivariant under renaming is a stated hypothesis, not a
+theorem); Lemma 0 quiescence; extraction to the four implementations.
 
-Those two hypotheses — orbit-completeness of `canonicalKey` (`Multiset`,
-`Equiv.Perm`) and Farkas correctness (`Matrix`, exact rationals) — are the
-proofs Mathlib would pay for. They remain future work; the development stays
-dependency-free.
+Two properties those files assume are proved separately under
+`Libpetri/Novel/`, on models of the Rust functions: `canonical_key` is a
+complete invariant of the symbol-renaming orbit (`CanonicalKey.lean`), and
+every row the Farkas enumeration returns is a semiflow (`Farkas.lean`;
+env-injector columns not modelled). They are not yet wired into the
+hypotheses of `Interning.lean` and `Semiflow.lean`.
 
 The immediate-fragment refinement also idealizes the EXEC-003 recheck the same
 way on both sides — `pcRecheck` and `bbRecheck` both re-read the *live*

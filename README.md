@@ -127,7 +127,7 @@ libpetri uses three complementary levels of assurance:
 
 1. **A shared executable contract.** Java, TypeScript, and Rust have independent implementations and conformance tests. Python inherits the Rust engine and tests its FFI surface separately.
 2. **Model-level verification.** Structural checks, state-class exploration, and SMT/IC3 prove selected safety properties of a net. As with any abstraction, the result is only as sound as the relationship between the model and executor.
-3. **Machine-checked metatheory.** The dependency-free [Lean 4 development](lean/README.md) checks that relationship at two important seams.
+3. **Machine-checked metatheory.** The [Lean 4 development](lean/README.md) checks that relationship at two important seams.
 
 The Lean development proves:
 
@@ -138,7 +138,7 @@ The Lean development proves:
 
 The models also reproduce historical verifier and executor defects, including wrong ready ordering, read/reset ordering, duplicate-input failure, and unknown-place token loss. This matters because a model that cannot see real divergences offers weak evidence about the code it describes.
 
-The proof boundary is deliberate: the full timed cycle, asynchronous action plumbing, and complete ν-match/cache lockstep are not yet refined end to end. CI runs `lake build`, rejects `sorry` and `admit`, and checks the headline theorems for unexpected axioms. See [`lean/README.md`](lean/README.md) for the theorem map, assumptions, counterexamples, and maintenance obligation.
+The proof boundary is deliberate: the full timed cycle, asynchronous action plumbing, and complete ν-match/cache lockstep are not yet refined end to end. CI runs `lake build`, rejects `sorry` and `admit`, and checks the headline theorems for unexpected axioms. See [`lean/README.md`](lean/README.md) for the theorem map, assumptions, counterexamples, and maintenance obligation. The [interactive proof graph](https://claude.ai/artifact/KSBe316tRKVWwPQHvMo72u) shows which declarations each proved requirement depends on.
 
 ## See it at scale
 
@@ -206,8 +206,8 @@ cd rust && cargo test --workspace --exclude libpetri-py --all-features
 # Python
 cd python && pip install -e '.[dev]' && maturin develop && pytest
 
-# Lean proofs
-cd lean && lake build
+# Lean proofs (fetches prebuilt Mathlib oleans)
+cd lean && lake exe cache get && lake build
 ```
 
 Package-specific guides contain the complete APIs and setup details. For behavioral changes and known fixes, see the [changelog](CHANGELOG.md). For benchmark methodology and reproducible commands, see the [performance specification](spec/10-performance.md) and each implementation's benchmark suite.
