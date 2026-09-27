@@ -121,7 +121,7 @@ Models `bitmap_backend.rs:329 can_enable` (enablement) and
 
 /-- Tokens at `s.place` satisfying `s`'s guard. Models the guard-matching
 tally a draining arc computes inside `consume_for_firing`
-(`bitmap_backend.rs:774-780`). That arm called `Marking::count_matching`
+(`bitmap_backend.rs:775-781`). That arm called `Marking::count_matching`
 (`marking.rs`), which counts over the *whole* queue, until the EXEC-003 AC5
 work replaced it with the same count bounded to the drainable prefix; the
 bound is the scope note on `consumeCount` below. -/
@@ -132,7 +132,7 @@ def matchCount (m : CMarking) (s : InSpec) : Nat :=
 
 /-- Tokens actually removed from `s.place` by one firing.
 
-`consume_for_firing` (`bitmap_backend.rs:765-782`): `One => 1`,
+`consume_for_firing` (`bitmap_backend.rs:766-783`): `One => 1`,
 `Exactly{n} => n`, and
 `All`/`AtLeast` => the guard-matching count, i.e. **all guard-matching
 tokens** — tokens failing the guard are left behind by `remove_matching`.
@@ -180,7 +180,7 @@ removes exactly `consumedAt` tokens, a reset arc drains the place
 (`bitmap_backend.rs` reset handling), and the action's writes add `prod p`
 tokens via `produce_token`.
 
-`prod` is deliberately an arbitrary function: `executor_core/output.rs:41`
+`prod` is deliberately an arbitrary function: `executor_core/output.rs:86`
 `validate_out_spec` checks only *which places* the action wrote to, never how
 many tokens it wrote to each. ([IO-015] made it an exact-explanation search over
 place SETS — one assignment's claim must equal the produced set — which changed

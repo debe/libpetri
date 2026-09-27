@@ -110,6 +110,8 @@ impl<'a, E: EventStore> PrecompiledExecutorBuilder<'a, E> {
     /// If a pinned [`execution_scope`](Self::execution_scope) is empty or
     /// contains `':'` or `'#'` (\[NU-011\]).
     pub fn build(self) -> PrecompiledNetExecutor<'a, E> {
+        // [CORE-037] reads the initial marking, which the backend takes over.
+        let seeded = E::ENABLED.then(|| self.initial_marking.non_empty_places());
         let mut backend = PrecompiledBackend::new(self.program, self.initial_marking);
         if let Some(ms) = self.deadline_tolerance_ms {
             backend.set_deadline_tolerance_ms(ms);
@@ -126,6 +128,9 @@ impl<'a, E: EventStore> PrecompiledExecutorBuilder<'a, E> {
         }
         if let Some(scope) = self.execution_scope {
             executor.set_execution_scope(scope);
+        }
+        if let Some(seeded) = seeded {
+            executor.warn_dead_arcs(self.program.net(), &seeded, &self.environment_places);
         }
         executor
     }
@@ -151,8 +156,13 @@ impl<'a, E: EventStore> Executor<PrecompiledBackend<'a>, E> {
 
     /// Creates a new executor with default options.
     pub fn new(program: &'a PrecompiledNet, initial_marking: Marking) -> Self {
+        let seeded = E::ENABLED.then(|| initial_marking.non_empty_places());
         let backend = PrecompiledBackend::new(program, initial_marking);
-        Executor::from_parts(backend, E::default(), false)
+        let mut executor = Executor::from_parts(backend, E::default(), false);
+        if let Some(seeded) = seeded {
+            executor.warn_dead_arcs(program.net(), &seeded, &HashSet::new());
+        }
+        executor
     }
 }
 

@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use crate::action::{BoxedAction, is_passthrough};
 use crate::compose::ComposeBindingsBuilder;
@@ -8,6 +8,7 @@ use crate::instance::Instance;
 use crate::place::PlaceRef;
 use crate::rewriter;
 use crate::subnet_def::SubnetDef;
+use crate::subnet_prefixes::instance_prefix_of;
 use crate::transition::{Transition, rebuild_with_action};
 
 /// Immutable definition of a Time Petri Net structure.
@@ -41,6 +42,20 @@ pub struct PetriNet {
     /// ends as soon as any of them holds a token. Empty for every net that
     /// declares none — the common case.
     terminals: Vec<PlaceRef>,
+    /// MOD-040: the node names and every proper `/`-prefix of every transition
+    /// name, built on the first [`subnet_of`](Self::subnet_of) call, so each
+    /// later call is O(depth of the name). Shared by clones, whose nodes are the
+    /// same.
+    subnet_index: Arc<OnceLock<SubnetIndex>>,
+}
+
+/// The lookup tables behind [`PetriNet::subnet_of`] ([MOD-040]).
+#[derive(Debug, Default)]
+struct SubnetIndex {
+    /// Every place and transition name.
+    nodes: HashSet<Arc<str>>,
+    /// Every proper `/`-prefix of every transition name.
+    prefixes: HashSet<Arc<str>>,
 }
 
 impl PetriNet {
@@ -82,6 +97,63 @@ impl PetriNet {
         self.terminals.iter().any(|p| p.name() == place_name)
     }
 
+    /// The subnet a node belongs to, by **MOD-040**:
+    ///
+    /// * `None` when `name` is neither a place nor a transition of this net;
+    /// * else the [`subnet_membership`](Self::subnet_membership) entry
+    ///   recorded by direct composition ([MOD-026]), when there is one;
+    /// * else the longest `/`-prefix of the name that some transition of the
+    ///   net lives under — `a/b/c/x` tries `a/b/c`, `a/b`, then `a`, and
+    ///   answers the first `P` such that a transition is named `P/…`;
+    /// * else `None`.
+    ///
+    /// Instance composition records no membership ([MOD-026] rule 4), so this
+    /// is how a caller asks which instance a node of a composed net came from:
+    /// `answer/IN` answers `Some("answer")`. A transition's own instance
+    /// prefix always qualifies, so a transition answers that prefix.
+    ///
+    /// This differs from the DOT exporter's AUTO clustering
+    /// ([`crate::subnet_prefixes::instance_prefix_of`], the prefix before the
+    /// **last** `/`) for a name with a `/` inside a subnet's own namespace: a
+    /// place `s1/obs/TURN` in an instance `s1` whose transitions are all `s1/…`
+    /// is clustered under `s1/obs` but belongs to `s1` here, because `s1/obs`
+    /// carries no transition and is no subnet.
+    pub fn subnet_of(&self, name: &str) -> Option<&str> {
+        let index = self.subnet_index.get_or_init(|| {
+            let nodes = self
+                .places
+                .iter()
+                .map(|p| p.name())
+                .chain(self.transitions.iter().map(|t| t.name()))
+                .map(Arc::<str>::from)
+                .collect();
+            let mut prefixes = HashSet::new();
+            for t in &self.transitions {
+                let mut n = t.name();
+                while let Some(prefix) = instance_prefix_of(n) {
+                    if !prefixes.insert(Arc::<str>::from(prefix)) {
+                        break;
+                    }
+                    n = prefix;
+                }
+            }
+            SubnetIndex { nodes, prefixes }
+        });
+        // The index's own copy of the name, so the answer borrows the net only.
+        let own: &str = index.nodes.get(name)?;
+        if let Some(subnet) = self.subnet_membership.get(own) {
+            return Some(subnet.as_ref());
+        }
+        let mut n = own;
+        while let Some(prefix) = instance_prefix_of(n) {
+            if index.prefixes.contains(prefix) {
+                return Some(prefix);
+            }
+            n = prefix;
+        }
+        None
+    }
+
     /// Returns a copy of this net whose transitions are `f` applied to each of
     /// this net's, in order. Name, places, terminals ([EXEC-042]) and
     /// subnet-membership metadata ([MOD-026]) carry through unchanged, so `f`
@@ -97,6 +169,7 @@ impl PetriNet {
             transitions: self.transitions.iter().map(f).collect(),
             subnet_membership: self.subnet_membership.clone(),
             terminals: self.terminals.clone(),
+            subnet_index: Arc::default(),
         }
     }
 
@@ -152,6 +225,25 @@ pub struct PetriNetBuilder {
     subnet_contributions: HashMap<Arc<str>, HashSet<Arc<str>>>,
     /// EXEC-042: declared terminal places, in declaration order, deduplicated.
     terminals: Vec<PlaceRef>,
+    /// MOD-027: port places that instance composition replaced by a host
+    /// place, in composition order. [`PetriNetBuilder::build`] rejects any arc
+    /// that still names one.
+    retired_ports: Vec<RetiredPort>,
+}
+
+/// A port place that instance composition replaced by a host place
+/// ([MOD-027]): the renamed port place no longer exists in the composed net,
+/// so an arc naming it would name a fresh, unconnected place.
+#[derive(Clone, Debug)]
+struct RetiredPort {
+    /// The renamed (instance-prefixed) port place, e.g. `answer/IN`.
+    place: Arc<str>,
+    /// The interface port name, e.g. `in`.
+    port: Arc<str>,
+    /// The instance prefix, e.g. `answer`.
+    instance: Arc<str>,
+    /// The host place the port was bound to, e.g. `A_IN`.
+    host: Arc<str>,
 }
 
 impl PetriNetBuilder {
@@ -164,6 +256,7 @@ impl PetriNetBuilder {
             fusion_sets: Vec::new(),
             subnet_contributions: HashMap::new(),
             terminals: Vec::new(),
+            retired_ports: Vec::new(),
         }
     }
 
@@ -578,9 +671,13 @@ impl PetriNetBuilder {
     /// no per-build cost when unused.
     ///
     /// # Panics
-    /// Panics when two fusion sets share a place name.
-    pub fn build(self) -> PetriNet {
+    /// - Panics when two fusion sets share a place name.
+    /// - Panics when an arc of any kind names a port place that instance
+    ///   composition bound to a host place (**MOD-027**), whether the arc was
+    ///   added before or after the `compose` call.
+    pub fn build(mut self) -> PetriNet {
         let membership = resolve_subnet_membership(&self.subnet_contributions);
+        let retired = std::mem::take(&mut self.retired_ports);
         let net = if self.fusion_sets.is_empty() {
             PetriNet {
                 name: self.name,
@@ -588,6 +685,7 @@ impl PetriNetBuilder {
                 transitions: self.transitions,
                 subnet_membership: membership,
                 terminals: self.terminals,
+                subnet_index: Arc::default(),
             }
         } else {
             build_with_fusion(self, membership)
@@ -595,7 +693,41 @@ impl PetriNetBuilder {
         if !net.terminals.is_empty() {
             validate_terminals(&net);
         }
+        if !retired.is_empty() {
+            reject_bound_port_references(&net, &retired);
+        }
         net
+    }
+}
+
+/// **MOD-027**: an arc naming a port place that composition replaced by a
+/// host place names a place that is no longer connected to the instance —
+/// `instance.port("in")` returns the pre-binding name ([MOD-011] AC1), so
+/// using it after `compose` silently wires to nothing. Checked on the built
+/// net, so the order of `compose` and the offending arc does not matter.
+///
+/// # Panics
+/// Naming the place, its port and instance, and the host place to use instead.
+fn reject_bound_port_references(net: &PetriNet, retired: &[RetiredPort]) {
+    let by_place: HashMap<&str, &RetiredPort> =
+        retired.iter().map(|r| (r.place.as_ref(), r)).collect();
+    for t in &net.transitions {
+        let mut names: Vec<&str> = t.input_specs().iter().map(|s| s.place_name()).collect();
+        // Every place in the Out tree. They come from a set; sort so the
+        // reported place is deterministic.
+        let mut outs: Vec<&str> = t.output_places().iter().map(|p| p.name()).collect();
+        outs.sort_unstable();
+        names.extend(outs);
+        names.extend(t.reads().iter().map(|r| r.place.name()));
+        names.extend(t.inhibitors().iter().map(|i| i.place.name()));
+        names.extend(t.resets().iter().map(|r| r.place.name()));
+        if let Some(r) = names.iter().find_map(|n| by_place.get(n)) {
+            panic!(
+                "place '{}' is port '{}' of instance '{}', bound to host place '{}' at \
+                 compose; reference '{}' instead",
+                r.place, r.port, r.instance, r.host, r.host
+            );
+        }
     }
 }
 
@@ -732,6 +864,7 @@ fn build_with_fusion(
         fusion_sets,
         subnet_contributions: _,
         terminals,
+        retired_ports: _,
     } = builder;
 
     // Step 1: detect overlap. The same place name MUST NOT appear in more
@@ -859,6 +992,7 @@ fn build_with_fusion(
         transitions: rewritten_transitions,
         subnet_membership: filtered_membership,
         terminals: fused_terminals,
+        subnet_index: Arc::default(),
     }
 }
 
@@ -965,7 +1099,38 @@ fn apply_composition<P: 'static>(
     let mut staged: HashMap<Arc<str>, Transition> = HashMap::with_capacity(cap);
     let mut order: Vec<Arc<str>> = Vec::with_capacity(cap);
 
+    // renamed port place -> port name, for the MOD-020 / MOD-027 messages.
+    let port_of: HashMap<&str, &Arc<str>> = instance
+        .port_handles()
+        .iter()
+        .map(|(port, place)| (place.name(), port))
+        .collect();
+
+    // MOD-027: every port bound to a host place of a different identity is
+    // retired — the renamed port place is gone from the composed net. Sorted
+    // by place name so the first reported violation does not depend on the
+    // merge map's hash order.
+    let mut retired: Vec<RetiredPort> = merge_map
+        .iter()
+        .filter(|(renamed, host)| renamed.as_ref() != host.name())
+        .filter_map(|(renamed, host)| {
+            port_of.get(renamed.as_ref()).map(|port| RetiredPort {
+                place: Arc::clone(renamed),
+                port: Arc::clone(port),
+                instance: Arc::from(instance.prefix()),
+                host: Arc::clone(host.name_arc()),
+            })
+        })
+        .collect();
+    retired.sort_by(|a, b| a.place.cmp(&b.place));
+    for r in retired {
+        if !builder.retired_ports.iter().any(|x| x.place == r.place) {
+            builder.retired_ports.push(r);
+        }
+    }
+
     for t in renamed_body.transitions() {
+        reject_port_collision(t, &merge_map, &port_of, instance.prefix());
         let rewritten = rewriter::substitute_places(t, &merge_map);
         let name = Arc::clone(rewritten.name_arc());
         staged.insert(Arc::clone(&name), rewritten);
@@ -1055,6 +1220,75 @@ fn apply_composition<P: 'static>(
     }
 
     builder
+}
+
+/// **MOD-020**: binding two ports of one instance to the same host place
+/// gives a transition that consumed from both ports two input arcs on that
+/// place, which [CORE-030] rejects. Say so in composition terms, before the
+/// rebuild would report it as a transition error the caller never wrote.
+///
+/// The output side is the same shape: two bound ports in one AND branch of the
+/// transition's output spec would name the host place twice, which [IO-011]
+/// rejects in terms of the rebuilt transition.
+///
+/// # Panics
+/// Naming both ports, the instance, the host place and the transition.
+fn reject_port_collision(
+    t: &Transition,
+    merge_map: &HashMap<Arc<str>, PlaceRef>,
+    port_of: &HashMap<&str, &Arc<str>>,
+    instance: &str,
+) {
+    let port = |p: &str| port_of.get(p).map_or_else(|| p.to_string(), |n| n.to_string());
+    // host place -> the instance-side place whose arc first reached it
+    let mut bound: HashMap<&str, &str> = HashMap::new();
+    for spec in t.input_specs() {
+        let local = spec.place_name();
+        let Some(host) = merge_map.get(local) else {
+            continue;
+        };
+        if let Some(prev) = bound.insert(host.name(), local) {
+            if prev != local {
+                panic!(
+                    "ports '{}' and '{}' of instance '{}' are both bound to host place '{}'; \
+                     transition '{}' would consume from '{}' through two input arcs. Bind them \
+                     to distinct places or use one port.",
+                    port(prev),
+                    port(local),
+                    instance,
+                    host.name(),
+                    t.name(),
+                    host.name()
+                );
+            }
+        }
+    }
+    // The output side ([MOD-020], [IO-011]): two ports in one AND branch, both
+    // bound to one host place. Different `Xor` alternatives are not a collision.
+    let Some(out) = t.output_spec() else {
+        return;
+    };
+    let dup = crate::output::duplicate_in_branch_by(out, |p| {
+        merge_map.get(p.name()).map_or(p.name(), |host| host.name())
+    });
+    if let Some(dup) = dup
+        && dup.first.name() != dup.second.name()
+    {
+        let host = merge_map
+            .get(dup.second.name())
+            .map_or(dup.second.name(), |h| h.name());
+        panic!(
+            "ports '{}' and '{}' of instance '{}' are both bound to host place '{}'; \
+             transition '{}' would produce into '{}' twice in one AND branch. \
+             Outputs are sets (IO-015); bind them to distinct places or use one port.",
+            port(dup.first.name()),
+            port(dup.second.name()),
+            instance,
+            host,
+            t.name(),
+            host
+        );
+    }
 }
 
 #[cfg(test)]
@@ -1436,5 +1670,320 @@ mod tests {
 
         let net = PetriNet::builder("test").transition(t).build();
         assert_eq!(net.places().len(), 5);
+    }
+
+    // ============================================================
+    //  MOD-040: subnet_of — the AUTO cluster rule as an accessor
+    // ============================================================
+
+    #[test]
+    fn subnet_of_follows_membership_then_the_instance_prefix() {
+        let direct = PetriNet::builder("Host")
+            .compose_direct(&pipe_producer())
+            .compose_direct(&pipe_consumer())
+            .build();
+        assert_eq!(direct.subnet_of("emit"), Some("PipeProducer"));
+        // Shared rendezvous place: no membership, no '/' — top level.
+        assert_eq!(direct.subnet_of("pipe"), None);
+        assert_eq!(direct.subnet_of("no-such-node"), None);
+
+        let p_in = Place::<String>::new("in");
+        let p_out = Place::<String>::new("out");
+        let producer = SubnetDef::<()>::builder("Producer")
+            .input_port("in", &p_in)
+            .output_port("out", &p_out)
+            .transition(
+                Transition::builder("produce")
+                    .input(one(&p_in))
+                    .output(out_place(&p_out))
+                    .build(),
+            )
+            .build();
+        let a = Place::<String>::new("A");
+        let instance = producer.instantiate_unit("p1");
+        let net = PetriNet::builder("Host")
+            .compose_with(&instance, |b| {
+                b.bind_port::<String>("in", &a);
+            })
+            .build();
+        // MOD-026 rule 4 unchanged: instance composition records nothing ...
+        assert!(net.subnet_membership().is_empty());
+        // ... and subnet_of answers from the name (the prefix before the last '/').
+        assert_eq!(net.subnet_of("p1/produce"), Some("p1"));
+        assert_eq!(net.subnet_of("p1/out"), Some("p1"));
+        assert_eq!(net.subnet_of("A"), None);
+        // A name with a prefix that is not a node of the net is absent.
+        assert_eq!(net.subnet_of("p1/in"), None);
+    }
+
+    fn unit_transition(name: &str, input: &str, output: &str) -> Transition {
+        Transition::builder(name)
+            .input(one(&Place::<()>::new(input)))
+            .output(out_place(&Place::<()>::new(output)))
+            .build()
+    }
+
+    #[test]
+    fn subnet_of_walks_up_to_a_prefix_that_carries_a_transition() {
+        let net = PetriNet::builder("Host")
+            .transition(unit_transition("s1/t", "s1/in", "s1/obs/TURN"))
+            .transition(unit_transition("outer/inner/t", "outer/inner/p", "x/y"))
+            .build();
+        // `s1/obs` carries no transition: the place belongs to `s1`, while the DOT
+        // AUTO rule still clusters it under the last-'/' prefix.
+        assert_eq!(net.subnet_of("s1/obs/TURN"), Some("s1"));
+        assert_eq!(instance_prefix_of("s1/obs/TURN"), Some("s1/obs"));
+        assert_eq!(net.subnet_of("s1/t"), Some("s1"));
+        // Nested instance: the longest prefix with a transition wins.
+        assert_eq!(net.subnet_of("outer/inner/p"), Some("outer/inner"));
+        assert_eq!(net.subnet_of("outer/inner/t"), Some("outer/inner"));
+        // No transition lives under `x/`.
+        assert_eq!(net.subnet_of("x/y"), None);
+
+        // Membership still wins over the walk.
+        let direct = PetriNet::builder("Host")
+            .compose_direct(
+                &SubnetDef::<()>::builder("Sub")
+                    .transition(unit_transition("s1/t", "a/b/c", "d"))
+                    .build(),
+            )
+            .build();
+        assert_eq!(direct.subnet_of("a/b/c"), Some("Sub"));
+        assert_eq!(direct.subnet_of("s1/t"), Some("Sub"));
+    }
+
+    // ============================================================
+    //  MOD-020: two ports of one instance bound to one host place
+    // ============================================================
+
+    fn join_subnet() -> SubnetDef<()> {
+        let a = Place::<String>::new("a");
+        let b = Place::<String>::new("b");
+        let out = Place::<String>::new("out");
+        SubnetDef::<()>::builder("Join")
+            .input_port("a", &a)
+            .input_port("b", &b)
+            .output_port("out", &out)
+            .transition(
+                Transition::builder("join")
+                    .input(one(&a))
+                    .input(one(&b))
+                    .output(out_place(&out))
+                    .action(crate::action::fork())
+                    .build(),
+            )
+            .build()
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "ports 'a' and 'b' of instance 's' are both bound to host place 'X'; \
+                    transition 's/join' would consume from 'X' through two input arcs. Bind \
+                    them to distinct places or use one port."
+    )]
+    fn binding_two_ports_to_one_host_place_is_rejected_at_compose() {
+        let x = Place::<String>::new("X");
+        let instance = join_subnet().instantiate_unit("s");
+        let _ = PetriNet::builder("Host").compose_with(&instance, |b| {
+            b.bind_port::<String>("a", &x).bind_port::<String>("b", &x);
+        });
+    }
+
+    #[test]
+    fn binding_the_two_ports_to_distinct_places_composes() {
+        let x = Place::<String>::new("X");
+        let y = Place::<String>::new("Y");
+        let instance = join_subnet().instantiate_unit("s");
+        let net = PetriNet::builder("Host")
+            .compose_with(&instance, |b| {
+                b.bind_port::<String>("a", &x).bind_port::<String>("b", &y);
+            })
+            .build();
+        assert_eq!(net.transitions()[0].input_specs().len(), 2);
+    }
+
+    // ============================================================
+    //  MOD-027: references to bound (retired) port places
+    // ============================================================
+
+    fn answer_subnet() -> SubnetDef<()> {
+        let p_in = Place::<String>::new("IN");
+        let p_out = Place::<String>::new("OUT");
+        SubnetDef::<()>::builder("Answer")
+            .input_port("in", &p_in)
+            .output_port("out", &p_out)
+            .transition(
+                Transition::builder("answer")
+                    .input(one(&p_in))
+                    .output(out_place(&p_out))
+                    .action(crate::action::fork())
+                    .build(),
+            )
+            .build()
+    }
+
+    fn hub_kill(target: &Place<String>) -> Transition {
+        let kill = Place::<()>::new("KILL");
+        Transition::builder("hub_kill")
+            .input(one(&kill))
+            .reset(crate::arc::reset(target))
+            .build()
+    }
+
+    const MOD027: &str = "place 'answer/IN' is port 'in' of instance 'answer', bound to host \
+                          place 'A_IN' at compose; reference 'A_IN' instead";
+
+    fn build_message(f: impl FnOnce() -> PetriNet) -> String {
+        let err = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
+            .expect_err("build must be rejected");
+        err.downcast_ref::<String>().cloned().unwrap_or_default()
+    }
+
+    #[test]
+    fn an_arc_on_a_bound_port_place_is_rejected_whatever_the_order() {
+        let a_in = Place::<String>::new("A_IN");
+        let instance = answer_subnet().instantiate_unit("answer");
+        let stale: Place<String> = instance.port("in");
+        assert_eq!(stale.name(), "answer/IN");
+
+        // The arc added after compose ...
+        let (i, s, a) = (instance.clone(), stale.clone(), a_in.clone());
+        let after = build_message(move || {
+            PetriNet::builder("Host")
+                .compose_with(&i, |b| {
+                    b.bind_port::<String>("in", &a);
+                })
+                .transition(hub_kill(&s))
+                .build()
+        });
+        // ... and the arc added before it.
+        let before = build_message(move || {
+            PetriNet::builder("Host")
+                .transition(hub_kill(&stale))
+                .compose_with(&instance, |b| {
+                    b.bind_port::<String>("in", &a_in);
+                })
+                .build()
+        });
+        for message in [&after, &before] {
+            assert_eq!(message, MOD027);
+        }
+    }
+
+    /// MOD-027 AC3: an input, an output inside an XOR branch, a read and an
+    /// inhibitor arc on the retired place are rejected the same way.
+    #[test]
+    fn every_arc_kind_on_a_bound_port_place_is_rejected() {
+        let a_in = Place::<String>::new("A_IN");
+        let other = Place::<String>::new("other");
+        let instance = answer_subnet().instantiate_unit("answer");
+        let stale: Place<String> = instance.port("in");
+        let host = |t: Transition| {
+            let (i, a) = (instance.clone(), a_in.clone());
+            build_message(move || {
+                PetriNet::builder("Host")
+                    .compose_with(&i, |b| {
+                        b.bind_port::<String>("in", &a);
+                    })
+                    .transition(t)
+                    .build()
+            })
+        };
+        let kinds = [
+            Transition::builder("h").input(one(&stale)).build(),
+            Transition::builder("h")
+                .output(crate::output::xor(vec![out_place(&other), out_place(&stale)]))
+                .action(crate::action::fork())
+                .build(),
+            Transition::builder("h").read(crate::arc::read(&stale)).build(),
+            Transition::builder("h").inhibitor(crate::arc::inhibitor(&stale)).build(),
+        ];
+        for t in kinds {
+            assert_eq!(host(t), MOD027);
+        }
+    }
+
+    fn split_subnet(xor: bool) -> SubnetDef<()> {
+        let a = Place::<String>::new("a");
+        let b = Place::<String>::new("b");
+        let input = Place::<String>::new("in");
+        let out = if xor {
+            crate::output::xor(vec![out_place(&a), out_place(&b)])
+        } else {
+            crate::output::and(vec![out_place(&a), out_place(&b)])
+        };
+        SubnetDef::<()>::builder("Split")
+            .input_port("in", &input)
+            .output_port("a", &a)
+            .output_port("b", &b)
+            .transition(
+                Transition::builder("split")
+                    .input(one(&input))
+                    .output(out)
+                    .action(crate::action::fork())
+                    .build(),
+            )
+            .build()
+    }
+
+    /// MOD-020 AC8: two output ports in one AND branch bound to one host place
+    /// are rejected with the composition message, not IO-011's; in different XOR
+    /// alternatives they compose.
+    #[test]
+    fn binding_two_output_ports_of_one_and_branch_to_one_place_is_rejected() {
+        let x = Place::<String>::new("X");
+        let instance = split_subnet(false).instantiate_unit("s");
+        let err = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            PetriNet::builder("Host")
+                .compose_with(&instance, |b| {
+                    b.bind_port::<String>("a", &x).bind_port::<String>("b", &x);
+                })
+                .build()
+        }))
+        .expect_err("an AND branch naming the host place twice must be rejected");
+        assert_eq!(
+            err.downcast_ref::<String>().map(String::as_str),
+            Some(
+                "ports 'a' and 'b' of instance 's' are both bound to host place 'X'; transition \
+                 's/split' would produce into 'X' twice in one AND branch. Outputs are sets \
+                 (IO-015); bind them to distinct places or use one port."
+            )
+        );
+
+        let instance = split_subnet(true).instantiate_unit("s");
+        let net = PetriNet::builder("Host")
+            .compose_with(&instance, |b| {
+                b.bind_port::<String>("a", &x).bind_port::<String>("b", &x);
+            })
+            .build();
+        assert_eq!(net.transitions().len(), 1);
+    }
+
+    #[test]
+    fn referencing_the_host_place_or_an_unbound_port_builds() {
+        let a_in = Place::<String>::new("A_IN");
+        let instance = answer_subnet().instantiate_unit("answer");
+        let net = PetriNet::builder("Host")
+            .compose_with(&instance, |b| {
+                b.bind_port::<String>("in", &a_in);
+            })
+            .transition(hub_kill(&a_in))
+            // `out` is not bound, so `answer/OUT` is still the instance's place.
+            .transition(hub_kill(&instance.port::<String>("out")))
+            .build();
+        assert_eq!(net.transitions().len(), 3);
+    }
+
+    #[test]
+    fn a_port_bound_to_a_host_place_of_the_same_name_is_not_retired() {
+        let same = Place::<String>::new("answer/IN");
+        let instance = answer_subnet().instantiate_unit("answer");
+        let net = PetriNet::builder("Host")
+            .compose_with(&instance, |b| {
+                b.bind_port::<String>("in", &same);
+            })
+            .transition(hub_kill(&same))
+            .build();
+        assert_eq!(net.transitions().len(), 2);
     }
 }

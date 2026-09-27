@@ -51,7 +51,7 @@ def rowRhs (net : FlatNet) (a0 : AMarking) (n : Counters) (p : PlaceId) : Int :=
   (a0 p : Int) + isum (fun k => incAt net k p * (n k : Int)) net.length
 
 /-- Some flat transition clears `p` with a reset or consume-all arc
-(`nonlinear_places`, `p_invariant.rs:229-245`). -/
+(`nonlinear_places`, `p_invariant.rs:241-257`). -/
 def cleared (net : FlatNet) (p : PlaceId) : Bool :=
   net.any fun ft => ft.1.resets.contains p || consumeAllAt ft.1 p
 

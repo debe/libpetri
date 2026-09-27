@@ -15,7 +15,9 @@ of the chains those arcs touch. The Farkas / Colom–Silva enumeration
 instead — minimal, but **not necessarily all of them**: the implementation caps
 both the candidate set it builds and the rows that survive each elimination
 round, because the minimal set is exponential in a net's branching (`k`
-independent diamonds in series have `2^k`). On such a net what reaches the
+independent diamonds in series have `2^k`), and it returns none at all once a
+total verification budget runs out or the verification is cancelled ([VER-013];
+the pipeline then stops before any encoder runs). On such a net what reaches the
 encoders is an arbitrary subset of the minimal laws ([VER-007]). Nothing below
 depends on getting all of them: `semiflow_union_sound` quantifies over an
 *arbitrary* list of gate-validated laws, so it holds for any subset, and a law
@@ -322,7 +324,10 @@ theorem covered_place_empty {net : FlatNet} {a0 a : AMarking} {y : Weight} {n : 
 
 /-- Whether a flat transition consumes from or produces into a covered place —
 the mint / join / coloured-consumer classes of `build_plan`
-(`name_coloured_encoder.rs`), read off the flat row's own incidence. -/
+(`name_coloured_encoder.rs`), read off the flat row's own incidence. A relaying
+join ([NU-054]) is a join that also produces its relay targets, each at count
+one: it consumes a covered key, and its relay targets are coloured, so the
+covering semiflow weights them and the `post = 1` disjunct covers them too. -/
 def touchesCovered (y : Weight) (n : Nat) (ft : FlatTransition) : Bool :=
   (List.range n).any fun p =>
     decide (0 < y p) && (decide (0 < pre ft.1 p) || decide (post ft.2 p = 1))

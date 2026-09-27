@@ -392,6 +392,40 @@ fn graph_a_graph_that_does_not_close_is_unknown_without_the_smt_route_and_says_w
     }
 }
 
+/// [VER-013]: a call cancelled before it starts builds no graph and says so.
+#[test]
+fn a_cancelled_call_builds_no_graph() {
+    let token = crate::cancel::CancelToken::new();
+    token.cancel();
+    let options = OpenNetOptions { cancel: Some(token), ..Default::default() };
+    let r = verify_open_net(&gadget(Defects::default()), &contract(Terms::default()), &options);
+    match &r.verdict {
+        Verdict::Unknown { reason } => {
+            assert_eq!(reason, "verification cancelled during open-net state-class graph")
+        }
+        other => panic!("expected unknown, got {other:?}"),
+    }
+    assert_eq!(r.class_count, 0);
+}
+
+/// [VER-013]: on the SMT route every query and the termination ranking honour the
+/// token; a cancelled call starts no query.
+#[test]
+fn a_cancelled_call_leaves_every_smt_part_undecided() {
+    let token = crate::cancel::CancelToken::new();
+    token.cancel();
+    let options = OpenNetOptions { max_classes: 0, cancel: Some(token), ..Default::default() };
+    let r = verify_open_net(&gadget(Defects::default()), &contract(Terms::default()), &options);
+    let Verdict::Unknown { reason } = &r.verdict else {
+        panic!("expected unknown, got {:?}\n{}", r.verdict, r.report);
+    };
+    assert!(
+        reason.contains("termination: verification cancelled during termination (firing bound)"),
+        "{reason}"
+    );
+    assert!(reason.contains("verification cancelled during net preparation"), "{reason}");
+}
+
 // ==================== the closure and the contract ====================
 
 #[test]

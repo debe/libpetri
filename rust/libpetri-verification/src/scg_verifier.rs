@@ -26,9 +26,13 @@
 //! predicate over the same abstraction — enumeration simply decides it where the
 //! search may not.
 //!
-//! When the graph does not close within the budget the route declines and the
-//! caller runs the SMT pipeline unchanged: enumeration never turns a verdict into
-//! `Unknown` that the solver could have decided.
+//! When the graph does not close within the budget, a violation among the classes
+//! it did explore still stands — every explored class is reachable, and the
+//! worklist is breadth-first, so the witness is the shortest within the explored
+//! graph ([VER-017] "Verdicts from a truncated graph"). Otherwise the route
+//! declines and the caller runs the SMT pipeline unchanged: enumeration never
+//! turns a verdict into `Unknown` that the solver could have decided, and a
+//! truncated graph never proves anything.
 
 use std::collections::VecDeque;
 
@@ -57,21 +61,44 @@ pub const NOTE_ENUMERATED: &str =
 verdict is sound AND complete: a `violated` is a real firing sequence, not a possibly-spurious \
 over-approximation. The net is untimed, so this is the same claim the encoders make (VER-017).\n";
 
+/// The report note of a violation found in the explored prefix of a graph that
+/// did not close ([VER-012], [VER-017], [VER-023]). `graph` names the graph.
+pub fn prefix_note(graph: &str, max_classes: usize) -> String {
+    format!(
+        "Note: the {graph} was truncated at {max_classes} classes; the violation was found in \
+         the explored prefix. Every explored class is reachable, so the counterexample is a real \
+         firing sequence, the shortest within the explored graph. A truncated graph never proves \
+         a property.\n"
+    )
+}
+
 /// Outcome of the enumeration route.
 pub enum ScgOutcome {
-    /// The graph closed and decided the property.
+    /// The graph decided the property. `truncated` is `true` for a violation found
+    /// in the explored prefix of a graph that did not close ([VER-017]): every
+    /// explored class is reachable, so the witness is a real firing sequence — the
+    /// shortest within the explored graph. A truncated graph is never `Proven`.
     Decided {
         verdict: Verdict,
         trace: Vec<MarkingState>,
         transitions: Vec<String>,
         class_count: usize,
+        truncated: bool,
     },
-    /// The graph hit the class budget; the caller falls through to the SMT
-    /// pipeline.
+    /// The graph hit the class budget and its explored prefix violates nothing;
+    /// the caller falls through to the SMT pipeline.
     Truncated { class_count: usize },
+    /// The total verification budget or a cancellation stopped the build
+    /// ([VER-013]) after `class_count` classes. Not a truncation: nothing is read
+    /// off the graph, not even its prefix.
+    Stopped { class_count: usize },
 }
 
 /// The graph's classes as the shared predicate reads them ([`decide_over_classes`]).
+///
+/// A class is quiescent only when it was **expanded** and has no successor: a
+/// frontier class of a truncated graph has no successor recorded only because
+/// nobody computed them ([VER-017]). On a closed graph every class is expanded.
 struct GraphClasses<'g>(&'g StateClassGraph);
 
 impl ClassView for GraphClasses<'_> {
@@ -82,7 +109,7 @@ impl ClassView for GraphClasses<'_> {
         &self.0.classes()[i].marking
     }
     fn is_quiescent(&self, i: usize) -> bool {
-        self.0.successors(i).is_empty()
+        i < self.0.expanded_count() && self.0.successors(i).is_empty()
     }
 }
 
@@ -103,9 +130,15 @@ pub fn verify_via_state_class_graph(
     decide_over_state_space(&graph, initial, property, sink_places, conditional_sinks)
 }
 
-/// Reads the verdict off a built graph, or reports truncation when it did not
-/// close. Only reads `graph`, so one graph answers any number of properties
-/// ([`crate::state_space_cache`]).
+/// Reads the verdict off a built graph. Only reads `graph`, so one graph answers
+/// any number of properties ([`crate::state_space_cache`]).
+///
+/// A graph that did not close is decided over its explored prefix
+/// ([VER-017] "Verdicts from a truncated graph"): every stored class counts for a
+/// safety property, but only an expanded class with no successor counts as
+/// quiescent. A hit is a `Violated` with `truncated: true`; no hit is
+/// [`ScgOutcome::Truncated`]. A graph the total budget or a cancellation stopped
+/// is [`ScgOutcome::Stopped`], and nothing is read off it.
 ///
 /// `initial` is the marking the graph was built from, as the caller listed it: it
 /// is the first state of a witness trace. The graph's own initial class holds the
@@ -118,11 +151,12 @@ pub fn decide_over_state_space(
     sink_places: &[String],
     conditional_sinks: &[ConditionalSinks],
 ) -> ScgOutcome {
-    if !graph.is_complete() {
-        return ScgOutcome::Truncated {
+    if graph.is_stopped() {
+        return ScgOutcome::Stopped {
             class_count: graph.class_count(),
         };
     }
+    let closed = graph.is_complete();
 
     let violating = decide_over_classes(
         &GraphClasses(graph),
@@ -139,8 +173,13 @@ pub fn decide_over_state_space(
                 trace,
                 transitions,
                 class_count: graph.class_count(),
+                truncated: !closed,
             }
         }
+        // Proven never comes from a prefix.
+        None if !closed => ScgOutcome::Truncated {
+            class_count: graph.class_count(),
+        },
         None => ScgOutcome::Decided {
             verdict: Verdict::Proven {
                 method: "state-space enumeration (VER-017)".into(),
@@ -149,7 +188,41 @@ pub fn decide_over_state_space(
             trace: Vec::new(),
             transitions: Vec::new(),
             class_count: graph.class_count(),
+            truncated: false,
         },
+    }
+}
+
+/// [`decide_over_state_space`], read as an explored prefix even when the graph
+/// closed: how the state-space cache answers a query whose class budget the cached
+/// graph — a remembered truncation, or a closed graph too large for it — exceeds
+/// ([VER-017]). A violation in it stands, marked `truncated`; nothing is proven
+/// from it. On a closed graph every class is expanded, so the predicate reads it
+/// exactly as [`decide_over_state_space`] does; only the verdict's standing changes.
+#[cfg_attr(not(feature = "z3"), allow(dead_code))]
+pub(crate) fn decide_over_prefix(
+    graph: &StateClassGraph,
+    initial: &MarkingState,
+    property: &SmtProperty,
+    sink_places: &[String],
+    conditional_sinks: &[ConditionalSinks],
+) -> ScgOutcome {
+    match decide_over_state_space(graph, initial, property, sink_places, conditional_sinks) {
+        ScgOutcome::Decided {
+            verdict: Verdict::Violated,
+            trace,
+            transitions,
+            class_count,
+            ..
+        } => ScgOutcome::Decided {
+            verdict: Verdict::Violated,
+            trace,
+            transitions,
+            class_count,
+            truncated: true,
+        },
+        ScgOutcome::Decided { class_count, .. } => ScgOutcome::Truncated { class_count },
+        other => other,
     }
 }
 
@@ -280,7 +353,9 @@ mod tests {
                 assert!(verdict.is_proven(), "{verdict:?}");
                 assert_eq!(class_count, 7);
             }
-            ScgOutcome::Truncated { .. } => panic!("graph should close"),
+            ScgOutcome::Truncated { .. } | ScgOutcome::Stopped { .. } => {
+                panic!("graph should close")
+            }
         }
     }
 
@@ -301,7 +376,9 @@ mod tests {
                 assert_eq!(transitions, vec!["t0", "t1", "t2", "t3", "t4", "t5"]);
                 assert_eq!(trace.last().expect("trace").count("p6"), 1);
             }
-            ScgOutcome::Truncated { .. } => panic!("graph should close"),
+            ScgOutcome::Truncated { .. } | ScgOutcome::Stopped { .. } => {
+                panic!("graph should close")
+            }
         }
     }
 
@@ -344,7 +421,9 @@ mod tests {
                 ScgOutcome::Decided { verdict, .. } => {
                     assert!(verdict.is_proven(), "{property:?} -> {verdict:?}")
                 }
-                ScgOutcome::Truncated { .. } => panic!("graph should close"),
+                ScgOutcome::Truncated { .. } | ScgOutcome::Stopped { .. } => {
+                panic!("graph should close")
+            }
             }
         }
     }

@@ -686,6 +686,16 @@
           "fragment": "the worklist invariant for any successor function: a run that reports complete has discovered exactly the reachable set (every class reachable; every class not waiting in the queue has all successors discovered)"
         }
       ]
+    },
+    {
+      "name": "build_reach",
+      "module": "Libpetri/Novel/Enumeration.lean",
+      "specIds": [
+        {
+          "id": "VER-017",
+          "fragment": "verdicts from a truncated graph: every class a run discovered is reachable whether or not the run closed (budget, fuel or stop), so a safety violation read off the explored prefix is a reachable bad state; the quiescence half (only expanded classes count) rests on the FIFO/expanded-count premise about the Rust, not proven here, and nothing is claimed for Proven from a prefix"
+        }
+      ]
     }
   ]
 }

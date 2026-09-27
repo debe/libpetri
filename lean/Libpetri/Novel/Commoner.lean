@@ -6,8 +6,8 @@ import Libpetri.Soundness
 Model of the structural deadlock pre-check: `structural_check`
 (`rust/libpetri-verification/src/structural_check.rs:30`), its siphon search
 `find_minimal_siphons` / `grow_siphon` and its trap contraction `find_maximal_trap_in`
-(`structural_check.rs:140`), and the early `Proven` that `verify_net` builds on it in
-`smt_verifier.rs`, guarded by `commoner_applies` (`smt_verifier.rs:2953`). The semantics is the
+(`structural_check.rs:143`), and the early `Proven` that `verify_net` builds on it in
+`smt_verifier.rs`, guarded by `commoner_applies` (`smt_verifier.rs:3139`). The semantics is the
 CHC relation `ReachA` over flat transitions (`Soundness.lean`), one entry per XOR branch, as
 `flatten` produces them.
 
@@ -16,8 +16,8 @@ CHC relation `ReachA` over flat transitions (`Soundness.lean`), one entry per XO
 * `Siphon`: every flat transition that outputs into `S` consumes from `S`.
   `Trap`: every flat transition that consumes from `T` outputs into `T`. These are the
   properties the Rust fixpoints test: the violating-producer search of `grow_siphon`
-  (`structural_check.rs:103-115`) and the contraction test of `find_maximal_trap_in`
-  (`structural_check.rs:155-170`).
+  (`structural_check.rs:106-118`) and the contraction test of `find_maximal_trap_in`
+  (`structural_check.rs:158-173`).
 * `Ordinary` is `commoner_applies`: no read, inhibitor or reset arc, no consume-all input, and
   every input arc requires at most one token. The Rust guard bounds the per-place *sum* by one,
   which implies the per-arc bound used here.
@@ -46,7 +46,10 @@ Results:
 Out of scope: the fixpoint loops themselves (that `find_minimal_siphons` returns every minimal
 siphon, that the contraction of `find_maximal_trap_in` returns the maximal trap, and that
 checking minimal siphons suffices), the 50-place and 10 000-node `Inconclusive` cut-offs,
-timing, and the conditions `verify_net` checks beside `commoner_applies` before it calls
+the [VER-013] stop (a total verification budget that ran out or a cancellation, which
+`grow_siphon` polls beside its node budget and which ends the search exactly as that budget
+does: `find_minimal_siphons` returns `None` and the check answers `Inconclusive`, never
+`NoPotentialDeadlock`, so no early `Proven` rests on a cut search), timing, and the conditions `verify_net` checks beside `commoner_applies` before it calls
 `structural_check` (deadlock freedom only, no environment places, no sink or conditional-sink
 places, no ν-matching).
 -/
@@ -143,7 +146,7 @@ theorem trap_stays_marked {net : FlatNet} {T : PlaceId → Prop} (hT : Trap net 
 
 /-! ## Commoner's theorem for ordinary nets -/
 
-/-- `commoner_applies` (`smt_verifier.rs:2953`). -/
+/-- `commoner_applies` (`smt_verifier.rs:3139`). -/
 def Ordinary (net : FlatNet) : Prop :=
   ∀ ft ∈ net, ft.1.inhibitors = [] ∧ ft.1.reads = [] ∧ ft.1.resets = [] ∧
     ∀ s ∈ ft.1.inputs, s.card.consumesAll = false ∧ s.card.required ≤ 1

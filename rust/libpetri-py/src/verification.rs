@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use libpetri::verification::environment::EnvironmentAnalysisMode;
-use libpetri::verification::harness::{SubnetVerifyExt, VerificationHarness};
+use libpetri::verification::harness::{SubnetVerifyExt, SubnetVerifyOptions, VerificationHarness};
 use libpetri::verification::marking_state::MarkingState;
 use libpetri::verification::property::SmtProperty;
 use libpetri::verification::result::{Verdict, VerificationResult, VerificationRoute};
@@ -51,7 +51,7 @@ impl PySmtProperty {
 }
 
 /// A caller-owned cache of the enumeration route's state space (VER-017). Pass it to
-/// every `verify_net(..., state_space_cache=cache)` on one net: the state-class graph
+/// every `libpetri.verify(..., state_space_cache=cache)` on one net: the state-class graph
 /// of a net and initial marking is built once, and a known truncation declines
 /// without building. Safe to share across threads; parallel queries build once.
 #[pyclass(module = "_libpetri", name = "StateSpaceCache", frozen)]
@@ -94,6 +94,42 @@ impl PyStateSpaceCache {
     }
 }
 
+/// Cancels a running verification from outside it (VER-013). Keep the token, pass it
+/// as `verify(..., cancel=token)` or `verify_subnet(..., cancel=token)`, and call
+/// `cancel()` from any other thread: the verification runs with the GIL released,
+/// so it blocks its own thread. An asyncio task can cancel it only while the call
+/// runs off the event loop (`asyncio.to_thread` / `loop.run_in_executor`). A running
+/// z3 process is killed at once, and the result is `"unknown"`
+/// with the reason `verification cancelled during <phase>`. A token stays cancelled;
+/// a call handed one that already is returns at once. It wraps the Rust
+/// `CancelToken`, so clones share one flag.
+#[pyclass(module = "_libpetri", name = "CancelToken", frozen)]
+pub struct PyCancelToken {
+    pub(crate) inner: libpetri::verification::CancelToken,
+}
+
+#[pymethods]
+impl PyCancelToken {
+    #[new]
+    fn new() -> Self {
+        Self { inner: libpetri::verification::CancelToken::new() }
+    }
+
+    /// Cancels every verification this token was handed. Idempotent.
+    fn cancel(&self) {
+        self.inner.cancel();
+    }
+
+    /// Whether `cancel()` has been called.
+    fn is_cancelled(&self) -> bool {
+        self.inner.is_cancelled()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("CancelToken(cancelled={})", if self.inner.is_cancelled() { "True" } else { "False" })
+    }
+}
+
 /// Outcome of an SMT verification run. Inspect `verdict` (`"proven"` / `"violated"` / `"unknown"`), and if violated, `counterexample_trace` / `counterexample_transitions` plus `counterexample_confirmed`.
 #[pyclass(module = "_libpetri", name = "VerificationResult", from_py_object)]
 #[derive(Clone)]
@@ -107,6 +143,7 @@ pub struct PyVerificationResult {
     counterexample_transitions: Vec<String>,
     counterexample_trace: Vec<Vec<(String, usize)>>,
     counterexample_confirmed: Option<bool>,
+    counterexample_timing: Option<String>,
     elapsed_ms: u64,
     places: usize,
     transitions: usize,
@@ -148,6 +185,8 @@ impl PyVerificationResult {
             counterexample_transitions: result.counterexample_transitions,
             counterexample_trace,
             counterexample_confirmed: result.counterexample_confirmed,
+            // VER-003: spelled as TypeScript spells it, like `route`.
+            counterexample_timing: result.counterexample_timing.map(|t| t.as_str().to_string()),
             elapsed_ms: result.elapsed_ms,
             places: result.statistics.places,
             transitions: result.statistics.transitions,
@@ -169,6 +208,7 @@ impl PyVerificationResult {
             counterexample_transitions: Vec::new(),
             counterexample_trace: Vec::new(),
             counterexample_confirmed: None,
+            counterexample_timing: None,
             elapsed_ms: 0,
             places: 0,
             transitions: 0,
@@ -205,6 +245,13 @@ impl PyVerificationResult {
     /// chained M0 to a violating state. Canonical definition:
     /// `libpetri_verification::result::VerificationResult::counterexample_confirmed`.
     #[getter] fn counterexample_confirmed(&self) -> Option<bool> { self.counterexample_confirmed }
+    /// What a `"violated"` counterexample means for the TIMED net (VER-003):
+    /// `None` unless the verdict is `"violated"`, else one of `"untimed-net"`,
+    /// `"untimed-abstraction"`, `"timed-exact"`, `"timed-confirmed"`,
+    /// `"spurious-under-timing"`, `"timed-undecided"`. Never changes a verdict.
+    /// Canonical definition:
+    /// `libpetri_verification::result::VerificationResult::counterexample_timing`.
+    #[getter] fn counterexample_timing(&self) -> Option<String> { self.counterexample_timing.clone() }
     #[getter] fn elapsed_ms(&self) -> u64 { self.elapsed_ms }
     #[getter] fn places(&self) -> usize { self.places }
     #[getter] fn transitions(&self) -> usize { self.transitions }
@@ -285,10 +332,13 @@ impl PyVerificationHarness {
 }
 
 /// How environment places are modeled during SMT verification (VER-006). Build via
-/// `always_available`, `bounded`, or `ignore`. `AlwaysAvailable` lets the outside
-/// world inject env tokens without limit (broadest reachability), `Bounded(k)` caps
-/// per-firing env input at `k`, and `Ignore` treats env places as ordinary (no
-/// injection — a `proven` verdict is then downgraded to `unknown` to avoid vacuity).
+/// `always_available`, `bounded`, `arrivals`, or `ignore`. `AlwaysAvailable` lets the
+/// outside world inject env tokens without limit (broadest reachability), `Bounded(k)`
+/// caps the tokens resident in an env place at `k` (refilled forever), `Arrivals(k)`
+/// caps the total injected into each env place over the run at `k` (`arrivals(min, max)`
+/// also makes the first `min` mandatory), and `Ignore`
+/// treats env places as ordinary (no injection — a `proven` verdict is then downgraded
+/// to `unknown` to avoid vacuity).
 #[pyclass(module = "_libpetri", name = "EnvironmentAnalysisMode", from_py_object)]
 #[derive(Clone)]
 pub struct PyEnvironmentAnalysisMode {
@@ -304,6 +354,13 @@ impl PyEnvironmentAnalysisMode {
                 format!("EnvironmentAnalysisMode.bounded({max_tokens})")
             }
             EnvironmentAnalysisMode::Ignore => "EnvironmentAnalysisMode.ignore()".to_string(),
+            EnvironmentAnalysisMode::Arrivals { max_tokens } => {
+                format!("EnvironmentAnalysisMode.arrivals({max_tokens})")
+            }
+            EnvironmentAnalysisMode::ArrivalsBetween { min_tokens, max_tokens } => {
+                format!("EnvironmentAnalysisMode.arrivals({min_tokens}, {max_tokens})")
+            }
+            other => format!("EnvironmentAnalysisMode({other:?})"),
         }
     }
 }
@@ -315,10 +372,41 @@ fn py_always_available() -> PyEnvironmentAnalysisMode {
     PyEnvironmentAnalysisMode { inner: EnvironmentAnalysisMode::AlwaysAvailable }
 }
 
-/// Environment mode: each firing may draw at most `max_tokens` from an env place.
+/// Environment mode: at most `max_tokens` tokens resident in an env place at a time,
+/// refilled forever — so each firing may draw at most `max_tokens` from it, but the
+/// total over a run is unbounded. For a total, see `arrivals`.
 #[pyfunction(name = "bounded")]
 fn py_environment_bounded(max_tokens: usize) -> PyEnvironmentAnalysisMode {
     PyEnvironmentAnalysisMode { inner: EnvironmentAnalysisMode::Bounded { max_tokens } }
+}
+
+/// Environment mode (VER-006): at most `max_tokens` tokens injected into each env
+/// place over the whole run. The verifier closes the net before any route: the
+/// `i`-th registered env place `P` gets a source `env:optional[i]` holding
+/// `max_tokens`, an injection transition `env:arrive?[i]:P` and `env:decline[i]`,
+/// which counterexample traces name.
+#[pyfunction(name = "arrivals")]
+fn py_environment_arrivals(max_tokens: usize) -> PyEnvironmentAnalysisMode {
+    PyEnvironmentAnalysisMode { inner: EnvironmentAnalysisMode::Arrivals { max_tokens } }
+}
+
+/// Environment mode (VER-006): between `min_tokens` and `max_tokens` tokens injected
+/// into each env place over the whole run. The first `min_tokens` are mandatory, from a
+/// source `env:arrivals[i]` through `env:arrive[i]:P`; the rest optional, as for
+/// `arrivals`. `arrivals_between(0, k)` is `arrivals(k)`.
+#[pyfunction(name = "arrivals_between")]
+fn py_environment_arrivals_between(
+    min_tokens: usize,
+    max_tokens: usize,
+) -> PyResult<PyEnvironmentAnalysisMode> {
+    if max_tokens < min_tokens {
+        return Err(PyValueError::new_err(format!(
+            "arrivals: needs min_tokens <= max_tokens, got {min_tokens}..{max_tokens} (VER-006)"
+        )));
+    }
+    Ok(PyEnvironmentAnalysisMode {
+        inner: libpetri::verification::environment::arrivals_between(min_tokens, max_tokens),
+    })
 }
 
 /// Environment mode: env places are treated as ordinary (not modeled as injected).
@@ -568,8 +656,11 @@ pub(crate) fn parse_semiflow_mode(value: Option<&Bound<'_, PyAny>>) -> PyResult<
 /// `True`, are the pre-fixpoint phases, `False` forcing the fixpoint path. Unlike
 /// `state_equation`, neither changes the fixpoint encoding. `state_space_cache`
 /// (VER-017) shares the enumeration route's state space across calls.
+/// `total_budget_ms` (VER-013, default `None`) caps the whole call's wall clock;
+/// `timed_counterexample_check` (VER-023, default `False`) checks a `"violated"`
+/// on a timed net against the timed state-class graph.
 #[pyfunction(name = "verify_net")]
-#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 60_000, nu_max_classes = None, fragment_mode = None, carrier_places = None, priority_semantics = None, certificate_check = true, counterexample_replay = true, semiflow_invariants = None, sink_places_when = None, linear_bound = true, state_equation = false, enumeration_max_classes = None, state_equation_phase = true, firing_bound = true, state_space_cache = None))]
+#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 60_000, nu_max_classes = None, fragment_mode = None, carrier_places = None, priority_semantics = None, certificate_check = true, counterexample_replay = true, semiflow_invariants = None, sink_places_when = None, linear_bound = true, state_equation = false, enumeration_max_classes = None, state_equation_phase = true, firing_bound = true, state_space_cache = None, total_budget_ms = None, timed_counterexample_check = false, cancel = None))]
 fn py_verify_net(
     py: Python<'_>,
     net: &PyPetriNet,
@@ -594,11 +685,17 @@ fn py_verify_net(
     state_equation_phase: bool,
     firing_bound: bool,
     state_space_cache: Option<PyRef<'_, PyStateSpaceCache>>,
+    total_budget_ms: Option<u64>,
+    timed_counterexample_check: bool,
+    cancel: Option<PyRef<'_, PyCancelToken>>,
 ) -> PyResult<PyVerificationResult> {
     #[cfg(feature = "z3")]
     {
         use libpetri::verification::name_fragment::FragmentMode;
         let net = net.net().clone();
+        // VER-013: a clone shares the caller's flag, so `cancel()` from another
+        // thread reaches the detached verification.
+        let cancel = cancel.map(|c| c.inner.clone());
         // VER-017: a clone shares the caller's cache. The net is cloned per call, so
         // the cache keys on the net's structure, which every clone shares.
         let state_space_cache = state_space_cache.map(|c| c.inner.clone());
@@ -676,7 +773,17 @@ fn py_verify_net(
                 // phase's verdict carries its own method and report.
                 .state_equation_phase(state_equation_phase)
                 .firing_bound(firing_bound)
+                // VER-023: the timed counterexample check, off by default.
+                .timed_counterexample_check(timed_counterexample_check)
                 .timeout(timeout_ms);
+            // VER-013: the optional wall-clock cap on the whole call, and the
+            // caller's cancellation, which shares its stop.
+            if let Some(ms) = total_budget_ms {
+                verifier = verifier.total_budget(ms);
+            }
+            if let Some(token) = &cancel {
+                verifier = verifier.cancel_token(token);
+            }
             // VER-017: the class budget of the bounded state-space enumeration
             // route (0 disables it, sending every query to the SMT pipeline).
             // None keeps the Rust default, as `nu_max_classes` does below, so the
@@ -702,7 +809,7 @@ fn py_verify_net(
     }
     #[cfg(not(feature = "z3"))]
     {
-        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes, fragment_mode, carrier_places, priority_semantics, certificate_check, counterexample_replay, semiflow_invariants, sink_places_when, linear_bound, state_equation, enumeration_max_classes, state_equation_phase, firing_bound, state_space_cache);
+        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes, fragment_mode, carrier_places, priority_semantics, certificate_check, counterexample_replay, semiflow_invariants, sink_places_when, linear_bound, state_equation, enumeration_max_classes, state_equation_phase, firing_bound, state_space_cache, total_budget_ms, timed_counterexample_check, cancel);
         Ok(PyVerificationResult::unknown("z3 feature not enabled"))
     }
 }
@@ -807,19 +914,103 @@ fn py_z3_available() -> bool {
 
 /// Verifies all properties in `harness` against `subnet`. The harness's
 /// input suppliers and channels are wired into a closed synthetic net.
+///
+/// The keywords after `environment_mode` are forwarded to each per-property
+/// verification (MOD-051), as `verify_net` takes them; `None` leaves the verifier's
+/// default — so `total_budget_ms` caps each property's call, not the whole harness.
+/// Place names are the synthetic net's, spelled as the properties spell
+/// them: the subnet's own places as `sut/<place>`, the ports' synthetic places as
+/// `harness_in_<port>` / `harness_out_<port>` / `harness_io_<port>`. A ν subnet
+/// needs `fragment_mode="extended"` and its `carrier_places` (and a budget place
+/// where one gates minting): without them it is verified in BASE, where a relay
+/// reads as a fresh mint.
 #[pyfunction(name = "verify_subnet")]
-#[pyo3(signature = (subnet, harness, *, environment_mode = None))]
+#[pyo3(signature = (subnet, harness, *, environment_mode = None, timeout_ms = None, total_budget_ms = None, cancel = None, sink_places = None, sink_places_when = None, enumeration_max_classes = None, state_space_cache = None, budget_places = None, carrier_places = None, fragment_mode = None, nu_max_classes = None, priority_semantics = None, timed_counterexample_check = None))]
 fn py_verify_subnet(
     py: Python<'_>,
     subnet: &PySubnetDef,
     harness: &PyVerificationHarness,
     environment_mode: Option<PyEnvironmentAnalysisMode>,
+    timeout_ms: Option<u64>,
+    total_budget_ms: Option<u64>,
+    cancel: Option<PyRef<'_, PyCancelToken>>,
+    sink_places: Option<Vec<String>>,
+    sink_places_when: Option<Bound<'_, PyDict>>,
+    enumeration_max_classes: Option<usize>,
+    state_space_cache: Option<PyRef<'_, PyStateSpaceCache>>,
+    budget_places: Option<Vec<String>>,
+    carrier_places: Option<Vec<String>>,
+    fragment_mode: Option<Bound<'_, PyAny>>,
+    nu_max_classes: Option<usize>,
+    priority_semantics: Option<Bound<'_, PyAny>>,
+    timed_counterexample_check: Option<bool>,
 ) -> PyResult<PySubnetVerificationResult> {
     // Same default as `verify`: AlwaysAvailable, under which a `proven` holds for any
     // environment. Under Ignore VER-006 refuses to certify (MOD-051 AC3).
     let environment_mode = environment_mode
         .map(|m| m.inner)
         .unwrap_or(EnvironmentAnalysisMode::AlwaysAvailable);
+    #[allow(unused_mut)]
+    let mut options = SubnetVerifyOptions::default().with_environment_mode(environment_mode);
+    #[cfg(feature = "z3")]
+    {
+        // Parsed here, where the Python objects are still bound; the hook runs detached.
+        let fragment_mode = fragment_mode.as_ref().map(parse_fragment_mode).transpose()?;
+        let priority_semantics =
+            priority_semantics.as_ref().map(parse_priority_semantics).transpose()?;
+        let sink_places_when = match &sink_places_when {
+            Some(d) => Some(parse_sink_places_when(Some(d))?),
+            None => None,
+        };
+        let cancel = cancel.map(|c| c.inner.clone());
+        let state_space_cache = state_space_cache.map(|c| c.inner.clone());
+        options = options.with_configure(move |mut v, _synth| {
+            if let Some(ms) = timeout_ms {
+                v = v.timeout(ms);
+            }
+            if let Some(ms) = total_budget_ms {
+                v = v.total_budget(ms);
+            }
+            if let Some(token) = &cancel {
+                v = v.cancel_token(token);
+            }
+            if let Some(places) = &sink_places {
+                v = v.sink_places(places.iter().cloned());
+            }
+            for (marker, places) in sink_places_when.iter().flatten() {
+                v = v.sink_places_when(marker.clone(), places.iter().cloned());
+            }
+            if let Some(n) = enumeration_max_classes {
+                v = v.enumeration_max_classes(n);
+            }
+            if let Some(cache) = &state_space_cache {
+                v = v.state_space_cache(cache);
+            }
+            if let Some(places) = &budget_places {
+                v = v.budget_places(places.iter().cloned());
+            }
+            if let Some(places) = &carrier_places {
+                v = v.carrier_places(places.iter().cloned());
+            }
+            if let Some(mode) = fragment_mode {
+                v = v.fragment_mode(mode);
+            }
+            if let Some(n) = nu_max_classes {
+                v = v.nu_max_classes(n);
+            }
+            if let Some(semantics) = priority_semantics {
+                v = v.priority_semantics(semantics);
+            }
+            if let Some(on) = timed_counterexample_check {
+                v = v.timed_counterexample_check(on);
+            }
+            v
+        });
+    }
+    #[cfg(not(feature = "z3"))]
+    {
+        let _ = (timeout_ms, total_budget_ms, cancel, sink_places, sink_places_when, enumeration_max_classes, state_space_cache, budget_places, carrier_places, fragment_mode, nu_max_classes, priority_semantics, timed_counterexample_check);
+    }
     let mut rust_harness = VerificationHarness::<()>::new();
     #[cfg(feature = "z3")]
     {
@@ -856,7 +1047,7 @@ fn py_verify_subnet(
     let subnet = subnet.inner.clone();
     // Same CORE-043 guard as the net path: the harness compiles a synthetic net.
     let result = panic_to_py(|| {
-        py.detach(move || subnet.verify_with_mode(rust_harness, environment_mode))
+        py.detach(move || subnet.verify_with_options(rust_harness, options))
     })?;
 
     let property_results = result
@@ -879,11 +1070,14 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyEnvironmentAnalysisMode>()?;
     m.add_class::<PyVerificationResult>()?;
     m.add_class::<PyStateSpaceCache>()?;
+    m.add_class::<PyCancelToken>()?;
     m.add_class::<PyPropertyResult>()?;
     m.add_class::<PySubnetVerificationResult>()?;
     m.add_class::<PyVerificationHarness>()?;
     m.add_function(wrap_pyfunction!(py_always_available, m)?)?;
     m.add_function(wrap_pyfunction!(py_environment_bounded, m)?)?;
+    m.add_function(wrap_pyfunction!(py_environment_arrivals, m)?)?;
+    m.add_function(wrap_pyfunction!(py_environment_arrivals_between, m)?)?;
     m.add_function(wrap_pyfunction!(py_environment_ignore, m)?)?;
     m.add_function(wrap_pyfunction!(py_deadlock_free, m)?)?;
     m.add_function(wrap_pyfunction!(py_terminates_at_sink, m)?)?;

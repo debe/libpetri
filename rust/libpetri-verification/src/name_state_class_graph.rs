@@ -14,7 +14,9 @@
 //!
 //! ν-Petri-net reachability is undecidable; if BFS closes within `max_classes`
 //! the graph is the complete reachable quotient (an *exact* answer), otherwise it
-//! is truncated (`complete == false`) and the verifier reports `Unknown`.
+//! is truncated (`complete == false`): the verifier then reads only its explored
+//! prefix, where a violation still stands, and otherwise reports `Unknown`
+//! ([VER-012] AC3).
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
@@ -45,9 +47,22 @@ pub(crate) struct NameStateClassGraph {
     successors: Vec<Vec<usize>>,
     predecessors: Vec<Vec<usize>>,
     complete: bool,
+    /// How many classes were expanded; FIFO, so exactly `0 .. expanded`
+    /// ([VER-017] "Verdicts from a truncated graph").
+    expanded: usize,
+    /// Whether the total budget or a cancellation stopped the build ([VER-013]).
+    stopped: bool,
+    /// Whether the build stopped at the first class the `stop_at` predicate of
+    /// [`NameStateClassGraph::build_until`] held for ([VER-012]): that class is the
+    /// last one stored. Such a graph is not complete.
+    stopped_at_violation: bool,
 }
 
 impl NameStateClassGraph {
+    /// The whole graph, up to `max_classes`: [`NameStateClassGraph::build_until`]
+    /// with no stop predicate. Route B goes through `build_until`; the tests build
+    /// the unstopped graph here.
+    #[cfg(test)]
     pub(crate) fn build(
         net: &PetriNet,
         initial_marking: &MarkingState,
@@ -57,8 +72,44 @@ impl NameStateClassGraph {
         env_mode: &EnvironmentAnalysisMode,
         priority_semantics: PrioritySemantics,
     ) -> Self {
+        Self::build_until(
+            net,
+            initial_marking,
+            fragment,
+            max_classes,
+            env_places,
+            env_mode,
+            priority_semantics,
+            None,
+        )
+    }
+
+    /// Builds the graph up to `max_classes`, stopping at the first discovered class whose
+    /// marking satisfies `stop_at` ([VER-012]: Route B's on-the-fly check of a
+    /// reachability-safety property). Each class is tested as it is stored, so the
+    /// classes stored up to the stop are exactly those of the unstopped build, in
+    /// the same order, and the stop class is the lowest-index class the predicate
+    /// holds for — the one the full graph's prefix check would pick. The edge that
+    /// discovered it is recorded first, so its shortest path is the full graph's
+    /// too. The stopped graph is not complete.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn build_until(
+        net: &PetriNet,
+        initial_marking: &MarkingState,
+        fragment: &NameFragment,
+        max_classes: usize,
+        env_places: &[&str],
+        env_mode: &EnvironmentAnalysisMode,
+        priority_semantics: PrioritySemantics,
+        stop_at: Option<&dyn Fn(&MarkingState) -> bool>,
+    ) -> Self {
+        env_mode.reject_arrivals(env_places.len(), "NameStateClassGraph::build");
         let env_set: HashSet<&str> = env_places.iter().copied().collect();
         let base0 = initial_state_class(net, initial_marking, &env_set, env_mode, false);
+        // Transitions by name, so each class resolves its enabled set in O(1) per
+        // transition rather than by a scan of the net.
+        let by_name: HashMap<&str, &Transition> =
+            net.transitions().iter().map(|t| (t.name(), t)).collect();
 
         let mut graph = NameStateClassGraph {
             classes: Vec::new(),
@@ -66,6 +117,9 @@ impl NameStateClassGraph {
             successors: Vec::new(),
             predecessors: Vec::new(),
             complete: true,
+            expanded: 0,
+            stopped: false,
+            stopped_at_violation: false,
         };
         // Hash-consing (memory only, no semantic effect — [VER-012], `Interning.lean`):
         // the base layer is shared between classes at the same (marking, zone,
@@ -83,14 +137,29 @@ impl NameStateClassGraph {
         let (nid0, names0) =
             intern_names(&mut name_intern, NameMarking::new(), &fragment.coloured_order);
         graph.push_class(NameStateClass::new(base0, names0), (bid0, nid0), &mut index_of);
+        let violates = |g: &NameStateClassGraph, idx: usize| {
+            stop_at.is_some_and(|stop| stop(&g.classes[idx].base.marking))
+        };
+        if violates(&graph, 0) {
+            graph.complete = false;
+            graph.stopped_at_violation = true;
+            return graph;
+        }
 
         let mut next_sym: Sym = 0;
         let mut queue: VecDeque<usize> = VecDeque::new();
         queue.push_back(0);
 
-        while let Some(cur_idx) = queue.pop_front() {
+        'bfs: while let Some(cur_idx) = queue.pop_front() {
             if graph.classes.len() >= max_classes {
                 graph.complete = false;
+                break;
+            }
+            // [VER-013]: the total budget ran out or the caller cancelled. Not a
+            // truncation: nothing is read off this graph, not even its prefix.
+            if crate::total_budget::cut() {
+                graph.complete = false;
+                graph.stopped = true;
                 break;
             }
             let current = graph.classes[cur_idx].clone();
@@ -101,12 +170,7 @@ impl NameStateClassGraph {
                 .base
                 .enabled_transitions
                 .iter()
-                .map(|t_name| {
-                    net.transitions()
-                        .iter()
-                        .find(|t| t.name() == t_name.as_str())
-                        .unwrap()
-                })
+                .map(|t_name| by_name[t_name.as_str()])
                 .collect();
 
             for (clock_idx, t_name) in current.base.enabled_transitions.iter().enumerate() {
@@ -156,8 +220,8 @@ impl NameStateClassGraph {
                     for names in name_succs {
                         let (nid, shared_names) =
                             intern_names(&mut name_intern, names, &fragment.coloured_order);
-                        let to_idx = if let Some(&i) = index_of.get(&(bid, nid)) {
-                            i
+                        let (to_idx, fresh) = if let Some(&i) = index_of.get(&(bid, nid)) {
+                            (i, false)
                         } else {
                             let idx = graph.classes.len();
                             graph.push_class(
@@ -166,12 +230,20 @@ impl NameStateClassGraph {
                                 &mut index_of,
                             );
                             queue.push_back(idx);
-                            idx
+                            (idx, true)
                         };
                         graph.add_edge(cur_idx, to_idx, t_name);
+                        // The current class is left unexpanded (`expanded` is not
+                        // advanced), so it never reads as quiescent.
+                        if fresh && violates(&graph, to_idx) {
+                            graph.complete = false;
+                            graph.stopped_at_violation = true;
+                            break 'bfs;
+                        }
                     }
                 }
             }
+            graph.expanded += 1;
         }
 
         graph
@@ -206,6 +278,23 @@ impl NameStateClassGraph {
 
     pub(crate) fn is_complete(&self) -> bool {
         self.complete
+    }
+
+    /// How many classes were expanded: `0 .. expanded_count()`, FIFO. The rest of
+    /// an incomplete graph is frontier, whose successors nobody computed.
+    pub(crate) fn expanded_count(&self) -> usize {
+        self.expanded
+    }
+
+    /// Whether the total budget or a cancellation stopped the build ([VER-013]).
+    pub(crate) fn is_stopped(&self) -> bool {
+        self.stopped
+    }
+
+    /// Whether the build stopped at the first class its `stop_at` predicate held
+    /// for ([`NameStateClassGraph::build_until`]); that class is the last stored.
+    pub(crate) fn stopped_at_violation(&self) -> bool {
+        self.stopped_at_violation
     }
 
     pub(crate) fn successors(&self, idx: usize) -> &[usize] {
@@ -274,10 +363,25 @@ fn coloured_outputs<'a>(
 /// Name-layer successors of one transition firing. `Ordinary` passes the layer
 /// through; `Mint` stamps one globally-fresh symbol into the coloured outputs of
 /// this branch (one symbol into several = same-mint siblings); `Join` yields one
-/// successor per enabling symbol (none ⇒ the join is name-disabled); `Consume`
-/// (EXTENDED, [NU-051]) yields one successor per resident symbol of the single
-/// coloured input, threading that symbol into every coloured output (relay) or
-/// dropping it (drain).
+/// successor per **distinct signature** among the enabling symbols (none ⇒ the
+/// join is name-disabled), adding that symbol back once to each relay target of
+/// the fired branch (EXTENDED, [NU-054]); `Consume` (EXTENDED, [NU-051]) yields one successor per
+/// distinct signature among the resident symbols of the single coloured input,
+/// threading that symbol into every coloured output (relay) or dropping it
+/// (drain).
+///
+/// **Orbit dedup ([VER-012]).** A symbol's signature is its count vector over
+/// `coloured_order`, as in [`NameMarking::canonical_key`]. Two symbols with equal
+/// signatures are exchanged by a transposition that fixes `names`, so firing on
+/// either gives successors that are renamings of each other, with equal canonical
+/// keys: the class set and the set of (label, key) successor pairs are those of
+/// one successor per symbol, and only parallel identical edges disappear. Each
+/// signature is represented by its first symbol in id order, so the discovery
+/// order is unchanged too. Emitting one per symbol copied and keyed every
+/// successor only to collapse them into one class — quadratic in the class count
+/// on a join-heavy graph. The number of distinct signatures, and the key each
+/// one yields, are themselves invariant under renaming, which is what keeps the
+/// step key-equivariant (`Interning.lean`, `Equivariant`).
 fn name_successors(
     role: &Role,
     names: &NameMarking,
@@ -299,16 +403,35 @@ fn name_successors(
             }
             vec![nm]
         }
-        Role::Join { coloured_in } => enabling_symbols(names, coloured_in)
-            .into_iter()
-            .map(|s| {
-                let mut nm = names.clone();
-                for (p, req) in coloured_in {
-                    nm.remove(p, s, *req);
-                }
-                nm
-            })
-            .collect(),
+        Role::Join {
+            coloured_in,
+            relay_to,
+        } => {
+            // [NU-054]: the relay targets of the fired branch. Relaying adds back
+            // the symbol the join removed, so the step mints nothing and stays
+            // equivariant under renaming: the orbit dedup reads signatures on the
+            // pre-step layer, and a transposition of two equal-signature symbols
+            // fixes that layer and maps one successor onto the other — equal keys,
+            // as for a drain.
+            let relays: Vec<&String> = if relay_to.is_empty() {
+                Vec::new()
+            } else {
+                output_places.iter().filter(|p| relay_to.contains(*p)).collect()
+            };
+            distinct_signatures(names, enabling_symbols(names, coloured_in), fragment)
+                .into_iter()
+                .map(|s| {
+                    let mut nm = names.clone();
+                    for (p, req) in coloured_in {
+                        nm.remove(p, s, *req);
+                    }
+                    for p in &relays {
+                        nm.add(p, s, 1);
+                    }
+                    nm
+                })
+                .collect()
+        }
         Role::Consume { input_place } => {
             let coloured_out = coloured_outputs(output_places, fragment);
             // The consumed count is fixed at 1, so EVERY resident symbol (each
@@ -316,8 +439,7 @@ fn name_successors(
             // base-enabled firing vanishes (Blocker 2). Each coloured output
             // receives EXACTLY ONE symbol, matching the base marking's single
             // token per output place (Blocker 1).
-            names
-                .symbols_in(input_place)
+            distinct_signatures(names, names.symbols_in(input_place), fragment)
                 .into_iter()
                 .map(|s| {
                     let mut nm = names.clone();
@@ -330,6 +452,29 @@ fn name_successors(
                 .collect()
         }
     }
+}
+
+/// One representative per distinct signature among `symbols` — the first, in the
+/// given (ascending id) order: the orbit dedup of [`name_successors`]. A
+/// symbol's signature is its count vector over the coloured places, the vector
+/// [`NameMarking::canonical_key`] ranks symbols by.
+fn distinct_signatures(names: &NameMarking, symbols: Vec<Sym>, fragment: &NameFragment) -> Vec<Sym> {
+    if symbols.len() < 2 {
+        return symbols;
+    }
+    let mut seen: HashSet<Vec<usize>> = HashSet::with_capacity(symbols.len());
+    symbols
+        .into_iter()
+        .filter(|&s| {
+            seen.insert(
+                fragment
+                    .coloured_order
+                    .iter()
+                    .map(|p| names.count_of(p, s))
+                    .collect(),
+            )
+        })
+        .collect()
 }
 
 /// Symbols that enable a join: present at the required multiplicity in EVERY
@@ -405,7 +550,7 @@ fn priority_dominated(
 /// conflicting firing.
 fn will_fire(h: &Transition, names: &NameMarking, fragment: &NameFragment) -> bool {
     match fragment.role(h.name()) {
-        Role::Join { coloured_in } => !enabling_symbols(names, coloured_in).is_empty(),
+        Role::Join { coloured_in, .. } => !enabling_symbols(names, coloured_in).is_empty(),
         Role::Consume { input_place } => !names.symbols_in(input_place).is_empty(),
         // Explicit (not `_`) so a future Role variant forces a compile-time
         // decision here rather than silently defaulting to will-fire=true.
@@ -445,9 +590,10 @@ fn consumed_demand(t: &Transition, place: &str) -> usize {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use libpetri_core::action::fork;
+    use std::collections::BTreeSet;
 
     /// [VER-012] interning regression fixture (`Interning.lean`,
     /// `equivariance_is_necessary`): two routes to one (marking, zone) that
@@ -975,5 +1121,318 @@ mod tests {
             !reaches_deadletter(PrioritySemantics::Conflict),
             "CONFLICT must prune the DELAYED lower-priority drain (residual-earliest)"
         );
+    }
+
+    /// PNID Fig. 11(b) (`research/net-metrics/validation/pnid/src/nets.ts`,
+    /// `res11b`): `create_order` reads a clerk and co-mints one name into `order`
+    /// and `order_clerk`; `send_order` joins them by name. Minting is unbounded, so
+    /// the graph never closes, and every live name has the same signature: the
+    /// join-heavy shape the orbit dedup of [VER-012] exists for.
+    pub(crate) fn fig11b() -> (PetriNet, crate::marking_state::MarkingState) {
+        use crate::marking_state::MarkingStateBuilder;
+        use libpetri_core::arc::read;
+        use libpetri_core::input::one;
+        use libpetri_core::match_spec::MatchSpec;
+        use libpetri_core::name::NameId;
+        use libpetri_core::output::{and, out_place};
+        use libpetri_core::place::Place;
+        use libpetri_core::transition::Transition;
+
+        let clerk = Place::<()>::new("clerk");
+        let order = Place::<String>::new("order");
+        let order_clerk = Place::<String>::new("order_clerk");
+        let done = Place::<String>::new("send_done");
+        let create = Transition::builder("create_order")
+            .read(read(&clerk))
+            .output(and(vec![out_place(&order), out_place(&order_clerk)]))
+            .action(fork())
+            .build();
+        let send = Transition::builder("send_order")
+            .input(one(&order))
+            .input(one(&order_clerk))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&order, |s: &String| NameId::new(s.clone()))
+                    .key(&order_clerk, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(out_place(&done))
+            .action(fork())
+            .build();
+        let net = PetriNet::builder("P-Fig11b-not-exclusive")
+            .transitions(vec![create, send])
+            .build();
+        (net, MarkingStateBuilder::new().tokens("clerk", 2).build())
+    }
+
+    fn fig11b_graph(max_classes: usize) -> (NameStateClassGraph, NameFragment) {
+        use crate::name_fragment::{FragmentMode, classify};
+        use std::collections::BTreeSet;
+
+        let (net, m0) = fig11b();
+        let fragment = classify(&net, FragmentMode::Base, &BTreeSet::new())
+            .expect("Fig. 11(b) is in the base fragment");
+        let graph = NameStateClassGraph::build(
+            &net,
+            &m0,
+            &fragment,
+            max_classes,
+            &[],
+            &EnvironmentAnalysisMode::Ignore,
+            PrioritySemantics::None,
+        );
+        (graph, fragment)
+    }
+
+    /// Per-symbol emission, as `name_successors` did before the orbit dedup: one
+    /// successor per enabling symbol of a join.
+    fn per_symbol_join_keys(
+        fragment: &NameFragment,
+        transition: &str,
+        names: &NameMarking,
+    ) -> BTreeSet<String> {
+        let Role::Join { coloured_in, .. } = fragment.role(transition) else {
+            panic!("{transition} is not a join");
+        };
+        enabling_symbols(names, coloured_in)
+            .into_iter()
+            .map(|s| {
+                let mut nm = names.clone();
+                for (p, req) in coloured_in {
+                    nm.remove(p, s, *req);
+                }
+                nm.canonical_key(&fragment.coloured_order)
+            })
+            .collect()
+    }
+
+    /// [VER-012] orbit dedup: one successor per distinct signature, whose keys are
+    /// exactly the keys of the per-symbol emission — same set, fewer duplicates.
+    #[test]
+    fn orbit_dedup_keeps_the_successor_key_set_of_per_symbol_emission() {
+        let (_, fragment) = fig11b_graph(1);
+        let outputs: HashSet<String> = ["send_done"].iter().map(|s| s.to_string()).collect();
+        let dedup = |names: &NameMarking| {
+            let mut fresh: Sym = 100;
+            name_successors(fragment.role("send_order"), names, &outputs, &fragment, &mut fresh)
+                .iter()
+                .map(|nm| nm.canonical_key(&fragment.coloured_order))
+                .collect::<Vec<_>>()
+        };
+
+        // Three live names with one signature, plus one that does not enable.
+        let mut same = NameMarking::new();
+        for s in [0, 1, 2] {
+            same.add("order", s, 1);
+            same.add("order_clerk", s, 1);
+        }
+        same.add("order", 3, 1);
+        let keys = dedup(&same);
+        assert_eq!(keys.len(), 1, "three interchangeable names are one orbit");
+        assert_eq!(
+            keys.iter().cloned().collect::<BTreeSet<_>>(),
+            per_symbol_join_keys(&fragment, "send_order", &same)
+        );
+
+        // Two enabling names with different signatures stay two successors.
+        let mut split = NameMarking::new();
+        split.add("order", 0, 2);
+        split.add("order_clerk", 0, 1);
+        split.add("order", 1, 1);
+        split.add("order_clerk", 1, 1);
+        let keys = dedup(&split);
+        assert_eq!(keys.len(), 2);
+        assert_eq!(
+            keys.iter().cloned().collect::<BTreeSet<_>>(),
+            per_symbol_join_keys(&fragment, "send_order", &split)
+        );
+    }
+
+    /// The same equality over every class of an explored Fig. 11(b) graph: at each
+    /// class the join's deduplicated successors have exactly the keys of the
+    /// per-symbol emission, and at most one successor per key.
+    #[test]
+    fn orbit_dedup_agrees_with_per_symbol_emission_on_every_explored_class() {
+        let (graph, fragment) = fig11b_graph(300);
+        let outputs: HashSet<String> = ["send_done"].iter().map(|s| s.to_string()).collect();
+        let mut joins_with_duplicates = 0;
+        for class in &graph.classes {
+            let reference = per_symbol_join_keys(&fragment, "send_order", &class.names);
+            let mut fresh: Sym = 1_000_000;
+            let keys: Vec<String> = name_successors(
+                fragment.role("send_order"),
+                &class.names,
+                &outputs,
+                &fragment,
+                &mut fresh,
+            )
+            .iter()
+            .map(|nm| nm.canonical_key(&fragment.coloured_order))
+            .collect();
+            let distinct: BTreeSet<String> = keys.iter().cloned().collect();
+            assert_eq!(distinct.len(), keys.len(), "one successor per key");
+            assert_eq!(distinct, reference);
+            if enabling_symbols(&class.names, &[
+                ("order".to_string(), 1),
+                ("order_clerk".to_string(), 1),
+            ])
+            .len()
+                > keys.len()
+            {
+                joins_with_duplicates += 1;
+            }
+        }
+        assert!(joins_with_duplicates > 0, "the fixture exercises the dedup");
+    }
+
+    /// Class counts of Fig. 11(b) at several caps, and the edge multiset the
+    /// dedup removes: the graph is the per-symbol graph with parallel identical
+    /// edges collapsed. The counts were recorded with per-symbol emission.
+    #[test]
+    fn orbit_dedup_leaves_the_fig11b_class_counts_unchanged() {
+        for (cap, classes) in FIG11B_CLASS_COUNTS {
+            let (graph, _) = fig11b_graph(cap);
+            assert!(!graph.is_complete());
+            assert_eq!(graph.class_count(), classes, "cap {cap}");
+            let mut edges: Vec<(usize, usize, &str)> = graph
+                .edges
+                .iter()
+                .map(|e| (e.from, e.to, e.transition_name.as_str()))
+                .collect();
+            let n = edges.len();
+            edges.sort_unstable();
+            edges.dedup();
+            assert_eq!(edges.len(), n, "no parallel identical edges remain (cap {cap})");
+        }
+    }
+
+    /// Recorded with the per-symbol emission (before the orbit dedup).
+    const FIG11B_CLASS_COUNTS: [(usize, usize); 3] = [(50, 51), (300, 300), (2_000, 2_000)];
+
+    /// [VER-012]: an 8 000-class build of Fig. 11(b) finishes under a generous
+    /// bound. Per-symbol emission is roughly quadratic in the class count here.
+    #[test]
+    fn fig11b_8k_class_build_is_fast() {
+        let started = std::time::Instant::now();
+        let (graph, _) = fig11b_graph(8_000);
+        let took = started.elapsed();
+        assert!(graph.class_count() >= 8_000);
+        assert!(took.as_secs() < 20, "8k-class Fig. 11(b) build took {took:?}");
+    }
+
+    /// Timing of 2k / 4k / 8k-class Fig. 11(b) builds, for the record:
+    /// `cargo test --release -p libpetri-verification fig11b_build_timings -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn fig11b_build_timings() {
+        for cap in [2_000, 4_000, 8_000] {
+            let mut runs: Vec<std::time::Duration> = (0..3)
+                .map(|_| {
+                    let started = std::time::Instant::now();
+                    let (graph, _) = fig11b_graph(cap);
+                    let took = started.elapsed();
+                    assert!(graph.class_count() >= cap);
+                    took
+                })
+                .collect();
+            runs.sort();
+            println!("fig11b cap={cap}: median {:?} (runs {runs:?})", runs[1]);
+        }
+    }
+
+    // ---- NU-054: the relay step and the orbit dedup ----
+
+    /// The dedup emits one successor per distinct PRE-step signature. A relay step
+    /// removes `s` from the keys and adds it back to the relay targets, so a
+    /// transposition of two symbols with equal pre-step signatures fixes the layer
+    /// and maps one successor onto the other: equal keys. Checked on every
+    /// reachable class: the keys the step emits equal the keys a per-symbol step
+    /// (no dedup) produces, one successor per key.
+    #[test]
+    fn relay_step_dedup_covers_every_per_symbol_successor() {
+        use crate::name_fragment::{FragmentMode, classify};
+        use crate::relay_nets::{FIG_12C_CARRIERS, fig_12c, j, n1_corr, pnid_net, t};
+
+        let beside_carrier = vec![
+            t("m", &["S"], &["A", "B", "E"]),
+            t("t", &["E"], &[]),
+            j("j", &["A", "B"], &["C"], &["A", "B"], &["C"]),
+            t("k", &["C"], &["done"]),
+        ];
+        let cases: Vec<(&str, Vec<crate::relay_nets::Row>, (&str, usize), Vec<&str>)> = vec![
+            ("N1 correlated, SUPPLY 3", n1_corr(), ("SUPPLY", 3), vec![]),
+            ("Fig. 12(c), R 3", fig_12c(), ("R", 3), FIG_12C_CARRIERS.to_vec()),
+            // Two enabling symbols of `j` whose signatures differ off the keys (one
+            // still holds `E`): they must not collapse, and the dedup must not read
+            // the post-step layer.
+            ("relay beside an undrained carrier, S 2", beside_carrier, ("S", 2), vec!["E"]),
+        ];
+        for (name, rows, (place, k), carriers) in cases {
+            let net = pnid_net("orbit", &rows);
+            let carrier_set: BTreeSet<String> = carriers.iter().map(|s| s.to_string()).collect();
+            let fragment = classify(&net, FragmentMode::Extended, &carrier_set).expect(name);
+            let graph = NameStateClassGraph::build(
+                &net,
+                &crate::marking_state::MarkingStateBuilder::new().tokens(place, k).build(),
+                &fragment,
+                100_000,
+                &[],
+                &EnvironmentAnalysisMode::Ignore,
+                PrioritySemantics::None,
+            );
+            assert!(graph.is_complete(), "{name}");
+            let mut relay_steps = 0;
+            let mut collapsed = 0;
+            for class in &graph.classes {
+                for tname in &class.base.enabled_transitions {
+                    let Role::Join { coloured_in, relay_to } = fragment.role(tname) else {
+                        continue;
+                    };
+                    if relay_to.is_empty() {
+                        continue;
+                    }
+                    let tr = net.transitions().iter().find(|x| x.name() == tname).unwrap();
+                    for (_, outputs) in expand_transition(tr) {
+                        let mut fresh: Sym = 1_000_000;
+                        let emitted: Vec<String> = name_successors(
+                            fragment.role(tname),
+                            &class.names,
+                            &outputs,
+                            &fragment,
+                            &mut fresh,
+                        )
+                        .iter()
+                        .map(|nm| nm.canonical_key(&fragment.coloured_order))
+                        .collect();
+                        // Per-symbol reference step: every enabling symbol, no dedup.
+                        let enabling = enabling_symbols(&class.names, coloured_in);
+                        let reference: BTreeSet<String> = enabling
+                            .iter()
+                            .map(|&s| {
+                                let mut nm = (*class.names).clone();
+                                for (p, req) in coloured_in {
+                                    nm.remove(p, s, *req);
+                                }
+                                for p in outputs.iter().filter(|p| relay_to.contains(*p)) {
+                                    nm.add(p, s, 1);
+                                }
+                                nm.canonical_key(&fragment.coloured_order)
+                            })
+                            .collect();
+                        let distinct: BTreeSet<String> = emitted.iter().cloned().collect();
+                        assert_eq!(distinct, reference, "{name}: {tname}");
+                        assert_eq!(emitted.len(), reference.len(), "{name}: one successor per key");
+                        relay_steps += 1;
+                        if enabling.len() > reference.len() {
+                            collapsed += 1;
+                        }
+                    }
+                }
+            }
+            assert!(relay_steps > 0, "{name}: the fixture fires a relaying join");
+            if name != "relay beside an undrained carrier, S 2" {
+                assert!(collapsed > 0, "{name}: the fixture exercises the dedup");
+            }
+        }
     }
 }

@@ -6,9 +6,14 @@
 //! Z3. Because the graph carries the DBM zone, the verdict is exact over *time*
 //! too (name×time); because joins are name-aware, *quiescence* is exact. The
 //! analysis is **sound**, and **complete (exact)** when the symbolic graph closes
-//! within `max_classes`; otherwise it reports `Unknown` (ν-PN reachability is
+//! within `max_classes`. When it truncates, a violation among the explored classes
+//! still stands (every stored class is reachable; only an expanded class can be
+//! quiescent), and without one the verdict is `Unknown` (ν-PN reachability is
 //! undecidable — undecidability surfaces as truncation, never an unsound verdict;
-//! this generalises [NU-050] #2).
+//! this generalises [NU-050] #2). A truncated graph never proves anything
+//! ([VER-012] AC3). A reachability-safety property is checked on each class as
+//! it is discovered, and the build stops at the first violating one ([VER-012]):
+//! the verdict and witness of the full build, without filling the class cap.
 //!
 //! This route is invoked by [`crate::smt_verifier`] to *fill the gaps* the
 //! SMT / Route A path cannot answer exactly: quiescence properties on a ν-net and
@@ -20,7 +25,7 @@ use std::collections::{BTreeSet, HashSet, VecDeque};
 use libpetri_core::petri_net::PetriNet;
 
 use crate::environment::EnvironmentAnalysisMode;
-use crate::graph_decision::{ClassView, decide_over_classes};
+use crate::graph_decision::{ClassView, decide_over_classes, marking_violates};
 use crate::marking_state::MarkingState;
 use crate::name_fragment::{self, FragmentMode};
 use crate::name_state_class_graph::NameStateClassGraph;
@@ -95,7 +100,19 @@ pub fn verify_via_name_scg(
         }
     }
 
-    let scg = NameStateClassGraph::build(
+    // [VER-012]: a reachability-safety property is checked on each class as it is
+    // discovered, with the predicate `decide` applies, and the build stops at the
+    // first violating class — the lowest-index one, so verdict and witness are
+    // those of the full build. Quiescence needs expanded classes: no early stop.
+    let violates = |m: &MarkingState| marking_violates(property, m);
+    let stop_at: Option<&dyn Fn(&MarkingState) -> bool> = match property {
+        SmtProperty::PlaceBound { .. }
+        | SmtProperty::BranchPlaceBound { .. }
+        | SmtProperty::Unreachable { .. }
+        | SmtProperty::MutualExclusion { .. } => Some(&violates),
+        _ => None,
+    };
+    let scg = NameStateClassGraph::build_until(
         net,
         initial,
         &fragment,
@@ -103,9 +120,49 @@ pub fn verify_via_name_scg(
         env_places,
         env_mode,
         priority_semantics,
+        stop_at,
     );
 
-    if !scg.is_complete() {
+    // [VER-013]: a build the total budget or a cancellation stopped says nothing,
+    // not even about its prefix; the caller reports the stop.
+    if scg.is_stopped() {
+        return Some(NuScgOutcome {
+            verdict: Verdict::Unknown {
+                reason: format!(
+                    "ν name-aware state-class graph stopped after {} classes (VER-013)",
+                    scg.class_count()
+                ),
+            },
+            trace: Vec::new(),
+            transitions: Vec::new(),
+            note: String::new(),
+            class_count: scg.class_count(),
+        });
+    }
+
+    // On truncation the same predicate runs over the explored prefix ([VER-012]
+    // AC3, [VER-017]): every stored class is a real reachable class, and only an
+    // expanded class counts as quiescent.
+    let complete = scg.is_complete();
+    let (verdict, violating) = decide(&scg, property, sink_places, conditional_sinks);
+    if let Some(idx) = violating {
+        let (trace, transitions) = counterexample_path(&scg, idx);
+        return Some(NuScgOutcome {
+            verdict,
+            trace,
+            transitions,
+            note: if complete {
+                NOTE_EXACT.to_string()
+            } else if scg.stopped_at_violation() {
+                early_stop_note(scg.class_count())
+            } else {
+                crate::scg_verifier::prefix_note("ν name-aware state-class graph", max_classes)
+            },
+            class_count: scg.class_count(),
+        });
+    }
+
+    if !complete {
         return Some(NuScgOutcome {
             verdict: Verdict::Unknown {
                 reason: format!(
@@ -122,22 +179,30 @@ pub fn verify_via_name_scg(
         });
     }
 
-    let (verdict, violating) = decide(&scg, property, sink_places, conditional_sinks);
-    let (trace, transitions) = match violating {
-        Some(idx) => counterexample_path(&scg, idx),
-        None => (Vec::new(), Vec::new()),
-    };
     Some(NuScgOutcome {
         verdict,
-        trace,
-        transitions,
+        trace: Vec::new(),
+        transitions: Vec::new(),
         note: NOTE_EXACT.to_string(),
         class_count: scg.class_count(),
     })
 }
 
-/// Decides the property over the (complete) name-aware SCG. Returns the verdict
-/// and, for a violation, the index of a witnessing class.
+/// The report note of a violation found by stopping the build at its first
+/// violating class ([VER-012]). The graph was never finished, so it says nothing
+/// about closure.
+pub(crate) fn early_stop_note(class_count: usize) -> String {
+    format!(
+        "Note: Route B stopped at the first violating class after {class_count} classes (VER-012). \
+         Every explored class is reachable and classes are discovered breadth-first, so the \
+         counterexample is a real firing sequence and a shortest one to any violation.\n"
+    )
+}
+
+/// Decides the property over the name-aware SCG — the whole of it, or the
+/// explored prefix of a truncated one. Returns the verdict and, for a violation,
+/// the index of a witnessing class. The `Proven` is the caller's to discard when
+/// the graph did not close.
 ///
 /// The predicate itself lives in [`decide_over_classes`], shared with the plain
 /// enumeration route of [VER-017] so the two cannot drift ([VER-002] AC7).
@@ -169,15 +234,26 @@ impl ClassView for NameClasses<'_> {
     fn marking_of(&self, i: usize) -> &MarkingState {
         &self.0.classes[i].base.marking
     }
+    /// A frontier class of a truncated graph was never expanded: no successors
+    /// recorded, but not dead ([VER-017]).
     fn is_quiescent(&self, i: usize) -> bool {
-        self.0.successors(i).is_empty()
+        i < self.0.expanded_count() && self.0.successors(i).is_empty()
     }
 }
 
 /// Shortest firing sequence from the initial class (0) to `target` for the
-/// counterexample trace. BFS over the recorded edges.
+/// counterexample trace: BFS over each class's labelled out-edges, O(V + E).
+///
+/// The edge list is grouped by source in one pass first. Scanning the whole edge
+/// list per dequeued class instead was O(V·E), on graphs of up to `nu_max_classes`
+/// (100 000 by default) classes. Grouping keeps edge-list order within a source,
+/// so the BFS tree — and the reported path — is the one the scan found.
 fn counterexample_path(scg: &NameStateClassGraph, target: usize) -> (Vec<MarkingState>, Vec<String>) {
     let n = scg.class_count();
+    let mut out_edges: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (idx, e) in scg.edges.iter().enumerate() {
+        out_edges[e.from].push(idx);
+    }
     let mut parent: Vec<Option<usize>> = vec![None; n];
     let mut via: Vec<String> = vec![String::new(); n];
     let mut visited = vec![false; n];
@@ -188,8 +264,9 @@ fn counterexample_path(scg: &NameStateClassGraph, target: usize) -> (Vec<Marking
         if u == target {
             break;
         }
-        for e in &scg.edges {
-            if e.from == u && !visited[e.to] {
+        for &idx in &out_edges[u] {
+            let e = &scg.edges[idx];
+            if !visited[e.to] {
                 visited[e.to] = true;
                 parent[e.to] = Some(u);
                 via[e.to] = e.transition_name.clone();
@@ -313,6 +390,72 @@ mod tests {
         PetriNet::builder("same_mint")
             .transitions([t_fork, join])
             .build()
+    }
+
+    /// [VER-012] early stop: the build that stops at the first violating class
+    /// stores the unstopped build's classes up to it, and the witness — the
+    /// lowest-index violating class and its shortest path — is the full build's.
+    #[test]
+    fn early_stop_witness_is_the_full_builds() {
+        use crate::name_state_class_graph::tests::fig11b;
+
+        let (fig, fig_m0) = fig11b();
+        let mint = same_mint();
+        let mint_m0 = MarkingStateBuilder::new().tokens("source", 2).build();
+        let cases: Vec<(&str, &PetriNet, &MarkingState, SmtProperty)> = vec![
+            ("11(b) placeBound(order_clerk, 2)", &fig, &fig_m0, SmtProperty::place_bound("order_clerk", 2)),
+            ("11(b) placeBound(send_done, 1)", &fig, &fig_m0, SmtProperty::place_bound("send_done", 1)),
+            ("11(b) unreachable(send_done)", &fig, &fig_m0, SmtProperty::unreachable(vec!["send_done".into()])),
+            (
+                "11(b) mutualExclusion(order, send_done)",
+                &fig,
+                &fig_m0,
+                SmtProperty::mutual_exclusion(vec!["order".into(), "send_done".into()]),
+            ),
+            ("same mint unreachable(merged)", &mint, &mint_m0, SmtProperty::unreachable(vec!["merged".into()])),
+            (
+                "same mint placeBound(branchA, 1)",
+                &mint,
+                &mint_m0,
+                SmtProperty::place_bound("branchA", 1),
+            ),
+        ];
+        for (name, net, m0, property) in cases {
+            let fragment = name_fragment::classify(net, FragmentMode::Base, &BTreeSet::new())
+                .expect("in the base fragment");
+            let build = |stop_at: Option<&dyn Fn(&MarkingState) -> bool>| {
+                NameStateClassGraph::build_until(
+                    net,
+                    m0,
+                    &fragment,
+                    300,
+                    &[],
+                    &EnvironmentAnalysisMode::Ignore,
+                    PrioritySemantics::None,
+                    stop_at,
+                )
+            };
+            let full = build(None);
+            let violates = |m: &MarkingState| marking_violates(&property, m);
+            let stopped = build(Some(&violates));
+            let (full_verdict, full_idx) = decide(&full, &property, &[], &[]);
+            let (stop_verdict, stop_idx) = decide(&stopped, &property, &[], &[]);
+            assert!(full_verdict.is_violated(), "{name}");
+            assert!(stop_verdict.is_violated(), "{name}");
+            assert!(stopped.stopped_at_violation(), "{name}");
+            assert!(!stopped.is_complete(), "{name}: an early-stopped graph is not closed");
+            assert_eq!(stop_idx, Some(stopped.class_count() - 1), "{name}: the stop class is the last");
+            assert_eq!(stop_idx, full_idx, "{name}");
+            let idx = stop_idx.unwrap();
+            for i in 0..=idx {
+                assert_eq!(stopped.classes[i].base.marking, full.classes[i].base.marking, "{name}: class {i}");
+            }
+            let (full_trace, full_path) = counterexample_path(&full, idx);
+            let (stop_trace, stop_path) = counterexample_path(&stopped, idx);
+            assert_eq!(stop_path, full_path, "{name}");
+            assert_eq!(stop_trace, full_trace, "{name}");
+            assert!(stopped.class_count() <= full.class_count(), "{name}");
+        }
     }
 
     #[test]

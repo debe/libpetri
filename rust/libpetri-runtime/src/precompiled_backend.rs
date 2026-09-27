@@ -1135,9 +1135,11 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
         inputs: &mut HashMap<Arc<str>, Vec<ErasedToken>>,
         reads: &mut HashMap<Arc<str>, Vec<ErasedToken>>,
         mut emit_removed: F,
-    ) where
+    ) -> Option<NameId>
+    where
         F: FnMut(&Arc<str>, &ErasedToken),
     {
+        let mut matched: Option<NameId> = None;
         if self.program.compiled().has_match(tid) {
             // Spec-based path for ν-net-correlated transitions. Correlated
             // inputs take the tokens whose projected name equals the chosen
@@ -1216,6 +1218,7 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
             {
                 cache.consume(name);
             }
+            matched = chosen;
 
             self.peek_reads(tid, reads);
 
@@ -1308,6 +1311,7 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
         // else (EXEC-001 step ordering, EXEC-003) — and flags the clocks it
         // disabled (TIME-012).
         self.update_bitmap_after_consumption(tid);
+        matched
     }
 
     fn produce_token(&mut self, place: &Arc<str>, token: ErasedToken) {

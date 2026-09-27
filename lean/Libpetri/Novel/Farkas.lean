@@ -5,18 +5,18 @@ import Mathlib.Tactic.Ring
 /-!
 # Farkas / Colom–Silva semiflow enumeration is sound
 
-Model of `compute_p_semiflows` (`rust/libpetri-verification/src/p_invariant.rs:141-219`), the
+Model of `compute_p_semiflows` (`rust/libpetri-verification/src/p_invariant.rs:141-231`), the
 P-semiflow source of [VER-007], against the incidence matrix and abstract reachability of
 `StateEquation.lean` / `Strengthening.lean`.
 
 **The algorithm.** A generator row is a pair (signature over transitions, weight over places)
 (`GenRow`). Row `p` starts as (column `p` of `C`, unit vector `e_p`)
 (`p_invariant.rs:156-163`, `initRows`). Transition columns are eliminated in index order
-(`p_invariant.rs:165-199`, `farkasRound`): rows with a zero entry at `t` survive, every
+(`p_invariant.rs:171-211`, `farkasRound`): rows with a zero entry at `t` survive, every
 (positive, negative) pair is combined as `(-rn[t])·rp + rp[t]·rn` (`combine`, the checked
 `combine_row`), and each combination is divided by the gcd of all its entries when that gcd
 exceeds `1` (`reduceGcd`, `reduce_gcd`). Rows with an all-zero weight are dropped at the end
-(`farkas`, `p_invariant.rs:201-202`).
+(`farkas`, `p_invariant.rs:213-214`).
 
 **What is abstracted.** Everything the Rust round does after building the candidates only
 *removes* rows: the i64 overflow drop in `combine_row`, the candidate ceiling
@@ -28,6 +28,13 @@ though `prune` sees only the combined rows. Arithmetic is unbounded `Int`. The w
 the Rust code returns is `GenRow.w` restricted to `[0, np)`; `constant = y·M0` is `dot y a0 np`.
 The matrix is `incAt net`, the flat transitions only: env-injector columns
 (`IncidenceMatrix::from_flat_net` with a non-empty env list) are not modelled.
+
+**The [VER-013] stop.** Under a total verification budget or a cancellation the Rust polls the
+stop once per column and every 1 024 candidates, and on a stop returns no rows at all. The
+empty list is the empty sub-selection: every result below holds of it vacuously (it contains no
+row to be wrong about), so a stopped enumeration is outside what they claim only in that it
+claims nothing. The stop is sticky, so the pipeline halts at its next step and no encoder reads
+the empty list.
 
 **Results.**
 * `good_candidates`: one elimination round keeps every row a non-negative combination whose
@@ -156,7 +163,7 @@ def supp (np : Nat) (r : GenRow) : List Nat :=
   (List.range np).filter fun q => decide (r.w q ≠ 0)
 
 /-- `keep_support_minimal`: drop a row when some row has a strictly smaller support that is
-contained in its own (`p_invariant.rs:455-512`, the order-free definition stated there). -/
+contained in its own (`p_invariant.rs:467-524`, the order-free definition stated there). -/
 def keepSupportMinimal (np : Nat) (rows : List GenRow) : List GenRow :=
   rows.filter fun r => !rows.any fun r' =>
     decide ((supp np r').length < (supp np r).length) &&
@@ -313,8 +320,8 @@ theorem dotInc_zero_of_lin {net : FlatNet} {np : Nat} {y : Weight}
 /-! ## Soundness of the certificate -/
 
 /-- **Certificate soundness.** If `y` passes the check `validate_invariants_exact` performs,
-`yᵀC = 0` on every flat-transition column (`p_invariant.rs:336-354`), and the H1 guard
-(no weight on a consume-all or reset place, `p_invariant.rs:324-334`), then `y·M` is constant
+`yᵀC = 0` on every flat-transition column (`p_invariant.rs:348-366`), and the H1 guard
+(no weight on a consume-all or reset place, `p_invariant.rs:336-346`), then `y·M` is constant
 on every reachable marking. -/
 theorem certificate_sound {net : FlatNet} {np : Nat} {y : Weight} {a0 a : AMarking}
     (h1 : ∀ ft ∈ net, ZeroOnNonlinear y ft.1 np)

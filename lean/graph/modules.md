@@ -20,7 +20,7 @@ flowchart TD
   f11["Libpetri/Novel/CanonicalKey.lean (40)"]
   f12["Libpetri/Novel/Commoner.lean (23)"]
   f13["Libpetri/Novel/Dbm.lean (48)"]
-  f14["Libpetri/Novel/Enumeration.lean (20)"]
+  f14["Libpetri/Novel/Enumeration.lean (22)"]
   f15["Libpetri/Novel/Farkas.lean (41)"]
   f16["Libpetri/Novel/ResetArc.lean (14)"]
   f17["Libpetri/Priority.lean (19)"]

@@ -26,11 +26,18 @@
 mod json;
 #[path = "common/nets.rs"]
 mod nets;
+#[path = "common/relay_fixtures.rs"]
+mod relay_fixtures;
+#[path = "common/relay_nets.rs"]
+mod relay_nets;
 use json::{Json, parse_json};
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use libpetri_verification::environment::EnvironmentAnalysisMode;
+use libpetri_verification::marking_state::MarkingStateBuilder;
+use libpetri_verification::name_fragment::FragmentMode;
 use libpetri_verification::property::SmtProperty;
 use libpetri_verification::smt_verifier::{EncodedScripts, SmtVerifier, z3_available};
 
@@ -89,7 +96,48 @@ fn verifier_for<'a>(fixture: &Json, built: &'a nets::FixtureNet) -> SmtVerifier<
     }
     // Optional shared-schema field: [VER-016]'s firing-counter state equation.
     verifier = verifier.state_equation(fixture.bool_opt("stateEquation"));
+    // Optional fields of the [NU-054] relay fixtures: [NU-051]'s carrier places and
+    // fragment mode. Absent everywhere else, where the defaults stand.
+    let carriers = fixture.str_arr_opt("carrierPlaces");
+    if !carriers.is_empty() {
+        verifier = verifier.carrier_places(carriers.iter().cloned());
+    }
+    match fixture.str_opt("fragmentMode") {
+        None | Some("base") => {}
+        Some("extended") => verifier = verifier.fragment_mode(FragmentMode::Extended),
+        Some(other) => panic!("unknown fixture fragmentMode '{other}'"),
+    }
     verifier
+}
+
+/// Every fixture of the parity set with its built net: the shared
+/// `fixtures.json`, then the [NU-054] relay fixtures, whose nets are given inline
+/// as rows (`spec/verification-fixtures/nu-relay-fixtures.json`).
+fn parity_cases(shared: &[Json]) -> Vec<(Json, nets::FixtureNet)> {
+    let mut cases: Vec<(Json, nets::FixtureNet)> = shared
+        .iter()
+        .map(|fixture| {
+            let built = nets::declare_terminals(
+                nets::build(fixture.str("net")),
+                &fixture.str_arr_opt("terminals"),
+            );
+            (fixture.clone(), built)
+        })
+        .collect();
+    for fixture in relay_fixtures::relay_fixtures() {
+        let mut initial = MarkingStateBuilder::new();
+        for (place, count) in relay_fixtures::fixture_marking(&fixture) {
+            initial = initial.tokens(place, count);
+        }
+        let built = nets::FixtureNet {
+            net: relay_fixtures::fixture_net(&fixture),
+            initial: initial.build(),
+            env_places: Vec::new(),
+            env_mode: EnvironmentAnalysisMode::Ignore,
+        };
+        cases.push((fixture, built));
+    }
+    cases
 }
 
 /// The first line on which two texts differ, for the finding.
@@ -139,12 +187,12 @@ fn smt_scripts_match_the_committed_goldens() {
     assert!(!fixtures.is_empty(), "fixtures.json lists no fixtures");
     let update = std::env::var_os("LIBPETRI_SMT_SCRIPT_UPDATE").is_some();
 
+    let cases = parity_cases(fixtures);
     let mut findings: Vec<String> = Vec::new();
     let mut encoded: Vec<(String, EncodedScripts)> = Vec::new();
-    for fixture in fixtures {
+    for (fixture, built) in &cases {
         let id = fixture.str("id");
-        let built = nets::declare_terminals(nets::build(fixture.str("net")), &fixture.str_arr_opt("terminals"));
-        let scripts = verifier_for(fixture, &built).encode_scripts();
+        let scripts = verifier_for(fixture, built).encode_scripts();
         let dir = root.join("scripts").join(id);
         let horn = dir.join("horn.smt2");
         let certificate = dir.join("certificate.smt2");
@@ -196,12 +244,11 @@ fn smt_scripts_match_the_committed_goldens() {
         // Which scripts were compared at all: a cross-check that skipped every fixture
         // would pass while checking nothing.
         let mut compared: Vec<&str> = Vec::new();
-        for fixture in fixtures {
+        for (fixture, built) in &cases {
             if fixture.str_opt("route") == Some("B") {
                 continue;
             }
             let id = fixture.str("id");
-            let built = nets::declare_terminals(nets::build(fixture.str("net")), &fixture.str_arr_opt("terminals"));
             let reported = &encoded.iter().find(|(f, _)| f == id).expect("encoded").1;
             // With the defaults the phases of [VER-018]/[VER-019] run before the fixpoint
             // query and, on most fixtures, decide; with both off, the HORN query is sent.
@@ -230,7 +277,7 @@ fn smt_scripts_match_the_committed_goldens() {
                 let dump = scratch.join(id).join(run);
                 // SAFETY: this binary runs one test; no other thread reads the environment.
                 unsafe { std::env::set_var("LIBPETRI_SMT_DUMP", &dump) };
-                let _ = verifier_for(fixture, &built)
+                let _ = verifier_for(fixture, built)
                     .state_equation_phase(phases)
                     .firing_bound(phases)
                     .verify();

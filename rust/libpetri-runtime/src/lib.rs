@@ -68,6 +68,8 @@
 mod backend_suite_tests;
 #[cfg(test)]
 mod differential_prop_tests;
+#[cfg(test)]
+mod nu_relay_tests;
 pub mod bitmap;
 pub mod bitmap_backend;
 pub mod clock;

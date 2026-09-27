@@ -37,7 +37,7 @@ mod verify_open_net;
 #[cfg(test)]
 mod tests;
 
-pub use closure::{ClosedNet, EnvironmentStep, EnvironmentStepKind, close_open_net};
+pub use closure::{ClosedNet, EnvironmentStep, EnvironmentStepKind, close_arrivals, close_arrivals_between, close_open_net};
 pub use contract::{
     ArrivalGroup, CountClause, DesignedTerminal, OpenNetContract, OpenNetContractBuilder,
 };

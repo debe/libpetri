@@ -125,12 +125,11 @@ impl CompiledNet {
                 let pid = place_index[in_spec.place().name_arc()];
                 if !seen_input_places.insert(pid) {
                     panic!(
-                        "Transition '{}' declares two input arcs on place '{}'. Duplicate \
-                         input places have no coherent consumption semantics and are rejected \
-                         at compile time (CORE-030). Use a single arc with exactly(n) / \
-                         at_least(n) instead.",
-                        t.name(),
-                        in_spec.place().name()
+                        "{}",
+                        libpetri_core::transition::duplicate_input_message(
+                            t.name(),
+                            in_spec.place().name()
+                        )
                     );
                 }
                 if word_count > 0 {

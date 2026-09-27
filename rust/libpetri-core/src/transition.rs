@@ -6,7 +6,7 @@ use crate::action::{BoxedAction, passthrough};
 use crate::arc::{Inhibitor, Read, Reset};
 use crate::input::In;
 use crate::match_spec::MatchSpec;
-use crate::output::{Out, all_places, find_forward_inputs, find_timeout};
+use crate::output::{Out, all_places, duplicate_in_branch, find_forward_inputs, find_timeout};
 use crate::place::PlaceRef;
 use crate::timing::{Timing, immediate};
 
@@ -215,6 +215,18 @@ pub struct TransitionBuilder {
     local_name_map: Option<Arc<HashMap<Arc<str>, Arc<str>>>>,
 }
 
+/// The [CORE-030] duplicate-input rejection, shared by [`TransitionBuilder::build`]
+/// and the runtime's compile-time backstop so the two cannot drift; the same text
+/// as Java's `ArcDiagnostics.duplicateInputMessage` and TypeScript's
+/// `duplicateInputArcMessage`, with Rust's `at_least` spelling.
+pub fn duplicate_input_message(transition: &str, place: &str) -> String {
+    format!(
+        "Transition '{transition}' declares two input arcs on place '{place}'. Duplicate input \
+         places have no coherent consumption semantics and are rejected (CORE-030). Use a \
+         single arc with exactly(n) / at_least(n) instead."
+    )
+}
+
 impl TransitionBuilder {
     pub fn new(name: impl Into<Arc<str>>) -> Self {
         Self {
@@ -323,8 +335,40 @@ impl TransitionBuilder {
     /// Build the transition.
     ///
     /// # Panics
-    /// Panics if ForwardInput references a non-input place.
+    /// - Panics if two input arcs name the same place (**CORE-030** AC3): there is
+    ///   no coherent consumption semantics for them. Use one arc with
+    ///   `exactly(n)` / `at_least(n)`. The runtime's compile-time check stays
+    ///   as a backstop, but after this one no analysis ever sees such a
+    ///   transition.
+    /// - Panics if one output branch names a place twice (**IO-011**): outputs are
+    ///   sets of places, so `and(P, P)` is not two tokens into `P`.
+    /// - Panics if ForwardInput references a non-input place.
     pub fn build(self) -> Transition {
+        // [CORE-030] AC3: duplicate input places are rejected where the
+        // transition is made, so every consumer — executors, the state-class
+        // graphs and the verifier's flattener — sees at most one input arc per
+        // place. Place identity is the name, as everywhere in Rust.
+        let mut seen_inputs: HashSet<&str> = HashSet::with_capacity(self.input_specs.len());
+        for spec in &self.input_specs {
+            if !seen_inputs.insert(spec.place_name()) {
+                panic!("{}", duplicate_input_message(&self.name, spec.place_name()));
+            }
+        }
+
+        // [IO-011]: outputs are sets (IO-015), so one AND branch naming a place
+        // twice is not a weighted output — it would silently collapse. Rejected
+        // here, where every construction path (builders, composition, channel
+        // merge, fusion) passes.
+        if let Some(dup) = self.output_spec.as_ref().and_then(duplicate_in_branch) {
+            panic!(
+                "output spec of transition '{}' names place '{}' twice in one AND branch; \
+                 outputs are sets (IO-015) — a weighted output is not supported, add a second \
+                 place or a follow-up transition",
+                self.name,
+                dup.name()
+            );
+        }
+
         // Validate ForwardInput references
         if let Some(ref out) = self.output_spec {
             let input_place_names: HashSet<_> =
@@ -350,6 +394,30 @@ impl TransitionBuilder {
                     self.name,
                     key.place_name()
                 );
+            }
+            // NU-054 AC1: a relay target is an output of the transition (in at
+            // least one branch), declared once.
+            if !ms.relays().is_empty() {
+                let output_names: HashSet<String> = self
+                    .output_spec
+                    .as_ref()
+                    .map(|o| all_places(o).iter().map(|p| p.name().to_string()).collect())
+                    .unwrap_or_default();
+                let mut seen: HashSet<&str> = HashSet::new();
+                for relay in ms.relays() {
+                    assert!(
+                        seen.insert(relay.place_name()),
+                        "Transition '{}': relay target '{}' is declared twice (NU-054)",
+                        self.name,
+                        relay.place_name()
+                    );
+                    assert!(
+                        output_names.contains(relay.place_name()),
+                        "Transition '{}': relay target '{}' is not an output of the transition (NU-054)",
+                        self.name,
+                        relay.place_name()
+                    );
+                }
             }
         }
 
@@ -447,6 +515,77 @@ mod tests {
     use crate::output::out_place;
     use crate::place::Place;
 
+    // ---- NU-054 AC1: relay declaration ----
+
+    fn relay_join(relays: &[&str], out: Out) -> Transition {
+        use crate::match_spec::MatchSpec;
+        use crate::name::NameId;
+        let a = Place::<String>::new("A");
+        let b = Place::<String>::new("B");
+        let key = |s: &String| NameId::new(s.clone());
+        let mut ms = MatchSpec::builder().key(&a, key).key(&b, key);
+        for r in relays {
+            ms = ms.relay_to(&Place::<String>::new(*r), key);
+        }
+        Transition::builder("j")
+            .input(one(&a))
+            .input(one(&b))
+            .output(out)
+            .match_spec(ms.build())
+            .build()
+    }
+
+    #[test]
+    fn relay_targets_are_kept_apart_from_the_keys() {
+        let t = relay_join(&["C"], out_place(&Place::<String>::new("C")));
+        let ms = t.match_spec().unwrap();
+        let keys: Vec<&str> = ms.keys().iter().map(|k| k.place_name()).collect();
+        let relays: Vec<&str> = ms.relays().iter().map(|k| k.place_name()).collect();
+        assert_eq!(keys, vec!["A", "B"]);
+        assert_eq!(relays, vec!["C"]);
+        assert!(!ms.correlates("C"));
+        assert!(ms.relay_for("C").is_some() && ms.relay_for("A").is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "MatchSpec must correlate at least 2 input places, got 1")]
+    fn a_relay_target_does_not_count_towards_the_two_correlated_inputs() {
+        use crate::match_spec::MatchSpec;
+        use crate::name::NameId;
+        let key = |s: &String| NameId::new(s.clone());
+        let _ = MatchSpec::builder()
+            .key(&Place::<String>::new("A"), key)
+            .relay_to(&Place::<String>::new("C"), key)
+            .build();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Transition 'j': relay target 'other' is not an output of the transition (NU-054)"
+    )]
+    fn rejects_a_relay_target_that_is_not_an_output() {
+        relay_join(&["other"], out_place(&Place::<String>::new("C")));
+    }
+
+    #[test]
+    #[should_panic(expected = "Transition 'j': relay target 'C' is declared twice (NU-054)")]
+    fn rejects_a_relay_target_declared_twice() {
+        relay_join(&["C", "C"], out_place(&Place::<String>::new("C")));
+    }
+
+    #[test]
+    fn accepts_a_target_on_one_xor_branch_and_a_self_loop_target() {
+        use crate::output::{and, xor};
+        let c = Place::<String>::new("C");
+        let other = Place::<String>::new("other");
+        relay_join(&["C"], xor(vec![out_place(&c), out_place(&other)]));
+        // A relay target that is also one of the join's keys (correlated self-loop).
+        relay_join(
+            &["A"],
+            and(vec![out_place(&Place::<String>::new("A")), out_place(&c)]),
+        );
+    }
+
     #[test]
     fn transition_builder_basic() {
         let p_in = Place::<i32>::new("in");
@@ -497,6 +636,91 @@ mod tests {
         Transition::builder("test")
             .output(crate::output::forward_input(&from, &to))
             .build();
+    }
+
+    /// CORE-030 AC3: the rejection happens at transition build, whatever the
+    /// cardinality of either arc.
+    #[test]
+    #[should_panic(expected = "declares two input arcs on place 'p'")]
+    fn duplicate_input_places_rejected_at_build() {
+        let p = Place::<i32>::new("p");
+        Transition::builder("t")
+            .input(one(&p))
+            .input(crate::input::exactly(2, &p))
+            .build();
+    }
+
+    /// IO-011 AC4: `And(P, P)`, `And(P, And(Q, P))` and `Xor(A, And(P, P))` are
+    /// rejected naming the transition and `P`; `Xor(And(P, A), And(P, B))` builds.
+    #[test]
+    fn a_place_named_twice_in_one_and_branch_is_rejected() {
+        use crate::output::{and, xor};
+        let (p, q, a, b) = (
+            Place::<i32>::new("P"),
+            Place::<i32>::new("Q"),
+            Place::<i32>::new("A"),
+            Place::<i32>::new("B"),
+        );
+        let message = "output spec of transition 't' names place 'P' twice in one AND branch; \
+                       outputs are sets (IO-015) — a weighted output is not supported, add a \
+                       second place or a follow-up transition";
+        for spec in [
+            and(vec![out_place(&p), out_place(&p)]),
+            and(vec![out_place(&p), and(vec![out_place(&q), out_place(&p)])]),
+            xor(vec![out_place(&a), and(vec![out_place(&p), out_place(&p)])]),
+        ] {
+            let err = std::panic::catch_unwind(|| Transition::builder("t").output(spec).build())
+                .expect_err("a duplicate in one AND branch must be rejected");
+            assert_eq!(err.downcast_ref::<String>().map(String::as_str), Some(message));
+        }
+        let ok = Transition::builder("t")
+            .output(xor(vec![
+                and(vec![out_place(&p), out_place(&a)]),
+                and(vec![out_place(&p), out_place(&b)]),
+            ]))
+            .build();
+        assert_eq!(ok.output_places().len(), 3);
+    }
+
+    /// IO-011: the place reported is the one Java's `ArcDiagnostics.duplicateInBranch`
+    /// and TypeScript's `duplicateInBranch` report — the spec walked child by child,
+    /// a duplicate inside a child before one across siblings — not the first
+    /// enumerated branch's (`[A, Q, Q]` here, which would name `Q`).
+    #[test]
+    fn the_reported_duplicate_is_the_one_the_other_implementations_report() {
+        use crate::output::{and, xor};
+        let place = |n: &str| out_place(&Place::<i32>::new(n));
+        let spec = and(vec![
+            xor(vec![place("A"), and(vec![place("P"), place("P")])]),
+            place("Q"),
+            place("Q"),
+        ]);
+        let err = std::panic::catch_unwind(|| Transition::builder("t").output(spec).build())
+            .expect_err("a duplicate in one AND branch must be rejected");
+        let message = err.downcast_ref::<String>().cloned().unwrap_or_default();
+        assert!(message.contains("names place 'P' twice"), "{message}");
+    }
+
+    /// IO-011: the duplicate check is linear in the spec. An AND of 64 two-way XORs
+    /// has 2^64 branches; enumerating them would never return.
+    #[test]
+    fn the_duplicate_check_does_not_enumerate_branches() {
+        use crate::output::{and, xor};
+        let place = |n: String| out_place(&Place::<i32>::new(n));
+        let wide = || {
+            and((0..64)
+                .map(|i| xor(vec![place(format!("a{i}")), place(format!("b{i}"))]))
+                .collect())
+        };
+        Transition::builder("t").output(wide()).build();
+        let mut children = vec![wide()];
+        children.push(place("b63".into()));
+        let err = std::panic::catch_unwind(|| {
+            Transition::builder("t").output(and(children)).build()
+        })
+        .expect_err("b63 is named twice in some branch");
+        let message = err.downcast_ref::<String>().cloned().unwrap_or_default();
+        assert!(message.contains("names place 'b63' twice"), "{message}");
     }
 
     #[test]

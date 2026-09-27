@@ -73,13 +73,23 @@
 //! state-class graph closes within `enumeration_max_classes` (default 50 000,
 //! `0` disables it) the property is decided exactly, with no solver at all — the
 //! answer for the narrow, deep state spaces a workflow net produces, where IC3
-//! needs a frame per pipeline stage. On truncation the SMT pipeline runs
-//! unchanged, so the route can only add verdicts. It and the ν name-partition
+//! needs a frame per pipeline stage. On truncation the same predicate runs over
+//! the explored prefix, where a violation still stands (every stored class is
+//! reachable; only an expanded class counts as quiescent); otherwise the SMT
+//! pipeline runs unchanged, so the route can only add verdicts, and a truncated
+//! graph never proves anything. It and the ν name-partition
 //! route of [VER-012] decide the SAME predicate, stated once in
 //! [`graph_decision`] ([VER-002] AC7). A caller asking many questions of one
 //! net passes a [`StateSpaceCache`](state_space_cache::StateSpaceCache) to each
 //! (`state_space_cache(&cache)`), so the graph is built once per net and initial
-//! marking, and a known truncation declines without building.
+//! marking, and a known truncation answers from its remembered prefix without
+//! building.
+//!
+//! `total_budget(ms)` caps a whole `verify()` call, and `cancel_token(&token)`
+//! stops it from another thread ([VER-013], [`CancelToken`]): both share one stop,
+//! polled before every step, in the graph builds and the long solver-free loops,
+//! and a cancelled z3 process is killed at once. `environment_mode(arrivals(k))`
+//! bounds the total injected into each environment place ([VER-006]).
 //!
 //! [`VerificationResult::route`](result::VerificationResult::route) names which
 //! route answered ([VER-003] AC4). Read it before concluding anything from an
@@ -91,6 +101,7 @@
 
 pub mod abstract_replay;
 pub mod analyzer;
+pub mod cancel;
 #[cfg(feature = "z3")]
 pub mod certificate_check;
 pub mod counterexample;
@@ -122,6 +133,14 @@ pub mod state_class_graph;
 pub mod state_space_cache;
 pub mod structural_check;
 pub mod terminal_places;
+pub(crate) mod total_budget;
+
+pub use cancel::CancelToken;
+
+/// Row-built \[NU-054\] relay nets, shared with the integration tests.
+#[cfg(test)]
+#[path = "../tests/common/relay_nets.rs"]
+pub(crate) mod relay_nets;
 
 #[cfg(feature = "z3")]
 pub mod bounded_run;

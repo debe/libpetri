@@ -718,7 +718,8 @@ impl ExecutorBackend for BitmapBackend {
         inputs: &mut HashMap<Arc<str>, Vec<ErasedToken>>,
         reads: &mut HashMap<Arc<str>, Vec<ErasedToken>>,
         mut emit_removed: F,
-    ) where
+    ) -> Option<NameId>
+    where
         F: FnMut(&Arc<str>, &ErasedToken),
     {
         // Clone the per-transition spec data so we can mutate the
@@ -860,6 +861,7 @@ impl ExecutorBackend for BitmapBackend {
         // else (EXEC-001 step ordering, EXEC-003) — and flags the clocks it
         // disabled (TIME-012).
         self.update_bitmap_after_consumption(tid);
+        chosen
     }
 
     fn produce_token(&mut self, place: &Arc<str>, token: ErasedToken) {

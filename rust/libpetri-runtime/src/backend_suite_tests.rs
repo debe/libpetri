@@ -2078,23 +2078,21 @@ fn read_and_reset_same_place<R: BackendRunner>() {
 
 /// Two input arcs on one place have no coherent consumption semantics (the
 /// bitmap reference tolerantly under-consumed, the precompiled backend
-/// panicked in `ring_remove_first`) and are rejected at compile time
-/// (CORE-030).
-fn duplicate_input_place_rejected_at_compile<R: BackendRunner>() {
+/// panicked in `ring_remove_first`) and are rejected when the transition is
+/// built (CORE-030 AC3), before any backend — or any analysis — can see it.
+/// The compile-time check in `CompiledNet` stays as a backstop that the
+/// builder now makes unreachable.
+fn duplicate_input_place_rejected_at_build<R: BackendRunner>() {
     let p = Place::<i32>::new("p");
-    let t = Transition::builder("t1")
-        .input(one(&p))
-        .input(one(&p))
-        .action(passthrough())
-        .build();
-    let net = PetriNet::builder("test").transition(t).build();
-    let mut marking = Marking::new();
-    marking.add(&p, Token::at(1, 0));
-
-    let outcome =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| R::run(&net, marking)));
+    let outcome = std::panic::catch_unwind(|| {
+        Transition::builder("t1")
+            .input(one(&p))
+            .input(one(&p))
+            .action(passthrough())
+            .build()
+    });
     let Err(err) = outcome else {
-        panic!("duplicate input places must be rejected at compile time");
+        panic!("duplicate input places must be rejected at transition build");
     };
     let message = err
         .downcast_ref::<String>()
@@ -2102,9 +2100,13 @@ fn duplicate_input_place_rejected_at_compile<R: BackendRunner>() {
         .or_else(|| err.downcast_ref::<&str>().map(|s| s.to_string()))
         .unwrap_or_default();
     assert!(
-        message.contains("two input arcs"),
-        "expected the duplicate-input-place rejection message, got: {message}"
+        message.contains("Transition 't1' declares two input arcs on place 'p'")
+            && message.contains("are rejected (CORE-030)"),
+        "expected the build-time duplicate-input-place rejection, got: {message}"
     );
+    // Never reached a backend: the net could not be built. Keep `R` in the
+    // signature so the suite still lists the case once per backend.
+    let _ = std::marker::PhantomData::<R>;
 }
 
 /// A place named in the initial marking but never declared to the net: both
@@ -2150,6 +2152,76 @@ fn unknown_place_warns_once_per_place<R: BackendRunner>() {
     assert_eq!(level, "WARN");
     assert!(message.contains("unknown place 'ghost'"), "unexpected message: {message}");
     assert_eq!(result.marking.count("ghost"), 3);
+}
+
+/// CORE-037: a reset arc on a place nothing fills (no input or output arc,
+/// not an environment place, empty at the start) is warned about once, at
+/// construction, on the CORE-072 AC4 channel, naming the declaring transition —
+/// and never rejected: the run proceeds. A seeded place is a legitimate hook
+/// and is not warned about.
+fn dead_arc_warned_once_at_construction<R: BackendRunner>() {
+    let (net, p1, _, _) = simple_chain();
+    let kill = Place::<()>::new("KILL");
+    let ghost = Place::<i32>::new("answer/IN");
+    let hub_kill = Transition::builder("hub_kill")
+        .input(one(&kill))
+        .reset(reset(&ghost))
+        .build();
+    let net = PetriNet::builder("dead")
+        .transitions(net.transitions().iter().cloned())
+        .transition(hub_kill)
+        .build();
+    let mut marking = Marking::new();
+    marking.add(&p1, Token::at(1, 0));
+    marking.add(&kill, Token::at((), 0));
+
+    let result = R::run(&net, marking);
+    let warnings = log_messages(&result);
+    assert_eq!(warnings.len(), 1, "one diagnostic per dead arc: {warnings:?}");
+    let NetEvent::LogMessage { transition_name, level, message, .. } = warnings[0] else {
+        unreachable!()
+    };
+    assert_eq!(transition_name.as_ref(), "hub_kill");
+    assert_eq!(level, "WARN");
+    assert_eq!(
+        message,
+        "reset arc of 'hub_kill' on 'answer/IN': no transition produces into or consumes from \
+         it and it starts empty; the arc has no effect."
+    );
+    assert_eq!(result.marking.count("KILL"), 0, "the run is not rejected");
+
+    // Seeded: the reset clears a real token, so there is nothing to warn about.
+    let mut marking = Marking::new();
+    marking.add(&kill, Token::at((), 0));
+    marking.add(&ghost, Token::at(1, 0));
+    assert!(log_messages(&R::run(&net, marking)).is_empty());
+    // AC2: a read and an inhibitor arc — one message per arc, read first.
+    let x = Place::<()>::new("x");
+    let guarded = Transition::builder("guarded")
+        .input(one(&kill))
+        .inhibitor(inhibitor(&x))
+        .read(read(&x))
+        .build();
+    let net = PetriNet::builder("dead2").transition(guarded).build();
+    let mut marking = Marking::new();
+    marking.add(&kill, Token::at((), 0));
+    let result = R::run(&net, marking);
+    let messages: Vec<&str> = log_messages(&result)
+        .into_iter()
+        .map(|e| match e {
+            NetEvent::LogMessage { message, .. } => message.as_str(),
+            _ => unreachable!(),
+        })
+        .collect();
+    assert_eq!(
+        messages,
+        [
+            "read arc of 'guarded' on 'x': no transition produces into or consumes from it and \
+             it starts empty; the transition can never be enabled.",
+            "inhibitor arc of 'guarded' on 'x': no transition produces into or consumes from it \
+             and it starts empty; the arc never blocks.",
+        ]
+    );
 }
 
 // ================= [IO-016] AC4: several tokens into a place the spec names once =================
@@ -3584,9 +3656,10 @@ for_each_backend!(
     nu_fork_mints_unique_ids_then_join_merges,
     nu_budget_bounds_concurrency,
     read_and_reset_same_place,
-    duplicate_input_place_rejected_at_compile,
+    duplicate_input_place_rejected_at_build,
     unknown_place_initial_tokens_retained,
     unknown_place_warns_once_per_place,
+    dead_arc_warned_once_at_construction,
     multiplicity_warns_once_per_transition,
     multiplicity_names_every_repeated_place,
     multiplicity_silent_for_one_token_per_place,

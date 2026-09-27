@@ -47,6 +47,13 @@ pub struct StateClassGraph {
     successors: HashMap<usize, Vec<usize>>,
     predecessors: HashMap<usize, Vec<usize>>,
     complete: bool,
+    /// How many classes were expanded: their successors are all recorded. The
+    /// worklist is first-in-first-out, so these are exactly the classes
+    /// `0 .. expanded` ([VER-017] "Verdicts from a truncated graph").
+    expanded: usize,
+    /// Whether the total budget or a cancellation stopped the build ([VER-013]):
+    /// not a truncation at the class budget.
+    stopped: bool,
 }
 
 impl StateClassGraph {
@@ -57,6 +64,8 @@ impl StateClassGraph {
             successors: HashMap::new(),
             predecessors: HashMap::new(),
             complete: true,
+            expanded: 0,
+            stopped: false,
         }
     }
 
@@ -108,6 +117,7 @@ impl StateClassGraph {
         options: StateClassGraphOptions,
     ) -> Self {
         require_output_producing_actions(net);
+        env_mode.reject_arrivals(env_places.len(), "StateClassGraph::build");
 
         let env_set: HashSet<&str> = env_places.iter().copied().collect();
         let untimed = options.untimed;
@@ -128,6 +138,13 @@ impl StateClassGraph {
         while let Some(current_idx) = queue.pop_front() {
             if graph.classes.len() >= max_classes {
                 graph.complete = false;
+                break;
+            }
+            // [VER-013]: the total budget ran out or the caller cancelled. Not a
+            // truncation: the graph says nothing, not even about its prefix.
+            if crate::total_budget::cut() {
+                graph.complete = false;
+                graph.stopped = true;
                 break;
             }
 
@@ -191,6 +208,7 @@ impl StateClassGraph {
                         .push(current_idx);
                 }
             }
+            graph.expanded += 1;
         }
 
         graph
@@ -214,6 +232,22 @@ impl StateClassGraph {
     /// Returns whether the graph was fully explored (not truncated).
     pub fn is_complete(&self) -> bool {
         self.complete
+    }
+
+    /// How many classes the build expanded, with all their successors recorded.
+    /// The worklist is first-in-first-out, so they are the classes
+    /// `0 .. expanded_count()`; the rest of an incomplete graph is its frontier,
+    /// whose successors nobody computed. Every class of a closed graph is
+    /// expanded.
+    pub fn expanded_count(&self) -> usize {
+        self.expanded
+    }
+
+    /// Whether the total verification budget or a cancellation stopped the build
+    /// ([VER-013]). Such a graph is incomplete but not truncated at its class
+    /// budget, and no verdict is read off it.
+    pub fn is_stopped(&self) -> bool {
+        self.stopped
     }
 
     /// Returns successor class indices for a given class.
@@ -396,6 +430,10 @@ fn check_place_enabled(
         EnvironmentAnalysisMode::AlwaysAvailable => true,
         EnvironmentAnalysisMode::Bounded { max_tokens } => required <= *max_tokens,
         EnvironmentAnalysisMode::Ignore => marking.count(place) >= required,
+        // Rejected when the graph is built (`reject_arrivals`).
+        EnvironmentAnalysisMode::Arrivals { .. } | EnvironmentAnalysisMode::ArrivalsBetween { .. } => {
+            unreachable!("Arrivals is rewritten away before a graph is built (VER-006)")
+        }
     }
 }
 

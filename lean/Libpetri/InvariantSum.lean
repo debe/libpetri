@@ -16,7 +16,7 @@ namespace Libpetri
 
 `PInvariant` (`p_invariant.rs:9-13`) carries `weights: Vec<i64>` over the
 dense place index plus a `support` that `validate_invariants_exact` pins to
-exactly the nonzero weights (`p_invariant.rs:288-299`). A weight vector is
+exactly the nonzero weights (`p_invariant.rs:300-311`). A weight vector is
 modelled total over `PlaceId` with its support below `place_count` — a plain
 function rather than a `Finsupp`, so concrete vectors stay definable by `if`;
 sums run over the first `n` places (`Finset.range n`, `dotProduct` over
@@ -50,7 +50,7 @@ transition's **incidence column exactly as the shipped matrix builds it** —
 (`incidence_matrix.rs:45-51` from `net_flattener.rs:50-54`; TS
 `incidence-matrix.ts` from `net-flattener.ts`). `dotInc y ft n = 0` is
 therefore *verbatim* the condition `validate_invariants_exact` re-validates in
-exact arithmetic (`p_invariant.rs:313-331`; TS `p-invariant-computer.ts`).
+exact arithmetic (`p_invariant.rs:325-343`; TS `p-invariant-computer.ts`).
 Note what the column does **not** say: nothing about `consume_all` or
 `reset_places` — that omission is H1 below. -/
 def dotInc (y : Weight) (ft : FlatTransition) (n : Nat) : Int :=

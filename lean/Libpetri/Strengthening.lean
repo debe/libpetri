@@ -14,7 +14,7 @@ successors from the least fixpoint. A wrong invariant therefore shrinks
 `Reachable` below the true reachable set and can certify a false `Proven`,
 the failure mode this development exists to close.
 
-The C2 runtime gate (`validate_invariants_exact`, `p_invariant.rs:247-378`,
+The C2 runtime gate (`validate_invariants_exact`, `p_invariant.rs:259-390`,
 which now takes the whole `&FlatNet` so the H1 guard below cannot be
 disabled by handing it an empty transition list; TS
 `validateInvariantsExact` in `p-invariant-computer.ts`) re-validates
@@ -74,7 +74,7 @@ Hypotheses, exactly as the proof forces them:
   (see `consume_all_hypothesis_is_necessary`, the witness that forced it).
 * **H2** (`dotInc y ft n = 0`): `y` annihilates every flat transition's
   incidence column — verbatim the exact-arithmetic check of the C2 gate
-  (`validate_invariants_exact`, `p_invariant.rs:313-331`).
+  (`validate_invariants_exact`, `p_invariant.rs:325-343`).
 * **H3** (env-freedom): implicit in `ReachA`, which has no injection rule;
   `invariant_strengthening_sound_inj` is the env-aware variant.
 
@@ -408,7 +408,7 @@ two kinds of case.
 
 With `Bad ≡ false` the error rule `Error :- Reachable(M) ∧ Bad(M)` has an
 unsatisfiable body, so Spacer answers `sat`, reported as `Proven`
-(`process_z3_result`, `smt_verifier.rs:3059-3101`), for every net, marking and
+(`process_z3_result`, `smt_verifier.rs:3290-3332`), for every net, marking and
 semantics. `bad_rule_nonvacuity` quantifies over an arbitrary reachable-set
 predicate to make "regardless of semantics" literal, so it cannot tell the two
 kinds apart; only an exactness proof can. The [VER-014] conditional-sink

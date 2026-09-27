@@ -108,7 +108,8 @@ impl PyOutputSpec {
     }
 }
 
-/// Opaque ν-net join correlation spec. Build via `match_spec([(place, key), ...])`.
+/// Opaque ν-net join correlation spec. Build via `match_spec([(place, key), ...])`,
+/// with `relay_to=[(place, key), ...]` for the join's relay targets (NU-054).
 #[pyclass(module = "_libpetri", name = "MatchSpec", from_py_object)]
 #[derive(Clone)]
 pub struct PyMatchSpec {
@@ -119,7 +120,12 @@ pub struct PyMatchSpec {
 impl PyMatchSpec {
     fn __repr__(&self) -> String {
         let places: Vec<&str> = self.inner.keys().iter().map(|k| k.place_name()).collect();
-        format!("MatchSpec(places={places:?})")
+        let relays: Vec<&str> = self.inner.relays().iter().map(|k| k.place_name()).collect();
+        if relays.is_empty() {
+            format!("MatchSpec(places={places:?})")
+        } else {
+            format!("MatchSpec(places={places:?}, relay_to={relays:?})")
+        }
     }
 }
 
@@ -128,10 +134,24 @@ impl PyMatchSpec {
 /// non-string result or a raised exception yields no name (the token never
 /// correlates), mirroring the type-mismatch behaviour of the typed builders.
 fn make_py_key_fn(callback: Py<PyAny>) -> KeyFn {
+    make_py_projection(callback, false)
+}
+
+/// The relay-target projection (NU-054): as [`make_py_key_fn`], except that a
+/// `None` token value has no name and the projection is not called on it — the
+/// relay check reports such a token as carrying no name.
+fn make_py_relay_fn(callback: Py<PyAny>) -> KeyFn {
+    make_py_projection(callback, true)
+}
+
+fn make_py_projection(callback: Py<PyAny>, none_has_no_name: bool) -> KeyFn {
     Arc::new(move |v: &dyn Any| -> Option<NameId> {
         let wrapped = v.downcast_ref::<PyTokenValue>()?;
         Python::attach(|py| {
             let value = wrapped.clone_ref(py);
+            if none_has_no_name && value.is_none(py) {
+                return None;
+            }
             let result = callback.bind(py).call1((value,)).ok()?;
             let name: String = result.extract().ok()?;
             Some(NameId::new(name))
@@ -389,7 +409,9 @@ impl PyTransitionBuilder {
         Ok(slf)
     }
 
-    /// Builds the transition. Raises if any required arc references an undeclared place.
+    /// Builds the transition. Raises `StructureError` when two input arcs name one
+    /// place (**CORE-030**: use one arc with `exactly(n)` / `at_least(n)`), or when a
+    /// forward-input output or a match spec names a place that is not an input.
     fn build(&self, py: Python<'_>) -> PyResult<PyTransition> {
         let action = match &self.action {
             Some(a) => py_action_to_boxed(py, a)?,
@@ -413,8 +435,10 @@ impl PyTransitionBuilder {
             builder = builder.match_spec(match_spec.clone());
         }
 
+        // The core builder rejects a malformed transition by panicking; that must
+        // not unwind across the FFI boundary.
         Ok(PyTransition {
-            inner: builder.build(),
+            inner: panic_to_py(move || builder.build())?,
         })
     }
 }
@@ -476,6 +500,29 @@ impl PyPetriNet {
             .iter()
             .map(|p| PyPlace::from_name(p.name()))
             .collect()
+    }
+
+    /// Subnet membership (**MOD-026**): node name -> the directly-composed subnet
+    /// that alone contributed it. Empty for a net without direct composition;
+    /// instance composition records none (use `subnet_of`).
+    #[getter]
+    fn subnet_membership(&self) -> HashMap<String, String> {
+        self.inner
+            .subnet_membership()
+            .iter()
+            .map(|(node, subnet)| (node.to_string(), subnet.to_string()))
+            .collect()
+    }
+
+    /// The subnet `name` belongs to, by **MOD-040**: `None` when `name` is neither
+    /// a place nor a transition of this net; else its `subnet_membership` entry;
+    /// else the longest `/`-prefix of the name that some transition lives under
+    /// (`a/b/c/x` tries `a/b/c`, `a/b`, `a`); else `None`.
+    /// `net.subnet_of("answer/IN") == "answer"` after instantiating a subnet as
+    /// `answer`. Unlike DOT clustering (the text before the last `/`), a place
+    /// `s1/obs/TURN` belongs to `s1` when no transition is named `s1/obs/…`.
+    fn subnet_of(&self, name: &str) -> Option<String> {
+        self.inner.subnet_of(name).map(str::to_string)
     }
 
     /// Precompiles the net for fast execution. Raises `StructureError` if a transition
@@ -830,6 +877,25 @@ impl PySubnetDef {
         let iface = interface.inner.clone();
         let inner = panic_to_py(move || SubnetDef::from_net(body, iface))?;
         Ok(PySubnetDef { inner })
+    }
+
+    /// A new definition with actions bound by the definition's own, unprefixed
+    /// transition names (MOD-051, mirroring `Instance.bind_actions` and CORE-042).
+    /// Values may be sync callables, async coroutine functions, or builtin actions
+    /// (`fork`, `passthrough`); a transition the dict does not name keeps its
+    /// action. Ports, channels and the receiver are unchanged, and instances of the
+    /// new definition carry the bound actions.
+    fn bind_actions(
+        &self,
+        py: Python<'_>,
+        actions: HashMap<String, Py<PyAny>>,
+    ) -> PyResult<PySubnetDef> {
+        let mut bindings: HashMap<String, BoxedAction> = HashMap::with_capacity(actions.len());
+        for (name, value) in actions {
+            let resolved = resolve_py_action(py, value)?;
+            bindings.insert(name, py_action_to_boxed(py, &resolved)?);
+        }
+        Ok(PySubnetDef { inner: self.inner.bind_actions(&bindings) })
     }
 
     /// Instantiates the subnet under `prefix`, returning an `Instance` whose
@@ -1219,8 +1285,18 @@ fn py_one(p: &PyPlace) -> PyInputSpec {
 /// transition is enabled only when a single name (produced by each `key(value)`
 /// projection) is present across all correlated inputs; firing consumes exactly
 /// those name-matched tokens. Attach via `Transition(...).match_spec(...)`.
+///
+/// `relay_to=[(place, key), ...]` declares the join's relay targets (NU-054):
+/// output places onto which the join writes the name it matched. They do not
+/// count towards the two correlated inputs; the transition build rejects one that
+/// is not an output or is declared twice, and the executor fails a firing that
+/// writes into one a token whose `key(value)` is not the matched name.
 #[pyfunction(name = "match_spec")]
-fn py_match_spec(keys: Vec<(PyPlace, Py<PyAny>)>) -> PyResult<PyMatchSpec> {
+#[pyo3(signature = (keys, relay_to = None))]
+fn py_match_spec(
+    keys: Vec<(PyPlace, Py<PyAny>)>,
+    relay_to: Option<Vec<(PyPlace, Py<PyAny>)>>,
+) -> PyResult<PyMatchSpec> {
     if keys.len() < 2 {
         return Err(PyValueError::new_err(format!(
             "match_spec must correlate at least 2 input places, got {}",
@@ -1233,8 +1309,15 @@ fn py_match_spec(keys: Vec<(PyPlace, Py<PyAny>)>) -> PyResult<PyMatchSpec> {
             MatchKey::from_erased(place.place().as_ref(), make_py_key_fn(callback))
         })
         .collect();
+    let relays: Vec<MatchKey> = relay_to
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(place, callback)| {
+            MatchKey::from_erased(place.place().as_ref(), make_py_relay_fn(callback))
+        })
+        .collect();
     Ok(PyMatchSpec {
-        inner: MatchSpec::from_keys(match_keys),
+        inner: MatchSpec::from_keys_and_relays(match_keys, relays),
     })
 }
 

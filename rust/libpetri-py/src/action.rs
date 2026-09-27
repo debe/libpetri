@@ -291,8 +291,8 @@ impl PyActionContext {
         // replays these into the Rust context at completion.
         self.flushed_places
             .extend(entries.iter().map(|e| Arc::clone(&e.place_name)));
-        cb(entries);
-        Ok(())
+        // [NU-054]: a batch that breaks a join's relay contract is refused.
+        cb(entries).map_err(|e| PyRuntimeError::new_err(e.message))
     }
 }
 

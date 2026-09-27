@@ -26,7 +26,9 @@ use crate::state_class_graph::expand_transition;
 /// `Base` (default) reproduces the shipped **mint → matched-join** fragment
 /// exactly. `Extended` additionally admits the opt-in **coloured-consumer**
 /// role ([`Role::Consume`], drain/relay) and unions user-declared *carrier*
-/// places into the coloured set (fork-threaded co-mint) — see [NU-051]. The one
+/// places into the coloured set (fork-threaded co-mint) — see [NU-051] — and
+/// the declared relay targets of every join ([NU-054]), onto which a join
+/// writes the name it matched. The one
 /// deliberate tightening shared by both modes is the reset/read/inhibitor-on-
 /// coloured guard in [`classify`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -53,6 +55,11 @@ pub(crate) enum Role {
         /// Correlated input place names with their required per-firing count,
         /// sorted by place name.
         coloured_in: Vec<(String, usize)>,
+        /// Declared relay targets ([NU-054], EXTENDED only): a firing on symbol
+        /// `s` removes `s` from the keys, then adds `s` once to each relay
+        /// target in the fired branch. Empty under BASE and for a join that
+        /// drains the name.
+        relay_to: BTreeSet<String>,
     },
     /// Coloured **consumer** (drain/relay), EXTENDED only ([NU-051]). A non-match
     /// transition that consumes **exactly one** coloured place at count **exactly
@@ -114,7 +121,9 @@ pub(crate) fn classify(
     carriers: &BTreeSet<String>,
 ) -> Option<NameFragment> {
     // 1. Coloured places = union of every match transition's correlated inputs,
-    //    plus (EXTENDED only) the declared carrier places.
+    //    plus (EXTENDED only) the declared carrier places and every join's relay
+    //    targets ([NU-054]), before the fragment rules below. BASE ignores relay
+    //    declarations, as it ignores carriers.
     let mut coloured: BTreeSet<String> = BTreeSet::new();
     let mut any_match = false;
     for t in net.transitions() {
@@ -131,6 +140,13 @@ pub(crate) fn classify(
     if mode == FragmentMode::Extended {
         for c in carriers {
             coloured.insert(c.clone());
+        }
+        for t in net.transitions() {
+            if let Some(ms) = t.match_spec() {
+                for relay in ms.relays() {
+                    coloured.insert(relay.place_name().to_string());
+                }
+            }
         }
     }
 
@@ -158,14 +174,25 @@ pub(crate) fn classify(
             .filter(|s| coloured.contains(s.place_name()))
             .collect();
         let consumes_coloured = !coloured_inputs.is_empty();
-        let produces_coloured = expand_transition(t)
-            .into_iter()
+        let branches = expand_transition(t);
+        let produces_coloured = branches
+            .iter()
             .any(|(_, outs)| outs.iter().any(|p| coloured.contains(p)));
 
         let role = if let Some(ms) = t.match_spec() {
-            // Matched join: consumes the correlated coloured inputs, mints none.
-            if produces_coloured {
-                return None; // re-mint onto a coloured place — out of fragment
+            // Matched join: consumes the correlated coloured inputs, and writes a
+            // coloured place only as a declared relay target ([NU-054], EXTENDED);
+            // any other coloured output is a re-mint — out of fragment.
+            let relay_to: BTreeSet<String> = if mode == FragmentMode::Extended {
+                ms.relays().iter().map(|r| r.place_name().to_string()).collect()
+            } else {
+                BTreeSet::new()
+            };
+            if branches
+                .iter()
+                .any(|(_, outs)| outs.iter().any(|p| coloured.contains(p) && !relay_to.contains(p)))
+            {
+                return None;
             }
             // A coloured place consumed off-key is taken FIFO, whatever its name; the
             // join step only removes the matched name from the keys, so the name layer
@@ -191,7 +218,10 @@ pub(crate) fn classify(
                 coloured_in.push((place.to_string(), required));
             }
             coloured_in.sort();
-            Role::Join { coloured_in }
+            Role::Join {
+                coloured_in,
+                relay_to,
+            }
         } else if consumes_coloured {
             // A non-match transition consuming a coloured token.
             match mode {
@@ -439,5 +469,137 @@ mod tests {
             classify(&net, FragmentMode::Extended, &no_carriers()).is_none(),
             "reset on a coloured place is rejected under EXTENDED"
         );
+    }
+
+    // ---- NU-054: relay targets ----
+
+    use crate::relay_nets;
+    use libpetri_core::arc::{inhibitor, read};
+    use libpetri_core::output::and;
+    use relay_nets::{FIG_12C_CARRIERS, fig_12c, join_chain, pnid_net, without_relays};
+
+    #[test]
+    fn extended_colours_relay_targets_and_the_join_carries_them() {
+        let net = pnid_net("12c", &fig_12c());
+        let f = classify(&net, FragmentMode::Extended, &carriers(&FIG_12C_CARRIERS))
+            .expect("Fig. 12(c) with the relay is in the EXTENDED fragment");
+        assert!(f.is_coloured("P5"));
+        let Role::Join { relay_to, .. } = f.role("e") else {
+            panic!("e is a join")
+        };
+        assert_eq!(relay_to.iter().collect::<Vec<_>>(), vec!["P5"]);
+        // f and g drain: no relay target.
+        let Role::Join { relay_to, .. } = f.role("g") else {
+            panic!("g is a join")
+        };
+        assert!(relay_to.is_empty());
+    }
+
+    #[test]
+    fn extended_rejects_a_join_writing_a_coloured_place_it_does_not_declare() {
+        let net = pnid_net("12c", &without_relays(&fig_12c()));
+        assert!(classify(&net, FragmentMode::Extended, &carriers(&FIG_12C_CARRIERS)).is_none());
+    }
+
+    #[test]
+    fn base_ignores_the_declaration() {
+        assert!(classify(&pnid_net("12c", &fig_12c()), FragmentMode::Base, &no_carriers()).is_none());
+        let chain = pnid_net("chain", &join_chain());
+        assert!(classify(&chain, FragmentMode::Base, &no_carriers()).is_none());
+        let f = classify(&chain, FragmentMode::Extended, &no_carriers()).expect("EXTENDED admits the chain");
+        // BASE-shaped roles are unchanged: j2 drains.
+        let Role::Join { relay_to, .. } = f.role("j2") else {
+            panic!("j2 is a join")
+        };
+        assert!(relay_to.is_empty());
+    }
+
+    /// `fork: S → A, B, D` (mint); `j: A, B (+ extra) → C` relaying to `C`;
+    /// `k: C, D → done` joins `C` downstream.
+    fn relay_net(extra: &str) -> PetriNet {
+        let p = |n: &str| Place::<String>::new(n);
+        let key = |s: &String| NameId::new(s.clone());
+        let fork_t = Transition::builder("fork")
+            .input(one(&p("S")))
+            .output(and(vec![out_place(&p("A")), out_place(&p("B")), out_place(&p("D"))]))
+            .action(fork())
+            .build();
+        let mut j = Transition::builder("j")
+            .input(one(&p("A")))
+            .input(one(&p("B")))
+            .output(out_place(&p("C")))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&p("A"), key)
+                    .key(&p("B"), key)
+                    .relay_to(&p("C"), key)
+                    .build(),
+            )
+            .action(fork());
+        match extra {
+            "off_key" => j = j.input(one(&p("C"))),
+            "read" => j = j.read(read(&p("C"))),
+            "inhibitor" => j = j.inhibitor(inhibitor(&p("C"))),
+            _ => {}
+        }
+        let k = Transition::builder("k")
+            .input(one(&p("C")))
+            .input(one(&p("D")))
+            .output(out_place(&p("done")))
+            .match_spec(MatchSpec::builder().key(&p("C"), key).key(&p("D"), key).build())
+            .action(fork())
+            .build();
+        let mut ts = vec![fork_t, j.build(), k];
+        if extra == "reset" {
+            ts.push(
+                Transition::builder("r")
+                    .input(one(&p("X")))
+                    .resets(vec![reset(&p("C"))])
+                    .build(),
+            );
+        }
+        PetriNet::builder("relay").transitions(ts).build()
+    }
+
+    #[test]
+    fn extended_accepts_the_plain_relay() {
+        assert!(classify(&relay_net("none"), FragmentMode::Extended, &no_carriers()).is_some());
+    }
+
+    #[test]
+    fn extended_rejects_a_relay_target_the_join_also_consumes_off_key() {
+        assert!(classify(&relay_net("off_key"), FragmentMode::Extended, &no_carriers()).is_none());
+    }
+
+    #[test]
+    fn extended_rejects_a_relay_target_with_a_read_inhibitor_or_reset_arc() {
+        for arc in ["read", "inhibitor", "reset"] {
+            assert!(
+                classify(&relay_net(arc), FragmentMode::Extended, &no_carriers()).is_none(),
+                "{arc}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_relay_target_no_join_consumes_is_coloured_and_its_read_arc_rejects() {
+        let rows = vec![
+            relay_nets::t("fork", &["S"], &["A", "B"]),
+            relay_nets::j("j", &["A", "B"], &["C"], &["A", "B"], &["C"]),
+        ];
+        let f = classify(&pnid_net("sinkRelay", &rows), FragmentMode::Extended, &no_carriers())
+            .expect("a relay into a sink place is in the fragment");
+        assert!(f.is_coloured("C"));
+        let p = |n: &str| Place::<String>::new(n);
+        let watcher = Transition::builder("w")
+            .input(one(&p("X")))
+            .output(out_place(&p("Y")))
+            .read(read(&p("C")))
+            .action(fork())
+            .build();
+        let mut ts: Vec<Transition> = pnid_net("x", &rows).transitions().to_vec();
+        ts.push(watcher);
+        let net = PetriNet::builder("sinkRelayRead").transitions(ts).build();
+        assert!(classify(&net, FragmentMode::Extended, &no_carriers()).is_none());
     }
 }

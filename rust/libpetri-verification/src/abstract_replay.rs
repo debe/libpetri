@@ -796,6 +796,7 @@ mod tests {
     /// The predicate is [`violates`] with the resolution hoisted: it agrees on every
     /// state of a box, for every property shape, with env injection threaded in.
     #[test]
+    #[cfg(feature = "z3")]
     fn violation_predicate_agrees_with_violates() {
         let flat = jobs_flat();
         let sinks = vec!["done".to_string()];

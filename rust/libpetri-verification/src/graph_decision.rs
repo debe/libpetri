@@ -42,18 +42,12 @@ pub fn decide_over_classes(
     };
 
     match property {
-        SmtProperty::PlaceBound { place, bound }
-        | SmtProperty::BranchPlaceBound { place, bound } => {
-            first_where(&|i| view.marking_of(i).count(place) > *bound)
+        SmtProperty::PlaceBound { .. }
+        | SmtProperty::BranchPlaceBound { .. }
+        | SmtProperty::Unreachable { .. }
+        | SmtProperty::MutualExclusion { .. } => {
+            first_where(&|i| marking_violates(property, view.marking_of(i)))
         }
-        SmtProperty::Unreachable { places } => first_where(&|i| {
-            let m = view.marking_of(i);
-            places.iter().all(|p| m.count(p) >= 1)
-        }),
-        SmtProperty::MutualExclusion { places } => first_where(&|i| {
-            let m = view.marking_of(i);
-            places.iter().filter(|p| m.count(p) >= 1).count() >= 2
-        }),
         // DeadlockFree ([VER-002]): a quiescent class that strands a token — some
         // marked place is not where resting is permitted, the conditional sinks
         // of [VER-014] included. The empty marking strands nothing (AC4).
@@ -86,6 +80,27 @@ pub fn decide_over_classes(
             view.is_quiescent(i)
                 && count_violation(view.marking_of(i), places, *min, *max, waived_by).is_some()
         }),
+    }
+}
+
+/// Whether `m` alone violates a reachability-safety property: the predicate
+/// [`decide_over_classes`] applies to each class for [`SmtProperty::PlaceBound`],
+/// [`SmtProperty::BranchPlaceBound`], [`SmtProperty::Unreachable`] and
+/// [`SmtProperty::MutualExclusion`]. Route B ([VER-012]) runs it on each class as
+/// the class is discovered, to stop at the first violating one. `false` for the
+/// quiescence-based properties, which no marking decides alone.
+pub(crate) fn marking_violates(property: &SmtProperty, m: &MarkingState) -> bool {
+    match property {
+        SmtProperty::PlaceBound { place, bound }
+        | SmtProperty::BranchPlaceBound { place, bound } => m.count(place) > *bound,
+        SmtProperty::Unreachable { places } => places.iter().all(|p| m.count(p) >= 1),
+        SmtProperty::MutualExclusion { places } => {
+            places.iter().filter(|p| m.count(p) >= 1).count() >= 2
+        }
+        SmtProperty::DeadlockFree
+        | SmtProperty::TerminatesAtSink
+        | SmtProperty::JoinedOrDeadLettered { .. }
+        | SmtProperty::QuiescentCount { .. } => false,
     }
 }
 

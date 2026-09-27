@@ -350,7 +350,7 @@ impl PyOpenNetResult {
 /// there. Raises `StructureError` when the net violates CORE-043 or the closure's names
 /// collide with the net's.
 #[pyfunction(name = "verify_open_net")]
-#[pyo3(signature = (net, contract, *, max_classes = 50_000, smt = true, termination_timeout_ms = 60_000, timeout_ms = 60_000, linear_bound = true, state_equation = false, state_equation_phase = true, firing_bound = true, semiflow_invariants = None))]
+#[pyo3(signature = (net, contract, *, max_classes = 50_000, smt = true, termination_timeout_ms = 60_000, timeout_ms = 60_000, linear_bound = true, state_equation = false, state_equation_phase = true, firing_bound = true, semiflow_invariants = None, cancel = None))]
 fn py_verify_open_net(
     py: Python<'_>,
     net: &PyPetriNet,
@@ -364,6 +364,7 @@ fn py_verify_open_net(
     state_equation_phase: bool,
     firing_bound: bool,
     semiflow_invariants: Option<Bound<'_, PyAny>>,
+    cancel: Option<PyRef<'_, crate::verification::PyCancelToken>>,
 ) -> PyResult<PyOpenNetResult> {
     let net = net.net().clone();
     let contract = contract.inner.clone();
@@ -378,7 +379,9 @@ fn py_verify_open_net(
             .firing_bound(firing_bound)
             .semiflow_invariants(semiflow_invariants)
     });
-    let options = OpenNetOptions { max_classes, smt, configure_smt: Some(configure), termination_timeout_ms };
+    // VER-013: the graph build, every query and the termination ranking honour it.
+    let cancel = cancel.map(|c| c.inner.clone());
+    let options = OpenNetOptions { max_classes, smt, configure_smt: Some(configure), termination_timeout_ms, cancel };
     // A CORE-043 net or a closure name collision panics; it must not unwind across the FFI
     // boundary, least of all out of a detached region.
     let result = panic_to_py(|| py.detach(move || verify_open_net(&net, &contract, &options)))?;

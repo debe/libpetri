@@ -33,6 +33,7 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use libpetri_core::name::NameId;
 use libpetri_core::token::ErasedToken;
 
 use crate::compiled_net::CompiledNet;
@@ -243,13 +244,18 @@ pub trait ExecutorBackend {
     /// The closure is called for every consumed input/reset token at
     /// the moment it is removed, preserving the per-token event order
     /// the existing executor emits today.
+    ///
+    /// Returns the name a ν-join matched (\[NU-020\]), which the loop
+    /// checks the join's relay targets against (\[NU-054\]); `None` for a
+    /// transition without a match spec.
     fn consume_for_firing<F>(
         &mut self,
         tid: usize,
         inputs: &mut HashMap<Arc<str>, Vec<ErasedToken>>,
         reads: &mut HashMap<Arc<str>, Vec<ErasedToken>>,
         emit_removed: F,
-    ) where
+    ) -> Option<NameId>
+    where
         F: FnMut(&Arc<str>, &ErasedToken);
 
     /// Produce a token at `place`. The backend updates token storage,

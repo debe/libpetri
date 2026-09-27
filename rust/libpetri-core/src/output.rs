@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::place::{Place, PlaceRef};
 
@@ -157,6 +157,99 @@ pub fn enumerate_branches(out: &Out) -> Vec<HashSet<PlaceRef>> {
         }
         Out::Timeout { child, .. } => enumerate_branches(child),
     }
+}
+
+/// Two leaves of one output branch that stand for the same place
+/// ([`duplicate_in_branch_by`]).
+#[derive(Debug, Clone, Copy)]
+pub struct BranchDuplicate<'o> {
+    /// The first leaf naming the place, as the spec names it.
+    pub first: &'o PlaceRef,
+    /// The second leaf, as the spec names it.
+    pub second: &'o PlaceRef,
+}
+
+/// The first place a single output branch of `out` names twice ([IO-011]) —
+/// one choice at every `Xor`, nested `And`s flattened, a `Timeout` read as its
+/// child, the `to` of a `ForwardInput` a leaf — or `None`. `Xor(And(P, A),
+/// And(P, B))` has no duplicate: the two `P`s are in different alternatives.
+pub fn duplicate_in_branch(out: &Out) -> Option<&PlaceRef> {
+    duplicate_in_branch_by(out, |p| p.name()).map(|d| d.second)
+}
+
+/// [`duplicate_in_branch`] with `name_of` mapping each leaf to the place it
+/// stands for: the identity for a spec as written, the port-to-host binding for
+/// composition ([MOD-020]).
+///
+/// Linear in the spec, never enumerating branches: an `And`'s children combine
+/// by cross product, so a place one child names in any of its branches and a
+/// sibling names in any of its branches is named twice by some branch; a
+/// `Xor`'s alternatives only pool their leaves. The walk is child by child, a
+/// duplicate inside a child before one across siblings — the same place Java's
+/// `ArcDiagnostics.duplicateInBranch` and TypeScript's `duplicateInBranch`
+/// report.
+pub fn duplicate_in_branch_by<'o, 'n>(
+    out: &'o Out,
+    name_of: impl Fn(&'o PlaceRef) -> &'n str + Copy,
+) -> Option<BranchDuplicate<'o>> {
+    scan_branches(out, name_of, &mut Leaves::default())
+}
+
+/// The leaves of a subtree in first-seen order, one per mapped name.
+#[derive(Default)]
+struct Leaves<'o, 'n> {
+    order: Vec<(&'n str, &'o PlaceRef)>,
+    seen: HashSet<&'n str>,
+}
+
+impl<'o, 'n> Leaves<'o, 'n> {
+    fn pool(&mut self, name: &'n str, p: &'o PlaceRef) {
+        if self.seen.insert(name) {
+            self.order.push((name, p));
+        }
+    }
+}
+
+/// Adds the leaves of `out` to `leaves`, pooling across `Xor` alternatives, and
+/// returns the first duplicate inside one `And` branch.
+fn scan_branches<'o, 'n>(
+    out: &'o Out,
+    name_of: impl Fn(&'o PlaceRef) -> &'n str + Copy,
+    leaves: &mut Leaves<'o, 'n>,
+) -> Option<BranchDuplicate<'o>> {
+    match out {
+        Out::Place(p) => leaves.pool(name_of(p), p),
+        Out::ForwardInput { to, .. } => leaves.pool(name_of(to), to),
+        Out::Timeout { child, .. } => return scan_branches(child, name_of, leaves),
+        Out::Xor(children) => {
+            for child in children {
+                if let Some(found) = scan_branches(child, name_of, leaves) {
+                    return Some(found);
+                }
+            }
+        }
+        Out::And(children) => {
+            let mut own: HashMap<&'n str, &'o PlaceRef> = HashMap::new();
+            let mut own_order: Vec<(&'n str, &'o PlaceRef)> = Vec::new();
+            for child in children {
+                let mut child_leaves = Leaves::default();
+                if let Some(found) = scan_branches(child, name_of, &mut child_leaves) {
+                    return Some(found);
+                }
+                for (name, p) in child_leaves.order {
+                    if let Some(&first) = own.get(name) {
+                        return Some(BranchDuplicate { first, second: p });
+                    }
+                    own.insert(name, p);
+                    own_order.push((name, p));
+                }
+            }
+            for (name, p) in own_order {
+                leaves.pool(name, p);
+            }
+        }
+    }
+    None
 }
 
 fn cross_product(a: &[HashSet<PlaceRef>], b: &[HashSet<PlaceRef>]) -> Vec<HashSet<PlaceRef>> {

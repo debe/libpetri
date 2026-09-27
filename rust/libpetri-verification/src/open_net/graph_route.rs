@@ -25,6 +25,8 @@ use super::result::{ContractViolation, ContractViolationKind, Witness, contract_
 /// What the graph route found.
 pub(super) struct GraphRouteOutcome {
     pub complete: bool,
+    /// A cancellation stopped the build ([VER-013]); nothing else in the outcome counts.
+    pub stopped: bool,
     pub class_count: usize,
     /// Real violations: the shallowest witness per subject, then termination.
     pub violations: Vec<ContractViolation>,
@@ -45,6 +47,14 @@ pub(super) fn decide_on_graph(
         &EnvironmentAnalysisMode::Ignore,
         StateClassGraphOptions { untimed: true },
     );
+    if graph.is_stopped() {
+        return GraphRouteOutcome {
+            complete: false,
+            stopped: true,
+            class_count: graph.class_count(),
+            violations: Vec::new(),
+        };
+    }
     let classes = graph.classes();
     let rest = rest_declaration_of(contract, closed);
     let outgoing = outgoing_edges(&graph);
@@ -105,7 +115,7 @@ pub(super) fn decide_on_graph(
             violations.push(contract_violation(closed, traced_places, cycle));
         }
     }
-    GraphRouteOutcome { complete: graph.is_complete(), class_count: classes.len(), violations }
+    GraphRouteOutcome { complete: graph.is_complete(), stopped: false, class_count: classes.len(), violations }
 }
 
 fn kind_of(f: &Finding<'_>) -> ContractViolationKind {

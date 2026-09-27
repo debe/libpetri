@@ -133,6 +133,8 @@ impl<E: EventStore> Executor<BitmapBackend, E> {
     /// If [`ExecutorOptions::execution_scope`] is empty or contains `':'` or
     /// `'#'` (\[NU-011\]).
     pub fn new(net: &PetriNet, initial_tokens: Marking, options: ExecutorOptions) -> Self {
+        // [CORE-037] reads the initial marking, which the backend takes over.
+        let seeded = E::ENABLED.then(|| initial_tokens.non_empty_places());
         let mut backend = BitmapBackend::new(net, initial_tokens);
         if let Some(ms) = options.deadline_tolerance_ms {
             backend.set_deadline_tolerance_ms(ms);
@@ -141,6 +143,9 @@ impl<E: EventStore> Executor<BitmapBackend, E> {
         let mut executor = Executor::from_parts(backend, E::default(), has_environment_places);
         if let Some(clock) = options.clock {
             executor.set_clock(clock);
+        }
+        if let Some(seeded) = seeded {
+            executor.warn_dead_arcs(net, &seeded, &options.environment_places);
         }
         if let Some(scope) = options.execution_scope {
             executor.set_execution_scope(scope);

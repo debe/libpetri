@@ -65,8 +65,10 @@ use crate::state_class_graph::StateClassGraph;
 ///
 /// - A **closed** graph of `C` classes is reused for any budget greater than `C`.
 ///   A budget of `C` or less would have truncated, and is answered as truncated.
-/// - A **truncated** attempt at budget `B` is remembered: a later budget of `B` or
-///   less declines at once, without building; a larger budget builds again and
+/// - A **truncated** attempt at budget `B` is remembered **with its explored
+///   prefix**: a later budget of `B` or less does not build, but reads the
+///   remembered prefix for a violation ([VER-017] "Verdicts from a truncated
+///   graph") and declines when it finds none; a larger budget builds again and
 ///   replaces the entry.
 ///
 /// ```ignore
@@ -106,12 +108,24 @@ enum SlotState {
     /// A query is building this entry; the others wait on [`Slot::ready`]. A
     /// truncation already known for the entry stays known while it builds at a
     /// larger budget, so a query that it declines need not wait.
-    Building { truncated_at: Option<usize> },
+    Building { truncated: Option<Truncation> },
     /// The graph closed.
     Closed(Arc<StateClassGraph>),
-    /// The graph hit this budget.
-    Truncated(usize),
+    /// The graph hit a class budget.
+    Truncated(Truncation),
 }
+
+/// A remembered truncation: the budget the graph hit and the explored prefix it
+/// reached, kept so a query at that budget or less can still find a violation in
+/// it without building ([VER-017]).
+#[derive(Clone)]
+struct Truncation {
+    budget: usize,
+    graph: Arc<StateClassGraph>,
+}
+
+/// How often a query waiting on another's build polls its own stop ([VER-013]).
+const STOP_POLL: std::time::Duration = std::time::Duration::from_millis(10);
 
 /// The key of an entry: the net's structural fingerprint and the initial marking.
 /// See the module header for why it is complete.
@@ -138,8 +152,14 @@ pub(crate) enum StateSpaceLookup {
     /// A closed graph was cached and the budget exceeds its class count.
     Reused(Arc<StateClassGraph>),
     /// The cache already knows this budget truncates: a truncation at this budget
-    /// or a larger one, or a closed graph too large for it. Nothing was built.
-    Declined,
+    /// or a larger one, or a closed graph too large for it. Nothing was built; the
+    /// graph is the cached one, which the caller reads as an explored prefix — a
+    /// violation in it stands, nothing is proven from it ([VER-017]).
+    Declined(Arc<StateClassGraph>),
+    /// The query's own total budget ran out, or it was cancelled, while it waited
+    /// for another query's build of this entry ([VER-013]). Nothing was built or
+    /// read; the other build carries on for its owner.
+    Stopped,
 }
 
 impl StateSpaceCache {
@@ -163,7 +183,7 @@ impl StateSpaceCache {
                     *lock(&slot.state),
                     SlotState::Closed(_)
                         | SlotState::Truncated(_)
-                        | SlotState::Building { truncated_at: Some(_) }
+                        | SlotState::Building { truncated: Some(_) }
                 )
             })
             .count()
@@ -200,14 +220,26 @@ impl StateSpaceCache {
                     return if budget > graph.class_count() {
                         StateSpaceLookup::Reused(Arc::clone(graph))
                     } else {
-                        StateSpaceLookup::Declined
+                        StateSpaceLookup::Declined(Arc::clone(graph))
                     };
                 }
                 SlotState::Truncated(cached)
                 | SlotState::Building {
-                    truncated_at: Some(cached),
-                } if budget <= *cached => {
-                    return StateSpaceLookup::Declined;
+                    truncated: Some(cached),
+                } if budget <= cached.budget => {
+                    return StateSpaceLookup::Declined(Arc::clone(&cached.graph));
+                }
+                // [VER-013]: under a total budget or a cancel token the wait polls
+                // them, so a waiter stops on its own deadline, not the builder's.
+                SlotState::Building { .. } if crate::total_budget::active() => {
+                    if crate::total_budget::cut() {
+                        return StateSpaceLookup::Stopped;
+                    }
+                    state = slot
+                        .ready
+                        .wait_timeout(state, STOP_POLL)
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .0;
                 }
                 SlotState::Building { .. } => {
                     state = slot.ready.wait(state).unwrap_or_else(PoisonError::into_inner);
@@ -215,26 +247,33 @@ impl StateSpaceCache {
                 SlotState::Empty | SlotState::Truncated(_) => break,
             }
         }
-        let truncated_at = match *state {
-            SlotState::Truncated(cached) => Some(cached),
+        let truncated = match &*state {
+            SlotState::Truncated(cached) => Some(cached.clone()),
             _ => None,
         };
-        *state = SlotState::Building { truncated_at };
+        *state = SlotState::Building {
+            truncated: truncated.clone(),
+        };
         drop(state);
 
         let mut pending = PendingBuild {
             slot: &slot,
-            truncated_at,
+            truncated,
             done: false,
         };
         self.inner.builds.fetch_add(1, Ordering::SeqCst);
         let graph = Arc::new(build());
-        let entry = if graph.is_complete() {
-            SlotState::Closed(Arc::clone(&graph))
-        } else {
-            SlotState::Truncated(budget)
-        };
-        pending.finish(entry);
+        if graph.is_complete() {
+            pending.finish(SlotState::Closed(Arc::clone(&graph)));
+        } else if !graph.is_stopped() {
+            pending.finish(SlotState::Truncated(Truncation {
+                budget,
+                graph: Arc::clone(&graph),
+            }));
+        }
+        // Otherwise the total verification budget or a cancellation stopped the
+        // build ([VER-013]): that says nothing about the state space, so `pending`
+        // drops unfinished and restores the slot as this build found it.
         StateSpaceLookup::Built(graph)
     }
 }
@@ -245,7 +284,7 @@ impl StateSpaceCache {
 struct PendingBuild<'s> {
     slot: &'s Slot,
     /// The truncation the slot held when this build took it, if any.
-    truncated_at: Option<usize>,
+    truncated: Option<Truncation>,
     done: bool,
 }
 
@@ -260,7 +299,7 @@ impl PendingBuild<'_> {
 impl Drop for PendingBuild<'_> {
     fn drop(&mut self) {
         if !self.done {
-            *lock(&self.slot.state) = match self.truncated_at {
+            *lock(&self.slot.state) = match self.truncated.take() {
                 Some(cached) => SlotState::Truncated(cached),
                 None => SlotState::Empty,
             };
@@ -388,6 +427,104 @@ mod tests {
         assert!(StateSpaceKey::new(&net, &xy) == StateSpaceKey::new(&net, &yx));
     }
 
+    /// [VER-013] AC10: a build the total budget stopped short of its class budget
+    /// is not a truncation. It leaves the slot as it found it — empty, or holding
+    /// an earlier truncation — so a later query with time and the same class budget
+    /// builds rather than declines.
+    #[test]
+    fn a_build_the_total_budget_stopped_leaves_the_slot_as_it_found_it() {
+        let a = Place::<()>::new("a");
+        let net = chain(one(&a));
+        let m0 = MarkingStateBuilder::new().tokens("a", 1).build();
+        let key = StateSpaceKey::new(&net, &m0);
+        let cut_build = || {
+            let _spent = crate::total_budget::enter(Some(0), None);
+            let graph = StateClassGraph::build(&net, &m0, 100);
+            assert!(!graph.is_complete() && graph.is_stopped());
+            graph
+        };
+
+        let cache = StateSpaceCache::new();
+        assert!(matches!(cache.lookup(key.clone(), 100, cut_build), StateSpaceLookup::Built(_)));
+        assert!(cache.is_empty(), "a deadline cut must not be cached as a truncation");
+        assert!(matches!(
+            cache.lookup(key.clone(), 100, || StateClassGraph::build(&net, &m0, 100)),
+            StateSpaceLookup::Built(g) if g.is_complete()
+        ));
+        assert_eq!(cache.build_count(), 2);
+
+        // An earlier truncation survives a cut build unchanged.
+        let cache = StateSpaceCache::new();
+        cache.lookup(key.clone(), 1, || StateClassGraph::build(&net, &m0, 1));
+        cache.lookup(key.clone(), 100, cut_build);
+        assert!(matches!(
+            cache.lookup(key.clone(), 1, || unreachable!("declines without building")),
+            StateSpaceLookup::Declined(_)
+        ));
+        assert_eq!(cache.len(), 1);
+    }
+
+    /// [VER-013] AC9/AC11/AC12: a query waiting on another thread's build of its
+    /// entry still honours its OWN total budget and cancellation: it stops without
+    /// the graph, and the other build finishes untouched for its owner.
+    #[test]
+    fn a_waiter_stops_on_its_own_budget_or_cancellation() {
+        use crate::cancel::CancelToken;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let a = Place::<()>::new("a");
+        let net = chain(one(&a));
+        let m0 = MarkingStateBuilder::new().tokens("a", 1).build();
+        let key = StateSpaceKey::new(&net, &m0);
+        let cache = StateSpaceCache::new();
+        let token = CancelToken::new();
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        let (answer_tx, answer_rx) = mpsc::channel();
+        let (cache_ref, net_ref, m0_ref, key_ref) = (&cache, &net, &m0, &key);
+        thread::scope(|scope| {
+            let owner = scope.spawn(move || {
+                cache_ref.lookup(key_ref.clone(), 100, || {
+                    started_tx.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                    StateClassGraph::build(net_ref, m0_ref, 100)
+                })
+            });
+            started_rx.recv().unwrap();
+            for stop in ["budget", "cancel"] {
+                let answer_tx = answer_tx.clone();
+                let token = token.clone();
+                scope.spawn(move || {
+                    let _scope = match stop {
+                        "budget" => crate::total_budget::enter(Some(50), None),
+                        _ => crate::total_budget::enter(None, Some(token)),
+                    };
+                    let answer = cache_ref.lookup(key_ref.clone(), 100, || unreachable!());
+                    let waited_out = !matches!(
+                        answer,
+                        StateSpaceLookup::Built(_)
+                            | StateSpaceLookup::Reused(_)
+                            | StateSpaceLookup::Declined(_)
+                    );
+                    answer_tx.send((stop, waited_out)).unwrap();
+                });
+            }
+            thread::sleep(Duration::from_millis(100));
+            token.cancel();
+            let mut answers = Vec::new();
+            for _ in 0..2 {
+                answers.push(answer_rx.recv_timeout(Duration::from_secs(5)));
+            }
+            release_tx.send(()).unwrap();
+            assert!(matches!(owner.join().unwrap(), StateSpaceLookup::Built(g) if g.is_complete()));
+            answers.sort_by_key(|a| format!("{a:?}"));
+            assert_eq!(answers, vec![Ok(("budget", true)), Ok(("cancel", true))]);
+        });
+        assert_eq!(cache.build_count(), 1);
+        assert_eq!(cache.len(), 1);
+    }
+
     /// A truncation at 2 is known while a build at a larger budget runs: a query at
     /// budget 2 or less declines at once, rather than wait for that build.
     #[test]
@@ -420,7 +557,7 @@ mod tests {
             scope.spawn(move || {
                 let declined = matches!(
                     cache_ref.lookup(key_ref.clone(), 1, || unreachable!()),
-                    StateSpaceLookup::Declined
+                    StateSpaceLookup::Declined(_)
                 );
                 answer_tx.send(declined).unwrap();
             });
@@ -472,6 +609,6 @@ mod tests {
         assert!(failed.is_err());
         assert_eq!(cache.len(), 1);
         let answer = cache.lookup(key, 1, || unreachable!());
-        assert!(matches!(answer, StateSpaceLookup::Declined));
+        assert!(matches!(answer, StateSpaceLookup::Declined(_)));
     }
 }

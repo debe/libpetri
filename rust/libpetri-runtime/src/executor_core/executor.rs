@@ -31,7 +31,7 @@ use crate::executor_core::backend::{
 };
 use crate::executor_core::deadline::{elapsed_ms_since, now_millis};
 use crate::executor_core::event_payload::{token_added_event, token_removed_event};
-use crate::executor_core::output::{describe_out_violation, validate_out_spec};
+use crate::executor_core::output::{describe_out_violation, relay_violation, validate_out_spec};
 use crate::executor_core::scope::{default_execution_scope, validate_execution_scope};
 use crate::marking::Marking;
 #[cfg(feature = "tokio")]
@@ -517,6 +517,42 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         }
     }
 
+    /// \[CORE-037\] Emits one `WARN` log message per dead read, inhibitor or
+    /// reset arc — one whose place nothing consumes from or produces into, that
+    /// is not an environment place, and that the initial marking leaves empty —
+    /// naming the transition that declares it. Called once, at construction, by
+    /// every executor constructor: the \[CORE-072\] AC4 channel, never a
+    /// rejection, since seeding such a place is a legitimate hook. A no-op
+    /// under a disabled event store, where the analysis is not even run.
+    pub(crate) fn warn_dead_arcs(
+        &mut self,
+        net: &libpetri_core::petri_net::PetriNet,
+        seeded_places: &[Arc<str>],
+        environment_places: &HashSet<Arc<str>>,
+    ) {
+        if !E::ENABLED {
+            return;
+        }
+        let seeded: HashSet<&str> = seeded_places.iter().map(|s| s.as_ref()).collect();
+        let dead = libpetri_core::dead_arcs::dead_arcs(
+            net,
+            |p| environment_places.contains(p),
+            |p| seeded.contains(p),
+        );
+        if dead.is_empty() {
+            return;
+        }
+        let timestamp = self.epoch_ms();
+        for d in dead {
+            self.event_store.append(NetEvent::LogMessage {
+                transition_name: Arc::clone(&d.transition),
+                level: "WARN".to_string(),
+                message: d.message(),
+                timestamp,
+            });
+        }
+    }
+
     /// Drives backend enablement and emits the resulting events.
     /// When `E::ENABLED` is false, passes
     /// [`NoopChangeTracker`](crate::executor_core::backend::NoopChangeTracker)
@@ -564,7 +600,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
     /// events in spec-declaration order via a closure. Fills the
     /// reusable input/read buffers in place.
     #[inline]
-    fn consume_and_emit(&mut self, tid: usize) {
+    fn consume_and_emit(&mut self, tid: usize) -> Option<NameId> {
         self.reusable_inputs.clear();
         self.reusable_reads.clear();
         // The closure borrows `self` mutably through the destructure, so the
@@ -591,7 +627,27 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 };
                 event_store.append(token_removed_event::<E>(Arc::clone(place), ts, token));
             }
-        });
+        })
+    }
+
+    /// \[NU-054\] The join-relay check, part of \[IO-015\] output
+    /// validation: `Some(diagnostic)` when a token this firing wrote into a
+    /// relay target does not carry `matched`. Skipped exactly where output
+    /// validation is (\[CONC-026\]). One load and a branch for a
+    /// transition without a match spec.
+    #[inline]
+    fn relay_check(
+        &self,
+        tid: usize,
+        transition_name: &str,
+        outputs: &[OutputEntry],
+        matched: Option<&NameId>,
+    ) -> Option<String> {
+        if self.skip_output_validation {
+            return None;
+        }
+        let spec = self.backend.compiled().transition(tid).match_spec()?;
+        relay_violation(transition_name, spec, outputs, matched)
     }
 
     /// \[IO-015\] Check the tokens a completed action is about to
@@ -771,7 +827,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             (name, action, outputs)
         };
 
-        self.consume_and_emit(tid);
+        let matched = self.consume_and_emit(tid);
 
         if E::ENABLED {
             self.event_store.append(NetEvent::TransitionStarted {
@@ -816,7 +872,22 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 // [IO-015]: validate BEFORE producing anything — a
                 // violating firing deposits no tokens and does not
                 // restore the consumed inputs (AC3).
-                if self.output_conforms(tid, &outputs, ctx.flushed_places()) {
+                let conforms = self.output_conforms(tid, &outputs, ctx.flushed_places());
+                // [NU-054]: a conforming firing's relay targets carry the matched name.
+                let relay_error = if conforms {
+                    self.relay_check(tid, &transition_name, &outputs, matched.as_ref())
+                } else {
+                    None
+                };
+                if let Some(error) = relay_error {
+                    if E::ENABLED {
+                        self.event_store.append(NetEvent::TransitionFailed {
+                            transition_name: Arc::clone(&transition_name),
+                            error,
+                            timestamp: self.epoch_ms(),
+                        });
+                    }
+                } else if conforms {
                     self.warn_multiplicity(tid, &transition_name, &outputs);
                     for entry in outputs {
                         let event = if E::ENABLED {
@@ -888,6 +959,10 @@ struct ActionCompletion {
     /// normally. Drives the `ActionTimedOut` event in
     /// [`handle_completion`](Executor::handle_completion).
     timed_out: Option<u64>,
+    /// The name the ν-join matched when it fired (\[NU-020\]); the relay
+    /// check (\[NU-054\]) runs against it at completion. `None` for a
+    /// transition without a match spec.
+    matched: Option<NameId>,
 }
 
 /// Mid-action flush batch ([V3] `ctx.flush()`): an in-flight async
@@ -1205,6 +1280,24 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                     }
                     return;
                 }
+                // [NU-054]: every token in a relay target carries the matched
+                // name — checked on the timeout path too, whose branch may
+                // forward an input or deposit a unit token into one.
+                if let Some(error) = self.relay_check(
+                    completion.tid,
+                    &completion.transition_name,
+                    &outputs,
+                    completion.matched.as_ref(),
+                ) {
+                    if E::ENABLED {
+                        self.event_store.append(NetEvent::TransitionFailed {
+                            transition_name: Arc::clone(&completion.transition_name),
+                            error,
+                            timestamp: self.epoch_ms(),
+                        });
+                    }
+                    return;
+                }
                 if completion.timed_out.is_none() {
                     self.warn_multiplicity(
                         completion.tid,
@@ -1373,7 +1466,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         };
         let is_sync = action.is_sync();
 
-        self.consume_and_emit(tid);
+        let matched = self.consume_and_emit(tid);
 
         if E::ENABLED {
             self.event_store.append(NetEvent::TransitionStarted {
@@ -1419,7 +1512,22 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                     let outputs = ctx.take_outputs();
                     // [IO-015]: validate before producing (AC3 — inputs
                     // stay consumed on violation).
-                    if self.output_conforms(tid, &outputs, ctx.flushed_places()) {
+                    let conforms = self.output_conforms(tid, &outputs, ctx.flushed_places());
+                    // [NU-054]: a conforming firing's relay targets carry the matched name.
+                    let relay_error = if conforms {
+                        self.relay_check(tid, &transition_name, &outputs, matched.as_ref())
+                    } else {
+                        None
+                    };
+                    if let Some(error) = relay_error {
+                        if E::ENABLED {
+                            self.event_store.append(NetEvent::TransitionFailed {
+                                transition_name: Arc::clone(&transition_name),
+                                error,
+                                timestamp: self.epoch_ms(),
+                            });
+                        }
+                    } else if conforms {
                         self.warn_multiplicity(tid, &transition_name, &outputs);
                         for entry in outputs {
                             let event = if E::ENABLED {
@@ -1523,11 +1631,45 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             // the eventual completion message.
             let flush_tx_clone = flush_tx.clone();
             let flush_name = Arc::clone(&transition_name);
+            // [NU-054]: a batch published mid-action is checked when it is
+            // published. A violating batch is not deposited, `ctx.flush()`
+            // returns `Err` with the diagnostic, the firing fails with it at
+            // completion, and later batches are dropped (and `Err` too). Only a
+            // join with relay targets, and only where output validation runs
+            // ([CONC-026]), pays for the check.
+            let relay_guard: Option<libpetri_core::match_spec::MatchSpec> =
+                if self.skip_output_validation {
+                    None
+                } else {
+                    self.backend
+                        .compiled()
+                        .transition(tid)
+                        .match_spec()
+                        .filter(|ms| !ms.relays().is_empty())
+                        .cloned()
+                };
+            let relay_slot: Option<Arc<std::sync::Mutex<Option<String>>>> =
+                relay_guard.as_ref().map(|_| Arc::new(std::sync::Mutex::new(None)));
+            let flush_slot = relay_slot.clone();
+            let flush_matched = matched.clone();
             ctx.set_flush_fn(Arc::new(move |outputs: Vec<OutputEntry>| {
+                if let (Some(ms), Some(slot)) = (&relay_guard, &flush_slot) {
+                    let mut failed = slot.lock().unwrap_or_else(|p| p.into_inner());
+                    if let Some(error) = failed.as_ref() {
+                        return Err(libpetri_core::action::ActionError::new(error.clone()));
+                    }
+                    if let Some(error) =
+                        relay_violation(&flush_name, ms, &outputs, flush_matched.as_ref())
+                    {
+                        *failed = Some(error.clone());
+                        return Err(libpetri_core::action::ActionError::new(error));
+                    }
+                }
                 let _ = flush_tx_clone.send(ActionFlush {
                     transition_name: Arc::clone(&flush_name),
                     outputs,
                 });
+                Ok(())
             }));
 
             // \[TIME-015\] AC#13: the spawned task outlives any borrow of `self`,
@@ -1535,7 +1677,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             // installed, and then the path is byte-identical to before.
             let timeout_epoch_fn = self.clock.as_ref().map(|seam| Arc::clone(&seam.epoch_fn));
             tokio::spawn(async move {
-                let completion = if let Some((after_ms, timeout_child)) = timeout_info {
+                let mut completion = if let Some((after_ms, timeout_child)) = timeout_info {
                     tokio::select! {
                         biased;
                         result = action.run_async(ctx) => action_completion(&name, tid, result),
@@ -1556,12 +1698,21 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                                 )),
                                 flushed_places: HashSet::new(),
                                 timed_out: Some(after_ms),
+                                matched: None,
                             }
                         }
                     }
                 } else {
                     action_completion(&name, tid, action.run_async(ctx).await)
                 };
+                completion.matched = matched;
+                // [NU-054]: a flushed batch that broke the relay contract
+                // failed the firing when it was published.
+                if let Some(slot) = relay_slot
+                    && let Some(error) = slot.lock().unwrap_or_else(|p| p.into_inner()).take()
+                {
+                    completion.result = Err(error);
+                }
                 let _ = tx.send(completion);
             });
         }
@@ -1597,6 +1748,7 @@ fn action_completion(
                 result: Ok(completed_ctx.take_outputs()),
                 flushed_places,
                 timed_out: None,
+                matched: None,
             }
         }
         Err(err) => ActionCompletion {
@@ -1605,6 +1757,7 @@ fn action_completion(
             result: Err(err.message),
             flushed_places: HashSet::new(),
             timed_out: None,
+            matched: None,
         },
     }
 }

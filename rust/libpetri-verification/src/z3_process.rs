@@ -15,7 +15,8 @@
 //! reply there (`NNN-<phase>.smt2`, `.out`, and `.err` when stderr is not
 //! empty), which is how a solver reply is reproduced outside the pipeline.
 //!
-//! Timeouts are per invocation: `-t:<ms>` asks z3 to answer `unknown` after
+//! Timeouts are per invocation — clamped, under an optional total budget, to
+//! what is left of it ([`crate::total_budget`]): `-t:<ms>` asks z3 to answer `unknown` after
 //! the soft budget, `-T:<s>` (the budget plus [`GRACE_MS`], rounded up) makes
 //! z3 print `timeout` and exit on its own, and the watchdog at the budget plus
 //! twice the grace kills whatever ignored both. The Java, TypeScript and Rust
@@ -123,6 +124,10 @@ impl Z3Solver {
         timeout_ms: u64,
         extra_args: &[&str],
     ) -> Result<Z3Reply, String> {
+        // [VER-013] total budget: under `SmtVerifier::total_budget` every query
+        // gets what is left of it at most, and none starts once nothing is. A
+        // no-op without one.
+        let timeout_ms = crate::total_budget::clamp(timeout_ms)?;
         let dump = dump_slot(phase, script);
         let child = Command::new(&self.program)
             .args(args_for(timeout_ms).iter())
@@ -142,6 +147,7 @@ impl Z3Solver {
         }
         let exit = wait_with_watchdog(&mut guard, watchdog_ms(timeout_ms))?;
         let (stdout, stderr) = drains.finish();
+        crate::total_budget::note_if_expired();
         if let Some(base) = dump {
             let _ = fs::write(base.with_extension("out"), &stdout);
             if !stderr.trim().is_empty() {
@@ -181,7 +187,8 @@ pub fn watchdog_ms(timeout_ms: u64) -> u64 {
 pub enum Z3Exit {
     /// The process exited by itself; `None` when a signal ended it.
     Exited(Option<i32>),
-    /// The watchdog killed it.
+    /// The watchdog killed it, or the verification it ran for was cancelled
+    /// ([VER-013]).
     Killed,
 }
 
@@ -317,13 +324,20 @@ fn read_all(mut reader: impl Read) -> String {
     String::from_utf8_lossy(&buf).into_owned()
 }
 
-/// Polls the child until it exits or `budget_ms` elapses, then kills it.
+/// Polls the child until it exits or `budget_ms` elapses, then kills it. A
+/// verification cancelled meanwhile ([VER-013], [`crate::cancel::CancelToken`])
+/// kills it at the next poll instead of waiting for either timeout; the caller
+/// sees a kill, and the verification's stop reason says why.
 fn wait_with_watchdog(guard: &mut ChildGuard, budget_ms: u64) -> Result<Z3Exit, String> {
     let deadline = Instant::now() + Duration::from_millis(budget_ms);
+    let cancel = crate::total_budget::cancel_token();
     loop {
         match guard.0.try_wait() {
             Ok(Some(status)) => return Ok(Z3Exit::Exited(status.code())),
-            Ok(None) if Instant::now() >= deadline => {
+            Ok(None)
+                if Instant::now() >= deadline
+                    || cancel.as_ref().is_some_and(|c| c.is_cancelled()) =>
+            {
                 let _ = guard.0.kill();
                 let _ = guard.0.wait();
                 return Ok(Z3Exit::Killed);

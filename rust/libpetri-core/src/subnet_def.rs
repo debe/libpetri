@@ -14,6 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use crate::action::BoxedAction;
 use crate::instance::{Instance, new_instance};
 use crate::interface::{Channel, Interface, Port, PortDirection};
 use crate::petri_net::{PetriNet, PetriNetBuilder};
@@ -167,6 +168,39 @@ impl<P: 'static> SubnetDef<P> {
     /// Creates a new [`SubnetDefBuilder`] for the supplied subnet name.
     pub fn builder(name: impl Into<Arc<str>>) -> SubnetDefBuilder<P> {
         SubnetDefBuilder::new(name)
+    }
+
+    /// A new definition with actions bound by the definition's own, unprefixed
+    /// transition names ([MOD-051], mirroring [CORE-042]'s
+    /// [`PetriNet::bind_actions`]). As at net level in Rust, a transition the map
+    /// does not name keeps its existing action. Ports, channels and parameters are
+    /// unchanged — channels name their transition, and binding keeps every name.
+    /// The receiver is not modified; instances of the new definition carry the
+    /// bound actions as their shared defaults ([MOD-030]). The [CORE-043] check
+    /// still runs at verification and at compile time.
+    pub fn bind_actions(&self, bindings: &HashMap<String, BoxedAction>) -> SubnetDef<P> {
+        self.with_body(self.body.bind_actions(bindings))
+    }
+
+    /// [`SubnetDef::bind_actions`] with a resolver, mirroring
+    /// [`PetriNet::bind_actions_with_resolver`]: called once per transition with its
+    /// unprefixed name; `None` keeps that transition's action.
+    pub fn bind_actions_with_resolver(
+        &self,
+        resolver: impl Fn(&str) -> Option<BoxedAction>,
+    ) -> SubnetDef<P> {
+        self.with_body(self.body.bind_actions_with_resolver(resolver))
+    }
+
+    /// This definition over `body`: the same net with rebuilt transitions.
+    fn with_body(&self, body: PetriNet) -> SubnetDef<P> {
+        SubnetDef {
+            name: Arc::clone(&self.name),
+            body,
+            iface: self.iface.clone(),
+            param_type: self.param_type,
+            _phantom: PhantomData,
+        }
     }
 }
 

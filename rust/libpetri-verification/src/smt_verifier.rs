@@ -2,8 +2,10 @@ use std::collections::{BTreeSet, HashSet};
 use std::time::Instant;
 
 use libpetri_core::petri_net::{PetriNet, require_output_producing_actions};
+use libpetri_core::place::PlaceRef;
 
 use crate::abstract_replay::{self, ReplayOutcome};
+use crate::cancel::CancelToken;
 use crate::bounded_run::{self, DepthAnswer, DepthStep, FiringBound, FiringBoundOptions, FiringBoundOutcome};
 use crate::certificate_check::{self, CertificateCheck};
 use crate::counterexample::{self, DecodedTrace};
@@ -15,19 +17,23 @@ use crate::name_coloured_encoder;
 use crate::name_fragment::{self, FragmentMode, NameFragment};
 use crate::net_flattener::{self, FlatNet};
 use crate::nu_scg_verifier;
+use crate::open_net::close_arrivals_between;
 use crate::p_invariant::{self, PInvariant};
 use crate::priority_semantics::PrioritySemantics;
 use crate::property::SmtProperty;
 use crate::rest_set::{ConditionalSinks, describe_sinks};
 use crate::scg_verifier::{self, ScgOutcome};
-use crate::state_class_graph::StateClassGraph;
+use crate::state_class_graph::{StateClassGraph, StateClassGraphOptions};
 use crate::state_space_cache::{StateSpaceCache, StateSpaceKey, StateSpaceLookup};
-use crate::result::{Verdict, VerificationResult, VerificationRoute, VerificationStatistics};
+use crate::result::{
+    CounterexampleTiming, Verdict, VerificationResult, VerificationRoute, VerificationStatistics,
+};
 use crate::smt_encoder;
 use crate::state_equation_phase::{self, StateEquationOutcome, StateEquationPhaseOptions};
 use crate::state_equation_query;
 use crate::structural_check::{self, StructuralCheckResult};
 use crate::terminal_places::{all_place_names, inhibit_on_terminals};
+use crate::total_budget;
 use crate::z3_process::{self, Z3Solver};
 
 /// How the gate-validated P-semiflows reach the encoders ([VER-007]).
@@ -81,8 +87,9 @@ pub struct SmtVerifier<'a> {
     timeout_ms: u64,
     /// Class-count cap for the ν-aware state-class-graph name-partition analysis
     /// ([NU-050], Route B). When the symbolic name-aware graph would exceed this,
-    /// the analysis truncates and the verdict is `Unknown` (the live correlation
-    /// pool is not structurally bounded). Default 100_000.
+    /// the analysis truncates: a violation in the explored prefix is still
+    /// `Violated` ([VER-012] AC3), and otherwise the verdict is `Unknown` (the live
+    /// correlation pool is not structurally bounded). Default 100_000.
     nu_max_classes: usize,
     /// Which coloured-place fragment the ν-aware SCG admits ([NU-051]). `Base`
     /// (default) reproduces the shipped mint → matched-join behaviour; `Extended`
@@ -134,6 +141,21 @@ pub struct SmtVerifier<'a> {
     /// Whether the firing-bound phase runs before the fixpoint query ([VER-019],
     /// default `true`). See [`SmtVerifier::firing_bound`].
     firing_bound: bool,
+    /// Wall-clock cap on the whole `verify()` call ([VER-013], default `None`:
+    /// no cap). See [`SmtVerifier::total_budget`].
+    total_budget_ms: Option<u64>,
+    /// Whether a `Violated` on a timed net is checked against the timed
+    /// state-class graph ([VER-023], default `false`). See
+    /// [`SmtVerifier::timed_counterexample_check`].
+    timed_counterexample_check: bool,
+    /// Stops `verify()` from outside it ([VER-013], default `None`). See
+    /// [`SmtVerifier::cancel_token`].
+    cancel_token: Option<CancelToken>,
+    /// The environment places in the order they were registered: [VER-006]
+    /// `Arrivals(k)` numbers its sources and injection transitions by it.
+    env_registration: Vec<String>,
+    /// Set once the `Arrivals(k)` rewrite closed the net ([VER-006]).
+    arrivals: Option<ArrivalsApplied>,
     /// Test seam: replaces the extracted certificate fed to the certificate
     /// check, so tests can prove end-to-end that a corrupt certificate
     /// downgrades the verdict.
@@ -203,6 +225,11 @@ impl<'a> SmtVerifier<'a> {
             // fixtures ([VER-019]).
             state_equation_phase: true,
             firing_bound: true,
+            total_budget_ms: None,
+            timed_counterexample_check: false,
+            cancel_token: None,
+            env_registration: Vec::new(),
+            arrivals: None,
             #[cfg(test)]
             certificate_override: None,
             #[cfg(test)]
@@ -226,7 +253,11 @@ impl<'a> SmtVerifier<'a> {
 
     /// Adds environment places.
     pub fn environment_places(mut self, places: impl IntoIterator<Item = String>) -> Self {
-        self.env_places.extend(places);
+        for place in places {
+            if self.env_places.insert(place.clone()) {
+                self.env_registration.push(place);
+            }
+        }
         self
     }
 
@@ -443,8 +474,11 @@ impl<'a> SmtVerifier<'a> {
     /// reachable state space. A forty-node chain (370 places, 1 967 classes)
     /// takes 410 s on the fixpoint path and 0.11 s here.
     ///
-    /// The route declines when the graph exceeds the budget, and the SMT pipeline
-    /// then runs unchanged — it can only add verdicts, never remove them. It is
+    /// When the graph exceeds the budget, a violation in its explored prefix still
+    /// stands (a real firing sequence, the shortest within the explored graph);
+    /// otherwise the route declines and the SMT pipeline then runs unchanged — it
+    /// can only add verdicts, never remove them, and a truncated graph never
+    /// proves anything. It is
     /// skipped for ν-nets, which have their own exact route ([NU-050], Route B),
     /// for nets with environment places, whose injection the graph does not
     /// model, and for **timed** nets, where its verdict would be the weaker timed
@@ -586,20 +620,99 @@ impl<'a> SmtVerifier<'a> {
     /// 3. Compute P-invariants
     /// 4. Encode as CHC and query Z3 Spacer
     /// 5. Format results
-    pub fn verify(mut self) -> VerificationResult {
+    pub fn verify(self) -> VerificationResult {
+        // [VER-013] total budget and cancellation: the deadline starts here, before
+        // any rewrite, so all of the call's work counts. Without either this is
+        // `None` and nothing below consults a deadline.
+        let _stop = total_budget::enter(self.total_budget_ms, self.cancel_token.clone());
+        // [CORE-037]: judged on the net as the caller built it, with the
+        // environment places the caller registered — the rewrites' arcs are the
+        // verifier's own, not the caller's.
+        let dead_arcs = self.dead_arc_lines();
+        self.with_arrivals(|verifier| verifier.verify_closed(&dead_arcs))
+    }
+
+    /// [VER-006] `Arrivals(k)`: closes the net over its environment places with
+    /// the [VER-022] arrival construction ([`close_arrivals`]) before any route,
+    /// and runs `f` on the closed net, which has no environment places. Any other
+    /// mode, or no environment place, runs `f` on `self` unchanged.
+    fn with_arrivals<R>(mut self, f: impl for<'b> FnOnce(SmtVerifier<'b>) -> R) -> R {
+        let (min, k) = match self.env_mode {
+            _ if self.env_places.is_empty() => return f(self),
+            EnvironmentAnalysisMode::Arrivals { max_tokens } => (0, max_tokens),
+            EnvironmentAnalysisMode::ArrivalsBetween { min_tokens, max_tokens } => {
+                if max_tokens < min_tokens {
+                    panic!(
+                        "EnvironmentAnalysisMode::ArrivalsBetween needs min_tokens <= max_tokens, \
+                         got {min_tokens}..{max_tokens} (VER-006)"
+                    );
+                }
+                (min_tokens, max_tokens)
+            }
+            _ => return f(self),
+        };
+        let injected = std::mem::take(&mut self.env_registration);
+        self.env_places.clear();
+        if k == 0 {
+            // Nothing is injected: the environment places are ordinary places.
+            self.arrivals = Some(ArrivalsApplied { min, k, injected: Vec::new() });
+            return f(self);
+        }
+        let closed = close_arrivals_between(self.net, &self.initial_marking, &injected, min, k);
+        let mut verifier = self.on_net(&closed.net);
+        verifier.initial_marking = closed.initial_marking.clone();
+        verifier.arrivals = Some(ArrivalsApplied { min, k, injected });
+        f(verifier)
+    }
+
+    /// [`verify`](Self::verify) after the [VER-006] `Arrivals(k)` rewrite, if any.
+    fn verify_closed(mut self, dead_arcs: &[String]) -> VerificationResult {
         // [VER-017]: the state-space cache is keyed on the net as the caller passed
-        // it, so the key is taken before the terminal rewrite below replaces it.
-        // The rewrite adds inhibitors only, so whether the route can apply is the
-        // same question on either net.
+        // it — closed under `Arrivals(k)`, whose sources hold `k` — so the key is
+        // taken before the terminal rewrite below replaces it. The rewrite adds
+        // inhibitors only, so whether the route can apply is the same question on
+        // either net.
         if self.state_space_cache.is_some() && self.enumeration_applies() {
             self.state_space_key = Some(StateSpaceKey::new(self.net, &self.initial_marking));
         }
+        // The inert places below are a function of that net and marking, so the key
+        // still determines the graph.
+        self.with_inert_places(|verifier| verifier.verify_terminals(dead_arcs))
+    }
+
+    /// [`verify_closed`](Self::verify_closed) after the inert-place rewrite.
+    fn verify_terminals(self, dead_arcs: &[String]) -> VerificationResult {
         // [EXEC-042] / [VER-014]: a net's own terminal places apply with no
-        // restatement by the caller. A net without them takes this branch and
-        // is verified exactly as before.
-        match inhibit_on_terminals(self.net) {
-            None => self.verify_net(),
-            Some(rewritten) => self.on_net(&rewritten).with_net_terminals().verify_net(),
+        // restatement by the caller. A net without them is verified exactly as
+        // before.
+        let rewritten = inhibit_on_terminals(self.net);
+        let verifier = match &rewritten {
+            None => {
+                let net = self.net;
+                self.on_net(net)
+            }
+            Some(rewritten) => self.on_net(rewritten).with_net_terminals(),
+        };
+        let timed = verifier.timed_check_setup();
+        let arrivals_line = verifier.arrivals.as_ref().map(ArrivalsApplied::report_line);
+        let result = verifier.verify_net();
+        finish(result, &timed, dead_arcs, arrivals_line.as_deref())
+    }
+
+    /// [CORE-072] / [VER-001]: runs `f` on the net plus one arc-less place for every
+    /// place the initial marking marks that the net does not declare. Such a place is
+    /// inert — its tokens are kept and nothing moves them — but it is a place of the
+    /// verified net: its token strands a quiescent marking, counts towards a bound and
+    /// is its own trivial P-invariant, and a property may name it ([VER-003] AC5).
+    /// Every route reads this one net; the flattener built its place list from the
+    /// declared places alone, so the SMT routes used to verify a different marking than
+    /// the enumeration did. A marking with no such place runs `f` on `self` unchanged,
+    /// so its scripts stay byte-identical. After the [VER-006] arrivals rewrite and
+    /// before the [EXEC-042] terminal rewrite, so a terminal excuses an inert place.
+    fn with_inert_places<R>(self, f: impl for<'b> FnOnce(SmtVerifier<'b>) -> R) -> R {
+        match inert_places_net(self.net, &self.initial_marking) {
+            None => f(self),
+            Some(net) => f(self.on_net(&net)),
         }
     }
 
@@ -631,8 +744,13 @@ impl<'a> SmtVerifier<'a> {
         let lookup = cache.lookup(key.clone(), budget, || {
             StateClassGraph::build(self.net, &self.initial_marking, budget)
         });
-        let decide = |graph: &StateClassGraph| {
-            scg_verifier::decide_over_state_space(
+        let decide = |graph: &StateClassGraph, as_prefix: bool| {
+            let read = if as_prefix {
+                scg_verifier::decide_over_prefix
+            } else {
+                scg_verifier::decide_over_state_space
+            };
+            read(
                 graph,
                 &self.initial_marking,
                 &self.property,
@@ -641,24 +759,39 @@ impl<'a> SmtVerifier<'a> {
             )
         };
         match lookup {
-            StateSpaceLookup::Built(graph) => (decide(&graph), None),
+            StateSpaceLookup::Built(graph) => (decide(&graph, false), None),
+            // Stopped while waiting on a concurrent build ([VER-013]).
+            StateSpaceLookup::Stopped => (ScgOutcome::Stopped { class_count: 0 }, None),
             StateSpaceLookup::Reused(graph) => {
                 let line = format!(
                     "Bounded state-space enumeration: reused cached state space ({} classes) \
                      (VER-017).\n",
                     graph.class_count()
                 );
-                (decide(&graph), Some(line))
+                (decide(&graph, false), Some(line))
             }
-            // The line names this query's budget, as the truncation line that
-            // follows it does, not the budget the cached truncation was found at.
-            StateSpaceLookup::Declined => {
-                let line = format!(
-                    "Bounded state-space enumeration: cached truncation at {budget} classes \
-                     (VER-017); verifying via the SMT pipeline.\n"
-                );
-                (ScgOutcome::Truncated { class_count: budget }, Some(line))
-            }
+            // The cached graph — a remembered truncation, or a closed graph larger
+            // than this budget — is read as an explored prefix ([VER-017]): a
+            // violation in it stands, nothing is proven from it. The line names
+            // this query's budget, as the truncation line that follows it does,
+            // not the budget the cached truncation was found at.
+            StateSpaceLookup::Declined(graph) => match decide(&graph, true) {
+                decided @ ScgOutcome::Decided { .. } => {
+                    let line = format!(
+                        "Bounded state-space enumeration: cached truncation at {budget} classes \
+                         (VER-017); its explored prefix ({} classes) was read.\n",
+                        graph.class_count()
+                    );
+                    (decided, Some(line))
+                }
+                _ => {
+                    let line = format!(
+                        "Bounded state-space enumeration: cached truncation at {budget} classes \
+                         (VER-017); verifying via the SMT pipeline.\n"
+                    );
+                    (ScgOutcome::Truncated { class_count: budget }, Some(line))
+                }
+            },
         }
     }
 
@@ -690,6 +823,11 @@ impl<'a> SmtVerifier<'a> {
             linear_bound: self.linear_bound,
             state_equation_phase: self.state_equation_phase,
             firing_bound: self.firing_bound,
+            total_budget_ms: self.total_budget_ms,
+            timed_counterexample_check: self.timed_counterexample_check,
+            cancel_token: self.cancel_token,
+            env_registration: self.env_registration,
+            arrivals: self.arrivals,
             #[cfg(test)]
             certificate_override: self.certificate_override,
             #[cfg(test)]
@@ -721,6 +859,20 @@ impl<'a> SmtVerifier<'a> {
     fn verify_net(self) -> VerificationResult {
         let start = Instant::now();
         let mut report = String::new();
+        // [VER-013]: step `$phase` on `$route`; `Unknown` once a total budget ran out.
+        let mut route = VerificationRoute::Unavailable;
+        macro_rules! step {
+            ($phase:expr, $route:expr, $stats:expr) => {
+                if total_budget::step($phase) {
+                    return budget_exhausted_result(&mut report, start, route, $stats);
+                }
+                route = $route;
+            };
+        }
+
+        // [VER-013]: a call cancelled before it started, or with its total budget
+        // already spent, returns the stop's reason before any other exit.
+        step!("net preparation", VerificationRoute::Unavailable, net_statistics(self.net));
 
         // Before ANY route. Each of them answers a property naming an absent place
         // vacuously — the ν name-partition graph and the enumeration graph find no
@@ -767,6 +919,20 @@ impl<'a> SmtVerifier<'a> {
             None => desc,
         };
 
+        // [NU-054]: BASE reads a join's coloured output as a re-mint whatever it
+        // declares, so a relay declaration changes nothing there. Say so, and name
+        // the mode that uses it.
+        if has_match && self.fragment_mode == FragmentMode::Base {
+            let ignored = relay_declarations(&self.net);
+            if !ignored.is_empty() {
+                report.push_str(&format!(
+                    "NOTE: ν relay declarations ignored under BASE fragment mode (NU-054): {}; \
+                     select fragment_mode(FragmentMode::Extended) to analyse the joins as relays.\n\n",
+                    ignored.join(", ")
+                ));
+            }
+        }
+
         // ν-net Route B ([NU-050]): the name-aware state-class-graph name-partition
         // quotient decides ν-join correlation EXACTLY — including name×time and
         // quiescence — without a budget. It "fills the gaps" the SMT / Route A path
@@ -777,6 +943,11 @@ impl<'a> SmtVerifier<'a> {
         // we fall through to the existing pipeline (which applies the sound Unknown
         // downgrade for these cases).
         if has_match && (!is_reachability_safety(&self.property) || !nu_bounded) {
+            step!(
+                "Route B (ν name-partition graph)",
+                VerificationRoute::NuScg,
+                net_statistics(self.net)
+            );
             let env_refs: Vec<&str> = self.env_places.iter().map(|s| s.as_str()).collect();
             let carrier_set: BTreeSet<String> = self.carrier_places.iter().cloned().collect();
             let quiescence_vacuous = self.quiescence_vacuous();
@@ -784,7 +955,20 @@ impl<'a> SmtVerifier<'a> {
             // inexhaustible input. A verdict that reads its count or its names would
             // be vacuous, so decline here; Route A and the flat path could only
             // return the same Unknown without the reason.
-            let declined = if self.env_places.is_empty() || self.ignores_environment() {
+            //
+            // [VER-006] AC10: under `Arrivals(k)` the net has no environment places
+            // left, but an injection transition feeding a coloured place would be
+            // read as a mint; decline by name, as for an environment place above.
+            let arrival_declined = self.coloured_arrival_reason().filter(|_| {
+                name_fragment::classify(self.net, self.fragment_mode, &carrier_set).is_some_and(
+                    |fragment| {
+                        fragment.coloured_order.iter().all(|p| self.initial_marking.count(p) == 0)
+                    },
+                )
+            });
+            let declined = if arrival_declined.is_some() {
+                arrival_declined
+            } else if self.env_places.is_empty() || self.ignores_environment() {
                 None
             } else {
                 name_fragment::classify(self.net, self.fragment_mode, &carrier_set).and_then(
@@ -908,8 +1092,8 @@ impl<'a> SmtVerifier<'a> {
                 report.push_str(
                     "ν-net Route B (EXTENDED) declined: net outside coloured-consumer fragment \
                      (a coloured place consumed count != 1 or by multiple inputs, carries a \
-                     reset/read/inhibitor arc, or a join re-mints a coloured place); verified via \
-                     sound over-approximation instead.\n",
+                     reset/read/inhibitor arc, or a join writes a coloured place it does not \
+                     declare as a relay target); verified via sound over-approximation instead.\n",
                 );
             }
         }
@@ -926,6 +1110,7 @@ impl<'a> SmtVerifier<'a> {
             && self.enumeration_max_classes > 0
             && scg_verifier::is_untimed(self.net)
         {
+            step!("state-space enumeration", VerificationRoute::Enumeration, net_statistics(self.net));
             let (enumerated, cache_line) = self.enumerate();
             match enumerated {
                 ScgOutcome::Decided {
@@ -933,6 +1118,7 @@ impl<'a> SmtVerifier<'a> {
                     trace,
                     transitions,
                     class_count,
+                    truncated,
                 } => {
                     let elapsed_ms = start.elapsed().as_millis() as u64;
                     if let Some(line) = &cache_line {
@@ -944,7 +1130,16 @@ impl<'a> SmtVerifier<'a> {
                     report.push_str(
                         "P-invariants: not computed (no encoding is built on this route)\n",
                     );
-                    report.push_str(scg_verifier::NOTE_ENUMERATED);
+                    if truncated {
+                        // [VER-017]: a violation in the explored prefix of a graph
+                        // that did not close.
+                        report.push_str(&scg_verifier::prefix_note(
+                            "state-class graph",
+                            self.enumeration_max_classes,
+                        ));
+                    } else {
+                        report.push_str(scg_verifier::NOTE_ENUMERATED);
+                    }
                     if !transitions.is_empty() {
                         report.push_str(&format!(
                             "Counterexample trace: {} states, {} transitions\n",
@@ -975,6 +1170,17 @@ impl<'a> SmtVerifier<'a> {
                         },
                     );
                 }
+                // The total budget or a cancellation stopped the build
+                // ([VER-013]), and the graph says nothing about the net.
+                ScgOutcome::Stopped { class_count } => {
+                    report.push_str(&format!(
+                        "Bounded state-space enumeration stopped after {class_count} classes by \
+                         {} (VER-013).\n",
+                        stop_cause()
+                    ));
+                    let stats = net_statistics(self.net);
+                    return budget_exhausted_result(&mut report, start, route, stats);
+                }
                 ScgOutcome::Truncated { .. } => {
                     if let Some(line) = &cache_line {
                         report.push_str(line);
@@ -989,6 +1195,7 @@ impl<'a> SmtVerifier<'a> {
         }
 
         // Phase 1: Flatten
+        step!("flattening", VerificationRoute::Smt, net_statistics(self.net));
         report.push_str("=== Phase 1: Net Flattening ===\n");
         let flat = net_flattener::flatten(self.net);
         report.push_str(&format!(
@@ -1022,6 +1229,11 @@ impl<'a> SmtVerifier<'a> {
             .iter()
             .filter_map(|(name, _)| flat.place_index.get(name).copied())
             .collect();
+
+        // [VER-013]: the siphon/trap search and the semiflow enumeration also poll
+        // the stop inside their loops; one that gives up early is caught by the
+        // next step, since the stop is sticky.
+        step!("structural pre-check", VerificationRoute::Smt, flat_statistics(&flat, 0, "n/a"));
 
         // Phase 2: Structural pre-check
         report.push_str("=== Phase 2: Structural Analysis ===\n");
@@ -1069,6 +1281,12 @@ impl<'a> SmtVerifier<'a> {
                 Diagnostics::none(),
             );
         }
+
+        step!(
+            "P-invariant computation",
+            VerificationRoute::Smt,
+            flat_statistics(&flat, 0, structural_str)
+        );
 
         // Phase 3: P-invariants
         report.push_str("=== Phase 3: P-Invariants ===\n");
@@ -1209,7 +1427,13 @@ no constraint the encoding does not already have; they may still differ in FORM)
         report.push_str(&format!("Property: {}\n", describe(property.description())));
 
         // [VER-013] One z3 process per query. Resolve the executable before any
-        // encoding work so a missing or too-old solver is reported as such.
+        // encoding work so a missing or too-old solver is reported as such. The
+        // `--version` probe is a process too: none starts once the total budget
+        // has run out.
+        if total_budget::cut() {
+            let stats = flat_statistics(&flat, invariants.len(), structural_str);
+            return budget_exhausted_result(&mut report, start, route, stats);
+        }
         let solver = match Z3Solver::resolve() {
             Ok(solver) => {
                 report.push_str(&format!("  Solver: z3 {}\n", solver.version()));
@@ -1256,6 +1480,11 @@ no constraint the encoding does not already have; they may still differ in FORM)
                 "  ν-encoding: name-blind over-approximation (the name-coloured encoding does not\n  model environment injection, VER-006)\n",
             );
         }
+        if has_match && nu_bounded {
+            if let Some(reason) = self.coloured_arrival_reason() {
+                report.push_str(&format!("  ν-encoding: name-blind over-approximation ({reason})\n"));
+            }
+        }
 
         // Flat path: a property naming a place outside the net would encode to a
         // vacuous violation predicate (`false` proves anything), and its linear
@@ -1287,15 +1516,21 @@ no constraint the encoding does not already have; they may still differ in FORM)
         // Linear state-equation bound ([VER-015]): a reachability-safety property
         // whose violating markings exceed some `y·M <= y·M0` with `y >= 0`,
         // `y·C <= 0` is proven structurally, without the fixpoint search — the
-        // ordering arguments IC3 does not invent on pipeline-shaped nets. Flat path
-        // only: a net on the exact name-coloured encoding keeps that route's verdict
-        // and notes. Skipped under `Ignore` with environment places, where VER-006
-        // refuses every `Proven`.
+        // ordering arguments IC3 does not invent on pipeline-shaped nets. Also on a
+        // net with a name-coloured plan, before that query ([NU-053]): the flat state
+        // equation is name-blind and over-approximates the ν semantics, so its
+        // `Proven` holds there too, and the coloured IC3 times out on bounds this
+        // proves in milliseconds (its slot count is a multiple of the budget). Not
+        // proven: the coloured query decides, with its verdict and notes. Skipped
+        // under `Ignore` with environment places, where VER-006 refuses every
+        // `Proven`. A property naming a place the net lacks never gets here: it is
+        // refused before any route ([VER-003] AC5).
         if self.linear_bound
-            && coloured_plan.is_none()
             && is_reachability_safety(&property)
             && !self.ignores_environment()
         {
+            let stats = flat_statistics(&flat, invariants.len(), structural_str);
+            step!("linear bound", VerificationRoute::Smt, stats);
             if let Some(rendered) =
                 self.linear_bound_proof(&flat, &property, &env_injection, &solver, &mut report)
             {
@@ -1352,17 +1587,21 @@ no constraint the encoding does not already have; they may still differ in FORM)
             structural_str,
             start,
         };
+        let stats = || flat_statistics(&flat, invariants.len(), structural_str);
         if flat_phases && self.state_equation_phase {
+            step!("state-equation phase", VerificationRoute::Smt, stats());
             if let Some(result) = self.state_equation_decision(&phase_context, &mut report) {
                 return result;
             }
         }
         if flat_phases && self.firing_bound {
+            step!("firing-bound phase", VerificationRoute::Smt, stats());
             if let Some(result) = self.firing_bound_decision(&phase_context, &mut report) {
                 return result;
             }
         }
 
+        step!("IC3/PDR query", VerificationRoute::Smt, stats());
         let encoding = if let Some(plan) = &coloured_plan {
             report.push_str(&format!(
                 "  ν-encoding: name-coloured (exact within budget k={}; {} coloured place(s))\n",
@@ -1447,6 +1686,10 @@ no constraint the encoding does not already have; they may still differ in FORM)
             &mut report,
         );
 
+        if verdict.is_proven() && coloured_plan.is_none() && self.certificate_check {
+            step!("certificate check", VerificationRoute::Smt, stats());
+        }
+        let _ = route; // the last step's route is not read again
         let verdict = self.certificate_phase(
             verdict,
             &flat,
@@ -1473,6 +1716,13 @@ no constraint the encoding does not already have; they may still differ in FORM)
             decoded_trace,
             &mut report,
         );
+
+        // [VER-003] AC7: a fixpoint `Violated` on the flat encodings is a claim
+        // about the untimed abstraction, as the pre-fixpoint witnesses say too.
+        if verdict.is_violated() && coloured_plan.is_none() {
+            report.push_str("\n  WARNING: This counterexample is in UNTIMED semantics.\n");
+            report.push_str("  It may be spurious if timing constraints prevent this sequence.\n");
+        }
 
         let elapsed_ms = start.elapsed().as_millis() as u64;
 
@@ -1510,12 +1760,17 @@ no constraint the encoding does not already have; they may still differ in FORM)
     /// [`SemiflowMode::Off`], which made the parity goldens able to pin something
     /// `verify()` never emits.
     pub fn encode_scripts(self) -> EncodedScripts {
-        // [EXEC-042]: the same rewrite `verify()` applies; none without terminals,
-        // so those scripts stay byte-identical ([EXEC-042] AC8).
-        match inhibit_on_terminals(self.net) {
-            None => self.encode_net_scripts(),
-            Some(rewritten) => self.on_net(&rewritten).with_net_terminals().encode_net_scripts(),
-        }
+        // [VER-006] and [EXEC-042]: the same rewrites `verify()` applies; none
+        // without `Arrivals(k)` or terminals, so those scripts stay byte-identical
+        // ([EXEC-042] AC8).
+        self.with_arrivals(|verifier| {
+            verifier.with_inert_places(|verifier| match inhibit_on_terminals(verifier.net) {
+                None => verifier.encode_net_scripts(),
+                Some(rewritten) => {
+                    verifier.on_net(&rewritten).with_net_terminals().encode_net_scripts()
+                }
+            })
+        })
     }
 
     fn encode_net_scripts(self) -> EncodedScripts {
@@ -1588,8 +1843,9 @@ no constraint the encoding does not already have; they may still differ in FORM)
             &sink_places,
             &env_injection,
         );
-        let bound = if attempt.is_none()
-            && self.linear_bound
+        // The linear bound query ([VER-015]) exactly when verify() would send it,
+        // before the coloured query on a net with a plan.
+        let bound = if self.linear_bound
             && !self.ignores_environment()
         {
             let env_inject = smt_encoder::resolve_env_injection(&flat, &env_injection);
@@ -1695,6 +1951,10 @@ no constraint the encoding does not already have; they may still differ in FORM)
         // places would stay empty and every verdict would describe the closed net.
         // Decline, so the flat encoding, which models injection, answers soundly.
         if !has_match || !nu_bounded || !env_injection.is_empty() {
+            return None;
+        }
+        // [VER-006] AC10: an arrival into a coloured place is not a mint.
+        if self.coloured_arrival_reason().is_some() {
             return None;
         }
         let plan = name_coloured_encoder::build_plan(
@@ -1810,8 +2070,32 @@ no constraint the encoding does not already have; they may still differ in FORM)
                 .iter()
                 .map(|n| (n.clone(), Some(*max_tokens)))
                 .collect(),
-            EnvironmentAnalysisMode::Ignore => Vec::new(),
+            // Rewritten away before any route ([VER-006]); never reached with
+            // environment places.
+            EnvironmentAnalysisMode::Ignore
+            | EnvironmentAnalysisMode::Arrivals { .. }
+            | EnvironmentAnalysisMode::ArrivalsBetween { .. } => Vec::new(),
         }
+    }
+
+    /// Why no ν route may decide this net ([VER-006] AC10), or `None`: under
+    /// `Arrivals(k)` an injection transition producing into a coloured place (a
+    /// match key or carrier) would be classified as a mint, making two arrivals
+    /// that may carry one name distinct — which can hide a reachable join, an
+    /// unsound `Proven`.
+    fn coloured_arrival_reason(&self) -> Option<String> {
+        let arrivals = self.arrivals.as_ref()?;
+        if arrivals.injected.is_empty() {
+            return None;
+        }
+        let carrier_set: BTreeSet<String> = self.carrier_places.iter().cloned().collect();
+        let fragment = name_fragment::classify(self.net, self.fragment_mode, &carrier_set)?;
+        let place = arrivals.injected.iter().find(|p| fragment.is_coloured(p))?;
+        Some(format!(
+            "environment place '{place}' carries ν-names (a match key or carrier place) and is fed \
+             by arrivals(k): an injected token's name is unknown, so an arrival is not a fresh mint; \
+             refusing to decide it by name (VER-006)"
+        ))
     }
 
     /// Whether no marking of the net can be quiescent under the modelled injection, so a
@@ -2513,6 +2797,8 @@ fn build_result(
         counterexample_trace: diagnostics.trace.trace,
         counterexample_transitions: diagnostics.trace.transitions,
         counterexample_confirmed: diagnostics.confirmed,
+        // Set once, by `finish`, after every route has spoken.
+        counterexample_timing: None,
         elapsed_ms,
         statistics,
     }
@@ -2623,6 +2909,20 @@ fn append_invariant_drop_report(report: &mut String, dropped: &[String], kind: &
 /// terminates-at-sink, joined-or-dead-lettered) are NOT reachability-safety: their violation
 /// involves the *absence* of enabled transitions, which the name-blind
 /// over-approximation distorts unsafely ([NU-050]).
+/// Every relay declaration of `net` as `'<transition> -> <place>'`, in transition
+/// then declaration order ([NU-054]) — what the BASE-mode report names as ignored.
+fn relay_declarations(net: &PetriNet) -> Vec<String> {
+    let mut out = Vec::new();
+    for t in net.transitions() {
+        if let Some(ms) = t.match_spec() {
+            for r in ms.relays() {
+                out.push(format!("'{}' -> '{}'", t.name(), r.place_name()));
+            }
+        }
+    }
+    out
+}
+
 fn is_reachability_safety(property: &SmtProperty) -> bool {
     match property {
         SmtProperty::PlaceBound { .. }
@@ -2634,90 +2934,6 @@ fn is_reachability_safety(property: &SmtProperty) -> bool {
         | SmtProperty::JoinedOrDeadLettered { .. }
         | SmtProperty::QuiescentCount { .. } => false,
     }
-}
-
-/// Why Route B ([NU-050]) must not answer under modelled injection ([VER-006] AC8), or
-/// `None` when it may. The name-partition graph supplies an environment place as an
-/// inexhaustible input: never consumed, its count frozen at the initial value plus
-/// outputs, and carrying no injected names. So a verdict that reads that count or
-/// those names can be a vacuous `Proven`. The rules run in a fixed order, each
-/// scanning places (outer) and transitions (inner) in code-point order of their names,
-/// so every implementation names the same culprit. `Ignore` never reaches here; the
-/// downgrade after Route B covers it.
-#[allow(clippy::too_many_arguments)]
-fn route_b_env_observation(
-    net: &PetriNet,
-    fragment: &NameFragment,
-    property: &SmtProperty,
-    sink_places: &[String],
-    conditional_sinks: &[ConditionalSinks],
-    env_places: &BTreeSet<String>,
-    priority_semantics: PrioritySemantics,
-    quiescence_vacuous: bool,
-) -> Option<String> {
-    // An environment name the net does not declare holds nothing to observe.
-    let declared: HashSet<&str> = net.places().iter().map(|p| p.name()).collect();
-    let env: BTreeSet<&str> = env_places
-        .iter()
-        .map(|s| s.as_str())
-        .filter(|p| declared.contains(p))
-        .collect();
-    let mut transitions: Vec<_> = net.transitions().iter().collect();
-    transitions.sort_by(|a, b| a.name().cmp(b.name()));
-    let refuse = |place: &str, why: &str| {
-        Some(format!(
-            "environment place '{place}' {why}; the name-partition state-class graph \
-             (NU-050, Route B) models an environment place only as an inexhaustible input, \
-             not its token count or the names injected into it; refusing to certify (VER-006)"
-        ))
-    };
-
-    // 1. Coloured: the graph carries no names into it.
-    if let Some(p) = env.iter().find(|p| fragment.is_coloured(p)) {
-        return refuse(p, "carries ν-names (a match key or carrier place)");
-    }
-    // 2. Inhibitor: tests the frozen count.
-    for p in &env {
-        if let Some(t) = transitions
-            .iter()
-            .find(|t| t.inhibitors().iter().any(|i| i.place.name() == *p))
-        {
-            return refuse(p, &format!("is tested by an inhibitor arc of transition '{}'", t.name()));
-        }
-    }
-    // 3. Conflict pruning compares enablement against the frozen count.
-    if priority_semantics == PrioritySemantics::Conflict {
-        for p in &env {
-            let consumers = transitions
-                .iter()
-                .filter(|t| t.input_specs().iter().any(|s| s.place_name() == *p))
-                .count();
-            if consumers >= 2 {
-                return refuse(p, "is a consumed input shared under conflict priority");
-            }
-        }
-    }
-    // 4. The property reads it. A vacuous quiescence property reads nothing.
-    let observed: BTreeSet<&str> = if is_reachability_safety(property) {
-        property_place_names(property).into_iter().map(|s| s.as_str()).collect()
-    } else if quiescence_vacuous {
-        BTreeSet::new()
-    } else {
-        match property {
-            SmtProperty::DeadlockFree => env
-                .iter()
-                .copied()
-                .filter(|p| !sink_places.iter().any(|s| s == p))
-                .chain(conditional_sinks.iter().map(|c| c.marker.as_str()))
-                .collect(),
-            SmtProperty::TerminatesAtSink => sink_places.iter().map(|s| s.as_str()).collect(),
-            _ => property_place_names(property).into_iter().map(|s| s.as_str()).collect(),
-        }
-    };
-    if let Some(p) = env.iter().find(|p| observed.contains(*p)) {
-        return refuse(p, "is read by the property");
-    }
-    None
 }
 
 /// ν-net soundness guard ([NU-040], [NU-050]). Applied only when the net
@@ -2908,14 +3124,6 @@ pub(crate) fn sexpr_end(s: &str, start: usize) -> Option<usize> {
     None
 }
 
-/// True if a usable `z3` executable resolves: `LIBPETRI_Z3` if set, else `z3`
-/// on `PATH`, at or above [`crate::z3_process::MIN_Z3_VERSION`]. Without one
-/// every SMT path returns `Unknown`; the test suites use this to skip loudly
-/// rather than fail.
-pub fn z3_available() -> bool {
-    Z3Solver::resolve().is_ok()
-}
-
 /// The given place names in flat place-index order, unknown names last in
 /// name order, duplicates removed ([VER-013] script determinism).
 fn canonical_place_order(flat: &FlatNet, names: &[String]) -> Vec<String> {
@@ -2977,6 +3185,29 @@ fn property_place_names(property: &SmtProperty) -> Vec<&String> {
             places, waived_by, ..
         } => places.iter().chain(waived_by.iter()).collect(),
     }
+}
+
+/// `net` plus an arc-less place for each place `marking` marks that `net` does not
+/// declare, after the declared places and in the order the marking lists them; `None`
+/// when there is none. Terminals carry over. See [`SmtVerifier::with_inert_places`].
+fn inert_places_net(net: &PetriNet, marking: &MarkingState) -> Option<PetriNet> {
+    let declared: HashSet<&str> = net.places().iter().map(|p| p.name()).collect();
+    let inert: Vec<PlaceRef> = marking
+        .places()
+        .filter(|(p, _)| !declared.contains(p))
+        .map(|(p, _)| PlaceRef::new(p))
+        .collect();
+    if inert.is_empty() {
+        return None;
+    }
+    Some(
+        PetriNet::builder(net.name())
+            .places(net.places().iter().cloned())
+            .places(inert)
+            .transitions(net.transitions().iter().cloned())
+            .terminals(net.terminals().iter().cloned())
+            .build(),
+    )
 }
 
 /// The first place the property names that the NET does not declare, or `None`.
@@ -3100,9 +3331,498 @@ fn process_z3_result(
     }
 }
 
+/// True if a usable `z3` executable resolves: `LIBPETRI_Z3` if set, else `z3`
+/// on `PATH`, at or above [`crate::z3_process::MIN_Z3_VERSION`]. Without one
+/// every SMT path returns `Unknown`; the test suites use this to skip loudly
+/// rather than fail.
+pub fn z3_available() -> bool {
+    Z3Solver::resolve().is_ok()
+}
+
+/// Why Route B ([NU-050]) must not answer under modelled injection ([VER-006] AC8), or
+/// `None` when it may. The name-partition graph supplies an environment place as an
+/// inexhaustible input: never consumed, its count frozen at the initial value plus
+/// outputs, and carrying no injected names. So a verdict that reads that count or
+/// those names can be a vacuous `Proven`. The rules run in a fixed order, each
+/// scanning places (outer) and transitions (inner) in code-point order of their names,
+/// so every implementation names the same culprit. `Ignore` never reaches here; the
+/// downgrade after Route B covers it.
+#[allow(clippy::too_many_arguments)]
+fn route_b_env_observation(
+    net: &PetriNet,
+    fragment: &NameFragment,
+    property: &SmtProperty,
+    sink_places: &[String],
+    conditional_sinks: &[ConditionalSinks],
+    env_places: &BTreeSet<String>,
+    priority_semantics: PrioritySemantics,
+    quiescence_vacuous: bool,
+) -> Option<String> {
+    // An environment name the net does not declare holds nothing to observe.
+    let declared: HashSet<&str> = net.places().iter().map(|p| p.name()).collect();
+    let env: BTreeSet<&str> = env_places
+        .iter()
+        .map(|s| s.as_str())
+        .filter(|p| declared.contains(p))
+        .collect();
+    let mut transitions: Vec<_> = net.transitions().iter().collect();
+    transitions.sort_by(|a, b| a.name().cmp(b.name()));
+    let refuse = |place: &str, why: &str| {
+        Some(format!(
+            "environment place '{place}' {why}; the name-partition state-class graph \
+             (NU-050, Route B) models an environment place only as an inexhaustible input, \
+             not its token count or the names injected into it; refusing to certify (VER-006)"
+        ))
+    };
+
+    // 1. Coloured: the graph carries no names into it.
+    if let Some(p) = env.iter().find(|p| fragment.is_coloured(p)) {
+        return refuse(p, "carries ν-names (a match key or carrier place)");
+    }
+    // 2. Inhibitor: tests the frozen count.
+    for p in &env {
+        if let Some(t) = transitions
+            .iter()
+            .find(|t| t.inhibitors().iter().any(|i| i.place.name() == *p))
+        {
+            return refuse(p, &format!("is tested by an inhibitor arc of transition '{}'", t.name()));
+        }
+    }
+    // 3. Conflict pruning compares enablement against the frozen count.
+    if priority_semantics == PrioritySemantics::Conflict {
+        for p in &env {
+            let consumers = transitions
+                .iter()
+                .filter(|t| t.input_specs().iter().any(|s| s.place_name() == *p))
+                .count();
+            if consumers >= 2 {
+                return refuse(p, "is a consumed input shared under conflict priority");
+            }
+        }
+    }
+    // 4. The property reads it. A vacuous quiescence property reads nothing.
+    let observed: BTreeSet<&str> = if is_reachability_safety(property) {
+        property_place_names(property).into_iter().map(|s| s.as_str()).collect()
+    } else if quiescence_vacuous {
+        BTreeSet::new()
+    } else {
+        match property {
+            SmtProperty::DeadlockFree => env
+                .iter()
+                .copied()
+                .filter(|p| !sink_places.iter().any(|s| s == p))
+                .chain(conditional_sinks.iter().map(|c| c.marker.as_str()))
+                .collect(),
+            SmtProperty::TerminatesAtSink => sink_places.iter().map(|s| s.as_str()).collect(),
+            _ => property_place_names(property).into_iter().map(|s| s.as_str()).collect(),
+        }
+    };
+    if let Some(p) = env.iter().find(|p| observed.contains(*p)) {
+        return refuse(p, "is read by the property");
+    }
+    None
+}
+
+impl<'a> SmtVerifier<'a> {
+    /// Caps the whole [`verify`](Self::verify) call at `ms` milliseconds of wall
+    /// clock ([VER-013]; default: no cap, and then nothing changes).
+    ///
+    /// [`timeout`](Self::timeout) stays the budget of **one** z3 process, but it
+    /// is granted afresh to every phase — the bound query, the state-equation
+    /// phase and its certificate check, the firing bound, the HORN query and its
+    /// certificate check come to about 7.5 timeouts — and the solver-free work
+    /// (the enumeration route, Route B, the timed check of
+    /// [`timed_counterexample_check`](Self::timed_counterexample_check)) has no
+    /// timeout at all. With a total budget the deadline starts when `verify()` is
+    /// entered, before the terminal rewrite; every z3 process gets
+    /// `min(its budget, what is left)` and none starts once nothing is; the graph
+    /// builds poll the deadline once per class; and the siphon/trap search and
+    /// the semiflow enumeration poll it inside their loops and give up without a
+    /// result once it has passed. When the deadline passes before a verdict
+    /// is reached the verdict is `Unknown` with the reason
+    /// `total verification budget of <N> ms exhausted during <phase>`, and the
+    /// report carries the same line; a verdict reached in time stands. A graph
+    /// build the deadline cut short is not recorded in a
+    /// [`StateSpaceCache`] as a truncation.
+    ///
+    /// Under a total budget the HORN query no longer keeps its full timeout
+    /// after the [VER-018] and [VER-019] phases: it gets what they left.
+    pub fn total_budget(mut self, ms: u64) -> Self {
+        self.total_budget_ms = Some(ms);
+        self
+    }
+
+    /// Lets the caller stop [`verify`](Self::verify) from outside it ([VER-013];
+    /// default: none). Keep a clone of `token` and call
+    /// [`CancelToken::cancel`] from any thread.
+    ///
+    /// Cancellation is the [`total_budget`](Self::total_budget)'s stop with a
+    /// different trigger, and works with or without a budget: everything that
+    /// polls the deadline — the clamp before each z3 process, the graph builds,
+    /// the siphon/trap search and the semiflow enumeration, the start of each
+    /// step — sees it at the same points, and a z3 process running when it
+    /// comes is killed and reaped at once, not left to its timeout. No further
+    /// process starts. The verdict is `Unknown` with the reason
+    /// `verification cancelled during <phase>`, and the report carries the same
+    /// line; a verdict reached before cancellation stands. A token cancelled
+    /// before the call returns at once, during `net preparation`. When a total
+    /// budget is also set, whichever stop comes first names the reason. A graph
+    /// build cancellation stopped is not recorded in a [`StateSpaceCache`].
+    pub fn cancel_token(mut self, token: &CancelToken) -> Self {
+        self.cancel_token = Some(token.clone());
+        self
+    }
+
+    /// Checks a `Violated` on a timed net against the **timed** state-class graph
+    /// ([VER-023]; default: off).
+    ///
+    /// The encoders decide the untimed abstraction ([VER-004]), so on a timed net
+    /// a counterexample may be a run the timing forbids — a call answering
+    /// within `window(0, 2)` raced by a `delayed(5)` watchdog never times out, yet
+    /// `unreachable(TIMEOUT)` is `Violated`. With the check on, a `Violated` on a
+    /// timed net with no environment places and no match transitions (the graph
+    /// is name-blind), not already decided by Route B, is re-asked of the timed
+    /// graph of the same net, initial marking and terminal rewrite, under
+    /// [`enumeration_max_classes`](Self::enumeration_max_classes) classes and the
+    /// [`total_budget`](Self::total_budget), with the same predicate, sinks and
+    /// conditional sinks the graph routes use.
+    /// [`VerificationResult::counterexample_timing`] then reports
+    /// [`CounterexampleTiming::TimedConfirmed`] (the trace is replaced by the
+    /// timed graph's shortest path), [`CounterexampleTiming::SpuriousUnderTiming`]
+    /// (the graph closed with no violation: the property holds under timing) or
+    /// [`CounterexampleTiming::TimedUndecided`]. **The verdict never changes**:
+    /// the untimed claim is the contract, and a closed timed graph only
+    /// establishes the weaker, timed one. The check reads and writes no
+    /// [`StateSpaceCache`].
+    pub fn timed_counterexample_check(mut self, enabled: bool) -> Self {
+        self.timed_counterexample_check = enabled;
+        self
+    }
+
+    /// The [CORE-037] report lines: one `WARNING:` line per dead read, inhibitor
+    /// or reset arc, judged against this verification's initial marking and
+    /// environment places.
+    fn dead_arc_lines(&self) -> Vec<String> {
+        libpetri_core::dead_arcs::dead_arcs(
+            self.net,
+            |p| self.env_places.contains(p),
+            |p| self.initial_marking.count(p) > 0,
+        )
+        .iter()
+        .map(|d| format!("WARNING: {}\n", d.message()))
+        .collect()
+    }
+
+    /// What the end-of-`verify()` wrapper needs to classify a `Violated`
+    /// ([VER-003]) and run the timed check ([VER-023]) on the same net, initial
+    /// marking, property and sinks the routes used — after the terminal
+    /// rewrite, so the check sees the net they saw.
+    fn timed_check_setup(&self) -> TimedCheckSetup<'a> {
+        TimedCheckSetup {
+            net: self.net,
+            initial_marking: self.initial_marking.clone(),
+            property: self.property.clone(),
+            sink_places: self.sink_places.clone(),
+            conditional_sinks: self.conditional_sinks.clone(),
+            max_classes: self.enumeration_max_classes,
+            enabled: self.timed_counterexample_check,
+            untimed: scg_verifier::is_untimed(self.net),
+            has_environment: !self.env_places.is_empty(),
+            has_match: self.net.transitions().iter().any(|t| t.match_spec().is_some()),
+        }
+    }
+}
+
+/// The `Arrivals(k)` rewrite a verification applied ([VER-006]).
+struct ArrivalsApplied {
+    /// The mandatory arrivals per environment place: `0` under `Arrivals(k)`.
+    min: usize,
+    k: usize,
+    /// The environment places it feeds, in registration order; empty for `k = 0`.
+    injected: Vec<String>,
+}
+
+impl ArrivalsApplied {
+    /// The report line saying the net was closed, and how.
+    fn report_line(&self) -> String {
+        if self.injected.is_empty() {
+            return "Environment: arrivals(0) — nothing is injected; the environment places are \
+                    ordinary places (VER-006)"
+                .to_string();
+        }
+        let (min, k) = (self.min, self.k);
+        if min == 0 {
+            let parts: Vec<String> = self
+                .injected
+                .iter()
+                .enumerate()
+                .map(|(i, p)| format!("env:arrive?[{i}]:{p} from env:optional[{i}] (at most {k})"))
+                .collect();
+            return format!(
+                "Environment: arrivals({k}) — net closed before any route: {} (VER-006)",
+                parts.join(", ")
+            );
+        }
+        let mut parts: Vec<String> = Vec::new();
+        for (i, p) in self.injected.iter().enumerate() {
+            parts.push(format!("env:arrive[{i}]:{p} from env:arrivals[{i}] (exactly {min})"));
+            if k > min {
+                parts.push(format!(
+                    "env:arrive?[{i}]:{p} from env:optional[{i}] (at most {})",
+                    k - min
+                ));
+            }
+        }
+        format!(
+            "Environment: arrivals({min}..{k}) — net closed before any route: {} (VER-006)",
+            parts.join(", ")
+        )
+    }
+}
+
+/// See [`SmtVerifier::timed_check_setup`].
+struct TimedCheckSetup<'n> {
+    net: &'n PetriNet,
+    initial_marking: MarkingState,
+    property: SmtProperty,
+    sink_places: Vec<String>,
+    conditional_sinks: Vec<ConditionalSinks>,
+    max_classes: usize,
+    enabled: bool,
+    untimed: bool,
+    has_environment: bool,
+    has_match: bool,
+}
+
+/// The end of every `verify()` call, whichever route answered — one wrapper,
+/// like the ν guard, so no exit can skip it:
+///
+/// 1. a `Violated` gets its [`CounterexampleTiming`] ([VER-003]), running the
+///    timed check of [VER-023] when it is on and applies;
+/// 2. an `Unknown` reached after the total budget ran out says so ([VER-013]);
+/// 3. the [CORE-037] dead-arc warnings open the report.
+///
+/// None of it changes a verdict that was reached.
+fn finish(
+    mut result: VerificationResult,
+    setup: &TimedCheckSetup<'_>,
+    dead_arcs: &[String],
+    arrivals_line: Option<&str>,
+) -> VerificationResult {
+    if result.verdict.is_violated() {
+        let timing = if setup.untimed {
+            CounterexampleTiming::UntimedNet
+        } else if result.route == VerificationRoute::NuScg {
+            CounterexampleTiming::TimedExact
+        } else if !setup.enabled || setup.has_environment || setup.has_match {
+            // The graph models no injection ([VER-006]) and is name-blind, so on
+            // those nets neither its violation nor its closure would mean
+            // anything ([VER-023] conditions 2 and 3).
+            CounterexampleTiming::UntimedAbstraction
+        } else {
+            timed_counterexample_check(&mut result, setup)
+        };
+        result.counterexample_timing = Some(timing);
+    }
+    if let Verdict::Unknown { reason } = &result.verdict {
+        if let Some(stopped) = total_budget::stopped_reason() {
+            if *reason != stopped {
+                result
+                    .report
+                    .push_str(&format!("\n=== RESULT ===\n\nUNKNOWN: {stopped}\n"));
+                result.verdict = Verdict::Unknown { reason: stopped };
+            }
+        }
+    }
+    // The report opens with the total budget, when one is set ([VER-013]), the
+    // `Arrivals(k)` closure ([VER-006]), and the dead-arc warnings of [CORE-037],
+    // read off the net as the caller passed it.
+    let mut head = String::new();
+    if let Some(ms) = total_budget::budget_ms() {
+        head.push_str(&format!("Total budget: {ms} ms\n"));
+    }
+    if let Some(line) = arrivals_line {
+        head.push_str(line);
+        head.push_str("\n\n");
+    }
+    if !dead_arcs.is_empty() {
+        head.push_str(&dead_arcs.concat());
+        head.push('\n');
+    }
+    result.report.insert_str(0, &head);
+    result
+}
+
+/// The timed check of [VER-023]: the **timed** state-class graph of the net the
+/// routes verified, decided by the same predicate ([`scg_verifier::decide_over_state_space`],
+/// i.e. [`crate::graph_decision::decide_over_classes`]) with the same sinks.
+/// Annotates only: the verdict stays `Violated` whatever it finds. Uses no
+/// state-space cache, which holds untimed graphs.
+///
+/// A class of the timed graph has no successor exactly when no transition is
+/// enabled in it: whatever its interval — `delayed(5)` is `[5, ∞)` — an enabled
+/// transition with the smallest latest firing time can always fire, so the
+/// quiescence properties read the same on the timed graph as on the untimed one.
+fn timed_counterexample_check(
+    result: &mut VerificationResult,
+    setup: &TimedCheckSetup<'_>,
+) -> CounterexampleTiming {
+    let graph = StateClassGraph::build_with_options(
+        setup.net,
+        &setup.initial_marking,
+        setup.max_classes,
+        &[],
+        &EnvironmentAnalysisMode::Ignore,
+        StateClassGraphOptions { untimed: false },
+    );
+    let outcome = scg_verifier::decide_over_state_space(
+        &graph,
+        &setup.initial_marking,
+        &setup.property,
+        &setup.sink_places,
+        &setup.conditional_sinks,
+    );
+    let report = &mut result.report;
+    report.push_str("\n=== Timed counterexample check (VER-023) ===\n");
+    match outcome {
+        // The total budget or a cancellation stopped the build ([VER-013]).
+        ScgOutcome::Stopped { .. } => {
+            if total_budget::stopped_by() == Some(total_budget::Stop::Cancelled) {
+                report.push_str(
+                    "  UNDECIDED: verification was cancelled before the timed state-class graph \
+                     closed.\n",
+                );
+            } else {
+                report.push_str(&format!(
+                    "  UNDECIDED: the total verification budget of {} ms ran out before the timed \
+                     state-class graph closed.\n",
+                    total_budget::budget_ms().unwrap_or(0)
+                ));
+            }
+            CounterexampleTiming::TimedUndecided
+        }
+        ScgOutcome::Truncated { .. } => {
+            report.push_str(&format!(
+                "  UNDECIDED: the timed state-class graph exceeded {} classes \
+                 (enumeration_max_classes).\n",
+                setup.max_classes
+            ));
+            CounterexampleTiming::TimedUndecided
+        }
+        ScgOutcome::Decided {
+            verdict: Verdict::Violated,
+            trace,
+            transitions,
+            class_count,
+            truncated,
+        } => {
+            report.push_str(&format!("  Timed state classes: {class_count}\n"));
+            if truncated {
+                // [VER-023]: a violation in the explored prefix of a truncated
+                // timed graph is a run of the timed semantics (priority-blind),
+                // not necessarily one the executor takes.
+                report.push_str(&format!(
+                    "  CONFIRMED: the timed state-class graph, truncated at {} classes \
+                     (enumeration_max_classes), reaches a violating class in its explored \
+                     prefix.\n",
+                    setup.max_classes
+                ));
+            } else {
+                report.push_str(
+                    "  CONFIRMED: the timed state-class graph reaches a violating class.\n",
+                );
+            }
+            report.push_str(
+                "  The counterexample trace and firing sequence of this result are REPLACED by the \
+                 shortest timed-graph path:\n",
+            );
+            report.push_str(&format!(
+                "  Counterexample trace (timed, {} states):\n",
+                trace.len()
+            ));
+            for (i, marking) in trace.iter().enumerate() {
+                report.push_str(&format!("    {i}: {}\n", render_marking(marking)));
+            }
+            if !transitions.is_empty() {
+                report.push_str(&format!("  Firing sequence: {}\n", transitions.join(" -> ")));
+            }
+            // The graph path is an ordered firing sequence: confirmed, as on the
+            // enumeration route.
+            result.counterexample_trace = trace;
+            result.counterexample_transitions = transitions;
+            result.counterexample_confirmed = Some(true);
+            CounterexampleTiming::TimedConfirmed
+        }
+        ScgOutcome::Decided { class_count, .. } => {
+            report.push_str(&format!("  Timed state classes: {class_count}\n"));
+            report.push_str(&format!(
+                "  SPURIOUS UNDER TIMING: the timed state-class graph closed with {class_count} \
+                 classes and none of them violates the property, so it holds under the net's \
+                 timing — a timed claim only.\n"
+            ));
+            report.push_str(
+                "  The verdict stays VIOLATED: the untimed semantics is the contract (VER-004). \
+                 The untimed counterexample above is kept.\n",
+            );
+            CounterexampleTiming::SpuriousUnderTiming
+        }
+    }
+}
+
+/// `{a:1, b:2}`: the marked places in name order, as TypeScript's
+/// `MarkingState.toString` prints a timed-graph trace.
+fn render_marking(marking: &MarkingState) -> String {
+    let mut entries: Vec<(&str, usize)> = marking.places().filter(|&(_, n)| n > 0).collect();
+    entries.sort_unstable();
+    let entries: Vec<String> = entries.iter().map(|(p, n)| format!("{p}:{n}")).collect();
+    format!("{{{}}}", entries.join(", "))
+}
+
+/// What stopped the verification, as a report line names it ([VER-013]).
+fn stop_cause() -> &'static str {
+    match total_budget::stopped_by() {
+        Some(total_budget::Stop::Cancelled) => "cancellation",
+        _ => "the total verification budget",
+    }
+}
+
+/// Statistics of the net as given — the shape of an exit before flattening.
+fn net_statistics(net: &PetriNet) -> VerificationStatistics {
+    VerificationStatistics {
+        places: net.places().len(),
+        transitions: net.transitions().len(),
+        invariants_found: 0,
+        structural_result: "n/a (total verification budget exhausted)".into(),
+    }
+}
+
+/// The `Unknown` a step returns when the total budget ([VER-013]) has run out
+/// before it could start. The reason names the step that found it spent.
+fn budget_exhausted_result(
+    report: &mut String,
+    start: Instant,
+    route: VerificationRoute,
+    statistics: VerificationStatistics,
+) -> VerificationResult {
+    let reason = total_budget::stopped_reason()
+        .unwrap_or_else(|| "total verification budget exhausted".to_string());
+    report.push_str(&format!("\n=== RESULT ===\n\nUNKNOWN: {reason}\n"));
+    let elapsed_ms = start.elapsed().as_millis() as u64;
+    report.push_str(&format!("\nElapsed: {elapsed_ms}ms\n"));
+    build_result(
+        Verdict::Unknown { reason },
+        route,
+        std::mem::take(report),
+        elapsed_ms,
+        statistics,
+        Diagnostics::none(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::environment::arrivals_between;
     use crate::marking_state::MarkingStateBuilder;
     use libpetri_core::action::fork;
     use libpetri_core::input::{all, exactly, one};
@@ -3414,6 +4134,156 @@ mod tests {
             other => panic!("expected the refusal, got {other:?}\n{}", result.report),
         }
         assert!(result.counterexample_confirmed.is_none());
+    }
+
+    /// `t: c -> d`, sink `d`, and a token on `a`, which no arc names and the net does
+    /// not declare ([CORE-072]: inert). `a` strands the quiescent initial marking.
+    fn stray_token_net() -> (PetriNet, MarkingState) {
+        let c = Place::<i32>::new("c");
+        let d = Place::<i32>::new("d");
+        let t = Transition::builder("t").input(one(&c)).output(out_place(&d)).action(fork()).build();
+        let net = PetriNet::builder("stray").transition(t).build();
+        (net, MarkingStateBuilder::new().tokens("a", 1).build())
+    }
+
+    #[test]
+    fn an_undeclared_marked_place_is_an_inert_place_and_its_own_p_invariant() {
+        let (net, m0) = stray_token_net();
+        assert!(inert_places_net(&net, &MarkingStateBuilder::new().tokens("c", 1).build()).is_none());
+        let inert = inert_places_net(&net, &m0).expect("`a` is undeclared and marked");
+        let names: Vec<&str> = inert.places().iter().map(|p| p.name()).collect();
+        assert_eq!(names, ["c", "d", "a"]);
+        let flat = net_flattener::flatten(&inert);
+        let ia = flat.place_index["a"];
+        assert!(flat.transitions.iter().all(|t| t.pre[ia] == 0 && t.post[ia] == 0));
+        let matrix = IncidenceMatrix::from_flat_net(&flat, &[]);
+        let invariants = p_invariant::compute_p_invariants(&matrix, &m0, &flat.places);
+        assert!(
+            invariants.iter().any(|inv| inv.support == [ia] && inv.constant == 1),
+            "{invariants:?}"
+        );
+    }
+
+    /// [VER-013]: the inert place joins the net, so the flattener indexes it by name
+    /// with the declared ones (`a < c < d`) — the order TS and Java emit.
+    #[test]
+    fn an_inert_place_is_indexed_in_name_order_in_the_scripts() {
+        let (net, m0) = stray_token_net();
+        let scripts = SmtVerifier::for_net(&net)
+            .initial_marking(m0)
+            .property(SmtProperty::deadlock_free())
+            .sink_places(["d".to_string()])
+            .encode_scripts();
+        if let Ok(path) = std::env::var("LIBPETRI_STRAY_HORN_OUT") {
+            std::fs::write(path, &scripts.horn).unwrap();
+        }
+        // m0 = a, m1 = c, m2 = d; `a` is its own P-invariant, `a = 1`.
+        assert!(scripts.horn.contains("(assert (Reachable 1 0 0))"), "{}", scripts.horn);
+        assert!(scripts.horn.contains("(= (* 1 m0p) 1)"), "{}", scripts.horn);
+    }
+
+    #[test]
+    fn route_b_sees_an_inert_marked_place() {
+        if !z3_available() {
+            eprintln!("skipping route_b_sees_an_inert_marked_place: no z3");
+            return;
+        }
+        let net = nu_scatter_gather_net();
+        let run = |m0: MarkingState| {
+            SmtVerifier::for_net(&net)
+                .initial_marking(m0)
+                .property(SmtProperty::DeadlockFree)
+                .sink_places(["merged".to_string(), "budget".to_string()])
+                .verify()
+        };
+        let clean = run(nu_initial_marking(1));
+        assert!(matches!(clean.verdict, Verdict::Proven { .. }), "{}", clean.report);
+        assert_eq!(clean.route, VerificationRoute::NuScg, "{}", clean.report);
+        let dirty = run(MarkingStateBuilder::new()
+            .tokens("source", 3)
+            .tokens("budget", 1)
+            .tokens("a", 1)
+            .build());
+        assert!(matches!(dirty.verdict, Verdict::Violated), "{}", dirty.report);
+        assert_eq!(dirty.route, VerificationRoute::NuScg, "{}", dirty.report);
+    }
+
+    #[test]
+    fn an_undeclared_marked_place_is_inert_on_every_route() {
+        if !z3_available() {
+            eprintln!("skipping an_undeclared_marked_place_is_inert_on_every_route: no z3");
+            return;
+        }
+        let (net, m0) = stray_token_net();
+        // Budget 0 skips the enumeration, budget 1 truncates it, the default decides it:
+        // one verdict whichever route answers.
+        for budget in [0, 1, 50_000] {
+            let deadlock = SmtVerifier::for_net(&net)
+                .initial_marking(m0.clone())
+                .property(SmtProperty::deadlock_free())
+                .sink_places(["d".to_string()])
+                .enumeration_max_classes(budget)
+                .verify();
+            assert!(
+                matches!(deadlock.verdict, Verdict::Violated),
+                "budget {budget}: {:?}\n{}",
+                deadlock.verdict,
+                deadlock.report
+            );
+            // [VER-003] AC5: a place the marking marks may be named.
+            let bound = SmtVerifier::for_net(&net)
+                .initial_marking(m0.clone())
+                .property(SmtProperty::place_bound("a", 0))
+                .enumeration_max_classes(budget)
+                .verify();
+            assert!(
+                matches!(bound.verdict, Verdict::Violated),
+                "budget {budget}: {:?}\n{}",
+                bound.verdict,
+                bound.report
+            );
+        }
+        // Without the stray token the same net is unchanged: it cannot deadlock off-sink.
+        for budget in [0, 50_000] {
+            let clean = SmtVerifier::for_net(&net)
+                .initial_marking(MarkingStateBuilder::new().tokens("c", 1).build())
+                .property(SmtProperty::deadlock_free())
+                .sink_places(["d".to_string()])
+                .enumeration_max_classes(budget)
+                .verify();
+            assert!(
+                matches!(clean.verdict, Verdict::Proven { .. }),
+                "budget {budget}: {:?}\n{}",
+                clean.verdict,
+                clean.report
+            );
+        }
+    }
+
+    #[test]
+    fn a_terminal_excuses_an_inert_marked_place() {
+        if !z3_available() {
+            eprintln!("skipping a_terminal_excuses_an_inert_marked_place: no z3");
+            return;
+        }
+        // [EXEC-042]: a marked terminal excuses every place, the inert `a` included.
+        let c = Place::<i32>::new("c");
+        let d = Place::<i32>::new("d");
+        let t = Transition::builder("t").input(one(&c)).output(out_place(&d)).action(fork()).build();
+        let net = PetriNet::builder("stray").transition(t).terminal(&d).build();
+        for budget in [0, 50_000] {
+            let result = SmtVerifier::for_net(&net)
+                .initial_marking(MarkingStateBuilder::new().tokens("c", 1).tokens("a", 1).build())
+                .property(SmtProperty::deadlock_free())
+                .enumeration_max_classes(budget)
+                .verify();
+            assert!(
+                matches!(result.verdict, Verdict::Proven { .. }),
+                "budget {budget}: {:?}\n{}",
+                result.verdict,
+                result.report
+            );
+        }
     }
 
     #[test]
@@ -4619,6 +5489,8 @@ mod tests {
             .initial_marking(nu_initial_marking(2))
             .property(SmtProperty::branch_place_bound("pending", 2))
             .budget_place("budget")
+            // The [VER-015] linear bound would prove it first, before the coloured query.
+            .linear_bound(false)
             .timeout(15_000)
             .verify();
         assert!(
@@ -5714,6 +6586,8 @@ mod tests {
             .initial_marking(nu_initial_marking(2))
             .property(SmtProperty::branch_place_bound("budget", 2))
             .budget_place("budget")
+            // The [VER-015] linear bound would prove it first, before the coloured query.
+            .linear_bound(false)
             .timeout(15_000)
             .verify();
         assert!(result.is_proven(), "{}", result.report);
@@ -6248,6 +7122,8 @@ mod tests {
             .property(SmtProperty::branch_place_bound("pending", 2))
             .budget_place("budget")
             .state_equation(true)
+            // The [VER-015] linear bound would prove it first, before the coloured query.
+            .linear_bound(false)
             .timeout(15_000)
             .verify();
         assert!(result.is_proven(), "{}", result.report);
@@ -7099,5 +7975,998 @@ mod tests {
             offenders.is_empty(),
             "a caught panic would arrive as the same Unknown a dead solver does: {offenders:?}"
         );
+    }
+
+    // === Counterexample timing ([VER-003]) and the timed check ([VER-023]) ===
+
+    /// `research/net-metrics/lab/TimedNets.java` `watchdogs(n, false)`: per
+    /// request `start: REQ_i → CALLING_i`, `answer: CALLING_i → RESP_i` within
+    /// `window(0, 2)`, `watchdog: CALLING_i → TIMEOUT_i` after `watchdog_ms`.
+    fn watchdogs(n: usize, watchdog_ms: u64) -> (PetriNet, MarkingState) {
+        use libpetri_core::timing::{delayed, window};
+        let mut b = PetriNet::builder(format!("watchdog-timing-{n}"));
+        let mut m = MarkingStateBuilder::new();
+        for i in 0..n {
+            let req = Place::<()>::new(format!("REQ_{i}"));
+            let calling = Place::<()>::new(format!("CALLING_{i}"));
+            let resp = Place::<()>::new(format!("RESP_{i}"));
+            let to = Place::<()>::new(format!("TIMEOUT_{i}"));
+            b = b
+                .transition(
+                    Transition::builder(format!("start_{i}"))
+                        .input(one(&req))
+                        .output(out_place(&calling))
+                        .action(fork())
+                        .build(),
+                )
+                .transition(
+                    Transition::builder(format!("answer_{i}"))
+                        .input(one(&calling))
+                        .output(out_place(&resp))
+                        .timing(window(0, 2))
+                        .action(fork())
+                        .build(),
+                )
+                .transition(
+                    Transition::builder(format!("watchdog_{i}"))
+                        .input(one(&calling))
+                        .output(out_place(&to))
+                        .timing(delayed(watchdog_ms))
+                        .action(fork())
+                        .build(),
+                );
+            m = m.tokens(format!("REQ_{i}"), 1);
+        }
+        (b.build(), m.build())
+    }
+
+    fn no_timeout_0() -> SmtProperty {
+        SmtProperty::unreachable(vec!["TIMEOUT_0".into()])
+    }
+
+    #[test]
+    fn untimed_abstraction_is_the_default_on_a_timed_net() {
+        let (net, m0) = watchdogs(2, 5);
+        let result = SmtVerifier::for_net(&net).initial_marking(m0).property(no_timeout_0()).verify();
+        assert!(result.is_violated(), "{}", result.report);
+        assert_eq!(result.counterexample_timing, Some(CounterexampleTiming::UntimedAbstraction));
+        assert!(
+            result.report.contains("WARNING: This counterexample is in UNTIMED semantics."),
+            "{}",
+            result.report
+        );
+        assert!(!result.report.contains("VER-023"), "the check is off: {}", result.report);
+    }
+
+    #[test]
+    fn a_fixpoint_violation_carries_the_untimed_warning() {
+        // [VER-003] AC7: the HORN query's own `Violated`, with the pre-fixpoint
+        // phases (whose witnesses always carried it) switched off.
+        let (net, m0) = watchdogs(1, 5);
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(m0)
+            .property(no_timeout_0())
+            .linear_bound(false)
+            .state_equation_phase(false)
+            .firing_bound(false)
+            .verify();
+        assert!(result.is_violated(), "{}", result.report);
+        assert!(result.report.contains("Result: property violated (Spacer UNSAT"), "{}", result.report);
+        assert!(
+            result.report.contains(
+                "\n  WARNING: This counterexample is in UNTIMED semantics.\n  It may be spurious if \
+                 timing constraints prevent this sequence.\n"
+            ),
+            "{}",
+            result.report
+        );
+        assert_eq!(result.counterexample_timing, Some(CounterexampleTiming::UntimedAbstraction));
+    }
+
+    #[test]
+    fn the_timed_check_finds_the_watchdog_counterexample_spurious() {
+        let (net, m0) = watchdogs(2, 5);
+        let off = SmtVerifier::for_net(&net)
+            .initial_marking(m0.clone())
+            .property(no_timeout_0())
+            .verify();
+        let on = SmtVerifier::for_net(&net)
+            .initial_marking(m0)
+            .property(no_timeout_0())
+            .timed_counterexample_check(true)
+            .verify();
+        // The verdict, route and untimed trace are untouched ([VER-023] AC6).
+        assert!(on.is_violated(), "{}", on.report);
+        assert_eq!(on.route, off.route);
+        assert_eq!(on.counterexample_transitions, off.counterexample_transitions);
+        assert_eq!(on.counterexample_confirmed, off.counterexample_confirmed);
+        assert_eq!(on.counterexample_timing, Some(CounterexampleTiming::SpuriousUnderTiming));
+        // Two parallel watchdogs close in 10 classes with no TIMEOUT marking.
+        assert!(
+            on.report.contains(
+                "  SPURIOUS UNDER TIMING: the timed state-class graph closed with 10 classes and \
+                 none of them violates the property"
+            ),
+            "{}",
+            on.report
+        );
+    }
+
+    #[test]
+    fn a_timing_real_violation_is_confirmed_with_the_timed_trace() {
+        // [VER-023] AC2: the watchdog at delayed(1) can beat window(0, 2).
+        let (net, m0) = watchdogs(1, 1);
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(m0)
+            .property(no_timeout_0())
+            .timed_counterexample_check(true)
+            .verify();
+        assert!(result.is_violated(), "{}", result.report);
+        assert_eq!(result.counterexample_timing, Some(CounterexampleTiming::TimedConfirmed));
+        assert_eq!(result.counterexample_transitions, ["start_0", "watchdog_0"]);
+        assert_eq!(result.counterexample_trace.len(), 3);
+        assert_eq!(result.counterexample_confirmed, Some(true));
+        assert!(
+            result.report.contains(
+                "  CONFIRMED: the timed state-class graph reaches a violating class.\n  The \
+                 counterexample trace and firing sequence of this result are REPLACED by the \
+                 shortest timed-graph path:\n"
+            ),
+            "{}",
+            result.report
+        );
+        assert!(result.report.contains("  Firing sequence: start_0 -> watchdog_0\n"), "{}", result.report);
+    }
+
+    #[test]
+    fn a_class_budget_below_the_timed_graph_is_undecided() {
+        let (net, m0) = watchdogs(2, 5);
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(m0)
+            .property(no_timeout_0())
+            .timed_counterexample_check(true)
+            .enumeration_max_classes(3)
+            .verify();
+        assert!(result.is_violated(), "{}", result.report);
+        assert_eq!(result.counterexample_timing, Some(CounterexampleTiming::TimedUndecided));
+        assert!(
+            result.report.contains(
+                "  UNDECIDED: the timed state-class graph exceeded 3 classes (enumeration_max_classes)."
+            ),
+            "{}",
+            result.report
+        );
+    }
+
+    #[test]
+    fn a_total_budget_that_runs_out_in_the_check_is_undecided() {
+        // [VER-023] AC4, second half, at the wrapper: the deadline has passed by
+        // the time the check builds its graph.
+        let (net, m0) = watchdogs(2, 5);
+        let setup = TimedCheckSetup {
+            net: &net,
+            initial_marking: m0,
+            property: no_timeout_0(),
+            sink_places: Vec::new(),
+            conditional_sinks: Vec::new(),
+            max_classes: 50_000,
+            enabled: true,
+            untimed: false,
+            has_environment: false,
+            has_match: false,
+        };
+        let mut result = build_result(
+            Verdict::Violated,
+            VerificationRoute::Smt,
+            String::new(),
+            0,
+            VerificationStatistics {
+                places: 0,
+                transitions: 0,
+                invariants_found: 0,
+                structural_result: String::new(),
+            },
+            Diagnostics::none(),
+        );
+        let _budget = total_budget::enter(Some(0), None);
+        assert_eq!(
+            timed_counterexample_check(&mut result, &setup),
+            CounterexampleTiming::TimedUndecided
+        );
+        assert!(
+            result.report.contains(
+                "  UNDECIDED: the total verification budget of 0 ms ran out before the timed \
+                 state-class graph closed."
+            ),
+            "{}",
+            result.report
+        );
+    }
+
+    #[test]
+    fn an_untimed_net_reports_untimed_net_whatever_the_route() {
+        let (net, m0) = watchdogs(1, 5);
+        let net = net.map_transitions(|t| {
+            let mut b = Transition::builder(t.name_arc().clone())
+                .inputs(t.input_specs().to_vec())
+                .action(fork());
+            if let Some(out) = t.output_spec() {
+                b = b.output(out.clone());
+            }
+            b.build()
+        });
+        for enumeration in [50_000, 0] {
+            let result = SmtVerifier::for_net(&net)
+                .initial_marking(m0.clone())
+                .property(no_timeout_0())
+                .timed_counterexample_check(true)
+                .enumeration_max_classes(enumeration)
+                .verify();
+            assert!(result.is_violated(), "{}", result.report);
+            assert_eq!(result.counterexample_timing, Some(CounterexampleTiming::UntimedNet));
+        }
+    }
+
+    #[test]
+    fn a_route_b_violation_on_a_timed_net_is_timed_exact() {
+        use libpetri_core::match_spec::MatchSpec;
+        use libpetri_core::name::NameId;
+        use libpetri_core::output::and;
+        use libpetri_core::timing::delayed;
+
+        let source = Place::<()>::new("source");
+        let budget = Place::<()>::new("budget");
+        let pending = Place::<()>::new("pending");
+        let a = Place::<String>::new("branchA");
+        let b = Place::<String>::new("branchB");
+        let merged = Place::<String>::new("merged");
+        let t_fork = Transition::builder("fork")
+            .input(one(&source))
+            .input(one(&budget))
+            .output(and(vec![out_place(&a), out_place(&b), out_place(&pending)]))
+            .timing(delayed(1))
+            .action(fork())
+            .build();
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .input(one(&pending))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |s: &String| NameId::new(s.clone()))
+                    .key(&b, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(and(vec![out_place(&merged), out_place(&budget)]))
+            .action(fork())
+            .build();
+        let net = PetriNet::builder("nu_timed").transitions([t_fork, join]).build();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(nu_initial_marking(2))
+            .property(SmtProperty::DeadlockFree)
+            .timed_counterexample_check(true)
+            .verify();
+        assert!(result.is_violated(), "{}", result.report);
+        assert_eq!(result.route, VerificationRoute::NuScg);
+        assert_eq!(result.counterexample_timing, Some(CounterexampleTiming::TimedExact));
+        assert!(!result.report.contains("VER-023"), "{}", result.report);
+    }
+
+    #[test]
+    fn only_a_violated_verdict_carries_a_timing() {
+        let (net, m0) = watchdogs(1, 5);
+        let proven = SmtVerifier::for_net(&net)
+            .initial_marking(m0)
+            .property(SmtProperty::place_bound("RESP_0", 1))
+            .timed_counterexample_check(true)
+            .verify();
+        assert!(proven.is_proven(), "{}", proven.report);
+        assert_eq!(proven.counterexample_timing, None);
+    }
+
+    #[test]
+    fn environment_places_keep_the_untimed_abstraction() {
+        // [VER-023] condition 2: the graph models no injection, so the check
+        // does not run.
+        let (net, m0) = watchdogs(1, 5);
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(m0)
+            .property(no_timeout_0())
+            .environment_places(["REQ_0".to_string()])
+            .timed_counterexample_check(true)
+            .verify();
+        assert!(result.is_violated(), "{}", result.report);
+        assert_eq!(result.counterexample_timing, Some(CounterexampleTiming::UntimedAbstraction));
+        assert!(!result.report.contains("VER-023"), "{}", result.report);
+    }
+
+    /// `S → d → X`, `d` at `delayed(5)`, one token on `S`.
+    fn delayed_step() -> (PetriNet, MarkingState) {
+        use libpetri_core::timing::delayed;
+        let s_ = Place::<()>::new("S");
+        let x = Place::<()>::new("X");
+        let d = Transition::builder("d")
+            .input(one(&s_))
+            .output(out_place(&x))
+            .timing(delayed(5))
+            .action(fork())
+            .build();
+        let net = PetriNet::builder("delayed_step").transition(d).build();
+        (net, MarkingStateBuilder::new().tokens("S", 1).build())
+    }
+
+    #[test]
+    fn deadlock_freedom_on_the_timed_graph_fires_out_of_a_delayed_class() {
+        // [VER-023] AC3: the class holding S is not a deadlock — `d`'s interval
+        // [5, ∞) has no upper bound, yet it still fires — so the confirmed trace
+        // is `d`, not the empty run.
+        let (net, m0) = delayed_step();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(m0)
+            .property(SmtProperty::DeadlockFree)
+            .timed_counterexample_check(true)
+            .verify();
+        assert!(result.is_violated(), "{}", result.report);
+        assert_eq!(result.counterexample_timing, Some(CounterexampleTiming::TimedConfirmed));
+        assert_eq!(result.counterexample_transitions, ["d"]);
+    }
+
+    #[test]
+    fn deadlock_freedom_spurious_under_timing_when_the_slow_branch_never_wins() {
+        // [VER-023] AC3: `S → start → A`, `fast: A → DONE` at window(0, 2),
+        // `slow: A → STUCK` at delayed(5), DONE a sink.
+        use libpetri_core::timing::{delayed, window};
+        let s_ = Place::<()>::new("S");
+        let a = Place::<()>::new("A");
+        let done = Place::<()>::new("DONE");
+        let stuck = Place::<()>::new("STUCK");
+        let net = PetriNet::builder("race")
+            .transition(
+                Transition::builder("start").input(one(&s_)).output(out_place(&a)).action(fork()).build(),
+            )
+            .transition(
+                Transition::builder("fast")
+                    .input(one(&a))
+                    .output(out_place(&done))
+                    .timing(window(0, 2))
+                    .action(fork())
+                    .build(),
+            )
+            .transition(
+                Transition::builder("slow")
+                    .input(one(&a))
+                    .output(out_place(&stuck))
+                    .timing(delayed(5))
+                    .action(fork())
+                    .build(),
+            )
+            .build();
+        let verify = |check: bool| {
+            SmtVerifier::for_net(&net)
+                .initial_marking(MarkingStateBuilder::new().tokens("S", 1).build())
+                .property(SmtProperty::DeadlockFree)
+                .sink_places(["DONE".to_string()])
+                .timed_counterexample_check(check)
+                .verify()
+        };
+        let off = verify(false);
+        let on = verify(true);
+        assert!(off.is_violated() && on.is_violated(), "{}", on.report);
+        assert_eq!(off.counterexample_timing, Some(CounterexampleTiming::UntimedAbstraction));
+        assert_eq!(on.counterexample_timing, Some(CounterexampleTiming::SpuriousUnderTiming));
+    }
+
+    // === Total verification budget ([VER-013]) ===
+
+    #[test]
+    fn a_spent_total_budget_is_unknown_naming_the_step() {
+        // Spent before the first step: charged to `net preparation`.
+        let (net, m0) = clean_chain();
+        let result = SmtVerifier::for_net(&net).initial_marking(m0).total_budget(0).verify();
+        assert_eq!(
+            result.verdict,
+            Verdict::Unknown {
+                reason: "total verification budget of 0 ms exhausted during net preparation".into()
+            },
+            "{}",
+            result.report
+        );
+        assert!(
+            result.report.starts_with("Total budget: 0 ms\n")
+                && result.report.contains(
+                    "\n=== RESULT ===\n\nUNKNOWN: total verification budget of 0 ms exhausted \
+                     during net preparation\n"
+                ),
+            "{}",
+            result.report
+        );
+        assert_eq!(result.route, VerificationRoute::Unavailable);
+        // Timed: the same, whatever route would have run.
+        let (net, m0) = watchdogs(1, 5);
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(m0)
+            .property(no_timeout_0())
+            .total_budget(0)
+            .verify();
+        assert_eq!(
+            result.verdict,
+            Verdict::Unknown {
+                reason: "total verification budget of 0 ms exhausted during net preparation".into()
+            },
+            "{}",
+            result.report
+        );
+        assert_eq!(result.counterexample_timing, None);
+        // Without the option the report carries no budget line.
+        let (net, m0) = clean_chain();
+        let plain = SmtVerifier::for_net(&net).initial_marking(m0).verify();
+        assert!(!plain.report.contains("Total budget:"), "{}", plain.report);
+    }
+
+    #[test]
+    fn a_verdict_reached_within_the_total_budget_stands() {
+        let (net, m0) = watchdogs(2, 5);
+        let plain = SmtVerifier::for_net(&net)
+            .initial_marking(m0.clone())
+            .property(no_timeout_0())
+            .verify();
+        let budgeted = SmtVerifier::for_net(&net)
+            .initial_marking(m0)
+            .property(no_timeout_0())
+            .total_budget(120_000)
+            .verify();
+        assert_eq!(budgeted.verdict, plain.verdict);
+        assert_eq!(budgeted.route, plain.route);
+    }
+
+    // === Dead arcs ([CORE-037]) ===
+
+    #[test]
+    fn a_dead_reset_arc_is_a_report_warning_and_nothing_else() {
+        let kill = Place::<()>::new("KILL");
+        let ghost = Place::<()>::new("answer/IN");
+        let hub_kill = Transition::builder("hub_kill")
+            .input(one(&kill))
+            .reset(libpetri_core::arc::reset(&ghost))
+            .build();
+        let net = PetriNet::builder("dead").transition(hub_kill).build();
+        let line = "WARNING: reset arc of 'hub_kill' on 'answer/IN': no transition produces into \
+                    or consumes from it and it starts empty; the arc has no effect.\n";
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(MarkingStateBuilder::new().tokens("KILL", 1).build())
+            .verify();
+        assert!(result.report.starts_with(line), "{}", result.report);
+        assert_eq!(result.report.matches("WARNING: reset arc").count(), 1);
+        // Seeded by the verification's own initial marking: not dead.
+        let seeded = SmtVerifier::for_net(&net)
+            .initial_marking(MarkingStateBuilder::new().tokens("KILL", 1).tokens("answer/IN", 1).build())
+            .verify();
+        assert!(!seeded.report.contains("WARNING: reset arc"), "{}", seeded.report);
+        assert_eq!(seeded.verdict, result.verdict);
+    }
+
+    // === Arrivals(k) ([VER-006] AC9, AC10) ===
+
+    fn verify_env_source(mode: EnvironmentAnalysisMode, property: SmtProperty) -> VerificationResult {
+        SmtVerifier::for_net(&env_source_net())
+            .environment_places(vec!["IN".into()])
+            .environment_mode(mode)
+            .property(property)
+            .timeout(15_000)
+            .verify()
+    }
+
+    /// AC9: `Arrivals(k)` bounds the total. The closed net is untimed with no
+    /// environment place left, so the enumeration route decides it exactly.
+    #[test]
+    fn arrivals_bounds_the_total_injected() {
+        let k = 2;
+        let arrivals = EnvironmentAnalysisMode::Arrivals { max_tokens: k };
+        let proven = verify_env_source(arrivals.clone(), SmtProperty::place_bound("OUT", k));
+        assert!(proven.is_proven(), "{}", proven.report);
+        assert_eq!(proven.route, VerificationRoute::Enumeration, "{}", proven.report);
+        assert!(
+            proven.report.contains(
+                "Environment: arrivals(2) — net closed before any route: env:arrive?[0]:IN from \
+                 env:optional[0] (at most 2) (VER-006)\n"
+            ),
+            "{}",
+            proven.report
+        );
+
+        let violated = verify_env_source(arrivals.clone(), SmtProperty::place_bound("OUT", k - 1));
+        assert!(violated.is_violated(), "{}", violated.report);
+        let fired = |name: &str| {
+            violated.counterexample_transitions.iter().filter(|t| t.as_str() == name).count()
+        };
+        assert_eq!(fired("env:arrive?[0]:IN"), k, "{:?}", violated.counterexample_transitions);
+        assert_eq!(fired("T"), k, "{:?}", violated.counterexample_transitions);
+
+        // DeadlockFree with OUT a sink: the closed net comes to rest once every
+        // arrival is delivered or declined, so no AC6 vacuity note.
+        let dlf = SmtVerifier::for_net(&env_source_net())
+            .environment_places(vec!["IN".into()])
+            .environment_mode(arrivals)
+            .sink_places(vec!["OUT".into()])
+            .property(SmtProperty::DeadlockFree)
+            .verify();
+        assert!(dlf.is_proven(), "{}", dlf.report);
+        assert!(!dlf.report.contains(QUIESCENCE_VACUITY_NOTE), "{}", dlf.report);
+    }
+
+    /// AC9 contrast: `Bounded(k)` caps what is resident, not the total.
+    #[test]
+    fn bounded_does_not_bound_the_total() {
+        if !z3_available() {
+            eprintln!("skipping bounded_does_not_bound_the_total: z3 binary not on PATH");
+            return;
+        }
+        let bounded = EnvironmentAnalysisMode::Bounded { max_tokens: 2 };
+        for bound in [1, 2] {
+            let result = verify_env_source(bounded.clone(), SmtProperty::place_bound("OUT", bound));
+            assert!(result.is_violated(), "bound {bound}\n{}", result.report);
+        }
+    }
+
+    /// Arrivals are optional: a run may rest after fewer than `k` of them, the rest
+    /// declined, so a count demanding exactly `k` at rest is violated.
+    #[test]
+    fn arrivals_is_at_most_k_at_quiescence_too() {
+        let result = verify_env_source(
+            EnvironmentAnalysisMode::Arrivals { max_tokens: 2 },
+            SmtProperty::quiescent_count(vec!["OUT".into()], 2, Some(2), Vec::new()),
+        );
+        assert!(result.is_violated(), "{}", result.report);
+        assert!(
+            result.counterexample_transitions.iter().any(|t| t == "env:decline[0]"),
+            "{:?}",
+            result.counterexample_transitions
+        );
+    }
+
+    /// `ArrivalsBetween(k, k)` is exact accounting: every arrival is mandatory, so a
+    /// run rests only after all `k` were delivered and processed.
+    #[test]
+    fn arrivals_between_k_k_is_exactly_k_at_quiescence() {
+        let result = verify_env_source(
+            arrivals_between(2, 2),
+            SmtProperty::quiescent_count(vec!["OUT".into()], 2, Some(2), Vec::new()),
+        );
+        assert!(result.is_proven(), "{}", result.report);
+        assert!(
+            result.report.contains(
+                "Environment: arrivals(2..2) — net closed before any route: env:arrive[0]:IN from \
+                 env:arrivals[0] (exactly 2) (VER-006)\n"
+            ),
+            "{}",
+            result.report
+        );
+        // `ArrivalsBetween(1, 2)`: one arrival may still be declined.
+        let partial = verify_env_source(
+            arrivals_between(1, 2),
+            SmtProperty::quiescent_count(vec!["OUT".into()], 2, Some(2), Vec::new()),
+        );
+        assert!(partial.is_violated(), "{}", partial.report);
+        assert!(
+            partial.counterexample_transitions.iter().any(|t| t == "env:decline[0]"),
+            "{:?}",
+            partial.counterexample_transitions
+        );
+        assert!(
+            partial.report.contains(
+                "Environment: arrivals(1..2) — net closed before any route: env:arrive[0]:IN from \
+                 env:arrivals[0] (exactly 1), env:arrive?[0]:IN from env:optional[0] (at most 1) \
+                 (VER-006)\n"
+            ),
+            "{}",
+            partial.report
+        );
+        // ... but never fewer than the mandatory one.
+        let at_least_one = verify_env_source(
+            arrivals_between(1, 2),
+            SmtProperty::quiescent_count(vec!["OUT".into()], 1, Some(2), Vec::new()),
+        );
+        assert!(at_least_one.is_proven(), "{}", at_least_one.report);
+    }
+
+    #[test]
+    #[should_panic(expected = "min_tokens <= max_tokens")]
+    fn arrivals_between_rejects_a_hand_built_max_below_min() {
+        verify_env_source(
+            EnvironmentAnalysisMode::ArrivalsBetween { min_tokens: 2, max_tokens: 1 },
+            SmtProperty::place_bound("OUT", 0),
+        );
+    }
+
+    #[test]
+    fn arrivals_zero_injects_nothing() {
+        let result = verify_env_source(
+            EnvironmentAnalysisMode::Arrivals { max_tokens: 0 },
+            SmtProperty::place_bound("OUT", 0),
+        );
+        assert!(result.is_proven(), "{}", result.report);
+        assert!(result.report.contains(
+            "Environment: arrivals(0) — nothing is injected; the environment places are ordinary \
+             places (VER-006)"
+        ));
+    }
+
+    #[test]
+    #[should_panic(expected = "closing the net would add 'env:optional[0]'")]
+    fn arrivals_refuses_a_name_the_net_already_declares() {
+        let net = PetriNet::builder("taken")
+            .transition(
+                Transition::builder("T")
+                    .input(one(&Place::<()>::new("IN")))
+                    .input(one(&Place::<()>::new("env:optional[0]")))
+                    .output(out_place(&Place::<()>::new("OUT")))
+                    .action(fork())
+                    .build(),
+            )
+            .build();
+        SmtVerifier::for_net(&net)
+            .environment_places(vec!["IN".into()])
+            .environment_mode(EnvironmentAnalysisMode::Arrivals { max_tokens: 1 })
+            .verify();
+    }
+
+    /// AC10, Route B: an arrival into a match key is not a mint; decline by name.
+    #[test]
+    fn arrivals_into_a_coloured_place_is_declined_by_route_b() {
+        let result = verify_env_witness(
+            EnvWitness::KeyedOnIn,
+            slot_marking(),
+            EnvironmentAnalysisMode::Arrivals { max_tokens: 1 },
+            SmtProperty::unreachable(vec!["accepted".to_string()]),
+        );
+        assert_declined(
+            &result,
+            "environment place 'IN' carries ν-names (a match key or carrier place) and is fed by \
+             arrivals(k)",
+        );
+    }
+
+    /// AC10, Route A: the coloured encoding declines to the flat one and says why.
+    #[test]
+    fn arrivals_into_a_coloured_place_is_not_coloured_by_route_a() {
+        if !z3_available() {
+            eprintln!("skipping arrivals Route A: z3 binary not on PATH");
+            return;
+        }
+        let result = SmtVerifier::for_net(&route_b_env_witness(EnvWitness::KeyedOnIn))
+            .initial_marking(slot_marking())
+            .environment_places(vec!["IN".into()])
+            .environment_mode(EnvironmentAnalysisMode::Arrivals { max_tokens: 1 })
+            .budget_place("slot")
+            .property(SmtProperty::unreachable(vec!["accepted".to_string()]))
+            .timeout(15_000)
+            .verify();
+        assert!(
+            result.report.contains(
+                "ν-encoding: name-blind over-approximation (environment place 'IN' carries ν-names"
+            ),
+            "{}",
+            result.report
+        );
+        assert_ne!(result.route, VerificationRoute::NuScg, "{}", result.report);
+    }
+
+    // === Verdicts from a truncated graph ([VER-017], [VER-012] AC3, [VER-023]) ===
+
+    /// `gen: G → G, A`, one token on `G`: an unbounded producer whose graph never
+    /// closes.
+    fn unbounded_producer(timed: bool) -> (PetriNet, MarkingState) {
+        let g = Place::<()>::new("G");
+        let a = Place::<()>::new("A");
+        let t = Transition::builder("gen")
+            .input(one(&g))
+            .output(and(vec![out_place(&g), out_place(&a)]))
+            .action(fork());
+        let t = if timed { t.timing(libpetri_core::timing::delayed(1)) } else { t };
+        let net = PetriNet::builder("gen").transition(t.build()).build();
+        (net, MarkingStateBuilder::new().tokens("G", 1).build())
+    }
+
+    /// [VER-017] AC11: a safety violation in the explored prefix stands.
+    #[test]
+    fn enumeration_reads_a_violation_off_a_truncated_graph() {
+        let (net, m0) = unbounded_producer(false);
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(m0)
+            .property(SmtProperty::place_bound("A", 2))
+            .enumeration_max_classes(50)
+            .verify();
+        assert!(result.is_violated(), "{}", result.report);
+        assert_eq!(result.route, VerificationRoute::Enumeration, "{}", result.report);
+        assert_eq!(result.counterexample_transitions, vec!["gen", "gen", "gen"]);
+        assert_eq!(result.counterexample_confirmed, Some(true));
+        assert!(
+            result.report.contains(
+                "the state-class graph was truncated at 50 classes; the violation was found in the \
+                 explored prefix."
+            ),
+            "{}",
+            result.report
+        );
+    }
+
+    /// [VER-017] AC11: a frontier class is never read as quiescent. Every class of
+    /// the producer's graph enables `gen`, but the last ones stored were never
+    /// expanded; a deadlock read off them would be false.
+    #[test]
+    fn enumeration_never_reads_a_frontier_class_as_dead() {
+        let (net, m0) = unbounded_producer(false);
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(m0)
+            .property(SmtProperty::DeadlockFree)
+            .enumeration_max_classes(50)
+            .timeout(5_000)
+            .verify();
+        assert!(!result.is_violated() || result.route != VerificationRoute::Enumeration, "{}", result.report);
+        assert!(
+            result.report.contains(
+                "Bounded state-space enumeration truncated at 50 classes (VER-017); verifying via \
+                 the SMT pipeline."
+            ),
+            "{}",
+            result.report
+        );
+    }
+
+    /// [VER-017] AC8: a cached truncation keeps its prefix. A later query at the
+    /// same budget builds nothing and still finds the violation; one at a smaller
+    /// budget reads the larger remembered prefix.
+    #[test]
+    fn a_cached_truncation_answers_from_its_prefix() {
+        let (net, m0) = unbounded_producer(false);
+        let cache = StateSpaceCache::new();
+        let query = |bound: usize, budget: usize| {
+            SmtVerifier::for_net(&net)
+                .initial_marking(m0.clone())
+                .property(SmtProperty::place_bound("A", bound))
+                .enumeration_max_classes(budget)
+                .state_space_cache(&cache)
+                .verify()
+        };
+        let first = query(2, 50);
+        assert!(first.is_violated() && first.route == VerificationRoute::Enumeration);
+        assert_eq!(cache.build_count(), 1);
+        assert_eq!(cache.len(), 1);
+
+        let second = query(5, 50);
+        assert!(second.is_violated(), "{}", second.report);
+        assert_eq!(second.route, VerificationRoute::Enumeration, "{}", second.report);
+        assert_eq!(second.counterexample_transitions.len(), 6);
+        assert!(
+            second.report.contains(
+                "Bounded state-space enumeration: cached truncation at 50 classes (VER-017); its \
+                 explored prefix (50 classes) was read.\n"
+            ),
+            "{}",
+            second.report
+        );
+        // A smaller budget reads the larger remembered prefix: a real firing
+        // sequence an uncached query at 30 classes would not reach.
+        let smaller = query(40, 30);
+        assert!(smaller.is_violated(), "{}", smaller.report);
+        assert_eq!(smaller.counterexample_transitions.len(), 41);
+        assert_eq!(cache.build_count(), 1, "answered from the cache");
+    }
+
+    /// The class count Route B's report prints.
+    fn route_b_class_count(report: &str) -> usize {
+        report
+            .lines()
+            .find_map(|l| l.strip_prefix("Name-partition state classes: "))
+            .and_then(|n| n.trim().parse().ok())
+            .unwrap_or_else(|| panic!("no class count in\n{report}"))
+    }
+
+    /// [VER-012]: PNID Fig. 11(b) never closes; the bound is violated three mints
+    /// deep. Route B checks each class as it is discovered and stops there, at the
+    /// default class cap, instead of filling the cap first.
+    #[test]
+    fn route_b_stops_at_the_first_violating_class() {
+        let (net, m0) = crate::name_state_class_graph::tests::fig11b();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(m0)
+            .property(SmtProperty::place_bound("order_clerk", 2))
+            .verify();
+        assert!(result.is_violated(), "{}", result.report);
+        assert_eq!(result.route, VerificationRoute::NuScg, "{}", result.report);
+        assert_eq!(
+            result.counterexample_transitions,
+            vec!["create_order", "create_order", "create_order"]
+        );
+        assert_eq!(result.counterexample_trace.len(), 4);
+        let classes = route_b_class_count(&result.report);
+        assert!(classes < 50, "{classes} classes\n{}", result.report);
+        assert!(
+            result.report.contains(&format!(
+                "Route B stopped at the first violating class after {classes} classes (VER-012)."
+            )),
+            "{}",
+            result.report
+        );
+        assert!(!result.report.contains("truncated"), "{}", result.report);
+    }
+
+    /// The early stop at a small cap: the violation is found before the cap is
+    /// reached, so the stop line replaces the truncation note.
+    #[test]
+    fn route_b_stops_before_a_small_cap() {
+        let (net, m0) = crate::name_state_class_graph::tests::fig11b();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(m0)
+            .property(SmtProperty::place_bound("order_clerk", 2))
+            .nu_max_classes(50)
+            .verify();
+        assert!(result.is_violated(), "{}", result.report);
+        assert_eq!(
+            result.counterexample_transitions,
+            vec!["create_order", "create_order", "create_order"]
+        );
+        assert!(result.report.contains("Route B stopped at the first violating class"), "{}", result.report);
+        assert!(!result.report.contains("truncated at 50 classes"), "{}", result.report);
+    }
+
+    /// [VER-012] AC3: a quiescence property is never violated by a frontier class.
+    /// `create_order` is enabled in every class of Fig. 11(b), so the truncated
+    /// graph holds no dead class; its unexpanded frontier would look like one.
+    #[test]
+    fn route_b_never_reads_a_frontier_class_as_dead() {
+        let (net, m0) = crate::name_state_class_graph::tests::fig11b();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(m0)
+            .sink_places(vec!["send_done".into()])
+            .property(SmtProperty::DeadlockFree)
+            .nu_max_classes(50)
+            .verify();
+        let Verdict::Unknown { reason } = &result.verdict else {
+            panic!("expected Unknown, got {:?}\n{}", result.verdict, result.report);
+        };
+        assert!(reason.contains("truncated at 50 classes"), "{reason}");
+        // No early stop for quiescence: the build fills the cap, as before.
+        assert!(route_b_class_count(&result.report) >= 50, "{}", result.report);
+    }
+
+    /// [VER-023] AC4: a truncated timed graph whose prefix violates confirms.
+    #[test]
+    fn the_timed_check_confirms_a_violation_in_a_truncated_prefix() {
+        if !z3_available() {
+            eprintln!("skipping the timed prefix check: z3 binary not on PATH");
+            return;
+        }
+        let (net, m0) = unbounded_producer(true);
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(m0)
+            .property(SmtProperty::place_bound("A", 2))
+            .enumeration_max_classes(50)
+            .timed_counterexample_check(true)
+            .timeout(15_000)
+            .verify();
+        assert!(result.is_violated(), "{}", result.report);
+        assert_eq!(result.counterexample_timing, Some(CounterexampleTiming::TimedConfirmed));
+        assert_eq!(result.counterexample_transitions, vec!["gen", "gen", "gen"]);
+        assert!(
+            result.report.contains(
+                "CONFIRMED: the timed state-class graph, truncated at 50 classes \
+                 (enumeration_max_classes), reaches a violating class in its explored prefix."
+            ),
+            "{}",
+            result.report
+        );
+    }
+
+    // === Cancellation ([VER-013]) ===
+
+    #[test]
+    fn a_token_cancelled_before_the_call_returns_at_once() {
+        let (net, m0) = unbounded_producer(false);
+        let token = CancelToken::new();
+        token.cancel();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(m0)
+            .property(SmtProperty::place_bound("A", 2))
+            .cancel_token(&token)
+            .verify();
+        let Verdict::Unknown { reason } = &result.verdict else {
+            panic!("expected Unknown, got {:?}\n{}", result.verdict, result.report);
+        };
+        assert_eq!(reason, "verification cancelled during net preparation");
+        assert!(
+            result.report.contains("UNKNOWN: verification cancelled during net preparation"),
+            "{}",
+            result.report
+        );
+    }
+
+    /// A call cancelled before it starts, or given a zero total budget, returns the
+    /// stop's reason at once — before any other exit, including the refusal of a
+    /// property naming a place the net does not have.
+    #[test]
+    fn a_stop_before_the_call_wins_over_the_absent_place_refusal() {
+        let (net, m0) = unbounded_producer(false);
+        let token = CancelToken::new();
+        token.cancel();
+        let cancelled = SmtVerifier::for_net(&net)
+            .initial_marking(m0.clone())
+            .property(SmtProperty::place_bound("NO_SUCH_PLACE", 2))
+            .cancel_token(&token)
+            .verify();
+        assert!(
+            matches!(&cancelled.verdict, Verdict::Unknown { reason }
+                if reason == "verification cancelled during net preparation"),
+            "{:?}\n{}",
+            cancelled.verdict,
+            cancelled.report
+        );
+        let spent = SmtVerifier::for_net(&net)
+            .initial_marking(m0)
+            .property(SmtProperty::place_bound("NO_SUCH_PLACE", 2))
+            .total_budget(0)
+            .verify();
+        assert!(
+            matches!(&spent.verdict, Verdict::Unknown { reason }
+                if reason == "total verification budget of 0 ms exhausted during net preparation"),
+            "{:?}\n{}",
+            spent.verdict,
+            spent.report
+        );
+    }
+
+    /// Cancels `token` from another thread after `after_ms`.
+    fn cancel_later(token: &CancelToken, after_ms: u64) -> std::thread::JoinHandle<()> {
+        let token = token.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(after_ms));
+            token.cancel();
+        })
+    }
+
+    /// AC12: cancellation stops an enumeration build at its next poll and leaves the
+    /// state-space cache as it found it.
+    #[test]
+    fn cancellation_stops_an_enumeration_build_and_leaves_the_cache() {
+        let (net, m0) = unbounded_producer(false);
+        let cache = StateSpaceCache::new();
+        let token = CancelToken::new();
+        let canceller = cancel_later(&token, 200);
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(m0)
+            .property(SmtProperty::place_bound("A", usize::MAX - 1))
+            .enumeration_max_classes(usize::MAX)
+            .state_space_cache(&cache)
+            .cancel_token(&token)
+            .verify();
+        canceller.join().unwrap();
+        let Verdict::Unknown { reason } = &result.verdict else {
+            panic!("expected Unknown, got {:?}\n{}", result.verdict, result.report);
+        };
+        assert_eq!(reason, "verification cancelled during state-space enumeration");
+        assert!(result.report.contains("classes by cancellation (VER-013)"), "{}", result.report);
+        assert!(cache.is_empty(), "a cancelled build is not a truncation");
+    }
+
+    /// AC12 for Route B. The bound holds on every class, so the build runs until
+    /// the cancellation arrives (a violated one would stop at its first violating
+    /// class, [VER-012]); a stopped graph is not a truncation, and the verdict is
+    /// the cancellation's `Unknown`.
+    #[test]
+    fn cancellation_stops_a_route_b_build() {
+        let (net, m0) = crate::name_state_class_graph::tests::fig11b();
+        let token = CancelToken::new();
+        let canceller = cancel_later(&token, 200);
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(m0)
+            .property(SmtProperty::place_bound("order_clerk", usize::MAX - 1))
+            .nu_max_classes(usize::MAX)
+            .cancel_token(&token)
+            .verify();
+        canceller.join().unwrap();
+        let Verdict::Unknown { reason } = &result.verdict else {
+            panic!("expected Unknown, got {:?}\n{}", result.verdict, result.report);
+        };
+        assert_eq!(reason, "verification cancelled during Route B (ν name-partition graph)");
     }
 }

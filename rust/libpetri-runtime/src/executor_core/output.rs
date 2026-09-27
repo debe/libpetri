@@ -11,6 +11,51 @@ use libpetri_core::context::OutputEntry;
 #[cfg(feature = "tokio")]
 use libpetri_core::token::{ErasedToken, Token};
 
+/// The join-relay check of \[NU-054\], part of \[IO-015\] output validation:
+/// every token a firing of a ν-join writes into a relay target of its
+/// [`MatchSpec`](libpetri_core::match_spec::MatchSpec) must project to
+/// `matched`, the name the join matched. Returns the diagnostic for the first
+/// token that does not — naming the transition, the place, the name found (or
+/// "no name") and the matched name — or `None` when every token conforms.
+///
+/// An absent value (the unit token an `Out::Place` in a timeout branch
+/// deposits) has no name: the projection is not called on it. A value of
+/// another type projects to no name, as it does for a match key. `matched` is
+/// `None` only for a firing that bound no name, which a relay target still
+/// rejects. The caller runs this wherever output validation runs and nowhere
+/// else (\[CONC-026\]).
+pub(crate) fn relay_violation(
+    transition_name: &str,
+    spec: &libpetri_core::match_spec::MatchSpec,
+    outputs: &[libpetri_core::context::OutputEntry],
+    matched: Option<&libpetri_core::name::NameId>,
+) -> Option<String> {
+    if spec.relays().is_empty() {
+        return None;
+    }
+    for entry in outputs {
+        let Some(key) = spec.relay_for(&entry.place_name) else {
+            continue;
+        };
+        let value: &dyn std::any::Any = entry.token.value.as_ref();
+        let found = if value.is::<()>() { None } else { key(value) };
+        if found.is_some() && found.as_ref() == matched {
+            continue;
+        }
+        let found_text = match &found {
+            Some(n) => format!("name '{n}'"),
+            None => "no name".to_string(),
+        };
+        return Some(format!(
+            "'{transition_name}': relay target '{}' received a token with {found_text}, \
+             but the join matched name '{}' (NU-054)",
+            entry.place_name,
+            matched.map_or("", |n| n.as_str())
+        ));
+    }
+    None
+}
+
 /// \[IO-015\] output validation as an **exact-explanation search**.
 ///
 /// An *assignment* selects exactly one child at each [`Out::Xor`] it

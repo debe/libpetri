@@ -232,7 +232,14 @@ fn rebuild_with_name(
             .iter()
             .map(|k| MatchKey::from_erased(resolve(k.place(), remap), Arc::clone(k.key())))
             .collect();
-        builder = builder.match_spec(MatchSpec::from_keys(keys));
+        // NU-054: relay targets follow the same rewrite. Two relays fused onto
+        // one place are rejected by the build below ("declared twice").
+        let relays: Vec<MatchKey> = ms
+            .relays()
+            .iter()
+            .map(|k| MatchKey::from_erased(resolve(k.place(), remap), Arc::clone(k.key())))
+            .collect();
+        builder = builder.match_spec(MatchSpec::from_keys_and_relays(keys, relays));
     }
 
     builder.build()

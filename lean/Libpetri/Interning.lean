@@ -5,8 +5,9 @@
 `name_state_class_graph.rs`, the interning itself in `intern_base` /
 `intern_names`; TypeScript `name-state-class-graph.ts`) explores
 the [VER-012] quotient by a worklist: pop a class, compute its labelled
-successors (`name_successors`, one name layer per enabling symbol, minting a
-fresh symbol from a monotone counter), dedup each by its canonical key, push
+successors (`name_successors`, one name layer per distinct signature among the
+enabling symbols, minting a fresh symbol from a monotone counter), dedup each by
+its canonical key, push
 the new ones. A class costs kilobytes — `NameMarking` (`name_marking.rs`) is a
 map of maps, `StateClass` (`state_class.rs`) a marking plus a DBM — and a
 medium ν-net has millions of them. The memory change hash-conses the two
@@ -28,9 +29,37 @@ the single hypothesis it rests on.
   representative must preserve:
   - `name_successors` is equivariant under symbol renaming role by role
     (`Ordinary` copies; `Mint` stamps a symbol the counter guarantees fresh;
-    `Join` fires once per enabling symbol, a rank property; `Consume` once per
-    resident symbol), and `will_fire` / `priority_dominated` read only whether
-    `enabling_symbols` / `symbols_in` is empty;
+    `Join` fires once per distinct *signature* among its enabling symbols, and
+    `Consume` once per distinct signature among the resident symbols, the first
+    symbol in id order representing each — the orbit dedup of [VER-012]), and
+    `will_fire` / `priority_dominated` read only whether `enabling_symbols` /
+    `symbols_in` is empty. A symbol's signature is its count vector over the
+    coloured places, the vector `canonical_key` ranks symbols by. The dedup keeps
+    the step equivariant: a renaming `π` maps the enabling (resident) symbols of
+    `a` onto those of `π a` and preserves every symbol's signature, so both
+    states have the same set of distinct signatures; and two symbols with one
+    signature are exchanged by a transposition that fixes the layer, so their
+    successors are renamings of each other with equal keys — whichever symbol
+    represents a signature, the key it yields is the signature's. The `(label,
+    key)` lists of `a` and `π a` are therefore one entry per signature with the
+    same keys: permutations of each other. (Against per-symbol emission the
+    multiset changes — parallel identical edges collapse — but the set of keys,
+    hence the reachable quotient, does not; the hypothesis compares two states
+    under one step function, never two step functions.)
+  - the **relay** role of a `Join` ([NU-054], EXTENDED): firing on `s` removes
+    `s` from the keys, then adds `s` once to each relay target of the fired
+    branch. The same argument covers it. The step on `s` is one operation
+    uniform in the symbol — subtract `s` at the key places, add `s` at the
+    relay places, both fixed place sets — so `π (step_s a) = step_{π s} (π a)`
+    for any renaming `π`; the signatures the dedup compares are read on the
+    pre-step layer `a`, which `π` maps onto `π a` preserving each symbol's
+    signature; and a transposition of two symbols with one signature fixes `a`
+    and maps one successor onto the other, so they have equal keys, as for a
+    drain. The step adds back only the symbol it removed, so it mints nothing:
+    a successor's live symbols are among `a`'s and the freshness `bound` the
+    counter hypothesis threads is not raised. (A self-loop key that is also a
+    relay target nets to zero on that place, a special case of the same
+    uniform operation.)
   - `canonical_key` (`name_marking.rs`) is a complete invariant of the
     renaming orbit, so equal keys *are* renamings;
   - for the base layer the representative is not a renaming but an equal

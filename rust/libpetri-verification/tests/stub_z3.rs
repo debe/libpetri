@@ -30,6 +30,7 @@ use libpetri_verification::marking_state::MarkingStateBuilder;
 use libpetri_verification::property::SmtProperty;
 use libpetri_verification::result::{VerificationResult, Verdict};
 use libpetri_verification::smt_verifier::SmtVerifier;
+use libpetri_verification::CancelToken;
 
 /// The `--version` answer every stub gives before it looks at a script.
 const VERSION_OK: &str = "Z3 version 4.16.0 - 64 bit";
@@ -327,6 +328,115 @@ echo 'timeout'
         unknown_reason(&result),
         "z3 did not exit within 2200 ms and was killed"
     );
+
+    // === VER-013 AC9: a total budget clamps every process and then starts none ===
+    //
+    // The same wedged solver, a per-call timeout of a minute, a total budget of
+    // 1.5 s: the first query (the linear bound) gets what the probe left of it
+    // and is killed at that plus 2 × grace; once nothing is left no further
+    // process starts — the stub counts its runs. The reason names the step that
+    // ran out.
+    let runs = root.join("budget-runs");
+    let _ = fs::remove_file(&runs);
+    use_stub(&install_stub(
+        &root,
+        "budget",
+        VERSION_OK,
+        &format!("echo run >> '{}'\nexec sleep 30\n", runs.display()),
+    ));
+    let started = std::time::Instant::now();
+    let result = SmtVerifier::for_net(&chain_net())
+        .enumeration_max_classes(0)
+        .initial_marking(MarkingStateBuilder::new().tokens("p0", 1).build())
+        .property(SmtProperty::place_bound("p1", 1))
+        .timeout(60_000)
+        .total_budget(1_500)
+        .verify();
+    let elapsed = started.elapsed();
+    assert_eq!(
+        unknown_reason(&result),
+        "total verification budget of 1500 ms exhausted during linear bound"
+    );
+    assert!(
+        result
+            .report
+            .contains("UNKNOWN: total verification budget of 1500 ms exhausted during linear bound"),
+        "{}",
+        result.report
+    );
+    assert!(elapsed.as_millis() < 1_500 + 2_000 + 1_500, "took {elapsed:?}");
+    let run_count = fs::read_to_string(&runs).unwrap_or_default().lines().count();
+    assert_eq!(run_count, 1, "no process may start once the total budget is spent");
+
+    // === VER-013 AC11: cancellation kills a running z3 at once ===
+    //
+    // The same wedged solver under a minute's timeout, cancelled from another
+    // thread once the solver is running: the process is killed and reaped at once, not at
+    // its watchdog, the reason names the step, and no further process starts.
+    let runs = root.join("cancel-runs");
+    let pids = root.join("cancel-pids");
+    let _ = fs::remove_file(&runs);
+    let _ = fs::remove_file(&pids);
+    use_stub(&install_stub(
+        &root,
+        "cancel",
+        VERSION_OK,
+        &format!(
+            "echo run >> '{}'\necho $$ >> '{}'\nexec sleep 30\n",
+            runs.display(),
+            pids.display()
+        ),
+    ));
+    let cancelled_verify = |token: &CancelToken| {
+        SmtVerifier::for_net(&chain_net())
+            .enumeration_max_classes(0)
+            .initial_marking(MarkingStateBuilder::new().tokens("p0", 1).build())
+            .property(SmtProperty::place_bound("p1", 1))
+            .timeout(60_000)
+            .cancel_token(token)
+            .verify()
+    };
+    let token = CancelToken::new();
+    let remote = token.clone();
+    // Cancel once the stub has started (it writes its pid first), not after a fixed
+    // delay: under load the pipeline may not have reached the solver in half a second.
+    let started_marker = pids.clone();
+    let canceller = std::thread::spawn(move || {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while !started_marker.exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        remote.cancel();
+    });
+    let started = std::time::Instant::now();
+    let result = cancelled_verify(&token);
+    let elapsed = started.elapsed();
+    canceller.join().expect("canceller");
+    assert_eq!(unknown_reason(&result), "verification cancelled during linear bound");
+    assert!(
+        result.report.contains("UNKNOWN: verification cancelled during linear bound"),
+        "{}",
+        result.report
+    );
+    assert!(elapsed.as_millis() < 10_000, "took {elapsed:?}: not killed at once");
+    let run_count = fs::read_to_string(&runs).unwrap_or_default().lines().count();
+    assert_eq!(run_count, 1, "no process may start once the call is cancelled");
+    let pid = fs::read_to_string(&pids).expect("stub pid").trim().to_string();
+    let alive = std::process::Command::new("kill")
+        .args(["-0", &pid])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .expect("kill -0")
+        .success();
+    assert!(!alive, "the cancelled solver process {pid} is still running");
+
+    // A token cancelled before the call: the same Unknown, and no process.
+    let _ = fs::remove_file(&runs);
+    let token = CancelToken::new();
+    token.cancel();
+    let result = cancelled_verify(&token);
+    assert_eq!(unknown_reason(&result), "verification cancelled during net preparation");
+    assert!(!runs.exists(), "a call cancelled before it starts starts no process");
 
     // === VER-013 AC5: a reply far larger than a pipe buffer is drained ===
     //

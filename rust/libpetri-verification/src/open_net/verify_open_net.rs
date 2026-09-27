@@ -11,7 +11,9 @@ use std::time::Instant;
 
 use libpetri_core::petri_net::PetriNet;
 
+use crate::cancel::CancelToken;
 use crate::result::Verdict;
+use crate::total_budget;
 use crate::smt_verifier::SmtVerifier;
 use crate::terminal_places::inhibit_on_terminals;
 
@@ -38,6 +40,12 @@ pub struct OpenNetOptions {
     /// Time for the firing-bound query that decides termination on the SMT route (default
     /// 60 s).
     pub termination_timeout_ms: u64,
+    /// Cancels the verification ([VER-013]; default: none). The graph build polls it,
+    /// every `SmtVerifier` the SMT route builds gets it (before `configure_smt`, which may
+    /// replace it), and the termination query's z3 process is killed at once. A part left
+    /// undecided by it reports `verification cancelled during <phase>`, and the verdict is
+    /// `Unknown`.
+    pub cancel: Option<CancelToken>,
 }
 
 impl Default for OpenNetOptions {
@@ -47,6 +55,7 @@ impl Default for OpenNetOptions {
             smt: true,
             configure_smt: None,
             termination_timeout_ms: 60_000,
+            cancel: None,
         }
     }
 }
@@ -58,6 +67,7 @@ impl fmt::Debug for OpenNetOptions {
             .field("smt", &self.smt)
             .field("configure_smt", &self.configure_smt.as_ref().map(|_| ".."))
             .field("termination_timeout_ms", &self.termination_timeout_ms)
+            .field("cancel", &self.cancel)
             .finish()
     }
 }
@@ -71,6 +81,8 @@ const METHOD_SMT: &str = "open-net contract by the SMT pipeline (VER-022)";
 const GRAPH_SKIPPED_MATCH: &str = "the closed net declares match (ν-join) transitions, which the graph does not model";
 /// Why the graph was not built when the class budget is zero.
 const GRAPH_SKIPPED_BUDGET: &str = "class budget 0";
+/// The phase a cancellation of the graph build is reported in ([VER-013]).
+const PHASE_GRAPH: &str = "open-net state-class graph";
 
 /// Verifies `net` in isolation against `contract` ([VER-022]).
 ///
@@ -110,9 +122,21 @@ pub fn verify_open_net(net: &PetriNet, contract: &OpenNetContract, options: &Ope
     } else {
         Some(GRAPH_SKIPPED_BUDGET)
     };
-    let graph = graph_skipped
-        .is_none()
-        .then(|| decide_on_graph(&closed, contract, max_classes, &traced_places));
+    // [VER-013]: a call cancelled before it starts builds nothing; a build the token stops
+    // says nothing.
+    let cancel = options.cancel.as_ref();
+    let mut graph_cancelled = false;
+    let graph = if graph_skipped.is_some() {
+        None
+    } else if cancel.is_some_and(CancelToken::is_cancelled) {
+        graph_cancelled = true;
+        None
+    } else {
+        let _stop = total_budget::enter(None, options.cancel.clone());
+        let g = decide_on_graph(&closed, contract, max_classes, &traced_places);
+        graph_cancelled = g.stopped;
+        (!g.stopped).then_some(g)
+    };
 
     let result = |verdict: Verdict,
                   route: OpenNetRoute,
@@ -142,6 +166,10 @@ pub fn verify_open_net(net: &PetriNet, contract: &OpenNetContract, options: &Ope
         }
     };
 
+    if graph_cancelled {
+        let verdict = Verdict::Unknown { reason: total_budget::cancelled_reason(PHASE_GRAPH) };
+        return result(verdict, OpenNetRoute::Enumeration, Vec::new(), None);
+    }
     if let Some(g) = &graph {
         if !g.violations.is_empty() {
             return result(Verdict::Violated, OpenNetRoute::Enumeration, g.violations.clone(), None);
@@ -168,6 +196,7 @@ pub fn verify_open_net(net: &PetriNet, contract: &OpenNetContract, options: &Ope
         &traced_places,
         options.configure_smt.as_ref(),
         options.termination_timeout_ms,
+        cancel,
     );
     if !smt.violations.is_empty() {
         return result(Verdict::Violated, OpenNetRoute::Smt, smt.violations, Some(&smt.lines));

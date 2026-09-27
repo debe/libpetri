@@ -22,8 +22,9 @@ static GLOBAL_FRESH_NAME_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Callback that publishes a batch of output entries mid-action. Wired by
 /// the async executor; see [`TransitionContext::flush`]. Sync executors do
-/// not install one — sync actions complete before they can flush.
-pub type FlushFn = Arc<dyn Fn(Vec<OutputEntry>) + Send + Sync>;
+/// not install one — sync actions complete before they can flush. `Err`
+/// when the executor refused the batch (a join-relay violation, \[NU-054\]).
+pub type FlushFn = Arc<dyn Fn(Vec<OutputEntry>) -> Result<(), ActionError> + Send + Sync>;
 
 /// Epoch-clock source for tokens this context produces (\[TIME-015\]).
 /// Wall-clock milliseconds since the Unix epoch. Installed by the executor
@@ -210,6 +211,11 @@ impl TransitionContext {
     /// but a firing that is *rejected* by validation does not withdraw
     /// what was already published. An action needing all-or-nothing
     /// output must not flush.
+    ///
+    /// Also `Err` when the executor refuses the batch: a join that writes a
+    /// relay target a token whose key does not project to the matched name
+    /// (\[NU-054\]). The batch is not deposited and the firing fails with the
+    /// same message at completion, whatever the action does with the `Err`.
     pub fn flush(&mut self) -> Result<(), ActionError> {
         let cb = self.flush_fn.as_ref().ok_or_else(|| {
             ActionError::new(
@@ -226,8 +232,7 @@ impl TransitionContext {
         // it as produced.
         self.flushed_places
             .extend(outputs.iter().map(|e| Arc::clone(&e.place_name)));
-        cb(outputs);
-        Ok(())
+        cb(outputs)
     }
 
     /// Place names published by earlier [`flush`](Self::flush) calls.

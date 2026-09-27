@@ -21,7 +21,7 @@ called by `cache_add_token` and `find_match_binding`. `value → Option<NameId>`
 abbrev KeyOf := Colour → Option Name
 
 /-- The ν-net name-equality test — the `pred` closure the matched consume
-builds at `precompiled_backend.rs:1163-1168`:
+builds at `precompiled_backend.rs:1165-1170`:
 `matches!((key(v), &chosen), (Some(n), Some(c)) if n == *c)`. Per NU-021 this
 is the *only* per-token filter in the system. -/
 def keyPred (key : KeyOf) (n : Name) : Colour → Bool := fun c => key c == some n
@@ -116,7 +116,7 @@ def drainIter (s : Pool) (p : PlaceId) : Nat → Pool
   `ring_remove_matching pred` (`precompiled_backend.rs:1180-1188`) plus
   `cache.consume(m)` popping `cacheK` tokens of `m`'s queue for this input
   (`:1188-1192`, `match_engine.rs:195-201`). The shipped eligible path always
-  has `pred = keyPred key m` (the `precompiled_backend.rs:1163-1168` closure) and
+  has `pred = keyPred key m` (the `precompiled_backend.rs:1165-1170` closure) and
   `ringK = cacheK = required`; the counts are carried separately precisely
   so `one_exactly_is_necessary` can exhibit why `One`/`Exactly` is
   load-bearing.

@@ -162,7 +162,16 @@ pub fn compute_p_semiflows(
         })
         .collect();
 
+    // [VER-013]: the enumeration is worst-case exponential, so under a total
+    // budget or a cancellation token it polls the stop per column and every
+    // `POLL_EVERY` candidates, and gives up with no semiflows. The stop is sticky,
+    // so the pipeline stops at its next step and the empty result reaches no
+    // verdict. Without a stop scope `cut()` is one thread-local read.
+    const POLL_EVERY: usize = 1024;
     for t in 0..nt {
+        if crate::total_budget::cut() {
+            return Vec::new();
+        }
         let mut next: Vec<(Vec<i64>, Vec<i64>)> =
             rows.iter().filter(|r| r.0[t] == 0).cloned().collect();
         let pos: Vec<&(Vec<i64>, Vec<i64>)> = rows.iter().filter(|r| r.0[t] > 0).collect();
@@ -178,6 +187,9 @@ pub fn compute_p_semiflows(
             for rn in &neg {
                 if next.len() >= MAX_SEMIFLOW_CANDIDATES {
                     break 'candidates;
+                }
+                if next.len() % POLL_EVERY == 0 && crate::total_budget::cut() {
+                    return Vec::new();
                 }
                 let cp = -rn.0[t]; // > 0
                 let cn = rp.0[t]; // > 0
@@ -1214,6 +1226,18 @@ mod tests {
             .transition(join.output(out_place(&done)).action(fork()).build())
             .build();
         (net, MarkingStateBuilder::new().tokens("src", 1).build())
+    }
+
+    /// [VER-013]: the semiflow enumeration polls the verification's stop inside
+    /// its loop and gives up with no semiflows.
+    #[test]
+    fn a_stopped_verification_gives_up_the_semiflow_enumeration() {
+        let (net, m0) = diamond(3);
+        let flat = flatten(&net);
+        let matrix = IncidenceMatrix::from_flat_net(&flat, &[]);
+        assert!(!compute_p_semiflows(&matrix, &m0, &flat.places).is_empty());
+        let _stop = crate::total_budget::enter(Some(0), None);
+        assert!(compute_p_semiflows(&matrix, &m0, &flat.places).is_empty());
     }
 
     #[test]

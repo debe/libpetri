@@ -66,23 +66,56 @@ impl MatchKey {
 #[derive(Clone)]
 pub struct MatchSpec {
     keys: Vec<MatchKey>,
+    relays: Vec<MatchKey>,
 }
 
 impl MatchSpec {
     /// Starts building a `MatchSpec`.
     pub fn builder() -> MatchSpecBuilder {
-        MatchSpecBuilder { keys: Vec::new() }
+        MatchSpecBuilder {
+            keys: Vec::new(),
+            relays: Vec::new(),
+        }
     }
 
     /// Constructs a spec from explicit erased keys. Used by FFI bindings; the
     /// caller is responsible for supplying at least two correlated inputs.
     pub fn from_keys(keys: Vec<MatchKey>) -> Self {
-        Self { keys }
+        Self {
+            keys,
+            relays: Vec::new(),
+        }
+    }
+
+    /// Constructs a spec from explicit erased keys and relay targets (NU-054).
+    /// Used by FFI bindings and by the rewriter, which remaps both lists with
+    /// the same place rewrite; the transition build checks the relays.
+    pub fn from_keys_and_relays(keys: Vec<MatchKey>, relays: Vec<MatchKey>) -> Self {
+        Self { keys, relays }
     }
 
     /// The correlated inputs.
     pub fn keys(&self) -> &[MatchKey] {
         &self.keys
+    }
+
+    /// The relay targets (NU-054): output places onto which the join writes the
+    /// name it matched, each with the projection that reads a produced token's
+    /// name. Empty for a join that drains the name. Each is an output of the
+    /// transition and appears once (checked when the transition is built); a
+    /// relay target may also be one of the [`keys`](Self::keys) (a correlated
+    /// self-loop). The executor checks every token a firing writes into one
+    /// against the matched name, as part of output validation (IO-015).
+    pub fn relays(&self) -> &[MatchKey] {
+        &self.relays
+    }
+
+    /// Returns the relay projection for `place_name`, if it is a relay target.
+    pub fn relay_for(&self, place_name: &str) -> Option<&KeyFn> {
+        self.relays
+            .iter()
+            .find(|k| k.place_name() == place_name)
+            .map(|k| &k.key)
     }
 
     /// True when `place_name` is one of the correlated inputs.
@@ -101,18 +134,25 @@ impl MatchSpec {
 
 impl std::fmt::Debug for MatchSpec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MatchSpec")
-            .field(
-                "places",
-                &self.keys.iter().map(|k| k.place_name()).collect::<Vec<_>>(),
-            )
-            .finish()
+        let mut d = f.debug_struct("MatchSpec");
+        d.field(
+            "places",
+            &self.keys.iter().map(|k| k.place_name()).collect::<Vec<_>>(),
+        );
+        if !self.relays.is_empty() {
+            d.field(
+                "relays",
+                &self.relays.iter().map(|k| k.place_name()).collect::<Vec<_>>(),
+            );
+        }
+        d.finish()
     }
 }
 
 /// Builder for [`MatchSpec`].
 pub struct MatchSpecBuilder {
     keys: Vec<MatchKey>,
+    relays: Vec<MatchKey>,
 }
 
 impl MatchSpecBuilder {
@@ -133,6 +173,36 @@ impl MatchSpecBuilder {
         self
     }
 
+    /// Declares a relay target (NU-054): an **output** place onto which the join
+    /// writes the name it matched, together with the projection that reads a
+    /// produced token's name. A relay target does not count towards the two
+    /// correlated inputs [`build`](Self::build) requires.
+    ///
+    /// The projection is infallible by type, so there is no failure to map to
+    /// "no name" as the other languages do for a projection that throws. A panic
+    /// in it propagates as a panic in an action does, out of whatever ran the
+    /// check — the executor at completion, or the action's own task for a
+    /// flushed batch. No executor wraps the check in `catch_unwind`.
+    ///
+    /// ```ignore
+    /// Transition::builder("e")
+    ///     .inputs(vec![one(&c1), one(&d1)])
+    ///     .output(out_place(&p5))
+    ///     .match_spec(MatchSpec::builder().key(&c1, by_case).key(&d1, by_case).relay_to(&p5, by_case).build())
+    /// ```
+    pub fn relay_to<T, F>(mut self, place: &Place<T>, key: F) -> Self
+    where
+        T: Send + Sync + 'static,
+        F: Fn(&T) -> NameId + Send + Sync + 'static,
+    {
+        let erased: KeyFn = Arc::new(move |v: &dyn Any| v.downcast_ref::<T>().map(&key));
+        self.relays.push(MatchKey {
+            place: place.as_ref(),
+            key: erased,
+        });
+        self
+    }
+
     /// Builds the spec.
     ///
     /// # Panics
@@ -144,7 +214,10 @@ impl MatchSpecBuilder {
             "MatchSpec must correlate at least 2 input places, got {}",
             self.keys.len()
         );
-        MatchSpec { keys: self.keys }
+        MatchSpec {
+            keys: self.keys,
+            relays: self.relays,
+        }
     }
 }
 

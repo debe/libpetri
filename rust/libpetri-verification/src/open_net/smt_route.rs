@@ -28,6 +28,8 @@ use crate::result::{Verdict, VerificationResult};
 use crate::rest_set::ConditionalSinks;
 use crate::scg_verifier::is_untimed;
 use crate::smt_verifier::SmtVerifier;
+use crate::cancel::CancelToken;
+use crate::total_budget;
 use crate::z3_process::{Z3Solver, failure_reason};
 
 use super::closure::ClosedNet;
@@ -85,6 +87,7 @@ pub(super) fn decide_via_smt(
     traced_places: &[String],
     configure: Option<&SmtConfigurator>,
     termination_timeout_ms: u64,
+    cancel: Option<&CancelToken>,
 ) -> SmtRouteOutcome {
     let mut violations: Vec<ContractViolation> = Vec::new();
     let mut undecided: Vec<String> = Vec::new();
@@ -112,6 +115,10 @@ pub(super) fn decide_via_smt(
         for c in &q.conditional {
             verifier = verifier.sink_places_when(c.marker.clone(), c.places.iter().cloned());
         }
+        // [VER-013]: before the caller's hook, which may replace it.
+        if let Some(token) = cancel {
+            verifier = verifier.cancel_token(token);
+        }
         if let Some(configure) = configure {
             verifier = configure(verifier);
         }
@@ -137,7 +144,7 @@ pub(super) fn decide_via_smt(
         }
     }
     if contract.requires_termination() {
-        match termination_by_ranking(closed, termination_timeout_ms) {
+        match termination_by_ranking(closed, termination_timeout_ms, cancel) {
             Ok(detail) => lines.push(format!("  [termination] Firing bound (VER-019): {detail}")),
             Err(reason) => {
                 lines.push(format!("  [termination] Firing bound (VER-019): undecided ({reason})"));
@@ -274,7 +281,28 @@ pub(super) fn verdict_word(verdict: &Verdict) -> &'static str {
 /// firings the marking equation lets repeat.
 ///
 /// `Ok` is the proof in words; `Err` is why termination stays undecided.
-fn termination_by_ranking(closed: &ClosedNet, timeout_ms: u64) -> Result<String, String> {
+fn termination_by_ranking(
+    closed: &ClosedNet,
+    timeout_ms: u64,
+    cancel: Option<&CancelToken>,
+) -> Result<String, String> {
+    // [VER-013]: cancelled before or during the query — a killed reply is not the answer.
+    let cancelled = || cancel.is_some_and(CancelToken::is_cancelled);
+    let cancelled_reason = || total_budget::cancelled_reason("termination (firing bound)");
+    if cancelled() {
+        return Err(cancelled_reason());
+    }
+    // The token rides the transport's stop scope, so the watchdog kills a running query.
+    let _stop = total_budget::enter(None, cancel.cloned());
+    let outcome = ranking_outcome(closed, timeout_ms);
+    if cancelled() {
+        return Err(cancelled_reason());
+    }
+    outcome
+}
+
+/// [`termination_by_ranking`] without the cancellation checks around it.
+fn ranking_outcome(closed: &ClosedNet, timeout_ms: u64) -> Result<String, String> {
     let flat = flatten(&closed.net);
     // A count past `i64::MAX` cannot be a marking anyone built; saturating keeps the query
     // well-formed, and the exact re-check then refuses a ranking that relies on it.

@@ -213,6 +213,53 @@ pub fn close_open_net(net: &PetriNet, contract: &OpenNetContract) -> ClosedNet {
     }
 }
 
+/// The `Arrivals(k)` rewrite of [VER-006]: the closure above with one optional arrival
+/// group (`min = 0`, `max = k`) per environment place, in registration order. Environment
+/// place `P`, the `i`-th, gets a source `env:optional[i]` holding `k` tokens, an injection
+/// transition `env:arrive?[i]:P`, and `env:decline[i]`, which discards a token of the
+/// source. Every arrival is optional, so a run may rest after any number of arrivals from
+/// `0` to `k`: "at most `k`" holds for quiescence as well as for safety. `P` stays in the
+/// net as an ordinary place, and `initial_marking` is carried over with the sources added.
+/// The closed net has no environment places, so every route applies to it as to any closed
+/// net.
+///
+/// # Panics
+/// When `k` is `0` (nothing to inject: the caller keeps the net as it is), or when a name
+/// the rewrite would add is already taken in `net`.
+pub fn close_arrivals(
+    net: &PetriNet,
+    initial_marking: &MarkingState,
+    environment_places: &[String],
+    k: usize,
+) -> ClosedNet {
+    close_arrivals_between(net, initial_marking, environment_places, 0, k)
+}
+
+/// The `ArrivalsBetween(min, max)` rewrite of [VER-006]: [`close_arrivals`] with arrival
+/// group (`min`, `max`) per environment place instead of (`0`, `k`). Environment place `P`,
+/// the `i`-th, gets a mandatory source `env:arrivals[i]` holding `min` with
+/// `env:arrive[i]:P`, and an optional source `env:optional[i]` holding `max − min` with
+/// `env:arrive?[i]:P` and `env:decline[i]` — each exactly as [`close_open_net`] builds the
+/// group, so a source whose count is `0` is left out with its transitions. A run is
+/// quiescent only once all `min` mandatory arrivals are delivered.
+///
+/// # Panics
+/// When `max < min` or `max` is `0` (the caller keeps the net as it is), or when a name the
+/// rewrite would add is already taken in `net`.
+pub fn close_arrivals_between(
+    net: &PetriNet,
+    initial_marking: &MarkingState,
+    environment_places: &[String],
+    min: usize,
+    max: usize,
+) -> ClosedNet {
+    let mut contract = OpenNetContract::builder().initial_marking(initial_marking);
+    for p in environment_places {
+        contract = contract.arrive_between(min, max, [p]);
+    }
+    close_open_net(net, &contract.build())
+}
+
 /// `name`: one token from `source` onto `target`.
 fn arrival_transition(name: &str, source: &Place<()>, target: &str) -> Transition {
     Transition::builder(name)

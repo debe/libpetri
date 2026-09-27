@@ -174,6 +174,87 @@ impl SubnetVerificationResult {
     }
 }
 
+/// Configures the per-property verifier of a subnet verification ([MOD-051]):
+/// called once per property with the verifier **after** libpetri's own setup
+/// (property, environment places, environment mode) and with the synthetic net,
+/// returning the verifier to run. The shape of
+/// [`OpenNetOptions::configure_smt`](crate::open_net::OpenNetOptions) plus the
+/// synthetic net, e.g.
+/// `Box::new(|v, _synth| v.total_budget(5_000).carrier_places(["sut/relay".into()]))`.
+#[cfg(feature = "z3")]
+pub type SubnetConfigurator =
+    Box<dyn for<'a> Fn(SmtVerifier<'a>, &'a PetriNet) -> SmtVerifier<'a> + Send + Sync>;
+
+/// Options for [`SubnetVerifyExt::verify_with_options`] ([MOD-051]).
+///
+/// The configure hook is how a caller sets anything the verifier offers: the
+/// per-call timeout, the total budget or cancellation of [VER-013], sink places,
+/// the state-equation and enumeration options, and the ν options (budget and
+/// carrier places, fragment mode, `nu_max_classes`). Places are the synthetic
+/// net's: the subnet's own under the `sut/` prefix (`sut/<place>`), the ports'
+/// synthetic places `harness_in_<port>` / `harness_out_<port>` /
+/// `harness_io_<port>`. What the hook sets overrides libpetri's setup, as
+/// `OpenNetOptions::configure_smt` does ([VER-022]); a hook that replaces the
+/// environment mode takes responsibility for it.
+///
+/// **ν subnets need the ν options.** A subnet that mints and joins correlation
+/// names and threads a name through a relay is verified in the BASE fragment
+/// unless the caller says otherwise ([NU-051]). BASE reads such a relay as a
+/// fresh mint — a different model, in which a join the real net reaches may
+/// never fire, so a safety property can come back `Proven` although the net
+/// violates it. Declare the carrier places and select
+/// `FragmentMode::Extended` through `configure`.
+pub struct SubnetVerifyOptions {
+    /// How injection into the synthetic environment places is modelled
+    /// ([VER-006]); default [`EnvironmentAnalysisMode::AlwaysAvailable`]. See
+    /// [`SubnetVerifyExt::verify_with_mode`].
+    pub environment_mode: EnvironmentAnalysisMode,
+    /// The per-property hook (default: none).
+    #[cfg(feature = "z3")]
+    pub configure: Option<SubnetConfigurator>,
+}
+
+impl Default for SubnetVerifyOptions {
+    fn default() -> Self {
+        Self {
+            environment_mode: EnvironmentAnalysisMode::AlwaysAvailable,
+            #[cfg(feature = "z3")]
+            configure: None,
+        }
+    }
+}
+
+impl SubnetVerifyOptions {
+    /// These options with `mode` as the environment mode.
+    pub fn with_environment_mode(mut self, mode: EnvironmentAnalysisMode) -> Self {
+        self.environment_mode = mode;
+        self
+    }
+
+    /// These options with `configure` as the per-property hook.
+    #[cfg(feature = "z3")]
+    pub fn with_configure(
+        mut self,
+        configure: impl for<'a> Fn(SmtVerifier<'a>, &'a PetriNet) -> SmtVerifier<'a>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
+        self.configure = Some(Box::new(configure));
+        self
+    }
+}
+
+impl std::fmt::Debug for SubnetVerifyOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut d = f.debug_struct("SubnetVerifyOptions");
+        d.field("environment_mode", &self.environment_mode);
+        #[cfg(feature = "z3")]
+        d.field("configure", &self.configure.as_ref().map(|_| ".."));
+        d.finish()
+    }
+}
+
 /// Extension trait providing [`SubnetVerifyExt::verify`] on
 /// [`SubnetDef<P>`], mirroring the Java `SubnetDef.verify(harness)` /
 /// TypeScript `subnetDef.verify(harness)` ergonomics.
@@ -197,8 +278,13 @@ pub trait SubnetVerifyExt<P: 'static> {
     /// The synthetic net has environment places by construction, so this mode decides
     /// what a verdict means. [`EnvironmentAnalysisMode::AlwaysAvailable`], the default
     /// used by [`SubnetVerifyExt::verify`], over-approximates: a `Proven` under it
-    /// holds for any environment. [`EnvironmentAnalysisMode::Bounded`] is the mode that
-    /// expresses a generator bounding the input to at most `k` tokens.
+    /// holds for any environment. [`EnvironmentAnalysisMode::Bounded`] caps the
+    /// tokens **resident** in each input place at `k` and refills it forever, so it
+    /// bounds what one firing can take, not the input as a whole;
+    /// [`EnvironmentAnalysisMode::Arrivals`] bounds the total injected into each
+    /// input port over the whole run ([VER-006]), and
+    /// [`EnvironmentAnalysisMode::ArrivalsBetween`] also makes a lower bound of it
+    /// mandatory before quiescence.
     /// [`EnvironmentAnalysisMode::Ignore`] is accepted but cannot yield `Proven`:
     /// [VER-006] refuses to certify a proof that holds only because injection was never
     /// modeled.
@@ -206,6 +292,15 @@ pub trait SubnetVerifyExt<P: 'static> {
         &self,
         harness: VerificationHarness<P>,
         environment_mode: EnvironmentAnalysisMode,
+    ) -> SubnetVerificationResult;
+
+    /// As [`SubnetVerifyExt::verify`], with [`SubnetVerifyOptions`]: the
+    /// environment mode and a per-property configure hook ([MOD-051]). A ν subnet
+    /// needs its ν options set through the hook; see [`SubnetVerifyOptions`].
+    fn verify_with_options(
+        &self,
+        harness: VerificationHarness<P>,
+        options: SubnetVerifyOptions,
     ) -> SubnetVerificationResult;
 }
 
@@ -222,6 +317,14 @@ impl<P: 'static> SubnetVerifyExt<P> for SubnetDef<P> {
         environment_mode: EnvironmentAnalysisMode,
     ) -> SubnetVerificationResult {
         verify_subnet_with_mode(self, harness, environment_mode)
+    }
+
+    fn verify_with_options(
+        &self,
+        harness: VerificationHarness<P>,
+        options: SubnetVerifyOptions,
+    ) -> SubnetVerificationResult {
+        verify_subnet_with_options(self, harness, options)
     }
 }
 
@@ -240,6 +343,20 @@ pub fn verify_subnet_with_mode<P: 'static>(
     def: &SubnetDef<P>,
     harness: VerificationHarness<P>,
     environment_mode: EnvironmentAnalysisMode,
+) -> SubnetVerificationResult {
+    verify_subnet_with_options(
+        def,
+        harness,
+        SubnetVerifyOptions::default().with_environment_mode(environment_mode),
+    )
+}
+
+/// As [`verify_subnet`], with [`SubnetVerifyOptions`] ([MOD-051]). See
+/// [`SubnetVerifyExt::verify_with_options`].
+pub fn verify_subnet_with_options<P: 'static>(
+    def: &SubnetDef<P>,
+    harness: VerificationHarness<P>,
+    options: SubnetVerifyOptions,
 ) -> SubnetVerificationResult {
     let VerificationHarness {
         params,
@@ -321,8 +438,7 @@ pub fn verify_subnet_with_mode<P: 'static>(
     // Step 4: invoke the SmtVerifier once per property and aggregate
     // results. Iteration order matches the harness's property collection
     // for deterministic per-property reporting.
-    let per_property =
-        run_per_property(&synthetic_net, &properties, &env_place_names, environment_mode);
+    let per_property = run_per_property(&synthetic_net, &properties, &env_place_names, &options);
 
     SubnetVerificationResult {
         synthetic_net,
@@ -339,19 +455,22 @@ fn run_per_property(
     synthetic_net: &PetriNet,
     properties: &[SmtProperty],
     env_place_names: &[String],
-    environment_mode: EnvironmentAnalysisMode,
+    options: &SubnetVerifyOptions,
 ) -> Vec<(SmtProperty, SmtVerificationResult)> {
     let mut per_property = Vec::with_capacity(properties.len());
     for property in properties {
         // Set explicitly rather than inherited: the synthetic env places are
         // the harness's own, so how injection is modelled is the harness's
         // call ([MOD-051] AC3), not the verifier default's.
-        let result = SmtVerifier::for_net(synthetic_net)
+        let mut verifier = SmtVerifier::for_net(synthetic_net)
             .property(property.clone())
             .environment_places(env_place_names.iter().cloned())
-            .environment_mode(environment_mode.clone())
-            .verify();
-        per_property.push((property.clone(), result));
+            .environment_mode(options.environment_mode.clone());
+        // [MOD-051]: the caller's hook runs after that setup, so what it sets wins.
+        if let Some(configure) = &options.configure {
+            verifier = configure(verifier, synthetic_net);
+        }
+        per_property.push((property.clone(), verifier.verify()));
     }
     per_property
 }
@@ -361,7 +480,7 @@ fn run_per_property(
     _synthetic_net: &PetriNet,
     properties: &[SmtProperty],
     _env_place_names: &[String],
-    _environment_mode: EnvironmentAnalysisMode,
+    _options: &SubnetVerifyOptions,
 ) -> Vec<(SmtProperty, SmtVerificationResult)> {
     use crate::result::{Verdict, VerificationStatistics};
 
@@ -386,6 +505,8 @@ fn run_per_property(
                 // The replay did not apply: no solver ran at all (C1 tri-state).
                 counterexample_confirmed: None,
                 counterexample_transitions: Vec::new(),
+                // Not a `Violated` ([VER-003]).
+                counterexample_timing: None,
                 elapsed_ms: 0,
                 statistics: VerificationStatistics {
                     places: 0,

@@ -15,25 +15,25 @@ flowchart TD
     n18["Libpetri.Cell.enabled"]
     n19["Libpetri.Cell.mk"]
     n20["Libpetri.Cell.tokens"]
-    n756["🔒 Libpetri.pb_update_reenables"]
-    n864["Libpetri.updateCell"]
+    n758["🔒 Libpetri.pb_update_reenables"]
+    n866["Libpetri.updateCell"]
   end
   n16 --> n15
   n17 --> n15
   n18 --> n15
   n19 --> n15
   n20 --> n15
-  n756 --> n864
-  n864 --> n16
-  n864 --> n17
-  n864 --> n18
-  n864 --> n19
-  n864 --> n20
+  n758 --> n866
+  n866 --> n16
+  n866 --> n17
+  n866 --> n18
+  n866 --> n19
+  n866 --> n20
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n756 root
-  class n756 locked
+  class n758 root
+  class n758 locked
 ```
 
 Axioms used:

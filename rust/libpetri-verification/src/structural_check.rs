@@ -83,7 +83,10 @@ fn find_minimal_siphons(flat: &FlatNet, budget: usize) -> Option<Vec<Vec<usize>>
     Some(minimal)
 }
 
-/// One node of the siphon search. Returns `false` when the budget is exhausted.
+/// One node of the siphon search. Returns `false` when the budget is exhausted,
+/// or when the verification this runs in was stopped ([VER-013]: its total budget
+/// ran out or it was cancelled) — the search then gives up without a result, as on
+/// its node budget, and the pipeline stops at its next step.
 fn grow_siphon(
     flat: &FlatNet,
     siphon: Vec<bool>,
@@ -92,7 +95,7 @@ fn grow_siphon(
     budget: usize,
 ) -> bool {
     *nodes += 1;
-    if *nodes > budget {
+    if *nodes > budget || crate::total_budget::cut() {
         return false;
     }
     // A superset of a siphon already found cannot lead to a new minimal one.
@@ -234,6 +237,26 @@ mod tests {
         let result = structural_check(&flat, &MarkingStateBuilder::new().tokens("p1", 1).build());
         // Cycle forms a siphon that contains its own trap, marked by p1
         assert_eq!(result, StructuralCheckResult::NoPotentialDeadlock);
+    }
+
+    /// [VER-013]: the siphon search polls the verification's stop inside its
+    /// loop and gives up without a result, as on its node budget, so a
+    /// cancelled or over-budget verification cannot stay in it.
+    #[test]
+    fn a_stopped_verification_gives_up_the_siphon_search() {
+        let p1 = Place::<i32>::new("p1");
+        let p2 = Place::<i32>::new("p2");
+        let t1 = Transition::builder("t1").input(one(&p1)).output(out_place(&p2)).action(fork()).build();
+        let t2 = Transition::builder("t2").input(one(&p2)).output(out_place(&p1)).action(fork()).build();
+        let flat = flatten(&PetriNet::builder("cycle").transitions([t1, t2]).build());
+        let m0 = MarkingStateBuilder::new().tokens("p1", 1).build();
+        let token = crate::cancel::CancelToken::new();
+        token.cancel();
+        {
+            let _stop = crate::total_budget::enter(None, Some(token));
+            assert_eq!(structural_check(&flat, &m0), StructuralCheckResult::Inconclusive);
+        }
+        assert_eq!(structural_check(&flat, &m0), StructuralCheckResult::NoPotentialDeadlock);
     }
 
     #[test]

@@ -11,46 +11,46 @@ Theorems carrying this ID:
 flowchart TD
   subgraph g0["Libpetri/RetrodictExec.lean"]
     n82["Libpetri.Ka"]
-    n851["🔒 Libpetri.tid_order_diverges"]
+    n853["🔒 Libpetri.tid_order_diverges"]
   end
   subgraph g1["Libpetri/Sched.lean"]
     n84["Libpetri.LevelBlocks"]
     n87["Libpetri.LevelBlocks.mk"]
-    n491["Libpetri.SchedKey"]
-    n492["Libpetri.SchedKey.clock"]
-    n493["Libpetri.SchedKey.lt"]
-    n494["🔒 Libpetri.SchedKey.lt_asymm"]
-    n497["Libpetri.SchedKey.mk"]
-    n498["Libpetri.SchedKey.prio"]
-    n598["🔒 Libpetri.collect_ready_general_refines"]
-    n659["🔒 Libpetri.eq_of_perm_of_sorted"]
-    n730["🔒 Libpetri.levelBlocks_sorted"]
-    n755["🔒 Libpetri.pairwise_imp_mem"]
+    n493["Libpetri.SchedKey"]
+    n494["Libpetri.SchedKey.clock"]
+    n495["Libpetri.SchedKey.lt"]
+    n496["🔒 Libpetri.SchedKey.lt_asymm"]
+    n499["Libpetri.SchedKey.mk"]
+    n500["Libpetri.SchedKey.prio"]
+    n600["🔒 Libpetri.collect_ready_general_refines"]
+    n661["🔒 Libpetri.eq_of_perm_of_sorted"]
+    n732["🔒 Libpetri.levelBlocks_sorted"]
+    n757["🔒 Libpetri.pairwise_imp_mem"]
   end
-  n82 --> n497
-  n84 --> n491
+  n82 --> n499
+  n84 --> n493
   n87 --> n84
-  n87 --> n492
-  n87 --> n498
-  n492 --> n491
-  n493 --> n492
-  n493 --> n498
+  n87 --> n494
+  n87 --> n500
   n494 --> n493
-  n497 --> n491
-  n498 --> n491
-  n598 --> n659
-  n598 --> n730
-  n659 --> n494
-  n730 --> n87
-  n730 --> n493
-  n730 --> n755
-  n851 --> n82
-  n851 --> n493
+  n495 --> n494
+  n495 --> n500
+  n496 --> n495
+  n499 --> n493
+  n500 --> n493
+  n600 --> n661
+  n600 --> n732
+  n661 --> n496
+  n732 --> n87
+  n732 --> n495
+  n732 --> n757
+  n853 --> n82
+  n853 --> n495
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n598,n851 root
-  class n494,n598,n659,n730,n755,n851 locked
+  class n600,n853 root
+  class n496,n600,n661,n732,n757,n853 locked
 ```
 
 Axioms used:

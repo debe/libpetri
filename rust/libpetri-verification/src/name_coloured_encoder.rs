@@ -25,9 +25,11 @@
 //! [`build_plan`] returns `None` (and the verifier falls back to the sound
 //! over-approximation) unless the net is in the budget-bounded coloured fragment:
 //! - coloured places = the correlated inputs of every matched transition, plus (in
-//!   EXTENDED mode, [NU-051]) the declared carrier places;
+//!   EXTENDED mode, [NU-051]) the declared carrier places and the joins' relay
+//!   targets ([NU-054]);
 //! - each coloured place is *produced only by* minting forks (count 1, no coloured
-//!   input, costs ≥1 budget token) or EXTENDED relays, and *consumed only by*
+//!   input, costs ≥1 budget token), EXTENDED relays, or a matched join onto its
+//!   declared relay targets (count 1, the join's shared colour), and *consumed only by*
 //!   matched joins or EXTENDED coloured consumers — a relay threads one colour on, a
 //!   drain drops it, each consuming exactly one coloured input at count 1;
 //! - the coloured place set is structurally token-bounded: some non-negative
@@ -68,8 +70,13 @@ use crate::smt_encoder::{SmtEncoding, count_violation_condition, index_ordered, 
 enum Class {
     /// Minting fork: produces a freshly-coloured token into each listed place.
     Mint { coloured_out: Vec<usize> },
-    /// Matched join: consumes one same-coloured token from each listed place.
-    Join { coloured_in: Vec<usize> },
+    /// Matched join: consumes one same-coloured token from each `coloured_in` and,
+    /// on this flat row's branch, produces it once on each `relay_out` ([NU-054],
+    /// EXTENDED only; empty otherwise).
+    Join {
+        coloured_in: Vec<usize>,
+        relay_out: Vec<usize>,
+    },
     /// EXTENDED coloured consumer ([NU-051]): a non-match transition that consumes
     /// one same-coloured token from `input_col` (count 1) and threads it into each
     /// `coloured_out` (relay) or into none (drain — `coloured_out` empty).
@@ -214,6 +221,17 @@ pub fn build_plan(
                 is_coloured[pid] = true;
             }
         }
+        // [NU-054]: relay targets are coloured places, so the covering semiflow
+        // below must weight them too.
+        for t in net.transitions() {
+            if let Some(ms) = t.match_spec() {
+                for r in ms.relays() {
+                    if let Some(&pid) = flat.place_index.get(r.place_name()) {
+                        is_coloured[pid] = true;
+                    }
+                }
+            }
+        }
     }
     let coloured: Vec<usize> = (0..p).filter(|&i| is_coloured[i]).collect();
     if coloured.is_empty() {
@@ -286,8 +304,18 @@ pub fn build_plan(
             .collect();
 
         let class = if let Some(ms) = t.match_spec() {
-            // Matched join: consumes coloured inputs (count 1), produces none.
-            if !coloured_out.is_empty() || coloured_in.is_empty() {
+            // Matched join: consumes coloured inputs (count 1), and produces coloured
+            // places only as declared relay targets (EXTENDED, [NU-054]), each at
+            // count 1.
+            if coloured_in.is_empty() {
+                return None;
+            }
+            let relays_admitted = fragment_mode == FragmentMode::Extended;
+            if coloured_out.iter().any(|&pid| {
+                !relays_admitted
+                    || !ms.relays().iter().any(|r| r.place_name() == flat.places[pid])
+                    || ft.post[pid] != 1
+            }) {
                 return None;
             }
             // Every coloured input must be a key: an off-key one is taken FIFO at
@@ -301,7 +329,10 @@ pub fn build_plan(
             if coloured_in.iter().any(|&pid| ft.pre[pid] != 1) {
                 return None;
             }
-            Class::Join { coloured_in }
+            Class::Join {
+                coloured_in,
+                relay_out: coloured_out,
+            }
         } else if !coloured_in.is_empty() {
             // EXTENDED coloured consumer (relay/drain, [NU-051]): a non-match
             // transition consuming a coloured place. Admitted only in EXTENDED mode,
@@ -481,7 +512,10 @@ pub fn encode_coloured(
                     }));
                 }
             }
-            Class::Join { coloured_in } => {
+            Class::Join {
+                coloured_in,
+                relay_out,
+            } => {
                 for c in 0..k {
                     lines.push(encode_rule(plan, &lay, invariants, |enab, upd| {
                         uncoloured_incidence(&lay, plan, ft, enab, upd);
@@ -489,7 +523,21 @@ pub fn encode_coloured(
                         for &ip in coloured_in {
                             let col = lay.col_col[ip][c];
                             enab.push(format!("(>= {} 1)", lay.cur[col]));
-                            upd.push((col, format!("(- {} 1)", lay.cur[col])));
+                            // A key that is also a relay target (a correlated
+                            // self-loop) nets to zero: guarded above, column
+                            // carried over unchanged ([NU-054]).
+                            if !relay_out.contains(&ip) {
+                                upd.push((col, format!("(- {} 1)", lay.cur[col])));
+                            }
+                        }
+                        // [NU-054]: colour c relayed once onto each relay target of
+                        // this branch that is not also a key.
+                        for &o in relay_out {
+                            if coloured_in.contains(&o) {
+                                continue;
+                            }
+                            let col = lay.col_col[o][c];
+                            upd.push((col, format!("(+ {} 1)", lay.cur[col])));
                         }
                     }));
                 }
@@ -893,7 +941,7 @@ fn coloured_disabled_term(cls: &Class, plan: &ColouredPlan, lay: &Layout) -> Opt
                 .collect();
             Some(format!("(and {})", per_colour.join(" ")))
         }
-        Class::Join { coloured_in } => {
+        Class::Join { coloured_in, .. } => {
             // No colour is shared by all correlated inputs: for every colour c, some
             // input lacks c.
             let per_colour: Vec<String> = (0..k)
@@ -1450,5 +1498,75 @@ mod tests {
             encode_coloured(&plan, &flat, &initial, &good, &[], &[], &[], &[]).is_some(),
             "a resolvable pending place must still encode"
         );
+    }
+
+    // ---- NU-054: relay targets in the Route A plan ----
+
+    fn relay_plan(
+        rows: &[crate::relay_nets::Row],
+        marking: &[(&str, usize)],
+        budgets: &[&str],
+        mode: FragmentMode,
+    ) -> (FlatNet, Option<ColouredPlan>) {
+        let net = crate::relay_nets::pnid_net("plan", rows);
+        let flat = net_flattener::flatten(&net);
+        let mut m = MarkingStateBuilder::new();
+        for (p, k) in marking {
+            m = m.tokens(*p, *k);
+        }
+        let initial = m.build();
+        let budget: HashSet<String> = budgets.iter().map(|s| s.to_string()).collect();
+        let matrix = crate::incidence_matrix::IncidenceMatrix::from_flat_net(&flat, &[]);
+        let semiflows = crate::p_invariant::validate_invariants_exact(
+            crate::p_invariant::compute_p_semiflows(&matrix, &initial, &flat.places),
+            &matrix,
+            &initial,
+            &flat,
+        )
+        .valid;
+        let plan = build_plan(&net, &flat, &initial, &budget, mode, &HashSet::new(), &semiflows);
+        (flat, plan)
+    }
+
+    fn relay_out_of(plan: &ColouredPlan, flat: &FlatNet, t: &str) -> Vec<usize> {
+        let i = flat.transitions.iter().position(|ft| ft.name == t).expect("row");
+        match &plan.classes[i] {
+            Class::Join { relay_out, .. } => relay_out.clone(),
+            _ => panic!("{t} is not a join"),
+        }
+    }
+
+    #[test]
+    fn a_relay_target_no_join_consumes_is_coloured_and_produced_by_the_join() {
+        use crate::relay_nets::{j, t};
+        let (flat, plan) = relay_plan(
+            &[t("m", &["S"], &["A", "B"]), j("j", &["A", "B"], &["C"], &["A", "B"], &["C"])],
+            &[("S", 1)],
+            &["S"],
+            FragmentMode::Extended,
+        );
+        let plan = plan.expect("a relay onto a sink is in the Route A fragment");
+        let c = flat.place_index["C"];
+        assert!(plan.is_coloured[c]);
+        assert_eq!(relay_out_of(&plan, &flat, "j"), vec![c]);
+    }
+
+    #[test]
+    fn the_n1_self_loop_keeps_its_key_among_the_relay_outputs_and_base_declines() {
+        let rows = crate::relay_nets::n1_corr();
+        let (flat, plan) = relay_plan(&rows, &[("SUPPLY", 1)], &["SUPPLY"], FragmentMode::Extended);
+        let plan = plan.expect("N1 with its relays is in the Route A fragment");
+        let mut out = relay_out_of(&plan, &flat, "B");
+        out.sort_unstable();
+        let mut expected = vec![flat.place_index["Y1"], flat.place_index["q"], flat.place_index["w"]];
+        expected.sort_unstable();
+        assert_eq!(out, expected);
+        assert!(relay_plan(&rows, &[("SUPPLY", 1)], &["SUPPLY"], FragmentMode::Base).1.is_none());
+    }
+
+    #[test]
+    fn a_join_writing_an_undeclared_coloured_place_is_outside_the_plan() {
+        let rows = crate::relay_nets::without_relays(&crate::relay_nets::join_chain());
+        assert!(relay_plan(&rows, &[("S", 1)], &["S"], FragmentMode::Extended).1.is_none());
     }
 }

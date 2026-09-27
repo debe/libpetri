@@ -17,85 +17,85 @@ flowchart TD
     n18["Libpetri.Cell.enabled"]
     n19["Libpetri.Cell.mk"]
     n20["Libpetri.Cell.tokens"]
-    n520["Libpetri.Timing"]
-    n521["Libpetri.Timing.earliest"]
-    n522["Libpetri.Timing.latest"]
-    n523["Libpetri.Timing.mk"]
-    n581["🔒 Libpetri.bb_cycle_disabled_frame"]
-    n582["🔒 Libpetri.bb_never_fires_after_reap"]
-    n583["🔒 Libpetri.bb_reaped_stays_disabled"]
-    n632["Libpetri.cycle"]
-    n633["Libpetri.deadlineExpired"]
-    n634["🔒 Libpetri.deadline_reap_dirty_diverges"]
-    n655["Libpetri.enforceBB"]
-    n656["Libpetri.enforcePB"]
-    n685["Libpetri.fires"]
-    n747["Libpetri.obsBB"]
-    n748["Libpetri.obsPB"]
-    n795["Libpetri.reaps"]
-    n818["Libpetri.run"]
-    n864["Libpetri.updateCell"]
-    n872["Libpetri.wInit"]
-    n879["Libpetri.wSched"]
-    n881["Libpetri.wTiming"]
-    n883["Libpetri.windowOpen"]
+    n522["Libpetri.Timing"]
+    n523["Libpetri.Timing.earliest"]
+    n524["Libpetri.Timing.latest"]
+    n525["Libpetri.Timing.mk"]
+    n583["🔒 Libpetri.bb_cycle_disabled_frame"]
+    n584["🔒 Libpetri.bb_never_fires_after_reap"]
+    n585["🔒 Libpetri.bb_reaped_stays_disabled"]
+    n634["Libpetri.cycle"]
+    n635["Libpetri.deadlineExpired"]
+    n636["🔒 Libpetri.deadline_reap_dirty_diverges"]
+    n657["Libpetri.enforceBB"]
+    n658["Libpetri.enforcePB"]
+    n687["Libpetri.fires"]
+    n749["Libpetri.obsBB"]
+    n750["Libpetri.obsPB"]
+    n797["Libpetri.reaps"]
+    n820["Libpetri.run"]
+    n866["Libpetri.updateCell"]
+    n874["Libpetri.wInit"]
+    n881["Libpetri.wSched"]
+    n883["Libpetri.wTiming"]
+    n885["Libpetri.windowOpen"]
   end
   n16 --> n15
   n17 --> n15
   n18 --> n15
   n19 --> n15
   n20 --> n15
-  n521 --> n520
-  n522 --> n520
-  n523 --> n520
-  n581 --> n632
-  n581 --> n655
-  n582 --> n583
-  n582 --> n747
-  n582 --> n872
-  n582 --> n881
-  n583 --> n581
-  n583 --> n818
-  n632 --> n521
-  n632 --> n522
-  n632 --> n685
-  n632 --> n864
-  n634 --> n747
-  n634 --> n748
-  n634 --> n872
-  n634 --> n879
-  n634 --> n881
-  n655 --> n17
-  n655 --> n19
-  n655 --> n20
-  n655 --> n795
-  n656 --> n19
-  n656 --> n20
-  n656 --> n795
-  n685 --> n16
-  n685 --> n18
-  n685 --> n20
-  n685 --> n883
-  n747 --> n655
-  n747 --> n818
-  n748 --> n656
-  n748 --> n818
-  n795 --> n16
-  n795 --> n18
-  n795 --> n633
-  n818 --> n632
-  n864 --> n16
-  n864 --> n17
-  n864 --> n18
-  n864 --> n19
-  n864 --> n20
-  n872 --> n19
-  n881 --> n523
+  n523 --> n522
+  n524 --> n522
+  n525 --> n522
+  n583 --> n634
+  n583 --> n657
+  n584 --> n585
+  n584 --> n749
+  n584 --> n874
+  n584 --> n883
+  n585 --> n583
+  n585 --> n820
+  n634 --> n523
+  n634 --> n524
+  n634 --> n687
+  n634 --> n866
+  n636 --> n749
+  n636 --> n750
+  n636 --> n874
+  n636 --> n881
+  n636 --> n883
+  n657 --> n17
+  n657 --> n19
+  n657 --> n20
+  n657 --> n797
+  n658 --> n19
+  n658 --> n20
+  n658 --> n797
+  n687 --> n16
+  n687 --> n18
+  n687 --> n20
+  n687 --> n885
+  n749 --> n657
+  n749 --> n820
+  n750 --> n658
+  n750 --> n820
+  n797 --> n16
+  n797 --> n18
+  n797 --> n635
+  n820 --> n634
+  n866 --> n16
+  n866 --> n17
+  n866 --> n18
+  n866 --> n19
+  n866 --> n20
+  n874 --> n19
+  n883 --> n525
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n582,n583,n634 root
-  class n581,n582,n583,n634 locked
+  class n584,n585,n636 root
+  class n583,n584,n585,n636 locked
 ```
 
 Axioms used:

@@ -78,7 +78,7 @@ fragment. The three conjuncts below are still the whole gate.
   executor's cardinality gate (`can_enable`; `Ring.lean`'s `first_isSome`
   is the totality fact). A reset drains by `cnt` repeated head removals,
   exactly as `consume_for_firing`'s RESET tail does
-  (`precompiled_backend.rs:1222-1230` matched, `:1265-1274` opcode).
+  (`precompiled_backend.rs:1225-1235` matched, `:1294-1303` opcode).
 * A matched firing with no binding cannot reach the consume phase
   (`can_enable`'s `no_binding` bail-out,
   `precompiled_backend.rs:746-752`), so the firing model
@@ -247,7 +247,7 @@ theorem match_cache_lockstep {key : KeyOf} {p : PlaceId}
 /-! ## What one firing does to the cached place -/
 
 /-- The mutations the consume phase of one firing of `u`
-(`consume_for_firing`, `precompiled_backend.rs:1132-1311`) performs **on the
+(`consume_for_firing`, `precompiled_backend.rs:1132-1315`) performs **on the
 single place `p`**, in program order: for each input spec landing on `p`, a
 matched consume when `p` is one of `u`'s correlated inputs
 (`key_for(...).is_some()`, `:1130-1135`; ring count per `:1143-1153` —
@@ -302,7 +302,7 @@ theorem foreign_fire_emits_nothing {ts : List Transition} {tid : Nat}
 /-- Conjunct 1 shapes the owner's own firing: on an eligible key place the
 whole consume phase is **one** matched consume whose ring count and cache
 count are both the fixed `k` — `One`/`Exactly` is precisely the fragment
-where `to_consume` (`precompiled_backend.rs:1169-1179`) and the matcher's
+where `to_consume` (`precompiled_backend.rs:1171-1181`) and the matcher's
 `requireds[i]` agree, and
 `sole_consumer` guarantees the single spec and `no_reset` the empty reset
 tail. -/

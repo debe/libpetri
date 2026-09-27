@@ -25,7 +25,7 @@ re-enables it and — once its window reopens (`collect_ready_general`,
 the bitmap backend never re-examines it, because in a *quiet* net (no token
 mutation: no other firing, no injection, no reset) nothing else dirties it.
 This is not compensated elsewhere: `post_fire` marks dirty in **both**
-backends (`precompiled_backend.rs:1329-1336`, `bitmap_backend.rs:881-888`)
+backends (`precompiled_backend.rs:1333-1340`, `bitmap_backend.rs:883-890`)
 and `disable` in **neither** (`:1311-1317`, `:864-870`, the EXEC-003 loser
 path of `Enablement.lean`'s `disable_frame`) — the reap is the unique
 asymmetric dirty site. The executor consumes the reaped list only to emit

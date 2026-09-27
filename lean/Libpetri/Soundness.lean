@@ -270,7 +270,7 @@ def mSimple : CMarking := fun p => if p == 0 then [7] else []
 /-- An action that writes *two* tokens to its single output place. -/
 def prodDouble : PlaceId → Nat := fun p => if p == 1 then 2 else 0
 
-/-- **Finding 2.** `validate_out_spec` (`executor_core/output.rs:41`) compares
+/-- **Finding 2.** `validate_out_spec` (`executor_core/output.rs:86`) compares
 place SETS and never token counts, so this action is accepted: the produced set
 is `{p₁}`, which is exactly what `Out::Place(p₁)` claims. (The [IO-015]
 exact-explanation rewrite tightened WHICH place sets conform — a claim must now
